@@ -1,0 +1,116 @@
+import { useEffect, useState } from "react";
+import { Download, RotateCcw } from "lucide-react";
+import type { ExportJob } from "@shared/types";
+import { formatDuration } from "@shared/format";
+import { Button } from "@/components/ui/button";
+import { DialogFooter } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
+import { brandButton } from "./export-form";
+
+export const formatElapsed = (ms: number) => formatDuration(Math.floor(ms / 1000));
+
+export function ExportProgress({
+  job,
+  startedAt,
+  onCancel,
+}: {
+  job: ExportJob;
+  startedAt: number;
+  onCancel: () => void;
+}) {
+  const now = useNow(250);
+  const percent = Math.round(Math.min(1, Math.max(0, job.progress)) * 100);
+
+  return (
+    <>
+      <div className="grid gap-2.5">
+        <div className="flex items-baseline justify-between text-sm">
+          <span className="font-medium">{job.status === "queued" ? "Preparing…" : "Rendering"}</span>
+          <span className="font-medium tabular-nums">{percent}%</span>
+        </div>
+        <Progress
+          value={percent}
+          className="h-2 bg-foreground/10 *:data-[slot=progress-indicator]:bg-brand"
+        />
+        <div className="flex justify-between gap-4 text-xs text-muted-foreground">
+          <span className="truncate">{job.fileName}</span>
+          <span className="shrink-0 tabular-nums">Elapsed {formatElapsed(now - startedAt)}</span>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel}>
+          Cancel export
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+export function ExportDone({ job, onAgain }: { job: ExportJob; onAgain: () => void }) {
+  const ratio = job.width / job.height;
+  return (
+    <>
+      {job.url && (
+        <video
+          key={job.url}
+          src={job.url}
+          controls
+          playsInline
+          className="mx-auto block rounded-lg bg-black"
+          style={{ aspectRatio: `${job.width} / ${job.height}`, width: `min(100%, ${50 * ratio}vh)` }}
+        />
+      )}
+      <DialogFooter>
+        <Button variant="outline" onClick={onAgain}>
+          <RotateCcw />
+          Export again
+        </Button>
+        {job.downloadUrl && (
+          <Button asChild className={brandButton}>
+            <a href={job.downloadUrl} download={job.fileName}>
+              <Download />
+              Download
+            </a>
+          </Button>
+        )}
+      </DialogFooter>
+    </>
+  );
+}
+
+export function ExportError({
+  message,
+  onBack,
+  onRetry,
+}: {
+  message: string;
+  onBack: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <>
+      <p className="max-h-40 overflow-auto rounded-md border border-destructive/30 bg-destructive/10 p-3 font-mono text-xs break-words whitespace-pre-wrap text-destructive">
+        {message}
+      </p>
+      <DialogFooter>
+        <Button variant="ghost" onClick={onBack}>
+          Back
+        </Button>
+        <Button className={brandButton} onClick={onRetry}>
+          <RotateCcw />
+          Try again
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+/** Current time, refreshed every `intervalMs` while mounted. */
+function useNow(intervalMs: number) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}

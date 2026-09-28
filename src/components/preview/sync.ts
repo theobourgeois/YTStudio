@@ -1,0 +1,106 @@
+/**
+ * Pure "what should every media element be doing at time t" logic for the
+ * preview. The imperative side (media elements, store subscriptions) lives in
+ * `engine.ts` / `media-slot.ts`; everything here is deterministic and tested.
+ */
+import type { Clip, Project } from "@shared/types";
+import { MAIN_TRACK_ID, clipAtTime, clipEnd, projectDuration, trackClips } from "@shared/timeline";
+
+/** Keep seeks this far before a clip's out-point so the frame shown belongs to the clip. */
+const END_GUARD = 1e-3;
+const EPS = 1e-6;
+
+/** Drift (seconds) beyond which a playing element is re-seeked instead of nudged. */
+export const SEEK_DRIFT = 0.25;
+/** Drift below which a playing element is left alone. */
+const NUDGE_DRIFT = 0.03;
+/** Maximum playback-rate deviation used to converge small drift. */
+const MAX_NUDGE = 0.08;
+
+/** Source-media time shown by `clip` at timeline time `t`, clamped into the clip. */
+export function sourceTime(clip: Clip, t: number): number {
+  const s = clip.in + (t - clip.start);
+  return Math.min(Math.max(s, clip.in), Math.max(clip.in, clip.out - END_GUARD));
+}
+
+export interface MainPlan {
+  /** The main-track clip on screen, with the source time it should show. */
+  current: { clip: Clip; time: number } | null;
+  /** The clip after `current`, to be preloaded at its in-point. */
+  next: Clip | null;
+}
+
+/**
+ * Main-track clip under the playhead and the one after it. When the playhead
+ * sits exactly at the end of the project and the main track reaches that far,
+ * the last clip's final frame is held rather than dropping to the background.
+ */
+export function planMain(project: Project, t: number): MainPlan {
+  const clips = trackClips(project, MAIN_TRACK_ID);
+  let clip = clipAtTime(project, MAIN_TRACK_ID, t);
+  if (!clip && clips.length) {
+    const last = clips[clips.length - 1];
+    const end = clipEnd(last);
+    if (Math.abs(t - end) < 1e-3 && t >= projectDuration(project) - 1e-3) clip = last;
+  }
+  if (!clip) return { current: null, next: null };
+  const index = clips.findIndex((c) => c.id === clip.id);
+  return { current: { clip, time: sourceTime(clip, t) }, next: clips[index + 1] ?? null };
+}
+
+export interface AudioPlan {
+  clip: Clip;
+  /** The playhead is inside the clip. */
+  active: boolean;
+  /** Where the element should be parked: the playhead position when active, the in-point
+   *  while the clip is still ahead, `null` once it has passed (leave it alone). */
+  time: number | null;
+}
+
+/** Every clip on an audio track, with its desired state at time `t`. */
+export function planAudio(project: Project, t: number): AudioPlan[] {
+  return project.clips
+    .filter((c) => c.trackId !== MAIN_TRACK_ID)
+    .map((clip) => {
+      const active = t >= clip.start - EPS && t < clipEnd(clip) - EPS;
+      const time = active ? sourceTime(clip, t) : t < clip.start ? clip.in : null;
+      return { clip, active, time };
+    });
+}
+
+/** Clip ids held by the two double-buffered video elements. */
+export type SlotIds = readonly [string | null, string | null];
+
+/**
+ * Decide which video element holds the current clip and which preloads the
+ * next one, moving as little as possible: a clip already loaded in an element
+ * stays there (so at a cut the preloaded element simply becomes the visible
+ * one), and an element with nothing new to do keeps its old clip in case the
+ * playhead comes back.
+ */
+export function assignSlots(slots: SlotIds, currentId: string | null, nextId: string | null): SlotIds {
+  const cur = currentId === null ? -1 : slots.indexOf(currentId);
+  const nxt = nextId === null ? -1 : slots.indexOf(nextId);
+  const out: [string | null, string | null] = [slots[0], slots[1]];
+  if (cur !== -1) {
+    if (nextId !== null) out[1 - cur] = nextId;
+  } else if (nxt !== -1) {
+    if (currentId !== null) out[1 - nxt] = currentId;
+  } else {
+    if (currentId !== null) out[0] = currentId;
+    if (nextId !== null) out[currentId === null ? 0 : 1] = nextId;
+  }
+  return out;
+}
+
+/**
+ * How a playing element should react to `drift` (element time minus expected
+ * time): re-seek when far off, otherwise steer the playback rate slightly so
+ * it converges without the stutter a seek would cause.
+ */
+export function playbackCorrection(drift: number): { seek: boolean; rate: number } {
+  if (Math.abs(drift) > SEEK_DRIFT) return { seek: true, rate: 1 };
+  if (Math.abs(drift) < NUDGE_DRIFT) return { seek: false, rate: 1 };
+  const nudge = Math.min(MAX_NUDGE, Math.abs(drift) * 0.5);
+  return { seek: false, rate: drift > 0 ? 1 - nudge : 1 + nudge };
+}
