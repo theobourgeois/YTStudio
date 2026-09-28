@@ -1,10 +1,15 @@
-import { Redo2, Undo2, type LucideIcon } from "lucide-react";
+import type { IconType } from "react-icons";
+import { PiArrowCounterClockwise, PiArrowUUpLeft, PiArrowUUpRight, PiCheckCircle } from "react-icons/pi";
+import { LogoMark } from "@/components/brand/logo-mark";
 import { ExportDialog } from "@/components/export/export-dialog";
+import { SidebarToggle } from "@/components/sidebar/sidebar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_LABELS } from "@/hooks/shortcuts";
 import { useEditor } from "@/stores/editor";
+import { useLayout } from "@/stores/layout";
+import { useProjects } from "@/stores/projects";
 import { ProjectName } from "./project-name";
 import { ThemeMenu } from "./theme-menu";
 
@@ -14,19 +19,20 @@ export function Header() {
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-card px-3">
-      <LogoMark />
+      <SidebarLead />
       <ProjectName />
+      <SettledBadge />
 
       <div className="ml-auto flex items-center gap-0.5">
         <HistoryButton
-          icon={Undo2}
+          icon={PiArrowUUpLeft}
           label="Undo"
           shortcut={SHORTCUT_LABELS.undo}
           disabled={!canUndo}
           onClick={() => useEditor.getState().undo()}
         />
         <HistoryButton
-          icon={Redo2}
+          icon={PiArrowUUpRight}
           label="Redo"
           shortcut={SHORTCUT_LABELS.redo}
           disabled={!canRedo}
@@ -34,11 +40,67 @@ export function Header() {
         />
         <Separator orientation="vertical" className="mx-1.5 data-[orientation=vertical]:h-5" />
         <ThemeMenu />
-        <div className="ml-1.5">
+        <div className="ml-1.5 flex items-center gap-2">
+          <SettleButton />
           <ExportDialog />
         </div>
       </div>
     </header>
+  );
+}
+
+/** When the sidebar is hidden, its toggle and the logo move into the header. */
+export function SidebarLead() {
+  const sidebarOpen = useLayout((s) => s.sidebarOpen);
+  if (sidebarOpen) return null;
+  return (
+    <>
+      <SidebarToggle className="-ml-1" />
+      <LogoMark />
+    </>
+  );
+}
+
+function useOpenProjectStatus() {
+  const projectId = useEditor((s) => s.projectId);
+  const status = useProjects((s) => s.projects.find((p) => p.id === projectId)?.status);
+  return { projectId, status };
+}
+
+function SettledBadge() {
+  const { status } = useOpenProjectStatus();
+  if (status !== "settled") return null;
+  return (
+    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+      Settled
+    </span>
+  );
+}
+
+/** "Settle" puts a finished video away (and opens the next one); settled videos can be unsettled. */
+function SettleButton() {
+  const { projectId, status } = useOpenProjectStatus();
+  if (!projectId || !status) return null;
+  const settled = status === "settled";
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            const projects = useProjects.getState();
+            void (settled ? projects.unsettle(projectId) : projects.settle(projectId));
+          }}
+        >
+          {settled ? <PiArrowCounterClockwise /> : <PiCheckCircle />}
+          {settled ? "Unsettle" : "Settle"}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        {settled ? "Move back to videos in progress" : "Done with this video — move it to the settled pile"}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -49,7 +111,7 @@ function HistoryButton({
   disabled,
   onClick,
 }: {
-  icon: LucideIcon;
+  icon: IconType;
   label: string;
   shortcut: string;
   disabled: boolean;
@@ -74,19 +136,5 @@ function HistoryButton({
         <kbd className="ml-2 font-sans text-background/60">{shortcut}</kbd>
       </TooltipContent>
     </Tooltip>
-  );
-}
-
-function LogoMark() {
-  return (
-    <span
-      aria-hidden
-      className="grid size-7 shrink-0 place-items-center rounded-lg bg-linear-to-br from-brand to-brand/70 text-brand-foreground shadow-sm ring-1 ring-black/10 ring-inset"
-    >
-      <svg viewBox="0 0 16 16" className="size-3.5" fill="currentColor">
-        <rect x="1.5" y="3" width="3" height="10" rx="1" opacity="0.55" />
-        <path d="M6.5 3.9v8.2a.7.7 0 0 0 1.06.6l6.3-4.1a.7.7 0 0 0 0-1.2l-6.3-4.1a.7.7 0 0 0-1.06.6Z" />
-      </svg>
-    </span>
   );
 }

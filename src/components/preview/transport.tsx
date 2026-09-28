@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ChevronFirst, ChevronLast, Pause, Play, StepBack, StepForward } from "lucide-react";
+import { PiCaretLineLeft, PiCaretLineRight, PiPauseFill, PiPlayFill, PiSkipBack, PiSkipForward } from "react-icons/pi";
 import { formatTime } from "@shared/format";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -28,10 +28,10 @@ export function Transport() {
           disabled={empty}
           onClick={() => usePlayback.getState().seek(0)}
         >
-          <ChevronFirst />
+          <PiCaretLineLeft />
         </TransportButton>
         <TransportButton label="Previous frame" shortcut="←" disabled={empty} onClick={() => stepFrames(-1)}>
-          <StepBack />
+          <PiSkipBack />
         </TransportButton>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -42,7 +42,7 @@ export function Transport() {
               aria-label={playing ? "Pause" : "Play"}
               onClick={() => usePlayback.getState().toggle()}
             >
-              {playing ? <Pause className="fill-current" /> : <Play className="translate-x-px fill-current" />}
+              {playing ? <PiPauseFill /> : <PiPlayFill />}
             </Button>
           </TooltipTrigger>
           <TooltipContent>
@@ -50,7 +50,7 @@ export function Transport() {
           </TooltipContent>
         </Tooltip>
         <TransportButton label="Next frame" shortcut="→" disabled={empty} onClick={() => stepFrames(1)}>
-          <StepForward />
+          <PiSkipForward />
         </TransportButton>
         <TransportButton
           label="Go to end"
@@ -62,7 +62,7 @@ export function Transport() {
             playback.seek(playback.duration);
           }}
         >
-          <ChevronLast />
+          <PiCaretLineRight />
         </TransportButton>
       </div>
     </div>

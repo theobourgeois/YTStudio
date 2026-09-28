@@ -29,13 +29,21 @@ export class DataPaths {
   get tmp() {
     return path.join(this.root, "tmp");
   }
-  get project() {
+  get projects() {
+    return path.join(this.root, "projects");
+  }
+  /** The single project saved before multi-project support (migrated on startup). */
+  get legacyProject() {
     return path.join(this.root, "project.json");
   }
 
   mediaDir(id: string) {
     if (!isValidId(id)) throw new HttpError(400, "Invalid media id");
     return path.join(this.media, id);
+  }
+  projectDir(id: string) {
+    if (!isValidId(id)) throw new HttpError(400, "Invalid project id");
+    return path.join(this.projects, id);
   }
   exportFile(id: string) {
     if (!isValidId(id)) throw new HttpError(400, "Invalid export id");
@@ -46,7 +54,7 @@ export class DataPaths {
   }
 
   async init() {
-    await Promise.all([this.media, this.exports].map((d) => fs.mkdir(d, { recursive: true })));
+    await Promise.all([this.media, this.projects, this.exports].map((d) => fs.mkdir(d, { recursive: true })));
     // Anything left in tmp belongs to an upload or render that died with the server.
     await fs.rm(this.tmp, { recursive: true, force: true });
     await fs.mkdir(this.tmp, { recursive: true });

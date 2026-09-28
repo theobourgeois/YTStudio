@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { Loader2, TriangleAlert } from "lucide-react";
+import { PiSpinnerGap, PiWarning } from "react-icons/pi";
 import type { ExportResolution } from "@shared/types";
 import { formatDuration } from "@shared/format";
 import { outputSize, projectDuration } from "@shared/timeline";
@@ -121,7 +121,7 @@ export function ExportForm({
           </Button>
         </DialogClose>
         <Button type="submit" className={brandButton} disabled={blocked || starting}>
-          {starting && <Loader2 className="animate-spin" />}
+          {starting && <PiSpinnerGap className="animate-spin" />}
           Export
         </Button>
       </DialogFooter>
@@ -141,7 +141,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 function Notice({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex gap-2.5 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200">
-      <TriangleAlert className="mt-px size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+      <PiWarning className="mt-px size-4 shrink-0 text-amber-600 dark:text-amber-400" />
       <div className="grid gap-1">
         <p className="font-medium">{title}</p>
         <p className="leading-relaxed opacity-90">{children}</p>

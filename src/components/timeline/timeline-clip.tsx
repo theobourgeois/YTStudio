@@ -1,5 +1,5 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
-import { TriangleAlert } from "lucide-react";
+import { PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
 import { clipDuration } from "@shared/timeline";
 import { cn } from "@/lib/utils";
@@ -144,7 +144,7 @@ function ClipLabel({ offline, asset }: { offline: boolean; asset: MediaAsset | u
         offline ? "text-muted-foreground" : "bg-black/45 text-white",
       )}
     >
-      {offline && <TriangleAlert className="size-3 shrink-0" />}
+      {offline && <PiWarning className="size-3 shrink-0" />}
       <span className="truncate">
         {offline ? "Media offline" : asset!.name}
       </span>

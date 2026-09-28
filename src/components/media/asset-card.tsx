@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type DragEvent } from "react";
-import { AlertTriangle, Film, Loader2, MoreHorizontal, Music2, Plus, Trash2 } from "lucide-react";
+import { PiDotsThree, PiFilmStrip, PiMusicNote, PiPlus, PiSpinnerGap, PiTrash, PiWarning } from "react-icons/pi";
 import type { MediaAsset } from "@shared/types";
 import { formatDuration } from "@shared/format";
 import {
@@ -72,7 +72,7 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
             className="absolute bottom-1 left-1 grid size-5 place-items-center rounded bg-black/65 text-amber-400"
             title={asset.error ?? "Couldn't generate previews"}
           >
-            <AlertTriangle className="size-3" />
+            <PiWarning className="size-3" />
           </span>
         )}
 
@@ -81,7 +81,7 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
             className="absolute bottom-1 left-1 grid size-5 place-items-center rounded bg-black/65 text-white"
             title="Generating previews…"
           >
-            <Loader2 className="size-3 animate-spin" />
+            <PiSpinnerGap className="size-3 animate-spin" />
           </span>
         )}
 
@@ -107,7 +107,7 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <button type="button" className={overlayButton} onClick={onAdd}>
-                <Plus className="size-3.5" />
+                <PiPlus className="size-3.5" />
                 <span className="sr-only">Add to timeline</span>
               </button>
             </TooltipTrigger>
@@ -117,18 +117,18 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <button type="button" className={overlayButton}>
-              <MoreHorizontal className="size-3.5" />
+              <PiDotsThree className="size-3.5" />
               <span className="sr-only">More actions</span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuItem disabled={!usable} onSelect={onAdd}>
-              <Plus />
+              <PiPlus />
               Add to timeline
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onSelect={onDelete}>
-              <Trash2 />
+              <PiTrash />
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -159,7 +159,7 @@ function Thumbnail({ asset }: { asset: MediaAsset }) {
   if (asset.hasVideo) {
     return (
       <div className="grid size-full place-items-center text-muted-foreground">
-        <Film className="size-5" />
+        <PiFilmStrip className="size-5" />
       </div>
     );
   }
@@ -180,7 +180,7 @@ function AudioTile({ seed }: { seed: string }) {
         ))}
       </div>
       <span className="absolute top-1.5 right-1.5 grid size-5 place-items-center rounded-full bg-clip-audio text-white shadow-sm group-hover:opacity-0">
-        <Music2 className="size-3" />
+        <PiMusicNote className="size-3" />
       </span>
     </div>
   );

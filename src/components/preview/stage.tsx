@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Clapperboard, CloudOff } from "lucide-react";
+import { PiCloudSlash, PiFilmSlate } from "react-icons/pi";
 import { MAIN_TRACK_ID } from "@shared/timeline";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
@@ -65,7 +65,7 @@ export function Stage() {
                 light ? "bg-black/5" : "bg-white/8",
               )}
             >
-              <Clapperboard className="size-5" />
+              <PiFilmSlate className="size-5" />
             </div>
             <p className="max-w-52 text-xs leading-relaxed text-balance">
               Drag clips from the media panel onto the timeline
@@ -75,7 +75,7 @@ export function Stage() {
 
         {offline && !isEmpty && (
           <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm">
-            <CloudOff className="size-3.5" />
+            <PiCloudSlash className="size-3.5" />
             Media offline
           </div>
         )}

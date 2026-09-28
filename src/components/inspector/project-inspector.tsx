@@ -1,4 +1,4 @@
-import { SlidersHorizontal } from "lucide-react";
+import { PiSlidersHorizontal } from "react-icons/pi";
 import type { AspectRatio } from "@shared/types";
 import { formatTime } from "@shared/format";
 import { projectDuration } from "@shared/timeline";
@@ -27,7 +27,7 @@ export function ProjectInspector() {
       <PanelHeader
         icon={
           <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-            <SlidersHorizontal className="size-4" />
+            <PiSlidersHorizontal className="size-4" />
           </div>
         }
         title={name}

@@ -16,6 +16,11 @@ Then drag files from `./samples` (or anywhere) into the media panel or straight 
 
 ## Using it
 
+Every video is its own project with its own media. Start one with **New video** (or drop clips on the empty screen),
+work on it, then hit **Settle** when it's done: it moves to the *Settled* pile at the bottom of the sidebar and the
+editor jumps to your next video in progress. Open a settled video any time, and **Unsettle** it to put it back in
+progress. Toggle the sidebar with `⌘\`.
+
 | Action | How |
 | --- | --- |
 | Import | **Import** button, or drop files on the media panel / timeline |
@@ -38,13 +43,13 @@ settings (aspect ratio, frame rate, background).
   media library, selection, undo history, autosave) and `stores/playback.ts` (the playback clock).
 - **`shared/`** — domain types and the pure timeline logic (`timeline.ts`) used by both sides. Every edit is a pure
   `Project -> Project` function, which is what makes undo/redo and testing simple.
-- **`server/`** — a small Express server that stores media in `./data`, probes it and generates thumbnails/waveforms
-  with ffmpeg, persists the project, and renders exports with a single ffmpeg filter graph.
+- **`server/`** — a small Express server that stores projects and their media in `./data`, probes media and generates
+  thumbnails/waveforms with ffmpeg, and renders exports with a single ffmpeg filter graph.
 
 The browser preview plays the original files with `<video>`/`<audio>` elements synced to the playback clock; the export
 applies exactly the same rules (trim points, fit/fill, volume, mute) in ffmpeg.
 
-Media, the project and exports are stored in `./data` (override with `EDITOR_DATA_DIR`). Ports: `EDITOR_WEB_PORT`
+Projects, media and exports are stored in `./data` (override with `EDITOR_DATA_DIR`). Ports: `EDITOR_WEB_PORT`
 (5310) and `EDITOR_SERVER_PORT` (5311).
 
 Import accepts what the browser preview can play: MP4/MOV/WebM/MKV with H.264, HEVC, VP8/9 or AV1 video, and

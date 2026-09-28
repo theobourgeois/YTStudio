@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, RotateCcw } from "lucide-react";
+import { PiArrowCounterClockwise, PiDownloadSimple } from "react-icons/pi";
 import type { ExportJob } from "@shared/types";
 import { formatDuration } from "@shared/format";
 import { Button } from "@/components/ui/button";
@@ -62,13 +62,13 @@ export function ExportDone({ job, onAgain }: { job: ExportJob; onAgain: () => vo
       )}
       <DialogFooter>
         <Button variant="outline" onClick={onAgain}>
-          <RotateCcw />
+          <PiArrowCounterClockwise />
           Export again
         </Button>
         {job.downloadUrl && (
           <Button asChild className={brandButton}>
             <a href={job.downloadUrl} download={job.fileName}>
-              <Download />
+              <PiDownloadSimple />
               Download
             </a>
           </Button>
@@ -97,7 +97,7 @@ export function ExportError({
           Back
         </Button>
         <Button className={brandButton} onClick={onRetry}>
-          <RotateCcw />
+          <PiArrowCounterClockwise />
           Try again
         </Button>
       </DialogFooter>

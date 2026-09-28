@@ -5,8 +5,8 @@ import { useEditor } from "@/stores/editor";
 export const ACCEPTED_FILE_TYPES =
   "video/*,audio/*,.mkv,.mov,.m4a,.mp3,.wav,.flac,.ogg,.opus";
 
-/** Import OS files into the media library, skipping (and reporting) non-media files. */
-export function importMedia(files: File[]) {
+/** Keep only audio/video files, telling the user about anything skipped. */
+export function acceptMediaFiles(files: File[]): File[] {
   const accepted = mediaFiles(files);
   const skipped = files.filter((f) => !accepted.includes(f));
   if (skipped.length > 0) {
@@ -17,5 +17,11 @@ export function importMedia(files: File[]) {
       { description: "Only video and audio files can be imported." },
     );
   }
+  return accepted;
+}
+
+/** Import OS files into the open project's media, skipping (and reporting) non-media files. */
+export function importMedia(files: File[]) {
+  const accepted = acceptMediaFiles(files);
   if (accepted.length > 0) void useEditor.getState().importFiles(accepted);
 }

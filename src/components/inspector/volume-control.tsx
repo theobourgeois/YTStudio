@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Volume1, Volume2, VolumeX } from "lucide-react";
+import { PiSpeakerHigh, PiSpeakerLow, PiSpeakerSlash } from "react-icons/pi";
 import type { Project } from "@shared/types";
 import { getClip, updateClip } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
@@ -43,7 +43,7 @@ export function VolumeControl({ clipId, volume }: { clipId: string; volume: numb
     }
   };
 
-  const Icon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
+  const Icon = volume === 0 ? PiSpeakerSlash : volume < 0.5 ? PiSpeakerLow : PiSpeakerHigh;
   return (
     <div className="flex items-center gap-2">
       <Tooltip>

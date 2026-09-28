@@ -24,6 +24,8 @@ export interface Filmstrip {
 
 export interface MediaAsset {
   id: string;
+  /** The project (video) this asset was imported into. Each project has its own media. */
+  projectId: string;
   /** Original file name, e.g. "clip.mp4". */
   name: string;
   kind: AssetKind;
@@ -109,6 +111,41 @@ export interface Project {
 }
 
 // ---------------------------------------------------------------------------
+// Project list (the "workspace"): each video is a project that is either
+// being worked on (`active`) or finished and put away (`settled`).
+// ---------------------------------------------------------------------------
+
+export type ProjectStatus = "active" | "settled";
+
+export interface ProjectSummary {
+  id: string;
+  /** Mirrors `Project.name`. */
+  name: string;
+  status: ProjectStatus;
+  /** Epoch milliseconds. */
+  createdAt: number;
+  /** Last time the project document was saved (epoch ms). */
+  updatedAt: number;
+  /** When it was last settled (epoch ms), null while active. */
+  settledAt: number | null;
+  aspectRatio: AspectRatio;
+  /** Timeline length in seconds. */
+  duration: number;
+  clipCount: number;
+  /** Poster URL of the first clip on the main track, if any. */
+  thumbnail: string | null;
+}
+
+export interface CreateProjectRequest {
+  name?: string;
+}
+
+export interface UpdateProjectRequest {
+  name?: string;
+  status?: ProjectStatus;
+}
+
+// ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
 
@@ -144,13 +181,20 @@ export interface ExportJob {
 // HTTP API (all JSON unless noted; errors are `ApiError` with a 4xx/5xx status)
 //
 //   GET    /api/health                  -> HealthResponse
-//   GET    /api/media                   -> MediaAsset[]   (newest first)
-//   POST   /api/media?name=<file name>  body: raw file bytes -> MediaAsset (201)
-//                                        415 if the file has no audio/video stream
+//
+//   GET    /api/projects                -> ProjectSummary[] (most recently updated first)
+//   POST   /api/projects  body: CreateProjectRequest -> ProjectSummary (201), status active
+//   GET    /api/projects/:id            -> Project (normalized against its media)
+//   PUT    /api/projects/:id  body: Project -> ProjectSummary (bumps updatedAt)
+//   PATCH  /api/projects/:id  body: UpdateProjectRequest -> ProjectSummary
+//                                        (rename; settle/unsettle sets/clears settledAt)
+//   DELETE /api/projects/:id            -> 204 (also deletes the project's media)
+//
+//   GET    /api/media?projectId=<id>    -> MediaAsset[]   (that project's media, newest first)
+//   POST   /api/media?projectId=<id>&name=<file name>  body: raw file bytes -> MediaAsset (201)
+//                                        415 if the file has no audio/video stream, 404 unknown project
 //   GET    /api/media/:id               -> MediaAsset
 //   DELETE /api/media/:id               -> 204
-//   GET    /api/project                 -> Project (a default project if none saved)
-//   PUT    /api/project   body: Project -> 204
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/:id             -> ExportJob
 //   DELETE /api/exports/:id             -> 204 (cancels if running)

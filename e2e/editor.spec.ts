@@ -23,8 +23,17 @@ async function timelineClips(page: Page) {
   );
 }
 
+/** The open project's document as saved on the server (the id comes from the `/p/<id>` URL). */
 async function savedProject(page: Page) {
-  return page.evaluate(() => fetch("/api/project").then((r) => r.json()));
+  await expect(page).toHaveURL(/\/p\/[\w-]+$/);
+  return page.evaluate(() => {
+    const id = location.pathname.split("/").pop();
+    return fetch(`/api/projects/${id}`).then((r) => r.json());
+  });
+}
+
+async function projectList(page: Page) {
+  return page.evaluate(() => fetch("/api/projects").then((r) => r.json()));
 }
 
 /** HTML5-drag a media card onto a point on the page. */
@@ -44,7 +53,16 @@ async function laneY(page: Page, name: "Video" | "Audio 1") {
   return box.y + box.height / 2;
 }
 
-test("imports media into the library", async ({ page }) => {
+test("starts a new video from the empty state", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Start a new video" })).toBeVisible();
+  await page.getByRole("button", { name: "New video" }).last().click();
+  await expect(page).toHaveURL(/\/p\/[\w-]+$/);
+  await expect(page.locator("header").getByRole("button", { name: "Settle", exact: true })).toBeVisible();
+  expect(await projectList(page)).toHaveLength(1);
+});
+
+test("imports media into the library and names the video after the first clip", async ({ page }) => {
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles(FILES);
   for (const f of FILES) {
@@ -57,6 +75,7 @@ test("imports media into the library", async ({ page }) => {
     buffer: Buffer.from("hello"),
   });
   await expect(page.locator("[draggable=true]")).toHaveCount(FILES.length);
+  await expect.poll(async () => (await projectList(page))[0].name).toMatch(/^(vertical|landscape|square|music)/);
 });
 
 test("drags clips onto the timeline; video goes to the main track, music to audio", async ({ page }) => {
@@ -202,4 +221,39 @@ test("exports an MP4", async ({ page }) => {
   const res = await page.request.get(src!);
   expect(res.status()).toBe(200);
   expect(res.headers()["content-type"]).toContain("video/mp4");
+});
+
+test("settles a video, starts the next one, and unsettles it again", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/p\/[\w-]+$/);
+  const firstUrl = page.url();
+  const [first] = await projectList(page);
+
+  // Start a second video from the sidebar; it opens empty.
+  await page.getByRole("button", { name: "New video" }).first().click();
+  await expect.poll(() => page.url()).not.toBe(firstUrl);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(0);
+  const secondUrl = page.url();
+
+  // Settle it: it moves to the settled pile and the editor switches back to the first video.
+  await page.locator("header").getByRole("button", { name: "Settle", exact: true }).click();
+  await expect(page).toHaveURL(firstUrl);
+  await expect(page.getByRole("button", { name: /Settled/ })).toBeVisible();
+  await expect
+    .poll(async () => (await projectList(page)).map((p: { status: string }) => p.status).sort())
+    .toEqual(["active", "settled"]);
+
+  // Open it from the settled pile and unsettle it.
+  await page.getByRole("button", { name: /Settled/ }).click();
+  await page.getByRole("navigation", { name: "Settled" }).getByRole("button").first().click();
+  await expect(page).toHaveURL(secondUrl);
+  await page.locator("header").getByRole("button", { name: "Unsettle", exact: true }).click();
+  await expect
+    .poll(async () => (await projectList(page)).every((p: { status: string }) => p.status === "active"))
+    .toBe(true);
+
+  // The first video kept its timeline through all the switching.
+  await page.goto(firstUrl);
+  await expect.poll(async () => (await timelineClips(page)).length).toBeGreaterThan(0);
+  expect((await savedProject(page)).name).toBe(first.name);
 });

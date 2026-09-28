@@ -21,7 +21,7 @@ import {
   trackClips,
   trimClip,
 } from "./timeline.ts";
-import { formatDuration, formatTime } from "./format.ts";
+import { formatDuration, formatRelative, formatTime } from "./format.ts";
 
 const AUDIO = "audio_1";
 
@@ -245,6 +245,12 @@ describe("format", () => {
     expect(formatTime(0)).toBe("0:00.00");
     expect(formatDuration(3725)).toBe("1:02:05");
     expect(formatDuration(59.6)).toBe("1:00");
+    const now = new Date(2026, 8, 28, 12).getTime();
+    expect(formatRelative(now - 10_000, now)).toBe("now");
+    expect(formatRelative(now - 4 * 60_000, now)).toBe("4m");
+    expect(formatRelative(now - 3 * 3600_000, now)).toBe("3h");
+    expect(formatRelative(now - 2 * 86400_000, now)).toBe("2d");
+    expect(formatRelative(now - 30 * 86400_000, now)).toMatch(/Aug/);
   });
 });
 

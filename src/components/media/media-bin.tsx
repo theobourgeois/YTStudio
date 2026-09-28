@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { FileUp, Import } from "lucide-react";
+import { PiFileArrowUp, PiTrayArrowDown } from "react-icons/pi";
 import type { MediaAsset } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -53,7 +53,7 @@ export function MediaBin() {
           <span className="text-xs text-muted-foreground tabular-nums">{assets.length}</span>
         )}
         <Button variant="secondary" size="xs" className="ml-auto h-7 px-2.5" onClick={openPicker}>
-          <Import />
+          <PiTrayArrowDown />
           Import
         </Button>
         <input
@@ -123,7 +123,7 @@ export function MediaBin() {
 
       {drop.active && (
         <div className="pointer-events-none absolute inset-1.5 z-10 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-brand bg-brand/10 text-brand backdrop-blur-[2px]">
-          <FileUp className="size-6" />
+          <PiFileArrowUp className="size-6" />
           <span className="text-sm font-medium">Drop to import</span>
         </div>
       )}
@@ -154,7 +154,7 @@ function EmptyState({ onClick }: { onClick: () => void }) {
         )}
       >
         <span className="grid size-11 place-items-center rounded-full bg-muted text-foreground/80">
-          <FileUp className="size-5" />
+          <PiFileArrowUp className="size-5" />
         </span>
         <span className="space-y-1">
           <span className="block text-sm font-medium text-foreground">Drop videos or music here</span>

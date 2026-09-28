@@ -1,9 +1,12 @@
 import type {
+  CreateProjectRequest,
   ExportJob,
   ExportRequest,
   HealthResponse,
   MediaAsset,
   Project,
+  ProjectSummary,
+  UpdateProjectRequest,
 } from "@shared/types";
 
 export class ApiRequestError extends Error {
@@ -38,19 +41,39 @@ async function errorMessage(res: Response): Promise<string> {
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
 
-  listMedia: () => request<MediaAsset[]>("/api/media"),
+  listProjects: () => request<ProjectSummary[]>("/api/projects"),
+  createProject: (body: CreateProjectRequest = {}) =>
+    request<ProjectSummary>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
+  getProject: (id: string) => request<Project>(`/api/projects/${id}`),
+  /** Save the project document. Returns the refreshed summary (void for keepalive saves on unload). */
+  saveProject: (id: string, project: Project, keepalive = false) =>
+    request<ProjectSummary>(`/api/projects/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(project),
+      keepalive,
+    }),
+  updateProject: (id: string, body: UpdateProjectRequest) =>
+    request<ProjectSummary>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteProject: (id: string) => request<void>(`/api/projects/${id}`, { method: "DELETE" }),
+
+  listMedia: (projectId: string) =>
+    request<MediaAsset[]>(`/api/media?projectId=${encodeURIComponent(projectId)}`),
   getMedia: (id: string) => request<MediaAsset>(`/api/media/${id}`),
   deleteMedia: (id: string) => request<void>(`/api/media/${id}`, { method: "DELETE" }),
 
   /** Upload a file with progress (0..1). Resolves with the probed asset. */
   uploadMedia(
+    projectId: string,
     file: File,
     onProgress?: (fraction: number) => void,
     signal?: AbortSignal,
   ): Promise<MediaAsset> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `/api/media?name=${encodeURIComponent(file.name)}`);
+      xhr.open(
+        "POST",
+        `/api/media?projectId=${encodeURIComponent(projectId)}&name=${encodeURIComponent(file.name)}`,
+      );
       xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) onProgress?.(e.loaded / e.total);
@@ -77,14 +100,6 @@ export const api = {
       xhr.send(file);
     });
   },
-
-  getProject: () => request<Project>("/api/project"),
-  saveProject: (project: Project, keepalive = false) =>
-    request<void>("/api/project", {
-      method: "PUT",
-      body: JSON.stringify(project),
-      keepalive,
-    }),
 
   startExport: (req: ExportRequest) =>
     request<ExportJob>("/api/exports", { method: "POST", body: JSON.stringify(req) }),

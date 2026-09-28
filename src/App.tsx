@@ -1,22 +1,19 @@
 import { useEffect } from "react";
-import { Loader2 } from "lucide-react";
-import { Header } from "@/components/header/header";
-import { Inspector } from "@/components/inspector/inspector";
-import { MediaBin } from "@/components/media/media-bin";
-import { Preview } from "@/components/preview/preview";
-import { Timeline } from "@/components/timeline/timeline";
+import { PiSpinnerGap } from "react-icons/pi";
+import { Sidebar } from "@/components/sidebar/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Workspace } from "@/components/workspace/workspace";
 import { usePreventFileNavigation } from "@/hooks/use-prevent-file-navigation";
 import { useShortcuts } from "@/hooks/use-shortcuts";
-import { useEditor } from "@/stores/editor";
+import { useProjects } from "@/stores/projects";
 
 export default function App() {
-  const loaded = useEditor((s) => s.loaded);
-  const loadError = useEditor((s) => s.loadError);
+  const loaded = useProjects((s) => s.loaded);
+  const loadError = useProjects((s) => s.loadError);
 
   useEffect(() => {
-    void useEditor.getState().init();
+    void useProjects.getState().init();
   }, []);
   useShortcuts();
   usePreventFileNavigation();
@@ -24,21 +21,18 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={400}>
       {loaded ? (
-        <div className="flex h-full flex-col">
-          <Header />
-          <div className="flex min-h-0 flex-1">
-            <MediaBin />
-            <Preview />
-            <Inspector />
-          </div>
-          <Timeline />
+        <div className="flex h-full">
+          <Sidebar />
+          <main className="flex min-w-0 flex-1 flex-col">
+            <Workspace />
+          </main>
         </div>
       ) : (
         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
           {loadError ? (
             <p>Couldn't reach the editor server: {loadError}. Is `pnpm dev` running?</p>
           ) : (
-            <Loader2 className="size-5 animate-spin" />
+            <PiSpinnerGap className="size-5 animate-spin" />
           )}
         </div>
       )}

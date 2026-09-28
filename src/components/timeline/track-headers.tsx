@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from "react";
-import { Film, Music, Volume2, VolumeX, X } from "lucide-react";
+import { PiFilmStrip, PiMusicNotes, PiSpeakerHigh, PiSpeakerSlash, PiX } from "react-icons/pi";
 import type { Track } from "@shared/types";
 import { MAIN_TRACK_ID, removeTrack, setTrackMuted } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ export function TrackHeaders({ tracks, lanes }: { tracks: Track[]; lanes: LaneLa
 
 const TrackHeader = memo(function TrackHeader({ track, height }: { track: Track; height: number }) {
   const isMain = track.id === MAIN_TRACK_ID;
-  const Icon = track.kind === "video" ? Film : Music;
+  const Icon = track.kind === "video" ? PiFilmStrip : PiMusicNotes;
   const toggleMute = () =>
     useEditor.getState().commit((p) => setTrackMuted(p, track.id, !track.muted));
   const remove = () => useEditor.getState().commit((p) => removeTrack(p, track.id));
@@ -50,7 +50,7 @@ const TrackHeader = memo(function TrackHeader({ track, height }: { track: Track;
             onClick={remove}
             className="opacity-0 group-hover/track:opacity-100 focus-visible:opacity-100"
           >
-            <X />
+            <PiX />
           </HeaderButton>
         )}
         <HeaderButton
@@ -59,7 +59,7 @@ const TrackHeader = memo(function TrackHeader({ track, height }: { track: Track;
           pressed={track.muted}
           className={cn(track.muted && "text-destructive hover:text-destructive")}
         >
-          {track.muted ? <VolumeX /> : <Volume2 />}
+          {track.muted ? <PiSpeakerSlash /> : <PiSpeakerHigh />}
         </HeaderButton>
       </div>
     </div>

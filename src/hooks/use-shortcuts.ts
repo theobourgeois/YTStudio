@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useEditor } from "@/stores/editor";
+import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
 import { resolveShortcut, type ShortcutAction } from "./shortcuts";
 
@@ -39,6 +40,9 @@ function run(action: ShortcutAction): boolean {
   };
 
   switch (action) {
+    case "toggleSidebar":
+      useLayout.getState().toggleSidebar();
+      return true;
     case "togglePlay":
       playback.toggle();
       return true;

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Download } from "lucide-react";
+import { PiDownloadSimple } from "react-icons/pi";
 import type { ExportResolution } from "@shared/types";
 import { formatDuration } from "@shared/format";
 import { Button } from "@/components/ui/button";
@@ -42,7 +42,7 @@ export function ExportDialog() {
   const trigger = (
     <DialogTrigger asChild>
       <Button size="sm" className={`h-8 px-3.5 ${brandButton}`} disabled={empty}>
-        <Download />
+        <PiDownloadSimple />
         Export
       </Button>
     </DialogTrigger>

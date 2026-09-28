@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Pipette } from "lucide-react";
+import { PiEyedropper } from "react-icons/pi";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
 
@@ -75,7 +75,7 @@ export function BackgroundPicker() {
             : background,
         }}
       >
-        {isPreset && <Pipette className="size-3.5 text-white drop-shadow" />}
+        {isPreset && <PiEyedropper className="size-3.5 text-white drop-shadow" />}
         <input
           ref={inputRef}
           type="color"

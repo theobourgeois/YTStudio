@@ -1,4 +1,5 @@
-import { Monitor, Moon, Sun } from "lucide-react";
+import type { IconType } from "react-icons";
+import { PiDesktop, PiMoon, PiSun } from "react-icons/pi";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,16 +11,16 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTheme, type Theme } from "@/stores/theme";
 
-const THEMES: { value: Theme; label: string; icon: typeof Sun }[] = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
+const THEMES: { value: Theme; label: string; icon: IconType }[] = [
+  { value: "light", label: "Light", icon: PiSun },
+  { value: "dark", label: "Dark", icon: PiMoon },
+  { value: "system", label: "System", icon: PiDesktop },
 ];
 
 export function ThemeMenu() {
   const theme = useTheme((s) => s.theme);
   const setTheme = useTheme((s) => s.setTheme);
-  const Icon = THEMES.find((t) => t.value === theme)?.icon ?? Moon;
+  const Icon = THEMES.find((t) => t.value === theme)?.icon ?? PiMoon;
 
   return (
     <DropdownMenu>

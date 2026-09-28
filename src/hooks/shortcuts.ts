@@ -17,7 +17,8 @@ export type ShortcutAction =
   | "seekEnd"
   | "zoomIn"
   | "zoomOut"
-  | "deselect";
+  | "deselect"
+  | "toggleSidebar";
 
 export type KeyLike = Pick<
   KeyboardEvent,
@@ -50,6 +51,7 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
   if (e.shiftKey) return null;
   if (key === "y") return "redo";
   if (key === "b") return "split";
+  if (key === "\\") return "toggleSidebar";
   return null;
 }
 
@@ -97,3 +99,5 @@ export const SHORTCUT_LABELS = {
   undo: IS_MAC ? "⌘Z" : "Ctrl+Z",
   redo: IS_MAC ? "⇧⌘Z" : "Ctrl+Y",
 };
+
+export const SIDEBAR_SHORTCUT_LABEL = IS_MAC ? "⌘\\" : "Ctrl+\\";

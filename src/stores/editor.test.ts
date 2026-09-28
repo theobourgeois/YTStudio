@@ -16,7 +16,7 @@ const { useEditor } = await import("./editor");
 
 function asset(id: string, duration: number, kind: "video" | "audio" = "video"): MediaAsset {
   return {
-    id, name: `${id}.mp4`, kind, duration, width: 1080, height: 1920, fps: 30,
+    id, projectId: "p1", name: `${id}.mp4`, kind, duration, width: 1080, height: 1920, fps: 30,
     hasVideo: kind === "video", hasAudio: true, size: 1, createdAt: 0, status: "ready",
     src: `/files/media/${id}/source.mp4`, poster: null, filmstrip: null, waveform: null,
   };
@@ -27,6 +27,7 @@ const mainIds = () => trackClips(store().project, MAIN_TRACK_ID).map((c) => c.as
 
 beforeEach(() => {
   useEditor.setState({
+    projectId: "p1",
     project: createDefaultProject(),
     assets: [asset("a", 2), asset("b", 3), asset("c", 1), asset("song", 20, "audio")],
     past: [],

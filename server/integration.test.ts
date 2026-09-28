@@ -6,7 +6,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDefaultProject } from "../shared/timeline.ts";
-import type { Clip, ExportJob, MediaAsset, Project, WaveformData } from "../shared/types.ts";
+import type {
+  Clip,
+  ExportJob,
+  MediaAsset,
+  Project,
+  ProjectSummary,
+  WaveformData,
+} from "../shared/types.ts";
 import { createApp, type EditorApp } from "./app.ts";
 import { FFMPEG, FFPROBE } from "./config.ts";
 
@@ -46,11 +53,14 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
   let base: string;
   const fixtures: Record<string, string> = {};
   const assets: Record<string, MediaAsset> = {};
+  /** `main` holds the fixtures used by most tests; `other` checks scoping and deletion. */
+  const projects: Record<"main" | "other", ProjectSummary> = {} as never;
 
   const api = (p: string, init?: RequestInit) => fetch(base + p, init);
   const json = <T>(p: string, init?: RequestInit) => api(p, init).then((r) => r.json() as Promise<T>);
-  const upload = (file: string, name = path.basename(file)) =>
-    api(`/api/media?name=${encodeURIComponent(name)}`, {
+  const errorOf = async (res: Response) => ((await res.json()) as { error: string }).error;
+  const upload = (file: string, projectId = projects.main.id, name = path.basename(file)) =>
+    api(`/api/media?projectId=${projectId}&name=${encodeURIComponent(name)}`, {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream" },
       body: readFileSync(file),
@@ -108,6 +118,48 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(health.ffmpeg.version).toMatch(/\d/);
   });
 
+  it("starts without projects and without the legacy endpoint", async () => {
+    expect(await json<ProjectSummary[]>("/api/projects")).toEqual([]);
+    expect((await api("/api/project")).status).toBe(404);
+  });
+
+  it("creates projects", async () => {
+    const res = await sendJson("POST", "/api/projects", {});
+    expect(res.status).toBe(201);
+    projects.main = (await res.json()) as ProjectSummary;
+    expect(projects.main).toMatchObject({
+      name: "Untitled", status: "active", settledAt: null,
+      aspectRatio: "9:16", duration: 0, clipCount: 0, thumbnail: null,
+    });
+    expect(projects.main.id).toMatch(/^project_[0-9a-f]{12}$/);
+    expect(projects.main.updatedAt).toBe(projects.main.createdAt);
+
+    projects.other = (await (await sendJson("POST", "/api/projects", { name: "  B-roll\n " })).json()) as ProjectSummary;
+    expect(projects.other.name).toBe("B-roll");
+    expect((await api("/api/projects", { method: "POST" })).status).toBe(201); // body is optional
+
+    const doc = await json<Project>(`/api/projects/${projects.other.id}`);
+    expect(doc).toEqual({ ...createDefaultProject(), name: "B-roll" });
+
+    for (const body of [{ name: 5 }, { name: "   " }, [1]]) {
+      expect((await sendJson("POST", "/api/projects", body)).status).toBe(400);
+    }
+    const list = await json<ProjectSummary[]>("/api/projects");
+    expect(list).toHaveLength(3);
+    expect(list[1].id).toBe(projects.other.id); // newest first
+    await api(`/api/projects/${list[0].id}`, { method: "DELETE" });
+  });
+
+  it("returns 404 for unknown projects", async () => {
+    for (const id of ["project_000000000000", "..%2Fmedia"]) {
+      for (const [method, body] of [["GET"], ["PUT", createDefaultProject()], ["PATCH", { name: "x" }], ["DELETE"]] as const) {
+        const res = body ? await sendJson(method, `/api/projects/${id}`, body) : await api(`/api/projects/${id}`, { method });
+        expect(res.status, `${method} ${id}`).toBe(404);
+        expect(await errorOf(res)).toBe("Project not found");
+      }
+    }
+  });
+
   it("ingests video and audio and probes them", async () => {
     for (const [key, file] of [["landscape", "landscape.mp4"], ["portrait", "portrait.mov"], ["tone", "tone.m4a"]]) {
       const res = await upload(fixtures[file]);
@@ -117,6 +169,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     const { landscape, portrait, tone } = assets;
 
     expect(landscape).toMatchObject({
+      projectId: projects.main.id,
       name: "landscape.mp4", kind: "video", width: 320, height: 180, fps: 30,
       hasVideo: true, hasAudio: true, status: "processing", filmstrip: null, waveform: null,
     });
@@ -131,8 +184,33 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(tone).toMatchObject({ kind: "audio", width: null, height: null, fps: null, hasVideo: false, hasAudio: true, poster: null });
     expect(tone.duration).toBeCloseTo(3, 1);
 
-    const list = await json<MediaAsset[]>("/api/media");
+    const list = await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`);
     expect(list.map((a) => a.id)).toEqual([tone.id, portrait.id, landscape.id]);
+  });
+
+  it("scopes media to its project", async () => {
+    const res = await upload(fixtures["tone.m4a"], projects.other.id, "other.m4a");
+    expect(res.status).toBe(201);
+    assets.other = (await res.json()) as MediaAsset;
+    expect(assets.other.projectId).toBe(projects.other.id);
+
+    const ids = async (projectId: string) =>
+      (await json<MediaAsset[]>(`/api/media?projectId=${projectId}`)).map((a) => a.id);
+    expect(await ids(projects.other.id)).toEqual([assets.other.id]);
+    expect(await ids(projects.main.id)).not.toContain(assets.other.id);
+
+    expect((await api("/api/media")).status).toBe(400);
+    expect((await api("/api/media?projectId=project_000000000000")).status).toBe(404);
+  });
+
+  it("rejects uploads to unknown projects", async () => {
+    for (const projectId of ["project_000000000000", ""]) {
+      const res = await upload(fixtures["tone.m4a"], projectId);
+      expect(res.status).toBe(404);
+      expect(await errorOf(res)).toBe("Project not found");
+    }
+    expect(readdirSync(path.join(dataDir, "media"))).toHaveLength(4);
+    await until(async () => (readdirSync(path.join(dataDir, "tmp")).length === 0 ? true : undefined), 5000);
   });
 
   it("rejects images, unpreviewable codecs and non-media with 415", async () => {
@@ -150,7 +228,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
   it("cleans up after an aborted upload", async () => {
     const { port } = new URL(base);
     await new Promise<void>((resolve) => {
-      const req = http.request({ port, host: "127.0.0.1", method: "POST", path: "/api/media?name=x.mp4", headers: { "Content-Length": "1000000" } });
+      const req = http.request({ port, host: "127.0.0.1", method: "POST", path: `/api/media?projectId=${projects.main.id}&name=x.mp4`, headers: { "Content-Length": "1000000" } });
       req.on("error", () => resolve());
       req.write(Buffer.alloc(1000), () => setTimeout(() => (req.destroy(), resolve()), 100));
     });
@@ -198,25 +276,75 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect((await api("/files/media/../project.json")).status).toBe(404);
   });
 
-  it("saves and normalises the project", async () => {
-    expect((await json<Project>("/api/project")).clips).toEqual([]);
+  it("saves and normalises a project against its own media", async () => {
+    const url = `/api/projects/${projects.main.id}`;
+    expect((await json<Project>(url)).clips).toEqual([]);
     const saved = projectWith([
       clip("landscape", "main", 5, 0, 1),
       clip("portrait", "main", 9, 0, 99), // out past the source: clamped
       { ...clip("landscape", "main", 0, 0, 1), assetId: "media_000000000000" }, // unknown asset: dropped
+      clip("other", "audio_1", 0, 0, 1), // another project's media: dropped
       clip("tone", "audio_1", 0.5, 0, 2),
     ]);
-    expect((await sendJson("PUT", "/api/project", saved)).status).toBe(204);
-    const loaded = await json<Project>("/api/project");
+    const res = await sendJson("PUT", url, { ...saved, settings: { ...saved.settings, aspectRatio: "16:9" } });
+    expect(res.status).toBe(200);
+    const summary = (await res.json()) as ProjectSummary;
+    expect(summary).toMatchObject({
+      id: projects.main.id, name: "Untitled", status: "active", aspectRatio: "16:9",
+      clipCount: 3, thumbnail: assets.landscape.poster,
+    });
+    expect(summary.duration).toBeCloseTo(1 + assets.portrait.duration, 5);
+    expect(summary.updatedAt).toBeGreaterThan(projects.main.updatedAt);
+    projects.main = summary;
+
+    const loaded = await json<Project>(url);
     expect(loaded.clips.map((c) => [c.trackId, c.start, c.in])).toEqual([
       ["main", 0, 0],
       ["main", 1, 0],
       ["audio_1", 0.5, 0],
     ]);
     expect(loaded.clips[1].out).toBeCloseTo(assets.portrait.duration, 5);
-    expect((await sendJson("PUT", "/api/project", [1, 2])).status).toBe(400);
-    const bad = await api("/api/project", { method: "PUT", headers: { "Content-Type": "application/json" }, body: "{nope" });
+    expect((await sendJson("PUT", url, [1, 2])).status).toBe(400);
+    const bad = await api(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: "{nope" });
     expect(bad.status).toBe(400);
+  });
+
+  it("lists the most recently updated project first", async () => {
+    const order = async () => (await json<ProjectSummary[]>("/api/projects")).map((p) => p.id);
+    expect(await order()).toEqual([projects.main.id, projects.other.id]);
+    const res = await sendJson("PUT", `/api/projects/${projects.other.id}`, projectWith([clip("other", "audio_1", 0, 0, 1)]));
+    projects.other = (await res.json()) as ProjectSummary;
+    expect(projects.other).toMatchObject({ clipCount: 1, thumbnail: null }); // nothing on the main track
+    expect(await order()).toEqual([projects.other.id, projects.main.id]);
+  });
+
+  it("renames, settles and unsettles projects", async () => {
+    const url = `/api/projects/${projects.main.id}`;
+    const patch = async (body: unknown) => {
+      const res = await sendJson("PATCH", url, body);
+      expect(res.status).toBe(200);
+      return (await res.json()) as ProjectSummary;
+    };
+
+    const renamed = await patch({ name: "Launch teaser" });
+    expect(renamed.name).toBe("Launch teaser");
+    expect(renamed.updatedAt).toBeGreaterThan(projects.main.updatedAt);
+    expect((await json<Project>(url)).name).toBe("Launch teaser");
+
+    const before = Date.now();
+    const settled = await patch({ status: "settled" });
+    expect(settled).toMatchObject({ status: "settled", updatedAt: renamed.updatedAt, clipCount: 3 });
+    expect(settled.settledAt).toBeGreaterThanOrEqual(before);
+    expect((await patch({ status: "settled" })).settledAt).toBe(settled.settledAt); // already settled
+
+    const reopened = await patch({ status: "active" });
+    expect(reopened).toMatchObject({ status: "active", settledAt: null, updatedAt: renamed.updatedAt });
+    expect((await json<ProjectSummary[]>("/api/projects"))[0]).toEqual(reopened);
+
+    for (const body of [{}, [], { status: "archived" }, { name: "" }, { name: 1 }, { name: "ok", status: "done" }]) {
+      expect((await sendJson("PATCH", url, body)).status, JSON.stringify(body)).toBe(400);
+    }
+    expect((await json<Project>(url)).name).toBe("Launch teaser");
   });
 
   it("validates export requests", async () => {
@@ -282,6 +410,20 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
 
     await until(async () => (readdirSync(path.join(dataDir, "tmp")).length === 0 ? true : undefined), 5000);
     expect(existsSync(path.join(dataDir, "exports", `${running.id}.mp4`))).toBe(false);
+  });
+
+  it("deletes a project with its media", async () => {
+    const { other } = assets;
+    const url = `/api/projects/${projects.other.id}`;
+    expect((await api(url, { method: "DELETE" })).status).toBe(204);
+    expect((await api(url)).status).toBe(404);
+    expect((await api(url, { method: "DELETE" })).status).toBe(404);
+    expect((await api(`/api/media/${other.id}`)).status).toBe(404);
+    expect(existsSync(path.join(dataDir, "media", other.id))).toBe(false);
+    expect(existsSync(path.join(dataDir, "projects", projects.other.id))).toBe(false);
+    expect((await json<ProjectSummary[]>("/api/projects")).map((p) => p.id)).toEqual([projects.main.id]);
+    // The remaining project's media is untouched.
+    expect((await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`))).toHaveLength(3);
   });
 
   it("deletes media", async () => {

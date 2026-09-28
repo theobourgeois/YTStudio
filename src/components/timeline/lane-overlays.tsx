@@ -1,6 +1,6 @@
 /** Lane backgrounds and the transient overlays drawn on top of clips. */
 import { memo } from "react";
-import { MousePointerClick, Upload } from "lucide-react";
+import { PiCursorClick, PiUploadSimple } from "react-icons/pi";
 import type { Track } from "@shared/types";
 import { MAIN_TRACK_ID, getClip } from "@shared/timeline";
 import { cn } from "@/lib/utils";
@@ -127,7 +127,7 @@ export function EmptyMainHint({ lane, width }: { lane: LaneLayout; width: number
       )}
       style={{ top: lane.top + CLIP_INSET_Y, height: lane.height - CLIP_INSET_Y * 2, width: width - 16 }}
     >
-      {active ? <MousePointerClick className="size-3.5" /> : <Upload className="size-3.5" />}
+      {active ? <PiCursorClick className="size-3.5" /> : <PiUploadSimple className="size-3.5" />}
       <span className="font-medium">Drag clips here</span>
       <span className="hidden text-muted-foreground/80 sm:inline">from the media bin or your computer</span>
     </div>

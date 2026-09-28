@@ -4,7 +4,8 @@ import type { HealthResponse } from "../shared/types.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { MediaLibrary } from "./media.ts";
-import { ProjectStore } from "./project.ts";
+import { migrateLegacyData } from "./migrate.ts";
+import { ProjectStore } from "./projects.ts";
 import { DataPaths, HttpError } from "./storage.ts";
 
 export interface AppOptions {
@@ -33,12 +34,17 @@ function setFileHeaders(res: Response, file: string) {
   res.setHeader("Cache-Control", ext === ".json" ? "no-cache" : "public, max-age=31536000, immutable");
 }
 
+const queryString = (value: unknown) => (typeof value === "string" ? value : "");
+
 export async function createApp({ dataDir, clientDir }: AppOptions): Promise<EditorApp> {
   const paths = new DataPaths(dataDir);
   await paths.init();
   const library = new MediaLibrary(paths);
   await library.load();
-  const projects = new ProjectStore(paths.project, () => library.byId());
+  const projects = new ProjectStore(paths, library);
+  await projects.load();
+  await migrateLegacyData(paths, library, projects);
+  library.resume();
   const renders = new ExportManager(paths, library);
 
   const app = express();
@@ -51,28 +57,45 @@ export async function createApp({ dataDir, clientDir }: AppOptions): Promise<Edi
     res.json(body);
   });
 
-  app.get("/api/media", (_req, res) => {
-    res.json(library.list());
+  app.get("/api/projects", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(projects.list());
+  });
+  app.post("/api/projects", json, async (req, res) => {
+    res.status(201).json(await projects.create(req.body));
+  });
+  app.get("/api/projects/:id", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await projects.get(req.params.id));
+  });
+  app.put("/api/projects/:id", json, async (req, res) => {
+    res.json(await projects.save(req.params.id, req.body));
+  });
+  app.patch("/api/projects/:id", json, async (req, res) => {
+    res.json(await projects.update(req.params.id, req.body));
+  });
+  app.delete("/api/projects/:id", async (req, res) => {
+    await projects.remove(req.params.id);
+    res.sendStatus(204);
+  });
+
+  app.get("/api/media", (req, res) => {
+    const projectId = queryString(req.query.projectId);
+    if (!projectId) throw new HttpError(400, "The projectId query parameter is required.");
+    if (!projects.has(projectId)) throw new HttpError(404, "Project not found");
+    res.json(library.list(projectId));
   });
   // The body is the raw file; no body parser runs on this route.
   app.post("/api/media", async (req, res) => {
-    const name = typeof req.query.name === "string" ? req.query.name : "";
-    res.status(201).json(await library.ingest(req, name));
+    const projectId = queryString(req.query.projectId);
+    const name = queryString(req.query.name);
+    res.status(201).json(await library.ingest(req, name, projectId, () => projects.has(projectId)));
   });
   app.get("/api/media/:id", (req, res) => {
     res.json(library.get(req.params.id));
   });
   app.delete("/api/media/:id", async (req, res) => {
     await library.remove(req.params.id);
-    res.sendStatus(204);
-  });
-
-  app.get("/api/project", async (_req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.json(await projects.load());
-  });
-  app.put("/api/project", json, async (req, res) => {
-    await projects.save(req.body);
     res.sendStatus(204);
   });
 

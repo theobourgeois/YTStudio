@@ -44,7 +44,7 @@ export class MediaLibrary {
 
   constructor(private paths: DataPaths) {}
 
-  /** Load every asset; finish processing interrupted by a restart. */
+  /** Load every asset (call `resume()` once they all belong to a project). */
   async load(): Promise<void> {
     for (const entry of await fs.readdir(this.paths.media, { withFileTypes: true })) {
       if (!entry.isDirectory() || !isValidId(entry.name)) continue;
@@ -55,22 +55,36 @@ export class MediaLibrary {
         continue;
       }
       this.assets.set(asset.id, asset);
+    }
+  }
+
+  /** Finish processing interrupted by a restart. */
+  resume(): void {
+    for (const asset of this.assets.values()) {
       if (asset.status === "processing") this.enqueue(asset.id);
     }
   }
 
-  list(): MediaAsset[] {
-    return [...this.assets.values()].sort((a, b) => b.createdAt - a.createdAt);
+  /** Every asset (or one project's), newest first. */
+  list(projectId?: string): MediaAsset[] {
+    return [...this.assets.values()]
+      .filter((a) => projectId === undefined || a.projectId === projectId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  find(id: string): MediaAsset | undefined {
+    return isValidId(id) ? this.assets.get(id) : undefined;
   }
 
   get(id: string): MediaAsset {
-    const asset = isValidId(id) ? this.assets.get(id) : undefined;
+    const asset = this.find(id);
     if (!asset) throw new HttpError(404, "Media not found");
     return asset;
   }
 
-  byId(): Record<string, MediaAsset> {
-    return Object.fromEntries(this.assets);
+  /** Every asset (or one project's) keyed by id. */
+  byId(projectId?: string): Record<string, MediaAsset> {
+    return Object.fromEntries(this.list(projectId).map((a) => [a.id, a]));
   }
 
   /** Absolute path of an asset's original file. */
@@ -78,8 +92,17 @@ export class MediaLibrary {
     return path.join(this.paths.mediaDir(asset.id), path.basename(asset.src));
   }
 
-  /** Stream an upload to disk, probe it and add it to the library. */
-  async ingest(body: Readable, rawName: string): Promise<MediaAsset> {
+  /**
+   * Stream an upload to disk, probe it and add it to `projectId`'s media.
+   * `projectExists` is checked once the body is consumed and again at commit,
+   * so an upload racing a project deletion never leaves an orphaned asset.
+   */
+  async ingest(
+    body: Readable,
+    rawName: string,
+    projectId: string,
+    projectExists: () => boolean,
+  ): Promise<MediaAsset> {
     const tmp = this.paths.tmpFile(".upload");
     try {
       // Always consume the body first: replying mid-upload makes browsers report a network error.
@@ -88,13 +111,14 @@ export class MediaLibrary {
       } catch {
         throw new HttpError(400, "The upload was interrupted.");
       }
+      if (!projectExists()) throw new HttpError(404, "Project not found");
       if (!(await ffmpegVersion())) {
         throw new HttpError(503, "ffmpeg isn't installed, so media can't be imported.");
       }
       const { size } = await fs.stat(tmp);
       if (size === 0) throw new HttpError(400, "The file is empty.");
       const probe = await probeMedia(tmp);
-      return await this.commit(tmp, displayName(rawName), size, probe);
+      return await this.commit(tmp, { name: displayName(rawName), projectId, size, probe }, projectExists);
     } finally {
       await fs.rm(tmp, { force: true });
     }
@@ -102,9 +126,8 @@ export class MediaLibrary {
 
   private async commit(
     tmp: string,
-    name: string,
-    size: number,
-    probe: ProbeResult,
+    { name, projectId, size, probe }: { name: string; projectId: string; size: number; probe: ProbeResult },
+    projectExists: () => boolean,
   ): Promise<MediaAsset> {
     const id = createId("media");
     const dir = this.paths.mediaDir(id);
@@ -126,6 +149,7 @@ export class MediaLibrary {
 
       const asset: MediaAsset = {
         id,
+        projectId,
         name,
         kind: probe.kind,
         duration: probe.duration,
@@ -143,6 +167,9 @@ export class MediaLibrary {
         waveform: null,
       };
       await writeJson(this.metaFile(id), asset);
+      // No await between this check and `set`: a concurrent project deletion either
+      // happened already (we clean up) or will see and remove this asset.
+      if (!projectExists()) throw new HttpError(404, "Project not found");
       this.assets.set(id, asset);
       this.enqueue(id);
       return asset;
@@ -157,6 +184,21 @@ export class MediaLibrary {
     this.assets.delete(id);
     this.jobs.get(id)?.abort();
     await fs.rm(this.paths.mediaDir(id), { recursive: true, force: true, maxRetries: 5 });
+  }
+
+  /** Delete all of a project's media, cancelling its background jobs. */
+  async removeProject(projectId: string): Promise<void> {
+    // `remove` forgets each asset synchronously, so they're all gone before the first await.
+    await Promise.all(this.list(projectId).map((a) => this.remove(a.id)));
+  }
+
+  /** Move assets into a project, rewriting their metadata (legacy migration). */
+  async assign(ids: string[], projectId: string): Promise<void> {
+    for (const id of ids) {
+      const asset: MediaAsset = { ...this.get(id), projectId };
+      this.assets.set(id, asset);
+      await writeJson(this.metaFile(id), asset);
+    }
   }
 
   /** Stop all background work (server shutdown). */

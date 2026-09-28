@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Magnet, Maximize2, Plus, Scissors, Trash, ZoomIn, ZoomOut } from "lucide-react";
+import { PiArrowsOutSimple, PiMagnet, PiMagnifyingGlassMinus, PiMagnifyingGlassPlus, PiPlus, PiScissors, PiTrash } from "react-icons/pi";
 import { addAudioTrack, projectDuration } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -34,10 +34,10 @@ export function TimelineToolbar() {
       style={{ height: TOOLBAR_HEIGHT }}
     >
       <ToolButton label="Split at playhead" shortcut="S" disabled={!hasClips} onClick={() => editor().splitAtPlayhead()}>
-        <Scissors />
+        <PiScissors />
       </ToolButton>
       <ToolButton label="Delete clip" shortcut="⌫" disabled={!hasSelection} onClick={() => editor().deleteSelected()}>
-        <Trash />
+        <PiTrash />
       </ToolButton>
 
       <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-5" />
@@ -51,7 +51,7 @@ export function TimelineToolbar() {
             onPressedChange={() => editor().toggleSnapping()}
             className="size-8 min-w-8 text-muted-foreground data-[state=on]:bg-brand/15 data-[state=on]:text-brand hover:data-[state=on]:bg-brand/20 hover:data-[state=on]:text-brand"
           >
-            <Magnet />
+            <PiMagnet />
           </Toggle>
         </TooltipTrigger>
         <TooltipContent side="top">Snapping {snapping ? "on" : "off"}</TooltipContent>
@@ -63,13 +63,13 @@ export function TimelineToolbar() {
         wide
         className="px-2 text-xs"
       >
-        <Plus />
+        <PiPlus />
         <span>Audio track</span>
       </ToolButton>
 
       <div className="ml-auto flex items-center gap-1">
         <ToolButton label="Zoom out" shortcut="−" hint="or ⌘/Ctrl + scroll" disabled={zoom <= MIN_ZOOM} onClick={() => ctx.zoomTo(zoom / ZOOM_STEP)}>
-          <ZoomOut />
+          <PiMagnifyingGlassMinus />
         </ToolButton>
         <Slider
           aria-label="Zoom"
@@ -81,14 +81,14 @@ export function TimelineToolbar() {
           onValueChange={([v]) => ctx.zoomTo(sliderToZoom(v / SLIDER_MAX, MIN_ZOOM, MAX_ZOOM))}
         />
         <ToolButton label="Zoom in" shortcut="+" hint="or ⌘/Ctrl + scroll" disabled={zoom >= MAX_ZOOM} onClick={() => ctx.zoomTo(zoom * ZOOM_STEP)}>
-          <ZoomIn />
+          <PiMagnifyingGlassPlus />
         </ToolButton>
         <ToolButton
           label="Zoom to fit"
           disabled={fit === null}
           onClick={() => fit !== null && ctx.zoomTo(fit, { time: 0, vx: 0 })}
         >
-          <Maximize2 />
+          <PiArrowsOutSimple />
         </ToolButton>
       </div>
     </div>

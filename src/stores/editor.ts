@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { toast } from "sonner";
-import type { Clip, MediaAsset, Project, ProjectSettings } from "@shared/types";
+import type { Clip, MediaAsset, Project, ProjectSettings, ProjectSummary } from "@shared/types";
 import {
   MAIN_TRACK_ID,
   addAudioTrack,
@@ -34,11 +34,16 @@ export interface Upload {
   progress: number;
 }
 
+export const DEFAULT_PROJECT_NAME = "Untitled";
+
 interface EditorState {
-  loaded: boolean;
+  /** The open project's id, or null when no project is open. */
+  projectId: string | null;
+  /** True while a project is being fetched. */
+  loading: boolean;
   loadError: string | null;
   project: Project;
-  /** Newest first. */
+  /** The open project's media, newest first. */
   assets: MediaAsset[];
   uploads: Upload[];
   selectedClipId: string | null;
@@ -53,7 +58,12 @@ interface EditorState {
   /** Id of the latest gesture; a gesture is active while `gestureBase` is set. */
   gestureId: number;
 
-  init: () => Promise<void>;
+  /** Open a project (saving the current one first). Resets history, selection and playback. */
+  openProject: (projectId: string) => Promise<void>;
+  /** Close the open project (saving it first), leaving the editor empty. */
+  closeProject: () => Promise<void>;
+  /** Rename the open project. Names aren't part of undo history. */
+  renameProject: (name: string) => void;
 
   /**
    * Apply an edit as one undoable step. An edit arriving mid-gesture (e.g. an
@@ -81,7 +91,11 @@ interface EditorState {
   toggleSnapping: () => void;
   updateSettings: (patch: Partial<ProjectSettings>) => void;
 
-  /** Upload files to the media library. Resolves with the assets that imported successfully. */
+  /**
+   * Upload files into the open project's media. Resolves with the assets that imported
+   * successfully (none if the user switched projects meanwhile). The first import into
+   * an unnamed project names it after the file.
+   */
   importFiles: (files: File[]) => Promise<MediaAsset[]>;
   deleteAsset: (assetId: string) => Promise<void>;
   getAsset: (assetId: string) => MediaAsset | undefined;
@@ -99,8 +113,21 @@ interface EditorState {
   deleteSelected: () => void;
 }
 
+let openToken = 0;
+
+const emptyEditor = () => ({
+  project: createDefaultProject(),
+  assets: [] as MediaAsset[],
+  uploads: [] as Upload[],
+  selectedClipId: null,
+  past: [] as Project[],
+  future: [] as Project[],
+  gestureBase: null,
+});
+
 export const useEditor = create<EditorState>((set, get) => ({
-  loaded: false,
+  projectId: null,
+  loading: false,
   loadError: null,
   project: createDefaultProject(),
   assets: [],
@@ -113,16 +140,51 @@ export const useEditor = create<EditorState>((set, get) => ({
   gestureBase: null,
   gestureId: 0,
 
-  async init() {
+  async openProject(projectId) {
+    if (get().projectId === projectId && !get().loadError) return;
+    const token = ++openToken;
+    get().endGesture();
+    usePlayback.getState().pause();
+    set({ loading: true, loadError: null });
     try {
-      const [assets, project] = await Promise.all([api.listMedia(), api.getProject()]);
+      await flushAutosave();
+      const [project, assets] = await Promise.all([
+        api.getProject(projectId),
+        api.listMedia(projectId),
+      ]);
+      if (token !== openToken) return;
       const byId = Object.fromEntries(assets.map((a) => [a.id, a]));
-      set({ assets, project: normalizeProject(project, byId), loaded: true, loadError: null });
+      // One `set` so subscribers see the project switch atomically (autosave ignores it).
+      set({ ...emptyEditor(), projectId, project: normalizeProject(project, byId), assets, loading: false });
+      usePlayback.getState().seek(0);
       startAutosave();
       pollProcessingAssets();
     } catch (err) {
-      set({ loadError: err instanceof Error ? err.message : String(err) });
+      if (token !== openToken) return;
+      set({ loading: false, loadError: err instanceof Error ? err.message : String(err) });
     }
+  },
+
+  async closeProject() {
+    ++openToken;
+    get().endGesture();
+    usePlayback.getState().pause();
+    await flushAutosave();
+    set({ ...emptyEditor(), projectId: null, loading: false, loadError: null });
+    usePlayback.getState().seek(0);
+  },
+
+  renameProject(name) {
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === get().project.name) return;
+    const rename = (p: Project) => ({ ...p, name: trimmed });
+    const { project, past, future, gestureBase } = get();
+    set({
+      project: rename(project),
+      past: past.map(rename),
+      future: future.map(rename),
+      gestureBase: gestureBase ? rename(gestureBase) : null,
+    });
   },
 
   commit(update) {
@@ -195,15 +257,23 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   async importFiles(files) {
+    const projectId = get().projectId;
+    if (!projectId) return [];
+    const stillOpen = () => get().projectId === projectId;
     const results = await Promise.all(
       files.map(async (file) => {
         const upload: Upload = { id: createId("up"), name: file.name, progress: 0 };
         set({ uploads: [...get().uploads, upload] });
         try {
-          const asset = await api.uploadMedia(file, (progress) => {
+          const asset = await api.uploadMedia(projectId, file, (progress) => {
+            if (!stillOpen()) return;
             set({ uploads: get().uploads.map((u) => (u.id === upload.id ? { ...u, progress } : u)) });
           });
+          if (!stillOpen()) return null;
           set({ assets: [asset, ...get().assets.filter((a) => a.id !== asset.id)] });
+          if (get().project.name === DEFAULT_PROJECT_NAME) {
+            get().renameProject(asset.name.replace(/\.[^.]+$/, ""));
+          }
           return asset;
         } catch (err) {
           toast.error(`Couldn't import ${file.name}`, {
@@ -211,10 +281,11 @@ export const useEditor = create<EditorState>((set, get) => ({
           });
           return null;
         } finally {
-          set({ uploads: get().uploads.filter((u) => u.id !== upload.id) });
+          if (stillOpen()) set({ uploads: get().uploads.filter((u) => u.id !== upload.id) });
         }
       }),
     );
+    if (!stillOpen()) return [];
     pollProcessingAssets();
     return results.filter((a): a is MediaAsset => a !== null);
   },
@@ -347,57 +418,87 @@ useEditor.subscribe((state, prev) => {
 });
 
 // ---------------------------------------------------------------------------
-// Autosave: debounced, one request in flight at a time (so saves can't land
-// out of order), retried with backoff on failure, flushed on unload.
-// Mid-gesture states are never saved; the result is saved when the gesture ends.
+// Autosave: debounced, one request in flight at a time (so saves can't land out
+// of order), retried with backoff, flushed before switching projects and on
+// unload. Pending saves are keyed by project id, so switching never mixes them
+// up. Mid-gesture states aren't saved; the result is saved when the gesture ends.
 // ---------------------------------------------------------------------------
+
+const pendingSaves = new Map<string, Project>();
+const savedListeners = new Set<(summary: ProjectSummary) => void>();
+let saving: Promise<void> | null = null;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let retryDelay = 1000;
+
+/** Be told whenever the server confirms a save (with the refreshed summary). */
+export function onProjectSaved(listener: (summary: ProjectSummary) => void): () => void {
+  savedListeners.add(listener);
+  return () => savedListeners.delete(listener);
+}
+
+/** Forget unsaved changes for a project (e.g. it was deleted). */
+export function discardPendingSave(projectId: string) {
+  pendingSaves.delete(projectId);
+}
+
+function scheduleSave(ms: number) {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => void runSaves(), ms);
+}
+
+async function runSaves(): Promise<void> {
+  clearTimeout(saveTimer);
+  if (saving || pendingSaves.size === 0) return;
+  let failed = false;
+  saving = (async () => {
+    for (const [id, project] of [...pendingSaves]) {
+      pendingSaves.delete(id);
+      try {
+        const summary = await api.saveProject(id, project);
+        for (const listener of savedListeners) listener(summary);
+      } catch (err) {
+        // A deleted project can't be saved; anything else is retried.
+        if (err instanceof ApiRequestError && err.status === 404) continue;
+        console.error("Autosave failed; retrying", err);
+        if (!pendingSaves.has(id)) pendingSaves.set(id, project);
+        failed = true;
+      }
+    }
+  })();
+  await saving;
+  saving = null;
+  if (failed) {
+    retryDelay = Math.min(retryDelay * 2, 30_000);
+    scheduleSave(retryDelay);
+  } else {
+    retryDelay = 1000;
+    // Edits made while the requests were in flight.
+    if (pendingSaves.size) scheduleSave(0);
+  }
+}
+
+/** Save everything pending right now (waits for an in-flight save first). */
+async function flushAutosave(): Promise<void> {
+  if (saving) await saving;
+  await runSaves();
+}
 
 let autosaveStarted = false;
 function startAutosave() {
   if (autosaveStarted) return;
   autosaveStarted = true;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let dirty = false;
-  let saving = false;
-  let retryDelay = 1000;
-
-  const schedule = (ms: number) => {
-    clearTimeout(timer);
-    timer = setTimeout(flush, ms);
-  };
-
-  async function flush() {
-    const { project, gestureBase } = useEditor.getState();
-    if (!dirty || saving || gestureBase) return;
-    dirty = false;
-    saving = true;
-    try {
-      await api.saveProject(project);
-      retryDelay = 1000;
-    } catch (err) {
-      console.error("Autosave failed; retrying", err);
-      dirty = true;
-      retryDelay = Math.min(retryDelay * 2, 30_000);
-      schedule(retryDelay);
-      return;
-    } finally {
-      saving = false;
-    }
-    // Edits made while the request was in flight.
-    if (dirty) schedule(0);
-  }
 
   useEditor.subscribe((state, prev) => {
+    // Opening/closing a project swaps the document; that isn't an edit.
+    if (!state.projectId || state.projectId !== prev.projectId) return;
     const gestureEnded = prev.gestureBase !== null && state.gestureBase === null;
     if (state.gestureBase || (state.project === prev.project && !gestureEnded)) return;
-    dirty = true;
-    if (!saving) schedule(400);
+    pendingSaves.set(state.projectId, state.project);
+    if (!saving) scheduleSave(400);
   });
 
   window.addEventListener("pagehide", () => {
-    if (!dirty) return;
-    const { project, gestureBase } = useEditor.getState();
-    void api.saveProject(gestureBase ?? project, true).catch(() => {});
+    for (const [id, project] of pendingSaves) void api.saveProject(id, project, true).catch(() => {});
   });
 }
 

@@ -1,4 +1,4 @@
-import { Expand, Film, Music, Shrink, Trash2 } from "lucide-react";
+import { PiArrowsIn, PiArrowsOut, PiFilmStrip, PiMusicNotes, PiTrash } from "react-icons/pi";
 import type { FitMode } from "@shared/types";
 import { formatTime } from "@shared/format";
 import { MAIN_TRACK_ID, clipDuration, getClip, getTrack, updateClip } from "@shared/timeline";
@@ -67,10 +67,10 @@ export function ClipInspector({ clipId }: { clipId: string }) {
             aria-label="Framing"
           >
             <ToggleGroupItem value="contain" className={segmentItemClass}>
-              <Shrink /> Fit
+              <PiArrowsIn /> Fit
             </ToggleGroupItem>
             <ToggleGroupItem value="cover" className={segmentItemClass}>
-              <Expand /> Fill
+              <PiArrowsOut /> Fill
             </ToggleGroupItem>
           </ToggleGroup>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
@@ -88,7 +88,7 @@ export function ClipInspector({ clipId }: { clipId: string }) {
           className="w-full border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive dark:border-destructive/30 dark:hover:bg-destructive/15"
           onClick={() => useEditor.getState().deleteSelected()}
         >
-          <Trash2 />
+          <PiTrash />
           Delete clip
         </Button>
       </Section>
@@ -97,7 +97,7 @@ export function ClipInspector({ clipId }: { clipId: string }) {
 }
 
 function ClipThumb({ kind, poster }: { kind: "video" | "audio"; poster?: string | null }) {
-  const Icon = kind === "video" ? Film : Music;
+  const Icon = kind === "video" ? PiFilmStrip : PiMusicNotes;
   return (
     <div
       className={cn(

@@ -18,7 +18,7 @@ export function ProjectName() {
     finished.current = true;
     const next = draft.trim();
     if (save && next && next !== name) {
-      useEditor.getState().commit((p) => ({ ...p, name: next }));
+      useEditor.getState().renameProject(next);
     }
     setDraft(null);
   };
