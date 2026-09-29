@@ -22,6 +22,7 @@ import { setAssetDragData } from "@/lib/dnd";
 import { cn } from "cn";
 import { useLibrary } from "@/stores/library";
 import { useSourcePreview } from "@/stores/source-preview";
+import { HoverScrub, useHoverX } from "./hover-scrub";
 import { decorativePeaks } from "./media-utils";
 
 interface AssetCardProps {
@@ -41,8 +42,10 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
   const previewsFailed = asset.status === "error";
   const usable = asset.duration > 0;
   const previewing = useSourcePreview((s) => s.assetId === asset.id);
+  const scrub = useHoverX();
 
   const onDragStart = (e: DragEvent) => {
+    scrub.clear();
     setAssetDragData(e.dataTransfer, { assetIds: [asset.id] });
     const thumb = thumbRef.current;
     if (thumb) {
@@ -66,7 +69,14 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
           )}
           draggable={usable}
           tabIndex={0}
-          title={previewsFailed ? `${asset.name}\n${asset.error ?? "Couldn't generate previews"}` : asset.name}
+          // Not while skimming: the tooltip would cover the picture.
+          title={
+            scrub.hoverX !== null
+              ? undefined
+              : previewsFailed
+                ? `${asset.name}\n${asset.error ?? "Couldn't generate previews"}`
+                : asset.name
+          }
           onDragStart={onDragStart}
           onClick={() => usable && useSourcePreview.getState().open(asset.id)}
           onDoubleClick={() => usable && onAdd()}
@@ -80,8 +90,10 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
               "relative aspect-video overflow-hidden rounded-md bg-muted ring-1 ring-border ring-inset",
               previewing && "ring-2 ring-brand",
             )}
+            {...scrub.handlers}
           >
             <Thumbnail asset={asset} />
+            <HoverScrub asset={asset} hoverX={scrub.hoverX} />
 
             {asset.kind === "image" ? (
               <span className="absolute right-1 bottom-1 grid size-5 place-items-center rounded bg-black/65 text-white" title="Image">

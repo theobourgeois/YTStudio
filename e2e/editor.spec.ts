@@ -827,3 +827,46 @@ test("keeps media and saved clips in the Library and uses them in another video"
   await expect.poll(async () => (await library()).items.length).toBe(1);
   expect((await savedProject(page)).clips).toHaveLength(2);
 });
+
+test("skims a video's card and copies one clip's effects onto another", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "New video" }).first().click();
+  await expect(page.locator("[data-clip-id]")).toHaveCount(0);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[1], FILES[2]]);
+  const card = page.locator("[draggable=true]").filter({ hasText: "landscape-1920x1080" }).first();
+  await expect(card).toBeVisible();
+
+  // Moving across the card shows the filmstrip frame under the mouse.
+  const thumb = card.locator("div.aspect-video");
+  const box = (await thumb.boundingBox())!;
+  const frameAt = async (fraction: number) => {
+    await page.mouse.move(box.x + box.width * fraction, box.y + box.height / 2, { steps: 2 });
+    return thumb.locator("img[src*='/frames/']").getAttribute("src");
+  };
+  await expect.poll(() => frameAt(0.1), { timeout: 20_000 }).toMatch(/frames\/\d+\.jpg$/);
+  const early = await frameAt(0.1);
+  expect(await frameAt(0.9)).not.toBe(early);
+  await page.mouse.move(0, 0);
+  await expect(thumb.locator("img[src*='/frames/']")).toHaveCount(0);
+
+  const y = await laneY(page, "Video 1");
+  await dragAsset(page, "landscape-1920x1080", await timeX(page, 0.05), y);
+  await dragAsset(page, "square-1080", await timeX(page, 9), y);
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
+  const [first, second] = await timelineClips(page);
+
+  // Fill is a Motion value: copy it from the first clip, paste it onto the second.
+  await page.mouse.click(first.x + 10, first.y + first.h / 2, { button: "right" });
+  await page.getByRole("menuitemradio", { name: /Fill/ }).click();
+  await page.mouse.click(first.x + 10, first.y + first.h / 2, { button: "right" });
+  await page.getByRole("menuitem", { name: "Copy effects" }).click();
+  await page.mouse.click(second.x + 10, second.y + second.h / 2, { button: "right" });
+  await page.getByRole("menuitem", { name: "Paste effects" }).click();
+  await page.getByRole("menuitem", { name: /All effects/ }).click();
+  const fits = async () =>
+    (await savedProject(page)).clips.map((c: { effects: { type: string; params: { fit?: string } }[] }) =>
+      c.effects.find((e) => e.type === "motion")?.params.fit,
+    );
+  await expect.poll(fits).toEqual(["cover", "cover"]);
+});

@@ -9,6 +9,9 @@ import {
   motionAt,
   normalizeEffects,
   opacityAt,
+  copyEffects,
+  pasteEffects,
+  textEffects,
   resetParams,
   setEffectEnabled,
   setParams,
@@ -235,5 +238,42 @@ describe("edits", () => {
 
   it("keep MOTION/OPACITY/VOLUME ids stable", () => {
     expect([MOTION.type, OPACITY.type, VOLUME.type]).toEqual(["motion", "opacity", "volume"]);
+  });
+});
+
+describe("copy / paste effects", () => {
+  const kf = (time: number, value: number): Keyframe => ({ time, value, easing: "linear" });
+  const two = (from: Clip, to: Clip): Project => ({ ...createDefaultProject(), clips: [from, to] });
+
+  it("pastes values and keyframes, at the same distance from the clip's start", () => {
+    const from = clipWith(defaultEffects().map((e) =>
+      e.type === "opacity" ? { ...e, params: { opacity: 40 } } : e.type === "motion" ? { ...e, keyframes: { rotation: [kf(10, 0), kf(12, 90)] } } : e,
+    ));
+    const source = { ...from, in: 10, out: 15 };
+    const target: Clip = { ...clipWith(), id: "d", start: 20, in: 3, out: 8 };
+    const p = pasteEffects(two(source, target), ["d"], copyEffects(source));
+    const pasted = p.clips[1];
+    expect(findEffect(pasted, "opacity")!.params.opacity).toBe(40);
+    expect(findEffect(pasted, "motion")!.keyframes!.rotation.map((k) => k.time)).toEqual([3, 5]);
+    // Pasting the same again changes nothing.
+    expect(pasteEffects(p, ["d"], copyEffects(source))).toBe(p);
+  });
+
+  it("pastes only the chosen effects, and only ones the clip has", () => {
+    const text: Clip = { id: "t", assetId: "", trackId: MAIN_TRACK_ID, start: 0, in: 0, out: 2, effects: [...defaultEffects(), ...textEffects({ text: "Hi", size: 200 })] };
+    const video: Clip = { ...clipWith(defaultEffects().map((e) => (e.type === "opacity" ? { ...e, params: { opacity: 10 } } : e))), id: "v" };
+    let p = two(text, video);
+    p = pasteEffects(p, ["t"], copyEffects(video), ["opacity"]);
+    expect(findEffect(p.clips[0], "opacity")!.params.opacity).toBe(10);
+    // A video has no Text to take.
+    const q = pasteEffects(p, ["v"], copyEffects(p.clips[0]), ["text"]);
+    expect(q).toBe(p);
+  });
+
+  it("keeps a text's words, pasting only its look", () => {
+    const a: Clip = { id: "a", assetId: "", trackId: MAIN_TRACK_ID, start: 0, in: 0, out: 2, effects: [...defaultEffects(), ...textEffects({ text: "First", size: 300 })] };
+    const b: Clip = { ...a, id: "b", start: 3, effects: [...defaultEffects(), ...textEffects({ text: "Second", size: 80 })] };
+    const p = pasteEffects(two(a, b), ["b"], copyEffects(a));
+    expect(findEffect(p.clips[1], "text")!.params).toMatchObject({ text: "Second", size: 300 });
   });
 });

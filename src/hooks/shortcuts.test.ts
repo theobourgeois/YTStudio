@@ -80,6 +80,14 @@ describe("resolveShortcut", () => {
     }
   });
 
+  it("copies and pastes effects with ⌥⌘C / ⌥⌘V, by physical key (⌥ changes the character on a Mac)", () => {
+    expect(resolveShortcut(key("ç", { metaKey: true, altKey: true, code: "KeyC" }))).toBe("copyEffects");
+    expect(resolveShortcut(key("√", { metaKey: true, altKey: true, code: "KeyV" }))).toBe("pasteEffects");
+    expect(resolveShortcut(key("c", { ctrlKey: true, altKey: true, code: "KeyC" }))).toBe("copyEffects");
+    expect(resolveShortcut(key("Ç", { metaKey: true, altKey: true, shiftKey: true, code: "KeyC" }))).toBeNull();
+    expect(resolveShortcut(key("c", { altKey: true, code: "KeyC" }))).toBeNull();
+  });
+
   it("ignores combos that aren't ours", () => {
     expect(resolveShortcut(key("s", { metaKey: true }))).toBeNull(); // save
     expect(resolveShortcut(key("=", { metaKey: true }))).toBeNull(); // browser zoom

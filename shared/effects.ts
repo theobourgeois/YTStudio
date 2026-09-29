@@ -14,6 +14,7 @@
  * and Appearance effects; the browser draws it (`src/lib/text-render.ts`).
  */
 import { keyframeValue, sanitizeKeyframes, setKeyframe } from "./keyframes.ts";
+import { tidy } from "./math.ts";
 import { PERCENT, PIXELS, type ParamSpec, defaultParams, sameValue, sanitizeParams, sanitizeValue } from "./params.ts";
 import type { Clip, Effect, FitMode, Keyframe, ParamValue, ParamValues, Project, Vec2 } from "./types.ts";
 
@@ -479,4 +480,51 @@ export function resetParams(project: Project, clipId: string, effectId: string, 
     else delete next.keyframes;
     return next;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Copy / paste effects (Premiere's Paste Attributes)
+// ---------------------------------------------------------------------------
+
+/** A clip's effects, copied to paste onto other clips. `in` places the keyframes (they're in source time). */
+export interface CopiedEffects {
+  effects: Effect[];
+  in: number;
+}
+
+export function copyEffects(clip: Clip): CopiedEffects {
+  return { effects: clip.effects, in: clip.in };
+}
+
+/**
+ * Paste copied effects (just `types`, or all of them) onto clips. Each replaces the clip's effect
+ * with the same id, so a clip only gets what it can have (no Text on a video). Keyframes land
+ * at the same distance from the clip's start. The words of a text stay: only its look is pasted.
+ */
+export function pasteEffects(project: Project, clipIds: readonly string[], copied: CopiedEffects, types?: readonly string[]): Project {
+  const pasted = copied.effects.filter((e) => !types || types.includes(e.type));
+  let p = project;
+  for (const clipId of clipIds) {
+    const clip = p.clips.find((c) => c.id === clipId);
+    if (!clip) continue;
+    const shift = clip.in - copied.in;
+    for (const source of pasted) {
+      p = updateEffect(p, clipId, source.id, (effect, def) => {
+        // Content (a text's words) isn't style.
+        const kept = def.params.filter((spec) => spec.kind === "text").map((spec) => spec.key);
+        const params = { ...source.params };
+        for (const key of kept) params[key] = effect.params[key];
+        const keyframes: Record<string, Keyframe[]> = {};
+        for (const [key, keys] of Object.entries(source.keyframes ?? {})) {
+          if (!kept.includes(key)) keyframes[key] = keys.map((k) => ({ ...k, time: tidy(k.time + shift) }));
+        }
+        for (const key of kept) if (effect.keyframes?.[key]) keyframes[key] = effect.keyframes[key];
+        const next: Effect = { ...effect, enabled: source.enabled || !!def.alwaysOn, params };
+        if (Object.keys(keyframes).length) next.keyframes = keyframes;
+        else delete next.keyframes;
+        return JSON.stringify(next) === JSON.stringify(effect) ? effect : next;
+      });
+    }
+  }
+  return p;
 }
