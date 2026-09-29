@@ -86,6 +86,15 @@ export interface ChatState {
 
 export const emptyChat = (model: AssistantModel = "default"): ChatState => ({ messages: [], status: "idle", model });
 
+/**
+ * A chat as the server has it, and how many events it has had (`ChatEvent`s are numbered from 1): a tab applies only
+ * events after `seq` to it, so a snapshot and the events streaming in around it can't undo each other.
+ */
+export interface ChatSnapshot {
+  state: ChatState;
+  seq: number;
+}
+
 /** A change to a chat, streamed from the server. */
 export type ChatEvent =
   | { type: "user"; message: UserMessage }
@@ -231,8 +240,8 @@ export type TabEvent =
   | { type: "call"; id: string; name: string; input: Record<string, unknown>; chat: string | null }
   /** Stop running a call (its turn was stopped). */
   | { type: "cancel"; id: string }
-  /** An update to the chat of a video this tab shows. */
-  | { type: "chat"; projectId: string; event: ChatEvent };
+  /** An update to the chat of a video this tab shows (`seq`: its number, see `ChatSnapshot`). */
+  | { type: "chat"; projectId: string; seq: number; event: ChatEvent };
 
 // ---------------------------------------------------------------------------
 // Describing tool calls for people

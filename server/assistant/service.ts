@@ -12,6 +12,7 @@ import path from "node:path";
 import {
   type AssistantModel,
   type ChatEvent,
+  type ChatSnapshot,
   type ChatState,
   type UserMessage,
   applyChatEvent,
@@ -53,6 +54,13 @@ interface Turn {
 interface Chat {
   projectId: string;
   state: ChatState;
+  /** Events so far (numbered for the tabs, see `ChatSnapshot`). */
+  seq: number;
+  /**
+   * Results that came back before Claude Code's own output announced the tool (the two
+   * arrive by different routes), applied once it does.
+   */
+  earlyResults: Map<string, ChatEvent>;
   sessionId: string | null;
   process: ClaudeProcess | null;
   /** The model the process was started with. */
@@ -192,6 +200,8 @@ export class AssistantService {
     const chat: Chat = {
       projectId,
       state: { ...state, status: "idle" },
+      seq: 0,
+      earlyResults: new Map(),
       sessionId: typeof saved?.sessionId === "string" ? saved.sessionId : null,
       process: null,
       processModel: null,
@@ -202,13 +212,25 @@ export class AssistantService {
     return chat;
   }
 
-  async get(projectId: string): Promise<ChatState> {
-    return (await this.chat(projectId)).state;
+  async get(projectId: string): Promise<ChatSnapshot> {
+    return snapshot(await this.chat(projectId));
   }
 
   private emit(chat: Chat, event: ChatEvent) {
     chat.state = applyChatEvent(chat.state, event);
-    this.bridge.broadcast(chat.projectId, event);
+    this.bridge.broadcast(chat.projectId, ++chat.seq, event);
+    if (event.type === "tool_start") {
+      const early = chat.earlyResults.get(event.id);
+      chat.earlyResults.delete(event.id);
+      if (early) this.emit(chat, early);
+    }
+  }
+
+  /** A tool's result: applied now, or once its tool is announced. */
+  private emitResult(chat: Chat, event: Extract<ChatEvent, { type: "tool_end" }>) {
+    const known = chat.state.messages.some((m) => m.role === "assistant" && m.parts.some((p) => p.kind === "tool" && p.id === event.id));
+    if (known) this.emit(chat, event);
+    else chat.earlyResults.set(event.id, event);
   }
 
   private save(chat: Chat): Promise<void> {
@@ -216,13 +238,13 @@ export class AssistantService {
     return writeJson(this.chatFile(chat.projectId), saved).catch((err) => console.error("[assistant] saving the chat failed", err));
   }
 
-  async setModel(projectId: string, body: unknown): Promise<ChatState> {
+  async setModel(projectId: string, body: unknown): Promise<ChatSnapshot> {
     const chat = await this.chat(projectId);
     const model = isObject(body) ? body.model : undefined;
     if (!isAssistantModel(model)) throw new HttpError(400, "Unknown model.");
     this.emit(chat, { type: "model", model });
     await this.save(chat);
-    return chat.state;
+    return snapshot(chat);
   }
 
   async send(projectId: string, body: unknown): Promise<void> {
@@ -336,17 +358,18 @@ export class AssistantService {
   }
 
   /** Start a new chat (forgetting the conversation). */
-  async reset(projectId: string): Promise<ChatState> {
+  async reset(projectId: string): Promise<ChatSnapshot> {
     const chat = await this.chat(projectId);
     if (chat.turn) await this.stop(projectId);
     chat.process?.stop();
     chat.process = null;
     chat.turn = null;
     chat.sessionId = null;
+    chat.earlyResults.clear();
     this.emit(chat, { type: "reset", state: emptyChat(chat.state.model) });
     await fs.rm(this.imageDir(projectId), { recursive: true, force: true });
     await this.save(chat);
-    return chat.state;
+    return snapshot(chat);
   }
 
   /** Forget a deleted video's chat. */
@@ -396,7 +419,7 @@ export class AssistantService {
     if (chat && partId) {
       const images = await this.saveImages(chat.projectId, result);
       const output = result.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("\n");
-      this.emit(chat, {
+      this.emitResult(chat, {
         type: "tool_end",
         id: partId,
         status: result.isError ? "error" : "done",
@@ -433,6 +456,8 @@ export class AssistantService {
     }
   }
 }
+
+const snapshot = (chat: Chat): ChatSnapshot => ({ state: chat.state, seq: chat.seq });
 
 function parseSend(body: unknown): SendChatMessageRequest {
   if (!isObject(body)) throw new HttpError(400, "Expected { text, tab }.");

@@ -1,4 +1,4 @@
-import type { AssistantModel, ChatState } from "@shared/assistant";
+import type { AssistantModel, ChatSnapshot } from "@shared/assistant";
 import type { ToolResult } from "@shared/assistant-tools";
 import type {
   ApiError,
@@ -181,13 +181,13 @@ export const api = {
   cancelTranscription: (id: string) => request<void>(`/api/transcription/jobs/${id}`, { method: "DELETE" }),
 
   assistantStatus: () => request<AssistantStatus>("/api/assistant/status"),
-  getChat: (projectId: string) => request<ChatState>(`/api/assistant/chats/${projectId}`),
+  getChat: (projectId: string) => request<ChatSnapshot>(`/api/assistant/chats/${projectId}`),
   setChatModel: (projectId: string, model: AssistantModel) =>
-    request<ChatState>(`/api/assistant/chats/${projectId}`, { method: "PATCH", body: JSON.stringify({ model }) }),
+    request<ChatSnapshot>(`/api/assistant/chats/${projectId}`, { method: "PATCH", body: JSON.stringify({ model }) }),
   sendChatMessage: (projectId: string, body: SendChatMessageRequest) =>
     request<void>(`/api/assistant/chats/${projectId}/messages`, { method: "POST", body: JSON.stringify(body) }),
   stopChat: (projectId: string) => request<void>(`/api/assistant/chats/${projectId}/stop`, { method: "POST" }),
-  resetChat: (projectId: string) => request<ChatState>(`/api/assistant/chats/${projectId}`, { method: "DELETE" }),
+  resetChat: (projectId: string) => request<ChatSnapshot>(`/api/assistant/chats/${projectId}`, { method: "DELETE" }),
   /** The tab's stream of tool calls and chat updates. */
   assistantEventsUrl: (tab: string, projectId: string | null) =>
     `/api/assistant/events?tab=${encodeURIComponent(tab)}&project=${encodeURIComponent(projectId ?? "")}`,

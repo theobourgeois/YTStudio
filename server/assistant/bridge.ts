@@ -144,9 +144,9 @@ export class Bridge {
   }
 
   /** Send a chat update to every tab showing that video. */
-  broadcast(projectId: string, event: ChatEvent): void {
+  broadcast(projectId: string, seq: number, event: ChatEvent): void {
     for (const tab of this.tabs.values()) {
-      if (tab.projectId === projectId) tab.send({ type: "chat", projectId, event });
+      if (tab.projectId === projectId) tab.send({ type: "chat", projectId, seq, event });
     }
   }
 

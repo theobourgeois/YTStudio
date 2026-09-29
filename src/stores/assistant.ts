@@ -5,7 +5,14 @@
  * confirmations it's waiting for, and each answer's edits (to revert them).
  */
 import { create } from "zustand";
-import { type AssistantMessage, type AssistantModel, type ChatEvent, type ChatState, applyChatEvent } from "@shared/assistant";
+import {
+  type AssistantMessage,
+  type AssistantModel,
+  type ChatEvent,
+  type ChatSnapshot,
+  type ChatState,
+  applyChatEvent,
+} from "@shared/assistant";
 import { errorMessage } from "@shared/errors";
 import type { AssistantStatus, Project } from "@shared/types";
 import { api } from "@/lib/api";
@@ -58,8 +65,10 @@ interface AssistantState {
   chatProjectId: string | null;
   chat: ChatState | null;
   chatError: string | null;
+  /** Fetch the chat (again), e.g. after the event stream reconnects. */
   loadChat: (projectId: string) => Promise<void>;
-  applyEvent: (projectId: string, event: ChatEvent) => void;
+  /** An event from the stream, numbered `seq` (see `ChatSnapshot`). */
+  applyEvent: (projectId: string, seq: number, event: ChatEvent) => void;
   /** The message being sent (until the server has it). */
   sending: boolean;
   send: (text: string, context: string, contextLabel: string, tab: string) => Promise<boolean>;
@@ -95,6 +104,22 @@ const storedWidth = () => {
 
 let confirmCount = 0;
 let chatToken = 0;
+/** The number of the last event applied to `chat`. */
+let chatSeq = 0;
+/** Events that arrive while the chat is being fetched, applied on top of it if they're newer. */
+let pending: { projectId: string; events: { seq: number; event: ChatEvent }[] } | null = null;
+
+/** A snapshot with the events that came in after it. */
+function catchUp(snap: ChatSnapshot, events: readonly { seq: number; event: ChatEvent }[]): { chat: ChatState; seq: number } {
+  let chat = snap.state;
+  let seq = snap.seq;
+  for (const e of [...events].sort((a, b) => a.seq - b.seq)) {
+    if (e.seq !== seq + 1) continue;
+    chat = applyChatEvent(chat, e.event);
+    seq = e.seq;
+  }
+  return { chat, seq };
+}
 const highlightTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export const useAssistant = create<AssistantState>((set, get) => ({
@@ -130,21 +155,40 @@ export const useAssistant = create<AssistantState>((set, get) => ({
   async loadChat(projectId) {
     const token = ++chatToken;
     if (get().chatProjectId !== projectId) set({ chatProjectId: projectId, chat: null, chatError: null, turns: {} });
+    const buffer = { projectId, events: [] as { seq: number; event: ChatEvent }[] };
+    pending = buffer;
     try {
-      let chat = await api.getChat(projectId);
+      let snap = await api.getChat(projectId);
       if (token !== chatToken) return;
       // A model picked before this video had a chat.
       const preferred = localStorage.getItem(MODEL_KEY) as AssistantModel | null;
-      if (chat.messages.length === 0 && preferred && preferred !== chat.model) chat = await api.setChatModel(projectId, preferred).catch(() => chat);
-      if (token !== chatToken) return;
+      if (snap.state.messages.length === 0 && preferred && preferred !== snap.state.model) {
+        snap = await api.setChatModel(projectId, preferred).catch(() => snap);
+        if (token !== chatToken) return;
+      }
+      const { chat, seq } = catchUp(snap, buffer.events);
+      chatSeq = seq;
       set({ chat, chatError: null });
     } catch (err) {
       if (token === chatToken) set({ chatError: errorMessage(err) });
+    } finally {
+      if (pending === buffer) pending = null;
     }
   },
-  applyEvent(projectId, event) {
-    const { chat, chatProjectId } = get();
-    if (projectId !== chatProjectId || !chat) return;
+  applyEvent(projectId, seq, event) {
+    if (projectId !== get().chatProjectId) return;
+    if (pending?.projectId === projectId) {
+      pending.events.push({ seq, event });
+      return;
+    }
+    const chat = get().chat;
+    if (!chat || seq <= chatSeq) return;
+    // One went missing (it shouldn't): start again from the server's copy.
+    if (seq !== chatSeq + 1) {
+      void get().loadChat(projectId);
+      return;
+    }
+    chatSeq = seq;
     const next = applyChatEvent(chat, event);
     if (next !== chat) set({ chat: next });
   },
@@ -174,8 +218,10 @@ export const useAssistant = create<AssistantState>((set, get) => ({
     const projectId = get().chatProjectId;
     if (!projectId) return;
     try {
-      const chat = await api.resetChat(projectId);
-      if (get().chatProjectId === projectId) set({ chat, turns: {}, chatError: null });
+      const snap = await api.resetChat(projectId);
+      if (get().chatProjectId !== projectId || snap.seq < chatSeq) return;
+      chatSeq = snap.seq;
+      set({ chat: snap.state, turns: {}, chatError: null });
     } catch (err) {
       set({ chatError: errorMessage(err) });
     }

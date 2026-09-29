@@ -643,11 +643,11 @@ export interface ToolCallProgressRequest {
 //   GET    /api/transcription/jobs/:id  -> TranscriptionJob
 //   DELETE /api/transcription/jobs/:id  -> 204 (cancels if running)
 //   GET    /api/assistant/status        -> AssistantStatus (is Claude Code installed and logged in)
-//   GET    /api/assistant/chats/:projectId  -> ChatState (a video's chat with the assistant)
-//   PATCH  /api/assistant/chats/:projectId  body: { model } -> ChatState
+//   GET    /api/assistant/chats/:projectId  -> ChatSnapshot (a video's chat with the assistant)
+//   PATCH  /api/assistant/chats/:projectId  body: { model } -> ChatSnapshot
 //   POST   /api/assistant/chats/:projectId/messages  body: SendChatMessageRequest -> 204 (the answer streams as events)
 //   POST   /api/assistant/chats/:projectId/stop  -> 204
-//   DELETE /api/assistant/chats/:projectId  -> ChatState (a new, empty chat)
+//   DELETE /api/assistant/chats/:projectId  -> ChatSnapshot (a new, empty chat)
 //   GET    /api/assistant/images/:projectId/:name -> a picture the assistant looked at
 //   GET    /api/assistant/events?tab=<id>&project=<id> -> text/event-stream of TabEvent (server/assistant/bridge.ts):
 //                                        tool calls for the tab to run, and chat updates for its video

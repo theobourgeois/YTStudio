@@ -60,7 +60,7 @@ function onEvent(event: TabEvent) {
       break;
     }
     case "chat":
-      useAssistant.getState().applyEvent(event.projectId, event.event);
+      useAssistant.getState().applyEvent(event.projectId, event.seq, event.event);
       break;
   }
 }
