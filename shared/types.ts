@@ -325,6 +325,8 @@ export interface FontFamily {
 //   PUT    /api/projects/:id  body: Project -> ProjectSummary (bumps updatedAt)
 //   PATCH  /api/projects/:id  body: UpdateProjectRequest -> ProjectSummary
 //                                        (rename; settle/unsettle sets/clears settledAt)
+//   POST   /api/projects/:id/duplicate  -> ProjectSummary (201): a copy with its own copy of the media,
+//                                        named "<name> copy", status active
 //   DELETE /api/projects/:id            -> 204 (also deletes the project's media)
 //
 //   GET    /api/media?projectId=<id>    -> MediaAsset[]   (that project's media, newest first)

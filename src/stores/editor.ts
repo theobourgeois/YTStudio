@@ -53,10 +53,11 @@ import { pollProcessingAssets } from "./asset-polling";
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
 
-export { discardPendingSave, onProjectSaved } from "./autosave";
+export { discardPendingSave, flushAutosave, onProjectSaved } from "./autosave";
 
 const HISTORY_LIMIT = 100;
-export const MIN_ZOOM = 5;
+/** Hard zoom limits (px per second). The timeline's usable minimum depends on the edit's length (`minZoomFor`). */
+export const MIN_ZOOM = 0.05;
 export const MAX_ZOOM = 400;
 
 export interface Upload {

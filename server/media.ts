@@ -1,4 +1,4 @@
-import { createWriteStream } from "node:fs";
+import { constants as fsConstants, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
@@ -215,6 +215,39 @@ export class MediaLibrary {
   async removeProject(projectId: string): Promise<void> {
     // `remove` forgets each asset synchronously, so they're all gone before the first await.
     await Promise.all(this.list(projectId).map((a) => this.remove(a.id)));
+  }
+
+  /**
+   * Copy all of `fromProject`'s media into `toProject` under new ids (files are
+   * cloned where the filesystem supports it). Returns old id → new id. On failure
+   * the copies made so far are left for the caller to remove with `removeProject`.
+   */
+  async copyProject(fromProject: string, toProject: string): Promise<Map<string, string>> {
+    const ids = new Map<string, string>();
+    for (const asset of this.list(fromProject)) {
+      const id = createId("media");
+      await fs.cp(this.paths.mediaDir(asset.id), this.paths.mediaDir(id), {
+        recursive: true,
+        mode: fsConstants.COPYFILE_FICLONE,
+      });
+      const from = `/files/media/${asset.id}/`;
+      const rebase = (url: string) => (url.startsWith(from) ? `/files/media/${id}/${url.slice(from.length)}` : url);
+      const copy: MediaAsset = {
+        ...asset,
+        id,
+        projectId: toProject,
+        src: rebase(asset.src),
+        poster: asset.poster && rebase(asset.poster),
+        filmstrip: asset.filmstrip && { ...asset.filmstrip, urlPattern: rebase(asset.filmstrip.urlPattern) },
+        waveform: asset.waveform && rebase(asset.waveform),
+      };
+      await writeJson(this.metaFile(id), copy);
+      this.assets.set(id, copy);
+      ids.set(asset.id, id);
+      // The original was still being processed, so its derivatives may be incomplete: redo them.
+      if (copy.status === "processing") this.enqueue(id);
+    }
+    return ids;
   }
 
   /** Move assets into a project, rewriting their metadata (legacy migration). */
