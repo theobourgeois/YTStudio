@@ -64,7 +64,7 @@ export function usePlayheadFollow(scrollerRef: RefObject<HTMLDivElement | null>)
         if (s.time === p.time) return;
         const view = useTimelineView.getState();
         const el = scrollerRef.current;
-        if (!el || view.scrubbing || view.dragClipId || view.viewWidth <= 0) return;
+        if (!el || view.scrubbing || view.dragClipIds.length > 0 || view.viewWidth <= 0) return;
         const x = s.time * useEditor.getState().zoom;
         const target = pageScrollTarget(x, view.scrollLeft, view.viewWidth, PAGE_MARGIN);
         if (target !== null) el.scrollLeft = target;

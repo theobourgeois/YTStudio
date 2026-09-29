@@ -7,21 +7,31 @@ import { create } from "zustand";
 import { CHUNK_PX } from "./constants";
 import { visibleWindow } from "./geometry";
 
-export interface DragGhost {
+/** Where a dragged clip or asset goes: an existing track, or a new one above/below all tracks. */
+export type TrackTarget = { trackId: string; newTrack?: undefined } | { trackId?: undefined; newTrack: "above" | "below" };
+
+export type DragGhost = TrackTarget & {
   clipId: string;
   /** Desired start time under the pointer (after snapping). */
   start: number;
   duration: number;
-  trackId: string;
-}
+};
 
 export interface DropTarget {
-  /** Hovered track, or null for the empty space below the lanes (auto-route). */
+  /** Hovered track, if any. */
   trackId: string | null;
+  /** Hovering the empty space above the first / below the last track. */
+  newTrack: "above" | "below" | null;
   /** Pointer time. */
   time: number;
-  /** Main track only: boundary of the insertion slot. */
-  slotTime: number | null;
+}
+
+/** Rubber-band selection rectangle, in lane-area px. */
+export interface Marquee {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
 }
 
 interface TimelineViewState {
@@ -29,19 +39,23 @@ interface TimelineViewState {
   scrollLeft: number;
   /** Visible lane width (viewport minus the header column). */
   viewWidth: number;
-  /** Clip being moved (rendered as a placeholder in its laid-out slot). */
-  dragClipId: string | null;
-  ghost: DragGhost | null;
+  /** Clips being moved (rendered as placeholders where they'd land). */
+  dragClipIds: string[];
+  ghosts: DragGhost[];
+  marquee: Marquee | null;
   snapGuide: number | null;
   drop: DropTarget | null;
   scrubbing: boolean;
 }
 
+const NONE: never[] = [];
+
 export const useTimelineView = create<TimelineViewState>(() => ({
   scrollLeft: 0,
   viewWidth: 0,
-  dragClipId: null,
-  ghost: null,
+  dragClipIds: NONE,
+  ghosts: NONE,
+  marquee: null,
   snapGuide: null,
   drop: null,
   scrubbing: false,
@@ -58,7 +72,7 @@ export function setView(patch: Partial<TimelineViewState>) {
 }
 
 export function clearDragView() {
-  setView({ dragClipId: null, ghost: null, snapGuide: null });
+  setView({ dragClipIds: NONE, ghosts: NONE, snapGuide: null, marquee: null });
 }
 
 /** Quantised [x0, x1) lane-px window worth rendering; re-renders only on chunk crossings. */
@@ -67,3 +81,6 @@ export function useVisibleWindow(): [number, number] {
   const x1 = useTimelineView((s) => visibleWindow(s.scrollLeft, s.viewWidth, CHUNK_PX).x1);
   return [x0, x1];
 }
+
+/** Timeline commands for code outside the timeline tree (keyboard shortcuts). Set while mounted. */
+export const timelineCommands: { zoomToFit: () => void } = { zoomToFit: () => {} };

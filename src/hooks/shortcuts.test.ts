@@ -21,6 +21,15 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("Home"))).toBe("seekStart");
     expect(resolveShortcut(key("End"))).toBe("seekEnd");
     expect(resolveShortcut(key("Escape"))).toBe("deselect");
+    expect(resolveShortcut(key("k"))).toBe("pause");
+    expect(resolveShortcut(key("l"))).toBe("play");
+    expect(resolveShortcut(key("q"))).toBe("trimStart");
+    expect(resolveShortcut(key("w"))).toBe("trimEnd");
+    expect(resolveShortcut(key("n"))).toBe("toggleSnapping");
+    expect(resolveShortcut(key("\\"))).toBe("zoomFit");
+    expect(resolveShortcut(key("Z", { shiftKey: true }))).toBe("zoomFit");
+    expect(resolveShortcut(key("?", { shiftKey: true }))).toBe("showShortcuts");
+    expect(resolveShortcut(key("Backspace", { shiftKey: true }))).toBe("rippleDelete");
     expect(resolveShortcut(key("x"))).toBeNull();
   });
 
@@ -29,6 +38,17 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("ArrowRight"))).toBe("nextFrame");
     expect(resolveShortcut(key("ArrowLeft", { shiftKey: true }))).toBe("back1s");
     expect(resolveShortcut(key("ArrowRight", { shiftKey: true }))).toBe("forward1s");
+    expect(resolveShortcut(key("ArrowUp"))).toBe("prevEdit");
+    expect(resolveShortcut(key("ArrowDown"))).toBe("nextEdit");
+  });
+
+  it("nudges and moves clips with Alt + arrows", () => {
+    expect(resolveShortcut(key("ArrowLeft", { altKey: true }))).toBe("nudgeLeft");
+    expect(resolveShortcut(key("ArrowRight", { altKey: true }))).toBe("nudgeRight");
+    expect(resolveShortcut(key("ArrowLeft", { altKey: true, shiftKey: true }))).toBe("nudgeLeftMore");
+    expect(resolveShortcut(key("ArrowUp", { altKey: true }))).toBe("moveUp");
+    expect(resolveShortcut(key("ArrowDown", { altKey: true }))).toBe("moveDown");
+    expect(resolveShortcut(key("s", { altKey: true }))).toBeNull();
   });
 
   it("zooms with =/+ and -, regardless of shift", () => {
@@ -43,6 +63,12 @@ describe("resolveShortcut", () => {
       expect(resolveShortcut(key("Z", { ...mod, shiftKey: true }))).toBe("redo");
       expect(resolveShortcut(key("y", mod))).toBe("redo");
       expect(resolveShortcut(key("b", mod))).toBe("split");
+      expect(resolveShortcut(key("k", mod))).toBe("split");
+      expect(resolveShortcut(key("x", mod))).toBe("cut");
+      expect(resolveShortcut(key("c", mod))).toBe("copy");
+      expect(resolveShortcut(key("v", mod))).toBe("paste");
+      expect(resolveShortcut(key("d", mod))).toBe("duplicate");
+      expect(resolveShortcut(key("a", mod))).toBe("selectAll");
     }
   });
 
@@ -56,7 +82,7 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("\\", { metaKey: true }))).toBe("toggleSidebar");
     expect(resolveShortcut(key("s", { shiftKey: true }))).toBeNull();
     expect(resolveShortcut(key(" ", { shiftKey: true }))).toBeNull();
-    expect(resolveShortcut(key("ArrowLeft", { altKey: true }))).toBeNull();
+    expect(resolveShortcut(key("c", { metaKey: true, shiftKey: true }))).toBeNull();
   });
 
   it("drops auto-repeat for toggles but keeps it for stepping, zoom and history", () => {

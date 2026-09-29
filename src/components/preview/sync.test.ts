@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Clip, Project } from "@shared/types";
 import { MAIN_TRACK_ID, createDefaultProject } from "@shared/timeline";
 import { fitRect, isLightColor } from "./canvas";
-import { SEEK_DRIFT, assignSlots, planAudio, planMain, playbackCorrection, sourceTime } from "./sync";
+import { SEEK_DRIFT, assignSlots, planAudio, planTrack, playbackCorrection, sourceTime } from "./sync";
 
 const clip = (id: string, start: number, inPoint: number, out: number, trackId = MAIN_TRACK_ID): Clip => ({
   id,
@@ -29,7 +29,8 @@ describe("sourceTime", () => {
   });
 });
 
-describe("planMain", () => {
+describe("planTrack", () => {
+  const planMain = (p: Project, t: number) => planTrack(p, MAIN_TRACK_ID, t);
   const p = project([clip("a", 0, 0, 2), clip("b", 2, 5, 8), clip("m", 0, 0, 10, "audio_1")]);
 
   it("finds the current clip and the next one", () => {
@@ -57,6 +58,20 @@ describe("planMain", () => {
   });
   it("handles an empty timeline", () => {
     expect(planMain(project([]), 0)).toEqual({ current: null, next: null });
+  });
+  it("preloads the clip after a gap", () => {
+    const q = project([clip("a", 0, 0, 2), clip("b", 4, 0, 2)]);
+    expect(planMain(q, 3)).toEqual({ current: null, next: q.clips[1] });
+  });
+  it("plans each video track on its own", () => {
+    const q: Project = {
+      ...project([clip("a", 0, 0, 4), clip("top", 1, 0, 1, "v2")]),
+      tracks: [{ id: "v2", kind: "video", name: "Video 2", muted: false }, ...createDefaultProject().tracks],
+    };
+    expect(planTrack(q, "v2", 0.5)).toMatchObject({ current: null, next: { id: "top" } });
+    expect(planTrack(q, "v2", 1.5).current?.clip.id).toBe("top");
+    expect(planTrack(q, MAIN_TRACK_ID, 1.5).current?.clip.id).toBe("a");
+    expect(planAudio(q, 1.5)).toEqual([]);
   });
 });
 

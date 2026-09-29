@@ -1,0 +1,269 @@
+/**
+ * Right-click menus: one shared menu for the lane area (its content depends
+ * on whether a clip or empty space was clicked) and one per track header.
+ */
+import { useState, type MouseEvent, type ReactNode } from "react";
+import {
+  PiArrowDown,
+  PiArrowUp,
+  PiArrowsIn,
+  PiArrowsOut,
+  PiClipboard,
+  PiCopy,
+  PiCopySimple,
+  PiFilmStrip,
+  PiMusicNotes,
+  PiScissors,
+  PiSelectionAll,
+  PiSpeakerHigh,
+  PiSpeakerSlash,
+  PiTrash,
+  PiArrowLineLeft,
+} from "react-icons/pi";
+import type { FitMode, Track } from "@shared/types";
+import {
+  addTrack,
+  clipsAtTime,
+  closeGap,
+  gapAt,
+  getClip,
+  isOnVideoTrack,
+  removeTrack,
+  setTrackMuted,
+  updateClip,
+  videoTracks,
+} from "@shared/timeline";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
+import { useEditor } from "@/stores/editor";
+import { usePlayback } from "@/stores/playback";
+import { lanePoint, useTimelineContext } from "./context";
+import { laneAt } from "./geometry";
+
+type MenuTarget =
+  | { kind: "clip"; clipId: string; time: number }
+  | { kind: "lane"; trackId: string | null; time: number };
+
+const editor = useEditor.getState;
+
+/** Wraps the lane area (a single element) so right-clicks open the timeline menu. */
+export function LanesContextMenu({ children }: { children: ReactNode }) {
+  const ctx = useTimelineContext();
+  const [target, setTarget] = useState<MenuTarget | null>(null);
+
+  const onContextMenu = (e: MouseEvent) => {
+    const s = editor();
+    const p = lanePoint(ctx, e.clientX, e.clientY);
+    if (s.gestureBase || !p) {
+      e.preventDefault(); // also keeps the menu closed
+      return;
+    }
+    const time = Math.max(0, p.x / s.zoom);
+    const clipId = (e.target as Element).closest<HTMLElement>("[data-clip-id]")?.dataset.clipId;
+    if (clipId && getClip(s.project, clipId)) {
+      if (!s.selectedClipIds.includes(clipId)) s.select(clipId);
+      setTarget({ kind: "clip", clipId, time });
+    } else {
+      setTarget({ kind: "lane", trackId: laneAt(ctx.lanesLayout.current, p.y)?.trackId ?? null, time });
+    }
+  };
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild onContextMenu={onContextMenu}>
+        {children}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-60">
+        {target?.kind === "clip" && <ClipMenuItems target={target} />}
+        {target?.kind === "lane" && <LaneMenuItems target={target} />}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" }> }) {
+  const count = useEditor((s) => s.selectedClipIds.length);
+  const canPaste = useEditor((s) => s.clipboard.length > 0);
+  const fit = useEditor((s) => getClip(s.project, target.clipId)?.fit);
+  const onVideo = useEditor((s) => {
+    const clip = getClip(s.project, target.clipId);
+    return !!clip && isOnVideoTrack(s.project, clip);
+  });
+  const playheadOnSelection = useEditor((s) => {
+    const t = usePlayback.getState().time;
+    return clipsAtTime(s.project, t).some((c) => s.selectedClipIds.includes(c.id));
+  });
+  const plural = count > 1 ? ` ${count} clips` : "";
+
+  const setFit = (value: string) => {
+    const s = editor();
+    s.commit((p) =>
+      s.selectedClipIds.reduce((q, id) => {
+        const clip = getClip(q, id);
+        return clip && isOnVideoTrack(q, clip) ? updateClip(q, id, { fit: value as FitMode }) : q;
+      }, p),
+    );
+  };
+
+  return (
+    <>
+      <ContextMenuItem onSelect={() => editor().splitAt([target.clipId], target.time)}>
+        <PiScissors /> Split here
+      </ContextMenuItem>
+      <ContextMenuItem disabled={!playheadOnSelection} onSelect={() => editor().splitAtPlayhead()}>
+        <PiScissors /> Split at playhead
+        <ContextMenuShortcut>{SHORTCUT_KEYS.split}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => editor().cutSelected()}>
+        <PiScissors /> Cut{plural}
+        <ContextMenuShortcut>{SHORTCUT_KEYS.cut}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => editor().copySelected()}>
+        <PiCopy /> Copy{plural}
+        <ContextMenuShortcut>{SHORTCUT_KEYS.copy}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem disabled={!canPaste} onSelect={() => editor().paste()}>
+        <PiClipboard /> Paste at playhead
+        <ContextMenuShortcut>{SHORTCUT_KEYS.paste}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => editor().duplicateSelected()}>
+        <PiCopySimple /> Duplicate{plural}
+        <ContextMenuShortcut>{SHORTCUT_KEYS.duplicate}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      {onVideo && (
+        <>
+          <ContextMenuLabel className="text-xs text-muted-foreground">Framing</ContextMenuLabel>
+          <ContextMenuRadioGroup value={fit} onValueChange={setFit}>
+            <ContextMenuRadioItem value="contain">
+              <PiArrowsIn /> Fit (whole frame)
+            </ContextMenuRadioItem>
+            <ContextMenuRadioItem value="cover">
+              <PiArrowsOut /> Fill (crop to canvas)
+            </ContextMenuRadioItem>
+          </ContextMenuRadioGroup>
+          <ContextMenuSeparator />
+        </>
+      )}
+      <ContextMenuItem onSelect={() => editor().moveSelectedToTrack(-1)}>
+        <PiArrowUp /> Move to track above
+        <ContextMenuShortcut>{SHORTCUT_KEYS.moveUp}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => editor().moveSelectedToTrack(1)}>
+        <PiArrowDown /> Move to track below
+        <ContextMenuShortcut>{SHORTCUT_KEYS.moveDown}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem variant="destructive" onSelect={() => editor().deleteSelected()}>
+        <PiTrash /> Delete{plural}
+        <ContextMenuShortcut>{SHORTCUT_KEYS.delete}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem variant="destructive" onSelect={() => editor().deleteSelected(true)}>
+        <PiArrowLineLeft /> Ripple delete{plural}
+        <ContextMenuShortcut>{SHORTCUT_KEYS.rippleDelete}</ContextMenuShortcut>
+      </ContextMenuItem>
+    </>
+  );
+}
+
+function LaneMenuItems({ target }: { target: Extract<MenuTarget, { kind: "lane" }> }) {
+  const canPaste = useEditor((s) => s.clipboard.length > 0);
+  const hasClips = useEditor((s) => s.project.clips.length > 0);
+  const hasGap = useEditor((s) => !!target.trackId && gapAt(s.project, target.trackId, target.time) !== null);
+  const { trackId, time } = target;
+
+  return (
+    <>
+      <ContextMenuItem disabled={!canPaste} onSelect={() => editor().paste(time)}>
+        <PiClipboard /> Paste here
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!hasGap}
+        onSelect={() => trackId && editor().commit((p) => closeGap(p, trackId, time))}
+      >
+        <PiArrowLineLeft /> Close gap
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled={!hasClips} onSelect={() => editor().selectAll()}>
+        <PiSelectionAll /> Select all
+        <ContextMenuShortcut>{SHORTCUT_KEYS.selectAll}</ContextMenuShortcut>
+      </ContextMenuItem>
+      {trackId && (
+        <ContextMenuItem disabled={!hasClips} onSelect={() => selectTrack(trackId)}>
+          <PiSelectionAll /> Select all on this track
+        </ContextMenuItem>
+      )}
+      <ContextMenuSeparator />
+      <AddTrackItems />
+    </>
+  );
+}
+
+function selectTrack(trackId: string) {
+  const s = editor();
+  s.setSelection(s.project.clips.filter((c) => c.trackId === trackId).map((c) => c.id));
+}
+
+function AddTrackItems({ after }: { after?: Track }) {
+  // Next to the clicked track when there is one, otherwise at the edge of its group.
+  const index = useEditor((s) => (after ? s.project.tracks.findIndex((t) => t.id === after.id) : -1));
+  return (
+    <>
+      <ContextMenuItem
+        onSelect={() =>
+          editor().commit((p) => addTrack(p, "video", after?.kind === "video" ? index : undefined).project)
+        }
+      >
+        <PiFilmStrip /> Add video track{after?.kind === "video" ? " above" : ""}
+      </ContextMenuItem>
+      <ContextMenuItem
+        onSelect={() =>
+          editor().commit((p) => addTrack(p, "audio", after?.kind === "audio" ? index + 1 : undefined).project)
+        }
+      >
+        <PiMusicNotes /> Add audio track{after?.kind === "audio" ? " below" : ""}
+      </ContextMenuItem>
+    </>
+  );
+}
+
+export function TrackHeaderMenu({ track, children }: { track: Track; children: ReactNode }) {
+  const hasClips = useEditor((s) => s.project.clips.some((c) => c.trackId === track.id));
+  const removable = useEditor((s) => track.kind === "audio" || videoTracks(s.project).length > 1);
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuLabel className="text-xs text-muted-foreground">{track.name}</ContextMenuLabel>
+        <ContextMenuItem onSelect={() => editor().commit((p) => setTrackMuted(p, track.id, !track.muted))}>
+          {track.muted ? <PiSpeakerHigh /> : <PiSpeakerSlash />}
+          {track.muted ? "Unmute track" : "Mute track"}
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!hasClips} onSelect={() => selectTrack(track.id)}>
+          <PiSelectionAll /> Select all clips on track
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <AddTrackItems after={track} />
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          variant="destructive"
+          disabled={!removable}
+          onSelect={() => editor().commit((p) => removeTrack(p, track.id))}
+        >
+          <PiTrash /> Delete track{hasClips ? " and its clips" : ""}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}

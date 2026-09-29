@@ -1,7 +1,7 @@
 import { PiArrowsIn, PiArrowsOut, PiFilmStrip, PiMusicNotes, PiTrash } from "react-icons/pi";
 import type { FitMode } from "@shared/types";
 import { formatTime } from "@shared/format";
-import { MAIN_TRACK_ID, clipDuration, getClip, getTrack, updateClip } from "@shared/timeline";
+import { clipDuration, getClip, getTrack, updateClip } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
@@ -15,14 +15,14 @@ export function ClipInspector({ clipId }: { clipId: string }) {
     const assetId = getClip(s.project, clipId)?.assetId;
     return s.assets.find((a) => a.id === assetId);
   });
-  const trackName = useEditor((s) => {
+  const track = useEditor((s) => {
     const trackId = getClip(s.project, clipId)?.trackId;
-    return trackId ? getTrack(s.project, trackId)?.name : undefined;
+    return trackId ? getTrack(s.project, trackId) : undefined;
   });
   if (!clip) return null;
 
-  const onMain = clip.trackId === MAIN_TRACK_ID;
-  const subtitle = onMain
+  const onVideo = track?.kind === "video";
+  const subtitle = onVideo
     ? "Video clip"
     : asset?.kind === "video"
       ? "Audio from video"
@@ -34,14 +34,14 @@ export function ClipInspector({ clipId }: { clipId: string }) {
   return (
     <>
       <PanelHeader
-        icon={<ClipThumb kind={onMain ? "video" : "audio"} poster={onMain ? asset?.poster : null} />}
+        icon={<ClipThumb kind={onVideo ? "video" : "audio"} poster={onVideo ? asset?.poster : null} />}
         title={asset?.name ?? "Missing media"}
         subtitle={subtitle}
       />
 
       <Section title="Clip">
         <dl className="space-y-2">
-          <InfoRow label="Track">{trackName ?? "—"}</InfoRow>
+          <InfoRow label="Track">{track?.name ?? "—"}</InfoRow>
           <InfoRow label="Start">{formatTime(clip.start)}</InfoRow>
           <InfoRow label="Duration">{formatTime(clipDuration(clip))}</InfoRow>
           <InfoRow label="Source">
@@ -56,7 +56,7 @@ export function ClipInspector({ clipId }: { clipId: string }) {
         <VolumeControl clipId={clip.id} volume={clip.volume} />
       </Section>
 
-      {onMain && (
+      {onVideo && (
         <Section title="Framing">
           <ToggleGroup
             type="single"
@@ -75,7 +75,7 @@ export function ClipInspector({ clipId }: { clipId: string }) {
           </ToggleGroup>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             {clip.fit === "contain"
-              ? "Shows the whole frame, with the background around it."
+              ? "Shows the whole frame, with the tracks below (or the background) around it."
               : "Crops the frame to fill the canvas."}
           </p>
         </Section>

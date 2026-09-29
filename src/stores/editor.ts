@@ -9,23 +9,31 @@ import type {
   ProjectSummary,
 } from "@shared/types";
 import {
-  MAIN_TRACK_ID,
-  addAudioTrack,
+  type CopiedClip,
   addClip,
-  appendToMain,
+  addTrack,
+  adjacentTrack,
+  appendToTrack,
   canPlaceOnTrack,
-  clipAtTime,
+  clipEnd,
+  clipsAtTime,
+  copyClips,
   createDefaultProject,
   createId,
   getClip,
   getTrack,
-  insertIntoMain,
-  mainInsertIndex,
+  isOnVideoTrack,
+  moveClips,
   normalizeProject,
+  pasteClips,
   projectDuration,
+  pruneEmptyTrack,
   removeAssetClips,
   removeClips,
-  splitClip,
+  rippleDelete,
+  rippleTrimTo,
+  splitClips,
+  videoTracks,
 } from "@shared/timeline";
 import { ApiRequestError, api } from "@/lib/api";
 import { usePlayback } from "./playback";
@@ -55,7 +63,10 @@ interface EditorState {
   /** The open project's media, newest first. */
   assets: MediaAsset[];
   uploads: Upload[];
-  selectedClipId: string | null;
+  /** Selected clips, in selection order (the last one is shown in the inspector). */
+  selectedClipIds: string[];
+  /** Clips copied with ⌘C / cut with ⌘X. */
+  clipboard: CopiedClip[];
   /** Timeline zoom in pixels per second. */
   zoom: number;
   snapping: boolean;
@@ -95,7 +106,12 @@ interface EditorState {
   undo: () => void;
   redo: () => void;
 
+  /** Select just this clip (or nothing). */
   select: (clipId: string | null) => void;
+  setSelection: (clipIds: string[]) => void;
+  /** Add the clip to the selection, or remove it if it's already selected. */
+  toggleSelected: (clipId: string) => void;
+  selectAll: () => void;
   setZoom: (zoom: number) => void;
   toggleSnapping: () => void;
   updateSettings: (patch: Partial<ProjectSettings>) => void;
@@ -118,10 +134,40 @@ interface EditorState {
    *   (appended when omitted). Audio: first clip's left edge (0 when omitted), the rest follow.
    * Returns the ids of the created clips.
    */
-  addAssetsToTimeline: (assetIds: string[], opts?: { trackId?: string; at?: number }) => string[];
-  /** Split the selected clip at the playhead, or the main-track clip under it. */
+  addAssetsToTimeline: (assetIds: string[], opts?: AddToTimelineOptions) => string[];
+  /**
+   * Split at the playhead: the selected clips under it or, when none are, every
+   * video-track clip under it.
+   */
   splitAtPlayhead: () => void;
-  deleteSelected: () => void;
+  /** Split specific clips at a timeline time (e.g. where a clip was right-clicked). */
+  splitAt: (clipIds: string[], time: number) => void;
+  /** Delete the selection; `ripple` also closes the gaps it leaves. */
+  deleteSelected: (ripple?: boolean) => void;
+  copySelected: () => void;
+  cutSelected: () => void;
+  /** Paste the clipboard with its first clip at `at` (default: the playhead). */
+  paste: (at?: number) => void;
+  /** Copy the selection and paste it right after itself. */
+  duplicateSelected: () => void;
+  /** Move the selection by `seconds` if there's room (no jumping over other clips). */
+  nudgeSelected: (seconds: number) => void;
+  /** Move the selection to the next track of the same kind above (-1) or below (1), creating one at the edge. */
+  moveSelectedToTrack: (dir: -1 | 1) => void;
+  /** Cut the part before (`start`) or after (`end`) the playhead off the clips under it, closing the gap. */
+  trimToPlayhead: (edge: "start" | "end") => void;
+}
+
+export interface AddToTimelineOptions {
+  /** Track under the pointer; ignored when incompatible. */
+  trackId?: string;
+  /** Timeline time under the pointer. */
+  at?: number;
+  /**
+   * Dropped above the top track ("above") or below the bottom one ("below"):
+   * compatible assets go on a new video track on top, or a new audio track at the bottom.
+   */
+  newTrack?: "above" | "below";
 }
 
 let openToken = 0;
@@ -130,7 +176,7 @@ const emptyEditor = () => ({
   project: createDefaultProject(),
   assets: [] as MediaAsset[],
   uploads: [] as Upload[],
-  selectedClipId: null,
+  selectedClipIds: [] as string[],
   past: [] as Project[],
   future: [] as Project[],
   gestureBase: null,
@@ -143,7 +189,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   project: createDefaultProject(),
   assets: [],
   uploads: [],
-  selectedClipId: null,
+  selectedClipIds: [],
+  clipboard: [],
   zoom: 60,
   snapping: true,
   past: [],
@@ -252,7 +299,20 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   select(clipId) {
-    set({ selectedClipId: clipId });
+    set({ selectedClipIds: clipId ? [clipId] : [] });
+  },
+
+  setSelection(clipIds) {
+    set({ selectedClipIds: [...new Set(clipIds)] });
+  },
+
+  toggleSelected(clipId) {
+    const ids = get().selectedClipIds;
+    set({ selectedClipIds: ids.includes(clipId) ? ids.filter((id) => id !== clipId) : [...ids, clipId] });
+  },
+
+  selectAll() {
+    set({ selectedClipIds: get().project.clips.map((c) => c.id) });
   },
 
   setZoom(zoom) {
@@ -360,20 +420,30 @@ export const useEditor = create<EditorState>((set, get) => ({
 
     get().commit((project) => {
       let p = project;
-      // Group by destination track, honouring the requested track when compatible.
       const requested = opts.trackId ? getTrack(p, opts.trackId) : undefined;
+      let newVideo: string | null = null;
+      let newAudio: string | null = null;
       const destination = (a: MediaAsset): string => {
         if (requested && canPlaceOnTrack(a, requested)) return requested.id;
-        if (a.hasVideo) return MAIN_TRACK_ID;
+        if (opts.newTrack === "above" && a.hasVideo) {
+          if (!newVideo) ({ project: p, trackId: newVideo } = addTrack(p, "video"));
+          return newVideo;
+        }
+        if (opts.newTrack === "below" && !a.hasVideo) {
+          if (!newAudio) ({ project: p, trackId: newAudio } = addTrack(p, "audio"));
+          return newAudio;
+        }
+        // Default homes: the bottom video track, the top audio track.
+        if (a.hasVideo) return videoTracks(p).at(-1)!.id;
         const audio = p.tracks.find((t) => t.kind === "audio");
         if (audio) return audio.id;
-        const added = addAudioTrack(p);
+        const added = addTrack(p, "audio");
         p = added.project;
         return added.trackId;
       };
 
-      let mainIndex = opts.at === undefined ? null : mainInsertIndex(p, opts.at);
-      const audioCursor = new Map<string, number>();
+      // Assets dropped together are laid end to end on each track.
+      const cursor = new Map<string, number>();
       for (const asset of assets) {
         const trackId = destination(asset);
         const clip: Clip = {
@@ -386,62 +456,163 @@ export const useEditor = create<EditorState>((set, get) => ({
           volume: 1,
           fit: "contain",
         };
-        if (trackId === MAIN_TRACK_ID) {
-          if (mainIndex === null) {
-            p = appendToMain(p, clip);
-          } else {
-            p = insertIntoMain(p, clip, mainIndex);
-            mainIndex++;
-          }
+        const at = cursor.get(trackId) ?? opts.at;
+        if (at === undefined && getTrack(p, trackId)?.kind === "video") {
+          p = appendToTrack(p, clip, trackId);
         } else {
-          const at = audioCursor.get(trackId) ?? Math.max(0, opts.at ?? 0);
-          p = addClip(p, { ...clip, start: at });
-          const placed = getClip(p, clip.id)!;
-          audioCursor.set(trackId, placed.start + (placed.out - placed.in));
+          p = addClip(p, { ...clip, start: Math.max(0, at ?? 0) });
         }
+        cursor.set(trackId, clipEnd(getClip(p, clip.id)!));
         created.push(clip.id);
       }
       return p;
     });
 
-    if (created.length) set({ selectedClipId: created[created.length - 1] });
+    if (created.length) set({ selectedClipIds: [created[created.length - 1]] });
     return created;
   },
 
   splitAtPlayhead() {
     const time = usePlayback.getState().time;
-    const { project, selectedClipId } = get();
-    const selected = selectedClipId ? getClip(project, selectedClipId) : undefined;
-    const target =
-      selected && clipAtTime(project, selected.trackId, time)?.id === selected.id
-        ? selected
-        : clipAtTime(project, MAIN_TRACK_ID, time);
-    if (!target) {
+    const { project } = get();
+    const under = clipsAtTime(project, time);
+    const selected = under.filter((c) => get().selectedClipIds.includes(c.id));
+    const targets = selected.length ? selected : under.filter((c) => isOnVideoTrack(project, c));
+    if (targets.length === 0) {
       toast("Nothing to split here", { description: "Move the playhead over a clip." });
       return;
     }
-    const result = splitClip(project, target.id, time);
-    if (!result.newClipId) {
+    get().splitAt(targets.map((c) => c.id), time);
+  },
+
+  splitAt(clipIds, time) {
+    const result = splitClips(get().project, clipIds, time);
+    if (result.newClipIds.length === 0) {
       toast("Too close to the clip edge to split");
       return;
     }
     get().commit(() => result.project);
   },
 
-  deleteSelected() {
-    const { selectedClipId } = get();
-    if (!selectedClipId) return;
-    get().commit((p) => removeClips(p, [selectedClipId]));
-    set({ selectedClipId: null });
+  deleteSelected(ripple = false) {
+    const ids = get().selectedClipIds;
+    if (ids.length === 0) return;
+    get().commit((p) => (ripple ? rippleDelete(p, ids) : removeClips(p, ids)));
+    set({ selectedClipIds: [] });
+  },
+
+  copySelected() {
+    const copied = copyClips(get().project, get().selectedClipIds);
+    if (copied.length) set({ clipboard: copied });
+  },
+
+  cutSelected() {
+    const copied = copyClips(get().project, get().selectedClipIds);
+    if (copied.length === 0) return;
+    set({ clipboard: copied });
+    get().deleteSelected();
+  },
+
+  paste(at) {
+    const assetIds = new Set(get().assets.map((a) => a.id));
+    // The media may have been deleted (or belong to another project) since the copy.
+    const copied = get().clipboard.filter((c) => assetIds.has(c.clip.assetId));
+    if (copied.length === 0) {
+      if (get().clipboard.length) toast("The copied clips' media isn't in this project");
+      return;
+    }
+    let clipIds: string[] = [];
+    get().commit((p) => {
+      const res = pasteClips(p, copied, at ?? usePlayback.getState().time);
+      clipIds = res.clipIds;
+      return res.project;
+    });
+    set({ selectedClipIds: clipIds });
+  },
+
+  duplicateSelected() {
+    const { project, selectedClipIds } = get();
+    const copied = copyClips(project, selectedClipIds);
+    if (copied.length === 0) return;
+    const end = Math.max(...copied.map((c) => clipEnd(c.clip)));
+    let clipIds: string[] = [];
+    get().commit((p) => {
+      const res = pasteClips(p, copied, end);
+      clipIds = res.clipIds;
+      return res.project;
+    });
+    set({ selectedClipIds: clipIds });
+  },
+
+  nudgeSelected(seconds) {
+    const ids = get().selectedClipIds;
+    if (ids.length === 0) return;
+    get().commit((p) => {
+      const next = moveClips(p, ids, seconds);
+      // Only if everything moved by exactly that much (moveClips would jump over neighbours).
+      const exact = ids.every((id) => {
+        const [a, b] = [getClip(p, id), getClip(next, id)];
+        return !a || !b || Math.abs(b.start - (a.start + seconds)) < 1e-4;
+      });
+      return exact ? next : p;
+    });
+  },
+
+  moveSelectedToTrack(dir) {
+    const ids = get().selectedClipIds;
+    if (ids.length === 0) return;
+    get().commit((project) => {
+      let p = project;
+      const target = new Map<string, string>();
+      const sources = new Set<string>();
+      for (const id of ids) {
+        const clip = getClip(p, id);
+        if (!clip) continue;
+        sources.add(clip.trackId);
+        if (target.has(clip.trackId)) continue;
+        const kind = getTrack(p, clip.trackId)?.kind;
+        const next = adjacentTrack(p, clip.trackId, dir);
+        if (next) {
+          target.set(clip.trackId, next.id);
+        } else if ((kind === "video" && dir === -1) || (kind === "audio" && dir === 1)) {
+          const added = addTrack(p, kind);
+          p = added.project;
+          target.set(clip.trackId, added.trackId);
+        } else {
+          return project; // already at the edge
+        }
+      }
+      const moved = moveClips(p, ids, 0, (c) => target.get(c.trackId) ?? c.trackId);
+      // Only when every clip fits right where it is on its new track.
+      const stayed = ids.every((id) => getClip(moved, id)?.start === getClip(p, id)?.start);
+      if (!stayed) return project;
+      let result = moved;
+      for (const trackId of sources) result = pruneEmptyTrack(result, trackId);
+      return result;
+    });
+  },
+
+  trimToPlayhead(edge) {
+    const time = usePlayback.getState().time;
+    const { project, selectedClipIds } = get();
+    const under = clipsAtTime(project, time);
+    const selected = under.filter((c) => selectedClipIds.includes(c.id));
+    const targets = selected.length ? selected : under.filter((c) => isOnVideoTrack(project, c));
+    if (targets.length === 0) return;
+    get().commit((p) => targets.reduce((q, c) => rippleTrimTo(q, c.id, edge, time), p));
+    // The playhead now sits on the cut; start trims pull the clip under it.
+    if (edge === "start") {
+      const starts = targets.map((c) => getClip(get().project, c.id)?.start ?? time);
+      usePlayback.getState().seek(Math.min(...starts));
+    }
   },
 }));
 
-/** Drop the selection if the selected clip no longer exists. */
+/** Drop clips that no longer exist from the selection. */
 function fixSelection() {
-  const { selectedClipId, project } = useEditor.getState();
-  if (selectedClipId && !getClip(project, selectedClipId)) {
-    useEditor.setState({ selectedClipId: null });
-  }
+  const { selectedClipIds, project } = useEditor.getState();
+  const kept = selectedClipIds.filter((id) => getClip(project, id));
+  if (kept.length !== selectedClipIds.length) useEditor.setState({ selectedClipIds: kept });
 }
 
 // Keep the playback clock's duration in sync with the timeline.

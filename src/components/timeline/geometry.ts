@@ -4,19 +4,13 @@
  * Horizontal positions are "lane px" (0 = time 0) unless stated otherwise.
  */
 import type { Project, Track, TrackKind } from "@shared/types";
-import {
-  MAIN_TRACK_ID,
-  clipEnd,
-  getClip,
-  removeClips,
-  snapPoints,
-  snapTime,
-  trackClips,
-} from "@shared/timeline";
+import { snapPoints, snapTime } from "@shared/timeline";
 import {
   AUDIO_LANE_HEIGHT,
+  CLIP_INSET_Y,
   EDGE_SCROLL_MAX_SPEED,
   EDGE_SCROLL_ZONE,
+  TOP_GUTTER,
   VIDEO_LANE_HEIGHT,
 } from "./constants";
 
@@ -37,8 +31,9 @@ export interface LaneLayout {
 export const laneHeight = (kind: TrackKind) =>
   kind === "video" ? VIDEO_LANE_HEIGHT : AUDIO_LANE_HEIGHT;
 
+/** Lanes stacked below the top gutter; `height` is where the last lane ends. */
 export function layoutLanes(tracks: Track[]): { lanes: LaneLayout[]; height: number } {
-  let top = 0;
+  let top = TOP_GUTTER;
   const lanes = tracks.map((t) => {
     const lane = { trackId: t.id, kind: t.kind, top, height: laneHeight(t.kind) };
     top += lane.height;
@@ -50,6 +45,24 @@ export function layoutLanes(tracks: Track[]): { lanes: LaneLayout[]; height: num
 /** The lane containing `y` (lane-area px), or null above/below all lanes. */
 export function laneAt(lanes: LaneLayout[], y: number): LaneLayout | null {
   return lanes.find((l) => y >= l.top && y < l.top + l.height) ?? null;
+}
+
+/** "above" the first lane, "below" the last one, or null when `y` is on a lane. */
+export function newTrackZoneAt(lanes: LaneLayout[], y: number): "above" | "below" | null {
+  if (lanes.length === 0) return null;
+  if (y < lanes[0].top) return "above";
+  const last = lanes[lanes.length - 1];
+  return y >= last.top + last.height ? "below" : null;
+}
+
+/** Lane-area rectangle of a clip (for hit testing, e.g. marquee selection). */
+export function clipRect(start: number, duration: number, lane: LaneLayout, zoom: number) {
+  return {
+    left: start * zoom,
+    right: (start + duration) * zoom,
+    top: lane.top + CLIP_INSET_Y,
+    bottom: lane.top + lane.height - CLIP_INSET_Y,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -201,54 +214,40 @@ export function rulerTicks(zoom: number, x0: number, x1: number): Tick[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Snap a moving clip by whichever edge (start or end) is closer to a snap
- * point within `threshold`. The start never goes below 0.
+ * Snap a move of `delta` seconds: whichever edge (start or end) of any moving
+ * span lands closest to a snap point within `threshold` pulls the whole move
+ * onto it. Spans are the moving clips' current [start, start + duration).
  */
-export function snapClipStart(
-  desired: number,
-  duration: number,
+export function snapDelta(
+  delta: number,
+  spans: { start: number; duration: number }[],
   points: number[],
   threshold: number,
-): { start: number; snappedTo: number | null } {
-  const start = Math.max(0, desired);
-  if (threshold <= 0 || points.length === 0) return { start, snappedTo: null };
-  const a = snapTime(start, points, threshold);
-  const b = snapTime(start + duration, points, threshold);
-  const da = a.snappedTo === null ? Infinity : Math.abs(a.time - start);
-  const db = b.snappedTo === null || b.time - duration < -EPS ? Infinity : Math.abs(b.time - (start + duration));
-  if (da === Infinity && db === Infinity) return { start, snappedTo: null };
-  return da <= db
-    ? { start: a.time, snappedTo: a.snappedTo }
-    : { start: Math.max(0, b.time - duration), snappedTo: b.snappedTo };
+): { delta: number; snappedTo: number | null } {
+  if (threshold <= 0 || points.length === 0 || spans.length === 0) return { delta, snappedTo: null };
+  let best: { delta: number; snappedTo: number; dist: number } | null = null;
+  for (const { start, duration } of spans) {
+    for (const edge of [start, start + duration]) {
+      const res = snapTime(edge + delta, points, threshold);
+      if (res.snappedTo === null) continue;
+      const dist = Math.abs(res.time - (edge + delta));
+      if (!best || dist < best.dist) best = { delta: res.time - edge, snappedTo: res.snappedTo, dist };
+    }
+  }
+  // Snapping must never push the group before 0.
+  const minStart = Math.min(...spans.map((s) => s.start));
+  if (!best || minStart + best.delta < -EPS) return { delta, snappedTo: null };
+  return { delta: best.delta, snappedTo: best.snappedTo };
 }
 
-/** Snap points for moving `clipId`: the layout everything else will have once it's lifted out. */
-export function moveSnapPoints(project: Project, clipId: string, playhead: number): number[] {
-  return snapPoints(removeClips(project, [clipId]), playhead, clipId);
+/** Snap points for moving clips: every other clip's edges, 0 and the playhead. */
+export function moveSnapPoints(project: Project, clipIds: string[], playhead: number): number[] {
+  return snapPoints(project, playhead, new Set(clipIds));
 }
 
-/**
- * Snap points for trimming `clipId`: edges that stay put during the trim.
- * On the magnetic main track, clips after the trimmed one ripple, so they're excluded.
- */
+/** Snap points for trimming `clipId`: every other clip's edges, 0 and the playhead. */
 export function trimSnapPoints(project: Project, clipId: string, playhead: number): number[] {
-  const clip = getClip(project, clipId);
-  if (!clip) return [];
-  const isMain = clip.trackId === MAIN_TRACK_ID;
-  const stable = project.clips.filter(
-    (c) =>
-      c.id !== clipId &&
-      !(isMain && c.trackId === MAIN_TRACK_ID && c.start >= clip.start - EPS),
-  );
-  return snapPoints({ ...project, clips: stable }, playhead, clipId);
-}
-
-/** Timeline time of the boundary before main-track slot `index` (for drop indicators). */
-export function mainSlotTime(project: Project, index: number): number {
-  const clips = trackClips(project, MAIN_TRACK_ID);
-  if (clips.length === 0) return 0;
-  if (index < clips.length) return clips[Math.max(0, index)].start;
-  return clipEnd(clips[clips.length - 1]);
+  return snapPoints(project, playhead, clipId);
 }
 
 // ---------------------------------------------------------------------------

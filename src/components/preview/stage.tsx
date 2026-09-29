@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { PiCloudSlash, PiFilmSlate } from "react-icons/pi";
-import { MAIN_TRACK_ID } from "@shared/timeline";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
 import { fitRect, isLightColor } from "./canvas";
@@ -13,8 +12,17 @@ export function Stage() {
   const background = useEditor((s) => s.project.settings.background);
   const isEmpty = useEditor((s) => s.project.clips.length === 0);
   const audioClipIds = useEditor(
-    useShallow((s) => s.project.clips.filter((c) => c.trackId !== MAIN_TRACK_ID).map((c) => c.id)),
+    useShallow((s) => {
+      const audio = new Set(s.project.tracks.filter((t) => t.kind === "audio").map((t) => t.id));
+      return s.project.clips.filter((c) => audio.has(c.trackId)).map((c) => c.id);
+    }),
   );
+  // Video track ids, bottom layer first.
+  const videoTrackIds = useEditor(
+    useShallow((s) => s.project.tracks.filter((t) => t.kind === "video").map((t) => t.id).reverse()),
+  );
+  // Stable DOM order (moving a media element in the DOM can pause it); layering is by z-index.
+  const domOrder = [...videoTrackIds].sort();
 
   const [offline, setOffline] = useState(false);
   const [engine] = useState(() => new PreviewEngine(setOffline));
@@ -22,9 +30,6 @@ export function Stage() {
     engine.start();
     return () => engine.stop();
   }, [engine]);
-
-  const videoA = useCallback((el: HTMLVideoElement) => engine.attachVideo(0, el), [engine]);
-  const videoB = useCallback((el: HTMLVideoElement) => engine.attachVideo(1, el), [engine]);
 
   const areaRef = useRef<HTMLDivElement>(null);
   const [area, setArea] = useState({ width: 0, height: 0 });
@@ -46,8 +51,9 @@ export function Stage() {
         className="relative overflow-hidden rounded-lg shadow-xl ring-1 shadow-black/20 ring-black/10 dark:ring-white/10"
         style={{ ...size, background }}
       >
-        <video ref={videoA} className={videoClass} playsInline preload="auto" />
-        <video ref={videoB} className={videoClass} playsInline preload="auto" />
+        {domOrder.map((trackId) => (
+          <VideoLayer key={trackId} trackId={trackId} layer={videoTrackIds.indexOf(trackId)} engine={engine} />
+        ))}
         {audioClipIds.map((id) => (
           <AudioSink key={id} clipId={id} engine={engine} />
         ))}
@@ -55,7 +61,7 @@ export function Stage() {
         {isEmpty && (
           <div
             className={cn(
-              "absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center",
+              "absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 px-6 text-center",
               light ? "text-black/55" : "text-white/60",
             )}
           >
@@ -74,7 +80,7 @@ export function Stage() {
         )}
 
         {offline && !isEmpty && (
-          <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm">
+          <div className="absolute top-2.5 left-2.5 z-50 flex items-center gap-1.5 rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm">
             <PiCloudSlash className="size-3.5" />
             Media offline
           </div>
@@ -86,6 +92,17 @@ export function Stage() {
 
 // Opacity and object-fit are set imperatively by the engine.
 const videoClass = "absolute inset-0 size-full opacity-0";
+
+function VideoLayer({ trackId, layer, engine }: { trackId: string; layer: number; engine: PreviewEngine }) {
+  const videoA = useCallback((el: HTMLVideoElement) => engine.attachVideo(trackId, 0, el), [engine, trackId]);
+  const videoB = useCallback((el: HTMLVideoElement) => engine.attachVideo(trackId, 1, el), [engine, trackId]);
+  return (
+    <div className="absolute inset-0" style={{ zIndex: layer }}>
+      <video ref={videoA} className={videoClass} playsInline preload="auto" />
+      <video ref={videoB} className={videoClass} playsInline preload="auto" />
+    </div>
+  );
+}
 
 function AudioSink({ clipId, engine }: { clipId: string; engine: PreviewEngine }) {
   const ref = useCallback((el: HTMLAudioElement) => engine.attachAudio(clipId, el), [engine, clipId]);

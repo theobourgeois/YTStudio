@@ -4,7 +4,7 @@
  * `engine.ts` / `media-slot.ts`; everything here is deterministic and tested.
  */
 import type { Clip, Project } from "@shared/types";
-import { MAIN_TRACK_ID, clipAtTime, clipEnd, projectDuration, trackClips } from "@shared/timeline";
+import { clipAtTime, clipEnd, getTrack, projectDuration, trackClips } from "@shared/timeline";
 
 /** Keep seeks this far before a clip's out-point so the frame shown belongs to the clip. */
 const END_GUARD = 1e-3;
@@ -23,29 +23,29 @@ export function sourceTime(clip: Clip, t: number): number {
   return Math.min(Math.max(s, clip.in), Math.max(clip.in, clip.out - END_GUARD));
 }
 
-export interface MainPlan {
-  /** The main-track clip on screen, with the source time it should show. */
+export interface TrackPlan {
+  /** The clip on screen on this video track, with the source time it should show. */
   current: { clip: Clip; time: number } | null;
-  /** The clip after `current`, to be preloaded at its in-point. */
+  /** The clip after the playhead on this track, to be preloaded at its in-point. */
   next: Clip | null;
 }
 
 /**
- * Main-track clip under the playhead and the one after it. When the playhead
- * sits exactly at the end of the project and the main track reaches that far,
- * the last clip's final frame is held rather than dropping to the background.
+ * The video track's clip under the playhead and the next one after the
+ * playhead. When the playhead sits exactly at the end of the project and the
+ * track reaches that far, its last clip's final frame is held rather than
+ * dropping to what's underneath.
  */
-export function planMain(project: Project, t: number): MainPlan {
-  const clips = trackClips(project, MAIN_TRACK_ID);
-  let clip = clipAtTime(project, MAIN_TRACK_ID, t);
+export function planTrack(project: Project, trackId: string, t: number): TrackPlan {
+  const clips = trackClips(project, trackId);
+  let clip = clipAtTime(project, trackId, t);
   if (!clip && clips.length) {
     const last = clips[clips.length - 1];
     const end = clipEnd(last);
     if (Math.abs(t - end) < 1e-3 && t >= projectDuration(project) - 1e-3) clip = last;
   }
-  if (!clip) return { current: null, next: null };
-  const index = clips.findIndex((c) => c.id === clip.id);
-  return { current: { clip, time: sourceTime(clip, t) }, next: clips[index + 1] ?? null };
+  const next = clips.find((c) => c.start > t + EPS && c.id !== clip?.id) ?? null;
+  return { current: clip ? { clip, time: sourceTime(clip, t) } : null, next };
 }
 
 export interface AudioPlan {
@@ -60,7 +60,7 @@ export interface AudioPlan {
 /** Every clip on an audio track, with its desired state at time `t`. */
 export function planAudio(project: Project, t: number): AudioPlan[] {
   return project.clips
-    .filter((c) => c.trackId !== MAIN_TRACK_ID)
+    .filter((c) => getTrack(project, c.trackId)?.kind === "audio")
     .map((clip) => {
       const active = t >= clip.start - EPS && t < clipEnd(clip) - EPS;
       const time = active ? sourceTime(clip, t) : t < clip.start ? clip.in : null;

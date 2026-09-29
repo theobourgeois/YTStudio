@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Clip, Project } from "@shared/types";
-import { MAIN_TRACK_ID, appendToMain, createDefaultProject, addClip } from "@shared/timeline";
+import { MAIN_TRACK_ID, appendToTrack, createDefaultProject, addClip } from "@shared/timeline";
 import {
   anchoredScrollLeft,
   contentWidth,
@@ -10,20 +10,20 @@ import {
   formatRulerLabel,
   laneAt,
   layoutLanes,
-  mainSlotTime,
   moveSnapPoints,
+  newTrackZoneAt,
   pageScrollTarget,
   peakInRange,
   rulerTicks,
   sliderToZoom,
-  snapClipStart,
+  snapDelta,
   tickSpacing,
   trimSnapPoints,
   visibleWindow,
   wheelZoomFactor,
   zoomToSlider,
 } from "./geometry";
-import { AUDIO_LANE_HEIGHT, VIDEO_LANE_HEIGHT } from "./constants";
+import { AUDIO_LANE_HEIGHT, TOP_GUTTER, VIDEO_LANE_HEIGHT } from "./constants";
 
 const AUDIO = "audio_1";
 function clip(id: string, trackId: string, start: number, dur: number): Clip {
@@ -32,23 +32,34 @@ function clip(id: string, trackId: string, start: number, dur: number): Clip {
 /** main: a[0,2) b[2,5) c[5,6); audio: m[1,4) */
 function sample(): Project {
   let p = createDefaultProject();
-  p = appendToMain(p, clip("a", MAIN_TRACK_ID, 0, 2));
-  p = appendToMain(p, clip("b", MAIN_TRACK_ID, 0, 3));
-  p = appendToMain(p, clip("c", MAIN_TRACK_ID, 0, 1));
+  p = appendToTrack(p, clip("a", MAIN_TRACK_ID, 0, 2), MAIN_TRACK_ID);
+  p = appendToTrack(p, clip("b", MAIN_TRACK_ID, 0, 3), MAIN_TRACK_ID);
+  p = appendToTrack(p, clip("c", MAIN_TRACK_ID, 0, 1), MAIN_TRACK_ID);
   p = addClip(p, clip("m", AUDIO, 1, 3));
   return p;
 }
 
 describe("lanes", () => {
-  it("stacks lanes by kind and finds the lane under y", () => {
+  it("stacks lanes below the top gutter and finds the lane under y", () => {
     const { lanes, height } = layoutLanes(createDefaultProject().tracks);
-    expect(lanes.map((l) => l.top)).toEqual([0, VIDEO_LANE_HEIGHT]);
-    expect(height).toBe(VIDEO_LANE_HEIGHT + AUDIO_LANE_HEIGHT);
-    expect(laneAt(lanes, 0)?.trackId).toBe(MAIN_TRACK_ID);
-    expect(laneAt(lanes, VIDEO_LANE_HEIGHT - 0.5)?.trackId).toBe(MAIN_TRACK_ID);
-    expect(laneAt(lanes, VIDEO_LANE_HEIGHT)?.trackId).toBe(AUDIO);
+    const g = TOP_GUTTER;
+    expect(lanes.map((l) => l.top)).toEqual([g, g + VIDEO_LANE_HEIGHT]);
+    expect(height).toBe(g + VIDEO_LANE_HEIGHT + AUDIO_LANE_HEIGHT);
+    expect(laneAt(lanes, g)?.trackId).toBe(MAIN_TRACK_ID);
+    expect(laneAt(lanes, g + VIDEO_LANE_HEIGHT - 0.5)?.trackId).toBe(MAIN_TRACK_ID);
+    expect(laneAt(lanes, g + VIDEO_LANE_HEIGHT)?.trackId).toBe(AUDIO);
     expect(laneAt(lanes, height)).toBeNull();
-    expect(laneAt(lanes, -1)).toBeNull();
+    expect(laneAt(lanes, g - 1)).toBeNull();
+  });
+
+  it("finds the new-track zones above and below the lanes", () => {
+    const { lanes, height } = layoutLanes(createDefaultProject().tracks);
+    expect(newTrackZoneAt(lanes, TOP_GUTTER - 1)).toBe("above");
+    expect(newTrackZoneAt(lanes, -40)).toBe("above");
+    expect(newTrackZoneAt(lanes, TOP_GUTTER)).toBeNull();
+    expect(newTrackZoneAt(lanes, height - 1)).toBeNull();
+    expect(newTrackZoneAt(lanes, height)).toBe("below");
+    expect(newTrackZoneAt([], 0)).toBeNull();
   });
 });
 
@@ -141,39 +152,37 @@ describe("ruler", () => {
 });
 
 describe("snapping", () => {
+  const one = [{ start: 0, duration: 3 }];
+
   it("snaps whichever edge is closer", () => {
     const pts = [0, 10, 20];
-    expect(snapClipStart(9.9, 3, pts, 0.2)).toEqual({ start: 10, snappedTo: 10 });
-    expect(snapClipStart(17.1, 3, pts, 0.2)).toEqual({ start: 17, snappedTo: 20 });
-    expect(snapClipStart(15, 3, pts, 0.2)).toEqual({ start: 15, snappedTo: null });
-    expect(snapClipStart(-5, 3, pts, 0.2)).toEqual({ start: 0, snappedTo: 0 });
-    expect(snapClipStart(5, 3, pts, 0)).toEqual({ start: 5, snappedTo: null });
+    expect(snapDelta(9.9, one, pts, 0.2)).toEqual({ delta: 10, snappedTo: 10 });
+    expect(snapDelta(17.1, one, pts, 0.2)).toEqual({ delta: 17, snappedTo: 20 });
+    expect(snapDelta(15, one, pts, 0.2)).toEqual({ delta: 15, snappedTo: null });
+    expect(snapDelta(5, one, pts, 0)).toEqual({ delta: 5, snappedTo: null });
   });
 
   it("never snaps an end edge that would push the start below 0", () => {
-    expect(snapClipStart(0.05, 3, [2.9], 0.2)).toEqual({ start: 0.05, snappedTo: null });
+    expect(snapDelta(0.05, one, [2.9], 0.2)).toEqual({ delta: 0.05, snappedTo: null });
   });
 
-  it("move snap points use the layout without the dragged clip", () => {
-    const pts = moveSnapPoints(sample(), "a", 7).sort((x, y) => x - y);
-    // Without a, main packs to b[0,3) c[3,4); audio m[1,4); playhead 7.
-    expect(pts).toEqual([0, 1, 3, 4, 7]);
+  it("snaps a group by whichever member edge is closest", () => {
+    const group = [{ start: 0, duration: 1 }, { start: 5, duration: 2 }];
+    expect(snapDelta(2.95, group, [10], 0.2)).toEqual({ delta: 3, snappedTo: 10 });
   });
 
-  it("trim snap points exclude main clips that ripple", () => {
+  it("move snap points are the other clips' edges and the playhead", () => {
+    const pts = moveSnapPoints(sample(), ["a"], 7).sort((x, y) => x - y);
+    // b[2,5) c[5,6); audio m[1,4); playhead 7.
+    expect(pts).toEqual([0, 1, 2, 4, 5, 6, 7]);
+    expect(moveSnapPoints(sample(), ["a", "m"], 7).sort((x, y) => x - y)).toEqual([0, 2, 5, 6, 7]);
+  });
+
+  it("trim snap points are the other clips' edges and the playhead", () => {
     const pts = trimSnapPoints(sample(), "b", 9).sort((x, y) => x - y);
-    // a[0,2) stays, c ripples; m[1,4); playhead 9
-    expect(pts).toEqual([0, 1, 2, 4, 9]);
+    expect(pts).toEqual([0, 1, 2, 4, 5, 6, 9]);
     const audio = trimSnapPoints(sample(), "m", 0).sort((x, y) => x - y);
     expect(audio).toEqual([0, 2, 5, 6]);
-  });
-
-  it("main slot boundary times", () => {
-    const p = sample();
-    expect(mainSlotTime(p, 0)).toBe(0);
-    expect(mainSlotTime(p, 1)).toBe(2);
-    expect(mainSlotTime(p, 3)).toBe(6);
-    expect(mainSlotTime(createDefaultProject(), 0)).toBe(0);
   });
 });
 

@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { PiSpinnerGap, PiWarning } from "react-icons/pi";
 import type { ExportResolution } from "@shared/types";
 import { formatDuration } from "@shared/format";
-import { MAIN_TRACK_ID, outputSize, projectDuration, withoutAudioTracks } from "@shared/timeline";
+import { isOnVideoTrack, outputSize, projectDuration, withoutAudioTracks } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { DialogClose, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -40,8 +40,8 @@ export function ExportForm({
   onSubmit,
 }: ExportFormProps) {
   const project = useEditor((s) => s.project);
-  const hasAudioTracks = project.clips.some((c) => c.trackId !== MAIN_TRACK_ID);
-  const hasVideo = project.clips.some((c) => c.trackId === MAIN_TRACK_ID);
+  const hasAudioTracks = project.clips.some((c) => !isOnVideoTrack(project, c));
+  const hasVideo = project.clips.some((c) => isOnVideoTrack(project, c));
   const exclude = hasAudioTracks && hasVideo && excludeAudioTracks;
   const [fileName, setFileName] = useState(project.name);
   const { aspectRatio, fps } = project.settings;

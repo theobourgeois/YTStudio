@@ -10,8 +10,10 @@ import type {
   MediaAsset,
   Project,
   Track,
+  TrackKind,
 } from "./types.ts";
 
+/** Id of the first video track of every project (older projects' only one). */
 export const MAIN_TRACK_ID = "main";
 /** Shortest clip the editor allows (seconds). */
 export const MIN_CLIP_DURATION = 0.1;
@@ -32,7 +34,7 @@ export function createDefaultProject(): Project {
     name: "Untitled",
     settings: { aspectRatio: "9:16", fps: 30, background: "#000000" },
     tracks: [
-      { id: MAIN_TRACK_ID, kind: "video", name: "Video", muted: false },
+      { id: MAIN_TRACK_ID, kind: "video", name: "Video 1", muted: false },
       { id: "audio_1", kind: "audio", name: "Audio 1", muted: false },
     ],
     clips: [],
@@ -59,6 +61,16 @@ export function trackClips(project: Project, trackId: string): Clip[] {
   return project.clips.filter((c) => c.trackId === trackId).sort((a, b) => a.start - b.start);
 }
 
+/** Video tracks in display order: the first one is drawn on top of the others. */
+export function videoTracks(project: Project): Track[] {
+  return project.tracks.filter((t) => t.kind === "video");
+}
+
+/** Whether a clip sits on a video track. */
+export function isOnVideoTrack(project: Project, clip: Clip): boolean {
+  return getTrack(project, clip.trackId)?.kind === "video";
+}
+
 /** End of the last clip on any track (0 for an empty timeline). */
 export function projectDuration(project: Project): number {
   let end = 0;
@@ -66,9 +78,9 @@ export function projectDuration(project: Project): number {
   return roundTime(end);
 }
 
-/** The project without its audio tracks' clips (the video track keeps its own sound). */
+/** The project without its audio tracks' clips (video tracks keep their own sound). */
 export function withoutAudioTracks(project: Project): Project {
-  return { ...project, clips: project.clips.filter((c) => c.trackId === MAIN_TRACK_ID) };
+  return { ...project, clips: project.clips.filter((c) => isOnVideoTrack(project, c)) };
 }
 
 /** The clip on `trackId` covering `time` (start inclusive, end exclusive). */
@@ -78,20 +90,32 @@ export function clipAtTime(project: Project, trackId: string, time: number): Cli
   );
 }
 
+/** Every clip covering `time`, on any track. */
+export function clipsAtTime(project: Project, time: number): Clip[] {
+  return project.clips.filter((c) => time >= c.start - EPS && time < clipEnd(c) - EPS);
+}
+
 /** Whether an asset may be placed on a track of the given kind. */
-export function canPlaceOnTrack(asset: Pick<MediaAsset, "hasVideo" | "hasAudio">, track: Track) {
+export function canPlaceOnTrack(asset: Pick<MediaAsset, "hasVideo" | "hasAudio">, track: Pick<Track, "kind">) {
   return track.kind === "video" ? asset.hasVideo : asset.hasAudio;
 }
 
-/**
- * Insertion index for the magnetic main track when something is dropped with
- * its centre at `time`: the index of the first clip whose midpoint lies after
- * `time`. Positions are the clips' *current* positions (excluding `excludeId`).
- */
-export function mainInsertIndex(project: Project, time: number, excludeId?: string): number {
-  const clips = trackClips(project, MAIN_TRACK_ID).filter((c) => c.id !== excludeId);
-  const i = clips.findIndex((c) => time < c.start + clipDuration(c) / 2);
-  return i === -1 ? clips.length : i;
+/** Whether [start, start + duration) is free on `trackId` (ignoring `exclude`) and not before 0. */
+export function isFree(
+  project: Project,
+  trackId: string,
+  start: number,
+  duration: number,
+  exclude: ReadonlySet<string> = new Set(),
+): boolean {
+  if (start < -EPS) return false;
+  return project.clips.every(
+    (o) =>
+      o.trackId !== trackId ||
+      exclude.has(o.id) ||
+      start + duration <= o.start + EPS ||
+      start >= clipEnd(o) - EPS,
+  );
 }
 
 /**
@@ -122,15 +146,30 @@ export function findFreeStart(
   return roundTime(Math.max(0, best));
 }
 
+/** Sorted, de-duplicated edit points (clip starts and ends) plus 0. */
+export function editPoints(project: Project): number[] {
+  const pts = new Set<number>([0]);
+  for (const c of project.clips) {
+    pts.add(roundTime(c.start));
+    pts.add(roundTime(clipEnd(c)));
+  }
+  return [...pts].sort((a, b) => a - b);
+}
+
 // ---------------------------------------------------------------------------
 // Snapping
 // ---------------------------------------------------------------------------
 
-/** Candidate snap targets: 0, the playhead and every clip edge (except `excludeClipId`). */
-export function snapPoints(project: Project, playhead: number, excludeClipId?: string): number[] {
+/** Candidate snap targets: 0, the playhead and every clip edge (except `exclude`d clips). */
+export function snapPoints(
+  project: Project,
+  playhead: number,
+  exclude: ReadonlySet<string> | string = new Set(),
+): number[] {
+  const skip = typeof exclude === "string" ? new Set([exclude]) : exclude;
   const pts = new Set<number>([0, roundTime(playhead)]);
   for (const c of project.clips) {
-    if (c.id === excludeClipId) continue;
+    if (skip.has(c.id)) continue;
     pts.add(roundTime(c.start));
     pts.add(roundTime(clipEnd(c)));
   }
@@ -159,87 +198,91 @@ function withClips(project: Project, clips: Clip[]): Project {
   return { ...project, clips };
 }
 
-/** Lay the main track out back-to-back from 0, preserving the given order. */
-function layoutMain(project: Project, ordered: Clip[]): Project {
-  let t = 0;
-  const placed = new Map<string, Clip>();
-  for (const c of ordered) {
-    placed.set(c.id, { ...c, trackId: MAIN_TRACK_ID, start: roundTime(t) });
-    t += clipDuration(c);
-  }
-  const rest = project.clips.filter((c) => c.trackId !== MAIN_TRACK_ID && !placed.has(c.id));
-  return withClips(project, [...ordered.map((c) => placed.get(c.id)!), ...rest]);
+function replaceClips(project: Project, updated: Map<string, Clip>): Project {
+  if (updated.size === 0) return project;
+  return withClips(project, project.clips.map((c) => updated.get(c.id) ?? c));
 }
 
-/** Re-pack the magnetic main track (closes gaps, keeps order). */
-export function packMain(project: Project): Project {
-  return layoutMain(project, trackClips(project, MAIN_TRACK_ID));
-}
-
-/**
- * Add a new clip. On the main track it is inserted at the slot nearest to its
- * centre; on audio tracks it goes to the nearest free position.
- */
+/** Add a new clip at the free position on its track nearest to its `start`. */
 export function addClip(project: Project, clip: Clip): Project {
-  if (clip.trackId === MAIN_TRACK_ID) {
-    const index = mainInsertIndex(project, clip.start + clipDuration(clip) / 2);
-    const ordered = trackClips(project, MAIN_TRACK_ID);
-    ordered.splice(index, 0, clip);
-    return layoutMain(project, ordered);
-  }
   const start = findFreeStart(trackClips(project, clip.trackId), clip.start, clipDuration(clip));
   return withClips(project, [...project.clips, { ...clip, start }]);
 }
 
-/** Insert a clip into the main track at slot `index` (clamped). */
-export function insertIntoMain(project: Project, clip: Clip, index: number): Project {
-  const ordered = trackClips(project, MAIN_TRACK_ID).filter((c) => c.id !== clip.id);
-  const i = Math.max(0, Math.min(ordered.length, index));
-  ordered.splice(i, 0, { ...clip, trackId: MAIN_TRACK_ID });
-  return layoutMain(withClips(project, project.clips.filter((c) => c.id !== clip.id)), ordered);
-}
-
-/** Append a clip to the end of the main track. */
-export function appendToMain(project: Project, clip: Clip): Project {
-  const ordered = [...trackClips(project, MAIN_TRACK_ID), { ...clip, trackId: MAIN_TRACK_ID }];
-  return layoutMain(project, ordered);
+/** Add a clip right after the last clip on `trackId`. */
+export function appendToTrack(project: Project, clip: Clip, trackId: string): Project {
+  const end = Math.max(0, ...trackClips(project, trackId).map(clipEnd));
+  return withClips(project, [...project.clips, { ...clip, trackId, start: roundTime(end) }]);
 }
 
 /**
- * Move a clip to `trackId` with its left edge at `desiredStart`.
- * - main -> main: reorders to the slot at `insertAt` (default: the dragged
- *   clip's centre). Drags should pass the pointer time so the slot follows
- *   the cursor regardless of how long the clip is.
- * - anything -> audio: nearest non-overlapping position.
- * - audio -> main: inserted at the slot nearest its centre.
- * Kind compatibility (see `canPlaceOnTrack`) is the caller's responsibility.
+ * Move clips by `delta` seconds, each onto `trackFor(clip)` (default: its own
+ * track). When the requested position collides with other clips, the nearest
+ * delta at which every moved clip fits is used instead, so clips never overlap
+ * and never start before 0. Kind compatibility is the caller's responsibility.
  */
+export function moveClips(
+  project: Project,
+  clipIds: string[],
+  delta: number,
+  trackFor: (clip: Clip) => string = (c) => c.trackId,
+): Project {
+  const ids = new Set(clipIds);
+  const moving = project.clips
+    .filter((c) => ids.has(c.id))
+    .map((c) => ({ clip: c, trackId: trackFor(c) }));
+  if (moving.length === 0 || moving.some((m) => !getTrack(project, m.trackId))) return project;
+
+  const obstacles = new Map<string, Clip[]>();
+  for (const { trackId } of moving) {
+    if (!obstacles.has(trackId)) {
+      obstacles.set(trackId, project.clips.filter((c) => c.trackId === trackId && !ids.has(c.id)));
+    }
+  }
+  const minStart = Math.min(...moving.map((m) => m.clip.start));
+  const fits = (d: number) =>
+    minStart + d >= -EPS &&
+    moving.every(({ clip, trackId }) => {
+      const s = clip.start + d;
+      const e = clipEnd(clip) + d;
+      return obstacles.get(trackId)!.every((o) => e <= o.start + EPS || s >= clipEnd(o) - EPS);
+    });
+
+  // Candidate deltas: as asked, clamped at 0, and every "just touching an obstacle" position.
+  const candidates = [delta, -minStart];
+  let afterAll = -minStart;
+  for (const { clip, trackId } of moving) {
+    for (const o of obstacles.get(trackId)!) {
+      candidates.push(clipEnd(o) - clip.start, o.start - clipEnd(clip));
+      afterAll = Math.max(afterAll, clipEnd(o) - clip.start);
+    }
+  }
+  candidates.push(afterAll); // always fits
+  let best = afterAll;
+  for (const d of candidates) {
+    if (fits(d) && Math.abs(d - delta) < Math.abs(best - delta) - EPS) best = d;
+  }
+
+  const updated = new Map<string, Clip>();
+  for (const { clip, trackId } of moving) {
+    const start = roundTime(Math.max(0, clip.start + best));
+    if (start !== clip.start || trackId !== clip.trackId) {
+      updated.set(clip.id, { ...clip, trackId, start });
+    }
+  }
+  return replaceClips(project, updated);
+}
+
+/** Move one clip to `trackId` with its left edge as close to `desiredStart` as fits. */
 export function moveClip(
   project: Project,
   clipId: string,
   trackId: string,
   desiredStart: number,
-  insertAt?: number,
 ): Project {
   const clip = getClip(project, clipId);
-  if (!clip || !getTrack(project, trackId)) return project;
-
-  if (trackId === MAIN_TRACK_ID) {
-    const anchor = insertAt ?? desiredStart + clipDuration(clip) / 2;
-    const index = mainInsertIndex(project, anchor, clipId);
-    const ordered = trackClips(project, MAIN_TRACK_ID).filter((c) => c.id !== clipId);
-    ordered.splice(index, 0, { ...clip, trackId });
-    const others = project.clips.filter((c) => c.id !== clipId);
-    return layoutMain(withClips(project, others), ordered);
-  }
-
-  const start = findFreeStart(trackClips(project, trackId), desiredStart, clipDuration(clip), clipId);
-  const moved = { ...clip, trackId, start };
-  const next = withClips(
-    project,
-    project.clips.map((c) => (c.id === clipId ? moved : c)),
-  );
-  return clip.trackId === MAIN_TRACK_ID ? packMain(next) : next;
+  if (!clip) return project;
+  return moveClips(project, [clipId], desiredStart - clip.start, () => trackId);
 }
 
 /**
@@ -270,11 +313,76 @@ export function splitClip(
   return { project: withClips(project, clips), newClipId: right.id };
 }
 
-/** Remove clips; the main track closes up the gap (ripple delete). */
+/** Split every listed clip that `time` falls inside; returns the new right-hand clip ids. */
+export function splitClips(
+  project: Project,
+  clipIds: string[],
+  time: number,
+): { project: Project; newClipIds: string[] } {
+  let p = project;
+  const newClipIds: string[] = [];
+  for (const id of clipIds) {
+    const res = splitClip(p, id, time);
+    p = res.project;
+    if (res.newClipId) newClipIds.push(res.newClipId);
+  }
+  return { project: p, newClipIds };
+}
+
+/** Remove clips, leaving gaps where they were. */
 export function removeClips(project: Project, clipIds: string[]): Project {
   const ids = new Set(clipIds);
   if (!project.clips.some((c) => ids.has(c.id))) return project;
-  return packMain(withClips(project, project.clips.filter((c) => !ids.has(c.id))));
+  return withClips(project, project.clips.filter((c) => !ids.has(c.id)));
+}
+
+/**
+ * Remove clips and close the gaps they leave: on each affected track, later
+ * clips slide left by the total length removed before them.
+ */
+export function rippleDelete(project: Project, clipIds: string[]): Project {
+  const ids = new Set(clipIds);
+  const removed = project.clips.filter((c) => ids.has(c.id));
+  if (removed.length === 0) return project;
+  const clips = project.clips
+    .filter((c) => !ids.has(c.id))
+    .map((c) => {
+      let shift = 0;
+      for (const r of removed) {
+        if (r.trackId === c.trackId && clipEnd(r) <= c.start + EPS) shift += clipDuration(r);
+      }
+      return shift ? { ...c, start: roundTime(Math.max(0, c.start - shift)) } : c;
+    });
+  return withClips(project, clips);
+}
+
+/** Slide every clip on `trackId` starting at or after `from` left by `amount`. */
+function pullLeft(project: Project, trackId: string, from: number, amount: number): Project {
+  if (amount <= EPS) return project;
+  return withClips(
+    project,
+    project.clips.map((c) =>
+      c.trackId === trackId && c.start >= from - EPS
+        ? { ...c, start: roundTime(Math.max(0, c.start - amount)) }
+        : c,
+    ),
+  );
+}
+
+/** The empty stretch of `trackId` containing `time` (from the previous clip's end, or 0, to the next clip). */
+export function gapAt(project: Project, trackId: string, time: number): { start: number; end: number } | null {
+  if (clipAtTime(project, trackId, time)) return null;
+  const clips = trackClips(project, trackId);
+  const next = clips.find((c) => c.start >= time - EPS);
+  if (!next) return null;
+  const prevEnd = Math.max(0, ...clips.filter((c) => clipEnd(c) <= time + EPS).map(clipEnd));
+  return next.start - prevEnd > EPS ? { start: roundTime(prevEnd), end: next.start } : null;
+}
+
+/** Close the gap at `time` on `trackId` by sliding the clips after it left. */
+export function closeGap(project: Project, trackId: string, time: number): Project {
+  const gap = gapAt(project, trackId, time);
+  return gap ? pullLeft(project, trackId, gap.end, gap.end - gap.start) : project;
 }
 
 /** Remove every clip that uses an asset (e.g. when the asset is deleted). */
@@ -288,16 +396,11 @@ export function removeAssetClips(project: Project, assetId: string): Project {
 /**
  * Trim a clip edge by `delta` seconds (positive = towards the right), clamped
  * so the clip stays within its source media, at least `MIN_CLIP_DURATION`
- * long, and (on audio tracks) doesn't overlap its neighbours.
+ * long, and doesn't overlap its neighbours. The start edge moves both the
+ * timeline start and the in-point; the end edge moves the out-point.
  *
  * Callers doing a drag gesture should always pass the project from *before*
  * the gesture plus the total delta, so clamping never accumulates.
- *
- * - main track, start edge: moves the source in-point; the clip keeps its slot
- *   and everything after it ripples.
- * - main track, end edge: moves the out-point; later clips ripple.
- * - audio track, start edge: moves both timeline start and in-point.
- * - audio track, end edge: moves the out-point.
  */
 export function trimClip(
   project: Project,
@@ -308,42 +411,53 @@ export function trimClip(
 ): Project {
   const clip = getClip(project, clipId);
   if (!clip) return project;
-  const isMain = clip.trackId === MAIN_TRACK_ID;
+  const siblings = trackClips(project, clip.trackId).filter((c) => c.id !== clip.id);
   let next: Clip;
 
   if (edge === "start") {
-    let minDelta = -clip.in;
-    if (!isMain) {
-      const prev = trackClips(project, clip.trackId).filter(
-        (c) => c.id !== clip.id && clipEnd(c) <= clip.start + EPS,
-      );
-      const prevEnd = prev.length ? Math.max(...prev.map(clipEnd)) : 0;
-      minDelta = Math.max(minDelta, prevEnd - clip.start);
-    }
+    const prevEnd = Math.max(0, ...siblings.filter((c) => clipEnd(c) <= clip.start + EPS).map(clipEnd));
+    const minDelta = Math.max(-clip.in, prevEnd - clip.start);
     const maxDelta = clip.out - MIN_CLIP_DURATION - clip.in;
     const d = clamp(delta, Math.min(minDelta, 0), Math.max(maxDelta, 0));
-    next = {
-      ...clip,
-      in: roundTime(clip.in + d),
-      start: isMain ? clip.start : roundTime(clip.start + d),
-    };
+    next = { ...clip, in: roundTime(clip.in + d), start: roundTime(clip.start + d) };
   } else {
     let maxOut = assetDuration;
-    if (!isMain) {
-      const following = trackClips(project, clip.trackId).filter(
-        (c) => c.id !== clip.id && c.start >= clipEnd(clip) - EPS,
-      );
-      if (following.length) {
-        const nextStart = Math.min(...following.map((c) => c.start));
-        maxOut = Math.min(maxOut, clip.in + (nextStart - clip.start));
-      }
+    const following = siblings.filter((c) => c.start >= clipEnd(clip) - EPS);
+    if (following.length) {
+      const nextStart = Math.min(...following.map((c) => c.start));
+      maxOut = Math.min(maxOut, clip.in + (nextStart - clip.start));
     }
     const minOut = clip.in + MIN_CLIP_DURATION;
     next = { ...clip, out: roundTime(clamp(clip.out + delta, minOut, Math.max(maxOut, minOut))) };
   }
+  return replaceClips(project, new Map([[clipId, next]]));
+}
 
-  const updated = withClips(project, project.clips.map((c) => (c.id === clipId ? next : c)));
-  return isMain ? packMain(updated) : updated;
+/**
+ * Ripple-trim a clip to timeline `time`: cut away everything before it
+ * (`edge = "start"`) or after it (`"end"`), then slide the rest of the track
+ * left to close the gap. No-op unless both parts would be valid clips.
+ */
+export function rippleTrimTo(
+  project: Project,
+  clipId: string,
+  edge: "start" | "end",
+  time: number,
+): Project {
+  const clip = getClip(project, clipId);
+  if (
+    !clip ||
+    time < clip.start + MIN_CLIP_DURATION - EPS ||
+    time > clipEnd(clip) - MIN_CLIP_DURATION + EPS
+  ) {
+    return project;
+  }
+  const end = clipEnd(clip);
+  const cut = roundTime(clip.in + (time - clip.start));
+  const trimmed: Clip = edge === "start" ? { ...clip, in: cut } : { ...clip, out: cut };
+  const removed = edge === "start" ? time - clip.start : end - time;
+  const p = replaceClips(project, new Map([[clipId, trimmed]]));
+  return pullLeft(p, clip.trackId, end, removed);
 }
 
 export function updateClip(
@@ -363,20 +477,120 @@ export function updateClip(
   );
 }
 
-export function addAudioTrack(project: Project): { project: Project; trackId: string } {
-  const count = project.tracks.filter((t) => t.kind === "audio").length;
-  const track: Track = { id: createId("track"), kind: "audio", name: `Audio ${count + 1}`, muted: false };
-  return { project: { ...project, tracks: [...project.tracks, track] }, trackId: track.id };
+/** A copied clip plus the kind of track it came from (its track may be gone by paste time). */
+export interface CopiedClip {
+  clip: Clip;
+  kind: TrackKind;
 }
 
-/** Remove an audio track and its clips. The main track can't be removed. */
+export function copyClips(project: Project, clipIds: string[]): CopiedClip[] {
+  const ids = new Set(clipIds);
+  return project.clips
+    .filter((c) => ids.has(c.id))
+    .map((clip) => ({ clip, kind: getTrack(project, clip.trackId)?.kind ?? "audio" }));
+}
+
+/**
+ * Put copies of copied clips on the timeline with the earliest one starting at
+ * `at`, keeping their relative timing. Each copy goes back to its original
+ * track when that still exists and the whole group fits there; otherwise the
+ * group lands on new tracks, one per source track, next to the originals.
+ */
+export function pasteClips(
+  project: Project,
+  copied: CopiedClip[],
+  at: number,
+): { project: Project; clipIds: string[] } {
+  if (copied.length === 0) return { project, clipIds: [] };
+  const offset = Math.max(0, at) - Math.min(...copied.map((c) => c.clip.start));
+  const copies = copied.map(({ clip }) => ({
+    ...clip,
+    id: createId("clip"),
+    start: roundTime(clip.start + offset),
+  }));
+  const kindOf = new Map(copied.map(({ clip, kind }) => [clip.trackId, kind]));
+  const fitsInPlace = copies.every(
+    (c) =>
+      getTrack(project, c.trackId)?.kind === kindOf.get(c.trackId) &&
+      isFree(project, c.trackId, c.start, clipDuration(c)),
+  );
+
+  let p = project;
+  if (!fitsInPlace) {
+    const newTrackFor = new Map<string, string>();
+    for (const [sourceId, kind] of kindOf) {
+      const index = p.tracks.findIndex((t) => t.id === sourceId);
+      const at = index === -1 ? undefined : kind === "video" ? index : index + 1;
+      const added = addTrack(p, kind, at);
+      p = added.project;
+      newTrackFor.set(sourceId, added.trackId);
+    }
+    for (const c of copies) c.trackId = newTrackFor.get(c.trackId)!;
+  }
+  return { project: withClips(p, [...p.clips, ...copies]), clipIds: copies.map((c) => c.id) };
+}
+
+// ---------------------------------------------------------------------------
+// Tracks
+// ---------------------------------------------------------------------------
+
+const KIND_LABEL: Record<TrackKind, string> = { video: "Video", audio: "Audio" };
+
+/** "Video 3": the lowest number not already used by a track of that kind. */
+function nextTrackName(project: Project, kind: TrackKind): string {
+  const names = new Set(project.tracks.map((t) => t.name));
+  let n = project.tracks.filter((t) => t.kind === kind).length + 1;
+  while (names.has(`${KIND_LABEL[kind]} ${n}`)) n++;
+  return `${KIND_LABEL[kind]} ${n}`;
+}
+
+/**
+ * Add an empty track at array position `index` (clamped so video tracks stay
+ * above audio tracks). By default a video track goes on top of the other video
+ * tracks and an audio track goes below the other audio tracks.
+ */
+export function addTrack(
+  project: Project,
+  kind: TrackKind,
+  index?: number,
+): { project: Project; trackId: string } {
+  const videoCount = project.tracks.filter((t) => t.kind === "video").length;
+  const [min, max] = kind === "video" ? [0, videoCount] : [videoCount, project.tracks.length];
+  const at = clamp(index ?? (kind === "video" ? 0 : project.tracks.length), min, max);
+  const track: Track = { id: createId("track"), kind, name: nextTrackName(project, kind), muted: false };
+  const tracks = [...project.tracks];
+  tracks.splice(at, 0, track);
+  return { project: { ...project, tracks }, trackId: track.id };
+}
+
+export function addAudioTrack(project: Project): { project: Project; trackId: string } {
+  return addTrack(project, "audio");
+}
+
+/** Remove a track and its clips. The last video track can't be removed. */
 export function removeTrack(project: Project, trackId: string): Project {
-  if (trackId === MAIN_TRACK_ID || !getTrack(project, trackId)) return project;
+  const track = getTrack(project, trackId);
+  if (!track || (track.kind === "video" && videoTracks(project).length <= 1)) return project;
   return {
     ...project,
     tracks: project.tracks.filter((t) => t.id !== trackId),
     clips: project.clips.filter((c) => c.trackId !== trackId),
   };
+}
+
+/**
+ * Remove `trackId` if it has no clips, unless it's a "home" track: the bottom
+ * video track or the top audio track (where new media lands by default).
+ */
+export function pruneEmptyTrack(project: Project, trackId: string): Project {
+  const track = getTrack(project, trackId);
+  if (!track || project.clips.some((c) => c.trackId === trackId)) return project;
+  const home =
+    track.kind === "video"
+      ? videoTracks(project).at(-1)
+      : project.tracks.find((t) => t.kind === "audio");
+  if (home?.id === trackId) return project;
+  return { ...project, tracks: project.tracks.filter((t) => t.id !== trackId) };
 }
 
 export function setTrackMuted(project: Project, trackId: string, muted: boolean): Project {
@@ -386,15 +600,26 @@ export function setTrackMuted(project: Project, trackId: string, muted: boolean)
   };
 }
 
+/**
+ * The neighbouring track of the same kind above (`dir = -1`) or below (`1`)
+ * `trackId`, or null at the edge of its group.
+ */
+export function adjacentTrack(project: Project, trackId: string, dir: -1 | 1): Track | null {
+  const track = getTrack(project, trackId);
+  if (!track) return null;
+  const same = project.tracks.filter((t) => t.kind === track.kind);
+  return same[same.findIndex((t) => t.id === trackId) + dir] ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Validation / normalisation (used on load and before export)
 // ---------------------------------------------------------------------------
 
 /**
- * Repair a project from untrusted storage: guarantees the main track exists
- * and is first, drops invalid clips (unknown track/asset, non-positive length,
- * out of source range), clamps values, resolves audio overlaps and packs main.
- * Pass `assets` to also validate clips against their source media.
+ * Repair a project from untrusted storage: guarantees at least one video
+ * track, video tracks before audio tracks, drops invalid clips (unknown
+ * track/asset, non-positive length, out of source range), clamps values and
+ * resolves overlaps. Pass `assets` to also validate clips against their media.
  */
 export function normalizeProject(
   input: Project,
@@ -402,19 +627,21 @@ export function normalizeProject(
 ): Project {
   const base = createDefaultProject();
   const tracksIn = Array.isArray(input?.tracks) ? input.tracks : [];
-  const main: Track = {
-    ...base.tracks[0],
-    ...tracksIn.find((t) => t.id === MAIN_TRACK_ID),
-    kind: "video",
-  };
-  const seen = new Set<string>([MAIN_TRACK_ID]);
-  const audio: Track[] = [];
+  const seen = new Set<string>();
+  const byKind: Record<TrackKind, Track[]> = { video: [], audio: [] };
   for (const t of tracksIn) {
-    if (!t || typeof t.id !== "string" || seen.has(t.id) || t.kind !== "audio") continue;
+    if (!t || typeof t.id !== "string" || seen.has(t.id)) continue;
+    if (t.kind !== "video" && t.kind !== "audio") continue;
     seen.add(t.id);
-    audio.push({ id: t.id, kind: "audio", name: String(t.name ?? "Audio"), muted: !!t.muted });
+    byKind[t.kind].push({
+      id: t.id,
+      kind: t.kind,
+      name: String(t.name ?? KIND_LABEL[t.kind]),
+      muted: !!t.muted,
+    });
   }
-  const tracks = [main, ...audio];
+  if (byKind.video.length === 0) byKind.video.push({ ...base.tracks[0] });
+  const tracks = [...byKind.video, ...byKind.audio];
   const trackKind = new Map(tracks.map((t) => [t.id, t.kind]));
 
   const clips: Clip[] = [];
@@ -462,13 +689,8 @@ export function normalizeProject(
     clips: [],
   };
 
-  // Re-insert audio clips one by one so any overlaps get resolved.
-  const [mainClips, audioClips] = [
-    clips.filter((c) => c.trackId === MAIN_TRACK_ID),
-    clips.filter((c) => c.trackId !== MAIN_TRACK_ID).sort((a, b) => a.start - b.start),
-  ];
-  project = layoutMain(project, mainClips.sort((a, b) => a.start - b.start));
-  for (const c of audioClips) project = addClip(project, c);
+  // Re-insert clips one by one (in time order) so any overlaps get resolved.
+  for (const c of clips.sort((a, b) => a.start - b.start)) project = addClip(project, c);
   return project;
 }
 

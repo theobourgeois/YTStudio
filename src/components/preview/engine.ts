@@ -2,21 +2,27 @@ import type { Clip, MediaAsset } from "@shared/types";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import { MediaSlot } from "./media-slot";
-import { assignSlots, planAudio, planMain, type SlotIds } from "./sync";
+import { assignSlots, planAudio, planTrack, type SlotIds } from "./sync";
+
+/** The A/B pair of video elements that plays one video track. */
+interface VideoLayer {
+  slots: [MediaSlot | null, MediaSlot | null];
+  ids: SlotIds;
+}
 
 /**
  * Drives the preview's media elements from the playback clock and the project,
  * outside React: it subscribes to both stores and reconciles every element on
  * each change (every animation frame while playing).
  *
- * - Two <video> elements double-buffer the main track: one shows the clip under
- *   the playhead, the other is parked on the next clip's first frame.
+ * - Each video track has two <video> elements that double-buffer it: one shows
+ *   the clip under the playhead, the other is parked on the next clip's first
+ *   frame. The stage stacks the tracks' elements in layer order.
  * - Each audio-track clip has its own <audio> element, played only while the
  *   playhead is inside the clip and parked on its in-point before that.
  */
 export class PreviewEngine {
-  private videos: [MediaSlot | null, MediaSlot | null] = [null, null];
-  private slotIds: SlotIds = [null, null];
+  private layers = new Map<string, VideoLayer>();
   private audio = new Map<string, MediaSlot>();
   private unsubscribe: (() => void) | null = null;
   private offline = false;
@@ -41,20 +47,25 @@ export class PreviewEngine {
   stop() {
     this.unsubscribe?.();
     this.unsubscribe = null;
-    for (const slot of [...this.videos, ...this.audio.values()]) slot?.pause();
+    for (const layer of this.layers.values()) for (const slot of layer.slots) slot?.pause();
+    for (const slot of this.audio.values()) slot.pause();
   }
 
   /** Ref-callback helper: returns the cleanup that releases the element. */
-  attachVideo(index: 0 | 1, el: HTMLVideoElement) {
+  attachVideo(trackId: string, index: 0 | 1, el: HTMLVideoElement) {
     const slot = new MediaSlot(el, this.update);
-    this.videos[index] = slot;
-    this.setSlotId(index, null);
+    const layer = this.layer(trackId);
+    layer.slots[index] = slot;
+    this.setSlotId(layer, index, null);
     this.update();
     return () => {
       slot.dispose();
-      if (this.videos[index] !== slot) return;
-      this.videos[index] = null;
-      this.setSlotId(index, null);
+      if (layer.slots[index] !== slot) return;
+      layer.slots[index] = null;
+      this.setSlotId(layer, index, null);
+      if (!layer.slots[0] && !layer.slots[1] && this.layers.get(trackId) === layer) {
+        this.layers.delete(trackId);
+      }
     };
   }
 
@@ -68,8 +79,17 @@ export class PreviewEngine {
     };
   }
 
-  private setSlotId(index: 0 | 1, id: string | null) {
-    this.slotIds = index === 0 ? [id, this.slotIds[1]] : [this.slotIds[0], id];
+  private layer(trackId: string): VideoLayer {
+    let layer = this.layers.get(trackId);
+    if (!layer) {
+      layer = { slots: [null, null], ids: [null, null] };
+      this.layers.set(trackId, layer);
+    }
+    return layer;
+  }
+
+  private setSlotId(layer: VideoLayer, index: 0 | 1, id: string | null) {
+    layer.ids = index === 0 ? [id, layer.ids[1]] : [layer.ids[0], id];
   }
 
   private update = () => {
@@ -80,34 +100,36 @@ export class PreviewEngine {
     const trackMuted = new Map(project.tracks.map((t) => [t.id, t.muted]));
     let offline = false;
 
-    // Main track: A/B video elements.
-    const { current, next } = planMain(project, time);
-    this.slotIds = assignSlots(this.slotIds, current?.clip.id ?? null, next?.id ?? null);
-    this.videos.forEach((slot, i) => {
-      if (!slot) return;
-      const id = this.slotIds[i];
-      const el = slot.el as HTMLVideoElement;
-      if (current && id === current.clip.id) {
-        const src = srcOf(current.clip);
-        slot.setSrc(src);
-        slot.setAudio(current.clip.volume, trackMuted.get(current.clip.trackId) ?? false);
-        if (playing) slot.follow(current.time);
-        else slot.hold(current.time);
-        setStyle(el, "objectFit", current.clip.fit);
-        setStyle(el, "opacity", "1");
-        offline ||= src === null || slot.failed;
-        return;
-      }
-      setStyle(el, "opacity", "0");
-      slot.setAudio(1, true);
-      if (next && id === next.id) {
-        slot.setSrc(srcOf(next));
-        slot.hold(next.in);
-        setStyle(el, "objectFit", next.fit);
-      } else {
-        slot.pause();
-      }
-    });
+    // Video tracks: an A/B pair of video elements each.
+    for (const [trackId, layer] of this.layers) {
+      const { current, next } = planTrack(project, trackId, time);
+      layer.ids = assignSlots(layer.ids, current?.clip.id ?? null, next?.id ?? null);
+      layer.slots.forEach((slot, i) => {
+        if (!slot) return;
+        const id = layer.ids[i];
+        const el = slot.el as HTMLVideoElement;
+        if (current && id === current.clip.id) {
+          const src = srcOf(current.clip);
+          slot.setSrc(src);
+          slot.setAudio(current.clip.volume, trackMuted.get(trackId) ?? false);
+          if (playing) slot.follow(current.time);
+          else slot.hold(current.time);
+          setStyle(el, "objectFit", current.clip.fit);
+          setStyle(el, "opacity", "1");
+          offline ||= src === null || slot.failed;
+          return;
+        }
+        setStyle(el, "opacity", "0");
+        slot.setAudio(1, true);
+        if (next && id === next.id) {
+          slot.setSrc(srcOf(next));
+          slot.hold(next.in);
+          setStyle(el, "objectFit", next.fit);
+        } else {
+          slot.pause();
+        }
+      });
+    }
 
     // Audio tracks: one element per clip.
     const planned = new Set<string>();

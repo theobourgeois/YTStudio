@@ -7,10 +7,16 @@ export const VIDEO_LANE_HEIGHT = 64;
 export const AUDIO_LANE_HEIGHT = 48;
 /** Vertical inset of a clip inside its lane. */
 export const CLIP_INSET_Y = 4;
+/** Empty strip above the first lane: drop a clip there to put it on a new video track. */
+export const TOP_GUTTER = 22;
+/** Minimum empty space below the last lane: drop there for a new audio track. */
+export const BOTTOM_GUTTER = 56;
 
 /** Pointer travel before a press on a clip becomes a drag. */
 export const DRAG_THRESHOLD_PX = 3;
 export const TRIM_THRESHOLD_PX = 2;
+/** Pointer travel before a press on empty lane space becomes a marquee selection. */
+export const MARQUEE_THRESHOLD_PX = 4;
 /** Snap distance in screen pixels (converted to seconds with the zoom). */
 export const SNAP_PX = 8;
 

@@ -5,16 +5,18 @@
  */
 import { useEffect, useRef, type DragEvent } from "react";
 import { toast } from "sonner";
-import { MAIN_TRACK_ID, mainInsertIndex } from "@shared/timeline";
+import { snapPoints, snapTime } from "@shared/timeline";
 import { dragKind, getAssetDragData, mediaFiles } from "@/lib/dnd";
 import { useEditor } from "@/stores/editor";
+import { usePlayback } from "@/stores/playback";
+import { SNAP_PX } from "./constants";
 import { lanePoint, type TimelineContextValue } from "./context";
-import { laneAt, mainSlotTime } from "./geometry";
+import { laneAt, newTrackZoneAt } from "./geometry";
 import { setView, useTimelineView, type DropTarget } from "./view-store";
 
 function sameTarget(a: DropTarget | null, b: DropTarget | null) {
   if (!a || !b) return a === b;
-  return a.trackId === b.trackId && a.slotTime === b.slotTime && Math.abs(a.time - b.time) < 1e-3;
+  return a.trackId === b.trackId && a.newTrack === b.newTrack && Math.abs(a.time - b.time) < 1e-3;
 }
 
 export function useTimelineDrop(ctx: TimelineContextValue) {
@@ -37,12 +39,12 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
   const targetAt = (e: DragEvent): DropTarget | null => {
     const p = lanePoint(ctx, e.clientX, e.clientY);
     if (!p) return null;
-    const { project, zoom } = useEditor.getState();
-    const lane = laneAt(ctx.lanesLayout.current, p.y);
-    const time = Math.max(0, p.x / zoom);
-    const slotTime =
-      lane?.trackId === MAIN_TRACK_ID ? mainSlotTime(project, mainInsertIndex(project, time)) : null;
-    return { trackId: lane?.trackId ?? null, time, slotTime };
+    const lanes = ctx.lanesLayout.current;
+    const lane = laneAt(lanes, p.y);
+    const { project, zoom, snapping } = useEditor.getState();
+    let time = Math.max(0, p.x / zoom);
+    if (snapping) time = snapTime(time, snapPoints(project, usePlayback.getState().time), SNAP_PX / zoom).time;
+    return { trackId: lane?.trackId ?? null, newTrack: newTrackZoneAt(lanes, p.y), time };
   };
 
   const show = (e: DragEvent) => {
@@ -75,7 +77,11 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
       const target = targetAt(e);
       depth.current = 0;
       setView({ drop: null });
-      const opts = { trackId: target?.trackId ?? undefined, at: target?.time };
+      const opts = {
+        trackId: target?.trackId ?? undefined,
+        newTrack: target?.newTrack ?? undefined,
+        at: target?.time,
+      };
       const editor = useEditor.getState();
 
       if (kind === "assets") {

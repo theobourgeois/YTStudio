@@ -47,10 +47,40 @@ async function dragAsset(page: Page, name: string, x: number, y: number) {
   await page.mouse.up();
 }
 
-async function laneY(page: Page, name: "Video" | "Audio 1") {
+async function laneY(page: Page, name: "Video 1" | "Audio 1") {
   const header = page.getByText(name, { exact: true }).last();
   const box = (await header.boundingBox())!;
   return box.y + box.height / 2;
+}
+
+/** Default zoom (px per second); the tests never change it. */
+const PX_PER_S = 60;
+
+/** Page x of timeline time `t` (with the timeline scrolled to the start). */
+async function timeX(page: Page, t: number) {
+  const box = (await page.locator("[data-timeline-lanes]").boundingBox())!;
+  return box.x + t * PX_PER_S;
+}
+
+type SavedClip = { id: string; trackId: string; start: number; in: number; out: number };
+
+/** Saved clips on a track as [start, in] pairs, in time order. */
+async function trackLayout(page: Page, trackId: string) {
+  const p = await savedProject(page);
+  return (p.clips as SavedClip[])
+    .filter((c) => c.trackId === trackId)
+    .sort((a, b) => a.start - b.start)
+    .map((c) => [c.start, c.in]);
+}
+
+/** Press-drag-release with intermediate moves (so drags cross their thresholds). */
+async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }) {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) {
+    await page.mouse.move(from.x + ((to.x - from.x) * i) / 8, from.y + ((to.y - from.y) * i) / 8);
+  }
+  await page.mouse.up();
 }
 
 test("starts a new video from the empty state", async ({ page }) => {
@@ -78,28 +108,27 @@ test("imports media into the library and names the video after the first clip", 
   await expect.poll(async () => (await projectList(page))[0].name).toMatch(/^(vertical|landscape|square|music)/);
 });
 
-test("drags clips onto the timeline; video goes to the main track, music to audio", async ({ page }) => {
+test("drags clips onto the timeline where they're dropped; music goes to audio", async ({ page }) => {
   await page.goto("/");
-  const videoY = await laneY(page, "Video");
-  await dragAsset(page, "vertical-1080x1920", 400, videoY);
-  await dragAsset(page, "landscape-1920x1080", 1300, videoY);
-  await dragAsset(page, "square-1080", 1400, videoY);
+  const videoY = await laneY(page, "Video 1");
+  // Near 0 and near the end of the first clip: both snap exactly.
+  await dragAsset(page, "vertical-1080x1920", await timeX(page, 0.05), videoY);
+  await dragAsset(page, "landscape-1920x1080", await timeX(page, 6.05), videoY);
+  // Past the end: stays where it's dropped, leaving a gap.
+  await dragAsset(page, "square-1080", await timeX(page, 15), videoY);
   // Dropping music on the video lane is routed to an audio track.
-  await dragAsset(page, "music-20s", 300, videoY);
+  await dragAsset(page, "music-20s", await timeX(page, 1), videoY);
 
   await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
-  // Main clips pack back to back; the music lands on the audio track at the pointer.
-  await expect
-    .poll(async () => {
-      const p = await savedProject(page);
-      return p.clips.map((c: { trackId: string; start: number }) =>
-        c.trackId === "main" ? `main@${c.start}` : c.trackId,
-      );
-    })
-    .toEqual(expect.arrayContaining(["main@0", "main@6", "main@14", "audio_1"]));
+  await expect.poll(() => trackLayout(page, "main")).toEqual([
+    [0, 0],
+    [6, 0],
+    [15, 0],
+  ]);
+  await expect.poll(async () => (await trackLayout(page, "audio_1")).length).toBe(1);
 });
 
-test("splits at the playhead, deletes with ripple, undoes and redoes", async ({ page }) => {
+test("splits at the playhead, deletes (leaving a gap) or ripple-deletes, undoes and redoes", async ({ page }) => {
   await page.goto("/");
   await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
 
@@ -114,21 +143,26 @@ test("splits at the playhead, deletes with ripple, undoes and redoes", async ({ 
   await page.keyboard.press("s");
   await expect.poll(async () => (await timelineClips(page)).length).toBe(5);
 
-  // The left half stays selected; delete it and the rest ripples left.
+  // The left half stays selected; Delete leaves a gap...
   await page.keyboard.press("Backspace");
   await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
-  await expect
-    .poll(async () => {
-      const p = await savedProject(page);
-      return p.clips
-        .filter((c: { trackId: string }) => c.trackId === "main")
-        .map((c: { start: number; in: number }) => [c.start, c.in]);
-    })
-    .toEqual([
-      [0, 3],
-      [3, 0],
-      [11, 0],
-    ]);
+  await expect.poll(() => trackLayout(page, "main")).toEqual([
+    [3, 3],
+    [6, 0],
+    [15, 0],
+  ]);
+
+  // ...Shift+Delete closes it (later clips on that track slide left).
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(5);
+  const left = (await timelineClips(page))[0];
+  await page.mouse.click(left.x + 10, left.y + left.h / 2);
+  await page.keyboard.press("Shift+Backspace");
+  await expect.poll(() => trackLayout(page, "main")).toEqual([
+    [0, 3],
+    [3, 0],
+    [12, 0],
+  ]);
 
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await timelineClips(page)).length).toBe(5);
@@ -141,54 +175,104 @@ test("splits at the playhead, deletes with ripple, undoes and redoes", async ({ 
   await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
 });
 
-test("reorders main-track clips by dragging and trims an edge", async ({ page }) => {
+test("moves clips freely with snapping, onto a new track, and trims an edge", async ({ page }) => {
   await page.goto("/");
-  const mainOrder = async () => {
+  await expect.poll(async () => (await trackLayout(page, "main")).length).toBe(3);
+  const byStart = async () => {
     const p = await savedProject(page);
-    return p.clips
-      .filter((c: { trackId: string }) => c.trackId === "main")
-      .sort((a: { start: number }, b: { start: number }) => a.start - b.start)
-      .map((c: { id: string }) => c.id);
+    return (p.clips as SavedClip[]).filter((c) => c.trackId === "main").sort((a, b) => a.start - b.start);
   };
-  await expect.poll(async () => (await mainOrder()).length).toBe(3);
-  const before = await mainOrder();
+  const [head, middle, last] = await byStart(); // 0..3, 3..11, 12..17
 
-  // Drag the last main clip to the very start.
-  const main = (await timelineClips(page)).filter((c) => before.includes(c.id));
-  const last = main[main.length - 1];
-  await page.mouse.move(last.x + 30, last.y + last.h / 2);
-  await page.mouse.down();
-  for (let x = last.x + 30; x > main[0].x; x -= 40) await page.mouse.move(x, last.y + last.h / 2);
-  await page.mouse.move(main[0].x + 2, last.y + last.h / 2);
-  await page.mouse.up();
-  await expect.poll(mainOrder).toEqual([before[2], before[0], before[1]]);
+  // Drag the last clip left by ~1.05s: its start snaps onto the end of the middle clip (11).
+  const lastBox = (await timelineClips(page)).find((c) => c.id === last.id)!;
+  const y = lastBox.y + lastBox.h / 2;
+  await drag(page, { x: lastBox.x + 30, y }, { x: lastBox.x + 30 - 1.05 * PX_PER_S, y });
+  await expect.poll(() => trackLayout(page, "main")).toEqual([
+    [0, 3],
+    [3, 0],
+    [11, 0],
+  ]);
 
-  // Trim the (new) first clip's right edge left by ~1s worth of pixels
-  // (after the 150ms reorder animation settles).
-  await page.waitForTimeout(400);
-  const [first] = (await timelineClips(page)).filter((c) => c.id === before[2]);
-  const durationBefore = first.w;
-  await page.mouse.move(first.x + first.w - 2, first.y + first.h / 2);
-  await page.mouse.down();
-  await page.mouse.move(first.x + first.w - 30, first.y + first.h / 2, { steps: 4 });
-  await page.mouse.move(first.x + first.w - 60, first.y + first.h / 2, { steps: 4 });
-  await page.mouse.up();
-  await expect
-    .poll(async () => (await timelineClips(page)).find((c) => c.id === before[2])!.w)
-    .toBeLessThan(durationBefore - 40);
-  // Main track stays gap-free.
+  // Snapping off (N): a small nudge right stays exactly where it's dropped instead of snapping back.
+  await page.keyboard.press("n");
+  await expect(page.getByRole("button", { name: "Snapping" })).toHaveAttribute("aria-pressed", "false");
+  const snappedBox = (await timelineClips(page)).find((c) => c.id === last.id)!;
+  await drag(page, { x: snappedBox.x + 30, y }, { x: snappedBox.x + 30 + 0.1 * PX_PER_S, y });
+  await expect.poll(async () => (await byStart())[2].start).toBeCloseTo(11.1, 3);
+  // Dropped over a neighbour, a clip lands right next to it instead of overlapping.
+  const middleBox = (await timelineClips(page)).find((c) => c.id === middle.id)!;
+  await drag(page, { x: middleBox.x + 30, y }, { x: middleBox.x + 30 - 0.5 * PX_PER_S, y });
+  await expect.poll(async () => (await byStart())[1].start).toBe(3);
+  await page.keyboard.press("n");
+
+  // Drag the first clip up above the top track: it goes onto a new video track.
+  const headBox = (await timelineClips(page)).find((c) => c.id === head.id)!;
+  const top = (await page.locator("[data-timeline-lanes]").boundingBox())!.y;
+  await drag(page, { x: headBox.x + 20, y: headBox.y + headBox.h / 2 }, { x: headBox.x + 20, y: top + 6 });
   await expect
     .poll(async () => {
       const p = await savedProject(page);
-      const main = p.clips
-        .filter((c: { trackId: string }) => c.trackId === "main")
-        .sort((a: { start: number }, b: { start: number }) => a.start - b.start);
-      return main.every(
-        (c: { start: number }, i: number) =>
-          i === 0 || Math.abs(c.start - (main[i - 1].start + main[i - 1].out - main[i - 1].in)) < 1e-6,
-      );
+      const clip = (p.clips as SavedClip[]).find((c) => c.id === head.id)!;
+      return [p.tracks.map((t: { kind: string }) => t.kind), clip.trackId === p.tracks[0].id, clip.start];
     })
-    .toBe(true);
+    .toEqual([["video", "video", "audio"], true, 0]);
+  await expect(page.getByText("Video 2", { exact: true }).first()).toBeVisible();
+
+  // Trim its right edge left by ~1s worth of pixels.
+  const moved = (await timelineClips(page)).find((c) => c.id === head.id)!;
+  await drag(
+    page,
+    { x: moved.x + moved.w - 2, y: moved.y + moved.h / 2 },
+    { x: moved.x + moved.w - 2 - PX_PER_S, y: moved.y + moved.h / 2 },
+  );
+  await expect
+    .poll(async () => (await timelineClips(page)).find((c) => c.id === head.id)!.w)
+    .toBeLessThan(moved.w - 40);
+});
+
+test("right-click menus, copy/paste and the shortcuts dialog", async ({ page }) => {
+  await page.goto("/");
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
+
+  // Duplicate from a clip's context menu.
+  const [clip] = await timelineClips(page);
+  // A quick right-click (press + release) opens the menu without choosing anything.
+  await page.mouse.click(clip.x + 10, clip.y + clip.h / 2, { button: "right" });
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(page.locator("header button", { hasText: "Undo" })).toBeDisabled(); // nothing was chosen
+  await page.getByRole("menuitem", { name: /^Duplicate/ }).click();
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(5);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  // Copy + paste with the keyboard (pointer parked away from tooltips).
+  await page.mouse.move(700, 300);
+  await page.keyboard.press("ControlOrMeta+c");
+  await page.keyboard.press("End");
+  await page.keyboard.press("ControlOrMeta+v");
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(6);
+
+  // Select everything, then nothing.
+  await page.keyboard.press("ControlOrMeta+a");
+  await expect(page.getByText("6 clips selected")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("6 clips selected")).toHaveCount(0);
+
+  // Right-click the empty start of the Video 1 track (its first clip moved up a track).
+  await page.keyboard.press("Home"); // scrolls the timeline back to the start
+  await page.mouse.click(await timeX(page, 1.5), await laneY(page, "Video 1"), { button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Close gap" })).toBeEnabled();
+  await page.getByRole("menuitem", { name: "Add audio track" }).click();
+  await expect(page.getByText("Audio 2", { exact: true })).toBeVisible();
+
+  // The cheat sheet.
+  await page.keyboard.press("?");
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // Undo back to the original four clips (and remove the extra track).
+  for (let i = 0; i < 3; i++) await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
 });
 
 test("plays back and keeps the video in sync with the clock", async ({ page }) => {

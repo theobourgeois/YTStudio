@@ -293,17 +293,18 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
       id: projects.main.id, name: "Untitled", status: "active", aspectRatio: "16:9",
       clipCount: 3, thumbnail: assets.landscape.poster,
     });
-    expect(summary.duration).toBeCloseTo(1 + assets.portrait.duration, 5);
+    expect(summary.duration).toBeCloseTo(9 + assets.portrait.duration, 5);
     expect(summary.updatedAt).toBeGreaterThan(projects.main.updatedAt);
     projects.main = summary;
 
     const loaded = await json<Project>(url);
+    // Clips keep their positions (gaps are allowed), in time order.
     expect(loaded.clips.map((c) => [c.trackId, c.start, c.in])).toEqual([
-      ["main", 0, 0],
-      ["main", 1, 0],
       ["audio_1", 0.5, 0],
+      ["main", 5, 0],
+      ["main", 9, 0],
     ]);
-    expect(loaded.clips[1].out).toBeCloseTo(assets.portrait.duration, 5);
+    expect(loaded.clips[2].out).toBeCloseTo(assets.portrait.duration, 5);
     expect((await sendJson("PUT", url, [1, 2])).status).toBe(400);
     const bad = await api(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: "{nope" });
     expect(bad.status).toBe(400);
@@ -385,6 +386,26 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(download.status).toBe(200);
     expect(download.headers.get("content-disposition")).toMatch(/^attachment; filename="My cut 1\.mp4"/);
     await download.arrayBuffer();
+  });
+
+  it("exports stacked video tracks with gaps", async () => {
+    // Top track: portrait from 0.5s; bottom track: landscape, a gap, then landscape again until 3s.
+    const project: Project = {
+      ...projectWith([
+        clip("landscape", "main", 0, 0, 1),
+        clip("landscape", "main", 2, 0, 1),
+        clip("portrait", "top", 0.5, 0, 1),
+      ]),
+      tracks: [{ id: "top", kind: "video", name: "Video 2", muted: false }, ...createDefaultProject().tracks],
+    };
+    const res = await sendJson("POST", "/api/exports", { project, resolution: "720p" });
+    expect(res.status).toBe(202);
+    const queued = (await res.json()) as ExportJob;
+    expect(queued.duration).toBe(3);
+    const job = await waitForExport(queued.id);
+    expect(job.status).toBe("done");
+    const info = probe(path.join(dataDir, "exports", `${job.id}.mp4`));
+    expect(Math.abs(Number(info.format.duration) - 3)).toBeLessThan(2 / 30);
   });
 
   it("exports without the audio tracks when asked", async () => {

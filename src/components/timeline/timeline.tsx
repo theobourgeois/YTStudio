@@ -8,15 +8,16 @@
  *      └─ TrackHeaders (sticky left) + lanes (backgrounds, TimelineClip*, overlays, PlayheadLine)
  */
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { projectDuration } from "@shared/timeline";
 import { MAX_ZOOM, MIN_ZOOM, useEditor } from "@/stores/editor";
 import { cn } from "@/lib/utils";
 import { PANEL_DEFAULT_HEIGHT, PANEL_MAX_FRACTION, PANEL_MIN_HEIGHT } from "./constants";
 import { TimelineContext, type TimelineContextValue } from "./context";
-import { anchoredScrollLeft, type LaneLayout } from "./geometry";
+import { anchoredScrollLeft, fitZoom, type LaneLayout } from "./geometry";
 import { cancelActiveSession } from "./pointer-session";
 import { TimelineBody } from "./timeline-body";
 import { TimelineToolbar } from "./toolbar";
-import { setView } from "./view-store";
+import { setView, timelineCommands, useTimelineView } from "./view-store";
 
 const HEIGHT_KEY = "editor-timeline-height";
 
@@ -71,10 +72,21 @@ export function Timeline() {
   useEffect(
     () => () => {
       cancelActiveSession();
-      setView({ dragClipId: null, ghost: null, snapGuide: null, drop: null, scrubbing: false });
+      setView({ dragClipIds: [], ghosts: [], marquee: null, snapGuide: null, drop: null, scrubbing: false });
     },
     [],
   );
+
+  useEffect(() => {
+    timelineCommands.zoomToFit = () => {
+      const duration = projectDuration(useEditor.getState().project);
+      const fit = fitZoom(duration, useTimelineView.getState().viewWidth, MIN_ZOOM, MAX_ZOOM);
+      if (fit !== null) ctx.zoomTo(fit, { time: 0, vx: 0 });
+    };
+    return () => {
+      timelineCommands.zoomToFit = () => {};
+    };
+  }, [ctx]);
 
   return (
     <TimelineContext value={ctx}>

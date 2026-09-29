@@ -5,7 +5,7 @@
  * Only one session can be active at a time.
  */
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { HEADER_WIDTH } from "./constants";
+import { HEADER_WIDTH, RULER_HEIGHT } from "./constants";
 import { lanePoint, type TimelineContextValue } from "./context";
 import { edgeScrollSpeed } from "./geometry";
 
@@ -17,7 +17,7 @@ export interface LanePoint {
 export interface SessionHandlers {
   /** Pointer travel (px) before the drag starts. 0 = start on the first move. */
   threshold: number;
-  /** Scroll horizontally when the pointer nears the lane viewport edges. */
+  /** Scroll when the pointer nears the lane viewport edges. */
   autoScroll?: boolean;
   /** Cursor forced on the whole document while the drag is active. */
   cursor?: string;
@@ -71,11 +71,13 @@ export function startPointerSession(
     const el = ctx.scrollerRef.current;
     if (done || !el) return;
     const rect = el.getBoundingClientRect();
-    const speed = edgeScrollSpeed(last.x - rect.left - HEADER_WIDTH, el.clientWidth - HEADER_WIDTH);
-    if (speed === 0) return;
-    const before = el.scrollLeft;
-    el.scrollLeft = before + speed;
-    if (el.scrollLeft !== before) apply();
+    const speedX = edgeScrollSpeed(last.x - rect.left - HEADER_WIDTH, el.clientWidth - HEADER_WIDTH);
+    const speedY = edgeScrollSpeed(last.y - rect.top - RULER_HEIGHT, el.clientHeight - RULER_HEIGHT);
+    if (speedX === 0 && speedY === 0) return;
+    const [left, top] = [el.scrollLeft, el.scrollTop];
+    el.scrollLeft = left + speedX;
+    el.scrollTop = top + speedY;
+    if (el.scrollLeft !== left || el.scrollTop !== top) apply();
     raf = requestAnimationFrame(autoScroll);
   };
 

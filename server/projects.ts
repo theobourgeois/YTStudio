@@ -1,12 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
-  MAIN_TRACK_ID,
   createDefaultProject,
   createId,
+  isOnVideoTrack,
   normalizeProject,
   projectDuration,
-  trackClips,
 } from "../shared/timeline.ts";
 import type { Project, ProjectStatus, ProjectSummary, UpdateProjectRequest } from "../shared/types.ts";
 import type { MediaLibrary } from "./media.ts";
@@ -77,8 +76,16 @@ function statsOf(doc: Project): DocStats {
     aspectRatio: doc.settings.aspectRatio,
     duration: projectDuration(doc),
     clipCount: doc.clips.length,
-    coverAssetId: trackClips(doc, MAIN_TRACK_ID)[0]?.assetId ?? null,
+    coverAssetId: firstVideoClip(doc)?.assetId ?? null,
   };
+}
+
+/** The earliest clip on any video track (the bottom-most track wins a tie). */
+function firstVideoClip(doc: Project) {
+  const layer = (trackId: string) => doc.tracks.findIndex((t) => t.id === trackId);
+  return doc.clips
+    .filter((c) => isOnVideoTrack(doc, c))
+    .sort((a, b) => a.start - b.start || layer(b.trackId) - layer(a.trackId))[0];
 }
 
 /**

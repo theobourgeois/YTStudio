@@ -97,10 +97,10 @@ export interface Clip {
 
 /**
  * Timeline rules:
- * - Exactly one video track, id `MAIN_TRACK_ID`, always first. It is *magnetic*:
- *   clips are packed back-to-back from t=0 with no gaps, in `start` order.
- * - Zero or more audio tracks. Clips are freely positioned but never overlap
- *   other clips on the same track.
+ * - `tracks` is in display order: one or more video tracks, then zero or more
+ *   audio tracks. The first video track is drawn on top of the ones below it.
+ * - Clips are freely positioned (gaps allowed) but never overlap other clips
+ *   on the same track, and never start before 0.
  */
 export interface Project {
   version: 1;
@@ -132,7 +132,7 @@ export interface ProjectSummary {
   /** Timeline length in seconds. */
   duration: number;
   clipCount: number;
-  /** Poster URL of the first clip on the main track, if any. */
+  /** Poster URL of the earliest video clip, if any. */
   thumbnail: string | null;
 }
 
