@@ -24,6 +24,7 @@ import { STYLIZE_EFFECTS } from "./effect-library/stylize.ts";
 import { MOTION_EFFECTS } from "./effect-library/motion.ts";
 import { GLITCH_EFFECTS } from "./effect-library/glitch.ts";
 import { keyframeValue, sanitizeKeyframes, setKeyframe } from "./keyframes.ts";
+import { tidy } from "./math.ts";
 import { PERCENT, PIXELS, type ParamSpec, defaultParams, sameValue, sanitizeParams, sanitizeValue } from "./params.ts";
 import type { Clip, Effect, FitMode, Keyframe, ParamValue, ParamValues, Project, Vec2 } from "./types.ts";
 
@@ -589,4 +590,65 @@ export function moveEffect(project: Project, clipId: string, effectId: string, b
   const effects = [...clip.effects];
   [effects[order[at]], effects[other]] = [effects[other], effects[order[at]]];
   return { ...project, clips: project.clips.map((c) => (c === clip ? { ...clip, effects } : c)) };
+}
+
+// ---------------------------------------------------------------------------
+// Copy / paste effects (Premiere's Paste Attributes)
+// ---------------------------------------------------------------------------
+
+/** A clip's effects, copied to paste onto other clips. `in` places the keyframes (they're in source time). */
+export interface CopiedEffects {
+  effects: Effect[];
+  in: number;
+}
+
+export function copyEffects(clip: Clip): CopiedEffects {
+  return { effects: clip.effects, in: clip.in };
+}
+
+/**
+ * Paste copied effects (just `types`, or all of them) onto clips. Each replaces the clip's effect
+ * with the same id, so a clip only gets what it can have (no Text on a video); video effects it
+ * doesn't have are added after its own, on clips on a video track (Premiere's Paste Attributes).
+ * Keyframes land at the same distance from the clip's start. The words of a text stay: only its
+ * look is pasted.
+ */
+export function pasteEffects(project: Project, clipIds: readonly string[], copied: CopiedEffects, types?: readonly string[]): Project {
+  const pasted = copied.effects.filter((e) => !types || types.includes(e.type));
+  const videoTracks = new Set(project.tracks.filter((t) => t.kind === "video").map((t) => t.id));
+  let p = project;
+  for (const clipId of clipIds) {
+    const clip = p.clips.find((c) => c.id === clipId);
+    if (!clip) continue;
+    const shift = clip.in - copied.in;
+    const moved = (keys: Keyframe[]) => keys.map((k) => ({ ...k, time: tidy(k.time + shift) }));
+    for (const source of pasted) {
+      p = updateEffect(p, clipId, source.id, (effect, def) => {
+        // Content (a text's words) isn't style.
+        const kept = def.params.filter((spec) => spec.kind === "text").map((spec) => spec.key);
+        const params = { ...source.params };
+        for (const key of kept) params[key] = effect.params[key];
+        const keyframes: Record<string, Keyframe[]> = {};
+        for (const [key, keys] of Object.entries(source.keyframes ?? {})) {
+          if (!kept.includes(key)) keyframes[key] = moved(keys);
+        }
+        for (const key of kept) if (effect.keyframes?.[key]) keyframes[key] = effect.keyframes[key];
+        const next: Effect = { ...effect, enabled: source.enabled || !!def.alwaysOn, params };
+        if (Object.keys(keyframes).length) next.keyframes = keyframes;
+        else delete next.keyframes;
+        return JSON.stringify(next) === JSON.stringify(effect) ? effect : next;
+      });
+    }
+    const missing = videoTracks.has(clip.trackId)
+      ? pasted.filter((e) => isVideoEffect(e) && !clip.effects.some((own) => own.id === e.id))
+      : [];
+    if (missing.length === 0) continue;
+    const added = missing.map((e): Effect => {
+      const next: Effect = { ...e, params: { ...e.params } };
+      if (e.keyframes) next.keyframes = Object.fromEntries(Object.entries(e.keyframes).map(([key, keys]) => [key, moved(keys)]));
+      return next;
+    });
+    p = { ...p, clips: p.clips.map((c) => (c.id === clipId ? { ...c, effects: [...c.effects, ...added] } : c)) };
+  }
+  return p;
 }

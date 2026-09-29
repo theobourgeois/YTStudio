@@ -3,6 +3,7 @@
  * on whether a clip or empty space was clicked) and one per track header.
  */
 import { useState, type MouseEvent, type ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   PiArrowDown,
   PiArrowUp,
@@ -13,7 +14,9 @@ import {
   PiCopy,
   PiCopySimple,
   PiFilmStrip,
+  PiMagicWand,
   PiMusicNotes,
+  PiPaintBrushBroad,
   PiScissors,
   PiSelectionAll,
   PiSlidersHorizontal,
@@ -24,7 +27,7 @@ import {
   PiArrowLineLeft,
 } from "react-icons/pi";
 import type { Track, TransitionAlignment } from "@shared/types";
-import { MOTION, findEffect, isTextClip, setParams } from "@shared/effects";
+import { MOTION, effectDefinition, findEffect, isTextClip, isVideoEffect, setParams } from "@shared/effects";
 import { type TransitionRef, findWindow, parseRefKey, setTransitionParams } from "@shared/transition-windows";
 import {
   addTrack,
@@ -46,6 +49,9 @@ import {
   ContextMenuRadioItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useSaveToLibrary } from "@/components/library/library-dialogs";
@@ -213,6 +219,13 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
         <PiCopySimple /> Duplicate{plural}
         <ContextMenuShortcut>{SHORTCUT_KEYS.duplicate}</ContextMenuShortcut>
       </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => editor().copyEffects(target.clipId)}>
+        <PiMagicWand /> Copy effects
+        <ContextMenuShortcut>{SHORTCUT_KEYS.copyEffects}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <PasteEffectsMenu plural={plural} />
+      <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => useSaveToLibrary.getState().open(editor().selectedClipIds)}>
         <PiBooks /> Save{plural} to Library…
       </ContextMenuItem>
@@ -249,6 +262,42 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
         <ContextMenuShortcut>{SHORTCUT_KEYS.rippleDelete}</ContextMenuShortcut>
       </ContextMenuItem>
     </>
+  );
+}
+
+/** Paste every copied effect, or one of them, onto the selected clips (Premiere's Paste Attributes). */
+function PasteEffectsMenu({ plural }: { plural: string }) {
+  // Copied effects that some selected clip has (a video can't take a text's Text), or video
+  // effects, which any clip on a video track can take.
+  const types = useEditor(
+    useShallow((s) => {
+      const copied = s.effectsClipboard?.effects ?? [];
+      const clips = s.selectedClipIds.map((id) => getClip(s.project, id));
+      const visual = clips.some((c) => c && isOnVideoTrack(s.project, c));
+      const pastable = copied.filter(
+        (e) => (visual && isVideoEffect(e)) || clips.some((c) => c?.effects.some((own) => own.id === e.id)),
+      );
+      return [...new Set(pastable.map((e) => e.type))];
+    }),
+  );
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger disabled={types.length === 0}>
+        <PiPaintBrushBroad /> Paste effects{plural && ` onto${plural}`}
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-52">
+        <ContextMenuItem onSelect={() => editor().pasteEffects()}>
+          All effects
+          <ContextMenuShortcut>{SHORTCUT_KEYS.pasteEffects}</ContextMenuShortcut>
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {types.map((type) => (
+          <ContextMenuItem key={type} onSelect={() => editor().pasteEffects([type])}>
+            {effectDefinition(type)?.label ?? type}
+          </ContextMenuItem>
+        ))}
+      </ContextMenuSubContent>
+    </ContextMenuSub>
   );
 }
 

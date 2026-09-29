@@ -15,6 +15,9 @@ import {
   normalizeEffects,
   opacityAt,
   removeEffect,
+  copyEffects,
+  pasteEffects,
+  textEffects,
   resetParams,
   setEffectEnabled,
   setParams,
@@ -300,5 +303,61 @@ describe("video effects", () => {
     expect(passes.map((x) => x.shader.key)).toEqual(["fx:black-white"]);
     expect(passes[0].uniforms).toContainEqual({ name: "amount", type: "float", value: 1 });
     expect(passes[0].uniforms).toContainEqual({ name: "time", type: "float", value: 1.5 });
+  });
+});
+
+describe("copy / paste effects", () => {
+  const kf = (time: number, value: number): Keyframe => ({ time, value, easing: "linear" });
+  const two = (from: Clip, to: Clip): Project => ({ ...createDefaultProject(), clips: [from, to] });
+
+  it("pastes values and keyframes, at the same distance from the clip's start", () => {
+    const from = clipWith(defaultEffects().map((e) =>
+      e.type === "opacity" ? { ...e, params: { opacity: 40 } } : e.type === "motion" ? { ...e, keyframes: { rotation: [kf(10, 0), kf(12, 90)] } } : e,
+    ));
+    const source = { ...from, in: 10, out: 15 };
+    const target: Clip = { ...clipWith(), id: "d", start: 20, in: 3, out: 8 };
+    const p = pasteEffects(two(source, target), ["d"], copyEffects(source));
+    const pasted = p.clips[1];
+    expect(findEffect(pasted, "opacity")!.params.opacity).toBe(40);
+    expect(findEffect(pasted, "motion")!.keyframes!.rotation.map((k) => k.time)).toEqual([3, 5]);
+    // Pasting the same again changes nothing.
+    expect(pasteEffects(p, ["d"], copyEffects(source))).toBe(p);
+  });
+
+  it("pastes only the chosen effects, and only ones the clip has", () => {
+    const text: Clip = { id: "t", assetId: "", trackId: MAIN_TRACK_ID, start: 0, in: 0, out: 2, effects: [...defaultEffects(), ...textEffects({ text: "Hi", size: 200 })] };
+    const video: Clip = { ...clipWith(defaultEffects().map((e) => (e.type === "opacity" ? { ...e, params: { opacity: 10 } } : e))), id: "v" };
+    let p = two(text, video);
+    p = pasteEffects(p, ["t"], copyEffects(video), ["opacity"]);
+    expect(findEffect(p.clips[0], "opacity")!.params.opacity).toBe(10);
+    // A video has no Text to take.
+    const q = pasteEffects(p, ["v"], copyEffects(p.clips[0]), ["text"]);
+    expect(q).toBe(p);
+  });
+
+  it("keeps a text's words, pasting only its look", () => {
+    const a: Clip = { id: "a", assetId: "", trackId: MAIN_TRACK_ID, start: 0, in: 0, out: 2, effects: [...defaultEffects(), ...textEffects({ text: "First", size: 300 })] };
+    const b: Clip = { ...a, id: "b", start: 3, effects: [...defaultEffects(), ...textEffects({ text: "Second", size: 80 })] };
+    const p = pasteEffects(two(a, b), ["b"], copyEffects(a));
+    expect(findEffect(p.clips[1], "text")!.params).toMatchObject({ text: "Second", size: 300 });
+  });
+
+  it("adds the video effects a clip doesn't have, after its own, once", () => {
+    let p = two({ ...clipWith(), in: 10, out: 15 }, { ...clipWith(), id: "d", start: 20, in: 3, out: 8 });
+    p = addEffect(p, ["c"], "sepia").project;
+    p = addEffect(p, ["c"], "mosaic").project;
+    p = setParams(p, "c", "mosaic", { blockSize: 0.1 });
+    p = { ...p, clips: p.clips.map((c) => (c.id === "c" ? { ...c, effects: c.effects.map((e) => (e.id === "sepia" ? { ...e, keyframes: { amount: [kf(11, 0), kf(12, 1)] } } : e)) } : c)) };
+    p = addEffect(p, ["d"], "vignette").project;
+    const pasted = pasteEffects(p, ["d"], copyEffects(p.clips[0]));
+    const target = pasted.clips[1];
+    expect(videoEffects(target).map((e) => e.id)).toEqual(["vignette", "sepia", "mosaic"]);
+    expect(findEffect(target, "mosaic")!.params.blockSize).toBe(0.1);
+    expect(findEffect(target, "sepia")!.keyframes!.amount.map((k) => k.time)).toEqual([4, 5]);
+    expect(pasteEffects(pasted, ["d"], copyEffects(p.clips[0]))).toBe(pasted);
+    // Just one of them; and none on a clip that isn't on a video track.
+    expect(videoEffects(pasteEffects(p, ["d"], copyEffects(p.clips[0]), ["mosaic"]).clips[1]).map((e) => e.id)).toEqual(["vignette", "mosaic"]);
+    const audio = { ...p, tracks: p.tracks.map((t) => ({ ...t, kind: "audio" as const })) };
+    expect(videoEffects(pasteEffects(audio, ["d"], copyEffects(p.clips[0])).clips[1]).map((e) => e.id)).toEqual(["vignette"]);
   });
 });

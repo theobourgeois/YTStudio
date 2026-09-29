@@ -26,6 +26,8 @@ export type ShortcutAction =
   | "cut"
   | "copy"
   | "paste"
+  | "copyEffects"
+  | "pasteEffects"
   | "duplicate"
   | "addTransition"
   | "nudgeLeft"
@@ -50,7 +52,7 @@ export type ShortcutAction =
 export type KeyLike = Pick<
   KeyboardEvent,
   "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey" | "repeat"
->;
+> & { code?: string };
 
 /** Actions that make sense to auto-repeat while a key is held down. */
 const REPEATABLE = new Set<ShortcutAction>([
@@ -80,7 +82,12 @@ export function resolveShortcut(e: KeyLike): ShortcutAction | null {
 
 /** ⌘ (macOS) or Ctrl combos. */
 function resolveMod(e: KeyLike): ShortcutAction | null {
-  if (e.altKey || (e.metaKey && e.ctrlKey)) return null;
+  if (e.metaKey && e.ctrlKey) return null;
+  // ⌥ changes `key` on a Mac (⌥C is "ç"), so these go by the physical key.
+  if (e.altKey) {
+    if (e.shiftKey) return null;
+    return e.code === "KeyC" ? "copyEffects" : e.code === "KeyV" ? "pasteEffects" : null;
+  }
   const key = e.key.toLowerCase();
   if (key === "z") return e.shiftKey ? "redo" : "undo";
   // Premiere's "Apply Default Transition" is ⌘D, which duplicates here.
@@ -214,6 +221,8 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   cut: `${MOD}X`,
   copy: `${MOD}C`,
   paste: `${MOD}V`,
+  copyEffects: `${ALT}${MOD}C`,
+  pasteEffects: `${ALT}${MOD}V`,
   duplicate: `${MOD}D`,
   addTransition: `${SHIFT}${MOD}D`,
   nudgeLeft: `${ALT}←`,
@@ -264,6 +273,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Delete (a clicked gap: close it)", keys: ["⌫"] },
       { label: "Ripple delete (close the gap)", keys: [`${SHIFT}⌫`] },
       { label: "Cut / copy / paste", keys: [`${MOD}X`, `${MOD}C`, `${MOD}V`] },
+      { label: "Copy / paste effects (onto the selected clips)", keys: [`${ALT}${MOD}C`, `${ALT}${MOD}V`] },
       { label: "Duplicate", keys: [`${MOD}D`] },
       { label: "Add a cross dissolve at the nearest cut", keys: [`${SHIFT}${MOD}D`] },
       { label: "Nudge 1 frame", keys: [`${ALT}←`, `${ALT}→`] },

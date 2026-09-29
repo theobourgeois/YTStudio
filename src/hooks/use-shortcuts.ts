@@ -23,6 +23,8 @@ const EDITS = new Set<ShortcutAction>([
   "cut",
   "copy",
   "paste",
+  "copyEffects",
+  "pasteEffects",
   "duplicate",
   "nudgeLeft",
   "nudgeRight",
@@ -161,6 +163,14 @@ function run(action: ShortcutAction): boolean {
     case "paste":
       if (editor.clipboard.length === 0) return false;
       editor.paste();
+      return true;
+    case "copyEffects":
+      if (!hasSelection) return false;
+      editor.copyEffects();
+      return true;
+    case "pasteEffects":
+      if (!hasSelection || !editor.effectsClipboard) return false;
+      editor.pasteEffects();
       return true;
     case "duplicate":
       // Also keeps ⌘D from bookmarking the page.

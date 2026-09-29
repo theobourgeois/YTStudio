@@ -11,7 +11,7 @@ import type {
   WebDownloadProgress,
   WebMediaKind,
 } from "@shared/types";
-import { addEffect, defaultEffects, effectDefinition, isTextClip } from "@shared/effects";
+import { type CopiedEffects, addEffect, copyEffects, defaultEffects, effectDefinition, isTextClip, pasteEffects } from "@shared/effects";
 import { placeTemplate } from "@shared/library";
 import {
   type CopiedClip,
@@ -95,6 +95,8 @@ interface EditorState {
   selectedTransition: TransitionRef | null;
   /** Clips copied with ⌘C / cut with ⌘X. */
   clipboard: CopiedClip[];
+  /** A clip's effects copied with Copy effects (⌥⌘C), to paste onto other clips. */
+  effectsClipboard: CopiedEffects | null;
   /** Timeline zoom in pixels per second. */
   zoom: number;
   snapping: boolean;
@@ -208,6 +210,10 @@ interface EditorState {
   cutSelected: () => void;
   /** Paste the clipboard with its first clip at `at` (default: the playhead). */
   paste: (at?: number) => void;
+  /** Copy a clip's effects (default: the first selected clip's). */
+  copyEffects: (clipId?: string) => void;
+  /** Paste copied effects (just `types`, or all) onto the selected clips. */
+  pasteEffects: (types?: string[]) => void;
   /** Copy the selection and paste it right after itself. */
   duplicateSelected: () => void;
   /** Move the selection by `seconds` if there's room (no jumping over other clips). */
@@ -255,6 +261,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   selectedGap: null,
   selectedTransition: null,
   clipboard: [],
+  effectsClipboard: null,
   zoom: 60,
   snapping: true,
   past: [],
@@ -655,6 +662,18 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (ids.length === 0) return;
     get().commit((p) => (ripple ? rippleDelete(p, ids) : removeClips(p, ids)));
     set({ selectedClipIds: [] });
+  },
+
+  copyEffects(clipId) {
+    const { project, selectedClipIds } = get();
+    const clip = getClip(project, clipId ?? selectedClipIds[0] ?? "");
+    if (clip) set({ effectsClipboard: copyEffects(clip) });
+  },
+
+  pasteEffects(types) {
+    const { effectsClipboard, selectedClipIds } = get();
+    if (!effectsClipboard || selectedClipIds.length === 0) return;
+    get().commit((p) => pasteEffects(p, selectedClipIds, effectsClipboard, types));
   },
 
   copySelected() {

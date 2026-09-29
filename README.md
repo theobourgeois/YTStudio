@@ -27,7 +27,7 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Action | How |
 | --- | --- |
 | Import | Drop files (video, audio, images) on the media panel / timeline (or click the empty media panel to browse) |
-| Add to timeline | Drag from the media panel, double-click, or hover → **+** |
+| Add to timeline | Drag from the media panel, double-click, or hover → **+**. Move the mouse across a video's card to skim through it |
 | Move | Drag clips anywhere on a track (they snap to edges and the playhead; the magnet toggles snapping). Drop above the top track for a new video track. `⌥←` `⌥→` nudge, `⌥↑` `⌥↓` move between tracks |
 | Trim | Drag a clip's left/right edge |
 | Split | `S` (or ⌘B) at the playhead |
@@ -42,6 +42,7 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Properties | **Properties** tab (or double-click a clip): drag a blue number sideways to change it (⇧ faster, ⌥ finer), click it to type, ↺ resets |
 | Left panel width | Drag its right edge (or focus it and use ←/→); double-click the edge for the usual width. It remembers a separate width for when the keyframes show |
 | Video effects | **Effects** tab → **Video effects**: drag one onto a clip (on the timeline or the canvas), or select clips and press **+**. Change, animate, reorder (⋯) or remove it in **Properties** |
+| Copy effects | Right-click a clip → **Copy effects** (`⌥⌘C`), select other clips, right-click → **Paste effects** (`⌥⌘V` pastes all of them, or pick one): values and keyframes, and video effects the clips don't have yet. A text keeps its own words |
 | Transitions | **Effects** tab → **Transitions**: drag one onto a cut or a clip's edge, or **+** / `⇧⌘D` for the cut nearest the playhead. Click it on the timeline to select it, drag its edges to change its length, `⌫` removes it |
 | Library | **Media** tab → **Library**: media and saved clips shared by every video. Drop files or folders on it, **Add to Library** from a media card's menu, or right-click clips → **Save to Library…**. Drag onto the timeline or double-click to use |
 | Auto captions | **Captions** under the timeline (or right-click a clip → **Auto captions…**): pick a style, length and animation, **Generate captions**. Edit them all in the **Captions** tab |

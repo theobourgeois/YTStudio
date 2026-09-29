@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import {
   PiDotsThree,
   PiEye,
@@ -21,8 +21,8 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/component
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AudioTile } from "@/components/media/asset-card";
+import { HoverScrub, useHoverX } from "@/components/media/hover-scrub";
 import { type MenuKit, contextKit, dropdownKit } from "@/components/menu-kit";
-import { filmstripFrameUrl } from "@/lib/api";
 import { setLibraryDragData } from "@/lib/dnd";
 import { cn } from "cn";
 import { useLibrary } from "@/stores/library";
@@ -54,7 +54,7 @@ export function LibraryCard({ item, media, location, onRename, onDelete }: Libra
   const cover = libraryItemCover(item, media);
   const duration = libraryItemDuration(item, media);
   const previewing = useSourcePreview((s) => s.libraryItemId === item.id);
-  const [hoverX, setHoverX] = useState<number | null>(null);
+  const { hoverX, clear: clearHover, handlers: hoverHandlers } = useHoverX();
   const audio = useHoverAudio(item.kind === "media" && cover && !cover.hasVideo ? cover.src : null, hoverX !== null);
 
   const add = () => void useLibrary.getState().addToTimeline(item.id);
@@ -72,18 +72,13 @@ export function LibraryCard({ item, media, location, onRename, onDelete }: Libra
     />
   );
   const onDragStart = (e: DragEvent) => {
-    setHoverX(null);
+    clearHover();
     setLibraryDragData(e.dataTransfer, item.id);
     const thumb = thumbRef.current;
     if (thumb) {
       const rect = thumb.getBoundingClientRect();
       e.dataTransfer.setDragImage(thumb, Math.min(e.clientX - rect.left, rect.width), Math.min(e.clientY - rect.top, rect.height));
     }
-  };
-  const onPointerMove = (e: PointerEvent) => {
-    if (e.pointerType !== "mouse" || e.buttons) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    setHoverX(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)));
   };
 
   return (
@@ -108,8 +103,7 @@ export function LibraryCard({ item, media, location, onRename, onDelete }: Libra
               "relative aspect-video overflow-hidden rounded-md bg-muted ring-1 ring-border ring-inset",
               previewing && "ring-2 ring-brand",
             )}
-            onPointerMove={onPointerMove}
-            onPointerLeave={() => setHoverX(null)}
+            {...hoverHandlers}
           >
             <Thumbnail item={item} cover={cover} hoverX={hoverX} />
 
@@ -266,8 +260,6 @@ function LibraryItemMenuItems({
 function Thumbnail({ item, cover, hoverX }: { item: LibraryItem; cover: MediaAsset | undefined; hoverX: number | null }) {
   const [broken, setBroken] = useState(false);
   if (cover?.hasVideo && cover.poster && !broken) {
-    const strip = cover.kind === "video" ? cover.filmstrip : null;
-    const frame = strip && hoverX !== null ? Math.min(strip.count - 1, Math.floor(hoverX * strip.count)) : null;
     return (
       <>
         <img
@@ -278,17 +270,7 @@ function Thumbnail({ item, cover, hoverX }: { item: LibraryItem; cover: MediaAss
           className="size-full object-cover"
           onError={() => setBroken(true)}
         />
-        {strip && frame !== null && (
-          <>
-            <img
-              src={filmstripFrameUrl(strip.urlPattern, frame)}
-              alt=""
-              draggable={false}
-              className="absolute inset-0 size-full object-cover"
-            />
-            <span className="absolute inset-y-0 w-px bg-brand" style={{ left: `${hoverX! * 100}%` }} />
-          </>
-        )}
+        <HoverScrub asset={cover} hoverX={hoverX} />
       </>
     );
   }
