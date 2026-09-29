@@ -12,3 +12,4 @@ export const config = {
 
 export const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 export const FFPROBE = process.env.FFPROBE_PATH || "ffprobe";
+export const YTDLP = process.env.YTDLP_PATH || "yt-dlp";

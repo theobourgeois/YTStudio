@@ -32,6 +32,10 @@ export class DataPaths {
   get projects() {
     return path.join(this.root, "projects");
   }
+  /** Songs downloaded from YouTube, shared by every project (`<track id>.<ext>`). */
+  get music() {
+    return path.join(this.root, "music");
+  }
   /** The single project saved before multi-project support (migrated on startup). */
   get legacyProject() {
     return path.join(this.root, "project.json");
@@ -54,7 +58,7 @@ export class DataPaths {
   }
 
   async init() {
-    await Promise.all([this.media, this.projects, this.exports].map((d) => fs.mkdir(d, { recursive: true })));
+    await Promise.all([this.media, this.projects, this.exports, this.music].map((d) => fs.mkdir(d, { recursive: true })));
     // Anything left in tmp belongs to an upload or render that died with the server.
     await fs.rm(this.tmp, { recursive: true, force: true });
     await fs.mkdir(this.tmp, { recursive: true });

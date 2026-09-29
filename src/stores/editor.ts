@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import { toast } from "sonner";
-import type { Clip, MediaAsset, Project, ProjectSettings, ProjectSummary } from "@shared/types";
+import type {
+  Clip,
+  MediaAsset,
+  MusicTrack,
+  Project,
+  ProjectSettings,
+  ProjectSummary,
+} from "@shared/types";
 import {
   MAIN_TRACK_ID,
   addAudioTrack,
@@ -32,6 +39,8 @@ export interface Upload {
   name: string;
   /** 0..1 */
   progress: number;
+  /** Set for a song being downloaded from the Music tab. */
+  trackId?: string;
 }
 
 export const DEFAULT_PROJECT_NAME = "Untitled";
@@ -97,6 +106,8 @@ interface EditorState {
    * an unnamed project names it after the file.
    */
   importFiles: (files: File[]) => Promise<MediaAsset[]>;
+  /** Download a song into the open project's media and put it on the timeline. Resolves true if it was added. */
+  addMusic: (track: MusicTrack) => Promise<boolean>;
   deleteAsset: (assetId: string) => Promise<void>;
   getAsset: (assetId: string) => MediaAsset | undefined;
 
@@ -288,6 +299,29 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!stillOpen()) return [];
     pollProcessingAssets();
     return results.filter((a): a is MediaAsset => a !== null);
+  },
+
+  async addMusic(track) {
+    const projectId = get().projectId;
+    if (!projectId || get().uploads.some((u) => u.trackId === track.id)) return false;
+    const stillOpen = () => get().projectId === projectId;
+    const upload: Upload = { id: createId("up"), name: track.title, progress: 0, trackId: track.id };
+    set({ uploads: [...get().uploads, upload] });
+    try {
+      const asset = await api.importMusic({ projectId, trackId: track.id, title: track.title });
+      if (!stillOpen()) return false;
+      set({ assets: [asset, ...get().assets.filter((a) => a.id !== asset.id)] });
+      get().addAssetsToTimeline([asset.id]);
+      pollProcessingAssets();
+      return true;
+    } catch (err) {
+      toast.error(`Couldn't add “${track.title}”`, {
+        description: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    } finally {
+      if (stillOpen()) set({ uploads: get().uploads.filter((u) => u.id !== upload.id) });
+    }
   },
 
   async deleteAsset(assetId) {

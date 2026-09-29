@@ -66,6 +66,11 @@ export function projectDuration(project: Project): number {
   return roundTime(end);
 }
 
+/** The project without its audio tracks' clips (the video track keeps its own sound). */
+export function withoutAudioTracks(project: Project): Project {
+  return { ...project, clips: project.clips.filter((c) => c.trackId === MAIN_TRACK_ID) };
+}
+
 /** The clip on `trackId` covering `time` (start inclusive, end exclusive). */
 export function clipAtTime(project: Project, trackId: string, time: number): Clip | undefined {
   return project.clips.find(

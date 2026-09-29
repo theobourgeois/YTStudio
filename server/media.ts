@@ -111,17 +111,30 @@ export class MediaLibrary {
       } catch {
         throw new HttpError(400, "The upload was interrupted.");
       }
-      if (!projectExists()) throw new HttpError(404, "Project not found");
-      if (!(await ffmpegVersion())) {
-        throw new HttpError(503, "ffmpeg isn't installed, so media can't be imported.");
-      }
-      const { size } = await fs.stat(tmp);
-      if (size === 0) throw new HttpError(400, "The file is empty.");
-      const probe = await probeMedia(tmp);
-      return await this.commit(tmp, { name: displayName(rawName), projectId, size, probe }, projectExists);
+      return await this.add(tmp, rawName, projectId, projectExists);
     } finally {
       await fs.rm(tmp, { force: true });
     }
+  }
+
+  /**
+   * Probe a file on disk and add it to `projectId`'s media. The file is moved into
+   * the library on success; on failure it's left for the caller to clean up.
+   */
+  async add(
+    file: string,
+    rawName: string,
+    projectId: string,
+    projectExists: () => boolean,
+  ): Promise<MediaAsset> {
+    if (!projectExists()) throw new HttpError(404, "Project not found");
+    if (!(await ffmpegVersion())) {
+      throw new HttpError(503, "ffmpeg isn't installed, so media can't be imported.");
+    }
+    const { size } = await fs.stat(file);
+    if (size === 0) throw new HttpError(400, "The file is empty.");
+    const probe = await probeMedia(file);
+    return await this.commit(file, { name: displayName(rawName), projectId, size, probe }, projectExists);
   }
 
   private async commit(

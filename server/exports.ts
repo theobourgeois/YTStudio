@@ -4,6 +4,7 @@ import {
   normalizeProject,
   outputSize,
   projectDuration,
+  withoutAudioTracks,
 } from "../shared/timeline.ts";
 import type { ExportJob, ExportRequest, ExportResolution, Project } from "../shared/types.ts";
 import { FFMPEG } from "./config.ts";
@@ -63,6 +64,12 @@ export class ExportManager {
       throw err instanceof HttpError ? err : new HttpError(400, "The project is malformed.");
     }
     if (!project.clips.length) throw new HttpError(400, "Nothing to export — the timeline is empty.");
+    if (req.excludeAudioTracks === true) {
+      project = withoutAudioTracks(project);
+      if (!project.clips.length) {
+        throw new HttpError(400, "Nothing to export without the audio tracks — the video track is empty.");
+      }
+    }
 
     const { width, height } = outputSize(project.settings.aspectRatio, req.resolution as ExportResolution);
     const job: ExportJob = {

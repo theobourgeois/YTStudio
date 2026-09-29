@@ -156,6 +156,8 @@ export interface ExportRequest {
   resolution: ExportResolution;
   /** Optional output name without extension. */
   fileName?: string;
+  /** Render without the audio tracks (e.g. to add the song in-app when posting). */
+  excludeAudioTracks?: boolean;
 }
 
 export type ExportStatus = "queued" | "rendering" | "done" | "error" | "cancelled";
@@ -178,6 +180,29 @@ export interface ExportJob {
 }
 
 // ---------------------------------------------------------------------------
+// Music (songs found on YouTube and downloaded with yt-dlp)
+// ---------------------------------------------------------------------------
+
+export interface MusicTrack {
+  /** YouTube video id. */
+  id: string;
+  title: string;
+  /** Uploading channel (usually the artist). */
+  channel: string;
+  duration: number;
+  thumbnail: string;
+  /** Uploaded by a verified channel (usually the official upload). */
+  verified: boolean;
+}
+
+export interface ImportMusicRequest {
+  projectId: string;
+  trackId: string;
+  /** Display name for the imported media. */
+  title: string;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP API (all JSON unless noted; errors are `ApiError` with a 4xx/5xx status)
 //
 //   GET    /api/health                  -> HealthResponse
@@ -195,6 +220,9 @@ export interface ExportJob {
 //                                        415 if the file has no audio/video stream, 404 unknown project
 //   GET    /api/media/:id               -> MediaAsset
 //   DELETE /api/media/:id               -> 204
+//   GET    /api/music/search?q=<query> -> MusicTrack[]  (503 if yt-dlp isn't installed)
+//   GET    /api/music/:trackId/audio    -> audio file (downloaded on first request, then cached)
+//   POST   /api/music/import  body: ImportMusicRequest -> MediaAsset (201)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/:id             -> ExportJob
 //   DELETE /api/exports/:id             -> 204 (cancels if running)

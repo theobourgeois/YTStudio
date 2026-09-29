@@ -3,7 +3,9 @@ import type {
   ExportJob,
   ExportRequest,
   HealthResponse,
+  ImportMusicRequest,
   MediaAsset,
+  MusicTrack,
   Project,
   ProjectSummary,
   UpdateProjectRequest,
@@ -28,7 +30,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function errorMessage(res: Response): Promise<string> {
+/** The `{ error }` message of a failed response. */
+export async function errorMessage(res: Response): Promise<string> {
   try {
     const body = await res.json();
     if (body && typeof body.error === "string") return body.error;
@@ -100,6 +103,13 @@ export const api = {
       xhr.send(file);
     });
   },
+
+  searchMusic: (query: string, signal?: AbortSignal) =>
+    request<MusicTrack[]>(`/api/music/search?q=${encodeURIComponent(query)}`, { signal }),
+  /** Playable URL of a track (the server downloads it on the first request). */
+  musicAudioUrl: (trackId: string) => `/api/music/${trackId}/audio`,
+  importMusic: (body: ImportMusicRequest) =>
+    request<MediaAsset>("/api/music/import", { method: "POST", body: JSON.stringify(body) }),
 
   startExport: (req: ExportRequest) =>
     request<ExportJob>("/api/exports", { method: "POST", body: JSON.stringify(req) }),

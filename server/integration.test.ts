@@ -387,6 +387,26 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     await download.arrayBuffer();
   });
 
+  it("exports without the audio tracks when asked", async () => {
+    const project = projectWith([
+      clip("landscape", "main", 0, 0, 2),
+      clip("tone", "audio_1", 0, 0, 3),
+    ]);
+    const res = await sendJson("POST", "/api/exports", { project, resolution: "720p", excludeAudioTracks: true });
+    expect(res.status).toBe(202);
+    const queued = (await res.json()) as ExportJob;
+    // The tone ran past the video; without it the export is just the video's 2s.
+    expect(queued.duration).toBe(2);
+    const job = await waitForExport(queued.id);
+    expect(job.status).toBe("done");
+    expect(Math.abs(Number(probe(path.join(dataDir, "exports", `${job.id}.mp4`)).format.duration) - 2)).toBeLessThan(2 / 30);
+
+    const musicOnly = projectWith([clip("tone", "audio_1", 0, 0, 3)]);
+    const empty = await sendJson("POST", "/api/exports", { project: musicOnly, resolution: "720p", excludeAudioTracks: true });
+    expect(empty.status).toBe(400);
+    expect(await errorOf(empty)).toMatch(/video track is empty/);
+  });
+
   it("cancels queued and running exports", async () => {
     const long = projectWith(
       Array.from({ length: 8 }, (_, i) => clip("landscape", "main", i * 2, 0, 2)),

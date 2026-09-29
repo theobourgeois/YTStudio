@@ -7,6 +7,7 @@ Drag clips in, arrange and trim them on a magnetic timeline, drop music undernea
 
 ```bash
 brew install ffmpeg      # required for import (thumbnails/waveforms) and export
+brew install yt-dlp deno # optional: the Music tab (song search via YouTube)
 pnpm install
 pnpm samples             # optional: generate a few test clips + a music track in ./samples
 pnpm dev                 # server on :5311, app on http://localhost:5310
@@ -33,6 +34,16 @@ progress. Toggle the sidebar with `⌘\`.
 | Step | `←` `→` one frame, `⇧←` `⇧→` one second, `Home` / `End` |
 | Zoom | `+` / `-`, or ⌘/Ctrl + scroll |
 | Undo / redo | ⌘Z / ⇧⌘Z |
+
+### Music
+
+The **Music** tab in the media panel searches YouTube for songs (via `yt-dlp`). Click a thumbnail to preview,
+**+** to download the song into the video's media and drop it on an audio track. Songs are cached in `data/music`, so
+previewing then adding (or reusing a song in another video) only downloads once.
+
+YouTube regularly breaks `yt-dlp`; if searches or downloads start failing, run `brew upgrade yt-dlp`.
+Mainstream songs baked into a video will likely get muted or claimed when posted, so the export dialog has
+**Leave out music**: export without the audio tracks, then add the official sound in TikTok/Instagram when posting.
 
 Select a clip to change its volume or fit (fit/fill) in the inspector; with nothing selected the inspector shows project
 settings (aspect ratio, frame rate, background).

@@ -22,10 +22,11 @@ import { useFfmpegStatus } from "./use-ffmpeg-status";
 export function ExportDialog() {
   const [open, setOpen] = useState(false);
   const [resolution, setResolution] = useState<ExportResolution>("1080p");
+  const [excludeAudioTracks, setExcludeAudioTracks] = useState(false);
   const empty = useEditor((s) => s.project.clips.length === 0);
   const ffmpeg = useFfmpegStatus(open);
   const { phase, start, reset } = useExportJob();
-  const lastFileName = useRef("");
+  const lastRun = useRef({ fileName: "", excludeAudioTracks: false });
   const busy = phase.status === "starting" || phase.status === "running";
 
   const onOpenChange = (next: boolean) => {
@@ -34,9 +35,9 @@ export function ExportDialog() {
     setOpen(next);
   };
 
-  const run = (fileName: string) => {
-    lastFileName.current = fileName;
-    void start({ project: useEditor.getState().project, resolution, fileName });
+  const run = (fileName: string, excludeAudioTracks: boolean) => {
+    lastRun.current = { fileName, excludeAudioTracks };
+    void start({ project: useEditor.getState().project, resolution, fileName, excludeAudioTracks });
   };
 
   const trigger = (
@@ -79,6 +80,8 @@ export function ExportDialog() {
             ffmpeg={ffmpeg}
             resolution={resolution}
             onResolutionChange={setResolution}
+            excludeAudioTracks={excludeAudioTracks}
+            onExcludeAudioTracksChange={setExcludeAudioTracks}
             starting={phase.status === "starting"}
             onSubmit={run}
           />
@@ -91,7 +94,7 @@ export function ExportDialog() {
           <ExportError
             message={phase.message}
             onBack={reset}
-            onRetry={() => run(lastFileName.current)}
+            onRetry={() => run(lastRun.current.fileName, lastRun.current.excludeAudioTracks)}
           />
         )}
       </DialogContent>

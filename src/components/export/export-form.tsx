@@ -2,11 +2,12 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { PiSpinnerGap, PiWarning } from "react-icons/pi";
 import type { ExportResolution } from "@shared/types";
 import { formatDuration } from "@shared/format";
-import { outputSize, projectDuration } from "@shared/timeline";
+import { MAIN_TRACK_ID, outputSize, projectDuration, withoutAudioTracks } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { DialogClose, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useEditor } from "@/stores/editor";
 import type { FfmpegStatus } from "./use-ffmpeg-status";
@@ -23,25 +24,32 @@ interface ExportFormProps {
   ffmpeg: FfmpegStatus;
   resolution: ExportResolution;
   onResolutionChange: (resolution: ExportResolution) => void;
+  excludeAudioTracks: boolean;
+  onExcludeAudioTracksChange: (exclude: boolean) => void;
   starting: boolean;
-  onSubmit: (fileName: string) => void;
+  onSubmit: (fileName: string, excludeAudioTracks: boolean) => void;
 }
 
 export function ExportForm({
   ffmpeg,
   resolution,
   onResolutionChange,
+  excludeAudioTracks,
+  onExcludeAudioTracksChange,
   starting,
   onSubmit,
 }: ExportFormProps) {
   const project = useEditor((s) => s.project);
+  const hasAudioTracks = project.clips.some((c) => c.trackId !== MAIN_TRACK_ID);
+  const hasVideo = project.clips.some((c) => c.trackId === MAIN_TRACK_ID);
+  const exclude = hasAudioTracks && hasVideo && excludeAudioTracks;
   const [fileName, setFileName] = useState(project.name);
   const { aspectRatio, fps } = project.settings;
   const blocked = ffmpeg === "missing" || ffmpeg === "offline";
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (!blocked && !starting) onSubmit(fileName.trim() || project.name);
+    if (!blocked && !starting) onSubmit(fileName.trim() || project.name, exclude);
   };
 
   return (
@@ -91,10 +99,28 @@ export function ExportForm({
         </ToggleGroup>
       </div>
 
+      {hasAudioTracks && hasVideo && (
+        <div className="flex items-start justify-between gap-4 rounded-md border px-3 py-2.5">
+          <div className="grid gap-1">
+            <Label htmlFor="export-exclude-audio">Leave out music</Label>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Export without the audio tracks, then add the song in TikTok or Instagram when you
+              post, so it doesn't get muted for copyright.
+            </p>
+          </div>
+          <Switch
+            id="export-exclude-audio"
+            checked={excludeAudioTracks}
+            onCheckedChange={onExcludeAudioTracksChange}
+            className="mt-0.5"
+          />
+        </div>
+      )}
+
       <dl className="flex items-center justify-between rounded-md bg-muted/60 px-3 py-2 text-xs">
         <Stat label="Aspect" value={aspectRatio} />
         <Stat label="Frame rate" value={`${fps} fps`} />
-        <Stat label="Duration" value={formatDuration(projectDuration(project))} />
+        <Stat label="Duration" value={formatDuration(projectDuration(exclude ? withoutAudioTracks(project) : project))} />
         <Stat label="Format" value="MP4" />
       </dl>
 

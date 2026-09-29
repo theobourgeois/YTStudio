@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { PiFileArrowUp, PiTrayArrowDown } from "react-icons/pi";
 import type { MediaAsset } from "@shared/types";
 import { Button } from "@/components/ui/button";
@@ -11,19 +11,26 @@ import { AssetCard } from "./asset-card";
 import { DeleteAssetDialog } from "./delete-asset-dialog";
 import { ACCEPTED_FILE_TYPES, importMedia } from "./import-media";
 import { clipCountByAsset, filterAssets, type MediaFilter } from "./media-utils";
+import { MusicPanel } from "./music-panel";
 import { UploadCard } from "./upload-card";
+
+type Tab = "media" | "music";
 
 export function MediaBin() {
   const assets = useEditor((s) => s.assets);
   const uploads = useEditor((s) => s.uploads);
   const clips = useEditor((s) => s.project.clips);
+  const [tab, setTab] = useState<Tab>("media");
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [pendingDelete, setPendingDelete] = useState<{ asset: MediaAsset; uses: number } | null>(
     null,
   );
   const [confirmOpen, setConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const drop = useFileDrop(importMedia);
+  const drop = useFileDrop((files) => {
+    setTab("media");
+    importMedia(files);
+  });
 
   const uses = useMemo(() => clipCountByAsset(clips), [clips]);
   const visible = useMemo(() => filterAssets(assets, filter), [assets, filter]);
@@ -47,15 +54,24 @@ export function MediaBin() {
       aria-label="Media"
       {...drop.handlers}
     >
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b pr-2 pl-3.5">
-        <h2 className="text-sm font-semibold">Media</h2>
-        {assets.length > 0 && (
-          <span className="text-xs text-muted-foreground tabular-nums">{assets.length}</span>
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b pr-2 pl-1.5">
+        <div role="tablist" aria-label="Media sources" className="flex items-center gap-0.5">
+          <TabButton active={tab === "media"} onClick={() => setTab("media")}>
+            Media
+            {assets.length > 0 && (
+              <span className="text-xs font-normal text-muted-foreground tabular-nums">{assets.length}</span>
+            )}
+          </TabButton>
+          <TabButton active={tab === "music"} onClick={() => setTab("music")}>
+            Music
+          </TabButton>
+        </div>
+        {tab === "media" && (
+          <Button variant="secondary" size="xs" className="ml-auto h-7 px-2.5" onClick={openPicker}>
+            <PiTrayArrowDown />
+            Import
+          </Button>
         )}
-        <Button variant="secondary" size="xs" className="ml-auto h-7 px-2.5" onClick={openPicker}>
-          <PiTrayArrowDown />
-          Import
-        </Button>
         <input
           ref={inputRef}
           type="file"
@@ -71,7 +87,8 @@ export function MediaBin() {
         />
       </div>
 
-      {isEmpty ? (
+      <MusicPanel active={tab === "music"} />
+      {tab === "music" ? null : isEmpty ? (
         <EmptyState onClick={openPicker} />
       ) : (
         <>
@@ -138,6 +155,32 @@ export function MediaBin() {
         }}
       />
     </aside>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        "flex h-7 items-center gap-1.5 rounded-md px-2 text-sm font-semibold transition-colors outline-none",
+        "focus-visible:ring-2 focus-visible:ring-ring/50",
+        active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

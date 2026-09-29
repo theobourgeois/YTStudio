@@ -5,6 +5,7 @@ import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { MediaLibrary } from "./media.ts";
 import { migrateLegacyData } from "./migrate.ts";
+import { MusicLibrary } from "./music.ts";
 import { ProjectStore } from "./projects.ts";
 import { DataPaths, HttpError } from "./storage.ts";
 
@@ -12,6 +13,8 @@ export interface AppOptions {
   dataDir: string;
   /** Built web client to serve with an SPA fallback (production only). */
   clientDir?: string;
+  /** yt-dlp binary (defaults to `YTDLP_PATH` or `yt-dlp` on the PATH). */
+  ytdlpPath?: string;
 }
 
 export interface EditorApp {
@@ -36,7 +39,7 @@ function setFileHeaders(res: Response, file: string) {
 
 const queryString = (value: unknown) => (typeof value === "string" ? value : "");
 
-export async function createApp({ dataDir, clientDir }: AppOptions): Promise<EditorApp> {
+export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): Promise<EditorApp> {
   const paths = new DataPaths(dataDir);
   await paths.init();
   const library = new MediaLibrary(paths);
@@ -46,6 +49,8 @@ export async function createApp({ dataDir, clientDir }: AppOptions): Promise<Edi
   await migrateLegacyData(paths, library, projects);
   library.resume();
   const renders = new ExportManager(paths, library);
+  const music = new MusicLibrary(paths, library, ytdlpPath);
+  await music.load();
 
   const app = express();
   app.disable("x-powered-by");
@@ -99,6 +104,24 @@ export async function createApp({ dataDir, clientDir }: AppOptions): Promise<Edi
     res.sendStatus(204);
   });
 
+  app.get("/api/music/search", async (req, res) => {
+    // Stop yt-dlp when the client gives up on the search (e.g. the user kept typing).
+    const controller = new AbortController();
+    res.on("close", () => controller.abort());
+    const tracks = await music.search(queryString(req.query.q), controller.signal);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.json(tracks);
+  });
+  app.get("/api/music/:trackId/audio", async (req, res, next) => {
+    const file = await music.audio(req.params.trackId);
+    res.sendFile(file, { maxAge: "1y", immutable: true }, (err) => {
+      if (err && !res.headersSent) next(err);
+    });
+  });
+  app.post("/api/music/import", json, async (req, res) => {
+    res.status(201).json(await music.import(req.body, (id) => projects.has(id)));
+  });
+
   app.post("/api/exports", json, async (req, res) => {
     res.status(202).json(await renders.create(req.body));
   });
@@ -149,6 +172,7 @@ export async function createApp({ dataDir, clientDir }: AppOptions): Promise<Edi
     shutdown() {
       library.shutdown();
       renders.shutdown();
+      music.shutdown();
     },
   };
 }
