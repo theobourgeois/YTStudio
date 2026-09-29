@@ -5,7 +5,7 @@
  * video effects added from the Effects tab, in the order they're drawn), each
  * row generated from the effect's parameter specs.
  */
-import { type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   PiArrowDown,
@@ -39,9 +39,9 @@ import {
   storedValuesAt,
   textStyleAt,
 } from "@shared/effects";
-import { formatDuration } from "@shared/format";
+import { formatDuration, formatSpeed } from "@shared/format";
 import { isAnimatable, sameValue } from "@shared/params";
-import { clipDuration, clipName, getClip, getTrack, isOnVideoTrack, outputSize, sourceTime } from "@shared/timeline";
+import { canRetime, clipDuration, clipName, clipSpeed, getClip, getTrack, isOnVideoTrack, outputSize, sourceTime } from "@shared/timeline";
 import { refKey } from "@shared/transition-windows";
 import {
   DropdownMenu,
@@ -51,6 +51,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SpeedControl, commitSpeed, useRetimableSelection } from "@/components/timeline/speed-control";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { layoutText } from "@/lib/text-render";
 import { cn } from "cn";
@@ -94,6 +95,8 @@ export function PropertiesPanel() {
     const def = effectDefinition(effect.type);
     return def && def.appliesTo(traits) ? [{ effect, def }] : [];
   });
+  const retimable = canRetime(clip, asset);
+  const firstVideoEffect = ((i) => (i === -1 ? sections.length : i))(sections.findIndex((s) => isVideoEffect(s.effect)));
 
   const body = (
     <>
@@ -102,7 +105,11 @@ export function PropertiesPanel() {
           asset={asset}
           text={text}
           name={clipName(clip, asset)}
-          detail={[trackName, formatDuration(clipDuration(clip))]}
+          detail={[
+            trackName,
+            formatDuration(clipDuration(clip)),
+            clipSpeed(clip) !== 1 || clip.reversed ? `${formatSpeed(clipSpeed(clip))}${clip.reversed ? " reversed" : ""}` : undefined,
+          ]}
         />
       </PanelRow>
       {clip.caption && (
@@ -115,19 +122,23 @@ export function PropertiesPanel() {
           <p className="px-3 py-2 text-xs text-muted-foreground">{selectedCount} clips selected. Showing the last one you selected.</p>
         </PanelRow>
       )}
-      {sections.map(({ effect, def }) => (
-        <EffectSection
-          key={effect.id}
-          clip={clip}
-          effect={effect}
-          def={def}
-          traits={traits}
-          time={time}
-          editTime={editTime}
-          ctx={ctx}
-          lanes={lanes}
-        />
+      {sections.map(({ effect, def }, i) => (
+        <Fragment key={effect.id}>
+          {/* Speed comes after the built-in effects, before the video effects (like Premiere's Time Remapping). */}
+          {retimable && i === firstVideoEffect && <SpeedSection clip={clip} lanes={lanes} />}
+          <EffectSection
+            clip={clip}
+            effect={effect}
+            def={def}
+            traits={traits}
+            time={time}
+            editTime={editTime}
+            ctx={ctx}
+            lanes={lanes}
+          />
+        </Fragment>
       ))}
+      {retimable && firstVideoEffect === sections.length && <SpeedSection clip={clip} lanes={lanes} />}
       {visual && (
         <PanelRow lanes={lanes}>
           <AddEffectRow />
@@ -359,6 +370,52 @@ export function EffectSection({
             <div className="h-2" />
           </PanelRow>
         </div>
+      )}
+    </section>
+  );
+}
+
+/** The clip's speed, direction and pitch (the same control as the timeline's Speed button). */
+function SpeedSection({ clip, lanes }: { clip: Clip; lanes: boolean }) {
+  const [open, setOpen] = useState(() => !toggled.has("speed"));
+  // Every selected clip that can be retimed changes together, as in the timeline.
+  const ids = useRetimableSelection();
+  const retimed = clipSpeed(clip) !== 1 || clip.reversed === true || clip.keepPitch === false;
+  const toggle = () => {
+    if (open) toggled.add("speed");
+    else toggled.delete("speed");
+    setOpen(!open);
+  };
+  return (
+    <section aria-label="Speed" className="border-b">
+      <PanelRow lanes={lanes}>
+        <div className="flex h-9 items-center gap-1 pr-1 pl-1.5">
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={toggle}
+            className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1 text-left text-[13px] font-medium outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <PiCaretRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+            <span className="truncate">Speed</span>
+            {!open && retimed && (
+              <span className="text-xs font-normal text-muted-foreground tabular-nums">
+                {formatSpeed(clipSpeed(clip))}
+                {clip.reversed && ", reversed"}
+              </span>
+            )}
+          </button>
+          {retimed && (
+            <ResetButton label="Reset speed" onClick={() => commitSpeed(ids.includes(clip.id) ? ids : [clip.id], { speed: 1, reversed: false, keepPitch: true })} />
+          )}
+        </div>
+      </PanelRow>
+      {open && (
+        <PanelRow lanes={lanes}>
+          <div className="px-3 pt-1 pb-3">
+            <SpeedControl clipIds={ids.includes(clip.id) ? ids : [clip.id]} clip={clip} />
+          </div>
+        </PanelRow>
       )}
     </section>
   );

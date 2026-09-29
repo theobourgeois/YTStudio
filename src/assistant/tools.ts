@@ -10,7 +10,7 @@ import { captionClips, captionSourceClips } from "@shared/captions";
 import { errorMessage } from "@shared/errors";
 import { templateFromClips } from "@shared/library";
 import { clamp } from "@shared/math";
-import { clipEnd, getClip } from "@shared/timeline";
+import { clipEnd, getClip, timelineTime } from "@shared/timeline";
 import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, Project, TranscriptionEngineId } from "@shared/types";
 import { drawTexts } from "@/components/export/draw-texts";
 import { api } from "@/lib/api";
@@ -212,9 +212,13 @@ const TOOLS: Record<ToolName, Handler> = {
       ctx.progress(i / clips.length, "Listening");
       const asset = assets[clip.assetId]!;
       const sound = await api.analyseSound(asset.id, { from: clip.in, to: clip.out, threshold, min }, ctx.signal);
-      const at = (s: number) => clip.start + (s - clip.in);
+      const at = (s: number) => timelineTime(clip, s);
       const level = sound.meanVolume === null ? "no sound" : `mean ${Math.round(sound.meanVolume * 10) / 10} dB, peak ${Math.round((sound.maxVolume ?? 0) * 10) / 10} dB`;
-      const silences = sound.silences.map((s) => `${range(at(s.start), at(s.end))} (${secs(s.end - s.start)}s)`);
+      // A reversed clip plays a silence's end first; a retimed one makes it longer or shorter.
+      const silences = sound.silences
+        .map((s) => [at(s.start), at(s.end)].sort((a, b) => a - b))
+        .sort((a, b) => a[0] - b[0])
+        .map(([from, to]) => `${range(from, to)} (${secs(to - from)}s)`);
       lines.push(`${clip.id} "${asset.name}" ${range(clip.start, clipEnd(clip))} · ${level}`);
       lines.push(`  ${silences.length ? `silences: ${silences.join(", ")}` : "no silences"}`);
     }
@@ -267,6 +271,7 @@ const TOOLS: Record<ToolName, Handler> = {
   add_text: edit("add_text"),
   move_clips: edit("move_clips"),
   trim_clip: edit("trim_clip"),
+  set_speed: edit("set_speed"),
   split_clips: edit("split_clips"),
   delete_clips: edit("delete_clips"),
   close_gaps: edit("close_gaps"),

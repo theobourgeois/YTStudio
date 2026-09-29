@@ -268,7 +268,9 @@ export function trimSnapPoints(project: Project, clipId: string, playhead: numbe
 
 /**
  * Filmstrip tiles intersecting clip-local px [from, to]. Tile k sits at
- * x = k * tileWidth and shows the frame nearest to source time in + x / zoom.
+ * x = k * tileWidth and shows the frame nearest to source time
+ * in + x / zoom * rate (`inPoint` is the source time at the clip's left edge;
+ * `rate` its speed, negative when it plays backwards).
  */
 export function filmstripTiles(opts: {
   from: number;
@@ -278,8 +280,9 @@ export function filmstripTiles(opts: {
   zoom: number;
   assetDuration: number;
   frameCount: number;
+  rate?: number;
 }): { key: number; x: number; frame: number }[] {
-  const { from, to, tileWidth, inPoint, zoom, assetDuration, frameCount } = opts;
+  const { from, to, tileWidth, inPoint, zoom, assetDuration, frameCount, rate = 1 } = opts;
   if (to <= from || tileWidth <= 0 || frameCount <= 0 || assetDuration <= 0) return [];
   const k0 = Math.max(0, Math.floor(from / tileWidth));
   const k1 = Math.ceil(to / tileWidth);
@@ -287,7 +290,7 @@ export function filmstripTiles(opts: {
   const tiles = [];
   for (let k = k0; k < k1; k++) {
     const x = k * tileWidth;
-    const t = inPoint + x / zoom;
+    const t = inPoint + (x / zoom) * rate;
     tiles.push({ key: k, x, frame: clamp(Math.round(t / perFrame), 0, frameCount - 1) });
   }
   return tiles;

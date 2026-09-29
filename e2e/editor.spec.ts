@@ -1066,3 +1066,70 @@ test("pinching over the monitor scales the selected clip, as one undo step", asy
   await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
   await expect.poll(scale).toBe(1);
 });
+
+test("speeds a clip up, reverses it and stretches it to fit, moving the clips after it", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "New video" }).first().click();
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles(FILES[0]);
+  await expect(page.locator("[draggable=true]").filter({ hasText: "vertical-1080x1920" }).first()).toBeVisible();
+  const y = await laneY(page, "Video 1");
+  await dragAsset(page, "vertical-1080x1920", await timeX(page, 0.05), y);
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  // Cut it in two at 3 s.
+  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  await page.keyboard.press("Home");
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("s");
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
+  const clips = async () =>
+    ((await savedProject(page)).clips as (SavedClip & { assetId: string; speed?: number; reversed?: boolean })[]).sort((a, b) => a.start - b.start);
+  await expect.poll(async () => (await clips()).length).toBe(2);
+  const [first] = await clips();
+
+  // Twice as fast from the toolbar: half as long, and the next clip moves up.
+  await page.mouse.click(await timeX(page, 1), y);
+  await page.getByRole("button", { name: "Speed", exact: true }).click();
+  const control = page.locator("[data-speed-control]");
+  await control.getByRole("button", { name: "2×" }).click();
+  await expect.poll(async () => (await clips()).map((c) => [c.start, c.speed])).toEqual([[0, 2], [1.5, undefined]]);
+  await expect(control.locator("[data-speed-duration]")).toContainText("0:01.50");
+
+  // Backwards: the preview plays the media's reversed copy, at the clip's speed.
+  await control.getByRole("switch", { name: "Reverse" }).click();
+  await expect.poll(async () => (await clips())[0].reversed).toBe(true);
+  await expect(page.locator(`[data-clip-id="${first.id}"] [data-clip-speed]`)).toHaveAttribute("data-clip-speed", "-2");
+  await page.keyboard.press("Escape");
+  await expect
+    .poll(() => page.evaluate((id) => fetch(`/api/media/${id}`).then((r) => r.json()).then((a) => a.reversed?.status), first.assetId), { timeout: 30_000 })
+    .toBe("ready");
+  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Space");
+  await page.waitForTimeout(600);
+  const shown = await page.evaluate(() => {
+    const v = document.querySelector<HTMLVideoElement>("[data-slot=canvas] video[data-shown]");
+    return { src: v?.currentSrc ?? "", rate: v?.playbackRate ?? 0, t: v?.currentTime ?? 0 };
+  });
+  await page.keyboard.press("Space");
+  expect(shown.src).toMatch(/\/reversed\.mp4$/);
+  expect(shown.rate).toBeCloseTo(2, 1);
+  // 6 s of media backwards from its 3 s mark: 3 s into the reversed copy, and on from there.
+  expect(shown.t).toBeGreaterThan(3.5);
+
+  // ⌥-drag its end in by half a second: the same media in 1 s is 3× speed.
+  const clip = (await timelineClips(page)).find((c) => c.id === first.id)!;
+  const edge = { x: clip.x + clip.w - 3, y: clip.y + clip.h / 2 };
+  await page.keyboard.down("Alt");
+  await drag(page, edge, { x: edge.x - PX_PER_S / 2, y: edge.y });
+  await page.keyboard.up("Alt");
+  await expect.poll(async () => (await clips())[0]).toMatchObject({ in: 0, out: 3, speed: 3, reversed: true });
+
+  // From the clip's menu, back to normal speed; one undo brings the stretch back.
+  await page.mouse.click(clip.x + 10, edge.y, { button: "right" });
+  await page.getByRole("menuitem", { name: /^Speed/ }).hover();
+  await page.getByRole("menuitemradio", { name: /Normal/ }).click();
+  await expect.poll(async () => (await clips())[0].speed).toBeUndefined();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  await expect.poll(async () => (await clips())[0].speed).toBe(3);
+});

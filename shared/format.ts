@@ -36,3 +36,19 @@ export function formatRelative(then: number, now = Date.now()): string {
     ...(sameYear ? {} : { year: "numeric" }),
   });
 }
+
+/** "2×", "0.5×", "1.25×": a playback speed, to two decimals at most. */
+export function formatSpeed(speed: number): string {
+  return `${Math.round(speed * 100) / 100}×`;
+}
+
+/**
+ * A speed typed by someone: "2", "2x", "0.5×" or "50%" (a percentage, as in
+ * Premiere). Null when it isn't a positive number.
+ */
+export function parseSpeed(raw: string): number | null {
+  const m = /^\s*(\d*\.?\d+)\s*([x×%])?\s*$/i.exec(raw);
+  if (!m) return null;
+  const n = Number(m[1]) / (m[2] === "%" ? 100 : 1);
+  return n > 0 && Number.isFinite(n) ? n : null;
+}

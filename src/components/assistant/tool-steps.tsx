@@ -1,6 +1,7 @@
 import { memo, useState } from "react";
 import type { IconType } from "react-icons";
 import {
+  PiGauge,
   PiArrowsLeftRight,
   PiArrowsOutLineHorizontal,
   PiBooks,
@@ -55,6 +56,7 @@ const ICONS: Record<string, IconType> = {
   add_text: PiTextT,
   move_clips: PiArrowsLeftRight,
   trim_clip: PiArrowsOutLineHorizontal,
+  set_speed: PiGauge,
   split_clips: PiScissors,
   delete_clips: PiTrash,
   close_gaps: PiArrowsLeftRight,

@@ -53,7 +53,7 @@ import { transitionDefinition } from "@shared/transitions";
 import { errorMessage } from "@shared/errors";
 import { normalizeProject } from "@shared/normalize";
 import { api } from "@/lib/api";
-import { pollProcessingAssets, pollWebDownload } from "./asset-polling";
+import { pollProcessingAssets, pollWebDownload, requestReversedCopies } from "./asset-polling";
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
 
@@ -290,6 +290,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       set({ ...emptyEditor(), projectId, project: normalizeProject(project, byId), assets, loading: false });
       usePlayback.getState().seek(0);
       startAutosave(useEditor);
+      requestReversedCopies(useEditor);
       pollProcessingAssets(useEditor);
     } catch (err) {
       if (token !== openToken) return;

@@ -111,9 +111,18 @@ extension** (Node ESM through tsx).
   Round the results of edits with `roundTime`.
 - `tracks` is in display order: video tracks first (index 0 is drawn **on top**), then audio tracks. There's always at
   least one video track. Clips are placed freely (gaps allowed), never overlap on a track, and never start before 0.
-- `Clip = { id, assetId, trackId, start, in, out, effects, transitionIn?, transitionOut? }`. `start` is timeline time;
-  `in`/`out` are **source** time. Duration is `out - in`. Stills and text have no source range, so their `in` can be
+- `Clip = { id, assetId, trackId, start, in, out, effects, transitionIn?, transitionOut?, speed?, reversed?, keepPitch? }`.
+  `start` is timeline time; `in`/`out` are **source** time. Duration is `out - in` at normal speed. Stills and text have no source range, so their `in` can be
   anything, even negative.
+- Speed: `Clip.speed` (absent = 1), `reversed` and `keepPitch: false` (absent = keep). Duration is
+  `(out - in) / speed`, and a reversed clip runs from `out` down to `in`. Never do timeline<->source maths by hand:
+  use `clipDuration`/`clipEnd`, `sourceTime`/`sourceAt` (what's shown), `sourceEdge` (where a cut or trim lands),
+  `timelineTime` (inverse) and `sourceDelta` (in `shared/timeline.ts`). Only video and sound clips have a speed
+  (`canRetime`). `setClipSpeed` ripples the rest of the track; `stretchClip` is the ⌥-drag rate stretch.
+- A reversed clip plays its media's reversed copy (`MediaAsset.reversed`, made on demand by
+  `server/derivatives.ts` `makeReversed`, requested by `requestReversedCopies` in `stores/asset-polling.ts`, awaited by
+  the export). Source time `s` is at `fileTime(clip, s, duration)` in it. Media elements only play forwards, so the
+  preview never plays a reversed clip any other way.
 - Text clip: `assetId: ""` plus the Text and Appearance effects (`isTextClip`). The browser draws text in any installed
   font. The export receives PNGs drawn by the browser (`ExportRequest.texts`). Don't switch to ffmpeg `drawtext`.
 - `Effect = { id, type, enabled, params, keyframes? }`. Built-in effects (motion, opacity, volume) are on every clip,

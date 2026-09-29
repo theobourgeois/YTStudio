@@ -4,6 +4,7 @@ import { editPoints, getClip, projectDuration } from "@shared/timeline";
 import { DEFAULT_TRANSITION } from "@shared/transitions";
 import { deleteSelectedKeyframes } from "@/components/properties/keyframe-lanes";
 import { useKeyframeSelection } from "@/components/properties/keyframe-selection";
+import { retimableIds } from "@/components/timeline/speed-control";
 import { timelineCommands } from "@/components/timeline/view-store";
 import { useAssistant } from "@/stores/assistant";
 import { useEditor } from "@/stores/editor";
@@ -38,6 +39,7 @@ const EDITS = new Set<ShortcutAction>([
   "selectAll",
   "deselect",
   "addTransition",
+  "speed",
 ]);
 
 /** Global editor keyboard shortcuts (one window-level listener). */
@@ -182,6 +184,10 @@ function run(action: ShortcutAction): boolean {
       return true;
     case "addTransition":
       editor.applyTransition(DEFAULT_TRANSITION);
+      return true;
+    case "speed":
+      // Consumed either way, so ⌘R never reloads the editor.
+      if (retimableIds(editor.project, editor.assets, editor.selectedClipIds).length) useLayout.getState().setSpeedOpen(true);
       return true;
     case "nudgeLeft":
     case "nudgeRight":

@@ -150,3 +150,87 @@ export async function makeWaveform(src: string, out: string, signal?: AbortSigna
   };
   await writeJson(out, data);
 }
+
+/** Most memory (bytes) one piece's frames may take while ffmpeg reverses them. */
+const REVERSE_PIECE_BYTES = 300e6;
+const REVERSE_SAMPLE_RATE = 48_000;
+/** Pieces reversed at once. */
+const REVERSE_CONCURRENCY = 2;
+
+/**
+ * Write the media played backwards to `out` (MP4: H.264 + AAC, or just AAC
+ * for a sound), exactly as long as the media, so source time `s` is at
+ * `duration - s` in it (see `fileTime`). ffmpeg reverses by holding every
+ * frame in memory, so the media is cut into pieces of a few frames, each one
+ * reversed on its own (video and sound separately), and then joined last
+ * piece first. Pieces are cut on the media's own frames (at its frame rate,
+ * made constant) and samples, so the joins are seamless.
+ */
+export async function makeReversed(
+  src: string,
+  out: string,
+  media: { duration: number; hasVideo: boolean; hasAudio: boolean; width: number | null; height: number | null; fps: number | null },
+  work: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const fps = media.fps && media.fps > 0 ? media.fps : 30;
+  const pixels = (media.width ?? 1920) * (media.height ?? 1080);
+  const frames = Math.max(1, Math.round(media.duration * fps));
+  const perPiece = Math.max(8, Math.min(Math.round(2 * fps), Math.floor(REVERSE_PIECE_BYTES / (pixels * 1.5))));
+  const pieces = Math.ceil(frames / perPiece);
+  const samples = Math.max(1, Math.round(media.duration * REVERSE_SAMPLE_RATE));
+  const file = (kind: "v" | "a", i: number) => path.join(work, `${kind}${String(i).padStart(5, "0")}.${kind === "v" ? "mp4" : "wav"}`);
+
+  await fs.rm(work, { recursive: true, force: true });
+  await fs.mkdir(work, { recursive: true });
+  try {
+    const limit = createLimiter(REVERSE_CONCURRENCY);
+    const jobs: Promise<unknown>[] = [];
+    for (let i = 0; i < pieces; i++) {
+      const firstFrame = i * perPiece;
+      const count = Math.min(perPiece, frames - firstFrame);
+      // Seek a quarter frame early so the piece's first frame is never lost to rounding.
+      const from = Math.max(0, firstFrame / fps - 0.25 / fps);
+      if (media.hasVideo) {
+        jobs.push(limit(() => run(FFMPEG, [
+          ...BASE_ARGS, "-ss", from.toFixed(6), "-t", ((count + 1) / fps).toFixed(6), "-i", src,
+          "-map", "0:v:0", "-an", "-sn", "-dn",
+          "-vf", `fps=${fps},format=yuv420p,tpad=stop_mode=clone:stop=${count},trim=end_frame=${count},reverse`,
+          "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-bf", "0", "-g", String(Math.round(fps)),
+          "-pix_fmt", "yuv420p", "-r", String(fps), file("v", i),
+        ], { signal })));
+      }
+      if (media.hasAudio) {
+        // The same stretch of time, in samples.
+        const first = Math.round((firstFrame / frames) * samples);
+        const length = Math.round(((firstFrame + count) / frames) * samples) - first;
+        jobs.push(limit(() => run(FFMPEG, [
+          ...BASE_ARGS, "-ss", (first / REVERSE_SAMPLE_RATE).toFixed(6), "-t", ((length + 1024) / REVERSE_SAMPLE_RATE).toFixed(6),
+          "-i", src, "-map", "0:a:0", "-vn", "-sn", "-dn",
+          "-af", `aresample=${REVERSE_SAMPLE_RATE},apad=whole_len=${length},atrim=end_sample=${length},areverse`,
+          "-ac", "2", "-c:a", "pcm_s16le", file("a", i),
+        ], { signal })));
+      }
+    }
+    await Promise.all(jobs);
+
+    // Join them last piece first.
+    const list = async (kind: "v" | "a") => {
+      const listFile = path.join(work, `${kind}.txt`);
+      const lines = Array.from({ length: pieces }, (_, i) => `file '${file(kind, pieces - 1 - i)}'`);
+      await fs.writeFile(listFile, `${lines.join("\n")}\n`);
+      return ["-f", "concat", "-safe", "0", "-i", listFile];
+    };
+    const inputs = [...(media.hasVideo ? await list("v") : []), ...(media.hasAudio ? await list("a") : [])];
+    const tmp = `${out}.part${path.extname(out)}`;
+    await run(FFMPEG, [
+      ...BASE_ARGS, ...inputs,
+      ...(media.hasVideo ? ["-map", "0:v", "-c:v", "copy"] : []),
+      ...(media.hasAudio ? ["-map", `${media.hasVideo ? 1 : 0}:a`, "-c:a", "aac", "-b:a", "192k"] : []),
+      "-movflags", "+faststart", tmp,
+    ], { signal });
+    await fs.rename(tmp, out);
+  } finally {
+    await fs.rm(work, { recursive: true, force: true });
+  }
+}

@@ -55,6 +55,9 @@ interface LayoutState {
   /** The keyboard shortcuts dialog. */
   shortcutsOpen: boolean;
   setShortcutsOpen: (open: boolean) => void;
+  /** The timeline toolbar's Speed popover (⌘R, like Premiere's Speed/Duration). */
+  speedOpen: boolean;
+  setSpeedOpen: (open: boolean) => void;
   leftPanel: LeftPanelTab;
   setLeftPanel: (panel: LeftPanelTab) => void;
   mediaSource: MediaSource;
@@ -84,6 +87,10 @@ export const useLayout = create<LayoutState>((set, get) => ({
   shortcutsOpen: false,
   setShortcutsOpen(shortcutsOpen) {
     set({ shortcutsOpen });
+  },
+  speedOpen: false,
+  setSpeedOpen(speedOpen) {
+    set({ speedOpen });
   },
   leftPanel: "media",
   setLeftPanel(leftPanel) {

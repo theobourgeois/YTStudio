@@ -5,9 +5,9 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createId } from "../shared/timeline.ts";
-import type { MediaAsset } from "../shared/types.ts";
+import type { MediaAsset, ReversedMedia } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
-import { makeFilmstrip, makePoster, makeStillPoster, makeWaveform } from "./derivatives.ts";
+import { makeFilmstrip, makePoster, makeReversed, makeStillPoster, makeWaveform } from "./derivatives.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { isAbortError } from "./process.ts";
 import { type ProbeResult, probeMedia } from "./probe.ts";
@@ -16,6 +16,8 @@ import { type DataPaths, HttpError, isValidId, readJson, writeJson } from "./sto
 
 /** Background (filmstrip + waveform) jobs running at once. */
 const JOB_CONCURRENCY = 2;
+/** Reversed copies made at once (each is a full re-encode). */
+const REVERSE_CONCURRENCY = 1;
 
 const MEDIA_EXTENSIONS = new Set([
   "mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "ts", "mts", "m2ts", "3gp",
@@ -57,6 +59,9 @@ export class MediaLibrary {
   private assets = new Map<string, MediaAsset>();
   private jobs = new Map<string, AbortController>();
   private limit = createLimiter(JOB_CONCURRENCY);
+  /** Reversed copies being made, by asset id. */
+  private reversing = new Map<string, { done: Promise<void>; controller: AbortController }>();
+  private reverseLimit = createLimiter(REVERSE_CONCURRENCY);
   private root: MediaRoot;
 
   constructor(
@@ -84,6 +89,7 @@ export class MediaLibrary {
   resume(): void {
     for (const asset of this.assets.values()) {
       if (asset.status === "processing") this.enqueue(asset.id);
+      if (asset.reversed?.status === "processing") void this.startReversing(asset.id);
     }
   }
 
@@ -280,6 +286,9 @@ export class MediaLibrary {
         filmstrip: !processing && asset.filmstrip ? { ...asset.filmstrip, urlPattern: rebase(asset.filmstrip.urlPattern) } : null,
         waveform: !processing && asset.waveform ? rebase(asset.waveform) : null,
       };
+      // A reversed copy still being made (or that failed) is made again when it's needed.
+      if (asset.reversed?.status === "ready") copy.reversed = { status: "ready", src: rebase(asset.reversed.src) };
+      else delete copy.reversed;
       await writeJson(this.metaFile(id), copy);
       if (!exists()) throw new HttpError(404, "Project not found");
       this.assets.set(id, copy);
@@ -298,6 +307,7 @@ export class MediaLibrary {
     this.get(id);
     this.assets.delete(id);
     this.jobs.get(id)?.abort();
+    this.reversing.get(id)?.controller.abort();
     await fs.rm(this.dir(id), { recursive: true, force: true, maxRetries: 5 });
   }
 
@@ -332,6 +342,33 @@ export class MediaLibrary {
   /** Stop all background work (server shutdown). */
   shutdown(): void {
     for (const controller of this.jobs.values()) controller.abort();
+    for (const { controller } of this.reversing.values()) controller.abort();
+  }
+
+  /**
+   * Start making an asset's reversed copy (for clips played backwards), unless
+   * it's made or being made already. A failed one is tried again.
+   */
+  async reverse(id: string): Promise<MediaAsset> {
+    const asset = this.get(id);
+    if (asset.kind === "image") throw new HttpError(400, "A still image can't play backwards.");
+    if (asset.reversed?.status === "ready" || this.reversing.has(id)) return asset;
+    await this.setReversed(id, { status: "processing" });
+    void this.startReversing(id);
+    return this.get(id);
+  }
+
+  /** The path of an asset's reversed copy, made first if need be (the export waits for it). */
+  async reversedPath(id: string): Promise<string> {
+    if (this.get(id).reversed?.status !== "ready") {
+      await this.reverse(id);
+      await this.reversing.get(id)?.done;
+    }
+    const reversed = this.get(id).reversed;
+    if (reversed?.status !== "ready") {
+      throw new Error(`Couldn't play ${this.get(id).name} backwards${reversed?.status === "error" ? `: ${reversed.error}` : ""}`);
+    }
+    return path.join(this.dir(id), path.basename(reversed.src));
   }
 
   /** An asset's directory (throws 400 for an invalid id). */
@@ -347,6 +384,46 @@ export class MediaLibrary {
 
   private metaFile(id: string) {
     return path.join(this.dir(id), "meta.json");
+  }
+
+  /** Save an asset's reversed-copy state (unless it's been deleted meanwhile). */
+  private async setReversed(id: string, reversed: ReversedMedia): Promise<void> {
+    const current = this.assets.get(id);
+    if (!current) return;
+    const next: MediaAsset = { ...current, reversed };
+    await writeJson(this.metaFile(id), next);
+    if (this.assets.has(id)) this.assets.set(id, { ...this.assets.get(id)!, reversed });
+  }
+
+  /** Make an asset's reversed copy in the background (one job per asset). */
+  private startReversing(id: string): Promise<void> {
+    const running = this.reversing.get(id);
+    if (running) return running.done;
+    const controller = new AbortController();
+    const { signal } = controller;
+    const done = this.reverseLimit(async () => {
+      const asset = this.assets.get(id);
+      if (!asset || signal.aborted) return;
+      const name = asset.hasVideo ? "reversed.mp4" : "reversed.m4a";
+      let reversed: ReversedMedia;
+      try {
+        await makeReversed(this.sourcePath(asset), path.join(this.dir(id), name), asset, path.join(this.dir(id), "reversing"), signal);
+        reversed = { status: "ready", src: `${this.root.url}/${id}/${name}` };
+      } catch (err) {
+        if (signal.aborted) return;
+        console.warn(`[media] reversing ${asset.name} failed: ${errorMessage(err)}`);
+        reversed = { status: "error", error: errorMessage(err) };
+      }
+      if (!signal.aborted) await this.setReversed(id, reversed);
+    })
+      .catch((err) => {
+        if (!isAbortError(err)) console.error(`[media] reversing ${id} failed:`, err);
+      })
+      .finally(() => {
+        if (this.reversing.get(id)?.controller === controller) this.reversing.delete(id);
+      });
+    this.reversing.set(id, { done, controller });
+    return done;
   }
 
   private enqueue(id: string): void {

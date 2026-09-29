@@ -33,6 +33,7 @@ import { TOOLBAR_HEIGHT } from "./constants";
 import { useTimelineContext } from "./context";
 import { sliderToZoom, zoomToSlider } from "./geometry";
 import { timelineCommands, useMinZoom } from "./view-store";
+import { ClipSpeedButton } from "./speed-control";
 import { ClipVolumeButton } from "./volume-control";
 
 const ZOOM_STEP = 1.5;
@@ -69,6 +70,7 @@ export function TimelineToolbar() {
       </ToolButton>
 
       <ClipVolumeButton />
+      <ClipSpeedButton />
 
       <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-5" />
 

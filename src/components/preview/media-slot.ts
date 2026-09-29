@@ -59,9 +59,11 @@ export class MediaSlot {
     }
   }
 
-  setAudio(volume: number, muted: boolean) {
+  /** `keepPitch`: at a rate other than 1, time-stretch the sound rather than let its pitch follow. */
+  setAudio(volume: number, muted: boolean, keepPitch = true) {
     if (this.el.volume !== volume) this.el.volume = volume;
     if (this.el.muted !== muted) this.el.muted = muted;
+    if (this.el.preservesPitch !== keepPitch) this.el.preservesPitch = keepPitch;
   }
 
   /** Paused at exactly `time` (scrubbing, stepping, stopped). */
@@ -71,8 +73,11 @@ export class MediaSlot {
     this.seek(time);
   }
 
-  /** Playing in step with the clock, which says we should be at `time` now. */
-  follow(time: number) {
+  /**
+   * Playing in step with the clock, which says we should be at `time` now,
+   * moving `speed` media seconds per second (a clip's speed).
+   */
+  follow(time: number, speed = 1) {
     const el = this.el;
     if (!this.ready) {
       // Keep the target fresh; `loadedmetadata` seeks there, a later tick starts playback.
@@ -83,9 +88,10 @@ export class MediaSlot {
     this.pending = null;
     if (el.seeking) return;
     const audible = !el.muted && el.volume > 0;
-    const { seek, rate } = playbackCorrection(el.currentTime - time, audible);
-    if (seek) this.seekNow(time + this.seekLead);
-    this.setRate(rate);
+    // Drift in timeline seconds, so a fast clip isn't re-seeked any sooner.
+    const { seek, rate } = playbackCorrection((el.currentTime - time) / speed, audible);
+    if (seek) this.seekNow(time + this.seekLead * speed);
+    this.setRate(rate * speed);
     // An element that ran into the end of its media would restart from 0 on play().
     if (el.paused && !el.ended) {
       el.play().catch((err: unknown) => {

@@ -12,15 +12,17 @@
  *   (`RenderSource`) into raw RGBA frames, one per output frame from the
  *   first it's drawn in to the last, so the stream stays in step with the
  *   output. A transition may show a clip past its edges (the media's
- *   handles); where the media ends, its first or last frame is held. Stills
- *   (and drawn texts) are decoded once. Frames are decoded at the size the
+ *   handles); where the media ends, its first or last frame is held. A clip
+ *   at another speed is decoded at that rate; one played backwards is decoded
+ *   (forwards) from its media's reversed copy. Stills (and drawn texts) are decoded once. Frames are decoded at the size the
  *   clip is shown at, never bigger than its media.
  * - Text clips arrive already drawn (by the browser, in the user's fonts) as
  *   images with their frame size; they're placed like any other still.
  * - Every clip with sound on an unmuted track (video or audio) is cut to its
  *   exact sample length, delayed to its timeline start and summed (no
  *   normalisation) on top of silence covering the whole timeline, in a pass of
- *   its own (`audioArgs`). A look-ahead limiter (delay-compensated, no
+ *   its own (`audioArgs`). Sped up or slowed down, it keeps its pitch (or not:
+ *   `Clip.keepPitch`); played backwards, it's the reversed copy's sound. A look-ahead limiter (delay-compensated, no
  *   auto-gain) catches the peaks where overlapping sources add up past full
  *   scale instead of clipping.
  * - Colour: videos are decoded as YUV and turned into RGB by the compositor
@@ -31,7 +33,16 @@ import { effectPasses } from "../shared/effect-gl.ts";
 import { VOLUME, findEffect, isTextClip, motionAt, opacityAt, volumeAt } from "../shared/effects.ts";
 import { easesIn, easesOut } from "../shared/keyframes.ts";
 import { type Shown, sceneAt, transitionWindows } from "../shared/scene.ts";
-import { TEXT_SOURCE_RANGE, clipDuration, clipEnd, projectDuration, sourceRange, trackClips } from "../shared/timeline.ts";
+import {
+  END_GUARD,
+  TEXT_SOURCE_RANGE,
+  clipEnd,
+  clipSpeed,
+  fileTime,
+  projectDuration,
+  sourceRange,
+  trackClips,
+} from "../shared/timeline.ts";
 import { type UniformValue, transitionShader, transitionUniforms } from "../shared/transition-gl.ts";
 import { type Size, frameCorners, placeClip, placementAffine } from "../shared/transform.ts";
 import type { Clip, Keyframe, MediaAsset, Project } from "../shared/types.ts";
@@ -46,6 +57,8 @@ const MAX_PICTURE = 8192;
 
 export type RenderAsset = Pick<MediaAsset, "kind" | "hasAudio" | "hasVideo" | "width" | "height" | "duration"> & {
   path: string;
+  /** Its reversed copy (see `MediaAsset.reversed`), needed when a clip plays it backwards. */
+  reversedPath?: string;
   /** Size at 100% on the output canvas when it isn't the media fitted to it (a drawn text). */
   frame?: Size;
   /** The video's YCbCr matrix as ffprobe names it (`color_space`), when known. */
@@ -322,24 +335,36 @@ function stillArgs(asset: RenderAsset, size: Size, opts: RenderOptions): string[
   ];
 }
 
+/** The file a clip plays: its media, or the media's reversed copy when it plays backwards. */
+function playedFile(clip: Clip, asset: RenderAsset): string {
+  if (!clip.reversed) return asset.path;
+  if (!asset.reversedPath) throw new Error(`Clip ${clip.id} plays backwards, but its media has no reversed copy.`);
+  return asset.reversedPath;
+}
+
 /**
  * A clip's frames for output frames [first, end): the clip's first frame
- * shows its in-point, later ones carry on at the output rate, holding the
- * media's first or last frame past its ends.
+ * shows its first source frame (its in-point, or played backwards the frame
+ * before its out-point), later ones carry on at the output rate times the
+ * clip's speed, holding the file's first or last frame past its ends.
  */
 function videoArgs(clip: Clip, asset: RenderAsset, size: Size, first: number, end: number, opts: RenderOptions): string[] {
   const F = opts.fps;
   const n = end - first;
-  const s0 = clip.in + (first - frameAtFps(F)(clip.start)) / F;
+  const speed = clipSpeed(clip);
+  // Where the first frame is in the file played (a reversed copy runs forwards too).
+  const played = ((first - frameAtFps(F)(clip.start)) / F) * speed;
+  const firstSource = clip.reversed ? clip.out - END_GUARD - played : clip.in + played;
+  const s0 = fileTime(clip, firstSource, asset.duration);
   const { min, max } = sourceRange(asset);
-  const holdFirst = s0 < min ? Math.min(n, Math.ceil((min - s0) * F - 1e-6)) : 0;
+  const holdFirst = s0 < min ? Math.min(n, Math.ceil(((min - s0) * F) / speed - 1e-6)) : 0;
   const seek = Math.min(Math.max(s0, min), Math.max(min, max - 1 / F));
   return [
     opts.ffmpegPath ?? "ffmpeg", ...FFMPEG_QUIET,
     // A little extra so the frame rate conversion always has the last frame's successor.
-    "-ss", sec(seek), "-t", sec((n - holdFirst) / F + 0.25), "-i", asset.path,
+    "-ss", sec(seek), "-t", sec(((n - holdFirst) / F) * speed + 0.25), "-i", playedFile(clip, asset),
     "-vf", [
-      "setpts=PTS-STARTPTS",
+      speed === 1 ? "setpts=PTS-STARTPTS" : `setpts=(PTS-STARTPTS)/${speed}`,
       `fps=${F}`,
       // Kept in YUV (the compositor turns it into RGB), in limited range.
       `scale=${size.width}:${size.height}:out_range=tv`,
@@ -351,6 +376,24 @@ function videoArgs(clip: Clip, asset: RenderAsset, size: Size, first: number, en
     ].join(","),
     ...rawOut("yuv420p"),
   ];
+}
+
+/**
+ * Filters that play sound at `speed`: time-stretched with its pitch kept
+ * (`atempo`, chained since each one goes no slower than half speed), or
+ * resampled so the pitch follows the speed.
+ */
+export function tempoFilters(speed: number, keepPitch: boolean): string[] {
+  if (speed === 1) return [];
+  if (!keepPitch) return [`asetrate=${Math.round(SAMPLE_RATE * speed)}`, `aresample=${SAMPLE_RATE}`];
+  const filters: string[] = [];
+  let rest = speed;
+  while (rest < 0.5 - 1e-9) {
+    filters.push("atempo=0.5");
+    rest /= 0.5;
+  }
+  filters.push(`atempo=${Math.round(rest * 1e6) / 1e6}`);
+  return filters;
 }
 
 /** The ffmpeg that mixes the export's sound into `outputPath` (lossless), covering the whole timeline. */
@@ -376,13 +419,19 @@ export function audioArgs(
       const samples = sampleAt(clipEnd(clip)) - sampleAt(clip.start);
       if (samples <= 0) continue;
       const index = mixInputs.length;
-      inputs.push("-ss", sec(clip.in), "-t", sec(clipDuration(clip)), "-i", asset.path);
-      // Resample, rebase to 0, apply gain, cut/pad to exactly its samples and delay to its start.
+      // Played backwards, the sound comes from the reversed copy, where the clip's out-point comes first.
+      const from = clip.reversed ? asset.duration - clip.out : clip.in;
+      inputs.push("-ss", sec(from), "-t", sec(clip.out - clip.in), "-i", playedFile(clip, asset));
+      // Resample, rebase to 0, apply gain (in source time, `t` seconds into the file played), change
+      // speed, cut/pad to exactly its samples and delay to its start.
       const volume = findEffect(clip, VOLUME.type);
       const levels = volume?.enabled ? volume.keyframes?.level : undefined;
       const gain = levels?.length
         ? // Animated: evaluated in short blocks so the level glides without steps.
-          ["asetnsamples=n=64:p=0", `volume=volume='${keyframeExpression(levels, clip.in)}':eval=frame`]
+          [
+            "asetnsamples=n=64:p=0",
+            `volume=volume='${clip.reversed ? keyframeExpression(levels, 0, `(${sec(clip.out)}-t)`) : keyframeExpression(levels, clip.in)}':eval=frame`,
+          ]
         : volumeAt(clip, clip.in) !== 1
           ? [`volume=${volumeAt(clip, clip.in)}`]
           : [];
@@ -390,6 +439,7 @@ export function audioArgs(
         AUDIO_FORMAT,
         "asetpts=PTS-STARTPTS",
         ...gain,
+        ...tempoFilters(clipSpeed(clip), clip.keepPitch !== false),
         `apad=whole_len=${samples}`,
         `atrim=end_sample=${samples}`,
         `adelay=delays=${sampleAt(clip.start)}S:all=1`,
@@ -418,10 +468,11 @@ export function audioArgs(
 export const frameBytes = (plan: Pick<RenderPlan, "width" | "height">) => (plan.width * plan.height * 3) / 2;
 
 /**
- * A number's keyframes as an ffmpeg expression of `t` (seconds since source
- * time `offset`): the same curve as `keyframeValue`, piece by piece.
+ * A number's keyframes as an ffmpeg expression of `time` (an expression of
+ * the seconds since source time `offset`, by default `t`): the same curve as
+ * `keyframeValue`, piece by piece.
  */
-export function keyframeExpression(keys: readonly Keyframe[], offset: number): string {
+export function keyframeExpression(keys: readonly Keyframe[], offset: number, time = "t"): string {
   const n = (x: number) => String(Math.round(x * 1e6) / 1e6);
   const value = (k: Keyframe) => n(k.value as number);
   const at = (k: Keyframe) => n(k.time - offset);
@@ -431,16 +482,16 @@ export function keyframeExpression(keys: readonly Keyframe[], offset: number): s
     let piece = value(a);
     if (a.easing !== "hold" && b.value !== a.value) {
       // easedProgress: 3(1-f)²f·y1 + 3(1-f)f²·y2 + f³.
-      const f = `((t-${at(a)})/${n(b.time - a.time)})`;
+      const f = `((${time}-${at(a)})/${n(b.time - a.time)})`;
       const g = `(1-${f})`;
       const y1 = easesOut(a.easing) ? 0 : 1 / 3;
       const y2 = easesIn(b.easing) ? 1 : 2 / 3;
       const curve = `(${n(3 * y1)}*${g}*${g}*${f}+${n(3 * y2)}*${g}*${f}*${f}+${f}*${f}*${f})`;
       piece = `${value(a)}+${n((b.value as number) - (a.value as number))}*${curve}`;
     }
-    expr = `if(lt(t,${at(b)}),${piece},${expr})`;
+    expr = `if(lt(${time},${at(b)}),${piece},${expr})`;
   }
-  return `if(lt(t,${at(keys[0])}),${value(keys[0])},${expr})`;
+  return `if(lt(${time},${at(keys[0])}),${value(keys[0])},${expr})`;
 }
 
 /**

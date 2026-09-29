@@ -25,6 +25,8 @@ import {
   PiSubtitles,
   PiTrash,
   PiArrowLineLeft,
+  PiArrowCounterClockwise,
+  PiGauge,
 } from "react-icons/pi";
 import type { Track, TransitionAlignment } from "@shared/types";
 import { MOTION, effectDefinition, findEffect, isTextClip, isVideoEffect, setParams } from "@shared/effects";
@@ -36,12 +38,15 @@ import {
   gapAt,
   getClip,
   isOnVideoTrack,
+  clipSpeed,
   removeTrack,
   setTrackMuted,
   videoTracks,
 } from "@shared/timeline";
+import { formatSpeed } from "@shared/format";
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuLabel,
@@ -62,6 +67,7 @@ import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
 import { lanePoint, useTimelineContext } from "./context";
 import { laneAt } from "./geometry";
+import { SPEED_PRESETS, commitSpeed, useRetimableSelection } from "./speed-control";
 
 type MenuTarget =
   | { kind: "transition"; ref: TransitionRef }
@@ -219,6 +225,7 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
         <PiCopySimple /> Duplicate{plural}
         <ContextMenuShortcut>{SHORTCUT_KEYS.duplicate}</ContextMenuShortcut>
       </ContextMenuItem>
+      <SpeedMenu />
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => editor().copyEffects(target.clipId)}>
         <PiMagicWand /> Copy effects
@@ -261,6 +268,43 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
         <PiArrowLineLeft /> Ripple delete{plural}
         <ContextMenuShortcut>{SHORTCUT_KEYS.rippleDelete}</ContextMenuShortcut>
       </ContextMenuItem>
+    </>
+  );
+}
+
+/** Speed presets and Reverse for the selected video and sound clips; "Speed…" opens the full control. */
+function SpeedMenu() {
+  const ids = useRetimableSelection();
+  const clip = useEditor((s) => (ids.length ? getClip(s.project, ids.at(-1)!) : undefined));
+  if (!clip) return null;
+  const speed = clipSpeed(clip);
+  return (
+    <>
+      <ContextMenuSeparator />
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>
+          <PiGauge /> Speed
+          <span className="ml-auto pl-2 text-xs text-muted-foreground tabular-nums">{formatSpeed(speed)}</span>
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-44">
+          <ContextMenuRadioGroup value={String(speed)} onValueChange={(v) => commitSpeed(ids, { speed: Number(v) })}>
+            {SPEED_PRESETS.map((preset) => (
+              <ContextMenuRadioItem key={preset} value={String(preset)}>
+                {formatSpeed(preset)}
+                {preset === 1 && <span className="text-muted-foreground">Normal</span>}
+              </ContextMenuRadioItem>
+            ))}
+          </ContextMenuRadioGroup>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => useLayout.getState().setSpeedOpen(true)}>
+            Custom speed…
+            <ContextMenuShortcut>{SHORTCUT_KEYS.speed}</ContextMenuShortcut>
+          </ContextMenuItem>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuCheckboxItem checked={clip.reversed === true} onCheckedChange={(on) => commitSpeed(ids, { reversed: on === true })}>
+        <PiArrowCounterClockwise /> Reverse
+      </ContextMenuCheckboxItem>
     </>
   );
 }

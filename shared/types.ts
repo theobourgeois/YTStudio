@@ -56,11 +56,25 @@ export interface MediaAsset {
   /** URL of a `WaveformData` JSON document (assets with audio, null until generated). */
   waveform: string | null;
   /**
+   * A copy of the media played backwards, for reversed clips (`Clip.reversed`).
+   * Made on demand (`POST /api/media/:id/reversed`), then kept. Absent until asked for.
+   */
+  reversed?: ReversedMedia;
+  /**
    * The asset this one is a copy of: the Library media it came from, or the
    * project media it was added to the Library from. Used to avoid copying twice.
    */
   origin?: string;
 }
+
+/**
+ * A media file's reversed copy: `duration` long like the original, so source
+ * time `s` is at `duration - s` in it (see `fileTime`).
+ */
+export type ReversedMedia =
+  | { status: "processing" }
+  | { status: "ready"; src: string }
+  | { status: "error"; error: string };
 
 export interface WaveformData {
   peaksPerSecond: number;
@@ -97,8 +111,24 @@ export interface Clip {
   start: number;
   /** Source in-point. Stills have no source range, so theirs may be any value (even negative). */
   in: number;
-  /** Source out-point (exclusive), always > `in`. Clip duration = out - in. */
+  /** Source out-point (exclusive), always > `in`. Clip duration = (out - in) / speed. */
   out: number;
+  /**
+   * How fast the media plays (Premiere's Speed/Duration): 2 plays twice as fast
+   * (so the clip is half as long), 0.5 in slow motion. Absent means 1. Only
+   * clips of videos and sounds have one (see `clipSpeed`).
+   */
+  speed?: number;
+  /**
+   * Plays backwards, from `out` down to `in` (Premiere's Reverse Speed). The
+   * preview and the export play a reversed copy of the media (`MediaAsset.reversed`).
+   */
+  reversed?: true;
+  /**
+   * `false`: at a speed other than 1 the sound's pitch follows the speed (faster
+   * sounds higher). By default the pitch is kept (Premiere's Maintain Audio Pitch).
+   */
+  keepPitch?: false;
   /**
    * Everything else about the clip (framing, position, scale, opacity, volume...),
    * as effects in the order they apply. See `shared/effects.ts`.
@@ -612,6 +642,7 @@ export interface ToolCallProgressRequest {
 //   GET    /api/media/:id/frame?t=<s>&w=<px> -> image/jpeg: the frame at source time t, w px wide
 //   GET    /api/media/:id/sound?from&to&threshold=<dB>&min=<s> -> SoundAnalysis (silences, loudness)
 //   GET    /api/media/:id/scenes?threshold=<0..1> -> SceneCuts
+//   POST   /api/media/:id/reversed      -> MediaAsset: starts making its reversed copy (for reversed clips), if not made yet
 //   POST   /api/media/import-file  body: ImportFileRequest -> MediaAsset (201): a copy of a file on this computer
 //   DELETE /api/media/:id               -> 204
 //   GET    /api/web/search?q=<query>    -> WebClip[] from YouTube  (503 if yt-dlp isn't installed)

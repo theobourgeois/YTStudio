@@ -305,6 +305,14 @@ export function describeToolCall(rawName: string, input: unknown): string {
     }
     case "trim_clip":
       return f("ripple") ? "Ripple trim a clip" : "Trim a clip";
+    case "set_speed": {
+      const what = count(ids(), "clip");
+      if (typeof f("speed") === "number") return `Set ${what} to ${Math.round(Number(f("speed")) * 100) / 100}× speed${f("reversed") === true ? ", reversed" : ""}`;
+      if (typeof f("duration") === "number") return `Stretch ${what} to ${seconds(f("duration"))}`;
+      if (f("reversed") === true) return `Reverse ${what}`;
+      if (f("reversed") === false) return `Play ${what} forwards`;
+      return `Change the speed of ${what}`;
+    }
     case "split_clips":
       return `Split ${ids() ? count(ids(), "clip") : "clips"} at ${seconds(f("at"))}`;
     case "delete_clips":

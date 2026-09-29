@@ -314,6 +314,28 @@ export const ASSISTANT_TOOLS = [
     ),
   }),
   tool({
+    name: "set_speed",
+    title: "Change clip speed",
+    kind: "edit",
+    description:
+      "Speed clips up, slow them down or play them backwards (Premiere's Speed/Duration). `speed` is a factor " +
+      "(2 = twice as fast and half as long, 0.5 = slow motion; 0.1 to 10), or give `duration` (timeline seconds) " +
+      "to fit a clip to a length. Each clip keeps its media range and its start; the clips after it on its track " +
+      "move with its end (no gap, no overlap). `reversed` plays it backwards; `keepPitch` (default true) keeps " +
+      "voices natural at other speeds, false lets the pitch follow the speed. Only video and sound clips (not " +
+      "stills or text). Keyframes stay on their frames, so animations speed up with the clip.",
+    inputSchema: obj(
+      {
+        clipIds: clipIds(),
+        speed: num("Playback speed factor, 0.1 to 10 (1 = normal).", { minimum: 0.1, maximum: 10 }),
+        duration: num("Instead of `speed`: how long each clip should last, in timeline seconds.", { exclusiveMinimum: 0 }),
+        reversed: bool("Play backwards (true) or forwards (false)."),
+        keepPitch: bool("Keep the sound's pitch at other speeds (default true)."),
+      },
+      ["clipIds"],
+    ),
+  }),
+  tool({
     name: "split_clips",
     title: "Split clips",
     kind: "edit",

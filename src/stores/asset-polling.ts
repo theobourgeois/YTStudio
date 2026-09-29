@@ -1,10 +1,10 @@
 /**
- * Refresh assets whose filmstrip/waveform are still being generated on the
- * server (`status: "processing"`) until they're ready, and follow downloads
- * from the Online tab.
+ * Refresh assets whose filmstrip/waveform (or reversed copy) are still being
+ * generated on the server until they're ready, ask for the reversed copies
+ * that clips played backwards need, and follow downloads from the Online tab.
  */
 import type { StoreApi } from "zustand";
-import type { MediaAsset } from "@shared/types";
+import type { MediaAsset, Project } from "@shared/types";
 import type { Upload } from "./editor";
 import { ApiRequestError, api } from "@/lib/api";
 
@@ -13,6 +13,9 @@ const DOWNLOAD_POLL_MS = 400;
 
 /** Stores with a poll loop running. */
 const polling = new WeakSet<object>();
+
+/** Still being made on the server: its filmstrip and waveform, or its reversed copy. */
+const isProcessing = (a: MediaAsset) => a.status === "processing" || a.reversed?.status === "processing";
 
 /**
  * Poll the store's processing assets (no-op when a poll loop is already running
@@ -25,9 +28,9 @@ export async function pollProcessingAssets(
   if (polling.has(store)) return;
   polling.add(store);
   try {
-    while (store.getState().assets.some((a) => a.status === "processing")) {
+    while (store.getState().assets.some(isProcessing)) {
       await new Promise((r) => setTimeout(r, POLL_MS));
-      const pending = store.getState().assets.filter((a) => a.status === "processing");
+      const pending = store.getState().assets.filter(isProcessing);
       const gone = new Set<string>();
       const updated = await Promise.all(
         pending.map((a) =>
@@ -64,4 +67,37 @@ export async function pollWebDownload(store: StoreApi<{ uploads: Upload[] }>, up
       uploads: store.getState().uploads.map((u) => (u.id === uploadId && u.download ? { ...u, download: { ...u.download, state } } : u)),
     });
   }
+}
+
+/** Stores already asking for reversed copies. */
+const reversing = new WeakSet<object>();
+
+/**
+ * Whenever a clip plays its media backwards, ask the server for that media's
+ * reversed copy (once per asset: a failed one is only tried again by the
+ * export), then poll until it's made. Idempotent per store.
+ */
+export function requestReversedCopies(store: StoreApi<{ project: Project; assets: MediaAsset[] }>) {
+  if (reversing.has(store)) return;
+  reversing.add(store);
+  const asked = new Set<string>();
+  const check = () => {
+    const { project, assets } = store.getState();
+    const wanted = new Set(project.clips.filter((c) => c.reversed).map((c) => c.assetId));
+    for (const asset of assets) {
+      if (!wanted.has(asset.id) || asset.reversed || asked.has(asset.id)) continue;
+      asked.add(asset.id);
+      api
+        .reverseMedia(asset.id)
+        .then((updated) => {
+          store.setState({ assets: store.getState().assets.map((a) => (a.id === updated.id ? updated : a)) });
+          void pollProcessingAssets(store);
+        })
+        .catch((err) => console.warn("Couldn't ask for a reversed copy", err));
+    }
+  };
+  store.subscribe((s, prev) => {
+    if (s.project.clips !== prev.project.clips || s.assets !== prev.assets) check();
+  });
+  check();
 }

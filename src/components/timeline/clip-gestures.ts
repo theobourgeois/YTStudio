@@ -9,6 +9,7 @@ import type { Clip, Project, TrackKind } from "@shared/types";
 import {
   addTrack,
   canPlaceOnTrack,
+  canRetime,
   clipDuration,
   clipSourceRange,
   clipEnd,
@@ -17,6 +18,7 @@ import {
   moveClips,
   pruneEmptyTrack,
   snapTime,
+  stretchClip,
   trimClip,
 } from "@shared/timeline";
 import { isTextClip } from "@shared/effects";
@@ -223,6 +225,11 @@ export function startClipMove(
   });
 }
 
+/**
+ * Drag a clip's edge: a trim, or holding Alt/⌥ at the press, a rate stretch
+ * (Premiere's Rate Stretch tool): the clip keeps all its media and its speed
+ * changes to fit the new length.
+ */
 export function startClipTrim(
   e: ReactPointerEvent<HTMLElement>,
   clipId: string,
@@ -242,11 +249,13 @@ export function startClipTrim(
   let gestureId = -1;
   let points: number[] = [];
   let source = { min: 0, max: 0 };
+  const pressed = getClip(editor.project, clipId);
+  const stretch = e.altKey && !!pressed && canRetime(pressed, editor.getAsset(pressed.assetId));
 
   startClipSession(e, ctx, clipId, {
     threshold: TRIM_THRESHOLD_PX,
     autoScroll: true,
-    cursor: "ew-resize",
+    cursor: stretch ? "col-resize" : "ew-resize",
     onStart() {
       const s = useEditor.getState();
       gestureId = s.beginGesture();
@@ -276,7 +285,7 @@ export function startClipTrim(
       }
 
       const from = base;
-      s.preview(() => trimClip(from, clipId, edge, delta, source));
+      s.preview(() => (stretch ? stretchClip(from, clipId, edge, delta) : trimClip(from, clipId, edge, delta, source)));
 
       const placed = getClip(useEditor.getState().project, clipId);
       const actualEdge = placed ? (edge === "end" ? clipEnd(placed) : placed.start) : null;

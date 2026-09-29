@@ -3,7 +3,7 @@ import { type TextStyle, isTextClip, opacityAt, textStyleAt, volumeAt } from "@s
 import { type Compositor, type Placed, createCompositor } from "@shared/compositor";
 import { effectPasses } from "@shared/effect-gl";
 import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
-import { clipEnd, clipSourceRange, videoTracks } from "@shared/timeline";
+import { clipEnd, clipSourceRange, clipSpeed, fileTime, sourceTime, videoTracks } from "@shared/timeline";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
 import { type Placement, type Size, placementAffine } from "@shared/transform";
@@ -64,6 +64,9 @@ type Layer = { kind: "picture"; picture: Picture } | { kind: "transition"; plan:
  *   bottom first over the black canvas.
  * - While a transition plays, both of its clips play (past their edges into
  *   their media's handles if need be, silent outside the clip itself).
+ * - A clip at another speed plays its element at that rate (keeping its pitch
+ *   unless told not to); one played backwards plays its media's reversed copy
+ *   forwards (`MediaAsset.reversed`), since media elements only play forwards.
  * - Each audio track has an A/B pair of <audio> elements too: one plays the
  *   clip under the playhead, the other is parked on the next clip's in-point.
  *   (A pair per track, not an element per clip, so a voiceover cut into
@@ -294,21 +297,22 @@ export class PreviewEngine {
         const on = shown.find((s) => s.clip.id === id && kindOf(s.clip) === "video");
         setShown(el, !!on);
         if (on) {
-          const src = this.srcOf(on.clip);
-          slot.setSrc(src);
+          const media = this.mediaOf(on.clip);
+          slot.setSrc(media.src);
           // A transition may show a clip past its edges; it's only heard inside them.
           const audible = time >= on.clip.start - 1e-6 && time < clipEnd(on.clip) - 1e-6;
-          slot.setAudio(volumeAt(on.clip, on.time), muted || (!!transition && !audible));
-          if (playing) slot.follow(on.time);
-          else slot.hold(on.time);
+          slot.setAudio(volumeAt(on.clip, on.time), muted || (!!transition && !audible) || !media.plays, on.clip.keepPitch !== false);
+          if (playing && media.plays) slot.follow(media.at(on.time), clipSpeed(on.clip));
+          else slot.hold(media.at(on.time));
           pictures.set(on.clip.id, { key: `${trackId}:v${i}`, source: el, shown: on });
-          offline ||= src === null || slot.failed;
+          offline ||= media.src === null || slot.failed;
           return;
         }
         slot.setAudio(1, true);
         if (next && id === next.id) {
-          slot.setSrc(this.srcOf(next));
-          slot.hold(next.in);
+          const media = this.mediaOf(next);
+          slot.setSrc(media.src);
+          slot.hold(media.at(sourceTime(next, next.start)));
         } else {
           slot.pause();
         }
@@ -347,18 +351,19 @@ export class PreviewEngine {
         if (!slot) return;
         const id = layer.ids[i];
         if (current && id === current.clip.id) {
-          const src = this.srcOf(current.clip);
-          slot.setSrc(src);
-          slot.setAudio(volumeAt(current.clip, current.time), track.muted);
-          if (playing) slot.follow(current.time);
-          else slot.hold(current.time);
-          offline ||= src === null || slot.failed;
+          const media = this.mediaOf(current.clip);
+          slot.setSrc(media.src);
+          slot.setAudio(volumeAt(current.clip, current.time), track.muted || !media.plays, current.clip.keepPitch !== false);
+          if (playing && media.plays) slot.follow(media.at(current.time), clipSpeed(current.clip));
+          else slot.hold(media.at(current.time));
+          offline ||= media.src === null || slot.failed;
           return;
         }
         slot.setAudio(1, true);
         if (next && id === next.id) {
-          slot.setSrc(this.srcOf(next));
-          slot.hold(next.in);
+          const media = this.mediaOf(next);
+          slot.setSrc(media.src);
+          slot.hold(media.at(sourceTime(next, next.start)));
         } else {
           slot.pause();
         }
@@ -493,6 +498,21 @@ export class PreviewEngine {
   /** The clip's playable URL, or null when its asset is missing. */
   private srcOf(clip: Clip): string | null {
     return this.assetById.get(clip.assetId)?.src ?? null;
+  }
+
+  /**
+   * What a video or sound clip's element plays: its media, or, played
+   * backwards, the media's reversed copy (a media element only plays
+   * forwards), and where source time `s` is in it. Until the reversed copy is
+   * made, the media itself is shown frame by frame (seeking, silent):
+   * `plays` is false.
+   */
+  private mediaOf(clip: Clip): { src: string | null; plays: boolean; at: (s: number) => number } {
+    const asset = this.assetById.get(clip.assetId);
+    if (!clip.reversed || !asset) return { src: asset?.src ?? null, plays: true, at: (s) => s };
+    const reversed = asset.reversed?.status === "ready" ? asset.reversed.src : null;
+    if (!reversed) return { src: asset.src, plays: false, at: (s) => s };
+    return { src: reversed, plays: true, at: (s) => fileTime(clip, s, asset.duration) };
   }
 }
 
