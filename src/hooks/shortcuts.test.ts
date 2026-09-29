@@ -26,6 +26,8 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("q"))).toBe("trimStart");
     expect(resolveShortcut(key("w"))).toBe("trimEnd");
     expect(resolveShortcut(key("n"))).toBe("toggleSnapping");
+    expect(resolveShortcut(key("t"))).toBe("textTool");
+    expect(resolveShortcut(key("v"))).toBe("selectTool");
     expect(resolveShortcut(key("\\"))).toBe("zoomFit");
     expect(resolveShortcut(key("Z", { shiftKey: true }))).toBe("zoomFit");
     expect(resolveShortcut(key("?", { shiftKey: true }))).toBe("showShortcuts");

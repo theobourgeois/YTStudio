@@ -8,6 +8,8 @@
  *   background) show around it.
  * - Keyframes aren't exported yet (nothing creates them): every value is the
  *   one at the clip's first frame.
+ * - Text clips arrive already drawn (by the browser, in the user's fonts) as
+ *   still images with their frame size; they're placed like any other still.
  * - Transitions are drawn beforehand by the same WebGL shaders as the preview
  *   (`server/transition-render.ts`): `planTransitions` says what to draw, each
  *   side's picture comes from ffmpeg as raw frames placed on the canvas, and
@@ -23,7 +25,7 @@
  *   look-ahead limiter (delay-compensated, no auto-gain) catches the peaks
  *   where overlapping sources add up past full scale instead of clipping.
  */
-import { motionAt, opacityAt, volumeAt } from "../shared/effects.ts";
+import { isTextClip, motionAt, opacityAt, volumeAt } from "../shared/effects.ts";
 import { clipDuration, clipEnd, projectDuration, sourceRange, trackClips } from "../shared/timeline.ts";
 import { type TransitionWindow, trackTransitions, windowProgress } from "../shared/transition-windows.ts";
 import { type Placement, type Size, placeClip, toCanvas, toFrame } from "../shared/transform.ts";
@@ -36,6 +38,8 @@ const LIMITER = "alimiter=limit=0.98:level=0:latency=1";
 
 export type RenderAsset = Pick<MediaAsset, "kind" | "hasAudio" | "hasVideo" | "width" | "height" | "duration"> & {
   path: string;
+  /** Size at 100% on the output canvas when it isn't the media fitted to it (a drawn text). */
+  frame?: Size;
 };
 
 export interface RenderOptions {
@@ -59,6 +63,8 @@ export function buildRenderArgs(
   project: Project,
   assets: Record<string, RenderAsset>,
   opts: RenderOptions,
+  /** Drawn text clips, by clip id. */
+  texts: Record<string, RenderAsset> = {},
 ): string[] {
   const { width: W, height: H, fps: F } = opts;
   const total = projectDuration(project);
@@ -78,8 +84,9 @@ export function buildRenderArgs(
   const graph: string[] = [];
   const inputOf = new Map<string, number>();
   const assetOf = (clip: Clip) => {
-    const asset = assets[clip.assetId];
-    if (!asset) throw new Error(`Missing media for clip ${clip.id}.`);
+    const text = isTextClip(clip);
+    const asset = text ? texts[clip.id] : assets[clip.assetId];
+    if (!asset) throw new Error(text ? `Missing text image for clip ${clip.id}.` : `Missing media for clip ${clip.id}.`);
     return asset;
   };
   /**
@@ -229,7 +236,7 @@ export function buildRenderArgs(
 function placeForRender(clip: Clip, asset: RenderAsset, canvas: Size) {
   const media = asset.width && asset.height ? { width: asset.width, height: asset.height } : canvas;
   const opacity = opacityAt(clip, clip.in);
-  const piece = opacity > 0 ? planPiece(canvas, media, placeClip(canvas, media, motionAt(clip, clip.in))) : null;
+  const piece = opacity > 0 ? planPiece(canvas, media, placeClip(canvas, media, motionAt(clip, clip.in), asset.frame)) : null;
   return piece ? { piece, media, opacity } : null;
 }
 
@@ -389,6 +396,8 @@ export function planTransitions(
   project: Project,
   assets: Record<string, RenderAsset>,
   opts: Pick<RenderOptions, "width" | "height" | "fps" | "ffmpegPath">,
+  /** Drawn text clips, by clip id (as for `buildRenderArgs`). */
+  texts: Record<string, RenderAsset> = {},
 ): TransitionJob[] {
   const { width: W, height: H, fps: F } = opts;
   const frameAt = frameAtFps(F);
@@ -400,7 +409,7 @@ export function planTransitions(
       const frames = frameAt(w.end) - f0;
       if (frames <= 0) continue;
       const side = (clip: Clip | null): string[] | null => {
-        const asset = clip && assets[clip.assetId];
+        const asset = clip && (isTextClip(clip) ? texts[clip.id] : assets[clip.assetId]);
         const placed = clip && asset && placeForRender(clip, asset, canvas);
         if (!clip || !asset || !placed) return null;
         // Same clock as the clip's own frames: its first frame shows its in-point.

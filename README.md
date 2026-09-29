@@ -25,7 +25,7 @@ progress. Toggle the sidebar with `⌘\`.
 
 | Action | How |
 | --- | --- |
-| Import | Drop files (video, audio, images) on the media panel or timeline, or click the empty media panel |
+| Import | Drop files (video, audio, images) on the media panel / timeline (or click the empty media panel to browse) |
 | Add to timeline | Drag from the media panel, double-click, or hover → **+** |
 | Reorder | Drag clips on the video track (it's magnetic — no gaps) |
 | Trim | Drag a clip's left/right edge |
@@ -35,8 +35,9 @@ progress. Toggle the sidebar with `⌘\`.
 | Step | `←` `→` one frame, `⇧←` `⇧→` one second, `Home` / `End` |
 | Zoom | `+` / `-`, or ⌘/Ctrl + scroll |
 | Undo / redo | ⌘Z / ⇧⌘Z |
-| Select on the canvas | Click a clip in the preview (the topmost one under the pointer); click empty canvas to deselect |
-| Move / scale / rotate | Drag the selected clip on the canvas; drag a handle to scale around the anchor point; drag just outside a corner to rotate (⇧ = 15° steps); drag the crosshair to move the anchor point. ⇧ keeps a move on one axis, ⌥ turns snapping off |
+| Select on the canvas | Click a clip in the preview (the topmost one under the pointer); click empty canvas, or anywhere around it, to deselect |
+| Move / scale / rotate | Drag the selected clip on the canvas; drag a handle to scale around the anchor point (⇧ stretches instead of keeping the proportions); drag just outside a corner to rotate (⇧ = 15° steps); drag the crosshair to move the anchor point. ⇧ keeps a move on one axis, ⌥ turns snapping off |
+| Text | `T` (or the **T** button under the preview), then click the canvas where the text goes and type; `Esc` when done. Double-click a text to type into it again. Font (any font installed on your computer), style, size, colours, stroke, background box and shadow are in **Properties** |
 | Properties | **Properties** tab (or double-click a clip): drag a blue number sideways to change it (⇧ faster, ⌥ finer), click it to type, ↺ resets |
 | Transitions | **Transitions** tab: drag one onto a cut or a clip's edge, or **+** / `⇧⌘D` for the cut nearest the playhead. Click it on the timeline to select it, drag its edges to change its length, `⌫` removes it |
 

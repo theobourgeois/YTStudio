@@ -1,8 +1,7 @@
 /** Glitches: digital breakup, RGB splits, VHS. */
-import type { ParamSpec } from "../effects.ts";
-import type { TransitionDefinition } from "../transitions.ts";
+import type { TransitionDefinition, TransitionParamSpec } from "../transitions.ts";
 
-const intensity = (value = 1): ParamSpec => ({
+const intensity = (value = 1): TransitionParamSpec => ({
   kind: "number",
   key: "intensity",
   label: "Intensity",
@@ -16,7 +15,7 @@ const intensity = (value = 1): ParamSpec => ({
   slider: true,
 });
 
-const direction = (value: string): ParamSpec => ({
+const direction = (value: string): TransitionParamSpec => ({
   kind: "choice",
   key: "direction",
   label: "Direction",

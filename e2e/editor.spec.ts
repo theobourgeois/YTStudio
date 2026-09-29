@@ -511,6 +511,67 @@ test("adds transitions from the library, edits them and previews them", async ({
   await expect(page.locator("[data-transition]")).toHaveCount(2);
 });
 
+test("adds text with the Type tool, types into it on the canvas, styles it and exports it", async ({ page }) => {
+  await page.goto("/");
+  const before = new Set(((await savedProject(page)).clips as SavedClip[]).map((c) => c.id));
+  await page.getByRole("button", { name: "Go to start" }).click();
+
+  // T, then a click on the canvas adds a text there and starts typing into it.
+  await page.keyboard.press("t");
+  const canvas = (await page.locator("[data-slot=canvas]").boundingBox())!;
+  await page.mouse.click(canvas.x + canvas.width / 2, canvas.y + canvas.height / 4);
+  const editor = page.getByRole("textbox", { name: "Text on canvas" });
+  await expect(editor).toBeFocused();
+  await page.keyboard.type("Big news");
+  await page.keyboard.press("Escape");
+  await expect(editor).toHaveCount(0);
+
+  const text = () => savedProject(page).then((p) => (p.clips as SavedClip[]).find((c) => !before.has(c.id)));
+  const param = async (type: string, key: string) => {
+    const c = await text();
+    return c && effectParams({ clips: [c] }, c.id, type)?.[key];
+  };
+  await expect.poll(() => param("text", "text")).toBe("Big news");
+  const clip = (await text())!;
+  expect(effectParams({ clips: [clip] }, clip.id, "motion")!.position).toEqual([0.5, expect.closeTo(0.25, 2)]);
+  await expect(page.locator(`[data-clip-id="${clip.id}"]`)).toContainText("Big news");
+
+  // Creating and typing were one step.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(text).toBeUndefined();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => (await text())?.id).toBe(clip.id);
+
+  // Its properties: Text and Appearance, no framing.
+  await page.locator(`[data-clip-id="${clip.id}"]`).click();
+  await page.getByRole("tab", { name: "Properties" }).click();
+  await expect(page.getByRole("region", { name: "Text" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Appearance" })).toBeVisible();
+  await expect(page.locator('[data-param="fit"]')).toHaveCount(0);
+  const hex = page.getByRole("textbox", { name: "Fill hex" });
+  await hex.fill("#ff0000");
+  await hex.press("Enter");
+  await expect.poll(() => param("appearance", "fill")).toBe("#ff0000");
+
+  // Double-clicking it on the canvas types into it again; emptying it removes it.
+  await page.mouse.dblclick(canvas.x + canvas.width / 2, canvas.y + canvas.height / 4);
+  await expect(editor).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Escape");
+  await expect.poll(text).toBeUndefined();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await text())?.id).toBe(clip.id);
+
+  // The export gets the text drawn by the browser.
+  const request = page.waitForRequest((r) => r.url().endsWith("/api/exports") && r.method() === "POST");
+  await page.getByRole("button", { name: "Export" }).first().click();
+  await page.locator('button[type="submit"]').click();
+  const body = (await request).postDataJSON();
+  expect(Object.keys(body.texts)).toContain(clip.id);
+  await expect(page.getByText(/ready|done|finished/i).first()).toBeVisible({ timeout: 30_000 });
+});
+
 test("settles a video, starts the next one, and unsettles it again", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/p\/[\w-]+$/);

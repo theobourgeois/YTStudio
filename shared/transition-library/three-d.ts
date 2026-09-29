@@ -1,6 +1,6 @@
 /** 3D: the pictures turn, fold and flip in perspective. */
-import type { ChoiceSpec, ParamSpec } from "../effects.ts";
-import type { TransitionDefinition } from "../transitions.ts";
+import type { ChoiceSpec } from "../effects.ts";
+import type { TransitionDefinition, TransitionParamSpec } from "../transitions.ts";
 
 const direction = (value: string, options = ["left", "right", "up", "down"]): ChoiceSpec => ({
   kind: "choice",
@@ -75,7 +75,7 @@ const threeD = (glsl: string, { floor = false } = {}) =>
     ? `${CAMERA}\nvec4 trace(vec3 ro, vec3 rd, out float hitY);\nvec4 withFloor(vec3 ro, vec3 rd);\n${glsl}${FLOOR}${SUPERSAMPLE}`
     : `${CAMERA}${glsl}${SUPERSAMPLE}`;
 
-const noParams: ParamSpec[] = [];
+const noParams: TransitionParamSpec[] = [];
 
 export const THREE_D: TransitionDefinition[] = [
   {

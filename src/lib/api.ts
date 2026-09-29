@@ -2,6 +2,7 @@ import type {
   CreateProjectRequest,
   ExportJob,
   ExportRequest,
+  FontFamily,
   HealthResponse,
   ImportWebMediaRequest,
   MediaAsset,
@@ -113,6 +114,8 @@ export const api = {
   webAudioUrl: (url: string) => `/api/web/audio?url=${encodeURIComponent(url)}`,
   importWebMedia: (body: ImportWebMediaRequest) =>
     request<MediaAsset>("/api/web/import", { method: "POST", body: JSON.stringify(body) }),
+
+  listFonts: () => request<FontFamily[]>("/api/fonts"),
 
   startExport: (req: ExportRequest) =>
     request<ExportJob>("/api/exports", { method: "POST", body: JSON.stringify(req) }),

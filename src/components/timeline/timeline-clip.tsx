@@ -1,7 +1,8 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
-import { PiWarning } from "react-icons/pi";
+import { PiTextT, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
-import { clipDuration } from "@shared/timeline";
+import { isTextClip } from "@shared/effects";
+import { clipDuration, clipName } from "@shared/timeline";
 import { cn } from "@/lib/utils";
 import { useLayout } from "@/stores/layout";
 import { startClipMove, startClipTrim } from "./clip-gestures";
@@ -37,7 +38,8 @@ export const TimelineClip = memo(function TimelineClip({
   const left = clip.start * zoom;
   const width = Math.max(2, clipDuration(clip) * zoom);
   const height = lane.height - CLIP_INSET_Y * 2;
-  const offline = !asset;
+  const text = isTextClip(clip);
+  const offline = !asset && !text;
   const audioLane = lane.kind === "audio";
 
   return (
@@ -58,7 +60,7 @@ export const TimelineClip = memo(function TimelineClip({
           "absolute inset-0 overflow-hidden rounded-md border",
           offline
             ? "border-dashed border-muted-foreground/40 bg-[repeating-linear-gradient(135deg,var(--color-muted)_0_6px,var(--color-accent)_6px_12px)]"
-            : cn("border-black/20 dark:border-white/10", audioLane ? "bg-clip-audio" : "bg-clip-video"),
+            : cn("border-black/20 dark:border-white/10", text ? "bg-clip-graphic" : audioLane ? "bg-clip-audio" : "bg-clip-video"),
           muted && !offline && "opacity-55 saturate-50",
           placeholder && "opacity-30",
         )}
@@ -66,7 +68,7 @@ export const TimelineClip = memo(function TimelineClip({
         {!offline && (
           <ClipContent asset={asset} clip={clip} audioLane={audioLane} left={left} width={width} height={height} zoom={zoom} />
         )}
-        {width >= 26 && <ClipLabel offline={offline} asset={asset} />}
+        {width >= 26 && <ClipLabel offline={offline} text={text} name={clipName(clip, asset)} />}
       </div>
       {selected && !placeholder && (
         <div className="pointer-events-none absolute -inset-px rounded-md ring-2 ring-foreground" />
@@ -88,6 +90,8 @@ function sameClipProps(a: TimelineClipProps, b: TimelineClipProps) {
     a.clip.in === b.clip.in &&
     a.clip.out === b.clip.out &&
     a.clip.assetId === b.clip.assetId &&
+    // A text clip's label is its text.
+    a.clip.effects === b.clip.effects &&
     a.asset === b.asset &&
     a.lane.top === b.lane.top &&
     a.lane.height === b.lane.height &&
@@ -139,7 +143,7 @@ function ClipContent({
   return asset.poster ? <PosterStrip poster={asset.poster} /> : null;
 }
 
-function ClipLabel({ offline, asset }: { offline: boolean; asset: MediaAsset | undefined }) {
+function ClipLabel({ offline, text, name }: { offline: boolean; text: boolean; name: string }) {
   return (
     <div
       className={cn(
@@ -148,9 +152,8 @@ function ClipLabel({ offline, asset }: { offline: boolean; asset: MediaAsset | u
       )}
     >
       {offline && <PiWarning className="size-3 shrink-0" />}
-      <span className="truncate">
-        {offline ? "Media offline" : asset!.name}
-      </span>
+      {text && <PiTextT className="size-3 shrink-0" />}
+      <span className="truncate">{name}</span>
     </div>
   );
 }

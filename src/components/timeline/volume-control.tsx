@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PiSpeakerHigh, PiSpeakerLow, PiSpeakerSlash } from "react-icons/pi";
 import type { Clip } from "@shared/types";
-import { VOLUME, findEffect, setParams } from "@shared/effects";
+import { VOLUME, findEffect, isTextClip, setParams } from "@shared/effects";
 import { getClip } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -15,7 +15,9 @@ const levelOf = (clip: Clip) => (findEffect(clip, VOLUME.type)?.params.level as 
 
 /** Toolbar button: the selected clip's volume, in a popover. Needs exactly one selected clip. */
 export function ClipVolumeButton() {
-  const clip = useEditor((s) => (s.selectedClipIds.length === 1 ? getClip(s.project, s.selectedClipIds[0]) : undefined));
+  const selected = useEditor((s) => (s.selectedClipIds.length === 1 ? getClip(s.project, s.selectedClipIds[0]) : undefined));
+  // Text has no sound.
+  const clip = selected && !isTextClip(selected) ? selected : undefined;
   const volume = clip ? levelOf(clip) : 1;
   const Icon = !clip || volume >= 0.5 ? PiSpeakerHigh : volume === 0 ? PiSpeakerSlash : PiSpeakerLow;
   const contentRef = useRef<HTMLDivElement>(null);

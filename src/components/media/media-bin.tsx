@@ -205,7 +205,7 @@ function EmptyState({ onClick }: { onClick: () => void }) {
         </span>
         <span className="space-y-1">
           <span className="block text-sm font-medium text-foreground">Drop videos, music or images here</span>
-          <span className="block text-xs">or click to import</span>
+          <span className="block text-xs">or click to browse</span>
         </span>
         <span className="text-[11px] leading-relaxed text-muted-foreground/80">
           MP4, MOV, WebM, MKV

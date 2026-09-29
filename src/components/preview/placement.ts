@@ -1,8 +1,9 @@
 /** Pure helpers for the on-canvas transform handles (what's where on the canvas right now). */
-import type { Clip, MediaAsset, Project, Vec2 } from "@shared/types";
-import { motionAt, opacityAt } from "@shared/effects";
+import type { AspectRatio, Clip, MediaAsset, Project, Vec2 } from "@shared/types";
+import { isTextClip, motionAt, opacityAt, textStyleAt } from "@shared/effects";
 import { type Placement, type Size, containsPoint, frameCorners, placeClip } from "@shared/transform";
-import { videoTracks } from "@shared/timeline";
+import { outputSize, videoTracks } from "@shared/timeline";
+import { type TextLayout, layoutText } from "@/lib/text-render";
 import { planTrack } from "./sync";
 
 export interface OnCanvas {
@@ -10,6 +11,30 @@ export interface OnCanvas {
   /** Source time shown (what the clip's values are read at). */
   time: number;
   placement: Placement;
+  /** How a text clip is laid out (null for media). */
+  text: TextLayout | null;
+}
+
+/** Canvas px per reference px (the canvas at 1080p, which text sizes are given in). */
+export function textUnit(canvas: Size, aspect: AspectRatio): number {
+  return canvas.width / outputSize(aspect, "1080p").width;
+}
+
+/** Where a clip is on the canvas at source time `time` (and its text layout, for text). */
+export function placeOnCanvas(
+  project: Project,
+  clip: Clip,
+  asset: MediaAsset | undefined,
+  canvas: Size,
+  time: number,
+): { placement: Placement; text: TextLayout | null } {
+  const motion = motionAt(clip, time);
+  if (isTextClip(clip)) {
+    const text = layoutText(textStyleAt(clip, time), textUnit(canvas, project.settings.aspectRatio));
+    return { placement: placeClip(canvas, text, motion, text), text };
+  }
+  const media = asset?.width && asset.height ? { width: asset.width, height: asset.height } : canvas;
+  return { placement: placeClip(canvas, media, motion), text: null };
 }
 
 /** The clip each video track shows at timeline time `t`, placed on the canvas, top layer first. */
@@ -20,8 +45,7 @@ export function clipsOnCanvas(project: Project, assets: MediaAsset[], canvas: Si
     const { current } = planTrack(project, track.id, t);
     if (!current) continue;
     const asset = byId.get(current.clip.assetId);
-    const media = asset?.width && asset.height ? { width: asset.width, height: asset.height } : canvas;
-    out.push({ ...current, placement: placeClip(canvas, media, motionAt(current.clip, current.time)) });
+    out.push({ ...current, ...placeOnCanvas(project, current.clip, asset, canvas, current.time) });
   }
   return out;
 }

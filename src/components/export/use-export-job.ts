@@ -45,11 +45,14 @@ export function useExportJob() {
     };
   }, [cancelActive]);
 
-  const start = useCallback(async (request: ExportRequest) => {
+  /** Start an export (the request may still be being prepared, e.g. drawing the texts). */
+  const start = useCallback(async (request: ExportRequest | Promise<ExportRequest>) => {
     const current = ++session.current;
     setPhase({ status: "starting" });
     try {
-      const job = await api.startExport(request);
+      const prepared = await request;
+      if (!mounted.current || session.current !== current) return;
+      const job = await api.startExport(prepared);
       if (!mounted.current || session.current !== current) {
         api.cancelExport(job.id).catch(noop);
         return;

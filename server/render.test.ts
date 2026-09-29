@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { defaultEffects } from "../shared/effects.ts";
+import { defaultEffects, textEffects } from "../shared/effects.ts";
 import { createDefaultProject, normalizeProject } from "../shared/timeline.ts";
 import { placeClip } from "../shared/transform.ts";
 import type { Clip, ParamValues, Project } from "../shared/types.ts";
-import { type RenderAsset, SAMPLE_RATE, buildRenderArgs, planPiece } from "./render.ts";
+import { createTransition } from "../shared/transitions.ts";
+import { type RenderAsset, SAMPLE_RATE, buildRenderArgs, planPiece, planTransitions } from "./render.ts";
 
 const assets: Record<string, RenderAsset> = {
   vid: { path: "/media/vid.mp4", kind: "video", hasVideo: true, hasAudio: true, width: 1920, height: 1080, duration: 10 },
@@ -224,5 +225,39 @@ describe("buildRenderArgs", () => {
     expect(() => buildRenderArgs(project([]), assets, opts)).toThrow(/empty/);
     const p = project([clip("vid", "main", 0, 0, 1)]);
     expect(() => buildRenderArgs(p, {}, opts)).toThrow(/Missing media/);
+  });
+});
+
+describe("text clips", () => {
+  const text: Clip = {
+    id: "t1", assetId: "", trackId: "main", start: 1, in: 0, out: 2,
+    effects: textEffects({ text: "Hi" }),
+  };
+  const drawn: RenderAsset = {
+    path: "/tmp/t1.png", kind: "image", hasVideo: true, hasAudio: false, width: 800, height: 200, duration: 0,
+    frame: { width: 400, height: 100 },
+  };
+
+  it("are placed from their drawn image at their own frame size", () => {
+    const p = project([clip("vid", "main", 3, 0, 2), text]);
+    const argv = buildRenderArgs(p, assets, opts, { t1: drawn });
+    expect(inputsOf(argv)).toContain("/tmp/t1.png");
+    const graph = graphOf(argv);
+    // The 800px drawing lands 400px wide (its frame at 100%), centred on the canvas.
+    expect(graph.some((f) => f.includes("scale=400:100") && f.includes("pad=1080:1920:340:910"))).toBe(true);
+  });
+
+  it("need their drawing", () => {
+    expect(() => buildRenderArgs(project([text]), assets, opts)).toThrow(/text/i);
+  });
+
+  it("can be a side of a transition, drawn from their image", () => {
+    const p = project([{ ...text, transitionIn: createTransition("cross-dissolve", 0.5) }]);
+    const [job] = planTransitions(p, assets, opts, { t1: drawn });
+    expect(job.sides[0]).toBeNull();
+    const argv = job.sides[1]!;
+    expect(inputsOf(argv)).toEqual(["/tmp/t1.png"]);
+    expect(argv).toContain("-loop");
+    expect(argv[argv.indexOf("-vf") + 1]).toContain("scale=400:100");
   });
 });

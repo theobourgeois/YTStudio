@@ -3,6 +3,7 @@ import express, { type ErrorRequestHandler, type Express, type Response } from "
 import type { HealthResponse } from "../shared/types.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
+import { listFonts } from "./fonts.ts";
 import { MediaLibrary } from "./media.ts";
 import { migrateLegacyData } from "./migrate.ts";
 import { ProjectStore } from "./projects.ts";
@@ -130,7 +131,13 @@ export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): 
     res.status(201).json(await web.import(req.body, (id) => projects.has(id)));
   });
 
-  app.post("/api/exports", json, async (req, res) => {
+  app.get("/api/fonts", async (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
+    res.json(await listFonts());
+  });
+
+  // Big enough for the text clips drawn by the browser.
+  app.post("/api/exports", express.json({ limit: "200mb" }), async (req, res) => {
     res.status(202).json(await renders.create(req.body));
   });
   app.get("/api/exports/:id", (req, res) => {

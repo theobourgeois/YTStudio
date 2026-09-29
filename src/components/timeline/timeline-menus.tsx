@@ -21,10 +21,9 @@ import {
   PiTrash,
   PiArrowLineLeft,
 } from "react-icons/pi";
-import type { Track } from "@shared/types";
-import { MOTION, findEffect, setParams } from "@shared/effects";
+import type { Track, TransitionAlignment } from "@shared/types";
+import { MOTION, findEffect, isTextClip, setParams } from "@shared/effects";
 import { type TransitionRef, findWindow, setTransitionParams } from "@shared/transition-windows";
-import type { TransitionAlignment } from "@shared/types";
 import {
   addTrack,
   clipsAtTime,
@@ -149,9 +148,10 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
     const clip = getClip(s.project, target.clipId);
     return clip && (findEffect(clip, MOTION.type)?.params.fit as string | undefined);
   });
-  const onVideo = useEditor((s) => {
+  // Media on a video track is framed; text has no frame to fit.
+  const framed = useEditor((s) => {
     const clip = getClip(s.project, target.clipId);
-    return !!clip && isOnVideoTrack(s.project, clip);
+    return !!clip && isOnVideoTrack(s.project, clip) && !isTextClip(clip);
   });
   const playheadOnSelection = useEditor((s) => {
     const t = usePlayback.getState().time;
@@ -164,7 +164,7 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
     s.commit((p) =>
       s.selectedClipIds.reduce((q, id) => {
         const clip = getClip(q, id);
-        return clip && isOnVideoTrack(q, clip) ? setParams(q, id, MOTION.type, { fit: value }) : q;
+        return clip && isOnVideoTrack(q, clip) && !isTextClip(clip) ? setParams(q, id, MOTION.type, { fit: value }) : q;
       }, p),
     );
   };
@@ -200,7 +200,7 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
         <ContextMenuShortcut>{SHORTCUT_KEYS.duplicate}</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSeparator />
-      {onVideo && (
+      {framed && (
         <>
           <ContextMenuLabel className="text-xs text-muted-foreground">Framing</ContextMenuLabel>
           <ContextMenuRadioGroup value={fit} onValueChange={setFit}>

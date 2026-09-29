@@ -47,12 +47,13 @@ describe("effect definitions", () => {
     expect(volumeAt(clip, 0)).toBe(1);
   });
 
-  it("show Motion and Opacity for pictures, Volume for sound", () => {
-    const shown = (visual: boolean, audible: boolean) =>
-      EFFECTS.filter((d) => d.appliesTo({ visual, audible })).map((d) => d.type);
+  it("show Motion and Opacity for pictures, Volume for sound, Text and Appearance for text", () => {
+    const shown = (visual: boolean, audible: boolean, text = false) =>
+      EFFECTS.filter((d) => d.appliesTo({ visual, audible, text })).map((d) => d.type);
     expect(shown(true, true)).toEqual(["motion", "opacity", "volume"]);
     expect(shown(true, false)).toEqual(["motion", "opacity"]);
     expect(shown(false, true)).toEqual(["volume"]);
+    expect(shown(true, false, true)).toEqual(["motion", "opacity", "text", "appearance"]);
   });
 });
 

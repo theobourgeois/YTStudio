@@ -41,6 +41,7 @@
   --playhead: #e0505b;
   --clip-video: #5a86d6;
   --clip-audio: #3b9c7c;
+  --clip-graphic: #9a6fd0;
   --timeline: #f4f5f7;
   --stage: #eceef1;
   --sidebar: #f4f5f7;
@@ -73,6 +74,7 @@
   --playhead: #e06c75;
   --clip-video: #4169ac;
   --clip-audio: #2d7661;
+  --clip-graphic: #6d4fa3;
   --timeline: #131519;
   --stage: #0f1114;
   --sidebar: #181b1f;
@@ -111,6 +113,7 @@
   --color-playhead: var(--playhead);
   --color-clip-video: var(--clip-video);
   --color-clip-audio: var(--clip-audio);
+  --color-clip-graphic: var(--clip-graphic);
   --color-timeline: var(--timeline);
   --color-stage: var(--stage);
   --color-sidebar: var(--sidebar);

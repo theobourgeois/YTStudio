@@ -9,7 +9,7 @@ import type {
   WebClip,
   WebMediaKind,
 } from "@shared/types";
-import { defaultEffects } from "@shared/effects";
+import { defaultEffects, isTextClip } from "@shared/effects";
 import {
   type CopiedClip,
   addClip,
@@ -605,7 +605,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   paste(at) {
     const assetIds = new Set(get().assets.map((a) => a.id));
     // The media may have been deleted (or belong to another project) since the copy.
-    const copied = get().clipboard.filter((c) => assetIds.has(c.clip.assetId));
+    const copied = get().clipboard.filter((c) => isTextClip(c.clip) || assetIds.has(c.clip.assetId));
     if (copied.length === 0) {
       if (get().clipboard.length) toast("The copied clips' media isn't in this project");
       return;

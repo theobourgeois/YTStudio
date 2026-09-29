@@ -14,7 +14,7 @@
  * files. Where transitions are on the timeline (and how to edit them) is in
  * `transition-windows.ts`.
  */
-import { type ChoiceSpec, type NumberSpec, type ParamSpec, sameValue, sanitizeValue } from "./effects.ts";
+import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type Vec2Spec, sameValue, sanitizeValue } from "./effects.ts";
 import type { ParamValues, Transition, TransitionAlignment } from "./types.ts";
 import { BLURS_AND_ZOOMS } from "./transition-library/camera.ts";
 import { DISSOLVES } from "./transition-library/dissolve.ts";
@@ -56,6 +56,9 @@ export const TAG_LABELS: Record<TransitionTag, string> = {
   stylize: "Stylize",
 };
 
+/** The kinds of parameter a shader can take as a uniform. */
+export type TransitionParamSpec = NumberSpec | BooleanSpec | ChoiceSpec | Vec2Spec;
+
 export interface TransitionDefinition {
   type: string;
   label: string;
@@ -68,7 +71,7 @@ export interface TransitionDefinition {
    * numbers and switches as `float` (switches are 0 or 1), choices as `int`
    * (the option's index), points as `vec2` (canvas fractions, y down: use `toUv`).
    */
-  params: ParamSpec[];
+  params: TransitionParamSpec[];
   /**
    * GLSL ES 3.00 defining `vec4 transition(vec2 uv)`: the colour at `uv`
    * ((0, 0) = bottom left) for the current `progress`. It must show exactly

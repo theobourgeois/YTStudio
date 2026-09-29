@@ -5,23 +5,27 @@
  * generated from the effect's parameter specs.
  */
 import { useState } from "react";
-import { PiCaretRight, PiFilmStrip, PiImage, PiMusicNotes, PiSlidersHorizontal } from "react-icons/pi";
+import { PiCaretRight, PiFilmStrip, PiImage, PiMusicNotes, PiSlidersHorizontal, PiTextT } from "react-icons/pi";
 import type { Effect, MediaAsset } from "@shared/types";
 import {
+  type ClipTraits,
   type EffectDefinition,
   effectDefinition,
   hasKeyframes,
+  isTextClip,
   resetParams,
   sameValue,
   setEffectEnabled,
   setParams,
   storedValuesAt,
+  textStyleAt,
 } from "@shared/effects";
 import { formatDuration } from "@shared/format";
-import { clipDuration, getClip, getTrack, isOnVideoTrack, outputSize } from "@shared/timeline";
+import { clipDuration, clipName, getClip, getTrack, isOnVideoTrack, outputSize } from "@shared/timeline";
 import { sourceTime } from "@/components/preview/sync";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { layoutText } from "@/lib/text-render";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
@@ -46,12 +50,12 @@ export function PropertiesPanel() {
   if (!clip) return <NothingSelected />;
 
   const time = sourceTime(clip, playhead);
-  const traits = { visual, audible: !!asset?.hasAudio };
+  const text = isTextClip(clip);
+  const traits: ClipTraits = { visual, audible: !!asset?.hasAudio, text };
   const canvas = outputSize(aspectRatio, "1080p");
-  const ctx: DisplayContext = {
-    canvas,
-    media: asset?.width && asset.height ? { width: asset.width, height: asset.height } : canvas,
-  };
+  // Points on the clip's own frame are px of its media, or of the text's box at 1080p.
+  const frame = text ? layoutText(textStyleAt(clip, time), 1) : asset?.width && asset.height ? asset : canvas;
+  const ctx: DisplayContext = { canvas, media: { width: frame.width!, height: frame.height! } };
   const sections = clip.effects.flatMap((effect) => {
     const def = effectDefinition(effect.type);
     return def && def.appliesTo(traits) ? [{ effect, def }] : [];
@@ -60,21 +64,36 @@ export function PropertiesPanel() {
   return (
     // Radix wraps content in a `display: table` div, which defeats `truncate`.
     <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
-      <ClipHeader asset={asset} name={asset?.name ?? "Media offline"} detail={[trackName, formatDuration(clipDuration(clip))]} />
+      <ClipHeader
+        asset={asset}
+        text={text}
+        name={clipName(clip, asset)}
+        detail={[trackName, formatDuration(clipDuration(clip))]}
+      />
       {selectedCount > 1 && (
         <p className="border-b px-3 py-2 text-xs text-muted-foreground">
           {selectedCount} clips selected. Showing the last one you selected.
         </p>
       )}
       {sections.map(({ effect, def }) => (
-        <EffectSection key={effect.id} clipId={clip.id} effect={effect} def={def} time={time} ctx={ctx} />
+        <EffectSection key={effect.id} clipId={clip.id} effect={effect} def={def} traits={traits} time={time} ctx={ctx} />
       ))}
     </ScrollArea>
   );
 }
 
-function ClipHeader({ asset, name, detail }: { asset: MediaAsset | undefined; name: string; detail: (string | undefined)[] }) {
-  const Icon = asset?.kind === "image" ? PiImage : asset?.kind === "audio" ? PiMusicNotes : PiFilmStrip;
+function ClipHeader({
+  asset,
+  text,
+  name,
+  detail,
+}: {
+  asset: MediaAsset | undefined;
+  text: boolean;
+  name: string;
+  detail: (string | undefined)[];
+}) {
+  const Icon = text ? PiTextT : asset?.kind === "image" ? PiImage : asset?.kind === "audio" ? PiMusicNotes : PiFilmStrip;
   return (
     <div className="flex items-center gap-2.5 border-b px-3 py-2.5">
       <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground ring-1 ring-border ring-inset">
@@ -97,12 +116,14 @@ function EffectSection({
   clipId,
   effect,
   def,
+  traits,
   time,
   ctx,
 }: {
   clipId: string;
   effect: Effect;
   def: EffectDefinition;
+  traits: ClipTraits;
   time: number;
   ctx: DisplayContext;
 }) {
@@ -110,10 +131,11 @@ function EffectSection({
   const values = storedValuesAt(def, effect, time);
   const commit = useEditor((s) => s.commit);
   const editor = useParamEditors(
-    (key, value) => (p) => setParams(p, clipId, effect.id, { [key]: value }, time),
+    (patch) => (p) => setParams(p, clipId, effect.id, patch, time),
     (key) => commit((p) => resetParams(p, clipId, effect.id, [key])),
   );
-  const changed = def.params.some((p) => !sameValue(effect.params[p.key], p.default)) || !!effect.keyframes;
+  const params = def.params.filter((p) => p.appliesTo?.(traits) ?? true);
+  const changed = params.some((p) => !sameValue(effect.params[p.key], p.default)) || !!effect.keyframes;
   const toggle = () => {
     if (open) collapsed.add(def.type);
     else collapsed.delete(def.type);
@@ -134,7 +156,13 @@ function EffectSection({
             {def.label}
           </span>
         </button>
-        {changed && <ResetButton label={`Reset ${def.label}`} onClick={() => commit((p) => resetParams(p, clipId, effect.id))} />}
+        {changed && (
+          <ResetButton
+            label={`Reset ${def.label}`}
+            onClick={() => commit((p) => resetParams(p, clipId, effect.id, params.map((spec) => spec.key)))}
+          />
+        )}
+        {!def.alwaysOn && (
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -153,11 +181,12 @@ function EffectSection({
           </TooltipTrigger>
           <TooltipContent side="left">{effect.enabled ? `Turn ${def.label} off` : `Turn ${def.label} on`}</TooltipContent>
         </Tooltip>
+        )}
       </div>
       {open && (
         <div className={cn("pb-2", !effect.enabled && "opacity-60")}>
-          {def.params.map((spec) => (
-            <ParamRow key={spec.key} spec={spec} values={values} ctx={ctx} edit={editor(spec.key)} />
+          {params.map((spec) => (
+            <ParamRow key={spec.key} spec={spec} values={values} specs={params} ctx={ctx} edit={editor(spec.key)} />
           ))}
         </div>
       )}
@@ -174,8 +203,8 @@ function NothingSelected() {
       <span className="space-y-1">
         <span className="block text-sm font-medium text-foreground">Nothing selected</span>
         <span className="block text-xs leading-relaxed text-balance">
-          Select a clip on the timeline or the canvas to change its position, scale, rotation, opacity and volume, or a
-          transition to change its timing and look.
+          Select a clip on the timeline or the canvas to change its position, scale, rotation, opacity, volume and
+          text, or a transition to change its timing and look.
         </span>
       </span>
     </div>
