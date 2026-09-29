@@ -12,7 +12,7 @@ import { startMarquee } from "./clip-gestures";
 import { BOTTOM_GUTTER, HEADER_WIDTH, RULER_HEIGHT } from "./constants";
 import { useTimelineContext } from "./context";
 import { contentWidth, layoutLanes } from "./geometry";
-import { DragGhosts, DropIndicator, EmptyVideoHint, LaneBackgrounds, MarqueeBox, SnapGuide } from "./lane-overlays";
+import { DragGhosts, DropIndicator, EmptyVideoHint, LaneBackgrounds, MarqueeBox, SelectedGap, SnapGuide } from "./lane-overlays";
 import { PlayheadLine, usePlayheadFollow } from "./playhead";
 import { Ruler } from "./ruler";
 import { TimelineClip } from "./timeline-clip";
@@ -100,6 +100,7 @@ export function TimelineBody() {
                 );
               })}
               <DropIndicator lanes={lanes} lanesHeight={lanesHeight} zoom={zoom} />
+              <SelectedGap lanes={lanes} zoom={zoom} />
               <SnapGuide zoom={zoom} />
               <DragGhosts lanes={lanes} lanesHeight={lanesHeight} zoom={zoom} />
               <MarqueeBox />

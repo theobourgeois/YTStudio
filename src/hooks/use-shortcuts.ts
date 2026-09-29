@@ -74,6 +74,7 @@ function run(action: ShortcutAction): boolean {
   const fps = editor.project.settings.fps;
   const stepFrame = (dir: 1 | -1) => seekTo((Math.round(usePlayback.getState().time * fps) + dir) / fps);
   const hasSelection = editor.selectedClipIds.length > 0;
+  const hasGap = editor.selectedGap !== null;
 
   switch (action) {
     case "toggleSidebar":
@@ -131,7 +132,7 @@ function run(action: ShortcutAction): boolean {
       return true;
     case "delete":
     case "rippleDelete":
-      if (!hasSelection) return false;
+      if (!hasSelection && !hasGap) return false;
       editor.deleteSelected(action === "rippleDelete");
       return true;
     case "cut":
@@ -174,7 +175,7 @@ function run(action: ShortcutAction): boolean {
       editor.selectAll();
       return true;
     case "deselect":
-      if (!hasSelection) return false;
+      if (!hasSelection && !hasGap) return false;
       editor.select(null);
       return true;
     case "zoomIn":

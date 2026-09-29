@@ -128,7 +128,7 @@ test("drags clips onto the timeline where they're dropped; music goes to audio",
   await expect.poll(async () => (await trackLayout(page, "audio_1")).length).toBe(1);
 });
 
-test("splits at the playhead, deletes (leaving a gap) or ripple-deletes, undoes and redoes", async ({ page }) => {
+test("splits at the playhead, deletes (leaving a gap), closes a clicked gap or ripple-deletes, undoes and redoes", async ({ page }) => {
   await page.goto("/");
   await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
 
@@ -146,6 +146,22 @@ test("splits at the playhead, deletes (leaving a gap) or ripple-deletes, undoes 
   // The left half stays selected; Delete leaves a gap...
   await page.keyboard.press("Backspace");
   await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
+  await expect.poll(() => trackLayout(page, "main")).toEqual([
+    [3, 3],
+    [6, 0],
+    [15, 0],
+  ]);
+
+  // ...clicking that gap selects it and Delete closes it (DaVinci-style)...
+  const next = (await timelineClips(page))[0];
+  await page.mouse.click(await timeX(page, 1.5), next.y + next.h / 2);
+  await page.keyboard.press("Backspace");
+  await expect.poll(() => trackLayout(page, "main")).toEqual([
+    [0, 3],
+    [3, 0],
+    [12, 0],
+  ]);
+  await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => trackLayout(page, "main")).toEqual([
     [3, 3],
     [6, 0],

@@ -74,7 +74,9 @@ export function LanesContextMenu({ children }: { children: ReactNode }) {
       if (!s.selectedClipIds.includes(clipId)) s.select(clipId);
       setTarget({ kind: "clip", clipId, time });
     } else {
-      setTarget({ kind: "lane", trackId: laneAt(ctx.lanesLayout.current, p.y)?.trackId ?? null, time });
+      const trackId = laneAt(ctx.lanesLayout.current, p.y)?.trackId ?? null;
+      if (trackId) s.selectGap(trackId, time);
+      setTarget({ kind: "lane", trackId, time });
     }
   };
 

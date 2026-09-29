@@ -17,9 +17,11 @@ import {
   canPlaceOnTrack,
   clipEnd,
   clipsAtTime,
+  closeGap,
   copyClips,
   createDefaultProject,
   createId,
+  gapAt,
   getClip,
   getTrack,
   isOnVideoTrack,
@@ -65,6 +67,12 @@ interface EditorState {
   uploads: Upload[];
   /** Selected clips, in selection order (the last one is shown in the inspector). */
   selectedClipIds: string[];
+  /**
+   * The empty stretch of a track selected by clicking it (never together with
+   * clips). Deleting it closes it. Cleared by any edit, since the gap may have
+   * moved or gone.
+   */
+  selectedGap: { trackId: string; start: number; end: number } | null;
   /** Clips copied with ⌘C / cut with ⌘X. */
   clipboard: CopiedClip[];
   /** Timeline zoom in pixels per second. */
@@ -108,6 +116,8 @@ interface EditorState {
 
   /** Select just this clip (or nothing). */
   select: (clipId: string | null) => void;
+  /** Select the gap at `time` on `trackId`; selects nothing when there's no gap there. */
+  selectGap: (trackId: string, time: number) => void;
   setSelection: (clipIds: string[]) => void;
   /** Add the clip to the selection, or remove it if it's already selected. */
   toggleSelected: (clipId: string) => void;
@@ -142,7 +152,7 @@ interface EditorState {
   splitAtPlayhead: () => void;
   /** Split specific clips at a timeline time (e.g. where a clip was right-clicked). */
   splitAt: (clipIds: string[], time: number) => void;
-  /** Delete the selection; `ripple` also closes the gaps it leaves. */
+  /** Delete the selection; `ripple` also closes the gaps it leaves. A selected gap is always closed. */
   deleteSelected: (ripple?: boolean) => void;
   copySelected: () => void;
   cutSelected: () => void;
@@ -177,6 +187,7 @@ const emptyEditor = () => ({
   assets: [] as MediaAsset[],
   uploads: [] as Upload[],
   selectedClipIds: [] as string[],
+  selectedGap: null,
   past: [] as Project[],
   future: [] as Project[],
   gestureBase: null,
@@ -190,6 +201,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   assets: [],
   uploads: [],
   selectedClipIds: [],
+  selectedGap: null,
   clipboard: [],
   zoom: 60,
   snapping: true,
@@ -299,20 +311,28 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   select(clipId) {
-    set({ selectedClipIds: clipId ? [clipId] : [] });
+    set({ selectedClipIds: clipId ? [clipId] : [], selectedGap: null });
+  },
+
+  selectGap(trackId, time) {
+    const gap = gapAt(get().project, trackId, time);
+    set({ selectedClipIds: [], selectedGap: gap && { trackId, ...gap } });
   },
 
   setSelection(clipIds) {
-    set({ selectedClipIds: [...new Set(clipIds)] });
+    set({ selectedClipIds: [...new Set(clipIds)], selectedGap: null });
   },
 
   toggleSelected(clipId) {
     const ids = get().selectedClipIds;
-    set({ selectedClipIds: ids.includes(clipId) ? ids.filter((id) => id !== clipId) : [...ids, clipId] });
+    set({
+      selectedClipIds: ids.includes(clipId) ? ids.filter((id) => id !== clipId) : [...ids, clipId],
+      selectedGap: null,
+    });
   },
 
   selectAll() {
-    set({ selectedClipIds: get().project.clips.map((c) => c.id) });
+    set({ selectedClipIds: get().project.clips.map((c) => c.id), selectedGap: null });
   },
 
   setZoom(zoom) {
@@ -495,6 +515,11 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   deleteSelected(ripple = false) {
+    const gap = get().selectedGap;
+    if (gap) {
+      get().commit((p) => closeGap(p, gap.trackId, gap.start));
+      return;
+    }
     const ids = get().selectedClipIds;
     if (ids.length === 0) return;
     get().commit((p) => (ripple ? rippleDelete(p, ids) : removeClips(p, ids)));
@@ -608,11 +633,12 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 }));
 
-/** Drop clips that no longer exist from the selection. */
+/** After an edit: drop clips that no longer exist from the selection, and any selected gap. */
 function fixSelection() {
-  const { selectedClipIds, project } = useEditor.getState();
+  const { selectedClipIds, selectedGap, project } = useEditor.getState();
   const kept = selectedClipIds.filter((id) => getClip(project, id));
   if (kept.length !== selectedClipIds.length) useEditor.setState({ selectedClipIds: kept });
+  if (selectedGap) useEditor.setState({ selectedGap: null });
 }
 
 // Keep the playback clock's duration in sync with the timeline.

@@ -269,8 +269,9 @@ export function startClipTrim(
 }
 
 /**
- * Press on empty lane space: a click deselects and seeks there; a drag draws a
- * selection rectangle (added to the existing selection with Shift/⌘/Ctrl).
+ * Press on empty lane space: a click seeks there and selects the gap under it
+ * (or nothing); a drag draws a selection rectangle (added to the existing
+ * selection with Shift/⌘/Ctrl).
  */
 export function startMarquee(e: ReactPointerEvent<HTMLElement>, ctx: TimelineContextValue) {
   if (e.button !== 0) return;
@@ -313,8 +314,14 @@ export function startMarquee(e: ReactPointerEvent<HTMLElement>, ctx: TimelineCon
       useEditor.getState().setSelection(initial);
     },
     onClick() {
-      if (!additive) useEditor.getState().select(null);
-      usePlayback.getState().seek(Math.max(0, origin.x / useEditor.getState().zoom));
+      const time = Math.max(0, origin.x / useEditor.getState().zoom);
+      if (!additive) {
+        // Clicking a gap between clips selects it (Delete closes it), like DaVinci Resolve.
+        const lane = laneAt(ctx.lanesLayout.current, origin.y);
+        if (lane) useEditor.getState().selectGap(lane.trackId, time);
+        else useEditor.getState().select(null);
+      }
+      usePlayback.getState().seek(time);
     },
   });
 }

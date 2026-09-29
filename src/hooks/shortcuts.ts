@@ -238,7 +238,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     items: [
       { label: "Split at playhead", keys: ["S", `${MOD}B`, `${MOD}K`] },
       { label: "Trim start / end to playhead (ripple)", keys: ["Q", "W"] },
-      { label: "Delete", keys: ["⌫"] },
+      { label: "Delete (a clicked gap: close it)", keys: ["⌫"] },
       { label: "Ripple delete (close the gap)", keys: [`${SHIFT}⌫`] },
       { label: "Cut / copy / paste", keys: [`${MOD}X`, `${MOD}C`, `${MOD}V`] },
       { label: "Duplicate", keys: [`${MOD}D`] },

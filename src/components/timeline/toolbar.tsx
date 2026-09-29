@@ -40,6 +40,7 @@ export function TimelineToolbar() {
   const ctx = useTimelineContext();
   const hasClips = useEditor((s) => s.project.clips.length > 0);
   const selected = useEditor((s) => s.selectedClipIds.length);
+  const gapSelected = useEditor((s) => s.selectedGap !== null);
   const snapping = useEditor((s) => s.snapping);
   const zoom = useEditor((s) => s.zoom);
 
@@ -54,10 +55,10 @@ export function TimelineToolbar() {
         <PiScissors />
       </ToolButton>
       <ToolButton
-        label={selected > 1 ? `Delete ${selected} clips` : "Delete clip"}
+        label={gapSelected ? "Close gap" : selected > 1 ? `Delete ${selected} clips` : "Delete clip"}
         shortcut={SHORTCUT_KEYS.delete}
-        hint={`${SHORTCUT_KEYS.rippleDelete} closes the gap`}
-        disabled={selected === 0}
+        hint={gapSelected ? undefined : `${SHORTCUT_KEYS.rippleDelete} closes the gap`}
+        disabled={selected === 0 && !gapSelected}
         onClick={() => editor().deleteSelected()}
       >
         <PiTrash />

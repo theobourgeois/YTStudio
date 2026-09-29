@@ -150,6 +150,24 @@ export function DragGhosts({ lanes, lanesHeight, zoom }: { lanes: LaneLayout[]; 
   );
 }
 
+/** Outline of the selected gap (DaVinci-style), deleted with ⌫. */
+export function SelectedGap({ lanes, zoom }: { lanes: LaneLayout[]; zoom: number }) {
+  const gap = useEditor((s) => s.selectedGap);
+  const lane = gap && lanes.find((l) => l.trackId === gap.trackId);
+  if (!gap || !lane) return null;
+  return (
+    <div
+      className="pointer-events-none absolute z-[2] rounded-md bg-foreground/[0.06] ring-2 ring-foreground ring-inset"
+      style={{
+        left: gap.start * zoom,
+        width: (gap.end - gap.start) * zoom,
+        top: lane.top + CLIP_INSET_Y,
+        height: lane.height - CLIP_INSET_Y * 2,
+      }}
+    />
+  );
+}
+
 /** Rubber-band selection rectangle. */
 export function MarqueeBox() {
   const box = useTimelineView((s) => s.marquee);
