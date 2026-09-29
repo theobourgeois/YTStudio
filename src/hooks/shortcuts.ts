@@ -39,6 +39,8 @@ export type ShortcutAction =
   | "zoomOut"
   | "zoomFit"
   | "toggleSnapping"
+  | "selectTool"
+  | "textTool"
   | "toggleSidebar"
   | "showShortcuts";
 
@@ -155,6 +157,10 @@ function resolvePlain(e: KeyLike): ShortcutAction | null {
       return "trimEnd";
     case "n":
       return "toggleSnapping";
+    case "v":
+      return "selectTool";
+    case "t":
+      return "textTool";
     case "\\":
       return "zoomFit";
     case "home":
@@ -210,6 +216,8 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   zoomOut: "−",
   zoomFit: `${SHIFT}Z`,
   toggleSnapping: "N",
+  selectTool: "V",
+  textTool: "T",
   toggleSidebar: `${MOD}\\`,
   showShortcuts: "?",
 };
@@ -246,6 +254,16 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Nudge 10 frames", keys: [`${ALT}${SHIFT}←`, `${ALT}${SHIFT}→`] },
       { label: "Move to track above / below", keys: [`${ALT}↑`, `${ALT}↓`] },
       { label: "Undo / redo", keys: [`${MOD}Z`, SHORTCUT_KEYS.redo] },
+    ],
+  },
+  {
+    title: "Canvas",
+    items: [
+      { label: "Selection tool", keys: ["V"] },
+      { label: "Type tool (click to add text)", keys: ["T"] },
+      { label: "Type into a text", keys: ["Double-click"] },
+      { label: "Stretch while scaling", keys: [`${SHIFT}Drag`] },
+      { label: "Snap rotation to 15°", keys: [`${SHIFT}Drag`] },
     ],
   },
   {

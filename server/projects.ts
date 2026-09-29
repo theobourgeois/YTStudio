@@ -7,6 +7,7 @@ import {
   normalizeProject,
   projectDuration,
 } from "../shared/timeline.ts";
+import { isTextClip } from "../shared/effects.ts";
 import type { Project, ProjectStatus, ProjectSummary, UpdateProjectRequest } from "../shared/types.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
@@ -80,11 +81,11 @@ function statsOf(doc: Project): DocStats {
   };
 }
 
-/** The earliest clip on any video track (the bottom-most track wins a tie). */
+/** The earliest media clip on any video track (the bottom-most track wins a tie). */
 function firstVideoClip(doc: Project) {
   const layer = (trackId: string) => doc.tracks.findIndex((t) => t.id === trackId);
   return doc.clips
-    .filter((c) => isOnVideoTrack(doc, c))
+    .filter((c) => isOnVideoTrack(doc, c) && !isTextClip(c))
     .sort((a, b) => a.start - b.start || layer(b.trackId) - layer(a.trackId))[0];
 }
 

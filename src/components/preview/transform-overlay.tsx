@@ -1,26 +1,32 @@
 /**
  * Direct manipulation on the canvas, like Premiere's Program Monitor: click a
  * clip to select it, drag it to move, drag a handle to scale (around the
- * anchor point), drag just outside a corner to rotate, drag the anchor point
- * to move it without moving the picture. Every drag is one undo step.
+ * anchor point; Shift stretches), drag just outside a corner to rotate, drag
+ * the anchor point to move it without moving the picture. Every drag is one
+ * undo step. With the Type tool, a click adds a text there; double-clicking
+ * a text types into it.
  */
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { Vec2 } from "@shared/types";
-import { MOTION, findEffect, setParams } from "@shared/effects";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import type { ParamValues, Vec2 } from "@shared/types";
+import { MOTION, findEffect, isTextClip, setParams, textStyleAt } from "@shared/effects";
 import {
   type Placement,
   type Size,
   anchorAt,
   angleAround,
+  cssMatrix,
   frameCorners,
   scaleFromHandle,
   toCanvas,
   wrapDegrees,
 } from "@shared/transform";
 import { EditGesture } from "@/lib/edit-gesture";
+import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
+import { useFonts } from "@/stores/fonts";
 import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
+import { createText, editText, finishTextEditing, typeText, useTextEditing } from "@/stores/text-editing";
 import { type OnCanvas, clipAtPoint, clipsOnCanvas, snapMove } from "./placement";
 
 type Mode =
@@ -64,14 +70,25 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
   const project = useEditor((s) => s.project);
   const assets = useEditor((s) => s.assets);
   const selectedId = useEditor((s) => s.selectedClipIds.at(-1) ?? null);
+  const tool = useLayout((s) => s.tool);
+  const editingId = useTextEditing((s) => s.clipId);
+  // Knowing the installed fonts can change how texts are laid out.
+  const fonts = useFonts((s) => s.status);
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const [dragging, setDragging] = useState(false);
 
   const onCanvas = useMemo(
     () => clipsOnCanvas(project, assets, canvas, time),
-    [project, assets, canvas, time],
+    [project, assets, canvas, time, fonts], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const selected = onCanvas.find((c) => c.clip.id === selectedId);
+  const editing = onCanvas.find((c) => c.clip.id === editingId);
+
+  // Stop typing once the text is no longer on the canvas (the playhead moved off it, it was deleted...).
+  const editingGone = !!editingId && !editing;
+  useEffect(() => {
+    if (editingGone) finishTextEditing();
+  }, [editingGone]);
 
   const pointAt = (e: { clientX: number; clientY: number }): Vec2 => {
     const r = rootRef.current!.getBoundingClientRect();
@@ -105,7 +122,7 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
         // Another edit ended the gesture (e.g. an upload landed); stop here.
         return finish(false);
       }
-      let patch: Record<string, Vec2 | number>;
+      let patch: ParamValues;
       let nextGuides = { x: null as number | null, y: null as number | null };
       switch (mode.kind) {
         case "move": {
@@ -124,9 +141,13 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
           break;
         }
         case "scale": {
-          // Uniform scale keeps the aspect ratio; otherwise Shift does.
-          const s = scaleFromHandle(p0, mode.handle, pt, uniform || ev.shiftKey);
-          patch = uniform ? { scale: s.scaleY } : { scale: s.scaleY, scaleWidth: s.scaleX };
+          // Shift flips the clip's Uniform Scale for this drag: a uniform clip
+          // stretches freely (turning Uniform Scale off), a stretched one keeps its proportions.
+          const proportional = uniform !== ev.shiftKey;
+          const s = scaleFromHandle(p0, mode.handle, pt, proportional);
+          patch = uniform && proportional
+            ? { uniformScale: true, scale: s.scaleY }
+            : { uniformScale: false, scale: s.scaleY, scaleWidth: s.scaleX };
           break;
         }
         case "rotate": {
@@ -177,11 +198,20 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
 
   // A press on the canvas: drag the selected clip when it's under the pointer,
   // else select (and drag) the topmost clip there, else clear the selection.
+  // With the Type tool: type into the text there, or add one.
   const onCanvasPointerDown = (e: ReactPointerEvent) => {
-    if (e.button !== 0 || useEditor.getState().gestureBase) return;
+    if (e.button !== 0) return;
+    finishTextEditing();
+    if (useEditor.getState().gestureBase) return;
+    e.stopPropagation();
     const pt = pointAt(e);
     const inSelected = selected && clipAtPoint([selected], pt);
     const target = inSelected ?? clipAtPoint(onCanvas, pt);
+    if (tool === "text") {
+      if (target && isTextClip(target.clip)) editText(target.clip.id);
+      else createText([pt[0] / canvas.width, pt[1] / canvas.height]);
+      return;
+    }
     if (!target) {
       useEditor.getState().select(null);
       return;
@@ -190,17 +220,26 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
     startDrag(e, target, { kind: "move" }, "move");
   };
 
+  const onDoubleClick = (e: ReactMouseEvent) => {
+    const target = clipAtPoint(onCanvas, pointAt(e));
+    if (target && isTextClip(target.clip)) editText(target.clip.id);
+  };
+
   if (!(canvas.width > 0 && canvas.height > 0)) return null;
   const p = selected?.placement;
   const corners = p ? frameCorners(p) : null;
+  // No handles while typing: the text box is being edited, not transformed.
+  const handles = selected && selected !== editing;
 
   return (
     <div
       ref={rootRef}
       data-slot="transform-overlay"
-      className="absolute inset-0 z-10"
+      className={cn("absolute inset-0 z-10", tool === "text" && "cursor-text")}
       onPointerDown={onCanvasPointerDown}
+      onDoubleClick={onDoubleClick}
     >
+      {editing?.text && <TextEditor target={editing} />}
       <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" aria-hidden>
         {guides.x !== null && (
           <line x1={guides.x} x2={guides.x} y1={0} y2={canvas.height} className="stroke-playhead" strokeWidth={1} />
@@ -208,7 +247,15 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
         {guides.y !== null && (
           <line y1={guides.y} y2={guides.y} x1={0} x2={canvas.width} className="stroke-playhead" strokeWidth={1} />
         )}
-        {selected && p && corners && (
+        {editing && (
+          <polygon
+            points={frameCorners(editing.placement).map((c) => c.join(",")).join(" ")}
+            className="fill-none stroke-brand"
+            strokeWidth={1}
+            strokeDasharray="4 3"
+          />
+        )}
+        {handles && p && corners && (
           <>
             {/* Rotate zones just outside the corners (the frame itself, drawn over them, moves). */}
             {!dragging &&
@@ -263,5 +310,66 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
         )}
       </svg>
     </div>
+  );
+}
+
+/**
+ * Typing into a text on the canvas: a <textarea> laid out exactly like the
+ * drawn text and transformed with it. Its own letters are invisible (the
+ * preview draws the real ones underneath), so only the caret and the
+ * selection show.
+ */
+function TextEditor({ target }: { target: OnCanvas }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const layout = target.text!;
+  const style = textStyleAt(target.clip, target.time);
+
+  useEffect(() => {
+    // After the click that started editing has finished moving the focus.
+    const id = setTimeout(() => {
+      ref.current?.focus();
+      ref.current?.select();
+    });
+    return () => clearTimeout(id);
+  }, []);
+  // The box grows with the text, but a textarea scrolls its content while it's briefly too small.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && (el.scrollLeft || el.scrollTop)) el.scrollLeft = el.scrollTop = 0;
+  });
+
+  return (
+    <textarea
+      ref={ref}
+      aria-label="Text on canvas"
+      value={style.text}
+      spellCheck={false}
+      wrap="off"
+      onChange={(e) => typeText(e.target.value)}
+      onBlur={() => finishTextEditing()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" || (e.key === "Enter" && (e.metaKey || e.ctrlKey))) {
+          e.preventDefault();
+          e.stopPropagation();
+          finishTextEditing();
+        }
+      }}
+      className="absolute top-0 left-0 m-0 origin-top-left resize-none overflow-hidden border-0 bg-transparent whitespace-pre text-transparent outline-none selection:bg-brand/40"
+      style={{
+        // `font` resets the other font properties, so it goes first.
+        font: layout.font,
+        fontStretch: layout.stretch,
+        lineHeight: `${layout.lineHeight}px`,
+        letterSpacing: `${layout.letterSpacing}px`,
+        textAlign: style.align,
+        width: layout.width,
+        height: layout.height,
+        padding: `${layout.y}px ${layout.x}px`,
+        transform: cssMatrix(target.placement),
+        caretColor: style.fill,
+      }}
+    />
   );
 }

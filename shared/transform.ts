@@ -3,7 +3,7 @@
  * transform handles and the export (ffmpeg) all use this, so they agree.
  *
  * The clip's frame is first fitted to the canvas (`fit`: the whole frame, or
- * filling the canvas), which is its size at 100%. Then, like Premiere's Motion
+ * filling the canvas), which is its size at 100% (text has its own size). Then, like Premiere's Motion
  * effect, it's scaled and rotated around its anchor point, and the anchor point
  * is put at `position`:
  *
@@ -50,8 +50,12 @@ export function fittedSize(canvas: Size, media: Size, fit: FitMode): Size {
   return { width: media.width * k, height: media.height * k };
 }
 
-export function placeClip(canvas: Size, media: Size, motion: Motion): Placement {
-  const size = fittedSize(canvas, media, motion.fit);
+/**
+ * Where a clip's frame lands. `frame` is the frame's size at 100% when it
+ * isn't the media fitted to the canvas: text is laid out at its own size.
+ */
+export function placeClip(canvas: Size, media: Size, motion: Motion, frame?: Size): Placement {
+  const size = frame ?? fittedSize(canvas, media, motion.fit);
   return {
     ...size,
     anchorX: motion.anchor[0] * size.width,

@@ -3,7 +3,7 @@
  * returns a new one (or the same instance when nothing changed), so they are
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
-import { normalizeEffects } from "./effects.ts";
+import { isTextClip, normalizeEffects, textStyleAt } from "./effects.ts";
 import type {
   AspectRatio,
   Clip,
@@ -74,6 +74,12 @@ export function isOnVideoTrack(project: Project, clip: Clip): boolean {
   return getTrack(project, clip.trackId)?.kind === "video";
 }
 
+/** What to call a clip: its text's first line, or its media's file name. */
+export function clipName(clip: Clip, asset: Pick<MediaAsset, "name"> | undefined): string {
+  if (isTextClip(clip)) return textStyleAt(clip, clip.in).text.trim().split("\n")[0].trim() || "Text";
+  return asset?.name ?? "Media offline";
+}
+
 /** End of the last clip on any track (0 for an empty timeline). */
 export function projectDuration(project: Project): number {
   let end = 0;
@@ -105,6 +111,9 @@ export function clipsAtTime(project: Project, time: number): Clip[] {
 export function sourceRange(asset: Pick<MediaAsset, "kind" | "duration">): { min: number; max: number } {
   return asset.kind === "image" ? { min: -Infinity, max: Infinity } : { min: 0, max: asset.duration };
 }
+
+/** A text clip has no media, so like a still it can be stretched either way. */
+export const TEXT_SOURCE_RANGE = { min: -Infinity, max: Infinity } as const;
 
 /** Whether an asset may be placed on a track of the given kind. */
 export function canPlaceOnTrack(asset: Pick<MediaAsset, "hasVideo" | "hasAudio">, track: Pick<Track, "kind">) {
@@ -218,6 +227,23 @@ function replaceClips(project: Project, updated: Map<string, Clip>): Project {
 export function addClip(project: Project, clip: Clip): Project {
   const start = findFreeStart(trackClips(project, clip.trackId), clip.start, clipDuration(clip));
   return withClips(project, [...project.clips, { ...clip, start }]);
+}
+
+/**
+ * Add a text clip at its `start`: on the top video track when that's free for
+ * the whole clip, else on a new video track on top, so the text shows over
+ * the picture.
+ */
+export function addTextClip(project: Project, clip: Omit<Clip, "trackId">): { project: Project; trackId: string } {
+  const top = videoTracks(project)[0];
+  if (isFree(project, top.id, clip.start, clipDuration(clip as Clip))) {
+    return { project: withClips(project, [...project.clips, { ...clip, trackId: top.id }]), trackId: top.id };
+  }
+  const added = addTrack(project, "video");
+  return {
+    project: withClips(added.project, [...added.project.clips, { ...clip, trackId: added.trackId }]),
+    trackId: added.trackId,
+  };
 }
 
 /** Add a clip right after the last clip on `trackId`. */
@@ -650,10 +676,14 @@ export function normalizeProject(
     if (!kind) continue;
     const nums = [c.start, c.in, c.out];
     if (!nums.every((n) => typeof n === "number" && Number.isFinite(n))) continue;
+    const effects = normalizeEffects(c.effects, Array.isArray(c.effects) ? undefined : (c as LegacyClip));
+    // Text has no media, and is only ever drawn on a video track.
+    const text = isTextClip({ effects });
+    if (text && kind !== "video") continue;
     let out = c.out;
     // Without the media, a negative in-point may still be a valid still-image clip.
     let inPoint = c.in;
-    if (assets) {
+    if (assets && !text) {
       const a = assets[c.assetId];
       if (!a || (kind === "video" ? !a.hasVideo : !a.hasAudio)) continue;
       const range = sourceRange(a);
@@ -664,12 +694,12 @@ export function normalizeProject(
     clipIds.add(c.id);
     clips.push({
       id: c.id,
-      assetId: String(c.assetId),
+      assetId: text ? "" : String(c.assetId),
       trackId: c.trackId,
       start: roundTime(Math.max(0, c.start)),
       in: roundTime(inPoint),
       out: roundTime(out),
-      effects: normalizeEffects(c.effects, Array.isArray(c.effects) ? undefined : (c as LegacyClip)),
+      effects,
     });
   }
 

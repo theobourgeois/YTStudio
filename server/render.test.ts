@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultEffects } from "../shared/effects.ts";
+import { defaultEffects, textEffects } from "../shared/effects.ts";
 import { createDefaultProject, normalizeProject } from "../shared/timeline.ts";
 import { placeClip } from "../shared/transform.ts";
 import type { Clip, ParamValues, Project } from "../shared/types.ts";
@@ -227,5 +227,29 @@ describe("buildRenderArgs", () => {
     expect(() => buildRenderArgs(project([]), assets, opts)).toThrow(/empty/);
     const p = project([clip("vid", "main", 0, 0, 1)]);
     expect(() => buildRenderArgs(p, {}, opts)).toThrow(/Missing media/);
+  });
+});
+
+describe("text clips", () => {
+  const text: Clip = {
+    id: "t1", assetId: "", trackId: "main", start: 1, in: 0, out: 2,
+    effects: textEffects({ text: "Hi" }),
+  };
+  const drawn: RenderAsset = {
+    path: "/tmp/t1.png", kind: "image", hasVideo: true, hasAudio: false, width: 800, height: 200,
+    frame: { width: 400, height: 100 },
+  };
+
+  it("are placed from their drawn image at their own frame size", () => {
+    const p = project([clip("vid", "main", 3, 0, 2), text]);
+    const argv = buildRenderArgs(p, assets, opts, { t1: drawn });
+    expect(inputsOf(argv)).toContain("/tmp/t1.png");
+    const graph = graphOf(argv);
+    // The 800px drawing lands 400px wide (its frame at 100%), centred on the canvas.
+    expect(graph.some((f) => f.includes("scale=400:100") && f.includes("pad=1080:1920:340:910"))).toBe(true);
+  });
+
+  it("need their drawing", () => {
+    expect(() => buildRenderArgs(project([text]), assets, opts)).toThrow(/text/i);
   });
 });

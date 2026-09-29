@@ -83,6 +83,7 @@ export interface Track {
 
 export interface Clip {
   id: string;
+  /** The media it shows or plays; "" for a text clip (see `isTextClip`). */
   assetId: string;
   trackId: string;
   /** Position on the timeline. */
@@ -204,6 +205,20 @@ export interface ExportRequest {
   fileName?: string;
   /** Render without the audio tracks (e.g. to add the song in-app when posting). */
   excludeAudioTracks?: boolean;
+  /**
+   * Every text clip drawn by the browser at the export's size (the server has
+   * no way to lay out text in the user's fonts), by clip id.
+   */
+  texts?: Record<string, TextRaster>;
+}
+
+/** A text clip drawn to an image for the export. */
+export interface TextRaster {
+  /** Base64 PNG. It may be drawn larger than `width` x `height` so a scaled-up text stays sharp. */
+  png: string;
+  /** The text's frame at 100% scale, in output px (what its Motion places). */
+  width: number;
+  height: number;
 }
 
 export type ExportStatus = "queued" | "rendering" | "done" | "error" | "cancelled";
@@ -256,6 +271,26 @@ export interface ImportWebMediaRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Fonts installed on the computer running the server
+// ---------------------------------------------------------------------------
+
+export interface FontStyleInfo {
+  /** Style name, e.g. "Bold Italic". */
+  name: string;
+  /** CSS weight, 100..900. */
+  weight: number;
+  italic: boolean;
+  /** CSS font-stretch keyword ("normal", "condensed"...). */
+  stretch: string;
+}
+
+export interface FontFamily {
+  family: string;
+  /** Normal width first, then by weight, upright before italic. */
+  styles: FontStyleInfo[];
+}
+
+// ---------------------------------------------------------------------------
 // HTTP API (all JSON unless noted; errors are `ApiError` with a 4xx/5xx status)
 //
 //   GET    /api/health                  -> HealthResponse
@@ -277,6 +312,7 @@ export interface ImportWebMediaRequest {
 //   GET    /api/web/resolve?url=<link>  -> WebClip  (400 for unsupported links, playlists, livestreams)
 //   GET    /api/web/audio?url=<link>    -> audio file (downloaded on first request, then cached)
 //   POST   /api/web/import  body: ImportWebMediaRequest -> MediaAsset (201)
+//   GET    /api/fonts                   -> FontFamily[] installed on this computer (A to Z)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/:id             -> ExportJob
 //   DELETE /api/exports/:id             -> 204 (cancels if running)

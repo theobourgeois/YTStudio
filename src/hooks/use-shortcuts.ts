@@ -175,6 +175,10 @@ function run(action: ShortcutAction): boolean {
       editor.selectAll();
       return true;
     case "deselect":
+      if (useLayout.getState().tool !== "select") {
+        useLayout.getState().setTool("select");
+        return true;
+      }
       if (!hasSelection && !hasGap) return false;
       editor.select(null);
       return true;
@@ -189,6 +193,12 @@ function run(action: ShortcutAction): boolean {
       return true;
     case "toggleSnapping":
       editor.toggleSnapping();
+      return true;
+    case "selectTool":
+      useLayout.getState().setTool("select");
+      return true;
+    case "textTool":
+      useLayout.getState().setTool("text");
       return true;
   }
 }

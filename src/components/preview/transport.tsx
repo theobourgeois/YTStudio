@@ -1,9 +1,21 @@
 import type { ReactNode } from "react";
-import { PiCaretLineLeft, PiCaretLineRight, PiPauseFill, PiPlayFill, PiSkipBack, PiSkipForward } from "react-icons/pi";
+import {
+  PiCaretLineLeft,
+  PiCaretLineRight,
+  PiCursor,
+  PiPauseFill,
+  PiPlayFill,
+  PiSkipBack,
+  PiSkipForward,
+  PiTextT,
+} from "react-icons/pi";
 import { formatTime } from "@shared/format";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
+import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
+import { type CanvasTool, useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
 
 /** Pause and move the playhead by whole frames, landing on the frame grid. */
@@ -65,6 +77,41 @@ export function Transport() {
           <PiCaretLineRight />
         </TransportButton>
       </div>
+      <CanvasTools />
+    </div>
+  );
+}
+
+/** The canvas tools, like Premiere's Selection and Type tools. */
+function CanvasTools() {
+  const tool = useLayout((s) => s.tool);
+  const tools: { id: CanvasTool; label: string; shortcut: string; icon: ReactNode }[] = [
+    { id: "select", label: "Selection tool", shortcut: SHORTCUT_KEYS.selectTool, icon: <PiCursor /> },
+    { id: "text", label: "Type tool: click the canvas to add text", shortcut: SHORTCUT_KEYS.textTool, icon: <PiTextT /> },
+  ];
+  return (
+    <div role="toolbar" aria-label="Canvas tools" className="flex items-center gap-0.5 justify-self-end rounded-md bg-muted p-0.5">
+      {tools.map((t) => (
+        <Tooltip key={t.id}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t.label}
+              aria-pressed={tool === t.id}
+              onClick={() => useLayout.getState().setTool(t.id)}
+              className={cn(
+                "grid size-6 cursor-pointer place-items-center rounded-[5px] text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-3.5",
+                tool === t.id && "bg-background text-foreground shadow-xs dark:bg-accent",
+              )}
+            >
+              {t.icon}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <ShortcutHint label={t.label} shortcut={t.shortcut} />
+          </TooltipContent>
+        </Tooltip>
+      ))}
     </div>
   );
 }

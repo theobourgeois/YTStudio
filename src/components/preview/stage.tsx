@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { PiCloudSlash, PiFilmSlate } from "react-icons/pi";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
+import { useFonts } from "@/stores/fonts";
 import { fitRect, isLightColor } from "./canvas";
 import { PreviewEngine } from "./engine";
 import { TransformOverlay } from "./transform-overlay";
@@ -31,6 +32,8 @@ export function Stage() {
     engine.start();
     return () => engine.stop();
   }, [engine]);
+  // Text clips need to know which styles the installed fonts have.
+  useEffect(() => useFonts.getState().load(), []);
 
   const areaRef = useRef<HTMLDivElement>(null);
   const [area, setArea] = useState({ width: 0, height: 0 });
@@ -48,7 +51,15 @@ export function Stage() {
   useLayoutEffect(() => engine.setCanvasSize(size), [engine, size.width, size.height]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div ref={areaRef} className="flex min-h-0 flex-1 items-center justify-center p-6">
+    <div
+      ref={areaRef}
+      className="flex min-h-0 flex-1 items-center justify-center p-6"
+      // A press around the canvas clears the selection, like one on an empty part of it.
+      // (The canvas and its handles stop the event, so this only sees presses outside them.)
+      onPointerDown={(e) => {
+        if (e.button === 0 && !useEditor.getState().gestureBase) useEditor.getState().select(null);
+      }}
+    >
       {/* The transform handles live outside the clipped canvas so they can reach past its edges. */}
       <div className="relative" style={size}>
       <div
@@ -79,7 +90,7 @@ export function Stage() {
               <PiFilmSlate className="size-5" />
             </div>
             <p className="max-w-52 text-xs leading-relaxed text-balance">
-              Drag clips from the media panel onto the timeline
+              Drag clips from the media panel onto the timeline, or press T and click here to add text
             </p>
           </div>
         )}
@@ -91,7 +102,7 @@ export function Stage() {
           </div>
         )}
       </div>
-      {!isEmpty && <TransformOverlay canvas={size} />}
+      <TransformOverlay canvas={size} />
       </div>
     </div>
   );
@@ -105,12 +116,14 @@ function VideoLayer({ trackId, layer, engine }: { trackId: string; layer: number
   const videoB = useCallback((el: HTMLVideoElement) => engine.attachVideo(trackId, 1, el), [engine, trackId]);
   const imageA = useCallback((el: HTMLImageElement) => engine.attachImage(trackId, 0, el), [engine, trackId]);
   const imageB = useCallback((el: HTMLImageElement) => engine.attachImage(trackId, 1, el), [engine, trackId]);
+  const text = useCallback((el: HTMLCanvasElement) => engine.attachText(trackId, el), [engine, trackId]);
   return (
     <div className="pointer-events-none absolute inset-0" style={{ zIndex: layer }}>
       <video ref={videoA} className={mediaClass} playsInline preload="auto" />
       <video ref={videoB} className={mediaClass} playsInline preload="auto" />
       <img ref={imageA} className={mediaClass} alt="" draggable={false} decoding="async" />
       <img ref={imageB} className={mediaClass} alt="" draggable={false} decoding="async" />
+      <canvas ref={text} className={mediaClass} />
     </div>
   );
 }

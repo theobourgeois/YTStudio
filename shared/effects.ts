@@ -8,7 +8,10 @@
  * To add a property, add a spec to a definition (or a definition to
  * `EFFECTS`) and read it where clips are drawn: the preview engine and the
  * export (`server/render.ts`). Specs don't depend on clips, so other things
- * with parameters later (text, transitions) can reuse them and the panel rows.
+ * with parameters later (transitions) can reuse them and the panel rows.
+ *
+ * A text clip is a clip with no media (`assetId` is "") that carries the Text
+ * and Appearance effects; the browser draws it (`src/lib/text-render.ts`).
  */
 import type {
   Clip,
@@ -35,6 +38,8 @@ interface SpecBase<K extends string, V extends ParamValue> {
   labelFor?: (values: ParamValues) => string;
   /** Greyed out depending on the effect's other values. */
   disabledFor?: (values: ParamValues) => boolean;
+  /** Only listed for some clips (e.g. framing, which text doesn't have). */
+  appliesTo?: (clip: ClipTraits) => boolean;
 }
 
 export interface NumberSpec extends SpecBase<"number", number> {
@@ -67,9 +72,23 @@ export interface ChoiceSpec extends SpecBase<"choice", string> {
   options: { value: string; label: string }[];
 }
 
-export type ParamSpec = NumberSpec | Vec2Spec | BooleanSpec | ChoiceSpec;
+/** Free text, possibly several lines. */
+export type TextSpec = SpecBase<"text", string>;
 
-/** Numbers and points can be animated; switches and choices only ever jump. */
+/** A `#rrggbb` colour. */
+export type ColorSpec = SpecBase<"color", string>;
+
+/** A font family installed on this computer (see `/api/fonts`). */
+export type FontSpec = SpecBase<"font", string>;
+
+/** One of the styles ("Bold", "Light Italic"...) of the family in the `font` parameter `familyKey`. */
+export interface FontStyleSpec extends SpecBase<"fontStyle", string> {
+  familyKey: string;
+}
+
+export type ParamSpec = NumberSpec | Vec2Spec | BooleanSpec | ChoiceSpec | TextSpec | ColorSpec | FontSpec | FontStyleSpec;
+
+/** Numbers and points can be animated; everything else only ever jumps. */
 export const isAnimatable = (spec: ParamSpec) => spec.kind === "number" || spec.kind === "vec2";
 
 /** What a clip is, which decides the effects it shows. */
@@ -78,6 +97,8 @@ export interface ClipTraits {
   visual: boolean;
   /** Has sound. */
   audible: boolean;
+  /** A text clip (no media). */
+  text: boolean;
 }
 
 export interface EffectDefinition {
@@ -86,6 +107,8 @@ export interface EffectDefinition {
   /** Every clip carries exactly one (listed only where it applies); it can't be removed. */
   builtIn: boolean;
   appliesTo: (clip: ClipTraits) => boolean;
+  /** Can't be turned off (no bypass switch), e.g. the text itself. */
+  alwaysOn?: boolean;
   params: ParamSpec[];
   /** Keeps linked parameters consistent: rewrites a patch about to be applied to `current` (static) values. */
   adjust?: (current: ParamValues, patch: ParamValues) => ParamValues;
@@ -107,6 +130,8 @@ export const MOTION: EffectDefinition = {
       kind: "choice",
       key: "fit",
       label: "Framing",
+      // Text is laid out at its own size; there's no frame to fit.
+      appliesTo: (c) => !c.text,
       default: "contain",
       options: [
         { value: "contain", label: "Fit" },
@@ -168,8 +193,62 @@ export const VOLUME: EffectDefinition = {
   ],
 };
 
+/** Sizes and distances of text are px of the project's canvas at 1080p (like the Position values). */
+const px = { unit: "px", step: 1, decimals: 0 } as const;
+
+/** What a text clip says and how it's set. Text clips carry it; nothing else can. */
+export const TEXT: EffectDefinition = {
+  type: "text",
+  label: "Text",
+  builtIn: false,
+  alwaysOn: true,
+  appliesTo: (c) => c.text,
+  params: [
+    { kind: "text", key: "text", label: "Text", default: "Text" },
+    { kind: "font", key: "font", label: "Font", default: "Helvetica Neue" },
+    { kind: "fontStyle", key: "fontStyle", label: "Style", default: "Bold", familyKey: "font" },
+    { kind: "number", key: "size", label: "Size", default: 120, min: 1, max: 2000, ...px },
+    {
+      kind: "choice",
+      key: "align",
+      label: "Align",
+      default: "center",
+      options: [
+        { value: "left", label: "Left" },
+        { value: "center", label: "Center" },
+        { value: "right", label: "Right" },
+      ],
+    },
+    // Thousandths of an em, like Premiere and Photoshop.
+    { kind: "number", key: "tracking", label: "Tracking", default: 0, min: -500, max: 2000, step: 5, decimals: 0 },
+    // Line height as a multiple of the font size.
+    { kind: "number", key: "leading", label: "Line Spacing", default: 1.2, min: 0.5, max: 5, ...percent, decimals: 0 },
+  ],
+};
+
+const off = (key: string) => (v: ParamValues) => !((v[key] as number) > 0);
+
+/** How a text clip's letters are painted: fill, stroke, a box behind them and a drop shadow. */
+export const APPEARANCE: EffectDefinition = {
+  type: "appearance",
+  label: "Appearance",
+  builtIn: false,
+  appliesTo: (c) => c.text,
+  params: [
+    { kind: "color", key: "fill", label: "Fill", default: "#ffffff" },
+    { kind: "number", key: "strokeWidth", label: "Stroke", default: 0, min: 0, max: 200, ...px, step: 0.5, decimals: 1 },
+    { kind: "color", key: "strokeColor", label: "Stroke Color", default: "#000000", disabledFor: off("strokeWidth") },
+    { kind: "number", key: "background", label: "Background", default: 0, min: 0, max: 1, slider: true, ...percent, decimals: 0 },
+    { kind: "color", key: "backgroundColor", label: "Background Color", default: "#000000", disabledFor: off("background") },
+    { kind: "number", key: "shadow", label: "Shadow", default: 0, min: 0, max: 1, slider: true, ...percent, decimals: 0 },
+    { kind: "color", key: "shadowColor", label: "Shadow Color", default: "#000000", disabledFor: off("shadow") },
+    { kind: "number", key: "shadowDistance", label: "Shadow Distance", default: 8, min: 0, max: 500, ...px, disabledFor: off("shadow") },
+    { kind: "number", key: "shadowBlur", label: "Shadow Blur", default: 12, min: 0, max: 500, ...px, disabledFor: off("shadow") },
+  ],
+};
+
 /** Every effect definition; built-in ones in the order they're listed (and applied). */
-export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME];
+export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE];
 
 const byType = new Map(EFFECTS.map((d) => [d.type, d]));
 
@@ -199,6 +278,7 @@ const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFin
 /** Round away float noise (and -0) so equal values compare equal. */
 const tidy = (v: number) => Math.round(v * 1e9) / 1e9 + 0;
 const EASINGS: readonly Easing[] = ["linear", "ease", "hold"];
+const MAX_TEXT_LENGTH = 10_000;
 
 /** A valid value for `spec` (clamped into range), or undefined when `raw` can't be one. */
 export function sanitizeValue(spec: ParamSpec, raw: unknown): ParamValue | undefined {
@@ -213,6 +293,15 @@ export function sanitizeValue(spec: ParamSpec, raw: unknown): ParamValue | undef
       return typeof raw === "boolean" ? raw : undefined;
     case "choice":
       return spec.options.some((o) => o.value === raw) ? (raw as string) : undefined;
+    case "text":
+      return typeof raw === "string" ? raw.replace(/\r\n?/g, "\n").slice(0, MAX_TEXT_LENGTH) : undefined;
+    case "color":
+      return typeof raw === "string" && /^#[0-9a-f]{6}$/i.test(raw) ? raw.toLowerCase() : undefined;
+    case "font":
+    case "fontStyle": {
+      const name = typeof raw === "string" ? raw.trim().slice(0, 200) : "";
+      return name || undefined;
+    }
   }
 }
 
@@ -237,7 +326,7 @@ function sanitizeEffect(def: EffectDefinition, raw: Partial<Effect> | undefined,
     const keys = sanitizeKeyframes(spec, raw?.keyframes?.[spec.key]);
     if (keys.length) keyframes[spec.key] = keys;
   }
-  const effect: Effect = { id, type: def.type, enabled: raw?.enabled !== false, params };
+  const effect: Effect = { id, type: def.type, enabled: def.alwaysOn || raw?.enabled !== false, params };
   if (Object.keys(keyframes).length) effect.keyframes = keyframes;
   return effect;
 }
@@ -245,6 +334,15 @@ function sanitizeEffect(def: EffectDefinition, raw: Partial<Effect> | undefined,
 /** The built-in effects with default values (a new clip's). */
 export function defaultEffects(): Effect[] {
   return EFFECTS.filter((d) => d.builtIn).map((d) => sanitizeEffect(d, undefined, d.type));
+}
+
+/** A new text clip's effects: the built-in ones, then Text (with `params` over the defaults) and Appearance. */
+export function textEffects(params: ParamValues = {}): Effect[] {
+  return [
+    ...defaultEffects(),
+    sanitizeEffect(TEXT, { params }, TEXT.type),
+    sanitizeEffect(APPEARANCE, undefined, APPEARANCE.type),
+  ];
 }
 
 /**
@@ -269,9 +367,17 @@ export function normalizeEffects(raw: unknown, legacy?: { volume?: unknown; fit?
   });
   const ids = new Set(builtIns.map((e) => e.id));
   const extras: Effect[] = [];
+  // Text clips carry Text and Appearance once each (Appearance added when missing).
+  const isText = stored.some((e) => e.type === TEXT.type);
+  if (isText && !stored.some((e) => e.type === APPEARANCE.type)) stored.push({ type: APPEARANCE.type });
+  const once = new Set<string>();
   for (const e of stored) {
     const def = byType.get(e.type)!;
     if (def.builtIn) continue;
+    if (def === TEXT || def === APPEARANCE) {
+      if (once.has(def.type)) continue;
+      once.add(def.type);
+    }
     let id = typeof e.id === "string" && e.id ? e.id : def.type;
     for (let n = 2; ids.has(id); n++) id = `${def.type}_${n}`;
     ids.add(id);
@@ -359,6 +465,44 @@ export function opacityAt(clip: Clip, time: number): number {
   return valuesAt(OPACITY, findEffect(clip, OPACITY.type), time).opacity as number;
 }
 
+/** Whether a clip is text (drawn from its Text effect) rather than media. */
+export function isTextClip(clip: Pick<Clip, "effects">): boolean {
+  return clip.effects.some((e) => e.type === TEXT.type);
+}
+
+/** Everything that decides how a text clip looks, at one point in time. */
+export interface TextStyle {
+  text: string;
+  font: string;
+  fontStyle: string;
+  /** Font size in reference px (the canvas at 1080p). */
+  size: number;
+  align: "left" | "center" | "right";
+  /** Thousandths of an em. */
+  tracking: number;
+  /** Line height as a multiple of the size. */
+  leading: number;
+  fill: string;
+  /** Reference px; 0 = none. */
+  strokeWidth: number;
+  strokeColor: string;
+  /** Opacity of the box behind the text; 0 = none. */
+  background: number;
+  backgroundColor: string;
+  /** Opacity of the drop shadow; 0 = none. */
+  shadow: number;
+  shadowColor: string;
+  shadowDistance: number;
+  shadowBlur: number;
+}
+
+/** A text clip's text and look at source time `time`. */
+export function textStyleAt(clip: Clip, time: number): TextStyle {
+  const text = valuesAt(TEXT, findEffect(clip, TEXT.type), time);
+  const look = valuesAt(APPEARANCE, findEffect(clip, APPEARANCE.type), time);
+  return { ...text, ...look } as unknown as TextStyle;
+}
+
 /** A clip's linear gain (0..1) at source time `time`. */
 export function volumeAt(clip: Clip, time: number): number {
   return valuesAt(VOLUME, findEffect(clip, VOLUME.type), time).level as number;
@@ -431,7 +575,7 @@ export function setParams(
 
 /** Turn an effect on or off (off = bypassed). */
 export function setEffectEnabled(project: Project, clipId: string, effectId: string, enabled: boolean): Project {
-  return updateEffect(project, clipId, effectId, (e) => (e.enabled === enabled ? e : { ...e, enabled }));
+  return updateEffect(project, clipId, effectId, (e, def) => (e.enabled === enabled || def.alwaysOn ? e : { ...e, enabled }));
 }
 
 /** Put parameters (all of them by default) back to their defaults, dropping their keyframes. */

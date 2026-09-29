@@ -17,8 +17,10 @@ import {
   pruneEmptyTrack,
   snapTime,
   sourceRange,
+  TEXT_SOURCE_RANGE,
   trimClip,
 } from "@shared/timeline";
+import { isTextClip } from "@shared/effects";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import { DRAG_THRESHOLD_PX, MARQUEE_THRESHOLD_PX, SNAP_PX, TRIM_THRESHOLD_PX } from "./constants";
@@ -100,8 +102,9 @@ export function startClipMove(
       target = { trackId: clip.trackId };
 
       const asset = s.getAsset(clip.assetId);
+      const text = isTextClip(clip);
       allowed = (kind, trackId) =>
-        asset ? canPlaceOnTrack(asset, { kind }) : trackId === clip.trackId;
+        text ? kind === "video" : asset ? canPlaceOnTrack(asset, { kind }) : trackId === clip.trackId;
       // Originals stay put when duplicating, so they're snap targets too.
       points = s.snapping
         ? moveSnapPoints(base, duplicate ? [] : movingIds, usePlayback.getState().time)
@@ -226,7 +229,11 @@ export function startClipTrim(
       if (!base || !clip) return;
       const asset = s.getAsset(clip.assetId);
       // Offline media: keep the clip within what it already shows.
-      source = asset ? sourceRange(asset) : { min: Math.min(0, clip.in), max: clip.out };
+      source = isTextClip(clip)
+        ? TEXT_SOURCE_RANGE
+        : asset
+          ? sourceRange(asset)
+          : { min: Math.min(0, clip.in), max: clip.out };
       points = s.snapping ? trimSnapPoints(base, clipId, usePlayback.getState().time) : [];
     },
     onMove(p) {

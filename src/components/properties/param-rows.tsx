@@ -1,11 +1,12 @@
 /**
  * One row per parameter, rendered from its spec, so any effect (or anything
- * else with `ParamSpec`s, like text or transitions later) gets a panel for free.
+ * else with `ParamSpec`s, like transitions later) gets a panel for free.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { PiArrowCounterClockwise } from "react-icons/pi";
 import type { ParamValue, ParamValues, Project, Vec2 } from "@shared/types";
 import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type ParamSpec, type Vec2Spec, sameValue } from "@shared/effects";
+import { ColorControl, FontControl, FontStyleControl, TextControl } from "./text-controls";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -17,23 +18,28 @@ import { ScrubNumber } from "./scrub-number";
 
 /** Changing one parameter: continuous edits (`begin`/`set`.../`end`) are one undo step; a lone `set` is one too. */
 export interface ParamEditor {
+  key: string;
   begin: () => void;
   set: (value: ParamValue) => void;
+  /** Set it together with others of the same effect (e.g. a font and its style). */
+  patch: (values: ParamValues) => void;
   end: () => void;
   reset: () => void;
 }
 
 /** A `ParamEditor` factory backed by one gesture (one control is dragged at a time). */
 export function useParamEditors(
-  apply: (key: string, value: ParamValue) => (p: Project) => Project,
+  apply: (patch: ParamValues) => (p: Project) => Project,
   reset: (key: string) => void,
 ): (key: string) => ParamEditor {
   const [gesture] = useState(() => new EditGesture());
   // Never leave a gesture open if the panel goes away mid-drag.
   useEffect(() => () => gesture.end(), [gesture]);
   return (key) => ({
+    key,
     begin: () => gesture.begin(),
-    set: (value) => gesture.apply(apply(key, value)),
+    set: (value) => gesture.apply(apply({ [key]: value })),
+    patch: (values) => gesture.apply(apply(values)),
     end: () => gesture.end(),
     reset: () => reset(key),
   });
@@ -43,11 +49,13 @@ interface ParamRowProps {
   spec: ParamSpec;
   /** The effect's values (for labels/disabled states that depend on other parameters). */
   values: ParamValues;
+  /** All of the effect's specs (for controls that set several parameters together). */
+  specs: ParamSpec[];
   ctx: DisplayContext;
   edit: ParamEditor;
 }
 
-export function ParamRow({ spec, values, ctx, edit }: ParamRowProps) {
+export function ParamRow({ spec, values, specs, ctx, edit }: ParamRowProps) {
   const value = values[spec.key];
   const label = spec.labelFor?.(values) ?? spec.label;
   const disabled = spec.disabledFor?.(values) ?? false;
@@ -65,6 +73,24 @@ export function ParamRow({ spec, values, ctx, edit }: ParamRowProps) {
       break;
     case "choice":
       control = <ChoiceControl spec={spec} value={value as string} label={label} disabled={disabled} edit={edit} />;
+      break;
+    case "text":
+      control = <TextControl spec={spec} value={value as string} label={label} disabled={disabled} edit={edit} />;
+      break;
+    case "color":
+      control = <ColorControl spec={spec} value={value as string} label={label} disabled={disabled} edit={edit} />;
+      break;
+    case "font": {
+      const styleKey = specs.find((s) => s.kind === "fontStyle" && s.familyKey === spec.key)?.key;
+      control = (
+        <FontControl spec={spec} value={value as string} label={label} disabled={disabled} edit={edit} values={values} styleKey={styleKey} />
+      );
+      break;
+    }
+    case "fontStyle":
+      control = (
+        <FontStyleControl spec={spec} value={value as string} label={label} disabled={disabled} edit={edit} values={values} />
+      );
       break;
   }
   return (

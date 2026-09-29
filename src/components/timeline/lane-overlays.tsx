@@ -2,7 +2,7 @@
 import { memo } from "react";
 import { PiCursorClick, PiPlus, PiUploadSimple } from "react-icons/pi";
 import type { Track } from "@shared/types";
-import { getClip } from "@shared/timeline";
+import { clipName, getClip } from "@shared/timeline";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
 import { AUDIO_LANE_HEIGHT, CLIP_INSET_Y, TOP_GUTTER } from "./constants";
@@ -107,7 +107,7 @@ export function DragGhosts({ lanes, lanesHeight, zoom }: { lanes: LaneLayout[]; 
     ghosts
       .map((g) => {
         const clip = getClip(s.project, g.clipId) ?? getClip(s.gestureBase ?? s.project, g.clipId);
-        return clip ? (s.getAsset(clip.assetId)?.name ?? "Media offline") : "";
+        return clip ? clipName(clip, s.getAsset(clip.assetId)) : "";
       })
       .join("\n"),
   ).split("\n");

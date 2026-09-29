@@ -8,6 +8,8 @@
  *   background) show around it.
  * - Keyframes aren't exported yet (nothing creates them): every value is the
  *   one at the clip's first frame.
+ * - Text clips arrive already drawn (by the browser, in the user's fonts) as
+ *   still images with their frame size; they're placed like any other still.
  * - Each video track is one stream of segments (clips and transparent gaps)
  *   covering the whole timeline. Segment boundaries are computed from absolute
  *   timeline times: a segment from `a` to `b` owns output frames
@@ -19,7 +21,7 @@
  *   look-ahead limiter (delay-compensated, no auto-gain) catches the peaks
  *   where overlapping sources add up past full scale instead of clipping.
  */
-import { motionAt, opacityAt, volumeAt } from "../shared/effects.ts";
+import { isTextClip, motionAt, opacityAt, volumeAt } from "../shared/effects.ts";
 import { clipDuration, clipEnd, projectDuration, trackClips } from "../shared/timeline.ts";
 import { type Placement, type Size, placeClip, toCanvas, toFrame } from "../shared/transform.ts";
 import type { Clip, MediaAsset, Project } from "../shared/types.ts";
@@ -31,6 +33,8 @@ const LIMITER = "alimiter=limit=0.98:level=0:latency=1";
 
 export type RenderAsset = Pick<MediaAsset, "kind" | "hasAudio" | "hasVideo" | "width" | "height"> & {
   path: string;
+  /** Size at 100% on the output canvas when it isn't the media fitted to it (a drawn text). */
+  frame?: Size;
 };
 
 export interface RenderOptions {
@@ -49,6 +53,8 @@ export function buildRenderArgs(
   project: Project,
   assets: Record<string, RenderAsset>,
   opts: RenderOptions,
+  /** Drawn text clips, by clip id. */
+  texts: Record<string, RenderAsset> = {},
 ): string[] {
   const { width: W, height: H, fps: F } = opts;
   const total = projectDuration(project);
@@ -69,8 +75,9 @@ export function buildRenderArgs(
   const graph: string[] = [];
   const inputOf = new Map<string, number>();
   const assetOf = (clip: Clip) => {
-    const asset = assets[clip.assetId];
-    if (!asset) throw new Error(`Missing media for clip ${clip.id}.`);
+    const text = isTextClip(clip);
+    const asset = text ? texts[clip.id] : assets[clip.assetId];
+    if (!asset) throw new Error(text ? `Missing text image for clip ${clip.id}.` : `Missing media for clip ${clip.id}.`);
     return asset;
   };
   /** The clip's source range as an input (accurate seek; a still is looped), added once; returns its index. */
@@ -102,7 +109,7 @@ export function buildRenderArgs(
       const media = asset.width && asset.height ? { width: asset.width, height: asset.height } : canvasSize;
       const opacity = opacityAt(clip, clip.in);
       const piece = frames > 0 && opacity > 0
-        ? planPiece(canvasSize, media, placeClip(canvasSize, media, motionAt(clip, clip.in)))
+        ? planPiece(canvasSize, media, placeClip(canvasSize, media, motionAt(clip, clip.in), asset.frame))
         : null;
       return piece ? [{ clip, frames, media, opacity, piece }] : [];
     });

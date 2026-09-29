@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { PiFileArrowUp, PiTrayArrowDown } from "react-icons/pi";
+import { PiFileArrowUp } from "react-icons/pi";
 import type { MediaAsset } from "@shared/types";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { PropertiesPanel } from "@/components/properties/properties-panel";
@@ -71,12 +70,6 @@ export function MediaBin() {
             Properties
           </TabButton>
         </div>
-        {tab === "media" && (
-          <Button variant="outline" size="xs" className="ml-auto h-7 px-2.5" onClick={openPicker}>
-            <PiTrayArrowDown />
-            Import
-          </Button>
-        )}
         <input
           ref={inputRef}
           type="file"
@@ -207,7 +200,7 @@ function EmptyState({ onClick }: { onClick: () => void }) {
         </span>
         <span className="space-y-1">
           <span className="block text-sm font-medium text-foreground">Drop videos, music or images here</span>
-          <span className="block text-xs">or click Import</span>
+          <span className="block text-xs">or click to browse</span>
         </span>
         <span className="text-[11px] leading-relaxed text-muted-foreground/80">
           MP4, MOV, WebM, MKV
