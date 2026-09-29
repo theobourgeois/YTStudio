@@ -15,7 +15,7 @@ import { pipeline } from "node:stream/promises";
 import type { TranscriptionEngineInfo } from "../../shared/types.ts";
 import { errorMessage } from "../../shared/errors.ts";
 import { WHISPER } from "../config.ts";
-import { run } from "../process.ts";
+import { firstThatRuns, run } from "../process.ts";
 import { wavFile, SAMPLE_RATE } from "./audio.ts";
 import { ENGLISH_STYLE_PROMPT, type EngineResult, type TranscribeOptions, type TranscriptionEngine, wordsFromPieces } from "./engine.ts";
 
@@ -30,19 +30,6 @@ export const WHISPER_MODEL = {
 const MB = 1_000_000;
 const BINARIES = ["whisper-cli", "/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli"];
 const BREWS = ["brew", "/opt/homebrew/bin/brew", "/usr/local/bin/brew"];
-
-/** The first of `candidates` that runs with `args`, or null. */
-async function firstThatRuns(candidates: string[], args: string[]): Promise<string | null> {
-  for (const c of candidates) {
-    try {
-      await run(c, args);
-      return c;
-    } catch {
-      // not there
-    }
-  }
-  return null;
-}
 
 interface SetupState {
   running: boolean;

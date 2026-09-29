@@ -107,8 +107,8 @@ interface CaptionsState {
   forgetKey: (id: TranscriptionEngineId) => Promise<void>;
 
   run: CaptionRun;
-  /** Transcribe the clips and add their captions. */
-  generate: (options: CaptionOptions, scope: CaptionScope) => Promise<void>;
+  /** Transcribe the clips and add their captions (`clipIds`: the selection's, default the dialog's). */
+  generate: (options: CaptionOptions, scope: CaptionScope, clipIds?: string[]) => Promise<void>;
   cancel: () => void;
 }
 
@@ -156,12 +156,12 @@ export const useCaptions = create<CaptionsState>((set, get) => ({
 
   run: { status: "idle" },
 
-  async generate(options, scope) {
+  async generate(options, scope, clipIds = get().dialogClipIds) {
     const editor = useEditor.getState();
     const projectId = editor.projectId;
     if (!projectId || get().run.status === "running") return;
     const assets = Object.fromEntries(editor.assets.map((a) => [a.id, a]));
-    const sources = captionSourceClips(editor.project, assets, scope === "selection" ? get().dialogClipIds : undefined);
+    const sources = captionSourceClips(editor.project, assets, scope === "selection" ? clipIds : undefined);
     if (sources.length === 0) {
       set({ run: { status: "error", message: "There's no sound to caption in those clips." } });
       return;

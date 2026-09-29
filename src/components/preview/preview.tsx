@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { cn } from "cn";
+import { ActivityPill } from "@/components/assistant/activity-pill";
 import { useEditor } from "@/stores/editor";
 import { useLibrary } from "@/stores/library";
 import { useSourcePreview } from "@/stores/source-preview";
@@ -20,7 +21,8 @@ export function Preview() {
   useEffect(() => () => useSourcePreview.getState().close(), []);
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col bg-stage" aria-label="Preview">
+    <section className="relative flex min-w-0 flex-1 flex-col bg-stage" aria-label="Preview">
+      <ActivityPill />
       <div className={cn("flex min-h-0 flex-1 flex-col", source && "hidden")}>
         <Stage />
         <Transport />

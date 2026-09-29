@@ -100,6 +100,32 @@ Exports are drawn frame by frame by the same WebGL compositor as the preview, ru
 
 It lives in `data/library`.
 
+### Assistant (Claude)
+
+The chat button at the top right (`⌘I`) opens the **Assistant**: ask Claude to edit the video in plain words ("cut the
+silences", "add captions in the yellow style", "put the clips in a good order with the music underneath", "organise my
+Library"). It's [Claude Code](https://claude.com/claude-code) running on this computer with your own login and
+subscription, using only the editor's tools: no shell, no files outside the editor.
+
+It can see what you see: the timeline, frames of the edited video (the Program monitor), frames of the raw footage,
+what's said (word-timed transcripts), silences and loudness, shot changes, the effects and transitions available,
+and the Library. And it can do what you can: add, move, trim, split and delete clips, set any property and keyframe
+it, add effects and transitions, add text and captions, import files or links, organise the Library, and export.
+
+- Every step shows in the chat as it runs; what it changes flashes on the timeline, and a pill over the preview says
+  what it's doing. Click a step for its details, or the ⌖ on it to select what it changed.
+- Each edit is an undo step (`⌘Z`), and **Revert** under an answer takes back everything it changed at once.
+  Anything undo can't bring back (deleting media, deleting from the Library) asks you first.
+- Your selection and playhead go with each message, so "this clip" and "here" work. Times in its answers are links.
+- Pick the model (Opus, Sonnet, Haiku, or Claude Code's default) under the message box. Each video keeps its own
+  chat, and the conversation carries on after a restart; **New chat** starts over.
+
+Needs Claude Code installed and logged in (`claude` in a terminal). Set `CLAUDE_PATH` if it isn't on the `PATH`.
+
+**Other agents** can use the same tools: the server is an MCP server at `http://127.0.0.1:5311/mcp`. For Claude Code in
+a terminal: `claude mcp add --transport http editor http://127.0.0.1:5311/mcp`. Its tools work on the video open in the
+editor tab you used last (the editor must be open in a browser), and a notice there shows what they do.
+
 ### Auto captions
 
 **Captions** (the timeline toolbar, the **Captions** tab, or right-click a clip) listens to the selected clips, or the
@@ -193,6 +219,10 @@ Keyframes stay on their frame of the media when a clip is moved, trimmed or spli
     contact sheet and checks it starts and ends on the right pictures.
   - `transform.ts`: where a clip lands on the canvas (fit, then scale and rotate around the anchor point, which sits at
     the position). The compositor, the canvas handles and the export all use it.
+- **The assistant** — `shared/assistant-tools.ts` lists the editor's tools for AI agents; `server/assistant/` serves
+  them over MCP (`mcp.ts`), runs Claude Code for the in-app chat (`claude.ts`, `service.ts`) and relays every tool call
+  to the editor tab (`bridge.ts`), which runs it with the same stores and pure edits as the UI (`src/assistant/`).
+  So an agent's edits are live, undoable and can't conflict with the document the tab owns.
 - **`server/`** — a small Express server (one router per resource in `server/routes/`) that stores projects and their media in `./data`, probes media and generates
   thumbnails/waveforms with ffmpeg, and renders exports. `render.ts` plans an export (pure): an ffmpeg per visible clip
   decodes its frames at the size they're shown, a headless Chromium page (`gl-browser.ts`) composites every output

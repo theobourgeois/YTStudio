@@ -23,5 +23,7 @@ export const MODELS_DIR = path.resolve(process.env.EDITOR_MODELS_DIR || path.joi
 /** API keys for cloud transcription; otherwise they're entered in the app (and saved in the data dir). */
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
 export const GROQ_API_KEY = process.env.GROQ_API_KEY || null;
+/** Claude Code's command line tool, which runs the in-app assistant (default: on the PATH, else its usual homes). */
+export const CLAUDE = process.env.CLAUDE_PATH || null;
 /** "fake" swaps the local transcription engine for one that makes words up (the e2e tests). */
 export const TRANSCRIPTION_ENGINE = process.env.EDITOR_TRANSCRIPTION_ENGINE || null;

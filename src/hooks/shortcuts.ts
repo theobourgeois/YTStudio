@@ -47,6 +47,7 @@ export type ShortcutAction =
   | "selectTool"
   | "textTool"
   | "toggleSidebar"
+  | "toggleAssistant"
   | "showShortcuts";
 
 export type KeyLike = Pick<
@@ -110,6 +111,8 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
       return "selectAll";
     case "\\":
       return "toggleSidebar";
+    case "i":
+      return "toggleAssistant";
   }
   return null;
 }
@@ -242,6 +245,7 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   selectTool: "V",
   textTool: "T",
   toggleSidebar: `${MOD}\\`,
+  toggleAssistant: `${MOD}I`,
   showShortcuts: "?",
 };
 
@@ -317,6 +321,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Zoom to fit", keys: [`${SHIFT}Z`, "\\"] },
       { label: "Snapping on / off", keys: ["N"] },
       { label: "Show / hide projects", keys: [`${MOD}\\`] },
+      { label: "Show / hide the assistant", keys: [`${MOD}I`] },
       { label: "Keyboard shortcuts", keys: ["?"] },
     ],
   },

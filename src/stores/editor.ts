@@ -169,6 +169,8 @@ interface EditorState {
   addLibraryItem: (itemId: string, opts?: AddToTimelineOptions) => Promise<LibraryItem | null>;
   deleteAsset: (assetId: string) => Promise<void>;
   getAsset: (assetId: string) => MediaAsset | undefined;
+  /** Add media imported some other way (by the assistant) to the open project's list. */
+  addImportedAssets: (assets: MediaAsset[]) => void;
 
   /**
    * Put assets on the timeline as one undoable step, and select the last one.
@@ -520,6 +522,15 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   getAsset(assetId) {
     return get().assets.find((a) => a.id === assetId);
+  },
+
+  addImportedAssets(assets) {
+    const mine = assets.filter((a) => a.projectId === get().projectId);
+    if (mine.length === 0) return;
+    const ids = new Set(mine.map((a) => a.id));
+    set({ assets: [...mine, ...get().assets.filter((a) => !ids.has(a.id))] });
+    if (get().project.name === DEFAULT_PROJECT_NAME) get().renameProject(mine[0].name.replace(/\.[^.]+$/, ""));
+    pollProcessingAssets(useEditor);
   },
 
   addAssetsToTimeline(assetIds, opts = {}) {

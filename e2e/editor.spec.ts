@@ -937,3 +937,70 @@ test("skims a video's card and copies one clip's effects onto another", async ({
     );
   await expect.poll(fits).toEqual(["cover", "cover"]);
 });
+
+test("the assistant edits the video with the editor's tools, live and undoably; outside agents can too", async ({ page }) => {
+  // Claude Code is played by e2e/fake-claude.mjs, which makes the tool calls a message lists.
+  await page.goto("/");
+  const [latest] = await projectList(page);
+  await page.goto(`/p/${latest.id}`);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(2);
+
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  await expect(panel.getByText("Claude Max")).toBeVisible();
+  await expect(panel.getByText("Edit with Claude")).toBeVisible();
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+
+  // Its edits happen on the open timeline, flash the clips they touch, and list as steps.
+  await composer.fill('call get_timeline\ncall split_clips {"at": 1, "clipIds": ["$clip"]}');
+  await composer.press("Enter");
+  await expect(composer).toHaveValue("");
+  await expect(panel.locator('[data-tool="split_clips"][data-status="done"]')).toContainText("Split 1 clip at 1s");
+  await expect(page.locator("[data-clip-id]")).toHaveCount(3);
+  await expect(page.locator("[data-assistant-flash]").first()).toBeAttached();
+  await expect(panel.getByText("Done.")).toBeVisible();
+  await expect.poll(async () => (await savedProject(page)).clips.length).toBe(3);
+
+  // One click takes the whole answer back.
+  await panel.getByRole("button", { name: "Revert" }).click();
+  await expect(page.locator("[data-clip-id]")).toHaveCount(2);
+  await expect(panel.getByText("Reverted")).toBeVisible();
+
+  // The chat is kept with the video.
+  await page.reload();
+  await expect(panel.locator('[data-tool="split_clips"]')).toBeVisible();
+
+  // Anything undo can't bring back asks first.
+  await composer.fill('call list_media\ncall delete_media {"assetId": "$media"}');
+  await composer.press("Enter");
+  await page.getByRole("alertdialog", { name: /Delete/ }).getByRole("button", { name: "Don't" }).click();
+  await expect(panel.locator('[data-tool="delete_media"][data-status="error"]')).toBeVisible();
+  const media = await page.evaluate((id) => fetch(`/api/media?projectId=${id}`).then((r) => r.json()), latest.id);
+  expect(media).toHaveLength(2);
+
+  // A turn can be stopped; the preview says it's working meanwhile.
+  await expect(composer).toBeEnabled();
+  await composer.fill("wait");
+  await composer.press("Enter");
+  await expect(page.locator('[data-slot="assistant-activity"]')).toBeVisible();
+  await panel.getByRole("button", { name: "Stop" }).click();
+  await expect(panel.getByText("Stopped")).toBeVisible();
+  await expect(page.locator('[data-slot="assistant-activity"]')).toHaveCount(0);
+
+  // Any MCP client (e.g. Claude Code in a terminal) works in the open tab too.
+  const mcp = async (method: string, params: object) => {
+    const res = await fetch("http://127.0.0.1:5321/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    return (await res.json()).result;
+  };
+  expect((await mcp("tools/list", {})).tools.map((t: { name: string }) => t.name)).toContain("split_clips");
+  const timeline = await mcp("tools/call", { name: "get_timeline", arguments: {} });
+  expect(timeline.content[0].text).toContain("Video 1");
+  const tracks = (await savedProject(page)).tracks.length;
+  await mcp("tools/call", { name: "add_track", arguments: { kind: "video" } });
+  await expect(page.getByText("Agent: Add video track")).toBeVisible();
+  await expect.poll(async () => (await savedProject(page)).tracks.length).toBe(tracks + 1);
+});

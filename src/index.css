@@ -119,6 +119,22 @@
   --color-sidebar: var(--sidebar);
 }
 
+/* The assistant: its mark breathing while it works, the typing dots, and clips it just changed. */
+@keyframes assistant-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.92); }
+}
+@keyframes assistant-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
+@keyframes assistant-flash {
+  0% { opacity: 0; box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 60%, transparent); background: color-mix(in srgb, var(--brand) 35%, transparent); }
+  12% { opacity: 1; box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 35%, transparent); }
+  60% { opacity: 1; background: color-mix(in srgb, var(--brand) 12%, transparent); }
+  100% { opacity: 0; box-shadow: 0 0 0 6px transparent; background: transparent; }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

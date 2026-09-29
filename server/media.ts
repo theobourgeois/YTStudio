@@ -1,5 +1,6 @@
 import { constants as fsConstants, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -133,6 +134,25 @@ export class MediaLibrary {
         throw new HttpError(400, "The upload was interrupted.");
       }
       return await this.add(tmp, rawName, projectId, projectExists);
+    } finally {
+      await fs.rm(tmp, { force: true });
+    }
+  }
+
+  /**
+   * Import a file from anywhere on this computer (the assistant's `import_media`) into
+   * `projectId`'s media. The file is copied; the original stays where it is.
+   */
+  async importFile(rawPath: unknown, projectId: string, projectExists: () => boolean): Promise<MediaAsset> {
+    if (typeof rawPath !== "string" || !rawPath.trim()) throw new HttpError(400, "Expected { projectId, path }.");
+    const expanded = rawPath.trim().replace(/^~(?=$|\/)/, os.homedir());
+    if (!path.isAbsolute(expanded)) throw new HttpError(400, "The path must be absolute.");
+    const stat = await fs.stat(expanded).catch(() => null);
+    if (!stat?.isFile()) throw new HttpError(404, `There's no file at ${expanded}.`);
+    const tmp = this.paths.tmpFile(path.extname(expanded));
+    try {
+      await fs.copyFile(expanded, tmp, fsConstants.COPYFILE_FICLONE);
+      return await this.add(tmp, path.basename(expanded), projectId, projectExists);
     } finally {
       await fs.rm(tmp, { force: true });
     }

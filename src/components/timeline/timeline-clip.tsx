@@ -5,6 +5,7 @@ import { isTextClip, videoEffects } from "@shared/effects";
 import { keyframeTimes, timelineTime } from "@shared/animation";
 import { clipDuration, clipName } from "@shared/timeline";
 import { cn } from "cn";
+import { useAssistant } from "@/stores/assistant";
 import { useLayout } from "@/stores/layout";
 import { startClipMove, startClipTrim } from "./clip-gestures";
 import { Filmstrip, PosterStrip, Waveform } from "./clip-media";
@@ -44,6 +45,8 @@ export const TimelineClip = memo(function TimelineClip({
   const offline = !asset && !text;
   const audioLane = lane.kind === "audio";
   const effectDrop = useTimelineView((s) => s.effectDrop === clip.id);
+  // Just changed by the assistant.
+  const flash = useAssistant((s) => s.highlights[clip.id]);
   const effects = videoEffects(clip);
 
   return (
@@ -88,6 +91,13 @@ export const TimelineClip = memo(function TimelineClip({
         <div className="pointer-events-none absolute -inset-px rounded-md ring-2 ring-foreground" />
       )}
       {effectDrop && <div className="pointer-events-none absolute -inset-px rounded-md bg-brand/20 ring-2 ring-brand" />}
+      {flash !== undefined && (
+        <div
+          key={flash}
+          data-assistant-flash
+          className="pointer-events-none absolute -inset-px z-[4] animate-[assistant-flash_2.6s_ease-out_forwards] rounded-md ring-2 ring-brand"
+        />
+      )}
       {!placeholder && (
         <>
           <TrimHandle edge="start" width={width} selected={selected} onPointerDown={(e) => startClipTrim(e, clip.id, "start", ctx)} />

@@ -2,6 +2,7 @@
  * Domain + API types shared by the web client and the local render server.
  * All times are in seconds (floating point) unless the name says otherwise.
  */
+import type { ToolResult } from "./assistant-tools.ts";
 
 // ---------------------------------------------------------------------------
 // Media library
@@ -528,6 +529,68 @@ export interface TranscriptionJob {
 }
 
 // ---------------------------------------------------------------------------
+// Looking into media files (frames, sound, shots), and the in-app assistant
+// (see `shared/assistant.ts` for its chats and `shared/assistant-tools.ts` for its tools)
+// ---------------------------------------------------------------------------
+
+/** A quiet stretch of a file's sound, in source seconds. */
+export interface Silence {
+  start: number;
+  end: number;
+}
+
+export interface SoundAnalysis {
+  silences: Silence[];
+  /** dBFS; null when there's no telling (e.g. no sound at all). */
+  meanVolume: number | null;
+  maxVolume: number | null;
+}
+
+export interface SceneCuts {
+  /** Source seconds where the picture cuts to a new shot. */
+  cuts: number[];
+}
+
+/** Import a file from this computer by its path. */
+export interface ImportFileRequest {
+  projectId: string;
+  /** Absolute (or starting with ~). */
+  path: string;
+}
+
+/** Whether Claude Code can run the assistant on this computer. */
+export interface AssistantStatus {
+  available: boolean;
+  version: string | null;
+  loggedIn: boolean;
+  /** "Claude Max", "API key"... */
+  account: string | null;
+  /** Why it can't be used, and what to do. */
+  problem: string | null;
+}
+
+export interface SendChatMessageRequest {
+  text: string;
+  /** The editor's state for the model, and its short label shown in the chat. */
+  context?: string;
+  contextLabel?: string;
+  /** The tab sending it (it runs the tools). */
+  tab: string;
+}
+
+/** A tool call's result posted back by the tab that ran it. */
+export interface ToolCallResultRequest {
+  tab: string;
+  result: ToolResult;
+}
+
+export interface ToolCallProgressRequest {
+  tab: string;
+  fraction: number | null;
+  label?: string;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP API (all JSON unless noted; errors are `ApiError` with a 4xx/5xx status)
 //
 //   GET    /api/health                  -> HealthResponse
@@ -546,6 +609,10 @@ export interface TranscriptionJob {
 //   POST   /api/media?projectId=<id>&name=<file name>  body: raw file bytes -> MediaAsset (201)
 //                                        415 if the file has no audio/video stream, 404 unknown project
 //   GET    /api/media/:id               -> MediaAsset
+//   GET    /api/media/:id/frame?t=<s>&w=<px> -> image/jpeg: the frame at source time t, w px wide
+//   GET    /api/media/:id/sound?from&to&threshold=<dB>&min=<s> -> SoundAnalysis (silences, loudness)
+//   GET    /api/media/:id/scenes?threshold=<0..1> -> SceneCuts
+//   POST   /api/media/import-file  body: ImportFileRequest -> MediaAsset (201): a copy of a file on this computer
 //   DELETE /api/media/:id               -> 204
 //   GET    /api/web/search?q=<query>    -> WebClip[] from YouTube  (503 if yt-dlp isn't installed)
 //   GET    /api/web/resolve?url=<link>  -> WebClip  (400 for unsupported links, playlists, livestreams)
@@ -575,6 +642,19 @@ export interface TranscriptionJob {
 //   POST   /api/transcription/jobs  body: TranscribeRequest -> TranscriptionJob (202)
 //   GET    /api/transcription/jobs/:id  -> TranscriptionJob
 //   DELETE /api/transcription/jobs/:id  -> 204 (cancels if running)
+//   GET    /api/assistant/status        -> AssistantStatus (is Claude Code installed and logged in)
+//   GET    /api/assistant/chats/:projectId  -> ChatState (a video's chat with the assistant)
+//   PATCH  /api/assistant/chats/:projectId  body: { model } -> ChatState
+//   POST   /api/assistant/chats/:projectId/messages  body: SendChatMessageRequest -> 204 (the answer streams as events)
+//   POST   /api/assistant/chats/:projectId/stop  -> 204
+//   DELETE /api/assistant/chats/:projectId  -> ChatState (a new, empty chat)
+//   GET    /api/assistant/images/:projectId/:name -> a picture the assistant looked at
+//   GET    /api/assistant/events?tab=<id>&project=<id> -> text/event-stream of TabEvent (server/assistant/bridge.ts):
+//                                        tool calls for the tab to run, and chat updates for its video
+//   POST   /api/assistant/tabs/:tab/focus  -> 204 (outside MCP clients act in the tab used last)
+//   POST   /api/assistant/calls/:id/result  body: ToolCallResultRequest -> 204
+//   POST   /api/assistant/calls/:id/progress  body: ToolCallProgressRequest -> 204
+//   POST   /mcp                         MCP (Streamable HTTP, JSON responses): the editor's tools for any agent
 //   GET    /files/...                   -> static files from the data dir (range requests)
 // ---------------------------------------------------------------------------
 
