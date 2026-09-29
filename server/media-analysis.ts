@@ -1,9 +1,11 @@
 /**
  * Looking into media files with ffmpeg, for the assistant (and anything else
  * that needs it): a frame as a JPEG, the quiet stretches and loudness of the
- * sound, and where the picture cuts to a new shot. Times are source seconds.
+ * sound, the music's beats and shape (`beats.ts`), and where the picture cuts
+ * to a new shot. Times are source seconds.
  */
-import type { Silence, SoundAnalysis } from "../shared/types.ts";
+import type { MusicAnalysis, Silence, SoundAnalysis } from "../shared/types.ts";
+import { SAMPLE_RATE as RHYTHM_RATE, analyseRhythm } from "./beats.ts";
 import { FFMPEG } from "./config.ts";
 import { run } from "./process.ts";
 
@@ -105,4 +107,41 @@ export function parseSceneLog(log: string): number[] {
     if (m) cuts.push(round(Number(m[1])));
   }
   return cuts;
+}
+
+/** Longest stretch of music analysed at once (seconds). */
+const MAX_MUSIC = 20 * 60;
+
+/** The sound between `from` and `to` as mono samples at the rhythm analysis's rate. */
+async function decodeMono(file: string, from: number, to: number): Promise<Float32Array> {
+  const chunks: Buffer[] = [];
+  await run(
+    FFMPEG,
+    [
+      "-hide_banner", "-nostdin", "-loglevel", "error",
+      "-ss", String(from),
+      "-t", String(Math.max(0.05, Math.min(MAX_MUSIC, to - from))),
+      "-i", file,
+      "-vn", "-ac", "1", "-ar", String(RHYTHM_RATE),
+      "-f", "f32le", "-",
+    ],
+    { onStdout: (chunk) => chunks.push(chunk) },
+  );
+  const bytes = Buffer.concat(chunks);
+  // Copied so the samples are aligned for a Float32Array.
+  return new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length - (bytes.length % 4)));
+}
+
+/** Tempo, beats, bars, loud and quiet parts and drops of the music between `from` and `to` (source seconds). */
+export async function analyseMusic(file: string, from: number, to: number): Promise<MusicAnalysis> {
+  const rhythm = analyseRhythm(await decodeMono(file, from, to));
+  const shift = (t: number) => round(t + from);
+  return {
+    bpm: rhythm.bpm,
+    confidence: rhythm.confidence,
+    beats: rhythm.beats.map(shift),
+    downbeats: rhythm.downbeats.map(shift),
+    sections: rhythm.sections.map((s) => ({ ...s, start: shift(s.start), end: shift(s.end) })),
+    drops: rhythm.drops.map((d) => ({ ...d, time: shift(d.time) })),
+  };
 }
