@@ -3,10 +3,11 @@ import { dragKind } from "@/lib/dnd";
 
 /**
  * Turns an element into a drop zone for OS files (internal asset drags are
- * ignored). `active` is true while files are dragged over it; an enter/leave
- * counter keeps it from flickering when the pointer crosses child elements.
+ * ignored). `onFiles` also gets the drop event, to read dropped folders.
+ * `active` is true while files are dragged over it; an enter/leave counter
+ * keeps it from flickering when the pointer crosses child elements.
  */
-export function useFileDrop(onFiles: (files: File[]) => void) {
+export function useFileDrop(onFiles: (files: File[], e: DragEvent) => void) {
   const depth = useRef(0);
   const [active, setActive] = useState(false);
   const isFileDrag = (e: DragEvent) => dragKind(e.dataTransfer) === "files";
@@ -33,7 +34,7 @@ export function useFileDrop(onFiles: (files: File[]) => void) {
       e.preventDefault();
       depth.current = 0;
       setActive(false);
-      onFiles(Array.from(e.dataTransfer.files));
+      onFiles(Array.from(e.dataTransfer.files), e);
     },
   };
 

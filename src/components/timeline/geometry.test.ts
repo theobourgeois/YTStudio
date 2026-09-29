@@ -11,6 +11,8 @@ import {
   formatRulerLabel,
   laneAt,
   layoutLanes,
+  MIN_ZOOM_OUT_SECONDS,
+  minZoomFor,
   moveSnapPoints,
   newTrackZoneAt,
   pageScrollTarget,
@@ -77,6 +79,18 @@ describe("zoom + scrolling", () => {
     expect(fitZoom(10000, 1000, 5, 400)).toBe(5);
   });
 
+  it("zooms out far enough to show the whole edit, however long", () => {
+    // 5:37 in a 1600px view fits exactly as zoom-to-fit does.
+    expect(minZoomFor(337, 1600, 0.05, 400)).toBeCloseTo(fitZoom(337, 1600, 0.05, 400)!);
+    expect(minZoomFor(3 * 3600, 1600, 0.05, 400) * 3 * 3600).toBeLessThanOrEqual(1600);
+    // Short or empty edits still zoom out to a minute.
+    expect(minZoomFor(5, 1600, 0.05, 400)).toBeCloseTo(minZoomFor(MIN_ZOOM_OUT_SECONDS, 1600, 0.05, 400));
+    expect(minZoomFor(0, 1600, 0.05, 400) * MIN_ZOOM_OUT_SECONDS).toBeLessThanOrEqual(1600);
+    // Clamped, and unmeasured views fall back to the floor.
+    expect(minZoomFor(1e9, 1600, 0.05, 400)).toBe(0.05);
+    expect(minZoomFor(60, 0, 0.05, 400)).toBe(0.05);
+  });
+
   it("slider mapping round-trips on a log scale", () => {
     for (const z of [5, 20, 60, 400]) expect(sliderToZoom(zoomToSlider(z, 5, 400), 5, 400)).toBeCloseTo(z);
     expect(zoomToSlider(5, 5, 400)).toBe(0);
@@ -120,7 +134,7 @@ describe("zoom + scrolling", () => {
 
 describe("ruler", () => {
   it("labels are at least MIN_LABEL_SPACING apart at any zoom", () => {
-    for (const zoom of [5, 7, 12, 30, 60, 100, 200, 400]) {
+    for (const zoom of [0.05, 0.5, 2, 5, 7, 12, 30, 60, 100, 200, 400]) {
       const { major, minor } = tickSpacing(zoom);
       expect(major * zoom).toBeGreaterThanOrEqual(72);
       if (minor) expect(minor * zoom).toBeGreaterThanOrEqual(6);

@@ -4,7 +4,7 @@ import type { ProjectStatus, ProjectSummary } from "@shared/types";
 import { errorMessage } from "@shared/errors";
 import { api } from "@/lib/api";
 import { projectIdFromUrl, setUrlProject } from "@/lib/route";
-import { discardPendingSave, onProjectSaved, useEditor } from "./editor";
+import { discardPendingSave, flushAutosave, onProjectSaved, useEditor } from "./editor";
 
 /**
  * The workspace: every video is a project that is either `active` (being worked
@@ -23,6 +23,8 @@ interface ProjectsState {
   create: (files?: File[]) => Promise<void>;
   settle: (projectId: string) => Promise<void>;
   unsettle: (projectId: string) => Promise<void>;
+  /** Copy a project (and its media) into a new active one. */
+  duplicate: (projectId: string) => Promise<void>;
   remove: (projectId: string) => Promise<void>;
 }
 
@@ -137,6 +139,22 @@ export const useProjects = create<ProjectsState>((set, get) => {
 
     async unsettle(projectId) {
       await setStatus(projectId, "active");
+    },
+
+    async duplicate(projectId) {
+      let summary: ProjectSummary;
+      try {
+        // Copy the latest edits, not the last autosave.
+        if (useEditor.getState().projectId === projectId) await flushAutosave();
+        summary = await api.duplicateProject(projectId);
+      } catch (err) {
+        toast.error("Couldn't duplicate video", { description: errorMessage(err) });
+        return;
+      }
+      upsert(summary);
+      toast.success(`Duplicated as “${summary.name}”`, {
+        action: { label: "Open", onClick: () => get().open(summary.id) },
+      });
     },
 
     async remove(projectId) {

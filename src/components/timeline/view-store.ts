@@ -4,8 +4,10 @@
  * never pollutes undo history or autosave.
  */
 import { create } from "zustand";
+import { projectDuration } from "@shared/timeline";
+import { MAX_ZOOM, MIN_ZOOM, useEditor } from "@/stores/editor";
 import { CHUNK_PX } from "./constants";
-import { visibleWindow } from "./geometry";
+import { minZoomFor, visibleWindow } from "./geometry";
 
 /** Where a dragged clip or asset goes: an existing track, or a new one above/below all tracks. */
 export type TrackTarget = { trackId: string; newTrack?: undefined } | { trackId?: undefined; newTrack: "above" | "below" };
@@ -91,5 +93,19 @@ export function useVisibleWindow(): [number, number] {
   return [x0, x1];
 }
 
+/** Furthest the timeline can zoom out right now (depends on the edit's length and the view's width). */
+export function minZoom(): number {
+  return minZoomFor(projectDuration(useEditor.getState().project), useTimelineView.getState().viewWidth, MIN_ZOOM, MAX_ZOOM);
+}
+
+export function useMinZoom(): number {
+  const duration = useEditor((s) => projectDuration(s.project));
+  const viewWidth = useTimelineView((s) => s.viewWidth);
+  return minZoomFor(duration, viewWidth, MIN_ZOOM, MAX_ZOOM);
+}
+
 /** Timeline commands for code outside the timeline tree (keyboard shortcuts). Set while mounted. */
-export const timelineCommands: { zoomToFit: () => void } = { zoomToFit: () => {} };
+export const timelineCommands: { zoomToFit: () => void; zoomBy: (factor: number) => void } = {
+  zoomToFit: () => {},
+  zoomBy: () => {},
+};

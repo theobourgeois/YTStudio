@@ -4,10 +4,12 @@ import type { HealthResponse } from "../shared/types.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { listFonts } from "./fonts.ts";
+import { LibraryStore } from "./library.ts";
 import { MediaLibrary } from "./media.ts";
 import { migrateLegacyData } from "./migrate.ts";
 import { ProjectStore } from "./projects.ts";
 import { exportRoutes } from "./routes/exports.ts";
+import { libraryRoutes } from "./routes/library.ts";
 import { mediaRoutes } from "./routes/media.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { transcriptionRoutes } from "./routes/transcription.ts";
@@ -58,6 +60,9 @@ export async function createApp({ dataDir, clientDir, ytdlpPath, transcription: 
   const exports = new ExportManager(paths, library);
   const web = new WebMediaLibrary(paths, library, ytdlpPath);
   await web.load();
+  const libraryMedia = new MediaLibrary(paths, { dir: paths.libraryMedia, url: "/files/library" });
+  const shared = new LibraryStore(paths, libraryMedia, library, (id) => projects.has(id));
+  await shared.load();
   const transcription = await TranscriptionService.create(paths, library, transcriptionOptions);
 
   const app = express();
@@ -72,6 +77,7 @@ export async function createApp({ dataDir, clientDir, ytdlpPath, transcription: 
   app.use("/api/projects", projectRoutes(projects));
   app.use("/api/media", mediaRoutes(library, projects));
   app.use("/api/web", webRoutes(web, projects));
+  app.use("/api/library", libraryRoutes(shared));
   app.use("/api/exports", exportRoutes(exports));
   app.use("/api/transcription", transcriptionRoutes(transcription));
   app.get("/api/fonts", async (_req, res) => {
@@ -85,6 +91,7 @@ export async function createApp({ dataDir, clientDir, ytdlpPath, transcription: 
 
   const staticOptions = { index: false, dotfiles: "ignore", setHeaders: setFileHeaders } as const;
   app.use("/files/media", express.static(paths.media, staticOptions));
+  app.use("/files/library", express.static(paths.libraryMedia, staticOptions));
   app.use("/files/exports", express.static(paths.exports, staticOptions));
   app.use("/files", () => {
     throw new HttpError(404, "File not found");
@@ -110,6 +117,7 @@ export async function createApp({ dataDir, clientDir, ytdlpPath, transcription: 
     app,
     shutdown() {
       library.shutdown();
+      libraryMedia.shutdown();
       exports.shutdown();
       web.shutdown();
       transcription.shutdown();

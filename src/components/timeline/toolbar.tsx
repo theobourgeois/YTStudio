@@ -27,12 +27,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { cn } from "cn";
 import { useCaptions } from "@/stores/captions";
-import { MAX_ZOOM, MIN_ZOOM, useEditor } from "@/stores/editor";
+import { MAX_ZOOM, useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { TOOLBAR_HEIGHT } from "./constants";
 import { useTimelineContext } from "./context";
 import { sliderToZoom, zoomToSlider } from "./geometry";
-import { timelineCommands } from "./view-store";
+import { timelineCommands, useMinZoom } from "./view-store";
 import { ClipVolumeButton } from "./volume-control";
 
 const ZOOM_STEP = 1.5;
@@ -45,6 +45,7 @@ export function TimelineToolbar() {
   const gapSelected = useEditor((s) => s.selectedGap !== null);
   const snapping = useEditor((s) => s.snapping);
   const zoom = useEditor((s) => s.zoom);
+  const minZoom = useMinZoom();
   const hasSound = useEditor((s) => s.project.clips.some((c) => s.assets.find((a) => a.id === c.assetId)?.hasAudio));
 
   const editor = useEditor.getState;
@@ -78,7 +79,8 @@ export function TimelineToolbar() {
             aria-label="Snapping"
             pressed={snapping}
             onPressedChange={() => editor().toggleSnapping()}
-            className="size-8 min-w-8 text-muted-foreground data-[state=on]:bg-brand/15 data-[state=on]:text-brand hover:data-[state=on]:bg-brand/20 hover:data-[state=on]:text-brand"
+            // The tooltip trigger replaces the toggle's data-state with its own, so style off aria-pressed.
+            className="size-8 min-w-8 text-muted-foreground aria-pressed:bg-brand/15 aria-pressed:text-brand hover:aria-pressed:bg-brand/20 hover:aria-pressed:text-brand"
           >
             <PiMagnet />
           </Toggle>
@@ -134,7 +136,7 @@ export function TimelineToolbar() {
       </ToolButton>
 
       <div className="ml-auto flex items-center gap-1">
-        <ToolButton label="Zoom out" shortcut={SHORTCUT_KEYS.zoomOut} hint="or ⌘/Ctrl + scroll" disabled={zoom <= MIN_ZOOM} onClick={() => ctx.zoomTo(zoom / ZOOM_STEP)}>
+        <ToolButton label="Zoom out" shortcut={SHORTCUT_KEYS.zoomOut} hint="or ⌘/Ctrl + scroll" disabled={zoom <= minZoom} onClick={() => ctx.zoomTo(zoom / ZOOM_STEP)}>
           <PiMagnifyingGlassMinus />
         </ToolButton>
         <Slider
@@ -143,8 +145,8 @@ export function TimelineToolbar() {
           min={0}
           max={SLIDER_MAX}
           step={5}
-          value={[Math.round(zoomToSlider(zoom, MIN_ZOOM, MAX_ZOOM) * SLIDER_MAX)]}
-          onValueChange={([v]) => ctx.zoomTo(sliderToZoom(v / SLIDER_MAX, MIN_ZOOM, MAX_ZOOM))}
+          value={[Math.round(zoomToSlider(zoom, minZoom, MAX_ZOOM) * SLIDER_MAX)]}
+          onValueChange={([v]) => ctx.zoomTo(sliderToZoom(v / SLIDER_MAX, minZoom, MAX_ZOOM))}
         />
         <ToolButton label="Zoom in" shortcut={SHORTCUT_KEYS.zoomIn} hint="or ⌘/Ctrl + scroll" disabled={zoom >= MAX_ZOOM} onClick={() => ctx.zoomTo(zoom * ZOOM_STEP)}>
           <PiMagnifyingGlassPlus />

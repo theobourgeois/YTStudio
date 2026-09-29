@@ -8,6 +8,7 @@ import {
   PiArrowUp,
   PiArrowsIn,
   PiArrowsOut,
+  PiBooks,
   PiClipboard,
   PiCopy,
   PiCopySimple,
@@ -47,6 +48,7 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useSaveToLibrary } from "@/components/library/library-dialogs";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { useCaptions } from "@/stores/captions";
 import { useEditor } from "@/stores/editor";
@@ -210,6 +212,9 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
       <ContextMenuItem onSelect={() => editor().duplicateSelected()}>
         <PiCopySimple /> Duplicate{plural}
         <ContextMenuShortcut>{SHORTCUT_KEYS.duplicate}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => useSaveToLibrary.getState().open(editor().selectedClipIds)}>
+        <PiBooks /> Save{plural} to Library…
       </ContextMenuItem>
       <ContextMenuSeparator />
       {framed && (

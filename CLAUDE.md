@@ -41,10 +41,12 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   transform.ts       Where a clip lands on the canvas (fit → scale/rotate around the anchor).
   captions.ts        Auto captions: presets, words → caption cues (fitting the canvas), transcripts → timeline,
                      edits to every caption at once (style, animation, merge).
+  library.ts         The shared Library: folder tree, saved clips (ClipTemplate: normalize, placeTemplate), search.
   math.ts, format.ts, errors.ts   clamp/EPS/roundTime, time formatting, errorMessage.
 server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
   projects.ts, media.ts, web-media.ts, exports.ts   Services behind the routes.
+  library.ts         LibraryStore: library.json (folders, items) + its own MediaLibrary under data/library/media.
   render.ts          Project → one ffmpeg filter graph (pure, unit-tested); planTransitions.
   transition-render.ts + gl-browser.ts   Transitions drawn with the same shaders in headless Chromium.
   process.ts         run()/spawnStreaming(): the only way to start external programs (argv, never a shell).
@@ -57,6 +59,7 @@ src/
   stores/editor.ts   THE document store: project, assets, selection, undo history, gestures, edit commands.
   stores/autosave.ts, asset-polling.ts   Side effects of the editor store (kept out of it).
   stores/playback.ts The playback clock (rAF). layout.ts = panel/tool UI state. projects.ts = project list.
+  stores/library.ts  The Library (folders, items, their media) and how its tab is browsed.
   lib/api.ts         Typed client for every endpoint. lib/edit-gesture.ts, lib/pointer-drag.ts (see below).
   lib/text-render.ts Text layout + drawing (browser text engine); used by preview, export and canvas editor.
   components/preview/engine.ts   Imperative preview: drives <video>/<img>/<canvas> + WebGL outside React.
@@ -64,7 +67,8 @@ src/
   components/timeline/  Timeline UI; geometry.ts is its pure maths, view-store.ts its interaction-speed state.
   components/properties/  Spec-driven properties panel (param-rows.tsx renders any ParamSpec).
   components/captions/   Auto captions dialog, engine picker/setup, the Captions tab. State in stores/captions.ts.
-  components/workspace/left-panel.tsx   Left panel tabs: Media | Online | Transitions | Captions | Properties.
+  components/library/  The Library tab, its cards and dialogs (Save to Library), folder drop targets.
+  components/workspace/left-panel.tsx   Left panel tabs: Media | Library | Online | Transitions | Captions | Properties.
   components/ui/     shadcn/ui (generated; icons adapted to react-icons/pi).
 ```
 
@@ -94,6 +98,12 @@ extension** (Node ESM through tsx).
   `transitionIn`; animated captions end one frame before the next so each animates in from nothing.
 - Media (`MediaAsset`) belongs to one project. `kind` is video | audio | image. Filmstrip and waveform generation
   finish after import (`status: "processing"`).
+- The Library (`LibraryFolder`, `LibraryItem`) is shared by every project and has its own media (`projectId: null`,
+  a second `MediaLibrary` rooted at `data/library/media`, served at `/files/library`). An item is one file
+  (`kind: "media"`) or saved clips (`kind: "clips"`, a `ClipTemplate`: tracks + clips pointing at Library media).
+  Nothing ever references across: saving copies project media into the Library, and using an item
+  (`POST /api/library/items/:id/use`) copies its media into the project, reusing a copy already there
+  (`MediaAsset.origin`). Library media no item uses is deleted.
 
 ## Editing rules (src/stores/editor.ts)
 

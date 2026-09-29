@@ -1,6 +1,7 @@
 import { PiSpinnerGap } from "react-icons/pi";
 import { AutoCaptionsDialog } from "@/components/captions/auto-captions-dialog";
 import { Header, SidebarLead } from "@/components/header/header";
+import { SaveToLibraryDialog } from "@/components/library/library-dialogs";
 import { ThemeMenu } from "@/components/header/theme-menu";
 import { Preview } from "@/components/preview/preview";
 import { Timeline } from "@/components/timeline/timeline";
@@ -25,6 +26,7 @@ export function Workspace() {
           <Preview />
         </div>
         <Timeline />
+        <SaveToLibraryDialog />
         <AutoCaptionsDialog />
       </div>
     );

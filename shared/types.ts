@@ -24,8 +24,11 @@ export interface Filmstrip {
 
 export interface MediaAsset {
   id: string;
-  /** The project (video) this asset was imported into. Each project has its own media. */
-  projectId: string;
+  /**
+   * The project (video) this asset was imported into; each project has its own media.
+   * `null` for media in the shared Library (see `LibraryItem`).
+   */
+  projectId: string | null;
   /** Original file name, e.g. "clip.mp4". */
   name: string;
   kind: AssetKind;
@@ -51,6 +54,11 @@ export interface MediaAsset {
   filmstrip: Filmstrip | null;
   /** URL of a `WaveformData` JSON document (assets with audio, null until generated). */
   waveform: string | null;
+  /**
+   * The asset this one is a copy of: the Library media it came from, or the
+   * project media it was added to the Library from. Used to avoid copying twice.
+   */
+  origin?: string;
 }
 
 export interface WaveformData {
@@ -219,6 +227,112 @@ export interface CreateProjectRequest {
 export interface UpdateProjectRequest {
   name?: string;
   status?: ProjectStatus;
+}
+
+// ---------------------------------------------------------------------------
+// Library: media and saved clips shared by every project (see `shared/library.ts`).
+// Using an item copies its media into the project, so projects stay self-contained.
+// ---------------------------------------------------------------------------
+
+export interface LibraryFolder {
+  id: string;
+  name: string;
+  /** The folder it's in; null at the top level. */
+  parentId: string | null;
+  /** Epoch milliseconds. */
+  createdAt: number;
+}
+
+/** Clips saved from a timeline, laid out like a small project: tracks in display order, times from 0. */
+export interface ClipTemplate {
+  tracks: Track[];
+  /** `assetId`s are Library media ids ("" for text). */
+  clips: Clip[];
+}
+
+interface LibraryItemBase {
+  id: string;
+  name: string;
+  /** null at the top level. */
+  folderId: string | null;
+  /** Epoch milliseconds. */
+  createdAt: number;
+  /** Last time it was put in a project (epoch ms), null if never. */
+  usedAt: number | null;
+  favorite: boolean;
+}
+
+/** One file (a sound effect, a logo...). */
+export interface LibraryMediaItem extends LibraryItemBase {
+  kind: "media";
+  mediaId: string;
+}
+
+/** Clips with their settings (a placed logo, a styled title, an intro with its transition...). */
+export interface LibraryClipsItem extends LibraryItemBase {
+  kind: "clips";
+  template: ClipTemplate;
+}
+
+export type LibraryItem = LibraryMediaItem | LibraryClipsItem;
+
+export interface Library {
+  folders: LibraryFolder[];
+  items: LibraryItem[];
+  /** Every file the items use. */
+  media: MediaAsset[];
+}
+
+/** A new item and the Library media it uses. */
+export interface LibraryEntry {
+  item: LibraryItem;
+  media: MediaAsset[];
+}
+
+export interface CreateLibraryFolderRequest {
+  name: string;
+  parentId?: string | null;
+}
+
+export interface UpdateLibraryFolderRequest {
+  name?: string;
+  parentId?: string | null;
+}
+
+export interface UpdateLibraryItemRequest {
+  name?: string;
+  folderId?: string | null;
+  favorite?: boolean;
+}
+
+/** Add a project's media file to the Library. */
+export interface SaveMediaToLibraryRequest {
+  assetId: string;
+  folderId?: string | null;
+  name?: string;
+}
+
+/** Save timeline clips (with their effects and transitions) to the Library. */
+export interface SaveClipsToLibraryRequest {
+  projectId: string;
+  name: string;
+  folderId?: string | null;
+  /** The tracks the clips are on, in display order. */
+  tracks: Track[];
+  clips: Clip[];
+}
+
+export interface UseLibraryItemRequest {
+  projectId: string;
+}
+
+export interface UseLibraryItemResponse {
+  /** The item's media, copied into the project (or copies already there). */
+  assets: MediaAsset[];
+  /** For saved clips: the template with its `assetId`s pointing at `assets`. */
+  template: ClipTemplate | null;
+  /** The item with its `usedAt` updated. */
+  item: LibraryItem;
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +522,8 @@ export interface TranscriptionJob {
 //   PUT    /api/projects/:id  body: Project -> ProjectSummary (bumps updatedAt)
 //   PATCH  /api/projects/:id  body: UpdateProjectRequest -> ProjectSummary
 //                                        (rename; settle/unsettle sets/clears settledAt)
+//   POST   /api/projects/:id/duplicate  -> ProjectSummary (201): a copy with its own copy of the media,
+//                                        named "<name> copy", status active
 //   DELETE /api/projects/:id            -> 204 (also deletes the project's media)
 //
 //   GET    /api/media?projectId=<id>    -> MediaAsset[]   (that project's media, newest first)
@@ -419,6 +535,17 @@ export interface TranscriptionJob {
 //   GET    /api/web/resolve?url=<link>  -> WebClip  (400 for unsupported links, playlists, livestreams)
 //   GET    /api/web/audio?url=<link>    -> audio file (downloaded on first request, then cached)
 //   POST   /api/web/import  body: ImportWebMediaRequest -> MediaAsset (201)
+//   GET    /api/library                 -> Library (every folder, item and the media they use)
+//   POST   /api/library/folders  body: CreateLibraryFolderRequest -> LibraryFolder (201)
+//   PATCH  /api/library/folders/:id  body: UpdateLibraryFolderRequest -> LibraryFolder (rename/move)
+//   DELETE /api/library/folders/:id     -> 204 (with everything in it)
+//   POST   /api/library/items?folderId=<id>&name=<file name>  body: raw file bytes -> LibraryEntry (201)
+//   POST   /api/library/items/media  body: SaveMediaToLibraryRequest -> LibraryEntry (201)
+//   POST   /api/library/items/clips  body: SaveClipsToLibraryRequest -> LibraryEntry (201)
+//   PATCH  /api/library/items/:id  body: UpdateLibraryItemRequest -> LibraryItem
+//   DELETE /api/library/items/:id       -> 204 (projects keep their copies)
+//   POST   /api/library/items/:id/use  body: UseLibraryItemRequest -> UseLibraryItemResponse
+//   GET    /api/library/media/:id       -> MediaAsset (a Library file)
 //   GET    /api/fonts                   -> FontFamily[] installed on this computer (A to Z)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/:id             -> ExportJob

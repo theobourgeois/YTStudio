@@ -236,7 +236,7 @@ export class TranscriptionService {
       .update(JSON.stringify([CACHE_VERSION, engine.model, language, roundTime(range.in), roundTime(range.out)]))
       .digest("hex")
       .slice(0, 20);
-    const dir = this.paths.transcriptsDir(range.asset.id);
+    const dir = this.library.transcriptsDir(range.asset.id);
     const cacheFile = path.join(dir, `${key}.json`);
     const cached = await readJson<Transcript>(cacheFile);
     if (cached && Array.isArray(cached.words)) return cached;
