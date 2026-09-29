@@ -57,16 +57,19 @@ export function useLibraryDrop(folderId: string | null) {
       e.preventDefault();
       const library = useLibrary.getState();
       if (kind === "assets") {
-        for (const assetId of getAssetDragData(e.dataTransfer)?.assetIds ?? []) void library.addAsset(assetId, folderId);
+        const assetIds = getAssetDragData(e.dataTransfer)?.assetIds ?? [];
+        if (assetIds.length) void library.addAssets(assetIds, folderId);
         return;
       }
-      const id = getLibraryDragData(e.dataTransfer);
-      if (!id) return;
-      if (library.folders.some((f) => f.id === id)) {
-        if (canMoveFolder(library.folders, id, folderId)) void library.moveFolder(id, folderId);
-      } else if (library.items.find((i) => i.id === id)?.folderId !== folderId) {
-        void library.updateItem(id, { folderId });
+      const ids = getLibraryDragData(e.dataTransfer);
+      const folder = ids.length === 1 ? library.folders.find((f) => f.id === ids[0]) : undefined;
+      if (folder) {
+        if (canMoveFolder(library.folders, folder.id, folderId)) void library.moveFolder(folder.id, folderId);
+        return;
       }
+      const moving = new Set(ids);
+      const items = library.items.filter((i) => moving.has(i.id) && i.folderId !== folderId).map((i) => i.id);
+      if (items.length) void library.updateItems(items, { folderId });
     },
   };
 

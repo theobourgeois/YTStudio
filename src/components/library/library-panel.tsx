@@ -37,6 +37,7 @@ import { cn } from "cn";
 import { type LibraryFilter, type LibraryView, useLibrary, viewFolder } from "@/stores/library";
 import { ConfirmDeleteDialog, NameDialog } from "./library-dialogs";
 import { FolderMenuItems } from "./folder-menu-items";
+import { useGridSelection } from "@/components/media/use-grid-selection";
 import { LibraryCard } from "./library-card";
 import { folderItemCounts, libraryContents } from "./library-utils";
 import { useLibraryDrop } from "./use-library-drop";
@@ -54,7 +55,7 @@ type Dialog =
   | { kind: "rename-folder"; folder: LibraryFolder }
   | { kind: "delete-folder"; folder: LibraryFolder; count: number }
   | { kind: "rename-item"; item: LibraryItem }
-  | { kind: "delete-item"; item: LibraryItem };
+  | { kind: "delete-items"; items: LibraryItem[] };
 
 export function LibraryPanel() {
   const library = useLibrary(
@@ -84,6 +85,9 @@ export function LibraryPanel() {
     [folders, items, assets, view, query, filter],
   );
   const counts = useMemo(() => folderItemCounts(folders, items), [folders, items]);
+  const order = useMemo(() => contents.items.map((i) => i.id), [contents.items]);
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const itemsOf = (ids: string[]) => ids.flatMap((id) => byId.get(id) ?? []);
   const searching = query.trim() !== "";
   const current = viewFolder(view);
   const uploads = searching ? [] : library.uploads.filter((u) => view.kind === "folder" && u.folderId === current);
@@ -96,6 +100,12 @@ export function LibraryPanel() {
   const openPicker = () => inputRef.current?.click();
   const newFolder = () => open({ kind: "new-folder", parentId: current });
   const location = (item: LibraryItem) => folderPath(folders, item.folderId).map((f) => f.name).join(" / ") || "Library";
+  const grid = useGridSelection(order, {
+    onDelete: (ids) => open({ kind: "delete-items", items: itemsOf(ids) }),
+  });
+  /** The folder the items are in, if it's the same one. */
+  const commonFolder = (targets: LibraryItem[]) =>
+    targets.every((i) => i.folderId === targets[0]?.folderId) ? targets[0]?.folderId : undefined;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -182,58 +192,78 @@ export function LibraryPanel() {
 
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              {/* Radix wraps content in a `display: table` div, which defeats `truncate`. */}
-              <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
-                <div className="flex flex-col px-2 pb-2">
-                  {!searching && view.kind === "folder" && view.folderId === null && <SmartRows />}
-                  {contents.folders.map((folder) => (
-                    <FolderRow
-                      key={folder.id}
-                      folder={folder}
-                      count={counts.get(folder.id) ?? 0}
-                      location={searching ? folderPath(folders, folder.parentId).map((f) => f.name).join(" / ") : undefined}
-                      onNewFolder={() => open({ kind: "new-folder", parentId: folder.id })}
-                      onRename={() => open({ kind: "rename-folder", folder })}
-                      onDelete={() => {
-                        const count = counts.get(folder.id) ?? 0;
-                        const empty = count === 0 && !folders.some((f) => f.parentId === folder.id);
-                        if (empty) void useLibrary.getState().deleteFolder(folder.id);
-                        else open({ kind: "delete-folder", folder, count });
-                      }}
-                    />
-                  ))}
-                </div>
-                {(uploads.length > 0 || contents.items.length > 0) && (
-                  <div className="grid grid-cols-2 gap-x-1 gap-y-1.5 px-2 pb-2">
-                    {uploads.map((u) => (
-                      <UploadCard key={u.id} upload={u} />
-                    ))}
-                    {contents.items.map((item) => (
-                      <LibraryCard
-                        key={item.id}
-                        item={item}
-                        media={media}
-                        location={searching || view.kind !== "folder" ? location(item) : undefined}
-                        onRename={() => open({ kind: "rename-item", item })}
-                        onDelete={() => open({ kind: "delete-item", item })}
-                      />
-                    ))}
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden" {...grid.containerProps}>
+                {/* Radix wraps content in a `display: table` div, which defeats `truncate`. */}
+                <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
+                  <div ref={grid.contentRef} tabIndex={-1} className="outline-none select-none">
+                    <div className="flex flex-col px-2 pb-2">
+                      {!searching && view.kind === "folder" && view.folderId === null && <SmartRows />}
+                      {contents.folders.map((folder) => (
+                        <FolderRow
+                          key={folder.id}
+                          folder={folder}
+                          count={counts.get(folder.id) ?? 0}
+                          location={searching ? folderPath(folders, folder.parentId).map((f) => f.name).join(" / ") : undefined}
+                          onNewFolder={() => open({ kind: "new-folder", parentId: folder.id })}
+                          onRename={() => open({ kind: "rename-folder", folder })}
+                          onDelete={() => {
+                            const count = counts.get(folder.id) ?? 0;
+                            const empty = count === 0 && !folders.some((f) => f.parentId === folder.id);
+                            if (empty) void useLibrary.getState().deleteFolder(folder.id);
+                            else open({ kind: "delete-folder", folder, count });
+                          }}
+                        />
+                      ))}
+                    </div>
+                    {(uploads.length > 0 || contents.items.length > 0) && (
+                      <div className="grid grid-cols-2 gap-x-1 gap-y-1.5 px-2 pb-2">
+                        {uploads.map((u) => (
+                          <UploadCard key={u.id} upload={u} />
+                        ))}
+                        {contents.items.map((item) => {
+                          const targets = () => grid.targets(item.id);
+                          const targetItems = itemsOf(targets());
+                          return (
+                            <LibraryCard
+                              key={item.id}
+                              item={item}
+                              media={media}
+                              location={searching || view.kind !== "folder" ? location(item) : undefined}
+                              selected={grid.isSelected(item.id)}
+                              count={targetItems.length}
+                              folderId={commonFolder(targetItems)}
+                              onClick={(e) => grid.click(e, item.id)}
+                              onGrab={() => grid.grab(item.id)}
+                              onAdd={() => void useLibrary.getState().addToTimeline(targets())}
+                              onSetFavorite={(favorite) => void useLibrary.getState().updateItems(targets(), { favorite })}
+                              onMove={(folderId) => {
+                                const moving = itemsOf(targets()).filter((i) => i.folderId !== folderId);
+                                void useLibrary.getState().updateItems(moving.map((i) => i.id), { folderId });
+                              }}
+                              onRename={() => open({ kind: "rename-item", item })}
+                              onDelete={() => open({ kind: "delete-items", items: itemsOf(targets()) })}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                    {contents.items.length === 0 && contents.folders.length === 0 && uploads.length === 0 && library.loaded && (
+                      <p className="px-6 py-8 text-center text-xs leading-relaxed text-muted-foreground">
+                        {searching
+                          ? `Nothing matches “${query.trim()}”.`
+                          : filter !== "all"
+                            ? `No ${filter === "clips" ? "saved clips" : filter === "image" ? "images" : `${filter} files`} here.`
+                            : view.kind === "favorites"
+                              ? "Star items to find them here."
+                              : view.kind === "recent"
+                                ? "Items you add to a video show up here."
+                                : "This folder is empty. Drop files or folders here, or drag items into it."}
+                      </p>
+                    )}
                   </div>
-                )}
-                {contents.items.length === 0 && contents.folders.length === 0 && uploads.length === 0 && library.loaded && (
-                  <p className="px-6 py-8 text-center text-xs leading-relaxed text-muted-foreground">
-                    {searching
-                      ? `Nothing matches “${query.trim()}”.`
-                      : filter !== "all"
-                        ? `No ${filter === "clips" ? "saved clips" : filter === "image" ? "images" : `${filter} files`} here.`
-                        : view.kind === "favorites"
-                          ? "Star items to find them here."
-                          : view.kind === "recent"
-                            ? "Items you add to a video show up here."
-                            : "This folder is empty. Drop files or folders here, or drag items into it."}
-                  </p>
-                )}
-              </ScrollArea>
+                </ScrollArea>
+                {grid.marquee}
+              </div>
             </ContextMenuTrigger>
             {/* Right-clicking empty space (cards and folders have their own menus). */}
             <ContextMenuContent className="w-48">
@@ -266,24 +296,28 @@ export function LibraryPanel() {
         }}
       />
       <ConfirmDeleteDialog
-        open={dialogOpen && (dialog?.kind === "delete-folder" || dialog?.kind === "delete-item")}
+        open={dialogOpen && (dialog?.kind === "delete-folder" || dialog?.kind === "delete-items")}
         onOpenChange={setDialogOpen}
         title={
           dialog?.kind === "delete-folder"
             ? `Delete “${dialog.folder.name}”?`
-            : dialog?.kind === "delete-item"
-              ? `Delete “${dialog.item.name}”?`
+            : dialog?.kind === "delete-items"
+              ? dialog.items.length === 1
+                ? `Delete “${dialog.items[0].name}”?`
+                : `Delete ${dialog.items.length} items?`
               : ""
         }
         description={
           dialog?.kind === "delete-folder"
             ? `Its subfolders and ${dialog.count} item${dialog.count === 1 ? "" : "s"} will be deleted from the Library. Videos that use them keep their own copies.`
-            : "It will be deleted from the Library. Videos that use it keep their own copy."
+            : dialog?.kind === "delete-items" && dialog.items.length > 1
+              ? "They will be deleted from the Library. Videos that use them keep their own copies."
+              : "It will be deleted from the Library. Videos that use it keep their own copy."
         }
         onConfirm={() => {
           const lib = useLibrary.getState();
           if (dialog?.kind === "delete-folder") void lib.deleteFolder(dialog.folder.id);
-          else if (dialog?.kind === "delete-item") void lib.deleteItem(dialog.item.id);
+          else if (dialog?.kind === "delete-items") void lib.deleteItems(dialog.items.map((i) => i.id));
         }}
       />
     </div>
@@ -412,7 +446,7 @@ function FolderRow({ folder, count, location, onNewFolder, onRename, onDelete }:
           tabIndex={0}
           draggable
           {...drop.handlers}
-          onDragStart={(e: DragEvent) => setLibraryDragData(e.dataTransfer, folder.id)}
+          onDragStart={(e: DragEvent) => setLibraryDragData(e.dataTransfer, [folder.id])}
           onClick={openFolder}
           onKeyDown={(e) => {
             if (e.key === "Enter" && e.target === e.currentTarget) openFolder();
