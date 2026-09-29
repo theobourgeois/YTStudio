@@ -17,6 +17,7 @@ import { getClip } from "@shared/timeline";
 import { storedTransition } from "@shared/transition-windows";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { TagChip } from "@/components/ui/tag-chip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setTransitionDragData } from "@/lib/dnd";
 import { cn } from "cn";
@@ -103,25 +104,6 @@ export function TransitionsPanel() {
         nearest the playhead.
       </p>
     </div>
-  );
-}
-
-function TagChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={onClick}
-      className={cn(
-        "h-6 rounded-full border px-2.5 text-xs transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-        active
-          ? "border-transparent bg-foreground text-background"
-          : "text-muted-foreground hover:border-foreground/25 hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
