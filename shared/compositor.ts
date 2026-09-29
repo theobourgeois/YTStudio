@@ -504,6 +504,14 @@ void main() {
       gl.uniform1f(loc("progress"), Math.min(1, Math.max(0, progress)));
       gl.uniform1f(loc("ratio"), width / height);
       gl.uniform2f(loc("resolution"), width, height);
+      // The middle of each side's frame, in uv (y up); the canvas centre for an empty side.
+      const centre = (side: Placed | null): [number, number] => {
+        if (!side) return [0.5, 0.5];
+        const [a, b, c, d, e, f] = side.affine;
+        return [(a + c) / 2 + e, 1 - ((b + d) / 2 + f)];
+      };
+      gl.uniform2f(loc("fromCentre"), ...centre(from));
+      gl.uniform2f(loc("toCentre"), ...centre(to));
       for (const u of uniforms) {
         const l = loc(u.name);
         if (!l) continue;

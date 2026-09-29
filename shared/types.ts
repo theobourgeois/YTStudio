@@ -24,8 +24,11 @@ export interface Filmstrip {
 
 export interface MediaAsset {
   id: string;
-  /** The project (video) this asset was imported into. Each project has its own media. */
-  projectId: string;
+  /**
+   * The project (video) this asset was imported into; each project has its own media.
+   * `null` for media in the shared Library (see `LibraryItem`).
+   */
+  projectId: string | null;
   /** Original file name, e.g. "clip.mp4". */
   name: string;
   kind: AssetKind;
@@ -51,6 +54,11 @@ export interface MediaAsset {
   filmstrip: Filmstrip | null;
   /** URL of a `WaveformData` JSON document (assets with audio, null until generated). */
   waveform: string | null;
+  /**
+   * The asset this one is a copy of: the Library media it came from, or the
+   * project media it was added to the Library from. Used to avoid copying twice.
+   */
+  origin?: string;
 }
 
 export interface WaveformData {
@@ -103,6 +111,11 @@ export interface Clip {
   transitionIn?: Transition;
   /** Transition at the clip's end: into the clip right after it, otherwise into nothing. */
   transitionOut?: Transition;
+  /**
+   * A text clip made by Auto captions. The Captions tab edits the style of
+   * every caption at once (see `shared/captions.ts`).
+   */
+  caption?: true;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +235,112 @@ export interface UpdateProjectRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Library: media and saved clips shared by every project (see `shared/library.ts`).
+// Using an item copies its media into the project, so projects stay self-contained.
+// ---------------------------------------------------------------------------
+
+export interface LibraryFolder {
+  id: string;
+  name: string;
+  /** The folder it's in; null at the top level. */
+  parentId: string | null;
+  /** Epoch milliseconds. */
+  createdAt: number;
+}
+
+/** Clips saved from a timeline, laid out like a small project: tracks in display order, times from 0. */
+export interface ClipTemplate {
+  tracks: Track[];
+  /** `assetId`s are Library media ids ("" for text). */
+  clips: Clip[];
+}
+
+interface LibraryItemBase {
+  id: string;
+  name: string;
+  /** null at the top level. */
+  folderId: string | null;
+  /** Epoch milliseconds. */
+  createdAt: number;
+  /** Last time it was put in a project (epoch ms), null if never. */
+  usedAt: number | null;
+  favorite: boolean;
+}
+
+/** One file (a sound effect, a logo...). */
+export interface LibraryMediaItem extends LibraryItemBase {
+  kind: "media";
+  mediaId: string;
+}
+
+/** Clips with their settings (a placed logo, a styled title, an intro with its transition...). */
+export interface LibraryClipsItem extends LibraryItemBase {
+  kind: "clips";
+  template: ClipTemplate;
+}
+
+export type LibraryItem = LibraryMediaItem | LibraryClipsItem;
+
+export interface Library {
+  folders: LibraryFolder[];
+  items: LibraryItem[];
+  /** Every file the items use. */
+  media: MediaAsset[];
+}
+
+/** A new item and the Library media it uses. */
+export interface LibraryEntry {
+  item: LibraryItem;
+  media: MediaAsset[];
+}
+
+export interface CreateLibraryFolderRequest {
+  name: string;
+  parentId?: string | null;
+}
+
+export interface UpdateLibraryFolderRequest {
+  name?: string;
+  parentId?: string | null;
+}
+
+export interface UpdateLibraryItemRequest {
+  name?: string;
+  folderId?: string | null;
+  favorite?: boolean;
+}
+
+/** Add a project's media file to the Library. */
+export interface SaveMediaToLibraryRequest {
+  assetId: string;
+  folderId?: string | null;
+  name?: string;
+}
+
+/** Save timeline clips (with their effects and transitions) to the Library. */
+export interface SaveClipsToLibraryRequest {
+  projectId: string;
+  name: string;
+  folderId?: string | null;
+  /** The tracks the clips are on, in display order. */
+  tracks: Track[];
+  clips: Clip[];
+}
+
+export interface UseLibraryItemRequest {
+  projectId: string;
+}
+
+export interface UseLibraryItemResponse {
+  /** The item's media, copied into the project (or copies already there). */
+  assets: MediaAsset[];
+  /** For saved clips: the template with its `assetId`s pointing at `assets`. */
+  template: ClipTemplate | null;
+  /** The item with its `usedAt` updated. */
+  item: LibraryItem;
+}
+
+// ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
 
@@ -323,6 +442,84 @@ export interface FontFamily {
 }
 
 // ---------------------------------------------------------------------------
+// Transcription (Auto captions): speech to timed words, on this computer or
+// with a cloud API. See `server/transcription/`.
+// ---------------------------------------------------------------------------
+
+export type TranscriptionEngineId = "local" | "openai" | "groq";
+
+export interface TranscriptionEngineInfo {
+  id: TranscriptionEngineId;
+  label: string;
+  /** One line on what it is (model, cost, privacy). */
+  description: string;
+  kind: "local" | "cloud";
+  /** `missing`: needs setting up (installing, or an API key). `installing`: being set up now. */
+  status: "ready" | "missing" | "installing" | "error";
+  /** What's missing, what setup is doing, or what went wrong. */
+  message: string | null;
+  /** Setup progress 0..1, null when it can't be told. */
+  progress: number | null;
+  /** The app can set it up by itself (local: Homebrew is installed). */
+  canSetUp: boolean;
+  /** Cloud: the API key comes from an environment variable. */
+  keyFromEnv?: boolean;
+  /** Cloud: an API key is saved in the app's settings (it can be removed). */
+  hasSavedKey?: boolean;
+  /** Cloud: where to get an API key. */
+  keyUrl?: string;
+}
+
+export interface SetUpEngineRequest {
+  /** Cloud engines: the API key to check and save. */
+  apiKey?: string;
+}
+
+/** A stretch of a media file to transcribe (source time). */
+export interface TranscriptionSource {
+  assetId: string;
+  in: number;
+  out: number;
+}
+
+export interface TranscribeRequest {
+  engine: TranscriptionEngineId;
+  /** "auto" to detect it, or an ISO 639-1 code ("en", "fr"...). */
+  language: string;
+  sources: TranscriptionSource[];
+}
+
+export interface TranscriptWord {
+  /** As spoken, with its leading space (none inside words, or in languages written without spaces). */
+  text: string;
+  /** Source time, seconds. */
+  start: number;
+  end: number;
+}
+
+/** The words spoken in one stretch of a media file. */
+export interface Transcript {
+  assetId: string;
+  in: number;
+  out: number;
+  /** Detected (or requested) language code, when known. */
+  language: string | null;
+  words: TranscriptWord[];
+}
+
+export type TranscriptionStatus = "queued" | "running" | "done" | "error" | "cancelled";
+
+export interface TranscriptionJob {
+  id: string;
+  status: TranscriptionStatus;
+  /** 0..1 */
+  progress: number;
+  error?: string;
+  /** Once done: one per stretch transcribed (overlapping sources of one file are merged). */
+  transcripts: Transcript[] | null;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP API (all JSON unless noted; errors are `ApiError` with a 4xx/5xx status)
 //
 //   GET    /api/health                  -> HealthResponse
@@ -333,6 +530,8 @@ export interface FontFamily {
 //   PUT    /api/projects/:id  body: Project -> ProjectSummary (bumps updatedAt)
 //   PATCH  /api/projects/:id  body: UpdateProjectRequest -> ProjectSummary
 //                                        (rename; settle/unsettle sets/clears settledAt)
+//   POST   /api/projects/:id/duplicate  -> ProjectSummary (201): a copy with its own copy of the media,
+//                                        named "<name> copy", status active
 //   DELETE /api/projects/:id            -> 204 (also deletes the project's media)
 //
 //   GET    /api/media?projectId=<id>    -> MediaAsset[]   (that project's media, newest first)
@@ -344,11 +543,29 @@ export interface FontFamily {
 //   GET    /api/web/resolve?url=<link>  -> WebClip  (400 for unsupported links, playlists, livestreams)
 //   GET    /api/web/audio?url=<link>    -> audio file (downloaded on first request, then cached)
 //   POST   /api/web/import  body: ImportWebMediaRequest -> MediaAsset (201)
+//   GET    /api/library                 -> Library (every folder, item and the media they use)
+//   POST   /api/library/folders  body: CreateLibraryFolderRequest -> LibraryFolder (201)
+//   PATCH  /api/library/folders/:id  body: UpdateLibraryFolderRequest -> LibraryFolder (rename/move)
+//   DELETE /api/library/folders/:id     -> 204 (with everything in it)
+//   POST   /api/library/items?folderId=<id>&name=<file name>  body: raw file bytes -> LibraryEntry (201)
+//   POST   /api/library/items/media  body: SaveMediaToLibraryRequest -> LibraryEntry (201)
+//   POST   /api/library/items/clips  body: SaveClipsToLibraryRequest -> LibraryEntry (201)
+//   PATCH  /api/library/items/:id  body: UpdateLibraryItemRequest -> LibraryItem
+//   DELETE /api/library/items/:id       -> 204 (projects keep their copies)
+//   POST   /api/library/items/:id/use  body: UseLibraryItemRequest -> UseLibraryItemResponse
+//   GET    /api/library/media/:id       -> MediaAsset (a Library file)
 //   GET    /api/fonts                   -> FontFamily[] installed on this computer (A to Z)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/:id             -> ExportJob
 //   DELETE /api/exports/:id             -> 204 (cancels if running)
 //   GET    /api/exports/:id/download    -> file (attachment)
+//   GET    /api/transcription/engines   -> TranscriptionEngineInfo[]
+//   POST   /api/transcription/engines/:id/setup  body: SetUpEngineRequest -> TranscriptionEngineInfo
+//                                        (local: starts installing, poll the list; cloud: checks + saves the key)
+//   DELETE /api/transcription/engines/:id/setup  -> TranscriptionEngineInfo (forgets a saved API key)
+//   POST   /api/transcription/jobs  body: TranscribeRequest -> TranscriptionJob (202)
+//   GET    /api/transcription/jobs/:id  -> TranscriptionJob
+//   DELETE /api/transcription/jobs/:id  -> 204 (cancels if running)
 //   GET    /files/...                   -> static files from the data dir (range requests)
 // ---------------------------------------------------------------------------
 

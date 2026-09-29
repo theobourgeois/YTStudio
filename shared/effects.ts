@@ -130,6 +130,18 @@ export const TEXT: EffectDefinition = {
     { kind: "font", key: "font", label: "Font", default: "Helvetica Neue" },
     { kind: "fontStyle", key: "fontStyle", label: "Style", default: "Bold", familyKey: "font" },
     { kind: "number", key: "size", label: "Size", default: 120, min: 1, max: 2000, ...PIXELS },
+    // Drawn in capitals (or small letters) whatever was typed, so it can be switched back.
+    {
+      kind: "choice",
+      key: "textCase",
+      label: "Case",
+      default: "none",
+      options: [
+        { value: "none", label: "Aa" },
+        { value: "upper", label: "AA" },
+        { value: "lower", label: "aa" },
+      ],
+    },
     {
       kind: "choice",
       key: "align",
@@ -329,6 +341,7 @@ export interface TextStyle {
   fontStyle: string;
   /** Font size in reference px (the canvas at 1080p). */
   size: number;
+  textCase: TextCase;
   align: "left" | "center" | "right";
   /** Thousandths of an em. */
   tracking: number;
@@ -346,6 +359,14 @@ export interface TextStyle {
   shadowColor: string;
   shadowDistance: number;
   shadowBlur: number;
+}
+
+/** How a text's letters are cased when drawn. */
+export type TextCase = "none" | "upper" | "lower";
+
+/** The text as drawn in a case. */
+export function applyTextCase(text: string, textCase: TextCase): string {
+  return textCase === "upper" ? text.toLocaleUpperCase() : textCase === "lower" ? text.toLocaleLowerCase() : text;
 }
 
 /** A text clip's text and look at source time `time`. */

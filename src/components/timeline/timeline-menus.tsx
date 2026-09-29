@@ -8,6 +8,7 @@ import {
   PiArrowUp,
   PiArrowsIn,
   PiArrowsOut,
+  PiBooks,
   PiClipboard,
   PiCopy,
   PiCopySimple,
@@ -18,6 +19,7 @@ import {
   PiSlidersHorizontal,
   PiSpeakerHigh,
   PiSpeakerSlash,
+  PiSubtitles,
   PiTrash,
   PiArrowLineLeft,
 } from "react-icons/pi";
@@ -46,7 +48,9 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useSaveToLibrary } from "@/components/library/library-dialogs";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
+import { useCaptions } from "@/stores/captions";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
@@ -157,6 +161,12 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
     return clipsAtTime(s.project, t).some((c) => s.selectedClipIds.includes(c.id));
   });
   const plural = count > 1 ? ` ${count} clips` : "";
+  const hasSound = useEditor((s) =>
+    s.selectedClipIds.some((id) => {
+      const clip = getClip(s.project, id);
+      return !!clip && !clip.caption && !!s.assets.find((a) => a.id === clip.assetId)?.hasAudio;
+    }),
+  );
 
   const setFit = (value: string) => {
     const s = editor();
@@ -173,6 +183,11 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
       <ContextMenuItem onSelect={() => useLayout.getState().setLeftPanel("properties")}>
         <PiSlidersHorizontal /> Properties
       </ContextMenuItem>
+      {hasSound && (
+        <ContextMenuItem onSelect={() => useCaptions.getState().openDialog(editor().selectedClipIds)}>
+          <PiSubtitles /> Auto captions…
+        </ContextMenuItem>
+      )}
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => editor().splitAt([target.clipId], target.time)}>
         <PiScissors /> Split here
@@ -197,6 +212,9 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
       <ContextMenuItem onSelect={() => editor().duplicateSelected()}>
         <PiCopySimple /> Duplicate{plural}
         <ContextMenuShortcut>{SHORTCUT_KEYS.duplicate}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => useSaveToLibrary.getState().open(editor().selectedClipIds)}>
+        <PiBooks /> Save{plural} to Library…
       </ContextMenuItem>
       <ContextMenuSeparator />
       {framed && (

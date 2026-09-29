@@ -10,6 +10,23 @@ import { directionParam } from "./common.ts";
 
 export const SLIDES: TransitionDefinition[] = [
   {
+    type: "rise",
+    label: "Rise",
+    tags: ["slide", "dissolve"],
+    duration: 0.25,
+    params: [
+      { kind: "number", key: "travel", label: "Distance", default: 0.04, min: 0, max: 0.5, scale: 100, unit: "%", step: 0.5, decimals: 1 },
+    ],
+    glsl: `
+// B rises a short way into place as it fades in (good for titles and captions); A fades away.
+vec4 transition(vec2 uv) {
+  float t = easeOut(progress);
+  vec4 b = getToColor(uv + vec2(0.0, travel * (1.0 - t))) * smoothstep(0.0, 0.6, progress);
+  vec4 a = getFromColor(uv) * (1.0 - smoothstep(0.0, 0.4, progress));
+  return b + a * (1.0 - b.a);
+}`,
+  },
+  {
     type: "push",
     label: "Push",
     tags: ["slide"],

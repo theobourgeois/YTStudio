@@ -13,27 +13,30 @@ export interface SourceController {
 }
 
 /**
- * Previewing a library asset on its own: while `assetId` is set, the preview
+ * Previewing a media file on its own: while `assetId` is set, the preview
  * area shows that file instead of the timeline, and the playback shortcuts
  * drive it (through `controller`) instead of the timeline clock.
  */
 interface SourcePreviewState {
+  /** The open project's media, or a Library file (then `libraryItemId` is the item shown). */
   assetId: string | null;
+  libraryItemId: string | null;
   controller: SourceController | null;
-  open: (assetId: string) => void;
+  open: (assetId: string, libraryItemId?: string) => void;
   close: () => void;
   setController: (controller: SourceController | null) => void;
 }
 
 export const useSourcePreview = create<SourcePreviewState>((set) => ({
   assetId: null,
+  libraryItemId: null,
   controller: null,
-  open(assetId) {
+  open(assetId, libraryItemId) {
     usePlayback.getState().pause();
-    set({ assetId });
+    set({ assetId, libraryItemId: libraryItemId ?? null });
   },
   close() {
-    set({ assetId: null, controller: null });
+    set({ assetId: null, libraryItemId: null, controller: null });
   },
   setController(controller) {
     set({ controller });

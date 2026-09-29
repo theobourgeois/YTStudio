@@ -43,19 +43,27 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   scene.ts           What each video track shows at time t (clip + source time, or transition + sides).
   transition-gl.ts   Transition shader prelude, fragmentSource, uniforms.
   transform.ts       Where a clip lands on the canvas (fit → scale/rotate around the anchor).
+  captions.ts        Auto captions: presets, words → caption cues (fitting the canvas), transcripts → timeline,
+                     edits to every caption at once (style, animation, merge).
+  library.ts         The shared Library: folder tree, saved clips (ClipTemplate: normalize, placeTemplate), search.
   math.ts, format.ts, errors.ts   clamp/EPS/roundTime, time formatting, errorMessage.
 server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
   projects.ts, media.ts, web-media.ts, exports.ts   Services behind the routes.
+  library.ts         LibraryStore: library.json (folders, items) + its own MediaLibrary under data/library/media.
   render.ts          Export plan (pure, unit-tested): planRender (decoders + per-frame layers), audioArgs, encoderArgs.
   frame-render.ts + gl-browser.ts   Runs the plan: decoders -> headless Chromium compositor -> encoder.
   process.ts         run()/spawnStreaming(): the only way to start external programs (argv, never a shell).
+  transcription/     Speech to timed words for Auto captions. service.ts (jobs, cache, time mapping), audio.ts
+                     (decode, squeeze out silences, snap words to the sound), engine.ts (the engine interface),
+                     whisper-cpp.ts (local, one-click setup), openai.ts (OpenAI + Groq), fake.ts (e2e).
   config.ts          Every env var is read here and nowhere else.
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
 src/
   stores/editor.ts   THE document store: project, assets, selection, undo history, gestures, edit commands.
   stores/autosave.ts, asset-polling.ts   Side effects of the editor store (kept out of it).
   stores/playback.ts The playback clock (rAF). layout.ts = panel/tool UI state. projects.ts = project list.
+  stores/library.ts  The Library (folders, items, their media) and how its tab is browsed.
   lib/api.ts         Typed client for every endpoint. lib/edit-gesture.ts, lib/pointer-drag.ts (see below).
   lib/text-render.ts Text layout + drawing (browser text engine); used by preview, export and canvas editor.
   components/preview/engine.ts   Imperative preview: drives hidden <video>/<img> and draws with the compositor.
@@ -64,7 +72,9 @@ src/
   components/properties/  Spec-driven properties panel (param-rows.tsx renders any ParamSpec), the stopwatch and
                      navigator (animation-controls.tsx) and the keyframe lanes (keyframe-lanes.tsx, pure maths in
                      keyframe-geometry.ts, selection in keyframe-selection.ts).
-  components/workspace/left-panel.tsx   Left panel tabs: Media | Online | Transitions | Properties.
+  components/captions/   Auto captions dialog, engine picker/setup, the Captions tab. State in stores/captions.ts.
+  components/library/  The Library tab, its cards and dialogs (Save to Library), folder drop targets.
+  components/workspace/left-panel.tsx   Left panel tabs: Media | Library | Online | Transitions | Captions | Properties.
   components/ui/     shadcn/ui (generated; icons adapted to react-icons/pi).
 ```
 
@@ -90,8 +100,17 @@ extension** (Node ESM through tsx).
   says how it's passed through (Premiere's Ease In/Out, Hold); `easedProgress` is the curve.
 - Transitions are stored on clip edges. At a cut, the outgoing clip's `transitionOut` wins. See
   `transition-windows.ts` for the rules, and use `storedTransition`/`findWindow`/`refKey` rather than reading fields.
+- Captions are text clips with `caption: true` (only valid on text clips; see `shared/captions.ts`). The Captions tab
+  edits style for all of them (never their text or timing); Properties edits one. A caption's animation is its
+  `transitionIn`; animated captions end one frame before the next so each animates in from nothing.
 - Media (`MediaAsset`) belongs to one project. `kind` is video | audio | image. Filmstrip and waveform generation
   finish after import (`status: "processing"`).
+- The Library (`LibraryFolder`, `LibraryItem`) is shared by every project and has its own media (`projectId: null`,
+  a second `MediaLibrary` rooted at `data/library/media`, served at `/files/library`). An item is one file
+  (`kind: "media"`) or saved clips (`kind: "clips"`, a `ClipTemplate`: tracks + clips pointing at Library media).
+  Nothing ever references across: saving copies project media into the Library, and using an item
+  (`POST /api/library/items/:id/use`) copies its media into the project, reusing a copy already there
+  (`MediaAsset.origin`). Library media no item uses is deleted.
 
 ## Editing rules (src/stores/editor.ts)
 
@@ -136,6 +155,9 @@ extension** (Node ESM through tsx).
 - **A keyboard shortcut**: `ShortcutAction` + `resolveShortcut` + `SHORTCUT_KEYS` + `SHORTCUT_GROUPS` in
   `hooks/shortcuts.ts` (tested), then `run` in `hooks/use-shortcuts.ts`. Add it to `EDITS` if it edits (so it's
   ignored mid-drag).
+- **A transcription engine** (another API or local model): implement `TranscriptionEngine` (`server/transcription/
+  engine.ts`: 16 kHz mono WAV in, timed words out) and add it to `defaultEngines` in `service.ts`, plus its id to
+  `TranscriptionEngineId`. Decoding, silence squeezing, time mapping and caching are the service's job.
 - **A left-panel tab**: add it to `LeftPanelTab` (`stores/layout.ts`) and to `TABS` in `workspace/left-panel.tsx`.
 - **A clip kind (like text) or a track kind**: there's no registry yet. Clip kinds are branched on in
   `preview/engine.ts` (`kindOf` and each kind's slots), `preview/stage.tsx`, `preview/placement.ts`,
@@ -180,8 +202,13 @@ extension** (Node ESM through tsx).
 - `data/` (or `EDITOR_DATA_DIR`) holds the projects, media, exports (never cleaned up yet) and `tmp`, which is wiped
   on startup. Export jobs live in memory.
 - External programs: ffmpeg/ffprobe (import and export; `FFMPEG_PATH`/`FFPROBE_PATH`), yt-dlp for the Online tab
-  (`YTDLP_PATH`), and Chromium for every export (`CHROMIUM_PATH`, else Playwright's, else Chrome). The
+  (`YTDLP_PATH`), whisper.cpp's `whisper-cli` for local transcription (`WHISPER_PATH`; model in `EDITOR_MODELS_DIR`,
+  default `~/.cache/editor/models`), and Chromium for every export (`CHROMIUM_PATH`, else Playwright's, else Chrome). The
   font list uses macOS AppKit through osascript (`fc-list` elsewhere).
+- Whisper times the word after a long silence early; that's why `audio.ts` squeezes silences out before any engine
+  and snaps words to the sound afterwards. Don't use whisper.cpp's own `--vad`: its token times aren't mapped back.
+- The export numbers each track's frames afresh after `concat` (`setpts=N/...`): a transition's file keeps time in
+  whole ms, and without it every transition pulled the rest of its track a frame early.
 - Saves on unload use `keepalive`, which is capped at about 64 KiB in Chromium, so a very large project may lose its
   last edit if the tab closes mid-debounce.
 - The server binds to 127.0.0.1 only and has no auth. It's a local tool.

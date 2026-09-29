@@ -365,6 +365,7 @@ function TextEditor({ target }: { target: OnCanvas }) {
         lineHeight: `${layout.lineHeight}px`,
         letterSpacing: `${layout.letterSpacing}px`,
         textAlign: style.align,
+        textTransform: style.textCase === "upper" ? "uppercase" : style.textCase === "lower" ? "lowercase" : "none",
         width: layout.width,
         height: layout.height,
         padding: `${layout.y}px ${layout.x}px`,

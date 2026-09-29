@@ -21,7 +21,8 @@ export default defineConfig({
   webServer: [
     {
       command: `rm -rf ${DATA_DIR} && tsx scripts/make-samples.ts && tsx server/index.ts`,
-      env: { EDITOR_DATA_DIR: DATA_DIR, EDITOR_SERVER_PORT: String(SERVER_PORT) },
+      // A stand-in transcription engine: the tests don't need whisper.cpp or an API key.
+      env: { EDITOR_DATA_DIR: DATA_DIR, EDITOR_SERVER_PORT: String(SERVER_PORT), EDITOR_TRANSCRIPTION_ENGINE: "fake" },
       url: `http://127.0.0.1:${SERVER_PORT}/api/health`,
       reuseExistingServer: false,
       timeout: 60_000,

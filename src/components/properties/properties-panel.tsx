@@ -5,9 +5,9 @@
  * generated from the effect's parameter specs.
  */
 import { type ReactNode, useState } from "react";
-import { PiCaretRight, PiDiamondsFour, PiFilmStrip, PiImage, PiMusicNotes, PiSlidersHorizontal, PiTextT } from "react-icons/pi";
+import { PiCaretRight, PiDiamondsFour, PiFilmStrip, PiImage, PiMusicNotes, PiSlidersHorizontal, PiSubtitles, PiTextT } from "react-icons/pi";
 import { keyframeTime } from "@shared/animation";
-import type { Clip, Effect, MediaAsset } from "@shared/types";
+import type { Clip, Effect, MediaAsset, ParamValues, Project } from "@shared/types";
 import {
   type ClipTraits,
   type EffectDefinition,
@@ -79,6 +79,11 @@ export function PropertiesPanel() {
           detail={[trackName, formatDuration(clipDuration(clip))]}
         />
       </PanelRow>
+      {clip.caption && (
+        <PanelRow lanes={lanes} className="border-b">
+          <CaptionNote />
+        </PanelRow>
+      )}
       {selectedCount > 1 && (
         <PanelRow lanes={lanes} className="border-b">
           <p className="px-3 py-2 text-xs text-muted-foreground">{selectedCount} clips selected. Showing the last one you selected.</p>
@@ -114,8 +119,8 @@ export function PropertiesPanel() {
   );
 }
 
-/** Width of the properties' own column (the panel's width without the keyframe lanes). */
-const ROWS_WIDTH = "20rem";
+/** Width of the properties' own column (the left panel's usual width, `w-86`). */
+const ROWS_WIDTH = "21.5rem";
 
 /** A row of the panel: the property (or header) on the left, its keyframe lane on the right while the lanes show. */
 function PanelRow({ lanes, lane, className, children }: { lanes: boolean; lane?: ReactNode; className?: string; children: ReactNode }) {
@@ -186,18 +191,32 @@ function ClipHeader({
   );
 }
 
-/** Sections the user collapsed (kept while switching between clips). */
-const collapsed = new Set<string>();
+/** Sections the user opened or closed from how they start (kept while switching between clips). */
+const toggled = new Set<string>();
 
-function EffectSection({
+/**
+ * Where a section's edits go. By default, the clip's own effect (at the
+ * playhead, so animated values get keyframes); the Captions tab sends them to
+ * every caption instead.
+ */
+export interface EffectTarget {
+  apply: (patch: ParamValues) => (p: Project) => Project;
+  reset: (keys: string[]) => void;
+}
+
+export function EffectSection({
   clip,
   effect,
   def,
   traits,
   time,
-  editTime,
+  editTime = time,
   ctx,
-  lanes,
+  lanes = false,
+  target,
+  hide = [],
+  collapseKey = def.type,
+  defaultOpen = true,
 }: {
   clip: Clip;
   effect: Effect;
@@ -206,23 +225,32 @@ function EffectSection({
   /** Source time the values show at. */
   time: number;
   /** Source time edits keyframe (animated properties). */
-  editTime: number;
+  editTime?: number;
   ctx: DisplayContext;
-  lanes: boolean;
+  /** Show keyframe lanes beside the rows. */
+  lanes?: boolean;
+  /** Edits go elsewhere (then the properties can't be animated from here). */
+  target?: EffectTarget;
+  /** Parameters not shown (e.g. the text itself, which is each caption's own). */
+  hide?: string[];
+  /** Sections with the same key open and close together. */
+  collapseKey?: string;
+  defaultOpen?: boolean;
 }) {
   const clipId = clip.id;
-  const [open, setOpen] = useState(() => !collapsed.has(def.type));
+  const [open, setOpen] = useState(() => toggled.has(collapseKey) !== defaultOpen);
   const values = storedValuesAt(def, effect, time);
   const commit = useEditor((s) => s.commit);
-  const editor = useParamEditors(
-    (patch) => (p) => setParams(p, clipId, effect.id, patch, editTime),
-    (key) => commit((p) => resetParams(p, clipId, effect.id, [key], editTime)),
-  );
-  const params = def.params.filter((p) => p.appliesTo?.(traits) ?? true);
+  const to: EffectTarget = target ?? {
+    apply: (patch) => (p) => setParams(p, clipId, effect.id, patch, editTime),
+    reset: (keys) => commit((p) => resetParams(p, clipId, effect.id, keys, editTime)),
+  };
+  const editor = useParamEditors(to.apply, (key) => to.reset([key]));
+  const params = def.params.filter((p) => (p.appliesTo?.(traits) ?? true) && !hide.includes(p.key));
   const changed = params.some((p) => !sameValue(effect.params[p.key], p.default)) || !!effect.keyframes;
   const toggle = () => {
-    if (open) collapsed.add(def.type);
-    else collapsed.delete(def.type);
+    if (open === defaultOpen) toggled.add(collapseKey);
+    else toggled.delete(collapseKey);
     setOpen(!open);
   };
 
@@ -244,10 +272,10 @@ function EffectSection({
           {changed && (
             <ResetButton
               label={`Reset ${def.label}`}
-              onClick={() => commit((p) => resetParams(p, clipId, effect.id, params.map((spec) => spec.key), editTime))}
+              onClick={() => to.reset(params.map((spec) => spec.key))}
             />
           )}
-          {!def.alwaysOn && (
+          {!def.alwaysOn && !target && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -272,10 +300,10 @@ function EffectSection({
       {open && (
         <div className={cn(!effect.enabled && "[&_[data-param]]:opacity-60")}>
           {params.map((spec) => {
-            const animatable = isAnimatable(spec);
+            const animatable = isAnimatable(spec) && !target;
             const animated = !!effect.keyframes?.[spec.key]?.length;
             const label = spec.labelFor?.(values) ?? spec.label;
-            const target = { clipId, effectId: effect.id, paramKey: spec.key, label };
+            const param = { clipId, effectId: effect.id, paramKey: spec.key, label };
             return (
               <PanelRow
                 key={spec.key}
@@ -288,8 +316,9 @@ function EffectSection({
                   specs={params}
                   ctx={ctx}
                   edit={editor(spec.key)}
-                  animation={animatable ? <Stopwatch {...target} animated={animated} /> : null}
-                  navigator={animated ? <KeyframeNavigator {...target} /> : null}
+                  // Edits that go elsewhere (all captions) can't animate this clip: no stopwatch column at all.
+                  animation={target ? undefined : animatable ? <Stopwatch {...param} animated={animated} /> : null}
+                  navigator={animatable && animated ? <KeyframeNavigator {...param} /> : null}
                 />
               </PanelRow>
             );
@@ -300,6 +329,23 @@ function EffectSection({
         </div>
       )}
     </section>
+  );
+}
+
+/** A caption's own look is edited here; everyone's is in the Captions tab. */
+function CaptionNote() {
+  return (
+    <p className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+      <PiSubtitles className="size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1">Changes here are for this caption only.</span>
+      <button
+        type="button"
+        className="shrink-0 cursor-pointer font-medium text-brand hover:underline"
+        onClick={() => useLayout.getState().setLeftPanel("captions")}
+      >
+        Edit all captions
+      </button>
+    </p>
   );
 }
 

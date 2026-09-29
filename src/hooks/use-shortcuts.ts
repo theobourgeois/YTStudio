@@ -205,10 +205,10 @@ function run(action: ShortcutAction): boolean {
       editor.select(null);
       return true;
     case "zoomIn":
-      editor.setZoom(editor.zoom * ZOOM_STEP);
+      timelineCommands.zoomBy(ZOOM_STEP);
       return true;
     case "zoomOut":
-      editor.setZoom(editor.zoom / ZOOM_STEP);
+      timelineCommands.zoomBy(1 / ZOOM_STEP);
       return true;
     case "zoomFit":
       timelineCommands.zoomToFit();

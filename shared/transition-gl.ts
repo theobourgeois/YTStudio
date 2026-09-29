@@ -15,6 +15,9 @@ import type { TransitionDefinition } from "./transitions.ts";
  * Everything a transition's GLSL can use:
  *
  * - `progress` (0..1), `ratio` (canvas width / height), `resolution` (px).
+ * - `fromCentre` / `toCentre`: where the middle of each clip's frame is, in
+ *   uv (the canvas centre when a side is empty), to move a clip around itself
+ *   rather than the canvas (e.g. a text popping in where it is).
  * - `getFromColor(uv)` / `getToColor(uv)`: the outgoing / incoming picture,
  *   premultiplied RGBA, transparent outside 0..1. `uv` (0, 0) is bottom left.
  * - Helpers: `PI`, `ease` (smooth in and out) plus `easeIn`/`easeOut`,
@@ -37,6 +40,8 @@ uniform bool uStraight;
 uniform float progress;
 uniform float ratio;
 uniform vec2 resolution;
+uniform vec2 fromCentre;
+uniform vec2 toCentre;
 
 #define PI 3.141592653589793
 
@@ -88,7 +93,7 @@ void main() {
 `;
 
 /** Names the prelude uses, which parameters can't have. */
-export const RESERVED_UNIFORMS = ["progress", "ratio", "resolution", "uFrom", "uTo", "uStraight", "vUv", "fragColor"];
+export const RESERVED_UNIFORMS = ["progress", "ratio", "resolution", "fromCentre", "toCentre", "uFrom", "uTo", "uStraight", "vUv", "fragColor"];
 
 /** The complete fragment shader of a transition. */
 export function fragmentSource(def: Pick<TransitionDefinition, "params" | "glsl">): string {

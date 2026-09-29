@@ -23,6 +23,9 @@ async function timelineClips(page: Page) {
   );
 }
 
+/** The open project's id (from the `/p/<id>` URL). */
+const openProjectId = (page: Page) => new URL(page.url()).pathname.split("/").pop()!;
+
 /** The open project's document as saved on the server (the id comes from the `/p/<id>` URL). */
 async function savedProject(page: Page) {
   await expect(page).toHaveURL(/\/p\/[\w-]+$/);
@@ -643,6 +646,61 @@ test("adds text with the Type tool, types into it on the canvas, styles it and e
   await expect(page.getByText(/ready|done|finished/i).first()).toBeVisible({ timeout: 30_000 });
 });
 
+test("auto captions: makes captions from the speech, edits one's words and styles them all", async ({ page }) => {
+  await page.goto("/");
+  type Caption = SavedClip & { caption?: true; transitionIn?: { type: string } };
+  const captions = () =>
+    savedProject(page).then((p) => (p.clips as Caption[]).filter((c) => c.caption).sort((a, b) => a.start - b.start));
+  const words = async () => (await captions()).map((c) => effectParams({ clips: [c] }, c.id, "text")!.text);
+
+  await page.getByRole("button", { name: "Auto captions" }).first().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("radio", { name: "Whole timeline" }).click();
+  await dialog.getByRole("radio", { name: "Yellow" }).click();
+  await dialog.getByRole("radio", { name: "Word" }).click();
+  // The (stand-in) local engine is ready, so there's nothing to set up.
+  await expect(dialog.getByRole("radio", { name: /On this Mac/ })).toHaveAttribute("aria-checked", "true");
+  await dialog.getByRole("button", { name: "Generate captions" }).click();
+  await expect(page.getByText(/Added \d+ captions/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("tab", { name: "Captions" })).toHaveAttribute("aria-selected", "true");
+
+  // One word each, in the Yellow style, popping in, on their own track.
+  await expect.poll(async () => (await words()).slice(0, 3)).toEqual(["This", "is", "a"]);
+  const made = await captions();
+  expect(new Set(made.map((c) => c.trackId)).size).toBe(1);
+  expect(effectParams({ clips: made }, made[0].id, "text")).toMatchObject({ font: "Futura", textCase: "upper" });
+  expect(effectParams({ clips: made }, made[0].id, "appearance")!.fill).toBe("#ffe14d");
+  expect(made.every((c) => c.transitionIn?.type === "pop")).toBe(true);
+  await expect(page.locator(`[data-clip-id="${made[0].id}"]`)).toBeVisible();
+
+  // Editing one caption's words in the transcript.
+  const first = page.getByRole("textbox", { name: /^Caption at/ }).first();
+  await first.fill("Hello");
+  await first.press("Enter");
+  await expect(page.getByRole("textbox", { name: /^Caption at/ }).nth(1)).toBeFocused();
+  await expect.poll(async () => (await words())[0]).toBe("Hello");
+
+  // A style for all of them, keeping each one's words; then no animation.
+  await page.getByRole("radio", { name: "Boxed" }).click();
+  await expect.poll(async () => (await captions()).every((c) => effectParams({ clips: [c] }, c.id, "appearance")!.background === 0.8)).toBe(true);
+  expect((await words()).slice(0, 2)).toEqual(["Hello", "is"]);
+  await page.getByRole("combobox", { name: "Animation" }).click();
+  await page.getByRole("option", { name: "None", exact: true }).click();
+  await expect.poll(async () => (await captions()).some((c) => c.transitionIn)).toBe(false);
+
+  // A caption's own look is in Properties, which points back here.
+  await page.getByTitle("Go to this caption").first().click();
+  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("button", { name: "Edit all captions" }).click();
+  await expect(page.getByRole("tab", { name: "Captions" })).toHaveAttribute("aria-selected", "true");
+
+  // Deleting them all is one undoable step.
+  await page.getByRole("button", { name: "Delete all captions" }).click();
+  await expect(page.getByText("No captions yet")).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await captions()).length).toBe(made.length);
+});
+
 test("settles a video, starts the next one, and unsettles it again", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/p\/[\w-]+$/);
@@ -676,4 +734,96 @@ test("settles a video, starts the next one, and unsettles it again", async ({ pa
   await page.goto(firstUrl);
   await expect.poll(async () => (await timelineClips(page)).length).toBeGreaterThan(0);
   expect((await savedProject(page)).name).toBe(first.name);
+
+  // Right-click it in the sidebar and duplicate it: the copy has the same timeline and its own media.
+  const inProgress = page.getByRole("navigation", { name: "In progress" });
+  await inProgress.getByTitle(first.name, { exact: true }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Duplicate" }).click();
+  await expect(inProgress.getByTitle(`${first.name} copy`, { exact: true })).toBeVisible();
+  const list = await projectList(page);
+  const copy = list.find((p: { name: string }) => p.name === `${first.name} copy`);
+  expect(copy).toMatchObject({ status: "active", clipCount: (await savedProject(page)).clips.length });
+  const media = (id: string) => page.evaluate((i) => fetch(`/api/media?projectId=${i}`).then((r) => r.json()), id);
+  const [originals, copies] = [await media(first.id), await media(copy.id)];
+  expect(copies.map((a: { name: string }) => a.name)).toEqual(originals.map((a: { name: string }) => a.name));
+  await expect(page).toHaveURL(firstUrl); // duplicating doesn't switch videos
+});
+
+test("keeps media and saved clips in the Library and uses them in another video", async ({ page }) => {
+  await page.goto("/");
+  const withClips = (await projectList(page)).find((p: { clipCount: number }) => p.clipCount > 0);
+  await page.goto(`/p/${withClips.id}`);
+  await expect.poll(async () => (await timelineClips(page)).length).toBeGreaterThan(0);
+  const library = () => page.evaluate(() => fetch("/api/library").then((r) => r.json()));
+
+  // An empty Library explains itself; make a folder.
+  await page.getByRole("tab", { name: "Library" }).click();
+  await expect(page.getByText("Your Library, in every video")).toBeVisible();
+  await page.getByRole("button", { name: "New folder" }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("Logos");
+  await page.getByRole("dialog").getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("button", { name: /^Logos/ })).toBeVisible();
+
+  // Add a media file to that folder from the Media tab.
+  await page.getByRole("tab", { name: /^Media/ }).click();
+  const card = page.locator("[draggable=true]").filter({ hasText: "square-1080" }).first();
+  await card.hover();
+  await card.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Add to Library" }).click();
+  await page.getByRole("menuitem", { name: "Logos" }).click();
+  await expect.poll(async () => (await library()).items.length).toBe(1);
+
+  // Save a timeline clip, with its settings, from its context menu.
+  const [clip] = await timelineClips(page);
+  await page.mouse.click(clip.x + 10, clip.y + clip.h / 2, { button: "right" });
+  await page.getByRole("menuitem", { name: /Save to Library/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: "Name" }).fill("Intro shot");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(async () => (await library()).items.map((i: { kind: string }) => i.kind).sort()).toEqual(["clips", "media"]);
+
+  // A new video can use both.
+  await page.getByRole("button", { name: "New video" }).first().click();
+  await expect(page.locator("[data-clip-id]")).toHaveCount(0);
+  await page.getByRole("tab", { name: "Library" }).click();
+  const saved = page.locator("[data-library-item]").filter({ hasText: "Intro shot" });
+  const box = (await saved.boundingBox())!;
+  const x = await timeX(page, 2);
+  const y = await laneY(page, "Video 1");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
+  await page.mouse.down();
+  await page.mouse.move(x - 20, y, { steps: 5 });
+  await page.mouse.move(x, y, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedProject(page)).clips.map((c: SavedClip) => c.start)).toEqual([2]);
+
+  await page.getByRole("button", { name: /^Logos/ }).click();
+  await page.locator("[data-library-item]").filter({ hasText: "square-1080" }).dblclick();
+  await expect.poll(async () => (await savedProject(page)).clips.length).toBe(2);
+  // The media was copied into this video, once per file.
+  const project = await savedProject(page);
+  const used = new Set((project.clips as SavedClip[]).map((c) => (c as SavedClip & { assetId: string }).assetId).filter(Boolean));
+  const media = await page.evaluate((id) => fetch(`/api/media?projectId=${id}`).then((r) => r.json()), openProjectId(page));
+  expect(media.map((m: { id: string }) => m.id).sort()).toEqual([...used].sort());
+  expect(used.size).toBeGreaterThan(0);
+
+  // Search every folder, star an item, and find it in Favourites.
+  await page.getByRole("searchbox", { name: "Search the Library" }).fill("intro");
+  const result = page.locator("[data-library-item]");
+  await expect(result).toHaveCount(1);
+  await result.hover();
+  await result.getByRole("button", { name: "Add to favourites" }).click();
+  await page.getByRole("searchbox", { name: "Search the Library" }).fill("");
+  await page.getByRole("navigation", { name: "Library folders" }).getByRole("button", { name: "Library" }).click();
+  await page.getByRole("button", { name: /^Favourites/ }).click();
+  await expect(page.locator("[data-library-item]")).toHaveText(/Intro shot/);
+
+  // Deleting it from the Library leaves the video alone.
+  await page.locator("[data-library-item]").hover();
+  await page.locator("[data-library-item]").getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+  await expect.poll(async () => (await library()).items.length).toBe(1);
+  expect((await savedProject(page)).clips).toHaveLength(2);
 });

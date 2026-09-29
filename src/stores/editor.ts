@@ -2,13 +2,16 @@ import { create } from "zustand";
 import { toast } from "sonner";
 import type {
   Clip,
+  LibraryItem,
   MediaAsset,
   Project,
   ProjectSettings,
+  UseLibraryItemResponse,
   WebClip,
   WebMediaKind,
 } from "@shared/types";
 import { defaultEffects, isTextClip } from "@shared/effects";
+import { placeTemplate } from "@shared/library";
 import {
   type CopiedClip,
   addClip,
@@ -53,10 +56,11 @@ import { pollProcessingAssets } from "./asset-polling";
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
 
-export { discardPendingSave, onProjectSaved } from "./autosave";
+export { discardPendingSave, flushAutosave, onProjectSaved } from "./autosave";
 
 const HISTORY_LIMIT = 100;
-export const MIN_ZOOM = 5;
+/** Hard zoom limits (px per second). The timeline's usable minimum depends on the edit's length (`minZoomFor`). */
+export const MIN_ZOOM = 0.05;
 export const MAX_ZOOM = 400;
 
 export interface Upload {
@@ -153,6 +157,13 @@ interface EditorState {
    * put it on the timeline (see `addAssetsToTimeline`). Resolves true if it was added.
    */
   addWebMedia: (clip: WebClip, kind: WebMediaKind) => Promise<boolean>;
+  /**
+   * Put a Library item on the timeline. Its media is copied into the project (or
+   * found there) first; then a file goes where `addAssetsToTimeline` puts it, and
+   * saved clips where `placeTemplate` does (`at` defaults to the playhead).
+   * Resolves with the item as the server updated it, or null if nothing was added.
+   */
+  addLibraryItem: (itemId: string, opts?: AddToTimelineOptions) => Promise<LibraryItem | null>;
   deleteAsset: (assetId: string) => Promise<void>;
   getAsset: (assetId: string) => MediaAsset | undefined;
 
@@ -437,6 +448,35 @@ export const useEditor = create<EditorState>((set, get) => ({
     } finally {
       if (stillOpen()) set({ uploads: get().uploads.filter((u) => u.id !== upload.id) });
     }
+  },
+
+  async addLibraryItem(itemId, opts = {}) {
+    const projectId = get().projectId;
+    if (!projectId) return null;
+    let used: UseLibraryItemResponse;
+    try {
+      used = await api.useLibraryItem(itemId, { projectId });
+    } catch (err) {
+      toast.error("Couldn't add it from the Library", { description: errorMessage(err) });
+      return null;
+    }
+    if (get().projectId !== projectId) return null;
+    const known = new Set(get().assets.map((a) => a.id));
+    set({ assets: [...used.assets.filter((a) => !known.has(a.id)), ...get().assets] });
+    const { template } = used;
+    if (template) {
+      let clipIds: string[] = [];
+      get().commit((p) => {
+        const res = placeTemplate(p, template, { ...opts, at: opts.at ?? usePlayback.getState().time });
+        clipIds = res.clipIds;
+        return res.project;
+      });
+      get().setSelection(clipIds);
+    } else {
+      get().addAssetsToTimeline(used.assets.map((a) => a.id), opts);
+    }
+    pollProcessingAssets(useEditor);
+    return used.item;
   },
 
   async deleteAsset(assetId) {

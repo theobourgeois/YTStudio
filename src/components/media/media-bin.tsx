@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from "react";
-import { PiFileArrowUp } from "react-icons/pi";
+import { PiFileArrowUp, PiUploadSimple } from "react-icons/pi";
 import { useShallow } from "zustand/react/shallow";
 import type { MediaAsset } from "@shared/types";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { TagChip } from "@/components/ui/tag-chip";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { AssetCard } from "./asset-card";
@@ -11,6 +12,13 @@ import { DeleteAssetDialog } from "./delete-asset-dialog";
 import { ACCEPTED_FILE_TYPES, importMedia } from "./import-media";
 import { clipCountByAsset, filterAssets, type MediaFilter } from "./media-utils";
 import { UploadCard } from "./upload-card";
+
+const FILTERS: { value: MediaFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "video", label: "Video" },
+  { value: "audio", label: "Audio" },
+  { value: "image", label: "Image" },
+];
 
 /** The Media tab: the project's imported media, to preview, add to the timeline or delete. */
 export function MediaBin() {
@@ -61,47 +69,48 @@ export function MediaBin() {
         <>
           {assets.length > 0 && (
             <div className="shrink-0 px-3 pt-3">
-              <ToggleGroup
-                type="single"
-                size="sm"
-                value={filter}
-                onValueChange={(v) => v && setFilter(v as MediaFilter)}
-                className="grid w-full grid-cols-4 rounded-md bg-muted p-0.5"
-              >
-                {(["all", "video", "audio", "image"] as const).map((f) => (
-                  <ToggleGroupItem
-                    key={f}
-                    value={f}
-                    className="h-6 min-w-0 rounded-[5px]! text-xs text-muted-foreground capitalize hover:bg-transparent hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs! dark:data-[state=on]:bg-accent"
-                  >
-                    {f}
-                  </ToggleGroupItem>
+              <div role="radiogroup" aria-label="Filter by type" className="flex flex-wrap gap-1">
+                {FILTERS.map(({ value, label }) => (
+                  <TagChip key={value} active={filter === value} onClick={() => setFilter(value)}>
+                    {label}
+                  </TagChip>
                 ))}
-              </ToggleGroup>
+              </div>
             </div>
           )}
-          {/* Radix wraps content in a `display: table` div, which defeats `truncate`. */}
-          <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
-            <div className="grid grid-cols-2 gap-x-1 gap-y-1.5 p-2">
-              {uploads.map((u) => (
-                <UploadCard key={u.id} upload={u} />
-              ))}
-              {visible.map((asset) => (
-                <AssetCard
-                  key={asset.id}
-                  asset={asset}
-                  uses={uses.get(asset.id) ?? 0}
-                  onAdd={() => addToTimeline(asset.id)}
-                  onDelete={() => requestDelete(asset)}
-                />
-              ))}
-            </div>
-            {visible.length === 0 && assets.length > 0 && (
-              <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-                No {filter === "image" ? "images" : `${filter} files`} yet.
-              </p>
-            )}
-          </ScrollArea>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              {/* Radix wraps content in a `display: table` div, which defeats `truncate`. */}
+              <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
+                <div className="grid grid-cols-2 gap-x-1 gap-y-1.5 p-2">
+                  {uploads.map((u) => (
+                    <UploadCard key={u.id} upload={u} />
+                  ))}
+                  {visible.map((asset) => (
+                    <AssetCard
+                      key={asset.id}
+                      asset={asset}
+                      uses={uses.get(asset.id) ?? 0}
+                      onAdd={() => addToTimeline(asset.id)}
+                      onDelete={() => requestDelete(asset)}
+                    />
+                  ))}
+                </div>
+                {visible.length === 0 && assets.length > 0 && (
+                  <p className="px-4 py-8 text-center text-xs text-muted-foreground">
+                    No {filter === "image" ? "images" : `${filter} files`} yet.
+                  </p>
+                )}
+              </ScrollArea>
+            </ContextMenuTrigger>
+            {/* Right-clicking empty space (cards have their own menus). */}
+            <ContextMenuContent className="w-48">
+              <ContextMenuItem onSelect={openPicker}>
+                <PiUploadSimple />
+                Import files
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         </>
       )}
 

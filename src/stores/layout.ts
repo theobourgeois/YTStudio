@@ -3,8 +3,11 @@ import { create } from "zustand";
 const SIDEBAR_KEY = "editor-sidebar-open";
 const KEYFRAMES_KEY = "editor-keyframes-open";
 
-/** The tabs of the left panel: the project's media, online media, transitions, and the selection's properties. */
-export type LeftPanelTab = "media" | "online" | "transitions" | "properties";
+/**
+ * The tabs of the left panel: the project's media, the Library shared by every project,
+ * online media, transitions, captions, and the selection's properties.
+ */
+export type LeftPanelTab = "media" | "library" | "online" | "transitions" | "captions" | "properties";
 
 /** What a press on the canvas does: select and transform clips, or add text (Premiere's Type tool). */
 export type CanvasTool = "select" | "text";
