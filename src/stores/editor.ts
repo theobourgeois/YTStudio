@@ -30,6 +30,7 @@ import {
   gapAt,
   getClip,
   getTrack,
+  insertClip,
   isOnVideoTrack,
   moveClips,
   pasteClips,
@@ -56,6 +57,7 @@ import { api } from "@/lib/api";
 import { pollProcessingAssets, pollWebDownload, requestReversedCopies } from "./asset-polling";
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
+import { assetMarkedRange, useSourceMarks } from "./source-marks";
 
 export { discardPendingSave, flushAutosave, onProjectSaved, queueSave } from "./autosave";
 
@@ -100,6 +102,11 @@ interface EditorState {
   /** Timeline zoom in pixels per second. */
   zoom: number;
   snapping: boolean;
+  /**
+   * Auto ripple (CapCut's, Premiere's ripple edits): deleting closes the gap, trimming moves
+   * the clips after on the track along, and dropping media pushes them right. Kept in this browser.
+   */
+  autoRipple: boolean;
 
   past: Project[];
   future: Project[];
@@ -147,6 +154,7 @@ interface EditorState {
   selectAll: () => void;
   setZoom: (zoom: number) => void;
   toggleSnapping: () => void;
+  toggleAutoRipple: () => void;
   updateSettings: (patch: Partial<ProjectSettings>) => void;
 
   /**
@@ -183,6 +191,7 @@ interface EditorState {
    *   sound only on the top audio track (created when there's none).
    * - `at` = timeline time of the first clip's left edge (the rest follow it). Without
    *   it, clips are appended after a video track's last clip, or start at 0 on audio.
+   * - A file with In/Out marks (set in the source preview) adds only the marked part.
    * Returns the ids of the created clips.
    */
   addAssetsToTimeline: (assetIds: string[], opts?: AddToTimelineOptions) => string[];
@@ -211,7 +220,10 @@ interface EditorState {
   addEffectTo: (clipIds: string[], type: string) => boolean;
   /** Add a video effect to the selected clips, or when none are, to the top clip under the playhead. */
   applyEffect: (type: string) => void;
-  /** Delete the selection; `ripple` also closes the gaps it leaves. A selected gap is always closed. */
+  /**
+   * Delete the selection; `ripple` (default: `autoRipple`) also closes the gaps it leaves.
+   * A selected gap is always closed.
+   */
   deleteSelected: (ripple?: boolean) => void;
   copySelected: () => void;
   cutSelected: () => void;
@@ -241,6 +253,16 @@ export interface AddToTimelineOptions {
    * compatible assets go on a new video track on top, or a new audio track at the bottom.
    */
   newTrack?: "above" | "below";
+  /**
+   * The part of each file to use (source seconds, by asset id); the rest use all of theirs.
+   * `addAssetsToTimeline` defaults it to the files' In/Out marks (`useSourceMarks`).
+   */
+  ranges?: Record<string, { in: number; out: number }>;
+  /**
+   * Insert at `at`, pushing the clips after it right (`insertClip`) instead of finding it a
+   * free spot. `addAssetsToTimeline` defaults it to `autoRipple`.
+   */
+  ripple?: boolean;
 }
 
 let openToken = 0;
@@ -262,6 +284,8 @@ const emptyEditor = () => ({
   gestureBase: null,
 });
 
+const AUTO_RIPPLE_KEY = "editor-auto-ripple";
+
 export const useEditor = create<EditorState>((set, get) => ({
   projectId: null,
   loading: false,
@@ -276,6 +300,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   effectsClipboard: null,
   zoom: 60,
   snapping: true,
+  autoRipple: localStorage.getItem(AUTO_RIPPLE_KEY) === "true",
   past: [],
   future: [],
   gestureBase: null,
@@ -419,6 +444,12 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ snapping: !get().snapping });
   },
 
+  toggleAutoRipple() {
+    const autoRipple = !get().autoRipple;
+    set({ autoRipple });
+    localStorage.setItem(AUTO_RIPPLE_KEY, String(autoRipple));
+  },
+
   updateSettings(patch) {
     get().commit((p) => ({ ...p, settings: { ...p.settings, ...patch } }));
   },
@@ -519,7 +550,12 @@ export const useEditor = create<EditorState>((set, get) => ({
       for (const { template, assets } of used) {
         const placed = template
           ? placeTemplate(p, template, { ...opts, at: at ?? usePlayback.getState().time })
-          : placeAssets(p, assets.filter((a) => a.duration > 0), { ...opts, at });
+          : placeAssets(p, assets.filter((a) => a.duration > 0), {
+              ...opts,
+              at,
+              ranges: opts.ranges ?? libraryRanges(assets),
+              ripple: opts.ripple ?? get().autoRipple,
+            });
         if (placed.clipIds.length === 0) continue;
         p = placed.project;
         lastIds = placed.clipIds;
@@ -550,6 +586,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       assets: get().assets.filter((a) => a.id !== assetId),
       ...rewriteHistory(get(), (p) => removeAssetClips(p, assetId)),
     });
+    useSourceMarks.getState().clear(assetId);
     fixSelection();
   },
 
@@ -571,9 +608,10 @@ export const useEditor = create<EditorState>((set, get) => ({
       .map((id) => get().getAsset(id))
       .filter((a): a is MediaAsset => !!a && a.duration > 0);
     if (assets.length === 0) return [];
+    const ranges = opts.ranges ?? markedRanges(assets);
     let created: string[] = [];
     get().commit((project) => {
-      const placed = placeAssets(project, assets, opts);
+      const placed = placeAssets(project, assets, { ...opts, ranges, ripple: opts.ripple ?? get().autoRipple });
       created = placed.clipIds;
       return placed.project;
     });
@@ -645,7 +683,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  deleteSelected(ripple = false) {
+  deleteSelected(ripple = get().autoRipple) {
     const transition = get().selectedTransition;
     if (transition) {
       get().commit((p) => removeTransition(p, transition));
@@ -823,25 +861,50 @@ export function placeAssets(project: Project, assets: MediaAsset[], opts: AddToT
   const cursor = new Map<string, number>();
   for (const asset of assets) {
     const trackId = destination(asset);
+    const range = opts.ranges?.[asset.id];
     const clip: Clip = {
       id: createId("clip"),
       assetId: asset.id,
       trackId,
       start: 0,
-      in: 0,
-      out: asset.duration,
+      in: range?.in ?? 0,
+      out: range?.out ?? asset.duration,
       effects: defaultEffects(),
     };
     const at = cursor.get(trackId) ?? opts.at;
     if (at === undefined && getTrack(p, trackId)?.kind === "video") {
       p = appendToTrack(p, clip, trackId);
     } else {
-      p = addClip(p, { ...clip, start: Math.max(0, at ?? 0) });
+      const placed = { ...clip, start: Math.max(0, at ?? 0) };
+      p = opts.ripple && at !== undefined ? insertClip(p, placed) : addClip(p, placed);
     }
     cursor.set(trackId, clipEnd(getClip(p, clip.id)!));
     created.push(clip.id);
   }
   return { project: p, clipIds: created };
+}
+
+/**
+ * The marked part of each of `assets` just copied from the Library: the marks were set on
+ * the Library's copy of the file (its `origin`), unless the project's copy has its own.
+ */
+function libraryRanges(assets: MediaAsset[]): Record<string, { in: number; out: number }> {
+  const ranges: Record<string, { in: number; out: number }> = {};
+  for (const a of assets) {
+    const range = assetMarkedRange(a) ?? (a.origin ? assetMarkedRange({ ...a, id: a.origin }) : null);
+    if (range) ranges[a.id] = range;
+  }
+  return ranges;
+}
+
+/** The marked part of each of `assets` that has In/Out marks. */
+function markedRanges(assets: MediaAsset[]): Record<string, { in: number; out: number }> {
+  const ranges: Record<string, { in: number; out: number }> = {};
+  for (const a of assets) {
+    const range = assetMarkedRange(a);
+    if (range) ranges[a.id] = range;
+  }
+  return ranges;
 }
 
 /**

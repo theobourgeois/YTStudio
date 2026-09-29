@@ -260,6 +260,9 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 
 - The timeline works like Premiere/CapCut: free placement with snapping (the magnet toggle), and unlimited video
   tracks created by dropping above the top track. There's **no magnetic main track** and no auto-packing.
+  **Auto ripple** (the toolbar's chain toggle, off by default, `autoRipple` in the editor store) is the opt-in
+  exception: deletes close gaps, edge trims and rate stretches move the rest of the track (`rippleClipEdit`), and
+  media dropped at a time pushes it along (`insertClip`). Moves stay free either way.
 - There's no right-hand inspector (the right side is only the assistant's chat). Clip properties are in the left panel's Properties tab. Video settings (aspect ratio
   and fps) are in a header dialog. The canvas is always black.
 - Clicking a media card previews that file in the Program monitor's place (the source monitor).

@@ -17,6 +17,7 @@ import {
   getClip,
   moveClips,
   pruneEmptyTrack,
+  rippleClipEdit,
   snapTime,
   stretchClip,
   trimClip,
@@ -251,6 +252,8 @@ export function startClipTrim(
   let source = { min: 0, max: 0 };
   const pressed = getClip(editor.project, clipId);
   const stretch = e.altKey && !!pressed && canRetime(pressed, editor.getAsset(pressed.assetId));
+  // Auto ripple: the clip keeps its start and the rest of the track follows its other edge.
+  const ripple = editor.autoRipple;
 
   startClipSession(e, ctx, clipId, {
     threshold: TRIM_THRESHOLD_PX,
@@ -284,8 +287,8 @@ export function startClipTrim(
         }
       }
 
-      const from = base;
-      s.preview(() => (stretch ? stretchClip(from, clipId, edge, delta) : trimClip(from, clipId, edge, delta, source)));
+      const edit = (q: Project) => (stretch ? stretchClip(q, clipId, edge, delta) : trimClip(q, clipId, edge, delta, source));
+      s.preview(() => (ripple ? rippleClipEdit(base, clipId, edit) : edit(base)));
 
       const placed = getClip(useEditor.getState().project, clipId);
       const actualEdge = placed ? (edge === "end" ? clipEnd(placed) : placed.start) : null;

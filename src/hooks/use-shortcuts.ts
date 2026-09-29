@@ -10,6 +10,7 @@ import { useAssistant } from "@/stores/assistant";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
+import { useSourceMarks } from "@/stores/source-marks";
 import { useSourcePreview } from "@/stores/source-preview";
 import { resolveShortcut, type ShortcutAction } from "./shortcuts";
 
@@ -142,6 +143,13 @@ function run(action: ShortcutAction): boolean {
     case "seekEnd":
       playback.seek(playback.duration);
       return true;
+    // In/Out marks are only on media in the source preview (see `runSourcePreview`).
+    case "markIn":
+    case "markOut":
+    case "goToIn":
+    case "goToOut":
+    case "clearMarks":
+      return false;
     case "split":
       editor.splitAtPlayhead();
       return true;
@@ -156,7 +164,8 @@ function run(action: ShortcutAction): boolean {
       // Keyframes selected in the Effect Controls go first (like Premiere).
       if (action === "delete" && hasSelection && deleteSelectedKeyframes(editor.selectedClipIds.at(-1)!)) return true;
       if (!hasSelection && !hasGapOrTransition) return false;
-      editor.deleteSelected(action === "rippleDelete");
+      // ⌫ follows Auto ripple; ⇧⌫ always ripples.
+      editor.deleteSelected(action === "rippleDelete" ? true : undefined);
       return true;
     case "cut":
       if (!hasSelection) return false;
@@ -277,6 +286,20 @@ function runSourcePreview(action: ShortcutAction): boolean {
       return true;
     case "seekEnd":
       source.seek(source.duration());
+      return true;
+    case "markIn":
+    case "markOut":
+      useSourceMarks.getState().mark(assetId, action === "markIn" ? "in" : "out", source.time(), source.duration());
+      return true;
+    case "goToIn":
+    case "goToOut": {
+      const marks = useSourceMarks.getState().marks[assetId];
+      source.pause();
+      source.seek(action === "goToIn" ? (marks?.in ?? 0) : (marks?.out ?? source.duration()));
+      return true;
+    }
+    case "clearMarks":
+      useSourceMarks.getState().clear(assetId);
       return true;
   }
   return false;

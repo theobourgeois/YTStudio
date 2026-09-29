@@ -13,21 +13,26 @@ import {
   createDefaultProject,
   editPoints,
   findFreeStart,
+  insertClip,
   gapAt,
+  getClip,
   moveClip,
   moveClips,
+  nearestPoint,
   outputSize,
   pasteClips,
   projectDuration,
   pruneEmptyTrack,
   removeClips,
   removeTrack,
+  rippleClipEdit,
   rippleDelete,
   rippleTrimTo,
   snapTime,
   splitClip,
   sourceRange,
   splitClips,
+  stretchClip,
   trackClips,
   trimClip,
   withoutAudioTracks,
@@ -158,6 +163,49 @@ describe("splitting and trimming", () => {
     expect(q.clips.find((c) => c.id === "m2")!.out).toBe(4);
   });
 
+  it("ripple-trims: the clip keeps its start and the clips after it follow (Auto ripple)", () => {
+    const media = { min: 0, max: 10 };
+    const p = mainABC(); // a 0-2, b 2-5, c 5-6, all with media 0..10
+    // b's end: longer pushes c along, however close it was.
+    let q = rippleClipEdit(p, "b", (x) => trimClip(x, "b", "end", 1.5, media));
+    expect(starts(q)).toEqual([0, 2, 6.5]);
+    expect(getClip(q, "b")).toMatchObject({ in: 0, out: 4.5 });
+    // b's start, dragged right: it stays at 2, loses its first second, and c comes 1s closer.
+    q = rippleClipEdit(p, "b", (x) => trimClip(x, "b", "start", 1, media));
+    expect(starts(q)).toEqual([0, 2, 4]);
+    expect(getClip(q, "b")).toMatchObject({ in: 1, out: 3 });
+    // Dragged back left, b's start only goes back as far as its media starts.
+    q = rippleClipEdit(p, "b", (x) => trimClip(x, "b", "start", 1, media));
+    q = rippleClipEdit(q, "b", (x) => trimClip(x, "b", "start", -5, media));
+    expect(getClip(q, "b")).toMatchObject({ start: 2, in: 0, out: 3 });
+    expect(starts(q)).toEqual([0, 2, 5]);
+    // A rate stretch ripples too.
+    q = rippleClipEdit(p, "a", (x) => stretchClip(x, "a", "end", 2));
+    expect(starts(q)).toEqual([0, 4, 7]);
+    expect(getClip(q, "a")!.speed).toBe(0.5);
+    // No change: the same project back.
+    expect(rippleClipEdit(p, "b", (x) => x)).toBe(p);
+  });
+
+  it("inserts a clip, pushing later clips only as far as it needs (Auto ripple)", () => {
+    const p = mainABC();
+    // Into the middle of b (nearer its end): goes to b's end, pushing c by its length.
+    let q = insertClip(p, clip("n", MAIN_TRACK_ID, 4, 1));
+    expect(order(q)).toEqual(["a", "b", "n", "c"]);
+    expect(starts(q)).toEqual([0, 2, 5, 6]);
+    // Nearer b's start: before b.
+    q = insertClip(p, clip("n", MAIN_TRACK_ID, 2.4, 1));
+    expect(order(q)).toEqual(["a", "n", "b", "c"]);
+    expect(starts(q)).toEqual([0, 2, 3, 6]);
+    // In a gap with room to spare, nothing moves.
+    const gappy = moveClip(p, "c", MAIN_TRACK_ID, 10);
+    q = insertClip(gappy, clip("n", MAIN_TRACK_ID, 6, 2));
+    expect(starts(q)).toEqual([0, 2, 6, 10]);
+    // Just too long for the gap: c moves only by the overlap.
+    q = insertClip(gappy, clip("n", MAIN_TRACK_ID, 6, 5));
+    expect(starts(q)).toEqual([0, 2, 6, 11]);
+  });
+
   it("lets a still image's clip stretch either way", () => {
     const still = sourceRange({ kind: "image", duration: 5 });
     expect(sourceRange({ kind: "video", duration: 5 })).toEqual({ min: 0, max: 5 });
@@ -221,6 +269,15 @@ describe("deleting and gaps", () => {
 
   it("lists edit points", () => {
     expect(editPoints(removeClips(mainABC(), ["b"]))).toEqual([0, 2, 5, 6]);
+  });
+
+  it("finds the edit point nearest a time (⌘ while scrubbing)", () => {
+    const points = editPoints(removeClips(mainABC(), ["b"]));
+    expect(nearestPoint(points, 4.2)).toBe(5);
+    expect(nearestPoint(points, 0.9)).toBe(0);
+    expect(nearestPoint(points, 3.5)).toBe(2); // a tie goes to the earlier one
+    expect(nearestPoint(points, 40)).toBe(6);
+    expect(nearestPoint([], 3)).toBe(3);
   });
 });
 

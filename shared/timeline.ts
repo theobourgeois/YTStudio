@@ -338,6 +338,20 @@ export function editPoints(project: Project): number[] {
   return [...pts].sort((a, b) => a - b);
 }
 
+/** The one of sorted `points` nearest `time` (the earlier on a tie), or `time` when there are none. */
+export function nearestPoint(points: readonly number[], time: number): number {
+  let best = time;
+  let bestDistance = Infinity;
+  for (const p of points) {
+    const d = Math.abs(p - time);
+    if (d < bestDistance) {
+      best = p;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
 // ---------------------------------------------------------------------------
 // Snapping
 // ---------------------------------------------------------------------------
@@ -389,6 +403,26 @@ function replaceClips(project: Project, updated: Map<string, Clip>): Project {
 export function addClip(project: Project, clip: Clip): Project {
   const start = findFreeStart(trackClips(project, clip.trackId), clip.start, clipDuration(clip));
   return withClips(project, [...project.clips, { ...clip, start }]);
+}
+
+/**
+ * Add a clip as an insert edit (Auto ripple): where it lands inside a clip it goes to that
+ * clip's nearer edge, and the clips after it on its track are pushed right just as far
+ * as it needs, so what was joined stays joined.
+ */
+export function insertClip(project: Project, clip: Clip): Project {
+  const clips = trackClips(project, clip.trackId);
+  let at = Math.max(0, clip.start);
+  const inside = clips.find((c) => c.start < at - EPS && clipEnd(c) > at + EPS);
+  if (inside) at = at - inside.start < clipEnd(inside) - at ? inside.start : clipEnd(inside);
+  const end = at + clipDuration(clip);
+  const next = clips.find((c) => c.start >= at - EPS);
+  const push = next ? end - next.start : 0;
+  const pushed =
+    push > EPS
+      ? project.clips.map((c) => (c.trackId === clip.trackId && c.start >= at - EPS ? { ...c, start: roundTime(c.start + push) } : c))
+      : project.clips;
+  return withClips(project, [...pushed, { ...clip, start: roundTime(at) }]);
 }
 
 /**
@@ -647,6 +681,37 @@ export function rippleTrimTo(
   const removed = edge === "start" ? time - clip.start : end - time;
   const p = replaceClips(project, new Map([[clipId, trimmed]]));
   return pullLeft(p, clip.trackId, end, removed);
+}
+
+/** Far enough from 0 that nothing before it limits an edit (see `rippleClipEdit`). */
+const RIPPLE_ROOM = 1e6;
+
+/**
+ * `edit` (a trim or rate stretch of `clipId`) as a ripple edit, like Premiere's Ripple Edit
+ * tool and Auto ripple: the clip keeps its start, the clips after it on its track move by
+ * however much longer or shorter it got, and its neighbours never stop it (only its media
+ * does). `edit` sees the clip alone on its track, far from 0.
+ */
+export function rippleClipEdit(project: Project, clipId: string, edit: (p: Project) => Project): Project {
+  const clip = getClip(project, clipId);
+  if (!clip) return project;
+  const alone = withClips(project, [
+    ...project.clips.filter((c) => c.trackId !== clip.trackId),
+    { ...clip, start: clip.start + RIPPLE_ROOM },
+  ]);
+  const edited = getClip(edit(alone), clipId);
+  if (!edited) return project;
+  const change = roundTime(clipDuration(edited) - clipDuration(clip));
+  const next: Clip = { ...edited, start: clip.start };
+  if (Math.abs(change) <= EPS && next.in === clip.in && next.out === clip.out && next.speed === clip.speed) return project;
+  const end = clipEnd(clip);
+  const updated = new Map([[clipId, next]]);
+  if (Math.abs(change) > EPS) {
+    for (const c of trackClips(project, clip.trackId)) {
+      if (c.id !== clipId && c.start >= end - EPS) updated.set(c.id, { ...c, start: roundTime(Math.max(0, c.start + change)) });
+    }
+  }
+  return replaceClips(project, updated);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import { memo, useMemo, type PointerEvent as ReactPointerEvent } from "react";
+import { editPoints, nearestPoint } from "@shared/timeline";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import { cn } from "cn";
@@ -8,9 +9,12 @@ import { PlayheadHead } from "./playhead";
 import { startPointerSession } from "./pointer-session";
 import { setView, useVisibleWindow } from "./view-store";
 
-const seekToX = (x: number) => usePlayback.getState().seek(Math.max(0, x / useEditor.getState().zoom));
+const isSnapKey = (e: KeyboardEvent) => e.key === "Meta" || e.key === "Control";
 
-/** Time ruler: adaptive ticks for the visible window; click or drag to scrub. */
+/**
+ * Time ruler: adaptive ticks for the visible window; click or drag to scrub. Holding ⌘ (Ctrl)
+ * the playhead goes to the nearest clip start or end instead, hopping between them.
+ */
 export function Ruler({ width, zoom }: { width: number; zoom: number }) {
   const ctx = useTimelineContext();
 
@@ -18,16 +22,41 @@ export function Ruler({ width, zoom }: { width: number; zoom: number }) {
     if (e.button !== 0) return;
     const p = lanePoint(ctx, e.clientX, e.clientY);
     if (!p) return;
-    seekToX(p.x);
-    const stop = () => setView({ scrubbing: false });
-    startPointerSession(e, ctx, {
+    const edges = editPoints(useEditor.getState().project);
+    let x = p.x;
+    let toEdge = e.metaKey || e.ctrlKey;
+    const seek = () => {
+      const time = Math.max(0, x / useEditor.getState().zoom);
+      usePlayback.getState().seek(toEdge ? nearestPoint(edges, time) : time);
+    };
+    seek();
+    // Pressing or letting go of ⌘ mid-scrub takes effect without moving the mouse.
+    const onKey = (ev: KeyboardEvent) => {
+      if (!isSnapKey(ev)) return;
+      toEdge = ev.type === "keydown";
+      seek();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKey);
+    const stop = () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKey);
+      setView({ scrubbing: false });
+    };
+    const started = startPointerSession(e, ctx, {
       threshold: 0,
       autoScroll: true,
       onStart: () => setView({ scrubbing: true }),
-      onMove: (pt) => seekToX(pt.x),
+      onMove: (pt, mods) => {
+        x = pt.x;
+        toEdge = mods.metaKey || mods.ctrlKey;
+        seek();
+      },
       onEnd: stop,
       onCancel: stop,
+      onClick: stop,
     });
+    if (!started) stop();
   };
 
   return (

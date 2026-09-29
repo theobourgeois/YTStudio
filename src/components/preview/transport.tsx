@@ -129,7 +129,7 @@ function TimeReadout() {
   );
 }
 
-function TransportButton({
+export function TransportButton({
   label,
   shortcut,
   disabled,
@@ -163,7 +163,7 @@ function TransportButton({
   );
 }
 
-function ShortcutHint({ label, shortcut }: { label: string; shortcut: string }) {
+export function ShortcutHint({ label, shortcut }: { label: string; shortcut: string }) {
   return (
     <span className="flex items-center gap-2">
       {label}

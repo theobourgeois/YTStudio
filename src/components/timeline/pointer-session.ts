@@ -14,6 +14,9 @@ export interface LanePoint {
   y: number;
 }
 
+/** The modifier keys held at the pointer's last event. */
+export type Modifiers = Pick<PointerEvent, "metaKey" | "ctrlKey" | "shiftKey" | "altKey">;
+
 export interface SessionHandlers {
   /** Pointer travel (px) before the drag starts. 0 = start on the first move. */
   threshold: number;
@@ -24,7 +27,7 @@ export interface SessionHandlers {
   /** Threshold crossed. */
   onStart?: () => void;
   /** Pointer moved (or the view auto-scrolled) after the start. */
-  onMove: (p: LanePoint) => void;
+  onMove: (p: LanePoint, mods: Modifiers) => void;
   onEnd?: () => void;
   /** Escape, pointercancel, window blur, or unmount. */
   onCancel?: () => void;
@@ -38,6 +41,7 @@ export function startPointerSession(
   h: SessionHandlers,
 ): boolean {
   let last = { x: e.clientX, y: e.clientY };
+  let mods: Modifiers = { metaKey: e.metaKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey };
   let raf = 0;
   const stopScrolling = () => {
     if (raf) cancelAnimationFrame(raf);
@@ -46,7 +50,7 @@ export function startPointerSession(
 
   const apply = () => {
     const p = lanePoint(ctx, last.x, last.y);
-    if (p) h.onMove(p);
+    if (p) h.onMove(p, mods);
   };
 
   const autoScroll = () => {
@@ -70,6 +74,7 @@ export function startPointerSession(
     onStart: h.onStart,
     onMove(ev) {
       last = { x: ev.clientX, y: ev.clientY };
+      mods = { metaKey: ev.metaKey, ctrlKey: ev.ctrlKey, shiftKey: ev.shiftKey, altKey: ev.altKey };
       apply();
       if (h.autoScroll && !raf) raf = requestAnimationFrame(autoScroll);
     },

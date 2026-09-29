@@ -14,6 +14,7 @@ vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }))
 
 const { useEditor } = await import("./editor");
 const { usePlayback } = await import("./playback");
+const { useSourceMarks } = await import("./source-marks");
 
 function asset(id: string, duration: number, kind: "video" | "audio" = "video"): MediaAsset {
   return {
@@ -36,11 +37,40 @@ beforeEach(() => {
     gestureBase: null,
     selectedClipIds: [],
     clipboard: [],
+    autoRipple: false,
   });
   usePlayback.getState().seek(0);
+  useSourceMarks.setState({ marks: {} });
 });
 
 describe("editor store", () => {
+  it("with Auto ripple, deleting closes the gap and dropped media pushes the rest along", () => {
+    const [a, b, c] = store().addAssetsToTimeline(["a", "b", "c"]); // 0-2, 2-5, 5-6
+    store().toggleAutoRipple();
+    store().select(b);
+    store().deleteSelected();
+    expect(mainIds()).toEqual(["a", "c"]);
+    expect(getClip(store().project, c)!.start).toBe(2);
+    // Dropped at the cut between a and c: c moves right to make room.
+    const [inserted] = store().addAssetsToTimeline(["b"], { trackId: MAIN_TRACK_ID, at: 2 });
+    expect(mainIds()).toEqual(["a", "b", "c"]);
+    expect(getClip(store().project, inserted)!.start).toBe(2);
+    expect(getClip(store().project, c)!.start).toBe(5);
+    expect(getClip(store().project, a)!.start).toBe(0);
+    store().toggleAutoRipple();
+  });
+
+  it("adds only the part of a file between its In and Out marks", () => {
+    useSourceMarks.getState().mark("b", "in", 0.5, 3);
+    useSourceMarks.getState().mark("b", "out", 2, 3);
+    const [a, b] = store().addAssetsToTimeline(["a", "b"]);
+    expect(getClip(store().project, a)).toMatchObject({ in: 0, out: 2, start: 0 });
+    expect(getClip(store().project, b)).toMatchObject({ in: 0.5, out: 2, start: 2 });
+    // Ranges given explicitly win over the marks.
+    const [whole] = store().addAssetsToTimeline(["b"], { ranges: {} });
+    expect(getClip(store().project, whole)).toMatchObject({ in: 0, out: 3 });
+  });
+
   it("routes assets to the right tracks as one undo step", () => {
     store().addAssetsToTimeline(["a", "song", "b"]);
     expect(mainIds()).toEqual(["a", "b"]);
