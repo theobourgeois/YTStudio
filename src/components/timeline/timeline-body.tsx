@@ -18,6 +18,7 @@ import { Ruler } from "./ruler";
 import { TimelineClip } from "./timeline-clip";
 import { LanesContextMenu } from "./timeline-menus";
 import { TrackHeaders } from "./track-headers";
+import { TransitionDropIndicator, TransitionMarkers } from "./transition-markers";
 import { useScrollZoom } from "./use-scroll-zoom";
 import { useTimelineDrop } from "./use-timeline-drop";
 import { useTimelineView } from "./view-store";
@@ -99,6 +100,8 @@ export function TimelineBody() {
                   />
                 );
               })}
+              <TransitionMarkers lanes={lanes} zoom={zoom} />
+              <TransitionDropIndicator lanes={lanes} zoom={zoom} />
               <DropIndicator lanes={lanes} lanesHeight={lanesHeight} zoom={zoom} />
               <SelectedGap lanes={lanes} zoom={zoom} />
               <SnapGuide zoom={zoom} />

@@ -25,9 +25,23 @@ export function getAssetDragData(dt: DataTransfer): AssetDragPayload | null {
   }
 }
 
-/** Usable during dragover: does this drag carry assets or OS files? */
-export function dragKind(dt: DataTransfer): "assets" | "files" | null {
+/** A transition dragged from the Transitions panel (its type) onto a clip edge. */
+export const TRANSITION_DRAG_MIME = "application/x-editor-transition";
+
+export function setTransitionDragData(dt: DataTransfer, type: string) {
+  dt.setData(TRANSITION_DRAG_MIME, type);
+  dt.effectAllowed = "copy";
+}
+
+/** Only readable on `drop`. */
+export function getTransitionDragData(dt: DataTransfer): string | null {
+  return dt.getData(TRANSITION_DRAG_MIME) || null;
+}
+
+/** Usable during dragover: does this drag carry assets, a transition or OS files? */
+export function dragKind(dt: DataTransfer): "assets" | "transition" | "files" | null {
   if (dt.types.includes(ASSET_DRAG_MIME)) return "assets";
+  if (dt.types.includes(TRANSITION_DRAG_MIME)) return "transition";
   if (dt.types.includes("Files")) return "files";
   return null;
 }

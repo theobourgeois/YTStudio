@@ -1,5 +1,5 @@
 /**
- * The selected clip's properties, like Premiere's Effect Controls: one
+ * The selected clip's (or transition's) properties, like Premiere's Effect Controls: one
  * collapsible section per effect that applies to the clip (Motion and Opacity
  * for anything on a video track, Volume for anything with sound), each row
  * generated from the effect's parameter specs.
@@ -27,6 +27,7 @@ import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import type { DisplayContext } from "./display";
 import { ParamRow, ResetButton, useParamEditors } from "./param-rows";
+import { TransitionProperties } from "./transition-properties";
 
 export function PropertiesPanel() {
   const clipId = useEditor((s) => s.selectedClipIds.at(-1) ?? null);
@@ -39,7 +40,9 @@ export function PropertiesPanel() {
   // Values only change with the playhead when they're animated.
   const animated = !!clip && hasKeyframes(clip);
   const playhead = usePlayback((s) => (animated ? s.time : 0));
+  const transition = useEditor((s) => s.selectedTransition);
 
+  if (transition) return <TransitionProperties key={`${transition.clipId}:${transition.edge}`} transitionRef={transition} />;
   if (!clip) return <NothingSelected />;
 
   const time = sourceTime(clip, playhead);
@@ -169,9 +172,10 @@ function NothingSelected() {
         <PiSlidersHorizontal className="size-5" />
       </span>
       <span className="space-y-1">
-        <span className="block text-sm font-medium text-foreground">No clip selected</span>
+        <span className="block text-sm font-medium text-foreground">Nothing selected</span>
         <span className="block text-xs leading-relaxed text-balance">
-          Select a clip on the timeline or the canvas to change its position, scale, rotation, opacity and volume.
+          Select a clip on the timeline or the canvas to change its position, scale, rotation, opacity and volume, or a
+          transition to change its timing and look.
         </span>
       </span>
     </div>

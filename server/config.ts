@@ -13,3 +13,5 @@ export const config = {
 export const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 export const FFPROBE = process.env.FFPROBE_PATH || "ffprobe";
 export const YTDLP = process.env.YTDLP_PATH || "yt-dlp";
+/** Chromium or Chrome for rendering transitions (default: Playwright's, else the installed Google Chrome). */
+export const CHROMIUM = process.env.CHROMIUM_PATH || null;

@@ -25,7 +25,7 @@ progress. Toggle the sidebar with `⌘\`.
 
 | Action | How |
 | --- | --- |
-| Import | **Import** button, or drop files (video, audio, images) on the media panel / timeline |
+| Import | Drop files (video, audio, images) on the media panel or timeline, or click the empty media panel |
 | Add to timeline | Drag from the media panel, double-click, or hover → **+** |
 | Reorder | Drag clips on the video track (it's magnetic — no gaps) |
 | Trim | Drag a clip's left/right edge |
@@ -38,6 +38,24 @@ progress. Toggle the sidebar with `⌘\`.
 | Select on the canvas | Click a clip in the preview (the topmost one under the pointer); click empty canvas to deselect |
 | Move / scale / rotate | Drag the selected clip on the canvas; drag a handle to scale around the anchor point; drag just outside a corner to rotate (⇧ = 15° steps); drag the crosshair to move the anchor point. ⇧ keeps a move on one axis, ⌥ turns snapping off |
 | Properties | **Properties** tab (or double-click a clip): drag a blue number sideways to change it (⇧ faster, ⌥ finer), click it to type, ↺ resets |
+| Transitions | **Transitions** tab: drag one onto a cut or a clip's edge, or **+** / `⇧⌘D` for the cut nearest the playhead. Click it on the timeline to select it, drag its edges to change its length, `⌫` removes it |
+
+### Transitions
+
+The **Transitions** tab has a library of shader transitions: dissolves and dips, pushes, slides and whips, wipes
+and shape irises, camera zooms and spins, 3D cubes, flips, page curls and doorways, glitches (RGB split, VHS,
+datamosh, pixelate), light (flash, film burn, light leaks) and distortions (ripple, swirl, liquid). Filter them by tag
+or search; hover a card to watch it.
+
+Like Premiere, a transition sits on a clip edge. Between two touching clips it plays across the cut (centred on it,
+or starting or ending there: **Alignment**), borrowing media from past the clips' in/out points; where the media runs
+out, the first or last frame is held. On a free edge it plays inside the clip, from or into whatever is underneath
+(lower tracks, or black). Select a transition to change its duration, alignment and its own settings in the
+**Properties** tab.
+
+Transitions are exported with the exact same WebGL shaders as the preview, run in a headless Chromium: Playwright's
+(`pnpm exec playwright install chromium-headless-shell`) or your installed Google Chrome (or set `CHROMIUM_PATH`).
+Exports without transitions don't need it.
 
 ### Online media (music and clips)
 
@@ -74,10 +92,17 @@ seconds long and can be trimmed to any length, and transparent PNGs show the lay
     evaluation. Values can be keyframed in the data model (stored in source-media time, with interpolation), but
     nothing creates keyframes yet. To add a property, add a spec (or a definition to `EFFECTS`), then draw it in
     `src/components/preview/engine.ts` and `server/render.ts`.
+  - `transitions.ts`, `transition-windows.ts`, `transition-gl.ts`, `transition-library/`: transitions. Each one is a
+    GLSL shader plus parameter specs (like effects). `transition-windows.ts` works out where they play on the timeline,
+    `transition-gl.ts` is the WebGL renderer shared by the preview, the library thumbnails and the export. To add one,
+    add a definition to a `transition-library` file; `pnpm tsx scripts/transition-sheet.ts <type or tag>` renders a
+    contact sheet and checks it starts and ends on the right pictures.
   - `transform.ts`: where a clip lands on the canvas (fit, then scale and rotate around the anchor point, which sits at
     the position). The preview's CSS, the canvas handles and the export all use it.
 - **`server/`** — a small Express server that stores projects and their media in `./data`, probes media and generates
-  thumbnails/waveforms with ffmpeg, and renders exports with a single ffmpeg filter graph.
+  thumbnails/waveforms with ffmpeg, and renders exports with a single ffmpeg filter graph. Transitions are drawn
+  first (`transition-render.ts`): ffmpeg decodes both sides, a headless Chromium page (`gl-browser.ts`) runs the
+  shader, and the frames are kept as a lossless file the main render splices in.
 
 The browser preview plays the original files with `<video>`/`<img>`/`<audio>` elements synced to the playback clock and
 placed with CSS transforms. The export applies the same rules (trim points, motion, opacity, volume, mute) in ffmpeg.

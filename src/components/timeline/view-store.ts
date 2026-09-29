@@ -26,6 +26,13 @@ export interface DropTarget {
   time: number;
 }
 
+/** Where a transition dragged in from the library would go, and the stretch it would play. */
+export interface TransitionDrop {
+  trackId: string;
+  start: number;
+  end: number;
+}
+
 /** Rubber-band selection rectangle, in lane-area px. */
 export interface Marquee {
   x0: number;
@@ -45,6 +52,7 @@ interface TimelineViewState {
   marquee: Marquee | null;
   snapGuide: number | null;
   drop: DropTarget | null;
+  transitionDrop: TransitionDrop | null;
   scrubbing: boolean;
 }
 
@@ -58,6 +66,7 @@ export const useTimelineView = create<TimelineViewState>(() => ({
   marquee: null,
   snapGuide: null,
   drop: null,
+  transitionDrop: null,
   scrubbing: false,
 }));
 

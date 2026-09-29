@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { editPoints, projectDuration } from "@shared/timeline";
+import { DEFAULT_TRANSITION } from "@shared/transitions";
 import { timelineCommands } from "@/components/timeline/view-store";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
@@ -74,7 +75,7 @@ function run(action: ShortcutAction): boolean {
   const fps = editor.project.settings.fps;
   const stepFrame = (dir: 1 | -1) => seekTo((Math.round(usePlayback.getState().time * fps) + dir) / fps);
   const hasSelection = editor.selectedClipIds.length > 0;
-  const hasGap = editor.selectedGap !== null;
+  const hasGapOrTransition = editor.selectedGap !== null || editor.selectedTransition !== null;
 
   switch (action) {
     case "toggleSidebar":
@@ -132,7 +133,7 @@ function run(action: ShortcutAction): boolean {
       return true;
     case "delete":
     case "rippleDelete":
-      if (!hasSelection && !hasGap) return false;
+      if (!hasSelection && !hasGapOrTransition) return false;
       editor.deleteSelected(action === "rippleDelete");
       return true;
     case "cut":
@@ -150,6 +151,9 @@ function run(action: ShortcutAction): boolean {
     case "duplicate":
       // Also keeps ⌘D from bookmarking the page.
       editor.duplicateSelected();
+      return true;
+    case "addTransition":
+      editor.applyTransition(DEFAULT_TRANSITION);
       return true;
     case "nudgeLeft":
     case "nudgeRight":
@@ -175,7 +179,7 @@ function run(action: ShortcutAction): boolean {
       editor.selectAll();
       return true;
     case "deselect":
-      if (!hasSelection && !hasGap) return false;
+      if (!hasSelection && !hasGapOrTransition) return false;
       editor.select(null);
       return true;
     case "zoomIn":

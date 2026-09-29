@@ -23,6 +23,8 @@ import {
 } from "react-icons/pi";
 import type { Track } from "@shared/types";
 import { MOTION, findEffect, setParams } from "@shared/effects";
+import { type TransitionRef, findWindow, setTransitionParams } from "@shared/transition-windows";
+import type { TransitionAlignment } from "@shared/types";
 import {
   addTrack,
   clipsAtTime,
@@ -53,6 +55,7 @@ import { lanePoint, useTimelineContext } from "./context";
 import { laneAt } from "./geometry";
 
 type MenuTarget =
+  | { kind: "transition"; ref: TransitionRef }
   | { kind: "clip"; clipId: string; time: number }
   | { kind: "lane"; trackId: string | null; time: number };
 
@@ -71,6 +74,16 @@ export function LanesContextMenu({ children }: { children: ReactNode }) {
       return;
     }
     const time = Math.max(0, p.x / s.zoom);
+    const transition = (e.target as Element).closest<HTMLElement>("[data-transition]")?.dataset.transition;
+    if (transition) {
+      const [clipId, edge] = transition.split(":");
+      const ref: TransitionRef = { clipId, edge: edge === "in" ? "in" : "out" };
+      if (findWindow(s.project, ref)) {
+        s.selectTransition(ref);
+        setTarget({ kind: "transition", ref });
+        return;
+      }
+    }
     const clipId = (e.target as Element).closest<HTMLElement>("[data-clip-id]")?.dataset.clipId;
     if (clipId && getClip(s.project, clipId)) {
       if (!s.selectedClipIds.includes(clipId)) s.select(clipId);
@@ -88,10 +101,44 @@ export function LanesContextMenu({ children }: { children: ReactNode }) {
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-60">
+        {target?.kind === "transition" && <TransitionMenuItems target={target} />}
         {target?.kind === "clip" && <ClipMenuItems target={target} />}
         {target?.kind === "lane" && <LaneMenuItems target={target} />}
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+function TransitionMenuItems({ target }: { target: Extract<MenuTarget, { kind: "transition" }> }) {
+  const alignment = useEditor((s) => {
+    const w = findWindow(s.project, target.ref);
+    return w?.from && w.to ? w.transition.alignment : null;
+  });
+  return (
+    <>
+      <ContextMenuItem onSelect={() => useLayout.getState().setLeftPanel("properties")}>
+        <PiSlidersHorizontal /> Properties
+      </ContextMenuItem>
+      {alignment && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuLabel className="text-xs text-muted-foreground">Alignment</ContextMenuLabel>
+          <ContextMenuRadioGroup
+            value={alignment}
+            onValueChange={(v) => editor().commit((p) => setTransitionParams(p, target.ref, { alignment: v as TransitionAlignment }))}
+          >
+            <ContextMenuRadioItem value="center">Center at cut</ContextMenuRadioItem>
+            <ContextMenuRadioItem value="start">Start at cut</ContextMenuRadioItem>
+            <ContextMenuRadioItem value="end">End at cut</ContextMenuRadioItem>
+          </ContextMenuRadioGroup>
+        </>
+      )}
+      <ContextMenuSeparator />
+      <ContextMenuItem variant="destructive" onSelect={() => editor().deleteSelected()}>
+        <PiTrash /> Delete transition
+        <ContextMenuShortcut>{SHORTCUT_KEYS.delete}</ContextMenuShortcut>
+      </ContextMenuItem>
+    </>
   );
 }
 

@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { PiFileArrowUp, PiTrayArrowDown } from "react-icons/pi";
+import { PiFileArrowUp } from "react-icons/pi";
 import type { MediaAsset } from "@shared/types";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { PropertiesPanel } from "@/components/properties/properties-panel";
+import { TransitionsPanel } from "@/components/transitions/transitions-panel";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
@@ -16,7 +16,7 @@ import { clipCountByAsset, filterAssets, type MediaFilter } from "./media-utils"
 import { OnlinePanel } from "./online-panel";
 import { UploadCard } from "./upload-card";
 
-/** The left panel: the project's media, online media, and the selected clip's properties. */
+/** The left panel: the project's media, online media, transitions, and the selection's properties. */
 export function MediaBin() {
   const assets = useEditor((s) => s.assets);
   const uploads = useEditor((s) => s.uploads);
@@ -52,7 +52,7 @@ export function MediaBin() {
 
   return (
     <aside
-      className="relative flex w-72 shrink-0 flex-col border-r bg-background"
+      className="relative flex w-80 shrink-0 flex-col border-r bg-background"
       aria-label="Media"
       {...drop.handlers}
     >
@@ -67,16 +67,13 @@ export function MediaBin() {
           <TabButton active={tab === "online"} onClick={() => setTab("online")}>
             Online
           </TabButton>
+          <TabButton active={tab === "transitions"} onClick={() => setTab("transitions")}>
+            Transitions
+          </TabButton>
           <TabButton active={tab === "properties"} onClick={() => setTab("properties")}>
             Properties
           </TabButton>
         </div>
-        {tab === "media" && (
-          <Button variant="outline" size="xs" className="ml-auto h-7 px-2.5" onClick={openPicker}>
-            <PiTrayArrowDown />
-            Import
-          </Button>
-        )}
         <input
           ref={inputRef}
           type="file"
@@ -93,6 +90,7 @@ export function MediaBin() {
       </div>
 
       <OnlinePanel active={tab === "online"} />
+      {tab === "transitions" && <TransitionsPanel />}
       {tab === "properties" && <PropertiesPanel />}
       {tab !== "media" ? null : isEmpty ? (
         <EmptyState onClick={openPicker} />
@@ -207,7 +205,7 @@ function EmptyState({ onClick }: { onClick: () => void }) {
         </span>
         <span className="space-y-1">
           <span className="block text-sm font-medium text-foreground">Drop videos, music or images here</span>
-          <span className="block text-xs">or click Import</span>
+          <span className="block text-xs">or click to import</span>
         </span>
         <span className="text-[11px] leading-relaxed text-muted-foreground/80">
           MP4, MOV, WebM, MKV

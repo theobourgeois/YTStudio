@@ -25,6 +25,7 @@ export type ShortcutAction =
   | "copy"
   | "paste"
   | "duplicate"
+  | "addTransition"
   | "nudgeLeft"
   | "nudgeRight"
   | "nudgeLeftMore"
@@ -76,7 +77,8 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
   if (e.altKey || (e.metaKey && e.ctrlKey)) return null;
   const key = e.key.toLowerCase();
   if (key === "z") return e.shiftKey ? "redo" : "undo";
-  if (e.shiftKey) return null;
+  // Premiere's "Apply Default Transition" is ⌘D, which duplicates here.
+  if (e.shiftKey) return key === "d" ? "addTransition" : null;
   switch (key) {
     case "y":
       return "redo";
@@ -196,6 +198,7 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   copy: `${MOD}C`,
   paste: `${MOD}V`,
   duplicate: `${MOD}D`,
+  addTransition: `${SHIFT}${MOD}D`,
   nudgeLeft: `${ALT}←`,
   nudgeRight: `${ALT}→`,
   nudgeLeftMore: `${ALT}${SHIFT}←`,
@@ -242,6 +245,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Ripple delete (close the gap)", keys: [`${SHIFT}⌫`] },
       { label: "Cut / copy / paste", keys: [`${MOD}X`, `${MOD}C`, `${MOD}V`] },
       { label: "Duplicate", keys: [`${MOD}D`] },
+      { label: "Add a cross dissolve at the nearest cut", keys: [`${SHIFT}${MOD}D`] },
       { label: "Nudge 1 frame", keys: [`${ALT}←`, `${ALT}→`] },
       { label: "Nudge 10 frames", keys: [`${ALT}${SHIFT}←`, `${ALT}${SHIFT}→`] },
       { label: "Move to track above / below", keys: [`${ALT}↑`, `${ALT}↓`] },

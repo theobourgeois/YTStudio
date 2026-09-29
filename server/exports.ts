@@ -11,7 +11,8 @@ import { FFMPEG } from "./config.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
-import { type RenderAsset, buildRenderArgs, runRender } from "./render.ts";
+import { type RenderAsset, buildRenderArgs, planTransitions, runRender } from "./render.ts";
+import { renderTransitions } from "./transition-render.ts";
 import { type DataPaths, HttpError, isValidId } from "./storage.ts";
 
 const RESOLUTIONS: readonly ExportResolution[] = ["720p", "1080p", "4k"];
@@ -123,6 +124,7 @@ export class ExportManager {
     if (job.status !== "queued") return;
     job.status = "rendering";
     const tmp = this.paths.tmpFile(".mp4");
+    let transitionFiles: Record<string, string> = {};
     try {
       const library = this.library.byId();
       const assets: Record<string, RenderAsset> = {};
@@ -131,14 +133,20 @@ export class ExportManager {
         if (!asset) throw new Error("Some media was deleted before the export started.");
         assets[asset.id] = { ...asset, path: this.library.sourcePath(asset) };
       }
-      const argv = buildRenderArgs(project, assets, {
-        width: job.width,
-        height: job.height,
-        fps: project.settings.fps,
-        outputPath: tmp,
-        ffmpegPath: FFMPEG,
+      const opts = { width: job.width, height: job.height, fps: project.settings.fps, ffmpegPath: FFMPEG };
+
+      // Transitions are drawn first; each of their frames costs a few of the main render's.
+      const transitions = planTransitions(project, assets, opts);
+      const transitionFrames = transitions.reduce((n, t) => n + t.progress.length, 0);
+      const mainFrames = Math.max(1, job.duration * opts.fps);
+      const share = transitionFrames ? (transitionFrames * 4) / (transitionFrames * 4 + mainFrames) : 0;
+      let drawn = 0;
+      transitionFiles = await renderTransitions(transitions, (ext) => this.paths.tmpFile(ext), controller.signal, () => {
+        job.progress = (share * ++drawn) / transitionFrames;
       });
-      await runRender(argv, job.duration, (p) => (job.progress = p), controller.signal);
+
+      const argv = buildRenderArgs(project, assets, { ...opts, outputPath: tmp, transitions: transitionFiles });
+      await runRender(argv, job.duration, (p) => (job.progress = share + (1 - share) * p), controller.signal);
       await fs.rename(tmp, this.paths.exportFile(job.id));
       Object.assign(job, {
         status: "done",
@@ -152,6 +160,8 @@ export class ExportManager {
       job.status = "error";
       job.error = `Export failed: ${err instanceof Error ? err.message : String(err)}`;
       console.error(`[export] ${job.id} failed: ${job.error}`);
+    } finally {
+      await Promise.all(Object.values(transitionFiles).map((f) => fs.rm(f, { force: true })));
     }
   }
 }

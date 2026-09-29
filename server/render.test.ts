@@ -6,15 +6,12 @@ import type { Clip, ParamValues, Project } from "../shared/types.ts";
 import { type RenderAsset, SAMPLE_RATE, buildRenderArgs, planPiece } from "./render.ts";
 
 const assets: Record<string, RenderAsset> = {
-  vid: { path: "/media/vid.mp4", kind: "video", hasVideo: true, hasAudio: true, width: 1920, height: 1080 },
-  mute: { path: "/media/silent clip.mov", kind: "video", hasVideo: true, hasAudio: false, width: 1080, height: 1920 },
-  song: { path: "/media/song.mp3", kind: "audio", hasVideo: false, hasAudio: true, width: null, height: null },
-  photo: { path: "/media/photo.png", kind: "image", hasVideo: true, hasAudio: false, width: 1000, height: 1000 },
+  vid: { path: "/media/vid.mp4", kind: "video", hasVideo: true, hasAudio: true, width: 1920, height: 1080, duration: 10 },
+  mute: { path: "/media/silent clip.mov", kind: "video", hasVideo: true, hasAudio: false, width: 1080, height: 1920, duration: 10 },
+  song: { path: "/media/song.mp3", kind: "audio", hasVideo: false, hasAudio: true, width: null, height: null, duration: 60 },
+  photo: { path: "/media/photo.png", kind: "image", hasVideo: true, hasAudio: false, width: 1000, height: 1000, duration: 5 },
 };
-const durations = { vid: 10, mute: 10, song: 60, photo: 5 };
-const library = Object.fromEntries(
-  Object.entries(assets).map(([id, a]) => [id, { ...a, duration: durations[id as keyof typeof durations] }]),
-);
+const library = assets;
 
 let n = 0;
 /** A clip, optionally with effect parameters, e.g. `{ motion: { rotation: 90 } }`. */
