@@ -75,7 +75,8 @@ export function TimelineToolbar() {
             aria-label="Snapping"
             pressed={snapping}
             onPressedChange={() => editor().toggleSnapping()}
-            className="size-8 min-w-8 text-muted-foreground data-[state=on]:bg-brand/15 data-[state=on]:text-brand hover:data-[state=on]:bg-brand/20 hover:data-[state=on]:text-brand"
+            // The tooltip trigger replaces the toggle's data-state with its own, so style off aria-pressed.
+            className="size-8 min-w-8 text-muted-foreground aria-pressed:bg-brand/15 aria-pressed:text-brand hover:aria-pressed:bg-brand/20 hover:aria-pressed:text-brand"
           >
             <PiMagnet />
           </Toggle>
