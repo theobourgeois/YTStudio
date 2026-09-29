@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n server,web -c blue,magenta \"pnpm dev:server\" \"pnpm dev:web\"",
+    "dev": "tsx scripts/dev.ts",
     "dev:web": "vite",
     "dev:server": "tsx watch --clear-screen=false server/index.ts",
     "build": "tsc -b && vite build",

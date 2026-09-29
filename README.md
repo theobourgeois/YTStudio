@@ -11,7 +11,7 @@ brew install ffmpeg      # required for import (thumbnails/waveforms) and export
 brew install yt-dlp deno # optional: the Online tab (YouTube search, links from TikTok, Instagram, X...)
 pnpm install
 pnpm samples             # optional: generate a few test clips + a music track in ./samples
-pnpm dev                 # server on :5311, app on http://localhost:5310
+pnpm dev                 # server on :5311, app on http://localhost:5310 (next free pair if taken)
 ```
 
 Then drag files from `./samples` (or anywhere) into the media panel or straight onto the timeline.
@@ -109,7 +109,8 @@ The browser preview plays the original files with `<video>`/`<img>`/`<audio>` el
 placed with CSS transforms. The export applies the same rules (trim points, motion, opacity, volume, mute) in ffmpeg.
 
 Projects, media and exports are stored in `./data` (override with `EDITOR_DATA_DIR`). Ports: `EDITOR_WEB_PORT`
-(5310) and `EDITOR_SERVER_PORT` (5311).
+(5310) and `EDITOR_SERVER_PORT` (5311); if they're taken (another checkout or worktree running), `pnpm dev` moves
+to 5410/5411, 5510/5511, ...
 
 Import accepts what the browser preview can play: MP4/MOV/WebM/MKV with H.264, HEVC, VP8/9 or AV1 video,
 MP3/AAC/WAV/FLAC/Ogg/Opus audio, and PNG/JPEG/WebP/BMP (or single-frame GIF) images. Phone photos are shown upright
