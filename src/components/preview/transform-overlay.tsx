@@ -6,7 +6,7 @@
  * undo step. With the Type tool, a click adds a text there; double-clicking
  * a text types into it.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { Clip, ParamValue, ParamValues, Vec2 } from "@shared/types";
 import { keyframeTime } from "@shared/animation";
 import { keyframeValue } from "@shared/keyframes";
@@ -22,6 +22,7 @@ import {
   toCanvas,
   wrapDegrees,
 } from "@shared/transform";
+import { dragKind, getEffectDragData } from "@/lib/dnd";
 import { EditGesture } from "@/lib/edit-gesture";
 import { cancelActiveDrag, startPointerDrag } from "@/lib/pointer-drag";
 import { cn } from "cn";
@@ -78,6 +79,13 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
   const fonts = useFonts((s) => s.status);
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const [dragging, setDragging] = useState(false);
+  // The clip a video effect being dragged over the canvas would be added to.
+  const [effectDropId, setEffectDropId] = useState<string | null>(null);
+  useEffect(() => {
+    const reset = () => setEffectDropId(null);
+    window.addEventListener("dragend", reset);
+    return () => window.removeEventListener("dragend", reset);
+  }, []);
 
   const onCanvas = useMemo(
     () => clipsOnCanvas(project, assets, canvas, time),
@@ -225,6 +233,27 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
     if (target && isTextClip(target.clip)) editText(target.clip.id);
   };
 
+  // A video effect dropped on the canvas goes on the clip under the pointer
+  // (or on every selected clip, when it's one of them).
+  const onDragOver = (e: DragEvent) => {
+    if (dragKind(e.dataTransfer) !== "effect") return;
+    e.preventDefault();
+    const target = clipAtPoint(onCanvas, pointAt(e));
+    e.dataTransfer.dropEffect = target ? "copy" : "none";
+    setEffectDropId(target?.clip.id ?? null);
+  };
+  const onDrop = (e: DragEvent) => {
+    setEffectDropId(null);
+    const type = getEffectDragData(e.dataTransfer);
+    const target = type && clipAtPoint(onCanvas, pointAt(e));
+    if (!type || !target) return;
+    e.preventDefault();
+    const selectedIds = useEditor.getState().selectedClipIds;
+    const id = target.clip.id;
+    useEditor.getState().addEffectTo(selectedIds.includes(id) ? selectedIds : [id], type);
+  };
+  const effectDrop = effectDropId ? onCanvas.find((c) => c.clip.id === effectDropId) : undefined;
+
   if (!(canvas.width > 0 && canvas.height > 0)) return null;
   const p = selected?.placement;
   const corners = p ? frameCorners(p) : null;
@@ -238,6 +267,11 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
       className={cn("absolute inset-0 z-10", tool === "text" && "cursor-text")}
       onPointerDown={onCanvasPointerDown}
       onDoubleClick={onDoubleClick}
+      onDragOver={onDragOver}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEffectDropId(null);
+      }}
+      onDrop={onDrop}
     >
       {editing?.text && <TextEditor target={editing} />}
       <svg className="pointer-events-none absolute inset-0 size-full overflow-visible" aria-hidden>
@@ -248,6 +282,13 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
           <line y1={guides.y} y2={guides.y} x1={0} x2={canvas.width} className="stroke-playhead" strokeWidth={1} />
         )}
         {selected && !editing && <MotionPath clip={selected.clip} canvas={canvas} />}
+        {effectDrop && (
+          <polygon
+            points={frameCorners(effectDrop.placement).map((c) => c.join(",")).join(" ")}
+            className="fill-brand/15 stroke-brand"
+            strokeWidth={2}
+          />
+        )}
         {editing && (
           <polygon
             points={frameCorners(editing.placement).map((c) => c.join(",")).join(" ")}

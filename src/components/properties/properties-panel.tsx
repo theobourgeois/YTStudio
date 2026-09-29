@@ -1,11 +1,27 @@
 /**
  * The selected clip's (or transition's) properties, like Premiere's Effect Controls: one
  * collapsible section per effect that applies to the clip (Motion and Opacity
- * for anything on a video track, Volume for anything with sound), each row
- * generated from the effect's parameter specs.
+ * for anything on a video track, Volume for anything with sound, then the
+ * video effects added from the Effects tab, in the order they're drawn), each
+ * row generated from the effect's parameter specs.
  */
 import { type ReactNode, useState } from "react";
-import { PiCaretRight, PiDiamondsFour, PiFilmStrip, PiImage, PiMusicNotes, PiSlidersHorizontal, PiSubtitles, PiTextT } from "react-icons/pi";
+import { useShallow } from "zustand/react/shallow";
+import {
+  PiArrowDown,
+  PiArrowUp,
+  PiCaretRight,
+  PiDiamondsFour,
+  PiDotsThree,
+  PiFilmStrip,
+  PiImage,
+  PiMusicNotes,
+  PiSlidersHorizontal,
+  PiSparkle,
+  PiSubtitles,
+  PiTextT,
+  PiTrash,
+} from "react-icons/pi";
 import { keyframeTime } from "@shared/animation";
 import type { Clip, Effect, MediaAsset, ParamValues, Project } from "@shared/types";
 import {
@@ -14,6 +30,9 @@ import {
   effectDefinition,
   hasKeyframes,
   isTextClip,
+  isVideoEffect,
+  moveEffect,
+  removeEffect,
   resetParams,
   setEffectEnabled,
   setParams,
@@ -24,6 +43,13 @@ import { formatDuration } from "@shared/format";
 import { isAnimatable, sameValue } from "@shared/params";
 import { clipDuration, clipName, getClip, getTrack, isOnVideoTrack, outputSize, sourceTime } from "@shared/timeline";
 import { refKey } from "@shared/transition-windows";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { layoutText } from "@/lib/text-render";
@@ -102,6 +128,11 @@ export function PropertiesPanel() {
           lanes={lanes}
         />
       ))}
+      {visual && (
+        <PanelRow lanes={lanes}>
+          <AddEffectRow />
+        </PanelRow>
+      )}
     </>
   );
 
@@ -119,7 +150,7 @@ export function PropertiesPanel() {
   );
 }
 
-/** Width of the properties' own column (the left panel's usual width, `w-86`). */
+/** Width of the properties' own column beside the keyframe lanes (the left panel's usual width). */
 const ROWS_WIDTH = "21.5rem";
 
 /** A row of the panel: the property (or header) on the left, its keyframe lane on the right while the lanes show. */
@@ -275,6 +306,7 @@ export function EffectSection({
               onClick={() => to.reset(params.map((spec) => spec.key))}
             />
           )}
+          {!target && isVideoEffect(effect) && <EffectMenu clipId={clipId} effectId={effect.id} label={def.label} />}
           {!def.alwaysOn && !target && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -332,6 +364,62 @@ export function EffectSection({
   );
 }
 
+/** A video effect's "⋯" menu: move it before or after the others, or remove it. */
+function EffectMenu({ clipId, effectId, label }: { clipId: string; effectId: string; label: string }) {
+  const commit = useEditor((s) => s.commit);
+  // Whether it can move up or down among the clip's video effects.
+  const [first, last] = useEditor(
+    useShallow((s) => {
+      const ids = getClip(s.project, clipId)?.effects.filter(isVideoEffect).map((e) => e.id) ?? [];
+      return [ids[0] === effectId, ids.at(-1) === effectId];
+    }),
+  );
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${label} options`}
+          className="grid size-5 cursor-pointer place-items-center rounded text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <PiDotsThree className="size-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuItem disabled={first} onSelect={() => commit((p) => moveEffect(p, clipId, effectId, -1))}>
+          <PiArrowUp />
+          Move up
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={last} onSelect={() => commit((p) => moveEffect(p, clipId, effectId, 1))}>
+          <PiArrowDown />
+          Move down
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={() => commit((p) => removeEffect(p, clipId, effectId))}>
+          <PiTrash />
+          Remove {label}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Where to find more effects for the clip (the Effects tab). */
+function AddEffectRow() {
+  return (
+    <div className="px-3 py-2.5">
+      <button
+        type="button"
+        onClick={() => useLayout.getState().showEffects("video")}
+        className="flex h-8 w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed text-xs text-muted-foreground transition-colors outline-none hover:border-foreground/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <PiSparkle className="size-3.5" />
+        Add an effect
+      </button>
+    </div>
+  );
+}
+
 /** A caption's own look is edited here; everyone's is in the Captions tab. */
 function CaptionNote() {
   return (
@@ -358,8 +446,8 @@ function NothingSelected() {
       <span className="space-y-1">
         <span className="block text-sm font-medium text-foreground">Nothing selected</span>
         <span className="block text-xs leading-relaxed text-balance">
-          Select a clip on the timeline or the canvas to change its position, scale, rotation, opacity, volume and
-          text, or a transition to change its timing and look.
+          Select a clip on the timeline or the canvas to change its position, scale, rotation, opacity, volume, text
+          and effects, or a transition to change its timing and look.
         </span>
       </span>
     </div>

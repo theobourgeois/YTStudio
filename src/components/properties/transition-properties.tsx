@@ -17,7 +17,7 @@ import {
 import { ALIGNMENT_SPEC, DURATION_SPEC, TAG_LABELS, defaultTransitionParams } from "@shared/transitions";
 import { sameValue } from "@shared/params";
 import type { Clip } from "@shared/types";
-import { requestPoster } from "@/components/transitions/thumbnails";
+import { requestPoster, transitionThumb } from "@/components/effects/thumbnails";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useEditor } from "@/stores/editor";
@@ -120,7 +120,7 @@ function SectionTitle({ children }: { children: string }) {
 function Thumb({ window: w }: { window: TransitionWindow }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    if (ref.current) return requestPoster(w.def, ref.current);
+    if (ref.current) return requestPoster(transitionThumb(w.def), ref.current);
   }, [w.def]);
   return (
     <div className="h-9 w-[54px] shrink-0 overflow-hidden rounded-md bg-black ring-1 ring-border ring-inset">

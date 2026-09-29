@@ -25,7 +25,7 @@ export function getAssetDragData(dt: DataTransfer): AssetDragPayload | null {
   }
 }
 
-/** A transition dragged from the Transitions panel (its type) onto a clip edge. */
+/** A transition dragged from the Effects tab's Transitions (its type) onto a clip edge. */
 export const TRANSITION_DRAG_MIME = "application/x-editor-transition";
 
 export function setTransitionDragData(dt: DataTransfer, type: string) {
@@ -36,6 +36,19 @@ export function setTransitionDragData(dt: DataTransfer, type: string) {
 /** Only readable on `drop`. */
 export function getTransitionDragData(dt: DataTransfer): string | null {
   return dt.getData(TRANSITION_DRAG_MIME) || null;
+}
+
+/** A video effect dragged from the Effects tab (its type) onto a clip, on the timeline or the canvas. */
+export const EFFECT_DRAG_MIME = "application/x-editor-effect";
+
+export function setEffectDragData(dt: DataTransfer, type: string) {
+  dt.setData(EFFECT_DRAG_MIME, type);
+  dt.effectAllowed = "copy";
+}
+
+/** Only readable on `drop`. */
+export function getEffectDragData(dt: DataTransfer): string | null {
+  return dt.getData(EFFECT_DRAG_MIME) || null;
 }
 
 /** A Library item dragged from the Library tab onto the timeline or a Library folder (its id). */
@@ -51,13 +64,14 @@ export function getLibraryDragData(dt: DataTransfer): string | null {
   return dt.getData(LIBRARY_DRAG_MIME) || null;
 }
 
-export type DragKind = "assets" | "library" | "transition" | "files";
+export type DragKind = "assets" | "library" | "transition" | "effect" | "files";
 
-/** Usable during dragover: does this drag carry assets, a Library item, a transition or OS files? */
+/** Usable during dragover: does this drag carry assets, a Library item, a transition, an effect or OS files? */
 export function dragKind(dt: DataTransfer): DragKind | null {
   if (dt.types.includes(ASSET_DRAG_MIME)) return "assets";
   if (dt.types.includes(LIBRARY_DRAG_MIME)) return "library";
   if (dt.types.includes(TRANSITION_DRAG_MIME)) return "transition";
+  if (dt.types.includes(EFFECT_DRAG_MIME)) return "effect";
   if (dt.types.includes("Files")) return "files";
   return null;
 }

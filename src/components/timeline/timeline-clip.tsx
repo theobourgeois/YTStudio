@@ -1,7 +1,7 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
 import { PiSubtitles, PiTextT, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
-import { isTextClip } from "@shared/effects";
+import { isTextClip, videoEffects } from "@shared/effects";
 import { keyframeTimes, timelineTime } from "@shared/animation";
 import { clipDuration, clipName } from "@shared/timeline";
 import { cn } from "cn";
@@ -11,6 +11,7 @@ import { Filmstrip, PosterStrip, Waveform } from "./clip-media";
 import { CLIP_INSET_Y } from "./constants";
 import { useTimelineContext } from "./context";
 import type { LaneLayout } from "./geometry";
+import { useTimelineView } from "./view-store";
 
 interface TimelineClipProps {
   clip: Clip;
@@ -42,6 +43,8 @@ export const TimelineClip = memo(function TimelineClip({
   const text = isTextClip(clip);
   const offline = !asset && !text;
   const audioLane = lane.kind === "audio";
+  const effectDrop = useTimelineView((s) => s.effectDrop === clip.id);
+  const effects = videoEffects(clip);
 
   return (
     <div
@@ -69,12 +72,22 @@ export const TimelineClip = memo(function TimelineClip({
         {!offline && (
           <ClipContent asset={asset} clip={clip} audioLane={audioLane} left={left} width={width} height={height} zoom={zoom} />
         )}
-        {width >= 26 && <ClipLabel offline={offline} text={text} caption={clip.caption === true} name={clipName(clip, asset)} />}
+        {width >= 26 && (
+          <ClipLabel
+            offline={offline}
+            text={text}
+            caption={clip.caption === true}
+            name={clipName(clip, asset)}
+            effects={effects.map((e) => e.type)}
+            effectsOn={effects.some((e) => e.enabled)}
+          />
+        )}
         <ClipKeyframes clip={clip} zoom={zoom} />
       </div>
       {selected && !placeholder && (
         <div className="pointer-events-none absolute -inset-px rounded-md ring-2 ring-foreground" />
       )}
+      {effectDrop && <div className="pointer-events-none absolute -inset-px rounded-md bg-brand/20 ring-2 ring-brand" />}
       {!placeholder && (
         <>
           <TrimHandle edge="start" width={width} selected={selected} onPointerDown={(e) => startClipTrim(e, clip.id, "start", ctx)} />
@@ -164,7 +177,23 @@ function ClipKeyframes({ clip, zoom }: { clip: Clip; zoom: number }) {
   );
 }
 
-function ClipLabel({ offline, text, caption, name }: { offline: boolean; text: boolean; caption: boolean; name: string }) {
+function ClipLabel({
+  offline,
+  text,
+  caption,
+  name,
+  effects,
+  effectsOn,
+}: {
+  offline: boolean;
+  text: boolean;
+  caption: boolean;
+  name: string;
+  /** Its video effects' types. */
+  effects: string[];
+  /** Some of them are on. */
+  effectsOn: boolean;
+}) {
   return (
     <div
       className={cn(
@@ -175,6 +204,15 @@ function ClipLabel({ offline, text, caption, name }: { offline: boolean; text: b
       {offline && <PiWarning className="size-3 shrink-0" />}
       {text && (caption ? <PiSubtitles className="size-3 shrink-0" /> : <PiTextT className="size-3 shrink-0" />)}
       <span className="truncate">{name}</span>
+      {effects.length > 0 && (
+        // Premiere's fx badge: coloured while an effect is on.
+        <span
+          data-clip-effects={effects.join(" ")}
+          className={cn("shrink-0 font-serif font-semibold italic", effectsOn ? "text-amber-300" : "opacity-50")}
+        >
+          fx
+        </span>
+      )}
     </div>
   );
 }

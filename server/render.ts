@@ -5,9 +5,9 @@
  * and encodes:
  *
  * - Output frame f shows timeline time f / fps: what `sceneAt` says each video
- *   track shows then (a clip, or a transition with both sides), placed by its
- *   Motion and faded by its Opacity at that moment, bottom track first over
- *   a black canvas.
+ *   track shows then (a clip, or a transition with both sides), with its video
+ *   effects, placed by its Motion and faded by its Opacity at that moment,
+ *   bottom track first over a black canvas.
  * - Each clip that's ever visible is decoded once by its own ffmpeg
  *   (`RenderSource`) into raw RGBA frames, one per output frame from the
  *   first it's drawn in to the last, so the stream stays in step with the
@@ -27,6 +27,7 @@
  *   with their own YCbCr matrix; the output is BT.709, tagged as such.
  */
 import type { Affine, Placed } from "../shared/compositor.ts";
+import { effectPasses } from "../shared/effect-gl.ts";
 import { VOLUME, findEffect, isTextClip, motionAt, opacityAt, volumeAt } from "../shared/effects.ts";
 import { easesIn, easesOut } from "../shared/keyframes.ts";
 import { type Shown, sceneAt, transitionWindows } from "../shared/scene.ts";
@@ -89,17 +90,20 @@ export interface RenderSource {
 export const sourceFrameBytes = (s: Pick<RenderSource, "still" | "width" | "height">) =>
   s.still ? s.width * s.height * 4 : (s.width * s.height * 3) / 2;
 
+/** A picture placed on an output frame; its effects' shaders are keys into `RenderPlan.shaders`. */
+export type PlacedRef = Placed<string>;
+
 /** One layer of an output frame, bottom first. */
 export type FrameLayer =
-  | { kind: "picture"; picture: Placed }
+  | { kind: "picture"; picture: PlacedRef }
   | {
       kind: "transition";
       /** Key into `RenderPlan.shaders`. */
       shader: string;
       uniforms: UniformValue[];
       progress: number;
-      from: Placed | null;
-      to: Placed | null;
+      from: PlacedRef | null;
+      to: PlacedRef | null;
     };
 
 export interface RenderPlan {
@@ -194,6 +198,10 @@ export function planRender(
     s.density = [Math.max(s.density[0], drawn.density[0]), Math.max(s.density[1], drawn.density[1])];
   };
   const shaders: Record<string, string> = {};
+  // Every video effect a visible clip has on, whenever it's shown.
+  for (const clip of project.clips) {
+    for (const pass of effectPasses(clip, clip.in)) shaders[pass.shader.key] = pass.shader.source;
+  }
   for (let f = 0; f < frames; f++) {
     for (const shot of shotsAt(f)) {
       if (shot.kind === "clip") see(f, shot.shown);
@@ -236,10 +244,12 @@ export function planRender(
     sources,
     shaders,
     frame(f) {
-      const placed = (shown: Shown | null): Placed | null => {
+      const placed = (shown: Shown | null): PlacedRef | null => {
         const drawn = shown && draw(shown);
         const key = drawn && keys.get(drawn.id);
-        return drawn && key ? { key, affine: drawn.affine, opacity: drawn.opacity } : null;
+        if (!drawn || !key) return null;
+        const effects = effectPasses(shown.clip, shown.time).map((pass) => ({ ...pass, shader: pass.shader.key }));
+        return { key, affine: drawn.affine, opacity: drawn.opacity, ...(effects.length && { effects }) };
       };
       const layers: FrameLayer[] = [];
       for (const shot of shotsAt(f)) {

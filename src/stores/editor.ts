@@ -11,7 +11,7 @@ import type {
   WebDownloadProgress,
   WebMediaKind,
 } from "@shared/types";
-import { defaultEffects, isTextClip } from "@shared/effects";
+import { addEffect, defaultEffects, effectDefinition, isTextClip } from "@shared/effects";
 import { placeTemplate } from "@shared/library";
 import {
   type CopiedClip,
@@ -195,6 +195,13 @@ interface EditorState {
    * selected clip's track, else any video track.
    */
   applyTransition: (type: string) => void;
+  /**
+   * Add a video effect to these clips (those on video tracks), selecting them unless one
+   * of them already is. False when none can have it.
+   */
+  addEffectTo: (clipIds: string[], type: string) => boolean;
+  /** Add a video effect to the selected clips, or when none are, to the top clip under the playhead. */
+  applyEffect: (type: string) => void;
   /** Delete the selection; `ripple` also closes the gaps it leaves. A selected gap is always closed. */
   deleteSelected: (ripple?: boolean) => void;
   copySelected: () => void;
@@ -607,6 +614,28 @@ export const useEditor = create<EditorState>((set, get) => ({
     const ref = nearestEdge(project, time, selected ? [selected.trackId] : undefined);
     if (!ref || !get().addTransitionAt(ref, type)) {
       toast(`Nowhere to put the ${label}`, { description: "Add a clip to a video track first." });
+    }
+  },
+
+  addEffectTo(clipIds, type) {
+    const { project, added } = addEffect(get().project, clipIds, type);
+    if (added.size === 0) return false;
+    get().commit(() => project);
+    const ids = [...added.keys()];
+    if (!ids.some((id) => get().selectedClipIds.includes(id))) get().setSelection(ids);
+    return true;
+  },
+
+  applyEffect(type) {
+    const { project, selectedClipIds } = get();
+    const label = effectDefinition(type)?.label ?? "effect";
+    const time = usePlayback.getState().time;
+    const onTop = videoTracks(project)
+      .map((t) => clipsAtTime(project, time).find((c) => c.trackId === t.id))
+      .find(Boolean);
+    const targets = selectedClipIds.length ? selectedClipIds : onTop ? [onTop.id] : [];
+    if (!get().addEffectTo(targets, type)) {
+      toast(`Nothing to add ${label} to`, { description: "Select a clip on a video track, or drag the effect onto one." });
     }
   },
 

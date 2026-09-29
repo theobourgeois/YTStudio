@@ -12,7 +12,17 @@
  *
  * A text clip is a clip with no media (`assetId` is "") that carries the Text
  * and Appearance effects; the browser draws it (`src/lib/text-render.ts`).
+ *
+ * Video effects (blur, colour, glitch...) are the ones the user adds from the
+ * Effects tab, any number of times and in any order. Each is a shader
+ * (`effect-gl.ts`) run over the clip's own picture before Motion places it,
+ * like Premiere's standard effects; their definitions are in `effect-library/`.
  */
+import { COLOR_EFFECTS } from "./effect-library/color.ts";
+import { BLUR_EFFECTS } from "./effect-library/blur.ts";
+import { STYLIZE_EFFECTS } from "./effect-library/stylize.ts";
+import { MOTION_EFFECTS } from "./effect-library/motion.ts";
+import { GLITCH_EFFECTS } from "./effect-library/glitch.ts";
 import { keyframeValue, sanitizeKeyframes, setKeyframe } from "./keyframes.ts";
 import { PERCENT, PIXELS, type ParamSpec, defaultParams, sameValue, sanitizeParams, sanitizeValue } from "./params.ts";
 import type { Clip, Effect, FitMode, Keyframe, ParamValue, ParamValues, Project, Vec2 } from "./types.ts";
@@ -38,6 +48,40 @@ export interface EffectDefinition {
   params: ParamSpec[];
   /** Keeps linked parameters consistent: rewrites a patch about to be applied to `current` (static) values. */
   adjust?: (current: ParamValues, patch: ParamValues) => ParamValues;
+  /** A video effect (added by the user, see the top of this file): how it's drawn. */
+  shader?: EffectShader;
+}
+
+/** Categories of video effects, in the order the Effects tab's filter shows them. */
+export const EFFECT_TAGS = ["color", "blur", "stylize", "distort", "camera", "glitch"] as const;
+
+export type EffectTag = (typeof EFFECT_TAGS)[number];
+
+export const EFFECT_TAG_LABELS: Record<EffectTag, string> = {
+  color: "Color",
+  blur: "Blur",
+  stylize: "Stylize",
+  distort: "Distort",
+  camera: "Camera",
+  glitch: "Glitch",
+};
+
+export interface EffectShader {
+  /**
+   * GLSL ES 3.00 defining `vec4 effect(vec2 uv)`: the clip's colour at `uv`
+   * ((0, 0) = bottom left of its frame). Its parameters are uniforms named by
+   * their key (numbers, switches, choices, points and colours only). See the
+   * prelude in `effect-gl.ts` for what's available.
+   */
+  glsl: string;
+  /** Times the shader runs in a row, each over the last one's result (`pass` counts from 0); 1 by default. */
+  passes?: number;
+  /** Changes over time by itself (reads `time`): its card plays rather than compares before and after. */
+  animated?: boolean;
+  /** What kind of effect it is; the first tag is its category. */
+  tags: EffectTag[];
+  /** Values its card shows, where the defaults are too subtle to read at that size. */
+  demo?: ParamValues;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,8 +225,17 @@ export const APPEARANCE: EffectDefinition = {
   ],
 };
 
+/** The video effects, in the order the Effects tab shows them. */
+export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
+  ...COLOR_EFFECTS,
+  ...BLUR_EFFECTS,
+  ...STYLIZE_EFFECTS,
+  ...MOTION_EFFECTS,
+  ...GLITCH_EFFECTS,
+];
+
 /** Every effect definition; built-in ones in the order they're listed (and applied). */
-export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE];
+export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, ...VIDEO_EFFECTS];
 
 const byType = new Map(EFFECTS.map((d) => [d.type, d]));
 
@@ -479,4 +532,61 @@ export function resetParams(project: Project, clipId: string, effectId: string, 
     else delete next.keyframes;
     return next;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Video effects: adding, removing and reordering them
+// ---------------------------------------------------------------------------
+
+/** Whether an effect is one the user added (a video effect), which can be removed and moved. */
+export function isVideoEffect(effect: Pick<Effect, "type">): boolean {
+  return !!byType.get(effect.type)?.shader;
+}
+
+/** A clip's video effects, in the order they're drawn. */
+export function videoEffects(clip: Clip): Effect[] {
+  return clip.effects.filter(isVideoEffect);
+}
+
+/**
+ * Add a video effect (with its default values) to the end of each clip's
+ * effects, so it's drawn over what's there; clips that aren't on a video
+ * track are skipped. Returns the new effects' ids by clip.
+ */
+export function addEffect(project: Project, clipIds: string[], type: string): { project: Project; added: Map<string, string> } {
+  const def = byType.get(type);
+  const added = new Map<string, string>();
+  if (!def?.shader) return { project, added };
+  const videoTracks = new Set(project.tracks.filter((t) => t.kind === "video").map((t) => t.id));
+  const clips = project.clips.map((clip) => {
+    if (!clipIds.includes(clip.id) || !videoTracks.has(clip.trackId)) return clip;
+    const ids = new Set(clip.effects.map((e) => e.id));
+    let id = def.type;
+    for (let n = 2; ids.has(id); n++) id = `${def.type}_${n}`;
+    added.set(clip.id, id);
+    return { ...clip, effects: [...clip.effects, sanitizeEffect(def, undefined, id)] };
+  });
+  return added.size ? { project: { ...project, clips }, added } : { project, added };
+}
+
+/** Remove one of a clip's video effects (built-in ones and text can't be). */
+export function removeEffect(project: Project, clipId: string, effectId: string): Project {
+  const clip = project.clips.find((c) => c.id === clipId);
+  const effect = clip?.effects.find((e) => e.id === effectId);
+  if (!clip || !effect || !isVideoEffect(effect)) return project;
+  const next = { ...clip, effects: clip.effects.filter((e) => e !== effect) };
+  return { ...project, clips: project.clips.map((c) => (c === clip ? next : c)) };
+}
+
+/** Swap a video effect with the one drawn before (-1) or after (+1) it. */
+export function moveEffect(project: Project, clipId: string, effectId: string, by: -1 | 1): Project {
+  const clip = project.clips.find((c) => c.id === clipId);
+  if (!clip) return project;
+  const order = clip.effects.flatMap((e, i) => (isVideoEffect(e) ? [i] : []));
+  const at = order.findIndex((i) => clip.effects[i].id === effectId);
+  const other = order[at + by];
+  if (at < 0 || other === undefined) return project;
+  const effects = [...clip.effects];
+  [effects[order[at]], effects[other]] = [effects[other], effects[order[at]]];
+  return { ...project, clips: project.clips.map((c) => (c === clip ? { ...clip, effects } : c)) };
 }

@@ -1,18 +1,25 @@
 import { describe, expect, it } from "vitest";
+import { RESERVED_EFFECT_UNIFORMS, effectFragmentSource, effectPasses } from "./effect-gl.ts";
 import {
   EFFECTS,
+  EFFECT_TAGS,
   MOTION,
   OPACITY,
+  VIDEO_EFFECTS,
   VOLUME,
+  addEffect,
   defaultEffects,
   findEffect,
   motionAt,
+  moveEffect,
   normalizeEffects,
   opacityAt,
+  removeEffect,
   resetParams,
   setEffectEnabled,
   setParams,
   valuesAt,
+  videoEffects,
   volumeAt,
 } from "./effects.ts";
 import { easedProgress, keyframeValue } from "./keyframes.ts";
@@ -49,7 +56,7 @@ describe("effect definitions", () => {
 
   it("show Motion and Opacity for pictures, Volume for sound, Text and Appearance for text", () => {
     const shown = (visual: boolean, audible: boolean, text = false) =>
-      EFFECTS.filter((d) => d.appliesTo({ visual, audible, text })).map((d) => d.type);
+      EFFECTS.filter((d) => !d.shader && d.appliesTo({ visual, audible, text })).map((d) => d.type);
     expect(shown(true, true)).toEqual(["motion", "opacity", "volume"]);
     expect(shown(true, false)).toEqual(["motion", "opacity"]);
     expect(shown(false, true)).toEqual(["volume"]);
@@ -235,5 +242,63 @@ describe("edits", () => {
 
   it("keep MOTION/OPACITY/VOLUME ids stable", () => {
     expect([MOTION.type, OPACITY.type, VOLUME.type]).toEqual(["motion", "opacity", "volume"]);
+  });
+});
+
+describe("video effects", () => {
+  const withEffect = (p: Project, type: string) => addEffect(p, ["c"], type).project;
+
+  it("are shaders with uniform-able parameters, not named like the prelude's, in a known category", () => {
+    expect(VIDEO_EFFECTS.length).toBeGreaterThan(0);
+    for (const def of VIDEO_EFFECTS) {
+      expect(def.shader?.tags.length, def.type).toBeGreaterThan(0);
+      expect(def.shader!.tags.every((t) => EFFECT_TAGS.includes(t)), def.type).toBe(true);
+      expect(def.builtIn).toBe(false);
+      for (const p of def.params) {
+        expect(["number", "boolean", "choice", "vec2", "color"], `${def.type}.${p.key}`).toContain(p.kind);
+        expect(RESERVED_EFFECT_UNIFORMS, `${def.type}.${p.key}`).not.toContain(p.key);
+      }
+      expect(effectFragmentSource({ params: def.params, glsl: def.shader!.glsl })).toContain("vec4 effect(vec2 uv)");
+    }
+  });
+
+  it("are added at the end with their defaults and unique ids, only to clips on video tracks", () => {
+    let p = projectWith(clipWith());
+    const { project, added } = addEffect(p, ["c"], "gaussian-blur");
+    expect(added.get("c")).toBe("gaussian-blur");
+    p = withEffect(project, "gaussian-blur");
+    expect(videoEffects(p.clips[0]).map((e) => e.id)).toEqual(["gaussian-blur", "gaussian-blur_2"]);
+    expect(p.clips[0].effects.at(-1)!.params.blurriness).toBe(0.02);
+    // Not an effect you add, or not a clip that shows.
+    expect(addEffect(p, ["c"], "motion").project).toBe(p);
+    const audio = { ...p, tracks: p.tracks.map((t) => ({ ...t, kind: "audio" as const })) };
+    expect(addEffect(audio, ["c"], "sepia").project).toBe(audio);
+  });
+
+  it("are removed and moved among themselves, never the built-in ones", () => {
+    let p = withEffect(withEffect(projectWith(clipWith()), "sepia"), "mosaic");
+    const order = (q: Project) => q.clips[0].effects.map((e) => e.id);
+    expect(order(p)).toEqual(["motion", "opacity", "volume", "sepia", "mosaic"]);
+    p = moveEffect(p, "c", "mosaic", -1);
+    expect(order(p)).toEqual(["motion", "opacity", "volume", "mosaic", "sepia"]);
+    expect(moveEffect(p, "c", "mosaic", -1)).toBe(p);
+    expect(removeEffect(p, "c", "motion")).toBe(p);
+    expect(order(removeEffect(p, "c", "mosaic"))).toEqual(["motion", "opacity", "volume", "sepia"]);
+  });
+
+  it("survive normalising, in order, with their values and keyframes", () => {
+    const p = withEffect(withEffect(projectWith(clipWith()), "vignette"), "vignette");
+    const effects = setParams(p, "c", "vignette_2", { amount: 0.25 }).clips[0].effects;
+    const again = normalizeEffects(JSON.parse(JSON.stringify(effects)));
+    expect(again).toEqual(effects);
+  });
+
+  it("draw in order while on, with their values at the moment", () => {
+    let p = withEffect(withEffect(projectWith(clipWith()), "sepia"), "black-white");
+    p = setEffectEnabled(p, "c", "sepia", false);
+    const passes = effectPasses(p.clips[0], 1.5);
+    expect(passes.map((x) => x.shader.key)).toEqual(["fx:black-white"]);
+    expect(passes[0].uniforms).toContainEqual({ name: "amount", type: "float", value: 1 });
+    expect(passes[0].uniforms).toContainEqual({ name: "time", type: "float", value: 1.5 });
   });
 });

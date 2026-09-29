@@ -14,13 +14,15 @@ pnpm test         # vitest: shared/, src/, server/ (the server integration tests
 pnpm test:e2e     # Playwright on :5320/5321 with a throwaway e2e/.data (serial, ~1 min)
 pnpm samples      # test media into ./samples
 pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + check transitions
+pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
 ```
 
 **Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.
 - Don't edit `src/` while e2e runs: Vite hot-reloads the page mid-test and a test fails for no real reason.
 - The e2e tests depend on each other (serial, shared state), so run the whole file rather than `-g` one test.
-- After touching a shader, `transition-gl.ts` or `compositor.ts`, run the transition-sheet script. It compiles every shader in headless
-  Chromium and checks that each one starts on the outgoing picture and ends on the incoming one.
+- After touching a shader, `transition-gl.ts`, `effect-gl.ts` or `compositor.ts`, run the transition-sheet and effect-sheet
+  scripts. They compile every shader in headless Chromium and check that each transition starts on the outgoing
+  picture and ends on the incoming one, and that each effect visibly changes the picture (look at the sheet too).
 - If `pnpm install` output looks stale (e.g. "Cannot find package 'playwright-core'"), run `pnpm install`.
 
 ## Layout
@@ -33,13 +35,16 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   params.ts          ParamSpec types (number, vec2, boolean, choice, text, color, font…) + sanitize/defaults.
   keyframes.ts       Keyframe validation, interpolation (easedProgress), setKeyframe.
   animation.ts       Keyframe edits (stopwatch, navigator, move/delete/easing) and timeline<->keyframe time helpers.
-  effects.ts         Effect definitions (Motion, Opacity, Volume, Text, Appearance), evaluation (motionAt,
-                     opacityAt, volumeAt, textStyleAt), edits (setParams, resetParams, setEffectEnabled).
+  effects.ts         Effect definitions (Motion, Opacity, Volume, Text, Appearance, then the video effects),
+                     evaluation (motionAt, opacityAt, volumeAt, textStyleAt), edits (setParams, resetParams,
+                     setEffectEnabled, addEffect/removeEffect/moveEffect for video effects).
+  effect-library/    One file per category of GLSL video effects (blur, colour, glitch...); common.ts has helpers.
+  effect-gl.ts       Video effect shader prelude, effectShader, effectPasses (a clip's effects at a moment).
   transitions.ts     Transition registry, timing specs, sanitize/patch.
   transition-library/  One file per category of GLSL transitions; common.ts has shared specs.
   transition-windows.ts  Where transitions play on the timeline + edits to them.
-  compositor.ts      THE renderer (WebGL2): pictures placed by an affine + opacity, transitions, YUV in/out.
-                     Draws the preview, the transition thumbnails and every export frame.
+  compositor.ts      THE renderer (WebGL2): pictures (after their video effects) placed by an affine + opacity,
+                     transitions, YUV in/out. Draws the preview, the Effects tab's thumbnails and every export frame.
   scene.ts           What each video track shows at time t (clip + source time, or transition + sides).
   transition-gl.ts   Transition shader prelude, fragmentSource, uniforms.
   transform.ts       Where a clip lands on the canvas (fit → scale/rotate around the anchor).
@@ -74,8 +79,12 @@ src/
                      keyframe-geometry.ts, selection in keyframe-selection.ts).
   components/captions/   Auto captions dialog, engine picker/setup, the Captions tab. State in stores/captions.ts.
   components/library/  The Library tab, its cards and dialogs (Save to Library), folder drop targets.
-  components/workspace/left-panel.tsx   Left panel tabs: Media | Transitions | Captions | Properties.
-                     Media switches between sources: This video | Library | Online (`MediaSource`).
+  components/effects/  The Effects tab: video effects and transitions (library-grid.tsx is their shared search,
+                     category chips and cards; thumbnails.ts draws every card with one shared compositor).
+  components/workspace/left-panel.tsx   Left panel tabs: Media | Effects | Captions | Properties.
+                     Media switches between sources: This video | Library | Online (`MediaSource`); Effects between
+                     kinds: Video effects | Transitions (`EffectKind`, `KINDS`). Its right edge resizes it (widths
+                     in `stores/layout.ts`, one for usual and one while the keyframe lanes show).
   components/ui/     shadcn/ui (generated; icons adapted to react-icons/pi).
 ```
 
@@ -95,6 +104,9 @@ extension** (Node ESM through tsx).
   font. The export receives PNGs drawn by the browser (`ExportRequest.texts`). Don't switch to ffmpeg `drawtext`.
 - `Effect = { id, type, enabled, params, keyframes? }`. Built-in effects (motion, opacity, volume) are on every clip,
   and Text/Appearance on text clips. All of these have `id === type`, and code addresses them by type.
+- Video effects (a definition with a `shader`) are the ones the user adds: any number, in the order they're drawn,
+  after the others in `clip.effects`, with ids `type`, `type_2`... Each runs over the clip's own picture before
+  Motion places it (Premiere's standard effects), so blur sizes etc. are fractions of the clip's frame.
 - Keyframes are stored in **source time** (so they stay on their frame when the clip moves, trims or splits). Read
   values with `sourceTime(clip, playheadTime)`; write them at `keyframeTime(clip, playhead, fps)` (the frame under
   the playhead, or an existing keyframe within half a frame), which every editing surface uses. A keyframe's `easing`
@@ -142,8 +154,12 @@ extension** (Node ESM through tsx).
   and keyframing (stopwatch, lanes) then work automatically. Then apply the value where clips are drawn: preview
   (`components/preview/engine.ts` / `placement.ts`) and export (`server/render.ts`: `planRender`'s `draw`,
   `audioArgs`). Anything drawn should become compositor work (`shared/compositor.ts`) so both get it at once.
-- **A new effect**: add an `EffectDefinition` to `EFFECTS` (`builtIn` puts it on every clip it `appliesTo`), plus the
-  same preview and export work. Adding effects to clips by the user (Premiere's Effects panel) doesn't exist yet.
+- **A video effect** (added by the user from the Effects tab): add a `videoEffect(...)` to a
+  `shared/effect-library/*.ts` file. The GLSL defines `vec4 effect(vec2 uv)`; params become uniforms. See the
+  prelude docs in `effect-gl.ts`, and give it `demo` values if its defaults don't read on a card. Then run the
+  effect-sheet script. The panel, keyframes, preview and export then work with no other change.
+- **A built-in effect**: add an `EffectDefinition` to `EFFECTS` (`builtIn` puts it on every clip it `appliesTo`), plus
+  the same preview and export work as a property.
 - **A new kind of parameter**: a spec type and a `sanitizeValue` case in `shared/params.ts`, a row in
   `components/properties/param-rows.tsx`, and display maths in `properties/display.ts` if it's numeric.
 - **A transition**: add a definition to a `shared/transition-library/*.ts` file. The GLSL defines
@@ -160,7 +176,8 @@ extension** (Node ESM through tsx).
   engine.ts`: 16 kHz mono WAV in, timed words out) and add it to `defaultEngines` in `service.ts`, plus its id to
   `TranscriptionEngineId`. Decoding, silence squeezing, time mapping and caching are the service's job.
 - **A left-panel tab**: add it to `LeftPanelTab` (`stores/layout.ts`) and to `TABS` in `workspace/left-panel.tsx`.
-  Keep the strip short: a new place to find media is a `MediaSource` (and `SOURCES`), not a tab.
+  Keep the strip short: a new place to find media is a `MediaSource` (and `SOURCES`), and a new kind of effect
+  (video, audio) is an `EffectKind` (and `KINDS`), not a tab.
 - **A clip kind (like text) or a track kind**: there's no registry yet. Clip kinds are branched on in
   `preview/engine.ts` (`kindOf` and each kind's slots), `preview/stage.tsx`, `preview/placement.ts`,
   `timeline/timeline-clip.tsx`, `timeline-menus.tsx`, `properties-panel.tsx`, `server/render.ts` and

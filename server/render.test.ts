@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultEffects, textEffects } from "../shared/effects.ts";
+import { addEffect, defaultEffects, setEffectEnabled, textEffects } from "../shared/effects.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import { placeClip, placementAffine } from "../shared/transform.ts";
 import type { Clip, Keyframe, ParamValues, Project } from "../shared/types.ts";
@@ -53,6 +53,22 @@ const inputsOf = (argv: string[]) => argv.filter((_, i) => argv[i - 1] === "-i")
 const pictures = (layers: FrameLayer[]) => layers.flatMap((l) => (l.kind === "picture" ? [l.picture] : []));
 
 describe("planRender", () => {
+  it("runs each shown clip's video effects, in order, and sends their shaders", () => {
+    const c = clip("vid", "main", 0, 0, 2);
+    let p = project([c]);
+    p = addEffect(p, [c.id], "gaussian-blur").project;
+    p = addEffect(p, [c.id], "film-grain").project;
+    p = addEffect(p, [c.id], "sepia").project;
+    p = setEffectEnabled(p, c.id, "sepia", false);
+    const plan = planRender(p, assets, opts);
+    expect(Object.keys(plan.shaders).sort()).toEqual(["fx:film-grain", "fx:gaussian-blur"]);
+    const [picture] = pictures(plan.frame(30));
+    expect(picture.effects?.map((e) => [e.shader, e.passes])).toEqual([["fx:gaussian-blur", 2], ["fx:film-grain", 1]]);
+    // Moving effects know the moment (the clip's source time).
+    expect(picture.effects?.[1].uniforms).toContainEqual({ name: "time", type: "float", value: expect.closeTo(1, 3) });
+    expect(pictures(planRender(project([clip("vid", "main", 0, 0, 2)]), assets, opts).frame(0))[0].effects).toBeUndefined();
+  });
+
   it("decodes each visible clip once, for exactly the frames it's drawn in", () => {
     // Durations that aren't whole frames: 1.01 + 0.77 + 2.345 = 4.125s.
     const p = project([

@@ -11,12 +11,12 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { type Browser, type Page, chromium } from "playwright-core";
-import { IDENTITY, type Placed, type Shader, createCompositor } from "../shared/compositor.ts";
+import { type EffectPass, IDENTITY, type Placed, type Shader, createCompositor } from "../shared/compositor.ts";
 import { errorMessage } from "../shared/errors.ts";
 import type { UniformValue } from "../shared/transition-gl.ts";
 import { drawSampleScene } from "../shared/transition-samples.ts";
 import { CHROMIUM } from "./config.ts";
-import type { FrameLayer } from "./render.ts";
+import type { FrameLayer, PlacedRef } from "./render.ts";
 
 // On a Mac, headless Chromium can draw with the GPU (Metal); elsewhere it falls back to SwiftShader.
 const ARGS = [
@@ -48,6 +48,7 @@ interface PageApi {
   composite(job: { width: number; height: number; lanes: number }): Promise<void>;
   sheet(job: SheetJob): string;
   check(job: CheckJob): CheckResult[];
+  effects(job: EffectJob): { sheet: string; results: EffectResult[] };
 }
 
 /** What the page needs for its next frame. */
@@ -99,6 +100,20 @@ export interface SheetJob {
   cell: { width: number; height: number };
 }
 
+/** Draw the sunset (without its letter) through each effect, one column per pass (e.g. per moment). */
+export interface EffectJob {
+  rows: { label: string; passes: EffectPass[] }[];
+  cell: { width: number; height: number };
+}
+
+export interface EffectResult {
+  label: string;
+  /** How far the picture moved from the plain one (0..255 per channel), across the row: the most, and on average. */
+  max: number;
+  mean: number;
+  error?: string;
+}
+
 /** The page's globals: its API, and the functions inlined into it. */
 interface PageGlobals {
   compositor: PageApi;
@@ -130,6 +145,13 @@ function pageScript(): string {
         drawSampleScene(c.getContext("2d")!, cw, ch, i as 0 | 1);
         compositor.setPicture(key, c);
       });
+    };
+    const plain = (cw: number, ch: number) => {
+      const c = document.createElement("canvas");
+      c.width = cw;
+      c.height = ch;
+      drawSampleScene(c.getContext("2d")!, cw, ch, 1, false);
+      compositor.setPicture("plain", c);
     };
     const transition = (shader: Shader, uniforms: UniformValue[], progress: number, flipY = false) => {
       compositor.clear([0, 0, 0, 0]);
@@ -173,12 +195,13 @@ function pageScript(): string {
           }
           for (const key of head.release) compositor.deletePicture(key);
           compositor.clear();
+          const shader = (key: string): Shader => ({ key, source: shaders[key] });
+          // Effects name their shaders by key; the sources came in earlier packets.
+          const placed = (p: PlacedRef | null): Placed | null =>
+            p && { ...p, effects: p.effects?.map((fx) => ({ ...fx, shader: shader(fx.shader) })) };
           for (const layer of head.layers) {
-            if (layer.kind === "picture") compositor.drawPicture(layer.picture);
-            else {
-              const shader = { key: layer.shader, source: shaders[layer.shader] };
-              compositor.drawTransition(shader, layer.uniforms, layer.progress, layer.from, layer.to);
-            }
+            if (layer.kind === "picture") compositor.drawPicture(placed(layer.picture)!);
+            else compositor.drawTransition(shader(layer.shader), layer.uniforms, layer.progress, placed(layer.from), placed(layer.to));
           }
           return compositor.readYuv420Async();
         };
@@ -259,6 +282,58 @@ function pageScript(): string {
             return { label: row.label, start: 255, end: 255, error: String(err) };
           }
         });
+      },
+      effects(job) {
+        const { width: cw, height: ch } = job.cell;
+        compositor.resize(cw, ch);
+        plain(cw, ch);
+        const label = 150;
+        const columns = Math.max(1, ...job.rows.map((r) => r.passes.length));
+        const sheet = document.createElement("canvas");
+        sheet.width = label + (columns + 1) * (cw + 4);
+        sheet.height = job.rows.length * (ch + 4);
+        const out = sheet.getContext("2d")!;
+        out.fillStyle = "#16191d";
+        out.fillRect(0, 0, sheet.width, sheet.height);
+        const drawn = (effects: EffectPass[]) => {
+          compositor.clear();
+          compositor.drawPicture({ key: "plain", affine: IDENTITY, opacity: 1, effects });
+          compositor.present({ flipY: true });
+          return compositor.read();
+        };
+        const before = drawn([]);
+        const results = job.rows.map((row, r) => {
+          const y = r * (ch + 4);
+          out.fillStyle = "#abb2bf";
+          out.font = "13px system-ui, sans-serif";
+          out.fillText(row.label, 8, y + ch / 2);
+          // The plain picture first, to compare.
+          drawn([]);
+          compositor.present();
+          out.drawImage(canvas, label, y);
+          let max = 0;
+          let sum = 0;
+          try {
+            row.passes.forEach((pass, i) => {
+              const pixels = drawn([pass]);
+              let rowSum = 0;
+              for (let j = 0; j < pixels.length; j++) {
+                const d = Math.abs(pixels[j] - before[j]);
+                max = Math.max(max, d);
+                rowSum += d;
+              }
+              sum += rowSum / pixels.length;
+              compositor.present();
+              out.drawImage(canvas, label + (i + 1) * (cw + 4), y);
+            });
+            return { label: row.label, max, mean: sum / Math.max(1, row.passes.length) };
+          } catch (err) {
+            out.fillStyle = "#e06c75";
+            out.fillText(String(err).slice(0, 160), label + cw + 8, y + ch / 2);
+            return { label: row.label, max: 0, mean: 0, error: String(err) };
+          }
+        });
+        return { sheet: sheet.toDataURL("image/png"), results };
       },
     };
     (globalThis as unknown as PageGlobals).compositor = api;
@@ -387,6 +462,12 @@ export class GlSession {
 
   async check(job: CheckJob): Promise<CheckResult[]> {
     return this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.check(j), job);
+  }
+
+  /** Run effects over the plain sample picture: a PNG contact sheet, and how much each changed it. */
+  async effects(job: EffectJob): Promise<{ sheet: Buffer; results: EffectResult[] }> {
+    const { sheet, results } = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.effects(j), job);
+    return { sheet: Buffer.from(sheet.slice(sheet.indexOf(",") + 1), "base64"), results };
   }
 
   async close() {

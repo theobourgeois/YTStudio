@@ -8,6 +8,9 @@
  * - `drawPicture` puts a stored picture where its Motion puts it (an affine
  *   map, see `placementAffine`), faded by its Opacity, over what's there.
  *   Its edges are antialiased, so rotated and scaled pictures look smooth.
+ *   A picture with video effects is first drawn into a layer of its own at
+ *   about the size it's shown, and each effect's shader (`effect-gl.ts`)
+ *   runs over that in turn; the result is what gets placed.
  * - `drawTransition` draws each side of a transition into a canvas-sized layer
  *   the same way, mixes the two with the transition's shader
  *   (`transition-gl.ts`) and puts the result over what's there.
@@ -47,16 +50,28 @@ export type Affine = [number, number, number, number, number, number];
 
 export const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
 
-/** A stored picture (by key) placed on the canvas. */
-export interface Placed {
-  key: string;
-  affine: Affine;
-  opacity: number;
-}
-
 export interface Shader {
   key: string;
   source: string;
+}
+
+/**
+ * A video effect run over a picture before it's placed. `S` is its shader,
+ * or the shader's key where the sources travel separately (the export).
+ */
+export interface EffectPass<S = Shader> {
+  shader: S;
+  uniforms: UniformValue[];
+  /** Times the shader runs in a row, each over the last one's result (its `pass` uniform counts them). */
+  passes: number;
+}
+
+/** A stored picture (by key) placed on the canvas, after its effects (in order). */
+export interface Placed<S = Shader> {
+  key: string;
+  affine: Affine;
+  opacity: number;
+  effects?: EffectPass<S>[];
 }
 
 export interface Compositor {
@@ -72,11 +87,11 @@ export interface Compositor {
   /** Draw a stored picture over the frame (nothing if it isn't stored). */
   drawPicture(picture: Placed): void;
   /**
-   * Start compiling a transition shader in the background (compiling blocks for tens of ms
-   * otherwise). True once `drawTransition` can use it without waiting; always true without
+   * Start compiling a transition or effect shader in the background (compiling blocks for tens
+   * of ms otherwise). True once it can be drawn without waiting; always true without
    * KHR_parallel_shader_compile, after compiling it now.
    */
-  prepareTransition(shader: Shader): boolean;
+  prepareShader(shader: Shader): boolean;
   /** Mix two stored pictures (null: nothing) with a transition shader (compiled once per key) over the frame. */
   drawTransition(shader: Shader, uniforms: UniformValue[], progress: number, from: Placed | null, to: Placed | null): void;
   /** Copy the frame to the canvas. `flipY` puts the top row first for `read`; `straight` un-premultiplies. */
@@ -128,7 +143,8 @@ void main() {
 }`;
   // `uPixels`: output px per picture fraction along u and v, for the edge
   // coverage. A YUV picture has its planes in uSrc (Y), uU and uV, and its
-  // matrix's red and blue luma weights in uK.
+  // matrix's red and blue luma weights in uK. A layer (a picture after its
+  // effects) is already premultiplied, and stored bottom row first.
   const PICTURE_FS = `#version 300 es
 precision highp float;
 in vec2 vTex;
@@ -137,10 +153,12 @@ uniform sampler2D uSrc;
 uniform sampler2D uU;
 uniform sampler2D uV;
 uniform bool uYuv;
+uniform bool uLayer;
 uniform vec2 uK;
 uniform float uOpacity;
 uniform vec2 uPixels;
 vec4 pictureAt(vec2 t) {
+  if (uLayer) return texture(uSrc, vec2(t.x, 1.0 - t.y));
   if (!uYuv) return texture(uSrc, t);
   float y = (texture(uSrc, t).r * 255.0 - 16.0) / 219.0;
   float cb = (texture(uU, t).r * 255.0 - 128.0) / 224.0;
@@ -153,7 +171,7 @@ vec4 pictureAt(vec2 t) {
 void main() {
   vec2 edge = clamp(min(vTex, 1.0 - vTex) * uPixels + 0.5, 0.0, 1.0);
   vec4 c = pictureAt(clamp(vTex, 0.0, 1.0));
-  fragColor = vec4(c.rgb * c.a, c.a) * (uOpacity * edge.x * edge.y);
+  fragColor = (uLayer ? c : vec4(c.rgb * c.a, c.a)) * (uOpacity * edge.x * edge.y);
 }`;
   const COPY_FS = `#version 300 es
 precision highp float;
@@ -257,16 +275,17 @@ void main() {
   const pictureProgram = link(PICTURE_VS, PICTURE_FS);
   const copyProgram = link(QUAD_VS, COPY_FS);
   let yuvProgram: ReturnType<typeof link> | null = null;
-  const transitions = new Map<string, ReturnType<typeof link>>();
-  // Transition programs started by `prepareTransition`, not yet checked.
+  // Transition and effect programs, by shader key.
+  const programs = new Map<string, ReturnType<typeof link>>();
+  // Programs started by `prepareShader`, not yet checked.
   const compiling = new Map<string, Pending>();
-  const transitionProgram = (shader: Shader) => {
-    let entry = transitions.get(shader.key);
+  const shaderProgram = (shader: Shader) => {
+    let entry = programs.get(shader.key);
     if (entry) return entry;
     const pending = compiling.get(shader.key) ?? startLink(QUAD_VS, shader.source);
     compiling.delete(shader.key);
     entry = finishLink(pending);
-    transitions.set(shader.key, entry);
+    programs.set(shader.key, entry);
     return entry;
   };
 
@@ -287,6 +306,38 @@ void main() {
   const yuv = { ...target(), width: 0, height: 0 };
   let width = 0;
   let height = 0;
+
+  // Pairs of layers effects run in (one draws from the other), by size, most recently used last.
+  const MAX_SCRATCH = 4;
+  const scratch = new Map<string, { tex: WebGLTexture; fbo: WebGLFramebuffer }[]>();
+  const scratchPair = (w: number, h: number) => {
+    const id = `${w}x${h}`;
+    let pair = scratch.get(id);
+    if (pair) scratch.delete(id);
+    else {
+      pair = [target(), target()];
+      for (const { tex, fbo } of pair) {
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      }
+    }
+    scratch.set(id, pair);
+    for (const [old, stale] of scratch) {
+      if (scratch.size <= MAX_SCRATCH) break;
+      for (const t of stale) {
+        gl.deleteTexture(t.tex);
+        gl.deleteFramebuffer(t.fbo);
+      }
+      scratch.delete(old);
+    }
+    return pair;
+  };
+  // Fills a target (a local: this function can't refer to anything outside it).
+  const IDENTITY_AFFINE: Affine = [1, 0, 0, 1, 0, 0];
+  // The largest layer an effect runs in, per side.
+  const maxLayer = Math.min(4096, gl.getParameter(gl.MAX_TEXTURE_SIZE) as number);
 
   interface Picture {
     /** RGBA, or a YUV picture's Y plane (then its U and V planes). */
@@ -311,17 +362,19 @@ void main() {
     return [any.width, any.height];
   };
 
-  /** Draw a picture into the bound framebuffer (blending as currently set). */
-  const place = (p: Placed) => {
-    const pic = pictures.get(p.key);
-    if (!pic || !(p.opacity > 0)) return;
-    const [a, b, c, d, e, f] = p.affine;
+  /**
+   * Draw a picture by `affine` into the bound framebuffer, `tw` x `th` px (blending as
+   * currently set). `layer`: it's a picture after its effects (see PICTURE_FS).
+   */
+  const drawTextures = (pic: Picture, affine: Affine, opacity: number, tw: number, th: number, layer: boolean) => {
+    if (!(opacity > 0)) return;
+    const [a, b, c, d, e, f] = affine;
     // Output px per picture fraction along each of its axes.
-    const pu = Math.hypot(a * width, b * height);
-    const pv = Math.hypot(c * width, d * height);
+    const pu = Math.hypot(a * tw, b * th);
+    const pv = Math.hypot(c * tw, d * th);
     if (!(pu > 1e-6 && pv > 1e-6)) return;
-    // Mipmaps keep a big picture drawn small from shimmering.
-    const shrunk = pic.width > pu * 1.5 || pic.height > pv * 1.5;
+    // Mipmaps keep a big picture drawn small from shimmering (layers are made about the size they're shown).
+    const shrunk = !layer && (pic.width > pu * 1.5 || pic.height > pv * 1.5);
     // All three units are bound (an RGBA picture's U and V to nothing): a sampler
     // left on a texture that's being drawn into would make the draw fail.
     for (let i = 0; i < 3; i++) {
@@ -344,10 +397,73 @@ void main() {
     gl.uniform1i(loc("uU"), 1);
     gl.uniform1i(loc("uV"), 2);
     gl.uniform1i(loc("uYuv"), pic.yuv ? 1 : 0);
+    gl.uniform1i(loc("uLayer"), layer ? 1 : 0);
     if (pic.yuv) gl.uniform2f(loc("uK"), pic.yuv[0], pic.yuv[1]);
-    gl.uniform1f(loc("uOpacity"), Math.min(1, p.opacity));
+    gl.uniform1f(loc("uOpacity"), Math.min(1, opacity));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.activeTexture(gl.TEXTURE0);
+  };
+
+  const setUniforms = (loc: (name: string) => WebGLUniformLocation | null, uniforms: UniformValue[]) => {
+    for (const u of uniforms) {
+      const l = loc(u.name);
+      if (!l) continue;
+      const v = u.value as number[];
+      if (u.type === "int") gl.uniform1i(l, u.value as number);
+      else if (u.type === "vec2") gl.uniform2f(l, v[0], v[1]);
+      else if (u.type === "vec3") gl.uniform3f(l, v[0], v[1], v[2]);
+      else gl.uniform1f(l, u.value as number);
+    }
+  };
+
+  /**
+   * A placed picture ready to draw: the stored one, or with effects, a layer of it
+   * about the size it's shown (never bigger than itself) with every effect run over it.
+   */
+  const prepare = (p: Placed): { pic: Picture; layer: boolean } | null => {
+    const pic = pictures.get(p.key);
+    if (!pic) return null;
+    const effects = p.effects?.filter((fx) => fx.passes > 0);
+    if (!effects?.length) return { pic, layer: false };
+    const [a, b, c, d] = p.affine;
+    const pu = Math.hypot(a * width, b * height);
+    const pv = Math.hypot(c * width, d * height);
+    if (!(pu > 1e-6 && pv > 1e-6)) return null;
+    // Rounded up to 32 px so a picture that's scaling doesn't need new layers every frame.
+    const side = (shown: number, own: number) => Math.max(1, Math.min(own, maxLayer, Math.ceil(shown / 32) * 32));
+    const w = side(pu, pic.width);
+    const h = side(pv, pic.height);
+    let [src, dst] = scratchPair(w, h);
+    // The picture itself, filling the layer (bottom row first, like every framebuffer).
+    gl.bindFramebuffer(gl.FRAMEBUFFER, src.fbo);
+    gl.viewport(0, 0, w, h);
+    gl.disable(gl.BLEND);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    drawTextures(pic, IDENTITY_AFFINE, 1, w, h, false);
+    for (const fx of effects) {
+      const { program, loc } = shaderProgram(fx.shader);
+      gl.useProgram(program);
+      gl.uniform1i(loc("uSrc"), 0);
+      gl.uniform1i(loc("uFlipY"), 0);
+      gl.uniform1f(loc("ratio"), pu / pv);
+      gl.uniform2f(loc("resolution"), w, h);
+      setUniforms(loc, fx.uniforms);
+      for (let i = 0; i < fx.passes; i++) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, src.tex);
+        gl.uniform1i(loc("pass"), i);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        [src, dst] = [dst, src];
+      }
+    }
+    return { pic: { textures: [src.tex], yuv: null, width: w, height: h, mipmapped: false }, layer: true };
+  };
+
+  /** Draw a prepared picture where it's placed into the bound canvas-sized target. */
+  const place = (p: Placed, prepared: { pic: Picture; layer: boolean } | null) => {
+    if (prepared) drawTextures(prepared.pic, p.affine, p.opacity, width, height, prepared.layer);
   };
 
   const deletePicture = (key: string) => {
@@ -487,14 +603,16 @@ void main() {
     },
 
     drawPicture(picture) {
+      if (!(picture.opacity > 0)) return;
+      const prepared = prepare(picture);
       bind(frame);
       blendOver();
-      place(picture);
+      place(picture, prepared);
       gl.disable(gl.BLEND);
     },
 
-    prepareTransition(shader) {
-      if (transitions.has(shader.key)) return true;
+    prepareShader(shader) {
+      if (programs.has(shader.key)) return true;
       let pending = compiling.get(shader.key);
       if (!pending) {
         pending = startLink(QUAD_VS, shader.source);
@@ -506,18 +624,19 @@ void main() {
     drawTransition(shader, uniforms, progress, from, to) {
       // Each side into its own transparent layer.
       [from, to].forEach((side, i) => {
+        const prepared = side && side.opacity > 0 ? prepare(side) : null;
         bind(sides[i]);
         gl.disable(gl.BLEND);
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
-        if (side) {
+        if (side && prepared) {
           blendOver();
-          place(side);
+          place(side, prepared);
           gl.disable(gl.BLEND);
         }
       });
 
-      const { program, loc } = transitionProgram(shader);
+      const { program, loc } = shaderProgram(shader);
       bind(frame);
       blendOver();
       gl.useProgram(program);
@@ -540,13 +659,7 @@ void main() {
       };
       gl.uniform2f(loc("fromCentre"), ...centre(from));
       gl.uniform2f(loc("toCentre"), ...centre(to));
-      for (const u of uniforms) {
-        const l = loc(u.name);
-        if (!l) continue;
-        if (u.type === "int") gl.uniform1i(l, u.value as number);
-        else if (u.type === "vec2") gl.uniform2f(l, (u.value as number[])[0], (u.value as number[])[1]);
-        else gl.uniform1f(l, u.value as number);
-      }
+      setUniforms(loc, uniforms);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       gl.disable(gl.BLEND);
       gl.activeTexture(gl.TEXTURE0);
@@ -616,7 +729,7 @@ void main() {
     },
 
     dispose() {
-      for (const { program } of transitions.values()) gl.deleteProgram(program);
+      for (const { program } of programs.values()) gl.deleteProgram(program);
       for (const { program, shaders } of compiling.values()) {
         for (const shader of shaders) gl.deleteShader(shader);
         gl.deleteProgram(program);
@@ -626,7 +739,14 @@ void main() {
       for (const b of idleBuffers) gl.deleteBuffer(b);
       idleBuffers.length = 0;
       channel?.port1.close();
-      transitions.clear();
+      programs.clear();
+      for (const pair of scratch.values()) {
+        for (const { tex, fbo } of pair) {
+          gl.deleteTexture(tex);
+          gl.deleteFramebuffer(fbo);
+        }
+      }
+      scratch.clear();
       gl.deleteProgram(pictureProgram.program);
       gl.deleteProgram(copyProgram.program);
       for (const key of [...pictures.keys()]) deletePicture(key);

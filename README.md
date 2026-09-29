@@ -40,13 +40,30 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Move / scale / rotate | Drag the selected clip on the canvas; drag a handle to scale around the anchor point (⇧ stretches instead of keeping the proportions); drag just outside a corner to rotate (⇧ = 15° steps); drag the crosshair to move the anchor point. ⇧ keeps a move on one axis, ⌥ turns snapping off |
 | Text | `T` (or the **T** button under the preview), then click the canvas where the text goes and type; `Esc` when done. Double-click a text to type into it again. Font (any font installed on your computer), style, size, colours, stroke, background box and shadow are in **Properties** |
 | Properties | **Properties** tab (or double-click a clip): drag a blue number sideways to change it (⇧ faster, ⌥ finer), click it to type, ↺ resets |
-| Transitions | **Transitions** tab: drag one onto a cut or a clip's edge, or **+** / `⇧⌘D` for the cut nearest the playhead. Click it on the timeline to select it, drag its edges to change its length, `⌫` removes it |
+| Left panel width | Drag its right edge (or focus it and use ←/→); double-click the edge for the usual width. It remembers a separate width for when the keyframes show |
+| Video effects | **Effects** tab → **Video effects**: drag one onto a clip (on the timeline or the canvas), or select clips and press **+**. Change, animate, reorder (⋯) or remove it in **Properties** |
+| Transitions | **Effects** tab → **Transitions**: drag one onto a cut or a clip's edge, or **+** / `⇧⌘D` for the cut nearest the playhead. Click it on the timeline to select it, drag its edges to change its length, `⌫` removes it |
 | Library | **Media** tab → **Library**: media and saved clips shared by every video. Drop files or folders on it, **Add to Library** from a media card's menu, or right-click clips → **Save to Library…**. Drag onto the timeline or double-click to use |
 | Auto captions | **Captions** under the timeline (or right-click a clip → **Auto captions…**): pick a style, length and animation, **Generate captions**. Edit them all in the **Captions** tab |
 
+### Video effects
+
+The **Effects** tab's **Video effects** are shader effects you add to clips on video tracks, like Premiere's Video
+Effects: colour (brightness & contrast, hue & saturation, temperature, black & white, sepia, duotone, invert,
+vignette), blur (gaussian, directional, zoom, sharpen), stylize (mosaic, posterize, find edges, glow, film grain,
+mirror, grid), distortions (wave warp, bulge, twirl), camera moves (shake, pulse) and glitches (RGB split, glitch,
+VHS). Filter them by category or search; hover a card to compare before and after (moving effects play).
+
+Drag one onto a clip on the timeline or on the canvas (onto a selected clip: all the selected clips get it), or select
+clips and press **+** (with nothing selected it goes on the top clip under the playhead). A clip with effects shows
+**fx** on the timeline. In **Properties** each effect has its own section below Volume: its settings (which can be
+keyframed), the **fx** bypass switch, reset, and a **⋯** menu to move it up or down (effects are drawn in order,
+each over the result of the one before) or remove it. Effects work on the clip's own picture before its Motion, so
+they move and scale with it.
+
 ### Transitions
 
-The **Transitions** tab has a library of shader transitions: dissolves and dips, pushes, slides and whips, wipes
+The **Effects** tab's **Transitions** are a library of shader transitions: dissolves and dips, pushes, slides and whips, wipes
 and shape irises, camera zooms and spins, 3D cubes, flips, page curls and doorways, glitches (RGB split, VHS,
 datamosh, pixelate), light (flash, film burn, light leaks) and distortions (ripple, swirl, liquid). Filter them by tag
 or search; hover a card to watch it.
@@ -124,6 +141,7 @@ The **Properties** tab in the left panel shows the selected clip's effects, like
   the video at 1080p, anchor points in pixels of the clip's own media.
 - **Opacity** (clips on video tracks).
 - **Volume** (clips with sound).
+- Any **video effects** added to it (see above).
 
 Each effect has an **fx** switch to bypass it and a reset button. Images are placed like video. A new image clip is 5
 seconds long and can be trimmed to any length, and transparent PNGs show the layers underneath.
@@ -164,6 +182,9 @@ Keyframes stay on their frame of the media when a clip is moved, trimmed or spli
   - `compositor.ts`: the renderer. One WebGL 2 compositor draws every frame (clips placed by their motion and faded
     by their opacity, transitions mixed by their shaders), in the preview, the library thumbnails and the export.
     `scene.ts` says what each video track shows at a point in time, for both the preview and the export.
+  - `effect-library/`, `effect-gl.ts`: video effects, GLSL shaders run over a clip's own picture before it's placed.
+    To add one, add a definition to an `effect-library` file; `pnpm tsx scripts/effect-sheet.ts <type or tag>` renders
+    a contact sheet and checks it compiles and changes the picture.
   - `transitions.ts`, `transition-windows.ts`, `transition-gl.ts`, `transition-library/`: transitions. Each one is a
     GLSL shader plus parameter specs (like effects). `transition-windows.ts` works out where they play on the timeline,
     `transition-gl.ts` has the shader prelude they're written against. To add one,

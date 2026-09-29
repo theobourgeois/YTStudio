@@ -1,15 +1,16 @@
 /**
  * HTML5 drop target for the whole timeline: media-bin asset drags, Library
- * items, OS files, and transitions (dropped on the nearest clip edge).
+ * items, OS files, transitions (dropped on the nearest clip edge) and video
+ * effects (dropped on a clip).
  * An enter/leave depth counter (reset on drop/dragend) keeps the highlight
  * from flickering between child elements or sticking after the drag ends.
  */
 import { useEffect, useRef, type DragEvent } from "react";
 import { toast } from "sonner";
-import { snapPoints, snapTime } from "@shared/timeline";
+import { clipsAtTime, isOnVideoTrack, snapPoints, snapTime } from "@shared/timeline";
 import { type TransitionRef, addTransition, findWindow, transitionTargetAt } from "@shared/transition-windows";
 import { DEFAULT_TRANSITION } from "@shared/transitions";
-import { dragKind, getAssetDragData, getLibraryDragData, getTransitionDragData, mediaFiles } from "@/lib/dnd";
+import { dragKind, getAssetDragData, getEffectDragData, getLibraryDragData, getTransitionDragData, mediaFiles } from "@/lib/dnd";
 import { useEditor } from "@/stores/editor";
 import { useLibrary } from "@/stores/library";
 import { usePlayback } from "@/stores/playback";
@@ -37,7 +38,7 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
   useEffect(() => {
     const reset = () => {
       depth.current = 0;
-      setView({ drop: null, transitionDrop: null });
+      setView({ drop: null, transitionDrop: null, effectDrop: null });
     };
     window.addEventListener("dragend", reset);
     window.addEventListener("drop", reset);
@@ -68,7 +69,21 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
     return transitionTargetAt(project, lane.trackId, Math.max(0, p.x / zoom), TRANSITION_REACH_PX / zoom);
   };
 
+  /** The video-track clip under the pointer, which an effect would be added to. */
+  const effectTarget = (e: DragEvent): string | null => {
+    const p = lanePoint(ctx, e.clientX, e.clientY);
+    const lane = p && laneAt(ctx.lanesLayout.current, p.y);
+    if (!p || !lane) return null;
+    const { project, zoom } = useEditor.getState();
+    const clip = clipsAtTime(project, p.x / zoom).find((c) => c.trackId === lane.trackId);
+    return clip && isOnVideoTrack(project, clip) ? clip.id : null;
+  };
+
   const show = (e: DragEvent) => {
+    if (dragKind(e.dataTransfer) === "effect") {
+      setView({ effectDrop: effectTarget(e) });
+      return;
+    }
     if (dragKind(e.dataTransfer) === "transition") {
       const ref = transitionTarget(e);
       const { project } = useEditor.getState();
@@ -93,20 +108,31 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
       if (!dragKind(e.dataTransfer)) return;
       e.preventDefault();
       show(e);
-      const nowhere = dragKind(e.dataTransfer) === "transition" && !useTimelineView.getState().transitionDrop;
+      const kind = dragKind(e.dataTransfer);
+      const view = useTimelineView.getState();
+      const nowhere = (kind === "transition" && !view.transitionDrop) || (kind === "effect" && !view.effectDrop);
       e.dataTransfer.dropEffect = nowhere ? "none" : "copy";
     },
     onDragLeave(e: DragEvent) {
       if (!dragKind(e.dataTransfer)) return;
       depth.current = Math.max(0, depth.current - 1);
-      if (depth.current === 0) setView({ drop: null, transitionDrop: null });
+      if (depth.current === 0) setView({ drop: null, transitionDrop: null, effectDrop: null });
     },
     onDrop(e: DragEvent) {
       const kind = dragKind(e.dataTransfer);
       if (!kind) return;
       e.preventDefault();
       depth.current = 0;
-      setView({ drop: null, transitionDrop: null });
+      setView({ drop: null, transitionDrop: null, effectDrop: null });
+      if (kind === "effect") {
+        const type = getEffectDragData(e.dataTransfer);
+        const clipId = effectTarget(e);
+        if (!type || !clipId) return;
+        // Dropped on one of the selected clips: it goes on all of them, like Premiere.
+        const selected = useEditor.getState().selectedClipIds;
+        useEditor.getState().addEffectTo(selected.includes(clipId) ? selected : [clipId], type);
+        return;
+      }
       if (kind === "transition") {
         const type = getTransitionDragData(e.dataTransfer);
         const ref = transitionTarget(e);

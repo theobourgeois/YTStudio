@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { defaultEffects, textEffects } from "../shared/effects.ts";
+import { addEffect, defaultEffects, setEffectEnabled, textEffects } from "../shared/effects.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import type {
   Clip,
@@ -564,6 +564,22 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(probe(output).format.duration).toMatch(/^4\.0/);
     // The drawn transitions are cleaned up.
     expect(readdirSync(path.join(dataDir, "tmp")).filter((f) => f.endsWith(".mkv"))).toEqual([]);
+  });
+
+  it("exports video effects drawn by their shaders, and not the ones turned off", async () => {
+    const red = clip("red", "main", 0, 0, 1);
+    const blue = clip("blue", "main", 1, 0, 1);
+    let project = projectWith([red, blue]);
+    project = addEffect(project, [red.id, blue.id], "invert").project;
+    project = setEffectEnabled(project, blue.id, "invert", false);
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    const near = (actual: number[], expected: number[]) =>
+      actual.forEach((v, i) => expect(Math.abs(v - expected[i]), `${actual} vs ${expected}`).toBeLessThan(40));
+    near(pixelAt(output, 0.5, 360, 640), [0, 255, 255]);
+    near(pixelAt(output, 1.5, 360, 640), [0, 0, 255]);
   });
 
   it("exports video in its true colours, whatever matrix it's stored in", async () => {

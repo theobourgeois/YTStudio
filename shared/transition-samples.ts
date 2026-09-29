@@ -7,7 +7,14 @@
  * Also serialised into the headless page (like `createTransitionRenderer`),
  * so it must not refer to anything outside its own body.
  */
-export function drawSampleScene(ctx: CanvasRenderingContext2D, width: number, height: number, which: 0 | 1): void {
+export function drawSampleScene(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  which: 0 | 1,
+  /** Mark it with its letter (the effects' cards leave it off). */
+  letter = true,
+): void {
   const w = width;
   const h = height;
   const s = Math.min(w, h);
@@ -70,6 +77,7 @@ export function drawSampleScene(ctx: CanvasRenderingContext2D, width: number, he
   hills(0.84, 0.05, 3.1, night ? 2.4 : 0.9, night ? "#15123a" : "#4a1745");
 
   // The letter, in a corner so it shows which way up (and round) the picture is.
+  if (!letter) return;
   ctx.fillStyle = "rgba(255,255,255,0.95)";
   ctx.font = `800 ${Math.round(s * 0.42)}px "DM Sans Variable", "DM Sans", system-ui, sans-serif`;
   ctx.textBaseline = "alphabetic";

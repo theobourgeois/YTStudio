@@ -8,46 +8,18 @@
  * transition's shader.
  */
 import type { Shader } from "./compositor.ts";
+import type { BooleanSpec, ChoiceSpec, ColorSpec, NumberSpec, Vec2Spec } from "./params.ts";
 import type { ParamValue, Vec2 } from "./types.ts";
 import type { TransitionDefinition } from "./transitions.ts";
 
 /**
- * Everything a transition's GLSL can use:
- *
- * - `progress` (0..1), `ratio` (canvas width / height), `resolution` (px).
- * - `fromCentre` / `toCentre`: where the middle of each clip's frame is, in
- *   uv (the canvas centre when a side is empty), to move a clip around itself
- *   rather than the canvas (e.g. a text popping in where it is).
- * - `getFromColor(uv)` / `getToColor(uv)`: the outgoing / incoming picture,
- *   premultiplied RGBA, transparent outside 0..1. `uv` (0, 0) is bottom left.
- * - Helpers: `PI`, `ease` (smooth in and out) plus `easeIn`/`easeOut`,
- *   `hash`/`hash2` (random 0..1), `noise` (smooth value noise), `fbm`
- *   (layered noise), `rot` (2D rotation), `luma`, `inside(uv)`,
- *   `dirVec(direction)` (0 left, 1 right, 2 up, 3 down), `toUv` (a point
- *   parameter to uv), `aspect(uv)` (uv around the centre in square units),
- *   `mirrored(uv)` (repeats the picture as reflections past its edges).
- *
- * The result must be premultiplied (rgb never above alpha); it's clamped.
+ * GLSL helpers shared by transitions and effects (`effect-gl.ts`); they expect a
+ * `ratio` uniform (width / height).
  */
-const PRELUDE = `#version 300 es
-precision highp float;
-precision highp int;
-in vec2 vUv;
-out vec4 fragColor;
-uniform sampler2D uFrom;
-uniform sampler2D uTo;
-uniform bool uStraight;
-uniform float progress;
-uniform float ratio;
-uniform vec2 resolution;
-uniform vec2 fromCentre;
-uniform vec2 toCentre;
-
+export const GLSL_HELPERS = `
 #define PI 3.141592653589793
 
 bool inside(vec2 uv) { return all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))); }
-vec4 getFromColor(vec2 uv) { return inside(uv) ? texture(uFrom, uv) : vec4(0.0); }
-vec4 getToColor(vec2 uv) { return inside(uv) ? texture(uTo, uv) : vec4(0.0); }
 
 float ease(float t) { t = clamp(t, 0.0, 1.0); return t < 0.5 ? 4.0 * t * t * t : 1.0 - pow(-2.0 * t + 2.0, 3.0) / 2.0; }
 float easeIn(float t) { t = clamp(t, 0.0, 1.0); return t * t * t; }
@@ -83,6 +55,42 @@ vec2 aspect(vec2 uv) { return (uv - 0.5) * vec2(ratio, 1.0); }
 vec2 mirrored(vec2 p) { return 1.0 - abs(1.0 - mod(p, 2.0)); }
 `;
 
+/**
+ * Everything a transition's GLSL can use:
+ *
+ * - `progress` (0..1), `ratio` (canvas width / height), `resolution` (px).
+ * - `fromCentre` / `toCentre`: where the middle of each clip's frame is, in
+ *   uv (the canvas centre when a side is empty), to move a clip around itself
+ *   rather than the canvas (e.g. a text popping in where it is).
+ * - `getFromColor(uv)` / `getToColor(uv)`: the outgoing / incoming picture,
+ *   premultiplied RGBA, transparent outside 0..1. `uv` (0, 0) is bottom left.
+ * - Helpers: `PI`, `ease` (smooth in and out) plus `easeIn`/`easeOut`,
+ *   `hash`/`hash2` (random 0..1), `noise` (smooth value noise), `fbm`
+ *   (layered noise), `rot` (2D rotation), `luma`, `inside(uv)`,
+ *   `dirVec(direction)` (0 left, 1 right, 2 up, 3 down), `toUv` (a point
+ *   parameter to uv), `aspect(uv)` (uv around the centre in square units),
+ *   `mirrored(uv)` (repeats the picture as reflections past its edges).
+ *
+ * The result must be premultiplied (rgb never above alpha); it's clamped.
+ */
+const PRELUDE = `#version 300 es
+precision highp float;
+precision highp int;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uFrom;
+uniform sampler2D uTo;
+uniform bool uStraight;
+uniform float progress;
+uniform float ratio;
+uniform vec2 resolution;
+uniform vec2 fromCentre;
+uniform vec2 toCentre;
+${GLSL_HELPERS}
+vec4 getFromColor(vec2 uv) { return inside(uv) ? texture(uFrom, uv) : vec4(0.0); }
+vec4 getToColor(vec2 uv) { return inside(uv) ? texture(uTo, uv) : vec4(0.0); }
+`;
+
 const MAIN = `
 void main() {
   vec4 c = clamp(transition(vUv), 0.0, 1.0);
@@ -97,10 +105,7 @@ export const RESERVED_UNIFORMS = ["progress", "ratio", "resolution", "fromCentre
 
 /** The complete fragment shader of a transition. */
 export function fragmentSource(def: Pick<TransitionDefinition, "params" | "glsl">): string {
-  const uniforms = def.params
-    .map((p) => `uniform ${p.kind === "choice" ? "int" : p.kind === "vec2" ? "vec2" : "float"} ${p.key};`)
-    .join("\n");
-  return `${PRELUDE}\n${uniforms}\n${def.glsl}\n${MAIN}`;
+  return `${PRELUDE}\n${uniformDeclarations(def.params)}\n${def.glsl}\n${MAIN}`;
 }
 
 const shaders = new Map<string, Shader>();
@@ -117,13 +122,27 @@ export function transitionShader(def: TransitionDefinition): Shader {
 
 export interface UniformValue {
   name: string;
-  type: "float" | "int" | "vec2";
-  value: number | Vec2;
+  type: "float" | "int" | "vec2" | "vec3";
+  value: number | number[];
 }
 
-/** A transition's parameter values as uniforms (see `TransitionDefinition.params`). */
-export function transitionUniforms(def: TransitionDefinition, params: Record<string, ParamValue>): UniformValue[] {
-  return def.params.map((spec) => {
+/** The kinds of parameter a shader can take as a uniform. */
+export type UniformSpec = NumberSpec | BooleanSpec | ChoiceSpec | Vec2Spec | ColorSpec;
+
+/** The GLSL declaration of each parameter's uniform (see `paramUniforms`). */
+export function uniformDeclarations(specs: readonly UniformSpec[]): string {
+  const type = (p: UniformSpec) =>
+    p.kind === "choice" ? "int" : p.kind === "vec2" ? "vec2" : p.kind === "color" ? "vec3" : "float";
+  return specs.map((p) => `uniform ${type(p)} ${p.key};`).join("\n");
+}
+
+/**
+ * Parameter values as uniforms named by their key: numbers and switches as
+ * `float` (switches are 0 or 1), choices as `int` (the option's index), points
+ * as `vec2` and colours as `vec3` (RGB 0..1).
+ */
+export function paramUniforms(specs: readonly UniformSpec[], params: Record<string, ParamValue>): UniformValue[] {
+  return specs.map((spec) => {
     const v = params[spec.key] ?? spec.default;
     switch (spec.kind) {
       case "number":
@@ -134,6 +153,19 @@ export function transitionUniforms(def: TransitionDefinition, params: Record<str
         return { name: spec.key, type: "int", value: Math.max(0, spec.options.findIndex((o) => o.value === v)) };
       case "vec2":
         return { name: spec.key, type: "vec2", value: v as Vec2 };
+      case "color":
+        return { name: spec.key, type: "vec3", value: hexToRgb(v as string) };
     }
   });
+}
+
+/** `#rrggbb` as RGB 0..1. */
+function hexToRgb(hex: string): number[] {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return Number.isFinite(n) ? [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => c / 255) : [0, 0, 0];
+}
+
+/** A transition's parameter values as uniforms (see `TransitionDefinition.params`). */
+export function transitionUniforms(def: TransitionDefinition, params: Record<string, ParamValue>): UniformValue[] {
+  return paramUniforms(def.params, params);
 }

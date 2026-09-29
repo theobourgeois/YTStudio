@@ -55,6 +55,8 @@ interface TimelineViewState {
   snapGuide: number | null;
   drop: DropTarget | null;
   transitionDrop: TransitionDrop | null;
+  /** The clip a video effect being dragged would be added to. */
+  effectDrop: string | null;
   scrubbing: boolean;
 }
 
@@ -69,6 +71,7 @@ export const useTimelineView = create<TimelineViewState>(() => ({
   snapGuide: null,
   drop: null,
   transitionDrop: null,
+  effectDrop: null,
   scrubbing: false,
 }));
 

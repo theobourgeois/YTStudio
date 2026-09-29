@@ -529,6 +529,7 @@ test("animates a property with keyframes and edits them in the Effect Controls' 
 
 test("adds transitions from the library, edits them and previews them", async ({ page }) => {
   await page.goto("/");
+  await page.getByRole("tab", { name: "Effects" }).click();
   await page.getByRole("tab", { name: "Transitions" }).click();
   const card = (name: string) => page.locator("[data-transition-type]").filter({ hasText: name }).first();
   const withTransitions = async () =>
@@ -560,6 +561,7 @@ test("adds transitions from the library, edits them and previews them", async ({
   await expect.poll(async () => (await withTransitions())[0]?.duration).toBe(1);
 
   // Drag another one onto the end of the first video clip.
+  await page.getByRole("tab", { name: "Effects" }).click();
   await page.getByRole("tab", { name: "Transitions" }).click();
   await page.getByRole("searchbox", { name: "Search transitions" }).fill("glitch");
   const videoLane = await laneY(page, "Video 1");
@@ -583,6 +585,71 @@ test("adds transitions from the library, edits them and previews them", async ({
   await expect(page.locator("[data-transition]")).toHaveCount(1);
   await page.keyboard.press("ControlOrMeta+z");
   await expect(page.locator("[data-transition]")).toHaveCount(2);
+});
+
+test("adds video effects from the Effects tab, edits, reorders and removes them", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Effects" }).click();
+  await expect(page.getByRole("tab", { name: "Video effects" })).toHaveAttribute("aria-selected", "true");
+  const card = (name: string) => page.locator("[data-effect-type]").filter({ hasText: name }).first();
+  const videoLane = await laneY(page, "Video 1");
+  const video = (await timelineClips(page)).find((c) => Math.abs(c.y + c.h / 2 - videoLane) < 10)!;
+  const effectsOf = async () =>
+    ((await savedProject(page)).clips as SavedClip[])
+      .find((c) => c.id === video.id)!
+      .effects.filter((e) => !["motion", "opacity", "volume"].includes(e.type))
+      .map((e) => e.type);
+
+  // Filter by category and search.
+  await page.getByRole("radio", { name: "Blur" }).click();
+  await expect(card("Gaussian Blur")).toBeVisible();
+  await expect(card("Sepia")).toHaveCount(0);
+  await page.getByRole("radio", { name: "All" }).click();
+  await page.getByRole("searchbox", { name: "Search effects" }).fill("sepia");
+  await expect(card("Sepia")).toBeVisible();
+  await expect(card("Mosaic")).toHaveCount(0);
+
+  // + adds it to the selected clip.
+  await page.mouse.click(video.x + video.w / 2, video.y + video.h / 2);
+  await card("Sepia").hover();
+  await card("Sepia").getByRole("button", { name: "Add Sepia" }).click();
+  await expect.poll(effectsOf).toEqual(["sepia"]);
+  await expect(page.locator(`[data-clip-id="${video.id}"] [data-clip-effects]`)).toHaveAttribute("data-clip-effects", "sepia");
+
+  // Drag another onto the clip on the timeline.
+  await page.getByRole("searchbox", { name: "Search effects" }).fill("mosaic");
+  const src = (await card("Mosaic").boundingBox())!;
+  await page.mouse.move(src.x + src.width / 2, src.y + src.height / 3);
+  await page.mouse.down();
+  await page.mouse.move(video.x + video.w / 2, video.y + video.h / 2, { steps: 5 });
+  await page.mouse.move(video.x + video.w / 2 + 4, video.y + video.h / 2, { steps: 2 });
+  await page.mouse.up();
+  await expect.poll(effectsOf).toEqual(["sepia", "mosaic"]);
+
+  // Properties: its settings, then move it up and remove the other.
+  await page.getByRole("tab", { name: "Properties" }).click();
+  await expect(page.getByRole("region", { name: "Mosaic" })).toBeVisible();
+  await page.getByRole("button", { name: "Mosaic options" }).click();
+  await page.getByRole("menuitem", { name: "Move up" }).click();
+  await expect.poll(effectsOf).toEqual(["mosaic", "sepia"]);
+  await page.getByRole("button", { name: "Sepia options" }).click();
+  await page.getByRole("menuitem", { name: "Remove Sepia" }).click();
+  await expect.poll(effectsOf).toEqual(["mosaic"]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(effectsOf).toEqual(["mosaic", "sepia"]);
+
+  // "Add an effect" goes back to the effects.
+  await page.getByRole("button", { name: "Add an effect" }).click();
+  await expect(page.getByRole("searchbox", { name: "Search effects" })).toBeVisible();
+
+  // The panel's edge resizes it (more cards per row); a double-click puts it back.
+  const panel = page.locator("aside").filter({ has: page.getByRole("separator", { name: "Resize panel" }) });
+  const before = (await panel.boundingBox())!.width;
+  const edge = (await page.getByRole("separator", { name: "Resize panel" }).boundingBox())!;
+  await drag(page, { x: edge.x + edge.width / 2, y: edge.y + 300 }, { x: edge.x + edge.width / 2 + 200, y: edge.y + 300 });
+  await expect.poll(async () => Math.round((await panel.boundingBox())!.width - before)).toBe(200);
+  await page.getByRole("separator", { name: "Resize panel" }).dblclick();
+  await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(Math.round(before));
 });
 
 test("adds text with the Type tool, types into it on the canvas, styles it and exports it", async ({ page }) => {

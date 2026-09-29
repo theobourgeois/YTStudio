@@ -1,6 +1,7 @@
 import type { Clip, MediaAsset, Project } from "@shared/types";
 import { type TextStyle, isTextClip, opacityAt, textStyleAt, volumeAt } from "@shared/effects";
 import { type Compositor, type Placed, createCompositor } from "@shared/compositor";
+import { effectPasses } from "@shared/effect-gl";
 import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
 import { clipEnd, clipSourceRange, videoTracks } from "@shared/timeline";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
@@ -361,14 +362,27 @@ export class PreviewEngine {
       if (!picture || !this.upload(compositor, picture)) return null;
       const { clip, time } = picture.shown;
       const placement = placeOnCanvas(project, clip, this.assetById.get(clip.assetId), this.size, time).placement;
-      return { key: picture.key, affine: placementAffine(placement, this.size), opacity: opacityAt(clip, time) };
+      const effects = effectPasses(clip, time);
+      return {
+        key: picture.key,
+        affine: placementAffine(placement, this.size),
+        opacity: opacityAt(clip, time),
+        ...(effects.length && { effects }),
+      };
     };
     compositor.clear();
     let transitions = 0;
     for (const layer of layers) {
       if (layer.kind === "picture") {
         const picture = placed(layer.picture);
-        if (picture) compositor.drawPicture(picture);
+        if (!picture) continue;
+        try {
+          compositor.drawPicture(picture);
+        } catch (err) {
+          // An effect that won't compile: the clip still shows, without its effects.
+          console.error("A clip's effects failed to draw", err);
+          compositor.drawPicture({ ...picture, effects: undefined });
+        }
         continue;
       }
       transitions++;
