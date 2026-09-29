@@ -119,6 +119,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     ffmpeg("-f", "lavfi", "-i", "testsrc2=size=64x64", "-frames:v", "1", f("still.png"));
     // A solid red 2:1 image, easy to find in an export.
     ffmpeg("-f", "lavfi", "-i", "color=red:size=100x50", "-frames:v", "1", f("red.png"));
+    ffmpeg("-f", "lavfi", "-i", "color=blue:size=100x50", "-frames:v", "1", f("blue.png"));
     // (Seeking into this one finds no frame, so stills must be read without seeking.)
     const jpeg = path.join(tmp, "plain.jpg");
     ffmpeg("-f", "lavfi", "-i", "mandelbrot=size=320x160", "-frames:v", "1", jpeg);
@@ -243,7 +244,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
   });
 
   it("imports still images, upright as they display", async () => {
-    for (const [key, file] of [["still", "still.png"], ["red", "red.png"], ["photo", "photo.jpg"]]) {
+    for (const [key, file] of [["still", "still.png"], ["red", "red.png"], ["blue", "blue.png"], ["photo", "photo.jpg"]]) {
       const res = await upload(fixtures[file]);
       expect(res.status).toBe(201);
       assets[key] = (await res.json()) as MediaAsset;
@@ -495,6 +496,30 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(g + b).toBeLessThan(60);
   });
 
+  it("exports transitions drawn by their shaders", async () => {
+    const project = projectWith([
+      // Red, then blue with a 1 s cross dissolve centred on the cut at 2 s...
+      { ...clip("red", "main", 0, 0, 2), transitionOut: { type: "cross-dissolve", duration: 1, alignment: "center", params: {} } },
+      // ...fading into nothing (the black canvas) over its last second.
+      { ...clip("blue", "main", 2, 0, 2), transitionOut: { type: "cross-dissolve", duration: 1, alignment: "center", params: {} } },
+    ]);
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    expect(job.status).toBe("done");
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    const near = (actual: number[], expected: number[]) =>
+      actual.forEach((v, i) => expect(Math.abs(v - expected[i]), `${actual} vs ${expected}`).toBeLessThan(40));
+
+    near(pixelAt(output, 1.2, 360, 640), [255, 0, 0]);
+    near(pixelAt(output, 2.0, 360, 640), [128, 0, 128]);
+    near(pixelAt(output, 2.7, 360, 640), [0, 0, 255]);
+    near(pixelAt(output, 3.5, 360, 640), [0, 0, 128]);
+    expect(probe(output).format.duration).toMatch(/^4\.0/);
+    // The drawn transitions are cleaned up.
+    expect(readdirSync(path.join(dataDir, "tmp")).filter((f) => f.endsWith(".mkv"))).toEqual([]);
+  });
+
   it("exports without the audio tracks when asked", async () => {
     const project = projectWith([
       clip("landscape", "main", 0, 0, 2),
@@ -551,7 +576,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(existsSync(path.join(dataDir, "projects", projects.other.id))).toBe(false);
     expect((await json<ProjectSummary[]>("/api/projects")).map((p) => p.id)).toEqual([projects.main.id]);
     // The remaining project's media is untouched.
-    expect((await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`))).toHaveLength(6);
+    expect((await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`))).toHaveLength(7);
   });
 
   it("deletes media", async () => {

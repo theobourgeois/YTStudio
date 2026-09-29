@@ -3,7 +3,18 @@ import { defaultEffects } from "@shared/effects";
 import type { Clip, Project } from "@shared/types";
 import { MAIN_TRACK_ID, createDefaultProject } from "@shared/timeline";
 import { fitRect, isLightColor } from "./canvas";
-import { SEEK_DRIFT, assignSlots, planAudio, planTrack, playbackCorrection, sourceTime } from "./sync";
+import { createTransition } from "@shared/transitions";
+import { trackTransitions } from "@shared/transition-windows";
+import {
+  SEEK_DRIFT,
+  assignSlots,
+  handleTime,
+  planAudio,
+  planTrack,
+  planTransition,
+  playbackCorrection,
+  sourceTime,
+} from "./sync";
 
 const clip = (id: string, start: number, inPoint: number, out: number, trackId = MAIN_TRACK_ID): Clip => ({
   id,
@@ -137,5 +148,42 @@ describe("canvas helpers", () => {
     expect(isLightColor("#ffffff")).toBe(true);
     expect(isLightColor("#000000")).toBe(false);
     expect(isLightColor("nope")).toBe(false);
+  });
+});
+
+describe("planTransition", () => {
+  // "a" uses source 2..6 of a 7 s file, "b" starts at the very beginning of its file.
+  const a = { ...clip("a", 0, 2, 6), transitionOut: createTransition("cross-dissolve", 2) };
+  const b = clip("b", 4, 0, 4);
+  const p = project([a, b]);
+  const windows = trackTransitions(p, MAIN_TRACK_ID);
+  const range = (c: Clip) => (c.id === "a" ? { min: 0, max: 7 } : { min: 0, max: 4 });
+
+  it("shows both clips across the cut, running into handles and holding where the media ends", () => {
+    const plan = planTransition(p, windows, 4.5, range)!;
+    expect(plan.progress).toBe(0.75);
+    expect(plan.from?.clip.id).toBe("a");
+    expect(plan.from?.time).toBeCloseTo(6.5); // past its out-point, into the handle
+    expect(plan.to?.time).toBe(0.5);
+    const early = planTransition(p, windows, 3.2, range)!;
+    expect(early.to?.time).toBe(0); // "b" has no media before its in-point: first frame held
+    expect(planTransition(p, windows, 4.99, range)!.from!.time).toBeLessThan(7);
+  });
+
+  it("is null outside transitions", () => {
+    expect(planTransition(p, windows, 2, range)).toBeNull();
+    expect(planTransition(p, windows, 5, range)).toBeNull();
+  });
+
+  it("holds the last frame of a transition that ends the project", () => {
+    const tail = project([{ ...clip("x", 0, 0, 2), transitionOut: createTransition("cross-dissolve", 1) }]);
+    const plan = planTransition(tail, trackTransitions(tail, MAIN_TRACK_ID), 2, () => ({ min: 0, max: 2 }));
+    expect(plan?.progress).toBe(1);
+    expect(plan?.to).toBeNull();
+  });
+
+  it("maps timeline time into the media, clamped to it", () => {
+    expect(handleTime(clip("x", 2, 10, 15), 1, { min: 0, max: 20 })).toBe(9);
+    expect(handleTime(clip("x", 2, 10, 15), 30, { min: 0, max: 20 })).toBeCloseTo(20, 2);
   });
 });

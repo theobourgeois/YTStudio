@@ -97,6 +97,32 @@ export interface Clip {
    * as effects in the order they apply. See `shared/effects.ts`.
    */
   effects: Effect[];
+  /**
+   * Transition at the clip's start: from the clip that ends right where this
+   * one starts (when that clip has no out-transition of its own), otherwise
+   * from nothing. See `shared/transitions.ts`.
+   */
+  transitionIn?: Transition;
+  /** Transition at the clip's end: into the clip right after it, otherwise into nothing. */
+  transitionOut?: Transition;
+}
+
+// ---------------------------------------------------------------------------
+// Transitions (see `shared/transitions.ts` for the definitions)
+// ---------------------------------------------------------------------------
+
+/** Where a transition between two clips sits: centred on the cut, starting at it or ending at it. */
+export type TransitionAlignment = "center" | "start" | "end";
+
+export interface Transition {
+  /** Which definition in `TRANSITIONS` this is, e.g. "cross-dissolve". */
+  type: string;
+  /** Seconds. */
+  duration: number;
+  /** Only used between two clips; at a free edge the transition always sits inside the clip. */
+  alignment: TransitionAlignment;
+  /** Values of the definition's parameters. */
+  params: ParamValues;
 }
 
 // ---------------------------------------------------------------------------

@@ -138,6 +138,8 @@ export class ImageSlot {
     private readonly onChange: () => void,
   ) {
     el.addEventListener("error", this.onError);
+    // A transition draws the image itself, so it needs to know when there's something to draw.
+    el.addEventListener("load", this.onChange);
   }
 
   setSrc(src: string | null) {
@@ -150,6 +152,7 @@ export class ImageSlot {
 
   dispose() {
     this.el.removeEventListener("error", this.onError);
+    this.el.removeEventListener("load", this.onChange);
     this.setSrc(null);
   }
 

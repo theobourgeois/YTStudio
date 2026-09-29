@@ -117,6 +117,7 @@ function VideoLayer({ trackId, layer, engine }: { trackId: string; layer: number
   const imageA = useCallback((el: HTMLImageElement) => engine.attachImage(trackId, 0, el), [engine, trackId]);
   const imageB = useCallback((el: HTMLImageElement) => engine.attachImage(trackId, 1, el), [engine, trackId]);
   const text = useCallback((el: HTMLCanvasElement) => engine.attachText(trackId, el), [engine, trackId]);
+  const canvas = useCallback((el: HTMLCanvasElement) => engine.attachCanvas(trackId, el), [engine, trackId]);
   return (
     <div className="pointer-events-none absolute inset-0" style={{ zIndex: layer }}>
       <video ref={videoA} className={mediaClass} playsInline preload="auto" />
@@ -124,6 +125,8 @@ function VideoLayer({ trackId, layer, engine }: { trackId: string; layer: number
       <img ref={imageA} className={mediaClass} alt="" draggable={false} decoding="async" />
       <img ref={imageB} className={mediaClass} alt="" draggable={false} decoding="async" />
       <canvas ref={text} className={mediaClass} />
+      {/* Draws the track while a transition plays. */}
+      <canvas ref={canvas} className="absolute top-0 left-0 opacity-0" />
     </div>
   );
 }

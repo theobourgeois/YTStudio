@@ -39,6 +39,14 @@ import {
   splitClips,
   videoTracks,
 } from "@shared/timeline";
+import {
+  type TransitionRef,
+  addTransition,
+  findWindow,
+  nearestEdge,
+  removeTransition,
+} from "@shared/transition-windows";
+import { transitionDefinition } from "@shared/transitions";
 import { ApiRequestError, api } from "@/lib/api";
 import { usePlayback } from "./playback";
 
@@ -75,6 +83,8 @@ interface EditorState {
    * moved or gone.
    */
   selectedGap: { trackId: string; start: number; end: number } | null;
+  /** The selected transition (never together with clips or a gap). */
+  selectedTransition: TransitionRef | null;
   /** Clips copied with ⌘C / cut with ⌘X. */
   clipboard: CopiedClip[];
   /** Timeline zoom in pixels per second. */
@@ -121,6 +131,7 @@ interface EditorState {
   /** Select the gap at `time` on `trackId`; selects nothing when there's no gap there. */
   selectGap: (trackId: string, time: number) => void;
   setSelection: (clipIds: string[]) => void;
+  selectTransition: (ref: TransitionRef | null) => void;
   /** Add the clip to the selection, or remove it if it's already selected. */
   toggleSelected: (clipId: string) => void;
   selectAll: () => void;
@@ -157,6 +168,17 @@ interface EditorState {
   splitAtPlayhead: () => void;
   /** Split specific clips at a timeline time (e.g. where a clip was right-clicked). */
   splitAt: (clipIds: string[], time: number) => void;
+  /**
+   * Put a transition on a clip edge (replacing the one there) and select it.
+   * Returns false when it can't go there.
+   */
+  addTransitionAt: (ref: TransitionRef, type: string) => boolean;
+  /**
+   * Put a transition on the edit point nearest the playhead, like Premiere's
+   * "Apply Default Transition": on the selected transition's place, else the
+   * selected clip's track, else any video track.
+   */
+  applyTransition: (type: string) => void;
   /** Delete the selection; `ripple` also closes the gaps it leaves. A selected gap is always closed. */
   deleteSelected: (ripple?: boolean) => void;
   copySelected: () => void;
@@ -193,6 +215,7 @@ const emptyEditor = () => ({
   uploads: [] as Upload[],
   selectedClipIds: [] as string[],
   selectedGap: null,
+  selectedTransition: null,
   past: [] as Project[],
   future: [] as Project[],
   gestureBase: null,
@@ -207,6 +230,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   uploads: [],
   selectedClipIds: [],
   selectedGap: null,
+  selectedTransition: null,
   clipboard: [],
   zoom: 60,
   snapping: true,
@@ -316,16 +340,20 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   select(clipId) {
-    set({ selectedClipIds: clipId ? [clipId] : [], selectedGap: null });
+    set({ selectedClipIds: clipId ? [clipId] : [], selectedGap: null, selectedTransition: null });
   },
 
   selectGap(trackId, time) {
     const gap = gapAt(get().project, trackId, time);
-    set({ selectedClipIds: [], selectedGap: gap && { trackId, ...gap } });
+    set({ selectedClipIds: [], selectedGap: gap && { trackId, ...gap }, selectedTransition: null });
   },
 
   setSelection(clipIds) {
-    set({ selectedClipIds: [...new Set(clipIds)], selectedGap: null });
+    set({ selectedClipIds: [...new Set(clipIds)], selectedGap: null, selectedTransition: null });
+  },
+
+  selectTransition(ref) {
+    set({ selectedTransition: ref, selectedClipIds: [], selectedGap: null });
   },
 
   toggleSelected(clipId) {
@@ -333,11 +361,12 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({
       selectedClipIds: ids.includes(clipId) ? ids.filter((id) => id !== clipId) : [...ids, clipId],
       selectedGap: null,
+      selectedTransition: null,
     });
   },
 
   selectAll() {
-    set({ selectedClipIds: get().project.clips.map((c) => c.id), selectedGap: null });
+    set({ selectedClipIds: get().project.clips.map((c) => c.id), selectedGap: null, selectedTransition: null });
   },
 
   setZoom(zoom) {
@@ -520,7 +549,36 @@ export const useEditor = create<EditorState>((set, get) => ({
     get().commit(() => result.project);
   },
 
+  addTransitionAt(ref, type) {
+    const result = addTransition(get().project, ref, type);
+    if (!result.ref) return false;
+    get().commit(() => result.project);
+    get().selectTransition(result.ref);
+    return true;
+  },
+
+  applyTransition(type) {
+    const { project, selectedTransition, selectedClipIds } = get();
+    const label = transitionDefinition(type)?.label ?? "transition";
+    if (selectedTransition && findWindow(project, selectedTransition)) {
+      get().addTransitionAt(selectedTransition, type);
+      return;
+    }
+    const time = usePlayback.getState().time;
+    const selected = selectedClipIds.map((id) => getClip(project, id)).find((c) => c && isOnVideoTrack(project, c));
+    const ref = nearestEdge(project, time, selected ? [selected.trackId] : undefined);
+    if (!ref || !get().addTransitionAt(ref, type)) {
+      toast(`Nowhere to put the ${label}`, { description: "Add a clip to a video track first." });
+    }
+  },
+
   deleteSelected(ripple = false) {
+    const transition = get().selectedTransition;
+    if (transition) {
+      get().commit((p) => removeTransition(p, transition));
+      set({ selectedTransition: null });
+      return;
+    }
     const gap = get().selectedGap;
     if (gap) {
       get().commit((p) => closeGap(p, gap.trackId, gap.start));
@@ -639,12 +697,16 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 }));
 
-/** After an edit: drop clips that no longer exist from the selection, and any selected gap. */
+/**
+ * After an edit: drop clips that no longer exist from the selection, any
+ * selected gap, and the selected transition once it no longer plays.
+ */
 function fixSelection() {
-  const { selectedClipIds, selectedGap, project } = useEditor.getState();
+  const { selectedClipIds, selectedGap, selectedTransition, project } = useEditor.getState();
   const kept = selectedClipIds.filter((id) => getClip(project, id));
   if (kept.length !== selectedClipIds.length) useEditor.setState({ selectedClipIds: kept });
   if (selectedGap) useEditor.setState({ selectedGap: null });
+  if (selectedTransition && !findWindow(project, selectedTransition)) useEditor.setState({ selectedTransition: null });
 }
 
 // Keep the playback clock's duration in sync with the timeline.

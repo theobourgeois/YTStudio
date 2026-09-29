@@ -79,6 +79,16 @@ export function placementMatrix(p: Placement): Matrix {
   return [a, b, c, d, p.x - (a * p.anchorX + c * p.anchorY), p.y - (b * p.anchorX + d * p.anchorY)];
 }
 
+/**
+ * The placement as a map from the frame's fractions (0..1, y down) to the
+ * canvas' fractions: what the transition renderer draws a picture with.
+ */
+export function placementAffine(p: Placement, canvas: Size): Matrix {
+  const [a, b, c, d, e, f] = placementMatrix(p);
+  const { width: W, height: H } = canvas;
+  return [(a * p.width) / W, (b * p.width) / H, (c * p.height) / W, (d * p.height) / H, e / W, f / H];
+}
+
 export function toCanvas(p: Placement, [x, y]: Vec2): Vec2 {
   const [a, b, c, d, e, f] = placementMatrix(p);
   return [a * x + c * y + e, b * x + d * y + f];

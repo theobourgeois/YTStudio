@@ -4,6 +4,7 @@ import type { MediaAsset } from "@shared/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { PropertiesPanel } from "@/components/properties/properties-panel";
+import { TransitionsPanel } from "@/components/transitions/transitions-panel";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
@@ -15,7 +16,7 @@ import { clipCountByAsset, filterAssets, type MediaFilter } from "./media-utils"
 import { OnlinePanel } from "./online-panel";
 import { UploadCard } from "./upload-card";
 
-/** The left panel: the project's media, online media, and the selected clip's properties. */
+/** The left panel: the project's media, online media, transitions, and the selection's properties. */
 export function MediaBin() {
   const assets = useEditor((s) => s.assets);
   const uploads = useEditor((s) => s.uploads);
@@ -51,7 +52,7 @@ export function MediaBin() {
 
   return (
     <aside
-      className="relative flex w-72 shrink-0 flex-col border-r bg-background"
+      className="relative flex w-80 shrink-0 flex-col border-r bg-background"
       aria-label="Media"
       {...drop.handlers}
     >
@@ -65,6 +66,9 @@ export function MediaBin() {
           </TabButton>
           <TabButton active={tab === "online"} onClick={() => setTab("online")}>
             Online
+          </TabButton>
+          <TabButton active={tab === "transitions"} onClick={() => setTab("transitions")}>
+            Transitions
           </TabButton>
           <TabButton active={tab === "properties"} onClick={() => setTab("properties")}>
             Properties
@@ -86,6 +90,7 @@ export function MediaBin() {
       </div>
 
       <OnlinePanel active={tab === "online"} />
+      {tab === "transitions" && <TransitionsPanel />}
       {tab === "properties" && <PropertiesPanel />}
       {tab !== "media" ? null : isEmpty ? (
         <EmptyState onClick={openPicker} />

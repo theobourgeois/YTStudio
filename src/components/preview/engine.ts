@@ -1,17 +1,21 @@
-import type { Clip, MediaAsset } from "@shared/types";
+import type { Clip, MediaAsset, Project } from "@shared/types";
 import { type TextStyle, isTextClip, opacityAt, textStyleAt, volumeAt } from "@shared/effects";
-import { type Placement, type Size, cssMatrix } from "@shared/transform";
+import { TEXT_SOURCE_RANGE, clipEnd, sourceRange } from "@shared/timeline";
+import { type TransitionRenderer, createTransitionRenderer, transitionShader, transitionUniforms } from "@shared/transition-gl";
+import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
+import { type Placement, type Size, cssMatrix, placementAffine } from "@shared/transform";
 import { drawText, drawingScale, type TextLayout } from "@/lib/text-render";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
 import { usePlayback } from "@/stores/playback";
 import { ImageSlot, MediaSlot } from "./media-slot";
 import { placeOnCanvas, textUnit } from "./placement";
-import { assignSlots, planAudio, planTrack, type SlotIds } from "./sync";
+import { type Shown, type TransitionPlan, assignSlots, planAudio, planTrack, planTransition, type SlotIds } from "./sync";
 
 /**
  * The elements that show one video track: an A/B pair for video clips, one
- * for still images, and a canvas for text.
+ * for still images and a canvas for text, plus a WebGL canvas that draws the
+ * track while a transition plays.
  */
 interface VideoLayer {
   videos: [MediaSlot | null, MediaSlot | null];
@@ -19,6 +23,12 @@ interface VideoLayer {
   images: [ImageSlot | null, ImageSlot | null];
   imageIds: SlotIds;
   text: TextSlot | null;
+  /** Offscreen text drawings for the sides of a transition (created on first use). */
+  transitionTexts: [TextSlot | null, TextSlot | null];
+  canvas: HTMLCanvasElement | null;
+  /** Created on the first transition (null until then, or when WebGL 2 isn't available). */
+  renderer: TransitionRenderer | null;
+  rendererFailed: boolean;
 }
 
 type ClipKind = "video" | "image" | "text";
@@ -37,6 +47,11 @@ type ClipKind = "video" | "image" | "text";
  *   puts it on the canvas (`shared/transform.ts`, same as the export), and
  *   faded by its Opacity. Values are read at the current time, so they'll
  *   follow keyframes.
+ * - While a transition plays, both of its clips play (past their edges into
+ *   their media's handles if need be, silent outside the clip itself), their
+ *   elements are hidden (a text side is drawn off screen instead), and the
+ *   track's WebGL canvas draws them mixed by the transition's shader
+ *   (`shared/transition-gl.ts`, same as the export).
  * - Each audio-track clip has its own <audio> element, played only while the
  *   playhead is inside the clip and parked on its in-point before that.
  */
@@ -48,6 +63,9 @@ export class PreviewEngine {
   private indexedAssets: MediaAsset[] | null = null;
   private assetById = new Map<string, MediaAsset>();
   private canvas: Size = { width: 0, height: 0 };
+  /** Transition windows per track, for `windowsOf`. */
+  private windows = new Map<string, TransitionWindow[]>();
+  private windowsOf: Project | null = null;
 
   constructor(private readonly onOfflineChange: (offline: boolean) => void) {}
 
@@ -137,14 +155,39 @@ export class PreviewEngine {
   private layer(trackId: string): VideoLayer {
     let layer = this.layers.get(trackId);
     if (!layer) {
-      layer = { videos: [null, null], videoIds: [null, null], images: [null, null], imageIds: [null, null], text: null };
+      layer = {
+        videos: [null, null],
+        videoIds: [null, null],
+        images: [null, null],
+        imageIds: [null, null],
+        text: null,
+        transitionTexts: [null, null],
+        canvas: null,
+        renderer: null,
+        rendererFailed: false,
+      };
       this.layers.set(trackId, layer);
     }
     return layer;
   }
 
+  attachCanvas(trackId: string, el: HTMLCanvasElement) {
+    const layer = this.layer(trackId);
+    layer.canvas = el;
+    layer.renderer = null;
+    layer.rendererFailed = false;
+    this.update();
+    return () => {
+      if (layer.canvas !== el) return;
+      layer.renderer?.dispose();
+      layer.canvas = null;
+      layer.renderer = null;
+      this.dropIfEmpty(trackId, layer);
+    };
+  }
+
   private dropIfEmpty(trackId: string, layer: VideoLayer) {
-    if ([...layer.videos, ...layer.images, layer.text].some(Boolean)) return;
+    if ([...layer.videos, ...layer.images, layer.text, layer.canvas].some(Boolean)) return;
     if (this.layers.get(trackId) === layer) this.layers.delete(trackId);
   }
 
@@ -160,14 +203,26 @@ export class PreviewEngine {
 
     // Video tracks: an A/B pair of elements for video clips, another for stills, a canvas for text.
     for (const [trackId, layer] of this.layers) {
+      const muted = trackMuted.get(trackId) ?? false;
       const { current, next } = planTrack(project, trackId, time);
-      const kind = current ? kindOf(current.clip) : null;
-      const idOf = (clip: Clip | null | undefined, want: ClipKind) => (clip && kindOf(clip) === want ? clip.id : null);
-      layer.videoIds = assignSlots(layer.videoIds, idOf(current?.clip, "video"), idOf(next, "video"));
-      layer.imageIds = assignSlots(layer.imageIds, idOf(current?.clip, "image"), idOf(next, "image"));
+      const transition = this.planTransition(project, trackId, time);
+      // What's on screen: both sides of a transition, or the clip under the playhead.
+      const shown: Shown[] = transition
+        ? [transition.from, transition.to].filter((s): s is Shown => !!s)
+        : current
+          ? [current]
+          : [];
+      const ids = (want: ClipKind) => {
+        const on = shown.filter((s) => kindOf(s.clip) === want).map((s) => s.clip.id);
+        const upcoming = next && kindOf(next) === want && !shown.some((s) => s.clip.id === next.id) ? next.id : null;
+        return [on[0] ?? null, on[1] ?? upcoming] as const;
+      };
+      layer.videoIds = assignSlots(layer.videoIds, ...ids("video"));
+      layer.imageIds = assignSlots(layer.imageIds, ...ids("image"));
+      const sources = new Map<string, TexImageSource>();
 
       if (layer.text) {
-        if (current && kind === "text") {
+        if (current && !transition && kindOf(current.clip) === "text") {
           const { placement, text } = placeOnCanvas(project, current.clip, undefined, this.canvas, current.time);
           const unit = textUnit(this.canvas, project.settings.aspectRatio);
           layer.text.draw(textStyleAt(current.clip, current.time), text!, unit, placement);
@@ -176,18 +231,36 @@ export class PreviewEngine {
           setStyle(layer.text.el, "opacity", "0");
         }
       }
+      // A text side of a transition is drawn off screen for the transition's canvas.
+      if (transition) {
+        ([transition.from, transition.to] as const).forEach((side, i) => {
+          if (!side || kindOf(side.clip) !== "text") return;
+          const slot = (layer.transitionTexts[i] ??= new TextSlot(document.createElement("canvas")));
+          const { placement, text } = placeOnCanvas(project, side.clip, undefined, this.canvas, side.time);
+          slot.draw(textStyleAt(side.clip, side.time), text!, textUnit(this.canvas, project.settings.aspectRatio), placement);
+          sources.set(side.clip.id, slot.el);
+        });
+      }
 
       layer.videos.forEach((slot, i) => {
         if (!slot) return;
         const id = layer.videoIds[i];
         const el = slot.el as HTMLVideoElement;
-        if (current && kind === "video" && id === current.clip.id) {
-          const src = this.srcOf(current.clip);
+        const on = shown.find((s) => s.clip.id === id && kindOf(s.clip) === "video");
+        if (on) {
+          const src = this.srcOf(on.clip);
           slot.setSrc(src);
-          slot.setAudio(volumeAt(current.clip, current.time), trackMuted.get(trackId) ?? false);
-          if (playing) slot.follow(current.time);
-          else slot.hold(current.time);
-          this.place(el, current.clip, current.time, this.placementOf(current.clip, current.time));
+          // A transition may show a clip past its edges; it's only heard inside them.
+          const audible = time >= on.clip.start - 1e-6 && time < clipEnd(on.clip) - 1e-6;
+          slot.setAudio(volumeAt(on.clip, on.time), muted || (!!transition && !audible));
+          if (playing) slot.follow(on.time);
+          else slot.hold(on.time);
+          if (transition) {
+            setStyle(el, "opacity", "0");
+            sources.set(on.clip.id, el);
+          } else {
+            this.place(el, on.clip, on.time, this.placementOf(on.clip, on.time));
+          }
           offline ||= src === null || slot.failed;
           return;
         }
@@ -204,10 +277,16 @@ export class PreviewEngine {
       layer.images.forEach((slot, i) => {
         if (!slot) return;
         const id = layer.imageIds[i];
-        if (current && kind === "image" && id === current.clip.id) {
-          const src = this.srcOf(current.clip);
+        const on = shown.find((s) => s.clip.id === id && kindOf(s.clip) === "image");
+        if (on) {
+          const src = this.srcOf(on.clip);
           slot.setSrc(src);
-          this.place(slot.el, current.clip, current.time, this.placementOf(current.clip, current.time));
+          if (transition) {
+            setStyle(slot.el, "opacity", "0");
+            sources.set(on.clip.id, slot.el);
+          } else {
+            this.place(slot.el, on.clip, on.time, this.placementOf(on.clip, on.time));
+          }
           offline ||= src === null || slot.failed;
           return;
         }
@@ -215,6 +294,8 @@ export class PreviewEngine {
         // Loading the next still ahead of time makes the cut instant.
         if (next && id === next.id) slot.setSrc(this.srcOf(next));
       });
+
+      this.drawTransition(layer, transition, sources);
     }
 
     // Audio tracks: one element per clip.
@@ -239,6 +320,72 @@ export class PreviewEngine {
       this.onOfflineChange(offline);
     }
   };
+
+  /** The transition playing on a track at `time` (windows are cached per project). */
+  private planTransition(project: Project, trackId: string, time: number): TransitionPlan | null {
+    if (project !== this.windowsOf) {
+      this.windowsOf = project;
+      this.windows.clear();
+    }
+    let windows = this.windows.get(trackId);
+    if (!windows) {
+      windows = trackTransitions(project, trackId);
+      this.windows.set(trackId, windows);
+    }
+    if (windows.length === 0) return null;
+    return planTransition(project, windows, time, (clip) => {
+      if (isTextClip(clip)) return TEXT_SOURCE_RANGE;
+      const asset = this.assetById.get(clip.assetId);
+      return asset ? sourceRange(asset) : { min: clip.in, max: clip.out };
+    });
+  }
+
+  /** Draw a track's transition on its canvas (or hide the canvas when there's none). */
+  private drawTransition(
+    layer: VideoLayer,
+    plan: TransitionPlan | null,
+    sources: Map<string, TexImageSource>,
+  ) {
+    const canvas = layer.canvas;
+    if (!canvas) return;
+    const renderer = plan && this.rendererOf(layer);
+    if (!plan || !renderer || this.canvas.width <= 0) {
+      setStyle(canvas, "opacity", "0");
+      return;
+    }
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    renderer.resize(this.canvas.width * dpr, this.canvas.height * dpr);
+    setStyle(canvas, "width", `${this.canvas.width}px`);
+    setStyle(canvas, "height", `${this.canvas.height}px`);
+    ([plan.from, plan.to] as const).forEach((side, i) => {
+      const el = side && sources.get(side.clip.id);
+      if (!side || !el || !isReady(el)) {
+        renderer.layer(i as 0 | 1, null);
+        return;
+      }
+      const placement = this.placementOf(side.clip, side.time);
+      renderer.layer(i as 0 | 1, el, placementAffine(placement, this.canvas), opacityAt(side.clip, side.time));
+    });
+    const { def, transition } = plan.window;
+    try {
+      renderer.draw(transitionShader(def), transitionUniforms(def, transition.params), plan.progress);
+    } catch (err) {
+      console.error(`Transition "${def.label}" failed to draw`, err);
+    }
+    setStyle(canvas, "opacity", "1");
+  }
+
+  private rendererOf(layer: VideoLayer): TransitionRenderer | null {
+    if (layer.renderer || layer.rendererFailed || !layer.canvas) return layer.renderer;
+    const gl = layer.canvas.getContext("webgl2", { premultipliedAlpha: true, alpha: true, antialias: false });
+    if (!gl) {
+      layer.rendererFailed = true;
+      console.warn("WebGL 2 isn't available, so transitions can't be previewed.");
+      return null;
+    }
+    layer.renderer = createTransitionRenderer(gl);
+    return layer.renderer;
+  }
 
   private placementOf(clip: Clip, t: number): Placement {
     const { project } = useEditor.getState();
@@ -289,6 +436,13 @@ class TextSlot {
 
 const withId = (ids: SlotIds, index: 0 | 1, id: string | null): SlotIds =>
   index === 0 ? [id, ids[1]] : [ids[0], id];
+
+/** Whether an element has a picture to draw. */
+function isReady(el: TexImageSource): boolean {
+  if (el instanceof HTMLVideoElement) return el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && el.videoWidth > 0;
+  if (el instanceof HTMLImageElement) return el.complete && el.naturalWidth > 0;
+  return true;
+}
 
 function setStyle(el: HTMLElement, prop: "opacity" | "width" | "height" | "transform", value: string) {
   if (el.style[prop] !== value) el.style[prop] = value;

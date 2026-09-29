@@ -4,6 +4,7 @@
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
 import { isTextClip, normalizeEffects, textStyleAt } from "./effects.ts";
+import { sanitizeTransition } from "./transitions.ts";
 import type {
   AspectRatio,
   Clip,
@@ -340,8 +341,10 @@ export function splitClip(
     return { project, newClipId: null };
   }
   const cut = roundTime(clip.in + (time - clip.start));
-  const left: Clip = { ...clip, out: cut };
-  const right: Clip = { ...clip, id: createId("clip"), start: roundTime(time), in: cut };
+  // The clip's transitions stay on its outer edges.
+  const { transitionIn, transitionOut, ...rest } = clip;
+  const left: Clip = { ...rest, out: cut, ...(transitionIn && { transitionIn }) };
+  const right: Clip = { ...rest, id: createId("clip"), start: roundTime(time), in: cut, ...(transitionOut && { transitionOut }) };
   const clips: Clip[] = [];
   for (const c of project.clips) {
     if (c.id === clipId) clips.push(left, right);
@@ -692,7 +695,7 @@ export function normalizeProject(
     }
     if (out - inPoint < MIN_CLIP_DURATION - EPS) continue;
     clipIds.add(c.id);
-    clips.push({
+    const clip: Clip = {
       id: c.id,
       assetId: text ? "" : String(c.assetId),
       trackId: c.trackId,
@@ -700,7 +703,13 @@ export function normalizeProject(
       in: roundTime(inPoint),
       out: roundTime(out),
       effects,
-    });
+    };
+    // Only pictures have transitions.
+    const transitionIn = kind === "video" ? sanitizeTransition(c.transitionIn) : undefined;
+    const transitionOut = kind === "video" ? sanitizeTransition(c.transitionOut) : undefined;
+    if (transitionIn) clip.transitionIn = transitionIn;
+    if (transitionOut) clip.transitionOut = transitionOut;
+    clips.push(clip);
   }
 
   let project: Project = {

@@ -422,7 +422,7 @@ test("imports an image and transforms it in the properties panel and on the canv
   const canvas = (await page.locator("[data-slot=canvas]").boundingBox())!;
   const centre = { x: canvas.x + canvas.width / 2, y: canvas.y + canvas.height / 2 };
   await page.mouse.click(canvas.x + 4, canvas.y + 4);
-  await expect(page.getByText("No clip selected")).toBeVisible();
+  await expect(page.getByText("Nothing selected")).toBeVisible();
   await page.mouse.click(centre.x + 20, centre.y + 20);
   await expect(page.getByRole("region", { name: "Motion" })).toBeVisible();
 
@@ -449,6 +449,66 @@ test("imports an image and transforms it in the properties panel and on the canv
   await page.getByRole("button", { name: "Reset Motion" }).click();
   await expect.poll(async () => (await motion()).rotation).toBe(0);
   expect(await motion()).toMatchObject({ scale: 1, scaleWidth: 1, uniformScale: true, position: [0.5, 0.5] });
+});
+
+test("adds transitions from the library, edits them and previews them", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Transitions" }).click();
+  const card = (name: string) => page.locator("[data-transition-type]").filter({ hasText: name }).first();
+  const withTransitions = async () =>
+    ((await savedProject(page)).clips as (SavedClip & { transitionIn?: { type: string; duration: number }; transitionOut?: { type: string; duration: number } })[])
+      .flatMap((c) => [c.transitionIn, c.transitionOut].filter(Boolean).map((t) => ({ clip: c.id, ...t! })));
+
+  // Filter by tag and search.
+  await page.getByRole("radio", { name: "3D" }).click();
+  await expect(card("Cube")).toBeVisible();
+  await expect(card("Cross Dissolve")).toHaveCount(0);
+  await page.getByRole("radio", { name: "All" }).click();
+  await page.getByRole("searchbox", { name: "Search transitions" }).fill("dissolve");
+  await expect(card("Cross Dissolve")).toBeVisible();
+  await expect(card("Cube")).toHaveCount(0);
+
+  // + puts it on the edit point nearest the playhead (the first clip's start) and selects it.
+  await page.keyboard.press("Home");
+  await card("Cross Dissolve").hover();
+  await card("Cross Dissolve").getByRole("button", { name: "Add Cross Dissolve" }).click();
+  await expect(page.locator("[data-transition]")).toHaveCount(1);
+  await expect.poll(withTransitions).toEqual([expect.objectContaining({ type: "cross-dissolve", duration: 0.5 })]);
+
+  // Its properties: type a new duration.
+  await page.getByRole("tab", { name: "Properties" }).click();
+  await expect(page.getByRole("region", { name: "Timing" })).toBeVisible();
+  await page.getByRole("spinbutton", { name: "Duration" }).click();
+  await page.keyboard.type("1");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await withTransitions())[0]?.duration).toBe(1);
+
+  // Drag another one onto the end of the first video clip.
+  await page.getByRole("tab", { name: "Transitions" }).click();
+  await page.getByRole("searchbox", { name: "Search transitions" }).fill("glitch");
+  const videoLane = await laneY(page, "Video 1");
+  const video = (await timelineClips(page)).find((c) => Math.abs(c.y + c.h / 2 - videoLane) < 10)!;
+  const src = (await card("Glitch").boundingBox())!;
+  await page.mouse.move(src.x + src.width / 2, src.y + src.height / 3);
+  await page.mouse.down();
+  await page.mouse.move(video.x + video.w - 30, video.y + video.h / 2, { steps: 5 });
+  await page.mouse.move(video.x + video.w - 6, video.y + video.h / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await withTransitions()).map((t) => t.type).sort()).toEqual(["cross-dissolve", "glitch"]);
+
+  // Parked inside a transition, the preview draws the track with WebGL.
+  const lanes = (await page.locator("[data-timeline-lanes]").boundingBox())!;
+  await page.mouse.click(await timeX(page, 0.3), lanes.y - 10);
+  await expect
+    .poll(() => page.evaluate(() => [...document.querySelectorAll<HTMLCanvasElement>("[data-slot=canvas] canvas")].some((c) => c.style.opacity === "1")))
+    .toBe(true);
+
+  // Select one on the timeline and delete it; undo brings it back.
+  await page.locator("[data-transition]").first().click();
+  await page.keyboard.press("Delete");
+  await expect(page.locator("[data-transition]")).toHaveCount(1);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.locator("[data-transition]")).toHaveCount(2);
 });
 
 test("adds text with the Type tool, types into it on the canvas, styles it and exports it", async ({ page }) => {

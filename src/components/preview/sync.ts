@@ -5,6 +5,7 @@
  */
 import type { Clip, Project } from "@shared/types";
 import { clipAtTime, clipEnd, getTrack, projectDuration, trackClips } from "@shared/timeline";
+import { type TransitionWindow, transitionAt, windowProgress } from "@shared/transition-windows";
 
 /** Keep seeks this far before a clip's out-point so the frame shown belongs to the clip. */
 const END_GUARD = 1e-3;
@@ -46,6 +47,51 @@ export function planTrack(project: Project, trackId: string, t: number): TrackPl
   }
   const next = clips.find((c) => c.start > t + EPS && c.id !== clip?.id) ?? null;
   return { current: clip ? { clip, time: sourceTime(clip, t) } : null, next };
+}
+
+/** A clip on screen and the source time it shows. */
+export interface Shown {
+  clip: Clip;
+  time: number;
+}
+
+export interface TransitionPlan {
+  window: TransitionWindow;
+  progress: number;
+  /** The outgoing and incoming pictures (null: nothing). */
+  from: Shown | null;
+  to: Shown | null;
+}
+
+/**
+ * Source time a transition shows of `clip` at timeline time `t`: it may run
+ * past the clip's in/out points into the media's handles, and holds the first
+ * or last frame where the media ends (`range` is the clip's source range, see
+ * `sourceRange`).
+ */
+export function handleTime(clip: Clip, t: number, range: { min: number; max: number }): number {
+  const s = clip.in + (t - clip.start);
+  return Math.min(Math.max(s, range.min), Math.max(range.min, range.max - END_GUARD));
+}
+
+/**
+ * The transition playing at time `t` among a track's windows, if any, with
+ * both of its sides. Parked at the very end of the project, a transition that
+ * ends there shows its last frame.
+ */
+export function planTransition(
+  project: Project,
+  windows: TransitionWindow[],
+  t: number,
+  range: (clip: Clip) => { min: number; max: number },
+): TransitionPlan | null {
+  let window = transitionAt(windows, t);
+  if (!window && t >= projectDuration(project) - 1e-3) {
+    window = windows.find((w) => Math.abs(w.end - t) < 1e-3) ?? null;
+  }
+  if (!window) return null;
+  const side = (clip: Clip | null) => clip && { clip, time: handleTime(clip, t, range(clip)) };
+  return { window, progress: windowProgress(window, t), from: side(window.from), to: side(window.to) };
 }
 
 export interface AudioPlan {

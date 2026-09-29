@@ -10,6 +10,10 @@
  *   one at the clip's first frame.
  * - Text clips arrive already drawn (by the browser, in the user's fonts) as
  *   still images with their frame size; they're placed like any other still.
+ * - Transitions are drawn beforehand by the same WebGL shaders as the preview
+ *   (`server/transition-render.ts`): `planTransitions` says what to draw, each
+ *   side's picture comes from ffmpeg as raw frames placed on the canvas, and
+ *   the result is a lossless file that stands in for that stretch of the track.
  * - Each video track is one stream of segments (clips and transparent gaps)
  *   covering the whole timeline. Segment boundaries are computed from absolute
  *   timeline times: a segment from `a` to `b` owns output frames
@@ -22,7 +26,8 @@
  *   where overlapping sources add up past full scale instead of clipping.
  */
 import { isTextClip, motionAt, opacityAt, volumeAt } from "../shared/effects.ts";
-import { clipDuration, clipEnd, projectDuration, trackClips } from "../shared/timeline.ts";
+import { clipDuration, clipEnd, projectDuration, sourceRange, trackClips } from "../shared/timeline.ts";
+import { type TransitionWindow, trackTransitions, windowProgress } from "../shared/transition-windows.ts";
 import { type Placement, type Size, placeClip, toCanvas, toFrame } from "../shared/transform.ts";
 import type { Clip, MediaAsset, Project } from "../shared/types.ts";
 import { run } from "./ffmpeg.ts";
@@ -31,7 +36,7 @@ export const SAMPLE_RATE = 48_000;
 const AUDIO_FORMAT = `aformat=sample_fmts=fltp:sample_rates=${SAMPLE_RATE}:channel_layouts=stereo`;
 const LIMITER = "alimiter=limit=0.98:level=0:latency=1";
 
-export type RenderAsset = Pick<MediaAsset, "kind" | "hasAudio" | "hasVideo" | "width" | "height"> & {
+export type RenderAsset = Pick<MediaAsset, "kind" | "hasAudio" | "hasVideo" | "width" | "height" | "duration"> & {
   path: string;
   /** Size at 100% on the output canvas when it isn't the media fitted to it (a drawn text). */
   frame?: Size;
@@ -43,7 +48,12 @@ export interface RenderOptions {
   fps: number;
   outputPath: string;
   ffmpegPath?: string;
+  /** Rendered transitions (see `planTransitions`), by `TransitionPlan.id`. */
+  transitions?: Record<string, string>;
 }
+
+/** Index of the first output frame at or after time t. */
+const frameAtFps = (fps: number) => (t: number) => Math.ceil(t * fps - 1e-3);
 
 /** Seconds as a plain decimal string (never exponent notation). */
 const sec = (t: number) => Math.max(0, t).toFixed(6);
@@ -61,8 +71,7 @@ export function buildRenderArgs(
   if (!(total > 0)) throw new Error("Nothing to render: the timeline is empty.");
 
   const background = project.settings.background.replace("#", "0x");
-  /** Index of the first output frame at or after time t. */
-  const frameAt = (t: number) => Math.ceil(t * F - 1e-3);
+  const frameAt = frameAtFps(F);
   const sampleAt = (t: number) => Math.round(t * SAMPLE_RATE);
   /** Resample, rebase to 0, apply gain and cut/pad to exactly `samples`. */
   const audioChain = (clip: Clip, samples: number) => {
@@ -80,17 +89,30 @@ export function buildRenderArgs(
     if (!asset) throw new Error(text ? `Missing text image for clip ${clip.id}.` : `Missing media for clip ${clip.id}.`);
     return asset;
   };
-  /** The clip's source range as an input (accurate seek; a still is looped), added once; returns its index. */
-  const input = (clip: Clip) => {
-    let index = inputOf.get(clip.id);
+  /**
+   * The clip's source from `from` for `duration` (default: its whole range) as
+   * an input (accurate seek; a still is looped), added once; returns its index.
+   */
+  const input = (clip: Clip, from = clip.in, duration = clipDuration(clip)) => {
+    const key = `${clip.id}@${from}`;
+    let index = inputOf.get(key);
     if (index === undefined) {
       index = inputOf.size;
-      inputOf.set(clip.id, index);
+      inputOf.set(key, index);
       const asset = assetOf(clip);
       const range = asset.kind === "image"
-        ? ["-loop", "1", "-framerate", String(F), "-t", sec(clipDuration(clip))]
-        : ["-ss", sec(clip.in), "-t", sec(clipDuration(clip))];
+        ? ["-loop", "1", "-framerate", String(F), "-t", sec(duration)]
+        : ["-ss", sec(from), "-t", sec(duration)];
       inputs.push(...range, "-i", asset.path);
+    }
+    return index;
+  };
+  const fileInput = (path: string) => {
+    let index = inputOf.get(path);
+    if (index === undefined) {
+      index = inputOf.size;
+      inputOf.set(path, index);
+      inputs.push("-i", path);
     }
     return index;
   };
@@ -102,35 +124,70 @@ export function buildRenderArgs(
   const layers = project.tracks.filter((t) => t.kind === "video").reverse();
   const canvasSize = { width: W, height: H };
   layers.forEach((track, l) => {
-    // Clips entirely off the canvas (or invisible) are just more gap.
-    const clips = trackClips(project, track.id).flatMap((clip) => {
-      const frames = frameAt(clipEnd(clip)) - frameAt(clip.start);
-      const asset = assetOf(clip);
-      const media = asset.width && asset.height ? { width: asset.width, height: asset.height } : canvasSize;
-      const opacity = opacityAt(clip, clip.in);
-      const piece = frames > 0 && opacity > 0
-        ? planPiece(canvasSize, media, placeClip(canvasSize, media, motionAt(clip, clip.in), asset.frame))
-        : null;
-      return piece ? [{ clip, frames, media, opacity, piece }] : [];
-    });
-    if (clips.length === 0) return;
+    // The track as pieces of output frames [f0, f1): clips (the parts outside
+    // transitions) and transitions; the rest is transparent gap. Clips entirely
+    // off the canvas (or invisible) are just more gap.
+    type Piece = { f0: number; f1: number; label: (segment: number) => string };
+    const pieces: Piece[] = [];
+    const windows = trackTransitions(project, track.id)
+      .map((w) => ({ w, f0: frameAt(w.start), f1: frameAt(w.end) }))
+      .filter(({ f0, f1 }) => f1 > f0);
+    for (const { w, f0, f1 } of windows) {
+      const file = opts.transitions?.[transitionId(w)];
+      if (!file) throw new Error("A transition wasn't rendered.");
+      pieces.push({
+        f0,
+        f1,
+        label: (segment) => {
+          const label = `[x${l}_${segment}]`;
+          const frames = f1 - f0;
+          graph.push(`[${fileInput(file)}:v]setpts=PTS-STARTPTS,format=yuva420p,setsar=1,tpad=stop_mode=clone:stop=${frames},trim=end_frame=${frames}${label}`);
+          return label;
+        },
+      });
+    }
+    for (const clip of trackClips(project, track.id)) {
+      const c0 = frameAt(clip.start);
+      let f0 = c0;
+      let f1 = frameAt(clipEnd(clip));
+      for (const w of windows) {
+        if (w.f0 <= f0 && f0 < w.f1) f0 = w.f1;
+        if (w.f0 < f1 && f1 <= w.f1) f1 = w.f0;
+      }
+      const frames = f1 - f0;
+      if (frames <= 0) continue;
+      const placed = placeForRender(clip, assetOf(clip), canvasSize);
+      if (!placed) continue;
+      // The first frame of the clip shows its in-point; later pieces carry on from there.
+      const from = clip.in + (f0 - c0) / F;
+      pieces.push({
+        f0,
+        f1,
+        label: (segment) => {
+          const label = `[c${l}_${segment}]`;
+          const index = f0 === c0 ? input(clip) : input(clip, from, clipDuration(clip) - (f0 - c0) / F);
+          graph.push(`[${index}:v]${videoChain(placed.piece, placed.media, placed.opacity, W, H, F, frames)}${label}`);
+          return label;
+        },
+      });
+    }
+    if (pieces.length === 0) return;
+    pieces.sort((a, b) => a.f0 - b.f0);
+
     const segments: string[] = [];
-    const gap = (from: number, to: number) => {
-      const frames = frameAt(to) - frameAt(from);
+    const gap = (frames: number) => {
       if (frames <= 0) return;
       const label = `[g${l}_${segments.length}]`;
       graph.push(`${transparent(W, H, F)},trim=end_frame=${frames}${label}`);
       segments.push(label);
     };
     let cursor = 0;
-    for (const { clip, frames, media, opacity, piece } of clips) {
-      gap(cursor, clip.start);
-      const label = `[c${l}_${segments.length}]`;
-      graph.push(`[${input(clip)}:v]${videoChain(piece, media, opacity, W, H, F, frames)}${label}`);
-      segments.push(label);
-      cursor = clipEnd(clip);
+    for (const piece of pieces) {
+      gap(piece.f0 - cursor);
+      segments.push(piece.label(segments.length));
+      cursor = piece.f1;
     }
-    gap(cursor, total);
+    gap(totalFrames - cursor);
     graph.push(`${segments.join("")}concat=n=${segments.length}:v=1:a=0[t${l}]`);
     graph.push(`${canvas}[t${l}]overlay=x=0:y=0:format=yuv420:eof_action=pass[o${l}]`);
     canvas = `[o${l}]`;
@@ -173,6 +230,14 @@ export function buildRenderArgs(
     "-t", sec(total),
     "-y", opts.outputPath,
   ];
+}
+
+/** How a clip is drawn (its values at its first frame), or null when none of it is visible. */
+function placeForRender(clip: Clip, asset: RenderAsset, canvas: Size) {
+  const media = asset.width && asset.height ? { width: asset.width, height: asset.height } : canvas;
+  const opacity = opacityAt(clip, clip.in);
+  const piece = opacity > 0 ? planPiece(canvas, media, placeClip(canvas, media, motionAt(clip, clip.in), asset.frame)) : null;
+  return piece ? { piece, media, opacity } : null;
 }
 
 /** A fully transparent canvas-sized source (for gaps between clips on a track). */
@@ -262,7 +327,16 @@ export function planPiece(canvas: Size, media: Size, p: Placement): Piece | null
  * Rebase and conform to the output frame rate, draw the clip's piece at its
  * place on a transparent canvas, then cut to exactly `frames`.
  */
-function videoChain(piece: Piece, media: Size, opacity: number, W: number, H: number, F: number, frames: number): string {
+function videoChain(
+  piece: Piece,
+  media: Size,
+  opacity: number,
+  W: number,
+  H: number,
+  F: number,
+  frames: number,
+  opts: { holdFirst?: number; rgba?: boolean } = {},
+): string {
   const { crop, scaled, rotate, at, visible } = piece;
   const whole = crop.x === 0 && crop.y === 0 && crop.w === media.width && crop.h === media.height;
   const fullyVisible = visible.x === 0 && visible.y === 0 && visible.w === (rotate?.w ?? scaled.w) && visible.h === (rotate?.h ?? scaled.h);
@@ -279,12 +353,97 @@ function videoChain(piece: Piece, media: Size, opacity: number, W: number, H: nu
     ...(opacity < 1 ? [`colorchannelmixer=aa=${opacity}`] : []),
     ...(fullyVisible ? [] : [`crop=${visible.w}:${visible.h}:${visible.x}:${visible.y}`]),
     `pad=${W}:${H}:${at.x + visible.x}:${at.y + visible.y}:color=black@0`,
-    "format=yuva420p",
+    opts.rgba ? "format=rgba" : "format=yuva420p",
     "setsar=1",
-    // Clone the last frame in case the source runs short, then cut exactly.
-    `tpad=stop_mode=clone:stop=${frames}`,
+    // Hold the first frame where the media starts late; clone the last in case
+    // the source runs short, then cut exactly.
+    `tpad=${opts.holdFirst ? `start_mode=clone:start=${opts.holdFirst}:` : ""}stop_mode=clone:stop=${frames}`,
     `trim=end_frame=${frames}`,
   ].join(",");
+}
+
+// ---------------------------------------------------------------------------
+// Transitions
+// ---------------------------------------------------------------------------
+
+/** Which file stands in for a transition (`RenderOptions.transitions`). */
+export const transitionId = (w: TransitionWindow) => `${w.ref.clipId}-${w.ref.edge}`;
+
+/** One transition to draw before the main render. */
+export interface TransitionJob {
+  id: string;
+  window: TransitionWindow;
+  /** Canvas size of every frame. */
+  width: number;
+  height: number;
+  fps: number;
+  /** How far through the transition each of its output frames is. */
+  progress: number[];
+  /**
+   * ffmpeg argv (argv[0] is the binary) writing the outgoing / incoming side
+   * to stdout as raw RGBA frames placed on a transparent canvas, exactly
+   * `progress.length` of them; null when that side is nothing (or invisible).
+   */
+  sides: [string[] | null, string[] | null];
+}
+
+/**
+ * The transitions a render needs drawn. A side may show its clip past its
+ * edges (the media's handles); where the media ends, its first or last
+ * frame is held.
+ */
+export function planTransitions(
+  project: Project,
+  assets: Record<string, RenderAsset>,
+  opts: Pick<RenderOptions, "width" | "height" | "fps" | "ffmpegPath">,
+  /** Drawn text clips, by clip id (as for `buildRenderArgs`). */
+  texts: Record<string, RenderAsset> = {},
+): TransitionJob[] {
+  const { width: W, height: H, fps: F } = opts;
+  const frameAt = frameAtFps(F);
+  const canvas = { width: W, height: H };
+  const jobs: TransitionJob[] = [];
+  for (const track of project.tracks) {
+    for (const w of trackTransitions(project, track.id)) {
+      const f0 = frameAt(w.start);
+      const frames = frameAt(w.end) - f0;
+      if (frames <= 0) continue;
+      const side = (clip: Clip | null): string[] | null => {
+        const asset = clip && (isTextClip(clip) ? texts[clip.id] : assets[clip.assetId]);
+        const placed = clip && asset && placeForRender(clip, asset, canvas);
+        if (!clip || !asset || !placed) return null;
+        // Same clock as the clip's own frames: its first frame shows its in-point.
+        const s0 = clip.in + (f0 - frameAt(clip.start)) / F;
+        let input: string[];
+        let holdFirst = 0;
+        if (asset.kind === "image") {
+          input = ["-loop", "1", "-framerate", String(F), "-t", sec(frames / F + 1)];
+        } else {
+          const { min, max } = sourceRange(asset);
+          holdFirst = s0 < min ? Math.min(frames, Math.ceil((min - s0) * F - 1e-6)) : 0;
+          const seek = Math.min(Math.max(s0, min), Math.max(min, max - 1 / F));
+          input = ["-ss", sec(seek), "-t", sec((frames - holdFirst) / F + 1)];
+        }
+        return [
+          opts.ffmpegPath ?? "ffmpeg",
+          "-hide_banner", "-nostdin", "-loglevel", "error",
+          ...input, "-i", asset.path,
+          "-vf", videoChain(placed.piece, placed.media, placed.opacity, W, H, F, frames, { holdFirst, rgba: true }),
+          "-an", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1",
+        ];
+      };
+      jobs.push({
+        id: transitionId(w),
+        window: w,
+        width: W,
+        height: H,
+        fps: F,
+        progress: Array.from({ length: frames }, (_, i) => windowProgress(w, (f0 + i) / F)),
+        sides: [side(w.from), side(w.to)],
+      });
+    }
+  }
+  return jobs;
 }
 
 /** Run a render built by `buildRenderArgs`, reporting progress 0..1. */

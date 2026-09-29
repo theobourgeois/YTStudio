@@ -1,18 +1,29 @@
 /**
- * HTML5 drop target for the whole timeline: media-bin asset drags and OS files.
+ * HTML5 drop target for the whole timeline: media-bin asset drags, OS files,
+ * and transitions from the library (dropped on the nearest clip edge).
  * An enter/leave depth counter (reset on drop/dragend) keeps the highlight
  * from flickering between child elements or sticking after the drag ends.
  */
 import { useEffect, useRef, type DragEvent } from "react";
 import { toast } from "sonner";
 import { snapPoints, snapTime } from "@shared/timeline";
-import { dragKind, getAssetDragData, mediaFiles } from "@/lib/dnd";
+import { type TransitionRef, addTransition, findWindow, transitionTargetAt } from "@shared/transition-windows";
+import { DEFAULT_TRANSITION } from "@shared/transitions";
+import { dragKind, getAssetDragData, getTransitionDragData, mediaFiles } from "@/lib/dnd";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import { SNAP_PX } from "./constants";
 import { lanePoint, type TimelineContextValue } from "./context";
 import { laneAt, newTrackZoneAt } from "./geometry";
-import { setView, useTimelineView, type DropTarget } from "./view-store";
+import { setView, useTimelineView, type DropTarget, type TransitionDrop } from "./view-store";
+
+/** How far (px) outside a clip a transition still snaps to its edge. */
+const TRANSITION_REACH_PX = 16;
+
+function sameTransitionDrop(a: TransitionDrop | null, b: TransitionDrop | null) {
+  if (!a || !b) return a === b;
+  return a.trackId === b.trackId && Math.abs(a.start - b.start) < 1e-6 && Math.abs(a.end - b.end) < 1e-6;
+}
 
 function sameTarget(a: DropTarget | null, b: DropTarget | null) {
   if (!a || !b) return a === b;
@@ -25,7 +36,7 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
   useEffect(() => {
     const reset = () => {
       depth.current = 0;
-      setView({ drop: null });
+      setView({ drop: null, transitionDrop: null });
     };
     window.addEventListener("dragend", reset);
     window.addEventListener("drop", reset);
@@ -47,7 +58,25 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
     return { trackId: lane?.trackId ?? null, newTrack: newTrackZoneAt(lanes, p.y), time };
   };
 
+  /** The clip edge a transition would be dropped on (not snapped: edges attract it instead). */
+  const transitionTarget = (e: DragEvent): TransitionRef | null => {
+    const p = lanePoint(ctx, e.clientX, e.clientY);
+    const lane = p && laneAt(ctx.lanesLayout.current, p.y);
+    if (!p || !lane) return null;
+    const { project, zoom } = useEditor.getState();
+    return transitionTargetAt(project, lane.trackId, Math.max(0, p.x / zoom), TRANSITION_REACH_PX / zoom);
+  };
+
   const show = (e: DragEvent) => {
+    if (dragKind(e.dataTransfer) === "transition") {
+      const ref = transitionTarget(e);
+      const { project } = useEditor.getState();
+      // Where it would play (the type isn't readable mid-drag; the default's length is close enough).
+      const w = ref && findWindow(addTransition(project, ref, DEFAULT_TRANSITION).project, ref);
+      const next = w ? { trackId: w.trackId, start: w.start, end: w.end } : null;
+      if (!sameTransitionDrop(useTimelineView.getState().transitionDrop, next)) setView({ transitionDrop: next });
+      return;
+    }
     const next = targetAt(e);
     if (!sameTarget(useTimelineView.getState().drop, next)) setView({ drop: next });
   };
@@ -62,21 +91,28 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
     onDragOver(e: DragEvent) {
       if (!dragKind(e.dataTransfer)) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
       show(e);
+      const nowhere = dragKind(e.dataTransfer) === "transition" && !useTimelineView.getState().transitionDrop;
+      e.dataTransfer.dropEffect = nowhere ? "none" : "copy";
     },
     onDragLeave(e: DragEvent) {
       if (!dragKind(e.dataTransfer)) return;
       depth.current = Math.max(0, depth.current - 1);
-      if (depth.current === 0) setView({ drop: null });
+      if (depth.current === 0) setView({ drop: null, transitionDrop: null });
     },
     onDrop(e: DragEvent) {
       const kind = dragKind(e.dataTransfer);
       if (!kind) return;
       e.preventDefault();
-      const target = targetAt(e);
       depth.current = 0;
-      setView({ drop: null });
+      setView({ drop: null, transitionDrop: null });
+      if (kind === "transition") {
+        const type = getTransitionDragData(e.dataTransfer);
+        const ref = transitionTarget(e);
+        if (type && ref) useEditor.getState().addTransitionAt(ref, type);
+        return;
+      }
+      const target = targetAt(e);
       const opts = {
         trackId: target?.trackId ?? undefined,
         newTrack: target?.newTrack ?? undefined,

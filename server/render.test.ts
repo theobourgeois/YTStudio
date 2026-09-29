@@ -3,18 +3,16 @@ import { defaultEffects, textEffects } from "../shared/effects.ts";
 import { createDefaultProject, normalizeProject } from "../shared/timeline.ts";
 import { placeClip } from "../shared/transform.ts";
 import type { Clip, ParamValues, Project } from "../shared/types.ts";
-import { type RenderAsset, SAMPLE_RATE, buildRenderArgs, planPiece } from "./render.ts";
+import { createTransition } from "../shared/transitions.ts";
+import { type RenderAsset, SAMPLE_RATE, buildRenderArgs, planPiece, planTransitions } from "./render.ts";
 
 const assets: Record<string, RenderAsset> = {
-  vid: { path: "/media/vid.mp4", kind: "video", hasVideo: true, hasAudio: true, width: 1920, height: 1080 },
-  mute: { path: "/media/silent clip.mov", kind: "video", hasVideo: true, hasAudio: false, width: 1080, height: 1920 },
-  song: { path: "/media/song.mp3", kind: "audio", hasVideo: false, hasAudio: true, width: null, height: null },
-  photo: { path: "/media/photo.png", kind: "image", hasVideo: true, hasAudio: false, width: 1000, height: 1000 },
+  vid: { path: "/media/vid.mp4", kind: "video", hasVideo: true, hasAudio: true, width: 1920, height: 1080, duration: 10 },
+  mute: { path: "/media/silent clip.mov", kind: "video", hasVideo: true, hasAudio: false, width: 1080, height: 1920, duration: 10 },
+  song: { path: "/media/song.mp3", kind: "audio", hasVideo: false, hasAudio: true, width: null, height: null, duration: 60 },
+  photo: { path: "/media/photo.png", kind: "image", hasVideo: true, hasAudio: false, width: 1000, height: 1000, duration: 5 },
 };
-const durations = { vid: 10, mute: 10, song: 60, photo: 5 };
-const library = Object.fromEntries(
-  Object.entries(assets).map(([id, a]) => [id, { ...a, duration: durations[id as keyof typeof durations] }]),
-);
+const library = assets;
 
 let n = 0;
 /** A clip, optionally with effect parameters, e.g. `{ motion: { rotation: 90 } }`. */
@@ -236,7 +234,7 @@ describe("text clips", () => {
     effects: textEffects({ text: "Hi" }),
   };
   const drawn: RenderAsset = {
-    path: "/tmp/t1.png", kind: "image", hasVideo: true, hasAudio: false, width: 800, height: 200,
+    path: "/tmp/t1.png", kind: "image", hasVideo: true, hasAudio: false, width: 800, height: 200, duration: 0,
     frame: { width: 400, height: 100 },
   };
 
@@ -251,5 +249,15 @@ describe("text clips", () => {
 
   it("need their drawing", () => {
     expect(() => buildRenderArgs(project([text]), assets, opts)).toThrow(/text/i);
+  });
+
+  it("can be a side of a transition, drawn from their image", () => {
+    const p = project([{ ...text, transitionIn: createTransition("cross-dissolve", 0.5) }]);
+    const [job] = planTransitions(p, assets, opts, { t1: drawn });
+    expect(job.sides[0]).toBeNull();
+    const argv = job.sides[1]!;
+    expect(inputsOf(argv)).toEqual(["/tmp/t1.png"]);
+    expect(argv).toContain("-loop");
+    expect(argv[argv.indexOf("-vf") + 1]).toContain("scale=400:100");
   });
 });
