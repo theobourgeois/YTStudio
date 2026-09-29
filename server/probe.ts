@@ -176,3 +176,19 @@ function frameRate(s: FfprobeStream): number | null {
   }
   return null;
 }
+
+/**
+ * A video's YCbCr matrix as ffprobe names it (`color_space`, e.g. "bt709"),
+ * or null when the file doesn't say (or can't be read).
+ */
+export async function probeColorSpace(file: string): Promise<string | null> {
+  try {
+    const out = await run(FFPROBE, [
+      "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=color_space", "-print_format", "json", file,
+    ]);
+    const space = (JSON.parse(out) as { streams?: { color_space?: string }[] }).streams?.[0]?.color_space;
+    return space && space !== "unknown" ? space : null;
+  } catch {
+    return null;
+  }
+}

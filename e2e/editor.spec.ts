@@ -314,9 +314,7 @@ test("plays back and keeps the video in sync with the clock", async ({ page }) =
   await page.waitForTimeout(1500);
   await page.keyboard.press("Space");
   const state = await page.evaluate(() => {
-    const visible = [...document.querySelectorAll("video")].find(
-      (v) => getComputedStyle(v).opacity !== "0" && !v.closest("[role=dialog]"),
-    );
+    const visible = document.querySelector<HTMLVideoElement>("[data-slot=canvas] video[data-shown]");
     return { paused: visible?.paused, t: visible?.currentTime ?? -1 };
   });
   expect(state.paused).toBe(true);
@@ -412,14 +410,29 @@ test("imports an image and transforms it in the properties panel and on the canv
   await drag(page, at, { x: at.x + 30, y: at.y });
   await expect.poll(async () => (await motion()).rotation).toBe(30);
 
-  // The preview draws it where the properties say.
-  const transform = () =>
-    page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>("[data-slot=canvas] img, [data-slot=canvas] video")]
-        .filter((el) => el.style.opacity !== "0")
-        .map((el) => el.style.transform),
+  // The preview draws it where the properties say: half size, turned 30° clockwise. The sticker's
+  // blue bar (just right of its middle, near the top) lands where it would show magenta unturned.
+  const colourAt = (u: number, v: number) =>
+    page.evaluate(
+      ([u, v]) => {
+        const gl = document.querySelector<HTMLCanvasElement>("[data-slot=preview-canvas]")!;
+        const copy = document.createElement("canvas");
+        copy.width = gl.width;
+        copy.height = gl.height;
+        const ctx = copy.getContext("2d")!;
+        ctx.drawImage(gl, 0, 0);
+        // (u, v): a point of the sticker from its centre, in fractions of its size.
+        const side = Math.min(gl.width, gl.height) * 0.5;
+        const [cos, sin] = [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)];
+        const x = gl.width / 2 + side * (cos * u - sin * v);
+        const y = gl.height / 2 + side * (sin * u + cos * v);
+        const [r, g, b] = ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data;
+        return r > 150 && g < 90 && b < 90 ? "red" : b > 150 && r < 90 && g < 90 ? "blue" : `rgb(${r}, ${g}, ${b})`;
+      },
+      [u, v],
     );
-  await expect.poll(transform).toEqual([expect.stringMatching(/^matrix\(0\.433013, 0\.25, -0\.25, 0\.433013,/)]);
+  await expect.poll(() => colourAt(0.05, -0.3)).toBe("blue");
+  expect(await colourAt(-0.4, 0)).toBe("red");
 
   // Canvas: a click on empty space deselects, a click on the image selects it.
   const canvas = (await page.locator("[data-slot=canvas]").boundingBox())!;
@@ -452,6 +465,66 @@ test("imports an image and transforms it in the properties panel and on the canv
   await page.getByRole("button", { name: "Reset Motion" }).click();
   await expect.poll(async () => (await motion()).rotation).toBe(0);
   expect(await motion()).toMatchObject({ scale: 1, scaleWidth: 1, uniformScale: true, position: [0.5, 0.5] });
+});
+
+test("animates a property with keyframes and edits them in the Effect Controls' lanes", async ({ page }) => {
+  await page.goto("/");
+  const media = await page.evaluate(() => fetch(`/api/media?projectId=${location.pathname.split("/").pop()}`).then((r) => r.json()));
+  const stickerId = (media as { id: string; name: string }[]).find((a) => a.name === "sticker-800.png")!.id;
+  const clipId = ((await savedProject(page)).clips as (SavedClip & { assetId: string })[]).find((c) => c.assetId === stickerId)!.id;
+  type Keys = { time: number; value: number; easing: string }[];
+  const opacityKeys = async () =>
+    ((await savedProject(page)).clips as { id: string; effects: { type: string; keyframes?: Record<string, Keys> }[] }[])
+      .find((c) => c.id === clipId)!.effects.find((e) => e.type === "opacity")!.keyframes?.opacity ?? [];
+
+  // Select the image and park the playhead a fifth of the way in.
+  await page.getByRole("button", { name: "Zoom to fit" }).click();
+  const clip = page.locator(`[data-clip-id="${clipId}"]`);
+  const box = (await clip.boundingBox())!;
+  const lanes = (await page.locator("[data-timeline-lanes]").boundingBox())!;
+  await clip.click({ position: { x: box.width / 2, y: 10 } });
+  await page.mouse.click(box.x + box.width * 0.2, lanes.y - 10);
+  await page.getByRole("tab", { name: "Properties" }).click();
+
+  // The stopwatch starts animating; changing the value later on adds a keyframe there.
+  await page.getByRole("button", { name: "Animate Opacity" }).click();
+  await expect.poll(async () => (await opacityKeys()).map((k) => k.value)).toEqual([1]);
+  await page.mouse.click(box.x + box.width * 0.7, lanes.y - 10);
+  await page.getByRole("spinbutton", { name: "Opacity", exact: true }).click();
+  await page.keyboard.type("20");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await opacityKeys()).map((k) => k.value)).toEqual([1, 0.2]);
+  await expect(clip.locator("[data-clip-keyframes]")).toHaveAttribute("data-clip-keyframes", "2");
+
+  // The navigator jumps back to the first keyframe (and is then on it).
+  await page.getByRole("button", { name: "Previous Opacity keyframe" }).click();
+  await expect(page.getByRole("button", { name: "Remove Opacity keyframe" })).toBeVisible();
+
+  // The lanes: an interpolation from the keyframe's menu, then drag one along.
+  await page.getByRole("button", { name: "Show keyframes" }).click();
+  const diamonds = page.getByRole("group", { name: "Opacity keyframes", exact: true }).locator("[data-refs]");
+  await expect(diamonds).toHaveCount(2);
+  await diamonds.first().click({ button: "right" });
+  await page.getByRole("menuitemradio", { name: "Ease Out" }).click();
+  await expect.poll(async () => (await opacityKeys()).map((k) => k.easing)).toEqual(["ease-out", "linear"]);
+  const before = (await opacityKeys())[1].time;
+  const second = (await diamonds.nth(1).boundingBox())!;
+  const at = { x: second.x + second.width / 2, y: second.y + second.height / 2 };
+  await drag(page, at, { x: at.x - 30, y: at.y });
+  await expect.poll(async () => (await opacityKeys())[1].time).toBeLessThan(before - 0.1);
+
+  // ⌫ deletes the selected keyframe (not the clip); undo brings it back.
+  await diamonds.nth(1).click();
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await opacityKeys()).length).toBe(1);
+  await expect(clip).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await opacityKeys()).length).toBe(2);
+
+  // Turning the stopwatch off drops the keyframes and keeps the value showing.
+  await page.getByRole("button", { name: "Animate Opacity" }).click();
+  await expect.poll(async () => (await opacityKeys()).length).toBe(0);
+  await page.getByRole("button", { name: "Hide keyframes" }).click();
 });
 
 test("adds transitions from the library, edits them and previews them", async ({ page }) => {
@@ -499,12 +572,10 @@ test("adds transitions from the library, edits them and previews them", async ({
   await page.mouse.up();
   await expect.poll(async () => (await withTransitions()).map((t) => t.type).sort()).toEqual(["cross-dissolve", "glitch"]);
 
-  // Parked inside a transition, the preview draws the track with WebGL.
+  // Parked inside a transition, the preview draws it.
   const lanes = (await page.locator("[data-timeline-lanes]").boundingBox())!;
   await page.mouse.click(await timeX(page, 0.3), lanes.y - 10);
-  await expect
-    .poll(() => page.evaluate(() => [...document.querySelectorAll<HTMLCanvasElement>("[data-slot=canvas] canvas")].some((c) => c.style.opacity === "1")))
-    .toBe(true);
+  await expect(page.locator("[data-slot=preview-canvas]")).toHaveAttribute("data-drawn", "transition");
 
   // Select one on the timeline and delete it; undo brings it back.
   await page.locator("[data-transition]").first().click();

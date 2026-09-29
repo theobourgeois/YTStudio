@@ -162,7 +162,7 @@ function Captions({ captions }: { captions: Clip[] }) {
         return (
           <EffectSection
             key={def.type}
-            clipId={shown.id}
+            clip={shown}
             effect={effect}
             def={def}
             traits={TRAITS}

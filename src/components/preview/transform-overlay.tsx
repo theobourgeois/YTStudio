@@ -7,7 +7,9 @@
  * a text types into it.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import type { ParamValues, Vec2 } from "@shared/types";
+import type { Clip, ParamValue, ParamValues, Vec2 } from "@shared/types";
+import { keyframeTime } from "@shared/animation";
+import { keyframeValue } from "@shared/keyframes";
 import { MOTION, findEffect, isTextClip, setParams, textStyleAt } from "@shared/effects";
 import {
   type Placement,
@@ -110,7 +112,9 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
     usePlayback.getState().pause();
     // Working on a clip on the canvas: show its properties.
     useLayout.getState().setLeftPanel("properties");
-    const { clip, placement: p0, time: sourceTime } = target;
+    const { clip, placement: p0 } = target;
+    // An animated value is keyframed at the frame under the playhead (or a keyframe right next to it).
+    const editTime = keyframeTime(clip, usePlayback.getState().time, useEditor.getState().project.settings.fps);
     const start = pointAt(e);
     const uniform = findEffect(clip, MOTION.type)?.params.uniformScale !== false;
     const gesture = new EditGesture();
@@ -164,7 +168,7 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
           break;
         }
       }
-      gesture.apply((p) => setParams(p, clip.id, MOTION.type, patch, sourceTime));
+      gesture.apply((p) => setParams(p, clip.id, MOTION.type, patch, editTime));
       setGuides(nextGuides);
     };
 
@@ -243,6 +247,7 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
         {guides.y !== null && (
           <line y1={guides.y} y2={guides.y} x1={0} x2={canvas.width} className="stroke-playhead" strokeWidth={1} />
         )}
+        {selected && !editing && <MotionPath clip={selected.clip} canvas={canvas} />}
         {editing && (
           <polygon
             points={frameCorners(editing.placement).map((c) => c.join(",")).join(" ")}
@@ -368,5 +373,31 @@ function TextEditor({ target }: { target: OnCanvas }) {
         caretColor: style.fill,
       }}
     />
+  );
+}
+
+/** Samples drawn per stretch between two position keyframes. */
+const PATH_SAMPLES = 24;
+
+/** Where an animated clip travels (its anchor point), with a dot at each position keyframe, like Premiere's motion path. */
+function MotionPath({ clip, canvas }: { clip: Clip; canvas: Size }) {
+  const motion = findEffect(clip, MOTION.type);
+  const keys = motion?.enabled ? motion.keyframes?.position : undefined;
+  if (!keys || keys.length < 2) return null;
+  const toPx = (v: ParamValue): Vec2 => [(v as Vec2)[0] * canvas.width, (v as Vec2)[1] * canvas.height];
+  const points: Vec2[] = [];
+  for (let i = 0; i < keys.length - 1; i++) {
+    const [a, b] = [keys[i].time, keys[i + 1].time];
+    for (let n = 0; n < PATH_SAMPLES; n++) points.push(toPx(keyframeValue(keys, a + ((b - a) * n) / PATH_SAMPLES)));
+  }
+  points.push(toPx(keys[keys.length - 1].value));
+  return (
+    <g data-motion-path>
+      <polyline points={points.map((p) => p.join(",")).join(" ")} className="fill-none stroke-white/70" strokeWidth={1} strokeDasharray="3 3" />
+      {keys.map((k) => {
+        const [x, y] = toPx(k.value);
+        return <circle key={k.time} cx={x} cy={y} r={3} className="fill-white stroke-brand" strokeWidth={1.5} />;
+      })}
+    </g>
   );
 }

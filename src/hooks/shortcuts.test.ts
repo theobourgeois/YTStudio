@@ -35,6 +35,12 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("x"))).toBeNull();
   });
 
+  it("jumps between keyframes with [ and ]", () => {
+    expect(resolveShortcut(key("["))).toBe("prevKeyframe");
+    expect(resolveShortcut(key("]"))).toBe("nextKeyframe");
+    expect(resolveShortcut(key("]", { repeat: true }))).toBe("nextKeyframe");
+  });
+
   it("steps frames with arrows and seconds with shift+arrows", () => {
     expect(resolveShortcut(key("ArrowLeft"))).toBe("prevFrame");
     expect(resolveShortcut(key("ArrowRight"))).toBe("nextFrame");

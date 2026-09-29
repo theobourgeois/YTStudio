@@ -15,7 +15,7 @@ import {
   valuesAt,
   volumeAt,
 } from "./effects.ts";
-import { keyframeValue } from "./keyframes.ts";
+import { easedProgress, keyframeValue } from "./keyframes.ts";
 import { createDefaultProject, MAIN_TRACK_ID } from "./timeline.ts";
 import type { Clip, Effect, Keyframe, Project } from "./types.ts";
 
@@ -119,13 +119,26 @@ describe("keyframes", () => {
     expect(keyframeValue(keys, 9)).toBe(50);
   });
 
-  it("interpolate linearly, with easing, or not at all", () => {
-    expect(keyframeValue(keys, 2)).toBe(50);
-    expect(keyframeValue(keys, 3.5)).toBeGreaterThan(75); // eased: fast in the middle...
-    expect(keyframeValue(keys, 3.5)).toBeLessThan(100);
-    expect(keyframeValue(keys, 4)).toBe(50);
+  it("interpolate linearly, eased where a keyframe eases, or not at all", () => {
+    // 1 -> 3 arrives at an eased keyframe: ahead of linear (50) halfway, slowing down.
+    expect(keyframeValue(keys, 2)).toBeCloseTo(62.5);
+    // 3 -> 5 leaves it slowly: behind linear (50) halfway.
+    expect(keyframeValue(keys, 3.5)).toBeGreaterThan(75);
+    expect(keyframeValue(keys, 4)).toBeCloseTo(62.5);
     expect(keyframeValue(keys, 6.9)).toBe(0); // held until the next keyframe
     expect(keyframeValue(keys, 7)).toBe(50);
+  });
+
+  it("ease like Premiere's Bezier with 33% influence", () => {
+    // Both sides eased: smoothstep. One side: zero speed there, linear speed at the other end.
+    expect(easedProgress(0.5, true, true)).toBeCloseTo(0.5);
+    expect(easedProgress(0.25, true, true)).toBeCloseTo(0.15625);
+    expect(easedProgress(0.5, false, false)).toBeCloseTo(0.5);
+    expect(easedProgress(0.1, false, false)).toBeCloseTo(0.1);
+    const d = 1e-4;
+    expect(easedProgress(d, true, false) / d).toBeLessThan(0.01); // leaves slowly
+    expect((1 - easedProgress(1 - d, true, false)) / d).toBeCloseTo(1, 2); // arrives at full speed
+    expect((1 - easedProgress(1 - d, false, true)) / d).toBeLessThan(0.01); // arrives slowly
   });
 
   it("interpolate points component-wise", () => {
@@ -206,6 +219,18 @@ describe("edits", () => {
     expect(motionOf(one).params).toMatchObject({ scale: 2, rotation: 0 });
     expect(motionOf(one).keyframes).toBeUndefined();
     expect(motionOf(resetParams(p, "c", "motion")).params).toEqual(defaultEffects()[0].params);
+    // At a time (Premiere): an animated value gets a keyframe of its default there instead.
+    const keyed = resetParams(p, "c", "motion", ["rotation", "scale"], 2);
+    expect(motionOf(keyed).keyframes!.rotation.map((k) => [k.time, k.value])).toEqual([[0, 5], [2, 0]]);
+    expect(motionOf(keyed).params.scale).toBe(1);
+  });
+
+  it("keep linked values in step with what's showing at the edit's time", () => {
+    const [motion, ...rest] = defaultEffects();
+    const keys: Keyframe[] = [{ time: 0, value: 1, easing: "linear" }, { time: 2, value: 3, easing: "linear" }];
+    const p = projectWith(clipWith([{ ...motion, keyframes: { scale: keys } }, ...rest]));
+    // Turning uniform scale off at 1 s starts the width from the scale showing then (2), not the static 1.
+    expect(motionOf(setParams(p, "c", "motion", { uniformScale: false }, 1)).params.scaleWidth).toBe(2);
   });
 
   it("keep MOTION/OPACITY/VOLUME ids stable", () => {

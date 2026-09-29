@@ -57,9 +57,8 @@ out, the first or last frame is held. On a free edge it plays inside the clip, f
 (lower tracks, or black). Select a transition to change its duration, alignment and its own settings in the
 **Properties** tab.
 
-Transitions are exported with the exact same WebGL shaders as the preview, run in a headless Chromium: Playwright's
+Exports are drawn frame by frame by the same WebGL compositor as the preview, run in a headless Chromium: Playwright's
 (`pnpm exec playwright install chromium-headless-shell`) or your installed Google Chrome (or set `CHROMIUM_PATH`).
-Exports without transitions don't need it.
 
 ### Library
 
@@ -129,6 +128,26 @@ The **Properties** tab in the left panel shows the selected clip's effects, like
 Each effect has an **fx** switch to bypass it and a reset button. Images are placed like video. A new image clip is 5
 seconds long and can be trimmed to any length, and transparent PNGs show the layers underneath.
 
+### Keyframes
+
+Any number or point (position, scale, rotation, opacity, volume, text size, stroke...) can be animated, like in
+Premiere:
+
+- Click a property's **stopwatch** to animate it: that sets a keyframe at the playhead. From then on, changing the
+  value (in the panel, by dragging on the canvas, or with the volume slider) sets a keyframe at the playhead. Turning
+  the stopwatch off removes the keyframes and keeps the value showing.
+- The **◀ ◆ ▶** navigator next to an animated value jumps to the previous/next keyframe, or adds/removes one at the
+  playhead. `[` and `]` jump between all of the selected clip's keyframes.
+- **Show keyframes** (the ◆ button next to the clip's name) opens a timeline beside the properties: drag on its ruler
+  to move the playhead, click keyframes (⇧/⌘ to add) or drag a box around them, drag them in time (they snap to the
+  playhead, other keyframes and frames), double-click one to go to it, and press ⌫ to delete. An effect's own row
+  shows all of its keyframes.
+- Right-click a keyframe for its interpolation: **Linear**, **Ease In** (slows down into it), **Ease Out** (eases away
+  from it), **Ease In and Out** or **Hold** (keeps its value until the next keyframe).
+- Keyframed clips show marks on the timeline, and an animated position draws its motion path on the canvas.
+
+Keyframes stay on their frame of the media when a clip is moved, trimmed or split, and exports play them exactly.
+
 ## How it works
 
 - **`src/`** — React + Vite + Tailwind + shadcn/ui. The document lives in the zustand store `stores/editor.ts`
@@ -139,23 +158,27 @@ seconds long and can be trimmed to any length, and transparent PNGs show the lay
   stored or received project.
   - `effects.ts`: clip properties. A clip carries a list of effects; each effect definition is a list of typed
     parameter specs (`params.ts`: number, point, switch, choice, text, colour, font) that drive defaults, validation,
-    the properties panel and evaluation. Values can be keyframed in the data model (`keyframes.ts`, stored in
-    source-media time, with interpolation), but nothing creates keyframes yet. To add a property, add a spec (or a
+    the properties panel and evaluation. Numbers and points can be keyframed (`keyframes.ts`: stored in source-media
+    time, with Premiere-style interpolation; `animation.ts`: the edits). To add a property, add a spec (or a
     definition to `EFFECTS`), then draw it in `src/components/preview/engine.ts` and `server/render.ts`.
+  - `compositor.ts`: the renderer. One WebGL 2 compositor draws every frame (clips placed by their motion and faded
+    by their opacity, transitions mixed by their shaders), in the preview, the library thumbnails and the export.
+    `scene.ts` says what each video track shows at a point in time, for both the preview and the export.
   - `transitions.ts`, `transition-windows.ts`, `transition-gl.ts`, `transition-library/`: transitions. Each one is a
     GLSL shader plus parameter specs (like effects). `transition-windows.ts` works out where they play on the timeline,
-    `transition-gl.ts` is the WebGL renderer shared by the preview, the library thumbnails and the export. To add one,
+    `transition-gl.ts` has the shader prelude they're written against. To add one,
     add a definition to a `transition-library` file; `pnpm tsx scripts/transition-sheet.ts <type or tag>` renders a
     contact sheet and checks it starts and ends on the right pictures.
   - `transform.ts`: where a clip lands on the canvas (fit, then scale and rotate around the anchor point, which sits at
-    the position). The preview's CSS, the canvas handles and the export all use it.
+    the position). The compositor, the canvas handles and the export all use it.
 - **`server/`** — a small Express server (one router per resource in `server/routes/`) that stores projects and their media in `./data`, probes media and generates
-  thumbnails/waveforms with ffmpeg, and renders exports with a single ffmpeg filter graph. Transitions are drawn
-  first (`transition-render.ts`): ffmpeg decodes both sides, a headless Chromium page (`gl-browser.ts`) runs the
-  shader, and the frames are kept as a lossless file the main render splices in.
+  thumbnails/waveforms with ffmpeg, and renders exports. `render.ts` plans an export (pure): an ffmpeg per visible clip
+  decodes its frames at the size they're shown, a headless Chromium page (`gl-browser.ts`) composites every output
+  frame with the preview's compositor (`frame-render.ts` drives it), and ffmpeg encodes the result with the sound,
+  which is mixed in a pass of its own.
 
-The browser preview plays the original files with `<video>`/`<img>`/`<audio>` elements synced to the playback clock and
-placed with CSS transforms. The export applies the same rules (trim points, motion, opacity, volume, mute) in ffmpeg.
+The browser preview plays the original files with hidden `<video>`/`<img>`/`<audio>` elements synced to the playback
+clock and draws them on one WebGL canvas with the compositor, so preview and export are drawn by the same code.
 
 Projects, media, the Library and exports are stored in `./data` (override with `EDITOR_DATA_DIR`). Ports: `EDITOR_WEB_PORT`
 (5310) and `EDITOR_SERVER_PORT` (5311); if they're taken (another checkout or worktree running), `pnpm dev` moves

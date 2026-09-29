@@ -1,59 +1,66 @@
 import type { Clip, MediaAsset, Project } from "@shared/types";
 import { type TextStyle, isTextClip, opacityAt, textStyleAt, volumeAt } from "@shared/effects";
-import { clipEnd, clipSourceRange } from "@shared/timeline";
-import { type TransitionRenderer, createTransitionRenderer, transitionShader, transitionUniforms } from "@shared/transition-gl";
+import { type Compositor, type Placed, createCompositor } from "@shared/compositor";
+import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
+import { clipEnd, clipSourceRange, videoTracks } from "@shared/timeline";
+import { transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
-import { type Placement, type Size, cssMatrix, placementAffine } from "@shared/transform";
+import { type Placement, type Size, placementAffine } from "@shared/transform";
 import { type TextLayout, rasterizeText, textUnit } from "@/lib/text-render";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
 import { usePlayback } from "@/stores/playback";
 import { ImageSlot, MediaSlot } from "./media-slot";
 import { placeOnCanvas } from "./placement";
-import { type Shown, type TransitionPlan, assignSlots, planAudio, planTrack, planTransition, type SlotIds } from "./sync";
+import { type SlotIds, assignSlots, planAudio } from "./sync";
 
 /**
- * The elements that show one video track: an A/B pair for video clips, one
- * for still images and a canvas for text, plus a WebGL canvas that draws the
- * track while a transition plays.
+ * The hidden elements that decode one video track's pictures: an A/B pair
+ * for video clips, one for still images, and offscreen canvases for text
+ * (one per side of a transition).
  */
 interface VideoLayer {
   videos: [MediaSlot | null, MediaSlot | null];
   videoIds: SlotIds;
   images: [ImageSlot | null, ImageSlot | null];
   imageIds: SlotIds;
-  text: TextSlot | null;
-  /** Offscreen text drawings for the sides of a transition (created on first use). */
-  transitionTexts: [TextSlot | null, TextSlot | null];
-  canvas: HTMLCanvasElement | null;
-  /** Created on the first transition (null until then, or when WebGL 2 isn't available). */
-  renderer: TransitionRenderer | null;
-  rendererFailed: boolean;
+  texts: [TextSlot | null, TextSlot | null];
 }
 
 type ClipKind = "video" | "image" | "text";
 
+/** A picture to draw: the element (or text drawing) it comes from, and when in its clip. */
+interface Picture {
+  key: string;
+  source: HTMLVideoElement | HTMLImageElement | TextSlot;
+  shown: Shown;
+}
+
+/** What one track draws, bottom track first. */
+type Layer = { kind: "picture"; picture: Picture } | { kind: "transition"; plan: TransitionPlan; from: Picture | null; to: Picture | null };
+
 /**
- * Drives the preview's media elements from the playback clock and the project,
- * outside React: it subscribes to both stores and reconciles every element on
- * each change (every animation frame while playing).
+ * Drives the preview outside React: it subscribes to the playback clock and
+ * the project, keeps the media elements playing (or parked) in step, and
+ * draws every frame with the compositor (`shared/compositor.ts`) on one
+ * WebGL canvas, the same way the export does.
  *
  * - Each video track has two <video> elements that double-buffer it: one shows
  *   the clip under the playhead, the other is parked on the next clip's first
- *   frame. Two <img> elements do the same for still images, and a <canvas>
- *   draws text clips (redrawn only when the text or its size changes). The
- *   stage stacks the tracks' elements in layer order.
- * - The visible element is sized and transformed to where the clip's Motion
- *   puts it on the canvas (`shared/transform.ts`, same as the export), and
- *   faded by its Opacity. Values are read at the current time, so they'll
- *   follow keyframes.
+ *   frame. Two <img> elements do the same for still images, and text is drawn
+ *   into offscreen canvases (redrawn only when the text or its size changes).
+ *   The elements are hidden: they're only the compositor's sources.
+ * - What each track shows comes from `shared/scene.ts` (like the export): the
+ *   clip under the playhead, placed where its Motion puts it and faded by its
+ *   Opacity, read at the current time (so they follow keyframes), or a
+ *   transition mixing both of its clips with its shader. Tracks are drawn
+ *   bottom first over the black canvas.
  * - While a transition plays, both of its clips play (past their edges into
- *   their media's handles if need be, silent outside the clip itself), their
- *   elements are hidden (a text side is drawn off screen instead), and the
- *   track's WebGL canvas draws them mixed by the transition's shader
- *   (`shared/transition-gl.ts`, same as the export).
+ *   their media's handles if need be, silent outside the clip itself).
  * - Each audio-track clip has its own <audio> element, played only while the
  *   playhead is inside the clip and parked on its in-point before that.
+ * - Frames are drawn on every clock tick while playing, and otherwise when
+ *   anything changes, including a video presenting a new frame after a seek.
  */
 export class PreviewEngine {
   private layers = new Map<string, VideoLayer>();
@@ -62,12 +69,20 @@ export class PreviewEngine {
   private offline = false;
   private indexedAssets: MediaAsset[] | null = null;
   private assetById = new Map<string, MediaAsset>();
-  private canvas: Size = { width: 0, height: 0 };
-  /** Transition windows per track, for `windowsOf`. */
+  /** The canvas size in CSS px (where clips are placed). */
+  private size: Size = { width: 0, height: 0 };
+  /** Transition windows per track, for `planTransitionOf`. */
   private windows = new Map<string, TransitionWindow[]>();
   private windowsOf: Project | null = null;
+  private canvas: HTMLCanvasElement | null = null;
+  private compositor: Compositor | null = null;
+  /** What each stored picture was made from (to know when it has to be uploaded again). */
+  private uploaded = new Map<string, string>();
+  private drawQueued = false;
 
-  constructor(private readonly onOfflineChange: (offline: boolean) => void) {}
+  constructor(
+    private readonly onStatusChange: (status: { offline: boolean; noWebGl: boolean }) => void,
+  ) {}
 
   start() {
     if (this.unsubscribe) return;
@@ -92,16 +107,60 @@ export class PreviewEngine {
     for (const slot of this.audio.values()) slot.pause();
   }
 
-  /** The canvas size in CSS px (elements are placed in it). */
+  /** The canvas size in CSS px. */
   setCanvasSize(size: Size) {
-    if (size.width === this.canvas.width && size.height === this.canvas.height) return;
-    this.canvas = size;
+    if (size.width === this.size.width && size.height === this.size.height) return;
+    this.size = size;
     this.update();
+  }
+
+  /** Ref-callback helper: the WebGL canvas everything is drawn on. Returns the cleanup. */
+  attachCanvas(el: HTMLCanvasElement) {
+    this.canvas = el;
+    const lost = (e: Event) => {
+      e.preventDefault(); // lets the context be restored
+      this.releaseCompositor(false);
+    };
+    const restored = () => {
+      this.createCompositor();
+      this.update();
+    };
+    el.addEventListener("webglcontextlost", lost);
+    el.addEventListener("webglcontextrestored", restored);
+    this.createCompositor();
+    this.update();
+    return () => {
+      el.removeEventListener("webglcontextlost", lost);
+      el.removeEventListener("webglcontextrestored", restored);
+      if (this.canvas !== el) return;
+      this.releaseCompositor(true);
+      this.canvas = null;
+    };
+  }
+
+  private createCompositor() {
+    const gl = this.canvas?.getContext("webgl2", {
+      alpha: false,
+      antialias: false,
+      premultipliedAlpha: true,
+      // Keeps the last frame readable between draws (screenshots, tests); cheap at preview size.
+      preserveDrawingBuffer: true,
+    });
+    this.compositor = gl && !gl.isContextLost() ? createCompositor(gl) : null;
+    if (!gl) console.warn("WebGL 2 isn't available, so the preview can't be drawn.");
+    this.uploaded.clear();
+    this.reportStatus();
+  }
+
+  private releaseCompositor(dispose: boolean) {
+    if (dispose && !this.compositor?.gl.isContextLost()) this.compositor?.dispose();
+    this.compositor = null;
+    this.uploaded.clear();
   }
 
   /** Ref-callback helper: returns the cleanup that releases the element. */
   attachVideo(trackId: string, index: 0 | 1, el: HTMLVideoElement) {
-    const slot = new MediaSlot(el, this.update);
+    const slot = new MediaSlot(el, this.update, this.requestDraw);
     const layer = this.layer(trackId);
     layer.videos[index] = slot;
     layer.videoIds = withId(layer.videoIds, index, null);
@@ -130,18 +189,6 @@ export class PreviewEngine {
     };
   }
 
-  attachText(trackId: string, el: HTMLCanvasElement) {
-    const slot = new TextSlot(el);
-    const layer = this.layer(trackId);
-    layer.text = slot;
-    this.update();
-    return () => {
-      if (layer.text !== slot) return;
-      layer.text = null;
-      this.dropIfEmpty(trackId, layer);
-    };
-  }
-
   attachAudio(clipId: string, el: HTMLAudioElement) {
     const slot = new MediaSlot(el, this.update);
     this.audio.set(clipId, slot);
@@ -160,36 +207,27 @@ export class PreviewEngine {
         videoIds: [null, null],
         images: [null, null],
         imageIds: [null, null],
-        text: null,
-        transitionTexts: [null, null],
-        canvas: null,
-        renderer: null,
-        rendererFailed: false,
+        texts: [null, null],
       };
       this.layers.set(trackId, layer);
     }
     return layer;
   }
 
-  attachCanvas(trackId: string, el: HTMLCanvasElement) {
-    const layer = this.layer(trackId);
-    layer.canvas = el;
-    layer.renderer = null;
-    layer.rendererFailed = false;
-    this.update();
-    return () => {
-      if (layer.canvas !== el) return;
-      layer.renderer?.dispose();
-      layer.canvas = null;
-      layer.renderer = null;
-      this.dropIfEmpty(trackId, layer);
-    };
-  }
-
   private dropIfEmpty(trackId: string, layer: VideoLayer) {
-    if ([...layer.videos, ...layer.images, layer.text, layer.canvas].some(Boolean)) return;
+    if ([...layer.videos, ...layer.images].some(Boolean)) return;
     if (this.layers.get(trackId) === layer) this.layers.delete(trackId);
   }
+
+  /** Draw again soon (once per animation frame at most), e.g. when a paused video has a new frame. */
+  private requestDraw = () => {
+    if (this.drawQueued || usePlayback.getState().playing) return; // playing: every tick draws anyway
+    this.drawQueued = true;
+    requestAnimationFrame(() => {
+      this.drawQueued = false;
+      this.update();
+    });
+  };
 
   private update = () => {
     if (!this.unsubscribe) return;
@@ -200,12 +238,16 @@ export class PreviewEngine {
     const kindOf = (clip: Clip): ClipKind =>
       isTextClip(clip) ? "text" : this.assetById.get(clip.assetId)?.kind === "image" ? "image" : "video";
     let offline = false;
+    const drawn: Layer[] = [];
 
-    // Video tracks: an A/B pair of elements for video clips, another for stills, a canvas for text.
-    for (const [trackId, layer] of this.layers) {
+    // Video tracks, bottom first: an A/B pair of elements for video clips, another for stills, canvases for text.
+    for (const track of [...videoTracks(project)].reverse()) {
+      const trackId = track.id;
+      const layer = this.layers.get(trackId);
+      if (!layer) continue;
       const muted = trackMuted.get(trackId) ?? false;
       const { current, next } = planTrack(project, trackId, time);
-      const transition = this.planTransition(project, trackId, time);
+      const transition = this.planTransitionOf(project, trackId, time);
       // What's on screen: both sides of a transition, or the clip under the playhead.
       const shown: Shown[] = transition
         ? [transition.from, transition.to].filter((s): s is Shown => !!s)
@@ -219,34 +261,23 @@ export class PreviewEngine {
       };
       layer.videoIds = assignSlots(layer.videoIds, ...ids("video"));
       layer.imageIds = assignSlots(layer.imageIds, ...ids("image"));
-      const sources = new Map<string, TexImageSource>();
+      /** The picture showing each clip on screen, by clip id. */
+      const pictures = new Map<string, Picture>();
 
-      if (layer.text) {
-        if (current && !transition && kindOf(current.clip) === "text") {
-          const { placement, text } = placeOnCanvas(project, current.clip, undefined, this.canvas, current.time);
-          const unit = textUnit(this.canvas, project.settings.aspectRatio);
-          layer.text.draw(textStyleAt(current.clip, current.time), text!, unit, placement);
-          this.place(layer.text.el, current.clip, current.time, placement);
-        } else {
-          setStyle(layer.text.el, "opacity", "0");
-        }
-      }
-      // A text side of a transition is drawn off screen for the transition's canvas.
-      if (transition) {
-        ([transition.from, transition.to] as const).forEach((side, i) => {
-          if (!side || kindOf(side.clip) !== "text") return;
-          const slot = (layer.transitionTexts[i] ??= new TextSlot(document.createElement("canvas")));
-          const { placement, text } = placeOnCanvas(project, side.clip, undefined, this.canvas, side.time);
-          slot.draw(textStyleAt(side.clip, side.time), text!, textUnit(this.canvas, project.settings.aspectRatio), placement);
-          sources.set(side.clip.id, slot.el);
-        });
-      }
+      shown.forEach((side, i) => {
+        if (kindOf(side.clip) !== "text") return;
+        const slot = (layer.texts[i] ??= new TextSlot(document.createElement("canvas")));
+        const { placement, text } = placeOnCanvas(project, side.clip, undefined, this.size, side.time);
+        slot.draw(textStyleAt(side.clip, side.time), text!, textUnit(this.size, project.settings.aspectRatio), placement);
+        pictures.set(side.clip.id, { key: `${trackId}:t${i}`, source: slot, shown: side });
+      });
 
       layer.videos.forEach((slot, i) => {
         if (!slot) return;
         const id = layer.videoIds[i];
         const el = slot.el as HTMLVideoElement;
         const on = shown.find((s) => s.clip.id === id && kindOf(s.clip) === "video");
+        setShown(el, !!on);
         if (on) {
           const src = this.srcOf(on.clip);
           slot.setSrc(src);
@@ -255,16 +286,10 @@ export class PreviewEngine {
           slot.setAudio(volumeAt(on.clip, on.time), muted || (!!transition && !audible));
           if (playing) slot.follow(on.time);
           else slot.hold(on.time);
-          if (transition) {
-            setStyle(el, "opacity", "0");
-            sources.set(on.clip.id, el);
-          } else {
-            this.place(el, on.clip, on.time, this.placementOf(on.clip, on.time));
-          }
+          pictures.set(on.clip.id, { key: `${trackId}:v${i}`, source: el, shown: on });
           offline ||= src === null || slot.failed;
           return;
         }
-        setStyle(el, "opacity", "0");
         slot.setAudio(1, true);
         if (next && id === next.id) {
           slot.setSrc(this.srcOf(next));
@@ -278,25 +303,24 @@ export class PreviewEngine {
         if (!slot) return;
         const id = layer.imageIds[i];
         const on = shown.find((s) => s.clip.id === id && kindOf(s.clip) === "image");
+        setShown(slot.el, !!on);
         if (on) {
           const src = this.srcOf(on.clip);
           slot.setSrc(src);
-          if (transition) {
-            setStyle(slot.el, "opacity", "0");
-            sources.set(on.clip.id, slot.el);
-          } else {
-            this.place(slot.el, on.clip, on.time, this.placementOf(on.clip, on.time));
-          }
+          pictures.set(on.clip.id, { key: `${trackId}:i${i}`, source: slot.el, shown: on });
           offline ||= src === null || slot.failed;
           return;
         }
-        setStyle(slot.el, "opacity", "0");
         // Loading the next still ahead of time makes the cut instant.
         if (next && id === next.id) slot.setSrc(this.srcOf(next));
       });
 
-      this.drawTransition(layer, transition, sources);
+      const pictureOf = (side: Shown | null) => (side && pictures.get(side.clip.id)) ?? null;
+      if (transition) drawn.push({ kind: "transition", plan: transition, from: pictureOf(transition.from), to: pictureOf(transition.to) });
+      else if (current && pictures.has(current.clip.id)) drawn.push({ kind: "picture", picture: pictures.get(current.clip.id)! });
     }
+
+    this.draw(project, drawn);
 
     // Audio tracks: one element per clip.
     const planned = new Set<string>();
@@ -317,12 +341,97 @@ export class PreviewEngine {
 
     if (offline !== this.offline) {
       this.offline = offline;
-      this.onOfflineChange(offline);
+      this.reportStatus();
     }
   };
 
+  private reportStatus() {
+    this.onStatusChange({ offline: this.offline, noWebGl: !!this.canvas && !this.compositor });
+  }
+
+  /** Composite the tracks' layers onto the canvas. */
+  private draw(project: Project, layers: Layer[]) {
+    const compositor = this.compositor;
+    const canvas = this.canvas;
+    if (!compositor || !canvas || !(this.size.width > 0 && this.size.height > 0)) return;
+    if (compositor.gl.isContextLost()) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    compositor.resize(this.size.width * dpr, this.size.height * dpr);
+    const placed = (picture: Picture | null): Placed | null => {
+      if (!picture || !this.upload(compositor, picture)) return null;
+      const { clip, time } = picture.shown;
+      const placement = placeOnCanvas(project, clip, this.assetById.get(clip.assetId), this.size, time).placement;
+      return { key: picture.key, affine: placementAffine(placement, this.size), opacity: opacityAt(clip, time) };
+    };
+    compositor.clear();
+    let transitions = 0;
+    for (const layer of layers) {
+      if (layer.kind === "picture") {
+        const picture = placed(layer.picture);
+        if (picture) compositor.drawPicture(picture);
+        continue;
+      }
+      transitions++;
+      const { def, transition } = layer.plan.window;
+      try {
+        compositor.drawTransition(
+          transitionShader(def),
+          transitionUniforms(def, transition.params),
+          layer.plan.progress,
+          placed(layer.from),
+          placed(layer.to),
+        );
+      } catch (err) {
+        console.error(`Transition "${def.label}" failed to draw`, err);
+      }
+    }
+    compositor.present();
+    const state = transitions ? "transition" : layers.length ? "clips" : "empty";
+    if (canvas.dataset.drawn !== state) canvas.dataset.drawn = state;
+  }
+
+  /**
+   * Make sure the compositor has the picture's current contents: a video's
+   * frame is uploaded on every draw, a still or a text only when it changes.
+   * False when there's nothing to draw yet (e.g. the media is still loading).
+   */
+  private upload(compositor: Compositor, { key, source }: Picture): boolean {
+    let version: string | null;
+    let ready: boolean;
+    if (source instanceof TextSlot) {
+      version = source.drawn;
+      ready = !!version;
+    } else if (source instanceof HTMLVideoElement) {
+      version = null;
+      ready = source.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && source.videoWidth > 0;
+    } else {
+      version = source.currentSrc;
+      ready = source.complete && source.naturalWidth > 0;
+    }
+    const src = source instanceof TextSlot ? null : source.currentSrc;
+    if (!ready) {
+      // Not ready yet: keep showing its last picture only if it's of the same media.
+      const last = this.uploaded.get(key);
+      if (last !== undefined && src !== null && last === `${src}@video`) return compositor.hasPicture(key);
+      compositor.deletePicture(key);
+      this.uploaded.delete(key);
+      return false;
+    }
+    const tag = version ?? `${src}@video`;
+    if (version === null || this.uploaded.get(key) !== tag || !compositor.hasPicture(key)) {
+      try {
+        compositor.setPicture(key, source instanceof TextSlot ? source.el : source);
+      } catch (err) {
+        console.warn("Couldn't draw a picture", err);
+        return false;
+      }
+      this.uploaded.set(key, tag);
+    }
+    return true;
+  }
+
   /** The transition playing on a track at `time` (windows are cached per project). */
-  private planTransition(project: Project, trackId: string, time: number): TransitionPlan | null {
+  private planTransitionOf(project: Project, trackId: string, time: number): TransitionPlan | null {
     if (project !== this.windowsOf) {
       this.windowsOf = project;
       this.windows.clear();
@@ -334,66 +443,6 @@ export class PreviewEngine {
     }
     if (windows.length === 0) return null;
     return planTransition(project, windows, time, (clip) => clipSourceRange(clip, this.assetById.get(clip.assetId)));
-  }
-
-  /** Draw a track's transition on its canvas (or hide the canvas when there's none). */
-  private drawTransition(
-    layer: VideoLayer,
-    plan: TransitionPlan | null,
-    sources: Map<string, TexImageSource>,
-  ) {
-    const canvas = layer.canvas;
-    if (!canvas) return;
-    const renderer = plan && this.rendererOf(layer);
-    if (!plan || !renderer || this.canvas.width <= 0) {
-      setStyle(canvas, "opacity", "0");
-      return;
-    }
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    renderer.resize(this.canvas.width * dpr, this.canvas.height * dpr);
-    setStyle(canvas, "width", `${this.canvas.width}px`);
-    setStyle(canvas, "height", `${this.canvas.height}px`);
-    ([plan.from, plan.to] as const).forEach((side, i) => {
-      const el = side && sources.get(side.clip.id);
-      if (!side || !el || !isReady(el)) {
-        renderer.layer(i as 0 | 1, null);
-        return;
-      }
-      const placement = this.placementOf(side.clip, side.time);
-      renderer.layer(i as 0 | 1, el, placementAffine(placement, this.canvas), opacityAt(side.clip, side.time));
-    });
-    const { def, transition } = plan.window;
-    try {
-      renderer.draw(transitionShader(def), transitionUniforms(def, transition.params), plan.progress);
-    } catch (err) {
-      console.error(`Transition "${def.label}" failed to draw`, err);
-    }
-    setStyle(canvas, "opacity", "1");
-  }
-
-  private rendererOf(layer: VideoLayer): TransitionRenderer | null {
-    if (layer.renderer || layer.rendererFailed || !layer.canvas) return layer.renderer;
-    const gl = layer.canvas.getContext("webgl2", { premultipliedAlpha: true, alpha: true, antialias: false });
-    if (!gl) {
-      layer.rendererFailed = true;
-      console.warn("WebGL 2 isn't available, so transitions can't be previewed.");
-      return null;
-    }
-    layer.renderer = createTransitionRenderer(gl);
-    return layer.renderer;
-  }
-
-  private placementOf(clip: Clip, t: number): Placement {
-    const { project } = useEditor.getState();
-    return placeOnCanvas(project, clip, this.assetById.get(clip.assetId), this.canvas, t).placement;
-  }
-
-  /** Size and transform the element to where the clip is at source time `t`, and show it. */
-  private place(el: HTMLElement, clip: Clip, t: number, p: Placement) {
-    setStyle(el, "width", `${p.width}px`);
-    setStyle(el, "height", `${p.height}px`);
-    setStyle(el, "transform", cssMatrix(p));
-    setStyle(el, "opacity", String(opacityAt(clip, t)));
   }
 
   private indexAssets(assets: MediaAsset[]) {
@@ -408,9 +457,10 @@ export class PreviewEngine {
   }
 }
 
-/** The <canvas> showing a track's text clip, redrawn only when what it shows changes. */
+/** An offscreen canvas with a text clip drawn on it, redrawn only when what it shows changes. */
 class TextSlot {
-  private drawn = "";
+  /** What's drawn (changes whenever the drawing does); "" until drawn. */
+  drawn = "";
 
   constructor(readonly el: HTMLCanvasElement) {}
 
@@ -421,6 +471,7 @@ class TextSlot {
       this.drawn = rasterizeText(this.el, style, layout, unit, (window.devicePixelRatio || 1) * zoom, this.drawn).key;
     } catch {
       // No 2D context (e.g. too many canvases); the text just doesn't show.
+      this.drawn = "";
     }
   }
 }
@@ -428,13 +479,7 @@ class TextSlot {
 const withId = (ids: SlotIds, index: 0 | 1, id: string | null): SlotIds =>
   index === 0 ? [id, ids[1]] : [ids[0], id];
 
-/** Whether an element has a picture to draw. */
-function isReady(el: TexImageSource): boolean {
-  if (el instanceof HTMLVideoElement) return el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && el.videoWidth > 0;
-  if (el instanceof HTMLImageElement) return el.complete && el.naturalWidth > 0;
-  return true;
-}
-
-function setStyle(el: HTMLElement, prop: "opacity" | "width" | "height" | "transform", value: string) {
-  if (el.style[prop] !== value) el.style[prop] = value;
+/** Mark the media element that's on screen (for debugging and tests; the elements themselves are hidden). */
+function setShown(el: HTMLElement, shown: boolean) {
+  if (shown !== el.hasAttribute("data-shown")) el.toggleAttribute("data-shown", shown);
 }

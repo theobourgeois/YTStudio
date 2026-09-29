@@ -19,7 +19,7 @@ pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + c
 **Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.
 - Don't edit `src/` while e2e runs: Vite hot-reloads the page mid-test and a test fails for no real reason.
 - The e2e tests depend on each other (serial, shared state), so run the whole file rather than `-g` one test.
-- After touching a shader or `transition-gl.ts`, run the transition-sheet script. It compiles every shader in headless
+- After touching a shader, `transition-gl.ts` or `compositor.ts`, run the transition-sheet script. It compiles every shader in headless
   Chromium and checks that each one starts on the outgoing picture and ends on the incoming one.
 - If `pnpm install` output looks stale (e.g. "Cannot find package 'playwright-core'"), run `pnpm install`.
 
@@ -31,13 +31,17 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
   params.ts          ParamSpec types (number, vec2, boolean, choice, text, color, font…) + sanitize/defaults.
-  keyframes.ts       Keyframe validation, interpolation, setKeyframe.
+  keyframes.ts       Keyframe validation, interpolation (easedProgress), setKeyframe.
+  animation.ts       Keyframe edits (stopwatch, navigator, move/delete/easing) and timeline<->keyframe time helpers.
   effects.ts         Effect definitions (Motion, Opacity, Volume, Text, Appearance), evaluation (motionAt,
                      opacityAt, volumeAt, textStyleAt), edits (setParams, resetParams, setEffectEnabled).
   transitions.ts     Transition registry, timing specs, sanitize/patch.
   transition-library/  One file per category of GLSL transitions; common.ts has shared specs.
   transition-windows.ts  Where transitions play on the timeline + edits to them.
-  transition-gl.ts   WebGL2 renderer + shader prelude, shared by preview, thumbnails and export.
+  compositor.ts      THE renderer (WebGL2): pictures placed by an affine + opacity, transitions, YUV in/out.
+                     Draws the preview, the transition thumbnails and every export frame.
+  scene.ts           What each video track shows at time t (clip + source time, or transition + sides).
+  transition-gl.ts   Transition shader prelude, fragmentSource, uniforms.
   transform.ts       Where a clip lands on the canvas (fit → scale/rotate around the anchor).
   captions.ts        Auto captions: presets, words → caption cues (fitting the canvas), transcripts → timeline,
                      edits to every caption at once (style, animation, merge).
@@ -47,8 +51,8 @@ server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
   projects.ts, media.ts, web-media.ts, exports.ts   Services behind the routes.
   library.ts         LibraryStore: library.json (folders, items) + its own MediaLibrary under data/library/media.
-  render.ts          Project → one ffmpeg filter graph (pure, unit-tested); planTransitions.
-  transition-render.ts + gl-browser.ts   Transitions drawn with the same shaders in headless Chromium.
+  render.ts          Export plan (pure, unit-tested): planRender (decoders + per-frame layers), audioArgs, encoderArgs.
+  frame-render.ts + gl-browser.ts   Runs the plan: decoders -> headless Chromium compositor -> encoder.
   process.ts         run()/spawnStreaming(): the only way to start external programs (argv, never a shell).
   transcription/     Speech to timed words for Auto captions. service.ts (jobs, cache, time mapping), audio.ts
                      (decode, squeeze out silences, snap words to the sound), engine.ts (the engine interface),
@@ -62,10 +66,12 @@ src/
   stores/library.ts  The Library (folders, items, their media) and how its tab is browsed.
   lib/api.ts         Typed client for every endpoint. lib/edit-gesture.ts, lib/pointer-drag.ts (see below).
   lib/text-render.ts Text layout + drawing (browser text engine); used by preview, export and canvas editor.
-  components/preview/engine.ts   Imperative preview: drives <video>/<img>/<canvas> + WebGL outside React.
+  components/preview/engine.ts   Imperative preview: drives hidden <video>/<img> and draws with the compositor.
   components/preview/sync.ts, placement.ts   Its pure planners (tested).
   components/timeline/  Timeline UI; geometry.ts is its pure maths, view-store.ts its interaction-speed state.
-  components/properties/  Spec-driven properties panel (param-rows.tsx renders any ParamSpec).
+  components/properties/  Spec-driven properties panel (param-rows.tsx renders any ParamSpec), the stopwatch and
+                     navigator (animation-controls.tsx) and the keyframe lanes (keyframe-lanes.tsx, pure maths in
+                     keyframe-geometry.ts, selection in keyframe-selection.ts).
   components/captions/   Auto captions dialog, engine picker/setup, the Captions tab. State in stores/captions.ts.
   components/library/  The Library tab, its cards and dialogs (Save to Library), folder drop targets.
   components/workspace/left-panel.tsx   Left panel tabs: Media | Library | Online | Transitions | Captions | Properties.
@@ -89,8 +95,9 @@ extension** (Node ESM through tsx).
 - `Effect = { id, type, enabled, params, keyframes? }`. Built-in effects (motion, opacity, volume) are on every clip,
   and Text/Appearance on text clips. All of these have `id === type`, and code addresses them by type.
 - Keyframes are stored in **source time** (so they stay on their frame when the clip moves, trims or splits). Read
-  values with `sourceTime(clip, playheadTime)`. The model and the preview support keyframes; there's no keyframe UI
-  yet, and **the export ignores them** (every value is taken at `clip.in`).
+  values with `sourceTime(clip, playheadTime)`; write them at `keyframeTime(clip, playhead, fps)` (the frame under
+  the playhead, or an existing keyframe within half a frame), which every editing surface uses. A keyframe's `easing`
+  says how it's passed through (Premiere's Ease In/Out, Hold); `easedProgress` is the curve.
 - Transitions are stored on clip edges. At a cut, the outgoing clip's `transitionOut` wins. See
   `transition-windows.ts` for the rules, and use `storedTransition`/`findWindow`/`refKey` rather than reading fields.
 - Captions are text clips with `caption: true` (only valid on text clips; see `shared/captions.ts`). The Captions tab
@@ -119,6 +126,8 @@ extension** (Node ESM through tsx).
   actions, which clear the other kinds; don't `set({ selectedClipIds })` directly.
 - Anything that isn't an undoable edit but changes the document (rename, deleted media) goes through
   `rewriteHistory` so undo can't bring back the old state.
+- A preview derives from `gestureBase` whenever the edit is relative (e.g. `moveKeyframes` by a delta):
+  `preview(update)` applies `update` to the *current* project.
 - Autosave (`stores/autosave.ts`) saves the project when it changes outside a gesture: debounced, one request at a
   time, retried, and flushed before switching projects.
 - UI state that changes at pointer speed (ghosts, snap guides, scroll) goes in `timeline/view-store.ts`, never in the
@@ -129,9 +138,9 @@ extension** (Node ESM through tsx).
 ## How to add…
 
 - **A property on an existing effect**: add a spec to its definition in `shared/effects.ts`. The panel, validation
-  and keyframing then work automatically. Then apply the value where clips are drawn: preview
-  (`components/preview/engine.ts` / `placement.ts`) and export (`server/render.ts`: `placeForRender`, `videoChain`,
-  `audioChain`).
+  and keyframing (stopwatch, lanes) then work automatically. Then apply the value where clips are drawn: preview
+  (`components/preview/engine.ts` / `placement.ts`) and export (`server/render.ts`: `planRender`'s `draw`,
+  `audioArgs`). Anything drawn should become compositor work (`shared/compositor.ts`) so both get it at once.
 - **A new effect**: add an `EffectDefinition` to `EFFECTS` (`builtIn` puts it on every clip it `appliesTo`), plus the
   same preview and export work. Adding effects to clips by the user (Premiere's Effects panel) doesn't exist yet.
 - **A new kind of parameter**: a spec type and a `sanitizeValue` case in `shared/params.ts`, a row in
@@ -181,15 +190,20 @@ extension** (Node ESM through tsx).
 
 ## Gotchas
 
-- `createTransitionRenderer` and `drawSampleScene` are serialised with `toString()` and injected into the headless
+- `createCompositor` and `drawSampleScene` are serialised with `toString()` and injected into the headless
   export page. They must not reference anything at module level.
-- The export takes the values at each clip's first frame (no keyframes yet). When adding keyframe UI, the export
-  (`server/render.ts`, `export/draw-texts.ts`) needs per-frame evaluation.
+- The export draws every frame in headless Chromium with `shared/compositor.ts`; ffmpeg only decodes (video as YUV
+  4:2:0 at the size it's shown; the compositor converts with the source's matrix), mixes audio and encodes (BT.709).
+  Everything animates exactly: Motion/Opacity per frame in `planRender`, volume as an ffmpeg expression of the same
+  curve (`keyframeExpression`), and an animated text's look as one browser drawing per changed frame
+  (`export/draw-texts.ts`, `TextRaster.from`), decoded by the page.
+- After changing the compositor or the export, run the integration tests (`server/integration.test.ts` checks
+  positions, transitions and colours of real exports).
 - `data/` (or `EDITOR_DATA_DIR`) holds the projects, media, exports (never cleaned up yet) and `tmp`, which is wiped
   on startup. Export jobs live in memory.
 - External programs: ffmpeg/ffprobe (import and export; `FFMPEG_PATH`/`FFPROBE_PATH`), yt-dlp for the Online tab
   (`YTDLP_PATH`), whisper.cpp's `whisper-cli` for local transcription (`WHISPER_PATH`; model in `EDITOR_MODELS_DIR`,
-  default `~/.cache/editor/models`), and Chromium for exports with transitions (`CHROMIUM_PATH`, else Playwright's, else Chrome). The
+  default `~/.cache/editor/models`), and Chromium for every export (`CHROMIUM_PATH`, else Playwright's, else Chrome). The
   font list uses macOS AppKit through osascript (`fc-list` elsewhere).
 - Whisper times the word after a long silence early; that's why `audio.ts` squeezes silences out before any engine
   and snaps words to the sound afterwards. Don't use whisper.cpp's own `--vad`: its token times aren't mapped back.

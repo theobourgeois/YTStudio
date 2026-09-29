@@ -36,7 +36,7 @@ function probe(file: string) {
   ]);
   return JSON.parse(out.toString()) as {
     format: { duration: string };
-    streams: { codec_type: string; width?: number; height?: number }[];
+    streams: { codec_type: string; width?: number; height?: number; color_space?: string; color_range?: string }[];
   };
 }
 
@@ -125,6 +125,14 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     // A solid red 2:1 image, easy to find in an export.
     ffmpeg("-f", "lavfi", "-i", "color=red:size=100x50", "-frames:v", "1", f("red.png"));
     ffmpeg("-f", "lavfi", "-i", "color=blue:size=100x50", "-frames:v", "1", f("blue.png"));
+    // One colour (#3080c0) stored three ways: tagged BT.709, untagged HD (BT.709 by convention), untagged SD (BT.601).
+    const teal = (size: string, matrix: string, tags: string[], file: string) =>
+      ffmpeg("-f", "lavfi", "-i", `color=c=0x3080c0:size=${size}:rate=30:duration=1`,
+        "-vf", `scale=out_color_matrix=${matrix}:out_range=tv,format=yuv420p`,
+        "-c:v", "libx264", "-preset", "ultrafast", ...tags, f(file));
+    teal("1280x720", "bt709", ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"], "teal-709.mp4");
+    teal("1280x720", "bt709", [], "teal-hd.mp4");
+    teal("320x240", "bt601", [], "teal-sd.mp4");
     // (Seeking into this one finds no frame, so stills must be read without seeking.)
     const jpeg = path.join(tmp, "plain.jpg");
     ffmpeg("-f", "lavfi", "-i", "mandelbrot=size=320x160", "-frames:v", "1", jpeg);
@@ -556,6 +564,58 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(probe(output).format.duration).toMatch(/^4\.0/);
     // The drawn transitions are cleaned up.
     expect(readdirSync(path.join(dataDir, "tmp")).filter((f) => f.endsWith(".mkv"))).toEqual([]);
+  });
+
+  it("exports video in its true colours, whatever matrix it's stored in", async () => {
+    const ids: string[] = [];
+    for (const file of ["teal-709.mp4", "teal-hd.mp4", "teal-sd.mp4"]) {
+      const res = await upload(fixtures[file]);
+      expect(res.status).toBe(201);
+      ids.push(((await res.json()) as MediaAsset).id);
+    }
+    const project = projectWith(
+      ids.map((assetId, i) => ({ ...clip("landscape", "main", i, 0, 1), assetId, effects: defaultEffects() })),
+    );
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    expect(probe(output).streams.find((s) => s.codec_type === "video")).toMatchObject({ color_space: "bt709", color_range: "tv" });
+    for (const t of [0.5, 1.5, 2.5]) {
+      const actual = pixelAt(output, t, 360, 640);
+      actual.forEach((v, i) => expect(Math.abs(v - [0x30, 0x80, 0xc0][i]), `${actual} at ${t}s`).toBeLessThanOrEqual(6));
+    }
+    for (const id of ids) expect((await api(`/api/media/${id}`, { method: "DELETE" })).status).toBe(204);
+  });
+
+  it("exports keyframed motion and volume frame by frame", async () => {
+    const key = (time: number, value: number | [number, number]) => ({ time, value, easing: "linear" as const });
+    const red = clip("red", "main", 0, 0, 2);
+    red.effects = red.effects.map((e) =>
+      e.type === "motion" ? { ...e, keyframes: { position: [key(0, [0.25, 0.5]), key(2, [0.75, 0.5])] }, params: { ...e.params, scale: 0.25 } } : e,
+    );
+    const tone = clip("tone", "audio_1", 0, 0, 2);
+    tone.effects = tone.effects.map((e) => (e.type === "volume" ? { ...e, keyframes: { level: [key(0, 0), key(2, 1)] } } : e));
+    const queued = (await (await sendJson("POST", "/api/exports", { project: projectWith([red, tone]), resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    const isRed = ([r, g, b]: number[]) => r > 200 && g < 60 && b < 60;
+    // The quarter-size red box (180 px wide) travels from x = 180 to 540 on the 720 px canvas.
+    expect(isRed(pixelAt(output, 0.25, 225, 640))).toBe(true);
+    expect(isRed(pixelAt(output, 0.25, 495, 640))).toBe(false);
+    expect(isRed(pixelAt(output, 1.75, 495, 640))).toBe(true);
+    expect(isRed(pixelAt(output, 1.75, 225, 640))).toBe(false);
+    // The tone fades in: its level follows the keyframes.
+    const rms = (from: number) => {
+      const raw = execFileSync(FFMPEG, ["-hide_banner", "-loglevel", "error", "-ss", String(from), "-t", "0.2", "-i", output, "-ac", "1", "-f", "f32le", "-"]);
+      const samples = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4);
+      return Math.sqrt(samples.reduce((sum, v) => sum + v * v, 0) / samples.length);
+    };
+    const [early, late] = [rms(0.2), rms(1.6)];
+    // The sine (amplitude 1/8) has an RMS of ~0.088 × the gain: ~0.15 at 0.3 s, ~0.85 at 1.7 s.
+    expect(late / early).toBeGreaterThan(4);
+    expect(late).toBeCloseTo(0.088 * 0.85, 2);
   });
 
   it("exports without the audio tracks when asked", async () => {

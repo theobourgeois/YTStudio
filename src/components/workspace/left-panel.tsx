@@ -41,6 +41,10 @@ const SPRING_MS = 450;
 export function LeftPanel() {
   const tab = useLayout((s) => s.leftPanel);
   const setTab = useLayout((s) => s.setLeftPanel);
+  // A clip's properties with their keyframe lanes need the room (Premiere's Effect Controls timeline).
+  const lanes = useLayout((s) => s.keyframesOpen);
+  const clipShown = useEditor((s) => s.selectedClipIds.length > 0 && !s.selectedTransition);
+  const wide = tab === "properties" && lanes && clipShown;
   const drop = useFileDrop((files, e) => {
     if (tab === "library") {
       const target = (e.target as Element).closest<HTMLElement>("[data-library-folder]");
@@ -55,7 +59,11 @@ export function LeftPanel() {
   useEffect(() => void useLibrary.getState().load(), []);
 
   return (
-    <aside className="relative flex w-86 shrink-0 flex-col border-r bg-background" aria-label="Media" {...drop.handlers}>
+    <aside
+      className={cn("relative flex shrink-0 flex-col border-r bg-background", wide ? "w-[43rem]" : "w-86")}
+      aria-label="Media"
+      {...drop.handlers}
+    >
       <div className="flex h-11 shrink-0 items-center gap-1 border-b pr-2 pl-1.5">
         <div role="tablist" aria-label="Media sources" className="flex items-center">
           {TABS.map((t) => (

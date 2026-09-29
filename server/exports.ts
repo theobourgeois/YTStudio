@@ -8,15 +8,16 @@ import { FFMPEG } from "./config.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
-import { type RenderAsset, buildRenderArgs, planTransitions, runRender } from "./render.ts";
-import { renderTransitions } from "./transition-render.ts";
+import { renderVideo } from "./frame-render.ts";
+import { probeColorSpace } from "./probe.ts";
+import { type RenderAsset, audioArgs, encoderArgs, planRender, runWithProgress } from "./render.ts";
 import { type DataPaths, HttpError, isValidId } from "./storage.ts";
 
 interface JobState {
   job: ExportJob;
   project: Project;
-  /** The text clips drawn by the browser, by clip id. */
-  texts: Map<string, DrawnText>;
+  /** The text clips drawn by the browser (one drawing per look, in time order), by clip id. */
+  texts: Map<string, DrawnText[]>;
   controller: AbortController;
 }
 
@@ -26,7 +27,12 @@ interface DrawnText {
   pixels: { width: number; height: number };
   /** Frame size at 100%, in output px. */
   frame: { width: number; height: number };
+  /** Source time it's shown from (see `TextRaster.from`). */
+  from?: number;
 }
+
+/** Most drawings of one animated text. */
+const MAX_TEXT_DRAWINGS = 20_000;
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MAX_TEXT_PIXELS = 16_384;
@@ -42,7 +48,21 @@ function parseDrawnText(raw: unknown): DrawnText | null {
   if (png.length < 24 || !png.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
   const pixels = { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
   if (!(pixels.width > 0 && pixels.height > 0 && pixels.width <= MAX_TEXT_PIXELS && pixels.height <= MAX_TEXT_PIXELS)) return null;
-  return { png, pixels, frame };
+  const from = (raw as { from?: unknown }).from;
+  return { png, pixels, frame, ...(typeof from === "number" && Number.isFinite(from) ? { from } : {}) };
+}
+
+/** A text clip's drawings from an export request (one, or several in time order), or null when they aren't sane. */
+function parseDrawings(raw: unknown): DrawnText[] | null {
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  if (list.length === 0 || list.length > MAX_TEXT_DRAWINGS) return null;
+  const drawings: DrawnText[] = [];
+  for (const item of list) {
+    const drawn = parseDrawnText(item);
+    if (!drawn) return null;
+    drawings.push(drawn);
+  }
+  return drawings.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity));
 }
 
 /** Characters that are unsafe in file names on common OSes. */
@@ -94,10 +114,10 @@ export class ExportManager {
       }
     }
 
-    const texts = new Map<string, DrawnText>();
+    const texts = new Map<string, DrawnText[]>();
     for (const clip of project.clips) {
       if (!isTextClip(clip)) continue;
-      const drawn = parseDrawnText(req.texts?.[clip.id]);
+      const drawn = parseDrawings(req.texts?.[clip.id]);
       if (!drawn) throw new HttpError(400, "A text clip is missing its image. Try exporting again.");
       texts.set(clip.id, drawn);
     }
@@ -154,42 +174,45 @@ export class ExportManager {
     if (job.status !== "queued") return;
     job.status = "rendering";
     const tmp = this.paths.tmpFile(".mp4");
-    const textFiles: string[] = [];
-    let transitionFiles: Record<string, string> = {};
+    const audio = this.paths.tmpFile(".flac");
+    const { signal } = controller;
     try {
       const library = this.library.byId();
       const assets: Record<string, RenderAsset> = {};
-      const drawn: Record<string, RenderAsset> = {};
+      const drawn: Record<string, RenderAsset[]> = {};
       for (const clip of project.clips) {
         const text = texts.get(clip.id);
         if (text) {
-          const file = this.paths.tmpFile(".png");
-          textFiles.push(file);
-          await fs.writeFile(file, text.png);
-          drawn[clip.id] = { kind: "image", hasAudio: false, hasVideo: true, duration: 0, ...text.pixels, frame: text.frame, path: file };
+          drawn[clip.id] = text.map((d) => ({
+            kind: "image", hasAudio: false, hasVideo: true, duration: 0, ...d.pixels, frame: d.frame, path: "", png: d.png, from: d.from,
+          }));
           continue;
         }
         const asset = library[clip.assetId];
         if (!asset) throw new Error("Some media was deleted before the export started.");
-        assets[asset.id] = { ...asset, path: this.library.sourcePath(asset) };
+        if (assets[asset.id]) continue;
+        const path = this.library.sourcePath(asset);
+        const colorSpace = asset.kind === "video" && asset.hasVideo ? await probeColorSpace(path) : null;
+        assets[asset.id] = { ...asset, path, colorSpace };
       }
       const opts = { width: job.width, height: job.height, fps: project.settings.fps, ffmpegPath: FFMPEG };
+      const plan = planRender(project, assets, opts, drawn);
 
-      // Transitions are drawn first; each of their frames costs a few of the main render's.
-      const transitions = planTransitions(project, assets, opts, drawn);
-      const transitionFrames = transitions.reduce((n, t) => n + t.progress.length, 0);
-      const mainFrames = Math.max(1, job.duration * opts.fps);
-      const share = transitionFrames ? (transitionFrames * 4) / (transitionFrames * 4 + mainFrames) : 0;
+      // The sound first (quick), then every frame, drawn and encoded with it.
+      const audioShare = 0.03;
+      await runWithProgress(
+        audioArgs(project, assets, { ...opts, outputPath: audio }, drawn),
+        job.duration,
+        (p) => (job.progress = audioShare * p),
+        signal,
+      );
       let framesDrawn = 0;
-      transitionFiles = await renderTransitions(transitions, (ext) => this.paths.tmpFile(ext), controller.signal, () => {
-        job.progress = (share * ++framesDrawn) / transitionFrames;
+      await renderVideo(plan, encoderArgs(plan, { ...opts, audioPath: audio, outputPath: tmp }), signal, () => {
+        job.progress = audioShare + ((1 - audioShare) * ++framesDrawn) / plan.frames;
       });
-
-      const argv = buildRenderArgs(project, assets, { ...opts, outputPath: tmp, transitions: transitionFiles }, drawn);
-      await runRender(argv, job.duration, (p) => (job.progress = share + (1 - share) * p), controller.signal);
       await fs.rename(tmp, this.paths.exportFile(job.id));
       // Cancelled while the file was being moved: the job stays cancelled.
-      if (controller.signal.aborted) {
+      if (signal.aborted) {
         await fs.rm(this.paths.exportFile(job.id), { force: true });
         return;
       }
@@ -201,12 +224,12 @@ export class ExportManager {
       });
     } catch (err) {
       await fs.rm(tmp, { force: true });
-      if (controller.signal.aborted) return; // cancelled (status already set) or shutting down
+      if (signal.aborted) return; // cancelled (status already set) or shutting down
       job.status = "error";
       job.error = `Export failed: ${errorMessage(err)}`;
       console.error(`[export] ${job.id} failed: ${job.error}`);
     } finally {
-      await Promise.all([...textFiles, ...Object.values(transitionFiles)].map((f) => fs.rm(f, { force: true })));
+      await fs.rm(audio, { force: true });
       texts.clear();
     }
   }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { PiSpeakerHigh, PiSpeakerLow, PiSpeakerSlash } from "react-icons/pi";
+import { keyframeTime } from "@shared/animation";
 import { VOLUME, hasKeyframes, isTextClip, setParams, volumeAt } from "@shared/effects";
 import { getClip, sourceTime } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
@@ -69,7 +70,13 @@ export function VolumeControl({ clipId, volume, time }: { clipId: string; volume
   const restore = useRef(1);
   const percent = Math.round(volume * 100);
 
-  const setVolume = (v: number) => gesture.apply((p) => setParams(p, clipId, VOLUME.type, { level: v }, time));
+  // An animated level is keyframed at the frame under the playhead (or a keyframe right next to it).
+  const editTime = () => {
+    const { project } = useEditor.getState();
+    const clip = getClip(project, clipId);
+    return clip ? keyframeTime(clip, usePlayback.getState().time, project.settings.fps) : time;
+  };
+  const setVolume = (v: number) => gesture.apply((p) => setParams(p, clipId, VOLUME.type, { level: v }, editTime()));
   const endDrag = () => gesture.end();
   // Never leave a gesture open if the popover closes mid-drag.
   useEffect(() => () => gesture.end(), [gesture]);

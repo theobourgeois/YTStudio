@@ -2,12 +2,26 @@
  * Animated parameter values. A keyframed parameter stores its keyframes
  * (sorted by time, in source-media time so they stay on their frame when the
  * clip is moved, trimmed or split) and ignores its static value.
+ *
+ * Between two keyframes the value follows a curve set by how each is passed
+ * through (`Easing`): an eased side leaves or reaches its keyframe with zero
+ * speed, like Premiere's Ease In / Ease Out (a Bezier with 33% influence).
+ * With that influence the curve is a plain cubic in time (`easedProgress`),
+ * which the export can evaluate exactly too (e.g. in an ffmpeg expression).
  */
 import { isFiniteNumber, tidy } from "./math.ts";
 import { type ParamSpec, isAnimatable, sameValue, sanitizeValue } from "./params.ts";
 import type { Easing, Keyframe, ParamValue } from "./types.ts";
 
-export const EASINGS: readonly Easing[] = ["linear", "ease", "hold"];
+export const EASINGS: readonly Easing[] = ["linear", "ease-in", "ease-out", "ease", "hold"];
+
+/** Keyframes closer than this (seconds) are the same keyframe. */
+export const SAME_KEYFRAME = 1e-3;
+
+/** The keyframe is reached slowly. */
+export const easesIn = (e: Easing) => e === "ease-in" || e === "ease";
+/** The value leaves the keyframe slowly. */
+export const easesOut = (e: Easing) => e === "ease-out" || e === "ease";
 
 /** Valid, time-sorted keyframes for `spec` from untrusted storage (one per time; none when it can't animate). */
 export function sanitizeKeyframes(spec: ParamSpec, raw: unknown): Keyframe[] {
@@ -23,16 +37,33 @@ export function sanitizeKeyframes(spec: ParamSpec, raw: unknown): Keyframe[] {
   return [...byTime.values()].sort((a, b) => a.time - b.time);
 }
 
-/** `keys` with a keyframe of `value` at `time` (replacing one there, keeping its easing). Same array when unchanged. */
-export function setKeyframe(keys: Keyframe[], time: number, value: ParamValue): Keyframe[] {
-  const t = tidy(time);
-  const at = keys.find((k) => k.time === t);
-  if (at && sameValue(at.value, value)) return keys;
-  const added: Keyframe = { time: t, value, easing: at?.easing ?? "linear" };
-  return [...keys.filter((k) => k.time !== t), added].sort((a, b) => a.time - b.time);
+/** The keyframe at `time` (within `SAME_KEYFRAME`), if any. */
+export function keyframeAt(keys: readonly Keyframe[], time: number): Keyframe | undefined {
+  return keys.find((k) => Math.abs(k.time - time) < SAME_KEYFRAME);
 }
 
-const smooth = (f: number) => f * f * (3 - 2 * f);
+/**
+ * `keys` with a keyframe of `value` at `time`: one already there (within
+ * `SAME_KEYFRAME`) keeps its time and easing. Same array when unchanged.
+ */
+export function setKeyframe(keys: Keyframe[], time: number, value: ParamValue): Keyframe[] {
+  const at = keyframeAt(keys, time);
+  if (at && sameValue(at.value, value)) return keys;
+  const added: Keyframe = { time: at?.time ?? tidy(time), value, easing: at?.easing ?? "linear" };
+  return [...keys.filter((k) => k !== at), added].sort((a, b) => a.time - b.time);
+}
+
+/**
+ * How far (0..1) the value has gone from `a` to `b` at fraction `f` of the
+ * time between them: a cubic Bezier whose handles have 33% influence, flat on
+ * an eased side. (Its x is then just `f`, so no solving is needed.)
+ */
+export function easedProgress(f: number, easeOut: boolean, easeIn: boolean): number {
+  const y1 = easeOut ? 0 : 1 / 3;
+  const y2 = easeIn ? 1 : 2 / 3;
+  const g = 1 - f;
+  return 3 * g * g * f * y1 + 3 * g * f * f * y2 + f * f * f;
+}
 
 function mix(a: ParamValue, b: ParamValue, f: number): ParamValue {
   if (isFiniteNumber(a) && isFiniteNumber(b)) return a + (b - a) * f;
@@ -49,5 +80,5 @@ export function keyframeValue(keyframes: Keyframe[], time: number): ParamValue {
   const b = keyframes[next];
   if (a.easing === "hold") return a.value;
   const f = (time - a.time) / (b.time - a.time);
-  return mix(a.value, b.value, a.easing === "ease" ? smooth(f) : f);
+  return mix(a.value, b.value, easedProgress(f, easesOut(a.easing), easesIn(b.easing)));
 }

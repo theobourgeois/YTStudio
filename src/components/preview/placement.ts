@@ -4,7 +4,7 @@ import { isTextClip, motionAt, opacityAt, textStyleAt } from "@shared/effects";
 import { type Placement, type Size, containsPoint, frameCorners, placeClip } from "@shared/transform";
 import { videoTracks } from "@shared/timeline";
 import { type TextLayout, layoutText, textUnit } from "@/lib/text-render";
-import { planTrack } from "./sync";
+import { planTrack } from "@shared/scene";
 
 export interface OnCanvas {
   clip: Clip;

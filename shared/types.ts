@@ -149,7 +149,13 @@ export type ParamValue = number | boolean | string | Vec2;
 export type ParamValues = Record<string, ParamValue>;
 
 /** How a keyframed value travels from one keyframe to the next. */
-export type Easing = "linear" | "ease" | "hold";
+/**
+ * How a keyframe is passed through, like Premiere's temporal interpolation:
+ * straight through (`linear`), slowing down on the way in (`ease-in`), easing
+ * away from it (`ease-out`) or both (`ease`), or holding its value until the
+ * next keyframe (`hold`).
+ */
+export type Easing = "linear" | "ease-in" | "ease-out" | "ease" | "hold";
 
 export interface Keyframe {
   /**
@@ -158,7 +164,6 @@ export interface Keyframe {
    */
   time: number;
   value: ParamValue;
-  /** Interpolation towards the next keyframe. */
   easing: Easing;
 }
 
@@ -350,9 +355,10 @@ export interface ExportRequest {
   excludeAudioTracks?: boolean;
   /**
    * Every text clip drawn by the browser at the export's size (the server has
-   * no way to lay out text in the user's fonts), by clip id.
+   * no way to lay out text in the user's fonts), by clip id: one drawing, or
+   * one per change of an animated text's look.
    */
-  texts?: Record<string, TextRaster>;
+  texts?: Record<string, TextRaster[]>;
 }
 
 /** A text clip drawn to an image for the export. */
@@ -362,6 +368,8 @@ export interface TextRaster {
   /** The text's frame at 100% scale, in output px (what its Motion places). */
   width: number;
   height: number;
+  /** Source time this drawing is shown from, until the next one's (the first is shown from the start). */
+  from?: number;
 }
 
 export type ExportStatus = "queued" | "rendering" | "done" | "error" | "cancelled";
