@@ -21,7 +21,8 @@ Then drag files from `./samples` (or anywhere) into the media panel or straight 
 Every video is its own project with its own media. Start one with **New video** (or drop clips on the empty screen),
 work on it, then hit **Settle** when it's done: it moves to the *Settled* pile at the bottom of the sidebar and the
 editor jumps to your next video in progress. Open a settled video any time, and **Unsettle** it to put it back in
-progress. Toggle the sidebar with `⌘\`.
+progress. Right-click a video in the sidebar (or use its **⋯** menu) to settle, duplicate or delete it; a duplicate
+gets its own copy of the media. Toggle the sidebar with `⌘\`.
 
 | Action | How |
 | --- | --- |
@@ -33,7 +34,7 @@ progress. Toggle the sidebar with `⌘\`.
 | Delete | `⌫` / `Delete` leaves a gap; `⇧⌫` ripple-deletes (closes it). Click an empty stretch of a track and `⌫` to close that gap |
 | Play / pause | `Space` |
 | Step | `←` `→` one frame, `⇧←` `⇧→` one second, `Home` / `End` |
-| Zoom | `+` / `-`, or ⌘/Ctrl + scroll |
+| Zoom | `+` / `-`, or ⌘/Ctrl + scroll. Zooming all the way out shows the whole edit |
 | Undo / redo | ⌘Z / ⇧⌘Z |
 | Select on the canvas | Click a clip in the preview (the topmost one under the pointer); click empty canvas, or anywhere around it, to deselect |
 | Move / scale / rotate | Drag the selected clip on the canvas; drag a handle to scale around the anchor point (⇧ stretches instead of keeping the proportions); drag just outside a corner to rotate (⇧ = 15° steps); drag the crosshair to move the anchor point. ⇧ keeps a move on one axis, ⌥ turns snapping off |
