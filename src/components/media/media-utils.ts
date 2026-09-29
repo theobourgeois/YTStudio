@@ -1,6 +1,6 @@
 import type { Clip, MediaAsset } from "@shared/types";
 
-export type MediaFilter = "all" | "video" | "audio";
+export type MediaFilter = "all" | "video" | "audio" | "image";
 
 export function filterAssets(assets: MediaAsset[], filter: MediaFilter): MediaAsset[] {
   return filter === "all" ? assets : assets.filter((a) => a.kind === filter);

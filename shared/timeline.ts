@@ -3,6 +3,7 @@
  * returns a new one (or the same instance when nothing changed), so they are
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
+import { normalizeEffects } from "./effects.ts";
 import type {
   AspectRatio,
   Clip,
@@ -17,6 +18,8 @@ import type {
 export const MAIN_TRACK_ID = "main";
 /** Shortest clip the editor allows (seconds). */
 export const MIN_CLIP_DURATION = 0.1;
+/** How long a new clip of a still image is (seconds), like Premiere's default. */
+export const STILL_DURATION = 5;
 const EPS = 1e-6;
 
 /** Round to microseconds so repeated edits never accumulate float noise. */
@@ -93,6 +96,14 @@ export function clipAtTime(project: Project, trackId: string, time: number): Cli
 /** Every clip covering `time`, on any track. */
 export function clipsAtTime(project: Project, time: number): Clip[] {
   return project.clips.filter((c) => time >= c.start - EPS && time < clipEnd(c) - EPS);
+}
+
+/**
+ * The source range a clip's in/out points must stay inside. A still image has
+ * no length of its own, so its clips can be stretched either way.
+ */
+export function sourceRange(asset: Pick<MediaAsset, "kind" | "duration">): { min: number; max: number } {
+  return asset.kind === "image" ? { min: -Infinity, max: Infinity } : { min: 0, max: asset.duration };
 }
 
 /** Whether an asset may be placed on a track of the given kind. */
@@ -395,7 +406,7 @@ export function removeAssetClips(project: Project, assetId: string): Project {
 
 /**
  * Trim a clip edge by `delta` seconds (positive = towards the right), clamped
- * so the clip stays within its source media, at least `MIN_CLIP_DURATION`
+ * so the clip stays within its source range (see `sourceRange`), at least `MIN_CLIP_DURATION`
  * long, and doesn't overlap its neighbours. The start edge moves both the
  * timeline start and the in-point; the end edge moves the out-point.
  *
@@ -407,7 +418,7 @@ export function trimClip(
   clipId: string,
   edge: "start" | "end",
   delta: number,
-  assetDuration: number,
+  source: { min: number; max: number },
 ): Project {
   const clip = getClip(project, clipId);
   if (!clip) return project;
@@ -416,12 +427,12 @@ export function trimClip(
 
   if (edge === "start") {
     const prevEnd = Math.max(0, ...siblings.filter((c) => clipEnd(c) <= clip.start + EPS).map(clipEnd));
-    const minDelta = Math.max(-clip.in, prevEnd - clip.start);
+    const minDelta = Math.max(source.min - clip.in, prevEnd - clip.start);
     const maxDelta = clip.out - MIN_CLIP_DURATION - clip.in;
     const d = clamp(delta, Math.min(minDelta, 0), Math.max(maxDelta, 0));
     next = { ...clip, in: roundTime(clip.in + d), start: roundTime(clip.start + d) };
   } else {
-    let maxOut = assetDuration;
+    let maxOut = source.max;
     const following = siblings.filter((c) => c.start >= clipEnd(clip) - EPS);
     if (following.length) {
       const nextStart = Math.min(...following.map((c) => c.start));
@@ -458,23 +469,6 @@ export function rippleTrimTo(
   const removed = edge === "start" ? time - clip.start : end - time;
   const p = replaceClips(project, new Map([[clipId, trimmed]]));
   return pullLeft(p, clip.trackId, end, removed);
-}
-
-export function updateClip(
-  project: Project,
-  clipId: string,
-  patch: Partial<Pick<Clip, "volume" | "fit">>,
-): Project {
-  if (!getClip(project, clipId)) return project;
-  const volume = patch.volume === undefined ? undefined : clamp(patch.volume, 0, 1);
-  return withClips(
-    project,
-    project.clips.map((c) =>
-      c.id === clipId
-        ? { ...c, ...patch, ...(volume === undefined ? {} : { volume }) }
-        : c,
-    ),
-  );
 }
 
 /** A copied clip plus the kind of track it came from (its track may be gone by paste time). */
@@ -615,15 +609,19 @@ export function adjacentTrack(project: Project, trackId: string, dir: -1 | 1): T
 // Validation / normalisation (used on load and before export)
 // ---------------------------------------------------------------------------
 
+/** Clips saved before effects existed kept their volume and framing on the clip. */
+type LegacyClip = { volume?: unknown; fit?: unknown };
+
 /**
  * Repair a project from untrusted storage: guarantees at least one video
  * track, video tracks before audio tracks, drops invalid clips (unknown
- * track/asset, non-positive length, out of source range), clamps values and
- * resolves overlaps. Pass `assets` to also validate clips against their media.
+ * track/asset, non-positive length, out of source range), validates effects
+ * (upgrading clips saved before effects existed), clamps values and resolves
+ * overlaps. Pass `assets` to also validate clips against their media.
  */
 export function normalizeProject(
   input: Project,
-  assets?: Record<string, Pick<MediaAsset, "duration" | "hasVideo" | "hasAudio">>,
+  assets?: Record<string, Pick<MediaAsset, "kind" | "duration" | "hasVideo" | "hasAudio">>,
 ): Project {
   const base = createDefaultProject();
   const tracksIn = Array.isArray(input?.tracks) ? input.tracks : [];
@@ -653,11 +651,14 @@ export function normalizeProject(
     const nums = [c.start, c.in, c.out];
     if (!nums.every((n) => typeof n === "number" && Number.isFinite(n))) continue;
     let out = c.out;
-    const inPoint = Math.max(0, c.in);
+    // Without the media, a negative in-point may still be a valid still-image clip.
+    let inPoint = c.in;
     if (assets) {
       const a = assets[c.assetId];
       if (!a || (kind === "video" ? !a.hasVideo : !a.hasAudio)) continue;
-      out = Math.min(out, a.duration);
+      const range = sourceRange(a);
+      inPoint = Math.max(range.min, inPoint);
+      out = Math.min(out, range.max);
     }
     if (out - inPoint < MIN_CLIP_DURATION - EPS) continue;
     clipIds.add(c.id);
@@ -668,8 +669,7 @@ export function normalizeProject(
       start: roundTime(Math.max(0, c.start)),
       in: roundTime(inPoint),
       out: roundTime(out),
-      volume: clamp(typeof c.volume === "number" ? c.volume : 1, 0, 1),
-      fit: c.fit === "cover" ? "cover" : "contain",
+      effects: normalizeEffects(c.effects, Array.isArray(c.effects) ? undefined : (c as LegacyClip)),
     });
   }
 

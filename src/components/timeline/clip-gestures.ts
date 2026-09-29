@@ -16,6 +16,7 @@ import {
   moveClips,
   pruneEmptyTrack,
   snapTime,
+  sourceRange,
   trimClip,
 } from "@shared/timeline";
 import { useEditor } from "@/stores/editor";
@@ -211,7 +212,7 @@ export function startClipTrim(
 
   let gestureId = -1;
   let points: number[] = [];
-  let assetDuration = 0;
+  let source = { min: 0, max: 0 };
 
   startPointerSession(e, ctx, {
     threshold: TRIM_THRESHOLD_PX,
@@ -223,7 +224,9 @@ export function startClipTrim(
       const base = useEditor.getState().gestureBase;
       const clip = base && getClip(base, clipId);
       if (!base || !clip) return;
-      assetDuration = s.getAsset(clip.assetId)?.duration ?? clip.out;
+      const asset = s.getAsset(clip.assetId);
+      // Offline media: keep the clip within what it already shows.
+      source = asset ? sourceRange(asset) : { min: Math.min(0, clip.in), max: clip.out };
       points = s.snapping ? trimSnapPoints(base, clipId, usePlayback.getState().time) : [];
     },
     onMove(p) {
@@ -246,7 +249,7 @@ export function startClipTrim(
       }
 
       const from = base;
-      s.preview(() => trimClip(from, clipId, edge, delta, assetDuration));
+      s.preview(() => trimClip(from, clipId, edge, delta, source));
 
       const placed = getClip(useEditor.getState().project, clipId);
       const actualEdge = placed ? (edge === "end" ? clipEnd(placed) : placed.start) : null;

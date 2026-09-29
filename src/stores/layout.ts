@@ -2,12 +2,17 @@ import { create } from "zustand";
 
 const SIDEBAR_KEY = "editor-sidebar-open";
 
+/** The tabs of the left panel: the project's media, online media, and the selected clip's properties. */
+export type LeftPanel = "media" | "online" | "properties";
+
 interface LayoutState {
   sidebarOpen: boolean;
   toggleSidebar: () => void;
   /** The keyboard shortcuts dialog. */
   shortcutsOpen: boolean;
   setShortcutsOpen: (open: boolean) => void;
+  leftPanel: LeftPanel;
+  setLeftPanel: (panel: LeftPanel) => void;
 }
 
 export const useLayout = create<LayoutState>((set, get) => ({
@@ -20,5 +25,9 @@ export const useLayout = create<LayoutState>((set, get) => ({
   shortcutsOpen: false,
   setShortcutsOpen(shortcutsOpen) {
     set({ shortcutsOpen });
+  },
+  leftPanel: "media",
+  setLeftPanel(leftPanel) {
+    set({ leftPanel });
   },
 }));

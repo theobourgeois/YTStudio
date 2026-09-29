@@ -15,12 +15,14 @@ import {
   PiMusicNotes,
   PiScissors,
   PiSelectionAll,
+  PiSlidersHorizontal,
   PiSpeakerHigh,
   PiSpeakerSlash,
   PiTrash,
   PiArrowLineLeft,
 } from "react-icons/pi";
-import type { FitMode, Track } from "@shared/types";
+import type { Track } from "@shared/types";
+import { MOTION, findEffect, setParams } from "@shared/effects";
 import {
   addTrack,
   clipsAtTime,
@@ -30,7 +32,6 @@ import {
   isOnVideoTrack,
   removeTrack,
   setTrackMuted,
-  updateClip,
   videoTracks,
 } from "@shared/timeline";
 import {
@@ -46,6 +47,7 @@ import {
 } from "@/components/ui/context-menu";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { useEditor } from "@/stores/editor";
+import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
 import { lanePoint, useTimelineContext } from "./context";
 import { laneAt } from "./geometry";
@@ -96,7 +98,10 @@ export function LanesContextMenu({ children }: { children: ReactNode }) {
 function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" }> }) {
   const count = useEditor((s) => s.selectedClipIds.length);
   const canPaste = useEditor((s) => s.clipboard.length > 0);
-  const fit = useEditor((s) => getClip(s.project, target.clipId)?.fit);
+  const fit = useEditor((s) => {
+    const clip = getClip(s.project, target.clipId);
+    return clip && (findEffect(clip, MOTION.type)?.params.fit as string | undefined);
+  });
   const onVideo = useEditor((s) => {
     const clip = getClip(s.project, target.clipId);
     return !!clip && isOnVideoTrack(s.project, clip);
@@ -112,13 +117,17 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
     s.commit((p) =>
       s.selectedClipIds.reduce((q, id) => {
         const clip = getClip(q, id);
-        return clip && isOnVideoTrack(q, clip) ? updateClip(q, id, { fit: value as FitMode }) : q;
+        return clip && isOnVideoTrack(q, clip) ? setParams(q, id, MOTION.type, { fit: value }) : q;
       }, p),
     );
   };
 
   return (
     <>
+      <ContextMenuItem onSelect={() => useLayout.getState().setLeftPanel("properties")}>
+        <PiSlidersHorizontal /> Properties
+      </ContextMenuItem>
+      <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => editor().splitAt([target.clipId], target.time)}>
         <PiScissors /> Split here
       </ContextMenuItem>

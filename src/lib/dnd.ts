@@ -32,10 +32,14 @@ export function dragKind(dt: DataTransfer): "assets" | "files" | null {
   return null;
 }
 
-/** Filter OS files to those that look like audio/video. */
+/**
+ * Filter OS files to those that look like audio, video or images. Unsupported
+ * image formats (e.g. HEIC) get through and are rejected by the server with a
+ * reason, rather than silently skipped.
+ */
 export function mediaFiles(files: FileList | File[]): File[] {
-  const exts = /\.(mp4|mov|m4v|webm|mkv|mp3|wav|m4a|aac|ogg|oga|flac|opus)$/i;
+  const exts = /\.(mp4|mov|m4v|webm|mkv|mp3|wav|m4a|aac|ogg|oga|flac|opus|png|jpe?g|webp|gif|bmp)$/i;
   return Array.from(files).filter(
-    (f) => f.type.startsWith("video/") || f.type.startsWith("audio/") || exts.test(f.name),
+    (f) => /^(video|audio|image)\//.test(f.type) || exts.test(f.name),
   );
 }

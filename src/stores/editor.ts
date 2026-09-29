@@ -9,6 +9,7 @@ import type {
   WebClip,
   WebMediaKind,
 } from "@shared/types";
+import { defaultEffects } from "@shared/effects";
 import {
   type CopiedClip,
   addClip,
@@ -479,8 +480,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           start: 0,
           in: 0,
           out: asset.duration,
-          volume: 1,
-          fit: "contain",
+          effects: defaultEffects(),
         };
         const at = cursor.get(trackId) ?? opts.at;
         if (at === undefined && getTrack(p, trackId)?.kind === "video") {

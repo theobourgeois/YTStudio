@@ -16,8 +16,82 @@ const scrubberClass = cn(
   "[&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:transition-opacity hover:[&_[data-slot=slider-thumb]]:opacity-100 [&_[data-slot=slider-thumb]:focus-visible]:opacity-100",
 );
 
-/** Plays one library file on its own, in place of the timeline preview. */
+/** Shows one library file on its own, in place of the timeline preview. */
 export function SourcePreview({ asset }: { asset: MediaAsset }) {
+  return asset.kind === "image" ? <StillPreview asset={asset} /> : <PlayingPreview asset={asset} />;
+}
+
+const close = () => useSourcePreview.getState().close();
+
+function StillPreview({ asset }: { asset: MediaAsset }) {
+  return (
+    <>
+      <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 pt-12">
+        <PreviewBadge name={asset.name} />
+        <img
+          src={asset.src}
+          alt={asset.name}
+          draggable={false}
+          className="max-h-full max-w-full min-h-0 rounded-lg bg-[repeating-conic-gradient(var(--color-muted)_0_25%,transparent_0_50%)] bg-size-[16px_16px] object-contain shadow-xl ring-1 shadow-black/20 ring-black/10 dark:ring-white/10"
+        />
+      </div>
+      <div className="grid h-12 shrink-0 grid-cols-[1fr_auto] items-center px-4">
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {asset.width && asset.height ? `${asset.width} × ${asset.height}` : "Image"}
+        </span>
+        <SourceActions asset={asset} />
+      </div>
+    </>
+  );
+}
+
+function PreviewBadge({ name }: { name: string }) {
+  return (
+    <div className="absolute top-3 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-background/80 py-1 pr-1 pl-3 text-xs backdrop-blur-sm">
+      <span className="font-medium text-brand">Preview</span>
+      <span className="truncate text-muted-foreground">{name}</span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="Back to timeline"
+            onClick={close}
+            className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <PiX className="size-3" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          Back to timeline
+          <kbd className="ml-2 rounded border bg-muted px-1 text-[10px] leading-4 text-muted-foreground">Esc</kbd>
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
+function SourceActions({ asset }: { asset: MediaAsset }) {
+  return (
+    <div className="flex items-center justify-end gap-1.5">
+      {asset.duration > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2.5 text-xs"
+          onClick={() => useEditor.getState().addAssetsToTimeline([asset.id])}
+        >
+          <PiPlus />
+          Add to timeline
+        </Button>
+      )}
+      <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground" onClick={close}>
+        Back to timeline
+      </Button>
+    </div>
+  );
+}
+
+function PlayingPreview({ asset }: { asset: MediaAsset }) {
   const mediaRef = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(asset.duration);
@@ -46,7 +120,6 @@ export function SourcePreview({ asset }: { asset: MediaAsset }) {
     };
   }, [asset]);
 
-  const close = () => useSourcePreview.getState().close();
   const controller = () => useSourcePreview.getState().controller;
   const mediaProps = {
     ref: mediaRef,
@@ -63,26 +136,7 @@ export function SourcePreview({ asset }: { asset: MediaAsset }) {
   return (
     <>
       <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 pt-12">
-        <div className="absolute top-3 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-background/80 py-1 pr-1 pl-3 text-xs backdrop-blur-sm">
-          <span className="font-medium text-brand">Preview</span>
-          <span className="truncate text-muted-foreground">{asset.name}</span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label="Back to timeline"
-                onClick={close}
-                className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                <PiX className="size-3" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              Back to timeline
-              <kbd className="ml-2 rounded border bg-muted px-1 text-[10px] leading-4 text-muted-foreground">Esc</kbd>
-            </TooltipContent>
-          </Tooltip>
-        </div>
+        <PreviewBadge name={asset.name} />
 
         {asset.hasVideo ? (
           <video
@@ -130,22 +184,7 @@ export function SourcePreview({ asset }: { asset: MediaAsset }) {
         >
           {playing ? <PiPauseFill /> : <PiPlayFill />}
         </Button>
-        <div className="flex items-center justify-end gap-1.5">
-          {asset.duration > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2.5 text-xs"
-              onClick={() => useEditor.getState().addAssetsToTimeline([asset.id])}
-            >
-              <PiPlus />
-              Add to timeline
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground" onClick={close}>
-            Back to timeline
-          </Button>
-        </div>
+        <SourceActions asset={asset} />
       </div>
     </>
   );

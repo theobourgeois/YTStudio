@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type DragEvent } from "react";
-import { PiDotsThree, PiFilmStrip, PiMusicNote, PiPlus, PiSpinnerGap, PiTrash, PiWarning } from "react-icons/pi";
+import { PiDotsThree, PiFilmStrip, PiImage, PiMusicNote, PiPlus, PiSpinnerGap, PiTrash, PiWarning } from "react-icons/pi";
 import type { MediaAsset } from "@shared/types";
 import { formatDuration } from "@shared/format";
 import {
@@ -70,9 +70,15 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
       >
         <Thumbnail asset={asset} />
 
-        <span className="absolute right-1 bottom-1 rounded bg-black/65 px-1 py-px text-[10px] leading-4 font-medium text-white tabular-nums">
-          {formatDuration(asset.duration)}
-        </span>
+        {asset.kind === "image" ? (
+          <span className="absolute right-1 bottom-1 grid size-5 place-items-center rounded bg-black/65 text-white" title="Image">
+            <PiImage className="size-3" />
+          </span>
+        ) : (
+          <span className="absolute right-1 bottom-1 rounded bg-black/65 px-1 py-px text-[10px] leading-4 font-medium text-white tabular-nums">
+            {formatDuration(asset.duration)}
+          </span>
+        )}
         {previewsFailed && (
           <span
             className="absolute bottom-1 left-1 grid size-5 place-items-center rounded bg-black/65 text-amber-400"

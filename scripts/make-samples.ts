@@ -62,6 +62,20 @@ const samples: Sample[] = [
     args: video("life", "1280x720", 4),
   },
   {
+    file: "photo-1600x1200.jpg",
+    description: "still image 4:3 (mandelbrot)",
+    args: ["-f", "lavfi", "-i", "mandelbrot=size=1600x1200", "-frames:v", "1", "-q:v", "3"],
+  },
+  {
+    file: "sticker-800.png",
+    description: "still image with transparency (round, clear corners)",
+    args: [
+      "-f", "lavfi", "-i",
+      "testsrc2=size=800x800,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lt(hypot(X-400,Y-400),380),255,0)'",
+      "-frames:v", "1",
+    ],
+  },
+  {
     file: "music-20s.mp3",
     description: "20 s rhythmic melody (audio only)",
     args: [

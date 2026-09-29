@@ -5,11 +5,13 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { defaultEffects } from "../shared/effects.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import type {
   Clip,
   ExportJob,
   MediaAsset,
+  ParamValues,
   Project,
   ProjectSummary,
   WaveformData,
@@ -31,6 +33,25 @@ function probe(file: string) {
     format: { duration: string };
     streams: { codec_type: string; width?: number; height?: number }[];
   };
+}
+
+/** A JPEG with an EXIF segment saying to show it rotated (orientation 6 = 90° clockwise), like a phone photo. */
+function withExifOrientation(jpeg: Buffer, orientation: number): Buffer {
+  // Big-endian TIFF header, then IFD0 with one SHORT entry: 0x0112 Orientation.
+  const tiff = Buffer.from([0x4d, 0x4d, 0, 0x2a, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, orientation, 0, 0, 0, 0, 0, 0]);
+  const payload = Buffer.concat([Buffer.from("Exif\0\0", "latin1"), tiff]);
+  const length = Buffer.alloc(2);
+  length.writeUInt16BE(payload.length + 2);
+  return Buffer.concat([jpeg.subarray(0, 2), Buffer.from([0xff, 0xe1]), length, payload, jpeg.subarray(2)]);
+}
+
+/** The RGB colour of one pixel of a video frame. */
+function pixelAt(file: string, time: number, x: number, y: number): [number, number, number] {
+  const out = execFileSync(FFMPEG, [
+    "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", String(time), "-i", file,
+    "-frames:v", "1", "-vf", `format=rgb24,crop=1:1:${x}:${y}`, "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+  ]);
+  return [out[0], out[1], out[2]];
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -69,7 +90,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     api(p, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const clip = (asset: string, trackId: string, start: number, inPoint: number, out: number): Clip => ({
     id: `clip_${Math.random().toString(16).slice(2, 10)}`,
-    assetId: assets[asset].id, trackId, start, in: inPoint, out, volume: 1, fit: "contain",
+    assetId: assets[asset].id, trackId, start, in: inPoint, out, effects: defaultEffects(),
   });
   const projectWith = (clips: Clip[]): Project => ({ ...createDefaultProject(), clips });
   const waitForExport = (id: string) =>
@@ -96,6 +117,14 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     // Valid video that browsers can't play (MPEG-4 Part 2 in AVI)
     ffmpeg("-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10:duration=1", "-c:v", "mpeg4", f("legacy.avi"));
     ffmpeg("-f", "lavfi", "-i", "testsrc2=size=64x64", "-frames:v", "1", f("still.png"));
+    // A solid red 2:1 image, easy to find in an export.
+    ffmpeg("-f", "lavfi", "-i", "color=red:size=100x50", "-frames:v", "1", f("red.png"));
+    // (Seeking into this one finds no frame, so stills must be read without seeking.)
+    const jpeg = path.join(tmp, "plain.jpg");
+    ffmpeg("-f", "lavfi", "-i", "mandelbrot=size=320x160", "-frames:v", "1", jpeg);
+    writeFileSync(f("photo.jpg"), withExifOrientation(readFileSync(jpeg), 6));
+    ffmpeg("-f", "lavfi", "-i", "testsrc2=size=64x64:rate=10:duration=1", f("anim.gif"));
+    ffmpeg("-f", "lavfi", "-i", "testsrc2=size=64x64", "-frames:v", "1", f("still.tiff"));
     writeFileSync(f("notes.txt"), "definitely not a video");
 
     editor = await createApp({ dataDir });
@@ -213,10 +242,32 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     await until(async () => (readdirSync(path.join(dataDir, "tmp")).length === 0 ? true : undefined), 5000);
   });
 
-  it("rejects images, unpreviewable codecs and non-media with 415", async () => {
-    const image = await upload(fixtures["still.png"]);
-    expect(image.status).toBe(415);
-    expect(((await image.json()) as { error: string }).error).toMatch(/Images aren't supported/);
+  it("imports still images, upright as they display", async () => {
+    for (const [key, file] of [["still", "still.png"], ["red", "red.png"], ["photo", "photo.jpg"]]) {
+      const res = await upload(fixtures[file]);
+      expect(res.status).toBe(201);
+      assets[key] = (await res.json()) as MediaAsset;
+    }
+    const { still, photo } = assets;
+    // Nothing to generate in the background: the poster is the thumbnail.
+    expect(still).toMatchObject({
+      kind: "image", width: 64, height: 64, duration: 5, fps: null, hasVideo: true, hasAudio: false,
+      status: "ready", filmstrip: null, waveform: null, poster: `/files/media/${still.id}/poster.png`,
+    });
+    expect(still.src).toBe(`/files/media/${still.id}/source.png`);
+    // Stored 320x160, but EXIF says to show it turned a quarter (browsers and ffmpeg both do).
+    expect(photo).toMatchObject({ kind: "image", width: 160, height: 320 });
+    expect(photo.src.endsWith("/source.jpg")).toBe(true);
+    expect((await api(still.poster!)).status).toBe(200);
+  });
+
+  it("rejects animated images, unsupported formats and codecs, and non-media with 415", async () => {
+    const gif = await upload(fixtures["anim.gif"]);
+    expect(gif.status).toBe(415);
+    expect(await errorOf(gif)).toMatch(/Animated images aren't supported/);
+    const tiff = await upload(fixtures["still.tiff"]);
+    expect(tiff.status).toBe(415);
+    expect(await errorOf(tiff)).toMatch(/Use PNG, JPEG or WebP/);
     const legacy = await upload(fixtures["legacy.avi"]);
     expect(legacy.status).toBe(415);
     expect(((await legacy.json()) as { error: string }).error).toMatch(/preview can't play/);
@@ -408,6 +459,42 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(Math.abs(Number(info.format.duration) - 3)).toBeLessThan(2 / 30);
   });
 
+  it("exports stills and placed clips where the preview draws them", async () => {
+    // 720x1280 canvas; the 100x50 red image fits at 720x360 (centre 360,640).
+    const red = (start: number, motion: ParamValues, opacity = 1): Clip => ({
+      ...clip("red", "main", start, 0, 1),
+      effects: defaultEffects().map((e) =>
+        e.type === "motion" ? { ...e, params: { ...e.params, ...motion } }
+        : e.type === "opacity" ? { ...e, params: { opacity } }
+        : e),
+    });
+    const project = projectWith([
+      // Half size in the top-left quarter: x 0..360, y 230..410.
+      red(0, { scale: 0.5, position: [0.25, 0.25] }),
+      // Turned a quarter: x 180..540, y 280..1000.
+      red(1, { rotation: 90 }),
+      // Half transparent over the black canvas.
+      red(2, {}, 0.5),
+    ]);
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.status).toBe("done");
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    const isRed = ([r, g, b]: number[]) => r > 200 && g < 60 && b < 60;
+    const isBlack = ([r, g, b]: number[]) => r < 30 && g < 30 && b < 30;
+
+    expect(isRed(pixelAt(output, 0.5, 180, 320))).toBe(true);
+    expect(isBlack(pixelAt(output, 0.5, 540, 320))).toBe(true);
+    expect(isBlack(pixelAt(output, 0.5, 180, 640))).toBe(true);
+
+    expect(isRed(pixelAt(output, 1.5, 360, 300))).toBe(true);
+    expect(isBlack(pixelAt(output, 1.5, 100, 640))).toBe(true);
+
+    const [r, g, b] = pixelAt(output, 2.5, 360, 640);
+    expect(Math.abs(r - 128)).toBeLessThan(30);
+    expect(g + b).toBeLessThan(60);
+  });
+
   it("exports without the audio tracks when asked", async () => {
     const project = projectWith([
       clip("landscape", "main", 0, 0, 2),
@@ -464,7 +551,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(existsSync(path.join(dataDir, "projects", projects.other.id))).toBe(false);
     expect((await json<ProjectSummary[]>("/api/projects")).map((p) => p.id)).toEqual([projects.main.id]);
     // The remaining project's media is untouched.
-    expect((await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`))).toHaveLength(3);
+    expect((await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`))).toHaveLength(6);
   });
 
   it("deletes media", async () => {

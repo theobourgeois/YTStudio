@@ -1,3 +1,4 @@
+import { STILL_DURATION } from "../shared/timeline.ts";
 import type { AssetKind } from "../shared/types.ts";
 import { FFPROBE } from "./config.ts";
 import { run } from "./ffmpeg.ts";
@@ -10,6 +11,7 @@ export interface ProbeResult {
   width: number | null;
   height: number | null;
   fps: number | null;
+  /** Has a picture: a video stream or a still image. */
   hasVideo: boolean;
   hasAudio: boolean;
   /** ffprobe's container name list, e.g. "mov,mp4,m4a,3gp,3g2,mj2". */
@@ -34,13 +36,16 @@ interface FfprobeStream {
 interface FfprobeOutput {
   streams?: FfprobeStream[];
   format?: { format_name?: string; duration?: string };
+  frames?: { side_data_list?: { rotation?: number }[] }[];
 }
 
 const IMAGE_FORMAT = /_pipe$|^image2$|^gif$|^webp$|^apng$/;
 const IMAGE_CODECS = new Set([
   "png", "apng", "mjpeg", "jpeg2000", "jpegls", "jpegxl", "gif", "webp", "bmp", "tiff", "qoi",
 ]);
-const IMAGES_UNSUPPORTED = "Images aren't supported yet — add a video or audio file.";
+/** Still images both ffmpeg (export) and browsers (preview) can show. */
+const PREVIEWABLE_IMAGES = new Set(["png", "mjpeg", "webp", "gif", "bmp"]);
+const IMAGE_UNSUPPORTED = "This image format isn't supported. Use PNG, JPEG or WebP.";
 
 // What the browser preview can actually play. Anything else would import fine
 // and export fine, but show "Media offline" in the editor, so reject it upfront.
@@ -67,7 +72,7 @@ export async function probeMedia(file: string): Promise<ProbeResult> {
   // Cover art in music files is a "video" stream flagged as an attached picture.
   const video = streams.find((s) => s.codec_type === "video" && !s.disposition?.attached_pic);
 
-  if (video && isStillImage(video, formatName)) throw new HttpError(415, IMAGES_UNSUPPORTED);
+  if (video && isStillImage(video, formatName)) return probeImage(file, video, formatName);
   if (!video && !hasAudio) {
     throw new HttpError(415, "This file has no audio or video stream.");
   }
@@ -86,6 +91,35 @@ export async function probeMedia(file: string): Promise<ProbeResult> {
     fps: video ? frameRate(video) : null,
     hasVideo: !!video,
     hasAudio,
+    formatName,
+  };
+}
+
+async function probeImage(file: string, image: FfprobeStream, formatName: string): Promise<ProbeResult> {
+  if (!PREVIEWABLE_IMAGES.has(image.codec_name ?? "")) throw new HttpError(415, IMAGE_UNSUPPORTED);
+  if (Number(image.nb_frames) > 1) throw new HttpError(415, "Animated images aren't supported yet.");
+  // EXIF orientation (phone photos) only shows up as frame side data. Browsers and
+  // ffmpeg both apply it when drawing the image, so the size must account for it.
+  let rotation = 0;
+  try {
+    const out = await run(FFPROBE, [
+      "-v", "error", "-print_format", "json", "-show_frames", "-read_intervals", "%+#1", file,
+    ]);
+    const data = JSON.parse(out) as FfprobeOutput;
+    rotation = data.frames?.[0]?.side_data_list?.find((d) => typeof d.rotation === "number")?.rotation ?? 0;
+  } catch {
+    // Unreadable frames fail the import when the thumbnail is made.
+  }
+  const size = displaySize({ ...image, side_data_list: [{ rotation }] });
+  if (!size) throw new HttpError(415, "Couldn't read this image's size.");
+  return {
+    kind: "image",
+    duration: STILL_DURATION,
+    width: size.width,
+    height: size.height,
+    fps: null,
+    hasVideo: true,
+    hasAudio: false,
     formatName,
   };
 }

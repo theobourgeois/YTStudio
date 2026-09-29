@@ -62,7 +62,19 @@ async function timeX(page: Page, t: number) {
   return box.x + t * PX_PER_S;
 }
 
-type SavedClip = { id: string; trackId: string; start: number; in: number; out: number };
+type SavedClip = {
+  id: string;
+  trackId: string;
+  start: number;
+  in: number;
+  out: number;
+  effects: { type: string; enabled: boolean; params: Record<string, unknown> }[];
+};
+
+/** A saved clip's parameters for one of its effects. */
+function effectParams(project: { clips: SavedClip[] }, clipId: string, type: string) {
+  return project.clips.find((c) => c.id === clipId)?.effects.find((e) => e.type === type)?.params;
+}
 
 /** Saved clips on a track as [start, in] pairs, in time order. */
 async function trackLayout(page: Page, trackId: string) {
@@ -342,7 +354,7 @@ test("video settings dialog, clip volume and previewing a library file", async (
   await page.getByRole("button", { name: "Clip volume" }).click();
   await page.getByRole("slider", { name: "Volume" }).press("Home");
   await expect
-    .poll(async () => ((await savedProject(page)).clips as { id: string; volume: number }[]).find((c) => c.id === clip.id)?.volume)
+    .poll(async () => effectParams(await savedProject(page), clip.id, "volume")?.level)
     .toBe(0);
   await page.keyboard.press("Escape");
 
@@ -358,6 +370,85 @@ test("video settings dialog, clip volume and previewing a library file", async (
   await page.keyboard.press("Escape");
   await expect(position).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+});
+
+test("imports an image and transforms it in the properties panel and on the canvas", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles(path.join(SAMPLES, "sticker-800.png"));
+  const card = page.locator("[draggable=true]").filter({ hasText: "sticker-800" });
+  await expect(card).toBeVisible();
+  const before = new Set(((await savedProject(page)).clips as SavedClip[]).map((c) => c.id));
+  // Double-click appends it to the main track (and selects it).
+  await card.dblclick();
+  await expect.poll(async () => ((await savedProject(page)).clips as SavedClip[]).length).toBe(before.size + 1);
+  const image = ((await savedProject(page)).clips as SavedClip[]).find((c) => !before.has(c.id))!;
+  expect(image.out - image.in).toBe(5); // a still's default length
+  const motion = async () => effectParams(await savedProject(page), image.id, "motion")!;
+
+  // Park the playhead on it: fit the timeline in view, then click the ruler above the clip.
+  await page.getByRole("button", { name: "Zoom to fit" }).click();
+  const clipBox = (await page.locator(`[data-clip-id="${image.id}"]`).boundingBox())!;
+  const lanes = (await page.locator("[data-timeline-lanes]").boundingBox())!;
+  await page.mouse.click(clipBox.x + clipBox.width / 2, lanes.y - 10);
+
+  // An image has Motion and Opacity, but no Volume.
+  await page.getByRole("tab", { name: "Properties" }).click();
+  await expect(page.getByRole("region", { name: "Motion" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Opacity" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Volume" })).toHaveCount(0);
+
+  // Type a value: click the number, type, Enter.
+  await page.getByRole("spinbutton", { name: "Scale", exact: true }).click();
+  await page.keyboard.type("50");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await motion()).scale).toBe(0.5);
+
+  // Scrub a value: drag it sideways (1° per pixel).
+  const rotation = (await page.getByRole("spinbutton", { name: "Rotation", exact: true }).boundingBox())!;
+  const at = { x: rotation.x + rotation.width / 2, y: rotation.y + rotation.height / 2 };
+  await drag(page, at, { x: at.x + 30, y: at.y });
+  await expect.poll(async () => (await motion()).rotation).toBe(30);
+
+  // The preview draws it where the properties say.
+  const transform = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("[data-slot=canvas] img, [data-slot=canvas] video")]
+        .filter((el) => el.style.opacity !== "0")
+        .map((el) => el.style.transform),
+    );
+  await expect.poll(transform).toEqual([expect.stringMatching(/^matrix\(0\.433013, 0\.25, -0\.25, 0\.433013,/)]);
+
+  // Canvas: a click on empty space deselects, a click on the image selects it.
+  const canvas = (await page.locator("[data-slot=canvas]").boundingBox())!;
+  const centre = { x: canvas.x + canvas.width / 2, y: canvas.y + canvas.height / 2 };
+  await page.mouse.click(canvas.x + 4, canvas.y + 4);
+  await expect(page.getByText("No clip selected")).toBeVisible();
+  await page.mouse.click(centre.x + 20, centre.y + 20);
+  await expect(page.getByRole("region", { name: "Motion" })).toBeVisible();
+
+  // Drag it to move it (Alt: no snapping): one undo step.
+  await page.keyboard.down("Alt");
+  await drag(page, { x: centre.x + 20, y: centre.y + 20 }, { x: centre.x + 20 + canvas.width / 4, y: centre.y + 20 });
+  await page.keyboard.up("Alt");
+  await expect.poll(async () => ((await motion()).position as number[])[0]).toBeCloseTo(0.75, 2);
+  expect(((await motion()).position as number[])[1]).toBeCloseTo(0.5, 5);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await motion()).position).toEqual([0.5, 0.5]);
+  expect((await motion()).rotation).toBe(30);
+
+  // Stretch: with uniform scale off, an edge handle changes only its own axis.
+  await page.getByRole("switch", { name: "Uniform Scale" }).click();
+  await expect(page.getByRole("spinbutton", { name: "Scale Height" })).toBeVisible();
+  const edge = (await page.locator('[data-handle="0.5,0"]').boundingBox())!;
+  const top = { x: edge.x + edge.width / 2, y: edge.y + edge.height / 2 };
+  await drag(page, top, { x: top.x, y: top.y - 20 });
+  await expect.poll(async () => (await motion()).scale as number).toBeGreaterThan(0.55);
+  expect((await motion()).scaleWidth).toBe(0.5);
+
+  // Reset puts all of Motion back.
+  await page.getByRole("button", { name: "Reset Motion" }).click();
+  await expect.poll(async () => (await motion()).rotation).toBe(0);
+  expect(await motion()).toMatchObject({ scale: 1, scaleWidth: 1, uniformScale: true, position: [0.5, 0.5] });
 });
 
 test("settles a video, starts the next one, and unsettles it again", async ({ page }) => {

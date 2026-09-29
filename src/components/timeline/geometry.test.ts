@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { defaultEffects } from "@shared/effects";
 import type { Clip, Project } from "@shared/types";
 import { MAIN_TRACK_ID, appendToTrack, createDefaultProject, addClip } from "@shared/timeline";
 import {
@@ -27,7 +28,7 @@ import { AUDIO_LANE_HEIGHT, TOP_GUTTER, VIDEO_LANE_HEIGHT } from "./constants";
 
 const AUDIO = "audio_1";
 function clip(id: string, trackId: string, start: number, dur: number): Clip {
-  return { id, assetId: "a", trackId, start, in: 0, out: dur, volume: 1, fit: "contain" };
+  return { id, assetId: "a", trackId, start, in: 0, out: dur, effects: defaultEffects() };
 }
 /** main: a[0,2) b[2,5) c[5,6); audio: m[1,4) */
 function sample(): Project {

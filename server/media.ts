@@ -5,7 +5,7 @@ import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createId } from "../shared/timeline.ts";
 import type { MediaAsset } from "../shared/types.ts";
-import { makeFilmstrip, makePoster, makeWaveform } from "./derivatives.ts";
+import { makeFilmstrip, makePoster, makeStillPoster, makeWaveform } from "./derivatives.ts";
 import { ffmpegVersion, isAbortError } from "./ffmpeg.ts";
 import { type ProbeResult, probeMedia } from "./probe.ts";
 import { createLimiter } from "./queue.ts";
@@ -17,6 +17,7 @@ const JOB_CONCURRENCY = 2;
 const MEDIA_EXTENSIONS = new Set([
   "mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg", "mpeg", "ts", "mts", "m2ts", "3gp",
   "mp3", "m4a", "aac", "wav", "flac", "ogg", "oga", "opus", "aif", "aiff", "caf", "wma",
+  "png", "jpg", "jpeg", "webp", "gif", "bmp",
 ]);
 
 /** A safe extension for the stored source file (keeps browsers' MIME sniffing happy). */
@@ -25,6 +26,9 @@ function sourceExtension(name: string, formatName: string): string {
   if (MEDIA_EXTENSIONS.has(ext)) return ext;
   const formats = formatName.split(",");
   if (formats.includes("mp4")) return "mp4";
+  if (formats.includes("jpeg_pipe")) return "jpg";
+  const pipe = formats.find((f) => f.endsWith("_pipe"))?.replace(/_pipe$/, "");
+  if (pipe && MEDIA_EXTENSIONS.has(pipe)) return pipe;
   if (formats.includes("webm")) return "webm";
   return formats.find((f) => MEDIA_EXTENSIONS.has(f)) ?? "bin";
 }
@@ -150,12 +154,18 @@ export class MediaLibrary {
       await fs.mkdir(dir, { recursive: true });
       await fs.rename(tmp, path.join(dir, sourceName));
 
+      const still = probe.kind === "image";
       let poster: string | null = null;
       if (probe.hasVideo) {
         try {
-          await makePoster(path.join(dir, sourceName), path.join(dir, "poster.jpg"), probe.duration);
-          poster = url("poster.jpg");
+          // PNG for stills, so transparent images stay transparent.
+          const posterName = still ? "poster.png" : "poster.jpg";
+          const [source, target] = [path.join(dir, sourceName), path.join(dir, posterName)];
+          await (still ? makeStillPoster(source, target) : makePoster(source, target, probe.duration));
+          poster = url(posterName);
         } catch (err) {
+          // An image ffmpeg can't decode couldn't be exported either.
+          if (still) throw new HttpError(415, "This image couldn't be read. Try saving it as PNG or JPEG.");
           console.warn(`[media] poster failed for ${name}: ${errorMessage(err)}`);
         }
       }
@@ -173,7 +183,8 @@ export class MediaLibrary {
         hasAudio: probe.hasAudio,
         size,
         createdAt: Date.now(),
-        status: "processing",
+        // A still has nothing more to generate: its poster is its thumbnail.
+        status: still ? "ready" : "processing",
         src: url(sourceName),
         poster,
         filmstrip: null,
@@ -184,7 +195,7 @@ export class MediaLibrary {
       // happened already (we clean up) or will see and remove this asset.
       if (!projectExists()) throw new HttpError(404, "Project not found");
       this.assets.set(id, asset);
-      this.enqueue(id);
+      if (!still) this.enqueue(id);
       return asset;
     } catch (err) {
       await fs.rm(dir, { recursive: true, force: true });
@@ -244,7 +255,7 @@ export class MediaLibrary {
     const patch: Partial<MediaAsset> = {};
     const problems: string[] = [];
 
-    if (asset.hasVideo && asset.width && asset.height) {
+    if (asset.kind === "video" && asset.width && asset.height) {
       try {
         const strip = await makeFilmstrip(
           src,
