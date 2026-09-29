@@ -71,6 +71,12 @@ export interface Compositor {
   clear(color?: [number, number, number, number]): void;
   /** Draw a stored picture over the frame (nothing if it isn't stored). */
   drawPicture(picture: Placed): void;
+  /**
+   * Start compiling a transition shader in the background (compiling blocks for tens of ms
+   * otherwise). True once `drawTransition` can use it without waiting; always true without
+   * KHR_parallel_shader_compile, after compiling it now.
+   */
+  prepareTransition(shader: Shader): boolean;
   /** Mix two stored pictures (null: nothing) with a transition shader (compiled once per key) over the frame. */
   drawTransition(shader: Shader, uniforms: UniformValue[], progress: number, from: Placed | null, to: Placed | null): void;
   /** Copy the frame to the canvas. `flipY` puts the top row first for `read`; `straight` un-premultiplies. */
@@ -202,31 +208,36 @@ void main() {
   fragColor = o;
 }`;
 
-  const compile = (type: number, source: string) => {
-    const shader = gl.createShader(type)!;
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      const log = gl.getShaderInfoLog(shader);
-      gl.deleteShader(shader);
-      throw new Error(`Shader didn't compile: ${log}`);
-    }
-    return shader;
-  };
-  const link = (vs: string, fs: string) => {
+  // Compiling and linking don't wait for the GPU; asking for their status (or a uniform) does.
+  const parallel = gl.getExtension("KHR_parallel_shader_compile");
+  interface Pending {
+    program: WebGLProgram;
+    shaders: WebGLShader[];
+  }
+  const startLink = (vs: string, fs: string): Pending => {
     const program = gl.createProgram()!;
-    const v = compile(gl.VERTEX_SHADER, vs);
-    const f = compile(gl.FRAGMENT_SHADER, fs);
-    gl.attachShader(program, v);
-    gl.attachShader(program, f);
+    const shaders = ([[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]] as const).map(([type, source]) => {
+      const shader = gl.createShader(type)!;
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      gl.attachShader(program, shader);
+      return shader;
+    });
     gl.bindAttribLocation(program, 0, "aPos");
     gl.linkProgram(program);
-    gl.deleteShader(v);
-    gl.deleteShader(f);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      const log = gl.getProgramInfoLog(program);
+    return { program, shaders };
+  };
+  const finishLink = ({ program, shaders }: Pending) => {
+    const failed = shaders.find((shader) => !gl.getShaderParameter(shader, gl.COMPILE_STATUS));
+    const error = failed
+      ? `Shader didn't compile: ${gl.getShaderInfoLog(failed)}`
+      : !gl.getProgramParameter(program, gl.LINK_STATUS)
+        ? `Shader didn't link: ${gl.getProgramInfoLog(program)}`
+        : null;
+    for (const shader of shaders) gl.deleteShader(shader);
+    if (error) {
       gl.deleteProgram(program);
-      throw new Error(`Shader didn't link: ${log}`);
+      throw new Error(error);
     }
     const locations = new Map<string, WebGLUniformLocation | null>();
     const loc = (name: string) => {
@@ -235,6 +246,7 @@ void main() {
     };
     return { program, loc };
   };
+  const link = (vs: string, fs: string) => finishLink(startLink(vs, fs));
 
   const quad = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, quad);
@@ -246,6 +258,17 @@ void main() {
   const copyProgram = link(QUAD_VS, COPY_FS);
   let yuvProgram: ReturnType<typeof link> | null = null;
   const transitions = new Map<string, ReturnType<typeof link>>();
+  // Transition programs started by `prepareTransition`, not yet checked.
+  const compiling = new Map<string, Pending>();
+  const transitionProgram = (shader: Shader) => {
+    let entry = transitions.get(shader.key);
+    if (entry) return entry;
+    const pending = compiling.get(shader.key) ?? startLink(QUAD_VS, shader.source);
+    compiling.delete(shader.key);
+    entry = finishLink(pending);
+    transitions.set(shader.key, entry);
+    return entry;
+  };
 
   const texture = () => {
     const t = gl.createTexture()!;
@@ -470,6 +493,16 @@ void main() {
       gl.disable(gl.BLEND);
     },
 
+    prepareTransition(shader) {
+      if (transitions.has(shader.key)) return true;
+      let pending = compiling.get(shader.key);
+      if (!pending) {
+        pending = startLink(QUAD_VS, shader.source);
+        compiling.set(shader.key, pending);
+      }
+      return !parallel || gl.getProgramParameter(pending.program, parallel.COMPLETION_STATUS_KHR) === true;
+    },
+
     drawTransition(shader, uniforms, progress, from, to) {
       // Each side into its own transparent layer.
       [from, to].forEach((side, i) => {
@@ -484,12 +517,7 @@ void main() {
         }
       });
 
-      let entry = transitions.get(shader.key);
-      if (!entry) {
-        entry = link(QUAD_VS, shader.source);
-        transitions.set(shader.key, entry);
-      }
-      const { program, loc } = entry;
+      const { program, loc } = transitionProgram(shader);
       bind(frame);
       blendOver();
       gl.useProgram(program);
@@ -589,6 +617,11 @@ void main() {
 
     dispose() {
       for (const { program } of transitions.values()) gl.deleteProgram(program);
+      for (const { program, shaders } of compiling.values()) {
+        for (const shader of shaders) gl.deleteShader(shader);
+        gl.deleteProgram(program);
+      }
+      compiling.clear();
       if (yuvProgram) gl.deleteProgram(yuvProgram.program);
       for (const b of idleBuffers) gl.deleteBuffer(b);
       idleBuffers.length = 0;

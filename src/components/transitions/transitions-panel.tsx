@@ -22,7 +22,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { setTransitionDragData } from "@/lib/dnd";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
-import { THUMB_HEIGHT, THUMB_WIDTH, drawThumbnail } from "./thumbnails";
+import { THUMB_HEIGHT, THUMB_WIDTH, drawThumbnail, requestPoster } from "./thumbnails";
 
 type Filter = TransitionTag | "all";
 
@@ -107,8 +107,6 @@ export function TransitionsPanel() {
   );
 }
 
-/** Progress shown while the card isn't hovered. */
-const POSTER_PROGRESS = 0.36;
 /** One loop of the hover animation: the transition, then a pause on each side. */
 const LOOP_MS = 1800;
 
@@ -122,10 +120,7 @@ function TransitionCard({ def, selected }: { def: TransitionDefinition; selected
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    if (!hovered) {
-      void drawThumbnail(def, POSTER_PROGRESS, canvas);
-      return;
-    }
+    if (!hovered) return requestPoster(def, canvas);
     let raf = 0;
     const started = performance.now();
     const tick = (now: number) => {
