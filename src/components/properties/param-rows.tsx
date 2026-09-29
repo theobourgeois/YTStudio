@@ -53,9 +53,13 @@ interface ParamRowProps {
   specs: ParamSpec[];
   ctx: DisplayContext;
   edit: ParamEditor;
+  /** The stopwatch cell of a clip's property (null: can't be animated, but keep the column). */
+  animation?: ReactNode;
+  /** The keyframe navigator, while the property is animated. */
+  navigator?: ReactNode;
 }
 
-export function ParamRow({ spec, values, specs, ctx, edit }: ParamRowProps) {
+export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator }: ParamRowProps) {
   const value = values[spec.key];
   const label = spec.labelFor?.(values) ?? spec.label;
   const disabled = spec.disabledFor?.(values) ?? false;
@@ -93,15 +97,21 @@ export function ParamRow({ spec, values, specs, ctx, edit }: ParamRowProps) {
       );
       break;
   }
+  const animatable = animation !== undefined;
   return (
     <div
-      className="grid min-h-8 grid-cols-[6.5rem_minmax(0,1fr)_1.25rem] items-center gap-x-1 pr-1 pl-3"
+      className={cn(
+        "grid min-h-8 items-center gap-x-1 pr-1",
+        animatable ? "grid-cols-[1.25rem_5.5rem_minmax(0,1fr)_auto_1.25rem] pl-1.5" : "grid-cols-[6.5rem_minmax(0,1fr)_1.25rem] pl-3",
+      )}
       data-param={spec.key}
     >
+      {animatable && (animation ?? <span />)}
       <span className={cn("truncate text-xs", disabled ? "text-muted-foreground/60" : "text-muted-foreground")} title={label}>
         {label}
       </span>
       <div className="flex min-w-0 items-center">{control}</div>
+      {animatable && (navigator ?? <span />)}
       {changed && !disabled ? <ResetButton label={`Reset ${label}`} onClick={edit.reset} /> : <span />}
     </div>
   );

@@ -92,6 +92,7 @@ export const MOTION: EffectDefinition = {
   ],
   // While scale is uniform the width follows it, so turning uniform scale off starts from the same size.
   adjust: (current, patch) => {
+    if (patch.uniformScale === false && current.uniformScale !== false) return { ...patch, scaleWidth: current.scale };
     const uniform = (patch.uniformScale ?? current.uniformScale) !== false;
     if (!uniform || (patch.scale === undefined && patch.uniformScale === undefined)) return patch;
     return { ...patch, scaleWidth: patch.scale ?? current.scale };
@@ -368,7 +369,8 @@ export function hasKeyframes(clip: Clip): boolean {
 // Edits (all return a new Project, or the same one when nothing changed)
 // ---------------------------------------------------------------------------
 
-function updateEffect(
+/** Rewrite one of a clip's effects (with its definition); same project when `update` returns the same effect. */
+export function updateEffect(
   project: Project,
   clipId: string,
   effectId: string,
@@ -404,7 +406,9 @@ export function setParams(
   return updateEffect(project, clipId, effectId, (effect, def) => {
     let params = effect.params;
     let keyframes = effect.keyframes;
-    for (const [key, raw] of Object.entries(def.adjust?.(effect.params, patch) ?? patch)) {
+    // Linked values follow what's showing (keyframed values at `time`).
+    const current = time === undefined ? effect.params : storedValuesAt(def, effect, time);
+    for (const [key, raw] of Object.entries(def.adjust?.(current, patch) ?? patch)) {
       const spec = paramSpec(def, key);
       const value = spec && sanitizeValue(spec, raw);
       if (value === undefined) continue;
@@ -425,20 +429,32 @@ export function setEffectEnabled(project: Project, clipId: string, effectId: str
   return updateEffect(project, clipId, effectId, (e, def) => (e.enabled === enabled || def.alwaysOn ? e : { ...e, enabled }));
 }
 
-/** Put parameters (all of them by default) back to their defaults, dropping their keyframes. */
-export function resetParams(project: Project, clipId: string, effectId: string, keys?: string[]): Project {
+/**
+ * Put parameters (all of them by default) back to their defaults. An
+ * animated one gets a keyframe of its default at source time `time` instead,
+ * when given (like Premiere's reset); otherwise its keyframes are dropped.
+ */
+export function resetParams(project: Project, clipId: string, effectId: string, keys?: string[], time?: number): Project {
   return updateEffect(project, clipId, effectId, (effect, def) => {
     const reset = def.params.filter((p) => !keys || keys.includes(p.key));
-    const changed = reset.some((p) => !sameValue(effect.params[p.key], p.default) || effect.keyframes?.[p.key]);
-    if (!changed) return effect;
-    const params = { ...effect.params };
-    const keyframes = { ...effect.keyframes };
+    let params = effect.params;
+    let keyframes = effect.keyframes;
     for (const p of reset) {
-      params[p.key] = p.default;
-      delete keyframes[p.key];
+      const animated = keyframes?.[p.key];
+      if (animated?.length && time !== undefined) {
+        const next = setKeyframe(animated, time, p.default);
+        if (next !== animated) keyframes = { ...keyframes, [p.key]: next };
+        continue;
+      }
+      if (animated) {
+        const { [p.key]: _, ...rest } = keyframes!;
+        keyframes = Object.keys(rest).length ? rest : undefined;
+      }
+      if (!sameValue(params[p.key], p.default)) params = { ...params, [p.key]: p.default };
     }
+    if (params === effect.params && keyframes === effect.keyframes) return effect;
     const next: Effect = { ...effect, params };
-    if (Object.keys(keyframes).length) next.keyframes = keyframes;
+    if (keyframes) next.keyframes = keyframes;
     else delete next.keyframes;
     return next;
   });

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 const SIDEBAR_KEY = "editor-sidebar-open";
+const KEYFRAMES_KEY = "editor-keyframes-open";
 
 /** The tabs of the left panel: the project's media, online media, transitions, and the selection's properties. */
 export type LeftPanelTab = "media" | "online" | "transitions" | "properties";
@@ -18,6 +19,9 @@ interface LayoutState {
   setLeftPanel: (panel: LeftPanelTab) => void;
   tool: CanvasTool;
   setTool: (tool: CanvasTool) => void;
+  /** The Properties tab shows keyframe lanes next to the values (Premiere's Effect Controls timeline). */
+  keyframesOpen: boolean;
+  toggleKeyframes: () => void;
 }
 
 export const useLayout = create<LayoutState>((set, get) => ({
@@ -38,5 +42,11 @@ export const useLayout = create<LayoutState>((set, get) => ({
   tool: "select",
   setTool(tool) {
     set({ tool });
+  },
+  keyframesOpen: localStorage.getItem(KEYFRAMES_KEY) === "true",
+  toggleKeyframes() {
+    const keyframesOpen = !get().keyframesOpen;
+    localStorage.setItem(KEYFRAMES_KEY, String(keyframesOpen));
+    set({ keyframesOpen });
   },
 }));

@@ -54,10 +54,11 @@ interface PageApi {
 export interface FramePacket {
   frame: number;
   /**
-   * Pictures to store (replacing any under the same key): raw RGBA, or YUV
-   * 4:2:0 with its matrix's luma weights of red and blue (see `YuvFrame`).
+   * Pictures to store (replacing any under the same key): raw RGBA, YUV
+   * 4:2:0 with its matrix's luma weights of red and blue (see `YuvFrame`),
+   * or a PNG (a drawn text) for the page to decode.
    */
-  pictures: { key: string; width: number; height: number; luma: [number, number] | null; data: Buffer }[];
+  pictures: { key: string; width: number; height: number; luma: [number, number] | null; png?: boolean; data: Buffer }[];
   /** Pictures no longer needed. */
   release: string[];
   /** Shaders used from now on, by key. */
@@ -69,7 +70,7 @@ export interface FramePacket {
 interface PacketHead {
   /** Which output frame this is; null when there are no more. */
   frame: number | null;
-  pictures: { key: string; width: number; height: number; luma: [number, number] | null; length: number }[];
+  pictures: { key: string; width: number; height: number; luma: [number, number] | null; png?: boolean; length: number }[];
   release: string[];
   shaders: Record<string, string>;
   layers: FrameLayer[];
@@ -151,13 +152,24 @@ function pageScript(): string {
           waiting.delete(turn);
         };
         /** Draw a frame and start reading it back. */
-        const draw = (head: PacketHead, buf: Uint8Array, offset: number) => {
+        /** The packet's pictures, PNGs decoded (as they are: straight alpha, no colour conversion). */
+        const unpack = (head: PacketHead, buf: Uint8Array, offset: number) =>
+          Promise.all(
+            head.pictures.map(async (p) => {
+              const bytes = buf.subarray(offset, (offset += p.length));
+              const { width, height, luma } = p;
+              if (p.png) {
+                const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "image/png" });
+                return { key: p.key, source: await createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "none" }) };
+              }
+              return { key: p.key, source: luma ? { yuv: bytes, width, height, kr: luma[0], kb: luma[1] } : { data: bytes, width, height } };
+            }),
+          );
+        const draw = (head: PacketHead, pictures: Awaited<ReturnType<typeof unpack>>) => {
           Object.assign(shaders, head.shaders);
-          for (const p of head.pictures) {
-            const bytes = buf.subarray(offset, offset + p.length);
-            const { width, height, luma } = p;
-            compositor.setPicture(p.key, luma ? { yuv: bytes, width, height, kr: luma[0], kb: luma[1] } : { data: bytes, width, height });
-            offset += p.length;
+          for (const { key, source } of pictures) {
+            compositor.setPicture(key, source);
+            if (source instanceof ImageBitmap) source.close();
           }
           for (const key of head.release) compositor.deletePicture(key);
           compositor.clear();
@@ -183,10 +195,11 @@ function pageScript(): string {
             const headLength = new DataView(buf.buffer, buf.byteOffset).getUint32(0, true);
             const head = JSON.parse(new TextDecoder().decode(buf.subarray(4, 4 + headLength))) as PacketHead;
             if (head.frame === null) return;
+            const pictures = await unpack(head, buf, 4 + headLength);
             await myTurn(head.frame);
             let read: Promise<Uint8Array<ArrayBuffer>>;
             try {
-              read = draw(head, buf, 4 + headLength);
+              read = draw(head, pictures);
             } finally {
               // The next frame can be drawn while this one is read back.
               nextTurn();

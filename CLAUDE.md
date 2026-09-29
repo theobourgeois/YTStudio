@@ -31,7 +31,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
   params.ts          ParamSpec types (number, vec2, boolean, choice, text, color, font…) + sanitize/defaults.
-  keyframes.ts       Keyframe validation, interpolation, setKeyframe.
+  keyframes.ts       Keyframe validation, interpolation (easedProgress), setKeyframe.
+  animation.ts       Keyframe edits (stopwatch, navigator, move/delete/easing) and timeline<->keyframe time helpers.
   effects.ts         Effect definitions (Motion, Opacity, Volume, Text, Appearance), evaluation (motionAt,
                      opacityAt, volumeAt, textStyleAt), edits (setParams, resetParams, setEffectEnabled).
   transitions.ts     Transition registry, timing specs, sanitize/patch.
@@ -60,7 +61,9 @@ src/
   components/preview/engine.ts   Imperative preview: drives hidden <video>/<img> and draws with the compositor.
   components/preview/sync.ts, placement.ts   Its pure planners (tested).
   components/timeline/  Timeline UI; geometry.ts is its pure maths, view-store.ts its interaction-speed state.
-  components/properties/  Spec-driven properties panel (param-rows.tsx renders any ParamSpec).
+  components/properties/  Spec-driven properties panel (param-rows.tsx renders any ParamSpec), the stopwatch and
+                     navigator (animation-controls.tsx) and the keyframe lanes (keyframe-lanes.tsx, pure maths in
+                     keyframe-geometry.ts, selection in keyframe-selection.ts).
   components/workspace/left-panel.tsx   Left panel tabs: Media | Online | Transitions | Properties.
   components/ui/     shadcn/ui (generated; icons adapted to react-icons/pi).
 ```
@@ -82,8 +85,9 @@ extension** (Node ESM through tsx).
 - `Effect = { id, type, enabled, params, keyframes? }`. Built-in effects (motion, opacity, volume) are on every clip,
   and Text/Appearance on text clips. All of these have `id === type`, and code addresses them by type.
 - Keyframes are stored in **source time** (so they stay on their frame when the clip moves, trims or splits). Read
-  values with `sourceTime(clip, playheadTime)`. The model and the preview support keyframes; there's no keyframe UI
-  yet. The export evaluates Motion and Opacity per frame, but volume and text styles at `clip.in`.
+  values with `sourceTime(clip, playheadTime)`; write them at `keyframeTime(clip, playhead, fps)` (the frame under
+  the playhead, or an existing keyframe within half a frame), which every editing surface uses. A keyframe's `easing`
+  says how it's passed through (Premiere's Ease In/Out, Hold); `easedProgress` is the curve.
 - Transitions are stored on clip edges. At a cut, the outgoing clip's `transitionOut` wins. See
   `transition-windows.ts` for the rules, and use `storedTransition`/`findWindow`/`refKey` rather than reading fields.
 - Media (`MediaAsset`) belongs to one project. `kind` is video | audio | image. Filmstrip and waveform generation
@@ -103,6 +107,8 @@ extension** (Node ESM through tsx).
   actions, which clear the other kinds; don't `set({ selectedClipIds })` directly.
 - Anything that isn't an undoable edit but changes the document (rename, deleted media) goes through
   `rewriteHistory` so undo can't bring back the old state.
+- A preview derives from `gestureBase` whenever the edit is relative (e.g. `moveKeyframes` by a delta):
+  `preview(update)` applies `update` to the *current* project.
 - Autosave (`stores/autosave.ts`) saves the project when it changes outside a gesture: debounced, one request at a
   time, retried, and flushed before switching projects.
 - UI state that changes at pointer speed (ghosts, snap guides, scroll) goes in `timeline/view-store.ts`, never in the
@@ -113,7 +119,7 @@ extension** (Node ESM through tsx).
 ## How to add…
 
 - **A property on an existing effect**: add a spec to its definition in `shared/effects.ts`. The panel, validation
-  and keyframing then work automatically. Then apply the value where clips are drawn: preview
+  and keyframing (stopwatch, lanes) then work automatically. Then apply the value where clips are drawn: preview
   (`components/preview/engine.ts` / `placement.ts`) and export (`server/render.ts`: `planRender`'s `draw`,
   `audioArgs`). Anything drawn should become compositor work (`shared/compositor.ts`) so both get it at once.
 - **A new effect**: add an `EffectDefinition` to `EFFECTS` (`builtIn` puts it on every clip it `appliesTo`), plus the
@@ -166,8 +172,9 @@ extension** (Node ESM through tsx).
   export page. They must not reference anything at module level.
 - The export draws every frame in headless Chromium with `shared/compositor.ts`; ffmpeg only decodes (video as YUV
   4:2:0 at the size it's shown; the compositor converts with the source's matrix), mixes audio and encodes (BT.709).
-  Motion/Opacity are evaluated per frame; volume (`audioArgs`) and text styles (`export/draw-texts.ts`, one PNG per
-  clip) are still taken at the clip's first frame.
+  Everything animates exactly: Motion/Opacity per frame in `planRender`, volume as an ffmpeg expression of the same
+  curve (`keyframeExpression`), and an animated text's look as one browser drawing per changed frame
+  (`export/draw-texts.ts`, `TextRaster.from`), decoded by the page.
 - After changing the compositor or the export, run the integration tests (`server/integration.test.ts` checks
   positions, transitions and colours of real exports).
 - `data/` (or `EDITOR_DATA_DIR`) holds the projects, media, exports (never cleaned up yet) and `tmp`, which is wiped

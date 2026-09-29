@@ -14,6 +14,8 @@ export type ShortcutAction =
   | "forward1s"
   | "prevEdit"
   | "nextEdit"
+  | "prevKeyframe"
+  | "nextKeyframe"
   | "seekStart"
   | "seekEnd"
   | "split"
@@ -60,6 +62,8 @@ const REPEATABLE = new Set<ShortcutAction>([
   "forward1s",
   "prevEdit",
   "nextEdit",
+  "prevKeyframe",
+  "nextKeyframe",
   "nudgeLeft",
   "nudgeRight",
   "nudgeLeftMore",
@@ -139,6 +143,11 @@ function resolvePlain(e: KeyLike): ShortcutAction | null {
     // `?` is Shift+/ on most layouts.
     case "?":
       return "showShortcuts";
+    // DaVinci Resolve's keys (Premiere has none by default).
+    case "[":
+      return "prevKeyframe";
+    case "]":
+      return "nextKeyframe";
     case "Backspace":
     case "Delete":
       return e.shiftKey ? "rippleDelete" : "delete";
@@ -193,6 +202,8 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   forward1s: `${SHIFT}→`,
   prevEdit: "↑",
   nextEdit: "↓",
+  prevKeyframe: "[",
+  nextKeyframe: "]",
   seekStart: "Home",
   seekEnd: "End",
   split: "S",
@@ -241,6 +252,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Previous / next frame", keys: ["←", "→"] },
       { label: "Back / forward 1 second", keys: [`${SHIFT}←`, `${SHIFT}→`] },
       { label: "Previous / next edit point", keys: ["↑", "↓"] },
+      { label: "Previous / next keyframe of the selected clip", keys: ["[", "]"] },
       { label: "Go to start / end", keys: ["Home", "End"] },
     ],
   },
@@ -258,6 +270,14 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Nudge 10 frames", keys: [`${ALT}${SHIFT}←`, `${ALT}${SHIFT}→`] },
       { label: "Move to track above / below", keys: [`${ALT}↑`, `${ALT}↓`] },
       { label: "Undo / redo", keys: [`${MOD}Z`, SHORTCUT_KEYS.redo] },
+    ],
+  },
+  {
+    title: "Keyframes",
+    items: [
+      { label: "Select several", keys: [`${SHIFT}Click`, "Drag on empty space"] },
+      { label: "Delete the selected keyframes", keys: ["⌫"] },
+      { label: "Go to a keyframe", keys: ["Double-click"] },
     ],
   },
   {

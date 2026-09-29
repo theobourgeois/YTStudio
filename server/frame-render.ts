@@ -71,20 +71,21 @@ class FrameReader {
   }
 }
 
-/** A running source: its ffmpeg and the next output frame its stream is at. */
+/** A running source: its ffmpeg and the next output frame its stream is at (or a drawn text's PNG). */
 class Decoder {
-  private readonly reader: FrameReader;
+  private readonly reader: FrameReader | null;
   private next: number;
   /** A still's one frame, once read. */
-  private still: Buffer | null = null;
+  private still: Buffer | null;
   /** A still has been sent to the page (which keeps it until it's released). */
   sent = false;
 
   constructor(
     readonly source: RenderSource,
-    readonly process: Spawned,
+    readonly process: Spawned | null,
   ) {
-    this.reader = new FrameReader(process.child.stdout!, sourceFrameBytes(source));
+    this.reader = process ? new FrameReader(process.child.stdout!, sourceFrameBytes(source)) : null;
+    this.still = source.png ?? null;
     this.next = source.first;
   }
 
@@ -103,13 +104,13 @@ class Decoder {
   }
 
   close() {
-    this.reader.discard();
+    this.reader?.discard();
   }
 
   private async read(): Promise<Buffer> {
-    const frame = await this.reader.read();
+    const frame = await this.reader?.read();
     if (frame) return frame;
-    await this.process.done; // rejects with ffmpeg's error
+    await this.process?.done; // rejects with ffmpeg's error
     throw new Error("A clip's media ended before its last frame.");
   }
 }
@@ -161,8 +162,8 @@ export async function renderVideo(
     const prepare = async (f: number): Promise<FramePacket> => {
       while (pending.length && pending[0].first <= f + lookahead) {
         const source = pending.shift()!;
-        const process = spawnStreaming(source.argv, "ignore", "pipe");
-        processes.push(process);
+        const process = source.png ? null : spawnStreaming(source.argv, "ignore", "pipe");
+        if (process) processes.push(process);
         running.set(source.key, new Decoder(source, process));
       }
       const release: string[] = [];
@@ -181,8 +182,8 @@ export async function renderVideo(
         // The page keeps a still until it's released.
         if (decoder.source.still && decoder.sent) return;
         decoder.sent = true;
-        const { width, height, luma } = decoder.source;
-        pictures.push({ key: key!, width, height, luma, data: await decoder.frameAt(f) });
+        const { width, height, luma, png } = decoder.source;
+        pictures.push({ key: key!, width, height, luma, png: !!png, data: await decoder.frameAt(f) });
       };
       for (const layer of layers) {
         if (layer.kind === "picture") await send(layer.picture.key);

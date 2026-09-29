@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { defaultEffects, textEffects } from "../shared/effects.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import { placeClip, placementAffine } from "../shared/transform.ts";
-import type { Clip, ParamValues, Project } from "../shared/types.ts";
+import type { Clip, Keyframe, ParamValues, Project } from "../shared/types.ts";
 import { createTransition } from "../shared/transitions.ts";
 import { normalizeProject } from "../shared/normalize.ts";
+import { keyframeValue } from "../shared/keyframes.ts";
 import {
   type FrameLayer,
   type RenderAsset,
@@ -177,19 +178,28 @@ describe("text clips", () => {
     id: "t1", assetId: "", trackId: "main", start: 1, in: 0, out: 2,
     effects: textEffects({ text: "Hi" }),
   };
-  const drawn: RenderAsset = {
-    path: "/tmp/t1.png", kind: "image", hasVideo: true, hasAudio: false, width: 800, height: 200, duration: 0,
-    frame: { width: 400, height: 100 },
-  };
+  const drawing = (from?: number, width = 400): RenderAsset => ({
+    path: "", png: Buffer.from(`png ${from}`), kind: "image", hasVideo: true, hasAudio: false,
+    width: width * 2, height: 200, duration: 0, frame: { width, height: 100 }, ...(from === undefined ? {} : { from }),
+  });
 
-  it("are drawn from their image as it is, placed at their own frame size", () => {
-    const plan = planRender(project([clip("vid", "main", 3, 0, 2), text]), assets, opts, { t1: drawn });
+  it("are drawn from their image as it is (decoded by the page), placed at their own frame size", () => {
+    const plan = planRender(project([clip("vid", "main", 3, 0, 2), text]), assets, opts, { t1: [drawing()] });
     const source = plan.sources.find((s) => s.clipId === "t1")!;
-    expect(source).toMatchObject({ still: true, width: 800, height: 200, first: 30, end: 90 });
-    expect(inputsOf(source.argv)).toEqual(["/tmp/t1.png"]);
+    expect(source).toMatchObject({ still: true, width: 800, height: 200, first: 30, end: 90, argv: [] });
+    expect(source.png!.toString()).toBe("png undefined");
     // The 800px drawing lands 400px wide (its frame at 100%), centred on the canvas.
     const [pic] = pictures(plan.frame(45));
     expect(pic.affine.map((v, i) => Math.round(v * (i % 2 ? 1920 : 1080)) || 0)).toEqual([400, 0, 0, 100, 340, 910]);
+  });
+
+  it("switch drawings where an animated look changes, each placed at its own size", () => {
+    const plan = planRender(project([text]), assets, opts, { t1: [drawing(), drawing(0.5, 500)] });
+    expect(plan.sources.map((s) => [s.first, s.end, s.png!.toString()])).toEqual([[30, 45, "png undefined"], [45, 90, "png 0.5"]]);
+    expect(pictures(plan.frame(44))[0].key).toBe("s0");
+    const [pic] = pictures(plan.frame(45));
+    expect(pic.key).toBe("s1");
+    expect(Math.round(pic.affine[0] * 1080)).toBe(500);
   });
 
   it("need their drawing", () => {
@@ -197,10 +207,34 @@ describe("text clips", () => {
   });
 
   it("can be a side of a transition", () => {
-    const plan = planRender(project([{ ...text, transitionIn: createTransition("cross-dissolve", 0.5) }]), assets, opts, { t1: drawn });
+    const plan = planRender(project([{ ...text, transitionIn: createTransition("cross-dissolve", 0.5) }]), assets, opts, { t1: [drawing()] });
     expect(plan.frame(0)).toEqual([]);
     const [layer] = plan.frame(31);
     expect(layer).toMatchObject({ kind: "transition", from: null, to: { key: "s0" } });
+  });
+});
+
+describe("animation", () => {
+  it("places every frame with its Motion and Opacity then", () => {
+    const moving = clip("photo", "main", 0, 0, 2);
+    moving.effects = moving.effects.map((e) =>
+      e.type === "motion"
+        ? { ...e, keyframes: { position: [{ time: 0, value: [0.25, 0.5], easing: "linear" }, { time: 1, value: [0.75, 0.5], easing: "linear" }] } }
+        : e.type === "opacity"
+          ? { ...e, keyframes: { opacity: [{ time: 0, value: 0, easing: "linear" }, { time: 1, value: 1, easing: "hold" }] } }
+          : e,
+    );
+    const plan = planRender(project([moving]), assets, opts);
+    const at = (f: number) => pictures(plan.frame(f))[0];
+    expect(at(0).opacity).toBeLessThan(0.01);
+    const centreX = (f: number) => {
+      const [a, , c, , e] = at(f).affine;
+      return (e + (a + c) / 2) * 1080;
+    };
+    expect(centreX(15)).toBeCloseTo(540, 0);
+    expect(at(15).opacity).toBeCloseTo(0.5, 2);
+    expect(centreX(30)).toBeCloseTo(810, 0);
+    expect(at(45).opacity).toBe(1);
   });
 });
 
@@ -241,6 +275,27 @@ describe("audioArgs", () => {
     const graph = graphOf(audioArgs(p, assets, out));
     expect(graph.find((f) => f.endsWith("[m0]"))).toContain("volume=0.25");
     expect(graph.find((f) => f.endsWith("[m1]"))).not.toContain("volume=");
+  });
+
+  it("follows animated volume with an exact curve of the clip's time", () => {
+    const loud = clip("vid", "main", 2, 4, 8);
+    const levels: Keyframe[] = [
+      { time: 5, value: 0, easing: "linear" },
+      { time: 6, value: 1, easing: "ease" },
+      { time: 7, value: 0.5, easing: "hold" },
+      { time: 7.5, value: 0.2, easing: "linear" },
+    ];
+    loud.effects = loud.effects.map((e) => (e.type === "volume" ? { ...e, keyframes: { level: levels } } : e));
+    const graph = graphOf(audioArgs(project([loud]), assets, out));
+    const chain = graph.find((f) => f.endsWith("[m0]"))!;
+    const expr = /volume=volume='([^']+)':eval=frame/.exec(chain)![1];
+    expect(chain).toContain("asetnsamples=n=64:p=0,volume=");
+    // Evaluate it like ffmpeg would (t: seconds since the clip's in-point, 4).
+    const evaluate = new Function("t", "if_", "lt", `return ${expr.replace(/\bif\(/g, "if_(")};`) as (
+      t: number, if_: (c: number, a: number, b: number) => number, lt: (a: number, b: number) => number) => number;
+    for (const s of [4, 5, 5.25, 5.5, 6, 6.3, 6.9, 7.2, 7.5, 8]) {
+      expect(evaluate(s - 4, (c, a, b) => (c ? a : b), (a, b) => Number(a < b))).toBeCloseTo(keyframeValue(levels, s) as number, 5);
+    }
   });
 
   it("is silence for a timeline without sound", () => {

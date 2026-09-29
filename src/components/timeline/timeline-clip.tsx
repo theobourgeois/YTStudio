@@ -2,6 +2,7 @@ import { memo, type PointerEvent as ReactPointerEvent } from "react";
 import { PiTextT, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
 import { isTextClip } from "@shared/effects";
+import { keyframeTimes, timelineTime } from "@shared/animation";
 import { clipDuration, clipName } from "@shared/timeline";
 import { cn } from "cn";
 import { useLayout } from "@/stores/layout";
@@ -69,6 +70,7 @@ export const TimelineClip = memo(function TimelineClip({
           <ClipContent asset={asset} clip={clip} audioLane={audioLane} left={left} width={width} height={height} zoom={zoom} />
         )}
         {width >= 26 && <ClipLabel offline={offline} text={text} name={clipName(clip, asset)} />}
+        <ClipKeyframes clip={clip} zoom={zoom} />
       </div>
       {selected && !placeholder && (
         <div className="pointer-events-none absolute -inset-px rounded-md ring-2 ring-foreground" />
@@ -141,6 +143,25 @@ function ClipContent({
     );
   }
   return asset.poster ? <PosterStrip poster={asset.poster} /> : null;
+}
+
+/** A mark at each of the clip's keyframes (any property), along its bottom edge. */
+function ClipKeyframes({ clip, zoom }: { clip: Clip; zoom: number }) {
+  const times = keyframeTimes(clip)
+    .map((s) => timelineTime(clip, s) - clip.start)
+    .filter((t) => t >= -1e-6 && t <= clipDuration(clip) + 1e-6);
+  if (times.length === 0) return null;
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0.5 h-2" data-clip-keyframes={times.length}>
+      {times.map((t) => (
+        <div
+          key={t}
+          className="absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[1px] bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.55)]"
+          style={{ left: Math.max(3, Math.min(t * zoom, clipDuration(clip) * zoom - 3)) }}
+        />
+      ))}
+    </div>
+  );
 }
 
 function ClipLabel({ offline, text, name }: { offline: boolean; text: boolean; name: string }) {

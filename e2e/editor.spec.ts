@@ -464,6 +464,66 @@ test("imports an image and transforms it in the properties panel and on the canv
   expect(await motion()).toMatchObject({ scale: 1, scaleWidth: 1, uniformScale: true, position: [0.5, 0.5] });
 });
 
+test("animates a property with keyframes and edits them in the Effect Controls' lanes", async ({ page }) => {
+  await page.goto("/");
+  const media = await page.evaluate(() => fetch(`/api/media?projectId=${location.pathname.split("/").pop()}`).then((r) => r.json()));
+  const stickerId = (media as { id: string; name: string }[]).find((a) => a.name === "sticker-800.png")!.id;
+  const clipId = ((await savedProject(page)).clips as (SavedClip & { assetId: string })[]).find((c) => c.assetId === stickerId)!.id;
+  type Keys = { time: number; value: number; easing: string }[];
+  const opacityKeys = async () =>
+    ((await savedProject(page)).clips as { id: string; effects: { type: string; keyframes?: Record<string, Keys> }[] }[])
+      .find((c) => c.id === clipId)!.effects.find((e) => e.type === "opacity")!.keyframes?.opacity ?? [];
+
+  // Select the image and park the playhead a fifth of the way in.
+  await page.getByRole("button", { name: "Zoom to fit" }).click();
+  const clip = page.locator(`[data-clip-id="${clipId}"]`);
+  const box = (await clip.boundingBox())!;
+  const lanes = (await page.locator("[data-timeline-lanes]").boundingBox())!;
+  await clip.click({ position: { x: box.width / 2, y: 10 } });
+  await page.mouse.click(box.x + box.width * 0.2, lanes.y - 10);
+  await page.getByRole("tab", { name: "Properties" }).click();
+
+  // The stopwatch starts animating; changing the value later on adds a keyframe there.
+  await page.getByRole("button", { name: "Animate Opacity" }).click();
+  await expect.poll(async () => (await opacityKeys()).map((k) => k.value)).toEqual([1]);
+  await page.mouse.click(box.x + box.width * 0.7, lanes.y - 10);
+  await page.getByRole("spinbutton", { name: "Opacity", exact: true }).click();
+  await page.keyboard.type("20");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await opacityKeys()).map((k) => k.value)).toEqual([1, 0.2]);
+  await expect(clip.locator("[data-clip-keyframes]")).toHaveAttribute("data-clip-keyframes", "2");
+
+  // The navigator jumps back to the first keyframe (and is then on it).
+  await page.getByRole("button", { name: "Previous Opacity keyframe" }).click();
+  await expect(page.getByRole("button", { name: "Remove Opacity keyframe" })).toBeVisible();
+
+  // The lanes: an interpolation from the keyframe's menu, then drag one along.
+  await page.getByRole("button", { name: "Show keyframes" }).click();
+  const diamonds = page.getByRole("group", { name: "Opacity keyframes", exact: true }).locator("[data-refs]");
+  await expect(diamonds).toHaveCount(2);
+  await diamonds.first().click({ button: "right" });
+  await page.getByRole("menuitemradio", { name: "Ease Out" }).click();
+  await expect.poll(async () => (await opacityKeys()).map((k) => k.easing)).toEqual(["ease-out", "linear"]);
+  const before = (await opacityKeys())[1].time;
+  const second = (await diamonds.nth(1).boundingBox())!;
+  const at = { x: second.x + second.width / 2, y: second.y + second.height / 2 };
+  await drag(page, at, { x: at.x - 30, y: at.y });
+  await expect.poll(async () => (await opacityKeys())[1].time).toBeLessThan(before - 0.1);
+
+  // ⌫ deletes the selected keyframe (not the clip); undo brings it back.
+  await diamonds.nth(1).click();
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await opacityKeys()).length).toBe(1);
+  await expect(clip).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await opacityKeys()).length).toBe(2);
+
+  // Turning the stopwatch off drops the keyframes and keeps the value showing.
+  await page.getByRole("button", { name: "Animate Opacity" }).click();
+  await expect.poll(async () => (await opacityKeys()).length).toBe(0);
+  await page.getByRole("button", { name: "Hide keyframes" }).click();
+});
+
 test("adds transitions from the library, edits them and previews them", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Transitions" }).click();

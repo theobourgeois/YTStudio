@@ -27,12 +27,13 @@
  *   with their own YCbCr matrix; the output is BT.709, tagged as such.
  */
 import type { Affine, Placed } from "../shared/compositor.ts";
-import { isTextClip, motionAt, opacityAt, volumeAt } from "../shared/effects.ts";
+import { VOLUME, findEffect, isTextClip, motionAt, opacityAt, volumeAt } from "../shared/effects.ts";
+import { easesIn, easesOut } from "../shared/keyframes.ts";
 import { type Shown, sceneAt, transitionWindows } from "../shared/scene.ts";
 import { TEXT_SOURCE_RANGE, clipDuration, clipEnd, projectDuration, sourceRange, trackClips } from "../shared/timeline.ts";
 import { type UniformValue, transitionShader, transitionUniforms } from "../shared/transition-gl.ts";
 import { type Size, frameCorners, placeClip, placementAffine } from "../shared/transform.ts";
-import type { Clip, MediaAsset, Project } from "../shared/types.ts";
+import type { Clip, Keyframe, MediaAsset, Project } from "../shared/types.ts";
 import { FFMPEG_QUIET } from "./ffmpeg.ts";
 import { run } from "./process.ts";
 
@@ -48,6 +49,10 @@ export type RenderAsset = Pick<MediaAsset, "kind" | "hasAudio" | "hasVideo" | "w
   frame?: Size;
   /** The video's YCbCr matrix as ffprobe names it (`color_space`), when known. */
   colorSpace?: string | null;
+  /** A drawn text: the PNG itself (`path` is unused). */
+  png?: Buffer;
+  /** A drawn text's drawing is shown from this source time on (the first one: from the start). */
+  from?: number;
 };
 
 export interface RenderOptions {
@@ -75,6 +80,8 @@ export interface RenderSource {
   height: number;
   /** A video's YCbCr matrix, as the luma weights of red and blue. */
   luma: [number, number] | null;
+  /** A drawn text's PNG, sent as it is (then `argv` is empty). */
+  png?: Buffer;
   argv: string[];
 }
 
@@ -129,8 +136,8 @@ export function planRender(
   project: Project,
   assets: Record<string, RenderAsset>,
   opts: RenderOptions,
-  /** Drawn text clips, by clip id. */
-  texts: Record<string, RenderAsset> = {},
+  /** Drawn text clips, by clip id: one drawing, or several over time for an animated text (see `RenderAsset.from`). */
+  texts: Record<string, RenderAsset[]> = {},
 ): RenderPlan {
   const { width: W, height: H, fps: F } = opts;
   const total = projectDuration(project);
@@ -138,16 +145,25 @@ export function planRender(
   const frames = frameAtFps(F)(total);
   const canvas = { width: W, height: H };
   const windows = transitionWindows(project);
-  const assetOf = (clip: Clip) => renderAssetOf(clip, assets, texts);
-  for (const clip of project.clips) assetOf(clip);
-  const range = (clip: Clip) => (isTextClip(clip) ? TEXT_SOURCE_RANGE : sourceRange(assetOf(clip)));
+  for (const clip of project.clips) renderAssetOf(clip, assets, texts);
+  const range = (clip: Clip) => (isTextClip(clip) ? TEXT_SOURCE_RANGE : sourceRange(renderAssetOf(clip, assets, texts)));
   const shotsAt = (f: number) => sceneAt(project, windows, frameTime(f, F), range);
 
+  /** The picture a clip shows at a moment: its media, or its text's drawing then. */
+  const pictureAt = ({ clip, time }: Shown): { id: string; asset: RenderAsset } => {
+    if (!isTextClip(clip)) return { id: clip.id, asset: renderAssetOf(clip, assets, texts) };
+    const drawings = texts[clip.id];
+    let i = 0;
+    while (i + 1 < drawings.length && (drawings[i + 1].from ?? -Infinity) <= time + 1e-9) i++;
+    return { id: `${clip.id}#${i}`, asset: drawings[i] };
+  };
+
   /** Where a clip is drawn at a moment, or null when none of it is visible. */
-  const draw = ({ clip, time }: Shown): Drawn | null => {
+  const draw = (shown: Shown): (Drawn & { id: string; asset: RenderAsset }) | null => {
+    const { clip, time } = shown;
     const opacity = opacityAt(clip, time);
     if (!(opacity > 0)) return null;
-    const asset = assetOf(clip);
+    const { id, asset } = pictureAt(shown);
     const media = mediaSize(asset, canvas);
     const p = placeClip(canvas, media, motionAt(clip, time), asset.frame);
     const corners = frameCorners(p);
@@ -156,20 +172,22 @@ export function planRender(
     const onCanvas = Math.max(...xs) > 0 && Math.min(...xs) < W && Math.max(...ys) > 0 && Math.min(...ys) < H;
     if (!onCanvas || !(Math.abs(p.scaleX) > 0 && Math.abs(p.scaleY) > 0)) return null;
     return {
+      id,
+      asset,
       affine: placementAffine(p, canvas) as Affine,
       opacity,
       density: [(p.width * Math.abs(p.scaleX)) / media.width, (p.height * Math.abs(p.scaleY)) / media.height],
     };
   };
 
-  // Every visible clip: the frames it's drawn in and the most detail it's ever drawn with.
-  const seen = new Map<string, { clip: Clip; first: number; end: number; density: [number, number] }>();
+  // Every visible picture: the frames it's drawn in and the most detail it's ever drawn with.
+  const seen = new Map<string, { clip: Clip; asset: RenderAsset; first: number; end: number; density: [number, number] }>();
   const see = (f: number, shown: Shown | null) => {
     const drawn = shown && draw(shown);
     if (!shown || !drawn) return;
-    const s = seen.get(shown.clip.id);
+    const s = seen.get(drawn.id);
     if (!s) {
-      seen.set(shown.clip.id, { clip: shown.clip, first: f, end: f + 1, density: [...drawn.density] });
+      seen.set(drawn.id, { clip: shown.clip, asset: drawn.asset, first: f, end: f + 1, density: [...drawn.density] });
       return;
     }
     s.end = f + 1;
@@ -189,23 +207,25 @@ export function planRender(
   }
 
   const keys = new Map<string, string>();
-  const sources = [...seen.values()]
-    .sort((a, b) => a.first - b.first)
-    .map(({ clip, first, end, density }, i): RenderSource => {
+  const sources = [...seen.entries()]
+    .sort(([, a], [, b]) => a.first - b.first)
+    .map(([id, { clip, asset, first, end, density }], i): RenderSource => {
       const key = `s${i}`;
-      keys.set(clip.id, key);
-      const asset = assetOf(clip);
+      keys.set(id, key);
+      const base = { key, clipId: clip.id, first, end };
+      // A drawn text is sent as it is (already at the size it needs), for the page to decode.
+      if (asset.png) return { ...base, still: true, width: asset.width!, height: asset.height!, luma: null, png: asset.png, argv: [] };
       const media = mediaSize(asset, canvas);
       const still = asset.kind === "image";
-      // A drawn text is kept as drawn (it's already at the size it needs); YUV 4:2:0 needs even sizes.
+      // YUV 4:2:0 needs even sizes.
       const side = (length: number, d: number) => {
-        const n = Math.max(1, Math.min(MAX_PICTURE, Math.ceil(length * (asset.frame ? 1 : Math.min(1, d)) - 1e-6)));
+        const n = Math.max(1, Math.min(MAX_PICTURE, Math.ceil(length * Math.min(1, d) - 1e-6)));
         return still ? n : n + (n % 2);
       };
       const size = { width: side(media.width, density[0]), height: side(media.height, density[1]) };
-      if (still) return { key, clipId: clip.id, still, first, end, ...size, luma: null, argv: stillArgs(asset, size, opts) };
+      if (still) return { ...base, still, ...size, luma: null, argv: stillArgs(asset, size, opts) };
       const luma = lumaWeights(asset.colorSpace, asset.height);
-      return { key, clipId: clip.id, still, first, end, ...size, luma, argv: videoArgs(clip, asset, size, first, end, opts) };
+      return { ...base, still, ...size, luma, argv: videoArgs(clip, asset, size, first, end, opts) };
     });
 
   return {
@@ -218,7 +238,7 @@ export function planRender(
     frame(f) {
       const placed = (shown: Shown | null): Placed | null => {
         const drawn = shown && draw(shown);
-        const key = shown && keys.get(shown.clip.id);
+        const key = drawn && keys.get(drawn.id);
         return drawn && key ? { key, affine: drawn.affine, opacity: drawn.opacity } : null;
       };
       const layers: FrameLayer[] = [];
@@ -243,9 +263,10 @@ export function planRender(
   };
 }
 
-function renderAssetOf(clip: Clip, assets: Record<string, RenderAsset>, texts: Record<string, RenderAsset>): RenderAsset {
+/** A clip's media, or its (first) text drawing. */
+function renderAssetOf(clip: Clip, assets: Record<string, RenderAsset>, texts: Record<string, RenderAsset[]>): RenderAsset {
   const text = isTextClip(clip);
-  const asset = text ? texts[clip.id] : assets[clip.assetId];
+  const asset = text ? texts[clip.id]?.[0] : assets[clip.assetId];
   if (!asset) throw new Error(text ? `Missing text image for clip ${clip.id}.` : `Missing media for clip ${clip.id}.`);
   return asset;
 }
@@ -327,7 +348,7 @@ export function audioArgs(
   project: Project,
   assets: Record<string, RenderAsset>,
   opts: Pick<RenderOptions, "ffmpegPath"> & { outputPath: string },
-  texts: Record<string, RenderAsset> = {},
+  texts: Record<string, RenderAsset[]> = {},
 ): string[] {
   const total = projectDuration(project);
   if (!(total > 0)) throw new Error("Nothing to render: the timeline is empty.");
@@ -347,11 +368,18 @@ export function audioArgs(
       const index = mixInputs.length;
       inputs.push("-ss", sec(clip.in), "-t", sec(clipDuration(clip)), "-i", asset.path);
       // Resample, rebase to 0, apply gain, cut/pad to exactly its samples and delay to its start.
-      const volume = volumeAt(clip, clip.in);
+      const volume = findEffect(clip, VOLUME.type);
+      const levels = volume?.enabled ? volume.keyframes?.level : undefined;
+      const gain = levels?.length
+        ? // Animated: evaluated in short blocks so the level glides without steps.
+          ["asetnsamples=n=64:p=0", `volume=volume='${keyframeExpression(levels, clip.in)}':eval=frame`]
+        : volumeAt(clip, clip.in) !== 1
+          ? [`volume=${volumeAt(clip, clip.in)}`]
+          : [];
       const chain = [
         AUDIO_FORMAT,
         "asetpts=PTS-STARTPTS",
-        ...(volume !== 1 ? [`volume=${volume}`] : []),
+        ...gain,
         `apad=whole_len=${samples}`,
         `atrim=end_sample=${samples}`,
         `adelay=delays=${sampleAt(clip.start)}S:all=1`,
@@ -378,6 +406,32 @@ export function audioArgs(
 
 /** Bytes of one composited frame as the compositor hands it over (YUV 4:2:0, see `readYuv420`). */
 export const frameBytes = (plan: Pick<RenderPlan, "width" | "height">) => (plan.width * plan.height * 3) / 2;
+
+/**
+ * A number's keyframes as an ffmpeg expression of `t` (seconds since source
+ * time `offset`): the same curve as `keyframeValue`, piece by piece.
+ */
+export function keyframeExpression(keys: readonly Keyframe[], offset: number): string {
+  const n = (x: number) => String(Math.round(x * 1e6) / 1e6);
+  const value = (k: Keyframe) => n(k.value as number);
+  const at = (k: Keyframe) => n(k.time - offset);
+  let expr = value(keys[keys.length - 1]);
+  for (let i = keys.length - 2; i >= 0; i--) {
+    const [a, b] = [keys[i], keys[i + 1]];
+    let piece = value(a);
+    if (a.easing !== "hold" && b.value !== a.value) {
+      // easedProgress: 3(1-f)²f·y1 + 3(1-f)f²·y2 + f³.
+      const f = `((t-${at(a)})/${n(b.time - a.time)})`;
+      const g = `(1-${f})`;
+      const y1 = easesOut(a.easing) ? 0 : 1 / 3;
+      const y2 = easesIn(b.easing) ? 1 : 2 / 3;
+      const curve = `(${n(3 * y1)}*${g}*${g}*${f}+${n(3 * y2)}*${g}*${f}*${f}+${f}*${f}*${f})`;
+      piece = `${value(a)}+${n((b.value as number) - (a.value as number))}*${curve}`;
+    }
+    expr = `if(lt(t,${at(b)}),${piece},${expr})`;
+  }
+  return `if(lt(t,${at(keys[0])}),${value(keys[0])},${expr})`;
+}
 
 /**
  * The ffmpeg that encodes the composited frames (raw BT.709 YUV 4:2:0 on

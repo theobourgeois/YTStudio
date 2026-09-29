@@ -81,6 +81,26 @@ The **Properties** tab in the left panel shows the selected clip's effects, like
 Each effect has an **fx** switch to bypass it and a reset button. Images are placed like video. A new image clip is 5
 seconds long and can be trimmed to any length, and transparent PNGs show the layers underneath.
 
+### Keyframes
+
+Any number or point (position, scale, rotation, opacity, volume, text size, stroke...) can be animated, like in
+Premiere:
+
+- Click a property's **stopwatch** to animate it: that sets a keyframe at the playhead. From then on, changing the
+  value (in the panel, by dragging on the canvas, or with the volume slider) sets a keyframe at the playhead. Turning
+  the stopwatch off removes the keyframes and keeps the value showing.
+- The **◀ ◆ ▶** navigator next to an animated value jumps to the previous/next keyframe, or adds/removes one at the
+  playhead. `[` and `]` jump between all of the selected clip's keyframes.
+- **Show keyframes** (the ◆ button next to the clip's name) opens a timeline beside the properties: drag on its ruler
+  to move the playhead, click keyframes (⇧/⌘ to add) or drag a box around them, drag them in time (they snap to the
+  playhead, other keyframes and frames), double-click one to go to it, and press ⌫ to delete. An effect's own row
+  shows all of its keyframes.
+- Right-click a keyframe for its interpolation: **Linear**, **Ease In** (slows down into it), **Ease Out** (eases away
+  from it), **Ease In and Out** or **Hold** (keeps its value until the next keyframe).
+- Keyframed clips show marks on the timeline, and an animated position draws its motion path on the canvas.
+
+Keyframes stay on their frame of the media when a clip is moved, trimmed or split, and exports play them exactly.
+
 ## How it works
 
 - **`src/`** — React + Vite + Tailwind + shadcn/ui. The document lives in the zustand store `stores/editor.ts`
@@ -91,8 +111,8 @@ seconds long and can be trimmed to any length, and transparent PNGs show the lay
   stored or received project.
   - `effects.ts`: clip properties. A clip carries a list of effects; each effect definition is a list of typed
     parameter specs (`params.ts`: number, point, switch, choice, text, colour, font) that drive defaults, validation,
-    the properties panel and evaluation. Values can be keyframed in the data model (`keyframes.ts`, stored in
-    source-media time, with interpolation), but nothing creates keyframes yet. To add a property, add a spec (or a
+    the properties panel and evaluation. Numbers and points can be keyframed (`keyframes.ts`: stored in source-media
+    time, with Premiere-style interpolation; `animation.ts`: the edits). To add a property, add a spec (or a
     definition to `EFFECTS`), then draw it in `src/components/preview/engine.ts` and `server/render.ts`.
   - `compositor.ts`: the renderer. One WebGL 2 compositor draws every frame (clips placed by their motion and faded
     by their opacity, transitions mixed by their shaders), in the preview, the library thumbnails and the export.

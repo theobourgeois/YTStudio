@@ -550,6 +550,36 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     for (const id of ids) expect((await api(`/api/media/${id}`, { method: "DELETE" })).status).toBe(204);
   });
 
+  it("exports keyframed motion and volume frame by frame", async () => {
+    const key = (time: number, value: number | [number, number]) => ({ time, value, easing: "linear" as const });
+    const red = clip("red", "main", 0, 0, 2);
+    red.effects = red.effects.map((e) =>
+      e.type === "motion" ? { ...e, keyframes: { position: [key(0, [0.25, 0.5]), key(2, [0.75, 0.5])] }, params: { ...e.params, scale: 0.25 } } : e,
+    );
+    const tone = clip("tone", "audio_1", 0, 0, 2);
+    tone.effects = tone.effects.map((e) => (e.type === "volume" ? { ...e, keyframes: { level: [key(0, 0), key(2, 1)] } } : e));
+    const queued = (await (await sendJson("POST", "/api/exports", { project: projectWith([red, tone]), resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    const isRed = ([r, g, b]: number[]) => r > 200 && g < 60 && b < 60;
+    // The quarter-size red box (180 px wide) travels from x = 180 to 540 on the 720 px canvas.
+    expect(isRed(pixelAt(output, 0.25, 225, 640))).toBe(true);
+    expect(isRed(pixelAt(output, 0.25, 495, 640))).toBe(false);
+    expect(isRed(pixelAt(output, 1.75, 495, 640))).toBe(true);
+    expect(isRed(pixelAt(output, 1.75, 225, 640))).toBe(false);
+    // The tone fades in: its level follows the keyframes.
+    const rms = (from: number) => {
+      const raw = execFileSync(FFMPEG, ["-hide_banner", "-loglevel", "error", "-ss", String(from), "-t", "0.2", "-i", output, "-ac", "1", "-f", "f32le", "-"]);
+      const samples = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4);
+      return Math.sqrt(samples.reduce((sum, v) => sum + v * v, 0) / samples.length);
+    };
+    const [early, late] = [rms(0.2), rms(1.6)];
+    // The sine (amplitude 1/8) has an RMS of ~0.088 × the gain: ~0.15 at 0.3 s, ~0.85 at 1.7 s.
+    expect(late / early).toBeGreaterThan(4);
+    expect(late).toBeCloseTo(0.088 * 0.85, 2);
+  });
+
   it("exports without the audio tracks when asked", async () => {
     const project = projectWith([
       clip("landscape", "main", 0, 0, 2),

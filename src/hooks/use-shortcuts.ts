@@ -1,6 +1,9 @@
 import { useEffect } from "react";
-import { editPoints, projectDuration } from "@shared/timeline";
+import { adjacentKeyframe } from "@shared/animation";
+import { editPoints, getClip, projectDuration } from "@shared/timeline";
 import { DEFAULT_TRANSITION } from "@shared/transitions";
+import { deleteSelectedKeyframes } from "@/components/properties/keyframe-lanes";
+import { useKeyframeSelection } from "@/components/properties/keyframe-selection";
 import { timelineCommands } from "@/components/timeline/view-store";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
@@ -117,6 +120,14 @@ function run(action: ShortcutAction): boolean {
       if (Number.isFinite(target)) seekTo(target);
       return true;
     }
+    case "prevKeyframe":
+    case "nextKeyframe": {
+      const clip = getClip(editor.project, editor.selectedClipIds.at(-1) ?? "");
+      const target = clip && adjacentKeyframe(clip, playback.time, action === "prevKeyframe" ? -1 : 1, fps);
+      if (target === undefined || target === null) return false;
+      seekTo(target);
+      return true;
+    }
     case "seekStart":
       playback.seek(0);
       return true;
@@ -134,6 +145,8 @@ function run(action: ShortcutAction): boolean {
       return true;
     case "delete":
     case "rippleDelete":
+      // Keyframes selected in the Effect Controls go first (like Premiere).
+      if (action === "delete" && hasSelection && deleteSelectedKeyframes(editor.selectedClipIds.at(-1)!)) return true;
       if (!hasSelection && !hasGapOrTransition) return false;
       editor.deleteSelected(action === "rippleDelete");
       return true;
@@ -182,6 +195,10 @@ function run(action: ShortcutAction): boolean {
     case "deselect":
       if (useLayout.getState().tool !== "select") {
         useLayout.getState().setTool("select");
+        return true;
+      }
+      if (useKeyframeSelection.getState().refs.length) {
+        useKeyframeSelection.getState().clear();
         return true;
       }
       if (!hasSelection && !hasGapOrTransition) return false;
