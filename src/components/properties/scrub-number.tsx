@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { type NumberDisplay, formatShown, parseShown, roundShown } from "./display";
 
 /** Pixels the pointer must travel before a press becomes a scrub. */

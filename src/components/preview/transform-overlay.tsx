@@ -21,12 +21,14 @@ import {
   wrapDegrees,
 } from "@shared/transform";
 import { EditGesture } from "@/lib/edit-gesture";
-import { cn } from "@/lib/utils";
+import { cancelActiveDrag, startPointerDrag } from "@/lib/pointer-drag";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
 import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
 import { createText, editText, finishTextEditing, typeText, useTextEditing } from "@/stores/text-editing";
+import { DRAG_THRESHOLD_PX } from "@/components/timeline/constants";
 import { type OnCanvas, clipAtPoint, clipsOnCanvas, snapMove } from "./placement";
 
 type Mode =
@@ -35,8 +37,6 @@ type Mode =
   | { kind: "rotate" }
   | { kind: "anchor" };
 
-/** Pixels the pointer must travel before a press becomes a drag. */
-const DRAG_THRESHOLD = 3;
 const SNAP_PX = 6;
 const ROTATE_STEP = 15;
 
@@ -95,6 +95,15 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
     return [e.clientX - r.left, e.clientY - r.top];
   };
 
+  // A drag of this overlay's must not outlive it (its gesture would stay open).
+  const ownsDrag = useRef(false);
+  useEffect(
+    () => () => {
+      if (ownsDrag.current) cancelActiveDrag();
+    },
+    [],
+  );
+
   const startDrag = (e: ReactPointerEvent, target: OnCanvas, mode: Mode, cursor: string) => {
     e.stopPropagation();
     e.preventDefault();
@@ -105,23 +114,13 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
     const start = pointAt(e);
     const uniform = findEffect(clip, MOTION.type)?.params.uniformScale !== false;
     const gesture = new EditGesture();
-    let started = false;
     let prevAngle = angleAround([p0.x, p0.y], start);
     let turned = 0;
-    const prevCursor = document.body.style.cursor;
 
     const onMove = (ev: PointerEvent) => {
+      // Another edit ended the gesture (e.g. an upload landed); stop here.
+      if (!gesture.active) return cancelActiveDrag();
       const pt = pointAt(ev);
-      if (!started) {
-        if (Math.hypot(pt[0] - start[0], pt[1] - start[1]) < DRAG_THRESHOLD) return;
-        started = true;
-        gesture.begin();
-        document.body.style.cursor = cursor;
-        setDragging(true);
-      } else if (!gesture.active) {
-        // Another edit ended the gesture (e.g. an upload landed); stop here.
-        return finish(false);
-      }
       let patch: ParamValues;
       let nextGuides = { x: null as number | null, y: null as number | null };
       switch (mode.kind) {
@@ -169,31 +168,28 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
       setGuides(nextGuides);
     };
 
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key !== "Escape") return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      finish(true);
-    };
-
-    function finish(cancel: boolean) {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onCancel);
-      window.removeEventListener("keydown", onKey, true);
-      document.body.style.cursor = prevCursor;
+    const finish = () => {
+      ownsDrag.current = false;
       setGuides({ x: null, y: null });
       setDragging(false);
-      if (!started) return;
-      if (cancel) gesture.cancel();
-      else gesture.end();
-    }
-    const onUp = () => finish(false);
-    const onCancel = () => finish(true);
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onCancel);
-    window.addEventListener("keydown", onKey, true);
+    };
+    ownsDrag.current = startPointerDrag(e, {
+      threshold: DRAG_THRESHOLD_PX,
+      cursor,
+      onStart() {
+        gesture.begin();
+        setDragging(true);
+      },
+      onMove,
+      onEnd() {
+        finish();
+        gesture.end();
+      },
+      onCancel() {
+        finish();
+        gesture.cancel();
+      },
+    });
   };
 
   // A press on the canvas: drag the selected clip when it's under the pointer,

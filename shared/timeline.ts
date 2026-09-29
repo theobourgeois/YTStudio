@@ -3,8 +3,8 @@
  * returns a new one (or the same instance when nothing changed), so they are
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
-import { isTextClip, normalizeEffects, textStyleAt } from "./effects.ts";
-import { sanitizeTransition } from "./transitions.ts";
+import { isTextClip, textStyleAt } from "./effects.ts";
+import { EPS, clamp, even, roundTime } from "./math.ts";
 import type {
   AspectRatio,
   Clip,
@@ -15,18 +15,14 @@ import type {
   TrackKind,
 } from "./types.ts";
 
-/** Id of the first video track of every project (older projects' only one). */
+/** Id of the video track a new project starts with. */
 export const MAIN_TRACK_ID = "main";
+/** A new project's name, until it's renamed (or named after its first import). */
+export const DEFAULT_PROJECT_NAME = "Untitled";
 /** Shortest clip the editor allows (seconds). */
 export const MIN_CLIP_DURATION = 0.1;
 /** How long a new clip of a still image is (seconds), like Premiere's default. */
 export const STILL_DURATION = 5;
-const EPS = 1e-6;
-
-/** Round to microseconds so repeated edits never accumulate float noise. */
-export const roundTime = (t: number) => Math.round(t * 1e6) / 1e6;
-
-const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 export function createId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
@@ -35,8 +31,8 @@ export function createId(prefix: string): string {
 export function createDefaultProject(): Project {
   return {
     version: 1,
-    name: "Untitled",
-    settings: { aspectRatio: "9:16", fps: 30, background: "#000000" },
+    name: DEFAULT_PROJECT_NAME,
+    settings: { aspectRatio: "9:16", fps: 30 },
     tracks: [
       { id: MAIN_TRACK_ID, kind: "video", name: "Video 1", muted: false },
       { id: "audio_1", kind: "audio", name: "Audio 1", muted: false },
@@ -115,6 +111,30 @@ export function sourceRange(asset: Pick<MediaAsset, "kind" | "duration">): { min
 
 /** A text clip has no media, so like a still it can be stretched either way. */
 export const TEXT_SOURCE_RANGE = { min: -Infinity, max: Infinity } as const;
+
+/**
+ * The source range a clip's in/out points must stay inside, given its media
+ * (`undefined` when that's offline: the clip keeps to what it already shows).
+ */
+export function clipSourceRange(
+  clip: Clip,
+  asset: Pick<MediaAsset, "kind" | "duration"> | undefined,
+): { min: number; max: number } {
+  if (isTextClip(clip)) return TEXT_SOURCE_RANGE;
+  return asset ? sourceRange(asset) : { min: clip.in, max: clip.out };
+}
+
+/** Keep source times this far before a clip's out-point so the frame shown belongs to the clip. */
+export const END_GUARD = 1e-3;
+
+/**
+ * Source-media time shown by `clip` at timeline time `t`, clamped into the
+ * clip. Keyframes and effect values are read at this time.
+ */
+export function sourceTime(clip: Clip, t: number): number {
+  const s = clip.in + (t - clip.start);
+  return Math.min(Math.max(s, clip.in), Math.max(clip.in, clip.out - END_GUARD));
+}
 
 /** Whether an asset may be placed on a track of the given kind. */
 export function canPlaceOnTrack(asset: Pick<MediaAsset, "hasVideo" | "hasAudio">, track: Pick<Track, "kind">) {
@@ -557,14 +577,14 @@ export function pasteClips(
 // Tracks
 // ---------------------------------------------------------------------------
 
-const KIND_LABEL: Record<TrackKind, string> = { video: "Video", audio: "Audio" };
+export const TRACK_KIND_LABEL: Record<TrackKind, string> = { video: "Video", audio: "Audio" };
 
 /** "Video 3": the lowest number not already used by a track of that kind. */
 function nextTrackName(project: Project, kind: TrackKind): string {
   const names = new Set(project.tracks.map((t) => t.name));
   let n = project.tracks.filter((t) => t.kind === kind).length + 1;
-  while (names.has(`${KIND_LABEL[kind]} ${n}`)) n++;
-  return `${KIND_LABEL[kind]} ${n}`;
+  while (names.has(`${TRACK_KIND_LABEL[kind]} ${n}`)) n++;
+  return `${TRACK_KIND_LABEL[kind]} ${n}`;
 }
 
 /**
@@ -584,10 +604,6 @@ export function addTrack(
   const tracks = [...project.tracks];
   tracks.splice(at, 0, track);
   return { project: { ...project, tracks }, trackId: track.id };
-}
-
-export function addAudioTrack(project: Project): { project: Project; trackId: string } {
-  return addTrack(project, "audio");
 }
 
 /** Remove a track and its clips. The last video track can't be removed. */
@@ -635,116 +651,29 @@ export function adjacentTrack(project: Project, trackId: string, dir: -1 | 1): T
 }
 
 // ---------------------------------------------------------------------------
-// Validation / normalisation (used on load and before export)
-// ---------------------------------------------------------------------------
-
-/** Clips saved before effects existed kept their volume and framing on the clip. */
-type LegacyClip = { volume?: unknown; fit?: unknown };
-
-/**
- * Repair a project from untrusted storage: guarantees at least one video
- * track, video tracks before audio tracks, drops invalid clips (unknown
- * track/asset, non-positive length, out of source range), validates effects
- * (upgrading clips saved before effects existed), clamps values and resolves
- * overlaps. Pass `assets` to also validate clips against their media.
- */
-export function normalizeProject(
-  input: Project,
-  assets?: Record<string, Pick<MediaAsset, "kind" | "duration" | "hasVideo" | "hasAudio">>,
-): Project {
-  const base = createDefaultProject();
-  const tracksIn = Array.isArray(input?.tracks) ? input.tracks : [];
-  const seen = new Set<string>();
-  const byKind: Record<TrackKind, Track[]> = { video: [], audio: [] };
-  for (const t of tracksIn) {
-    if (!t || typeof t.id !== "string" || seen.has(t.id)) continue;
-    if (t.kind !== "video" && t.kind !== "audio") continue;
-    seen.add(t.id);
-    byKind[t.kind].push({
-      id: t.id,
-      kind: t.kind,
-      name: String(t.name ?? KIND_LABEL[t.kind]),
-      muted: !!t.muted,
-    });
-  }
-  if (byKind.video.length === 0) byKind.video.push({ ...base.tracks[0] });
-  const tracks = [...byKind.video, ...byKind.audio];
-  const trackKind = new Map(tracks.map((t) => [t.id, t.kind]));
-
-  const clips: Clip[] = [];
-  const clipIds = new Set<string>();
-  for (const c of Array.isArray(input?.clips) ? input.clips : []) {
-    if (!c || typeof c.id !== "string" || clipIds.has(c.id)) continue;
-    const kind = trackKind.get(c.trackId);
-    if (!kind) continue;
-    const nums = [c.start, c.in, c.out];
-    if (!nums.every((n) => typeof n === "number" && Number.isFinite(n))) continue;
-    const effects = normalizeEffects(c.effects, Array.isArray(c.effects) ? undefined : (c as LegacyClip));
-    // Text has no media, and is only ever drawn on a video track.
-    const text = isTextClip({ effects });
-    if (text && kind !== "video") continue;
-    let out = c.out;
-    // Without the media, a negative in-point may still be a valid still-image clip.
-    let inPoint = c.in;
-    if (assets && !text) {
-      const a = assets[c.assetId];
-      if (!a || (kind === "video" ? !a.hasVideo : !a.hasAudio)) continue;
-      const range = sourceRange(a);
-      inPoint = Math.max(range.min, inPoint);
-      out = Math.min(out, range.max);
-    }
-    if (out - inPoint < MIN_CLIP_DURATION - EPS) continue;
-    clipIds.add(c.id);
-    const clip: Clip = {
-      id: c.id,
-      assetId: text ? "" : String(c.assetId),
-      trackId: c.trackId,
-      start: roundTime(Math.max(0, c.start)),
-      in: roundTime(inPoint),
-      out: roundTime(out),
-      effects,
-    };
-    // Only pictures have transitions.
-    const transitionIn = kind === "video" ? sanitizeTransition(c.transitionIn) : undefined;
-    const transitionOut = kind === "video" ? sanitizeTransition(c.transitionOut) : undefined;
-    if (transitionIn) clip.transitionIn = transitionIn;
-    if (transitionOut) clip.transitionOut = transitionOut;
-    clips.push(clip);
-  }
-
-  let project: Project = {
-    version: 1,
-    name: typeof input?.name === "string" && input.name ? input.name : base.name,
-    settings: {
-      aspectRatio: (["9:16", "16:9", "1:1", "4:5"] as const).includes(input?.settings?.aspectRatio)
-        ? input.settings.aspectRatio
-        : base.settings.aspectRatio,
-      fps: clamp(Math.round(Number(input?.settings?.fps) || base.settings.fps), 1, 120),
-      // There's no UI to pick a canvas colour any more; it's always black.
-      background: base.settings.background,
-    },
-    tracks,
-    clips: [],
-  };
-
-  // Re-insert clips one by one (in time order) so any overlaps get resolved.
-  for (const c of clips.sort((a, b) => a.start - b.start)) project = addClip(project, c);
-  return project;
-}
-
-// ---------------------------------------------------------------------------
 // Output geometry
 // ---------------------------------------------------------------------------
 
+/** Every aspect ratio a project can have. */
+export const ASPECT_RATIOS: readonly AspectRatio[] = ["9:16", "16:9", "1:1", "4:5"];
+
+/** An aspect ratio's two sides, e.g. [9, 16]. */
+export function aspectParts(aspect: AspectRatio): [number, number] {
+  const [a, b] = aspect.split(":").map(Number);
+  return [a, b];
+}
+
 const SHORT_SIDE: Record<ExportResolution, number> = { "720p": 720, "1080p": 1080, "4k": 2160 };
-const even = (n: number) => Math.round(n / 2) * 2;
+
+/** Every export resolution preset, smallest first. */
+export const EXPORT_RESOLUTIONS = Object.keys(SHORT_SIDE) as ExportResolution[];
 
 /** Pixel size of the rendered video for an aspect ratio and resolution preset. */
 export function outputSize(
   aspect: AspectRatio,
   resolution: ExportResolution,
 ): { width: number; height: number } {
-  const [a, b] = aspect.split(":").map(Number);
+  const [a, b] = aspectParts(aspect);
   const short = SHORT_SIDE[resolution];
   return a <= b
     ? { width: short, height: even((short * b) / a) }

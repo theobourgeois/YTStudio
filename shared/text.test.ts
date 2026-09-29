@@ -5,13 +5,14 @@ import {
   TEXT,
   isTextClip,
   normalizeEffects,
-  sanitizeValue,
   setEffectEnabled,
   setParams,
   textEffects,
   textStyleAt,
 } from "./effects.ts";
-import { MAIN_TRACK_ID, addTextClip, clipName, createDefaultProject, normalizeProject } from "./timeline.ts";
+import { sanitizeValue } from "./params.ts";
+import { MAIN_TRACK_ID, addTextClip, clipName, createDefaultProject } from "./timeline.ts";
+import { normalizeProject } from "./normalize.ts";
 
 const textClip = (id: string, start = 0, trackId = MAIN_TRACK_ID): Clip => ({
   id, assetId: "", trackId, start, in: 0, out: 5, effects: textEffects({ text: "Hi" }),

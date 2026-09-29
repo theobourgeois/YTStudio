@@ -3,7 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { WaveformData } from "../shared/types.ts";
 import { FFMPEG } from "./config.ts";
-import { run } from "./ffmpeg.ts";
+import { FFMPEG_QUIET } from "./ffmpeg.ts";
+import { run } from "./process.ts";
 import { createLimiter } from "./queue.ts";
 import { writeJson } from "./storage.ts";
 
@@ -15,7 +16,7 @@ const FRAME_CONCURRENCY = 3;
 const PEAKS_PER_SECOND = 50;
 const WAVEFORM_SAMPLE_RATE = 16_000;
 
-const BASE_ARGS = ["-hide_banner", "-nostdin", "-loglevel", "error", "-y"];
+const BASE_ARGS = [...FFMPEG_QUIET, "-y"];
 const seconds = (t: number) => Math.max(0, t).toFixed(3);
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
@@ -51,7 +52,6 @@ async function extractFrame(
   return exists(out);
 }
 
-/** Poster frame ~10% in (at most 1s), scaled to ~320px wide. */
 /** Thumbnail of a still image, scaled to ~320px wide. Write a PNG to keep its transparency. */
 export async function makeStillPoster(src: string, out: string): Promise<void> {
   if (!(await extractFrame(src, out, null, `scale=${POSTER_WIDTH}:-2`))) {
@@ -59,6 +59,7 @@ export async function makeStillPoster(src: string, out: string): Promise<void> {
   }
 }
 
+/** Poster frame ~10% in (at most 1s), scaled to ~320px wide. */
 export async function makePoster(src: string, out: string, duration: number): Promise<void> {
   const scale = `scale=${POSTER_WIDTH}:-2`;
   const ok =

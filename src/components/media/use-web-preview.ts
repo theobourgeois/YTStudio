@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { WebClip } from "@shared/types";
-import { ApiRequestError, api, errorMessage } from "@/lib/api";
+import { errorMessage } from "@shared/errors";
+import { api } from "@/lib/api";
 import { usePlayback } from "@/stores/playback";
 
 export type PreviewStatus = "loading" | "playing" | "paused";
@@ -58,7 +59,7 @@ export function useWebPreview(): WebPreview {
         if (status === "loading") stop();
         else if (el.paused) {
           usePlayback.getState().pause();
-          void el.play();
+          el.play().catch(() => {});
         } else el.pause();
         return;
       }
@@ -70,9 +71,7 @@ export function useWebPreview(): WebPreview {
       setStatus("loading");
       void (async () => {
         try {
-          const res = await fetch(api.webAudioUrl(clip.url), { signal: controller.signal });
-          if (!res.ok) throw new ApiRequestError(await errorMessage(res), res.status);
-          const blobUrl = URL.createObjectURL(await res.blob());
+          const blobUrl = URL.createObjectURL(await api.webAudio(clip.url, controller.signal));
           if (controller.signal.aborted) return URL.revokeObjectURL(blobUrl);
           objectUrl.current = blobUrl;
           el.src = blobUrl;
@@ -81,7 +80,7 @@ export function useWebPreview(): WebPreview {
           if (controller.signal.aborted) return;
           stop();
           toast.error(`Couldn't play “${clip.title}”`, {
-            description: err instanceof Error ? err.message : String(err),
+            description: errorMessage(err),
           });
         }
       })();

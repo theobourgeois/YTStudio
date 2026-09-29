@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { PiCloudSlash, PiFilmSlate } from "react-icons/pi";
-import { cn } from "@/lib/utils";
+import { videoTracks } from "@shared/timeline";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
-import { fitRect, isLightColor } from "./canvas";
+import { fitRect } from "./canvas";
 import { PreviewEngine } from "./engine";
 import { TransformOverlay } from "./transform-overlay";
 
 /** The letterboxed canvas with the media elements the engine drives. */
 export function Stage() {
   const aspectRatio = useEditor((s) => s.project.settings.aspectRatio);
-  const background = useEditor((s) => s.project.settings.background);
   const isEmpty = useEditor((s) => s.project.clips.length === 0);
   const audioClipIds = useEditor(
     useShallow((s) => {
@@ -21,7 +20,7 @@ export function Stage() {
   );
   // Video track ids, bottom layer first.
   const videoTrackIds = useEditor(
-    useShallow((s) => s.project.tracks.filter((t) => t.kind === "video").map((t) => t.id).reverse()),
+    useShallow((s) => videoTracks(s.project).map((t) => t.id).reverse()),
   );
   // Stable DOM order (moving a media element in the DOM can pause it); layering is by z-index.
   const domOrder = [...videoTrackIds].sort();
@@ -47,7 +46,6 @@ export function Stage() {
     return () => observer.disconnect();
   }, []);
   const size = fitRect(area.width, area.height, aspectRatio);
-  const light = isLightColor(background);
   useLayoutEffect(() => engine.setCanvasSize(size), [engine, size.width, size.height]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -64,8 +62,7 @@ export function Stage() {
       <div className="relative" style={size}>
       <div
         data-slot="canvas"
-        className="absolute inset-0 isolate overflow-hidden rounded-lg shadow-xl ring-1 shadow-black/20 ring-black/10 dark:ring-white/10"
-        style={{ background }}
+        className="absolute inset-0 isolate overflow-hidden rounded-lg bg-black shadow-xl ring-1 shadow-black/20 ring-black/10 dark:ring-white/10"
       >
         {domOrder.map((trackId) => (
           <VideoLayer key={trackId} trackId={trackId} layer={videoTrackIds.indexOf(trackId)} engine={engine} />
@@ -75,18 +72,8 @@ export function Stage() {
         ))}
 
         {isEmpty && (
-          <div
-            className={cn(
-              "absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 px-6 text-center",
-              light ? "text-black/55" : "text-white/60",
-            )}
-          >
-            <div
-              className={cn(
-                "flex size-11 items-center justify-center rounded-full",
-                light ? "bg-black/5" : "bg-white/8",
-              )}
-            >
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 px-6 text-center text-white/60">
+            <div className="flex size-11 items-center justify-center rounded-full bg-white/8">
               <PiFilmSlate className="size-5" />
             </div>
             <p className="max-w-52 text-xs leading-relaxed text-balance">

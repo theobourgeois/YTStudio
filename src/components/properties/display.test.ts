@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MOTION, OPACITY, type NumberSpec, type Vec2Spec, paramSpec } from "@shared/effects";
+import { MOTION, OPACITY, paramSpec } from "@shared/effects";
+import type { NumberSpec, Vec2Spec } from "@shared/params";
 import { formatShown, fromDisplay, numberDisplay, parseShown, toDisplay } from "./display";
 
 const ctx = { canvas: { width: 1080, height: 1920 }, media: { width: 4000, height: 3000 } };

@@ -1,8 +1,7 @@
 /** Distortions: ripples, swirls and warps. */
 import type { TransitionDefinition } from "../transitions.ts";
+import { directionParam } from "./common.ts";
 
-/** Mirrored repeat: coordinates pushed past an edge show the picture's reflection instead of a gap. */
-const MIRRORED = `vec2 mirrored(vec2 p) { return 1.0 - abs(1.0 - mod(p, 2.0)); }`;
 
 export const DISTORTIONS: TransitionDefinition[] = [
   {
@@ -46,7 +45,6 @@ vec4 transition(vec2 uv) {
       { kind: "boolean", key: "clockwise", label: "Clockwise", default: true },
     ],
     glsl: `
-${MIRRORED}
 // Twisted by "twist" radians at the centre (none at the edge) and drawn in towards it, blurred along the turn.
 vec4 twirled(vec2 uv, float twist, float spread, float pull, bool incoming) {
   vec2 q = aspect(uv);
@@ -83,18 +81,7 @@ vec4 transition(vec2 uv) {
     tags: ["distort", "slide"],
     duration: 0.6,
     params: [
-      {
-        kind: "choice",
-        key: "direction",
-        label: "Direction",
-        default: "left",
-        options: [
-          { value: "left", label: "Left" },
-          { value: "right", label: "Right" },
-          { value: "up", label: "Up" },
-          { value: "down", label: "Down" },
-        ],
-      },
+      directionParam(),
     ],
     glsl: `
 // A and B sit end to end on a strip that shoots across in "direction", stretched
@@ -160,7 +147,6 @@ vec4 transition(vec2 uv) {
       { kind: "number", key: "segments", label: "Segments", default: 6, min: 2, max: 16, step: 1, decimals: 0 },
     ],
     glsl: `
-${MIRRORED}
 // The picture folded into mirrored wedges around the centre, turned by "angle".
 vec4 folded(vec2 uv, float angle, float z, bool incoming) {
   vec2 q = aspect(uv) / z;

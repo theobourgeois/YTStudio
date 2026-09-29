@@ -23,7 +23,8 @@ import type { TransitionDefinition } from "./transitions.ts";
  *   `hash`/`hash2` (random 0..1), `noise` (smooth value noise), `fbm`
  *   (layered noise), `rot` (2D rotation), `luma`, `inside(uv)`,
  *   `dirVec(direction)` (0 left, 1 right, 2 up, 3 down), `toUv` (a point
- *   parameter to uv), `aspect(uv)` (uv around the centre in square units).
+ *   parameter to uv), `aspect(uv)` (uv around the centre in square units),
+ *   `mirrored(uv)` (repeats the picture as reflections past its edges).
  *
  * The result must be premultiplied (rgb never above alpha); it's clamped.
  */
@@ -76,6 +77,7 @@ float luma(vec4 c) { return dot(c.rgb, vec3(0.2126, 0.7152, 0.0722)); }
 vec2 dirVec(int d) { return d == 0 ? vec2(-1.0, 0.0) : d == 1 ? vec2(1.0, 0.0) : d == 2 ? vec2(0.0, 1.0) : vec2(0.0, -1.0); }
 vec2 toUv(vec2 p) { return vec2(p.x, 1.0 - p.y); }
 vec2 aspect(vec2 uv) { return (uv - 0.5) * vec2(ratio, 1.0); }
+vec2 mirrored(vec2 p) { return 1.0 - abs(1.0 - mod(p, 2.0)); }
 `;
 
 const MAIN = `

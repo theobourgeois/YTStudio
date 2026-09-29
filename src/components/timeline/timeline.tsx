@@ -10,11 +10,11 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { projectDuration } from "@shared/timeline";
 import { MAX_ZOOM, MIN_ZOOM, useEditor } from "@/stores/editor";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { PANEL_DEFAULT_HEIGHT, PANEL_MAX_FRACTION, PANEL_MIN_HEIGHT } from "./constants";
 import { TimelineContext, type TimelineContextValue } from "./context";
 import { anchoredScrollLeft, fitZoom, type LaneLayout } from "./geometry";
-import { cancelActiveSession } from "./pointer-session";
+import { cancelActiveDrag } from "@/lib/pointer-drag";
 import { TimelineBody } from "./timeline-body";
 import { TimelineToolbar } from "./toolbar";
 import { setView, timelineCommands, useTimelineView } from "./view-store";
@@ -71,7 +71,7 @@ export function Timeline() {
   // Never leave a drag (and its uncommitted gesture) dangling.
   useEffect(
     () => () => {
-      cancelActiveSession();
+      cancelActiveDrag();
       setView({ dragClipIds: [], ghosts: [], marquee: null, snapGuide: null, drop: null, scrubbing: false });
     },
     [],

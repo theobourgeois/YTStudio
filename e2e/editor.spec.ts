@@ -378,7 +378,7 @@ test("imports an image and transforms it in the properties panel and on the canv
   const card = page.locator("[draggable=true]").filter({ hasText: "sticker-800" });
   await expect(card).toBeVisible();
   const before = new Set(((await savedProject(page)).clips as SavedClip[]).map((c) => c.id));
-  // Double-click appends it to the main track (and selects it).
+  // Double-click appends it to the bottom video track (and selects it).
   await card.dblclick();
   await expect.poll(async () => ((await savedProject(page)).clips as SavedClip[]).length).toBe(before.size + 1);
   const image = ((await savedProject(page)).clips as SavedClip[]).find((c) => !before.has(c.id))!;

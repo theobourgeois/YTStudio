@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { useProjects } from "@/stores/projects";
 import { DeleteProjectDialog } from "./delete-project-dialog";

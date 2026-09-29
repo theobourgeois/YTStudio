@@ -1,13 +1,9 @@
 import fs from "node:fs/promises";
-import {
-  createId,
-  normalizeProject,
-  outputSize,
-  projectDuration,
-  withoutAudioTracks,
-} from "../shared/timeline.ts";
+import { EXPORT_RESOLUTIONS, createId, outputSize, projectDuration, withoutAudioTracks } from "../shared/timeline.ts";
 import { isTextClip } from "../shared/effects.ts";
 import type { ExportJob, ExportRequest, ExportResolution, Project } from "../shared/types.ts";
+import { errorMessage } from "../shared/errors.ts";
+import { normalizeProject } from "../shared/normalize.ts";
 import { FFMPEG } from "./config.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import type { MediaLibrary } from "./media.ts";
@@ -15,8 +11,6 @@ import { createLimiter } from "./queue.ts";
 import { type RenderAsset, buildRenderArgs, planTransitions, runRender } from "./render.ts";
 import { renderTransitions } from "./transition-render.ts";
 import { type DataPaths, HttpError, isValidId } from "./storage.ts";
-
-const RESOLUTIONS: readonly ExportResolution[] = ["720p", "1080p", "4k"];
 
 interface JobState {
   job: ExportJob;
@@ -77,8 +71,8 @@ export class ExportManager {
     if (!req || typeof req !== "object" || !req.project || typeof req.project !== "object") {
       throw new HttpError(400, "Expected { project, resolution }.");
     }
-    if (!RESOLUTIONS.includes(req.resolution as ExportResolution)) {
-      throw new HttpError(400, `Resolution must be one of ${RESOLUTIONS.join(", ")}.`);
+    if (!EXPORT_RESOLUTIONS.includes(req.resolution as ExportResolution)) {
+      throw new HttpError(400, `Resolution must be one of ${EXPORT_RESOLUTIONS.join(", ")}.`);
     }
     if (!(await ffmpegVersion())) throw new HttpError(503, "ffmpeg isn't installed, so exporting is unavailable.");
 
@@ -194,6 +188,11 @@ export class ExportManager {
       const argv = buildRenderArgs(project, assets, { ...opts, outputPath: tmp, transitions: transitionFiles }, drawn);
       await runRender(argv, job.duration, (p) => (job.progress = share + (1 - share) * p), controller.signal);
       await fs.rename(tmp, this.paths.exportFile(job.id));
+      // Cancelled while the file was being moved: the job stays cancelled.
+      if (controller.signal.aborted) {
+        await fs.rm(this.paths.exportFile(job.id), { force: true });
+        return;
+      }
       Object.assign(job, {
         status: "done",
         progress: 1,
@@ -204,7 +203,7 @@ export class ExportManager {
       await fs.rm(tmp, { force: true });
       if (controller.signal.aborted) return; // cancelled (status already set) or shutting down
       job.status = "error";
-      job.error = `Export failed: ${err instanceof Error ? err.message : String(err)}`;
+      job.error = `Export failed: ${errorMessage(err)}`;
       console.error(`[export] ${job.id} failed: ${job.error}`);
     } finally {
       await Promise.all([...textFiles, ...Object.values(transitionFiles)].map((f) => fs.rm(f, { force: true })));

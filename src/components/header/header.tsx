@@ -5,7 +5,7 @@ import { SidebarToggle } from "@/components/sidebar/sidebar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { SHORTCUT_LABELS } from "@/hooks/shortcuts";
+import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { useProjects } from "@/stores/projects";
@@ -28,14 +28,14 @@ export function Header() {
         <HistoryButton
           icon={PiArrowUUpLeft}
           label="Undo"
-          shortcut={SHORTCUT_LABELS.undo}
+          shortcut={SHORTCUT_KEYS.undo}
           disabled={!canUndo}
           onClick={() => useEditor.getState().undo()}
         />
         <HistoryButton
           icon={PiArrowUUpRight}
           label="Redo"
-          shortcut={SHORTCUT_LABELS.redo}
+          shortcut={SHORTCUT_KEYS.redo}
           disabled={!canRedo}
           onClick={() => useEditor.getState().redo()}
         />

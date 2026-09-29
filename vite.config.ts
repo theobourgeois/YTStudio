@@ -3,7 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-const SERVER_PORT = Number(process.env.EDITOR_SERVER_PORT ?? 5311);
+const SERVER_PORT = Number(process.env.EDITOR_SERVER_PORT) || 5311;
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -14,7 +14,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: Number(process.env.EDITOR_WEB_PORT ?? 5310),
+    port: Number(process.env.EDITOR_WEB_PORT) || 5310,
     strictPort: true,
     proxy: {
       "/api": `http://127.0.0.1:${SERVER_PORT}`,

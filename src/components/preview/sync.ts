@@ -4,12 +4,9 @@
  * `engine.ts` / `media-slot.ts`; everything here is deterministic and tested.
  */
 import type { Clip, Project } from "@shared/types";
-import { clipAtTime, clipEnd, getTrack, projectDuration, trackClips } from "@shared/timeline";
+import { END_GUARD, clipAtTime, clipEnd, getTrack, projectDuration, sourceTime, trackClips } from "@shared/timeline";
 import { type TransitionWindow, transitionAt, windowProgress } from "@shared/transition-windows";
-
-/** Keep seeks this far before a clip's out-point so the frame shown belongs to the clip. */
-const END_GUARD = 1e-3;
-const EPS = 1e-6;
+import { EPS } from "@shared/math";
 
 /** Drift (seconds) beyond which a playing element is re-seeked instead of nudged. */
 export const SEEK_DRIFT = 0.25;
@@ -17,12 +14,6 @@ export const SEEK_DRIFT = 0.25;
 const NUDGE_DRIFT = 0.03;
 /** Maximum playback-rate deviation used to converge small drift. */
 const MAX_NUDGE = 0.08;
-
-/** Source-media time shown by `clip` at timeline time `t`, clamped into the clip. */
-export function sourceTime(clip: Clip, t: number): number {
-  const s = clip.in + (t - clip.start);
-  return Math.min(Math.max(s, clip.in), Math.max(clip.in, clip.out - END_GUARD));
-}
 
 export interface TrackPlan {
   /** The clip on screen on this video track, with the source time it should show. */

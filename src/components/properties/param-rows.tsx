@@ -1,18 +1,18 @@
 /**
- * One row per parameter, rendered from its spec, so any effect (or anything
- * else with `ParamSpec`s, like transitions later) gets a panel for free.
+ * One row per parameter, rendered from its spec, so anything with
+ * `ParamSpec`s (effects, transitions) gets a panel for free.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { PiArrowCounterClockwise } from "react-icons/pi";
 import type { ParamValue, ParamValues, Project, Vec2 } from "@shared/types";
-import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type ParamSpec, type Vec2Spec, sameValue } from "@shared/effects";
+import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type ParamSpec, type Vec2Spec, sameValue } from "@shared/params";
 import { ColorControl, FontControl, FontStyleControl, TextControl } from "./text-controls";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EditGesture } from "@/lib/edit-gesture";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { type DisplayContext, fromDisplay, numberDisplay, roundShown, toDisplay } from "./display";
 import { ScrubNumber } from "./scrub-number";
 

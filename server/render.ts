@@ -1,8 +1,8 @@
 /**
  * Project -> ffmpeg command. Must match the web preview:
  *
- * - The canvas is the background colour. Video tracks are layered on top of
- *   it, bottom track first, so the first track in `project.tracks` ends up on
+ * - The canvas is black. Video tracks are layered on top of it, bottom track
+ *   first, so the first track in `project.tracks` ends up on
  *   top. Each clip is placed by its Motion (`shared/transform.ts`), faded by
  *   its Opacity and padded with transparency, so lower layers (or the
  *   background) show around it.
@@ -30,7 +30,8 @@ import { clipDuration, clipEnd, projectDuration, sourceRange, trackClips } from 
 import { type TransitionWindow, trackTransitions, windowProgress } from "../shared/transition-windows.ts";
 import { type Placement, type Size, placeClip, toCanvas, toFrame } from "../shared/transform.ts";
 import type { Clip, MediaAsset, Project } from "../shared/types.ts";
-import { run } from "./ffmpeg.ts";
+import { FFMPEG_QUIET } from "./ffmpeg.ts";
+import { run } from "./process.ts";
 
 export const SAMPLE_RATE = 48_000;
 const AUDIO_FORMAT = `aformat=sample_fmts=fltp:sample_rates=${SAMPLE_RATE}:channel_layouts=stereo`;
@@ -70,7 +71,6 @@ export function buildRenderArgs(
   const total = projectDuration(project);
   if (!(total > 0)) throw new Error("Nothing to render: the timeline is empty.");
 
-  const background = project.settings.background.replace("#", "0x");
   const frameAt = frameAtFps(F);
   const sampleAt = (t: number) => Math.round(t * SAMPLE_RATE);
   /** Resample, rebase to 0, apply gain and cut/pad to exactly `samples`. */
@@ -119,7 +119,7 @@ export function buildRenderArgs(
 
   // --- Video ------------------------------------------------------------------
   const totalFrames = frameAt(total);
-  graph.push(`color=c=${background}:s=${W}x${H}:r=${F},setsar=1,format=yuv420p,trim=end_frame=${totalFrames}[bg]`);
+  graph.push(`color=c=black:s=${W}x${H}:r=${F},setsar=1,format=yuv420p,trim=end_frame=${totalFrames}[bg]`);
   let canvas = "[bg]";
   const layers = project.tracks.filter((t) => t.kind === "video").reverse();
   const canvasSize = { width: W, height: H };
@@ -220,7 +220,7 @@ export function buildRenderArgs(
   const crf = Math.min(W, H) <= 720 ? "23" : "20";
   return [
     opts.ffmpegPath ?? "ffmpeg",
-    "-hide_banner", "-nostdin", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
+    ...FFMPEG_QUIET, "-nostats", "-progress", "pipe:1",
     ...inputs,
     "-filter_complex", graph.join(";"),
     "-map", "[vout]", "-map", "[aout]", "-map_metadata", "-1",
@@ -426,7 +426,7 @@ export function planTransitions(
         }
         return [
           opts.ffmpegPath ?? "ffmpeg",
-          "-hide_banner", "-nostdin", "-loglevel", "error",
+          ...FFMPEG_QUIET,
           ...input, "-i", asset.path,
           "-vf", videoChain(placed.piece, placed.media, placed.opacity, W, H, F, frames, { holdFirst, rgba: true }),
           "-an", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1",

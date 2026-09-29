@@ -31,6 +31,7 @@ const EDITS = new Set<ShortcutAction>([
   "redo",
   "selectAll",
   "deselect",
+  "addTransition",
 ]);
 
 /** Global editor keyboard shortcuts (one window-level listener). */

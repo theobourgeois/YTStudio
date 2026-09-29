@@ -24,7 +24,7 @@ import { Slider } from "@/components/ui/slider";
 import { Toggle } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { MAX_ZOOM, MIN_ZOOM, useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { TOOLBAR_HEIGHT } from "./constants";

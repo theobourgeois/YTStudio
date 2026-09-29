@@ -4,7 +4,7 @@ import type { Track } from "@shared/types";
 import { removeTrack, setTrackMuted } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { HEADER_WIDTH, TOP_GUTTER } from "./constants";
 import type { LaneLayout } from "./geometry";

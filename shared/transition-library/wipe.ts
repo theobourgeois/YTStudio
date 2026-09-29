@@ -1,5 +1,5 @@
 /** Wipes and shapes: a moving edge reveals the next clip. */
-import type { NumberSpec } from "../effects.ts";
+import type { NumberSpec } from "../params.ts";
 import type { TransitionDefinition } from "../transitions.ts";
 
 const softness = (value: number): NumberSpec => ({

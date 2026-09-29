@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { defaultEffects, textEffects } from "../shared/effects.ts";
-import { createDefaultProject, normalizeProject } from "../shared/timeline.ts";
+import { createDefaultProject } from "../shared/timeline.ts";
 import { placeClip } from "../shared/transform.ts";
 import type { Clip, ParamValues, Project } from "../shared/types.ts";
 import { createTransition } from "../shared/transitions.ts";
+import { normalizeProject } from "../shared/normalize.ts";
 import { type RenderAsset, SAMPLE_RATE, buildRenderArgs, planPiece, planTransitions } from "./render.ts";
 
 const assets: Record<string, RenderAsset> = {
@@ -90,7 +91,7 @@ describe("buildRenderArgs", () => {
     );
     const argv = buildRenderArgs(p, assets, opts);
     const graph = graphOf(argv);
-    expect(graph[0]).toBe("color=c=0x000000:s=1080x1920:r=30,setsar=1,format=yuv420p,trim=end_frame=180[bg]");
+    expect(graph[0]).toBe("color=c=black:s=1080x1920:r=30,setsar=1,format=yuv420p,trim=end_frame=180[bg]");
     // Bottom track ("main") first: its clip then a gap to the end (6s).
     expect(graph).toContain("[c0_0][g0_1]concat=n=2:v=1:a=0[t0]");
     expect(graph.find((f) => f.endsWith("[g0_1]"))).toContain("trim=end_frame=120");

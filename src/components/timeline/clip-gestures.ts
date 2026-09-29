@@ -10,14 +10,13 @@ import {
   addTrack,
   canPlaceOnTrack,
   clipDuration,
+  clipSourceRange,
   clipEnd,
   createId,
   getClip,
   moveClips,
   pruneEmptyTrack,
   snapTime,
-  sourceRange,
-  TEXT_SOURCE_RANGE,
   trimClip,
 } from "@shared/timeline";
 import { isTextClip } from "@shared/effects";
@@ -227,13 +226,7 @@ export function startClipTrim(
       const base = useEditor.getState().gestureBase;
       const clip = base && getClip(base, clipId);
       if (!base || !clip) return;
-      const asset = s.getAsset(clip.assetId);
-      // Offline media: keep the clip within what it already shows.
-      source = isTextClip(clip)
-        ? TEXT_SOURCE_RANGE
-        : asset
-          ? sourceRange(asset)
-          : { min: Math.min(0, clip.in), max: clip.out };
+      source = clipSourceRange(clip, s.getAsset(clip.assetId));
       points = s.snapping ? trimSnapPoints(base, clipId, usePlayback.getState().time) : [];
     },
     onMove(p) {

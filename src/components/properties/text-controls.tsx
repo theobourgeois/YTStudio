@@ -2,10 +2,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PiCaretDown, PiCheck, PiMagnifyingGlass, PiWarning } from "react-icons/pi";
 import type { FontStyleInfo, ParamValues } from "@shared/types";
-import type { ColorSpec, FontSpec, FontStyleSpec, TextSpec } from "@shared/effects";
+import type { ColorSpec, FontSpec, FontStyleSpec, TextSpec } from "@shared/params";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { faceFromName, findFamily, resolveFace, useFonts } from "@/stores/fonts";
 import type { ParamEditor } from "./param-rows";
 

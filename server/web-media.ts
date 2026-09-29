@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { ImportWebMediaRequest, MediaAsset, WebClip, WebMediaKind } from "../shared/types.ts";
-import { YTDLP } from "./config.ts";
-import { isAbortError, run } from "./ffmpeg.ts";
+import { errorMessage } from "../shared/errors.ts";
+import { FFMPEG, YTDLP } from "./config.ts";
+import { isAbortError, run } from "./process.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError } from "./storage.ts";
@@ -141,7 +142,7 @@ export function webMediaError(err: unknown, action: Action): HttpError {
   if ((err as { name?: unknown })?.name === "TimeoutError") {
     return new HttpError(504, "The site took too long to respond. Try again.");
   }
-  const message = (err instanceof Error ? err.message : String(err))
+  const message = errorMessage(err)
     .replace(/ERROR:\s*|\[[\w:]+\] [\w-]+: /g, "");
   if (message.endsWith("not found — is it installed?")) {
     return new HttpError(503, "yt-dlp isn't installed. Install it with `brew install yt-dlp`, then try again.");
@@ -174,7 +175,6 @@ export class WebMediaLibrary {
     private paths: DataPaths,
     private library: MediaLibrary,
     private ytdlp = YTDLP,
-    private ffmpegPath = process.env.FFMPEG_PATH,
   ) {}
 
   async load(): Promise<void> {
@@ -294,7 +294,7 @@ export class WebMediaLibrary {
           ...BASE_ARGS,
           "--no-playlist",
           ...(kind === "audio" ? AUDIO_FORMAT_ARGS : VIDEO_FORMAT_ARGS),
-          ...(this.ffmpegPath ? ["--ffmpeg-location", this.ffmpegPath] : []),
+          ...(FFMPEG !== "ffmpeg" ? ["--ffmpeg-location", FFMPEG] : []),
           "-P", dir,
           "-o", `${key}.%(ext)s`,
           "--print", "after_move:filepath",

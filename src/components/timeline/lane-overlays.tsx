@@ -3,7 +3,7 @@ import { memo } from "react";
 import { PiCursorClick, PiPlus, PiUploadSimple } from "react-icons/pi";
 import type { Track } from "@shared/types";
 import { clipName, getClip } from "@shared/timeline";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { AUDIO_LANE_HEIGHT, CLIP_INSET_Y, TOP_GUTTER } from "./constants";
 import type { LaneLayout } from "./geometry";

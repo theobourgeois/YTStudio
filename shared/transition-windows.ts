@@ -13,11 +13,13 @@
  * the first or last frame when there isn't any, like Premiere. Windows are
  * shortened to fit their clips and never overlap on a track.
  */
-import { clipDuration, clipEnd, getClip, getTrack, roundTime, trackClips, videoTracks } from "./timeline.ts";
+import { defaultParams } from "./params.ts";
+import { clipDuration, clipEnd, getClip, getTrack, trackClips, videoTracks } from "./timeline.ts";
 import { type TransitionDefinition, createTransition, patchTransition, replaceTransitionType, transitionDefinition } from "./transitions.ts";
 import type { Clip, ParamValues, Project, Transition } from "./types.ts";
+import { roundTime } from "./math.ts";
+import { EPS } from "./math.ts";
 
-const EPS = 1e-6;
 /** Clip edges this close together count as touching. */
 const TOUCH = 1e-4;
 
@@ -47,6 +49,19 @@ export interface TransitionWindow {
 
 export const sameRef = (a: TransitionRef | null | undefined, b: TransitionRef | null | undefined) =>
   !!a && !!b && a.clipId === b.clipId && a.edge === b.edge;
+
+/** A ref as a string (React keys, `data-` attributes); `parseRefKey` reads it back. */
+export const refKey = (ref: TransitionRef) => `${ref.clipId}:${ref.edge}`;
+
+export function parseRefKey(key: string): TransitionRef | null {
+  const [clipId, edge] = key.split(":");
+  return clipId && (edge === "in" || edge === "out") ? { clipId, edge } : null;
+}
+
+/** The transition stored on a clip edge, if any (whether or not it plays; see `findWindow`). */
+export function storedTransition(clip: Clip, edge: ClipEdge): Transition | undefined {
+  return edge === "in" ? clip.transitionIn : clip.transitionOut;
+}
 
 const touches = (a: Clip, b: Clip) => Math.abs(clipEnd(a) - b.start) < TOUCH;
 
@@ -244,7 +259,7 @@ export function removeTransition(project: Project, ref: TransitionRef): Project 
 /** Change a transition's duration, alignment or parameters. */
 export function setTransitionParams(project: Project, ref: TransitionRef, patch: ParamValues): Project {
   return updateClip(project, ref.clipId, (c) => {
-    const t = c[key(ref.edge)];
+    const t = storedTransition(c, ref.edge);
     if (!t) return c;
     const next = patchTransition(t, patch);
     return next === t ? c : withTransition(c, ref.edge, next);
@@ -253,10 +268,11 @@ export function setTransitionParams(project: Project, ref: TransitionRef, patch:
 
 /** Put a transition's parameters (not its timing) back to their defaults. */
 export function resetTransitionParams(project: Project, ref: TransitionRef, keys?: string[]): Project {
-  const t = getClip(project, ref.clipId)?.[key(ref.edge)];
+  const clip = getClip(project, ref.clipId);
+  const t = clip && storedTransition(clip, ref.edge);
   const def = t && transitionDefinition(t.type);
   if (!t || !def) return project;
-  const patch = Object.fromEntries(def.params.filter((p) => !keys || keys.includes(p.key)).map((p) => [p.key, p.default]));
+  const patch = defaultParams(def.params.filter((p) => !keys || keys.includes(p.key)));
   return setTransitionParams(project, ref, patch);
 }
 

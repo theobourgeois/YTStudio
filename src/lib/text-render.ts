@@ -14,7 +14,8 @@
  * sizes are px of the canvas at 1080p).
  */
 import type { TextStyle } from "@shared/effects";
-import type { FontStyleInfo } from "@shared/types";
+import { outputSize } from "@shared/timeline";
+import type { AspectRatio, FontStyleInfo } from "@shared/types";
 import { resolveFace } from "@/stores/fonts";
 
 export interface TextLine {
@@ -253,4 +254,40 @@ const MAX_SIDE = 8192;
 export function drawingScale(layout: TextLayout, density: number): number {
   const side = Math.max(layout.width, layout.height, 1);
   return Math.max(Math.min(density, MAX_SIDE / side), 1e-3);
+}
+
+/**
+ * Size `canvas` for the text drawn `density` times sharper than canvas px (see
+ * `drawingScale`) and draw it. Returns false when it already showed exactly
+ * that drawing (`previous` is what the last call returned as `key`).
+ */
+export function rasterizeText(
+  canvas: HTMLCanvasElement,
+  style: TextStyle,
+  layout: TextLayout,
+  unit: number,
+  density: number,
+  previous?: string,
+): { drawn: boolean; key: string } {
+  const scale = drawingScale(layout, density);
+  const width = Math.max(1, Math.ceil(layout.width * scale));
+  const height = Math.max(1, Math.ceil(layout.height * scale));
+  const key = JSON.stringify([style, layout.font, layout.stretch, unit, width, height]);
+  if (key === previous) return { drawn: false, key };
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Couldn't get a 2D context to draw text.");
+  drawText(ctx, style, layout, unit, scale);
+  return { drawn: true, key };
+}
+
+/** Canvas px per reference px (the canvas at 1080p, which text sizes are given in). */
+export function textUnit(canvas: { width: number }, aspect: AspectRatio): number {
+  return canvas.width / outputSize(aspect, "1080p").width;
+}
+
+/** The CSS font a style is drawn in at `unit` (to load it before laying the text out). */
+export function textFont(style: TextStyle, unit: number): string {
+  return fontCss(resolveFace(style.font, style.fontStyle), style.font, style.size * unit);
 }

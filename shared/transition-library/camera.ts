@@ -2,13 +2,12 @@
 import type { TransitionDefinition } from "../transitions.ts";
 
 /**
- * Shared by the zooms: mirrored repeat (so a picture pulled back past its
- * edges shows its reflection rather than a gap, like CapCut), and a radial
- * zoom blur. `z` is the magnification around the centre; the blur smears it
+ * Shared by the zooms: a radial zoom blur, using the prelude's `mirrored`
+ * so a picture pulled back past its edges shows its reflection rather than a
+ * gap, like CapCut. `z` is the magnification around the centre; the blur smears it
  * over z..z·(1 + blur). The per-pixel jitter turns banding into fine grain.
  */
 const ZOOM_HELPERS = `
-vec2 mirrored(vec2 p) { return 1.0 - abs(1.0 - mod(p, 2.0)); }
 vec4 zoomed(vec2 uv, float z, float blur, bool incoming) {
   float j = hash(uv * resolution);
   vec4 sum = vec4(0.0);
@@ -109,7 +108,6 @@ vec4 transition(vec2 uv) {
       { kind: "number", key: "turns", label: "Turns", default: 1, min: 0.25, max: 4, step: 0.05, decimals: 2 },
     ],
     glsl: `
-vec2 mirrored(vec2 p) { return 1.0 - abs(1.0 - mod(p, 2.0)); }
 // The picture turned by "angle" and pushed in by "z", smeared over "spread" radians.
 vec4 spun(vec2 uv, float angle, float spread, float z, bool incoming) {
   vec2 q = aspect(uv) / z;
@@ -144,7 +142,6 @@ vec4 transition(vec2 uv) {
     duration: 0.6,
     params: [STRENGTH],
     glsl: `
-vec2 mirrored(vec2 p) { return 1.0 - abs(1.0 - mod(p, 2.0)); }
 // The camera's offset (square units) and roll at time t: jitter building up to the hit on the cut, then settling.
 vec3 jolt(float t) {
   float settle = clamp(2.0 - 2.0 * t, 0.0, 1.0);

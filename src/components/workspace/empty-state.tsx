@@ -2,7 +2,7 @@ import { PiFilmSlate, PiNotePencil, PiUploadSimple } from "react-icons/pi";
 import { acceptMediaFiles } from "@/components/media/import-media";
 import { Button } from "@/components/ui/button";
 import { useFileDrop } from "@/hooks/use-file-drop";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { settledProjects, useProjects } from "@/stores/projects";
 
 /** Shown when no video is open: start a new one (dropping clips here starts one with them). */

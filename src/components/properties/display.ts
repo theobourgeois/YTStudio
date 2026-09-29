@@ -4,7 +4,7 @@
  * the frame they're fractions of: the project's canvas at 1080p (like a
  * Premiere sequence's frame size) or the clip's own media.
  */
-import type { NumberSpec, Vec2Spec } from "@shared/effects";
+import type { NumberSpec, Vec2Spec } from "@shared/params";
 import type { Size } from "@shared/transform";
 import type { Vec2 } from "@shared/types";
 

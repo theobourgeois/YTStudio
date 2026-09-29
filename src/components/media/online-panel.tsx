@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { type WebPreview, useWebPreview } from "./use-web-preview";
 import { useWebSearch } from "./use-web-search";
@@ -129,7 +129,7 @@ export function OnlinePanel({ active }: { active: boolean }) {
           Search YouTube, or paste a link from YouTube, TikTok, Instagram, X and more.{" "}
           {kind === "audio"
             ? "Audio adds just the sound to an audio track."
-            : "Video adds the whole clip to your main track."}
+            : "Video adds the whole clip to a video track."}
         </Hint>
       )}
       {search.status === "error" &&

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { Clip, Project } from "./types.ts";
 import {
   MAIN_TRACK_ID,
-  addAudioTrack,
   addClip,
   addTrack,
   adjacentTrack,
@@ -17,7 +16,6 @@ import {
   gapAt,
   moveClip,
   moveClips,
-  normalizeProject,
   outputSize,
   pasteClips,
   projectDuration,
@@ -36,6 +34,7 @@ import {
 } from "./timeline.ts";
 import { defaultEffects, motionAt, setParams, volumeAt } from "./effects.ts";
 import { formatDuration, formatRelative, formatTime } from "./format.ts";
+import { normalizeProject } from "./normalize.ts";
 
 const AUDIO = "audio_1";
 
@@ -258,7 +257,7 @@ describe("tracks", () => {
     let p = createDefaultProject();
     const v = addTrack(p, "video");
     p = v.project;
-    const a = addAudioTrack(p);
+    const a = addTrack(p, "audio");
     p = a.project;
     expect(p.tracks.map((t) => t.name)).toEqual(["Video 2", "Video 1", "Audio 1", "Audio 2"]);
     // Clamped so video stays above audio.

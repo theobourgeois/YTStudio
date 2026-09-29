@@ -8,7 +8,8 @@
  * fontconfig's `fc-list`. Without either, a few fonts every system has.
  */
 import type { FontFamily, FontStyleInfo } from "../shared/types.ts";
-import { run } from "./ffmpeg.ts";
+import { errorMessage } from "../shared/errors.ts";
+import { run } from "./process.ts";
 
 /** Fonts rarely change; look again after this long. */
 const CACHE_MS = 5 * 60_000;
@@ -18,7 +19,7 @@ let cached: { at: number; fonts: Promise<FontFamily[]> } | null = null;
 export function listFonts(): Promise<FontFamily[]> {
   if (!cached || Date.now() - cached.at > CACHE_MS) {
     const fonts = findFonts().catch((err) => {
-      console.warn("[fonts] couldn't list the installed fonts:", err instanceof Error ? err.message : err);
+      console.warn("[fonts] couldn't list the installed fonts:", errorMessage(err));
       return FALLBACK;
     });
     cached = { at: Date.now(), fonts };

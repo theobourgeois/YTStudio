@@ -5,7 +5,7 @@ import { formatTime } from "@shared/format";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { useSourcePreview } from "@/stores/source-preview";
 
@@ -97,9 +97,12 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
   const [duration, setDuration] = useState(asset.duration);
   const [playing, setPlaying] = useState(false);
 
+  // The asset object is replaced while it's processing (filmstrip, waveform), so
+  // only a different file restarts playback.
+  const fallbackDuration = asset.duration;
   useEffect(() => {
     const el = mediaRef.current!;
-    const clamp = (t: number) => Math.min(Math.max(0, t), el.duration || asset.duration);
+    const clamp = (t: number) => Math.min(Math.max(0, t), el.duration || fallbackDuration);
     const controller = {
       toggle: () => void (el.paused ? el.play().catch(() => {}) : el.pause()),
       play: () => void el.play().catch(() => {}),
@@ -109,7 +112,7 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
         el.pause();
         el.currentTime = clamp(el.currentTime + s);
       },
-      duration: () => el.duration || asset.duration,
+      duration: () => el.duration || fallbackDuration,
     };
     useSourcePreview.getState().setController(controller);
     // Opened from a click, so autoplay is allowed.
@@ -118,7 +121,7 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
       el.pause();
       if (useSourcePreview.getState().controller === controller) useSourcePreview.getState().setController(null);
     };
-  }, [asset]);
+  }, [asset.id, asset.src, fallbackDuration]);
 
   const controller = () => useSourcePreview.getState().controller;
   const mediaProps = {

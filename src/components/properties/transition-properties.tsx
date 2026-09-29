@@ -15,7 +15,7 @@ import {
   setTransitionParams,
 } from "@shared/transition-windows";
 import { ALIGNMENT_SPEC, DURATION_SPEC, TAG_LABELS, defaultTransitionParams } from "@shared/transitions";
-import { sameValue } from "@shared/effects";
+import { sameValue } from "@shared/params";
 import type { Clip } from "@shared/types";
 import { drawThumbnail } from "@/components/transitions/thumbnails";
 import { Button } from "@/components/ui/button";

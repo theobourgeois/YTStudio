@@ -23,7 +23,7 @@ import {
 } from "react-icons/pi";
 import type { Track, TransitionAlignment } from "@shared/types";
 import { MOTION, findEffect, isTextClip, setParams } from "@shared/effects";
-import { type TransitionRef, findWindow, setTransitionParams } from "@shared/transition-windows";
+import { type TransitionRef, findWindow, parseRefKey, setTransitionParams } from "@shared/transition-windows";
 import {
   addTrack,
   clipsAtTime,
@@ -73,10 +73,9 @@ export function LanesContextMenu({ children }: { children: ReactNode }) {
       return;
     }
     const time = Math.max(0, p.x / s.zoom);
-    const transition = (e.target as Element).closest<HTMLElement>("[data-transition]")?.dataset.transition;
-    if (transition) {
-      const [clipId, edge] = transition.split(":");
-      const ref: TransitionRef = { clipId, edge: edge === "in" ? "in" : "out" };
+    const key = (e.target as Element).closest<HTMLElement>("[data-transition]")?.dataset.transition;
+    const ref = key ? parseRefKey(key) : null;
+    if (ref) {
       if (findWindow(s.project, ref)) {
         s.selectTransition(ref);
         setTarget({ kind: "transition", ref });

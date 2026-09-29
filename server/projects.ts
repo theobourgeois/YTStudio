@@ -1,14 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {
-  createDefaultProject,
-  createId,
-  isOnVideoTrack,
-  normalizeProject,
-  projectDuration,
-} from "../shared/timeline.ts";
+import { DEFAULT_PROJECT_NAME, createDefaultProject, createId, isOnVideoTrack, projectDuration } from "../shared/timeline.ts";
 import { isTextClip } from "../shared/effects.ts";
 import type { Project, ProjectStatus, ProjectSummary, UpdateProjectRequest } from "../shared/types.ts";
+import { normalizeProject } from "../shared/normalize.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError, isValidId, readJson, writeJson } from "./storage.ts";
@@ -22,7 +17,7 @@ interface DocStats {
   aspectRatio: ProjectSummary["aspectRatio"];
   duration: number;
   clipCount: number;
-  /** Asset of the first main-track clip; its poster is the thumbnail. */
+  /** Asset of the earliest clip on any video track; its poster is the thumbnail. */
   coverAssetId: string | null;
 }
 
@@ -141,7 +136,7 @@ export class ProjectStore {
   async create(body: unknown): Promise<ProjectSummary> {
     const input = body ?? {};
     if (!isObject(input)) throw new HttpError(400, "Expected { name? }.");
-    const name = input.name === undefined ? "Untitled" : parseName(input.name);
+    const name = input.name === undefined ? DEFAULT_PROJECT_NAME : parseName(input.name);
     return this.add(createId("project"), { ...createDefaultProject(), name }, this.now());
   }
 

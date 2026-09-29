@@ -1,24 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { PiSpeakerHigh, PiSpeakerLow, PiSpeakerSlash } from "react-icons/pi";
-import type { Clip } from "@shared/types";
-import { VOLUME, findEffect, isTextClip, setParams } from "@shared/effects";
-import { getClip } from "@shared/timeline";
+import { VOLUME, hasKeyframes, isTextClip, setParams, volumeAt } from "@shared/effects";
+import { getClip, sourceTime } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EditGesture } from "@/lib/edit-gesture";
 import { useEditor } from "@/stores/editor";
-
-/** A clip's (static) Volume level. */
-const levelOf = (clip: Clip) => (findEffect(clip, VOLUME.type)?.params.level as number | undefined) ?? 1;
+import { usePlayback } from "@/stores/playback";
 
 /** Toolbar button: the selected clip's volume, in a popover. Needs exactly one selected clip. */
 export function ClipVolumeButton() {
   const selected = useEditor((s) => (s.selectedClipIds.length === 1 ? getClip(s.project, s.selectedClipIds[0]) : undefined));
   // Text has no sound.
   const clip = selected && !isTextClip(selected) ? selected : undefined;
-  const volume = clip ? levelOf(clip) : 1;
+  // Source time the level is read and set at; it only matters (and follows the playhead) once it's keyframed.
+  const time = usePlayback((s) => (clip && hasKeyframes(clip) ? sourceTime(clip, s.time) : (clip?.in ?? 0)));
+  const volume = clip ? volumeAt(clip, time) : 1;
   const Icon = !clip || volume >= 0.5 ? PiSpeakerHigh : volume === 0 ? PiSpeakerSlash : PiSpeakerLow;
   const contentRef = useRef<HTMLDivElement>(null);
   const label = clip ? `Clip volume (${Math.round(volume * 100)}%)` : "Clip volume — select one clip";
@@ -54,7 +53,7 @@ export function ClipVolumeButton() {
           contentRef.current?.querySelector<HTMLElement>("[role=slider]")?.focus();
         }}
       >
-        {clip && <VolumeControl clipId={clip.id} volume={volume} />}
+        {clip && <VolumeControl clipId={clip.id} volume={volume} time={time} />}
       </PopoverContent>
     </Popover>
   );
@@ -64,13 +63,13 @@ export function ClipVolumeButton() {
  * Volume slider. A pointer drag is one gesture (live preview, one undo step);
  * keyboard changes commit directly.
  */
-export function VolumeControl({ clipId, volume }: { clipId: string; volume: number }) {
+export function VolumeControl({ clipId, volume, time }: { clipId: string; volume: number; time: number }) {
   const [gesture] = useState(() => new EditGesture());
   /** Volume to restore when un-muting. */
   const restore = useRef(1);
   const percent = Math.round(volume * 100);
 
-  const setVolume = (v: number) => gesture.apply((p) => setParams(p, clipId, VOLUME.type, { level: v }));
+  const setVolume = (v: number) => gesture.apply((p) => setParams(p, clipId, VOLUME.type, { level: v }, time));
   const endDrag = () => gesture.end();
   // Never leave a gesture open if the popover closes mid-drag.
   useEffect(() => () => gesture.end(), [gesture]);

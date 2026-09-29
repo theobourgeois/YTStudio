@@ -1,9 +1,9 @@
 /** Pure helpers for the on-canvas transform handles (what's where on the canvas right now). */
-import type { AspectRatio, Clip, MediaAsset, Project, Vec2 } from "@shared/types";
+import type { Clip, MediaAsset, Project, Vec2 } from "@shared/types";
 import { isTextClip, motionAt, opacityAt, textStyleAt } from "@shared/effects";
 import { type Placement, type Size, containsPoint, frameCorners, placeClip } from "@shared/transform";
-import { outputSize, videoTracks } from "@shared/timeline";
-import { type TextLayout, layoutText } from "@/lib/text-render";
+import { videoTracks } from "@shared/timeline";
+import { type TextLayout, layoutText, textUnit } from "@/lib/text-render";
 import { planTrack } from "./sync";
 
 export interface OnCanvas {
@@ -13,11 +13,6 @@ export interface OnCanvas {
   placement: Placement;
   /** How a text clip is laid out (null for media). */
   text: TextLayout | null;
-}
-
-/** Canvas px per reference px (the canvas at 1080p, which text sizes are given in). */
-export function textUnit(canvas: Size, aspect: AspectRatio): number {
-  return canvas.width / outputSize(aspect, "1080p").width;
 }
 
 /** Where a clip is on the canvas at source time `time` (and its text layout, for text). */

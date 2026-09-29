@@ -3,7 +3,7 @@ import { create } from "zustand";
 const SIDEBAR_KEY = "editor-sidebar-open";
 
 /** The tabs of the left panel: the project's media, online media, transitions, and the selection's properties. */
-export type LeftPanel = "media" | "online" | "transitions" | "properties";
+export type LeftPanelTab = "media" | "online" | "transitions" | "properties";
 
 /** What a press on the canvas does: select and transform clips, or add text (Premiere's Type tool). */
 export type CanvasTool = "select" | "text";
@@ -14,8 +14,8 @@ interface LayoutState {
   /** The keyboard shortcuts dialog. */
   shortcutsOpen: boolean;
   setShortcutsOpen: (open: boolean) => void;
-  leftPanel: LeftPanel;
-  setLeftPanel: (panel: LeftPanel) => void;
+  leftPanel: LeftPanelTab;
+  setLeftPanel: (panel: LeftPanelTab) => void;
   tool: CanvasTool;
   setTool: (tool: CanvasTool) => void;
 }

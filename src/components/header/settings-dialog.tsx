@@ -1,4 +1,5 @@
 import { PiSlidersHorizontal } from "react-icons/pi";
+import { aspectParts } from "@shared/timeline";
 import type { AspectRatio } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -117,7 +118,7 @@ export function SettingsDialog() {
 
 /** A small outline rectangle in the given aspect ratio. */
 function RatioGlyph({ ratio }: { ratio: AspectRatio }) {
-  const [a, b] = ratio.split(":").map(Number);
+  const [a, b] = aspectParts(ratio);
   const max = 18;
   const width = a >= b ? max : Math.round((max * a) / b);
   const height = a >= b ? Math.round((max * b) / a) : max;

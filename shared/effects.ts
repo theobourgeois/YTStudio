@@ -7,89 +7,15 @@
  *
  * To add a property, add a spec to a definition (or a definition to
  * `EFFECTS`) and read it where clips are drawn: the preview engine and the
- * export (`server/render.ts`). Specs don't depend on clips, so other things
- * with parameters later (transitions) can reuse them and the panel rows.
+ * export (`server/render.ts`). The specs themselves are in `params.ts`
+ * (shared with transitions), keyframe maths in `keyframes.ts`.
  *
  * A text clip is a clip with no media (`assetId` is "") that carries the Text
  * and Appearance effects; the browser draws it (`src/lib/text-render.ts`).
  */
-import type {
-  Clip,
-  Easing,
-  Effect,
-  FitMode,
-  Keyframe,
-  ParamValue,
-  ParamValues,
-  Project,
-  Vec2,
-} from "./types.ts";
-
-// ---------------------------------------------------------------------------
-// Parameter specs
-// ---------------------------------------------------------------------------
-
-interface SpecBase<K extends string, V extends ParamValue> {
-  kind: K;
-  key: string;
-  label: string;
-  default: V;
-  /** Label depending on the effect's other values (e.g. "Scale Height"). */
-  labelFor?: (values: ParamValues) => string;
-  /** Greyed out depending on the effect's other values. */
-  disabledFor?: (values: ParamValues) => boolean;
-  /** Only listed for some clips (e.g. framing, which text doesn't have). */
-  appliesTo?: (clip: ClipTraits) => boolean;
-}
-
-export interface NumberSpec extends SpecBase<"number", number> {
-  min: number;
-  max: number;
-  /** Shown as value × `scale` (e.g. 100 for a percentage), followed by `unit`. */
-  scale?: number;
-  unit?: string;
-  /** Change per scrubbed pixel or arrow key press, in display units. */
-  step: number;
-  /** Decimals shown, in display units. */
-  decimals: number;
-  /** Also show a slider (short, bounded ranges). */
-  slider?: boolean;
-}
-
-export interface Vec2Spec extends SpecBase<"vec2", Vec2> {
-  /** The components are fractions of the canvas or of the clip's own frame; shown as pixels of it. */
-  space: "canvas" | "media";
-  /** Bounds of each component (as fractions). */
-  min: number;
-  max: number;
-  step: number;
-  decimals: number;
-}
-
-export type BooleanSpec = SpecBase<"boolean", boolean>;
-
-export interface ChoiceSpec extends SpecBase<"choice", string> {
-  options: { value: string; label: string }[];
-}
-
-/** Free text, possibly several lines. */
-export type TextSpec = SpecBase<"text", string>;
-
-/** A `#rrggbb` colour. */
-export type ColorSpec = SpecBase<"color", string>;
-
-/** A font family installed on this computer (see `/api/fonts`). */
-export type FontSpec = SpecBase<"font", string>;
-
-/** One of the styles ("Bold", "Light Italic"...) of the family in the `font` parameter `familyKey`. */
-export interface FontStyleSpec extends SpecBase<"fontStyle", string> {
-  familyKey: string;
-}
-
-export type ParamSpec = NumberSpec | Vec2Spec | BooleanSpec | ChoiceSpec | TextSpec | ColorSpec | FontSpec | FontStyleSpec;
-
-/** Numbers and points can be animated; everything else only ever jumps. */
-export const isAnimatable = (spec: ParamSpec) => spec.kind === "number" || spec.kind === "vec2";
+import { keyframeValue, sanitizeKeyframes, setKeyframe } from "./keyframes.ts";
+import { PERCENT, PIXELS, type ParamSpec, defaultParams, sameValue, sanitizeParams, sanitizeValue } from "./params.ts";
+import type { Clip, Effect, FitMode, Keyframe, ParamValue, ParamValues, Project, Vec2 } from "./types.ts";
 
 /** What a clip is, which decides the effects it shows. */
 export interface ClipTraits {
@@ -117,8 +43,6 @@ export interface EffectDefinition {
 // ---------------------------------------------------------------------------
 // Definitions
 // ---------------------------------------------------------------------------
-
-const percent = { scale: 100, unit: "%", step: 1, decimals: 1 } as const;
 
 export const MOTION: EffectDefinition = {
   type: "motion",
@@ -149,7 +73,7 @@ export const MOTION: EffectDefinition = {
       default: 1,
       min: 0,
       max: 100,
-      ...percent,
+      ...PERCENT,
     },
     {
       kind: "number",
@@ -159,7 +83,7 @@ export const MOTION: EffectDefinition = {
       default: 1,
       min: 0,
       max: 100,
-      ...percent,
+      ...PERCENT,
     },
     { kind: "boolean", key: "uniformScale", label: "Uniform Scale", default: true },
     { kind: "number", key: "rotation", label: "Rotation", default: 0, min: -36_000, max: 36_000, unit: "°", step: 1, decimals: 1 },
@@ -179,7 +103,7 @@ export const OPACITY: EffectDefinition = {
   label: "Opacity",
   builtIn: true,
   appliesTo: (c) => c.visual,
-  params: [{ kind: "number", key: "opacity", label: "Opacity", default: 1, min: 0, max: 1, slider: true, ...percent }],
+  params: [{ kind: "number", key: "opacity", label: "Opacity", default: 1, min: 0, max: 1, slider: true, ...PERCENT }],
 };
 
 export const VOLUME: EffectDefinition = {
@@ -189,12 +113,9 @@ export const VOLUME: EffectDefinition = {
   appliesTo: (c) => c.audible,
   params: [
     // Linear gain.
-    { kind: "number", key: "level", label: "Level", default: 1, min: 0, max: 1, slider: true, ...percent, decimals: 0 },
+    { kind: "number", key: "level", label: "Level", default: 1, min: 0, max: 1, slider: true, ...PERCENT, decimals: 0 },
   ],
 };
-
-/** Sizes and distances of text are px of the project's canvas at 1080p (like the Position values). */
-const px = { unit: "px", step: 1, decimals: 0 } as const;
 
 /** What a text clip says and how it's set. Text clips carry it; nothing else can. */
 export const TEXT: EffectDefinition = {
@@ -207,7 +128,7 @@ export const TEXT: EffectDefinition = {
     { kind: "text", key: "text", label: "Text", default: "Text" },
     { kind: "font", key: "font", label: "Font", default: "Helvetica Neue" },
     { kind: "fontStyle", key: "fontStyle", label: "Style", default: "Bold", familyKey: "font" },
-    { kind: "number", key: "size", label: "Size", default: 120, min: 1, max: 2000, ...px },
+    { kind: "number", key: "size", label: "Size", default: 120, min: 1, max: 2000, ...PIXELS },
     {
       kind: "choice",
       key: "align",
@@ -222,7 +143,7 @@ export const TEXT: EffectDefinition = {
     // Thousandths of an em, like Premiere and Photoshop.
     { kind: "number", key: "tracking", label: "Tracking", default: 0, min: -500, max: 2000, step: 5, decimals: 0 },
     // Line height as a multiple of the font size.
-    { kind: "number", key: "leading", label: "Line Spacing", default: 1.2, min: 0.5, max: 5, ...percent, decimals: 0 },
+    { kind: "number", key: "leading", label: "Line Spacing", default: 1.2, min: 0.5, max: 5, ...PERCENT, decimals: 0 },
   ],
 };
 
@@ -236,14 +157,14 @@ export const APPEARANCE: EffectDefinition = {
   appliesTo: (c) => c.text,
   params: [
     { kind: "color", key: "fill", label: "Fill", default: "#ffffff" },
-    { kind: "number", key: "strokeWidth", label: "Stroke", default: 0, min: 0, max: 200, ...px, step: 0.5, decimals: 1 },
+    { kind: "number", key: "strokeWidth", label: "Stroke", default: 0, min: 0, max: 200, ...PIXELS, step: 0.5, decimals: 1 },
     { kind: "color", key: "strokeColor", label: "Stroke Color", default: "#000000", disabledFor: off("strokeWidth") },
-    { kind: "number", key: "background", label: "Background", default: 0, min: 0, max: 1, slider: true, ...percent, decimals: 0 },
+    { kind: "number", key: "background", label: "Background", default: 0, min: 0, max: 1, slider: true, ...PERCENT, decimals: 0 },
     { kind: "color", key: "backgroundColor", label: "Background Color", default: "#000000", disabledFor: off("background") },
-    { kind: "number", key: "shadow", label: "Shadow", default: 0, min: 0, max: 1, slider: true, ...percent, decimals: 0 },
+    { kind: "number", key: "shadow", label: "Shadow", default: 0, min: 0, max: 1, slider: true, ...PERCENT, decimals: 0 },
     { kind: "color", key: "shadowColor", label: "Shadow Color", default: "#000000", disabledFor: off("shadow") },
-    { kind: "number", key: "shadowDistance", label: "Shadow Distance", default: 8, min: 0, max: 500, ...px, disabledFor: off("shadow") },
-    { kind: "number", key: "shadowBlur", label: "Shadow Blur", default: 12, min: 0, max: 500, ...px, disabledFor: off("shadow") },
+    { kind: "number", key: "shadowDistance", label: "Shadow Distance", default: 8, min: 0, max: 500, ...PIXELS, disabledFor: off("shadow") },
+    { kind: "number", key: "shadowBlur", label: "Shadow Blur", default: 12, min: 0, max: 500, ...PIXELS, disabledFor: off("shadow") },
   ],
 };
 
@@ -260,69 +181,15 @@ export function paramSpec(def: EffectDefinition, key: string): ParamSpec | undef
   return def.params.find((p) => p.key === key);
 }
 
-export function defaultValues(def: EffectDefinition): ParamValues {
-  return Object.fromEntries(def.params.map((p) => [p.key, p.default]));
-}
-
-export function sameValue(a: ParamValue | undefined, b: ParamValue | undefined): boolean {
-  if (Array.isArray(a) && Array.isArray(b)) return a[0] === b[0] && a[1] === b[1];
-  return a === b;
-}
 
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
 
-const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
-const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-/** Round away float noise (and -0) so equal values compare equal. */
-const tidy = (v: number) => Math.round(v * 1e9) / 1e9 + 0;
-const EASINGS: readonly Easing[] = ["linear", "ease", "hold"];
-const MAX_TEXT_LENGTH = 10_000;
-
-/** A valid value for `spec` (clamped into range), or undefined when `raw` can't be one. */
-export function sanitizeValue(spec: ParamSpec, raw: unknown): ParamValue | undefined {
-  switch (spec.kind) {
-    case "number":
-      return isNum(raw) ? tidy(clamp(raw, spec.min, spec.max)) : undefined;
-    case "vec2":
-      return Array.isArray(raw) && raw.length === 2 && isNum(raw[0]) && isNum(raw[1])
-        ? [tidy(clamp(raw[0], spec.min, spec.max)), tidy(clamp(raw[1], spec.min, spec.max))]
-        : undefined;
-    case "boolean":
-      return typeof raw === "boolean" ? raw : undefined;
-    case "choice":
-      return spec.options.some((o) => o.value === raw) ? (raw as string) : undefined;
-    case "text":
-      return typeof raw === "string" ? raw.replace(/\r\n?/g, "\n").slice(0, MAX_TEXT_LENGTH) : undefined;
-    case "color":
-      return typeof raw === "string" && /^#[0-9a-f]{6}$/i.test(raw) ? raw.toLowerCase() : undefined;
-    case "font":
-    case "fontStyle": {
-      const name = typeof raw === "string" ? raw.trim().slice(0, 200) : "";
-      return name || undefined;
-    }
-  }
-}
-
-function sanitizeKeyframes(spec: ParamSpec, raw: unknown): Keyframe[] {
-  if (!isAnimatable(spec) || !Array.isArray(raw)) return [];
-  const byTime = new Map<number, Keyframe>();
-  for (const k of raw) {
-    if (!k || typeof k !== "object" || !isNum(k.time)) continue;
-    const value = sanitizeValue(spec, k.value);
-    if (value === undefined) continue;
-    const time = tidy(k.time);
-    byTime.set(time, { time, value, easing: EASINGS.includes(k.easing) ? k.easing : "linear" });
-  }
-  return [...byTime.values()].sort((a, b) => a.time - b.time);
-}
-
 function sanitizeEffect(def: EffectDefinition, raw: Partial<Effect> | undefined, id: string): Effect {
-  const params: ParamValues = {};
+  const params = sanitizeParams(def.params, raw?.params);
   const keyframes: Record<string, Keyframe[]> = {};
   for (const spec of def.params) {
-    params[spec.key] = sanitizeValue(spec, raw?.params?.[spec.key]) ?? spec.default;
     const keys = sanitizeKeyframes(spec, raw?.keyframes?.[spec.key]);
     if (keys.length) keyframes[spec.key] = keys;
   }
@@ -374,9 +241,13 @@ export function normalizeEffects(raw: unknown, legacy?: { volume?: unknown; fit?
   for (const e of stored) {
     const def = byType.get(e.type)!;
     if (def.builtIn) continue;
+    // Like built-ins, these are addressed by their type (`setParams(p, clipId, TEXT.type, ...)`).
     if (def === TEXT || def === APPEARANCE) {
       if (once.has(def.type)) continue;
       once.add(def.type);
+      ids.add(def.type);
+      extras.push(sanitizeEffect(def, e, def.type));
+      continue;
     }
     let id = typeof e.id === "string" && e.id ? e.id : def.type;
     for (let n = 2; ids.has(id); n++) id = `${def.type}_${n}`;
@@ -389,26 +260,6 @@ export function normalizeEffects(raw: unknown, legacy?: { volume?: unknown; fit?
 // ---------------------------------------------------------------------------
 // Evaluation
 // ---------------------------------------------------------------------------
-
-const smooth = (f: number) => f * f * (3 - 2 * f);
-
-function mix(a: ParamValue, b: ParamValue, f: number): ParamValue {
-  if (isNum(a) && isNum(b)) return a + (b - a) * f;
-  if (Array.isArray(a) && Array.isArray(b)) return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
-  return f < 1 ? a : b;
-}
-
-/** The value of sorted keyframes at `time`: held before the first and after the last. */
-export function keyframeValue(keyframes: Keyframe[], time: number): ParamValue {
-  const next = keyframes.findIndex((k) => k.time > time);
-  if (next === 0) return keyframes[0].value;
-  if (next === -1) return keyframes[keyframes.length - 1].value;
-  const a = keyframes[next - 1];
-  const b = keyframes[next];
-  if (a.easing === "hold") return a.value;
-  const f = (time - a.time) / (b.time - a.time);
-  return mix(a.value, b.value, a.easing === "ease" ? smooth(f) : f);
-}
 
 /** An effect's own values at source time `time` (keyframed or static), whether it's on or not. */
 export function storedValuesAt(def: EffectDefinition, effect: Effect, time: number): ParamValues {
@@ -425,7 +276,7 @@ export function storedValuesAt(def: EffectDefinition, effect: Effect, time: numb
  * values, or the defaults when it's off (or missing).
  */
 export function valuesAt(def: EffectDefinition, effect: Effect | undefined, time: number): ParamValues {
-  return effect?.enabled ? storedValuesAt(def, effect, time) : defaultValues(def);
+  return effect?.enabled ? storedValuesAt(def, effect, time) : defaultParams(def.params);
 }
 
 /** The first effect of a type on a clip (built-in effects exist once). */
@@ -559,12 +410,8 @@ export function setParams(
       if (value === undefined) continue;
       const keys = keyframes?.[key];
       if (keys?.length && time !== undefined) {
-        const t = tidy(time);
-        const at = keys.find((k) => k.time === t);
-        if (at && sameValue(at.value, value)) continue;
-        const rest = keys.filter((k) => k.time !== t);
-        const added: Keyframe = { time: t, value, easing: at?.easing ?? "linear" };
-        keyframes = { ...keyframes, [key]: [...rest, added].sort((a, b) => a.time - b.time) };
+        const next = setKeyframe(keys, time, value);
+        if (next !== keys) keyframes = { ...keyframes, [key]: next };
       } else if (!sameValue(params[key], value)) {
         params = { ...params, [key]: value };
       }

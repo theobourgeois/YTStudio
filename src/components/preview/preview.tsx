@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { useSourcePreview } from "@/stores/source-preview";
 import { SourcePreview } from "./source-preview";

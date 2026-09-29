@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { PiCaretRight, PiMagnifyingGlass, PiNotePencil } from "react-icons/pi";
 import type { ProjectSummary } from "@shared/types";
+import { useNow } from "@/hooks/use-now";
 import { LogoMark } from "@/components/brand/logo-mark";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { SIDEBAR_SHORTCUT_LABEL } from "@/hooks/shortcuts";
-import { cn } from "@/lib/utils";
+import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { activeProjects, settledProjects, useProjects } from "@/stores/projects";
@@ -148,18 +149,10 @@ export function SidebarToggle({ className }: { className?: string }) {
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {label}
-        <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">{SIDEBAR_SHORTCUT_LABEL}</kbd>
+        <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">{SHORTCUT_KEYS.toggleSidebar}</kbd>
       </TooltipContent>
     </Tooltip>
   );
 }
 
 /** Re-render every `interval` ms so relative times stay fresh. */
-function useNow(interval: number) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), interval);
-    return () => clearInterval(id);
-  }, [interval]);
-  return now;
-}

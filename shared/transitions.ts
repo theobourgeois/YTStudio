@@ -7,14 +7,24 @@
  * Every transition is a GLSL shader (see `transition-gl.ts`) that mixes two
  * pictures, the outgoing and the incoming clip as placed on the canvas, by
  * `progress` (0..1). The preview and the export run the same shader, so they
- * look the same. Parameters reuse the effects' `ParamSpec`s, so the properties
- * panel draws them for free.
+ * look the same. Parameters are `ParamSpec`s (`params.ts`) like the effects', so
+ * the properties panel draws them for free.
  *
  * To add a transition, add a definition to one of the `transition-library`
  * files. Where transitions are on the timeline (and how to edit them) is in
  * `transition-windows.ts`.
  */
-import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type Vec2Spec, sameValue, sanitizeValue } from "./effects.ts";
+import { roundTime } from "./math.ts";
+import {
+  type BooleanSpec,
+  type ChoiceSpec,
+  type NumberSpec,
+  type Vec2Spec,
+  defaultParams,
+  sameValue,
+  sanitizeParams,
+  sanitizeValue,
+} from "./params.ts";
 import type { ParamValues, Transition, TransitionAlignment } from "./types.ts";
 import { BLURS_AND_ZOOMS } from "./transition-library/camera.ts";
 import { DISSOLVES } from "./transition-library/dissolve.ts";
@@ -140,7 +150,7 @@ const ALIGNMENTS: readonly TransitionAlignment[] = ["center", "start", "end"];
 // ---------------------------------------------------------------------------
 
 export function defaultTransitionParams(def: TransitionDefinition): ParamValues {
-  return Object.fromEntries(def.params.map((p) => [p.key, p.default]));
+  return defaultParams(def.params);
 }
 
 /** A new transition of a known type with its default values. */
@@ -156,7 +166,7 @@ export function createTransition(type: string, duration?: number): Transition {
 }
 
 export const clampDuration = (d: number) =>
-  Math.round(Math.min(MAX_TRANSITION_DURATION, Math.max(MIN_TRANSITION_DURATION, d)) * 1e6) / 1e6;
+  roundTime(Math.min(MAX_TRANSITION_DURATION, Math.max(MIN_TRANSITION_DURATION, d)));
 
 /** A valid transition from untrusted storage, or undefined for unknown types and junk. */
 export function sanitizeTransition(raw: unknown): Transition | undefined {
@@ -165,8 +175,7 @@ export function sanitizeTransition(raw: unknown): Transition | undefined {
   const def = typeof t.type === "string" ? byType.get(t.type) : undefined;
   if (!def) return undefined;
   const duration = typeof t.duration === "number" && Number.isFinite(t.duration) ? t.duration : def.duration;
-  const params: ParamValues = {};
-  for (const spec of def.params) params[spec.key] = sanitizeValue(spec, t.params?.[spec.key]) ?? spec.default;
+  const params = sanitizeParams(def.params, t.params);
   return {
     type: def.type,
     duration: clampDuration(duration),
@@ -183,9 +192,7 @@ export function sanitizeTransition(raw: unknown): Transition | undefined {
 export function replaceTransitionType(t: Transition, type: string): Transition {
   const def = byType.get(type);
   if (!def) return t;
-  const params: ParamValues = {};
-  for (const spec of def.params) params[spec.key] = sanitizeValue(spec, t.params[spec.key]) ?? spec.default;
-  return { ...t, type, params };
+  return { ...t, type, params: sanitizeParams(def.params, t.params) };
 }
 
 /** Change timing or parameters (clamped); keys that aren't the definition's are ignored. */

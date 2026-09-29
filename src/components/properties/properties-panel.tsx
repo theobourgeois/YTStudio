@@ -14,19 +14,19 @@ import {
   hasKeyframes,
   isTextClip,
   resetParams,
-  sameValue,
   setEffectEnabled,
   setParams,
   storedValuesAt,
   textStyleAt,
 } from "@shared/effects";
 import { formatDuration } from "@shared/format";
-import { clipDuration, clipName, getClip, getTrack, isOnVideoTrack, outputSize } from "@shared/timeline";
-import { sourceTime } from "@/components/preview/sync";
+import { sameValue } from "@shared/params";
+import { clipDuration, clipName, getClip, getTrack, isOnVideoTrack, outputSize, sourceTime } from "@shared/timeline";
+import { refKey } from "@shared/transition-windows";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { layoutText } from "@/lib/text-render";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import type { DisplayContext } from "./display";
@@ -46,7 +46,7 @@ export function PropertiesPanel() {
   const playhead = usePlayback((s) => (animated ? s.time : 0));
   const transition = useEditor((s) => s.selectedTransition);
 
-  if (transition) return <TransitionProperties key={`${transition.clipId}:${transition.edge}`} transitionRef={transition} />;
+  if (transition) return <TransitionProperties key={refKey(transition)} transitionRef={transition} />;
   if (!clip) return <NothingSelected />;
 
   const time = sourceTime(clip, playhead);

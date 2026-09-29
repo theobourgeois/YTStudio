@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import { PiArrowCounterClockwise, PiDownloadSimple } from "react-icons/pi";
 import type { ExportJob } from "@shared/types";
 import { formatDuration } from "@shared/format";
+import { useNow } from "@/hooks/use-now";
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
@@ -106,11 +106,3 @@ export function ExportError({
 }
 
 /** Current time, refreshed every `intervalMs` while mounted. */
-function useNow(intervalMs: number) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}

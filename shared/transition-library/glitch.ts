@@ -1,5 +1,6 @@
 /** Glitches: digital breakup, RGB splits, VHS. */
 import type { TransitionDefinition, TransitionParamSpec } from "../transitions.ts";
+import { directionParam } from "./common.ts";
 
 const intensity = (value = 1): TransitionParamSpec => ({
   kind: "number",
@@ -13,19 +14,6 @@ const intensity = (value = 1): TransitionParamSpec => ({
   step: 1,
   decimals: 0,
   slider: true,
-});
-
-const direction = (value: string): TransitionParamSpec => ({
-  kind: "choice",
-  key: "direction",
-  label: "Direction",
-  default: value,
-  options: [
-    { value: "left", label: "Left" },
-    { value: "right", label: "Right" },
-    { value: "up", label: "Up" },
-    { value: "down", label: "Down" },
-  ],
 });
 
 export const GLITCHES: TransitionDefinition[] = [
@@ -98,7 +86,7 @@ vec4 transition(vec2 uv) {
     label: "RGB Split",
     tags: ["glitch", "slide"],
     duration: 0.5,
-    params: [direction("left"), intensity()],
+    params: [directionParam("left"), intensity()],
     glsl: `
 // A push where red, green and blue move on staggered timings (red leads, blue
 // lags), so the channels tear apart mid-move and land back together on B.
@@ -277,7 +265,7 @@ vec4 transition(vec2 uv) {
     label: "Digital Wipe",
     tags: ["glitch", "wipe"],
     duration: 0.7,
-    params: [direction("right"), intensity()],
+    params: [directionParam("right"), intensity()],
     glsl: `
 // A wipe whose edge breaks into rows of digital blocks: each row runs ahead or
 // behind, B's leading pixels streak forward like pixel sorting, and the

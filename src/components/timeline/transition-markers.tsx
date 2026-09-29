@@ -12,11 +12,12 @@ import {
   durationForEdge,
   findWindow,
   projectTransitions,
+  refKey,
   sameRef,
   setTransitionParams,
 } from "@shared/transition-windows";
 import { MIN_TRANSITION_DURATION } from "@shared/transitions";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { CLIP_INSET_Y, TRIM_THRESHOLD_PX } from "./constants";
@@ -27,8 +28,6 @@ import { useTimelineView } from "./view-store";
 
 /** Narrowest a marker is drawn, so short transitions stay clickable. */
 const MIN_WIDTH = 14;
-
-export const refKey = (ref: TransitionRef) => `${ref.clipId}:${ref.edge}`;
 
 export function TransitionMarkers({ lanes, zoom }: { lanes: LaneLayout[]; zoom: number }) {
   const project = useEditor((s) => s.project);

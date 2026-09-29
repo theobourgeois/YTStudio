@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { defaultEffects } from "@shared/effects";
 import type { Clip, Project } from "@shared/types";
 import { MAIN_TRACK_ID, createDefaultProject } from "@shared/timeline";
-import { fitRect, isLightColor } from "./canvas";
+import { sourceTime } from "@shared/timeline";
+import { fitRect } from "./canvas";
 import { createTransition } from "@shared/transitions";
 import { trackTransitions } from "@shared/transition-windows";
 import {
@@ -13,7 +14,6 @@ import {
   planTrack,
   planTransition,
   playbackCorrection,
-  sourceTime,
 } from "./sync";
 
 const clip = (id: string, start: number, inPoint: number, out: number, trackId = MAIN_TRACK_ID): Clip => ({
@@ -56,7 +56,7 @@ describe("planTrack", () => {
     expect(plan.current?.time).toBe(5);
     expect(plan.next).toBeNull();
   });
-  it("shows only the background past the end of the main track", () => {
+  it("shows only the background past the end of a video track", () => {
     expect(planMain(p, 6)).toEqual({ current: null, next: null });
   });
   it("holds the last frame when the playhead is parked at the very end", () => {
@@ -64,7 +64,7 @@ describe("planTrack", () => {
     expect(plan.current?.clip.id).toBe("a");
     expect(plan.current?.time).toBeLessThan(2);
   });
-  it("does not hold the last frame when audio runs past the main track", () => {
+  it("does not hold the last frame when audio runs past the video", () => {
     expect(planMain(p, 5).current).toBeNull();
   });
   it("handles an empty timeline", () => {
@@ -143,11 +143,6 @@ describe("canvas helpers", () => {
     expect(fitRect(1000, 500, "9:16")).toEqual({ width: 281, height: 500 });
     expect(fitRect(400, 1000, "16:9")).toEqual({ width: 400, height: 225 });
     expect(fitRect(0, 100, "1:1")).toEqual({ width: 0, height: 0 });
-  });
-  it("detects light backgrounds", () => {
-    expect(isLightColor("#ffffff")).toBe(true);
-    expect(isLightColor("#000000")).toBe(false);
-    expect(isLightColor("nope")).toBe(false);
   });
 });
 

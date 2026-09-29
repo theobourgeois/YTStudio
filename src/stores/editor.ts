@@ -5,7 +5,6 @@ import type {
   MediaAsset,
   Project,
   ProjectSettings,
-  ProjectSummary,
   WebClip,
   WebMediaKind,
 } from "@shared/types";
@@ -21,6 +20,7 @@ import {
   clipsAtTime,
   closeGap,
   copyClips,
+  DEFAULT_PROJECT_NAME,
   createDefaultProject,
   createId,
   gapAt,
@@ -28,7 +28,6 @@ import {
   getTrack,
   isOnVideoTrack,
   moveClips,
-  normalizeProject,
   pasteClips,
   projectDuration,
   pruneEmptyTrack,
@@ -47,8 +46,14 @@ import {
   removeTransition,
 } from "@shared/transition-windows";
 import { transitionDefinition } from "@shared/transitions";
-import { ApiRequestError, api } from "@/lib/api";
+import { errorMessage } from "@shared/errors";
+import { normalizeProject } from "@shared/normalize";
+import { api } from "@/lib/api";
+import { pollProcessingAssets } from "./asset-polling";
+import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
+
+export { discardPendingSave, onProjectSaved } from "./autosave";
 
 const HISTORY_LIMIT = 100;
 export const MIN_ZOOM = 5;
@@ -63,8 +68,6 @@ export interface Upload {
   download?: { url: string; kind: WebMediaKind };
 }
 
-export const DEFAULT_PROJECT_NAME = "Untitled";
-
 interface EditorState {
   /** The open project's id, or null when no project is open. */
   projectId: string | null;
@@ -75,7 +78,7 @@ interface EditorState {
   /** The open project's media, newest first. */
   assets: MediaAsset[];
   uploads: Upload[];
-  /** Selected clips, in selection order (the last one is shown in the inspector). */
+  /** Selected clips, in selection order (the last one is shown in the Properties tab). */
   selectedClipIds: string[];
   /**
    * The empty stretch of a track selected by clicking it (never together with
@@ -147,17 +150,18 @@ interface EditorState {
   importFiles: (files: File[]) => Promise<MediaAsset[]>;
   /**
    * Download an online clip's audio or whole video into the open project's media and
-   * put it on the timeline (audio track / main track). Resolves true if it was added.
+   * put it on the timeline (see `addAssetsToTimeline`). Resolves true if it was added.
    */
   addWebMedia: (clip: WebClip, kind: WebMediaKind) => Promise<boolean>;
   deleteAsset: (assetId: string) => Promise<void>;
   getAsset: (assetId: string) => MediaAsset | undefined;
 
   /**
-   * Put assets on the timeline as one undoable step.
-   * - `trackId` omitted or incompatible: video -> main track, audio-only -> first audio track.
-   * - `at` = timeline time under the pointer. Main track: inserted at the nearest slot
-   *   (appended when omitted). Audio: first clip's left edge (0 when omitted), the rest follow.
+   * Put assets on the timeline as one undoable step, and select the last one.
+   * - `trackId` omitted or incompatible: pictures go on the bottom video track,
+   *   sound only on the top audio track (created when there's none).
+   * - `at` = timeline time of the first clip's left edge (the rest follow it). Without
+   *   it, clips are appended after a video track's last clip, or start at 0 on audio.
    * Returns the ids of the created clips.
    */
   addAssetsToTimeline: (assetIds: string[], opts?: AddToTimelineOptions) => string[];
@@ -240,7 +244,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   gestureId: 0,
 
   async openProject(projectId) {
-    if (get().projectId === projectId && !get().loadError) return;
+    // Already open (a click on another project that's still loading doesn't count).
+    if (get().projectId === projectId && !get().loading && !get().loadError) return;
     const token = ++openToken;
     get().endGesture();
     usePlayback.getState().pause();
@@ -256,11 +261,12 @@ export const useEditor = create<EditorState>((set, get) => ({
       // One `set` so subscribers see the project switch atomically (autosave ignores it).
       set({ ...emptyEditor(), projectId, project: normalizeProject(project, byId), assets, loading: false });
       usePlayback.getState().seek(0);
-      startAutosave();
-      pollProcessingAssets();
+      startAutosave(useEditor);
+      pollProcessingAssets(useEditor);
     } catch (err) {
       if (token !== openToken) return;
-      set({ loading: false, loadError: err instanceof Error ? err.message : String(err) });
+      // The previous project was saved above; show the error instead of it.
+      set({ ...emptyEditor(), projectId: null, loading: false, loadError: errorMessage(err) });
     }
   },
 
@@ -276,14 +282,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   renameProject(name) {
     const trimmed = name.trim();
     if (!trimmed || trimmed === get().project.name) return;
-    const rename = (p: Project) => ({ ...p, name: trimmed });
-    const { project, past, future, gestureBase } = get();
-    set({
-      project: rename(project),
-      past: past.map(rename),
-      future: future.map(rename),
-      gestureBase: gestureBase ? rename(gestureBase) : null,
-    });
+    set(rewriteHistory(get(), (p) => ({ ...p, name: trimmed })));
   },
 
   commit(update) {
@@ -402,7 +401,7 @@ export const useEditor = create<EditorState>((set, get) => ({
           return asset;
         } catch (err) {
           toast.error(`Couldn't import ${file.name}`, {
-            description: err instanceof Error ? err.message : String(err),
+            description: errorMessage(err),
           });
           return null;
         } finally {
@@ -411,7 +410,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       }),
     );
     if (!stillOpen()) return [];
-    pollProcessingAssets();
+    pollProcessingAssets(useEditor);
     return results.filter((a): a is MediaAsset => a !== null);
   },
 
@@ -428,11 +427,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!stillOpen()) return false;
       set({ assets: [asset, ...get().assets.filter((a) => a.id !== asset.id)] });
       get().addAssetsToTimeline([asset.id]);
-      pollProcessingAssets();
+      pollProcessingAssets(useEditor);
       return true;
     } catch (err) {
       toast.error(`Couldn't add “${clip.title}”`, {
-        description: err instanceof Error ? err.message : String(err),
+        description: errorMessage(err),
       });
       return false;
     } finally {
@@ -445,20 +444,15 @@ export const useEditor = create<EditorState>((set, get) => ({
       await api.deleteMedia(assetId);
     } catch (err) {
       toast.error("Couldn't delete media", {
-        description: err instanceof Error ? err.message : String(err),
+        description: errorMessage(err),
       });
       return;
     }
     // Removing an asset's clips is an edit (undoable), but the asset itself is gone,
     // so strip it from history too to keep undo from resurrecting dangling clips.
-    const strip = (p: Project) => removeAssetClips(p, assetId);
-    const { project, past, future, assets, gestureBase } = get();
     set({
-      assets: assets.filter((a) => a.id !== assetId),
-      project: strip(project),
-      past: past.map(strip),
-      future: future.map(strip),
-      gestureBase: gestureBase ? strip(gestureBase) : null,
+      assets: get().assets.filter((a) => a.id !== assetId),
+      ...rewriteHistory(get(), (p) => removeAssetClips(p, assetId)),
     });
     fixSelection();
   },
@@ -523,16 +517,13 @@ export const useEditor = create<EditorState>((set, get) => ({
       return p;
     });
 
-    if (created.length) set({ selectedClipIds: [created[created.length - 1]] });
+    if (created.length) get().setSelection([created[created.length - 1]]);
     return created;
   },
 
   splitAtPlayhead() {
     const time = usePlayback.getState().time;
-    const { project } = get();
-    const under = clipsAtTime(project, time);
-    const selected = under.filter((c) => get().selectedClipIds.includes(c.id));
-    const targets = selected.length ? selected : under.filter((c) => isOnVideoTrack(project, c));
+    const targets = clipsToCutAt(time);
     if (targets.length === 0) {
       toast("Nothing to split here", { description: "Move the playhead over a clip." });
       return;
@@ -616,7 +607,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       clipIds = res.clipIds;
       return res.project;
     });
-    set({ selectedClipIds: clipIds });
+    get().setSelection(clipIds);
   },
 
   duplicateSelected() {
@@ -630,7 +621,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       clipIds = res.clipIds;
       return res.project;
     });
-    set({ selectedClipIds: clipIds });
+    get().setSelection(clipIds);
   },
 
   nudgeSelected(seconds) {
@@ -683,10 +674,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   trimToPlayhead(edge) {
     const time = usePlayback.getState().time;
-    const { project, selectedClipIds } = get();
-    const under = clipsAtTime(project, time);
-    const selected = under.filter((c) => selectedClipIds.includes(c.id));
-    const targets = selected.length ? selected : under.filter((c) => isOnVideoTrack(project, c));
+    const targets = clipsToCutAt(time);
     if (targets.length === 0) return;
     get().commit((p) => targets.reduce((q, c) => rippleTrimTo(q, c.id, edge, time), p));
     // The playhead now sits on the cut; start trims pull the clip under it.
@@ -696,6 +684,34 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 }));
+
+/**
+ * The clips a playhead edit (split, trim to playhead) applies to: the selected
+ * clips under `time` or, when none are, every video-track clip under it.
+ */
+function clipsToCutAt(time: number): Clip[] {
+  const { project, selectedClipIds } = useEditor.getState();
+  const under = clipsAtTime(project, time);
+  const selected = under.filter((c) => selectedClipIds.includes(c.id));
+  return selected.length ? selected : under.filter((c) => isOnVideoTrack(project, c));
+}
+
+/**
+ * A change that isn't an edit of its own (a rename, media that's gone) applied
+ * to the document and every snapshot in the history, so undo can't bring back
+ * the old state.
+ */
+function rewriteHistory(
+  state: Pick<EditorState, "project" | "past" | "future" | "gestureBase">,
+  rewrite: (p: Project) => Project,
+): Pick<EditorState, "project" | "past" | "future" | "gestureBase"> {
+  return {
+    project: rewrite(state.project),
+    past: state.past.map(rewrite),
+    future: state.future.map(rewrite),
+    gestureBase: state.gestureBase ? rewrite(state.gestureBase) : null,
+  };
+}
 
 /**
  * After an edit: drop clips that no longer exist from the selection, any
@@ -715,123 +731,3 @@ useEditor.subscribe((state, prev) => {
     usePlayback.getState().setDuration(projectDuration(state.project));
   }
 });
-
-// ---------------------------------------------------------------------------
-// Autosave: debounced, one request in flight at a time (so saves can't land out
-// of order), retried with backoff, flushed before switching projects and on
-// unload. Pending saves are keyed by project id, so switching never mixes them
-// up. Mid-gesture states aren't saved; the result is saved when the gesture ends.
-// ---------------------------------------------------------------------------
-
-const pendingSaves = new Map<string, Project>();
-const savedListeners = new Set<(summary: ProjectSummary) => void>();
-let saving: Promise<void> | null = null;
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-let retryDelay = 1000;
-
-/** Be told whenever the server confirms a save (with the refreshed summary). */
-export function onProjectSaved(listener: (summary: ProjectSummary) => void): () => void {
-  savedListeners.add(listener);
-  return () => savedListeners.delete(listener);
-}
-
-/** Forget unsaved changes for a project (e.g. it was deleted). */
-export function discardPendingSave(projectId: string) {
-  pendingSaves.delete(projectId);
-}
-
-function scheduleSave(ms: number) {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => void runSaves(), ms);
-}
-
-async function runSaves(): Promise<void> {
-  clearTimeout(saveTimer);
-  if (saving || pendingSaves.size === 0) return;
-  let failed = false;
-  saving = (async () => {
-    for (const [id, project] of [...pendingSaves]) {
-      pendingSaves.delete(id);
-      try {
-        const summary = await api.saveProject(id, project);
-        for (const listener of savedListeners) listener(summary);
-      } catch (err) {
-        // A deleted project can't be saved; anything else is retried.
-        if (err instanceof ApiRequestError && err.status === 404) continue;
-        console.error("Autosave failed; retrying", err);
-        if (!pendingSaves.has(id)) pendingSaves.set(id, project);
-        failed = true;
-      }
-    }
-  })();
-  await saving;
-  saving = null;
-  if (failed) {
-    retryDelay = Math.min(retryDelay * 2, 30_000);
-    scheduleSave(retryDelay);
-  } else {
-    retryDelay = 1000;
-    // Edits made while the requests were in flight.
-    if (pendingSaves.size) scheduleSave(0);
-  }
-}
-
-/** Save everything pending right now (waits for an in-flight save first). */
-async function flushAutosave(): Promise<void> {
-  if (saving) await saving;
-  await runSaves();
-}
-
-let autosaveStarted = false;
-function startAutosave() {
-  if (autosaveStarted) return;
-  autosaveStarted = true;
-
-  useEditor.subscribe((state, prev) => {
-    // Opening/closing a project swaps the document; that isn't an edit.
-    if (!state.projectId || state.projectId !== prev.projectId) return;
-    const gestureEnded = prev.gestureBase !== null && state.gestureBase === null;
-    if (state.gestureBase || (state.project === prev.project && !gestureEnded)) return;
-    pendingSaves.set(state.projectId, state.project);
-    if (!saving) scheduleSave(400);
-  });
-
-  window.addEventListener("pagehide", () => {
-    for (const [id, project] of pendingSaves) void api.saveProject(id, project, true).catch(() => {});
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Poll assets whose filmstrip/waveform are still being generated.
-// ---------------------------------------------------------------------------
-
-let polling = false;
-async function pollProcessingAssets() {
-  if (polling) return;
-  polling = true;
-  try {
-    while (useEditor.getState().assets.some((a) => a.status === "processing")) {
-      await new Promise((r) => setTimeout(r, 1000));
-      const pending = useEditor.getState().assets.filter((a) => a.status === "processing");
-      const gone = new Set<string>();
-      const updated = await Promise.all(
-        pending.map((a) =>
-          api.getMedia(a.id).catch((err) => {
-            // Deleted on the server: stop polling it. Other errors: try again next tick.
-            if (err instanceof ApiRequestError && err.status === 404) gone.add(a.id);
-            return null;
-          }),
-        ),
-      );
-      const byId = new Map(updated.filter((a): a is MediaAsset => !!a).map((a) => [a.id, a]));
-      useEditor.setState({
-        assets: useEditor
-          .getState()
-          .assets.filter((a) => !gone.has(a.id))
-          .map((a) => byId.get(a.id) ?? a),
-      });
-    }
-  } finally {
-    polling = false;
-  }
-}

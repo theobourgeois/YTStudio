@@ -1,7 +1,7 @@
 import { memo, useMemo, type PointerEvent as ReactPointerEvent } from "react";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { lanePoint, useTimelineContext } from "./context";
 import { rulerTicks } from "./geometry";
 import { PlayheadHead } from "./playhead";

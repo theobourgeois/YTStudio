@@ -5,6 +5,7 @@
  */
 import type { Project, Track, TrackKind } from "@shared/types";
 import { snapPoints, snapTime } from "@shared/timeline";
+import { EPS, clamp } from "@shared/math";
 import {
   AUDIO_LANE_HEIGHT,
   CLIP_INSET_Y,
@@ -13,9 +14,6 @@ import {
   TOP_GUTTER,
   VIDEO_LANE_HEIGHT,
 } from "./constants";
-
-const EPS = 1e-6;
-const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 // ---------------------------------------------------------------------------
 // Lanes

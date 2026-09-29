@@ -14,11 +14,12 @@ import {
   type TransitionTag,
 } from "@shared/transitions";
 import { getClip } from "@shared/timeline";
+import { storedTransition } from "@shared/transition-windows";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setTransitionDragData } from "@/lib/dnd";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { THUMB_HEIGHT, THUMB_WIDTH, drawThumbnail } from "./thumbnails";
 
@@ -45,7 +46,7 @@ export function TransitionsPanel() {
   const selectedType = useEditor((s) => {
     const ref = s.selectedTransition;
     const clip = ref && getClip(s.project, ref.clipId);
-    return (clip && (ref.edge === "in" ? clip.transitionIn : clip.transitionOut)?.type) ?? null;
+    return (clip && storedTransition(clip, ref.edge)?.type) ?? null;
   });
 
   return (

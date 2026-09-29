@@ -5,8 +5,10 @@ import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createId } from "../shared/timeline.ts";
 import type { MediaAsset } from "../shared/types.ts";
+import { errorMessage } from "../shared/errors.ts";
 import { makeFilmstrip, makePoster, makeStillPoster, makeWaveform } from "./derivatives.ts";
-import { ffmpegVersion, isAbortError } from "./ffmpeg.ts";
+import { ffmpegVersion } from "./ffmpeg.ts";
+import { isAbortError } from "./process.ts";
 import { type ProbeResult, probeMedia } from "./probe.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError, isValidId, readJson, writeJson } from "./storage.ts";
@@ -38,7 +40,6 @@ function displayName(raw: string): string {
   return name.slice(0, 200) || "Untitled";
 }
 
-const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** The media library: assets on disk under `data/media/<id>/` plus background processing. */
 export class MediaLibrary {

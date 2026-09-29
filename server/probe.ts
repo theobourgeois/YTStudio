@@ -1,7 +1,7 @@
 import { STILL_DURATION } from "../shared/timeline.ts";
 import type { AssetKind } from "../shared/types.ts";
 import { FFPROBE } from "./config.ts";
-import { run } from "./ffmpeg.ts";
+import { run } from "./process.ts";
 import { HttpError } from "./storage.ts";
 
 export interface ProbeResult {

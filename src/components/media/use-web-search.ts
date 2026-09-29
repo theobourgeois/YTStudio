@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { WebClip } from "@shared/types";
+import { errorMessage } from "@shared/errors";
 import { api } from "@/lib/api";
 
 const SEARCH_DEBOUNCE_MS = 450;
@@ -50,7 +51,7 @@ export function useWebSearch(query: string): WebSearch {
           (clips) => setSearch({ status: "done", link: !!link, query: q, clips }),
           (err) => {
             if (controller.signal.aborted) return;
-            setSearch({ status: "error", link: !!link, message: err instanceof Error ? err.message : String(err) });
+            setSearch({ status: "error", link: !!link, message: errorMessage(err) });
           },
         );
       },

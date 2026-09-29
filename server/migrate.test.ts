@@ -32,6 +32,8 @@ const legacyProject = {
 /** The same project today: volume and framing moved into the clip's effects. */
 const upgradedProject: Project = {
   ...legacyProject,
+  // Projects used to carry a canvas colour; the canvas is always black now.
+  settings: { aspectRatio: "1:1", fps: 30 },
   clips: [{
     id: "clip_1", assetId: ASSET_ID, trackId: "main", start: 0, in: 1, out: 3,
     effects: defaultEffects().map((e) =>

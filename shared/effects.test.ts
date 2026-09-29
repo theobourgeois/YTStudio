@@ -6,7 +6,6 @@ import {
   VOLUME,
   defaultEffects,
   findEffect,
-  keyframeValue,
   motionAt,
   normalizeEffects,
   opacityAt,
@@ -16,6 +15,7 @@ import {
   valuesAt,
   volumeAt,
 } from "./effects.ts";
+import { keyframeValue } from "./keyframes.ts";
 import { createDefaultProject, MAIN_TRACK_ID } from "./timeline.ts";
 import type { Clip, Effect, Keyframe, Project } from "./types.ts";
 

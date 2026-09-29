@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultEffects } from "./effects.ts";
-import { MAIN_TRACK_ID, createDefaultProject, getClip, normalizeProject, splitClip } from "./timeline.ts";
+import { MAIN_TRACK_ID, createDefaultProject, getClip, splitClip } from "./timeline.ts";
 import { RESERVED_UNIFORMS, fragmentSource, transitionUniforms } from "./transition-gl.ts";
 import {
   addTransition,
@@ -25,6 +25,7 @@ import {
   sanitizeTransition,
 } from "./transitions.ts";
 import type { Clip, Project, Transition } from "./types.ts";
+import { normalizeProject } from "./normalize.ts";
 
 const clip = (id: string, start: number, duration: number, extra: Partial<Clip> = {}): Clip => ({
   id, assetId: "a", trackId: MAIN_TRACK_ID, start, in: 0, out: duration, effects: defaultEffects(), ...extra,

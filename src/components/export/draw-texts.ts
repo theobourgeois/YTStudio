@@ -1,8 +1,7 @@
 import type { ExportResolution, Project, TextRaster } from "@shared/types";
 import { isTextClip, motionAt, textStyleAt } from "@shared/effects";
 import { isOnVideoTrack, outputSize } from "@shared/timeline";
-import { textUnit } from "@/components/preview/placement";
-import { drawText, drawingScale, layoutText } from "@/lib/text-render";
+import { layoutText, rasterizeText, textFont, textUnit } from "@/lib/text-render";
 import { fontsSettled } from "@/stores/fonts";
 
 /**
@@ -20,17 +19,13 @@ export async function drawTexts(project: Project, resolution: ExportResolution):
   const out: Record<string, TextRaster> = {};
   for (const clip of clips) {
     const style = textStyleAt(clip, clip.in);
+    // Installed fonts are usually ready at once; this waits for any that aren't
+    // (before laying out, so the layout is measured in the real font).
+    await document.fonts.load(textFont(style, unit), style.text || " ").catch(() => {});
     const layout = layoutText(style, unit);
-    // Installed fonts are usually ready at once; this waits for any that aren't.
-    await document.fonts.load(layout.font, style.text || " ").catch(() => {});
     const { scaleX, scaleY } = motionAt(clip, clip.in);
-    const scale = drawingScale(layout, Math.max(1, Math.abs(scaleX), Math.abs(scaleY)));
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.ceil(layout.width * scale));
-    canvas.height = Math.max(1, Math.ceil(layout.height * scale));
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Couldn't draw the text for the export.");
-    drawText(ctx, style, layout, unit, scale);
+    rasterizeText(canvas, style, layout, unit, Math.max(1, Math.abs(scaleX), Math.abs(scaleY)));
     out[clip.id] = { png: canvas.toDataURL("image/png").split(",")[1], width: layout.width, height: layout.height };
   }
   return out;

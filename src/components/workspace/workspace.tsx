@@ -1,12 +1,12 @@
 import { PiSpinnerGap } from "react-icons/pi";
 import { Header, SidebarLead } from "@/components/header/header";
 import { ThemeMenu } from "@/components/header/theme-menu";
-import { MediaBin } from "@/components/media/media-bin";
 import { Preview } from "@/components/preview/preview";
 import { Timeline } from "@/components/timeline/timeline";
 import { Button } from "@/components/ui/button";
 import { useEditor } from "@/stores/editor";
 import { EmptyState } from "./empty-state";
+import { LeftPanel } from "./left-panel";
 
 /** The main column: the open video's editor, or an empty state when none is open. */
 export function Workspace() {
@@ -20,7 +20,7 @@ export function Workspace() {
       <div key={projectId} className="flex min-h-0 flex-1 flex-col">
         <Header />
         <div className="flex min-h-0 flex-1">
-          <MediaBin />
+          <LeftPanel />
           <Preview />
         </div>
         <Timeline />

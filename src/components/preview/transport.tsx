@@ -13,7 +13,7 @@ import { formatTime } from "@shared/format";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { type CanvasTool, useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";

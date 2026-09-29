@@ -27,10 +27,10 @@ progress. Toggle the sidebar with `⌘\`.
 | --- | --- |
 | Import | Drop files (video, audio, images) on the media panel / timeline (or click the empty media panel to browse) |
 | Add to timeline | Drag from the media panel, double-click, or hover → **+** |
-| Reorder | Drag clips on the video track (it's magnetic — no gaps) |
+| Move | Drag clips anywhere on a track (they snap to edges and the playhead; the magnet toggles snapping). Drop above the top track for a new video track. `⌥←` `⌥→` nudge, `⌥↑` `⌥↓` move between tracks |
 | Trim | Drag a clip's left/right edge |
 | Split | `S` (or ⌘B) at the playhead |
-| Delete | `⌫` / `Delete` (the video track closes the gap) |
+| Delete | `⌫` / `Delete` leaves a gap; `⇧⌫` ripple-deletes (closes it). Click an empty stretch of a track and `⌫` to close that gap |
 | Play / pause | `Space` |
 | Step | `←` `→` one frame, `⇧←` `⇧→` one second, `Home` / `End` |
 | Zoom | `+` / `-`, or ⌘/Ctrl + scroll |
@@ -84,15 +84,17 @@ seconds long and can be trimmed to any length, and transparent PNGs show the lay
 
 ## How it works
 
-- **`src/`** — React + Vite + Tailwind + shadcn/ui. State lives in two zustand stores: `stores/editor.ts` (project,
-  media library, selection, undo history, autosave) and `stores/playback.ts` (the playback clock).
+- **`src/`** — React + Vite + Tailwind + shadcn/ui. The document lives in the zustand store `stores/editor.ts`
+  (project, media library, selection, undo history; autosave is in `stores/autosave.ts`), the playback clock in
+  `stores/playback.ts`.
 - **`shared/`** — domain types and the pure timeline logic (`timeline.ts`) used by both sides. Every edit is a pure
-  `Project -> Project` function, which is what makes undo/redo and testing simple.
+  `Project -> Project` function, which is what makes undo/redo and testing simple. `normalize.ts` validates any
+  stored or received project.
   - `effects.ts`: clip properties. A clip carries a list of effects; each effect definition is a list of typed
-    parameter specs (number, point, switch, choice) that drive defaults, validation, the properties panel and
-    evaluation. Values can be keyframed in the data model (stored in source-media time, with interpolation), but
-    nothing creates keyframes yet. To add a property, add a spec (or a definition to `EFFECTS`), then draw it in
-    `src/components/preview/engine.ts` and `server/render.ts`.
+    parameter specs (`params.ts`: number, point, switch, choice, text, colour, font) that drive defaults, validation,
+    the properties panel and evaluation. Values can be keyframed in the data model (`keyframes.ts`, stored in
+    source-media time, with interpolation), but nothing creates keyframes yet. To add a property, add a spec (or a
+    definition to `EFFECTS`), then draw it in `src/components/preview/engine.ts` and `server/render.ts`.
   - `transitions.ts`, `transition-windows.ts`, `transition-gl.ts`, `transition-library/`: transitions. Each one is a
     GLSL shader plus parameter specs (like effects). `transition-windows.ts` works out where they play on the timeline,
     `transition-gl.ts` is the WebGL renderer shared by the preview, the library thumbnails and the export. To add one,
@@ -100,7 +102,7 @@ seconds long and can be trimmed to any length, and transparent PNGs show the lay
     contact sheet and checks it starts and ends on the right pictures.
   - `transform.ts`: where a clip lands on the canvas (fit, then scale and rotate around the anchor point, which sits at
     the position). The preview's CSS, the canvas handles and the export all use it.
-- **`server/`** — a small Express server that stores projects and their media in `./data`, probes media and generates
+- **`server/`** — a small Express server (one router per resource in `server/routes/`) that stores projects and their media in `./data`, probes media and generates
   thumbnails/waveforms with ffmpeg, and renders exports with a single ffmpeg filter graph. Transitions are drawn
   first (`transition-render.ts`): ffmpeg decodes both sides, a headless Chromium page (`gl-browser.ts`) runs the
   shader, and the frames are kept as a lossless file the main render splices in.
@@ -126,3 +128,5 @@ MP3/AAC/WAV/FLAC/Ogg/Opus audio, and PNG/JPEG/WebP/BMP (or single-frame GIF) ima
 | `pnpm typecheck` | TypeScript |
 | `pnpm build && pnpm start` | production build served by the server on :5311 |
 | `pnpm samples` | generate test media into `./samples` |
+
+Working on the code (architecture, conventions, how to add things): see [CLAUDE.md](CLAUDE.md).

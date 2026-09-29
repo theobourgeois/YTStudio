@@ -16,7 +16,7 @@ import { TRANSITIONS, type TransitionTag, defaultTransitionParams } from "../sha
 const args = process.argv.slice(2);
 const outIndex = args.indexOf("--out");
 const out = path.resolve(outIndex >= 0 ? args[outIndex + 1] : "transition-sheet.png");
-const names = args.filter((_, i) => i !== outIndex && i !== outIndex + 1);
+const names = outIndex >= 0 ? args.filter((_, i) => i !== outIndex && i !== outIndex + 1) : args;
 
 const defs = names.length
   ? TRANSITIONS.filter((d) => names.includes(d.type) || d.tags.some((t) => names.includes(t as TransitionTag)))

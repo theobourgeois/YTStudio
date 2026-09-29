@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import type { ProjectStatus, ProjectSummary } from "@shared/types";
+import { errorMessage } from "@shared/errors";
 import { api } from "@/lib/api";
 import { projectIdFromUrl, setUrlProject } from "@/lib/route";
 import { discardPendingSave, onProjectSaved, useEditor } from "./editor";
@@ -38,7 +39,6 @@ export function settledProjects(projects: ProjectSummary[]) {
 
 let initStarted = false;
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export const useProjects = create<ProjectsState>((set, get) => {
   const upsert = (summary: ProjectSummary) =>
@@ -59,7 +59,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
       upsert(await api.updateProject(projectId, { status }));
     } catch (err) {
       toast.error(status === "settled" ? "Couldn't settle video" : "Couldn't unsettle video", {
-        description: message(err),
+        description: errorMessage(err),
       });
       return false;
     }
@@ -79,7 +79,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
         set({ projects, loaded: true, loadError: null });
       } catch (err) {
         initStarted = false;
-        set({ loadError: message(err) });
+        set({ loadError: errorMessage(err) });
         return;
       }
       onProjectSaved(upsert);
@@ -107,7 +107,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
       try {
         summary = await api.createProject();
       } catch (err) {
-        toast.error("Couldn't create a new video", { description: message(err) });
+        toast.error("Couldn't create a new video", { description: errorMessage(err) });
         return;
       }
       upsert(summary);
@@ -143,7 +143,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
       try {
         await api.deleteProject(projectId);
       } catch (err) {
-        toast.error("Couldn't delete video", { description: message(err) });
+        toast.error("Couldn't delete video", { description: errorMessage(err) });
         return;
       }
       discardPendingSave(projectId);

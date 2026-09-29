@@ -367,7 +367,7 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(await order()).toEqual([projects.main.id, projects.other.id]);
     const res = await sendJson("PUT", `/api/projects/${projects.other.id}`, projectWith([clip("other", "audio_1", 0, 0, 1)]));
     projects.other = (await res.json()) as ProjectSummary;
-    expect(projects.other).toMatchObject({ clipCount: 1, thumbnail: null }); // nothing on the main track
+    expect(projects.other).toMatchObject({ clipCount: 1, thumbnail: null }); // nothing on a video track
     expect(await order()).toEqual([projects.other.id, projects.main.id]);
   });
 

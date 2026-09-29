@@ -1,15 +1,15 @@
 import type { Clip, MediaAsset, Project } from "@shared/types";
 import { type TextStyle, isTextClip, opacityAt, textStyleAt, volumeAt } from "@shared/effects";
-import { TEXT_SOURCE_RANGE, clipEnd, sourceRange } from "@shared/timeline";
+import { clipEnd, clipSourceRange } from "@shared/timeline";
 import { type TransitionRenderer, createTransitionRenderer, transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
 import { type Placement, type Size, cssMatrix, placementAffine } from "@shared/transform";
-import { drawText, drawingScale, type TextLayout } from "@/lib/text-render";
+import { type TextLayout, rasterizeText, textUnit } from "@/lib/text-render";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
 import { usePlayback } from "@/stores/playback";
 import { ImageSlot, MediaSlot } from "./media-slot";
-import { placeOnCanvas, textUnit } from "./placement";
+import { placeOnCanvas } from "./placement";
 import { type Shown, type TransitionPlan, assignSlots, planAudio, planTrack, planTransition, type SlotIds } from "./sync";
 
 /**
@@ -333,11 +333,7 @@ export class PreviewEngine {
       this.windows.set(trackId, windows);
     }
     if (windows.length === 0) return null;
-    return planTransition(project, windows, time, (clip) => {
-      if (isTextClip(clip)) return TEXT_SOURCE_RANGE;
-      const asset = this.assetById.get(clip.assetId);
-      return asset ? sourceRange(asset) : { min: clip.in, max: clip.out };
-    });
+    return planTransition(project, windows, time, (clip) => clipSourceRange(clip, this.assetById.get(clip.assetId)));
   }
 
   /** Draw a track's transition on its canvas (or hide the canvas when there's none). */
@@ -421,16 +417,11 @@ class TextSlot {
   draw(style: TextStyle, layout: TextLayout, unit: number, placement: Placement) {
     // Sharp on this screen at the clip's current scale.
     const zoom = Math.max(Math.abs(placement.scaleX), Math.abs(placement.scaleY), 0.05);
-    const scale = drawingScale(layout, (window.devicePixelRatio || 1) * zoom);
-    const width = Math.max(1, Math.ceil(layout.width * scale));
-    const height = Math.max(1, Math.ceil(layout.height * scale));
-    const key = JSON.stringify([style, layout.font, layout.stretch, unit, width, height]);
-    if (key === this.drawn) return;
-    this.drawn = key;
-    if (this.el.width !== width) this.el.width = width;
-    if (this.el.height !== height) this.el.height = height;
-    const ctx = this.el.getContext("2d");
-    if (ctx) drawText(ctx, style, layout, unit, scale);
+    try {
+      this.drawn = rasterizeText(this.el, style, layout, unit, (window.devicePixelRatio || 1) * zoom, this.drawn).key;
+    } catch {
+      // No 2D context (e.g. too many canvases); the text just doesn't show.
+    }
   }
 }
 

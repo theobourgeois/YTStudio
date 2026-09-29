@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
-import { createDefaultProject, createId, normalizeProject } from "../shared/timeline.ts";
+import { createDefaultProject, createId } from "../shared/timeline.ts";
 import type { Project } from "../shared/types.ts";
+import { normalizeProject } from "../shared/normalize.ts";
 import type { MediaLibrary } from "./media.ts";
 import type { ProjectStore } from "./projects.ts";
 import { type DataPaths, readJson } from "./storage.ts";

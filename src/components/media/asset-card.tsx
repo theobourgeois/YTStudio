@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setAssetDragData } from "@/lib/dnd";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useSourcePreview } from "@/stores/source-preview";
 import { decorativePeaks } from "./media-utils";
 

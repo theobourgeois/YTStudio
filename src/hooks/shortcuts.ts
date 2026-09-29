@@ -291,11 +291,3 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     ],
   },
 ];
-
-/** Human-readable labels for tooltips. */
-export const SHORTCUT_LABELS = {
-  undo: SHORTCUT_KEYS.undo,
-  redo: SHORTCUT_KEYS.redo,
-};
-
-export const SIDEBAR_SHORTCUT_LABEL = SHORTCUT_KEYS.toggleSidebar;

@@ -1,14 +1,6 @@
 /** 3D: the pictures turn, fold and flip in perspective. */
-import type { ChoiceSpec } from "../effects.ts";
 import type { TransitionDefinition, TransitionParamSpec } from "../transitions.ts";
-
-const direction = (value: string, options = ["left", "right", "up", "down"]): ChoiceSpec => ({
-  kind: "choice",
-  key: "direction",
-  label: "Direction",
-  default: value,
-  options: options.map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })),
-});
+import { directionParam } from "./common.ts";
 
 /**
  * Shared by the shaders below. Scenes are built in frame units: the frame is
@@ -83,7 +75,7 @@ export const THREE_D: TransitionDefinition[] = [
     label: "Cube",
     tags: ["3d"],
     duration: 0.8,
-    params: [direction("left")],
+    params: [directionParam("left")],
     glsl: threeD(
       `
 // The pictures are two sides of a box (square in section) that turns a
@@ -339,7 +331,7 @@ vec4 scene(vec2 p) {
     label: "Fold",
     tags: ["3d"],
     duration: 0.7,
-    params: [direction("left")],
+    params: [directionParam("left")],
     glsl: threeD(`
 // The outgoing picture swings away into the screen on a hinge along the
 // "direction" edge, uncovering the incoming one (which it stays in front of).
@@ -372,7 +364,7 @@ vec4 scene(vec2 p) {
     label: "Swing",
     tags: ["3d"],
     duration: 0.8,
-    params: [direction("right")],
+    params: [directionParam("right")],
     glsl: threeD(`
 // The incoming picture swings in over the outgoing one on a hinge along the
 // edge it comes from, like a door closing towards the viewer, and settles
@@ -459,7 +451,7 @@ vec4 scene(vec2 p) {
     label: "Carousel",
     tags: ["3d"],
     duration: 0.9,
-    params: [direction("left", ["left", "right"])],
+    params: [directionParam("left", true)],
     glsl: threeD(
       `
 // Cover flow: the pictures are cards in a row whose side cards stand back

@@ -1,4 +1,5 @@
 import type {
+  ApiError,
   CreateProjectRequest,
   ExportJob,
   ExportRequest,
@@ -21,25 +22,34 @@ export class ApiRequestError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** Fetch, throwing an `ApiRequestError` with the server's message for a failed response. */
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(path, {
     ...init,
     headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
   });
-  if (!res.ok) throw new ApiRequestError(await errorMessage(res), res.status);
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      // not JSON
+    }
+    throw new ApiRequestError(serverMessage(body, `Request failed (${res.status})`), res.status);
+  }
+  return res;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await send(path, init);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
-/** The `{ error }` message of a failed response. */
-export async function errorMessage(res: Response): Promise<string> {
-  try {
-    const body = await res.json();
-    if (body && typeof body.error === "string") return body.error;
-  } catch {
-    // not JSON
-  }
-  return `Request failed (${res.status})`;
+/** The `{ error }` message of a failed response's body (see `ApiError`), or `fallback`. */
+function serverMessage(body: unknown, fallback: string): string {
+  const error = (body as Partial<ApiError> | null)?.error;
+  return typeof error === "string" ? error : fallback;
 }
 
 export const api = {
@@ -91,11 +101,7 @@ export const api = {
         }
         if (xhr.status >= 200 && xhr.status < 300) resolve(body as MediaAsset);
         else {
-          const msg =
-            body && typeof (body as { error?: unknown }).error === "string"
-              ? (body as { error: string }).error
-              : `Upload failed (${xhr.status})`;
-          reject(new ApiRequestError(msg, xhr.status));
+          reject(new ApiRequestError(serverMessage(body, `Upload failed (${xhr.status})`), xhr.status));
         }
       };
       xhr.onerror = () => reject(new ApiRequestError("Network error during upload", 0));
@@ -110,8 +116,9 @@ export const api = {
   /** What's at a pasted link (title, duration...), without downloading it. */
   resolveWebLink: (url: string, signal?: AbortSignal) =>
     request<WebClip>(`/api/web/resolve?url=${encodeURIComponent(url)}`, { signal }),
-  /** Playable URL of a clip's audio (the server downloads it on the first request). */
-  webAudioUrl: (url: string) => `/api/web/audio?url=${encodeURIComponent(url)}`,
+  /** A clip's audio (the server downloads it on the first request, then serves it from its cache). */
+  webAudio: async (url: string, signal?: AbortSignal) =>
+    (await send(`/api/web/audio?url=${encodeURIComponent(url)}`, { signal })).blob(),
   importWebMedia: (body: ImportWebMediaRequest) =>
     request<MediaAsset>("/api/web/import", { method: "POST", body: JSON.stringify(body) }),
 

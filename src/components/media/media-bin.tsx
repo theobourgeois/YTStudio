@@ -1,40 +1,30 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PiFileArrowUp } from "react-icons/pi";
+import { useShallow } from "zustand/react/shallow";
 import type { MediaAsset } from "@shared/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { PropertiesPanel } from "@/components/properties/properties-panel";
-import { TransitionsPanel } from "@/components/transitions/transitions-panel";
-import { useFileDrop } from "@/hooks/use-file-drop";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
-import { useLayout } from "@/stores/layout";
 import { AssetCard } from "./asset-card";
 import { DeleteAssetDialog } from "./delete-asset-dialog";
 import { ACCEPTED_FILE_TYPES, importMedia } from "./import-media";
 import { clipCountByAsset, filterAssets, type MediaFilter } from "./media-utils";
-import { OnlinePanel } from "./online-panel";
 import { UploadCard } from "./upload-card";
 
-/** The left panel: the project's media, online media, transitions, and the selection's properties. */
+/** The Media tab: the project's imported media, to preview, add to the timeline or delete. */
 export function MediaBin() {
   const assets = useEditor((s) => s.assets);
   const uploads = useEditor((s) => s.uploads);
-  const clips = useEditor((s) => s.project.clips);
-  const tab = useLayout((s) => s.leftPanel);
-  const setTab = useLayout((s) => s.setLeftPanel);
+  // Compared entry by entry, so moving clips around doesn't re-render the grid.
+  const uses = useEditor(useShallow((s) => clipCountByAsset(s.project.clips)));
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [pendingDelete, setPendingDelete] = useState<{ asset: MediaAsset; uses: number } | null>(
     null,
   );
   const [confirmOpen, setConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const drop = useFileDrop((files) => {
-    setTab("media");
-    importMedia(files);
-  });
 
-  const uses = useMemo(() => clipCountByAsset(clips), [clips]);
   const visible = useMemo(() => filterAssets(assets, filter), [assets, filter]);
   const isEmpty = assets.length === 0 && uploads.length === 0;
   const openPicker = () => inputRef.current?.click();
@@ -51,48 +41,21 @@ export function MediaBin() {
   };
 
   return (
-    <aside
-      className="relative flex w-80 shrink-0 flex-col border-r bg-background"
-      aria-label="Media"
-      {...drop.handlers}
-    >
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b pr-2 pl-1.5">
-        <div role="tablist" aria-label="Media sources" className="flex items-center gap-0.5">
-          <TabButton active={tab === "media"} onClick={() => setTab("media")}>
-            Media
-            {assets.length > 0 && (
-              <span className="text-xs font-normal text-muted-foreground tabular-nums">{assets.length}</span>
-            )}
-          </TabButton>
-          <TabButton active={tab === "online"} onClick={() => setTab("online")}>
-            Online
-          </TabButton>
-          <TabButton active={tab === "transitions"} onClick={() => setTab("transitions")}>
-            Transitions
-          </TabButton>
-          <TabButton active={tab === "properties"} onClick={() => setTab("properties")}>
-            Properties
-          </TabButton>
-        </div>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          accept={ACCEPTED_FILE_TYPES}
-          className="hidden"
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            // Reset so picking the same file again still fires `change`.
-            e.target.value = "";
-            if (files.length > 0) importMedia(files);
-          }}
-        />
-      </div>
-
-      <OnlinePanel active={tab === "online"} />
-      {tab === "transitions" && <TransitionsPanel />}
-      {tab === "properties" && <PropertiesPanel />}
-      {tab !== "media" ? null : isEmpty ? (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={ACCEPTED_FILE_TYPES}
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          // Reset so picking the same file again still fires `change`.
+          e.target.value = "";
+          if (files.length > 0) importMedia(files);
+        }}
+      />
+      {isEmpty ? (
         <EmptyState onClick={openPicker} />
       ) : (
         <>
@@ -142,13 +105,6 @@ export function MediaBin() {
         </>
       )}
 
-      {drop.active && (
-        <div className="pointer-events-none absolute inset-1.5 z-10 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-brand bg-brand/10 text-brand backdrop-blur-[2px]">
-          <PiFileArrowUp className="size-6" />
-          <span className="text-sm font-medium">Drop to import</span>
-        </div>
-      )}
-
       <DeleteAssetDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
@@ -158,33 +114,7 @@ export function MediaBin() {
           if (pendingDelete) void useEditor.getState().deleteAsset(pendingDelete.asset.id);
         }}
       />
-    </aside>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        "flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors outline-none",
-        "focus-visible:ring-2 focus-visible:ring-ring/50",
-        active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
+    </>
   );
 }
 
@@ -212,7 +142,7 @@ function EmptyState({ onClick }: { onClick: () => void }) {
           <br />
           MP3, WAV, M4A, FLAC, OGG
           <br />
-          PNG, JPG, WebP
+          PNG, JPG, WebP, GIF, BMP
         </span>
       </button>
     </div>

@@ -7,6 +7,10 @@ import { listFonts } from "./fonts.ts";
 import { MediaLibrary } from "./media.ts";
 import { migrateLegacyData } from "./migrate.ts";
 import { ProjectStore } from "./projects.ts";
+import { exportRoutes } from "./routes/exports.ts";
+import { mediaRoutes } from "./routes/media.ts";
+import { projectRoutes } from "./routes/projects.ts";
+import { webRoutes } from "./routes/web.ts";
 import { DataPaths, HttpError } from "./storage.ts";
 import { WebMediaLibrary } from "./web-media.ts";
 
@@ -38,8 +42,6 @@ function setFileHeaders(res: Response, file: string) {
   res.setHeader("Cache-Control", ext === ".json" ? "no-cache" : "public, max-age=31536000, immutable");
 }
 
-const queryString = (value: unknown) => (typeof value === "string" ? value : "");
-
 export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): Promise<EditorApp> {
   const paths = new DataPaths(dataDir);
   await paths.init();
@@ -49,13 +51,12 @@ export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): 
   await projects.load();
   await migrateLegacyData(paths, library, projects);
   library.resume();
-  const renders = new ExportManager(paths, library);
+  const exports = new ExportManager(paths, library);
   const web = new WebMediaLibrary(paths, library, ytdlpPath);
   await web.load();
 
   const app = express();
   app.disable("x-powered-by");
-  const json = express.json({ limit: "10mb" });
 
   app.get("/api/health", async (_req, res) => {
     const version = await ffmpegVersion();
@@ -63,96 +64,13 @@ export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): 
     res.json(body);
   });
 
-  app.get("/api/projects", (_req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.json(projects.list());
-  });
-  app.post("/api/projects", json, async (req, res) => {
-    res.status(201).json(await projects.create(req.body));
-  });
-  app.get("/api/projects/:id", async (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.json(await projects.get(req.params.id));
-  });
-  app.put("/api/projects/:id", json, async (req, res) => {
-    res.json(await projects.save(req.params.id, req.body));
-  });
-  app.patch("/api/projects/:id", json, async (req, res) => {
-    res.json(await projects.update(req.params.id, req.body));
-  });
-  app.delete("/api/projects/:id", async (req, res) => {
-    await projects.remove(req.params.id);
-    res.sendStatus(204);
-  });
-
-  app.get("/api/media", (req, res) => {
-    const projectId = queryString(req.query.projectId);
-    if (!projectId) throw new HttpError(400, "The projectId query parameter is required.");
-    if (!projects.has(projectId)) throw new HttpError(404, "Project not found");
-    res.json(library.list(projectId));
-  });
-  // The body is the raw file; no body parser runs on this route.
-  app.post("/api/media", async (req, res) => {
-    const projectId = queryString(req.query.projectId);
-    const name = queryString(req.query.name);
-    res.status(201).json(await library.ingest(req, name, projectId, () => projects.has(projectId)));
-  });
-  app.get("/api/media/:id", (req, res) => {
-    res.json(library.get(req.params.id));
-  });
-  app.delete("/api/media/:id", async (req, res) => {
-    await library.remove(req.params.id);
-    res.sendStatus(204);
-  });
-
-  // Stop yt-dlp when the client gives up (e.g. the user kept typing).
-  const cancelOnClose = (res: Response) => {
-    const controller = new AbortController();
-    res.on("close", () => controller.abort());
-    return controller.signal;
-  };
-  app.get("/api/web/search", async (req, res) => {
-    const clips = await web.search(queryString(req.query.q), cancelOnClose(res));
-    res.setHeader("Cache-Control", "private, max-age=300");
-    res.json(clips);
-  });
-  app.get("/api/web/resolve", async (req, res) => {
-    const clip = await web.resolve(queryString(req.query.url), cancelOnClose(res));
-    res.setHeader("Cache-Control", "private, max-age=300");
-    res.json(clip);
-  });
-  app.get("/api/web/audio", async (req, res, next) => {
-    const file = await web.audio(queryString(req.query.url));
-    res.sendFile(file, { maxAge: "1y", immutable: true }, (err) => {
-      if (err && !res.headersSent) next(err);
-    });
-  });
-  app.post("/api/web/import", json, async (req, res) => {
-    res.status(201).json(await web.import(req.body, (id) => projects.has(id)));
-  });
-
+  app.use("/api/projects", projectRoutes(projects));
+  app.use("/api/media", mediaRoutes(library, projects));
+  app.use("/api/web", webRoutes(web, projects));
+  app.use("/api/exports", exportRoutes(exports));
   app.get("/api/fonts", async (_req, res) => {
     res.setHeader("Cache-Control", "no-cache");
     res.json(await listFonts());
-  });
-
-  // Big enough for the text clips drawn by the browser.
-  app.post("/api/exports", express.json({ limit: "200mb" }), async (req, res) => {
-    res.status(202).json(await renders.create(req.body));
-  });
-  app.get("/api/exports/:id", (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.json(renders.get(req.params.id));
-  });
-  app.delete("/api/exports/:id", (req, res) => {
-    renders.cancel(req.params.id);
-    res.sendStatus(204);
-  });
-  app.get("/api/exports/:id/download", (req, res, next) => {
-    const { file, name } = renders.output(req.params.id);
-    res.download(file, name, (err) => {
-      if (err && !res.headersSent) next(new HttpError(410, "The exported file is gone."));
-    });
   });
 
   app.use("/api", () => {
@@ -186,7 +104,7 @@ export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): 
     app,
     shutdown() {
       library.shutdown();
-      renders.shutdown();
+      exports.shutdown();
       web.shutdown();
     },
   };

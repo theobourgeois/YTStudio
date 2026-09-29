@@ -7,7 +7,8 @@
 import { create } from "zustand";
 import type { Vec2 } from "@shared/types";
 import { MOTION, TEXT, isTextClip, setParams, textEffects, textStyleAt } from "@shared/effects";
-import { STILL_DURATION, addTextClip, createId, getClip, removeClips, roundTime } from "@shared/timeline";
+import { STILL_DURATION, addTextClip, createId, getClip, removeClips } from "@shared/timeline";
+import { roundTime } from "@shared/math";
 import { EditGesture } from "@/lib/edit-gesture";
 import { useEditor } from "./editor";
 import { useLayout } from "./layout";

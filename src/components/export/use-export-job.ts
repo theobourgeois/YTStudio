@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { ExportJob, ExportRequest } from "@shared/types";
+import { errorMessage } from "@shared/errors";
 import { api, ApiRequestError } from "@/lib/api";
 
 const POLL_MS = 500;
@@ -15,7 +16,6 @@ export type ExportPhase =
   | { status: "error"; message: string };
 
 const noop = () => {};
-const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /**
  * Drives one export at a time: start -> poll -> done/error. Any render still

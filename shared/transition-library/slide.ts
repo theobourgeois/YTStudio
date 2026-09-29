@@ -1,20 +1,6 @@
 /** Pushes and slides: the picture moves. */
-import type { ChoiceSpec } from "../effects.ts";
 import type { TransitionDefinition } from "../transitions.ts";
-
-/** Where the motion goes; the order matches the prelude's `dirVec`. */
-const DIRECTION: ChoiceSpec = {
-  kind: "choice",
-  key: "direction",
-  label: "Direction",
-  default: "left",
-  options: [
-    { value: "left", label: "Left" },
-    { value: "right", label: "Right" },
-    { value: "up", label: "Up" },
-    { value: "down", label: "Down" },
-  ],
-};
+import { directionParam } from "./common.ts";
 
 /*
  * Motion blur is done by rendering the move at several instants around
@@ -28,7 +14,7 @@ export const SLIDES: TransitionDefinition[] = [
     label: "Push",
     tags: ["slide"],
     duration: 0.5,
-    params: [DIRECTION],
+    params: [directionParam()],
     glsl: `
 // The incoming clip pushes the outgoing one off the canvas.
 vec4 frame(vec2 uv, float t) {
@@ -51,7 +37,7 @@ vec4 transition(vec2 uv) {
     label: "Slide",
     tags: ["slide"],
     duration: 0.5,
-    params: [DIRECTION],
+    params: [directionParam()],
     glsl: `
 // The incoming clip slides in over the outgoing one, which stays put.
 vec4 transition(vec2 uv) {
@@ -77,7 +63,7 @@ vec4 transition(vec2 uv) {
     label: "Uncover",
     tags: ["slide"],
     duration: 0.5,
-    params: [DIRECTION],
+    params: [directionParam()],
     glsl: `
 // The outgoing clip slides away and uncovers the incoming one underneath.
 vec4 transition(vec2 uv) {
@@ -102,7 +88,7 @@ vec4 transition(vec2 uv) {
     label: "Whip",
     tags: ["slide", "blur"],
     duration: 0.4,
-    params: [DIRECTION],
+    params: [directionParam()],
     glsl: `
 // A whip pan: a push that slowly starts, flies through the middle with a
 // heavy directional smear, and settles. The shutter samples are jittered per

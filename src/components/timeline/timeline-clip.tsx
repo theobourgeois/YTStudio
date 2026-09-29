@@ -3,7 +3,7 @@ import { PiTextT, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
 import { isTextClip } from "@shared/effects";
 import { clipDuration, clipName } from "@shared/timeline";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 import { useLayout } from "@/stores/layout";
 import { startClipMove, startClipTrim } from "./clip-gestures";
 import { Filmstrip, PosterStrip, Waveform } from "./clip-media";

@@ -10,6 +10,7 @@ export function useFfmpegStatus(enabled: boolean): FfmpegStatus {
   useEffect(() => {
     if (!enabled) return;
     let alive = true;
+    setStatus("checking");
     api
       .health()
       .then((h) => alive && setStatus(h.ffmpeg.available ? "available" : "missing"))
