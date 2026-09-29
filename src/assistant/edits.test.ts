@@ -3,7 +3,7 @@ import { captionClips } from "@shared/captions";
 import { findEffect, textEffects } from "@shared/effects";
 import { MAIN_TRACK_ID, clipEnd, createDefaultProject, getClip, trackClips } from "@shared/timeline";
 import type { Clip, MediaAsset, Project } from "@shared/types";
-import { describeClips, describeTimeline, describeTranscript } from "./describe";
+import { describeClips, describeMusic, describeTimeline, describeTranscript } from "./describe";
 import { EDITS, type EditEnv, clipChanges } from "./edits";
 
 function asset(id: string, duration: number, kind: MediaAsset["kind"] = "video"): MediaAsset {
@@ -211,5 +211,30 @@ describe("what the assistant reads", () => {
       assets,
     );
     expect(text.split("\n").slice(1)).toEqual([`clip_1 "media_a.mp4" 10–20`, "  Hello@10.5 there.@10.95 – 11.3", "  Um@13 – 13.4"]);
+  });
+
+  it("writes a song's beats in timeline times, only inside the clip", () => {
+    const music = {
+      bpm: 120,
+      confidence: 0.8,
+      beats: [10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14],
+      downbeats: [10, 12, 14],
+      sections: [
+        { start: 0, end: 12, db: -20, level: 0.5 },
+        { start: 12, end: 30, db: -6, level: 1 },
+      ],
+      drops: [{ time: 12, rise: 9 }],
+    };
+    // The clip plays source 10.5–13.5 from timeline 2.
+    const text = describeMusic('clip_1 "song.mp3"', music, 2 - 10.5, { start: 2, end: 5 }, true);
+    expect(text.split("\n")).toEqual([
+      'clip_1 "song.mp3" 2–5 (timeline times)',
+      "120 BPM: a beat every 0.5s, a bar (4 beats) every 2s; a clear beat (confidence 0.8).",
+      "Bars start at: 3.5",
+      "Beats: 2 2.5 3 3.5 4 4.5 5",
+      "Sections: 2–3.5 quiet (-20 dB) · 3.5–5 loud (-6 dB)",
+      "Drops (the energy jumps up; biggest first): 3.5 (+9 dB)",
+    ]);
+    expect(describeMusic("x", { ...music, bpm: null, beats: [], downbeats: [] }, 0, { start: 0, end: 30 }, false)).toContain("No steady beat");
   });
 });

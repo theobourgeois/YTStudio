@@ -277,6 +277,8 @@ export function describeToolCall(rawName: string, input: unknown): string {
       return ids() ? `Transcribe ${count(ids(), "clip")}` : "Read the transcript";
     case "analyze_audio":
       return ids() ? `Listen to ${count(ids(), "clip")}` : "Listen for silences";
+    case "analyze_music":
+      return "Find the beat";
     case "detect_scenes":
       return "Find shot changes";
     case "get_catalog": {

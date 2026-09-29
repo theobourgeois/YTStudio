@@ -70,7 +70,9 @@ server/
                      to an editor tab over its event stream and back. claude.ts: runs `claude -p` (stream-json) and
                      turns its output into ChatEvents. service.ts: one chat per video (saved in data/assistant),
                      Claude Code status, tool calls -> chat steps. prompt.ts: what agents are told.
-  media-analysis.ts  ffmpeg looks into media: a frame as JPEG, silences + loudness, shot changes (for the assistant).
+  media-analysis.ts  ffmpeg looks into media: a frame as JPEG, silences + loudness, shot changes, music (for the assistant).
+  beats.ts           Music analysis (pure, tested on synthetic drums): onsets, tempo (with the half/double choice),
+                     beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops.
   config.ts          Every env var is read here and nowhere else.
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
 src/

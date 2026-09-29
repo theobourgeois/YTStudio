@@ -576,6 +576,30 @@ export interface SoundAnalysis {
   maxVolume: number | null;
 }
 
+/** A stretch of music of about the same loudness. */
+export interface MusicSection {
+  start: number;
+  end: number;
+  /** Mean loudness, dBFS. */
+  db: number;
+  /** Compared with the loudest part: 1 = the loudest, 0 = 30 dB or more below it. */
+  level: number;
+}
+
+/** The rhythm and shape of a file's music, in source seconds. */
+export interface MusicAnalysis {
+  /** Null when there's no steady beat (speech, ambient sound...). */
+  bpm: number | null;
+  /** How regular the beat is, 0..1 (0.15 or less: no real beat). */
+  confidence: number;
+  beats: number[];
+  /** The first beat of each bar (of 4). */
+  downbeats: number[];
+  sections: MusicSection[];
+  /** Where the energy jumps up (a drop, the beat coming in), biggest first, on a bar where there is one. */
+  drops: { time: number; rise: number }[];
+}
+
 export interface SceneCuts {
   /** Source seconds where the picture cuts to a new shot. */
   cuts: number[];
@@ -641,6 +665,7 @@ export interface ToolCallProgressRequest {
 //   GET    /api/media/:id               -> MediaAsset
 //   GET    /api/media/:id/frame?t=<s>&w=<px> -> image/jpeg: the frame at source time t, w px wide
 //   GET    /api/media/:id/sound?from&to&threshold=<dB>&min=<s> -> SoundAnalysis (silences, loudness)
+//   GET    /api/media/:id/music?from&to     -> MusicAnalysis (tempo, beats, bars, sections, drops)
 //   GET    /api/media/:id/scenes?threshold=<0..1> -> SceneCuts
 //   POST   /api/media/:id/reversed      -> MediaAsset: starts making its reversed copy (for reversed clips), if not made yet
 //   POST   /api/media/import-file  body: ImportFileRequest -> MediaAsset (201): a copy of a file on this computer

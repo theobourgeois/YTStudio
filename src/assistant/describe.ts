@@ -21,7 +21,7 @@ import { type ParamSpec, sameValue } from "@shared/params";
 import { clipEnd, clipName, clipSpeed, getTrack, outputSize, projectDuration, timelineTime, trackClips } from "@shared/timeline";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
 import { TRANSITIONS } from "@shared/transitions";
-import type { Clip, Effect, FontFamily, Library, MediaAsset, ParamValue, Project, Transcript } from "@shared/types";
+import type { Clip, Effect, FontFamily, Library, MediaAsset, MusicAnalysis, ParamValue, Project, Transcript } from "@shared/types";
 import { range, secs, value } from "./input";
 
 export interface TimelineView {
@@ -341,4 +341,41 @@ export function describeTranscript(clips: readonly Clip[], transcripts: readonly
     flush();
   });
   return out.join("\n");
+}
+
+/** Most beats listed at once (a long song has hundreds; bars are listed in full). */
+const MAX_BEATS = 400;
+
+/**
+ * A music analysis for the model (see `analyze_music`), with times moved by `shift` (source -> timeline for a
+ * clip) and kept inside `span`.
+ */
+export function describeMusic(label: string, music: MusicAnalysis, shift: number, span: { start: number; end: number }, timeline: boolean): string {
+  const at = (t: number) => t + shift;
+  const inside = (t: number) => t >= span.start - 1e-3 && t <= span.end + 1e-3;
+  const times = (list: number[]) => list.map(at).filter(inside);
+  const where = timeline ? "timeline" : "source";
+  const lines = [`${label} ${range(span.start, span.end)} (${where} times)`];
+  if (music.bpm === null) {
+    lines.push("No steady beat here (speech, ambient sound, or free-time music): cut on the sections or drops instead.");
+  } else {
+    const beat = 60 / music.bpm;
+    const steadiness = music.confidence >= 0.5 ? "a clear beat" : music.confidence >= 0.3 ? "a fairly clear beat" : "a weak beat, so treat these as approximate";
+    lines.push(`${music.bpm} BPM: a beat every ${secs(beat)}s, a bar (4 beats) every ${secs(beat * 4)}s; ${steadiness} (confidence ${music.confidence}).`);
+    lines.push(`Bars start at: ${times(music.downbeats).map(secs).join(", ") || "(none in this range)"}`);
+    const beats = times(music.beats);
+    lines.push(`Beats: ${beats.slice(0, MAX_BEATS).map(secs).join(" ")}${beats.length > MAX_BEATS ? ` … (${beats.length - MAX_BEATS} more: ask for a shorter range)` : ""}`);
+  }
+  const sections = music.sections
+    .map((s) => ({ ...s, start: Math.max(span.start, at(s.start)), end: Math.min(span.end, at(s.end)) }))
+    .filter((s) => s.end - s.start > 0.05);
+  const feel = (level: number) => (level >= 0.85 ? "loud" : level >= 0.6 ? "medium" : level >= 0.3 ? "quiet" : "very quiet");
+  lines.push(`Sections: ${sections.map((s) => `${range(s.start, s.end)} ${feel(s.level)} (${s.db} dB)`).join(" · ") || "(none)"}`);
+  const drops = music.drops.filter((d) => inside(at(d.time)));
+  lines.push(
+    drops.length
+      ? `Drops (the energy jumps up; biggest first): ${drops.map((d) => `${secs(at(d.time))} (+${d.rise} dB)`).join(", ")}`
+      : "No drops: the energy doesn't jump up anywhere here.",
+  );
+  return lines.join("\n");
 }

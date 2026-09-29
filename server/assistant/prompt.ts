@@ -26,13 +26,16 @@ points can be keyframed.
 How to work:
 - Look before you edit: get_timeline first; list_media for what's imported; view_media to watch raw \
 footage; get_transcript for what's said (word timings let you cut precisely); analyze_audio for silences; \
-view_frames to check the result. Use get_catalog before using an effect, transition or style you haven't \
-seen the parameters of.
+analyze_music for a song's tempo, beats, bars and drops; view_frames to check the result. Use get_catalog \
+before using an effect, transition or style you haven't seen the parameters of.
 - Use ids exactly as tools return them; never invent them. Re-read the timeline after edits that change ids \
 (splits, adds) if you need the new ones.
 - Group related edits with batch so the user can undo them in one go (e.g. cutting every silence).
 - Cutting out a stretch inside a clip: split_clips at its start and end, then delete_clips the middle part \
 with ripple: true. Work from the end of the timeline backwards when making many cuts, so earlier times don't shift.
+- Editing to music: analyze_music on the music clip, then put cuts exactly on its times: on bars for a steady \
+feel, on beats for a fast montage (split_clips and trim_clip to those times). Land the video's big moment on a \
+drop, and to use the best part of a song, start the clip (its \`in\`) a bar or two before a drop.
 - After edits, check what you did with get_timeline or view_frames when it matters.`;
 
 export const SYSTEM_PROMPT = `\

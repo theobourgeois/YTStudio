@@ -154,11 +154,29 @@ export const ASSISTANT_TOOLS = [
     timeout: 600,
     description:
       "Silences (quiet stretches, with timeline times) and loudness of clips with sound. Use it to cut dead air " +
-      "or balance levels. Default: every clip with sound.",
+      "or balance levels. Default: every clip with sound. For music's beats and drops, use analyze_music.",
     inputSchema: obj({
       clipIds: arr(str("Clip id"), "Clips to analyse (default: every clip with sound)."),
       minSilence: num("Shortest silence to report, seconds (default 0.4).", { minimum: 0.05 }),
       threshold: num("Quieter than this counts as silence, dB (default -35).", { maximum: 0 }),
+    }),
+  }),
+  tool({
+    name: "analyze_music",
+    title: "Find the beat",
+    kind: "look",
+    timeout: 600,
+    description:
+      "The rhythm and shape of music: tempo (BPM), every beat, the bars (every 4th beat, where a new phrase " +
+      "feels right), loud and quiet sections, and the drops (where the energy jumps up, e.g. the beat coming " +
+      "in). Give a clip (timeline times, only inside the clip) or a media file (source times, optionally " +
+      "`from`..`to`). Use it to cut on the beat or the bar, to line an edit's big moment up with a drop, or to " +
+      "pick which part of a song to use.",
+    inputSchema: obj({
+      clipId: str("A clip with sound (answers in timeline times)."),
+      assetId: str("Or a media file with sound (answers in source times)."),
+      from: num("Media files: start of the range, source seconds.", { minimum: 0 }),
+      to: num("Media files: end of the range, source seconds."),
     }),
   }),
   tool({

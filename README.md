@@ -109,8 +109,9 @@ Library"). It's [Claude Code](https://claude.com/claude-code) running on this co
 subscription, using only the editor's tools: no shell, no files outside the editor.
 
 It can see what you see: the timeline, frames of the edited video (the Program monitor), frames of the raw footage,
-what's said (word-timed transcripts), silences and loudness, shot changes, the effects and transitions available,
-and the Library. It can search online like the Online tab ("use Blinding Lights as the music" finds the song,
+what's said (word-timed transcripts), silences and loudness, a song's tempo, beats, bars and drops, shot changes,
+the effects and transitions available, and the Library. So "cut this to the music" puts the cuts on the bars and the
+big moment on the drop. It can search online like the Online tab ("use Blinding Lights as the music" finds the song,
 downloads its sound and puts it under the video). And it can do what you can: add, move, trim, split and delete clips, set any property and keyframe
 it, add effects and transitions, add text and captions, import files or links, organise the Library, and export.
 
