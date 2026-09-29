@@ -19,7 +19,7 @@ const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05
 export interface McpCall {
   name: string;
   input: Record<string, unknown>;
-  /** Claude Code's id for the call (`_meta["claudecode/toolUseId"]`), when it sends one. */
+  /** The agent's id for the call, when it sends one: Claude Code's `_meta["claudecode/toolUseId"]`, Codex's `_meta.callId`. */
   toolUseId: string | null;
 }
 
@@ -99,7 +99,8 @@ export async function handleRpc(
       if (!toolSpec(name)) return rpcError(id, -32602, `Unknown tool: ${name}`);
       const input = isObject(params.arguments) ? params.arguments : {};
       const meta = isObject(params._meta) ? params._meta : {};
-      const toolUseId = typeof meta["claudecode/toolUseId"] === "string" ? meta["claudecode/toolUseId"] : null;
+      const agentId = meta["claudecode/toolUseId"] ?? meta.callId;
+      const toolUseId = typeof agentId === "string" ? agentId : null;
       let result: ToolResult;
       try {
         result = await opts.callTool({ name, input, toolUseId }, query);

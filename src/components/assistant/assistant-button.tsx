@@ -1,4 +1,5 @@
 import { PiChatCircleDots } from "react-icons/pi";
+import { providerInfo } from "@shared/assistant";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -9,6 +10,7 @@ import { useAssistant } from "@/stores/assistant";
 export function AssistantButton() {
   const open = useAssistant((s) => s.open);
   const working = useAssistant((s) => s.chat?.status === "working" || s.activity !== null);
+  const label = useAssistant((s) => providerInfo(s.chat?.provider ?? "claude").label);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -34,7 +36,7 @@ export function AssistantButton() {
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        {working ? "Claude is working" : "Assistant"}
+        {working ? `${label} is working` : "Assistant"}
         <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">{SHORTCUT_KEYS.toggleAssistant}</kbd>
       </TooltipContent>
     </Tooltip>

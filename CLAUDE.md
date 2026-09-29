@@ -67,9 +67,12 @@ server/
                      (decode, squeeze out silences, snap words to the sound), engine.ts (the engine interface),
                      whisper-cpp.ts (local, one-click setup), openai.ts (OpenAI + Groq), fake.ts (e2e).
   assistant/         The assistant. mcp.ts: the MCP server (POST /mcp, stateless JSON-RPC). bridge.ts: relays tool calls
-                     to an editor tab over its event stream and back. claude.ts: runs `claude -p` (stream-json) and
-                     turns its output into ChatEvents. service.ts: one chat per video (saved in data/assistant),
-                     Claude Code status, tool calls -> chat steps. prompt.ts: what agents are told.
+                     to an editor tab over its event stream and back, and every chat's activity to every tab.
+                     agent.ts: the Agent interface each provider implements. claude.ts: runs `claude -p` (stream-json).
+                     codex.ts: runs `codex app-server` (JSON-RPC), its model list and account. Both turn their output
+                     into ChatEvents. service.ts: one chat per video (saved in data/assistant) on a provider + model +
+                     thinking level, a conversation per provider, their status, tool calls -> chat steps. prompt.ts:
+                     what agents are told.
   media-analysis.ts  ffmpeg looks into media: a frame as JPEG, silences + loudness, shot changes, music (for the assistant).
   beats.ts           Music analysis (pure, tested on synthetic drums): onsets, tempo (with the half/double choice),
                      beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops.
@@ -96,11 +99,15 @@ src/
                      Media switches between sources: This video | Library | Online (`MediaSource`); Effects between
                      kinds: Video effects | Transitions (`EffectKind`, `KINDS`). Its right edge resizes it (widths
                      in `stores/layout.ts`, one for usual and one while the keyframe lanes show).
-  assistant/         Where agents' tool calls run (in the tab): tools.ts (every tool's handler), edits.ts (the pure
-                     timeline edits, tested), describe.ts (what the model reads: timeline, clips, catalogue...),
-                     frames.ts (Program monitor + media frames), bridge.ts (the tab's event stream), context.ts.
-  stores/assistant.ts  The side panel, the open video's chat, live activity, clip highlights, confirmations, Revert.
-  components/assistant/  The chat panel (right, full height), its steps, Markdown, the header button, the preview pill.
+  assistant/         Where agents' tool calls run (in the tab): tools.ts (every tool's handler), doc.ts (the video a call
+                     acts on: the open one via the editor store, or a background copy), edits.ts (the pure timeline
+                     edits, tested), describe.ts (what the model reads: timeline, clips, catalogue...), frames.ts
+                     (Program monitor, a background video drawn offscreen, media frames), bridge.ts (the tab's event
+                     stream; one call queue per video), context.ts.
+  stores/assistant.ts  The side panel, the open video's chat, every chat's activity (sidebar), provider status, live
+                     activity, clip highlights, confirmations, Revert.
+  components/assistant/  The chat panel (right, full height), the model + thinking pickers, its steps, Markdown, the
+                     header button, the preview pill. The sidebar's chat status is components/sidebar/chat-status.ts.
   components/ui/     shadcn/ui (generated; icons adapted to react-icons/pi).
 ```
 
@@ -282,7 +289,15 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   last edit if the tab closes mid-debounce.
 - The server binds to 127.0.0.1 only and has no auth. It's a local tool. `/mcp` also refuses requests with a non-local
   `Origin` or `Host` (web pages and DNS rebinding).
-- The assistant is the user's own Claude Code (`CLAUDE_PATH`, else found on the PATH), run in `data/assistant/workspace`
-  with `--tools ""` (no shell or files), `--strict-mcp-config` and only the editor's MCP server. Tool calls run in the
-  tab, one at a time; a tab that isn't open can't run them. Edits wait for the user's drag to end.
-- The e2e suite plays Claude Code with `e2e/fake-claude.mjs`: a message's `call <tool> <json>` lines are tool calls.
+- The assistant is the user's own Claude Code (`CLAUDE_PATH`, else found on the PATH) or Codex (`CODEX_PATH`), picked
+  per chat, run in `data/assistant/workspace` with only the editor's MCP server: Claude with `--tools ""` (no shell or
+  files) and `--strict-mcp-config`; Codex's app-server with its built-in tools and the user's other MCP servers turned
+  off by `-c` overrides (never by writing `~/.codex`), a read-only sandbox and the editor's prompt as its base
+  instructions. Its MCP calls carry their id in `_meta.callId` (Claude's in `_meta["claudecode/toolUseId"]`).
+- A chat's tool calls act on its own video, even while the tab shows another (`src/assistant/doc.ts`): a background
+  copy is loaded, edited and saved through the autosave queue (flushed before any video opens), and `view_frames`
+  draws it with an offscreen PreviewEngine (`PreviewSource`). Calls run in the tab, one at a time per video; a tab
+  that isn't open can't run them. Edits to the open video wait for the user's drag to end.
+- Switching providers mid-chat starts that provider's own conversation, told what it missed (`transcript`).
+- The e2e suite plays Claude Code with `e2e/fake-claude.mjs` and Codex with `e2e/fake-codex.mjs`: a message's
+  `call <tool> <json>` lines are tool calls (`wait` and, for Codex, `sleep <ms>` hold the turn).

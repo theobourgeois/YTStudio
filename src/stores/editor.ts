@@ -57,7 +57,7 @@ import { pollProcessingAssets, pollWebDownload, requestReversedCopies } from "./
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
 
-export { discardPendingSave, flushAutosave, onProjectSaved } from "./autosave";
+export { discardPendingSave, flushAutosave, onProjectSaved, queueSave } from "./autosave";
 
 const HISTORY_LIMIT = 100;
 /** Hard zoom limits (px per second). The timeline's usable minimum depends on the edit's length (`minZoomFor`). */
@@ -239,6 +239,11 @@ export interface AddToTimelineOptions {
 }
 
 let openToken = 0;
+/** The project being opened (until it's loaded, or fails to). */
+let opening: string | null = null;
+
+/** The project the editor is opening or has open: the one whose document is the editor's (see `src/assistant/doc.ts`). */
+export const editorProjectId = (): string | null => opening ?? useEditor.getState().projectId;
 
 const emptyEditor = () => ({
   project: createDefaultProject(),
@@ -277,6 +282,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const token = ++openToken;
     get().endGesture();
     usePlayback.getState().pause();
+    opening = projectId;
     set({ loading: true, loadError: null });
     try {
       await flushAutosave();
@@ -285,6 +291,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         api.listMedia(projectId),
       ]);
       if (token !== openToken) return;
+      opening = null;
       const byId = Object.fromEntries(assets.map((a) => [a.id, a]));
       // One `set` so subscribers see the project switch atomically (autosave ignores it).
       set({ ...emptyEditor(), projectId, project: normalizeProject(project, byId), assets, loading: false });
@@ -294,6 +301,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       pollProcessingAssets(useEditor);
     } catch (err) {
       if (token !== openToken) return;
+      opening = null;
       // The previous project was saved above; show the error instead of it.
       set({ ...emptyEditor(), projectId: null, loading: false, loadError: errorMessage(err) });
     }
@@ -301,6 +309,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   async closeProject() {
     ++openToken;
+    opening = null;
     get().endGesture();
     usePlayback.getState().pause();
     await flushAutosave();
@@ -539,57 +548,12 @@ export const useEditor = create<EditorState>((set, get) => ({
       .map((id) => get().getAsset(id))
       .filter((a): a is MediaAsset => !!a && a.duration > 0);
     if (assets.length === 0) return [];
-    const created: string[] = [];
-
+    let created: string[] = [];
     get().commit((project) => {
-      let p = project;
-      const requested = opts.trackId ? getTrack(p, opts.trackId) : undefined;
-      let newVideo: string | null = null;
-      let newAudio: string | null = null;
-      const destination = (a: MediaAsset): string => {
-        if (requested && canPlaceOnTrack(a, requested)) return requested.id;
-        if (opts.newTrack === "above" && a.hasVideo) {
-          if (!newVideo) ({ project: p, trackId: newVideo } = addTrack(p, "video"));
-          return newVideo;
-        }
-        if (opts.newTrack === "below" && !a.hasVideo) {
-          if (!newAudio) ({ project: p, trackId: newAudio } = addTrack(p, "audio"));
-          return newAudio;
-        }
-        // Default homes: the bottom video track, the top audio track.
-        if (a.hasVideo) return videoTracks(p).at(-1)!.id;
-        const audio = p.tracks.find((t) => t.kind === "audio");
-        if (audio) return audio.id;
-        const added = addTrack(p, "audio");
-        p = added.project;
-        return added.trackId;
-      };
-
-      // Assets dropped together are laid end to end on each track.
-      const cursor = new Map<string, number>();
-      for (const asset of assets) {
-        const trackId = destination(asset);
-        const clip: Clip = {
-          id: createId("clip"),
-          assetId: asset.id,
-          trackId,
-          start: 0,
-          in: 0,
-          out: asset.duration,
-          effects: defaultEffects(),
-        };
-        const at = cursor.get(trackId) ?? opts.at;
-        if (at === undefined && getTrack(p, trackId)?.kind === "video") {
-          p = appendToTrack(p, clip, trackId);
-        } else {
-          p = addClip(p, { ...clip, start: Math.max(0, at ?? 0) });
-        }
-        cursor.set(trackId, clipEnd(getClip(p, clip.id)!));
-        created.push(clip.id);
-      }
-      return p;
+      const placed = placeAssets(project, assets, opts);
+      created = placed.clipIds;
+      return placed.project;
     });
-
     if (created.length) get().setSelection([created[created.length - 1]]);
     return created;
   },
@@ -801,6 +765,60 @@ function clipsToCutAt(time: number): Clip[] {
   const under = clipsAtTime(project, time);
   const selected = under.filter((c) => selectedClipIds.includes(c.id));
   return selected.length ? selected : under.filter((c) => isOnVideoTrack(project, c));
+}
+
+/**
+ * Where `addAssetsToTimeline` puts assets (see its doc), as a pure edit: the project with them
+ * placed, and the new clips' ids. Also used for videos that aren't open (the assistant).
+ */
+export function placeAssets(project: Project, assets: MediaAsset[], opts: AddToTimelineOptions = {}): { project: Project; clipIds: string[] } {
+  const created: string[] = [];
+  let p = project;
+  const requested = opts.trackId ? getTrack(p, opts.trackId) : undefined;
+  let newVideo: string | null = null;
+  let newAudio: string | null = null;
+  const destination = (a: MediaAsset): string => {
+    if (requested && canPlaceOnTrack(a, requested)) return requested.id;
+    if (opts.newTrack === "above" && a.hasVideo) {
+      if (!newVideo) ({ project: p, trackId: newVideo } = addTrack(p, "video"));
+      return newVideo;
+    }
+    if (opts.newTrack === "below" && !a.hasVideo) {
+      if (!newAudio) ({ project: p, trackId: newAudio } = addTrack(p, "audio"));
+      return newAudio;
+    }
+    // Default homes: the bottom video track, the top audio track.
+    if (a.hasVideo) return videoTracks(p).at(-1)!.id;
+    const audio = p.tracks.find((t) => t.kind === "audio");
+    if (audio) return audio.id;
+    const added = addTrack(p, "audio");
+    p = added.project;
+    return added.trackId;
+  };
+
+  // Assets dropped together are laid end to end on each track.
+  const cursor = new Map<string, number>();
+  for (const asset of assets) {
+    const trackId = destination(asset);
+    const clip: Clip = {
+      id: createId("clip"),
+      assetId: asset.id,
+      trackId,
+      start: 0,
+      in: 0,
+      out: asset.duration,
+      effects: defaultEffects(),
+    };
+    const at = cursor.get(trackId) ?? opts.at;
+    if (at === undefined && getTrack(p, trackId)?.kind === "video") {
+      p = appendToTrack(p, clip, trackId);
+    } else {
+      p = addClip(p, { ...clip, start: Math.max(0, at ?? 0) });
+    }
+    cursor.set(trackId, clipEnd(getClip(p, clip.id)!));
+    created.push(clip.id);
+  }
+  return { project: p, clipIds: created };
 }
 
 /**

@@ -1,22 +1,24 @@
 /**
  * Every assistant tool, run in the editor tab (see `shared/assistant-tools.ts`
- * for what each one is, and `bridge.ts` for how calls arrive). Edits go
- * through the editor store like the user's own: one undo step each, the
- * changed clips highlighted. Looking and slower actions use the same stores
- * and API as the rest of the app.
+ * for what each one is, and `bridge.ts` for how calls arrive). A call acts on
+ * its chat's video (`doc.ts`): when it's the open one, edits go through the
+ * editor store like the user's own (one undo step each, the changed clips
+ * highlighted); otherwise on a background copy of it. Looking and slower
+ * actions use the same stores and API as the rest of the app.
  */
 import { type ToolContent, type ToolName, type ToolResult, textResult } from "@shared/assistant-tools";
 import { captionClips, captionSourceClips } from "@shared/captions";
 import { errorMessage } from "@shared/errors";
 import { templateFromClips } from "@shared/library";
 import { clamp } from "@shared/math";
-import { clipEnd, getClip, timelineTime } from "@shared/timeline";
-import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, Project, TranscriptionEngineId } from "@shared/types";
+import { placeTemplate } from "@shared/library";
+import { clipEnd, getClip, projectDuration, timelineTime } from "@shared/timeline";
+import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, Project, TranscriptionEngineId, TranscriptionJob } from "@shared/types";
 import { drawTexts } from "@/components/export/draw-texts";
 import { api } from "@/lib/api";
 import { useAssistant } from "@/stores/assistant";
-import { type CaptionOptions, useCaptions } from "@/stores/captions";
-import { useEditor } from "@/stores/editor";
+import { type CaptionOptions, captionsFor, useCaptions } from "@/stores/captions";
+import { placeAssets, useEditor } from "@/stores/editor";
 import { useLibrary } from "@/stores/library";
 import { usePlayback } from "@/stores/playback";
 import {
@@ -29,8 +31,9 @@ import {
   describeTimeline,
   describeTranscript,
 } from "./describe";
+import { type ToolDoc, docFor } from "./doc";
 import { EDITS, clipChanges } from "./edits";
-import { mediaFrames, programFrames } from "./frames";
+import { mediaFrames, offscreenFrames, programFrames } from "./frames";
 import {
   type Input,
   ToolError,
@@ -47,24 +50,25 @@ import {
 } from "./input";
 
 export interface ToolContext {
-  /** The chat the call is for (its video's id), or null for an agent outside the app. */
+  /** The chat the call is for (its video's id), or null for an agent outside the app (the open video). */
   chat: string | null;
+  /** The chat's assistant message it's part of. */
+  turn: string | null;
   signal: AbortSignal;
   progress: (fraction: number | null, label?: string) => void;
 }
 
-type Handler = (input: Input, ctx: ToolContext) => ToolResult | Promise<ToolResult>;
+interface HandlerContext extends ToolContext {
+  /** The video the call acts on (loaded on first use: most tools need it, a few don't). */
+  doc: () => Promise<ToolDoc>;
+}
+
+type Handler = (input: Input, ctx: HandlerContext) => ToolResult | Promise<ToolResult>;
 
 const POLL_MS = 500;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-function openProject(): { projectId: string; project: Project } {
-  const { projectId, project } = useEditor.getState();
-  if (!projectId) throw new ToolError("No video is open in the editor.");
-  return { projectId, project };
-}
-
-const assetsById = () => Object.fromEntries(useEditor.getState().assets.map((a) => [a.id, a]));
+const byId = (assets: readonly MediaAsset[]) => Object.fromEntries(assets.map((a) => [a.id, a]));
 
 /** Edits wait for the user to finish a drag, so neither loses theirs. */
 function gesturesSettled(signal: AbortSignal): Promise<void> {
@@ -82,12 +86,12 @@ function gesturesSettled(signal: AbortSignal): Promise<void> {
   });
 }
 
-/** Report an edit made some other way (captions, the Library): highlight it and remember it for the turn. */
-function finishEdit(before: Project, ctx: ToolContext) {
-  const after = useEditor.getState().project;
+/** Report an edit: highlight what changed (when it's on screen) and remember it for the turn. */
+function finishEdit(doc: ToolDoc, before: Project, ctx: ToolContext) {
+  const after = doc.project;
   const changes = clipChanges(before, after);
-  useAssistant.getState().highlight([...changes.added, ...changes.changed]);
-  useAssistant.getState().recordEdit(ctx.chat, before, after);
+  if (doc.isOpen) useAssistant.getState().highlight([...changes.added, ...changes.changed]);
+  useAssistant.getState().recordEdit(ctx.turn, doc.projectId, before, after);
   return changes;
 }
 
@@ -95,14 +99,13 @@ function finishEdit(before: Project, ctx: ToolContext) {
 const edit =
   (name: keyof typeof EDITS): Handler =>
   async (input, ctx) => {
-    await gesturesSettled(ctx.signal);
-    const editor = useEditor.getState();
-    openProject();
-    const before = editor.project;
-    const out = EDITS[name](before, input, { assets: assetsById(), playhead: usePlayback.getState().time });
-    if (out.project !== before) editor.commit(() => out.project);
-    if (out.rename) useEditor.getState().renameProject(out.rename);
-    return textResult(out.text, finishEdit(before, ctx));
+    const doc = await ctx.doc();
+    if (doc.isOpen) await gesturesSettled(ctx.signal);
+    const before = doc.project;
+    const out = EDITS[name](before, input, { assets: byId(doc.assets), playhead: doc.playhead });
+    doc.commit(out.project);
+    if (out.rename) doc.rename(out.rename);
+    return textResult(out.text, finishEdit(doc, before, ctx));
   };
 
 function clipsOf(project: Project, ids: string[]): Clip[] {
@@ -124,6 +127,20 @@ async function readyEngine(asked?: TranscriptionEngineId): Promise<Transcription
   );
 }
 
+/** Transcribe clips' sound (waiting for it, with progress). */
+async function transcribe(clips: readonly Clip[], engine: TranscriptionEngineId, language: string, ctx: ToolContext): Promise<TranscriptionJob> {
+  let job = await api.startTranscription({ engine, language, sources: clips.map((c) => ({ assetId: c.assetId, in: c.in, out: c.out })) });
+  ctx.signal.addEventListener("abort", () => void api.cancelTranscription(job.id).catch(() => {}));
+  while (job.status === "queued" || job.status === "running") {
+    ctx.progress(job.progress, "Transcribing");
+    await sleep(POLL_MS);
+    if (ctx.signal.aborted) throw new ToolError("Stopped.");
+    job = await api.getTranscription(job.id);
+  }
+  if (job.status !== "done" || !job.transcripts) throw new ToolError(job.error ?? "Transcription failed.");
+  return job;
+}
+
 async function libraryNow(): Promise<Library> {
   await useLibrary.getState().load();
   const { folders, items, assets } = useLibrary.getState();
@@ -134,14 +151,14 @@ const TOOLS: Record<ToolName, Handler> = {
   // -------------------------------------------------------------------------
   // Looking
   // -------------------------------------------------------------------------
-  get_timeline(input) {
-    const { project } = openProject();
+  async get_timeline(input, ctx) {
+    const doc = await ctx.doc();
     const trackId = optString(input, "trackId");
     return textResult(
       describeTimeline(
-        project,
-        assetsById(),
-        { playhead: usePlayback.getState().time, selectedClipIds: useEditor.getState().selectedClipIds },
+        doc.project,
+        byId(doc.assets),
+        { playhead: doc.playhead, selectedClipIds: [...doc.selectedClipIds] },
         {
           from: optNumber(input, "from"),
           to: optNumber(input, "to"),
@@ -151,28 +168,29 @@ const TOOLS: Record<ToolName, Handler> = {
       ),
     );
   },
-  get_clips(input) {
-    const { project } = openProject();
-    return textResult(describeClips(project, assetsById(), strings(input, "clipIds")));
+  async get_clips(input, ctx) {
+    const doc = await ctx.doc();
+    return textResult(describeClips(doc.project, byId(doc.assets), strings(input, "clipIds")));
   },
-  list_media() {
-    const { project } = openProject();
-    return textResult(describeMedia(project, useEditor.getState().assets));
+  async list_media(_input, ctx) {
+    const doc = await ctx.doc();
+    return textResult(describeMedia(doc.project, [...doc.assets]));
   },
   async view_frames(input, ctx) {
-    openProject();
+    const doc = await ctx.doc();
     const times = optNumbers(input, "times") ?? [];
     if (times.length === 0 || times.length > 8) throw new ToolError("`times` must have 1 to 8 times.");
     const width = clamp(optNumber(input, "width") ?? 480, 64, 960);
-    const duration = usePlayback.getState().duration;
+    const duration = projectDuration(doc.project);
     if (duration <= 0) throw new ToolError("The timeline is empty: there's nothing to look at.");
-    const content = await programFrames(times.map((t) => clamp(t, 0, Math.max(0, duration - 0.001))), width, ctx.signal);
+    const at = times.map((t) => clamp(t, 0, Math.max(0, duration - 0.001)));
+    const content = doc.isOpen ? await programFrames(at, width, ctx.signal) : await offscreenFrames(doc, at, width, ctx.signal);
     return { content };
   },
   async view_media(input, ctx) {
-    openProject();
+    const doc = await ctx.doc();
     const assetId = string(input, "assetId");
-    const asset = useEditor.getState().getAsset(assetId);
+    const asset = doc.asset(assetId);
     if (!asset) throw new ToolError(`There's no media "${assetId}" in this video. Call list_media.`);
     if (!asset.hasVideo) throw new ToolError(`"${asset.name}" is sound only: there's nothing to see. Try get_transcript or analyze_audio.`);
     const width = clamp(optNumber(input, "width") ?? 320, 64, 960);
@@ -189,28 +207,21 @@ const TOOLS: Record<ToolName, Handler> = {
     return { content: [{ type: "text", text: `"${asset.name}" (${asset.kind}, ${secs(asset.duration)}s):` }, ...content] };
   },
   async get_transcript(input, ctx) {
-    const { project } = openProject();
-    const assets = assetsById();
+    const doc = await ctx.doc();
+    const project = doc.project;
+    const assets = byId(doc.assets);
     const ids = optStrings(input, "clipIds");
     const clips = ids ? clipsOf(project, ids) : captionSourceClips(project, assets);
     const heard = clips.filter((c) => assets[c.assetId]?.hasAudio);
     if (heard.length === 0) throw new ToolError(ids ? "None of those clips have sound." : "No clip on the timeline has sound.");
     const engine = await readyEngine(oneOf(input, "engine", ["local", "openai", "groq"] as const));
-    const language = optString(input, "language") ?? "auto";
-    let job = await api.startTranscription({ engine, language, sources: heard.map((c) => ({ assetId: c.assetId, in: c.in, out: c.out })) });
-    ctx.signal.addEventListener("abort", () => void api.cancelTranscription(job.id).catch(() => {}));
-    while (job.status === "queued" || job.status === "running") {
-      ctx.progress(job.progress, "Transcribing");
-      await sleep(POLL_MS);
-      if (ctx.signal.aborted) throw new ToolError("Stopped.");
-      job = await api.getTranscription(job.id);
-    }
-    if (job.status !== "done" || !job.transcripts) throw new ToolError(job.error ?? "Transcription failed.");
-    return textResult(describeTranscript(heard, job.transcripts, assets));
+    const job = await transcribe(heard, engine, optString(input, "language") ?? "auto", ctx);
+    return textResult(describeTranscript(heard, job.transcripts!, assets));
   },
   async analyze_audio(input, ctx) {
-    const { project } = openProject();
-    const assets = assetsById();
+    const doc = await ctx.doc();
+    const project = doc.project;
+    const assets = byId(doc.assets);
     const ids = optStrings(input, "clipIds");
     const clips = (ids ? clipsOf(project, ids) : project.clips).filter((c) => assets[c.assetId]?.hasAudio);
     if (clips.length === 0) throw new ToolError(ids ? "None of those clips have sound." : "No clip on the timeline has sound.");
@@ -234,19 +245,20 @@ const TOOLS: Record<ToolName, Handler> = {
     return textResult(lines.join("\n"));
   },
   async analyze_music(input, ctx) {
-    const { project } = openProject();
+    const doc = await ctx.doc();
+    const project = doc.project;
     const clipId = optString(input, "clipId");
     const assetId = optString(input, "assetId");
     if (!clipId === !assetId) throw new ToolError("Give exactly one of `clipId` and `assetId`.");
     ctx.progress(null, "Listening for the beat");
     if (clipId) {
       const [clip] = clipsOf(project, [clipId]);
-      const asset = useEditor.getState().getAsset(clip.assetId);
+      const asset = doc.asset(clip.assetId);
       if (!asset?.hasAudio) throw new ToolError(`${clipId} has no sound.`);
       const music = await api.analyseMusic(asset.id, { from: clip.in, to: clip.out }, ctx.signal);
       return textResult(describeMusic(`${clip.id} "${asset.name}"`, music, clip.start - clip.in, { start: clip.start, end: clipEnd(clip) }, true));
     }
-    const asset = useEditor.getState().getAsset(assetId!);
+    const asset = doc.asset(assetId!);
     if (!asset) throw new ToolError(`There's no media "${assetId}" in this video. Call list_media.`);
     if (!asset.hasAudio) throw new ToolError(`"${asset.name}" has no sound.`);
     const from = clamp(optNumber(input, "from") ?? 0, 0, asset.duration);
@@ -255,8 +267,8 @@ const TOOLS: Record<ToolName, Handler> = {
     return textResult(describeMusic(`"${asset.name}" (${asset.id})`, music, 0, { start: from, end: to }, false));
   },
   async detect_scenes(input, ctx) {
-    openProject();
-    const asset = useEditor.getState().getAsset(string(input, "assetId"));
+    const doc = await ctx.doc();
+    const asset = doc.asset(string(input, "assetId"));
     if (!asset) throw new ToolError("There's no such media in this video. Call list_media.");
     if (asset.kind !== "video") throw new ToolError(`"${asset.name}" isn't a video.`);
     ctx.progress(null, "Watching for cuts");
@@ -323,11 +335,11 @@ const TOOLS: Record<ToolName, Handler> = {
   // Other actions
   // -------------------------------------------------------------------------
   async generate_captions(input, ctx) {
-    const { project } = openProject();
+    const doc = await ctx.doc();
+    const project = doc.project;
     const ids = optStrings(input, "clipIds");
     if (ids) clipsOf(project, ids);
     const captions = useCaptions.getState();
-    if (captions.run.status === "running") throw new ToolError("Captions are already being made.");
     const engine = await readyEngine(oneOf(input, "engine", ["local", "openai", "groq"] as const) ?? captions.options.engine);
     const options: CaptionOptions = {
       ...captions.options,
@@ -340,22 +352,32 @@ const TOOLS: Record<ToolName, Handler> = {
     };
     const before = project;
     const had = captionClips(project).length;
-    ctx.signal.addEventListener("abort", () => useCaptions.getState().cancel());
-    const running = captions.generate(options, ids ? "selection" : "timeline", ids);
-    const watch = setInterval(() => {
+    if (doc.isOpen) {
+      // The Captions tab's own run, so its progress shows there too.
+      if (captions.run.status === "running") throw new ToolError("Captions are already being made.");
+      ctx.signal.addEventListener("abort", () => useCaptions.getState().cancel());
+      const running = captions.generate(options, ids ? "selection" : "timeline", ids);
+      const watch = setInterval(() => {
+        const run = useCaptions.getState().run;
+        if (run.status === "running") ctx.progress(run.progress, "Transcribing");
+      }, POLL_MS);
+      try {
+        await running;
+      } finally {
+        clearInterval(watch);
+      }
       const run = useCaptions.getState().run;
-      if (run.status === "running") ctx.progress(run.progress, "Transcribing");
-    }, POLL_MS);
-    try {
-      await running;
-    } finally {
-      clearInterval(watch);
+      if (run.status === "error") throw new ToolError(run.message);
+      if (ctx.signal.aborted) throw new ToolError("Stopped.");
+    } else {
+      const sources = captionSourceClips(project, byId(doc.assets), ids);
+      if (sources.length === 0) throw new ToolError("There's no sound to caption in those clips.");
+      const job = await transcribe(sources, engine, options.language, ctx);
+      const { added, apply } = await captionsFor(doc.project, job, sources.map((c) => c.id), options);
+      if (added) doc.commit(apply(doc.project));
     }
-    const run = useCaptions.getState().run;
-    if (run.status === "error") throw new ToolError(run.message);
-    if (ctx.signal.aborted) throw new ToolError("Stopped.");
-    const changes = finishEdit(before, ctx);
-    const now = captionClips(useEditor.getState().project);
+    const changes = finishEdit(doc, before, ctx);
+    const now = captionClips(doc.project);
     if (changes.added.length === 0) return textResult("No speech was found in those clips, so no captions were added.", changes);
     return textResult(
       `Added ${changes.added.length} captions (${now.length} in all, ${had ? "replacing the ones over those clips" : "on a Captions track"}) with the "${options.style}" style, "${options.length}" length and "${options.animation}" animation. Restyle them with style_captions; edit one's words with set_properties (effect "text").`,
@@ -363,7 +385,8 @@ const TOOLS: Record<ToolName, Handler> = {
     );
   },
   async import_media(input, ctx) {
-    const { projectId } = openProject();
+    const doc = await ctx.doc();
+    const { projectId } = doc;
     const paths = optStrings(input, "paths") ?? [];
     const urls = optStrings(input, "urls") ?? [];
     if (paths.length + urls.length === 0) throw new ToolError("Give `paths` and/or `urls`.");
@@ -395,23 +418,35 @@ const TOOLS: Record<ToolName, Handler> = {
         failed.push(`${url}: ${errorMessage(err)}`);
       }
     }
-    if (useEditor.getState().projectId === projectId) useEditor.getState().addImportedAssets(imported);
+    doc.addAssets(imported);
     if (imported.length === 0) throw new ToolError(`Nothing was imported. ${failed.join("; ")}`);
     return textResult([...lines, ...failed.map((f) => `Failed: ${f}`), "Put them on the timeline with add_clips."].join("\n"));
   },
   async delete_media(input, ctx) {
-    const { project } = openProject();
-    const asset = useEditor.getState().getAsset(string(input, "assetId"));
+    let doc = await ctx.doc();
+    const asset = doc.asset(string(input, "assetId"));
     if (!asset) throw new ToolError("There's no such media in this video. Call list_media.");
-    const uses = project.clips.filter((c) => c.assetId === asset.id).length;
+    const uses = doc.project.clips.filter((c) => c.assetId === asset.id).length;
     const ok = await useAssistant
       .getState()
-      .confirm(`Delete “${asset.name}”?`, uses ? `Its ${uses} clip${uses === 1 ? "" : "s"} will be removed from the timeline too. This can't be undone.` : "This can't be undone.", ctx.signal);
+      .confirm(
+        `Delete “${asset.name}”?`,
+        uses ? `Its ${uses} clip${uses === 1 ? "" : "s"} will be removed from the timeline too. This can't be undone.` : "This can't be undone.",
+        doc.projectId,
+        ctx.signal,
+      );
     if (!ok) throw new ToolError("The user said no. Don't delete it.");
-    const before = useEditor.getState().project;
-    await useEditor.getState().deleteAsset(asset.id);
-    if (useEditor.getState().getAsset(asset.id)) throw new ToolError("It couldn't be deleted.");
-    return textResult(`Deleted "${asset.name}"${uses ? ` and its ${uses} clip${uses === 1 ? "" : "s"}` : ""}.`, finishEdit(before, ctx));
+    // The user may have switched videos while deciding.
+    doc = await docFor(doc.projectId);
+    const before = doc.project;
+    if (doc.isOpen) {
+      await useEditor.getState().deleteAsset(asset.id);
+      if (doc.asset(asset.id)) throw new ToolError("It couldn't be deleted.");
+    } else {
+      await api.deleteMedia(asset.id);
+      doc.assetDeleted(asset.id);
+    }
+    return textResult(`Deleted "${asset.name}"${uses ? ` and its ${uses} clip${uses === 1 ? "" : "s"}` : ""}.`, finishEdit(doc, before, ctx));
   },
   async library_create_folder(input) {
     const folder = await api.createLibraryFolder({ name: string(input, "name"), parentId: optString(input, "parentId") ?? null });
@@ -445,7 +480,7 @@ const TOOLS: Record<ToolName, Handler> = {
     if (folderId) {
       const folder = library.folders.find((f) => f.id === folderId);
       if (!folder) throw new ToolError(`There's no folder "${folderId}". Call get_library.`);
-      const ok = await useAssistant.getState().confirm(`Delete the folder “${folder.name}”?`, "Everything in it goes too. Videos keep their own copies of its media. This can't be undone.", ctx.signal);
+      const ok = await useAssistant.getState().confirm(`Delete the folder “${folder.name}”?`, "Everything in it goes too. Videos keep their own copies of its media. This can't be undone.", ctx.chat, ctx.signal);
       if (!ok) throw new ToolError("The user said no. Don't delete it.");
       await api.deleteLibraryFolder(folderId);
       await useLibrary.getState().refresh();
@@ -453,14 +488,14 @@ const TOOLS: Record<ToolName, Handler> = {
     }
     const item = library.items.find((i) => i.id === itemId);
     if (!item) throw new ToolError(`There's no item "${itemId}". Call get_library.`);
-    const ok = await useAssistant.getState().confirm(`Delete “${item.name}” from the Library?`, "Videos keep their own copies. This can't be undone.", ctx.signal);
+    const ok = await useAssistant.getState().confirm(`Delete “${item.name}” from the Library?`, "Videos keep their own copies. This can't be undone.", ctx.chat, ctx.signal);
     if (!ok) throw new ToolError("The user said no. Don't delete it.");
     await api.deleteLibraryItem(item.id);
     await useLibrary.getState().refresh();
     return textResult(`Deleted "${item.name}" from the Library.`);
   },
-  async library_save(input) {
-    const { projectId, project } = openProject();
+  async library_save(input, ctx) {
+    const { projectId, project } = await ctx.doc();
     const assetIds = optStrings(input, "assetIds") ?? [];
     const clipIds = optStrings(input, "clipIds") ?? [];
     const folderId = optString(input, "folderId") ?? null;
@@ -481,22 +516,31 @@ const TOOLS: Record<ToolName, Handler> = {
     return textResult(lines.join("\n"));
   },
   async library_use(input, ctx) {
-    openProject();
+    const doc = await ctx.doc();
     const itemId = string(input, "itemId");
-    const before = useEditor.getState().project;
-    const item = await useEditor.getState().addLibraryItem(itemId, {
-      at: optNumber(input, "start") ?? usePlayback.getState().time,
-      ...(optString(input, "trackId") && { trackId: optString(input, "trackId") }),
-    });
-    if (!item) throw new ToolError("It couldn't be added (see the message in the app). Check the id with get_library.");
+    const before = doc.project;
+    const opts = { at: optNumber(input, "start") ?? doc.playhead, ...(optString(input, "trackId") && { trackId: optString(input, "trackId") }) };
+    let item;
+    if (doc.isOpen) {
+      item = await useEditor.getState().addLibraryItem(itemId, opts);
+      if (!item) throw new ToolError("It couldn't be added (see the message in the app). Check the id with get_library.");
+    } else {
+      const used = await api.useLibraryItem(itemId, { projectId: doc.projectId });
+      doc.addAssets(used.assets);
+      const placed = used.template
+        ? placeTemplate(doc.project, used.template, opts)
+        : placeAssets(doc.project, used.assets.filter((a) => a.duration > 0), opts);
+      doc.commit(placed.project);
+      item = used.item;
+    }
     await useLibrary.getState().refresh();
-    const changes = finishEdit(before, ctx);
-    const project = useEditor.getState().project;
+    const changes = finishEdit(doc, before, ctx);
+    const project = doc.project;
     const placed = changes.added.map((id) => getClip(project, id)!).map((c) => `${c.id} ${range(c.start, clipEnd(c))}`);
     return textResult(`Added "${item.name}": ${placed.join(", ")}.`, changes);
   },
   async export_video(input, ctx) {
-    const { project } = openProject();
+    const { project } = await ctx.doc();
     if (project.clips.length === 0) throw new ToolError("The timeline is empty: there's nothing to export.");
     const resolution: ExportResolution = oneOf(input, "resolution", ["720p", "1080p", "4k"] as const) ?? "1080p";
     ctx.progress(null, "Preparing");
@@ -518,12 +562,13 @@ const TOOLS: Record<ToolName, Handler> = {
     if (job.status !== "done" || !job.url) throw new ToolError(job.error ?? "The export failed.");
     return textResult(`Exported "${job.fileName}" (${job.width}×${job.height}, ${secs(job.duration)}s): ${location.origin}${job.downloadUrl ?? job.url}`);
   },
-  focus(input) {
-    openProject();
+  async focus(input, ctx) {
+    const doc = await ctx.doc();
     const time = optNumber(input, "time", { min: 0 });
     const clipIds = optStrings(input, "clipIds");
     if (time === undefined && !clipIds) throw new ToolError("Give `time` and/or `clipIds`.");
-    if (clipIds) clipsOf(useEditor.getState().project, clipIds);
+    if (clipIds) clipsOf(doc.project, clipIds);
+    if (!doc.isOpen) return textResult("The user is looking at another video right now, so there's nothing to show them. Carry on.");
     if (time !== undefined) {
       usePlayback.getState().pause();
       usePlayback.getState().seek(time);
@@ -537,13 +582,24 @@ const TOOLS: Record<ToolName, Handler> = {
   },
 };
 
+/** The video a call acts on: its chat's, or (for an agent outside the app) the open one. */
+function callDoc(ctx: ToolContext): () => Promise<ToolDoc> {
+  let doc: Promise<ToolDoc> | null = null;
+  return () => {
+    const projectId = ctx.chat ?? useEditor.getState().projectId;
+    if (!projectId) return Promise.reject(new ToolError("No video is open in the editor. Ask the user to open one."));
+    doc ??= docFor(projectId);
+    return doc;
+  };
+}
+
 /** Run a tool call. Failures become error results with a message for the model. */
 export async function runTool(name: string, input: Input, ctx: ToolContext): Promise<ToolResult> {
   const handler = (TOOLS as Record<string, Handler | undefined>)[name];
   if (!handler) return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   if (ctx.signal.aborted) return { content: [{ type: "text", text: "Stopped: the user switched to another video." }], isError: true };
   try {
-    return await handler(input, ctx);
+    return await handler(input, { ...ctx, doc: callDoc(ctx) });
   } catch (err) {
     if (err instanceof ToolError) return { content: [{ type: "text", text: err.message }], isError: true };
     if ((err as { name?: string })?.name === "AbortError") return { content: [{ type: "text", text: "Stopped." }], isError: true };

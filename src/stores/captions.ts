@@ -6,7 +6,7 @@
  */
 import { create } from "zustand";
 import { toast } from "sonner";
-import type { Clip, ParamValues, TranscriptionEngineId, TranscriptionEngineInfo, TranscriptionJob } from "@shared/types";
+import type { Clip, ParamValues, Project, TranscriptionEngineId, TranscriptionEngineInfo, TranscriptionJob } from "@shared/types";
 import {
   CAPTION_LENGTHS,
   type CaptionAnimation,
@@ -221,8 +221,7 @@ export const useCaptions = create<CaptionsState>((set, get) => ({
 }));
 
 /** A caption style and position from the options (or the captions already there). */
-function chosenLook(options: CaptionOptions): { style: CaptionStyle; motion: ParamValues } {
-  const { project } = useEditor.getState();
+function chosenLook(project: Project, options: CaptionOptions): { style: CaptionStyle; motion: ParamValues } {
   const existing = captionClips(project)[0];
   if (options.style === "current" && existing) return captionStyleOf(existing);
   const preset = captionPreset(options.style) ?? captionPreset(DEFAULT_CAPTION_PRESET)!;
@@ -232,9 +231,24 @@ function chosenLook(options: CaptionOptions): { style: CaptionStyle; motion: Par
 
 /** Turn a finished transcription into captions over the clips (where they are now). Returns how many. */
 async function placeCaptions(job: TranscriptionJob, clipIds: string[], options: CaptionOptions): Promise<number> {
-  const editor = useEditor.getState();
-  const clips = clipIds.map((id) => getClip(editor.project, id)).filter((c): c is Clip => !!c);
-  const { style, motion } = chosenLook(options);
+  const { added, apply } = await captionsFor(useEditor.getState().project, job, clipIds, options);
+  if (added) useEditor.getState().commit(apply);
+  return added;
+}
+
+/**
+ * Captions of a finished transcription over `project`'s clips `clipIds` (replacing any already
+ * over them): how many there are, and the edit that adds them (to the video as it is by then).
+ * Also used for videos that aren't open (the assistant).
+ */
+export async function captionsFor(
+  project: Project,
+  job: TranscriptionJob,
+  clipIds: string[],
+  options: CaptionOptions,
+): Promise<{ added: number; apply: (p: Project) => Project }> {
+  const clips = clipIds.map((id) => getClip(project, id)).filter((c): c is Clip => !!c);
+  const { style, motion } = chosenLook(project, options);
 
   // Lay lines out in the captions' font to see what fits across the canvas.
   const effects = textEffects(style.text).map((e) =>
@@ -243,7 +257,7 @@ async function placeCaptions(job: TranscriptionJob, clipIds: string[], options: 
   const look = textStyleAt({ id: "", assetId: "", trackId: "", start: 0, in: 0, out: 1, effects }, 0);
   await fontsSettled();
   await document.fonts.load(textFont(look, 1), "Hg").catch(() => {});
-  const canvas = outputSize(editor.project.settings.aspectRatio, "1080p");
+  const canvas = outputSize(project.settings.aspectRatio, "1080p");
   const scale = typeof motion.scale === "number" ? motion.scale : 1;
   const fits = (line: string) =>
     line.length <= MAX_LINE_CHARS && layoutText({ ...look, text: line }, 1).blockWidth * scale <= canvas.width * MAX_LINE_WIDTH;
@@ -255,16 +269,14 @@ async function placeCaptions(job: TranscriptionJob, clipIds: string[], options: 
     fits,
     punctuation: options.punctuation,
   });
-  if (cues.length === 0) return 0;
+  if (cues.length === 0) return { added: 0, apply: (p) => p };
   const animation: CaptionAnimation | null = options.animation === "none" ? null : captionAnimation(options.animation);
-  useEditor.getState().commit(
-    (p) =>
-      addCaptions(p, cues, {
-        style,
-        motion,
-        animation,
-        replace: clips.map((c) => ({ start: c.start, end: clipEnd(c) })),
-      }).project,
-  );
-  return cues.length;
+  const apply = (p: Project) =>
+    addCaptions(p, cues, {
+      style,
+      motion,
+      animation,
+      replace: clips.map((c) => ({ start: c.start, end: clipEnd(c) })),
+    }).project;
+  return { added: cues.length, apply };
 }

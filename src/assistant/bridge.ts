@@ -1,8 +1,10 @@
 /**
  * This tab's end of the assistant bridge (`server/assistant/bridge.ts`): an
  * event stream from the server carrying tool calls to run here (from the
- * in-app chat, or any MCP client) and the open video's chat updates. Calls run
- * one at a time, in order, so edits never interleave.
+ * in-app chats, or any MCP client), the open video's chat updates, and what
+ * every chat is doing. Calls on one video run one at a time, in order, so its
+ * edits never interleave; calls on different videos (chats working on
+ * several at once) run side by side.
  */
 import { toast } from "sonner";
 import { type TabEvent, describeToolCall } from "@shared/assistant";
@@ -17,20 +19,31 @@ const RETRY_MS = 2000;
 /** This tab's id (the server sends it the calls for the videos it shows). */
 export const TAB_ID = crypto.randomUUID();
 
-let queue: Promise<void> = Promise.resolve();
-/** Calls waiting or running here; `cancelled` when the server has already given up on one. */
-const running = new Map<string, { controller: AbortController; cancelled: boolean }>();
+/** Each video's calls, in order (keyed by video id, or "" when there's none). */
+const queues = new Map<string, Promise<void>>();
+/**
+ * Calls waiting or running here: which video, whether it has started, and `cancelled` when the
+ * server has already given up on it.
+ */
+const running = new Map<string, { controller: AbortController; cancelled: boolean; target: string; started: boolean }>();
+
+/** The video a call acts on: its chat's, or the open one. */
+const targetOf = (call: Extract<TabEvent, { type: "call" }>) => call.chat ?? useEditor.getState().projectId ?? "";
 
 async function execute(call: Extract<TabEvent, { type: "call" }>) {
   const entry = running.get(call.id)!;
+  entry.started = true;
   const { controller } = entry;
   const assistant = useAssistant.getState();
-  assistant.setActivity({ callId: call.id, name: call.name, input: call.input, chat: call.chat, startedAt: Date.now() });
+  // The pill over the Program monitor shows what's happening to the video on screen.
+  const onScreen = entry.target === useEditor.getState().projectId;
+  if (onScreen) assistant.setActivity({ callId: call.id, name: call.name, input: call.input, chat: call.chat, startedAt: Date.now() });
   // An agent outside the app: say what it's doing (the chat shows its own).
   if (!call.chat) toast(`Agent: ${describeToolCall(call.name, call.input)}`, { id: "external-agent", duration: 2500 });
   let lastProgress = 0;
   const result: ToolResult = await runTool(call.name, call.input, {
     chat: call.chat,
+    turn: call.turn ?? null,
     signal: controller.signal,
     progress: (fraction, label) => {
       // At most a few updates a second.
@@ -48,8 +61,13 @@ async function execute(call: Extract<TabEvent, { type: "call" }>) {
 function onEvent(event: TabEvent) {
   switch (event.type) {
     case "call": {
-      running.set(event.id, { controller: new AbortController(), cancelled: false });
-      queue = queue.then(() => execute(event)).catch((err) => console.error("[assistant]", err));
+      const target = targetOf(event);
+      running.set(event.id, { controller: new AbortController(), cancelled: false, target, started: false });
+      const queue = (queues.get(target) ?? Promise.resolve()).then(() => execute(event)).catch((err) => console.error("[assistant]", err));
+      queues.set(target, queue);
+      void queue.then(() => {
+        if (queues.get(target) === queue) queues.delete(target);
+      });
       break;
     }
     case "cancel": {
@@ -61,6 +79,9 @@ function onEvent(event: TabEvent) {
     }
     case "chat":
       useAssistant.getState().applyEvent(event.projectId, event.seq, event.event);
+      break;
+    case "activity":
+      useAssistant.getState().setChatActivity(event.chats);
       break;
   }
 }
@@ -98,9 +119,10 @@ export function startAssistantBridge(): () => void {
 
   const offEditor = useEditor.subscribe((s) => {
     if (s.projectId === projectId) return;
+    const left = projectId;
     projectId = s.projectId;
-    // Calls for the video that was open can't finish here any more (they report so).
-    for (const { controller } of running.values()) controller.abort();
+    // Calls already acting on the video that was open can't finish (they report so; the next ones run on it in the background).
+    for (const entry of running.values()) if (entry.started && entry.target === left) entry.controller.abort();
     connect();
   });
   const onFocus = () => void api.focusTab(TAB_ID).catch(() => {});

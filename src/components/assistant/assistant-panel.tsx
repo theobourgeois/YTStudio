@@ -1,15 +1,14 @@
 /**
- * The assistant's side panel (right of the editor, full height): a chat with
- * Claude about the open video. Claude Code does the work with the editor's
- * tools (see `shared/assistant-tools.ts`); every step shows here as it runs,
- * and what it changes flashes on the timeline.
+ * The assistant's side panel (right of the editor, full height): a chat about
+ * the open video with Claude (Claude Code) or Codex, picked in the composer.
+ * The agent does the work with the editor's tools (see
+ * `shared/assistant-tools.ts`); every step shows here as it runs, and what it
+ * changes flashes on the timeline.
  */
 import { type KeyboardEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   PiArrowDown,
   PiArrowUpBold,
-  PiCaretDown,
-  PiCheck,
   PiNotePencil,
   PiSparkleFill,
   PiSpinnerGap,
@@ -18,26 +17,29 @@ import {
   PiWarningCircle,
   PiX,
 } from "react-icons/pi";
-import { ASSISTANT_MODELS } from "@shared/assistant";
+import { type AssistantProvider, providerInfo } from "@shared/assistant";
 import { cn } from "cn";
 import { messageContext } from "@/assistant/context";
 import { TAB_ID } from "@/assistant/bridge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { DEFAULT_ASSISTANT_WIDTH, useAssistant } from "@/stores/assistant";
+import { DEFAULT_ASSISTANT_WIDTH, providerStatus, useAssistant } from "@/stores/assistant";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
+import { useProjects } from "@/stores/projects";
 import { ChatMessages } from "./chat-messages";
+import { EffortPicker, ModelPicker } from "./model-picker";
+import { ProviderIcon } from "./provider-icon";
+
+/** The open chat's provider (Claude until it's loaded). */
+const useProvider = (): AssistantProvider => useAssistant((s) => s.chat?.provider ?? "claude");
+/** Why the open chat's provider can't be used right now, if it can't. */
+const useProblem = (): string | null => {
+  const provider = useProvider();
+  return useAssistant((s) => providerStatus(s.status, provider)?.problem ?? null);
+};
 
 export function AssistantPanel() {
   const open = useAssistant((s) => s.open);
@@ -69,16 +71,22 @@ export function AssistantPanel() {
 }
 
 function PanelHeader() {
-  const account = useAssistant((s) => s.status?.account);
+  const provider = useProvider();
+  const account = useAssistant((s) => providerStatus(s.status, provider)?.account);
   const hasMessages = useAssistant((s) => (s.chat?.messages.length ?? 0) > 0);
   const working = useAssistant((s) => s.chat?.status === "working");
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 border-b pr-1.5 pl-3.5">
+    <div className="flex h-12 shrink-0 items-center gap-2 border-b pr-2 pl-4">
       <span className="grid size-5 place-items-center rounded-md bg-brand/12 text-brand">
         <PiSparkleFill className="size-3" />
       </span>
-      <span className="text-[13px] font-medium">Assistant</span>
-      {account && <span className="truncate text-[11px] text-muted-foreground">{account}</span>}
+      <span className="text-sm font-medium">Assistant</span>
+      {account && (
+        <span className="flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground">
+          <ProviderIcon provider={provider} className="size-3" />
+          {account}
+        </span>
+      )}
       <div className="ml-auto flex items-center">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -188,11 +196,11 @@ function Notice({ tone, title, children, action }: { tone: "error" | "info"; tit
   return (
     <div
       className={cn(
-        "grid gap-1.5 rounded-xl border px-3.5 py-3 text-xs leading-relaxed",
+        "grid gap-1.5 rounded-xl border px-3.5 py-3 text-[13px] leading-relaxed",
         tone === "error" ? "border-destructive/30 bg-destructive/6" : "bg-card",
       )}
     >
-      <span className={cn("flex items-center gap-1.5 text-[13px] font-medium", tone === "error" && "text-destructive")}>
+      <span className={cn("flex items-center gap-1.5 text-sm font-medium", tone === "error" && "text-destructive")}>
         {tone === "error" ? <PiWarningCircle className="size-4" /> : <PiTerminal className="size-4" />}
         {title}
       </span>
@@ -202,9 +210,11 @@ function Notice({ tone, title, children, action }: { tone: "error" | "info"; tit
   );
 }
 
-/** Before the first message: what it can do, and whether Claude Code is ready. */
+/** Before the first message: what it can do, and whether its provider's CLI is ready. */
 function EmptyChat() {
-  const status = useAssistant((s) => s.status);
+  const provider = useProvider();
+  const problem = useProblem();
+  const { label, app } = providerInfo(provider);
   const hasClips = useEditor((s) => s.project.clips.length > 0);
   const hasMedia = useEditor((s) => s.assets.length > 0);
   const selected = useEditor((s) => s.selectedClipIds.length);
@@ -225,24 +235,24 @@ function EmptyChat() {
           <PiSparkleFill className="size-5" />
         </span>
         <div className="grid gap-1">
-          <h2 className="text-[15px] font-semibold">Edit with Claude</h2>
-          <p className="text-xs leading-relaxed text-balance text-muted-foreground">
-            Claude can watch your footage, read what's said, and cut, arrange, caption and style your video. You'll see
-            every change as it happens, and can undo any of it.
+          <h2 className="text-base font-semibold">Edit with {label}</h2>
+          <p className="text-[13px] leading-relaxed text-balance text-muted-foreground">
+            {label} can watch your footage, read what's said, and cut, arrange, caption and style your video. You'll see
+            every change as it happens, and can undo any of it. It keeps going if you switch to another video.
           </p>
         </div>
       </div>
-      {status?.problem ? (
+      {problem ? (
         <Notice
           tone="info"
-          title="Set up Claude Code"
+          title={`Set up ${app}`}
           action={
             <Button variant="outline" size="xs" className="mt-1 w-fit" onClick={() => void useAssistant.getState().loadStatus(true)}>
               Check again
             </Button>
           }
         >
-          <FormattedProblem text={status.problem} />
+          <FormattedProblem text={problem} />
         </Notice>
       ) : (
         <div className="grid gap-1.5">
@@ -251,7 +261,7 @@ function EmptyChat() {
               key={s}
               type="button"
               onClick={() => sendMessage(s)}
-              className="cursor-pointer rounded-lg border bg-card/60 px-3 py-2 text-left text-xs text-foreground/85 transition-colors hover:border-brand/40 hover:bg-brand/6 hover:text-foreground"
+              className="cursor-pointer rounded-lg border bg-card/60 px-3.5 py-2.5 text-left text-[13px] text-foreground/85 transition-colors hover:border-brand/40 hover:bg-brand/6 hover:text-foreground"
             >
               {s}
             </button>
@@ -287,17 +297,22 @@ function sendMessage(text: string): Promise<boolean> {
   return useAssistant.getState().send(text, context, label, TAB_ID);
 }
 
-/** Things the assistant wants to do that can't be undone, waiting for a yes. */
+/** Things the assistant wants to do that can't be undone, waiting for a yes (naming the video when it's another one). */
 function Confirmations() {
   const confirmations = useAssistant((s) => s.confirmations);
+  const openId = useEditor((s) => s.projectId);
+  const projects = useProjects((s) => s.projects);
   if (confirmations.length === 0) return null;
   return (
     <div className="grid gap-2 border-t bg-card/50 px-3 py-3">
       {confirmations.map((c) => (
         <div key={c.id} className="grid gap-2 rounded-xl border border-destructive/30 bg-background p-3" role="alertdialog" aria-label={c.title}>
           <div className="grid gap-0.5">
-            <span className="text-[13px] font-medium">{c.title}</span>
-            <span className="text-xs text-muted-foreground">{c.detail}</span>
+            {c.projectId && c.projectId !== openId && (
+              <span className="text-xs text-muted-foreground">In “{projects.find((p) => p.id === c.projectId)?.name ?? "another video"}”</span>
+            )}
+            <span className="text-sm font-medium">{c.title}</span>
+            <span className="text-[13px] text-muted-foreground">{c.detail}</span>
           </div>
           <div className="flex justify-end gap-1.5">
             <Button variant="ghost" size="sm" onClick={() => useAssistant.getState().answer(c.id, false)}>
@@ -317,7 +332,9 @@ function Composer({ projectId }: { projectId: string }) {
   const draft = useAssistant((s) => s.drafts[projectId] ?? "");
   const working = useAssistant((s) => s.chat?.status === "working");
   const sending = useAssistant((s) => s.sending);
-  const problem = useAssistant((s) => s.status?.problem ?? null);
+  const provider = useProvider();
+  const problem = useProblem();
+  const { label, app } = providerInfo(provider);
   const loaded = useAssistant((s) => s.chat !== null);
   const input = useRef<HTMLTextAreaElement>(null);
 
@@ -364,16 +381,17 @@ function Composer({ projectId }: { projectId: string }) {
           value={draft}
           rows={1}
           disabled={!!problem}
-          placeholder={problem ? "Set up Claude Code to start" : working ? "Claude is working…" : "Ask Claude to edit your video…"}
+          placeholder={problem ? `Set up ${app} to start` : working ? `${label} is working…` : `Ask ${label} to edit your video…`}
           onChange={(e) => useAssistant.getState().setDraft(projectId, e.target.value)}
           onKeyDown={onKeyDown}
           aria-label="Message the assistant"
-          className="block max-h-50 min-h-11 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed"
+          className="block max-h-50 min-h-12 w-full resize-none bg-transparent px-4 pt-3.5 pb-1.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed"
         />
         <div className="flex items-center gap-1 px-2 pb-2">
-          <ContextLabel />
-          <div className="ml-auto flex items-center gap-1">
-            <ModelMenu />
+          <ModelPicker />
+          <EffortPicker />
+          <div className="ml-auto flex min-w-0 items-center gap-1">
+            <ContextLabel />
             {working ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -407,7 +425,7 @@ function ContextLabel() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="min-w-0 truncate rounded-md px-1.5 py-0.5 text-[10.5px] text-muted-foreground tabular-nums">{label}</span>
+        <span className="min-w-0 truncate rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground tabular-nums">{label}</span>
       </TooltipTrigger>
       <TooltipContent side="top">Sent with your message, so “this clip” and “here” make sense</TooltipContent>
     </Tooltip>
@@ -426,35 +444,6 @@ function useContextLabel(): string {
   const time = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}.${Math.round((t % 1) * 10)}`;
   if (selected === 0) return `Playhead ${time}`;
   return `${selected === 1 ? `“${first}”` : `${selected} clips`} · ${time}`;
-}
-
-function ModelMenu() {
-  const model = useAssistant((s) => s.chat?.model ?? "default");
-  const working = useAssistant((s) => s.chat?.status === "working");
-  const current = ASSISTANT_MODELS.find((m) => m.id === model) ?? ASSISTANT_MODELS[0];
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="xs" disabled={working} className="h-7 gap-0.5 px-2 text-[11px] text-muted-foreground hover:text-foreground">
-          {current.label}
-          <PiCaretDown className="size-2.5" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="w-52">
-        <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">Model</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {ASSISTANT_MODELS.map((m) => (
-          <DropdownMenuItem key={m.id} onSelect={() => useAssistant.getState().setModel(m.id)} className="gap-2">
-            <span className="grid flex-1">
-              <span className="text-[13px]">{m.label}</span>
-              <span className="text-[11px] text-muted-foreground">{m.hint}</span>
-            </span>
-            {m.id === model && <PiCheck className="size-3.5 text-brand" />}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
 }
 
 /** The panel's left edge: drag to resize, double-click for the usual width. */

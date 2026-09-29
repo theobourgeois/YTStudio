@@ -11,6 +11,7 @@ import { analyseMusic, parseSceneLog, parseSoundLog } from "../media-analysis.ts
 import { run } from "../process.ts";
 import { parseResult } from "./bridge.ts";
 import { TurnTranslator, claudeArgs } from "./claude.ts";
+import { CodexTranslator, codexArgs, configuredMcpServers, parseModelList } from "./codex.ts";
 import { type McpCall, handleRpc, mcpHandler } from "./mcp.ts";
 
 const calls: McpCall[] = [];
@@ -43,6 +44,9 @@ describe("MCP server", () => {
     );
     expect(res).toEqual({ jsonrpc: "2.0", id: 3, result: { content: [{ type: "text", text: "ran split_clips" }] } });
     expect(calls.at(-1)).toEqual({ name: "split_clips", input: { at: 1 }, toolUseId: "toolu_1" });
+    // Codex names its calls differently.
+    await handleRpc({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "get_timeline", arguments: {}, _meta: { callId: "exec-1" } } }, opts, {});
+    expect(calls.at(-1)).toEqual({ name: "get_timeline", input: {}, toolUseId: "exec-1" });
   });
 
   it("answers errors the JSON-RPC way, and notifications not at all", async () => {
@@ -100,10 +104,16 @@ describe("bridge results", () => {
 
 describe("Claude Code", () => {
   it("runs with only the editor's tools", () => {
-    const args = claudeArgs({ mcpUrl: "http://127.0.0.1:5311/mcp?chat=x", systemPrompt: "Be helpful.", model: "sonnet", resume: "s1" });
-    expect(args).toEqual(expect.arrayContaining(["-p", "--strict-mcp-config", "--tools", "", "--allowedTools", "mcp__editor", "--model", "sonnet", "--resume", "s1"]));
+    const args = claudeArgs({ mcpUrl: "http://127.0.0.1:5311/mcp?chat=x", systemPrompt: "Be helpful.", model: "claude-sonnet-5-5", resume: "s1" });
+    expect(args).toEqual(
+      expect.arrayContaining(["-p", "--strict-mcp-config", "--tools", "", "--allowedTools", "mcp__editor", "--model", "claude-sonnet-5-5", "--resume", "s1"]),
+    );
     expect(JSON.parse(args[args.indexOf("--mcp-config") + 1])).toEqual({ mcpServers: { editor: { type: "http", url: "http://127.0.0.1:5311/mcp?chat=x" } } });
-    expect(claudeArgs({ mcpUrl: "u", systemPrompt: "p", model: "default", resume: null })).not.toContain("--model");
+    expect(claudeArgs({ mcpUrl: "u", systemPrompt: "p", model: "claude-opus-5-5", resume: null })).not.toContain("--resume");
+    expect(claudeArgs({ mcpUrl: "u", systemPrompt: "p", model: "claude-opus-5-5", effort: "xhigh", resume: null })).toEqual(
+      expect.arrayContaining(["--effort", "xhigh"]),
+    );
+    expect(claudeArgs({ mcpUrl: "u", systemPrompt: "p", model: "claude-opus-5-5", effort: null, resume: null })).not.toContain("--effort");
   });
 
   it("turns its stream-json output into chat events", () => {
@@ -146,6 +156,97 @@ describe("Claude Code", () => {
     expect(t.handle({ type: "result", subtype: "error_during_execution", is_error: true, errors: ["Boom"] }).result).toEqual({ isError: true, error: "Boom" });
     t.handle({ type: "rate_limit_event", rate_limit_info: { status: "rejected" } });
     expect(t.handle({ type: "result", subtype: "success", is_error: true, result: "limit" }).result?.error).toMatch(/usage limit/);
+  });
+});
+
+describe("Codex", () => {
+  it("runs with only the editor's tools, the user's other MCP servers off", () => {
+    const args = codexArgs({ mcpUrl: "http://127.0.0.1:5311/mcp?chat=x", disabledServers: ["pencil", "my server"] });
+    expect(args[0]).toBe("app-server");
+    const config = args.filter((_, i) => args[i - 1] === "-c");
+    expect(config).toEqual(
+      expect.arrayContaining([
+        'mcp_servers.editor.url="http://127.0.0.1:5311/mcp?chat=x"',
+        'mcp_servers.editor.default_tools_approval_mode="approve"',
+        "mcp_servers.pencil.enabled=false",
+        'mcp_servers."my server".enabled=false',
+        'web_search="disabled"',
+        "features.shell_tool=false",
+        "features.unified_exec=false",
+      ]),
+    );
+  });
+
+  it("finds the MCP servers in a config.toml", () => {
+    const toml = '[mcp_servers.pencil]\ncommand = "x"\n[mcp_servers."a b".env]\nK = "v"\n[tui]\n[projects."/x"]\n';
+    expect(configuredMcpServers(toml)).toEqual(["pencil", "a b"]);
+  });
+
+  it("turns app-server notifications into chat events", () => {
+    const t = new CodexTranslator("a1");
+    const events: ChatEvent[] = [];
+    const feed = (method: string, params: Record<string, unknown>) => {
+      const out = t.handle(method, params);
+      events.push(...out.events);
+      return out.result;
+    };
+    feed("item/started", { item: { type: "userMessage", id: "u" } });
+    feed("item/started", { item: { type: "reasoning", id: "r1" } });
+    feed("item/completed", { item: { type: "reasoning", id: "r1" } });
+    feed("item/started", { item: { type: "mcpToolCall", id: "c1", server: "editor", tool: "get_timeline", arguments: { captions: true }, status: "inProgress" } });
+    feed("item/completed", { item: { type: "mcpToolCall", id: "c1", server: "editor", tool: "get_timeline", status: "completed", result: { content: [{ type: "text", text: "tracks" }] } } });
+    feed("item/started", { item: { type: "mcpToolCall", id: "c2", server: "pencil", tool: "draw", arguments: {} } });
+    feed("item/completed", { item: { type: "mcpToolCall", id: "c3", server: "editor", tool: "split_clips", status: "failed", result: null, error: { message: "Nope" } } });
+    feed("item/agentMessage/delta", { itemId: "m1", delta: "All " });
+    feed("item/agentMessage/delta", { itemId: "m1", delta: "done." });
+    feed("item/completed", { item: { type: "agentMessage", id: "m1", text: "All done." } });
+    const result = feed("turn/completed", { turn: { id: "t1", status: "completed", error: null } });
+
+    expect(result).toEqual({ isError: false });
+    expect(events).toEqual([
+      { type: "thinking", messageId: "a1", key: "r1", done: false },
+      { type: "thinking", messageId: "a1", key: "r1", done: true },
+      { type: "tool_start", messageId: "a1", id: "c1", name: "get_timeline", input: { captions: true } },
+      { type: "tool_end", id: "c1", status: "done", output: "tracks" },
+      { type: "tool_end", id: "c3", status: "error", output: "Nope" },
+      { type: "text_delta", messageId: "a1", key: "m1", text: "All " },
+      { type: "text_delta", messageId: "a1", key: "m1", text: "done." },
+      { type: "text", messageId: "a1", key: "m1", text: "All done." },
+    ]);
+  });
+
+  it("explains a failed or stopped turn, and a usage limit", () => {
+    const t = new CodexTranslator("a1");
+    t.handle("error", { error: { message: "Reconnecting" }, willRetry: true });
+    t.handle("error", { error: { message: "Model not found" }, willRetry: false });
+    expect(t.handle("turn/completed", { turn: { status: "failed", error: null } }).result).toEqual({ isError: true, error: "Model not found" });
+    expect(t.handle("turn/completed", { turn: { status: "interrupted" } }).result).toEqual({ isError: true, error: "Stopped." });
+    t.handle("account/rateLimits/updated", { rateLimits: { rateLimitReachedType: "rate_limit_reached", primary: { resetsAt: 1790716066 } } });
+    expect(t.handle("turn/completed", { turn: { status: "failed", error: { message: "429" } } }).result?.error).toMatch(/Codex usage limit until/);
+  });
+
+  it("reads its model list: default first, hidden ones out, older ones as legacy", () => {
+    expect(
+      parseModelList([
+        { model: "gpt-5.5", displayName: "GPT-5.5", description: "Legacy coding model.", hidden: false },
+        { model: "gpt-6-sol", displayName: "GPT-6-Sol", description: "Workhorse model.", hidden: false },
+        {
+          model: "gpt-6-astra",
+          displayName: "GPT-6-Astra",
+          description: "Frontier.",
+          hidden: false,
+          isDefault: true,
+          supportedReasoningEfforts: [{ reasoningEffort: "low" }, { reasoningEffort: "ultra" }],
+          defaultReasoningEffort: "low",
+        },
+        { model: "secret", displayName: "Secret", hidden: true },
+      ]),
+    ).toEqual([
+      { id: "gpt-6-astra", label: "GPT-6-Astra", hint: "Frontier.", efforts: ["low", "ultra"], defaultEffort: "low" },
+      { id: "gpt-6-sol", label: "GPT-6-Sol", hint: "Workhorse model." },
+      { id: "gpt-5.5", label: "GPT-5.5", hint: "Legacy coding model.", legacy: true },
+    ]);
+    expect(parseModelList("nope")).toBeNull();
   });
 });
 

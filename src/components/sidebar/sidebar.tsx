@@ -45,17 +45,17 @@ export function Sidebar() {
       inert={!open}
       className={cn(
         "h-full shrink-0 overflow-hidden bg-sidebar transition-[width] duration-200 ease-out",
-        open ? "w-68 border-r" : "w-0",
+        open ? "w-76 border-r" : "w-0",
       )}
     >
-      <div className="flex h-full w-68 flex-col">
+      <div className="flex h-full w-76 flex-col">
         <div className="flex h-13 shrink-0 items-center gap-2.5 px-3">
           <SidebarToggle />
         </div>
 
-        <div className="flex items-center gap-1 px-2 pb-3">
-          <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-muted-foreground transition-colors focus-within:bg-accent hover:bg-accent/60">
-            <PiMagnifyingGlass className="size-4 shrink-0" />
+        <div className="flex items-center gap-1 px-2.5 pb-3">
+          <label className="flex h-9 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 text-muted-foreground transition-colors focus-within:bg-accent hover:bg-accent/60">
+            <PiMagnifyingGlass className="size-4.5 shrink-0" />
             <input
               type="search"
               value={query}
@@ -63,15 +63,15 @@ export function Sidebar() {
               onKeyDown={(e) => e.key === "Escape" && setQuery("")}
               placeholder="Search"
               aria-label="Search videos"
-              className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground hover:text-foreground"
+                size="icon"
+                className="size-9 text-muted-foreground hover:text-foreground [&_svg:not([class*='size-'])]:size-4.5"
                 aria-label="New video"
                 onClick={() => void useProjects.getState().create()}
               >
@@ -82,15 +82,15 @@ export function Sidebar() {
           </Tooltip>
         </div>
 
-        <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="In progress">
+        <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2" aria-label="In progress">
           {active.length > 0 ? (
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col gap-1">
               {active.map((p) => (
                 <ProjectItem key={p.id} project={p} selected={p.id === openId} now={now} />
               ))}
             </div>
           ) : (
-            <p className="px-3 py-6 text-center text-xs leading-5 text-muted-foreground">
+            <p className="px-3 py-6 text-center text-[13px] leading-5 text-muted-foreground">
               {query ? "No videos match." : "Nothing in progress. Start a new video to get going."}
             </p>
           )}
@@ -102,7 +102,7 @@ export function Sidebar() {
               type="button"
               aria-expanded={showSettled}
               onClick={toggleSettled}
-              className="flex h-10 shrink-0 items-center gap-2 px-4 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className="flex h-10 shrink-0 items-center gap-2 px-5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               <span>
                 Settled <span className="tabular-nums">({settled.length})</span>
@@ -111,8 +111,8 @@ export function Sidebar() {
               <PiCaretRight className={cn("size-3.5 transition-transform", showSettled && "rotate-90")} />
             </button>
             {showSettled && (
-              <nav className="min-h-0 overflow-y-auto px-2 pb-2" aria-label="Settled">
-                <div className="flex flex-col gap-0.5">
+              <nav className="min-h-0 overflow-y-auto px-2.5 pb-2" aria-label="Settled">
+                <div className="flex flex-col gap-1">
                   {settled.map((p) => (
                     <ProjectItem key={p.id} project={p} selected={p.id === openId} now={now} />
                   ))}
