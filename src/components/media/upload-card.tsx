@@ -2,10 +2,10 @@ import { PiSpinnerGap } from "react-icons/pi";
 import { Progress } from "@/components/ui/progress";
 import type { Upload } from "@/stores/editor";
 
-/** Placeholder card for a file that is still uploading / being probed, or a song downloading. */
+/** Placeholder card for a file that is still uploading / being probed, or an online clip downloading. */
 export function UploadCard({ upload }: { upload: Upload }) {
   const uploaded = upload.progress >= 1;
-  const downloading = upload.trackId !== undefined;
+  const downloading = upload.download !== undefined;
   return (
     <div className="flex min-w-0 flex-col gap-1.5 p-1" title={upload.name}>
       <div className="relative flex aspect-video flex-col items-center justify-center gap-2 rounded-md bg-muted px-3 ring-1 ring-border ring-inset">

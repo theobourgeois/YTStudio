@@ -3,10 +3,11 @@ import { toast } from "sonner";
 import type {
   Clip,
   MediaAsset,
-  MusicTrack,
   Project,
   ProjectSettings,
   ProjectSummary,
+  WebClip,
+  WebMediaKind,
 } from "@shared/types";
 import {
   type CopiedClip,
@@ -49,8 +50,8 @@ export interface Upload {
   name: string;
   /** 0..1 */
   progress: number;
-  /** Set for a song being downloaded from the Music tab. */
-  trackId?: string;
+  /** Set for a clip being downloaded from the Online tab. */
+  download?: { url: string; kind: WebMediaKind };
 }
 
 export const DEFAULT_PROJECT_NAME = "Untitled";
@@ -132,8 +133,11 @@ interface EditorState {
    * an unnamed project names it after the file.
    */
   importFiles: (files: File[]) => Promise<MediaAsset[]>;
-  /** Download a song into the open project's media and put it on the timeline. Resolves true if it was added. */
-  addMusic: (track: MusicTrack) => Promise<boolean>;
+  /**
+   * Download an online clip's audio or whole video into the open project's media and
+   * put it on the timeline (audio track / main track). Resolves true if it was added.
+   */
+  addWebMedia: (clip: WebClip, kind: WebMediaKind) => Promise<boolean>;
   deleteAsset: (assetId: string) => Promise<void>;
   getAsset: (assetId: string) => MediaAsset | undefined;
 
@@ -381,21 +385,23 @@ export const useEditor = create<EditorState>((set, get) => ({
     return results.filter((a): a is MediaAsset => a !== null);
   },
 
-  async addMusic(track) {
+  async addWebMedia(clip, kind) {
     const projectId = get().projectId;
-    if (!projectId || get().uploads.some((u) => u.trackId === track.id)) return false;
+    if (!projectId || get().uploads.some((u) => u.download?.url === clip.url && u.download.kind === kind)) {
+      return false;
+    }
     const stillOpen = () => get().projectId === projectId;
-    const upload: Upload = { id: createId("up"), name: track.title, progress: 0, trackId: track.id };
+    const upload: Upload = { id: createId("up"), name: clip.title, progress: 0, download: { url: clip.url, kind } };
     set({ uploads: [...get().uploads, upload] });
     try {
-      const asset = await api.importMusic({ projectId, trackId: track.id, title: track.title });
+      const asset = await api.importWebMedia({ projectId, url: clip.url, title: clip.title, kind });
       if (!stillOpen()) return false;
       set({ assets: [asset, ...get().assets.filter((a) => a.id !== asset.id)] });
       get().addAssetsToTimeline([asset.id]);
       pollProcessingAssets();
       return true;
     } catch (err) {
-      toast.error(`Couldn't add “${track.title}”`, {
+      toast.error(`Couldn't add “${clip.title}”`, {
         description: err instanceof Error ? err.message : String(err),
       });
       return false;

@@ -5,9 +5,9 @@ import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { MediaLibrary } from "./media.ts";
 import { migrateLegacyData } from "./migrate.ts";
-import { MusicLibrary } from "./music.ts";
 import { ProjectStore } from "./projects.ts";
 import { DataPaths, HttpError } from "./storage.ts";
+import { WebMediaLibrary } from "./web-media.ts";
 
 export interface AppOptions {
   dataDir: string;
@@ -49,8 +49,8 @@ export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): 
   await migrateLegacyData(paths, library, projects);
   library.resume();
   const renders = new ExportManager(paths, library);
-  const music = new MusicLibrary(paths, library, ytdlpPath);
-  await music.load();
+  const web = new WebMediaLibrary(paths, library, ytdlpPath);
+  await web.load();
 
   const app = express();
   app.disable("x-powered-by");
@@ -104,22 +104,30 @@ export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): 
     res.sendStatus(204);
   });
 
-  app.get("/api/music/search", async (req, res) => {
-    // Stop yt-dlp when the client gives up on the search (e.g. the user kept typing).
+  // Stop yt-dlp when the client gives up (e.g. the user kept typing).
+  const cancelOnClose = (res: Response) => {
     const controller = new AbortController();
     res.on("close", () => controller.abort());
-    const tracks = await music.search(queryString(req.query.q), controller.signal);
+    return controller.signal;
+  };
+  app.get("/api/web/search", async (req, res) => {
+    const clips = await web.search(queryString(req.query.q), cancelOnClose(res));
     res.setHeader("Cache-Control", "private, max-age=300");
-    res.json(tracks);
+    res.json(clips);
   });
-  app.get("/api/music/:trackId/audio", async (req, res, next) => {
-    const file = await music.audio(req.params.trackId);
+  app.get("/api/web/resolve", async (req, res) => {
+    const clip = await web.resolve(queryString(req.query.url), cancelOnClose(res));
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.json(clip);
+  });
+  app.get("/api/web/audio", async (req, res, next) => {
+    const file = await web.audio(queryString(req.query.url));
     res.sendFile(file, { maxAge: "1y", immutable: true }, (err) => {
       if (err && !res.headersSent) next(err);
     });
   });
-  app.post("/api/music/import", json, async (req, res) => {
-    res.status(201).json(await music.import(req.body, (id) => projects.has(id)));
+  app.post("/api/web/import", json, async (req, res) => {
+    res.status(201).json(await web.import(req.body, (id) => projects.has(id)));
   });
 
   app.post("/api/exports", json, async (req, res) => {
@@ -172,7 +180,7 @@ export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): 
     shutdown() {
       library.shutdown();
       renders.shutdown();
-      music.shutdown();
+      web.shutdown();
     },
   };
 }

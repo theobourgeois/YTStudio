@@ -11,10 +11,10 @@ import { AssetCard } from "./asset-card";
 import { DeleteAssetDialog } from "./delete-asset-dialog";
 import { ACCEPTED_FILE_TYPES, importMedia } from "./import-media";
 import { clipCountByAsset, filterAssets, type MediaFilter } from "./media-utils";
-import { MusicPanel } from "./music-panel";
+import { OnlinePanel } from "./online-panel";
 import { UploadCard } from "./upload-card";
 
-type Tab = "media" | "music";
+type Tab = "media" | "online";
 
 export function MediaBin() {
   const assets = useEditor((s) => s.assets);
@@ -62,8 +62,8 @@ export function MediaBin() {
               <span className="text-xs font-normal text-muted-foreground tabular-nums">{assets.length}</span>
             )}
           </TabButton>
-          <TabButton active={tab === "music"} onClick={() => setTab("music")}>
-            Music
+          <TabButton active={tab === "online"} onClick={() => setTab("online")}>
+            Online
           </TabButton>
         </div>
         {tab === "media" && (
@@ -87,8 +87,8 @@ export function MediaBin() {
         />
       </div>
 
-      <MusicPanel active={tab === "music"} />
-      {tab === "music" ? null : isEmpty ? (
+      <OnlinePanel active={tab === "online"} />
+      {tab === "online" ? null : isEmpty ? (
         <EmptyState onClick={openPicker} />
       ) : (
         <>

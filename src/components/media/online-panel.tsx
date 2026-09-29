@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   PiCheck,
+  PiFilmStrip,
+  PiGlobe,
+  PiLinkBreak,
   PiMagnifyingGlass,
   PiMusicNotes,
   PiPauseFill,
@@ -11,23 +14,39 @@ import {
   PiWarningCircle,
   PiXCircleFill,
 } from "react-icons/pi";
-import type { MusicTrack } from "@shared/types";
+import type { WebClip, WebMediaKind } from "@shared/types";
 import { formatDuration } from "@shared/format";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
-import { type MusicPreview, useMusicPreview } from "./use-music-preview";
-import { useMusicSearch } from "./use-music-search";
+import { type WebPreview, useWebPreview } from "./use-web-preview";
+import { useWebSearch } from "./use-web-search";
 
-/** Search YouTube for songs, preview them and add them to the timeline. */
-export function MusicPanel({ active }: { active: boolean }) {
+const KIND_KEY = "editor-online-kind";
+
+const KINDS: { kind: WebMediaKind; label: string; icon: ReactNode }[] = [
+  { kind: "audio", label: "Audio", icon: <PiMusicNotes /> },
+  { kind: "video", label: "Video", icon: <PiFilmStrip /> },
+];
+
+const addedKey = (clip: WebClip, kind: WebMediaKind) => `${kind} ${clip.url}`;
+
+/**
+ * Search YouTube or paste a link (TikTok, Instagram, X...), preview the sound and
+ * add either just the audio or the whole video to the timeline.
+ */
+export function OnlinePanel({ active }: { active: boolean }) {
   const [query, setQuery] = useState("");
-  const search = useMusicSearch(query);
-  const preview = useMusicPreview();
+  const [kind, setKind] = useState<WebMediaKind>(() =>
+    localStorage.getItem(KIND_KEY) === "video" ? "video" : "audio",
+  );
+  const search = useWebSearch(query);
+  const preview = useWebPreview();
   const uploads = useEditor((s) => s.uploads);
-  // Songs added from this panel (per project: the media bin remounts when switching).
+  // Clips added from this panel (per project: the media bin remounts when switching).
   const [added, setAdded] = useState<ReadonlySet<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -37,16 +56,23 @@ export function MusicPanel({ active }: { active: boolean }) {
     else stop();
   }, [active, stop]);
 
-  const add = async (track: MusicTrack) => {
-    if (await useEditor.getState().addMusic(track)) setAdded((s) => new Set(s).add(track.id));
+  const chooseKind = (next: WebMediaKind) => {
+    setKind(next);
+    localStorage.setItem(KIND_KEY, next);
   };
 
-  const tracks = search.status === "loading" || search.status === "done" ? search.tracks : [];
+  const add = async (clip: WebClip) => {
+    if (await useEditor.getState().addWebMedia(clip, kind)) {
+      setAdded((s) => new Set(s).add(addedKey(clip, kind)));
+    }
+  };
+
+  const clips = search.status === "loading" || search.status === "done" ? search.clips : [];
   const loading = search.status === "loading";
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
-      <div className="shrink-0 px-3 pt-3 pb-2">
+      <div className="flex shrink-0 flex-col gap-2 px-3 pt-3 pb-2">
         <div className="relative">
           <PiMagnifyingGlass className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -54,8 +80,8 @@ export function MusicPanel({ active }: { active: boolean }) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search songs"
-            aria-label="Search songs"
+            placeholder="Search YouTube or paste a link"
+            aria-label="Search YouTube or paste a link"
             spellCheck={false}
             className="h-8 pr-8 pl-8 text-sm [&::-webkit-search-cancel-button]:hidden"
           />
@@ -77,39 +103,67 @@ export function MusicPanel({ active }: { active: boolean }) {
             )
           )}
         </div>
+        <ToggleGroup
+          type="single"
+          size="sm"
+          value={kind}
+          onValueChange={(v) => v && chooseKind(v as WebMediaKind)}
+          aria-label="What to add"
+          className="grid w-full grid-cols-2 rounded-md bg-muted p-0.5"
+        >
+          {KINDS.map((k) => (
+            <ToggleGroupItem
+              key={k.kind}
+              value={k.kind}
+              className="h-6 min-w-0 gap-1.5 rounded-[5px]! text-xs text-muted-foreground hover:bg-transparent hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs! dark:data-[state=on]:bg-accent [&_svg]:size-3.5!"
+            >
+              {k.icon}
+              {k.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
       </div>
 
       {search.status === "idle" && (
-        <Hint icon={<PiMusicNotes className="size-5" />} title="Find a song">
-          Search by song or artist. Songs come from YouTube; adding one puts it on your timeline.
+        <Hint icon={<PiGlobe className="size-5" />} title="Find music or clips">
+          Search YouTube, or paste a link from YouTube, TikTok, Instagram, X and more.{" "}
+          {kind === "audio"
+            ? "Audio adds just the sound to an audio track."
+            : "Video adds the whole clip to your main track."}
         </Hint>
       )}
-      {search.status === "error" && (
-        <Hint icon={<PiWarningCircle className="size-5" />} title="Search failed">
-          {search.message}
-        </Hint>
-      )}
-      {search.status === "done" && tracks.length === 0 && (
-        <Hint icon={<PiMagnifyingGlass className="size-5" />} title="No songs found">
-          Nothing matched “{search.query}”. Try the artist's name too.
+      {search.status === "error" &&
+        (search.link ? (
+          <Hint icon={<PiLinkBreak className="size-5" />} title="Couldn't open that link">
+            {search.message}
+          </Hint>
+        ) : (
+          <Hint icon={<PiWarningCircle className="size-5" />} title="Search failed">
+            {search.message}
+          </Hint>
+        ))}
+      {search.status === "done" && clips.length === 0 && (
+        <Hint icon={<PiMagnifyingGlass className="size-5" />} title="Nothing found">
+          Nothing matched “{search.query}”. Try different words, or paste a link.
         </Hint>
       )}
 
-      {tracks.length > 0 && (
+      {clips.length > 0 && (
         <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
           <ul
             className={cn("flex flex-col gap-0.5 px-1.5 pb-2 transition-opacity", loading && "opacity-60")}
-            aria-label="Songs"
+            aria-label="Results"
             aria-busy={loading}
           >
-            {tracks.map((track) => (
-              <TrackRow
-                key={track.id}
-                track={track}
+            {clips.map((clip) => (
+              <ClipRow
+                key={clip.url}
+                clip={clip}
+                kind={kind}
                 preview={preview}
-                adding={uploads.some((u) => u.trackId === track.id)}
-                added={added.has(track.id)}
-                onAdd={() => void add(track)}
+                adding={uploads.some((u) => u.download?.url === clip.url && u.download.kind === kind)}
+                added={added.has(addedKey(clip, kind))}
+                onAdd={() => void add(clip)}
               />
             ))}
           </ul>
@@ -119,18 +173,20 @@ export function MusicPanel({ active }: { active: boolean }) {
   );
 }
 
-interface TrackRowProps {
-  track: MusicTrack;
-  preview: MusicPreview;
+interface ClipRowProps {
+  clip: WebClip;
+  kind: WebMediaKind;
+  preview: WebPreview;
   adding: boolean;
   added: boolean;
   onAdd: () => void;
 }
 
-function TrackRow({ track, preview, adding, added, onAdd }: TrackRowProps) {
-  const current = preview.trackId === track.id;
+function ClipRow({ clip, kind, preview, adding, added, onAdd }: ClipRowProps) {
+  const current = preview.url === clip.url;
   const status = current ? preview.status : null;
   const [thumbBroken, setThumbBroken] = useState(false);
+  const what = kind === "audio" ? "audio" : "video";
 
   return (
     <li
@@ -138,19 +194,21 @@ function TrackRow({ track, preview, adding, added, onAdd }: TrackRowProps) {
         "group flex min-w-0 items-center gap-2.5 rounded-md p-1.5 transition-colors hover:bg-accent/60",
         current && "bg-accent/60",
       )}
-      data-track-id={track.id}
+      data-url={clip.url}
     >
       <button
         type="button"
-        onClick={() => preview.toggle(track)}
+        onClick={() => preview.toggle(clip)}
         className="relative aspect-video w-16 shrink-0 overflow-hidden rounded bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       >
-        {!thumbBroken && (
+        {clip.thumbnail && !thumbBroken && (
           <img
-            src={track.thumbnail}
+            src={clip.thumbnail}
             alt=""
             loading="lazy"
             draggable={false}
+            // Some sites refuse thumbnails hotlinked from other pages.
+            referrerPolicy="no-referrer"
             className="size-full object-cover"
             onError={() => setThumbBroken(true)}
           />
@@ -170,23 +228,26 @@ function TrackRow({ track, preview, adding, added, onAdd }: TrackRowProps) {
           )}
         </span>
         <span className="sr-only">
-          {status === "playing" ? "Pause" : "Preview"} {track.title}
+          {status === "playing" ? "Pause" : "Listen to"} {clip.title}
         </span>
       </button>
 
       <div className="min-w-0 flex-1">
         <p
           className={cn("line-clamp-2 text-xs leading-4 font-medium", current && "text-brand")}
-          title={track.title}
+          title={clip.title}
         >
-          {track.title}
+          {clip.title}
         </p>
         <p className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] leading-4 text-muted-foreground">
-          <span className="truncate">{track.channel}</span>
-          {track.verified && (
+          {clip.site !== "YouTube" && clip.site !== clip.channel && (
+            <span className="shrink-0 font-medium">{clip.site} ·</span>
+          )}
+          <span className="truncate">{clip.channel}</span>
+          {clip.verified && (
             <PiSealCheckFill className="size-3 shrink-0 text-muted-foreground/80" aria-label="Verified" />
           )}
-          <span className="shrink-0 tabular-nums">· {formatDuration(track.duration)}</span>
+          {clip.duration > 0 && <span className="shrink-0 tabular-nums">· {formatDuration(clip.duration)}</span>}
         </p>
       </div>
 
@@ -210,11 +271,13 @@ function TrackRow({ track, preview, adding, added, onAdd }: TrackRowProps) {
             ) : (
               <PiPlus className="size-4" />
             )}
-            <span className="sr-only">Add {track.title} to timeline</span>
+            <span className="sr-only">
+              Add {what} of {clip.title} to timeline
+            </span>
           </button>
         </TooltipTrigger>
         <TooltipContent side="right">
-          {adding ? "Downloading…" : added ? "Added — click to add again" : "Add to timeline"}
+          {adding ? "Downloading…" : added ? `Added — click to add the ${what} again` : `Add ${what} to timeline`}
         </TooltipContent>
       </Tooltip>
     </li>

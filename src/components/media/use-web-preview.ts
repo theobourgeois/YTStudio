@@ -1,27 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { MusicTrack } from "@shared/types";
+import type { WebClip } from "@shared/types";
 import { ApiRequestError, api, errorMessage } from "@/lib/api";
 import { usePlayback } from "@/stores/playback";
 
 export type PreviewStatus = "loading" | "playing" | "paused";
 
-export interface MusicPreview {
-  trackId: string | null;
+export interface WebPreview {
+  /** URL of the clip being previewed. */
+  url: string | null;
   status: PreviewStatus;
-  /** Play a track, or pause/resume it if it's already the current one. */
-  toggle: (track: MusicTrack) => void;
+  /** Play a clip's sound, or pause/resume it if it's already the current one. */
+  toggle: (clip: WebClip) => void;
   stop: () => void;
 }
 
 /**
- * One song preview at a time. The server downloads the song on the first request
- * (a few seconds), so the file is fetched up front: that way a failure comes back
- * with a real error message, and adding the song afterwards is instant.
+ * One sound preview at a time (for videos too: it's quicker than fetching the
+ * video). The server downloads the audio on the first request (a few seconds), so
+ * the file is fetched up front: that way a failure comes back with a real error
+ * message, and adding the audio afterwards is instant.
  * Previewing pauses the timeline, and playing the timeline stops the preview.
  */
-export function useMusicPreview(): MusicPreview {
-  const [trackId, setTrackId] = useState<string | null>(null);
+export function useWebPreview(): WebPreview {
+  const [url, setUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<PreviewStatus>("paused");
   const audio = useRef<HTMLAudioElement | null>(null);
   const load = useRef<AbortController | null>(null);
@@ -34,7 +36,7 @@ export function useMusicPreview(): MusicPreview {
     audio.current?.removeAttribute("src");
     if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
     objectUrl.current = null;
-    setTrackId(null);
+    setUrl(null);
     setStatus("paused");
   }, []);
 
@@ -50,9 +52,9 @@ export function useMusicPreview(): MusicPreview {
   };
 
   const toggle = useCallback(
-    (track: MusicTrack) => {
+    (clip: WebClip) => {
       const el = player();
-      if (track.id === trackId) {
+      if (clip.url === url) {
         if (status === "loading") stop();
         else if (el.paused) {
           usePlayback.getState().pause();
@@ -64,27 +66,27 @@ export function useMusicPreview(): MusicPreview {
       usePlayback.getState().pause();
       const controller = new AbortController();
       load.current = controller;
-      setTrackId(track.id);
+      setUrl(clip.url);
       setStatus("loading");
       void (async () => {
         try {
-          const res = await fetch(api.musicAudioUrl(track.id), { signal: controller.signal });
+          const res = await fetch(api.webAudioUrl(clip.url), { signal: controller.signal });
           if (!res.ok) throw new ApiRequestError(await errorMessage(res), res.status);
-          const url = URL.createObjectURL(await res.blob());
-          if (controller.signal.aborted) return URL.revokeObjectURL(url);
-          objectUrl.current = url;
-          el.src = url;
+          const blobUrl = URL.createObjectURL(await res.blob());
+          if (controller.signal.aborted) return URL.revokeObjectURL(blobUrl);
+          objectUrl.current = blobUrl;
+          el.src = blobUrl;
           await el.play();
         } catch (err) {
           if (controller.signal.aborted) return;
           stop();
-          toast.error(`Couldn't play “${track.title}”`, {
+          toast.error(`Couldn't play “${clip.title}”`, {
             description: err instanceof Error ? err.message : String(err),
           });
         }
       })();
     },
-    [trackId, status, stop],
+    [url, status, stop],
   );
 
   // The timeline and the preview never play over each other.
@@ -97,5 +99,5 @@ export function useMusicPreview(): MusicPreview {
   );
   useEffect(() => stop, [stop]);
 
-  return { trackId, status, toggle, stop };
+  return { url, status, toggle, stop };
 }

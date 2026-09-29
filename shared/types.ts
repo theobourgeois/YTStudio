@@ -180,26 +180,33 @@ export interface ExportJob {
 }
 
 // ---------------------------------------------------------------------------
-// Music (songs found on YouTube and downloaded with yt-dlp)
+// Online media (YouTube search, or a link to any site yt-dlp supports)
 // ---------------------------------------------------------------------------
 
-export interface MusicTrack {
-  /** YouTube video id. */
-  id: string;
+export interface WebClip {
+  /** Page URL; YouTube links are canonical (`https://www.youtube.com/watch?v=<id>`). */
+  url: string;
   title: string;
-  /** Uploading channel (usually the artist). */
+  /** Uploading channel or account (usually the artist or creator). */
   channel: string;
+  /** Seconds; 0 when the site doesn't say. */
   duration: number;
-  thumbnail: string;
+  thumbnail: string | null;
   /** Uploaded by a verified channel (usually the official upload). */
   verified: boolean;
+  /** Where it's from, e.g. "YouTube", "TikTok". */
+  site: string;
 }
 
-export interface ImportMusicRequest {
+/** What to take from an online clip: just its sound, or the whole video. */
+export type WebMediaKind = "audio" | "video";
+
+export interface ImportWebMediaRequest {
   projectId: string;
-  trackId: string;
+  url: string;
   /** Display name for the imported media. */
   title: string;
+  kind: WebMediaKind;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,9 +227,10 @@ export interface ImportMusicRequest {
 //                                        415 if the file has no audio/video stream, 404 unknown project
 //   GET    /api/media/:id               -> MediaAsset
 //   DELETE /api/media/:id               -> 204
-//   GET    /api/music/search?q=<query> -> MusicTrack[]  (503 if yt-dlp isn't installed)
-//   GET    /api/music/:trackId/audio    -> audio file (downloaded on first request, then cached)
-//   POST   /api/music/import  body: ImportMusicRequest -> MediaAsset (201)
+//   GET    /api/web/search?q=<query>    -> WebClip[] from YouTube  (503 if yt-dlp isn't installed)
+//   GET    /api/web/resolve?url=<link>  -> WebClip  (400 for unsupported links, playlists, livestreams)
+//   GET    /api/web/audio?url=<link>    -> audio file (downloaded on first request, then cached)
+//   POST   /api/web/import  body: ImportWebMediaRequest -> MediaAsset (201)
 //   POST   /api/exports   body: ExportRequest -> ExportJob (202)
 //   GET    /api/exports/:id             -> ExportJob
 //   DELETE /api/exports/:id             -> 204 (cancels if running)

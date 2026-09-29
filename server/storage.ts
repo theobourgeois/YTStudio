@@ -32,7 +32,7 @@ export class DataPaths {
   get projects() {
     return path.join(this.root, "projects");
   }
-  /** Songs downloaded from YouTube, shared by every project (`<track id>.<ext>`). */
+  /** Audio downloaded from the web, shared by every project (`<cache key>.<ext>`, see web-media.ts). */
   get music() {
     return path.join(this.root, "music");
   }

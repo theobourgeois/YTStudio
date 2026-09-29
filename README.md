@@ -7,7 +7,7 @@ Drag clips in, arrange and trim them on a magnetic timeline, drop music undernea
 
 ```bash
 brew install ffmpeg      # required for import (thumbnails/waveforms) and export
-brew install yt-dlp deno # optional: the Music tab (song search via YouTube)
+brew install yt-dlp deno # optional: the Online tab (YouTube search, links from TikTok, Instagram, X...)
 pnpm install
 pnpm samples             # optional: generate a few test clips + a music track in ./samples
 pnpm dev                 # server on :5311, app on http://localhost:5310
@@ -35,13 +35,14 @@ progress. Toggle the sidebar with `⌘\`.
 | Zoom | `+` / `-`, or ⌘/Ctrl + scroll |
 | Undo / redo | ⌘Z / ⇧⌘Z |
 
-### Music
+### Online media (music and clips)
 
-The **Music** tab in the media panel searches YouTube for songs (via `yt-dlp`). Click a thumbnail to preview,
-**+** to download the song into the video's media and drop it on an audio track. Songs are cached in `data/music`, so
-previewing then adding (or reusing a song in another video) only downloads once.
+The **Online** tab in the media panel searches YouTube, or takes a pasted link from any site `yt-dlp` supports
+(TikTok, Instagram, X, ...). The **Audio / Video** switch picks what **+** adds: just the sound, dropped on an audio
+track, or the whole video (up to 1080p, H.264), appended to the main track. Click a thumbnail to hear it first.
+Audio is cached in `data/music`, so previewing then adding (or reusing a song in another video) only downloads once.
 
-YouTube regularly breaks `yt-dlp`; if searches or downloads start failing, run `brew upgrade yt-dlp`.
+Sites regularly break `yt-dlp`; if searches or downloads start failing, run `brew upgrade yt-dlp`.
 Mainstream songs baked into a video will likely get muted or claimed when posted, so the export dialog has
 **Leave out music**: export without the audio tracks, then add the official sound in TikTok/Instagram when posting.
 

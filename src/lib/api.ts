@@ -3,12 +3,12 @@ import type {
   ExportJob,
   ExportRequest,
   HealthResponse,
-  ImportMusicRequest,
+  ImportWebMediaRequest,
   MediaAsset,
-  MusicTrack,
   Project,
   ProjectSummary,
   UpdateProjectRequest,
+  WebClip,
 } from "@shared/types";
 
 export class ApiRequestError extends Error {
@@ -104,12 +104,15 @@ export const api = {
     });
   },
 
-  searchMusic: (query: string, signal?: AbortSignal) =>
-    request<MusicTrack[]>(`/api/music/search?q=${encodeURIComponent(query)}`, { signal }),
-  /** Playable URL of a track (the server downloads it on the first request). */
-  musicAudioUrl: (trackId: string) => `/api/music/${trackId}/audio`,
-  importMusic: (body: ImportMusicRequest) =>
-    request<MediaAsset>("/api/music/import", { method: "POST", body: JSON.stringify(body) }),
+  searchWeb: (query: string, signal?: AbortSignal) =>
+    request<WebClip[]>(`/api/web/search?q=${encodeURIComponent(query)}`, { signal }),
+  /** What's at a pasted link (title, duration...), without downloading it. */
+  resolveWebLink: (url: string, signal?: AbortSignal) =>
+    request<WebClip>(`/api/web/resolve?url=${encodeURIComponent(url)}`, { signal }),
+  /** Playable URL of a clip's audio (the server downloads it on the first request). */
+  webAudioUrl: (url: string) => `/api/web/audio?url=${encodeURIComponent(url)}`,
+  importWebMedia: (body: ImportWebMediaRequest) =>
+    request<MediaAsset>("/api/web/import", { method: "POST", body: JSON.stringify(body) }),
 
   startExport: (req: ExportRequest) =>
     request<ExportJob>("/api/exports", { method: "POST", body: JSON.stringify(req) }),
