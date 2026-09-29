@@ -154,8 +154,9 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
       }
       if (kind === "library") {
         // A dragged folder has nothing to put on the timeline.
-        const id = getLibraryDragData(e.dataTransfer);
-        if (id && useLibrary.getState().items.some((i) => i.id === id)) void useLibrary.getState().addToTimeline(id, opts);
+        const items = new Set(useLibrary.getState().items.map((i) => i.id));
+        const ids = getLibraryDragData(e.dataTransfer).filter((id) => items.has(id));
+        if (ids.length) void useLibrary.getState().addToTimeline(ids, opts);
         return;
       }
       const all = Array.from(e.dataTransfer.files);

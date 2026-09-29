@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import {
   PiDotsThree,
   PiEye,
@@ -25,7 +25,6 @@ import { HoverScrub, useHoverX } from "@/components/media/hover-scrub";
 import { type MenuKit, contextKit, dropdownKit } from "@/components/menu-kit";
 import { setLibraryDragData } from "@/lib/dnd";
 import { cn } from "cn";
-import { useLibrary } from "@/stores/library";
 import { useSourcePreview } from "@/stores/source-preview";
 import { FolderMenuItems } from "./folder-menu-items";
 
@@ -34,6 +33,19 @@ interface LibraryCardProps {
   media: ReadonlyMap<string, MediaAsset>;
   /** The folder it's in, shown while searching every folder. */
   location?: string;
+  selected: boolean;
+  /** How many items its actions apply to: the selection when it's in it, else 1. */
+  count: number;
+  /** Where those items are, when they're all in one folder (undefined when they aren't). */
+  folderId: string | null | undefined;
+  /** Updates the selection; true for a plain click, which also previews a file. */
+  onClick: (e: MouseEvent) => boolean;
+  /** Right-clicked or dragged: selects it unless it already is. Returns the ids its actions apply to. */
+  onGrab: () => string[];
+  /** These act on `count` items. */
+  onAdd: () => void;
+  onSetFavorite: (favorite: boolean) => void;
+  onMove: (folderId: string | null) => void;
   onRename: () => void;
   onDelete: () => void;
 }
@@ -49,7 +61,21 @@ const overlayButton =
  * click a file to preview it, drag it onto the timeline or a folder, or
  * double-click to add it.
  */
-export function LibraryCard({ item, media, location, onRename, onDelete }: LibraryCardProps) {
+export function LibraryCard({
+  item,
+  media,
+  location,
+  selected,
+  count,
+  folderId,
+  onClick,
+  onGrab,
+  onAdd,
+  onSetFavorite,
+  onMove,
+  onRename,
+  onDelete,
+}: LibraryCardProps) {
   const thumbRef = useRef<HTMLDivElement>(null);
   const cover = libraryItemCover(item, media);
   const duration = libraryItemDuration(item, media);
@@ -57,23 +83,25 @@ export function LibraryCard({ item, media, location, onRename, onDelete }: Libra
   const { hoverX, clear: clearHover, handlers: hoverHandlers } = useHoverX();
   const audio = useHoverAudio(item.kind === "media" && cover && !cover.hasVideo ? cover.src : null, hoverX !== null);
 
-  const add = () => void useLibrary.getState().addToTimeline(item.id);
   const preview = item.kind === "media" && cover ? () => useSourcePreview.getState().open(cover.id, item.id) : undefined;
-  const toggleFavorite = () => void useLibrary.getState().updateItem(item.id, { favorite: !item.favorite });
+  const toggleFavorite = () => onSetFavorite(!item.favorite);
   const menu = (kit: MenuKit) => (
     <LibraryItemMenuItems
       kit={kit}
       item={item}
-      onAdd={add}
+      count={count}
+      folderId={folderId}
+      onAdd={onAdd}
       onPreview={preview}
       onToggleFavorite={toggleFavorite}
+      onMove={onMove}
       onRename={onRename}
       onDelete={onDelete}
     />
   );
   const onDragStart = (e: DragEvent) => {
     clearHover();
-    setLibraryDragData(e.dataTransfer, item.id);
+    setLibraryDragData(e.dataTransfer, onGrab());
     const thumb = thumbRef.current;
     if (thumb) {
       const rect = thumb.getBoundingClientRect();
@@ -85,16 +113,24 @@ export function LibraryCard({ item, media, location, onRename, onDelete }: Libra
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
-          className="group relative flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-lg p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/60 active:cursor-grabbing data-[state=open]:bg-accent/60"
+          className={cn(
+            "group relative flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-lg p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/60 active:cursor-grabbing data-[state=open]:bg-accent/60",
+            selected && "bg-brand/15 data-[state=open]:bg-brand/20",
+          )}
           draggable
           tabIndex={0}
           title={item.name}
           data-library-item={item.id}
+          data-grid-item={item.id}
+          aria-selected={selected}
           onDragStart={onDragStart}
-          onClick={preview}
-          onDoubleClick={add}
+          onClick={(e) => {
+            if (onClick(e)) preview?.();
+          }}
+          onContextMenu={onGrab}
+          onDoubleClick={onAdd}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && e.target === e.currentTarget) add();
+            if (e.key === "Enter" && e.target === e.currentTarget) onAdd();
           }}
         >
           <div
@@ -164,7 +200,7 @@ export function LibraryCard({ item, media, location, onRename, onDelete }: Libra
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button type="button" className={overlayButton} onClick={add}>
+                <button type="button" className={overlayButton} onClick={onAdd}>
                   <PiPlus className="size-3.5" />
                   <span className="sr-only">Add to timeline</span>
                 </button>
@@ -199,25 +235,32 @@ export function LibraryCard({ item, media, location, onRename, onDelete }: Libra
 function LibraryItemMenuItems({
   kit,
   item,
+  count,
+  folderId,
   onAdd,
   onPreview,
   onToggleFavorite,
+  onMove,
   onRename,
   onDelete,
 }: {
   kit: MenuKit;
   item: LibraryItem;
+  count: number;
+  folderId: string | null | undefined;
   onAdd: () => void;
   /** Files only: saved clips have no single file to show. */
   onPreview?: () => void;
   onToggleFavorite: () => void;
+  onMove: (folderId: string | null) => void;
   onRename: () => void;
   onDelete: () => void;
 }) {
   const { Item, Separator, Sub, SubTrigger, SubContent } = kit;
+  const many = count > 1;
   return (
     <>
-      {onPreview && (
+      {onPreview && !many && (
         <Item onSelect={onPreview}>
           <PiEye />
           Preview
@@ -225,34 +268,32 @@ function LibraryItemMenuItems({
       )}
       <Item onSelect={onAdd}>
         <PiPlus />
-        Add to timeline
+        {many ? `Add ${count} to timeline` : "Add to timeline"}
       </Item>
       <Item onSelect={onToggleFavorite}>
         {item.favorite ? <PiStarFill /> : <PiStar />}
         {item.favorite ? "Unfavourite" : "Favourite"}
       </Item>
       <Separator />
-      <Item onSelect={onRename}>
-        <PiPencilSimple />
-        Rename…
-      </Item>
+      {!many && (
+        <Item onSelect={onRename}>
+          <PiPencilSimple />
+          Rename…
+        </Item>
+      )}
       <Sub>
         <SubTrigger>
           <PiFolderSimple />
           Move to
         </SubTrigger>
         <SubContent className="max-h-72 w-52 overflow-y-auto">
-          <FolderMenuItems
-            kit={kit}
-            current={item.folderId}
-            onSelect={(folderId) => void useLibrary.getState().updateItem(item.id, { folderId })}
-          />
+          <FolderMenuItems kit={kit} current={folderId} onSelect={onMove} />
         </SubContent>
       </Sub>
       <Separator />
       <Item variant="destructive" onSelect={onDelete}>
         <PiTrash />
-        Delete
+        {many ? `Delete ${count} items` : "Delete"}
       </Item>
     </>
   );

@@ -65,14 +65,16 @@ interface LibraryState {
   importFiles: (files: File[], folderId: string | null) => Promise<void>;
   /** Upload dropped files and folders into a folder, merging into same-named subfolders. */
   importTree: (tree: DroppedFolder, folderId: string | null) => Promise<void>;
-  /** Add one of the open project's media files to a folder. */
-  addAsset: (assetId: string, folderId: string | null) => Promise<void>;
+  /** Add some of the open project's media files to a folder. */
+  addAssets: (assetIds: string[], folderId: string | null) => Promise<void>;
   /** Save timeline clips (with their effects and transitions) to a folder. */
   saveClips: (clipIds: string[], name: string, folderId: string | null) => Promise<boolean>;
   updateItem: (id: string, patch: UpdateLibraryItemRequest) => Promise<void>;
-  deleteItem: (id: string) => Promise<void>;
-  /** Put an item on the open project's timeline (see `addLibraryItem`). */
-  addToTimeline: (itemId: string, opts?: AddToTimelineOptions) => Promise<void>;
+  /** The same change to several items (moving or starring a selection). */
+  updateItems: (ids: string[], patch: UpdateLibraryItemRequest) => Promise<void>;
+  deleteItems: (ids: string[]) => Promise<void>;
+  /** Put items on the open project's timeline, one after another (see `addLibraryItems`). */
+  addToTimeline: (itemIds: string[], opts?: AddToTimelineOptions) => Promise<void>;
 }
 
 let loading: Promise<void> | null = null;
@@ -250,14 +252,20 @@ export const useLibrary = create<LibraryState>((set, get) => {
       }
     },
 
-    async addAsset(assetId, folderId) {
-      try {
-        const entry = await api.saveMediaToLibrary({ assetId, folderId });
-        addEntry(entry);
-        toast.success(`Added “${entry.item.name}” to ${where(folderId)}`);
-      } catch (err) {
-        fail("Couldn't add it to the Library", err);
+    async addAssets(assetIds, folderId) {
+      const added: string[] = [];
+      for (const assetId of assetIds) {
+        try {
+          const entry = await api.saveMediaToLibrary({ assetId, folderId });
+          addEntry(entry);
+          added.push(entry.item.name);
+        } catch (err) {
+          fail("Couldn't add it to the Library", err);
+        }
       }
+      if (added.length === 0) return;
+      const what = added.length === 1 ? `“${added[0]}”` : `${added.length} files`;
+      toast.success(`Added ${what} to ${where(folderId)}`);
     },
 
     async saveClips(clipIds, name, folderId) {
@@ -287,20 +295,30 @@ export const useLibrary = create<LibraryState>((set, get) => {
       }
     },
 
-    async deleteItem(id) {
-      try {
-        await api.deleteLibraryItem(id);
-      } catch (err) {
-        fail("Couldn't delete it from the Library", err);
-        return;
-      }
-      set({ items: get().items.filter((i) => i.id !== id) });
+    async updateItems(ids, patch) {
+      await Promise.all(ids.map((id) => get().updateItem(id, patch)));
+    },
+
+    async deleteItems(ids) {
+      const deleted = new Set<string>();
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            await api.deleteLibraryItem(id);
+            deleted.add(id);
+          } catch (err) {
+            fail("Couldn't delete it from the Library", err);
+          }
+        }),
+      );
+      if (deleted.size === 0) return;
+      set({ items: get().items.filter((i) => !deleted.has(i.id)) });
       pruneAssets();
     },
 
-    async addToTimeline(itemId, opts) {
-      const item = await useEditor.getState().addLibraryItem(itemId, opts);
-      if (item && get().items.some((i) => i.id === item.id)) replaceItem(item);
+    async addToTimeline(itemIds, opts) {
+      const used = await useEditor.getState().addLibraryItems(itemIds, opts);
+      for (const item of used) if (get().items.some((i) => i.id === item.id)) replaceItem(item);
     },
   };
 });

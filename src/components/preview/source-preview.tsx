@@ -29,7 +29,7 @@ const close = () => useSourcePreview.getState().close();
 /** Drag the file itself onto the timeline (its marked part), from the picture. */
 function dragSource(e: DragEvent, asset: MediaAsset) {
   const itemId = useSourcePreview.getState().libraryItemId;
-  if (itemId) setLibraryDragData(e.dataTransfer, itemId);
+  if (itemId) setLibraryDragData(e.dataTransfer, [itemId]);
   else setAssetDragData(e.dataTransfer, { assetIds: [asset.id] });
 }
 
@@ -86,7 +86,7 @@ function SourceActions({ asset }: { asset: MediaAsset }) {
   const marked = useSourceMarks((s) => assetMarkedRange(asset, s.marks) !== null);
   const add = () => {
     const itemId = useSourcePreview.getState().libraryItemId;
-    if (itemId) void useLibrary.getState().addToTimeline(itemId);
+    if (itemId) void useLibrary.getState().addToTimeline([itemId]);
     else useEditor.getState().addAssetsToTimeline([asset.id]);
   };
   return (
