@@ -69,7 +69,8 @@ export class MediaSlot {
     // While playing, seeks are issued here with look-ahead; drop any stale scrub target.
     this.pending = null;
     if (el.seeking) return;
-    const { seek, rate } = playbackCorrection(el.currentTime - time);
+    const audible = !el.muted && el.volume > 0;
+    const { seek, rate } = playbackCorrection(el.currentTime - time, audible);
     if (seek) this.seekNow(time + this.seekLead);
     this.setRate(rate);
     // An element that ran into the end of its media would restart from 0 on play().

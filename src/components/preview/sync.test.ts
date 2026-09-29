@@ -110,16 +110,20 @@ describe("assignSlots", () => {
 
 describe("playbackCorrection", () => {
   it("leaves tiny drift alone", () => {
-    expect(playbackCorrection(0.01)).toEqual({ seek: false, rate: 1 });
+    expect(playbackCorrection(0.01, false)).toEqual({ seek: false, rate: 1 });
   });
-  it("nudges the rate towards the clock for small drift", () => {
-    expect(playbackCorrection(0.1).rate).toBeLessThan(1);
-    expect(playbackCorrection(-0.1).rate).toBeGreaterThan(1);
-    expect(playbackCorrection(0.1).seek).toBe(false);
+  it("nudges a silent element's rate towards the clock for small drift", () => {
+    expect(playbackCorrection(0.1, false).rate).toBeLessThan(1);
+    expect(playbackCorrection(-0.1, false).rate).toBeGreaterThan(1);
+    expect(playbackCorrection(0.1, false).seek).toBe(false);
+  });
+  it("never changes an audible element's rate", () => {
+    expect(playbackCorrection(0.1, true)).toEqual({ seek: false, rate: 1 });
+    expect(playbackCorrection(-0.1, true)).toEqual({ seek: false, rate: 1 });
   });
   it("seeks when far off", () => {
-    expect(playbackCorrection(SEEK_DRIFT + 0.01)).toEqual({ seek: true, rate: 1 });
-    expect(playbackCorrection(-1)).toEqual({ seek: true, rate: 1 });
+    expect(playbackCorrection(SEEK_DRIFT + 0.01, false)).toEqual({ seek: true, rate: 1 });
+    expect(playbackCorrection(-1, true)).toEqual({ seek: true, rate: 1 });
   });
 });
 

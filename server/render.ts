@@ -12,7 +12,9 @@
  *   inside it, so rounding never accumulates across segments.
  * - Every clip with sound on an unmuted track (video or audio) is cut to its
  *   exact sample length, delayed to its timeline start and summed (no
- *   normalisation) on top of silence covering the whole timeline.
+ *   normalisation) on top of silence covering the whole timeline. A
+ *   look-ahead limiter (delay-compensated, no auto-gain) catches the peaks
+ *   where overlapping sources add up past full scale instead of clipping.
  */
 import { clipDuration, clipEnd, projectDuration, trackClips } from "../shared/timeline.ts";
 import type { Clip, MediaAsset, Project } from "../shared/types.ts";
@@ -20,6 +22,7 @@ import { run } from "./ffmpeg.ts";
 
 export const SAMPLE_RATE = 48_000;
 const AUDIO_FORMAT = `aformat=sample_fmts=fltp:sample_rates=${SAMPLE_RATE}:channel_layouts=stereo`;
+const LIMITER = "alimiter=limit=0.98:level=0:latency=1";
 
 export type RenderAsset = Pick<MediaAsset, "hasAudio" | "hasVideo"> & { path: string };
 
@@ -125,7 +128,7 @@ export function buildRenderArgs(
   }
   graph.push(
     mixInputs.length
-      ? `[abase]${mixInputs.join("")}amix=inputs=${mixInputs.length + 1}:duration=first:normalize=0[aout]`
+      ? `[abase]${mixInputs.join("")}amix=inputs=${mixInputs.length + 1}:duration=first:normalize=0,${LIMITER}[aout]`
       : "[abase]anull[aout]",
   );
 

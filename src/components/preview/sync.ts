@@ -95,12 +95,15 @@ export function assignSlots(slots: SlotIds, currentId: string | null, nextId: st
 
 /**
  * How a playing element should react to `drift` (element time minus expected
- * time): re-seek when far off, otherwise steer the playback rate slightly so
- * it converges without the stutter a seek would cause.
+ * time): re-seek when far off. A silent element may also steer its playback
+ * rate slightly so it converges without the stutter a seek would cause; an
+ * audible one never does, because rate changes time-stretch its sound (warble,
+ * crackle). Its drift comes from start/seek latency, not clock skew, so it
+ * stays roughly constant and well inside SEEK_DRIFT.
  */
-export function playbackCorrection(drift: number): { seek: boolean; rate: number } {
+export function playbackCorrection(drift: number, audible: boolean): { seek: boolean; rate: number } {
   if (Math.abs(drift) > SEEK_DRIFT) return { seek: true, rate: 1 };
-  if (Math.abs(drift) < NUDGE_DRIFT) return { seek: false, rate: 1 };
+  if (audible || Math.abs(drift) < NUDGE_DRIFT) return { seek: false, rate: 1 };
   const nudge = Math.min(MAX_NUDGE, Math.abs(drift) * 0.5);
   return { seek: false, rate: drift > 0 ? 1 - nudge : 1 + nudge };
 }

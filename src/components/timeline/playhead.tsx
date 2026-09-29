@@ -56,19 +56,47 @@ export function PlayheadLine() {
   );
 }
 
-/** Page the view to keep the playhead visible when time moves (playback, keyboard seeks). */
+/**
+ * Page the view to keep the playhead visible when time moves (playback, keyboard seeks).
+ *
+ * Scrolling or zooming the timeline yourself during playback detaches the view
+ * (like Logic's "catch" or Resolve's follow mode): it stays where you put it
+ * until the playhead comes back on screen or playback stops or restarts.
+ */
 export function usePlayheadFollow(scrollerRef: RefObject<HTMLDivElement | null>) {
-  useEffect(
-    () =>
-      usePlayback.subscribe((s, p) => {
-        if (s.time === p.time) return;
-        const view = useTimelineView.getState();
-        const el = scrollerRef.current;
-        if (!el || view.scrubbing || view.dragClipIds.length > 0 || view.viewWidth <= 0) return;
-        const x = s.time * useEditor.getState().zoom;
-        const target = pageScrollTarget(x, view.scrollLeft, view.viewWidth, PAGE_MARGIN);
-        if (target !== null) el.scrollLeft = target;
-      }),
-    [scrollerRef],
-  );
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    let detached = false;
+    /** The last scrollLeft we set, to tell our own scroll events from the user's. */
+    let paged: number | null = null;
+
+    const onScroll = () => {
+      if (el.scrollLeft === paged) return;
+      paged = null;
+      if (usePlayback.getState().playing) detached = true;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+
+    const unsubscribe = usePlayback.subscribe((s, p) => {
+      if (s.playing !== p.playing) detached = false;
+      if (s.time === p.time) return;
+      const view = useTimelineView.getState();
+      if (view.scrubbing || view.dragClipIds.length > 0 || view.viewWidth <= 0) return;
+      const x = s.time * useEditor.getState().zoom;
+      const target = pageScrollTarget(x, view.scrollLeft, view.viewWidth, PAGE_MARGIN);
+      if (detached) {
+        if (target !== null) return;
+        detached = false;
+      }
+      if (target === null) return;
+      el.scrollLeft = target;
+      // Read back: the browser clamps and rounds.
+      paged = el.scrollLeft;
+    });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      unsubscribe();
+    };
+  }, [scrollerRef]);
 }

@@ -47,7 +47,7 @@ describe("buildRenderArgs", () => {
     expect(graph).toContain("[bg][t0]overlay=x=0:y=0:format=yuv420:eof_action=pass[o0]");
     expect(graph).toContain("[o0]format=yuv420p[vout]");
     expect(graph.some((f) => f.startsWith("[1:a]"))).toBe(false); // no audio in that asset
-    expect(graph).toContain("[abase][m0][m1]amix=inputs=3:duration=first:normalize=0[aout]");
+    expect(graph).toContain("[abase][m0][m1]amix=inputs=3:duration=first:normalize=0,alimiter=limit=0.98:level=0:latency=1[aout]");
     expect(argv[argv.indexOf("-t", argv.indexOf("-filter_complex")) + 1]).toBe("5.000000");
     expect(argv.at(-1)).toBe("/out/x.mp4");
   });
@@ -98,7 +98,7 @@ describe("buildRenderArgs", () => {
   it("renders an audio-only timeline over the background", () => {
     const graph = graphOf(buildRenderArgs(project([clip("song", "audio_1", 0, 0, 3)]), assets, opts));
     expect(graph).toContain("[bg]format=yuv420p[vout]");
-    expect(graph).toContain("[abase][m0]amix=inputs=2:duration=first:normalize=0[aout]");
+    expect(graph).toContain("[abase][m0]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.98:level=0:latency=1[aout]");
   });
 
   it("skips the sound of muted tracks, video or audio", () => {
@@ -110,7 +110,7 @@ describe("buildRenderArgs", () => {
     );
     expect(graphOf(mutedMain).some((f) => f.startsWith("[0:a]"))).toBe(false);
     expect(graphOf(mutedMain).some((f) => f.startsWith("[0:v]"))).toBe(true);
-    expect(graphOf(mutedMain)).toContain("[abase][m0]amix=inputs=2:duration=first:normalize=0[aout]");
+    expect(graphOf(mutedMain)).toContain("[abase][m0]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.98:level=0:latency=1[aout]");
 
     const mutedAudio = buildRenderArgs(
       project(clips, (d) => ({ ...d, tracks: d.tracks.map((t) => ({ ...t, muted: t.id !== "main" })) })),
@@ -118,7 +118,7 @@ describe("buildRenderArgs", () => {
       opts,
     );
     expect(inputsOf(mutedAudio)).toEqual(["/media/vid.mp4"]);
-    expect(graphOf(mutedAudio)).toContain("[abase][m0]amix=inputs=2:duration=first:normalize=0[aout]");
+    expect(graphOf(mutedAudio)).toContain("[abase][m0]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.98:level=0:latency=1[aout]");
   });
 
   it("scales + pads transparently for contain and scales + crops for cover", () => {
