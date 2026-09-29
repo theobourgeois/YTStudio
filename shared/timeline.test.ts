@@ -393,3 +393,82 @@ describe("format", () => {
     expect(formatRelative(now - 30 * 86400_000, now)).toMatch(/Aug/);
   });
 });
+
+describe("placement matches trying every position", () => {
+  // The obvious O(n²) searches `findFreeStart` and `moveClips` replaced: every edge of every neighbour, tried
+  // against every neighbour. Random timelines on a coarse grid (so clips touch and tie a lot) must agree.
+  function referenceFreeStart(clips: Clip[], desired: number, duration: number): number {
+    const fits = (s: number) =>
+      s >= -1e-6 && clips.every((o) => s + duration <= o.start + 1e-6 || s >= clipEnd(o) - 1e-6);
+    const candidates = [Math.max(0, desired), ...clips.map(clipEnd), ...clips.map((o) => o.start - duration)];
+    let best = Infinity;
+    for (const s of candidates) if (fits(s) && Math.abs(s - desired) < Math.abs(best - desired)) best = s;
+    return Math.round(Math.max(0, best) * 1e6) / 1e6;
+  }
+
+  function referenceMoveDelta(p: Project, ids: Set<string>, delta: number): number {
+    const moving = p.clips.filter((c) => ids.has(c.id));
+    const obstacles = (c: Clip) => p.clips.filter((o) => o.trackId === c.trackId && !ids.has(o.id));
+    const minStart = Math.min(...moving.map((c) => c.start));
+    const fits = (d: number) =>
+      minStart + d >= -1e-6 &&
+      moving.every((c) => obstacles(c).every((o) => clipEnd(c) + d <= o.start + 1e-6 || c.start + d >= clipEnd(o) - 1e-6));
+    const candidates = [delta, -minStart];
+    let afterAll = -minStart;
+    for (const c of moving) {
+      for (const o of obstacles(c)) {
+        candidates.push(clipEnd(o) - c.start, o.start - clipEnd(c));
+        afterAll = Math.max(afterAll, clipEnd(o) - c.start);
+      }
+    }
+    let best = afterAll;
+    for (const d of candidates) if (fits(d) && Math.abs(d - delta) < Math.abs(best - delta) - 1e-6) best = d;
+    return best;
+  }
+
+  let seed = 7;
+  const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  const grid = (max: number) => Math.round(random() * max * 4) / 4;
+
+  function randomProject(): Project {
+    let p = createDefaultProject();
+    const count = 1 + Math.floor(random() * 12);
+    for (let i = 0; i < count; i++) p = addClip(p, clip(`c${i}`, random() < 0.7 ? MAIN_TRACK_ID : AUDIO, grid(20), 0.25 + grid(3)));
+    return p;
+  }
+
+  it("findFreeStart", () => {
+    for (let i = 0; i < 2000; i++) {
+      const clips = trackClips(randomProject(), MAIN_TRACK_ID) as Clip[];
+      const desired = grid(24) - 2;
+      const duration = 0.25 + grid(4);
+      expect(findFreeStart(clips, desired, duration)).toBe(referenceFreeStart(clips, desired, duration));
+    }
+  });
+
+  it("moveClips", () => {
+    for (let i = 0; i < 2000; i++) {
+      const p = randomProject();
+      const ids = new Set(p.clips.filter(() => random() < 0.3).map((c) => c.id));
+      if (ids.size === 0) ids.add(p.clips[0].id);
+      const delta = grid(24) - 12;
+      const moved = moveClips(p, [...ids], delta);
+      const best = referenceMoveDelta(p, ids, delta);
+      for (const c of p.clips) {
+        const start = moved.clips.find((m) => m.id === c.id)!.start;
+        expect(start).toBe(ids.has(c.id) ? Math.round(Math.max(0, c.start + best) * 1e6) / 1e6 : c.start);
+      }
+    }
+  });
+
+  it("stays fast with thousands of clips", () => {
+    let p = createDefaultProject();
+    const clips = Array.from({ length: 2000 }, (_, i) => clip(`c${i}`, MAIN_TRACK_ID, i, 0.8));
+    p = { ...p, clips };
+    const selected = clips.filter((_, i) => i % 5 === 0).map((c) => c.id); // 400 clips moving together
+    const t0 = performance.now();
+    moveClips(p, selected, 0.35);
+    normalizeProject(p);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+});

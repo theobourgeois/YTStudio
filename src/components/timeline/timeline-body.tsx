@@ -6,7 +6,7 @@
  */
 import { useLayoutEffect, useMemo } from "react";
 import type { Clip } from "@shared/types";
-import { projectDuration } from "@shared/timeline";
+import { clipEnd, projectDuration } from "@shared/timeline";
 import { useEditor } from "@/stores/editor";
 import { startMarquee } from "./clip-gestures";
 import { BOTTOM_GUTTER, HEADER_WIDTH, RULER_HEIGHT } from "./constants";
@@ -21,7 +21,7 @@ import { TrackHeaders } from "./track-headers";
 import { TransitionDropIndicator, TransitionMarkers } from "./transition-markers";
 import { useScrollZoom } from "./use-scroll-zoom";
 import { useTimelineDrop } from "./use-timeline-drop";
-import { useTimelineView } from "./view-store";
+import { useTimelineView, useVisibleWindow } from "./view-store";
 
 /** Stable DOM order (by id) so reordering never moves a node that holds pointer capture. */
 const byId = (a: Clip, b: Clip) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -39,6 +39,8 @@ export function TimelineBody() {
   );
   const viewWidth = useTimelineView((s) => s.viewWidth);
   const dragClipIds = useTimelineView((s) => s.dragClipIds);
+  const heldClipId = useTimelineView((s) => s.heldClipId);
+  const [x0, x1] = useVisibleWindow();
 
   const { lanes, height: lanesHeight } = useMemo(() => layoutLanes(tracks), [tracks]);
   useLayoutEffect(() => {
@@ -50,6 +52,12 @@ export function TimelineBody() {
   const laneById = useMemo(() => new Map(lanes.map((l) => [l.trackId, l])), [lanes]);
   const muted = useMemo(() => new Set(tracks.filter((t) => t.muted).map((t) => t.id)), [tracks]);
   const ordered = useMemo(() => [...clips].sort(byId), [clips]);
+  // Only clips in (or near) view are rendered, so a long edit costs what's on screen. The window moves
+  // in chunks (see `useVisibleWindow`), so scrolling re-renders this only now and then.
+  const shown = useMemo(
+    () => ordered.filter((c) => (c.start * zoom < x1 && clipEnd(c) * zoom > x0) || c.id === heldClipId),
+    [ordered, zoom, x0, x1, heldClipId],
+  );
   const selected = useMemo(() => new Set(selectedClipIds), [selectedClipIds]);
   const dragging = useMemo(() => new Set(dragClipIds), [dragClipIds]);
   // Until there's any video, point at the bottom (home) video lane.
@@ -83,7 +91,7 @@ export function TimelineBody() {
             >
               <LaneBackgrounds lanes={lanes} tracks={tracks} />
               {hintLane && <EmptyVideoHint lane={hintLane} width={Math.min(width, viewWidth)} />}
-              {ordered.map((clip) => {
+              {shown.map((clip) => {
                 const lane = laneById.get(clip.trackId);
                 if (!lane) return null;
                 return (

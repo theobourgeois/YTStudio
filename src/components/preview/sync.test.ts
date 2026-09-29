@@ -3,8 +3,9 @@ import { defaultEffects } from "@shared/effects";
 import type { Clip, Project } from "@shared/types";
 import { MAIN_TRACK_ID, createDefaultProject } from "@shared/timeline";
 import { sourceTime } from "@shared/timeline";
+import { planTrack } from "@shared/scene";
 import { fitRect } from "./canvas";
-import { SEEK_DRIFT, assignSlots, planAudio, playbackCorrection } from "./sync";
+import { SEEK_DRIFT, assignSlots, playbackCorrection } from "./sync";
 
 const clip = (id: string, start: number, inPoint: number, out: number, trackId = MAIN_TRACK_ID): Clip => ({
   id,
@@ -30,16 +31,14 @@ describe("sourceTime", () => {
   });
 });
 
-describe("planAudio", () => {
-  const p = project([clip("v", 0, 0, 10), clip("m", 2, 1, 4, "audio_1")]);
-  it("parks upcoming clips on their in-point", () => {
-    expect(planAudio(p, 1)).toEqual([{ clip: p.clips[1], active: false, time: 1 }]);
+describe("audio tracks", () => {
+  // Their pair of elements follows the same plan as a video track's.
+  const p = project([clip("v", 0, 0, 10), clip("m", 2, 1, 4, "audio_1"), clip("n", 6, 0, 1, "audio_1")]);
+  it("parks the next clip before it starts", () => {
+    expect(planTrack(p, "audio_1", 1)).toEqual({ current: null, next: p.clips[1] });
   });
-  it("plays clips under the playhead", () => {
-    expect(planAudio(p, 3)[0]).toMatchObject({ active: true, time: 2 });
-  });
-  it("leaves finished clips alone", () => {
-    expect(planAudio(p, 5)[0]).toMatchObject({ active: false, time: null });
+  it("plays the clip under the playhead and preloads the one after", () => {
+    expect(planTrack(p, "audio_1", 3)).toEqual({ current: { clip: p.clips[1], time: 2 }, next: p.clips[2] });
   });
 });
 

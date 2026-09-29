@@ -1004,3 +1004,41 @@ test("the assistant edits the video with the editor's tools, live and undoably; 
   await expect(page.getByText("Agent: Add video track")).toBeVisible();
   await expect.poll(async () => (await savedProject(page)).tracks.length).toBe(tracks + 1);
 });
+
+test("plays an audio track cut into pieces with one pair of players", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "New video" }).first().click();
+  await expect(page.locator("[data-clip-id]")).toHaveCount(0);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles(FILES[3]);
+  await expect(page.locator("[draggable=true]").filter({ hasText: "music-20s" }).first()).toBeVisible();
+  const y = await laneY(page, "Audio 1");
+  await dragAsset(page, "music-20s", await timeX(page, 0.05), y);
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+
+  // Cut it at 1 s and 2 s.
+  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  await page.keyboard.press("Home");
+  for (const t of [1, 2]) {
+    await page.keyboard.press("Shift+ArrowRight");
+    await page.mouse.click(await timeX(page, t + 0.5), y);
+    await page.keyboard.press("s");
+  }
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(3);
+
+  // However many pieces, the track plays through the same two elements, handing over at each cut.
+  const players = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLAudioElement>("[data-slot=canvas] audio")].map((a) => ({ paused: a.paused, t: a.currentTime })),
+    );
+  expect(await players()).toHaveLength(2);
+  await page.locator("body").click({ position: { x: 720, y: 20 } });
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Space");
+  await page.waitForTimeout(2500);
+  const playing = (await players()).filter((p) => !p.paused);
+  await page.keyboard.press("Space");
+  expect(playing).toHaveLength(1);
+  expect(playing[0].t).toBeGreaterThan(2);
+  expect(playing[0].t).toBeLessThan(3.5);
+});

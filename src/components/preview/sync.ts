@@ -4,9 +4,6 @@
  * the export); the imperative side (media elements, store subscriptions) lives
  * in `engine.ts` / `media-slot.ts`; everything here is deterministic and tested.
  */
-import type { Clip, Project } from "@shared/types";
-import { clipEnd, getTrack, sourceTime } from "@shared/timeline";
-import { EPS } from "@shared/math";
 
 /** Drift (seconds) beyond which a playing element is re-seeked instead of nudged. */
 export const SEEK_DRIFT = 0.25;
@@ -15,27 +12,7 @@ const NUDGE_DRIFT = 0.03;
 /** Maximum playback-rate deviation used to converge small drift. */
 const MAX_NUDGE = 0.08;
 
-export interface AudioPlan {
-  clip: Clip;
-  /** The playhead is inside the clip. */
-  active: boolean;
-  /** Where the element should be parked: the playhead position when active, the in-point
-   *  while the clip is still ahead, `null` once it has passed (leave it alone). */
-  time: number | null;
-}
-
-/** Every clip on an audio track, with its desired state at time `t`. */
-export function planAudio(project: Project, t: number): AudioPlan[] {
-  return project.clips
-    .filter((c) => getTrack(project, c.trackId)?.kind === "audio")
-    .map((clip) => {
-      const active = t >= clip.start - EPS && t < clipEnd(clip) - EPS;
-      const time = active ? sourceTime(clip, t) : t < clip.start ? clip.in : null;
-      return { clip, active, time };
-    });
-}
-
-/** Clip ids held by the two double-buffered video elements. */
+/** Clip ids held by a track's two double-buffered media elements. */
 export type SlotIds = readonly [string | null, string | null];
 
 /**

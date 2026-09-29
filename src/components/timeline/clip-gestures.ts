@@ -25,8 +25,8 @@ import { usePlayback } from "@/stores/playback";
 import { DRAG_THRESHOLD_PX, MARQUEE_THRESHOLD_PX, SNAP_PX, TRIM_THRESHOLD_PX } from "./constants";
 import { lanePoint, type TimelineContextValue } from "./context";
 import { clipRect, laneAt, moveSnapPoints, newTrackZoneAt, snapDelta, trimSnapPoints } from "./geometry";
-import { startPointerSession, type LanePoint } from "./pointer-session";
-import { clearDragView, setView, type DragGhost, type TrackTarget } from "./view-store";
+import { startPointerSession, type LanePoint, type SessionHandlers } from "./pointer-session";
+import { clearDragView, setView, useTimelineView, type DragGhost, type TrackTarget } from "./view-store";
 
 /** Pointer x -> time using the *current* zoom (zoom may change mid-drag). */
 const timeAt = (p: LanePoint) => p.x / useEditor.getState().zoom;
@@ -37,6 +37,33 @@ function near(a: number, b: number) {
 
 const isAdditive = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) =>
   e.shiftKey || e.metaKey || e.ctrlKey;
+
+/**
+ * A drag on one clip. The timeline only renders clips in view, so the pressed
+ * one is kept rendered (it holds the pointer capture) for as long as the press lasts.
+ */
+function startClipSession(e: ReactPointerEvent<HTMLElement>, ctx: TimelineContextValue, clipId: string, h: SessionHandlers) {
+  const release = () => {
+    if (useTimelineView.getState().heldClipId === clipId) setView({ heldClipId: null });
+  };
+  setView({ heldClipId: clipId });
+  const started = startPointerSession(e, ctx, {
+    ...h,
+    onEnd() {
+      release();
+      h.onEnd?.();
+    },
+    onCancel() {
+      release();
+      h.onCancel?.();
+    },
+    onClick() {
+      release();
+      h.onClick?.();
+    },
+  });
+  if (!started) release();
+}
 
 /**
  * Press on a clip: selection handling, then (past the threshold) a move of the
@@ -82,7 +109,7 @@ export function startClipMove(
   const source = (base: Project): Project =>
     duplicate ? { ...base, clips: [...base.clips, ...copies] } : base;
 
-  startPointerSession(e, ctx, {
+  startClipSession(e, ctx, clipId, {
     threshold: DRAG_THRESHOLD_PX,
     autoScroll: true,
     cursor: duplicate ? "copy" : "grabbing",
@@ -216,7 +243,7 @@ export function startClipTrim(
   let points: number[] = [];
   let source = { min: 0, max: 0 };
 
-  startPointerSession(e, ctx, {
+  startClipSession(e, ctx, clipId, {
     threshold: TRIM_THRESHOLD_PX,
     autoScroll: true,
     cursor: "ew-resize",
