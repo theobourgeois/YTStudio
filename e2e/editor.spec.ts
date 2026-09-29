@@ -608,6 +608,19 @@ test("settles a video, starts the next one, and unsettles it again", async ({ pa
   await page.goto(firstUrl);
   await expect.poll(async () => (await timelineClips(page)).length).toBeGreaterThan(0);
   expect((await savedProject(page)).name).toBe(first.name);
+
+  // Right-click it in the sidebar and duplicate it: the copy has the same timeline and its own media.
+  const inProgress = page.getByRole("navigation", { name: "In progress" });
+  await inProgress.getByTitle(first.name, { exact: true }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Duplicate" }).click();
+  await expect(inProgress.getByTitle(`${first.name} copy`, { exact: true })).toBeVisible();
+  const list = await projectList(page);
+  const copy = list.find((p: { name: string }) => p.name === `${first.name} copy`);
+  expect(copy).toMatchObject({ status: "active", clipCount: (await savedProject(page)).clips.length });
+  const media = (id: string) => page.evaluate((i) => fetch(`/api/media?projectId=${i}`).then((r) => r.json()), id);
+  const [originals, copies] = [await media(first.id), await media(copy.id)];
+  expect(copies.map((a: { name: string }) => a.name)).toEqual(originals.map((a: { name: string }) => a.name));
+  await expect(page).toHaveURL(firstUrl); // duplicating doesn't switch videos
 });
 
 test("keeps media and saved clips in the Library and uses them in another video", async ({ page }) => {

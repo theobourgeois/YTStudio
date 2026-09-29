@@ -10,7 +10,7 @@ export const isValidId = (id: unknown): id is string => typeof id === "string" &
 export const isObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 
-const MAX_NAME_LENGTH = 200;
+export const MAX_NAME_LENGTH = 200;
 
 /** A user-given name (project, Library folder...): one line, trimmed. Throws `HttpError(400)`. */
 export function parseName(raw: unknown): string {

@@ -222,13 +222,20 @@ export class MediaLibrary {
 
   /**
    * Copy an asset of another `MediaLibrary` (the Library's into a project, or the
-   * other way round) with its poster, filmstrip and waveform, so nothing is
-   * generated again. Files are cloned where the filesystem can (APFS, Btrfs...).
+   * other way round), or of this one (duplicating a project), with its poster,
+   * filmstrip and waveform, so nothing is generated again. Files are cloned where
+   * the filesystem can (APFS, Btrfs...). A `duplicate` is the same media in another
+   * project: it keeps the original's `origin` and date.
    */
   async copyFrom(
     source: MediaLibrary,
     asset: MediaAsset,
-    { projectId, name, exists = () => true }: { projectId: string | null; name?: string; exists?: () => boolean },
+    {
+      projectId,
+      name,
+      exists = () => true,
+      duplicate = false,
+    }: { projectId: string | null; name?: string; exists?: () => boolean; duplicate?: boolean },
   ): Promise<MediaAsset> {
     const id = createId("media");
     const dir = this.dir(id);
@@ -246,8 +253,8 @@ export class MediaLibrary {
         id,
         projectId,
         name: name ? displayName(name) : asset.name,
-        origin: asset.id,
-        createdAt: Date.now(),
+        origin: duplicate ? asset.origin : asset.id,
+        createdAt: duplicate ? asset.createdAt : Date.now(),
         src: rebase(asset.src),
         poster: asset.poster && rebase(asset.poster),
         filmstrip: !processing && asset.filmstrip ? { ...asset.filmstrip, urlPattern: rebase(asset.filmstrip.urlPattern) } : null,
@@ -278,6 +285,19 @@ export class MediaLibrary {
   async removeProject(projectId: string): Promise<void> {
     // `remove` forgets each asset synchronously, so they're all gone before the first await.
     await Promise.all(this.list(projectId).map((a) => this.remove(a.id)));
+  }
+
+  /**
+   * Copy all of `fromProject`'s media into `toProject` under new ids (files are
+   * cloned where the filesystem supports it). Returns old id → new id. On failure
+   * the copies made so far are left for the caller to remove with `removeProject`.
+   */
+  async copyProject(fromProject: string, toProject: string): Promise<Map<string, string>> {
+    const ids = new Map<string, string>();
+    for (const asset of this.list(fromProject)) {
+      ids.set(asset.id, (await this.copyFrom(this, asset, { projectId: toProject, duplicate: true })).id);
+    }
+    return ids;
   }
 
   /** Move assets into a project, rewriting their metadata (legacy migration). */

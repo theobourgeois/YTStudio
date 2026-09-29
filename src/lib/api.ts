@@ -79,6 +79,8 @@ export const api = {
     }),
   updateProject: (id: string, body: UpdateProjectRequest) =>
     request<ProjectSummary>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  duplicateProject: (id: string) =>
+    request<ProjectSummary>(`/api/projects/${id}/duplicate`, { method: "POST" }),
   deleteProject: (id: string) => request<void>(`/api/projects/${id}`, { method: "DELETE" }),
 
   listMedia: (projectId: string) =>

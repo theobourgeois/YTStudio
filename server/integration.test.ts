@@ -405,6 +405,39 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect((await json<Project>(url)).name).toBe("Launch teaser");
   });
 
+  it("duplicates a project with its own copy of the media", async () => {
+    const res = await api(`/api/projects/${projects.main.id}/duplicate`, { method: "POST" });
+    expect(res.status).toBe(201);
+    const copy = (await res.json()) as ProjectSummary;
+    expect(copy).toMatchObject({ name: "Launch teaser copy", status: "active", clipCount: 3, aspectRatio: "16:9" });
+    expect(copy.id).not.toBe(projects.main.id);
+    expect(copy.duration).toBeCloseTo(projects.main.duration, 5);
+    expect((await json<ProjectSummary[]>("/api/projects"))[0].id).toBe(copy.id);
+
+    const originals = await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`);
+    const copies = await json<MediaAsset[]>(`/api/media?projectId=${copy.id}`);
+    expect(copies.map((a) => a.name)).toEqual(originals.map((a) => a.name));
+    for (const asset of copies) {
+      expect(originals.some((a) => a.id === asset.id)).toBe(false);
+      for (const url of [asset.src, asset.poster, asset.waveform, asset.filmstrip?.urlPattern]) {
+        if (url) expect(url.startsWith(`/files/media/${asset.id}/`), url).toBe(true);
+      }
+      expect((await api(asset.src)).status).toBe(200);
+    }
+    expect(copy.thumbnail?.startsWith(`/files/media/${copies.find((a) => a.name === "landscape.mp4")!.id}/`)).toBe(true);
+
+    // The copy's clips point at its own media.
+    const doc = await json<Project>(`/api/projects/${copy.id}`);
+    expect(doc.clips).toHaveLength(3);
+    for (const c of doc.clips) expect(copies.some((a) => a.id === c.assetId)).toBe(true);
+
+    // Deleting the copy leaves the original alone.
+    expect((await api(`/api/projects/${copy.id}`, { method: "DELETE" })).status).toBe(204);
+    expect(await json<MediaAsset[]>(`/api/media?projectId=${projects.main.id}`)).toEqual(originals);
+    expect((await api(originals[0].src)).status).toBe(200);
+    expect((await api("/api/projects/project_000000000000/duplicate", { method: "POST" })).status).toBe(404);
+  });
+
   it("validates export requests", async () => {
     expect((await sendJson("POST", "/api/exports", { project: projectWith([]), resolution: "720p" })).status).toBe(400);
     expect((await sendJson("POST", "/api/exports", { project: projectWith([clip("landscape", "main", 0, 0, 1)]), resolution: "8k" })).status).toBe(400);

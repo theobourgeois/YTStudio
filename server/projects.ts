@@ -6,7 +6,7 @@ import type { Project, ProjectStatus, ProjectSummary, UpdateProjectRequest } fro
 import { normalizeProject } from "../shared/normalize.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
-import { type DataPaths, HttpError, isObject, isValidId, parseName, readJson, writeJson } from "./storage.ts";
+import { type DataPaths, HttpError, MAX_NAME_LENGTH, isObject, isValidId, parseName, readJson, writeJson } from "./storage.ts";
 
 /** `data/projects/<id>/meta.json`. Written after `project.json`, so it marks a committed project. */
 type ProjectMeta = Pick<ProjectSummary, "id" | "status" | "createdAt" | "updatedAt" | "settledAt">;
@@ -27,6 +27,7 @@ interface Entry {
 }
 
 const STATUSES: readonly ProjectStatus[] = ["active", "settled"];
+const COPY_SUFFIX = " copy";
 
 
 function isMeta(v: unknown, id: string): v is ProjectMeta {
@@ -140,6 +141,24 @@ export class ProjectStore {
       this.entries.set(id, { meta, stats: statsOf(this.normalize(id, doc)) });
     });
     return this.summary(id);
+  }
+
+  /** Copy a project and its media into a new active project named "<name> copy". */
+  async duplicate(id: string): Promise<ProjectSummary> {
+    this.entry(id);
+    const source = await this.readDoc(id);
+    const copyId = createId("project");
+    try {
+      const assetIds = await this.library.copyProject(id, copyId);
+      const clips = source.clips.map((c) => (assetIds.has(c.assetId) ? { ...c, assetId: assetIds.get(c.assetId)! } : c));
+      const name = `${source.name.slice(0, MAX_NAME_LENGTH - COPY_SUFFIX.length)}${COPY_SUFFIX}`;
+      return await this.add(copyId, { ...source, name, clips }, this.now());
+    } catch (err) {
+      await this.library.removeProject(copyId);
+      // Deleted while its media was being copied.
+      if (!this.has(id)) throw new HttpError(404, "Project not found");
+      throw err;
+    }
   }
 
   /** Replace the document (normalised against the project's media). */

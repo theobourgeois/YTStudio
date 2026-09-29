@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { projectDuration } from "@shared/timeline";
-import { MAX_ZOOM, MIN_ZOOM, useEditor } from "@/stores/editor";
+import { MAX_ZOOM, useEditor } from "@/stores/editor";
 import { cn } from "cn";
 import { PANEL_DEFAULT_HEIGHT, PANEL_MAX_FRACTION, PANEL_MIN_HEIGHT } from "./constants";
 import { TimelineContext, type TimelineContextValue } from "./context";
@@ -17,7 +17,7 @@ import { anchoredScrollLeft, fitZoom, type LaneLayout } from "./geometry";
 import { cancelActiveDrag } from "@/lib/pointer-drag";
 import { TimelineBody } from "./timeline-body";
 import { TimelineToolbar } from "./toolbar";
-import { setView, timelineCommands, useTimelineView } from "./view-store";
+import { minZoom, setView, timelineCommands, useTimelineView } from "./view-store";
 
 const HEIGHT_KEY = "editor-timeline-height";
 
@@ -45,7 +45,7 @@ export function Timeline() {
       effectiveScrollLeft: () => pendingScrollLeft.current ?? scrollerRef.current?.scrollLeft ?? 0,
       zoomTo(next, anchor) {
         const { zoom, setZoom } = useEditor.getState();
-        const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));
+        const z = Math.min(MAX_ZOOM, Math.max(minZoom(), next));
         const el = scrollerRef.current;
         if (anchor && el) {
           const target = anchoredScrollLeft(anchor.time, z, anchor.vx);
@@ -80,11 +80,13 @@ export function Timeline() {
   useEffect(() => {
     timelineCommands.zoomToFit = () => {
       const duration = projectDuration(useEditor.getState().project);
-      const fit = fitZoom(duration, useTimelineView.getState().viewWidth, MIN_ZOOM, MAX_ZOOM);
+      const fit = fitZoom(duration, useTimelineView.getState().viewWidth, minZoom(), MAX_ZOOM);
       if (fit !== null) ctx.zoomTo(fit, { time: 0, vx: 0 });
     };
+    timelineCommands.zoomBy = (factor) => ctx.zoomTo(useEditor.getState().zoom * factor);
     return () => {
       timelineCommands.zoomToFit = () => {};
+      timelineCommands.zoomBy = () => {};
     };
   }, [ctx]);
 

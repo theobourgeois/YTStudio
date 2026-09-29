@@ -73,10 +73,24 @@ export function contentWidth(duration: number, zoom: number, viewWidth: number):
   return Math.ceil(Math.max(viewWidth, duration * zoom + trailing));
 }
 
+/** Share of the view a fitted edit fills (the rest is breathing room past the end). */
+const FIT_FRACTION = 0.94;
+/** Zooming all the way out shows at least this much, however short the edit. */
+export const MIN_ZOOM_OUT_SECONDS = 60;
+
 /** Zoom that fits `duration` into `viewWidth` (with a little breathing room), or null if empty. */
 export function fitZoom(duration: number, viewWidth: number, min: number, max: number): number | null {
   if (duration <= 0 || viewWidth <= 0) return null;
-  return clamp((viewWidth * 0.94) / duration, min, max);
+  return clamp((viewWidth * FIT_FRACTION) / duration, min, max);
+}
+
+/**
+ * Furthest zoom-out, like Premiere: the whole edit fits the view, so a longer
+ * edit can zoom out further. `floor` applies until the view has been measured.
+ */
+export function minZoomFor(duration: number, viewWidth: number, floor: number, max: number): number {
+  if (viewWidth <= 0) return floor;
+  return clamp((viewWidth * FIT_FRACTION) / Math.max(duration, MIN_ZOOM_OUT_SECONDS), floor, max);
 }
 
 /** Map zoom <-> a 0..1 slider position on a log scale. */

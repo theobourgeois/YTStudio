@@ -23,6 +23,9 @@ export function projectRoutes(projects: ProjectStore): Router {
   router.patch("/:id", async (req, res) => {
     res.json(await projects.update(req.params.id, req.body));
   });
+  router.post("/:id/duplicate", async (req, res) => {
+    res.status(201).json(await projects.duplicate(req.params.id));
+  });
   router.delete("/:id", async (req, res) => {
     await projects.remove(req.params.id);
     res.sendStatus(204);
