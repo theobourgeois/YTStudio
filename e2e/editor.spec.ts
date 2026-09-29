@@ -1288,8 +1288,24 @@ test("selects several media cards to drag them together and delete them at once"
   await page.mouse.up();
   await expect(selected).toHaveCount(3);
 
-  // Delete asks once for all of them, then removes them and their clips.
-  await page.keyboard.press("Delete");
+  // ⌘-dragging from a card draws a box too, rather than dragging the card to the timeline.
+  const mod = process.platform === "darwin" ? "Meta" : "Control";
+  await card("vertical-1080x1920").click({ modifiers: ["ControlOrMeta"] });
+  await card("landscape-1920x1080").click({ modifiers: ["ControlOrMeta"] });
+  await expect(selected).toHaveCount(1);
+  const b = (await cards.nth(1).boundingBox())!;
+  const c = (await cards.nth(2).boundingBox())!;
+  await page.keyboard.down(mod);
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await page.keyboard.up(mod);
+  await expect(selected).toHaveCount(3);
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
+
+  // ⌘⌫ asks once for all of them, then removes them and their clips.
+  await page.keyboard.press(`${mod}+Backspace`);
   const confirm = page.getByRole("alertdialog");
   await expect(confirm).toContainText("Remove 3 files?");
   await expect(confirm).toContainText("used in 2 clips");
