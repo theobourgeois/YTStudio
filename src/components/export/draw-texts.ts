@@ -6,9 +6,9 @@ import { fontsSettled } from "@/stores/fonts";
 
 /**
  * Draw every text clip at the export's size, the same way the preview does,
- * for the server to place like a still (as at the clip's first frame, since
- * the export doesn't animate yet). A text scaled up is drawn bigger so it
- * stays sharp.
+ * for the server to place like a still (the text as at the clip's first
+ * frame; its Motion and Opacity are applied per frame by the export). A text
+ * scaled up is drawn bigger so it stays sharp.
  */
 export async function drawTexts(project: Project, resolution: ExportResolution): Promise<Record<string, TextRaster>> {
   const clips = project.clips.filter((c) => isTextClip(c) && isOnVideoTrack(project, c));

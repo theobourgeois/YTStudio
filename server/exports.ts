@@ -8,8 +8,9 @@ import { FFMPEG } from "./config.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
-import { type RenderAsset, buildRenderArgs, planTransitions, runRender } from "./render.ts";
-import { renderTransitions } from "./transition-render.ts";
+import { renderVideo } from "./frame-render.ts";
+import { probeColorSpace } from "./probe.ts";
+import { type RenderAsset, audioArgs, encoderArgs, planRender, runWithProgress } from "./render.ts";
 import { type DataPaths, HttpError, isValidId } from "./storage.ts";
 
 interface JobState {
@@ -154,8 +155,9 @@ export class ExportManager {
     if (job.status !== "queued") return;
     job.status = "rendering";
     const tmp = this.paths.tmpFile(".mp4");
+    const audio = this.paths.tmpFile(".flac");
     const textFiles: string[] = [];
-    let transitionFiles: Record<string, string> = {};
+    const { signal } = controller;
     try {
       const library = this.library.byId();
       const assets: Record<string, RenderAsset> = {};
@@ -171,25 +173,29 @@ export class ExportManager {
         }
         const asset = library[clip.assetId];
         if (!asset) throw new Error("Some media was deleted before the export started.");
-        assets[asset.id] = { ...asset, path: this.library.sourcePath(asset) };
+        if (assets[asset.id]) continue;
+        const path = this.library.sourcePath(asset);
+        const colorSpace = asset.kind === "video" && asset.hasVideo ? await probeColorSpace(path) : null;
+        assets[asset.id] = { ...asset, path, colorSpace };
       }
       const opts = { width: job.width, height: job.height, fps: project.settings.fps, ffmpegPath: FFMPEG };
+      const plan = planRender(project, assets, opts, drawn);
 
-      // Transitions are drawn first; each of their frames costs a few of the main render's.
-      const transitions = planTransitions(project, assets, opts, drawn);
-      const transitionFrames = transitions.reduce((n, t) => n + t.progress.length, 0);
-      const mainFrames = Math.max(1, job.duration * opts.fps);
-      const share = transitionFrames ? (transitionFrames * 4) / (transitionFrames * 4 + mainFrames) : 0;
+      // The sound first (quick), then every frame, drawn and encoded with it.
+      const audioShare = 0.03;
+      await runWithProgress(
+        audioArgs(project, assets, { ...opts, outputPath: audio }, drawn),
+        job.duration,
+        (p) => (job.progress = audioShare * p),
+        signal,
+      );
       let framesDrawn = 0;
-      transitionFiles = await renderTransitions(transitions, (ext) => this.paths.tmpFile(ext), controller.signal, () => {
-        job.progress = (share * ++framesDrawn) / transitionFrames;
+      await renderVideo(plan, encoderArgs(plan, { ...opts, audioPath: audio, outputPath: tmp }), signal, () => {
+        job.progress = audioShare + ((1 - audioShare) * ++framesDrawn) / plan.frames;
       });
-
-      const argv = buildRenderArgs(project, assets, { ...opts, outputPath: tmp, transitions: transitionFiles }, drawn);
-      await runRender(argv, job.duration, (p) => (job.progress = share + (1 - share) * p), controller.signal);
       await fs.rename(tmp, this.paths.exportFile(job.id));
       // Cancelled while the file was being moved: the job stays cancelled.
-      if (controller.signal.aborted) {
+      if (signal.aborted) {
         await fs.rm(this.paths.exportFile(job.id), { force: true });
         return;
       }
@@ -201,12 +207,12 @@ export class ExportManager {
       });
     } catch (err) {
       await fs.rm(tmp, { force: true });
-      if (controller.signal.aborted) return; // cancelled (status already set) or shutting down
+      if (signal.aborted) return; // cancelled (status already set) or shutting down
       job.status = "error";
       job.error = `Export failed: ${errorMessage(err)}`;
       console.error(`[export] ${job.id} failed: ${job.error}`);
     } finally {
-      await Promise.all([...textFiles, ...Object.values(transitionFiles)].map((f) => fs.rm(f, { force: true })));
+      await Promise.all([...textFiles, audio].map((f) => fs.rm(f, { force: true })));
       texts.clear();
     }
   }

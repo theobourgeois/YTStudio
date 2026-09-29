@@ -19,7 +19,7 @@ pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + c
 **Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.
 - Don't edit `src/` while e2e runs: Vite hot-reloads the page mid-test and a test fails for no real reason.
 - The e2e tests depend on each other (serial, shared state), so run the whole file rather than `-g` one test.
-- After touching a shader or `transition-gl.ts`, run the transition-sheet script. It compiles every shader in headless
+- After touching a shader, `transition-gl.ts` or `compositor.ts`, run the transition-sheet script. It compiles every shader in headless
   Chromium and checks that each one starts on the outgoing picture and ends on the incoming one.
 - If `pnpm install` output looks stale (e.g. "Cannot find package 'playwright-core'"), run `pnpm install`.
 
@@ -37,14 +37,17 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   transitions.ts     Transition registry, timing specs, sanitize/patch.
   transition-library/  One file per category of GLSL transitions; common.ts has shared specs.
   transition-windows.ts  Where transitions play on the timeline + edits to them.
-  transition-gl.ts   WebGL2 renderer + shader prelude, shared by preview, thumbnails and export.
+  compositor.ts      THE renderer (WebGL2): pictures placed by an affine + opacity, transitions, YUV in/out.
+                     Draws the preview, the transition thumbnails and every export frame.
+  scene.ts           What each video track shows at time t (clip + source time, or transition + sides).
+  transition-gl.ts   Transition shader prelude, fragmentSource, uniforms.
   transform.ts       Where a clip lands on the canvas (fit → scale/rotate around the anchor).
   math.ts, format.ts, errors.ts   clamp/EPS/roundTime, time formatting, errorMessage.
 server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
   projects.ts, media.ts, web-media.ts, exports.ts   Services behind the routes.
-  render.ts          Project → one ffmpeg filter graph (pure, unit-tested); planTransitions.
-  transition-render.ts + gl-browser.ts   Transitions drawn with the same shaders in headless Chromium.
+  render.ts          Export plan (pure, unit-tested): planRender (decoders + per-frame layers), audioArgs, encoderArgs.
+  frame-render.ts + gl-browser.ts   Runs the plan: decoders -> headless Chromium compositor -> encoder.
   process.ts         run()/spawnStreaming(): the only way to start external programs (argv, never a shell).
   config.ts          Every env var is read here and nowhere else.
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
@@ -54,7 +57,7 @@ src/
   stores/playback.ts The playback clock (rAF). layout.ts = panel/tool UI state. projects.ts = project list.
   lib/api.ts         Typed client for every endpoint. lib/edit-gesture.ts, lib/pointer-drag.ts (see below).
   lib/text-render.ts Text layout + drawing (browser text engine); used by preview, export and canvas editor.
-  components/preview/engine.ts   Imperative preview: drives <video>/<img>/<canvas> + WebGL outside React.
+  components/preview/engine.ts   Imperative preview: drives hidden <video>/<img> and draws with the compositor.
   components/preview/sync.ts, placement.ts   Its pure planners (tested).
   components/timeline/  Timeline UI; geometry.ts is its pure maths, view-store.ts its interaction-speed state.
   components/properties/  Spec-driven properties panel (param-rows.tsx renders any ParamSpec).
@@ -80,7 +83,7 @@ extension** (Node ESM through tsx).
   and Text/Appearance on text clips. All of these have `id === type`, and code addresses them by type.
 - Keyframes are stored in **source time** (so they stay on their frame when the clip moves, trims or splits). Read
   values with `sourceTime(clip, playheadTime)`. The model and the preview support keyframes; there's no keyframe UI
-  yet, and **the export ignores them** (every value is taken at `clip.in`).
+  yet. The export evaluates Motion and Opacity per frame, but volume and text styles at `clip.in`.
 - Transitions are stored on clip edges. At a cut, the outgoing clip's `transitionOut` wins. See
   `transition-windows.ts` for the rules, and use `storedTransition`/`findWindow`/`refKey` rather than reading fields.
 - Media (`MediaAsset`) belongs to one project. `kind` is video | audio | image. Filmstrip and waveform generation
@@ -111,8 +114,8 @@ extension** (Node ESM through tsx).
 
 - **A property on an existing effect**: add a spec to its definition in `shared/effects.ts`. The panel, validation
   and keyframing then work automatically. Then apply the value where clips are drawn: preview
-  (`components/preview/engine.ts` / `placement.ts`) and export (`server/render.ts`: `placeForRender`, `videoChain`,
-  `audioChain`).
+  (`components/preview/engine.ts` / `placement.ts`) and export (`server/render.ts`: `planRender`'s `draw`,
+  `audioArgs`). Anything drawn should become compositor work (`shared/compositor.ts`) so both get it at once.
 - **A new effect**: add an `EffectDefinition` to `EFFECTS` (`builtIn` puts it on every clip it `appliesTo`), plus the
   same preview and export work. Adding effects to clips by the user (Premiere's Effects panel) doesn't exist yet.
 - **A new kind of parameter**: a spec type and a `sanitizeValue` case in `shared/params.ts`, a row in
@@ -159,14 +162,18 @@ extension** (Node ESM through tsx).
 
 ## Gotchas
 
-- `createTransitionRenderer` and `drawSampleScene` are serialised with `toString()` and injected into the headless
+- `createCompositor` and `drawSampleScene` are serialised with `toString()` and injected into the headless
   export page. They must not reference anything at module level.
-- The export takes the values at each clip's first frame (no keyframes yet). When adding keyframe UI, the export
-  (`server/render.ts`, `export/draw-texts.ts`) needs per-frame evaluation.
+- The export draws every frame in headless Chromium with `shared/compositor.ts`; ffmpeg only decodes (video as YUV
+  4:2:0 at the size it's shown; the compositor converts with the source's matrix), mixes audio and encodes (BT.709).
+  Motion/Opacity are evaluated per frame; volume (`audioArgs`) and text styles (`export/draw-texts.ts`, one PNG per
+  clip) are still taken at the clip's first frame.
+- After changing the compositor or the export, run the integration tests (`server/integration.test.ts` checks
+  positions, transitions and colours of real exports).
 - `data/` (or `EDITOR_DATA_DIR`) holds the projects, media, exports (never cleaned up yet) and `tmp`, which is wiped
   on startup. Export jobs live in memory.
 - External programs: ffmpeg/ffprobe (import and export; `FFMPEG_PATH`/`FFPROBE_PATH`), yt-dlp for the Online tab
-  (`YTDLP_PATH`), and Chromium for exports with transitions (`CHROMIUM_PATH`, else Playwright's, else Chrome). The
+  (`YTDLP_PATH`), and Chromium for every export (`CHROMIUM_PATH`, else Playwright's, else Chrome). The
   font list uses macOS AppKit through osascript (`fc-list` elsewhere).
 - Saves on unload use `keepalive`, which is capped at about 64 KiB in Chromium, so a very large project may lose its
   last edit if the tab closes mid-debounce.

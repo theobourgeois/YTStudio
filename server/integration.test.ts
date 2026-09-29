@@ -31,7 +31,7 @@ function probe(file: string) {
   ]);
   return JSON.parse(out.toString()) as {
     format: { duration: string };
-    streams: { codec_type: string; width?: number; height?: number }[];
+    streams: { codec_type: string; width?: number; height?: number; color_space?: string; color_range?: string }[];
   };
 }
 
@@ -120,6 +120,14 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     // A solid red 2:1 image, easy to find in an export.
     ffmpeg("-f", "lavfi", "-i", "color=red:size=100x50", "-frames:v", "1", f("red.png"));
     ffmpeg("-f", "lavfi", "-i", "color=blue:size=100x50", "-frames:v", "1", f("blue.png"));
+    // One colour (#3080c0) stored three ways: tagged BT.709, untagged HD (BT.709 by convention), untagged SD (BT.601).
+    const teal = (size: string, matrix: string, tags: string[], file: string) =>
+      ffmpeg("-f", "lavfi", "-i", `color=c=0x3080c0:size=${size}:rate=30:duration=1`,
+        "-vf", `scale=out_color_matrix=${matrix}:out_range=tv,format=yuv420p`,
+        "-c:v", "libx264", "-preset", "ultrafast", ...tags, f(file));
+    teal("1280x720", "bt709", ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"], "teal-709.mp4");
+    teal("1280x720", "bt709", [], "teal-hd.mp4");
+    teal("320x240", "bt601", [], "teal-sd.mp4");
     // (Seeking into this one finds no frame, so stills must be read without seeking.)
     const jpeg = path.join(tmp, "plain.jpg");
     ffmpeg("-f", "lavfi", "-i", "mandelbrot=size=320x160", "-frames:v", "1", jpeg);
@@ -518,6 +526,28 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(probe(output).format.duration).toMatch(/^4\.0/);
     // The drawn transitions are cleaned up.
     expect(readdirSync(path.join(dataDir, "tmp")).filter((f) => f.endsWith(".mkv"))).toEqual([]);
+  });
+
+  it("exports video in its true colours, whatever matrix it's stored in", async () => {
+    const ids: string[] = [];
+    for (const file of ["teal-709.mp4", "teal-hd.mp4", "teal-sd.mp4"]) {
+      const res = await upload(fixtures[file]);
+      expect(res.status).toBe(201);
+      ids.push(((await res.json()) as MediaAsset).id);
+    }
+    const project = projectWith(
+      ids.map((assetId, i) => ({ ...clip("landscape", "main", i, 0, 1), assetId, effects: defaultEffects() })),
+    );
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    expect(probe(output).streams.find((s) => s.codec_type === "video")).toMatchObject({ color_space: "bt709", color_range: "tv" });
+    for (const t of [0.5, 1.5, 2.5]) {
+      const actual = pixelAt(output, t, 360, 640);
+      actual.forEach((v, i) => expect(Math.abs(v - [0x30, 0x80, 0xc0][i]), `${actual} at ${t}s`).toBeLessThanOrEqual(6));
+    }
+    for (const id of ids) expect((await api(`/api/media/${id}`, { method: "DELETE" })).status).toBe(204);
   });
 
   it("exports without the audio tracks when asked", async () => {

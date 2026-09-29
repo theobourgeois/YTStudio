@@ -1,0 +1,220 @@
+/**
+ * Draw an export's video (`planRender`) with the headless compositor page:
+ * each clip's ffmpeg decodes its pictures as raw frames, the page composites
+ * every output frame from them, and the encoder (fed raw frames on stdin)
+ * writes the final file. The three run side by side: decoders start a little
+ * ahead of their first frame and keep a couple of frames ready, and a few
+ * finished frames can queue up for the encoder.
+ */
+import { once } from "node:events";
+import type { Readable } from "node:stream";
+import { type FramePacket, GlSession } from "./gl-browser.ts";
+import { spawnStreaming } from "./process.ts";
+import { type RenderPlan, type RenderSource, frameBytes, sourceFrameBytes } from "./render.ts";
+
+type Spawned = ReturnType<typeof spawnStreaming>;
+
+/** Finished frames that may wait for the encoder before drawing pauses. */
+const ENCODER_QUEUE = 3;
+
+/** Reads fixed-size frames from a stream, pausing it while two are waiting. */
+class FrameReader {
+  private chunks: Buffer[] = [];
+  private size = 0;
+  private ended = false;
+  private wake: (() => void) | null = null;
+  private discarding = false;
+
+  constructor(
+    private readonly stream: Readable,
+    private readonly frameSize: number,
+  ) {
+    stream.on("data", (chunk: Buffer) => {
+      if (this.discarding) return;
+      this.chunks.push(chunk);
+      this.size += chunk.length;
+      if (this.size >= frameSize * 2) stream.pause();
+      this.wake?.();
+    });
+    const end = () => {
+      this.ended = true;
+      this.wake?.();
+    };
+    stream.on("end", end);
+    stream.on("close", end);
+    stream.on("error", end);
+  }
+
+  /** Throw away anything else the stream sends (so its writer can finish). */
+  discard() {
+    this.discarding = true;
+    this.chunks = [];
+    this.size = 0;
+    this.stream.resume();
+  }
+
+  /** The next frame, or null once the stream ends without a whole one. */
+  async read(): Promise<Buffer | null> {
+    while (this.size < this.frameSize && !this.ended) {
+      this.stream.resume();
+      await new Promise<void>((resolve) => (this.wake = resolve));
+      this.wake = null;
+    }
+    if (this.size < this.frameSize) return null;
+    const all = this.chunks.length === 1 ? this.chunks[0] : Buffer.concat(this.chunks);
+    const frame = all.subarray(0, this.frameSize);
+    const rest = all.subarray(this.frameSize);
+    this.chunks = rest.length ? [rest] : [];
+    this.size = rest.length;
+    if (this.size < this.frameSize * 2) this.stream.resume();
+    return frame;
+  }
+}
+
+/** A running source: its ffmpeg and the next output frame its stream is at. */
+class Decoder {
+  private readonly reader: FrameReader;
+  private next: number;
+  /** A still's one frame, once read. */
+  private still: Buffer | null = null;
+  /** A still has been sent to the page (which keeps it until it's released). */
+  sent = false;
+
+  constructor(
+    readonly source: RenderSource,
+    readonly process: Spawned,
+  ) {
+    this.reader = new FrameReader(process.child.stdout!, sourceFrameBytes(source));
+    this.next = source.first;
+  }
+
+  /** The picture for output frame `f` (frames before it are skipped). */
+  async frameAt(f: number): Promise<Buffer> {
+    if (this.source.still) {
+      this.still ??= await this.read();
+      return this.still;
+    }
+    while (this.next < f) {
+      await this.read();
+      this.next++;
+    }
+    this.next = f + 1;
+    return this.read();
+  }
+
+  close() {
+    this.reader.discard();
+  }
+
+  private async read(): Promise<Buffer> {
+    const frame = await this.reader.read();
+    if (frame) return frame;
+    await this.process.done; // rejects with ffmpeg's error
+    throw new Error("A clip's media ended before its last frame.");
+  }
+}
+
+/**
+ * Draw every frame of `plan` and encode them with `encoderArgv` (see
+ * `encoderArgs`). `onFrame` is called after each frame is handed to the
+ * encoder; resolves once the encoder has finished the file.
+ */
+export async function renderVideo(
+  plan: RenderPlan,
+  encoderArgv: string[],
+  signal: AbortSignal,
+  onFrame: () => void,
+): Promise<void> {
+  signal.throwIfAborted();
+  const session = await GlSession.open();
+  const processes: Spawned[] = [];
+  const kill = () => processes.forEach((p) => p.child.kill("SIGKILL"));
+  signal.addEventListener("abort", kill, { once: true });
+  try {
+    const encoder = spawnStreaming(encoderArgv, "pipe", "ignore");
+    processes.push(encoder);
+    const stdin = encoder.child.stdin!;
+    stdin.on("error", () => {}); // a failing encoder reports through `done`
+    const frameSize = frameBytes(plan);
+
+    // Finished frames can come back out of order; they're encoded in order.
+    const finished = new Map<number, Buffer>();
+    let written = 0;
+    const encode = async (frame: number, data: Buffer) => {
+      if (data.length !== frameSize) throw new Error("The compositor returned a frame of the wrong size.");
+      finished.set(frame, data);
+      for (let next = finished.get(written); next; next = finished.get(written)) {
+        finished.delete(written++);
+        stdin.write(next);
+        onFrame();
+      }
+      if (stdin.writableLength > frameSize * ENCODER_QUEUE) await Promise.race([once(stdin, "drain"), encoder.done]);
+    };
+
+    // Decoders start this many frames before they're first needed.
+    const lookahead = Math.ceil(plan.fps / 2);
+    const pending = [...plan.sources].sort((a, b) => a.first - b.first);
+    const running = new Map<string, Decoder>();
+    let shaders: Record<string, string> | null = plan.shaders;
+
+    /** Frame f's packet; called for every frame in order (decoders are read in order). */
+    const prepare = async (f: number): Promise<FramePacket> => {
+      while (pending.length && pending[0].first <= f + lookahead) {
+        const source = pending.shift()!;
+        const process = spawnStreaming(source.argv, "ignore", "pipe");
+        processes.push(process);
+        running.set(source.key, new Decoder(source, process));
+      }
+      const release: string[] = [];
+      for (const [key, decoder] of running) {
+        if (decoder.source.end > f) continue;
+        decoder.close();
+        running.delete(key);
+        release.push(key);
+      }
+
+      const layers = plan.frame(f);
+      const pictures: FramePacket["pictures"] = [];
+      const send = async (key: string | undefined) => {
+        const decoder = key === undefined ? undefined : running.get(key);
+        if (!decoder || pictures.some((p) => p.key === key)) return;
+        // The page keeps a still until it's released.
+        if (decoder.source.still && decoder.sent) return;
+        decoder.sent = true;
+        const { width, height, luma } = decoder.source;
+        pictures.push({ key: key!, width, height, luma, data: await decoder.frameAt(f) });
+      };
+      for (const layer of layers) {
+        if (layer.kind === "picture") await send(layer.picture.key);
+        else {
+          await send(layer.from?.key);
+          await send(layer.to?.key);
+        }
+      }
+      const packet = { frame: f, pictures, release, shaders: shaders ?? {}, layers };
+      shaders = null;
+      return packet;
+    };
+
+    let assigned = 0;
+    let prepared: Promise<unknown> = Promise.resolve();
+    await session.composite({ width: plan.width, height: plan.height }, async (done) => {
+      signal.throwIfAborted();
+      if (done) await encode(done.frame, done.data);
+      if (assigned >= plan.frames) return null;
+      const f = assigned++;
+      const packet = prepared.then(() => prepare(f));
+      prepared = packet.catch(() => {});
+      return packet;
+    });
+    if (written !== plan.frames) throw new Error("Some frames weren't drawn.");
+    stdin.end();
+    for (const decoder of running.values()) decoder.close();
+    await encoder.done;
+    signal.throwIfAborted();
+  } finally {
+    signal.removeEventListener("abort", kill);
+    kill();
+    await session.close();
+  }
+}

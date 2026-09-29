@@ -1,24 +1,32 @@
 /**
- * A headless browser page running the transition renderer
- * (`shared/transition-gl.ts`), so the export draws transitions with the very
- * same WebGL shaders as the preview.
+ * A headless browser page running the compositor (`shared/compositor.ts`), so
+ * the export draws every frame with the very same WebGL code and shaders as
+ * the preview.
  *
  * Frames travel over a throwaway HTTP server on localhost that the page is
- * loaded from: the page fetches the two layers and posts the result back as a
- * Blob (much faster for big binary frames than going through the DevTools
- * protocol).
+ * loaded from (much faster for big binary frames than going through the
+ * DevTools protocol): while compositing, the page posts each finished frame
+ * and gets the next one's layers and pictures in the response.
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { type Browser, type Page, chromium } from "playwright-core";
-import { type UniformValue, createTransitionRenderer } from "../shared/transition-gl.ts";
+import { IDENTITY, type Placed, type Shader, createCompositor } from "../shared/compositor.ts";
+import { errorMessage } from "../shared/errors.ts";
+import type { UniformValue } from "../shared/transition-gl.ts";
 import { drawSampleScene } from "../shared/transition-samples.ts";
 import { CHROMIUM } from "./config.ts";
+import type { FrameLayer } from "./render.ts";
 
-const ARGS = ["--ignore-gpu-blocklist", "--enable-unsafe-swiftshader"];
+// On a Mac, headless Chromium can draw with the GPU (Metal); elsewhere it falls back to SwiftShader.
+const ARGS = [
+  "--ignore-gpu-blocklist",
+  "--enable-unsafe-swiftshader",
+  ...(process.platform === "darwin" ? ["--use-angle=metal", "--enable-gpu"] : []),
+];
 
 export const NO_BROWSER_MESSAGE =
-  "Rendering transitions needs Chromium: install Google Chrome, or run `pnpm exec playwright install chromium-headless-shell`.";
+  "Exporting needs Chromium: install Google Chrome, or run `pnpm exec playwright install chromium-headless-shell`.";
 
 /** Playwright's own Chromium, else the installed Google Chrome (or `CHROMIUM_PATH`). */
 async function launch(): Promise<Browser> {
@@ -34,17 +42,37 @@ async function launch(): Promise<Browser> {
   }
 }
 
-export interface Shader {
-  key: string;
-  source: string;
-}
-
 /** What the page script exposes (see `pageScript`). */
 interface PageApi {
-  setup(width: number, height: number): void;
-  renderFrame(job: { width: number; height: number; shader: Shader; uniforms: UniformValue[]; progress: number }): Promise<void>;
+  /** Draw frames until told to stop, exchanging them with `/exchange` (see `GlSession.composite`). */
+  composite(job: { width: number; height: number; lanes: number }): Promise<void>;
   sheet(job: SheetJob): string;
   check(job: CheckJob): CheckResult[];
+}
+
+/** What the page needs for its next frame. */
+export interface FramePacket {
+  frame: number;
+  /**
+   * Pictures to store (replacing any under the same key): raw RGBA, or YUV
+   * 4:2:0 with its matrix's luma weights of red and blue (see `YuvFrame`).
+   */
+  pictures: { key: string; width: number; height: number; luma: [number, number] | null; data: Buffer }[];
+  /** Pictures no longer needed. */
+  release: string[];
+  /** Shaders used from now on, by key. */
+  shaders: Record<string, string>;
+  layers: FrameLayer[];
+}
+
+/** The JSON part of a packet on the wire (`pictures`' data follows it, in order). */
+interface PacketHead {
+  /** Which output frame this is; null when there are no more. */
+  frame: number | null;
+  pictures: { key: string; width: number; height: number; luma: [number, number] | null; length: number }[];
+  release: string[];
+  shaders: Record<string, string>;
+  layers: FrameLayer[];
 }
 
 /** Compare each transition at progress 0 and 1 with the pictures it goes from and to. */
@@ -72,9 +100,10 @@ export interface SheetJob {
 
 /** The page's globals: its API, and the functions inlined into it. */
 interface PageGlobals {
-  transitions: PageApi;
-  createTransitionRenderer: typeof createTransitionRenderer;
+  compositor: PageApi;
+  createCompositor: typeof createCompositor;
   drawSampleScene: typeof drawSampleScene;
+  IDENTITY: typeof IDENTITY;
 }
 
 /**
@@ -84,25 +113,88 @@ interface PageGlobals {
  */
 function pageScript(): string {
   const main = () => {
-    const { createTransitionRenderer, drawSampleScene } = globalThis as unknown as PageGlobals;
+    const { createCompositor, drawSampleScene, IDENTITY } = globalThis as unknown as PageGlobals;
     const canvas = document.createElement("canvas");
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
     if (!gl) throw new Error("WebGL 2 isn't available in the headless browser.");
-    const renderer = createTransitionRenderer(gl);
+    const compositor = createCompositor(gl);
+    const whole = (key: string): Placed => ({ key, affine: IDENTITY, opacity: 1 });
+    /** The two sample scenes as pictures "a" and "b", at the cell size. */
+    const scenes = (cw: number, ch: number) => {
+      compositor.resize(cw, ch);
+      ["a", "b"].forEach((key, i) => {
+        const c = document.createElement("canvas");
+        c.width = cw;
+        c.height = ch;
+        drawSampleScene(c.getContext("2d")!, cw, ch, i as 0 | 1);
+        compositor.setPicture(key, c);
+      });
+    };
+    const transition = (shader: Shader, uniforms: UniformValue[], progress: number, flipY = false) => {
+      compositor.clear([0, 0, 0, 0]);
+      compositor.drawTransition(shader, uniforms, progress, whole("a"), whole("b"));
+      compositor.present({ flipY });
+    };
+
     const api: PageApi = {
-      setup(width, height) {
-        renderer.resize(width, height);
-      },
-      async renderFrame(job) {
-        const layer = async (i: number) => {
-          const buf = await (await fetch(`/layer/${i}`)).arrayBuffer();
-          return buf.byteLength ? { data: new Uint8Array(buf), width: job.width, height: job.height } : null;
+      async composite(job) {
+        compositor.resize(job.width, job.height);
+        const shaders: Record<string, string> = {};
+        // Frames are drawn strictly in order: a lane whose packet arrives early waits for its turn.
+        let turn = 0;
+        const waiting = new Map<number, () => void>();
+        const myTurn = (frame: number) =>
+          frame === turn ? Promise.resolve() : new Promise<void>((resolve) => waiting.set(frame, resolve));
+        const nextTurn = () => {
+          turn++;
+          waiting.get(turn)?.();
+          waiting.delete(turn);
         };
-        const [from, to] = await Promise.all([layer(0), layer(1)]);
-        renderer.layer(0, from);
-        renderer.layer(1, to);
-        renderer.draw(job.shader, job.uniforms, job.progress, { flipY: true, straight: true });
-        await fetch("/out", { method: "POST", body: new Blob([renderer.read()]) });
+        /** Draw a frame and start reading it back. */
+        const draw = (head: PacketHead, buf: Uint8Array, offset: number) => {
+          Object.assign(shaders, head.shaders);
+          for (const p of head.pictures) {
+            const bytes = buf.subarray(offset, offset + p.length);
+            const { width, height, luma } = p;
+            compositor.setPicture(p.key, luma ? { yuv: bytes, width, height, kr: luma[0], kb: luma[1] } : { data: bytes, width, height });
+            offset += p.length;
+          }
+          for (const key of head.release) compositor.deletePicture(key);
+          compositor.clear();
+          for (const layer of head.layers) {
+            if (layer.kind === "picture") compositor.drawPicture(layer.picture);
+            else {
+              const shader = { key: layer.shader, source: shaders[layer.shader] };
+              compositor.drawTransition(shader, layer.uniforms, layer.progress, layer.from, layer.to);
+            }
+          }
+          return compositor.readYuv420Async();
+        };
+        const lane = async () => {
+          let finished: { frame: number; data: Uint8Array<ArrayBuffer> } | null = null;
+          for (;;) {
+            // A Blob body is much faster to send than a typed array.
+            const res: Response = await fetch(finished ? `/exchange?frame=${finished.frame}` : "/exchange", {
+              method: "POST",
+              body: finished ? new Blob([finished.data]) : null,
+            });
+            if (!res.ok) throw new Error((await res.text()) || "The export stopped.");
+            const buf: Uint8Array = new Uint8Array(await res.arrayBuffer());
+            const headLength = new DataView(buf.buffer, buf.byteOffset).getUint32(0, true);
+            const head = JSON.parse(new TextDecoder().decode(buf.subarray(4, 4 + headLength))) as PacketHead;
+            if (head.frame === null) return;
+            await myTurn(head.frame);
+            let read: Promise<Uint8Array<ArrayBuffer>>;
+            try {
+              read = draw(head, buf, 4 + headLength);
+            } finally {
+              // The next frame can be drawn while this one is read back.
+              nextTurn();
+            }
+            finished = { frame: head.frame, data: await read };
+          }
+        };
+        await Promise.all(Array.from({ length: job.lanes }, lane));
       },
       sheet(job) {
         const { width: cw, height: ch } = job.cell;
@@ -113,23 +205,14 @@ function pageScript(): string {
         const out = sheet.getContext("2d")!;
         out.fillStyle = "#16191d";
         out.fillRect(0, 0, sheet.width, sheet.height);
-        const scenes = [0, 1].map((i) => {
-          const c = document.createElement("canvas");
-          c.width = cw;
-          c.height = ch;
-          drawSampleScene(c.getContext("2d")!, cw, ch, i as 0 | 1);
-          return c;
-        });
-        renderer.resize(cw, ch);
-        renderer.layer(0, scenes[0]);
-        renderer.layer(1, scenes[1]);
+        scenes(cw, ch);
         job.rows.forEach((row, r) => {
           out.fillStyle = "#abb2bf";
           out.font = "13px system-ui, sans-serif";
           out.fillText(row.label, 8, r * (ch + 4) + ch / 2);
           try {
             job.progresses.forEach((p, i) => {
-              renderer.draw(row.shader, row.uniforms, p);
+              transition(row.shader, row.uniforms, p);
               out.drawImage(canvas, label + i * (cw + 4), r * (ch + 4));
             });
           } catch (err) {
@@ -140,20 +223,10 @@ function pageScript(): string {
         return sheet.toDataURL("image/png");
       },
       check(job) {
-        const { width: cw, height: ch } = job.cell;
-        const scenes = [0, 1].map((i) => {
-          const c = document.createElement("canvas");
-          c.width = cw;
-          c.height = ch;
-          drawSampleScene(c.getContext("2d")!, cw, ch, i as 0 | 1);
-          return c;
-        });
-        renderer.resize(cw, ch);
-        renderer.layer(0, scenes[0]);
-        renderer.layer(1, scenes[1]);
-        const pixels = (shader: typeof job.from, uniforms: UniformValue[], p: number) => {
-          renderer.draw(shader, uniforms, p);
-          return renderer.read();
+        scenes(job.cell.width, job.cell.height);
+        const pixels = (shader: Shader, uniforms: UniformValue[], p: number) => {
+          transition(shader, uniforms, p, true);
+          return compositor.read();
         };
         const diff = (a: Uint8Array, b: Uint8Array) => {
           let max = 0;
@@ -175,21 +248,35 @@ function pageScript(): string {
         });
       },
     };
-    (globalThis as unknown as PageGlobals).transitions = api;
+    (globalThis as unknown as PageGlobals).compositor = api;
   };
   return [
     "var __name = (f) => f;",
-    `var createTransitionRenderer = ${createTransitionRenderer.toString()};`,
+    `var createCompositor = ${createCompositor.toString()};`,
     `var drawSampleScene = ${drawSampleScene.toString()};`,
+    `var IDENTITY = ${JSON.stringify(IDENTITY)};`,
     `(${main.toString()})();`,
   ].join("\n");
 }
 
-/** One headless page rendering transition frames. Close it when done. */
+/**
+ * Supplies the page's frames while compositing: gets a frame the page has
+ * finished (null for a lane's first request) and returns what the next one
+ * needs, or null when there are no more. Calls overlap (one per lane).
+ */
+export type FrameExchange = (finished: { frame: number; data: Buffer } | null) => Promise<FramePacket | null>;
+
+/**
+ * Frames being worked on at once: while the page draws one, the next one's
+ * pictures are already on their way.
+ */
+const LANES = 3;
+
+/** One headless page with the compositor. Close it when done. */
 export class GlSession {
-  private layers: [Buffer | null, Buffer | null] = [null, null];
-  private output: Buffer | null = null;
-  private size = { width: 0, height: 0 };
+  private exchange: FrameExchange | null = null;
+  /** Why compositing stopped (the page only sees a message). */
+  private failure: unknown = null;
 
   private constructor(
     private readonly server: http.Server,
@@ -204,15 +291,14 @@ export class GlSession {
       if (req.method === "GET" && req.url === "/") {
         res.setHeader("Content-Type", "text/html");
         res.end(`<!doctype html><meta charset="utf-8"><script>${script}</script>`);
-      } else if (req.method === "GET" && req.url?.startsWith("/layer/")) {
-        res.setHeader("Content-Type", "application/octet-stream");
-        res.end(session?.layers[req.url.endsWith("1") ? 1 : 0] ?? Buffer.alloc(0));
-      } else if (req.method === "POST" && req.url === "/out") {
+      } else if (req.method === "POST" && req.url?.startsWith("/exchange")) {
         const chunks: Buffer[] = [];
         req.on("data", (c: Buffer) => chunks.push(c));
         req.on("end", () => {
-          if (session) session.output = Buffer.concat(chunks);
-          res.end();
+          const frame = Number(new URL(req.url!, "http://page").searchParams.get("frame") ?? NaN);
+          const finished = Number.isInteger(frame) ? { frame, data: Buffer.concat(chunks) } : null;
+          if (session) void session.respond(finished, res);
+          else res.writeHead(503).end();
         });
       } else {
         res.statusCode = 404;
@@ -237,33 +323,57 @@ export class GlSession {
     }
   }
 
-  async setup(width: number, height: number) {
-    this.size = { width, height };
-    await this.page.evaluate(([w, h]) => (globalThis as unknown as PageGlobals).transitions.setup(w, h), [width, height]);
+  /**
+   * Draw frames of `size` (as YUV 4:2:0, see `readYuv420`) until `exchange`
+   * says there are no more. They're drawn in order, but finished frames may
+   * come back out of order.
+   */
+  async composite(size: { width: number; height: number }, exchange: FrameExchange): Promise<void> {
+    this.exchange = exchange;
+    this.failure = null;
+    try {
+      const job = { ...size, lanes: LANES };
+      await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.composite(j), job);
+    } catch (err) {
+      throw this.failure ?? err;
+    } finally {
+      this.exchange = null;
+    }
   }
 
-  /**
-   * One transition frame from two canvas-sized layers (raw RGBA, straight
-   * alpha, top row first; null = transparent), in the same format.
-   */
-  async frame(shader: Shader, uniforms: UniformValue[], progress: number, from: Buffer | null, to: Buffer | null): Promise<Buffer> {
-    this.layers = [from, to];
-    this.output = null;
-    const job = { ...this.size, shader, uniforms, progress };
-    await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).transitions.renderFrame(j), job);
-    const out = this.output as Buffer | null;
-    if (!out || out.length !== this.size.width * this.size.height * 4) throw new Error("The transition renderer returned no frame.");
-    return out;
+  private async respond(finished: { frame: number; data: Buffer } | null, res: http.ServerResponse) {
+    try {
+      if (!this.exchange) throw new Error("Nothing is being drawn.");
+      const packet = await this.exchange(finished);
+      const head: PacketHead = packet
+        ? { ...packet, pictures: packet.pictures.map(({ data, ...p }) => ({ ...p, length: data.length })) }
+        : { frame: null, pictures: [], release: [], shaders: {}, layers: [] };
+      const json = Buffer.from(JSON.stringify(head));
+      const length = Buffer.alloc(4);
+      length.writeUInt32LE(json.length);
+      const data = packet?.pictures.map((p) => p.data) ?? [];
+      res.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": 4 + json.length + data.reduce((n, d) => n + d.length, 0),
+      });
+      res.write(length);
+      res.write(json);
+      for (const d of data) res.write(d);
+      res.end();
+    } catch (err) {
+      this.failure ??= err;
+      res.writeHead(500, { "Content-Type": "text/plain" }).end(errorMessage(err));
+    }
   }
 
   /** A PNG contact sheet: one row per transition, one column per progress. */
   async sheet(job: SheetJob): Promise<Buffer> {
-    const url = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).transitions.sheet(j), job);
+    const url = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.sheet(j), job);
     return Buffer.from(url.slice(url.indexOf(",") + 1), "base64");
   }
 
   async check(job: CheckJob): Promise<CheckResult[]> {
-    return this.page.evaluate((j) => (globalThis as unknown as PageGlobals).transitions.check(j), job);
+    return this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.check(j), job);
   }
 
   async close() {

@@ -54,9 +54,8 @@ out, the first or last frame is held. On a free edge it plays inside the clip, f
 (lower tracks, or black). Select a transition to change its duration, alignment and its own settings in the
 **Properties** tab.
 
-Transitions are exported with the exact same WebGL shaders as the preview, run in a headless Chromium: Playwright's
+Exports are drawn frame by frame by the same WebGL compositor as the preview, run in a headless Chromium: Playwright's
 (`pnpm exec playwright install chromium-headless-shell`) or your installed Google Chrome (or set `CHROMIUM_PATH`).
-Exports without transitions don't need it.
 
 ### Online media (music and clips)
 
@@ -95,20 +94,24 @@ seconds long and can be trimmed to any length, and transparent PNGs show the lay
     the properties panel and evaluation. Values can be keyframed in the data model (`keyframes.ts`, stored in
     source-media time, with interpolation), but nothing creates keyframes yet. To add a property, add a spec (or a
     definition to `EFFECTS`), then draw it in `src/components/preview/engine.ts` and `server/render.ts`.
+  - `compositor.ts`: the renderer. One WebGL 2 compositor draws every frame (clips placed by their motion and faded
+    by their opacity, transitions mixed by their shaders), in the preview, the library thumbnails and the export.
+    `scene.ts` says what each video track shows at a point in time, for both the preview and the export.
   - `transitions.ts`, `transition-windows.ts`, `transition-gl.ts`, `transition-library/`: transitions. Each one is a
     GLSL shader plus parameter specs (like effects). `transition-windows.ts` works out where they play on the timeline,
-    `transition-gl.ts` is the WebGL renderer shared by the preview, the library thumbnails and the export. To add one,
+    `transition-gl.ts` has the shader prelude they're written against. To add one,
     add a definition to a `transition-library` file; `pnpm tsx scripts/transition-sheet.ts <type or tag>` renders a
     contact sheet and checks it starts and ends on the right pictures.
   - `transform.ts`: where a clip lands on the canvas (fit, then scale and rotate around the anchor point, which sits at
-    the position). The preview's CSS, the canvas handles and the export all use it.
+    the position). The compositor, the canvas handles and the export all use it.
 - **`server/`** — a small Express server (one router per resource in `server/routes/`) that stores projects and their media in `./data`, probes media and generates
-  thumbnails/waveforms with ffmpeg, and renders exports with a single ffmpeg filter graph. Transitions are drawn
-  first (`transition-render.ts`): ffmpeg decodes both sides, a headless Chromium page (`gl-browser.ts`) runs the
-  shader, and the frames are kept as a lossless file the main render splices in.
+  thumbnails/waveforms with ffmpeg, and renders exports. `render.ts` plans an export (pure): an ffmpeg per visible clip
+  decodes its frames at the size they're shown, a headless Chromium page (`gl-browser.ts`) composites every output
+  frame with the preview's compositor (`frame-render.ts` drives it), and ffmpeg encodes the result with the sound,
+  which is mixed in a pass of its own.
 
-The browser preview plays the original files with `<video>`/`<img>`/`<audio>` elements synced to the playback clock and
-placed with CSS transforms. The export applies the same rules (trim points, motion, opacity, volume, mute) in ffmpeg.
+The browser preview plays the original files with hidden `<video>`/`<img>`/`<audio>` elements synced to the playback
+clock and draws them on one WebGL canvas with the compositor, so preview and export are drawn by the same code.
 
 Projects, media and exports are stored in `./data` (override with `EDITOR_DATA_DIR`). Ports: `EDITOR_WEB_PORT`
 (5310) and `EDITOR_SERVER_PORT` (5311); if they're taken (another checkout or worktree running), `pnpm dev` moves

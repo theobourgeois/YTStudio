@@ -3,7 +3,8 @@
  * (browsers only allow a handful of contexts) running the transition between
  * the two sample scenes, then copied into the card's own 2D canvas.
  */
-import { type TransitionRenderer, createTransitionRenderer, transitionShader, transitionUniforms } from "@shared/transition-gl";
+import { type Compositor, IDENTITY, createCompositor } from "@shared/compositor";
+import { transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { drawSampleScene } from "@shared/transition-samples";
 import { type TransitionDefinition, defaultTransitionParams } from "@shared/transitions";
 
@@ -13,7 +14,7 @@ export const THUMB_HEIGHT = 68;
 
 interface Thumbnailer {
   canvas: HTMLCanvasElement;
-  renderer: TransitionRenderer;
+  compositor: Compositor;
   width: number;
   height: number;
 }
@@ -30,16 +31,16 @@ function getThumbnailer(): Promise<Thumbnailer | null> {
     const canvas = document.createElement("canvas");
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: false });
     if (!gl) return null;
-    const renderer = createTransitionRenderer(gl);
-    renderer.resize(width, height);
+    const compositor = createCompositor(gl);
+    compositor.resize(width, height);
     ([0, 1] as const).forEach((i) => {
       const scene = document.createElement("canvas");
       scene.width = width;
       scene.height = height;
       drawSampleScene(scene.getContext("2d")!, width, height, i);
-      renderer.layer(i, scene);
+      compositor.setPicture(String(i), scene);
     });
-    return { canvas, renderer, width, height };
+    return { canvas, compositor, width, height };
   })();
   return thumbnailer;
 }
@@ -53,7 +54,10 @@ export async function drawThumbnail(def: TransitionDefinition, progress: number,
     target.height = t.height;
   }
   try {
-    t.renderer.draw(transitionShader(def), transitionUniforms(def, defaultTransitionParams(def)), progress);
+    const scene = (key: string) => ({ key, affine: IDENTITY, opacity: 1 });
+    t.compositor.clear([0, 0, 0, 0]);
+    t.compositor.drawTransition(transitionShader(def), transitionUniforms(def, defaultTransitionParams(def)), progress, scene("0"), scene("1"));
+    t.compositor.present();
   } catch (err) {
     console.error(`Transition "${def.label}" failed to draw`, err);
     return;

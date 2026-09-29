@@ -311,9 +311,7 @@ test("plays back and keeps the video in sync with the clock", async ({ page }) =
   await page.waitForTimeout(1500);
   await page.keyboard.press("Space");
   const state = await page.evaluate(() => {
-    const visible = [...document.querySelectorAll("video")].find(
-      (v) => getComputedStyle(v).opacity !== "0" && !v.closest("[role=dialog]"),
-    );
+    const visible = document.querySelector<HTMLVideoElement>("[data-slot=canvas] video[data-shown]");
     return { paused: visible?.paused, t: visible?.currentTime ?? -1 };
   });
   expect(state.paused).toBe(true);
@@ -409,14 +407,29 @@ test("imports an image and transforms it in the properties panel and on the canv
   await drag(page, at, { x: at.x + 30, y: at.y });
   await expect.poll(async () => (await motion()).rotation).toBe(30);
 
-  // The preview draws it where the properties say.
-  const transform = () =>
-    page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>("[data-slot=canvas] img, [data-slot=canvas] video")]
-        .filter((el) => el.style.opacity !== "0")
-        .map((el) => el.style.transform),
+  // The preview draws it where the properties say: half size, turned 30° clockwise. The sticker's
+  // blue bar (just right of its middle, near the top) lands where it would show magenta unturned.
+  const colourAt = (u: number, v: number) =>
+    page.evaluate(
+      ([u, v]) => {
+        const gl = document.querySelector<HTMLCanvasElement>("[data-slot=preview-canvas]")!;
+        const copy = document.createElement("canvas");
+        copy.width = gl.width;
+        copy.height = gl.height;
+        const ctx = copy.getContext("2d")!;
+        ctx.drawImage(gl, 0, 0);
+        // (u, v): a point of the sticker from its centre, in fractions of its size.
+        const side = Math.min(gl.width, gl.height) * 0.5;
+        const [cos, sin] = [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)];
+        const x = gl.width / 2 + side * (cos * u - sin * v);
+        const y = gl.height / 2 + side * (sin * u + cos * v);
+        const [r, g, b] = ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data;
+        return r > 150 && g < 90 && b < 90 ? "red" : b > 150 && r < 90 && g < 90 ? "blue" : `rgb(${r}, ${g}, ${b})`;
+      },
+      [u, v],
     );
-  await expect.poll(transform).toEqual([expect.stringMatching(/^matrix\(0\.433013, 0\.25, -0\.25, 0\.433013,/)]);
+  await expect.poll(() => colourAt(0.05, -0.3)).toBe("blue");
+  expect(await colourAt(-0.4, 0)).toBe("red");
 
   // Canvas: a click on empty space deselects, a click on the image selects it.
   const canvas = (await page.locator("[data-slot=canvas]").boundingBox())!;
@@ -496,12 +509,10 @@ test("adds transitions from the library, edits them and previews them", async ({
   await page.mouse.up();
   await expect.poll(async () => (await withTransitions()).map((t) => t.type).sort()).toEqual(["cross-dissolve", "glitch"]);
 
-  // Parked inside a transition, the preview draws the track with WebGL.
+  // Parked inside a transition, the preview draws it.
   const lanes = (await page.locator("[data-timeline-lanes]").boundingBox())!;
   await page.mouse.click(await timeX(page, 0.3), lanes.y - 10);
-  await expect
-    .poll(() => page.evaluate(() => [...document.querySelectorAll<HTMLCanvasElement>("[data-slot=canvas] canvas")].some((c) => c.style.opacity === "1")))
-    .toBe(true);
+  await expect(page.locator("[data-slot=preview-canvas]")).toHaveAttribute("data-drawn", "transition");
 
   // Select one on the timeline and delete it; undo brings it back.
   await page.locator("[data-transition]").first().click();

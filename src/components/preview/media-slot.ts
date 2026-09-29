@@ -19,15 +19,28 @@ export class MediaSlot {
   /** Recent seek latency, added as look-ahead when seeking while playing. */
   private seekLead = 0;
   failed = false;
+  private frameCallback: number | null = null;
 
   constructor(
     readonly el: HTMLMediaElement,
     private readonly onChange: () => void,
+    /** A video presented a new frame (the preview draws it). */
+    private readonly onFrame?: () => void,
   ) {
     el.addEventListener("loadedmetadata", this.flush);
+    el.addEventListener("loadeddata", this.onChange);
     el.addEventListener("seeked", this.onSeeked);
     el.addEventListener("error", this.onError);
+    if (onFrame && el instanceof HTMLVideoElement && "requestVideoFrameCallback" in el) this.watchFrames();
   }
+
+  private watchFrames = () => {
+    const video = this.el as HTMLVideoElement;
+    this.frameCallback = video.requestVideoFrameCallback(() => {
+      this.onFrame?.();
+      this.watchFrames();
+    });
+  };
 
   private get ready() {
     return this.src !== null && this.el.readyState >= HTMLMediaElement.HAVE_METADATA;
@@ -86,7 +99,10 @@ export class MediaSlot {
   }
 
   dispose() {
+    if (this.frameCallback !== null) (this.el as HTMLVideoElement).cancelVideoFrameCallback(this.frameCallback);
+    this.frameCallback = null;
     this.el.removeEventListener("loadedmetadata", this.flush);
+    this.el.removeEventListener("loadeddata", this.onChange);
     this.el.removeEventListener("seeked", this.onSeeked);
     this.el.removeEventListener("error", this.onError);
     this.setSrc(null);
@@ -138,7 +154,7 @@ export class ImageSlot {
     private readonly onChange: () => void,
   ) {
     el.addEventListener("error", this.onError);
-    // A transition draws the image itself, so it needs to know when there's something to draw.
+    // The preview draws the image itself, so it needs to know when there's something to draw.
     el.addEventListener("load", this.onChange);
   }
 
