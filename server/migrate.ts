@@ -20,7 +20,7 @@ export async function migrateLegacyData(
   projects: ProjectStore,
 ): Promise<void> {
   const legacy = await fs.stat(paths.legacyProject).catch(() => null);
-  const unowned = library.list().filter((a) => !projects.has(a.projectId));
+  const unowned = library.list().filter((a) => !(a.projectId && projects.has(a.projectId)));
   if (!legacy && !unowned.length) return;
 
   let doc: Project = { ...createDefaultProject(), name: "Imported media" };

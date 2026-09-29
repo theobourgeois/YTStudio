@@ -41,6 +41,7 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Text | `T` (or the **T** button under the preview), then click the canvas where the text goes and type; `Esc` when done. Double-click a text to type into it again. Font (any font installed on your computer), style, size, colours, stroke, background box and shadow are in **Properties** |
 | Properties | **Properties** tab (or double-click a clip): drag a blue number sideways to change it (⇧ faster, ⌥ finer), click it to type, ↺ resets |
 | Transitions | **Transitions** tab: drag one onto a cut or a clip's edge, or **+** / `⇧⌘D` for the cut nearest the playhead. Click it on the timeline to select it, drag its edges to change its length, `⌫` removes it |
+| Library | **Library** tab: media and saved clips shared by every video. Drop files or folders on it, **Add to Library** from a media card's menu, or right-click clips → **Save to Library…**. Drag onto the timeline or double-click to use |
 
 ### Transitions
 
@@ -58,6 +59,28 @@ out, the first or last frame is held. On a free edge it plays inside the clip, f
 Transitions are exported with the exact same WebGL shaders as the preview, run in a headless Chromium: Playwright's
 (`pnpm exec playwright install chromium-headless-shell`) or your installed Google Chrome (or set `CHROMIUM_PATH`).
 Exports without transitions don't need it.
+
+### Library
+
+The **Library** tab holds things you reuse across videos, like sound effects, logos, intros and music, in folders
+(like Resolve's Power Bins or Premiere's Libraries, but local). Every video sees the same Library.
+
+- **Fill it**: drop files on it, or whole folders from Finder (they keep their subfolders, and merge into folders
+  with the same name). Use **Import files**, or **Add to Library** in a media card's **⋯** menu. Holding a drag over
+  the **Library** tab opens it.
+- **Save clips with their settings**: right-click clips on the timeline → **Save to Library…**. This keeps their
+  trim, position, scale, opacity, volume, text and transitions, and the tracks they're on. A logo placed in a corner
+  or a styled title then drops into any video as is.
+- **Find things**: search looks through every folder. You can filter by kind (video, audio, image, saved clips),
+  star items to find them in **Favourites**, and **Recent** lists what you used last. Hover a video to scrub through
+  it and a sound to hear it; click a file to preview it.
+- **Use it**: drag onto the timeline (onto a track, or above/below them for a new one) or double-click (saved clips
+  go in at the playhead). The files are copied into the video (cloned, so no extra disk space on APFS). Each file is
+  copied only once per video, and deleting something from the Library never breaks a video that used it.
+- **Organise it**: drag items and folders onto a folder, or onto the path above the grid to move them up. Rename,
+  move or delete from the **⋯** menus.
+
+It lives in `data/library`.
 
 ### Online media (music and clips)
 
@@ -111,7 +134,7 @@ seconds long and can be trimmed to any length, and transparent PNGs show the lay
 The browser preview plays the original files with `<video>`/`<img>`/`<audio>` elements synced to the playback clock and
 placed with CSS transforms. The export applies the same rules (trim points, motion, opacity, volume, mute) in ffmpeg.
 
-Projects, media and exports are stored in `./data` (override with `EDITOR_DATA_DIR`). Ports: `EDITOR_WEB_PORT`
+Projects, media, the Library and exports are stored in `./data` (override with `EDITOR_DATA_DIR`). Ports: `EDITOR_WEB_PORT`
 (5310) and `EDITOR_SERVER_PORT` (5311); if they're taken (another checkout or worktree running), `pnpm dev` moves
 to 5410/5411, 5510/5511, ...
 

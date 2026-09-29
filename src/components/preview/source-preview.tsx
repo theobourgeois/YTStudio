@@ -7,6 +7,7 @@ import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
+import { useLibrary } from "@/stores/library";
 import { useSourcePreview } from "@/stores/source-preview";
 
 /** A roomy scrubber: the whole strip seeks, the track thickens and the thumb appears on hover. */
@@ -16,7 +17,7 @@ const scrubberClass = cn(
   "[&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:transition-opacity hover:[&_[data-slot=slider-thumb]]:opacity-100 [&_[data-slot=slider-thumb]:focus-visible]:opacity-100",
 );
 
-/** Shows one library file on its own, in place of the timeline preview. */
+/** Shows one media or Library file on its own, in place of the timeline preview. */
 export function SourcePreview({ asset }: { asset: MediaAsset }) {
   return asset.kind === "image" ? <StillPreview asset={asset} /> : <PlayingPreview asset={asset} />;
 }
@@ -71,6 +72,11 @@ function PreviewBadge({ name }: { name: string }) {
 }
 
 function SourceActions({ asset }: { asset: MediaAsset }) {
+  const add = () => {
+    const itemId = useSourcePreview.getState().libraryItemId;
+    if (itemId) void useLibrary.getState().addToTimeline(itemId);
+    else useEditor.getState().addAssetsToTimeline([asset.id]);
+  };
   return (
     <div className="flex items-center justify-end gap-1.5">
       {asset.duration > 0 && (
@@ -78,7 +84,7 @@ function SourceActions({ asset }: { asset: MediaAsset }) {
           variant="outline"
           size="sm"
           className="h-7 px-2.5 text-xs"
-          onClick={() => useEditor.getState().addAssetsToTimeline([asset.id])}
+          onClick={add}
         >
           <PiPlus />
           Add to timeline
