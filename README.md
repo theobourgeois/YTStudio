@@ -8,7 +8,7 @@ underneath, export an MP4.
 
 ```bash
 brew install ffmpeg      # required for import (thumbnails/waveforms) and export
-brew install yt-dlp deno # optional: the Online tab (YouTube search, links from TikTok, Instagram, X...)
+brew install yt-dlp deno # optional: Media → Online (YouTube search, links from TikTok, Instagram, X...)
 pnpm install
 pnpm samples             # optional: generate a few test clips + a music track in ./samples
 pnpm dev                 # server on :5311, app on http://localhost:5310 (next free pair if taken)
@@ -41,7 +41,7 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Text | `T` (or the **T** button under the preview), then click the canvas where the text goes and type; `Esc` when done. Double-click a text to type into it again. Font (any font installed on your computer), style, size, colours, stroke, background box and shadow are in **Properties** |
 | Properties | **Properties** tab (or double-click a clip): drag a blue number sideways to change it (⇧ faster, ⌥ finer), click it to type, ↺ resets |
 | Transitions | **Transitions** tab: drag one onto a cut or a clip's edge, or **+** / `⇧⌘D` for the cut nearest the playhead. Click it on the timeline to select it, drag its edges to change its length, `⌫` removes it |
-| Library | **Library** tab: media and saved clips shared by every video. Drop files or folders on it, **Add to Library** from a media card's menu, or right-click clips → **Save to Library…**. Drag onto the timeline or double-click to use |
+| Library | **Media** tab → **Library**: media and saved clips shared by every video. Drop files or folders on it, **Add to Library** from a media card's menu, or right-click clips → **Save to Library…**. Drag onto the timeline or double-click to use |
 | Auto captions | **Captions** under the timeline (or right-click a clip → **Auto captions…**): pick a style, length and animation, **Generate captions**. Edit them all in the **Captions** tab |
 
 ### Transitions
@@ -62,12 +62,12 @@ Exports are drawn frame by frame by the same WebGL compositor as the preview, ru
 
 ### Library
 
-The **Library** tab holds things you reuse across videos, like sound effects, logos, intros and music, in folders
+**Media** → **Library** holds things you reuse across videos, like sound effects, logos, intros and music, in folders
 (like Resolve's Power Bins or Premiere's Libraries, but local). Every video sees the same Library.
 
 - **Fill it**: drop files on it, or whole folders from Finder (they keep their subfolders, and merge into folders
   with the same name). Use **Import files**, or **Add to Library** in a media card's **⋯** menu. Holding a drag over
-  the **Library** tab opens it.
+  **Library** opens it.
 - **Save clips with their settings**: right-click clips on the timeline → **Save to Library…**. This keeps their
   trim, position, scale, opacity, volume, text and transitions, and the tracks they're on. A logo placed in a corner
   or a styled title then drops into any video as is.
@@ -106,7 +106,7 @@ another length or style is instant.
 
 ### Online media (music and clips)
 
-The **Online** tab in the media panel searches YouTube, or takes a pasted link from any site `yt-dlp` supports
+**Media** → **Online** searches YouTube, or takes a pasted link from any site `yt-dlp` supports
 (TikTok, Instagram, X, ...). The **Audio / Video** switch picks what **+** adds: just the sound, dropped on an audio
 track, or the whole video (up to 1080p, H.264), appended to the main track. Click a thumbnail to hear it first.
 Audio is cached in `data/music`, so previewing then adding (or reusing a song in another video) only downloads once.

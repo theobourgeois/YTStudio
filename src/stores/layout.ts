@@ -3,11 +3,14 @@ import { create } from "zustand";
 const SIDEBAR_KEY = "editor-sidebar-open";
 const KEYFRAMES_KEY = "editor-keyframes-open";
 
+/** The tabs of the left panel: media (from `MediaSource`), transitions, captions, and the selection's properties. */
+export type LeftPanelTab = "media" | "transitions" | "captions" | "properties";
+
 /**
- * The tabs of the left panel: the project's media, the Library shared by every project,
- * online media, transitions, captions, and the selection's properties.
+ * Where the Media tab's files come from: this video's own media, the Library shared by every
+ * video, or online. One tab with a switch, like CapCut's Media panel, so the tab strip stays short.
  */
-export type LeftPanelTab = "media" | "library" | "online" | "transitions" | "captions" | "properties";
+export type MediaSource = "project" | "library" | "online";
 
 /** What a press on the canvas does: select and transform clips, or add text (Premiere's Type tool). */
 export type CanvasTool = "select" | "text";
@@ -20,6 +23,9 @@ interface LayoutState {
   setShortcutsOpen: (open: boolean) => void;
   leftPanel: LeftPanelTab;
   setLeftPanel: (panel: LeftPanelTab) => void;
+  mediaSource: MediaSource;
+  /** Shows the Media tab on this source. */
+  showMedia: (source: MediaSource) => void;
   tool: CanvasTool;
   setTool: (tool: CanvasTool) => void;
   /** The Properties tab shows keyframe lanes next to the values (Premiere's Effect Controls timeline). */
@@ -41,6 +47,10 @@ export const useLayout = create<LayoutState>((set, get) => ({
   leftPanel: "media",
   setLeftPanel(leftPanel) {
     set({ leftPanel });
+  },
+  mediaSource: "project",
+  showMedia(mediaSource) {
+    set({ leftPanel: "media", mediaSource });
   },
   tool: "select",
   setTool(tool) {

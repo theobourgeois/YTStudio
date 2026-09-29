@@ -764,8 +764,8 @@ test("keeps media and saved clips in the Library and uses them in another video"
   await page.getByRole("dialog").getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("button", { name: /^Logos/ })).toBeVisible();
 
-  // Add a media file to that folder from the Media tab.
-  await page.getByRole("tab", { name: /^Media/ }).click();
+  // Add a media file to that folder from this video's media.
+  await page.getByRole("tab", { name: /^This video/ }).click();
   const card = page.locator("[draggable=true]").filter({ hasText: "square-1080" }).first();
   await card.hover();
   await card.getByRole("button", { name: "More actions" }).click();

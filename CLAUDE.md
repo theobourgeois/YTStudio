@@ -74,7 +74,8 @@ src/
                      keyframe-geometry.ts, selection in keyframe-selection.ts).
   components/captions/   Auto captions dialog, engine picker/setup, the Captions tab. State in stores/captions.ts.
   components/library/  The Library tab, its cards and dialogs (Save to Library), folder drop targets.
-  components/workspace/left-panel.tsx   Left panel tabs: Media | Library | Online | Transitions | Captions | Properties.
+  components/workspace/left-panel.tsx   Left panel tabs: Media | Transitions | Captions | Properties.
+                     Media switches between sources: This video | Library | Online (`MediaSource`).
   components/ui/     shadcn/ui (generated; icons adapted to react-icons/pi).
 ```
 
@@ -159,6 +160,7 @@ extension** (Node ESM through tsx).
   engine.ts`: 16 kHz mono WAV in, timed words out) and add it to `defaultEngines` in `service.ts`, plus its id to
   `TranscriptionEngineId`. Decoding, silence squeezing, time mapping and caching are the service's job.
 - **A left-panel tab**: add it to `LeftPanelTab` (`stores/layout.ts`) and to `TABS` in `workspace/left-panel.tsx`.
+  Keep the strip short: a new place to find media is a `MediaSource` (and `SOURCES`), not a tab.
 - **A clip kind (like text) or a track kind**: there's no registry yet. Clip kinds are branched on in
   `preview/engine.ts` (`kindOf` and each kind's slots), `preview/stage.tsx`, `preview/placement.ts`,
   `timeline/timeline-clip.tsx`, `timeline-menus.tsx`, `properties-panel.tsx`, `server/render.ts` and
