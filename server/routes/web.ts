@@ -23,6 +23,9 @@ export function webRoutes(web: WebMediaLibrary, projects: ProjectStore): Router 
       if (err && !res.headersSent) next(err);
     });
   });
+  router.get("/progress", (req, res) => {
+    res.json(web.progress(queryString(req.query.url), req.query.kind));
+  });
   router.post("/import", json(), async (req, res) => {
     res.status(201).json(await web.import(req.body, (id) => projects.has(id)));
   });

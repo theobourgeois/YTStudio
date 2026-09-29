@@ -14,7 +14,7 @@ import {
   PiWarningCircle,
   PiXCircleFill,
 } from "react-icons/pi";
-import type { WebClip, WebMediaKind } from "@shared/types";
+import type { WebClip, WebDownloadProgress, WebMediaKind } from "@shared/types";
 import { formatDuration } from "@shared/format";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,6 +22,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
+import { downloadLabel } from "./upload-card";
 import { type WebPreview, useWebPreview } from "./use-web-preview";
 import { useWebSearch } from "./use-web-search";
 
@@ -161,7 +162,9 @@ export function OnlinePanel({ active }: { active: boolean }) {
                 clip={clip}
                 kind={kind}
                 preview={preview}
-                adding={uploads.some((u) => u.download?.url === clip.url && u.download.kind === kind)}
+                download={
+                  uploads.find((u) => u.download?.url === clip.url && u.download.kind === kind)?.download?.state ?? null
+                }
                 added={added.has(addedKey(clip, kind))}
                 onAdd={() => void add(clip)}
               />
@@ -177,12 +180,14 @@ interface ClipRowProps {
   clip: WebClip;
   kind: WebMediaKind;
   preview: WebPreview;
-  adding: boolean;
+  /** Set while it's being added. */
+  download: WebDownloadProgress | null;
   added: boolean;
   onAdd: () => void;
 }
 
-function ClipRow({ clip, kind, preview, adding, added, onAdd }: ClipRowProps) {
+function ClipRow({ clip, kind, preview, download, added, onAdd }: ClipRowProps) {
+  const adding = download !== null;
   const current = preview.url === clip.url;
   const status = current ? preview.status : null;
   const [thumbBroken, setThumbBroken] = useState(false);
@@ -264,7 +269,9 @@ function ClipRow({ clip, kind, preview, adding, added, onAdd }: ClipRowProps) {
               added && "text-brand hover:text-brand",
             )}
           >
-            {adding ? (
+            {download?.status === "downloading" && download.progress !== null ? (
+              <ProgressRing value={download.progress} />
+            ) : adding ? (
               <PiSpinnerGap className="size-4 animate-spin" />
             ) : added ? (
               <PiCheck className="size-4" />
@@ -277,10 +284,32 @@ function ClipRow({ clip, kind, preview, adding, added, onAdd }: ClipRowProps) {
           </button>
         </TooltipTrigger>
         <TooltipContent side="right">
-          {adding ? "Downloading…" : added ? `Added — click to add the ${what} again` : `Add ${what} to timeline`}
+          {download ? downloadLabel(download) : added ? `Added — click to add the ${what} again` : `Add ${what} to timeline`}
         </TooltipContent>
       </Tooltip>
     </li>
+  );
+}
+
+/** A download's progress, drawn where the + button's icon goes. */
+function ProgressRing({ value }: { value: number }) {
+  const r = 6.5;
+  const circumference = 2 * Math.PI * r;
+  return (
+    <svg viewBox="0 0 16 16" className="size-4 -rotate-90" role="progressbar" aria-valuenow={Math.floor(value * 100)}>
+      <circle cx="8" cy="8" r={r} fill="none" strokeWidth="2" className="stroke-foreground/15" />
+      <circle
+        cx="8"
+        cy="8"
+        r={r}
+        fill="none"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={circumference * (1 - value)}
+        className="stroke-brand transition-[stroke-dashoffset] duration-300 ease-out"
+      />
+    </svg>
   );
 }
 

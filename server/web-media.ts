@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ImportWebMediaRequest, MediaAsset, WebClip, WebMediaKind } from "../shared/types.ts";
+import type { ImportWebMediaRequest, MediaAsset, WebClip, WebDownloadProgress, WebMediaKind } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
 import { FFMPEG, YTDLP } from "./config.ts";
 import { isAbortError, run } from "./process.ts";
@@ -31,6 +31,19 @@ const BASE_ARGS = ["--ignore-config", "--no-warnings"];
 const VIDEO_FORMAT_ARGS = ["-f", "bv*+ba/b", "-S", "res:1080,vcodec:h264,acodec:aac", "--merge-output-format", "mp4"];
 /** The best audio-only stream (AAC in MP4 when there is one), else the audio of the best file. */
 const AUDIO_FORMAT_ARGS = ["-f", "bestaudio[ext=m4a]/bestaudio/best", "-x"];
+
+/**
+ * Progress on stdout, next to the downloaded file's path: each stream's size before
+ * downloading (a list when video and audio are separate streams, else empty), then
+ * a line per update. Read by `DownloadProgress`.
+ */
+const PROGRESS_ARGS = [
+  "--progress",
+  "--newline",
+  "--print", "before_dl:sizes %(requested_formats.:.filesize,filesize_approx)j",
+  "--progress-template",
+  "download:progress %(info.format_id)s %(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s",
+];
 
 const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 
@@ -135,6 +148,59 @@ export function parseLinkInfo(json: string, link: WebLink): WebClip {
 
 type Action = "search" | "download" | "link lookup";
 
+/**
+ * One download's progress, from the lines `PROGRESS_ARGS` makes yt-dlp print. Separate
+ * video and audio streams count as one download, weighted by their sizes when they're
+ * known, so the bar doesn't start over for the audio. What it reports never goes backwards.
+ */
+export class DownloadProgress {
+  /** Sizes of the streams to download, in order; null entries aren't known. */
+  private planned: (number | null)[] = [];
+  private streams = new Map<string, { done: number; total: number | null }>();
+  private best = 0;
+
+  /** Take a line of stdout; false if it isn't a progress line. */
+  line(raw: string): boolean {
+    const line = raw.trim();
+    if (line.startsWith("sizes ")) {
+      try {
+        const sizes: unknown = JSON.parse(line.slice(6));
+        if (Array.isArray(sizes)) this.planned = sizes.map((n) => (typeof n === "number" && n > 0 ? n : null));
+      } catch {
+        // "NA" when there's nothing to list.
+      }
+      return true;
+    }
+    if (!line.startsWith("progress ")) return false;
+    const [, id, done, total] = line.split(" ");
+    const bytes = (v: string | undefined) => (v !== undefined && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : null);
+    this.streams.set(id ?? "", { done: bytes(done) ?? 0, total: bytes(total) || null });
+    return true;
+  }
+
+  get(): WebDownloadProgress {
+    if (this.streams.size === 0) return { status: "waiting", progress: null };
+    const seen = [...this.streams.values()];
+    const count = Math.max(this.planned.length, seen.length, 1);
+    const sizes = Array.from({ length: count }, (_, i) => this.planned[i] ?? seen[i]?.total ?? null);
+    const known = sizes.every((n) => n !== null);
+    const sum = known ? sizes.reduce<number>((a, n) => a + n!, 0) : 0;
+    let progress = 0;
+    for (let i = 0; i < count; i++) {
+      const stream = seen[i];
+      const fraction = stream?.total ? Math.min(1, stream.done / stream.total) : 0;
+      progress += fraction * (known && sum > 0 ? sizes[i]! / sum : 1 / count);
+    }
+    // Merging, or turning it into audio.
+    if (seen.length >= count && seen.every((st) => st.total !== null && st.done >= st.total)) {
+      return { status: "processing", progress: 1 };
+    }
+    if (!seen.some((st) => st.total !== null)) return { status: "downloading", progress: null };
+    this.best = Math.max(this.best, Math.min(progress, 0.999));
+    return { status: "downloading", progress: this.best };
+  }
+}
+
 /** A yt-dlp failure as a message the user can act on. */
 export function webMediaError(err: unknown, action: Action): HttpError {
   if (err instanceof HttpError) return err;
@@ -170,6 +236,8 @@ export class WebMediaLibrary {
   private audioDownloads = new Map<string, Promise<string>>();
   private limit = createLimiter(DOWNLOAD_CONCURRENCY);
   private stopping = new AbortController();
+  /** Downloads running now, by `progressKey`. */
+  private running = new Map<string, DownloadProgress>();
 
   constructor(
     private paths: DataPaths,
@@ -242,6 +310,13 @@ export class WebMediaLibrary {
     return pending;
   }
 
+  /** How far a link's download has got (`waiting` when it's queued, or not downloading). */
+  progress(rawUrl: unknown, kind: unknown): WebDownloadProgress {
+    if (kind !== "audio" && kind !== "video") throw new HttpError(400, "Expected kind to be 'audio' or 'video'.");
+    const { key } = parseLink(rawUrl);
+    return this.running.get(progressKey(kind, key))?.get() ?? { status: "waiting", progress: null };
+  }
+
   /** Add a link's audio or video to a project's media (downloading it if needed). */
   async import(body: unknown, projectExists: (projectId: string) => boolean): Promise<MediaAsset> {
     const req = body as Partial<ImportWebMediaRequest> | null;
@@ -287,27 +362,49 @@ export class WebMediaLibrary {
 
   /** Download into `dir` and return the file's path. */
   private async download(url: string, key: string, kind: WebMediaKind, dir: string): Promise<string> {
+    const progress = new DownloadProgress();
+    const running = progressKey(kind, key);
+    this.running.set(running, progress);
+    // stdout is progress lines, then the file's path.
+    const other: string[] = [];
+    let partial = "";
+    const take = (line: string) => {
+      if (!progress.line(line) && line.trim()) other.push(line.trim());
+    };
     try {
-      const out = await run(
+      await run(
         this.ytdlp,
         [
           ...BASE_ARGS,
           "--no-playlist",
           ...(kind === "audio" ? AUDIO_FORMAT_ARGS : VIDEO_FORMAT_ARGS),
           ...(FFMPEG !== "ffmpeg" ? ["--ffmpeg-location", FFMPEG] : []),
+          ...PROGRESS_ARGS,
           "-P", dir,
           "-o", `${key}.%(ext)s`,
           "--print", "after_move:filepath",
           "--",
           url,
         ],
-        { signal: this.signal(null, DOWNLOAD_TIMEOUT_MS[kind]) },
+        {
+          signal: this.signal(null, DOWNLOAD_TIMEOUT_MS[kind]),
+          onStdout: (chunk) => {
+            const lines = (partial + chunk.toString("utf8")).split("\n");
+            partial = lines.pop() ?? "";
+            lines.forEach(take);
+          },
+        },
       );
-      const file = out.trim().split("\n").pop();
+      take(partial);
+      const file = other.pop();
       if (!file) throw new Error("yt-dlp didn't report the downloaded file.");
       return file;
     } catch (err) {
       throw webMediaError(err, "download");
+    } finally {
+      this.running.delete(running);
     }
   }
 }
+
+const progressKey = (kind: WebMediaKind, key: string) => `${kind} ${key}`;

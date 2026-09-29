@@ -1,12 +1,15 @@
 /**
  * Refresh assets whose filmstrip/waveform are still being generated on the
- * server (`status: "processing"`) until they're ready.
+ * server (`status: "processing"`) until they're ready, and follow downloads
+ * from the Online tab.
  */
 import type { StoreApi } from "zustand";
 import type { MediaAsset } from "@shared/types";
+import type { Upload } from "./editor";
 import { ApiRequestError, api } from "@/lib/api";
 
 const POLL_MS = 1000;
+const DOWNLOAD_POLL_MS = 400;
 
 /** Stores with a poll loop running. */
 const polling = new WeakSet<object>();
@@ -45,5 +48,20 @@ export async function pollProcessingAssets(
     }
   } finally {
     polling.delete(store);
+  }
+}
+
+/** Keep an online clip's upload placeholder showing how far its download has got, until it's removed. */
+export async function pollWebDownload(store: StoreApi<{ uploads: Upload[] }>, uploadId: string) {
+  const current = () => store.getState().uploads.find((u) => u.id === uploadId);
+  for (let upload = current(); upload?.download; upload = current()) {
+    await new Promise((r) => setTimeout(r, DOWNLOAD_POLL_MS));
+    const { url, kind } = upload.download;
+    // Errors: try again next tick (the import reports its own failure).
+    const state = await api.webDownloadProgress(url, kind).catch(() => null);
+    if (!state || !current()) continue;
+    store.setState({
+      uploads: store.getState().uploads.map((u) => (u.id === uploadId && u.download ? { ...u, download: { ...u.download, state } } : u)),
+    });
   }
 }

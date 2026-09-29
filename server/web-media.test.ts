@@ -5,11 +5,11 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { MediaAsset, ProjectSummary, WebClip } from "../shared/types.ts";
+import type { MediaAsset, ProjectSummary, WebClip, WebDownloadProgress } from "../shared/types.ts";
 import { createApp, type EditorApp } from "./app.ts";
 import { FFMPEG, FFPROBE } from "./config.ts";
 import { HttpError } from "./storage.ts";
-import { parseLink, parseLinkInfo, parseSearchResults, webMediaError } from "./web-media.ts";
+import { DownloadProgress, parseLink, parseLinkInfo, parseSearchResults, webMediaError } from "./web-media.ts";
 
 describe("parseSearchResults", () => {
   it("maps yt-dlp's flat search output to clips", () => {
@@ -118,6 +118,54 @@ describe("parseLinkInfo", () => {
   });
 });
 
+describe("DownloadProgress", () => {
+  const feed = (...lines: string[]) => {
+    const p = new DownloadProgress();
+    for (const line of lines) p.line(line);
+    return p;
+  };
+
+  it("reads one stream's bytes, then reports processing (converting to audio)", () => {
+    const p = new DownloadProgress();
+    expect(p.get()).toEqual({ status: "waiting", progress: null });
+    expect(p.line("sizes []")).toBe(true);
+    expect(p.line("progress 140 250 1000")).toBe(true);
+    expect(p.get()).toEqual({ status: "downloading", progress: 0.25 });
+    p.line("progress 140 1000 1000");
+    expect(p.get()).toEqual({ status: "processing", progress: 1 });
+    // Anything else (the file's path) isn't ours.
+    expect(p.line("/tmp/x/abc.m4a")).toBe(false);
+  });
+
+  it("weighs separate video and audio streams by size, so it doesn't start over", () => {
+    const p = feed("sizes [900, 100]", "progress 137 450 900");
+    expect(p.get().progress).toBeCloseTo(0.45);
+    p.line("progress 137 900 900");
+    expect(p.get()).toMatchObject({ status: "downloading", progress: 0.9 });
+    p.line("progress 140 50 100");
+    expect(p.get().progress).toBeCloseTo(0.95);
+    p.line("progress 140 100 100");
+    expect(p.get().status).toBe("processing");
+  });
+
+  it("splits evenly when the sizes aren't known up front, and never goes backwards", () => {
+    const p = feed("sizes [null, null]", "progress 137 900 900");
+    expect(p.get()).toMatchObject({ status: "downloading", progress: 0.5 });
+    // The audio's size makes the video weigh 90%.
+    p.line("progress 140 0 100");
+    expect(p.get().progress).toBeCloseTo(0.9);
+    // A growing estimate doesn't pull back what was reported.
+    const q = feed("sizes NA", "progress 1 500 1000");
+    expect(q.get().progress).toBe(0.5);
+    q.line("progress 1 500 2000");
+    expect(q.get().progress).toBe(0.5);
+  });
+
+  it("has no fraction until a size is known", () => {
+    expect(feed("progress 1 4096 NA").get()).toEqual({ status: "downloading", progress: null });
+  });
+});
+
 describe("webMediaError", () => {
   it("turns yt-dlp failures into actionable messages", () => {
     const blocked = webMediaError(new Error("ERROR: [youtube] abc: unable to download video data: HTTP Error 403: Forbidden"), "download");
@@ -178,6 +226,23 @@ if (args.includes("-J")) {
   process.stdout.write(JSON.stringify({ _type: "video", title: "dance", uploader: "someone", duration: 2, extractor_key: "TikTok" }));
   process.exit(0);
 }
+if (url.includes("slow")) {
+  // Half the video's bytes, then the rest once the test creates FAKE_RELEASE.
+  console.log("sizes [300, 100]");
+  console.log("progress 137 150 300");
+  const wait = setInterval(() => {
+    if (!fs.existsSync(process.env.FAKE_RELEASE)) return;
+    clearInterval(wait);
+    console.log("progress 137 300 300");
+    console.log("progress 140 100 100");
+    const dir = args[args.indexOf("-P") + 1];
+    fs.mkdirSync(dir, { recursive: true });
+    const out = path.join(dir, args[args.indexOf("-o") + 1].replace("%(ext)s", "mp4"));
+    fs.copyFileSync(process.env.FAKE_VIDEO, out);
+    console.log(out);
+  }, 20);
+  return;
+}
 if (url.endsWith("blocked0000")) {
   console.error("ERROR: [youtube] blocked0000: unable to download video data: HTTP Error 403: Forbidden");
   process.exit(1);
@@ -228,6 +293,7 @@ describe.skipIf(!ffmpegAvailable)("web media routes (fake yt-dlp)", () => {
     process.env.FAKE_LOG = log;
     process.env.FAKE_FIXTURE = fixture;
     process.env.FAKE_VIDEO = video;
+    process.env.FAKE_RELEASE = path.join(tmp, "release");
 
     editor = await createApp({ dataDir, ytdlpPath: fake });
     server = http.createServer(editor.app);
@@ -316,6 +382,23 @@ describe.skipIf(!ffmpegAvailable)("web media routes (fake yt-dlp)", () => {
     // Videos aren't cached.
     expect(readdirSync(path.join(dataDir, "music"))).toEqual(["dQw4w9WgXcQ.m4a"]);
     expect(readdirSync(path.join(dataDir, "tmp"))).toEqual([]);
+  });
+
+  it("reports a download's progress while it runs", async () => {
+    const url = "https://www.tiktok.com/@someone/video/7300000000000000001?slow=1";
+    const progress = async () =>
+      (await (await api(`/api/web/progress?url=${q(url)}&kind=video`)).json()) as WebDownloadProgress;
+    expect(await progress()).toEqual({ status: "waiting", progress: null });
+
+    const importing = post("/api/web/import", { projectId: project.id, url, title: "slow", kind: "video" });
+    await expect.poll(progress).toEqual({ status: "downloading", progress: 150 / 400 });
+    // Another kind of the same link isn't this download.
+    expect(await (await api(`/api/web/progress?url=${q(url)}&kind=audio`)).json()).toEqual({ status: "waiting", progress: null });
+
+    writeFileSync(process.env.FAKE_RELEASE!, "");
+    expect((await importing).status).toBe(201);
+    expect(await progress()).toEqual({ status: "waiting", progress: null });
+    expect((await api(`/api/web/progress?url=${q(url)}&kind=gif`)).status).toBe(400);
   });
 
   it("downloads concurrent requests for the same audio once", async () => {

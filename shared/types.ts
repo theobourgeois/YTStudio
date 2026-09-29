@@ -413,6 +413,14 @@ export interface WebClip {
 /** What to take from an online clip: just its sound, or the whole video. */
 export type WebMediaKind = "audio" | "video";
 
+/** How far a download from the Online tab has got (`GET /api/web/progress`). */
+export interface WebDownloadProgress {
+  /** `waiting`: queued behind other downloads (or not downloading). `processing`: downloaded, being merged or converted. */
+  status: "waiting" | "downloading" | "processing";
+  /** 0..1 while downloading; null until the size is known. */
+  progress: number | null;
+}
+
 export interface ImportWebMediaRequest {
   projectId: string;
   url: string;
@@ -542,6 +550,7 @@ export interface TranscriptionJob {
 //   GET    /api/web/search?q=<query>    -> WebClip[] from YouTube  (503 if yt-dlp isn't installed)
 //   GET    /api/web/resolve?url=<link>  -> WebClip  (400 for unsupported links, playlists, livestreams)
 //   GET    /api/web/audio?url=<link>    -> audio file (downloaded on first request, then cached)
+//   GET    /api/web/progress?url=<link>&kind=audio|video -> WebDownloadProgress (poll while importing)
 //   POST   /api/web/import  body: ImportWebMediaRequest -> MediaAsset (201)
 //   GET    /api/library                 -> Library (every folder, item and the media they use)
 //   POST   /api/library/folders  body: CreateLibraryFolderRequest -> LibraryFolder (201)

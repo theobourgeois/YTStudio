@@ -8,6 +8,7 @@ import type {
   ProjectSettings,
   UseLibraryItemResponse,
   WebClip,
+  WebDownloadProgress,
   WebMediaKind,
 } from "@shared/types";
 import { defaultEffects, isTextClip } from "@shared/effects";
@@ -52,7 +53,7 @@ import { transitionDefinition } from "@shared/transitions";
 import { errorMessage } from "@shared/errors";
 import { normalizeProject } from "@shared/normalize";
 import { api } from "@/lib/api";
-import { pollProcessingAssets } from "./asset-polling";
+import { pollProcessingAssets, pollWebDownload } from "./asset-polling";
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
 
@@ -68,8 +69,8 @@ export interface Upload {
   name: string;
   /** 0..1 */
   progress: number;
-  /** Set for a clip being downloaded from the Online tab. */
-  download?: { url: string; kind: WebMediaKind };
+  /** Set for a clip being downloaded from the Online tab, with how far it's got. */
+  download?: { url: string; kind: WebMediaKind; state: WebDownloadProgress };
 }
 
 interface EditorState {
@@ -431,8 +432,14 @@ export const useEditor = create<EditorState>((set, get) => ({
       return false;
     }
     const stillOpen = () => get().projectId === projectId;
-    const upload: Upload = { id: createId("up"), name: clip.title, progress: 0, download: { url: clip.url, kind } };
+    const upload: Upload = {
+      id: createId("up"),
+      name: clip.title,
+      progress: 0,
+      download: { url: clip.url, kind, state: { status: "waiting", progress: null } },
+    };
     set({ uploads: [...get().uploads, upload] });
+    void pollWebDownload(useEditor, upload.id);
     try {
       const asset = await api.importWebMedia({ projectId, url: clip.url, title: clip.title, kind });
       if (!stillOpen()) return false;

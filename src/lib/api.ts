@@ -27,6 +27,8 @@ import type {
   UseLibraryItemRequest,
   UseLibraryItemResponse,
   WebClip,
+  WebDownloadProgress,
+  WebMediaKind,
 } from "@shared/types";
 
 export class ApiRequestError extends Error {
@@ -110,6 +112,8 @@ export const api = {
   /** A clip's audio (the server downloads it on the first request, then serves it from its cache). */
   webAudio: async (url: string, signal?: AbortSignal) =>
     (await send(`/api/web/audio?url=${encodeURIComponent(url)}`, { signal })).blob(),
+  webDownloadProgress: (url: string, kind: WebMediaKind) =>
+    request<WebDownloadProgress>(`/api/web/progress?url=${encodeURIComponent(url)}&kind=${kind}`),
   importWebMedia: (body: ImportWebMediaRequest) =>
     request<MediaAsset>("/api/web/import", { method: "POST", body: JSON.stringify(body) }),
 
