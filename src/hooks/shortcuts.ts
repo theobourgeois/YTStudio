@@ -301,6 +301,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Type tool (click to add text)", keys: ["T"] },
       { label: "Type into a text", keys: ["Double-click"] },
       { label: "Stretch while scaling", keys: [`${SHIFT}Drag`] },
+      { label: "Scale the selected clip", keys: ["Pinch", `${MOD}Scroll`] },
       { label: "Snap rotation to 15°", keys: [`${SHIFT}Drag`] },
     ],
   },

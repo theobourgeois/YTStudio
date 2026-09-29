@@ -1042,3 +1042,27 @@ test("plays an audio track cut into pieces with one pair of players", async ({ p
   expect(playing[0].t).toBeGreaterThan(2);
   expect(playing[0].t).toBeLessThan(3.5);
 });
+
+test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "New video" }).first().click();
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles(FILES[0]);
+  await expect(page.locator("[draggable=true]").filter({ hasText: "vertical-1080x1920" }).first()).toBeVisible();
+  await dragAsset(page, "vertical-1080x1920", await timeX(page, 0.05), await laneY(page, "Video 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+
+  const canvas = (await page.locator('[data-slot="transform-overlay"]').boundingBox())!;
+  await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2);
+  // A trackpad pinch arrives as a wheel event with ctrlKey.
+  await page.keyboard.down("Control");
+  for (let i = 0; i < 5; i++) await page.mouse.wheel(0, -10);
+  await page.keyboard.up("Control");
+  const scale = async () => {
+    const p = await savedProject(page);
+    return p.clips[0] ? (effectParams(p, p.clips[0].id, "motion")?.scale as number) : 0;
+  };
+  await expect.poll(scale).toBeGreaterThan(1.3);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  await expect.poll(scale).toBe(1);
+});

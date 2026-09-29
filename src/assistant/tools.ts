@@ -239,6 +239,23 @@ const TOOLS: Record<ToolName, Handler> = {
     const fonts = kind === "fonts" ? await api.listFonts() : [];
     return textResult(describeCatalog(kind, optString(input, "query"), fonts));
   },
+  async search_online(input, ctx) {
+    const query = string(input, "query");
+    const limit = clamp(Math.round(optNumber(input, "limit") ?? 8), 1, 20);
+    ctx.progress(null, "Searching");
+    const clips = (await api.searchWeb(query, ctx.signal)).slice(0, limit);
+    if (clips.length === 0) return textResult(`Nothing found for "${query}".`);
+    return textResult(
+      [
+        `Results for "${query}":`,
+        ...clips.map(
+          (c, i) =>
+            `${i + 1}. "${c.title}" by ${c.channel}${c.verified ? " ✓ verified" : ""} · ${c.duration ? `${secs(c.duration)}s` : "length unknown"} · ${c.site} · ${c.url}`,
+        ),
+        'Import one with import_media { urls: [url], urlKind: "audio" } (or "video").',
+      ].join("\n"),
+    );
+  },
   async get_library(input) {
     return textResult(describeLibrary(await libraryNow(), optString(input, "query"), optString(input, "folderId")));
   },

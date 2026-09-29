@@ -193,6 +193,23 @@ export const ASSISTANT_TOOLS = [
     ),
   }),
   tool({
+    name: "search_online",
+    title: "Search online",
+    kind: "look",
+    timeout: 120,
+    description:
+      "Search YouTube (like the Online tab) for a song or clip: title, channel, length, whether the channel is " +
+      "verified (usually the official upload), and its URL. To use one, import_media with its URL (urlKind " +
+      '"audio" for a song, "video" for footage), then add_clips.',
+    inputSchema: obj(
+      {
+        query: str('What to look for, e.g. "Blinding Lights The Weeknd".'),
+        limit: int("Most results (default 8, at most 20).", { minimum: 1, maximum: 20 }),
+      },
+      ["query"],
+    ),
+  }),
+  tool({
     name: "get_library",
     title: "Browse the Library",
     kind: "look",
@@ -542,8 +559,8 @@ export const ASSISTANT_TOOLS = [
     timeout: 1800,
     description:
       "Import files into this video's media: `paths` (absolute paths of files on this computer) and/or `urls` " +
-      "(YouTube or any site yt-dlp supports; `urlKind` audio or video). Returns the new media ids; put them on " +
-      "the timeline with add_clips.",
+      "(YouTube or any site yt-dlp supports, e.g. from search_online; `urlKind` audio for just the sound, like a " +
+      "song, or video). Returns the new media ids; put them on the timeline with add_clips.",
     inputSchema: obj({
       paths: arr(str("Absolute file path"), "Files on this computer."),
       urls: arr(str("URL"), "Online videos."),

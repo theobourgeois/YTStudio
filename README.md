@@ -109,7 +109,8 @@ subscription, using only the editor's tools: no shell, no files outside the edit
 
 It can see what you see: the timeline, frames of the edited video (the Program monitor), frames of the raw footage,
 what's said (word-timed transcripts), silences and loudness, shot changes, the effects and transitions available,
-and the Library. And it can do what you can: add, move, trim, split and delete clips, set any property and keyframe
+and the Library. It can search online like the Online tab ("use Blinding Lights as the music" finds the song,
+downloads its sound and puts it under the video). And it can do what you can: add, move, trim, split and delete clips, set any property and keyframe
 it, add effects and transitions, add text and captions, import files or links, organise the Library, and export.
 
 - Every step shows in the chat as it runs; what it changes flashes on the timeline, and a pill over the preview says
