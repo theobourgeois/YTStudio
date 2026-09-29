@@ -20,6 +20,7 @@ import type {
   ProjectSummary,
   SaveClipsToLibraryRequest,
   SaveMediaToLibraryRequest,
+  MusicAnalysis,
   SceneCuts,
   SendChatMessageRequest,
   SoundAnalysis,
@@ -111,6 +112,8 @@ export const api = {
       `/api/media/${id}/sound?from=${opts.from}&to=${opts.to}&threshold=${opts.threshold}&min=${opts.min}`,
       { signal },
     ),
+  analyseMusic: (id: string, opts: { from: number; to: number }, signal?: AbortSignal) =>
+    request<MusicAnalysis>(`/api/media/${id}/music?from=${opts.from}&to=${opts.to}`, { signal }),
   detectScenes: (id: string, threshold: number, signal?: AbortSignal) =>
     request<SceneCuts>(`/api/media/${id}/scenes?threshold=${threshold}`, { signal }),
   deleteMedia: (id: string) => request<void>(`/api/media/${id}`, { method: "DELETE" }),

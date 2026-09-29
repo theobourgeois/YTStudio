@@ -1,7 +1,8 @@
 import { Router, json } from "express";
 import { clamp } from "../../shared/math.ts";
 import type { MediaLibrary } from "../media.ts";
-import { analyseSound, detectScenes, extractFrame } from "../media-analysis.ts";
+import type { MusicAnalysis } from "../../shared/types.ts";
+import { analyseMusic, analyseSound, detectScenes, extractFrame } from "../media-analysis.ts";
 import type { ProjectStore } from "../projects.ts";
 import { HttpError, isObject } from "../storage.ts";
 import { queryString } from "./util.ts";
@@ -15,6 +16,8 @@ const queryNumber = (value: unknown, fallback: number) => {
 /** `/api/media`: each project's imported media. */
 export function mediaRoutes(library: MediaLibrary, projects: ProjectStore): Router {
   const router = Router();
+  // The last few music analyses (the assistant often asks again about the same song).
+  const music = new Map<string, Promise<MusicAnalysis>>();
 
   router.get("/", (req, res) => {
     const projectId = queryString(req.query.projectId);
@@ -55,6 +58,22 @@ export function mediaRoutes(library: MediaLibrary, projects: ProjectStore): Rout
     const minSilence = clamp(queryNumber(req.query.min, 0.4), 0.05, 60);
     res.setHeader("Cache-Control", "no-store");
     res.json(await analyseSound(library.sourcePath(asset), { from, to, threshold, minSilence }));
+  });
+  router.get("/:id/music", async (req, res) => {
+    const asset = library.get(req.params.id);
+    if (!asset.hasAudio) throw new HttpError(400, "That file has no sound.");
+    const from = Math.round(clamp(queryNumber(req.query.from, 0), 0, asset.duration) * 1000) / 1000;
+    const to = Math.round(clamp(queryNumber(req.query.to, asset.duration), from, asset.duration) * 1000) / 1000;
+    const key = `${asset.id}:${from}:${to}`;
+    let analysis = music.get(key);
+    if (!analysis) {
+      analysis = analyseMusic(library.sourcePath(asset), from, to);
+      analysis.catch(() => music.delete(key));
+      music.set(key, analysis);
+      if (music.size > 20) music.delete(music.keys().next().value!);
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await analysis);
   });
   router.get("/:id/scenes", async (req, res) => {
     const asset = library.get(req.params.id);

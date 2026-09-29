@@ -19,7 +19,16 @@ import { type CaptionOptions, useCaptions } from "@/stores/captions";
 import { useEditor } from "@/stores/editor";
 import { useLibrary } from "@/stores/library";
 import { usePlayback } from "@/stores/playback";
-import { type CatalogKind, describeCatalog, describeClips, describeLibrary, describeMedia, describeTimeline, describeTranscript } from "./describe";
+import {
+  type CatalogKind,
+  describeCatalog,
+  describeClips,
+  describeLibrary,
+  describeMedia,
+  describeMusic,
+  describeTimeline,
+  describeTranscript,
+} from "./describe";
 import { EDITS, clipChanges } from "./edits";
 import { mediaFrames, programFrames } from "./frames";
 import {
@@ -219,6 +228,27 @@ const TOOLS: Record<ToolName, Handler> = {
       lines.push(`  ${silences.length ? `silences: ${silences.join(", ")}` : "no silences"}`);
     }
     return textResult(lines.join("\n"));
+  },
+  async analyze_music(input, ctx) {
+    const { project } = openProject();
+    const clipId = optString(input, "clipId");
+    const assetId = optString(input, "assetId");
+    if (!clipId === !assetId) throw new ToolError("Give exactly one of `clipId` and `assetId`.");
+    ctx.progress(null, "Listening for the beat");
+    if (clipId) {
+      const [clip] = clipsOf(project, [clipId]);
+      const asset = useEditor.getState().getAsset(clip.assetId);
+      if (!asset?.hasAudio) throw new ToolError(`${clipId} has no sound.`);
+      const music = await api.analyseMusic(asset.id, { from: clip.in, to: clip.out }, ctx.signal);
+      return textResult(describeMusic(`${clip.id} "${asset.name}"`, music, clip.start - clip.in, { start: clip.start, end: clipEnd(clip) }, true));
+    }
+    const asset = useEditor.getState().getAsset(assetId!);
+    if (!asset) throw new ToolError(`There's no media "${assetId}" in this video. Call list_media.`);
+    if (!asset.hasAudio) throw new ToolError(`"${asset.name}" has no sound.`);
+    const from = clamp(optNumber(input, "from") ?? 0, 0, asset.duration);
+    const to = clamp(optNumber(input, "to") ?? asset.duration, from, asset.duration);
+    const music = await api.analyseMusic(asset.id, { from, to }, ctx.signal);
+    return textResult(describeMusic(`"${asset.name}" (${asset.id})`, music, 0, { start: from, end: to }, false));
   },
   async detect_scenes(input, ctx) {
     openProject();

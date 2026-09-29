@@ -3,7 +3,12 @@ import type { AddressInfo } from "node:net";
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ChatEvent } from "../../shared/assistant.ts";
-import { parseSceneLog, parseSoundLog } from "../media-analysis.ts";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { FFMPEG } from "../config.ts";
+import { analyseMusic, parseSceneLog, parseSoundLog } from "../media-analysis.ts";
+import { run } from "../process.ts";
 import { parseResult } from "./bridge.ts";
 import { TurnTranslator, claudeArgs } from "./claude.ts";
 import { type McpCall, handleRpc, mcpHandler } from "./mcp.ts";
@@ -167,5 +172,21 @@ describe("media analysis", () => {
   it("reads shot changes", () => {
     const log = "[Parsed_showinfo_2 @ 0x1] n:   0 pts:  98304 pts_time:3.2 duration: 512\nframe=  10\n[Parsed_showinfo_2 @ 0x1] n:   1 pts: 1 pts_time:7.8333";
     expect(parseSceneLog(log)).toEqual([3.2, 7.833]);
+  });
+
+  it("finds the beat of a file, in its source times", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "music-"));
+    const file = path.join(dir, "kick.wav");
+    // A kick every half second (120 BPM) for 12 s.
+    const kick = "0.6*sin(2*PI*60*mod(t,0.5))*exp(-15*mod(t,0.5))";
+    await run(FFMPEG, ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", `aevalsrc=exprs='${kick}':sample_rate=44100:duration=12`, file]);
+    try {
+      const music = await analyseMusic(file, 2, 10);
+      expect(Math.abs((music.bpm ?? 0) - 120)).toBeLessThan(1.5);
+      expect(music.beats[0]).toBeGreaterThanOrEqual(2);
+      for (const t of music.beats) expect(Math.abs(t * 2 - Math.round(t * 2))).toBeLessThan(0.04);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });
