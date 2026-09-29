@@ -1,21 +1,33 @@
 import { describe, expect, it } from "vitest";
+import { defaultEffects } from "../shared/effects.ts";
 import { createDefaultProject, normalizeProject } from "../shared/timeline.ts";
-import type { Clip, Project } from "../shared/types.ts";
-import { type RenderAsset, SAMPLE_RATE, buildRenderArgs } from "./render.ts";
+import { placeClip } from "../shared/transform.ts";
+import type { Clip, ParamValues, Project } from "../shared/types.ts";
+import { type RenderAsset, SAMPLE_RATE, buildRenderArgs, planPiece } from "./render.ts";
 
 const assets: Record<string, RenderAsset> = {
-  vid: { path: "/media/vid.mp4", hasVideo: true, hasAudio: true },
-  mute: { path: "/media/silent clip.mov", hasVideo: true, hasAudio: false },
-  song: { path: "/media/song.mp3", hasVideo: false, hasAudio: true },
+  vid: { path: "/media/vid.mp4", kind: "video", hasVideo: true, hasAudio: true, width: 1920, height: 1080 },
+  mute: { path: "/media/silent clip.mov", kind: "video", hasVideo: true, hasAudio: false, width: 1080, height: 1920 },
+  song: { path: "/media/song.mp3", kind: "audio", hasVideo: false, hasAudio: true, width: null, height: null },
+  photo: { path: "/media/photo.png", kind: "image", hasVideo: true, hasAudio: false, width: 1000, height: 1000 },
 };
-const durations = { vid: 10, mute: 10, song: 60 };
+const durations = { vid: 10, mute: 10, song: 60, photo: 5 };
 const library = Object.fromEntries(
   Object.entries(assets).map(([id, a]) => [id, { ...a, duration: durations[id as keyof typeof durations] }]),
 );
 
 let n = 0;
-const clip = (assetId: string, trackId: string, start: number, inPoint: number, out: number, extra: Partial<Clip> = {}): Clip => ({
-  id: `c${n++}`, assetId, trackId, start, in: inPoint, out, volume: 1, fit: "contain", ...extra,
+/** A clip, optionally with effect parameters, e.g. `{ motion: { rotation: 90 } }`. */
+const clip = (
+  assetId: string,
+  trackId: string,
+  start: number,
+  inPoint: number,
+  out: number,
+  params: Record<string, ParamValues> = {},
+): Clip => ({
+  id: `c${n++}`, assetId, trackId, start, in: inPoint, out,
+  effects: defaultEffects().map((e) => (params[e.type] ? { ...e, params: { ...e.params, ...params[e.type] } } : e)),
 });
 
 function project(clips: Clip[], patch: (p: Project) => Project = (p) => p): Project {
@@ -121,21 +133,58 @@ describe("buildRenderArgs", () => {
     expect(graphOf(mutedAudio)).toContain("[abase][m0]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.98:level=0:latency=1[aout]");
   });
 
-  it("scales + pads transparently for contain and scales + crops for cover", () => {
-    const p = project([clip("vid", "main", 0, 0, 1), clip("vid", "main", 1, 0, 1, { fit: "cover" })]);
+  it("fits (letterboxes) or fills the canvas, padding transparently", () => {
+    const p = project([clip("vid", "main", 0, 0, 1), clip("vid", "main", 1, 0, 1, { motion: { fit: "cover" } })]);
     const graph = graphOf(buildRenderArgs(p, assets, opts));
     const [contain, cover] = [graph.find((f) => f.endsWith("[c0_0]"))!, graph.find((f) => f.endsWith("[c0_1]"))!];
-    expect(contain).toContain("scale=1080:1920:force_original_aspect_ratio=decrease");
-    expect(contain).toContain("format=yuva420p,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black@0");
-    expect(contain).not.toContain("crop=");
-    expect(cover).toContain("scale=1080:1920:force_original_aspect_ratio=increase");
-    expect(cover).toContain("crop=1080:1920");
-    expect(cover).not.toMatch(/,pad=/);
-    for (const f of [contain, cover]) expect(f).toMatch(/fps=30,.*format=yuva420p.*setsar=1/);
+    // 1920x1080 in 1080x1920: 1080x608, centred vertically; nothing to crop.
+    expect(contain).toBe(
+      "[0:v]setpts=PTS-STARTPTS,fps=30,scale=1920:1080,setsar=1,scale=1080:608,format=rgba," +
+        "pad=1080:1920:0:656:color=black@0,format=yuva420p,setsar=1,tpad=stop_mode=clone:stop=30,trim=end_frame=30[c0_0]",
+    );
+    // Filling: only the middle of the source (plus a pixel of margin) is scaled, then cut to the canvas.
+    expect(cover).toContain("crop=610:1080:655:0:exact=1,scale=1084:1920,format=rgba,crop=1080:1920:2:0,pad=1080:1920:0:0:");
+  });
+
+  it("scales, rotates, positions and fades clips by their motion and opacity", () => {
+    const p = project([
+      clip("vid", "main", 0, 0, 1, { motion: { rotation: 90 }, opacity: { opacity: 0.5 } }),
+      clip("vid", "main", 1, 0, 1, { motion: { position: [0.25, 0.5], scale: 0.5 } }),
+    ]);
+    const graph = graphOf(buildRenderArgs(p, assets, opts));
+    const [turned, moved] = [graph.find((f) => f.endsWith("[c0_0]"))!, graph.find((f) => f.endsWith("[c0_1]"))!];
+    // 1080x608 turned a quarter: 608x1080, centred on the canvas.
+    expect(turned).toContain(`scale=1080:608,format=rgba,rotate=a=${(Math.PI / 2).toFixed(9)}:ow=608:oh=1080:c=black@0,colorchannelmixer=aa=0.5,pad=1080:1920:236:420:`);
+    // Half size (540x304) centred at x=270.
+    expect(moved).toContain("scale=540:304,format=rgba,pad=1080:1920:0:808:");
+  });
+
+  it("treats clips that are off the canvas or invisible as gaps", () => {
+    const p = project([
+      clip("vid", "main", 0, 0, 1, { motion: { position: [3, 0.5] } }),
+      clip("vid", "main", 1, 0, 1, { opacity: { opacity: 0 } }),
+      clip("vid", "main", 2, 0, 1, { motion: { scale: 0 } }),
+    ]);
+    const argv = buildRenderArgs(p, assets, opts);
+    // Nothing to draw on the track at all, but the clips' sound still plays.
+    expect(graphOf(argv)).toContain("[bg]format=yuv420p[vout]");
+    expect(graphOf(argv).filter((f) => f.includes(":v]"))).toEqual([]);
+    expect(graphOf(argv).filter((f) => /^\[\d+:a\]/.test(f))).toHaveLength(3);
+  });
+
+  it("loops a still image for the length of its clip", () => {
+    const p = project([clip("photo", "main", 0, -1, 1.5)]);
+    const argv = buildRenderArgs(p, assets, opts);
+    expect(argv.slice(argv.indexOf("-loop"), argv.indexOf("-i") + 2)).toEqual([
+      "-loop", "1", "-framerate", "30", "-t", "2.500000", "-i", "/media/photo.png",
+    ]);
+    expect(argv).not.toContain("-ss");
+    // 1000x1000 fitted to the width: 1080x1080.
+    expect(graphOf(argv).find((f) => f.endsWith("[c0_0]"))).toContain("scale=1000:1000,setsar=1,scale=1080:1080,format=rgba,pad=1080:1920:0:420:");
   });
 
   it("applies clip volume (and omits it at unity gain)", () => {
-    const p = project([clip("vid", "main", 0, 0, 1, { volume: 0.25 }), clip("song", "audio_1", 0, 0, 1)]);
+    const p = project([clip("vid", "main", 0, 0, 1, { volume: { level: 0.25 } }), clip("song", "audio_1", 0, 0, 1)]);
     const graph = graphOf(buildRenderArgs(p, assets, opts));
     expect(graph.find((f) => f.endsWith("[m0]"))).toContain("volume=0.25");
     expect(graph.find((f) => f.endsWith("[m1]"))).not.toContain("volume=");
@@ -148,6 +197,30 @@ describe("buildRenderArgs", () => {
     };
     expect(crf(720, 1280)).toBe("23");
     expect(crf(1080, 1920)).toBe("20");
+  });
+
+  it("only scales up the part of a zoomed-in clip that can be seen", () => {
+    const canvas = { width: 1080, height: 1920 };
+    const media = { width: 1920, height: 1080 };
+    const piece = planPiece(canvas, media, placeClip(canvas, media, {
+      fit: "cover", position: [0.5, 0.5], scaleX: 10, scaleY: 10, rotation: 30, anchor: [0.5, 0.5],
+    }))!;
+    // The canvas (rotated) covers a small part of the source...
+    expect(piece.crop.w).toBeLessThan(150);
+    expect(piece.crop.h).toBeLessThan(150);
+    // ...so the scaled piece stays around the canvas's size, not 10x it.
+    expect(piece.scaled.w).toBeLessThan(2 * 1920);
+    expect(piece.visible).toEqual({ x: piece.visible.x, y: piece.visible.y, w: 1080, h: 1920 });
+  });
+
+  it("plans nothing for a clip that misses the canvas", () => {
+    const canvas = { width: 100, height: 100 };
+    const media = { width: 100, height: 100 };
+    const at = (position: [number, number]) =>
+      planPiece(canvas, media, placeClip(canvas, media, { fit: "contain", position, scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5] }));
+    expect(at([1.6, 0.5])).toBeNull();
+    // Half off the right edge: only the left half is kept.
+    expect(at([1, 0.5])).toMatchObject({ crop: { x: 0, w: 51 }, at: { x: 50 }, visible: { x: 0, w: 50 } });
   });
 
   it("rejects an empty timeline and unknown media", () => {

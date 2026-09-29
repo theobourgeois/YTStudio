@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { defaultEffects } from "@shared/effects";
 import type { Clip, Project } from "@shared/types";
 import { MAIN_TRACK_ID, createDefaultProject } from "@shared/timeline";
 import { fitRect, isLightColor } from "./canvas";
@@ -11,8 +12,7 @@ const clip = (id: string, start: number, inPoint: number, out: number, trackId =
   start,
   in: inPoint,
   out,
-  volume: 1,
-  fit: "contain",
+  effects: defaultEffects(),
 });
 
 const project = (clips: Clip[]): Project => ({ ...createDefaultProject(), clips });

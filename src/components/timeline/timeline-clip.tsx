@@ -3,6 +3,7 @@ import { PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
 import { clipDuration } from "@shared/timeline";
 import { cn } from "@/lib/utils";
+import { useLayout } from "@/stores/layout";
 import { startClipMove, startClipTrim } from "./clip-gestures";
 import { Filmstrip, PosterStrip, Waveform } from "./clip-media";
 import { CLIP_INSET_Y } from "./constants";
@@ -50,6 +51,7 @@ export const TimelineClip = memo(function TimelineClip({
       )}
       style={{ left, top: lane.top + CLIP_INSET_Y, width, height }}
       onPointerDown={(e) => startClipMove(e, clip.id, ctx)}
+      onDoubleClick={() => useLayout.getState().setLeftPanel("properties")}
     >
       <div
         className={cn(

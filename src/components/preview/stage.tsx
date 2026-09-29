@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
 import { fitRect, isLightColor } from "./canvas";
 import { PreviewEngine } from "./engine";
+import { TransformOverlay } from "./transform-overlay";
 
 /** The letterboxed canvas with the media elements the engine drives. */
 export function Stage() {
@@ -44,12 +45,16 @@ export function Stage() {
   }, []);
   const size = fitRect(area.width, area.height, aspectRatio);
   const light = isLightColor(background);
+  useLayoutEffect(() => engine.setCanvasSize(size), [engine, size.width, size.height]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div ref={areaRef} className="flex min-h-0 flex-1 items-center justify-center p-6">
+      {/* The transform handles live outside the clipped canvas so they can reach past its edges. */}
+      <div className="relative" style={size}>
       <div
-        className="relative overflow-hidden rounded-lg shadow-xl ring-1 shadow-black/20 ring-black/10 dark:ring-white/10"
-        style={{ ...size, background }}
+        data-slot="canvas"
+        className="absolute inset-0 isolate overflow-hidden rounded-lg shadow-xl ring-1 shadow-black/20 ring-black/10 dark:ring-white/10"
+        style={{ background }}
       >
         {domOrder.map((trackId) => (
           <VideoLayer key={trackId} trackId={trackId} layer={videoTrackIds.indexOf(trackId)} engine={engine} />
@@ -86,20 +91,26 @@ export function Stage() {
           </div>
         )}
       </div>
+      {!isEmpty && <TransformOverlay canvas={size} />}
+      </div>
     </div>
   );
 }
 
-// Opacity and object-fit are set imperatively by the engine.
-const videoClass = "absolute inset-0 size-full opacity-0";
+// Size, transform and opacity are set imperatively by the engine.
+const mediaClass = "absolute top-0 left-0 max-w-none origin-top-left object-fill opacity-0 select-none";
 
 function VideoLayer({ trackId, layer, engine }: { trackId: string; layer: number; engine: PreviewEngine }) {
   const videoA = useCallback((el: HTMLVideoElement) => engine.attachVideo(trackId, 0, el), [engine, trackId]);
   const videoB = useCallback((el: HTMLVideoElement) => engine.attachVideo(trackId, 1, el), [engine, trackId]);
+  const imageA = useCallback((el: HTMLImageElement) => engine.attachImage(trackId, 0, el), [engine, trackId]);
+  const imageB = useCallback((el: HTMLImageElement) => engine.attachImage(trackId, 1, el), [engine, trackId]);
   return (
-    <div className="absolute inset-0" style={{ zIndex: layer }}>
-      <video ref={videoA} className={videoClass} playsInline preload="auto" />
-      <video ref={videoB} className={videoClass} playsInline preload="auto" />
+    <div className="pointer-events-none absolute inset-0" style={{ zIndex: layer }}>
+      <video ref={videoA} className={mediaClass} playsInline preload="auto" />
+      <video ref={videoB} className={mediaClass} playsInline preload="auto" />
+      <img ref={imageA} className={mediaClass} alt="" draggable={false} decoding="async" />
+      <img ref={imageB} className={mediaClass} alt="" draggable={false} decoding="async" />
     </div>
   );
 }

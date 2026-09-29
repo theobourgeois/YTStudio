@@ -28,17 +28,19 @@ import {
   rippleTrimTo,
   snapTime,
   splitClip,
+  sourceRange,
   splitClips,
   trackClips,
   trimClip,
   withoutAudioTracks,
 } from "./timeline.ts";
+import { defaultEffects, motionAt, setParams, volumeAt } from "./effects.ts";
 import { formatDuration, formatRelative, formatTime } from "./format.ts";
 
 const AUDIO = "audio_1";
 
 function clip(id: string, trackId: string, start: number, dur: number, extra: Partial<Clip> = {}): Clip {
-  return { id, assetId: "asset", trackId, start, in: 0, out: dur, volume: 1, fit: "contain", ...extra };
+  return { id, assetId: "asset", trackId, start, in: 0, out: dur, effects: defaultEffects(), ...extra };
 }
 
 /** Video track with clips a(2s) b(3s) c(1s) back to back at 0, 2, 5. */
@@ -147,18 +149,36 @@ describe("splitting and trimming", () => {
     p = addClip(p, clip("m1", AUDIO, 0, 2));
     p = addClip(p, clip("m2", AUDIO, 3, 2, { in: 1, out: 3 }));
     // start edge of m2 can extend left until m1's end (2) or source start (in=0 -> start 2)
-    let q = trimClip(p, "m2", "start", -5, 10);
+    let q = trimClip(p, "m2", "start", -5, { min: 0, max: 10 });
     expect(q.clips.find((c) => c.id === "m2")).toMatchObject({ start: 2, in: 0, out: 3 });
     // end edge of m1 can't pass m2's start
-    q = trimClip(p, "m1", "end", 5, 10);
+    q = trimClip(p, "m1", "end", 5, { min: 0, max: 10 });
     expect(clipEnd(q.clips.find((c) => c.id === "m1")!)).toBe(3);
     // end of m2 limited by source duration
-    q = trimClip(p, "m2", "end", 100, 4);
+    q = trimClip(p, "m2", "end", 100, { min: 0, max: 4 });
     expect(q.clips.find((c) => c.id === "m2")!.out).toBe(4);
   });
 
+  it("lets a still image's clip stretch either way", () => {
+    const still = sourceRange({ kind: "image", duration: 5 });
+    expect(sourceRange({ kind: "video", duration: 5 })).toEqual({ min: 0, max: 5 });
+    let p = addClip(createDefaultProject(), clip("s", MAIN_TRACK_ID, 4, 5));
+    p = trimClip(p, "s", "start", -3, still);
+    expect(p.clips[0]).toMatchObject({ start: 1, in: -3, out: 5 });
+    p = trimClip(p, "s", "end", 60, still);
+    expect(p.clips[0].out).toBe(65);
+  });
+
+  it("keeps a clip's effects on both halves of a split", () => {
+    const p = addClip(createDefaultProject(), clip("v", MAIN_TRACK_ID, 0, 4));
+    const styled = setParams(p, "v", "motion", { rotation: 30 });
+    const { project, newClipId } = splitClip(styled, "v", 2);
+    expect(project.clips.map((c) => motionAt(c, c.in).rotation)).toEqual([30, 30]);
+    expect(newClipId).toBeTruthy();
+  });
+
   it("trims video clips without rippling", () => {
-    const p = trimClip(mainABC(), "a", "end", -1, 10);
+    const p = trimClip(mainABC(), "a", "end", -1, { min: 0, max: 10 });
     expect(starts(p)).toEqual([0, 2, 5]);
     expect(clipEnd(p.clips.find((c) => c.id === "a")!)).toBe(1);
   });
@@ -323,13 +343,31 @@ describe("normalizeProject", () => {
       ],
     };
     const p = normalizeProject(input, {
-      asset: { duration: 10, hasVideo: true, hasAudio: true },
-      short: { duration: 5, hasVideo: false, hasAudio: true },
+      asset: { kind: "video", duration: 10, hasVideo: true, hasAudio: true },
+      short: { kind: "audio", duration: 5, hasVideo: false, hasAudio: true },
     });
     expect(order(p)).toEqual(["a"]);
     expect(starts(p)).toEqual([5]);
     expect(starts(p, AUDIO)).toEqual([0, 2, 10]);
     expect(p.clips.find((c) => c.id === "long")!.out).toBe(5);
+  });
+
+  it("keeps still-image clips of any length, even starting before the image's 0", () => {
+    const input: Project = { ...createDefaultProject(), clips: [clip("s", MAIN_TRACK_ID, 0, 30, { in: -10, out: 20 })] };
+    const p = normalizeProject(input, { asset: { kind: "image", duration: 5, hasVideo: true, hasAudio: false } });
+    expect(p.clips[0]).toMatchObject({ in: -10, out: 20 });
+    // The same clip against a video is cut to the video's range.
+    const v = normalizeProject(input, { asset: { kind: "video", duration: 5, hasVideo: true, hasAudio: false } });
+    expect(v.clips[0]).toMatchObject({ in: 0, out: 5 });
+  });
+
+  it("gives every clip its effects, upgrading old clips", () => {
+    const old = { id: "o", assetId: "asset", trackId: MAIN_TRACK_ID, start: 0, in: 0, out: 1, volume: 0.3, fit: "cover" };
+    const p = normalizeProject({ ...createDefaultProject(), clips: [old as unknown as Clip] });
+    expect(p.clips[0]).not.toHaveProperty("volume");
+    expect(p.clips[0]).not.toHaveProperty("fit");
+    expect(volumeAt(p.clips[0], 0)).toBe(0.3);
+    expect(motionAt(p.clips[0], 0).fit).toBe("cover");
   });
 });
 

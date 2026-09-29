@@ -4,9 +4,11 @@ import type { MediaAsset } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { PropertiesPanel } from "@/components/properties/properties-panel";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/stores/editor";
+import { useLayout } from "@/stores/layout";
 import { AssetCard } from "./asset-card";
 import { DeleteAssetDialog } from "./delete-asset-dialog";
 import { ACCEPTED_FILE_TYPES, importMedia } from "./import-media";
@@ -14,13 +16,13 @@ import { clipCountByAsset, filterAssets, type MediaFilter } from "./media-utils"
 import { OnlinePanel } from "./online-panel";
 import { UploadCard } from "./upload-card";
 
-type Tab = "media" | "online";
-
+/** The left panel: the project's media, online media, and the selected clip's properties. */
 export function MediaBin() {
   const assets = useEditor((s) => s.assets);
   const uploads = useEditor((s) => s.uploads);
   const clips = useEditor((s) => s.project.clips);
-  const [tab, setTab] = useState<Tab>("media");
+  const tab = useLayout((s) => s.leftPanel);
+  const setTab = useLayout((s) => s.setLeftPanel);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [pendingDelete, setPendingDelete] = useState<{ asset: MediaAsset; uses: number } | null>(
     null,
@@ -65,6 +67,9 @@ export function MediaBin() {
           <TabButton active={tab === "online"} onClick={() => setTab("online")}>
             Online
           </TabButton>
+          <TabButton active={tab === "properties"} onClick={() => setTab("properties")}>
+            Properties
+          </TabButton>
         </div>
         {tab === "media" && (
           <Button variant="outline" size="xs" className="ml-auto h-7 px-2.5" onClick={openPicker}>
@@ -88,7 +93,8 @@ export function MediaBin() {
       </div>
 
       <OnlinePanel active={tab === "online"} />
-      {tab === "online" ? null : isEmpty ? (
+      {tab === "properties" && <PropertiesPanel />}
+      {tab !== "media" ? null : isEmpty ? (
         <EmptyState onClick={openPicker} />
       ) : (
         <>
@@ -99,9 +105,9 @@ export function MediaBin() {
                 size="sm"
                 value={filter}
                 onValueChange={(v) => v && setFilter(v as MediaFilter)}
-                className="grid w-full grid-cols-3 rounded-md bg-muted p-0.5"
+                className="grid w-full grid-cols-4 rounded-md bg-muted p-0.5"
               >
-                {(["all", "video", "audio"] as const).map((f) => (
+                {(["all", "video", "audio", "image"] as const).map((f) => (
                   <ToggleGroupItem
                     key={f}
                     value={f}
@@ -131,7 +137,7 @@ export function MediaBin() {
             </div>
             {visible.length === 0 && assets.length > 0 && (
               <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-                No {filter} files yet.
+                No {filter === "image" ? "images" : `${filter} files`} yet.
               </p>
             )}
           </ScrollArea>
@@ -200,13 +206,15 @@ function EmptyState({ onClick }: { onClick: () => void }) {
           <PiFileArrowUp className="size-5" />
         </span>
         <span className="space-y-1">
-          <span className="block text-sm font-medium text-foreground">Drop videos or music here</span>
+          <span className="block text-sm font-medium text-foreground">Drop videos, music or images here</span>
           <span className="block text-xs">or click Import</span>
         </span>
         <span className="text-[11px] leading-relaxed text-muted-foreground/80">
           MP4, MOV, WebM, MKV
           <br />
           MP3, WAV, M4A, FLAC, OGG
+          <br />
+          PNG, JPG, WebP
         </span>
       </button>
     </div>

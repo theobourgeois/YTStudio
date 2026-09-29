@@ -127,3 +127,35 @@ export class MediaSlot {
     this.onChange();
   };
 }
+
+/** Wraps the <img> showing a still-image clip: `src` is only reassigned when it changes. */
+export class ImageSlot {
+  private src: string | null = null;
+  failed = false;
+
+  constructor(
+    readonly el: HTMLImageElement,
+    private readonly onChange: () => void,
+  ) {
+    el.addEventListener("error", this.onError);
+  }
+
+  setSrc(src: string | null) {
+    if (src === this.src) return;
+    this.src = src;
+    this.failed = false;
+    if (src) this.el.src = src;
+    else this.el.removeAttribute("src");
+  }
+
+  dispose() {
+    this.el.removeEventListener("error", this.onError);
+    this.setSrc(null);
+  }
+
+  private onError = () => {
+    if (this.src === null) return;
+    this.failed = true;
+    this.onChange();
+  };
+}

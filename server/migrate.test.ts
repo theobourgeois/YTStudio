@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defaultEffects } from "../shared/effects.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import type { MediaAsset, Project, ProjectSummary } from "../shared/types.ts";
 import { createApp, type EditorApp } from "./app.ts";
@@ -19,11 +20,25 @@ const legacyAsset: Omit<MediaAsset, "projectId"> = {
   filmstrip: null, waveform: null,
 };
 
-const legacyProject: Project = {
+/** Saved before effects existed: the clip's volume and framing were fields of the clip. */
+const legacyClip = { id: "clip_1", assetId: ASSET_ID, trackId: "main", start: 0, in: 1, out: 3, volume: 0.5, fit: "cover" };
+const legacyProject = {
   ...createDefaultProject(),
   name: "My short",
-  settings: { aspectRatio: "1:1", fps: 30, background: "#000000" },
-  clips: [{ id: "clip_1", assetId: ASSET_ID, trackId: "main", start: 0, in: 1, out: 3, volume: 1, fit: "cover" }],
+  settings: { aspectRatio: "1:1" as const, fps: 30, background: "#000000" },
+  clips: [legacyClip],
+};
+
+/** The same project today: volume and framing moved into the clip's effects. */
+const upgradedProject: Project = {
+  ...legacyProject,
+  clips: [{
+    id: "clip_1", assetId: ASSET_ID, trackId: "main", start: 0, in: 1, out: 3,
+    effects: defaultEffects().map((e) =>
+      e.type === "motion" ? { ...e, params: { ...e.params, fit: "cover" } }
+      : e.type === "volume" ? { ...e, params: { level: 0.5 } }
+      : e),
+  }],
 };
 
 describe("legacy data migration", () => {
@@ -79,7 +94,7 @@ describe("legacy data migration", () => {
       updatedAt: MTIME.getTime(), aspectRatio: "1:1", duration: 2, clipCount: 1,
       thumbnail: legacyAsset.poster,
     });
-    expect(await get<Project>(`/api/projects/${summary.id}`)).toEqual(legacyProject);
+    expect(await get<Project>(`/api/projects/${summary.id}`)).toEqual(upgradedProject);
     expect((await get<MediaAsset[]>(`/api/media?projectId=${summary.id}`)).map((a) => a.id)).toEqual([ASSET_ID]);
 
     // Files are moved/tagged, never deleted.
@@ -88,7 +103,7 @@ describe("legacy data migration", () => {
     expect(existsSync(legacyFile)).toBe(false);
     expect(JSON.parse(readFileSync(`${legacyFile}.migrated`, "utf8"))).toEqual(legacyProject);
     const projectDir = path.join(dataDir, "projects", summary.id);
-    expect(JSON.parse(readFileSync(path.join(projectDir, "project.json"), "utf8"))).toEqual(legacyProject);
+    expect(JSON.parse(readFileSync(path.join(projectDir, "project.json"), "utf8"))).toEqual(upgradedProject);
     expect(JSON.parse(readFileSync(path.join(projectDir, "meta.json"), "utf8"))).toEqual({
       id: summary.id, status: "active", createdAt: MTIME.getTime(), updatedAt: MTIME.getTime(), settledAt: null,
     });

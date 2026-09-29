@@ -7,7 +7,7 @@
 // Media library
 // ---------------------------------------------------------------------------
 
-export type AssetKind = "video" | "audio";
+export type AssetKind = "video" | "audio" | "image";
 
 /** `processing` = probed and usable, but filmstrip/waveform still generating. */
 export type AssetStatus = "processing" | "ready" | "error";
@@ -29,10 +29,12 @@ export interface MediaAsset {
   /** Original file name, e.g. "clip.mp4". */
   name: string;
   kind: AssetKind;
+  /** Seconds. A still image has no length of its own: this is how long a new clip of it is. */
   duration: number;
   width: number | null;
   height: number | null;
   fps: number | null;
+  /** Has a picture: a video stream or a still image. */
   hasVideo: boolean;
   hasAudio: boolean;
   /** File size in bytes. */
@@ -43,7 +45,7 @@ export interface MediaAsset {
   error?: string;
   /** URL of the original media file (supports HTTP range requests). */
   src: string;
-  /** Poster frame URL (video only). */
+  /** Poster frame / thumbnail URL (video and images). */
   poster: string | null;
   /** Timeline thumbnails (video only, null until generated). */
   filmstrip: Filmstrip | null;
@@ -85,14 +87,58 @@ export interface Clip {
   trackId: string;
   /** Position on the timeline. */
   start: number;
-  /** Source in-point. */
+  /** Source in-point. Stills have no source range, so theirs may be any value (even negative). */
   in: number;
   /** Source out-point (exclusive), always > `in`. Clip duration = out - in. */
   out: number;
-  /** Linear gain 0..1. */
-  volume: number;
-  /** How a video frame is fitted into the canvas. Ignored for audio. */
-  fit: FitMode;
+  /**
+   * Everything else about the clip (framing, position, scale, opacity, volume...),
+   * as effects in the order they apply. See `shared/effects.ts`.
+   */
+  effects: Effect[];
+}
+
+// ---------------------------------------------------------------------------
+// Effects and their parameters (see `shared/effects.ts` for the definitions)
+// ---------------------------------------------------------------------------
+
+/** A 2D value, e.g. a position as fractions of the canvas. */
+export type Vec2 = [number, number];
+
+export type ParamValue = number | boolean | string | Vec2;
+
+/** Parameter values of one effect, by parameter key. */
+export type ParamValues = Record<string, ParamValue>;
+
+/** How a keyframed value travels from one keyframe to the next. */
+export type Easing = "linear" | "ease" | "hold";
+
+export interface Keyframe {
+  /**
+   * Source media time (the clock of `Clip.in`/`out`), so a keyframe stays on
+   * its frame when the clip is moved, trimmed or split.
+   */
+  time: number;
+  value: ParamValue;
+  /** Interpolation towards the next keyframe. */
+  easing: Easing;
+}
+
+/** One effect on a clip (Premiere's "Effect Controls" entries). */
+export interface Effect {
+  /** Unique within the clip. Built-in effects use their type as id. */
+  id: string;
+  /** Which definition in `EFFECTS` this is, e.g. "motion". */
+  type: string;
+  /** Off = bypassed: every parameter acts as its default. */
+  enabled: boolean;
+  /** Static values, one per parameter of the definition. */
+  params: ParamValues;
+  /**
+   * Animated parameters (sorted by time). A parameter with keyframes ignores
+   * its static value. Nothing creates keyframes yet.
+   */
+  keyframes?: Record<string, Keyframe[]>;
 }
 
 /**

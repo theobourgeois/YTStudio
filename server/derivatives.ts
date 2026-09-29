@@ -24,22 +24,24 @@ async function exists(file: string): Promise<boolean> {
 }
 
 /**
- * Grab one JPEG frame at `time` using input seeking (jumps to the nearest
+ * Grab one frame (JPEG or PNG, by `out`'s extension) at `time` using input seeking (jumps to the nearest
  * keyframe, then decodes only up to `time`), so it's fast even for long 4K files.
- * Resolves `false` if no frame could be decoded there; rejects only on abort.
+ * `time` null reads the first frame without seeking (stills: seeking an image
+ * can skip its only frame). Resolves `false` if no frame could be decoded
+ * there; rejects only on abort.
  */
 async function extractFrame(
   src: string,
   out: string,
-  time: number,
+  time: number | null,
   scale: string,
   signal?: AbortSignal,
 ): Promise<boolean> {
   try {
     await run(
       FFMPEG,
-      [...BASE_ARGS, "-ss", seconds(time), "-i", src, "-map", "0:v:0", "-an", "-sn", "-dn",
-        "-frames:v", "1", "-vf", `${scale},setsar=1`, "-q:v", "4", out],
+      [...BASE_ARGS, ...(time === null ? [] : ["-ss", seconds(time)]), "-i", src, "-map", "0:v:0", "-an", "-sn", "-dn",
+        "-frames:v", "1", "-vf", `${scale},setsar=1`, ...(out.endsWith(".jpg") ? ["-q:v", "4"] : []), out],
       { signal },
     );
   } catch (err) {
@@ -50,6 +52,13 @@ async function extractFrame(
 }
 
 /** Poster frame ~10% in (at most 1s), scaled to ~320px wide. */
+/** Thumbnail of a still image, scaled to ~320px wide. Write a PNG to keep its transparency. */
+export async function makeStillPoster(src: string, out: string): Promise<void> {
+  if (!(await extractFrame(src, out, null, `scale=${POSTER_WIDTH}:-2`))) {
+    throw new Error("The image couldn't be decoded");
+  }
+}
+
 export async function makePoster(src: string, out: string, duration: number): Promise<void> {
   const scale = `scale=${POSTER_WIDTH}:-2`;
   const ok =

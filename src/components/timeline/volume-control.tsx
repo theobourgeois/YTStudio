@@ -1,19 +1,25 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PiSpeakerHigh, PiSpeakerLow, PiSpeakerSlash } from "react-icons/pi";
-import type { Project } from "@shared/types";
-import { getClip, updateClip } from "@shared/timeline";
+import type { Clip } from "@shared/types";
+import { VOLUME, findEffect, setParams } from "@shared/effects";
+import { getClip } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { EditGesture } from "@/lib/edit-gesture";
 import { useEditor } from "@/stores/editor";
+
+/** A clip's (static) Volume level. */
+const levelOf = (clip: Clip) => (findEffect(clip, VOLUME.type)?.params.level as number | undefined) ?? 1;
 
 /** Toolbar button: the selected clip's volume, in a popover. Needs exactly one selected clip. */
 export function ClipVolumeButton() {
   const clip = useEditor((s) => (s.selectedClipIds.length === 1 ? getClip(s.project, s.selectedClipIds[0]) : undefined));
-  const Icon = !clip || clip.volume >= 0.5 ? PiSpeakerHigh : clip.volume === 0 ? PiSpeakerSlash : PiSpeakerLow;
+  const volume = clip ? levelOf(clip) : 1;
+  const Icon = !clip || volume >= 0.5 ? PiSpeakerHigh : volume === 0 ? PiSpeakerSlash : PiSpeakerLow;
   const contentRef = useRef<HTMLDivElement>(null);
-  const label = clip ? `Clip volume (${Math.round(clip.volume * 100)}%)` : "Clip volume — select one clip";
+  const label = clip ? `Clip volume (${Math.round(volume * 100)}%)` : "Clip volume — select one clip";
   return (
     <Popover>
       <Tooltip>
@@ -46,39 +52,26 @@ export function ClipVolumeButton() {
           contentRef.current?.querySelector<HTMLElement>("[role=slider]")?.focus();
         }}
       >
-        {clip && <VolumeControl clipId={clip.id} volume={clip.volume} />}
+        {clip && <VolumeControl clipId={clip.id} volume={volume} />}
       </PopoverContent>
     </Popover>
   );
 }
-
-const withVolume = (clipId: string, volume: number) => (p: Project) =>
-  getClip(p, clipId)?.volume === volume ? p : updateClip(p, clipId, { volume });
 
 /**
  * Volume slider. A pointer drag is one gesture (live preview, one undo step);
  * keyboard changes commit directly.
  */
 export function VolumeControl({ clipId, volume }: { clipId: string; volume: number }) {
-  /** Id of the gesture this slider drag owns, or null when not dragging. */
-  const gesture = useRef<number | null>(null);
+  const [gesture] = useState(() => new EditGesture());
   /** Volume to restore when un-muting. */
   const restore = useRef(1);
   const percent = Math.round(volume * 100);
 
-  const setVolume = (v: number) => {
-    const editor = useEditor.getState();
-    const ownsGesture = gesture.current !== null && editor.gestureId === gesture.current && editor.gestureBase;
-    if (ownsGesture) editor.preview(withVolume(clipId, v));
-    else editor.commit(withVolume(clipId, v));
-  };
-  const endDrag = () => {
-    if (gesture.current === null) return;
-    useEditor.getState().endGesture(gesture.current);
-    gesture.current = null;
-  };
-  // Never leave a gesture open if the inspector unmounts mid-drag.
-  useEffect(() => endDrag, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const setVolume = (v: number) => gesture.apply((p) => setParams(p, clipId, VOLUME.type, { level: v }));
+  const endDrag = () => gesture.end();
+  // Never leave a gesture open if the popover closes mid-drag.
+  useEffect(() => () => gesture.end(), [gesture]);
   const toggleMute = () => {
     if (volume > 0) {
       restore.current = volume;
@@ -114,7 +107,7 @@ export function VolumeControl({ clipId, volume }: { clipId: string; volume: numb
         onPointerDown={(e) => {
           // Radix only captures (and later releases) the pointer for the primary button.
           if (e.button !== 0) return;
-          gesture.current = useEditor.getState().beginGesture();
+          gesture.begin();
         }}
         onPointerUp={endDrag}
         onLostPointerCapture={endDrag}
