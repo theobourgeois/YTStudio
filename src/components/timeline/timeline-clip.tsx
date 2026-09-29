@@ -42,6 +42,7 @@ export const TimelineClip = memo(function TimelineClip({
   return (
     <div
       data-clip-id={clip.id}
+      data-selected={selected || undefined}
       className={cn(
         "group/clip absolute touch-none select-none",
         selected ? "z-[3]" : "z-[1]",

@@ -37,7 +37,7 @@ export function Transport() {
           <TooltipTrigger asChild>
             <Button
               size="icon"
-              className="mx-1.5 size-9 rounded-full shadow-sm"
+              className="mx-1.5 size-9 rounded-full bg-foreground text-background inset-shadow-none hover:bg-foreground/85"
               disabled={empty}
               aria-label={playing ? "Pause" : "Play"}
               onClick={() => usePlayback.getState().toggle()}
@@ -120,7 +120,7 @@ function ShortcutHint({ label, shortcut }: { label: string; shortcut: string }) 
   return (
     <span className="flex items-center gap-2">
       {label}
-      <kbd className="rounded border border-background/20 px-1 font-sans text-[10px] leading-4 text-background/70">
+      <kbd className="rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">
         {shortcut}
       </kbd>
     </span>

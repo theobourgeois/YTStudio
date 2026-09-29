@@ -1,6 +1,5 @@
 import type { IconType } from "react-icons";
 import { PiArrowCounterClockwise, PiArrowUUpLeft, PiArrowUUpRight, PiCheckCircle } from "react-icons/pi";
-import { LogoMark } from "@/components/brand/logo-mark";
 import { ExportDialog } from "@/components/export/export-dialog";
 import { SidebarToggle } from "@/components/sidebar/sidebar";
 import { Button } from "@/components/ui/button";
@@ -11,6 +10,7 @@ import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { useProjects } from "@/stores/projects";
 import { ProjectName } from "./project-name";
+import { SettingsDialog } from "./settings-dialog";
 import { ThemeMenu } from "./theme-menu";
 
 export function Header() {
@@ -18,10 +18,11 @@ export function Header() {
   const canRedo = useEditor((s) => s.future.length > 0 && !s.gestureBase);
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-card px-3">
+    <header className="flex h-13 shrink-0 items-center gap-2 border-b bg-background px-3">
       <SidebarLead />
       <ProjectName />
       <SettledBadge />
+      <SettingsDialog />
 
       <div className="ml-auto flex items-center gap-0.5">
         <HistoryButton
@@ -49,16 +50,11 @@ export function Header() {
   );
 }
 
-/** When the sidebar is hidden, its toggle and the logo move into the header. */
+/** When the sidebar is hidden, its toggle (the logo) moves into the header. */
 export function SidebarLead() {
   const sidebarOpen = useLayout((s) => s.sidebarOpen);
   if (sidebarOpen) return null;
-  return (
-    <>
-      <SidebarToggle className="-ml-1" />
-      <LogoMark />
-    </>
-  );
+  return <SidebarToggle />;
 }
 
 function useOpenProjectStatus() {
@@ -71,7 +67,7 @@ function SettledBadge() {
   const { status } = useOpenProjectStatus();
   if (status !== "settled") return null;
   return (
-    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+    <span className="rounded-md border px-1.5 py-px text-[11px] font-medium text-muted-foreground">
       Settled
     </span>
   );
@@ -133,7 +129,7 @@ function HistoryButton({
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {label}
-        <kbd className="ml-2 font-sans text-background/60">{shortcut}</kbd>
+        <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">{shortcut}</kbd>
       </TooltipContent>
     </Tooltip>
   );

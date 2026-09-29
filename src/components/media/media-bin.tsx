@@ -50,7 +50,7 @@ export function MediaBin() {
 
   return (
     <aside
-      className="relative flex w-72 shrink-0 flex-col border-r bg-card"
+      className="relative flex w-72 shrink-0 flex-col border-r bg-background"
       aria-label="Media"
       {...drop.handlers}
     >
@@ -67,7 +67,7 @@ export function MediaBin() {
           </TabButton>
         </div>
         {tab === "media" && (
-          <Button variant="secondary" size="xs" className="ml-auto h-7 px-2.5" onClick={openPicker}>
+          <Button variant="outline" size="xs" className="ml-auto h-7 px-2.5" onClick={openPicker}>
             <PiTrayArrowDown />
             Import
           </Button>
@@ -174,9 +174,9 @@ function TabButton({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "flex h-7 items-center gap-1.5 rounded-md px-2 text-sm font-semibold transition-colors outline-none",
+        "flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors outline-none",
         "focus-visible:ring-2 focus-visible:ring-ring/50",
-        active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+        active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
       )}
     >
       {children}

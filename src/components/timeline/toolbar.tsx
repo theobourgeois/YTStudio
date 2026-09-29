@@ -31,6 +31,7 @@ import { TOOLBAR_HEIGHT } from "./constants";
 import { useTimelineContext } from "./context";
 import { sliderToZoom, zoomToSlider } from "./geometry";
 import { timelineCommands } from "./view-store";
+import { ClipVolumeButton } from "./volume-control";
 
 const ZOOM_STEP = 1.5;
 const SLIDER_MAX = 1000;
@@ -62,6 +63,8 @@ export function TimelineToolbar() {
         <PiTrash />
       </ToolButton>
 
+      <ClipVolumeButton />
+
       <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-5" />
 
       <Tooltip>
@@ -81,7 +84,7 @@ export function TimelineToolbar() {
             Snapping {snapping ? "on" : "off"}
             <Kbd>{SHORTCUT_KEYS.toggleSnapping}</Kbd>
           </span>
-          <span className="opacity-60">Clip edges stick to other clips, the playhead and the start.</span>
+          <span className="text-muted-foreground">Clip edges stick to other clips, the playhead and the start.</span>
         </TooltipContent>
       </Tooltip>
 
@@ -144,7 +147,7 @@ export function TimelineToolbar() {
 
 function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="rounded border border-background/25 px-1 font-sans text-[10px] leading-4 opacity-80">
+    <kbd className="rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">
       {children}
     </kbd>
   );
@@ -190,7 +193,7 @@ function ToolButton({
       <TooltipContent side="top" className="flex items-center gap-2">
         <span>{label}</span>
         {shortcut && <Kbd>{shortcut}</Kbd>}
-        {hint && <span className="opacity-60">{hint}</span>}
+        {hint && <span className="text-muted-foreground">{hint}</span>}
       </TooltipContent>
     </Tooltip>
   );

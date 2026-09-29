@@ -75,13 +75,12 @@ describe("buildRenderArgs", () => {
       [clip("vid", "main", 0, 0, 2), clip("vid", "top", 1, 0, 1), clip("song", "audio_1", 1, 10, 15)],
       (d) => ({
         ...d,
-        settings: { ...d.settings, background: "#112233" },
         tracks: [{ id: "top", kind: "video", name: "Video 2", muted: false }, ...d.tracks],
       }),
     );
     const argv = buildRenderArgs(p, assets, opts);
     const graph = graphOf(argv);
-    expect(graph[0]).toBe("color=c=0x112233:s=1080x1920:r=30,setsar=1,format=yuv420p,trim=end_frame=180[bg]");
+    expect(graph[0]).toBe("color=c=0x000000:s=1080x1920:r=30,setsar=1,format=yuv420p,trim=end_frame=180[bg]");
     // Bottom track ("main") first: its clip then a gap to the end (6s).
     expect(graph).toContain("[c0_0][g0_1]concat=n=2:v=1:a=0[t0]");
     expect(graph.find((f) => f.endsWith("[g0_1]"))).toContain("trim=end_frame=120");

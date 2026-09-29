@@ -32,7 +32,7 @@ export function EmptyState() {
           Drop your clips here, or start from scratch. When you're done, settle it and move on to
           the next one.
         </p>
-        <Button className="mt-6 bg-brand text-brand-foreground hover:bg-brand/90" onClick={() => create()}>
+        <Button className="mt-6" onClick={() => create()}>
           <PiNotePencil />
           New video
         </Button>

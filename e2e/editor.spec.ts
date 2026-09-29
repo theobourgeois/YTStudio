@@ -253,9 +253,9 @@ test("right-click menus, copy/paste and the shortcuts dialog", async ({ page }) 
 
   // Select everything, then nothing.
   await page.keyboard.press("ControlOrMeta+a");
-  await expect(page.getByText("6 clips selected")).toBeVisible();
+  await expect(page.locator("[data-clip-id][data-selected]")).toHaveCount(6);
   await page.keyboard.press("Escape");
-  await expect(page.getByText("6 clips selected")).toHaveCount(0);
+  await expect(page.locator("[data-clip-id][data-selected]")).toHaveCount(0);
 
   // Right-click the empty start of the Video 1 track (its first clip moved up a track).
   await page.keyboard.press("Home"); // scrolls the timeline back to the start
@@ -305,6 +305,43 @@ test("exports an MP4", async ({ page }) => {
   const res = await page.request.get(src!);
   expect(res.status()).toBe(200);
   expect(res.headers()["content-type"]).toContain("video/mp4");
+});
+
+test("video settings dialog, clip volume and previewing a library file", async ({ page }) => {
+  await page.goto("/");
+
+  // Settings live in a dialog opened from the header.
+  await page.getByRole("button", { name: "Video settings" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("radio", { name: /Square/ }).click();
+  await dialog.getByRole("radio", { name: /60 fps/ }).click();
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("button", { name: "Video settings" })).toHaveText("1:1 · 60 fps");
+  await expect.poll(async () => (await savedProject(page)).settings).toMatchObject({ aspectRatio: "1:1", fps: 60 });
+
+  // The selected clip's volume, from the timeline toolbar.
+  await expect(page.getByRole("button", { name: "Clip volume" })).toBeDisabled();
+  const [clip] = await timelineClips(page);
+  await page.mouse.click(clip.x + clip.w / 2, clip.y + clip.h / 2);
+  await page.getByRole("button", { name: "Clip volume" }).click();
+  await page.getByRole("slider", { name: "Volume" }).press("Home");
+  await expect
+    .poll(async () => ((await savedProject(page)).clips as { id: string; volume: number }[]).find((c) => c.id === clip.id)?.volume)
+    .toBe(0);
+  await page.keyboard.press("Escape");
+
+  // Preview a library file in place of the timeline; Space drives it, Escape goes back.
+  const card = page.locator("[draggable=true]").filter({ hasText: "square-1080" }).first();
+  await card.click();
+  const position = page.getByRole("slider", { name: "Preview position" });
+  await expect(position).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pause preview" })).toBeVisible(); // autoplays
+  await page.mouse.move(700, 300);
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(position).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
 });
 
 test("settles a video, starts the next one, and unsettles it again", async ({ page }) => {

@@ -4,6 +4,7 @@ import { timelineCommands } from "@/components/timeline/view-store";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
+import { useSourcePreview } from "@/stores/source-preview";
 import { resolveShortcut, type ShortcutAction } from "./shortcuts";
 
 const ZOOM_STEP = 1.25;
@@ -41,13 +42,26 @@ export function useShortcuts() {
       // preventDefault stops Space from clicking a focused button, arrows from scrolling, etc.
       if (action && run(action)) e.preventDefault();
     };
+    // Escape leaves the source preview. It's caught before anything else sees it:
+    // an open tooltip (or a popover still fading out) would otherwise swallow it.
+    const onEscapeCapture = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.isComposing || !useSourcePreview.getState().assetId) return;
+      if (isEditableTarget(e.target) || isOverlayOpen()) return;
+      useSourcePreview.getState().close();
+      e.preventDefault(); // not also "deselect"
+    };
+    window.addEventListener("keydown", onEscapeCapture, true);
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onEscapeCapture, true);
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, []);
 }
 
 /** Performs the action; returns false when it didn't apply (so the event is left alone). */
 function run(action: ShortcutAction): boolean {
+  if (runSourcePreview(action)) return true;
   const editor = useEditor.getState();
   // During a drag the timeline owns the keyboard (e.g. Escape cancels the gesture).
   if (editor.gestureBase && EDITS.has(action)) return false;
@@ -176,6 +190,43 @@ function run(action: ShortcutAction): boolean {
       editor.toggleSnapping();
       return true;
   }
+}
+
+/** While a library file is being previewed, the transport keys drive it (Escape is handled up front). */
+function runSourcePreview(action: ShortcutAction): boolean {
+  const { assetId, controller: source } = useSourcePreview.getState();
+  if (!assetId || !source) return false;
+  const frame = 1 / useEditor.getState().project.settings.fps;
+  switch (action) {
+    case "togglePlay":
+      source.toggle();
+      return true;
+    case "play":
+      source.play();
+      return true;
+    case "pause":
+      source.pause();
+      return true;
+    case "prevFrame":
+      source.step(-frame);
+      return true;
+    case "nextFrame":
+      source.step(frame);
+      return true;
+    case "back1s":
+      source.step(-1);
+      return true;
+    case "forward1s":
+      source.step(1);
+      return true;
+    case "seekStart":
+      source.seek(0);
+      return true;
+    case "seekEnd":
+      source.seek(source.duration());
+      return true;
+  }
+  return false;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

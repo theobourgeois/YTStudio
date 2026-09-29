@@ -68,7 +68,7 @@ export type TrackKind = "video" | "audio";
 export interface ProjectSettings {
   aspectRatio: AspectRatio;
   fps: number;
-  /** Canvas background colour (hex), visible behind "contain" clips. */
+  /** Canvas background colour (hex), visible behind "contain" clips. Always black for now. */
   background: string;
 }
 

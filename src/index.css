@@ -1,68 +1,86 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@fontsource-variable/dm-sans/opsz.css";
+@import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Palette: cool-tinted neutrals (One Light / One Dark "darker") with a single
+ * blue accent. Surfaces step by lightness only; the hue stays put so every
+ * panel reads as the same material.
+ *
+ *   stage < timeline < background < sidebar < card < popover   (dark)
+ */
 :root {
+  color-scheme: light;
   --radius: 0.625rem;
-  --background: oklch(0.985 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.955 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.955 0 0);
-  --muted-foreground: oklch(0.52 0 0);
-  --accent: oklch(0.94 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.912 0 0);
-  --input: oklch(0.912 0 0);
-  --ring: oklch(0.708 0 0);
+
+  --background: #fafafb;
+  --foreground: #1e2127;
+  --card: #ffffff;
+  --card-foreground: #1e2127;
+  --popover: #ffffff;
+  --popover-foreground: #1e2127;
+  --primary: #3b7ae8;
+  --primary-foreground: #ffffff;
+  --secondary: #f0f1f4;
+  --secondary-foreground: #1e2127;
+  --muted: #f0f1f4;
+  --muted-foreground: #6b717d;
+  --accent: #ebecf0;
+  --accent-foreground: #1e2127;
+  --destructive: #d8434f;
+  --border: #e4e6ea;
+  --input: #dcdfe4;
+  --ring: #3b7ae8;
 
   /* Editor-specific tokens */
-  --brand: oklch(0.62 0.19 264);
-  --brand-foreground: oklch(0.985 0 0);
-  --playhead: oklch(0.63 0.22 25);
-  --clip-video: oklch(0.62 0.13 250);
-  --clip-audio: oklch(0.66 0.14 160);
-  --timeline: oklch(0.965 0 0);
-  --stage: oklch(0.93 0 0);
-  --sidebar: oklch(0.965 0 0);
+  --brand: #3b7ae8;
+  --brand-foreground: #ffffff;
+  --playhead: #e0505b;
+  --clip-video: #5a86d6;
+  --clip-audio: #3b9c7c;
+  --timeline: #f4f5f7;
+  --stage: #eceef1;
+  --sidebar: #f4f5f7;
 }
 
 .dark {
-  --background: oklch(0.16 0 0);
-  --foreground: oklch(0.96 0 0);
-  --card: oklch(0.2 0 0);
-  --card-foreground: oklch(0.96 0 0);
-  --popover: oklch(0.21 0 0);
-  --popover-foreground: oklch(0.96 0 0);
-  --primary: oklch(0.92 0 0);
-  --primary-foreground: oklch(0.2 0 0);
-  --secondary: oklch(0.26 0 0);
-  --secondary-foreground: oklch(0.96 0 0);
-  --muted: oklch(0.25 0 0);
-  --muted-foreground: oklch(0.68 0 0);
-  --accent: oklch(0.28 0 0);
-  --accent-foreground: oklch(0.96 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 13%);
-  --ring: oklch(0.556 0 0);
+  color-scheme: dark;
 
-  --brand: oklch(0.66 0.17 264);
-  --brand-foreground: oklch(0.985 0 0);
-  --playhead: oklch(0.68 0.2 25);
-  --clip-video: oklch(0.55 0.12 250);
-  --clip-audio: oklch(0.58 0.12 160);
-  --timeline: oklch(0.135 0 0);
-  --stage: oklch(0.1 0 0);
-  --sidebar: oklch(0.185 0 0);
+  --background: #16191d;
+  --foreground: #d5d9e0;
+  --card: #1b1e23;
+  --card-foreground: #d5d9e0;
+  --popover: #1e2126;
+  --popover-foreground: #d5d9e0;
+  --primary: #6aacf0;
+  --primary-foreground: #0f1216;
+  --secondary: #2a2d33;
+  --secondary-foreground: #d5d9e0;
+  --muted: #1f2227;
+  --muted-foreground: #878d98;
+  --accent: #23262c;
+  --accent-foreground: #e4e7ec;
+  --destructive: #e06c75;
+  --border: #25282e;
+  --input: #30343a;
+  --ring: #6aacf0;
+
+  --brand: #6aacf0;
+  --brand-foreground: #0f1216;
+  --playhead: #e06c75;
+  --clip-video: #4169ac;
+  --clip-audio: #2d7661;
+  --timeline: #131519;
+  --stage: #0f1114;
+  --sidebar: #181b1f;
+}
+
+@theme {
+  --font-sans: "DM Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 @theme inline {
@@ -108,8 +126,20 @@
     height: 100%;
   }
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background font-sans text-foreground antialiased;
     overflow: hidden;
-    font-feature-settings: "cv11", "ss01";
+    font-size: 14px;
+    letter-spacing: -0.005em;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--brand) 30%, transparent);
+  }
+  /* Quiet, thin scrollbars that only show their thumb. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--foreground) 14%, transparent) transparent;
+  }
+  kbd {
+    @apply font-sans;
   }
 }

@@ -22,7 +22,7 @@ const legacyAsset: Omit<MediaAsset, "projectId"> = {
 const legacyProject: Project = {
   ...createDefaultProject(),
   name: "My short",
-  settings: { aspectRatio: "1:1", fps: 30, background: "#112233" },
+  settings: { aspectRatio: "1:1", fps: 30, background: "#000000" },
   clips: [{ id: "clip_1", assetId: ASSET_ID, trackId: "main", start: 0, in: 1, out: 3, volume: 1, fit: "cover" }],
 };
 

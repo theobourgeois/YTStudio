@@ -1,7 +1,6 @@
 import { PiSpinnerGap } from "react-icons/pi";
 import { Header, SidebarLead } from "@/components/header/header";
 import { ThemeMenu } from "@/components/header/theme-menu";
-import { Inspector } from "@/components/inspector/inspector";
 import { MediaBin } from "@/components/media/media-bin";
 import { Preview } from "@/components/preview/preview";
 import { Timeline } from "@/components/timeline/timeline";
@@ -23,7 +22,6 @@ export function Workspace() {
         <div className="flex min-h-0 flex-1">
           <MediaBin />
           <Preview />
-          <Inspector />
         </div>
         <Timeline />
       </div>
@@ -32,7 +30,7 @@ export function Workspace() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-card px-3">
+      <header className="flex h-13 shrink-0 items-center gap-2 border-b bg-background px-3">
         <SidebarLead />
         <div className="ml-auto">
           <ThemeMenu />

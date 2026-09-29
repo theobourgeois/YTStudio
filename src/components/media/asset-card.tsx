@@ -12,6 +12,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setAssetDragData } from "@/lib/dnd";
 import { cn } from "@/lib/utils";
+import { useSourcePreview } from "@/stores/source-preview";
 import { decorativePeaks } from "./media-utils";
 
 interface AssetCardProps {
@@ -30,6 +31,7 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
   // "error" only means thumbnails/waveform couldn't be generated; the media itself is fine.
   const previewsFailed = asset.status === "error";
   const usable = asset.duration > 0;
+  const previewing = useSourcePreview((s) => s.assetId === asset.id);
 
   const onDragStart = (e: DragEvent) => {
     setAssetDragData(e.dataTransfer, { assetIds: [asset.id] });
@@ -47,12 +49,13 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
       className={cn(
         "group relative flex min-w-0 flex-col gap-1.5 rounded-lg p-1 outline-none",
         "focus-visible:ring-2 focus-visible:ring-ring/60",
-        usable && "cursor-grab active:cursor-grabbing",
+        usable && "cursor-pointer active:cursor-grabbing",
       )}
       draggable={usable}
       tabIndex={0}
       title={previewsFailed ? `${asset.name}\n${asset.error ?? "Couldn't generate previews"}` : asset.name}
       onDragStart={onDragStart}
+      onClick={() => usable && useSourcePreview.getState().open(asset.id)}
       onDoubleClick={() => usable && onAdd()}
       onKeyDown={(e) => {
         if (e.key === "Enter" && e.target === e.currentTarget && usable) onAdd();
@@ -60,7 +63,10 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
     >
       <div
         ref={thumbRef}
-        className="relative aspect-video overflow-hidden rounded-md bg-muted ring-1 ring-border ring-inset"
+        className={cn(
+          "relative aspect-video overflow-hidden rounded-md bg-muted ring-1 ring-border ring-inset",
+          previewing && "ring-2 ring-brand",
+        )}
       >
         <Thumbnail asset={asset} />
 
@@ -101,6 +107,8 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
           "absolute top-2 right-2 flex gap-1 opacity-0 transition-opacity",
           "group-focus-within:opacity-100 group-hover:opacity-100 has-data-[state=open]:opacity-100",
         )}
+        // Menu items are portalled but still bubble here through React; keep them from opening the preview.
+        onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
       >
         {usable && (

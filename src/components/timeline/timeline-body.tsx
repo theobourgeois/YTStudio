@@ -62,7 +62,7 @@ export function TimelineBody() {
   return (
     <div
       ref={ctx.scrollerRef}
-      className="relative min-h-0 flex-1 overflow-auto overscroll-none [scrollbar-width:thin]"
+      className="relative min-h-0 flex-1 overflow-auto overscroll-none "
       {...drop}
     >
       <div className="relative flex min-h-full flex-col" style={{ width: HEADER_WIDTH + width }}>

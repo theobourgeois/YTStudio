@@ -681,9 +681,8 @@ export function normalizeProject(
         ? input.settings.aspectRatio
         : base.settings.aspectRatio,
       fps: clamp(Math.round(Number(input?.settings?.fps) || base.settings.fps), 1, 120),
-      background: /^#[0-9a-f]{6}$/i.test(input?.settings?.background ?? "")
-        ? input.settings.background
-        : base.settings.background,
+      // There's no UI to pick a canvas colour any more; it's always black.
+      background: base.settings.background,
     },
     tracks,
     clips: [],
