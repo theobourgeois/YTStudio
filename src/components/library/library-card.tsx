@@ -20,7 +20,7 @@ import { libraryItemCover, libraryItemDuration } from "@shared/library";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { AudioTile } from "@/components/media/asset-card";
+import { AudioTile, MarkedRangeBar } from "@/components/media/asset-card";
 import { HoverScrub, useHoverX } from "@/components/media/hover-scrub";
 import { type MenuKit, contextKit, dropdownKit } from "@/components/menu-kit";
 import { setLibraryDragData } from "@/lib/dnd";
@@ -117,6 +117,7 @@ export function LibraryCard({ item, media, location, onRename, onDelete }: Libra
                 </span>
               </>
             )}
+            {item.kind === "media" && cover && !audio.playing && <MarkedRangeBar asset={cover} />}
             {item.favorite && !audio.playing && (
               <PiStarFill className="absolute top-1.5 left-1.5 size-3.5 text-amber-400 drop-shadow-[0_1px_1px_rgb(0_0_0/0.6)]" />
             )}

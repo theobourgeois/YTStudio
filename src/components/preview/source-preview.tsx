@@ -1,28 +1,37 @@
-import { useEffect, useRef, useState } from "react";
+import { type DragEvent, useEffect, useRef, useState } from "react";
 import { PiMusicNotes, PiPauseFill, PiPlayFill, PiPlus, PiX } from "react-icons/pi";
+import { useShallow } from "zustand/react/shallow";
 import type { MediaAsset } from "@shared/types";
 import { formatTime } from "@shared/format";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "cn";
+import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
+import { setAssetDragData, setLibraryDragData } from "@/lib/dnd";
+import type { MarkSide } from "@/lib/source-marks";
 import { useEditor } from "@/stores/editor";
 import { useLibrary } from "@/stores/library";
+import { assetMarkedRange, useSourceMarks } from "@/stores/source-marks";
 import { useSourcePreview } from "@/stores/source-preview";
+import { SourceTrimmer } from "./source-trimmer";
+import { ShortcutHint, TransportButton } from "./transport";
 
-/** A roomy scrubber: the whole strip seeks, the track thickens and the thumb appears on hover. */
-const scrubberClass = cn(
-  "py-2.5",
-  "[&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:transition-[height] hover:[&_[data-slot=slider-track]]:h-1.5",
-  "[&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:transition-opacity hover:[&_[data-slot=slider-thumb]]:opacity-100 [&_[data-slot=slider-thumb]:focus-visible]:opacity-100",
-);
-
-/** Shows one media or Library file on its own, in place of the timeline preview. */
+/**
+ * Shows one media or Library file on its own, in place of the timeline preview (Premiere's
+ * Source Monitor). A video or sound can be trimmed first with In/Out marks: only the marked
+ * part goes on the timeline.
+ */
 export function SourcePreview({ asset }: { asset: MediaAsset }) {
   return asset.kind === "image" ? <StillPreview asset={asset} /> : <PlayingPreview asset={asset} />;
 }
 
 const close = () => useSourcePreview.getState().close();
+
+/** Drag the file itself onto the timeline (its marked part), from the picture. */
+function dragSource(e: DragEvent, asset: MediaAsset) {
+  const itemId = useSourcePreview.getState().libraryItemId;
+  if (itemId) setLibraryDragData(e.dataTransfer, itemId);
+  else setAssetDragData(e.dataTransfer, { assetIds: [asset.id] });
+}
 
 function StillPreview({ asset }: { asset: MediaAsset }) {
   return (
@@ -32,7 +41,9 @@ function StillPreview({ asset }: { asset: MediaAsset }) {
         <img
           src={asset.src}
           alt={asset.name}
-          draggable={false}
+          draggable
+          title="Drag onto the timeline"
+          onDragStart={(e) => dragSource(e, asset)}
           className="max-h-full max-w-full min-h-0 rounded-lg bg-[repeating-conic-gradient(var(--color-muted)_0_25%,transparent_0_50%)] bg-size-[16px_16px] object-contain shadow-xl ring-1 shadow-black/20 ring-black/10 dark:ring-white/10"
         />
       </div>
@@ -72,6 +83,7 @@ function PreviewBadge({ name }: { name: string }) {
 }
 
 function SourceActions({ asset }: { asset: MediaAsset }) {
+  const marked = useSourceMarks((s) => assetMarkedRange(asset, s.marks) !== null);
   const add = () => {
     const itemId = useSourcePreview.getState().libraryItemId;
     if (itemId) void useLibrary.getState().addToTimeline(itemId);
@@ -84,6 +96,7 @@ function SourceActions({ asset }: { asset: MediaAsset }) {
           variant="outline"
           size="sm"
           className="h-7 px-2.5 text-xs"
+          title={marked ? "Adds the part between In and Out" : undefined}
           onClick={add}
         >
           <PiPlus />
@@ -119,6 +132,7 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
         el.currentTime = clamp(el.currentTime + s);
       },
       duration: () => el.duration || fallbackDuration,
+      time: () => el.currentTime,
     };
     useSourcePreview.getState().setController(controller);
     // Opened from a click, so autoplay is allowed.
@@ -151,11 +165,19 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
           <video
             {...mediaProps}
             playsInline
+            draggable
+            title="Click to play or pause, drag onto the timeline"
+            onDragStart={(e) => dragSource(e, asset)}
             onClick={() => controller()?.toggle()}
             className="max-h-full max-w-full min-h-0 cursor-pointer rounded-lg bg-black shadow-xl ring-1 shadow-black/20 ring-black/10 dark:ring-white/10"
           />
         ) : (
-          <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border bg-card px-8 py-10 text-center">
+          <div
+            draggable
+            title="Drag onto the timeline"
+            onDragStart={(e) => dragSource(e, asset)}
+            className="flex w-full max-w-sm cursor-grab flex-col items-center gap-4 rounded-xl border bg-card px-8 py-10 text-center"
+          >
             <span className="grid size-14 place-items-center rounded-full bg-clip-audio/15 text-clip-audio">
               <PiMusicNotes className="size-6" />
             </span>
@@ -168,33 +190,99 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
       </div>
 
       <div className="px-4">
-        <Slider
-          aria-label="Preview position"
-          className={scrubberClass}
-          min={0}
-          max={Math.max(duration, 0.01)}
-          step={0.01}
-          value={[time]}
-          onValueChange={([t]) => controller()?.seek(t)}
-        />
+        <SourceTrimmer asset={asset} time={time} duration={duration} />
       </div>
 
-      <div className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-4">
-        <div className="font-mono text-xs tabular-nums">
-          <span className="text-foreground">{formatTime(time)}</span>
-          <span className="px-1.5 text-muted-foreground/60">/</span>
-          <span className="text-muted-foreground">{formatTime(duration)}</span>
+      <div className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 px-4">
+        <div className="flex min-w-0 items-center gap-3 font-mono text-xs tabular-nums">
+          <span className="shrink-0">
+            <span className="text-foreground">{formatTime(time)}</span>
+            <span className="px-1.5 text-muted-foreground/60">/</span>
+            <span className="text-muted-foreground">{formatTime(duration)}</span>
+          </span>
+          <MarkedRange asset={asset} duration={duration} />
         </div>
-        <Button
-          size="icon"
-          className="size-9 rounded-full bg-foreground text-background inset-shadow-none hover:bg-foreground/85"
-          aria-label={playing ? "Pause preview" : "Play preview"}
-          onClick={() => controller()?.toggle()}
-        >
-          {playing ? <PiPauseFill /> : <PiPlayFill />}
-        </Button>
+        <div className="flex items-center gap-1">
+          <MarkButton side="in" asset={asset} />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                className="mx-1.5 size-9 rounded-full bg-foreground text-background inset-shadow-none hover:bg-foreground/85"
+                aria-label={playing ? "Pause preview" : "Play preview"}
+                onClick={() => controller()?.toggle()}
+              >
+                {playing ? <PiPauseFill /> : <PiPlayFill />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <ShortcutHint label={playing ? "Pause" : "Play"} shortcut="Space" />
+            </TooltipContent>
+          </Tooltip>
+          <MarkButton side="out" asset={asset} />
+        </div>
         <SourceActions asset={asset} />
       </div>
     </>
+  );
+}
+
+/** Mark In or Out where the preview is (like the I and O keys). */
+function MarkButton({ side, asset }: { side: MarkSide; asset: MediaAsset }) {
+  const mark = () => {
+    const source = useSourcePreview.getState().controller;
+    if (source) useSourceMarks.getState().mark(asset.id, side, source.time(), source.duration());
+  };
+  return (
+    <TransportButton
+      label={side === "in" ? "Mark In" : "Mark Out"}
+      shortcut={side === "in" ? SHORTCUT_KEYS.markIn : SHORTCUT_KEYS.markOut}
+      disabled={false}
+      onClick={mark}
+    >
+      <MarkIcon side={side} />
+    </TransportButton>
+  );
+}
+
+/** Premiere's brackets: `{` marks In, `}` marks Out. */
+function MarkIcon({ side }: { side: MarkSide }) {
+  return (
+    <svg viewBox="0 0 256 256" fill="none" stroke="currentColor" strokeWidth={20} strokeLinecap="round" strokeLinejoin="round">
+      {side === "in" ? (
+        <path d="M152 40h-24c-24 0-32 12-32 32v32c0 16-8 24-32 24 24 0 32 8 32 24v32c0 20 8 32 32 32h24" />
+      ) : (
+        <path d="M104 40h24c24 0 32 12 32 32v32c0 16 8 24 32 24-24 0-32 8-32 24v32c0 20-8 32-32 32h-24" />
+      )}
+    </svg>
+  );
+}
+
+/** How long the marked part is, and a way to clear the marks. */
+function MarkedRange({ asset, duration }: { asset: MediaAsset; duration: number }) {
+  const range = useSourceMarks(useShallow((s) => assetMarkedRange({ ...asset, duration }, s.marks)));
+  if (!range) return null;
+  return (
+    <span
+      className="flex min-w-0 items-center gap-1 rounded-full bg-brand/15 py-0.5 pr-0.5 pl-2 text-brand"
+      title={`In ${formatTime(range.in)} · Out ${formatTime(range.out)}`}
+    >
+      <span className="truncate">{formatTime(range.out - range.in)}</span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="Clear In and Out"
+            onClick={() => useSourceMarks.getState().clear(asset.id)}
+            className="grid size-4 shrink-0 cursor-pointer place-items-center rounded-full transition-colors outline-none hover:bg-brand/20 focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <PiX className="size-2.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          <ShortcutHint label="Clear In and Out" shortcut={SHORTCUT_KEYS.clearMarks} />
+        </TooltipContent>
+      </Tooltip>
+    </span>
   );
 }

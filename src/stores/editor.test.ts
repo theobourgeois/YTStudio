@@ -14,6 +14,7 @@ vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }))
 
 const { useEditor } = await import("./editor");
 const { usePlayback } = await import("./playback");
+const { useSourceMarks } = await import("./source-marks");
 
 function asset(id: string, duration: number, kind: "video" | "audio" = "video"): MediaAsset {
   return {
@@ -38,9 +39,21 @@ beforeEach(() => {
     clipboard: [],
   });
   usePlayback.getState().seek(0);
+  useSourceMarks.setState({ marks: {} });
 });
 
 describe("editor store", () => {
+  it("adds only the part of a file between its In and Out marks", () => {
+    useSourceMarks.getState().mark("b", "in", 0.5, 3);
+    useSourceMarks.getState().mark("b", "out", 2, 3);
+    const [a, b] = store().addAssetsToTimeline(["a", "b"]);
+    expect(getClip(store().project, a)).toMatchObject({ in: 0, out: 2, start: 0 });
+    expect(getClip(store().project, b)).toMatchObject({ in: 0.5, out: 2, start: 2 });
+    // Ranges given explicitly win over the marks.
+    const [whole] = store().addAssetsToTimeline(["b"], { ranges: {} });
+    expect(getClip(store().project, whole)).toMatchObject({ in: 0, out: 3 });
+  });
+
   it("routes assets to the right tracks as one undo step", () => {
     store().addAssetsToTimeline(["a", "song", "b"]);
     expect(mainIds()).toEqual(["a", "b"]);

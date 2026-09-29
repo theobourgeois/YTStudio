@@ -18,6 +18,11 @@ export type ShortcutAction =
   | "nextKeyframe"
   | "seekStart"
   | "seekEnd"
+  | "markIn"
+  | "markOut"
+  | "goToIn"
+  | "goToOut"
+  | "clearMarks"
   | "split"
   | "trimStart"
   | "trimEnd"
@@ -121,8 +126,10 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
   return null;
 }
 
-/** Alt/⌥ + arrows: nudge the selection in time, or move it between tracks. */
+/** Alt/⌥ + arrows: nudge the selection in time, or move it between tracks. ⌥X clears In and Out. */
 function resolveAlt(e: KeyLike): ShortcutAction | null {
+  // ⌥ changes `key` on a Mac (⌥X is "≈"), so this goes by the physical key.
+  if (e.code === "KeyX" && !e.shiftKey) return "clearMarks";
   switch (e.key) {
     case "ArrowLeft":
       return e.shiftKey ? "nudgeLeftMore" : "nudgeLeft";
@@ -166,7 +173,17 @@ function resolvePlain(e: KeyLike): ShortcutAction | null {
     case "Delete":
       return e.shiftKey ? "rippleDelete" : "delete";
   }
-  if (e.shiftKey) return e.key === "Z" ? "zoomFit" : null;
+  if (e.shiftKey) {
+    switch (e.key.toUpperCase()) {
+      case "Z":
+        return "zoomFit";
+      case "I":
+        return "goToIn";
+      case "O":
+        return "goToOut";
+    }
+    return null;
+  }
   switch (e.key.toLowerCase()) {
     case " ":
       return "togglePlay";
@@ -186,6 +203,11 @@ function resolvePlain(e: KeyLike): ShortcutAction | null {
       return "selectTool";
     case "t":
       return "textTool";
+    // Premiere's Mark In / Mark Out (in the source preview).
+    case "i":
+      return "markIn";
+    case "o":
+      return "markOut";
     case "\\":
       return "zoomFit";
     case "home":
@@ -220,6 +242,11 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   nextKeyframe: "]",
   seekStart: "Home",
   seekEnd: "End",
+  markIn: "I",
+  markOut: "O",
+  goToIn: `${SHIFT}I`,
+  goToOut: `${SHIFT}O`,
+  clearMarks: `${ALT}X`,
   split: "S",
   trimStart: "Q",
   trimEnd: "W",
@@ -272,6 +299,15 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Previous / next edit point", keys: ["↑", "↓"] },
       { label: "Previous / next keyframe of the selected clip", keys: ["[", "]"] },
       { label: "Go to start / end", keys: ["Home", "End"] },
+    ],
+  },
+  {
+    title: "Source preview (click a media file)",
+    items: [
+      { label: "Mark In / Out (the part to add)", keys: ["I", "O"] },
+      { label: "Go to In / Out", keys: [`${SHIFT}I`, `${SHIFT}O`] },
+      { label: "Clear In and Out", keys: [`${ALT}X`] },
+      { label: "Back to the timeline", keys: ["Esc"] },
     ],
   },
   {

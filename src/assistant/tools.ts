@@ -19,6 +19,7 @@ import { api } from "@/lib/api";
 import { useAssistant } from "@/stores/assistant";
 import { type CaptionOptions, captionsFor, useCaptions } from "@/stores/captions";
 import { placeAssets, useEditor } from "@/stores/editor";
+import { assetMarkedRange } from "@/stores/source-marks";
 import { useLibrary } from "@/stores/library";
 import { usePlayback } from "@/stores/playback";
 import {
@@ -174,7 +175,7 @@ const TOOLS: Record<ToolName, Handler> = {
   },
   async list_media(_input, ctx) {
     const doc = await ctx.doc();
-    return textResult(describeMedia(doc.project, [...doc.assets]));
+    return textResult(describeMedia(doc.project, [...doc.assets], (a) => assetMarkedRange(a)));
   },
   async view_frames(input, ctx) {
     const doc = await ctx.doc();
@@ -522,7 +523,8 @@ const TOOLS: Record<ToolName, Handler> = {
     const opts = { at: optNumber(input, "start") ?? doc.playhead, ...(optString(input, "trackId") && { trackId: optString(input, "trackId") }) };
     let item;
     if (doc.isOpen) {
-      item = await useEditor.getState().addLibraryItem(itemId, opts);
+      // Whole files, as for a video that isn't open (not the user's In/Out marks).
+      item = await useEditor.getState().addLibraryItem(itemId, { ...opts, ranges: {} });
       if (!item) throw new ToolError("It couldn't be added (see the message in the app). Check the id with get_library.");
     } else {
       const used = await api.useLibraryItem(itemId, { projectId: doc.projectId });

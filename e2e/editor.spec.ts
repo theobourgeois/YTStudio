@@ -368,6 +368,40 @@ test("video settings dialog, clip volume and previewing a library file", async (
   await page.mouse.move(700, 300);
   await page.keyboard.press("Space");
   await expect(page.getByRole("button", { name: "Play preview" })).toBeVisible();
+
+  // Mark In at 1s and Out at 3s (I, O): only that part goes on the timeline.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("i");
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("o");
+  const preview = page.getByRole("region", { name: "Preview", exact: true });
+  await expect(preview.getByRole("button", { name: "Clear In and Out" })).toBeVisible();
+  await expect(card.locator("[title^='Only the part']")).toBeVisible(); // the card shows the marked part
+  const clipsBefore = new Set(((await savedProject(page)).clips as SavedClip[]).map((c) => c.id));
+  await preview.getByRole("button", { name: "Add to timeline" }).click();
+  await expect.poll(async () => ((await savedProject(page)).clips as SavedClip[]).length).toBe(clipsBefore.size + 1);
+  const trimmed = ((await savedProject(page)).clips as SavedClip[]).find((c) => !clipsBefore.has(c.id))!;
+  expect(trimmed.in).toBeCloseTo(1, 1);
+  expect(trimmed.out).toBeCloseTo(3, 1);
+  // Undone, so the tests after this one find the timeline as they left it.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => ((await savedProject(page)).clips as SavedClip[]).length).toBe(clipsBefore.size);
+  // ⌥X clears them.
+  await page.keyboard.press("Alt+KeyX");
+  await expect(preview.getByRole("button", { name: "Clear In and Out" })).toHaveCount(0);
+  // Dragging the trimmer's Out handle halfway along keeps the first half.
+  const strip = (await position.boundingBox())!;
+  const outHandle = (await preview.locator("[data-mark=out]").boundingBox())!;
+  await page.mouse.move(outHandle.x + outHandle.width / 2, outHandle.y + outHandle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(strip.x + strip.width / 2, outHandle.y + outHandle.height / 2, { steps: 5 });
+  await page.mouse.up();
+  // About 2.5s of the 5s file (the chip's tooltip says where the marks are).
+  await expect(preview.locator("[title^='In 0:00.00']")).toHaveAttribute("title", /Out 0:02\.[3-7]\d$/);
+  await page.keyboard.press("Alt+KeyX");
+
   await page.keyboard.press("Escape");
   await expect(position).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();

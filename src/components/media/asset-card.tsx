@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type DragEvent } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   PiBooks,
   PiDotsThree,
@@ -21,6 +22,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { setAssetDragData } from "@/lib/dnd";
 import { cn } from "cn";
 import { useLibrary } from "@/stores/library";
+import { assetMarkedRange, useSourceMarks } from "@/stores/source-marks";
 import { useSourcePreview } from "@/stores/source-preview";
 import { HoverScrub, useHoverX } from "./hover-scrub";
 import { decorativePeaks } from "./media-utils";
@@ -121,6 +123,8 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
                 <PiSpinnerGap className="size-3 animate-spin" />
               </span>
             )}
+
+            <MarkedRangeBar asset={asset} />
 
             {uses > 0 && (
               <span
@@ -240,6 +244,18 @@ function Thumbnail({ asset }: { asset: MediaAsset }) {
     );
   }
   return <AudioTile seed={asset.id} />;
+}
+
+/** Where a file's In/Out marks are, along the bottom of its thumbnail: only that part gets added. */
+export function MarkedRangeBar({ asset }: { asset: MediaAsset }) {
+  const range = useSourceMarks(useShallow((s) => assetMarkedRange(asset, s.marks)));
+  if (!range) return null;
+  const pct = (t: number) => `${(t / asset.duration) * 100}%`;
+  return (
+    <span className="absolute inset-x-0 bottom-0 h-1 bg-black/45" title="Only the part between In and Out is added">
+      <span className="absolute inset-y-0 bg-brand" style={{ left: pct(range.in), width: pct(range.out - range.in) }} />
+    </span>
+  );
 }
 
 /** A decorative waveform tile for sound-only media. */

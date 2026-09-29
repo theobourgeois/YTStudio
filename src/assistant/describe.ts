@@ -187,7 +187,12 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
 }
 
 /** The video's media files (see `list_media`). */
-export function describeMedia(project: Project, assets: readonly MediaAsset[]): string {
+/** `marked`: the part of a file the user marked with In/Out in the source preview, if any. */
+export function describeMedia(
+  project: Project,
+  assets: readonly MediaAsset[],
+  marked: (asset: MediaAsset) => { in: number; out: number } | null = () => null,
+): string {
   if (assets.length === 0) return "No media imported yet. Import files with import_media (paths on this computer or URLs).";
   return assets
     .map((a) => {
@@ -198,7 +203,9 @@ export function describeMedia(project: Project, assets: readonly MediaAsset[]): 
       const sound = a.kind === "video" ? (a.hasAudio ? ", has sound" : ", silent") : "";
       const status = a.status === "error" ? ` · UNUSABLE: ${a.error ?? "couldn't be read"}` : "";
       const used = uses.length ? ` · on the timeline ${uses.length}× (${uses.slice(0, 6).join(", ")}${uses.length > 6 ? "…" : ""})` : " · not used";
-      return `${a.id}  ${quote(a.name, 56)}  ${a.kind}${picture}${fps} ${length}${sound}${status}${used}`;
+      const range = marked(a);
+      const marks = range ? ` · the user marked ${secs(range.in)}–${secs(range.out)}s (In/Out: use it as add_clips in/out)` : "";
+      return `${a.id}  ${quote(a.name, 56)}  ${a.kind}${picture}${fps} ${length}${sound}${status}${used}${marks}`;
     })
     .join("\n");
 }

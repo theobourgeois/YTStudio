@@ -10,6 +10,8 @@ export interface SourceController {
   /** Relative seek in seconds. */
   step: (seconds: number) => void;
   duration: () => number;
+  /** Where it is now (seconds). */
+  time: () => number;
 }
 
 /**

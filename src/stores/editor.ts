@@ -56,6 +56,7 @@ import { api } from "@/lib/api";
 import { pollProcessingAssets, pollWebDownload, requestReversedCopies } from "./asset-polling";
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
+import { assetMarkedRange, useSourceMarks } from "./source-marks";
 
 export { discardPendingSave, flushAutosave, onProjectSaved, queueSave } from "./autosave";
 
@@ -178,6 +179,7 @@ interface EditorState {
    *   sound only on the top audio track (created when there's none).
    * - `at` = timeline time of the first clip's left edge (the rest follow it). Without
    *   it, clips are appended after a video track's last clip, or start at 0 on audio.
+   * - A file with In/Out marks (set in the source preview) adds only the marked part.
    * Returns the ids of the created clips.
    */
   addAssetsToTimeline: (assetIds: string[], opts?: AddToTimelineOptions) => string[];
@@ -236,6 +238,11 @@ export interface AddToTimelineOptions {
    * compatible assets go on a new video track on top, or a new audio track at the bottom.
    */
   newTrack?: "above" | "below";
+  /**
+   * The part of each file to use (source seconds, by asset id); the rest use all of theirs.
+   * `addAssetsToTimeline` defaults it to the files' In/Out marks (`useSourceMarks`).
+   */
+  ranges?: Record<string, { in: number; out: number }>;
 }
 
 let openToken = 0;
@@ -506,7 +513,13 @@ export const useEditor = create<EditorState>((set, get) => ({
       });
       get().setSelection(clipIds);
     } else {
-      get().addAssetsToTimeline(used.assets.map((a) => a.id), opts);
+      // The marks were set on the Library's copy of the file.
+      const ranges: Record<string, { in: number; out: number }> = {};
+      for (const a of used.assets) {
+        const range = assetMarkedRange(a) ?? (a.origin ? assetMarkedRange({ ...a, id: a.origin }) : null);
+        if (range) ranges[a.id] = range;
+      }
+      get().addAssetsToTimeline(used.assets.map((a) => a.id), { ranges, ...opts });
     }
     pollProcessingAssets(useEditor);
     return used.item;
@@ -527,6 +540,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       assets: get().assets.filter((a) => a.id !== assetId),
       ...rewriteHistory(get(), (p) => removeAssetClips(p, assetId)),
     });
+    useSourceMarks.getState().clear(assetId);
     fixSelection();
   },
 
@@ -548,9 +562,10 @@ export const useEditor = create<EditorState>((set, get) => ({
       .map((id) => get().getAsset(id))
       .filter((a): a is MediaAsset => !!a && a.duration > 0);
     if (assets.length === 0) return [];
+    const ranges = opts.ranges ?? markedRanges(assets);
     let created: string[] = [];
     get().commit((project) => {
-      const placed = placeAssets(project, assets, opts);
+      const placed = placeAssets(project, assets, { ...opts, ranges });
       created = placed.clipIds;
       return placed.project;
     });
@@ -800,13 +815,14 @@ export function placeAssets(project: Project, assets: MediaAsset[], opts: AddToT
   const cursor = new Map<string, number>();
   for (const asset of assets) {
     const trackId = destination(asset);
+    const range = opts.ranges?.[asset.id];
     const clip: Clip = {
       id: createId("clip"),
       assetId: asset.id,
       trackId,
       start: 0,
-      in: 0,
-      out: asset.duration,
+      in: range?.in ?? 0,
+      out: range?.out ?? asset.duration,
       effects: defaultEffects(),
     };
     const at = cursor.get(trackId) ?? opts.at;
@@ -819,6 +835,16 @@ export function placeAssets(project: Project, assets: MediaAsset[], opts: AddToT
     created.push(clip.id);
   }
   return { project: p, clipIds: created };
+}
+
+/** The marked part of each of `assets` that has In/Out marks. */
+function markedRanges(assets: MediaAsset[]): Record<string, { in: number; out: number }> {
+  const ranges: Record<string, { in: number; out: number }> = {};
+  for (const a of assets) {
+    const range = assetMarkedRange(a);
+    if (range) ranges[a.id] = range;
+  }
+  return ranges;
 }
 
 /**
