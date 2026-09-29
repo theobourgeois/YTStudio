@@ -7,6 +7,19 @@ const ID_RE = /^[a-z]{2,8}_[0-9a-f]{12}$/;
 
 export const isValidId = (id: unknown): id is string => typeof id === "string" && ID_RE.test(id);
 
+export const isObject = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object" && !Array.isArray(v);
+
+const MAX_NAME_LENGTH = 200;
+
+/** A user-given name (project, Library folder...): one line, trimmed. Throws `HttpError(400)`. */
+export function parseName(raw: unknown): string {
+  if (typeof raw !== "string") throw new HttpError(400, "The name must be a string.");
+  const name = raw.replace(/[\u0000-\u001f]/g, "").trim().slice(0, MAX_NAME_LENGTH);
+  if (!name) throw new HttpError(400, "The name can't be empty.");
+  return name;
+}
+
 export class HttpError extends Error {
   constructor(
     readonly status: number,
@@ -36,15 +49,21 @@ export class DataPaths {
   get music() {
     return path.join(this.root, "music");
   }
+  /** The Library shared by every project: `library.json` (folders and items) and `media/<id>/`. */
+  get library() {
+    return path.join(this.root, "library");
+  }
+  get libraryMedia() {
+    return path.join(this.library, "media");
+  }
+  get libraryFile() {
+    return path.join(this.library, "library.json");
+  }
   /** The single project saved before multi-project support (migrated on startup). */
   get legacyProject() {
     return path.join(this.root, "project.json");
   }
 
-  mediaDir(id: string) {
-    if (!isValidId(id)) throw new HttpError(400, "Invalid media id");
-    return path.join(this.media, id);
-  }
   projectDir(id: string) {
     if (!isValidId(id)) throw new HttpError(400, "Invalid project id");
     return path.join(this.projects, id);
@@ -58,7 +77,7 @@ export class DataPaths {
   }
 
   async init() {
-    await Promise.all([this.media, this.projects, this.exports, this.music].map((d) => fs.mkdir(d, { recursive: true })));
+    await Promise.all([this.media, this.projects, this.exports, this.music, this.libraryMedia].map((d) => fs.mkdir(d, { recursive: true })));
     // Anything left in tmp belongs to an upload or render that died with the server.
     await fs.rm(this.tmp, { recursive: true, force: true });
     await fs.mkdir(this.tmp, { recursive: true });

@@ -5,11 +5,16 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { defaultEffects } from "../shared/effects.ts";
+import { defaultEffects, textEffects } from "../shared/effects.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import type {
   Clip,
   ExportJob,
+  Library,
+  LibraryEntry,
+  LibraryFolder,
+  LibraryItem,
+  UseLibraryItemResponse,
   MediaAsset,
   ParamValues,
   Project,
@@ -586,5 +591,190 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect((await api(`/api/media/${id}`, { method: "DELETE" })).status).toBe(404);
     expect((await api("/api/media/..%2F..%2Fetc")).status).toBe(404);
     expect(existsSync(path.join(dataDir, "media", id))).toBe(false);
+  });
+
+  describe("library", () => {
+    const folders: Record<string, LibraryFolder> = {};
+    const items: Record<string, LibraryItem> = {};
+    let project: ProjectSummary;
+    let video: MediaAsset;
+    const library = () => json<Library>("/api/library");
+    const ready = (url: string) =>
+      until(async () => {
+        const a = await json<MediaAsset>(url);
+        return a.status === "processing" ? undefined : a;
+      });
+    const useItem = async (id: string, projectId = project.id) => {
+      const res = await sendJson("POST", `/api/library/items/${id}/use`, { projectId });
+      expect(res.status).toBe(200);
+      return (await res.json()) as UseLibraryItemResponse;
+    };
+
+    it("starts empty and organises folders", async () => {
+      expect(await library()).toEqual({ folders: [], items: [], media: [] });
+      const create = async (name: unknown, parentId?: string) =>
+        sendJson("POST", "/api/library/folders", { name, parentId });
+
+      let res = await create(" Sound effects ");
+      expect(res.status).toBe(201);
+      folders.sfx = (await res.json()) as LibraryFolder;
+      expect(folders.sfx).toMatchObject({ name: "Sound effects", parentId: null });
+      folders.whooshes = (await (await create("Whooshes", folders.sfx.id)).json()) as LibraryFolder;
+      folders.logos = (await (await create("Logos")).json()) as LibraryFolder;
+
+      expect((await create("")).status).toBe(400);
+      expect((await create("x", "folder_000000000000")).status).toBe(404);
+
+      res = await sendJson("PATCH", `/api/library/folders/${folders.sfx.id}`, { parentId: folders.whooshes.id });
+      expect(res.status).toBe(400);
+      res = await sendJson("PATCH", `/api/library/folders/${folders.logos.id}`, { name: "Brand" });
+      expect(((await res.json()) as LibraryFolder).name).toBe("Brand");
+      expect((await library()).folders).toHaveLength(3);
+    });
+
+    it("imports files into a folder, processed like project media", async () => {
+      const res = await api(`/api/library/items?folderId=${folders.whooshes.id}&name=whoosh.m4a`, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: readFileSync(fixtures["tone.m4a"]),
+      });
+      expect(res.status).toBe(201);
+      const { item, media } = (await res.json()) as LibraryEntry;
+      items.whoosh = item;
+      expect(item).toMatchObject({ kind: "media", name: "whoosh.m4a", folderId: folders.whooshes.id, usedAt: null, favorite: false });
+      expect(media[0]).toMatchObject({ projectId: null, kind: "audio" });
+      expect(media[0].src).toBe(`/files/library/${media[0].id}/source.m4a`);
+      expect((await api(media[0].src)).status).toBe(200);
+      const done = await ready(`/api/library/media/${media[0].id}`);
+      expect(done.waveform).toBe(`/files/library/${media[0].id}/waveform.json`);
+      // Library files aren't anyone's project media.
+      expect((await api(`/api/media/${media[0].id}`)).status).toBe(404);
+    });
+
+    it("adds project media to the Library once", async () => {
+      project = (await (await sendJson("POST", "/api/projects", { name: "Library test" })).json()) as ProjectSummary;
+      video = (await (await upload(fixtures["landscape.mp4"], project.id)).json()) as MediaAsset;
+      video = await ready(`/api/media/${video.id}`);
+
+      const res = await sendJson("POST", "/api/library/items/media", { assetId: video.id, folderId: folders.logos.id });
+      expect(res.status).toBe(201);
+      const { item, media } = (await res.json()) as LibraryEntry;
+      items.video = item;
+      expect(media[0]).toMatchObject({ projectId: null, origin: video.id, status: "ready", kind: "video" });
+      // Its previews come along instead of being generated again.
+      expect(media[0].filmstrip?.urlPattern).toBe(`/files/library/${media[0].id}/frames/{i}.jpg`);
+      expect((await api(media[0].filmstrip!.urlPattern.replace("{i}", "001"))).status).toBe(200);
+      expect((await api(media[0].poster!)).status).toBe(200);
+
+      // Adding it again makes another item for the same file.
+      const again = (await (await sendJson("POST", "/api/library/items/media", { assetId: video.id })).json()) as LibraryEntry;
+      expect(again.item.id).not.toBe(item.id);
+      expect(again.media[0].id).toBe(media[0].id);
+      expect((await api(`/api/library/items/${again.item.id}`, { method: "DELETE" })).status).toBe(204);
+      expect((await api(media[0].src)).status).toBe(200); // still used by the first item
+
+      expect((await sendJson("POST", "/api/library/items/media", { assetId: "media_000000000000" })).status).toBe(404);
+    });
+
+    it("copies an item's media into a project when it's used, once", async () => {
+      // The video came from this project: its original is reused.
+      let used = await useItem(items.video.id);
+      expect(used.assets.map((a) => a.id)).toEqual([video.id]);
+      expect(used.template).toBeNull();
+      expect(used.item.usedAt).toBeGreaterThan(0);
+
+      used = await useItem(items.whoosh.id);
+      const copy = used.assets[0];
+      expect(copy).toMatchObject({ projectId: project.id, name: "whoosh.m4a", status: "ready", kind: "audio" });
+      expect(copy.waveform).toBe(`/files/media/${copy.id}/waveform.json`);
+      expect((await api(copy.waveform!)).status).toBe(200);
+      expect((await useItem(items.whoosh.id)).assets[0].id).toBe(copy.id);
+      expect((await json<MediaAsset[]>(`/api/media?projectId=${project.id}`)).map((a) => a.id).sort()).toEqual(
+        [copy.id, video.id].sort(),
+      );
+
+      expect((await sendJson("POST", `/api/library/items/${items.whoosh.id}/use`, { projectId: "project_000000000000" })).status).toBe(404);
+      expect((await sendJson("POST", "/api/library/items/item_000000000000/use", { projectId: project.id })).status).toBe(404);
+    });
+
+    it("saves clips with their settings and puts them in another project", async () => {
+      const title = { ...clip("landscape", "main", 5, 0, 2), assetId: "", effects: [...defaultEffects(), ...textEffects({ text: "Hi" })] };
+      const shot = { ...clip("landscape", "main", 3, 0.5, 1.5), assetId: video.id };
+      const top = { id: "top", kind: "video", name: "Video 2", muted: false };
+      const body = {
+        projectId: project.id,
+        name: "Intro",
+        folderId: folders.logos.id,
+        tracks: [top, createDefaultProject().tracks[0]],
+        clips: [{ ...title, trackId: "top" }, shot],
+      };
+      const res = await sendJson("POST", "/api/library/items/clips", body);
+      expect(res.status).toBe(201);
+      const { item, media } = (await res.json()) as LibraryEntry;
+      items.intro = item;
+      if (item.kind !== "clips") throw new Error("expected saved clips");
+      expect(item.template.tracks.map((t) => t.id)).toEqual(["top", "main"]);
+      expect(item.template.clips.map((c) => [c.start, c.in, c.out])).toEqual([[0, 0.5, 1.5], [2, 0, 2]]);
+      // The media is the Library's copy (the one added before).
+      expect(media.map((m) => m.id)).toEqual([(items.video as { mediaId: string }).mediaId]);
+      expect(item.template.clips[0].assetId).toBe(media[0].id);
+
+      const bad = (patch: object) => sendJson("POST", "/api/library/items/clips", { ...body, ...patch });
+      expect((await bad({ clips: [] })).status).toBe(400);
+      expect((await bad({ name: " " })).status).toBe(400);
+      expect((await bad({ projectId: projects.main.id, clips: [shot] })).status).toBe(400); // not that project's media
+
+      const other = (await (await sendJson("POST", "/api/projects", {})).json()) as ProjectSummary;
+      const used = await useItem(item.id, other.id);
+      expect(used.assets).toHaveLength(1);
+      expect(used.assets[0]).toMatchObject({ projectId: other.id, name: "landscape.mp4" });
+      expect(used.template?.clips.map((c) => c.assetId)).toEqual([used.assets[0].id, ""]);
+      await api(`/api/projects/${other.id}`, { method: "DELETE" });
+    });
+
+    it("renames, moves and favourites items", async () => {
+      const patch = (body: object) => sendJson("PATCH", `/api/library/items/${items.whoosh.id}`, body);
+      const res = await patch({ name: "Whoosh", folderId: folders.sfx.id, favorite: true });
+      expect(await res.json()).toMatchObject({ name: "Whoosh", folderId: folders.sfx.id, favorite: true });
+      expect((await patch({ folderId: "folder_000000000000" })).status).toBe(404);
+      expect((await patch({ favorite: "yes" })).status).toBe(400);
+      items.whoosh = (await (await patch({ folderId: folders.whooshes.id })).json()) as LibraryItem;
+    });
+
+    it("keeps everything across restarts", async () => {
+      const before = await library();
+      const restarted = await createApp({ dataDir });
+      const again = http.createServer(restarted.app);
+      await new Promise<void>((resolve) => again.listen(0, "127.0.0.1", resolve));
+      try {
+        const res = await fetch(`http://127.0.0.1:${(again.address() as AddressInfo).port}/api/library`);
+        expect(await res.json()).toEqual(before);
+      } finally {
+        restarted.shutdown();
+        await new Promise((resolve) => again.close(resolve));
+      }
+    });
+
+    it("deletes items and folders, and files no item uses; projects keep their copies", async () => {
+      const whooshMedia = (items.whoosh as { mediaId: string }).mediaId;
+      const videoMedia = (items.video as { mediaId: string }).mediaId;
+      expect((await api(`/api/library/items/${items.video.id}`, { method: "DELETE" })).status).toBe(204);
+      // Still used by the saved intro.
+      expect(existsSync(path.join(dataDir, "library", "media", videoMedia))).toBe(true);
+
+      expect((await api(`/api/library/folders/${folders.sfx.id}`, { method: "DELETE" })).status).toBe(204);
+      const lib = await library();
+      expect(lib.folders.map((f) => f.id)).toEqual([folders.logos.id]);
+      expect(lib.items.map((i) => i.id)).toEqual([items.intro.id]);
+      expect(lib.media.map((m) => m.id)).toEqual([videoMedia]);
+      expect(existsSync(path.join(dataDir, "library", "media", whooshMedia))).toBe(false);
+      // The project's copy of the whoosh is its own.
+      expect(await json<MediaAsset[]>(`/api/media?projectId=${project.id}`)).toHaveLength(2);
+
+      expect((await api(`/api/library/folders/${folders.logos.id}`, { method: "DELETE" })).status).toBe(204);
+      expect(await library()).toEqual({ folders: [], items: [], media: [] });
+      expect(readdirSync(path.join(dataDir, "library", "media"))).toEqual([]);
+      expect((await api(`/api/library/items/${items.intro.id}`, { method: "DELETE" })).status).toBe(404);
+    });
   });
 });

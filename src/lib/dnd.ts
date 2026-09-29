@@ -38,9 +38,25 @@ export function getTransitionDragData(dt: DataTransfer): string | null {
   return dt.getData(TRANSITION_DRAG_MIME) || null;
 }
 
-/** Usable during dragover: does this drag carry assets, a transition or OS files? */
-export function dragKind(dt: DataTransfer): "assets" | "transition" | "files" | null {
+/** A Library item dragged from the Library tab onto the timeline or a Library folder (its id). */
+export const LIBRARY_DRAG_MIME = "application/x-editor-library-item";
+
+export function setLibraryDragData(dt: DataTransfer, itemId: string) {
+  dt.setData(LIBRARY_DRAG_MIME, itemId);
+  dt.effectAllowed = "copyMove";
+}
+
+/** Only readable on `drop`. */
+export function getLibraryDragData(dt: DataTransfer): string | null {
+  return dt.getData(LIBRARY_DRAG_MIME) || null;
+}
+
+export type DragKind = "assets" | "library" | "transition" | "files";
+
+/** Usable during dragover: does this drag carry assets, a Library item, a transition or OS files? */
+export function dragKind(dt: DataTransfer): DragKind | null {
   if (dt.types.includes(ASSET_DRAG_MIME)) return "assets";
+  if (dt.types.includes(LIBRARY_DRAG_MIME)) return "library";
   if (dt.types.includes(TRANSITION_DRAG_MIME)) return "transition";
   if (dt.types.includes("Files")) return "files";
   return null;

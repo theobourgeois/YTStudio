@@ -1,4 +1,4 @@
-import { createWriteStream } from "node:fs";
+import { constants as fsConstants, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
@@ -41,22 +41,38 @@ function displayName(raw: string): string {
 }
 
 
-/** The media library: assets on disk under `data/media/<id>/` plus background processing. */
+/** Where a `MediaLibrary` keeps its assets (`<dir>/<id>/`) and the URL they're served at. */
+export interface MediaRoot {
+  dir: string;
+  url: string;
+}
+
+/**
+ * Media files on disk under `<root>/<id>/` plus background processing: every
+ * project's media (`data/media`), and separately the shared Library's
+ * (`data/library/media`, with `projectId: null`).
+ */
 export class MediaLibrary {
   private assets = new Map<string, MediaAsset>();
   private jobs = new Map<string, AbortController>();
   private limit = createLimiter(JOB_CONCURRENCY);
+  private root: MediaRoot;
 
-  constructor(private paths: DataPaths) {}
+  constructor(
+    private paths: DataPaths,
+    root?: MediaRoot,
+  ) {
+    this.root = root ?? { dir: paths.media, url: "/files/media" };
+  }
 
   /** Load every asset (call `resume()` once they all belong to a project). */
   async load(): Promise<void> {
-    for (const entry of await fs.readdir(this.paths.media, { withFileTypes: true })) {
+    for (const entry of await fs.readdir(this.root.dir, { withFileTypes: true })) {
       if (!entry.isDirectory() || !isValidId(entry.name)) continue;
       const asset = await readJson<MediaAsset>(this.metaFile(entry.name));
       if (!asset || asset.id !== entry.name) {
         // Ingest died before the asset was committed.
-        await fs.rm(this.paths.mediaDir(entry.name), { recursive: true, force: true });
+        await fs.rm(this.dir(entry.name), { recursive: true, force: true });
         continue;
       }
       this.assets.set(asset.id, asset);
@@ -71,7 +87,7 @@ export class MediaLibrary {
   }
 
   /** Every asset (or one project's), newest first. */
-  list(projectId?: string): MediaAsset[] {
+  list(projectId?: string | null): MediaAsset[] {
     return [...this.assets.values()]
       .filter((a) => projectId === undefined || a.projectId === projectId)
       .sort((a, b) => b.createdAt - a.createdAt);
@@ -88,24 +104,24 @@ export class MediaLibrary {
   }
 
   /** Every asset (or one project's) keyed by id. */
-  byId(projectId?: string): Record<string, MediaAsset> {
+  byId(projectId?: string | null): Record<string, MediaAsset> {
     return Object.fromEntries(this.list(projectId).map((a) => [a.id, a]));
   }
 
   /** Absolute path of an asset's original file. */
   sourcePath(asset: MediaAsset): string {
-    return path.join(this.paths.mediaDir(asset.id), path.basename(asset.src));
+    return path.join(this.dir(asset.id), path.basename(asset.src));
   }
 
   /**
-   * Stream an upload to disk, probe it and add it to `projectId`'s media.
+   * Stream an upload to disk, probe it and add it to `projectId`'s media (null: the Library's).
    * `projectExists` is checked once the body is consumed and again at commit,
    * so an upload racing a project deletion never leaves an orphaned asset.
    */
   async ingest(
     body: Readable,
     rawName: string,
-    projectId: string,
+    projectId: string | null,
     projectExists: () => boolean,
   ): Promise<MediaAsset> {
     const tmp = this.paths.tmpFile(".upload");
@@ -129,7 +145,7 @@ export class MediaLibrary {
   async add(
     file: string,
     rawName: string,
-    projectId: string,
+    projectId: string | null,
     projectExists: () => boolean,
   ): Promise<MediaAsset> {
     if (!projectExists()) throw new HttpError(404, "Project not found");
@@ -144,13 +160,13 @@ export class MediaLibrary {
 
   private async commit(
     tmp: string,
-    { name, projectId, size, probe }: { name: string; projectId: string; size: number; probe: ProbeResult },
+    { name, projectId, size, probe }: { name: string; projectId: string | null; size: number; probe: ProbeResult },
     projectExists: () => boolean,
   ): Promise<MediaAsset> {
     const id = createId("media");
-    const dir = this.paths.mediaDir(id);
+    const dir = this.dir(id);
     const sourceName = `source.${sourceExtension(name, probe.formatName)}`;
-    const url = (file: string) => `/files/media/${id}/${file}`;
+    const url = (file: string) => `${this.root.url}/${id}/${file}`;
     try {
       await fs.mkdir(dir, { recursive: true });
       await fs.rename(tmp, path.join(dir, sourceName));
@@ -204,11 +220,58 @@ export class MediaLibrary {
     }
   }
 
+  /**
+   * Copy an asset of another `MediaLibrary` (the Library's into a project, or the
+   * other way round) with its poster, filmstrip and waveform, so nothing is
+   * generated again. Files are cloned where the filesystem can (APFS, Btrfs...).
+   */
+  async copyFrom(
+    source: MediaLibrary,
+    asset: MediaAsset,
+    { projectId, name, exists = () => true }: { projectId: string | null; name?: string; exists?: () => boolean },
+  ): Promise<MediaAsset> {
+    const id = createId("media");
+    const dir = this.dir(id);
+    const rebase = (url: string) => url.replace(`${source.root.url}/${asset.id}/`, `${this.root.url}/${id}/`);
+    try {
+      await fs.cp(source.dir(asset.id), dir, {
+        recursive: true,
+        mode: fsConstants.COPYFILE_FICLONE,
+        filter: (file) => path.basename(file) !== "meta.json",
+      });
+      // Still being generated: start over here rather than copy half a filmstrip.
+      const processing = asset.status === "processing";
+      const copy: MediaAsset = {
+        ...asset,
+        id,
+        projectId,
+        name: name ? displayName(name) : asset.name,
+        origin: asset.id,
+        createdAt: Date.now(),
+        src: rebase(asset.src),
+        poster: asset.poster && rebase(asset.poster),
+        filmstrip: !processing && asset.filmstrip ? { ...asset.filmstrip, urlPattern: rebase(asset.filmstrip.urlPattern) } : null,
+        waveform: !processing && asset.waveform ? rebase(asset.waveform) : null,
+      };
+      await writeJson(this.metaFile(id), copy);
+      if (!exists()) throw new HttpError(404, "Project not found");
+      this.assets.set(id, copy);
+      if (processing) this.enqueue(id);
+      return copy;
+    } catch (err) {
+      await fs.rm(dir, { recursive: true, force: true });
+      if (err instanceof HttpError) throw err;
+      // The source was deleted meanwhile.
+      if (!source.find(asset.id)) throw new HttpError(404, "Media not found");
+      throw err;
+    }
+  }
+
   async remove(id: string): Promise<void> {
     this.get(id);
     this.assets.delete(id);
     this.jobs.get(id)?.abort();
-    await fs.rm(this.paths.mediaDir(id), { recursive: true, force: true, maxRetries: 5 });
+    await fs.rm(this.dir(id), { recursive: true, force: true, maxRetries: 5 });
   }
 
   /** Delete all of a project's media, cancelling its background jobs. */
@@ -231,8 +294,14 @@ export class MediaLibrary {
     for (const controller of this.jobs.values()) controller.abort();
   }
 
+  /** An asset's directory (throws 400 for an invalid id). */
+  private dir(id: string) {
+    if (!isValidId(id)) throw new HttpError(400, "Invalid media id");
+    return path.join(this.root.dir, id);
+  }
+
   private metaFile(id: string) {
-    return path.join(this.paths.mediaDir(id), "meta.json");
+    return path.join(this.dir(id), "meta.json");
   }
 
   private enqueue(id: string): void {
@@ -251,7 +320,7 @@ export class MediaLibrary {
   private async process(id: string, signal: AbortSignal): Promise<void> {
     const asset = this.assets.get(id);
     if (!asset || signal.aborted) return;
-    const dir = this.paths.mediaDir(id);
+    const dir = this.dir(id);
     const src = this.sourcePath(asset);
     const patch: Partial<MediaAsset> = {};
     const problems: string[] = [];
@@ -264,7 +333,7 @@ export class MediaLibrary {
           { duration: asset.duration, width: asset.width, height: asset.height },
           signal,
         );
-        patch.filmstrip = { ...strip, urlPattern: `/files/media/${id}/frames/{i}.jpg` };
+        patch.filmstrip = { ...strip, urlPattern: `${this.root.url}/${id}/frames/{i}.jpg` };
       } catch (err) {
         if (signal.aborted) throw err;
         problems.push(`thumbnails: ${errorMessage(err)}`);
@@ -273,7 +342,7 @@ export class MediaLibrary {
     if (asset.hasAudio) {
       try {
         await makeWaveform(src, path.join(dir, "waveform.json"), signal);
-        patch.waveform = `/files/media/${id}/waveform.json`;
+        patch.waveform = `${this.root.url}/${id}/waveform.json`;
       } catch (err) {
         if (signal.aborted) throw err;
         problems.push(`waveform: ${errorMessage(err)}`);

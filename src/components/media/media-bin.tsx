@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from "react";
-import { PiFileArrowUp } from "react-icons/pi";
+import { PiFileArrowUp, PiUploadSimple } from "react-icons/pi";
 import { useShallow } from "zustand/react/shallow";
 import type { MediaAsset } from "@shared/types";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TagChip } from "@/components/ui/tag-chip";
 import { cn } from "cn";
@@ -77,28 +78,39 @@ export function MediaBin() {
               </div>
             </div>
           )}
-          {/* Radix wraps content in a `display: table` div, which defeats `truncate`. */}
-          <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
-            <div className="grid grid-cols-2 gap-x-1 gap-y-1.5 p-2">
-              {uploads.map((u) => (
-                <UploadCard key={u.id} upload={u} />
-              ))}
-              {visible.map((asset) => (
-                <AssetCard
-                  key={asset.id}
-                  asset={asset}
-                  uses={uses.get(asset.id) ?? 0}
-                  onAdd={() => addToTimeline(asset.id)}
-                  onDelete={() => requestDelete(asset)}
-                />
-              ))}
-            </div>
-            {visible.length === 0 && assets.length > 0 && (
-              <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-                No {filter === "image" ? "images" : `${filter} files`} yet.
-              </p>
-            )}
-          </ScrollArea>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              {/* Radix wraps content in a `display: table` div, which defeats `truncate`. */}
+              <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
+                <div className="grid grid-cols-2 gap-x-1 gap-y-1.5 p-2">
+                  {uploads.map((u) => (
+                    <UploadCard key={u.id} upload={u} />
+                  ))}
+                  {visible.map((asset) => (
+                    <AssetCard
+                      key={asset.id}
+                      asset={asset}
+                      uses={uses.get(asset.id) ?? 0}
+                      onAdd={() => addToTimeline(asset.id)}
+                      onDelete={() => requestDelete(asset)}
+                    />
+                  ))}
+                </div>
+                {visible.length === 0 && assets.length > 0 && (
+                  <p className="px-4 py-8 text-center text-xs text-muted-foreground">
+                    No {filter === "image" ? "images" : `${filter} files`} yet.
+                  </p>
+                )}
+              </ScrollArea>
+            </ContextMenuTrigger>
+            {/* Right-clicking empty space (cards have their own menus). */}
+            <ContextMenuContent className="w-48">
+              <ContextMenuItem onSelect={openPicker}>
+                <PiUploadSimple />
+                Import files
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         </>
       )}
 

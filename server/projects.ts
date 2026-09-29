@@ -6,7 +6,7 @@ import type { Project, ProjectStatus, ProjectSummary, UpdateProjectRequest } fro
 import { normalizeProject } from "../shared/normalize.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
-import { type DataPaths, HttpError, isValidId, readJson, writeJson } from "./storage.ts";
+import { type DataPaths, HttpError, isObject, isValidId, parseName, readJson, writeJson } from "./storage.ts";
 
 /** `data/projects/<id>/meta.json`. Written after `project.json`, so it marks a committed project. */
 type ProjectMeta = Pick<ProjectSummary, "id" | "status" | "createdAt" | "updatedAt" | "settledAt">;
@@ -27,10 +27,7 @@ interface Entry {
 }
 
 const STATUSES: readonly ProjectStatus[] = ["active", "settled"];
-const MAX_NAME_LENGTH = 200;
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
-  !!v && typeof v === "object" && !Array.isArray(v);
 
 function isMeta(v: unknown, id: string): v is ProjectMeta {
   if (!isObject(v)) return false;
@@ -41,13 +38,6 @@ function isMeta(v: unknown, id: string): v is ProjectMeta {
     typeof v.updatedAt === "number" &&
     (v.settledAt === null || typeof v.settledAt === "number")
   );
-}
-
-function parseName(raw: unknown): string {
-  if (typeof raw !== "string") throw new HttpError(400, "The name must be a string.");
-  const name = raw.replace(/[\u0000-\u001f]/g, "").trim().slice(0, MAX_NAME_LENGTH);
-  if (!name) throw new HttpError(400, "The name can't be empty.");
-  return name;
 }
 
 function parseUpdate(body: unknown): UpdateProjectRequest {

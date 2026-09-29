@@ -1,6 +1,6 @@
 /**
- * HTML5 drop target for the whole timeline: media-bin asset drags, OS files,
- * and transitions from the library (dropped on the nearest clip edge).
+ * HTML5 drop target for the whole timeline: media-bin asset drags, Library
+ * items, OS files, and transitions (dropped on the nearest clip edge).
  * An enter/leave depth counter (reset on drop/dragend) keeps the highlight
  * from flickering between child elements or sticking after the drag ends.
  */
@@ -9,8 +9,9 @@ import { toast } from "sonner";
 import { snapPoints, snapTime } from "@shared/timeline";
 import { type TransitionRef, addTransition, findWindow, transitionTargetAt } from "@shared/transition-windows";
 import { DEFAULT_TRANSITION } from "@shared/transitions";
-import { dragKind, getAssetDragData, getTransitionDragData, mediaFiles } from "@/lib/dnd";
+import { dragKind, getAssetDragData, getLibraryDragData, getTransitionDragData, mediaFiles } from "@/lib/dnd";
 import { useEditor } from "@/stores/editor";
+import { useLibrary } from "@/stores/library";
 import { usePlayback } from "@/stores/playback";
 import { SNAP_PX } from "./constants";
 import { lanePoint, type TimelineContextValue } from "./context";
@@ -123,6 +124,12 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
       if (kind === "assets") {
         const payload = getAssetDragData(e.dataTransfer);
         if (payload?.assetIds.length) editor.addAssetsToTimeline(payload.assetIds, opts);
+        return;
+      }
+      if (kind === "library") {
+        // A dragged folder has nothing to put on the timeline.
+        const id = getLibraryDragData(e.dataTransfer);
+        if (id && useLibrary.getState().items.some((i) => i.id === id)) void useLibrary.getState().addToTimeline(id, opts);
         return;
       }
       const all = Array.from(e.dataTransfer.files);
