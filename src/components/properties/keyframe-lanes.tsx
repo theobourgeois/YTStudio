@@ -21,7 +21,7 @@ import {
 } from "@shared/animation";
 import { easesIn, easesOut } from "@shared/keyframes";
 import { tidy } from "@shared/math";
-import { clipEnd, getClip } from "@shared/timeline";
+import { clipEnd, getClip, sourceDelta } from "@shared/timeline";
 import type { Clip, Easing, Keyframe } from "@shared/types";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import {
@@ -462,7 +462,8 @@ function startKeyframeDrag(e: ReactPointerEvent<HTMLElement>, clipId: string, re
       const raw = anchor + (ev.clientX - x0) / pps;
       const targets = editor().snapping ? [usePlayback.getState().time, range.start, range.end, ...stillTimes] : [];
       const snapped = snapTime(raw, targets, SNAP_PX / pps, fps);
-      delta = tidy(clampDelta(snapped - anchor, sources, clip.in, clip.out));
+      // The lane is in timeline time; keyframes move in source time (faster, or backwards, on a retimed clip).
+      delta = tidy(clampDelta(sourceDelta(clip, snapped - anchor), sources, clip.in, clip.out));
       // Always from where they started (the gesture's base), not from the last preview.
       gesture.apply((p) => moveKeyframes(editor().gestureBase ?? p, clipId, moving, delta));
     },

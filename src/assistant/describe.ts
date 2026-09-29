@@ -18,7 +18,7 @@ import {
 } from "@shared/effects";
 import { folderPath, folderSubtree, libraryItemDuration, libraryItemKind, searchItems } from "@shared/library";
 import { type ParamSpec, sameValue } from "@shared/params";
-import { clipEnd, clipName, getTrack, outputSize, projectDuration, trackClips } from "@shared/timeline";
+import { clipEnd, clipName, clipSpeed, getTrack, outputSize, projectDuration, timelineTime, trackClips } from "@shared/timeline";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
 import { TRANSITIONS } from "@shared/transitions";
 import type { Clip, Effect, FontFamily, Library, MediaAsset, MusicAnalysis, ParamValue, Project, Transcript } from "@shared/types";
@@ -66,6 +66,12 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
     const kind = asset ? asset.kind : "offline media";
     parts.push(`${quote(clipName(clip, asset), 48)} (${kind}${asset ? `, ${asset.id}` : ""})`);
     if (asset) parts.push(`source ${range(clip.in, clip.out)}${asset.kind === "image" ? "" : ` of ${secs(asset.duration)}`}`);
+    const timing = [
+      ...(clipSpeed(clip) !== 1 ? [`speed ${clipSpeed(clip)}×`] : []),
+      ...(clip.reversed ? ["reversed"] : []),
+      ...(clip.keepPitch === false ? ["pitch follows speed"] : []),
+    ];
+    if (timing.length) parts.push(timing.join(", "));
   }
   const fx: string[] = [];
   for (const effect of clip.effects) {
@@ -147,6 +153,9 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
             kind: asset?.kind ?? "offline",
             media: asset && { id: asset.id, name: asset.name, duration: round(asset.duration) },
             source: { in: round(clip.in), out: round(clip.out) },
+            speed: clipSpeed(clip),
+            reversed: clip.reversed === true,
+            keepPitch: clip.keepPitch !== false,
           }),
       effects: clip.effects.map((e) => ({
         id: e.id,
@@ -157,7 +166,7 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
           keyframes: Object.fromEntries(
             Object.entries(e.keyframes).map(([k, keys]) => [
               k,
-              keys.map((kf) => ({ time: round(clip.start + kf.time - clip.in), value: round(kf.value), easing: kf.easing })),
+              keys.map((kf) => ({ time: round(timelineTime(clip, kf.time)), value: round(kf.value), easing: kf.easing })),
             ]),
           ),
         }),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addEffect, defaultEffects, setEffectEnabled, textEffects } from "../shared/effects.ts";
-import { createDefaultProject } from "../shared/timeline.ts";
+import { createDefaultProject, setClipSpeed } from "../shared/timeline.ts";
 import { placeClip, placementAffine } from "../shared/transform.ts";
 import type { Clip, Keyframe, ParamValues, Project } from "../shared/types.ts";
 import { createTransition } from "../shared/transitions.ts";
@@ -12,6 +12,7 @@ import {
   SAMPLE_RATE,
   audioArgs,
   encoderArgs,
+  tempoFilters,
   lumaWeights,
   planRender,
   sourceFrameBytes,
@@ -23,6 +24,10 @@ const assets: Record<string, RenderAsset> = {
   song: { path: "/media/song.mp3", kind: "audio", hasVideo: false, hasAudio: true, width: null, height: null, duration: 60 },
   photo: { path: "/media/photo.png", kind: "image", hasVideo: true, hasAudio: false, width: 1000, height: 1000, duration: 5 },
   big: { path: "/media/big.jpg", kind: "image", hasVideo: true, hasAudio: false, width: 4000, height: 3000, duration: 5 },
+  back: {
+    path: "/media/back.mp4", reversedPath: "/media/back-reversed.mp4",
+    kind: "video", hasVideo: true, hasAudio: true, width: 1920, height: 1080, duration: 10,
+  },
 };
 const library = assets;
 
@@ -90,6 +95,23 @@ describe("planRender", () => {
     expect([0, 30, 31, 53, 54, 123].map((f) => pictures(plan.frame(f)).map((pic) => pic.key))).toEqual([
       ["s0"], ["s0"], ["s1"], ["s1"], ["s2"], ["s2"],
     ]);
+  });
+
+  it("decodes a clip at its speed, and a reversed one forwards from its media's reversed copy", () => {
+    const fast = clip("vid", "main", 0, 2, 6);
+    const back = clip("back", "main", 2, 2, 6);
+    const p = setClipSpeed(setClipSpeed(project([fast, back]), [fast.id], { speed: 2 }), [back.id], { reversed: true });
+    const plan = planRender(p, assets, opts);
+    expect(plan.sources.map((s) => [s.first, s.end])).toEqual([[0, 60], [60, 180]]);
+    const [f, b] = plan.sources;
+    // 60 frames at twice the speed: 4s of media from the in-point.
+    expect([inputsOf(f.argv)[0], arg(f.argv, "-ss"), arg(f.argv, "-t")]).toEqual(["/media/vid.mp4", "2.000000", "4.250000"]);
+    expect(vf(f.argv)).toMatch(/^setpts=\(PTS-STARTPTS\)\/2,fps=30,/);
+    // Backwards from source 6s: 4s into the 10s reversed copy.
+    expect([inputsOf(b.argv)[0], arg(b.argv, "-ss")]).toEqual(["/media/back-reversed.mp4", "4.000000"]);
+    expect(vf(b.argv)).toMatch(/^setpts=PTS-STARTPTS,fps=30,/);
+    // Without the reversed copy there's nothing to decode.
+    expect(() => planRender(p, { ...assets, back: { ...assets.back, reversedPath: undefined } }, opts)).toThrow(/reversed copy/);
   });
 
   it("decodes video as YUV at the size it's shown, in its own colour matrix", () => {
@@ -311,6 +333,38 @@ describe("audioArgs", () => {
       t: number, if_: (c: number, a: number, b: number) => number, lt: (a: number, b: number) => number) => number;
     for (const s of [4, 5, 5.25, 5.5, 6, 6.3, 6.9, 7.2, 7.5, 8]) {
       expect(evaluate(s - 4, (c, a, b) => (c ? a : b), (a, b) => Number(a < b))).toBeCloseTo(keyframeValue(levels, s) as number, 5);
+    }
+  });
+
+  it("plays retimed sound at its speed, keeping its pitch unless told not to", () => {
+    expect(tempoFilters(1, true)).toEqual([]);
+    expect(tempoFilters(2, true)).toEqual(["atempo=2"]);
+    expect(tempoFilters(0.2, true)).toEqual(["atempo=0.5", "atempo=0.5", "atempo=0.8"]);
+    expect(tempoFilters(1.5, false)).toEqual(["asetrate=72000", "aresample=48000"]);
+    const c = clip("vid", "main", 1, 2, 6);
+    const p = setClipSpeed(project([c]), [c.id], { speed: 2 });
+    const argv = audioArgs(p, assets, out);
+    expect([arg(argv, "-ss"), arg(argv, "-t")]).toEqual(["2.000000", "4.000000"]);
+    // The tempo changes after the gain, then it's cut to its 2s on the timeline.
+    expect(graphOf(argv).find((f) => f.endsWith("[m0]"))).toContain(`atempo=2,apad=whole_len=${2 * SAMPLE_RATE}`);
+  });
+
+  it("plays reversed sound from the reversed copy, its volume following the clip's own time", () => {
+    const c = clip("back", "main", 0, 2, 6);
+    const levels: Keyframe[] = [
+      { time: 3, value: 0, easing: "linear" },
+      { time: 5, value: 1, easing: "ease" },
+    ];
+    c.effects = c.effects.map((e) => (e.type === "volume" ? { ...e, keyframes: { level: levels } } : e));
+    const argv = audioArgs(setClipSpeed(project([c]), [c.id], { reversed: true }), assets, out);
+    // The clip's out-point (6s) is 4s into the 10s reversed copy.
+    expect([inputsOf(argv)[0], arg(argv, "-ss"), arg(argv, "-t")]).toEqual(["/media/back-reversed.mp4", "4.000000", "4.000000"]);
+    const expr = /volume=volume='([^']+)':eval=frame/.exec(graphOf(argv).find((f) => f.endsWith("[m0]"))!)![1];
+    const evaluate = new Function("t", "if_", "lt", `return ${expr.replace(/\bif\(/g, "if_(")};`) as (
+      t: number, if_: (c: number, a: number, b: number) => number, lt: (a: number, b: number) => number) => number;
+    // t seconds into the reversed sound is source time 6 - t.
+    for (const t of [0, 0.5, 1, 1.7, 2, 3, 4]) {
+      expect(evaluate(t, (k, a, b) => (k ? a : b), (a, b) => Number(a < b))).toBeCloseTo(keyframeValue(levels, 6 - t) as number, 5);
     }
   });
 

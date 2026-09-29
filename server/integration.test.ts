@@ -140,6 +140,10 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     ffmpeg("-f", "lavfi", "-i", "testsrc2=size=64x64:rate=10:duration=1", f("anim.gif"));
     ffmpeg("-f", "lavfi", "-i", "testsrc2=size=64x64", "-frames:v", "1", f("still.tiff"));
     writeFileSync(f("notes.txt"), "definitely not a video");
+    // 4s whose brightness counts its frames (Y = 2 × frame), silent for 2s and then a tone.
+    ffmpeg("-f", "lavfi", "-i", "nullsrc=size=128x128:rate=30:duration=4,geq=lum='2*N':cb=128:cr=128",
+      "-f", "lavfi", "-i", "aevalsrc='if(lt(t,2),0,0.5*sin(2*PI*440*t))':s=48000:d=4",
+      "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", f("ramp.mp4"));
 
     editor = await createApp({ dataDir });
     server = http.createServer(editor.app);
@@ -632,6 +636,43 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     // The sine (amplitude 1/8) has an RMS of ~0.088 × the gain: ~0.15 at 0.3 s, ~0.85 at 1.7 s.
     expect(late / early).toBeGreaterThan(4);
     expect(late).toBeCloseTo(0.088 * 0.85, 2);
+  });
+
+  it("makes a reversed copy of media and exports clips sped up and played backwards", async () => {
+    const res = await upload(fixtures["ramp.mp4"]);
+    expect(res.status).toBe(201);
+    const ramp = (await res.json()) as MediaAsset;
+    const asked = await (await api(`/api/media/${ramp.id}/reversed`, { method: "POST" })).json() as MediaAsset;
+    expect(asked.reversed).toEqual({ status: "processing" });
+    const ready = await until(async () => {
+      const a = await json<MediaAsset>(`/api/media/${ramp.id}`);
+      return a.reversed?.status === "processing" ? undefined : a;
+    });
+    expect(ready.reversed).toEqual({ status: "ready", src: `/files/media/${ramp.id}/reversed.mp4` });
+    expect((await api(ready.reversed!.status === "ready" ? ready.reversed!.src : "")).status).toBe(200);
+
+    // All 4s, backwards at twice the speed: 2s long.
+    const back: Clip = { ...clip("landscape", "main", 0, 0, 4), assetId: ramp.id, speed: 2, reversed: true };
+    const queued = (await (await sendJson("POST", "/api/exports", { project: projectWith([back]), resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    expect(job.duration).toBe(2);
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    // Output frame k shows source frame 119 - 2k (Y = 2 × that, in limited range).
+    for (const k of [3, 20, 45]) {
+      const expected = Math.max(0, Math.min(255, ((2 * (119 - 2 * k) - 16) * 255) / 219));
+      const [r, g, b] = pixelAt(output, (k + 0.5) / 30, 360, 640);
+      expect(Math.abs((r + g + b) / 3 - expected), `frame ${k}`).toBeLessThanOrEqual(8);
+    }
+    // The tone (the source's second half) comes first.
+    const rms = (from: number) => {
+      const raw = execFileSync(FFMPEG, ["-hide_banner", "-loglevel", "error", "-ss", String(from), "-t", "0.3", "-i", output, "-ac", "1", "-f", "f32le", "-"]);
+      const samples = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4);
+      return Math.sqrt(samples.reduce((sum, v) => sum + v * v, 0) / samples.length);
+    };
+    expect(rms(0.3)).toBeGreaterThan(0.2);
+    expect(rms(1.4)).toBeLessThan(0.01);
+    expect((await api(`/api/media/${ramp.id}`, { method: "DELETE" })).status).toBe(204);
   });
 
   it("exports without the audio tracks when asked", async () => {

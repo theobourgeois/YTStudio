@@ -12,7 +12,7 @@
 import { APPEARANCE, MOTION, TEXT, findEffect, resetParams, setParams, textEffects, volumeAt } from "./effects.ts";
 import { EPS, roundTime } from "./math.ts";
 import { sanitizeParams } from "./params.ts";
-import { MIN_CLIP_DURATION, addTrack, clipEnd, clipsById, createId, getTrack, isFree, perClipList, removeClips, trackClips } from "./timeline.ts";
+import { MIN_CLIP_DURATION, addTrack, clipEnd, clipsById, createId, getTrack, isFree, perClipList, removeClips, timelineTime, trackClips } from "./timeline.ts";
 import { createTransition, transitionDefinition } from "./transitions.ts";
 import type { AspectRatio, Clip, MediaAsset, ParamValues, Project, Transcript, Transition, Vec2 } from "./types.ts";
 
@@ -380,13 +380,15 @@ export function captionCues(input: readonly TimedWord[], opts: CueOptions): Capt
 export function timelineWords(clips: readonly Clip[], transcripts: readonly Transcript[]): TimedWord[] {
   const words: TimedWord[] = [];
   clips.forEach((clip, group) => {
+    // Speech played backwards has no words.
+    if (clip.reversed) return;
     const limit = clipEnd(clip);
     for (const t of transcripts) {
       if (t.assetId !== clip.assetId || t.out <= clip.in || t.in >= clip.out) continue;
       for (const w of t.words) {
         const mid = (w.start + w.end) / 2;
         if (mid < clip.in || mid >= clip.out) continue;
-        const at = (s: number) => clip.start + (Math.min(Math.max(s, clip.in), clip.out) - clip.in);
+        const at = (s: number) => timelineTime(clip, Math.min(Math.max(s, clip.in), clip.out));
         words.push({ text: w.text, start: at(w.start), end: at(w.end), group, limit });
       }
     }
@@ -405,7 +407,8 @@ export function captionSourceClips(
   assets: Readonly<Record<string, Pick<MediaAsset, "hasAudio"> | undefined>>,
   clipIds?: readonly string[],
 ): Clip[] {
-  const audible = (c: Clip) => !isCaptionClip(c) && c.assetId !== "" && !!assets[c.assetId]?.hasAudio;
+  // Speech played backwards has no words to caption.
+  const audible = (c: Clip) => !isCaptionClip(c) && c.assetId !== "" && !c.reversed && !!assets[c.assetId]?.hasAudio;
   if (clipIds?.length) {
     const ids = new Set(clipIds);
     return project.clips.filter((c) => ids.has(c.id) && audible(c)).sort((a, b) => a.start - b.start);

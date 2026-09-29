@@ -48,6 +48,30 @@ describe("assistant edits", () => {
     expect(() => EDITS.add_effect(p, { clipIds: [id], type: "motion" }, env)).toThrow(/isn't a video effect/);
   });
 
+  it("speeds clips up, slows them down and reverses them, moving what's after", () => {
+    const p = withTwoClips();
+    const [a, b] = main(p);
+    const fast = EDITS.set_speed(p, { clipIds: [a.id], speed: 2 }, env);
+    expect(main(fast.project).map((c) => [c.start, clipEnd(c)])).toEqual([[0, 5], [5, 7]]);
+    expect(fast.text).toMatch(/2×/);
+    expect(fast.text).toMatch(/1 later clip/);
+    // Fit a clip to a length, backwards, with the pitch following the speed.
+    const fitted = run(p, ["set_speed", { clipIds: [b.id], duration: 4, reversed: true, keepPitch: false }]);
+    expect(getClip(fitted, b.id)).toMatchObject({ speed: 0.5, reversed: true, keepPitch: false, in: 1, out: 3 });
+    const described = describeTimeline(fitted, assets, { playhead: 0, selectedClipIds: [] });
+    expect(described).toContain("speed 0.5×, reversed, pitch follows speed");
+    expect(JSON.parse(describeClips(fitted, assets, [b.id]))[0]).toMatchObject({ speed: 0.5, reversed: true, keepPitch: false });
+  });
+
+  it("explains what can't be retimed", () => {
+    const p = run(createDefaultProject(), ["add_text", { text: "Hi", start: 0 }]);
+    const text = p.clips[0].id;
+    expect(() => EDITS.set_speed(p, { clipIds: [text], speed: 2 }, env)).toThrow(/text: only video and sound clips/);
+    const q = withTwoClips();
+    expect(() => EDITS.set_speed(q, { clipIds: [main(q)[0].id] }, env)).toThrow(/Give `speed`/);
+    expect(() => EDITS.set_speed(q, { clipIds: [main(q)[0].id], speed: 20 }, env)).toThrow(/at most 10/);
+  });
+
   it("splits under a time by default, reporting the new parts", () => {
     const p = withTwoClips();
     const out = EDITS.split_clips(p, { at: 4 }, env);

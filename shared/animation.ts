@@ -12,7 +12,7 @@ import { effectDefinition, paramSpec, storedValuesAt, updateEffect } from "./eff
 import { SAME_KEYFRAME, keyframeAt, keyframeValue, setKeyframe } from "./keyframes.ts";
 import { tidy } from "./math.ts";
 import { isAnimatable } from "./params.ts";
-import { clipEnd, sourceTime } from "./timeline.ts";
+import { clipEnd, sourceTime, timelineTime } from "./timeline.ts";
 import type { Clip, Easing, Effect, Keyframe, Project } from "./types.ts";
 
 /** One keyframe of one of a clip's parameters. */
@@ -34,7 +34,7 @@ export function canAnimate(effect: Effect, key: string): boolean {
 }
 
 /** Timeline time of source time `s` of a clip. */
-export const timelineTime = (clip: Pick<Clip, "start" | "in">, s: number) => clip.start + (s - clip.in);
+export { timelineTime };
 
 /** Every keyframe time of a clip (source time, sorted, one per time), or of one of its parameters. */
 export function keyframeTimes(clip: Clip, only?: { effectId: string; key?: string }): number[] {

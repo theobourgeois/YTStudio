@@ -116,6 +116,8 @@ export const api = {
     request<MusicAnalysis>(`/api/media/${id}/music?from=${opts.from}&to=${opts.to}`, { signal }),
   detectScenes: (id: string, threshold: number, signal?: AbortSignal) =>
     request<SceneCuts>(`/api/media/${id}/scenes?threshold=${threshold}`, { signal }),
+  /** Start making a media file's reversed copy (for clips played backwards), if it isn't made yet. */
+  reverseMedia: (id: string) => request<MediaAsset>(`/api/media/${id}/reversed`, { method: "POST" }),
   deleteMedia: (id: string) => request<void>(`/api/media/${id}`, { method: "DELETE" }),
 
   /** Upload a file with progress (0..1). Resolves with the probed asset. */

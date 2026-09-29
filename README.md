@@ -30,6 +30,7 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Add to timeline | Drag from the media panel, double-click, or hover → **+**. Move the mouse across a video's card to skim through it |
 | Move | Drag clips anywhere on a track (they snap to edges and the playhead; the magnet toggles snapping). Drop above the top track for a new video track. `⌥←` `⌥→` nudge, `⌥↑` `⌥↓` move between tracks |
 | Trim | Drag a clip's left/right edge |
+| Speed / reverse | Select clips → the gauge button under the timeline (or `⌘R`, or right-click → **Speed** / **Reverse**). `⌥`-drag a clip's edge to stretch its speed to fit. See [Speed and reverse](#speed-and-reverse) |
 | Split | `S` (or ⌘B) at the playhead |
 | Delete | `⌫` / `Delete` leaves a gap; `⇧⌫` ripple-deletes (closes it). Click an empty stretch of a track and `⌫` to close that gap |
 | Play / pause | `Space` |
@@ -174,6 +175,24 @@ The **Properties** tab in the left panel shows the selected clip's effects, like
 
 Each effect has an **fx** switch to bypass it and a reset button. Images are placed like video. A new image clip is 5
 seconds long and can be trimmed to any length, and transparent PNGs show the layers underneath.
+
+### Speed and reverse
+
+Like Premiere's Speed/Duration, any video or sound clip can play faster, slower or backwards:
+
+- Select clips and press the gauge button under the timeline (or `⌘R`): pick a preset (0.25× to 4×), drag the slider
+  (0.1× to 10×) or type a speed (`2`, `0.5x`, or a percentage like `50%`). It shows how long the clip lasts then.
+  Right-click a clip → **Speed** has the presets too, and the **Speed** section in **Properties** has the same controls.
+- **Reverse** plays it backwards. The first time a file is reversed the app makes a reversed copy of it in the
+  background (the preview steps through it frame by frame, silently, until that's ready); after that it plays
+  smoothly.
+- **Keep pitch** (on by default) keeps voices sounding natural at other speeds; turn it off for the chipmunk effect.
+- The clip keeps its start, and the clips after it on its track move with its end, so speeding up leaves no gap and
+  slowing down never overlaps the next clip.
+- **Rate stretch:** hold `⌥` while dragging a clip's edge to change its speed so the same footage fills the new length.
+- A retimed clip shows its speed on the timeline (with ⟲ when reversed). Keyframes stay on their frames, so an
+  animation speeds up (or plays backwards) with its clip. Stills and text have no speed: trim them to change their
+  length. Reversed speech isn't captioned.
 
 ### Keyframes
 

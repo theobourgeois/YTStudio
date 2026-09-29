@@ -82,6 +82,9 @@ export function mediaRoutes(library: MediaLibrary, projects: ProjectStore): Rout
     res.setHeader("Cache-Control", "no-store");
     res.json({ cuts: await detectScenes(library.sourcePath(asset), threshold) });
   });
+  router.post("/:id/reversed", async (req, res) => {
+    res.json(await library.reverse(req.params.id));
+  });
   router.delete("/:id", async (req, res) => {
     await library.remove(req.params.id);
     res.sendStatus(204);

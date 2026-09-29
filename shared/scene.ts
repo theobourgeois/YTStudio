@@ -6,7 +6,7 @@
  * compositor (`compositor.ts`), so they agree on every frame.
  */
 import { EPS } from "./math.ts";
-import { END_GUARD, clipAtTime, clipEnd, projectDuration, sourceTime, trackClips, videoTracks } from "./timeline.ts";
+import { END_GUARD, clipAtTime, clipEnd, projectDuration, sourceAt, sourceTime, trackClips, videoTracks } from "./timeline.ts";
 import { type TransitionWindow, trackTransitions, transitionAt, windowProgress } from "./transition-windows.ts";
 import type { Clip, Project } from "./types.ts";
 
@@ -19,7 +19,7 @@ export interface Shown {
 export interface TrackPlan {
   /** The clip on screen on this video track, with the source time it should show. */
   current: Shown | null;
-  /** The clip after the playhead on this track, to be preloaded at its in-point. */
+  /** The clip after the playhead on this track, to be preloaded at its first frame. */
   next: Clip | null;
 }
 
@@ -59,7 +59,7 @@ export type RangeOf = (clip: Clip) => { min: number; max: number };
  * `sourceRange`).
  */
 export function handleTime(clip: Clip, t: number, range: { min: number; max: number }): number {
-  const s = clip.in + (t - clip.start);
+  const s = sourceAt(clip, t);
   return Math.min(Math.max(s, range.min), Math.max(range.min, range.max - END_GUARD));
 }
 

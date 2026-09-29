@@ -195,6 +195,12 @@ export class ExportManager {
         const colorSpace = asset.kind === "video" && asset.hasVideo ? await probeColorSpace(path) : null;
         assets[asset.id] = { ...asset, path, colorSpace };
       }
+      // Clips played backwards play their media's reversed copy (made now if it isn't yet).
+      for (const clip of project.clips) {
+        const asset = assets[clip.assetId];
+        if (clip.reversed && asset && !asset.reversedPath) asset.reversedPath = await this.library.reversedPath(clip.assetId);
+        if (signal.aborted) return;
+      }
       const opts = { width: job.width, height: job.height, fps: project.settings.fps, ffmpegPath: FFMPEG };
       const plan = planRender(project, assets, opts, drawn);
 

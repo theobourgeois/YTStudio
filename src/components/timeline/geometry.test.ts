@@ -228,6 +228,14 @@ describe("thumbnails + waveform", () => {
     expect(filmstripTiles({ from: 10, to: 5, tileWidth: 50, inPoint: 0, zoom: 5, assetDuration: 10, frameCount: 5 })).toEqual([]);
   });
 
+  it("runs a retimed clip's thumbnails at its speed, backwards when it's reversed", () => {
+    const frames = (inPoint: number, rate: number) =>
+      filmstripTiles({ from: 0, to: 300, tileWidth: 100, inPoint, zoom: 100, assetDuration: 10, frameCount: 20, rate }).map((t) => t.frame);
+    // 0.5s per frame: twice as fast skips every other one; reversed from 8s counts down.
+    expect(frames(2, 2)).toEqual([4, 8, 12]);
+    expect(frames(8, -1)).toEqual([16, 14, 12]);
+  });
+
   it("peakInRange takes the max and always samples a bucket", () => {
     const peaks = [0.1, 0.5, 0.2, 0.9];
     expect(peakInRange(peaks, 2, 0, 1)).toBe(0.5);

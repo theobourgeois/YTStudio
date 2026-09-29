@@ -26,6 +26,7 @@ import {
   copyEffects,
   defaultEffects,
   effectDefinition,
+  isTextClip,
   isVideoEffect,
   moveEffect,
   pasteEffects,
@@ -41,14 +42,19 @@ import { EPS, roundTime, tidy } from "@shared/math";
 import { type ParamSpec, sanitizeValue } from "@shared/params";
 import {
   ASPECT_RATIOS,
+  MAX_SPEED,
   MIN_CLIP_DURATION,
+  MIN_SPEED,
   STILL_DURATION,
   addClip,
   addTextClip,
   addTrack,
   canPlaceOnTrack,
+  canRetime,
+  clipDuration,
   clipEnd,
   clipName,
+  clipSpeed,
   clipSourceRange,
   clipsAtTime,
   closeGap,
@@ -57,16 +63,21 @@ import {
   getClip,
   getTrack,
   isOnVideoTrack,
+  maxClipSpeed,
   moveClips,
   pasteClips,
   removeClips,
   removeTrack,
   rippleDelete,
   rippleTrimTo,
+  setClipSpeed,
   setTrackMuted,
+  sourceAt,
   sourceRange,
+  speedForDuration,
   splitClip,
   trackClips,
+  timelineTime,
   trimClip,
   videoTracks,
 } from "@shared/timeline";
@@ -192,7 +203,7 @@ function checkParams(
 const withNotes = (text: string, notes: string[]) => (notes.length ? `${text} Note: ${[...new Set(notes)].join("; ")}.` : text);
 
 /** Timeline time -> the clip's source time (unclamped). */
-const toSource = (clip: Clip, t: number) => tidy(clip.in + (t - clip.start));
+const toSource = (clip: Clip, t: number) => tidy(sourceAt(clip, t));
 
 // ---------------------------------------------------------------------------
 // Adding
@@ -353,6 +364,47 @@ const trim: EditHandler = (project, input, env) => {
   };
 };
 
+const setSpeed: EditHandler = (project, input, env) => {
+  const ids = strings(input, "clipIds");
+  const clips = ids.map((id) => clipOf(project, id));
+  const speed = optNumber(input, "speed", { min: MIN_SPEED, max: MAX_SPEED });
+  const duration = optNumber(input, "duration", { min: MIN_CLIP_DURATION });
+  const reversed = optBoolean(input, "reversed");
+  const keepPitch = optBoolean(input, "keepPitch");
+  if (speed !== undefined && duration !== undefined) throw new ToolError("Give `speed` or `duration`, not both.");
+  if (speed === undefined && duration === undefined && reversed === undefined && keepPitch === undefined) {
+    throw new ToolError("Give `speed`, `duration`, `reversed` and/or `keepPitch`.");
+  }
+  const still = clips.find((c) => !canRetime(c, env.assets[c.assetId]));
+  if (still) throw new ToolError(`${still.id} is ${isTextClip(still) ? "text" : "a still image"}: only video and sound clips have a speed. Change its length with trim_clip.`);
+  let p = project;
+  const notes: string[] = [];
+  if (duration !== undefined) {
+    // Each clip gets its own speed to last `duration`.
+    for (const clip of clips) {
+      const fit = speedForDuration(clip, duration);
+      p = setClipSpeed(p, [clip.id], { speed: fit, reversed, keepPitch });
+      const lasts = clipDuration(getClip(p, clip.id)!);
+      if (Math.abs(lasts - duration) > 1e-3) notes.push(`${clip.id} can only go from ${secs((clip.out - clip.in) / maxClipSpeed(clip))}s to ${secs((clip.out - clip.in) / MIN_SPEED)}s at speeds ${MIN_SPEED}–${MAX_SPEED}, so it lasts ${secs(lasts)}s`);
+    }
+  } else {
+    p = setClipSpeed(p, ids, { speed, reversed, keepPitch });
+    for (const clip of clips) {
+      const got = clipSpeed(getClip(p, clip.id)!);
+      if (speed !== undefined && Math.abs(got - speed) > 1e-6) notes.push(`${clip.id} is too short to play faster than ${got}× (a clip lasts at least ${MIN_CLIP_DURATION}s)`);
+    }
+  }
+  if (p === project) return { project, text: withNotes("Nothing changed: the clips already play like that.", notes) };
+  const lines = ids.map((id) => {
+    const c = getClip(p, id)!;
+    const how = [`${clipSpeed(c)}×`, ...(c.reversed ? ["reversed"] : []), ...(c.keepPitch === false ? ["pitch follows speed"] : [])];
+    return `${place(p, c, env)}: ${how.join(", ")}.`;
+  });
+  const moved = p.clips.filter((c) => !ids.includes(c.id) && getClip(project, c.id)?.start !== c.start).length;
+  if (moved) lines.push(`${moved} later clip${moved === 1 ? "" : "s"} on the same track${moved === 1 ? "" : "s"} moved with ${ids.length === 1 ? "its" : "their"} end.`);
+  return { project: p, text: withNotes(lines.join("\n"), notes) };
+};
+
 const split: EditHandler = (project, input) => {
   const at = number(input, "at", { min: 0 });
   const given = optStrings(input, "clipIds");
@@ -481,7 +533,7 @@ const setKeyframes: EditHandler = (project, input) => {
   }
   const sorted = [...keys.values()].sort((a, b) => a.time - b.time);
   const p = updateEffect(project, clip.id, effect.id, (e) => ({ ...e, keyframes: { ...e.keyframes, [key]: sorted } }));
-  const shown = sorted.map((k) => `${secs(k.time - clip.in + clip.start)}: ${value(k.value)}`).join(", ");
+  const shown = sorted.map((k) => `${secs(timelineTime(clip, k.time))}: ${value(k.value)}`).join(", ");
   return { project: p, text: withNotes(`Animated ${key} (${effect.id}) on ${clip.id}: ${shown}.`, notes) };
 };
 
@@ -712,6 +764,7 @@ export const EDITS: Record<EditToolName, EditHandler> = {
   add_text: addText,
   move_clips: move,
   trim_clip: trim,
+  set_speed: setSpeed,
   split_clips: split,
   delete_clips: deleteClips,
   close_gaps: closeGaps,

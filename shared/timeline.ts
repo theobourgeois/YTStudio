@@ -4,7 +4,7 @@
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
 import { isTextClip, textStyleAt } from "./effects.ts";
-import { EPS, clamp, even, roundTime } from "./math.ts";
+import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
 import type {
   AspectRatio,
   Clip,
@@ -45,8 +45,17 @@ export function createDefaultProject(): Project {
 // Queries
 // ---------------------------------------------------------------------------
 
-export const clipDuration = (c: Clip) => c.out - c.in;
-export const clipEnd = (c: Clip) => c.start + c.out - c.in;
+/** Slowest and fastest a clip can play (10% and 1000%, like Premiere's usual range). */
+export const MIN_SPEED = 0.1;
+export const MAX_SPEED = 10;
+
+/** How fast a clip plays its media (1 = normal speed). */
+export const clipSpeed = (c: Pick<Clip, "speed">) => c.speed ?? 1;
+/** Length on the timeline: its source range at its speed. */
+export const clipDuration = (c: Pick<Clip, "in" | "out" | "speed">) => (c.out - c.in) / clipSpeed(c);
+export const clipEnd = (c: Pick<Clip, "start" | "in" | "out" | "speed">) => c.start + clipDuration(c);
+/** Plays at a speed other than 1, or backwards. */
+export const isRetimed = (c: Pick<Clip, "speed" | "reversed">) => clipSpeed(c) !== 1 || c.reversed === true;
 
 export function getTrack(project: Project, trackId: string): Track | undefined {
   return project.tracks.find((t) => t.id === trackId);
@@ -170,14 +179,65 @@ export function clipSourceRange(
 /** Keep source times this far before a clip's out-point so the frame shown belongs to the clip. */
 export const END_GUARD = 1e-3;
 
+type Timed = Pick<Clip, "start" | "in" | "out" | "speed" | "reversed">;
+
+/**
+ * The source time at a clip's timeline time `t` seen as an edge (unclamped):
+ * where a cut at `t` divides its media. A reversed clip starts at its `out`
+ * and runs down to its `in`.
+ */
+export function sourceEdge(clip: Timed, t: number): number {
+  const played = (t - clip.start) * clipSpeed(clip);
+  return clip.reversed ? clip.out - played : clip.in + played;
+}
+
+/**
+ * Source-media time `clip` shows at timeline time `t`, unclamped (a
+ * transition shows clips past their edges). Played backwards, each moment
+ * shows the frame just before its edge, as forwards shows the one just after.
+ */
+export function sourceAt(clip: Timed, t: number): number {
+  return sourceEdge(clip, t) - (clip.reversed ? END_GUARD : 0);
+}
+
 /**
  * Source-media time shown by `clip` at timeline time `t`, clamped into the
  * clip. Keyframes and effect values are read at this time.
  */
-export function sourceTime(clip: Clip, t: number): number {
-  const s = clip.in + (t - clip.start);
-  return Math.min(Math.max(s, clip.in), Math.max(clip.in, clip.out - END_GUARD));
+export function sourceTime(clip: Timed, t: number): number {
+  return Math.min(Math.max(sourceAt(clip, t), clip.in), Math.max(clip.in, clip.out - END_GUARD));
 }
+
+/** Timeline time at which `clip` shows source time `s` (the inverse of `sourceAt`). */
+export function timelineTime(clip: Timed, s: number): number {
+  const played = clip.reversed ? clip.out - END_GUARD - s : s - clip.in;
+  return clip.start + played / clipSpeed(clip);
+}
+
+/** Source seconds a clip plays in `dt` timeline seconds (negative when it plays backwards). */
+export const sourceDelta = (clip: Pick<Clip, "speed" | "reversed">, dt: number) =>
+  dt * clipSpeed(clip) * (clip.reversed ? -1 : 1);
+
+/**
+ * Where source time `s` of a clip is in the file it plays: the media itself,
+ * or, for a reversed clip, its reversed copy (`duration` long like the
+ * media), where each frame starts at the time the source frame before it ends.
+ */
+export function fileTime(clip: Pick<Clip, "reversed">, s: number, duration: number): number {
+  return clip.reversed ? duration - END_GUARD - s : s;
+}
+
+/** Can play at another speed or backwards: clips of videos and sounds (not stills or text). */
+export function canRetime(clip: Clip, asset: Pick<MediaAsset, "kind"> | undefined): boolean {
+  return !isTextClip(clip) && !!asset && asset.kind !== "image";
+}
+
+/**
+ * A source time on a retimed clip's edge: rounded finely enough that at the
+ * slowest speed the timeline edge still lands within `EPS` (normal-speed clips
+ * keep microsecond source times).
+ */
+export const roundSourceTime = (clip: Pick<Clip, "speed">, s: number) => (clipSpeed(clip) === 1 ? roundTime(s) : tidy(s));
 
 /** Whether an asset may be placed on a track of the given kind. */
 export function canPlaceOnTrack(asset: Pick<MediaAsset, "hasVideo" | "hasAudio">, track: Pick<Track, "kind">) {
@@ -421,11 +481,12 @@ export function splitClip(
   ) {
     return { project, newClipId: null };
   }
-  const cut = roundTime(clip.in + (time - clip.start));
-  // The clip's transitions stay on its outer edges.
+  const cut = roundSourceTime(clip, sourceEdge(clip, time));
+  // The clip's transitions stay on its outer edges. Played backwards, the left half has the end of the media.
   const { transitionIn, transitionOut, ...rest } = clip;
-  const left: Clip = { ...rest, out: cut, ...(transitionIn && { transitionIn }) };
-  const right: Clip = { ...rest, id: createId("clip"), start: roundTime(time), in: cut, ...(transitionOut && { transitionOut }) };
+  const [first, second] = clip.reversed ? [{ in: cut }, { out: cut }] : [{ out: cut }, { in: cut }];
+  const left: Clip = { ...rest, ...first, ...(transitionIn && { transitionIn }) };
+  const right: Clip = { ...rest, ...second, id: createId("clip"), start: roundTime(time), ...(transitionOut && { transitionOut }) };
   const clips: Clip[] = [];
   for (const c of project.clips) {
     if (c.id === clipId) clips.push(left, right);
@@ -533,23 +594,29 @@ export function trimClip(
   const clip = getClip(project, clipId);
   if (!clip) return project;
   const siblings = trackClips(project, clip.trackId).filter((c) => c.id !== clip.id);
+  const speed = clipSpeed(clip);
+  const duration = clipDuration(clip);
+  // Timeline seconds of media left past the clip's start and end edges (a reversed clip starts at its out-point).
+  const [before, after] = clip.reversed
+    ? [(source.max - clip.out) / speed, (clip.in - source.min) / speed]
+    : [(clip.in - source.min) / speed, (source.max - clip.out) / speed];
   let next: Clip;
 
   if (edge === "start") {
     const prevEnd = Math.max(0, ...siblings.filter((c) => clipEnd(c) <= clip.start + EPS).map(clipEnd));
-    const minDelta = Math.max(source.min - clip.in, prevEnd - clip.start);
-    const maxDelta = clip.out - MIN_CLIP_DURATION - clip.in;
+    const minDelta = Math.max(-before, prevEnd - clip.start);
+    const maxDelta = duration - MIN_CLIP_DURATION;
     const d = clamp(delta, Math.min(minDelta, 0), Math.max(maxDelta, 0));
-    next = { ...clip, in: roundTime(clip.in + d), start: roundTime(clip.start + d) };
+    const edgeSource = roundSourceTime(clip, sourceEdge(clip, clip.start + d));
+    next = { ...clip, ...(clip.reversed ? { out: edgeSource } : { in: edgeSource }), start: roundTime(clip.start + d) };
   } else {
-    let maxOut = source.max;
+    let maxDelta = after;
     const following = siblings.filter((c) => c.start >= clipEnd(clip) - EPS);
-    if (following.length) {
-      const nextStart = Math.min(...following.map((c) => c.start));
-      maxOut = Math.min(maxOut, clip.in + (nextStart - clip.start));
-    }
-    const minOut = clip.in + MIN_CLIP_DURATION;
-    next = { ...clip, out: roundTime(clamp(clip.out + delta, minOut, Math.max(maxOut, minOut))) };
+    if (following.length) maxDelta = Math.min(maxDelta, Math.min(...following.map((c) => c.start)) - clipEnd(clip));
+    const minDelta = MIN_CLIP_DURATION - duration;
+    const d = clamp(delta, minDelta, Math.max(maxDelta, minDelta));
+    const edgeSource = roundSourceTime(clip, sourceEdge(clip, clipEnd(clip) + d));
+    next = { ...clip, ...(clip.reversed ? { in: edgeSource } : { out: edgeSource }) };
   }
   return replaceClips(project, new Map([[clipId, next]]));
 }
@@ -574,11 +641,110 @@ export function rippleTrimTo(
     return project;
   }
   const end = clipEnd(clip);
-  const cut = roundTime(clip.in + (time - clip.start));
-  const trimmed: Clip = edge === "start" ? { ...clip, in: cut } : { ...clip, out: cut };
+  const cut = roundSourceTime(clip, sourceEdge(clip, time));
+  // Played backwards, the timeline's start edge is the media's out-point.
+  const trimmed: Clip = (edge === "start") !== !!clip.reversed ? { ...clip, in: cut } : { ...clip, out: cut };
   const removed = edge === "start" ? time - clip.start : end - time;
   const p = replaceClips(project, new Map([[clipId, trimmed]]));
   return pullLeft(p, clip.trackId, end, removed);
+}
+
+// ---------------------------------------------------------------------------
+// Speed
+// ---------------------------------------------------------------------------
+
+/** What `setClipSpeed` changes (anything left out stays as it is). */
+export interface SpeedChange {
+  speed?: number;
+  reversed?: boolean;
+  keepPitch?: boolean;
+}
+
+/** The fastest a clip can play: `MAX_SPEED`, or as fast as keeps it `MIN_CLIP_DURATION` long. */
+export function maxClipSpeed(clip: Pick<Clip, "in" | "out">): number {
+  return Math.max(MIN_SPEED, Math.min(MAX_SPEED, (clip.out - clip.in) / MIN_CLIP_DURATION));
+}
+
+/** `speed` limited to what the clip can play at. */
+export function clampSpeed(clip: Pick<Clip, "in" | "out">, speed: number): number {
+  return tidy(clamp(speed, MIN_SPEED, maxClipSpeed(clip)));
+}
+
+/** The speed at which a clip lasts `duration` timeline seconds (limited to what it can play at). */
+export function speedForDuration(clip: Pick<Clip, "in" | "out">, duration: number): number {
+  return clampSpeed(clip, (clip.out - clip.in) / Math.max(duration, 1e-6));
+}
+
+/** A clip with `change` applied (the same clip when nothing changes). Speed 1, forwards and a kept pitch aren't stored. */
+function retimed(clip: Clip, change: SpeedChange): Clip {
+  const speed = change.speed === undefined ? clipSpeed(clip) : clampSpeed(clip, change.speed);
+  const reversed = change.reversed ?? clip.reversed === true;
+  const keepPitch = change.keepPitch ?? clip.keepPitch !== false;
+  if (speed === clipSpeed(clip) && reversed === (clip.reversed === true) && keepPitch === (clip.keepPitch !== false)) return clip;
+  const { speed: _s, reversed: _r, keepPitch: _k, ...rest } = clip;
+  return {
+    ...rest,
+    ...(Math.abs(speed - 1) > 1e-9 && { speed }),
+    ...(reversed && { reversed: true as const }),
+    ...(!keepPitch && { keepPitch: false as const }),
+  };
+}
+
+/**
+ * Premiere's Speed/Duration (with Ripple Edit on): set clips' speed, direction
+ * and pitch. Each clip keeps its start, and the clips after it on its track
+ * move with its end, so a faster clip leaves no gap and a slower one never
+ * overlaps the next. Keyframes stay on their frames (they're in source time),
+ * so an animation speeds up with its clip. Callers pick clips that can be
+ * retimed (`canRetime`).
+ */
+export function setClipSpeed(project: Project, clipIds: Iterable<string>, change: SpeedChange): Project {
+  const ids = new Set(clipIds);
+  const tracks = new Set<string>();
+  for (const c of project.clips) if (ids.has(c.id)) tracks.add(c.trackId);
+  const updated = new Map<string, Clip>();
+  for (const trackId of tracks) {
+    let shift = 0;
+    for (const c of trackClips(project, trackId)) {
+      let next = ids.has(c.id) ? retimed(c, change) : c;
+      if (shift !== 0) next = { ...next, start: roundTime(Math.max(0, c.start + shift)) };
+      if (next === c) continue;
+      shift += clipDuration(next) - clipDuration(c);
+      updated.set(c.id, next);
+    }
+  }
+  return replaceClips(project, updated);
+}
+
+/**
+ * Premiere's Rate Stretch: drag a clip's edge by `delta` seconds and its speed
+ * changes so the same media fills the new length; the other edge stays put.
+ * Limited by its neighbours and the speed range. Like `trimClip`, a drag
+ * passes the project from before it and the total delta.
+ */
+export function stretchClip(project: Project, clipId: string, edge: "start" | "end", delta: number): Project {
+  const clip = getClip(project, clipId);
+  if (!clip) return project;
+  const siblings = trackClips(project, clip.trackId).filter((c) => c.id !== clip.id);
+  const length = clip.out - clip.in;
+  const duration = clipDuration(clip);
+  const end = clipEnd(clip);
+  const shortest = length / maxClipSpeed(clip);
+  let longest = length / MIN_SPEED;
+  if (edge === "end") {
+    const following = siblings.filter((c) => c.start >= end - EPS);
+    if (following.length) longest = Math.min(longest, Math.min(...following.map((c) => c.start)) - clip.start);
+  } else {
+    const prevEnd = Math.max(0, ...siblings.filter((c) => clipEnd(c) <= clip.start + EPS).map(clipEnd));
+    longest = Math.min(longest, end - prevEnd);
+  }
+  const wanted = edge === "end" ? duration + delta : duration - delta;
+  const next = clamp(wanted, shortest, Math.max(longest, Math.min(duration, shortest)));
+  // The fixed edge stays exactly where it was.
+  const start = edge === "end" ? clip.start : roundTime(end - next);
+  const stretched = retimed({ ...clip, start }, { speed: length / (edge === "end" ? next : end - start) });
+  if (stretched.start === clip.start && clipSpeed(stretched) === clipSpeed(clip)) return project;
+  return replaceClips(project, new Map([[clipId, stretched]]));
 }
 
 /** A copied clip plus the kind of track it came from (its track may be gone by paste time). */

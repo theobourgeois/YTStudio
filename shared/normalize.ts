@@ -6,15 +6,17 @@
  * or it's dropped.
  */
 import { isTextClip, normalizeEffects } from "./effects.ts";
-import { EPS, clamp, roundTime } from "./math.ts";
+import { EPS, clamp, isFiniteNumber, roundTime } from "./math.ts";
 import {
   ASPECT_RATIOS,
   MIN_CLIP_DURATION,
   TRACK_KIND_LABEL,
+  clampSpeed,
   clipDuration,
   clipEnd,
   createDefaultProject,
   findFreeStart,
+  roundSourceTime,
   sourceRange,
 } from "./timeline.ts";
 import { sanitizeTransition } from "./transitions.ts";
@@ -77,13 +79,22 @@ export function normalizeProject(
     }
     if (out - inPoint < MIN_CLIP_DURATION - EPS) continue;
     clipIds.add(c.id);
+    // Only media that plays (not text or stills) has a speed and a direction.
+    const retimable = !text && (!assets || assets[c.assetId]?.kind !== "image");
+    const speed = retimable && isFiniteNumber(c.speed) && c.speed > 0 ? clampSpeed({ in: inPoint, out }, c.speed) : 1;
+    const timing: Pick<Clip, "speed" | "reversed" | "keepPitch"> = {
+      ...(speed !== 1 && { speed }),
+      ...(retimable && c.reversed === true && { reversed: true as const }),
+      ...(retimable && c.keepPitch === false && { keepPitch: false as const }),
+    };
     const clip: Clip = {
       id: c.id,
       assetId: text ? "" : String(c.assetId),
       trackId: c.trackId,
       start: roundTime(Math.max(0, c.start)),
-      in: roundTime(inPoint),
-      out: roundTime(out),
+      in: roundSourceTime(timing, inPoint),
+      out: roundSourceTime(timing, out),
+      ...timing,
       effects,
     };
     // Only pictures have transitions.

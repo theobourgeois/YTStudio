@@ -76,6 +76,7 @@ describe("resolveShortcut", () => {
       expect(resolveShortcut(key("c", mod))).toBe("copy");
       expect(resolveShortcut(key("v", mod))).toBe("paste");
       expect(resolveShortcut(key("d", mod))).toBe("duplicate");
+      expect(resolveShortcut(key("r", mod))).toBe("speed");
       expect(resolveShortcut(key("a", mod))).toBe("selectAll");
     }
   });

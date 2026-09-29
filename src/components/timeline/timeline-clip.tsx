@@ -1,9 +1,10 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
-import { PiSubtitles, PiTextT, PiWarning } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiSubtitles, PiTextT, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
 import { isTextClip, videoEffects } from "@shared/effects";
 import { keyframeTimes, timelineTime } from "@shared/animation";
-import { clipDuration, clipName } from "@shared/timeline";
+import { clipDuration, clipName, clipSpeed, sourceDelta, sourceEdge } from "@shared/timeline";
+import { formatSpeed } from "@shared/format";
 import { cn } from "cn";
 import { useAssistant } from "@/stores/assistant";
 import { useLayout } from "@/stores/layout";
@@ -83,6 +84,8 @@ export const TimelineClip = memo(function TimelineClip({
             name={clipName(clip, asset)}
             effects={effects.map((e) => e.type)}
             effectsOn={effects.some((e) => e.enabled)}
+            speed={clipSpeed(clip)}
+            reversed={clip.reversed === true}
           />
         )}
         <ClipKeyframes clip={clip} zoom={zoom} />
@@ -114,6 +117,8 @@ function sameClipProps(a: TimelineClipProps, b: TimelineClipProps) {
     a.clip.start === b.clip.start &&
     a.clip.in === b.clip.in &&
     a.clip.out === b.clip.out &&
+    a.clip.speed === b.clip.speed &&
+    a.clip.reversed === b.clip.reversed &&
     a.clip.assetId === b.clip.assetId &&
     // A text clip's label is its text.
     a.clip.effects === b.clip.effects &&
@@ -147,9 +152,12 @@ function ClipContent({
   zoom: number;
 }) {
   if (!asset) return null;
+  // Source time at the left edge, and how fast (and which way) it runs from there.
+  const inPoint = sourceEdge(clip, clip.start);
+  const rate = sourceDelta(clip, 1);
   if (audioLane) {
     return (
-      <Waveform url={asset.waveform} clipLeft={left} width={width} height={height - 2} inPoint={clip.in} zoom={zoom} />
+      <Waveform url={asset.waveform} clipLeft={left} width={width} height={height - 2} inPoint={inPoint} zoom={zoom} rate={rate} />
     );
   }
   if (asset.filmstrip) {
@@ -160,8 +168,9 @@ function ClipContent({
         clipLeft={left}
         width={width}
         height={height - 2}
-        inPoint={clip.in}
+        inPoint={inPoint}
         zoom={zoom}
+        rate={rate}
       />
     );
   }
@@ -194,6 +203,8 @@ function ClipLabel({
   name,
   effects,
   effectsOn,
+  speed,
+  reversed,
 }: {
   offline: boolean;
   text: boolean;
@@ -203,6 +214,8 @@ function ClipLabel({
   effects: string[];
   /** Some of them are on. */
   effectsOn: boolean;
+  speed: number;
+  reversed: boolean;
 }) {
   return (
     <div
@@ -214,6 +227,13 @@ function ClipLabel({
       {offline && <PiWarning className="size-3 shrink-0" />}
       {text && (caption ? <PiSubtitles className="size-3 shrink-0" /> : <PiTextT className="size-3 shrink-0" />)}
       <span className="truncate">{name}</span>
+      {(speed !== 1 || reversed) && (
+        // Premiere puts the speed after the name ("clip.mp4 [200%]"); a reversed clip's is negative.
+        <span data-clip-speed={reversed ? -speed : speed} className="flex shrink-0 items-center gap-0.5 text-sky-300 tabular-nums">
+          {reversed && <PiArrowCounterClockwise className="size-3" aria-label="Reversed" />}
+          {speed !== 1 && formatSpeed(speed)}
+        </span>
+      )}
       {effects.length > 0 && (
         // Premiere's fx badge: coloured while an effect is on.
         <span

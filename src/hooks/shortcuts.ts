@@ -30,6 +30,7 @@ export type ShortcutAction =
   | "pasteEffects"
   | "duplicate"
   | "addTransition"
+  | "speed"
   | "nudgeLeft"
   | "nudgeRight"
   | "nudgeLeftMore"
@@ -96,6 +97,9 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
   switch (key) {
     case "y":
       return "redo";
+    // Premiere's Speed/Duration (also keeps ⌘R from reloading the page).
+    case "r":
+      return "speed";
     case "b":
     case "k":
       return "split";
@@ -228,6 +232,7 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   pasteEffects: `${ALT}${MOD}V`,
   duplicate: `${MOD}D`,
   addTransition: `${SHIFT}${MOD}D`,
+  speed: `${MOD}R`,
   nudgeLeft: `${ALT}←`,
   nudgeRight: `${ALT}→`,
   nudgeLeftMore: `${ALT}${SHIFT}←`,
@@ -280,6 +285,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Copy / paste effects (onto the selected clips)", keys: [`${ALT}${MOD}C`, `${ALT}${MOD}V`] },
       { label: "Duplicate", keys: [`${MOD}D`] },
       { label: "Add a cross dissolve at the nearest cut", keys: [`${SHIFT}${MOD}D`] },
+      { label: "Speed / reverse the selected clips", keys: [`${MOD}R`] },
+      { label: "Stretch a clip's speed to fit", keys: [`${ALT}Drag an edge`] },
       { label: "Nudge 1 frame", keys: [`${ALT}←`, `${ALT}→`] },
       { label: "Nudge 10 frames", keys: [`${ALT}${SHIFT}←`, `${ALT}${SHIFT}→`] },
       { label: "Move to track above / below", keys: [`${ALT}↑`, `${ALT}↓`] },

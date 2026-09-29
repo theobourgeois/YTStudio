@@ -11,8 +11,11 @@ interface SpanProps {
   clipLeft: number;
   width: number;
   height: number;
+  /** Source time at the clip's left edge. */
   inPoint: number;
   zoom: number;
+  /** Source seconds per timeline second: the clip's speed, negative when it plays backwards. */
+  rate: number;
 }
 
 /** Clip-local px range [from, to) that intersects the rendered window. */
@@ -29,6 +32,7 @@ export const Filmstrip = memo(function Filmstrip({
   height,
   inPoint,
   zoom,
+  rate,
 }: SpanProps & { filmstrip: FilmstripInfo; assetDuration: number }) {
   const [from, to] = useLocalRange(clipLeft, width);
   const tileWidth = Math.max(16, (height * filmstrip.width) / Math.max(1, filmstrip.height));
@@ -40,6 +44,7 @@ export const Filmstrip = memo(function Filmstrip({
     zoom,
     assetDuration,
     frameCount: filmstrip.count,
+    rate,
   });
   return (
     <>
@@ -78,6 +83,7 @@ export const Waveform = memo(function Waveform({
   height,
   inPoint,
   zoom,
+  rate,
 }: SpanProps & { url: string | null }) {
   const data = useWaveformData(url);
   const [from, to] = useLocalRange(clipLeft, width);
@@ -98,14 +104,14 @@ export const Waveform = memo(function Waveform({
     g.fillStyle = "rgba(255, 255, 255, 0.62)";
     const mid = h / 2;
     const maxBar = h - 4 * dpr;
-    const step = 1 / dpr / zoom; // seconds per device pixel
+    const step = rate / dpr / zoom; // source seconds per device pixel
     for (let px = 0; px < w; px++) {
-      const t0 = inPoint + (from + px / dpr) / zoom;
-      const amp = peakInRange(data.peaks, data.peaksPerSecond, t0, t0 + step);
+      const t0 = inPoint + ((from + px / dpr) / zoom) * rate;
+      const amp = peakInRange(data.peaks, data.peaksPerSecond, Math.min(t0, t0 + step), Math.max(t0, t0 + step));
       const bar = Math.max(dpr, amp * maxBar);
       g.fillRect(px, mid - bar / 2, 1, bar);
     }
-  }, [data, from, span, height, inPoint, zoom]);
+  }, [data, from, span, height, inPoint, zoom, rate]);
 
   if (!data || span <= 0) return null;
   return (
