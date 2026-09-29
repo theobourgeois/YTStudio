@@ -42,6 +42,7 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("O", { shiftKey: true }))).toBe("goToOut");
     // ⌥X types "≈" on a Mac: it goes by the physical key.
     expect(resolveShortcut(key("≈", { altKey: true, code: "KeyX" }))).toBe("clearMarks");
+    expect(resolveShortcut(key("u", { metaKey: true }))).toBe("makeSubclip");
     expect(resolveShortcut(key("i", { repeat: true }))).toBeNull();
   });
 

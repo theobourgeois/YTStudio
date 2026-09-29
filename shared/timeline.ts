@@ -601,12 +601,17 @@ export function closeGap(project: Project, trackId: string, time: number): Proje
   return gap ? pullLeft(project, trackId, gap.end, gap.end - gap.start) : project;
 }
 
-/** Remove every clip that uses an asset (e.g. when the asset is deleted). */
+/** Remove every clip and subclip that uses an asset (e.g. when the asset is deleted). */
 export function removeAssetClips(project: Project, assetId: string): Project {
-  return removeClips(
+  const p = removeClips(
     project,
     project.clips.filter((c) => c.assetId === assetId).map((c) => c.id),
   );
+  if (!p.subclips?.some((s) => s.assetId === assetId)) return p;
+  const subclips = p.subclips.filter((s) => s.assetId !== assetId);
+  if (subclips.length > 0) return { ...p, subclips };
+  const { subclips: _, ...rest } = p;
+  return rest;
 }
 
 /**

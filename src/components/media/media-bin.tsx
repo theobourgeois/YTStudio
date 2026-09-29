@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from "react";
 import { PiFileArrowUp, PiUploadSimple } from "react-icons/pi";
 import { useShallow } from "zustand/react/shallow";
-import type { MediaAsset } from "@shared/types";
+import { subclipsByAsset } from "@shared/subclips";
+import type { MediaAsset, Subclip } from "@shared/types";
+import { NameDialog } from "@/components/library/library-dialogs";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TagChip } from "@/components/ui/tag-chip";
@@ -25,25 +27,41 @@ const FILTERS: { value: MediaFilter; label: string }[] = [
 
 /**
  * The Media tab: the project's imported media, to preview, add to the timeline
- * or delete, one file or a selection (⌘/⇧-click, or drag a box).
+ * or delete, one file or a selection (⌘/⇧-click, or drag a box). Each file's
+ * subclips (parts of it made in the source preview) follow it, as cards of their own.
  */
 export function MediaBin() {
   const assets = useEditor((s) => s.assets);
   const uploads = useEditor((s) => s.uploads);
   // Compared entry by entry, so moving clips around doesn't re-render the grid.
   const uses = useEditor(useShallow((s) => clipCountByAsset(s.project.clips)));
+  const subclips = useEditor((s) => subclipsByAsset(s.project));
+  const [renaming, setRenaming] = useState<Subclip | null>(null);
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [pendingDelete, setPendingDelete] = useState<{ assets: MediaAsset[]; uses: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const visible = useMemo(() => filterAssets(assets, filter), [assets, filter]);
-  const order = useMemo(() => visible.map((a) => a.id), [visible]);
+  const entries = useMemo(
+    () =>
+      visible.flatMap((asset): { asset: MediaAsset; subclip?: Subclip }[] => [
+        { asset },
+        ...(subclips.get(asset.id) ?? []).map((subclip) => ({ asset, subclip })),
+      ]),
+    [visible, subclips],
+  );
+  const order = useMemo(() => entries.map((e) => e.subclip?.id ?? e.asset.id), [entries]);
   const isEmpty = assets.length === 0 && uploads.length === 0;
   const openPicker = () => inputRef.current?.click();
 
-  /** Deleting files can't be undone: ask, except for one unused file picked from its menu. */
+  /**
+   * Deleting files can't be undone: ask, except for one unused file picked from its menu.
+   * Subclips go at once (that's an edit: undo brings them back).
+   */
   const requestDelete = (ids: string[], ask = false) => {
+    const subclipIds = ids.filter((id) => useEditor.getState().getSubclip(id));
+    if (subclipIds.length) useEditor.getState().deleteSubclips(subclipIds);
     const doomed = new Set(ids);
     const chosen = assets.filter((a) => doomed.has(a.id));
     const count = chosen.reduce((n, a) => n + (uses.get(a.id) ?? 0), 0);
@@ -97,22 +115,29 @@ export function MediaBin() {
                       {uploads.map((u) => (
                         <UploadCard key={u.id} upload={u} />
                       ))}
-                      {visible.map((asset) => (
-                        <AssetCard
-                          key={asset.id}
-                          asset={asset}
-                          uses={uses.get(asset.id) ?? 0}
-                          selected={grid.isSelected(asset.id)}
-                          count={grid.targets(asset.id).length}
-                          onClick={(e) => {
-                            if (grid.click(e, asset.id) && asset.duration > 0) useSourcePreview.getState().open(asset.id);
-                          }}
-                          onGrab={() => grid.grab(asset.id)}
-                          onAdd={() => useEditor.getState().addAssetsToTimeline(grid.targets(asset.id))}
-                          onAddToLibrary={(folderId) => void useLibrary.getState().addAssets(grid.targets(asset.id), folderId)}
-                          onDelete={() => requestDelete(grid.targets(asset.id))}
-                        />
-                      ))}
+                      {entries.map(({ asset, subclip }) => {
+                        const id = subclip?.id ?? asset.id;
+                        return (
+                          <AssetCard
+                            key={id}
+                            asset={asset}
+                            subclip={subclip}
+                            uses={subclip ? 0 : (uses.get(asset.id) ?? 0)}
+                            selected={grid.isSelected(id)}
+                            count={grid.targets(id).length}
+                            onClick={(e) => {
+                              if (!grid.click(e, id) || !(asset.duration > 0)) return;
+                              if (subclip) useSourcePreview.getState().openSubclip(subclip.id, asset.id);
+                              else useSourcePreview.getState().open(asset.id);
+                            }}
+                            onGrab={() => grid.grab(id)}
+                            onAdd={() => useEditor.getState().addAssetsToTimeline(grid.targets(id))}
+                            onAddToLibrary={(folderId) => void useLibrary.getState().addAssets(grid.targets(id), folderId)}
+                            onDelete={() => requestDelete(grid.targets(id))}
+                            onRename={subclip && (() => setRenaming(subclip))}
+                          />
+                        );
+                      })}
                     </div>
                     {visible.length === 0 && assets.length > 0 && (
                       <p className="px-4 py-8 text-center text-xs text-muted-foreground">
@@ -134,6 +159,15 @@ export function MediaBin() {
           </ContextMenu>
         </>
       )}
+
+      <NameDialog
+        open={renaming !== null}
+        onOpenChange={(open) => !open && setRenaming(null)}
+        title="Rename subclip"
+        initial={renaming?.name ?? ""}
+        confirmLabel="Rename"
+        onConfirm={(name) => renaming && useEditor.getState().renameSubclip(renaming.id, name)}
+      />
 
       <DeleteAssetDialog
         open={confirmOpen}

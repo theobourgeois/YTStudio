@@ -1,16 +1,17 @@
 import { type PointerEvent as ReactPointerEvent, type RefObject, useLayoutEffect, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
-import type { MediaAsset } from "@shared/types";
+import type { MediaAsset, Subclip } from "@shared/types";
 import { formatTime } from "@shared/format";
 import { clamp } from "@shared/math";
+import { subclipsByAsset } from "@shared/subclips";
 import { filmstripFrameUrl } from "@/lib/api";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import type { MarkSide } from "@/lib/source-marks";
 import { cn } from "cn";
 import { peakInRange } from "@/components/timeline/geometry";
 import { useWaveformData } from "@/components/timeline/waveform-cache";
-import { useSourceMarks } from "@/stores/source-marks";
+import { useEditor } from "@/stores/editor";
 import { useSourcePreview } from "@/stores/source-preview";
+import { beginMarkDrag, shownMarks, useShownMarks, useShownSubclip } from "./source-marking";
 import { percentAt, stripTiles } from "./trimmer-geometry";
 
 const STRIP_HEIGHT = 56;
@@ -19,11 +20,13 @@ const STRIP_HEIGHT = 56;
  * The source preview's trimmer: the whole file as a filmstrip (or its waveform), with a
  * frame around the part that goes on the timeline. Drag the frame's handles to set In and
  * Out, press anywhere else to seek and scrub. The picture follows whatever is dragged.
+ * Underneath, the file's subclips: the parts already kept (click one to show it).
  */
 export function SourceTrimmer({ asset, time, duration }: { asset: MediaAsset; time: number; duration: number }) {
   const stripRef = useRef<HTMLDivElement>(null);
   const width = useWidth(stripRef);
-  const marks = useSourceMarks(useShallow((s) => s.marks[asset.id] ?? {}));
+  const marks = useShownMarks(asset.id);
+  const subclip = useShownSubclip();
   const [dragging, setDragging] = useState<MarkSide | null>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
   const controller = () => useSourcePreview.getState().controller;
@@ -31,7 +34,7 @@ export function SourceTrimmer({ asset, time, duration }: { asset: MediaAsset; ti
   const pct = (t: number) => percentAt(t, length);
   const inAt = marks.in ?? 0;
   const outAt = marks.out ?? length;
-  const trimmed = marks.in !== undefined || marks.out !== undefined;
+  const trimmed = subclip !== null || marks.in !== undefined || marks.out !== undefined;
 
   const timeAt = (clientX: number) => {
     const rect = stripRef.current!.getBoundingClientRect();
@@ -48,24 +51,30 @@ export function SourceTrimmer({ asset, time, duration }: { asset: MediaAsset; ti
     const source = controller();
     source?.pause();
     const markAt = () => {
-      const m = useSourceMarks.getState().marks[asset.id];
-      return side === "in" ? (m?.in ?? 0) : (m?.out ?? duration);
+      const m = shownMarks(asset.id);
+      return side === "in" ? (m.in ?? 0) : (m.out ?? duration);
     };
     // Where the handle was grabbed, so the mark doesn't jump to the pointer.
     const grab = timeAt(e.clientX) - markAt();
-    const before = useSourceMarks.getState().marks[asset.id];
+    let drag: ReturnType<typeof beginMarkDrag> | null = null;
     startPointerDrag(e, {
       threshold: 0,
       cursor: "ew-resize",
-      onStart: () => setDragging(side),
+      onStart: () => {
+        setDragging(side);
+        drag = beginMarkDrag(asset.id, side, duration);
+      },
       onMove: (ev) => {
-        useSourceMarks.getState().drag(asset.id, side, timeAt(ev.clientX) - grab, duration);
+        drag?.move(timeAt(ev.clientX) - grab);
         source?.seek(markAt());
       },
-      onEnd: () => setDragging(null),
+      onEnd: () => {
+        setDragging(null);
+        drag?.end();
+      },
       onCancel: () => {
         setDragging(null);
-        useSourceMarks.getState().restore(asset.id, before);
+        drag?.cancel();
       },
     });
   };
@@ -132,7 +141,39 @@ export function SourceTrimmer({ asset, time, duration }: { asset: MediaAsset; ti
           style={{ left: pct(time) }}
         />
       </div>
+
+      <SubclipBands asset={asset} length={length} shownId={subclip?.id ?? null} />
     </div>
+  );
+}
+
+/** The file's subclips along the strip, each a bar where it is: click one to show it. */
+function SubclipBands({ asset, length, shownId }: { asset: MediaAsset; length: number; shownId: string | null }) {
+  const inProject = useSourcePreview((s) => !s.libraryItemId);
+  const subclips = useEditor((s) => subclipsByAsset(s.project).get(asset.id));
+  if (!inProject || !subclips?.length) return null;
+  return (
+    <div className="relative mt-1.5 h-1.5" aria-label="Subclips of this file">
+      {subclips.map((s) => (
+        <SubclipBand key={s.id} subclip={s} assetId={asset.id} length={length} shown={s.id === shownId} />
+      ))}
+    </div>
+  );
+}
+
+function SubclipBand({ subclip, assetId, length, shown }: { subclip: Subclip; assetId: string; length: number; shown: boolean }) {
+  return (
+    <button
+      type="button"
+      data-subclip-band={subclip.id}
+      title={`${subclip.name} · ${formatTime(subclip.in)}–${formatTime(subclip.out)}`}
+      onClick={() => useSourcePreview.getState().openSubclip(subclip.id, assetId)}
+      className={cn(
+        "absolute inset-y-0 cursor-pointer rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
+        shown ? "bg-brand" : "bg-foreground/35 hover:bg-foreground/60",
+      )}
+      style={{ left: percentAt(subclip.in, length), width: `calc(${percentAt(subclip.out, length)} - ${percentAt(subclip.in, length)})` }}
+    />
   );
 }
 

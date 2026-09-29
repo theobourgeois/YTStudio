@@ -91,6 +91,8 @@ describe("describeToolCall", () => {
   it("says what a call does", () => {
     expect(describeToolCall("mcp__editor__split_clips", { at: 12.4, clipIds: ["a", "b"] })).toBe("Split 2 clips at 12.4s");
     expect(describeToolCall("move_clips", { clipIds: ["a"], to: 3 })).toBe("Move 1 clip to 3s");
+    expect(describeToolCall("make_subclips", { assetId: "m", items: [{}, {}] })).toBe("Make 2 subclips");
+    expect(describeToolCall("edit_subclips", { items: [{ delete: true }] })).toBe("Delete 1 subclip");
     expect(describeToolCall("add_text", { text: "Hello\nworld" })).toBe("Add text “Hello world”");
     expect(describeToolCall("view_frames", { times: [1, 2, 3] })).toBe("Look at 3 frames");
     expect(describeToolCall("set_transition", { type: null })).toBe("Remove a transition");

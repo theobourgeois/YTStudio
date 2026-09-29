@@ -38,6 +38,7 @@ import {
   updateEffect,
 } from "@shared/effects";
 import { EASINGS } from "@shared/keyframes";
+import { addSubclips, canSubclip, cleanSubclipName, getSubclip, removeSubclips, subclipRange, updateSubclip } from "@shared/subclips";
 import { EPS, roundTime, tidy } from "@shared/math";
 import { type ParamSpec, sanitizeValue } from "@shared/params";
 import {
@@ -222,7 +223,11 @@ const addClips: EditHandler = (project, input, env) => {
   for (const [i, raw] of items.entries()) {
     if (!raw || typeof raw !== "object") throw new ToolError(`items[${i}] must be an object.`);
     const item = raw as Input;
-    const assetId = string(item, "assetId");
+    const subclipId = optString(item, "subclipId");
+    const subclip = subclipId ? getSubclip(p, subclipId) : undefined;
+    if (subclipId && !subclip) throw new ToolError(`There's no subclip "${subclipId}" in this video. Call list_media for the subclip ids.`);
+    if (!subclip && optString(item, "assetId") === undefined) throw new ToolError(`items[${i}] needs an \`assetId\` or a \`subclipId\`.`);
+    const assetId = subclip?.assetId ?? string(item, "assetId");
     const asset = env.assets[assetId];
     if (!asset) throw new ToolError(`There's no media "${assetId}" in this video. Call list_media.`);
     if (asset.status === "error" || asset.duration <= 0) throw new ToolError(`"${asset.name}" couldn't be read, so it can't be used.`);
@@ -248,8 +253,8 @@ const addClips: EditHandler = (project, input, env) => {
 
     const bounds = sourceRange(asset);
     const fileLength = asset.kind === "image" ? STILL_DURATION : asset.duration;
-    const from = optNumber(item, "in") ?? 0;
-    const to = optNumber(item, "out") ?? (asset.kind === "image" ? from + fileLength : asset.duration);
+    const from = optNumber(item, "in") ?? subclip?.in ?? 0;
+    const to = optNumber(item, "out") ?? subclip?.out ?? (asset.kind === "image" ? from + fileLength : asset.duration);
     const inPoint = Math.max(bounds.min, Math.min(from, bounds.max - MIN_CLIP_DURATION));
     const outPoint = Math.min(bounds.max, Math.max(to, inPoint + MIN_CLIP_DURATION));
     if (inPoint !== from || outPoint !== to) notes.push(`${assetId}'s range was limited to ${range(inPoint, outPoint)} (the file is ${secs(asset.duration)}s)`);
@@ -758,6 +763,70 @@ const batch: EditHandler = (project, input, env) => {
   return { project: p, text: lines.join("\n"), ...(rename && { rename }) };
 };
 
+/** A video or sound file of the video, that can have subclips. */
+function subclippable(env: EditEnv, assetId: string): MediaAsset {
+  const asset = env.assets[assetId];
+  if (!asset) throw new ToolError(`There's no media "${assetId}" in this video. Call list_media.`);
+  if (!canSubclip(asset)) throw new ToolError(`"${asset.name}" is ${asset.kind === "image" ? "a still image" : "unreadable"}: only video and sound files have subclips.`);
+  return asset;
+}
+
+const makeSubclips: EditHandler = (project, input, env) => {
+  const asset = subclippable(env, string(input, "assetId"));
+  const items = input.items;
+  if (!Array.isArray(items) || items.length === 0) throw new ToolError("`items` must be a non-empty list of { in, out, name? }.");
+  const parts = items.map((raw, i) => {
+    const item = raw && typeof raw === "object" ? (raw as Input) : {};
+    const from = number(item, "in");
+    const to = number(item, "out");
+    if (!subclipRange(from, to, asset.duration)) {
+      throw new ToolError(
+        `items[${i}] (${range(from, to)}) isn't a part of "${asset.name}" at least ${MIN_CLIP_DURATION}s long: the file is 0–${secs(asset.duration)}s. Nothing was made.`,
+      );
+    }
+    return { in: from, out: to, name: optString(item, "name") };
+  });
+  const made = addSubclips(project, asset, parts);
+  const lines = made.ids.map((id) => {
+    const s = getSubclip(made.project, id)!;
+    return `${id} "${s.name}" ${range(s.in, s.out)}`;
+  });
+  return {
+    project: made.project,
+    text: `Made ${made.ids.length} subclip${made.ids.length === 1 ? "" : "s"} of "${asset.name}" (source times; in the Media tab):\n${lines.join("\n")}`,
+  };
+};
+
+const editSubclips: EditHandler = (project, input, env) => {
+  const items = input.items;
+  if (!Array.isArray(items) || items.length === 0) throw new ToolError("`items` must be a non-empty list.");
+  let p = project;
+  const lines: string[] = [];
+  for (const [i, raw] of items.entries()) {
+    const item = raw && typeof raw === "object" ? (raw as Input) : {};
+    const id = string(item, "subclipId");
+    const subclip = getSubclip(p, id);
+    if (!subclip) throw new ToolError(`items[${i}]: there's no subclip "${id}". Call list_media for the subclip ids.`);
+    if (optBoolean(item, "delete")) {
+      p = removeSubclips(p, [id]);
+      lines.push(`Deleted ${id} "${subclip.name}".`);
+      continue;
+    }
+    const asset = subclippable(env, subclip.assetId);
+    const name = optString(item, "name");
+    if (name !== undefined && !cleanSubclipName(name)) throw new ToolError(`items[${i}]: \`name\` can't be empty.`);
+    const from = optNumber(item, "in") ?? subclip.in;
+    const to = optNumber(item, "out") ?? subclip.out;
+    if (!subclipRange(from, to, asset.duration)) {
+      throw new ToolError(`items[${i}]: ${range(from, to)} isn't a part of "${asset.name}" at least ${MIN_CLIP_DURATION}s long (the file is 0–${secs(asset.duration)}s).`);
+    }
+    p = updateSubclip(p, id, { name, in: from, out: to }, asset.duration);
+    const now = getSubclip(p, id)!;
+    lines.push(`${id} "${now.name}" ${range(now.in, now.out)}`);
+  }
+  return { project: p, text: lines.join("\n") };
+};
+
 /** Every edit tool's handler. */
 export const EDITS: Record<EditToolName, EditHandler> = {
   add_clips: addClips,
@@ -780,6 +849,8 @@ export const EDITS: Record<EditToolName, EditHandler> = {
   set_project: setProject,
   style_captions: styleCaptions,
   merge_captions: mergeCaptions,
+  make_subclips: makeSubclips,
+  edit_subclips: editSubclips,
   batch,
 };
 

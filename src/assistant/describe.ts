@@ -18,6 +18,7 @@ import {
 } from "@shared/effects";
 import { folderPath, folderSubtree, libraryItemDuration, libraryItemKind, searchItems } from "@shared/library";
 import { type ParamSpec, sameValue } from "@shared/params";
+import { subclipsByAsset } from "@shared/subclips";
 import { clipEnd, clipName, clipSpeed, getTrack, outputSize, projectDuration, timelineTime, trackClips } from "@shared/timeline";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
 import { TRANSITIONS } from "@shared/transitions";
@@ -205,7 +206,10 @@ export function describeMedia(
       const used = uses.length ? ` · on the timeline ${uses.length}× (${uses.slice(0, 6).join(", ")}${uses.length > 6 ? "…" : ""})` : " · not used";
       const range = marked(a);
       const marks = range ? ` · the user marked ${secs(range.in)}–${secs(range.out)}s (In/Out: use it as add_clips in/out)` : "";
-      return `${a.id}  ${quote(a.name, 56)}  ${a.kind}${picture}${fps} ${length}${sound}${status}${used}${marks}`;
+      const subclips = (subclipsByAsset(project).get(a.id) ?? []).map(
+        (s) => `\n  subclip ${s.id}  ${quote(s.name, 56)}  ${secs(s.in)}–${secs(s.out)}s (${secs(s.out - s.in)}s)`,
+      );
+      return `${a.id}  ${quote(a.name, 56)}  ${a.kind}${picture}${fps} ${length}${sound}${status}${used}${marks}${subclips.join("")}`;
     })
     .join("\n");
 }
@@ -328,8 +332,15 @@ const PHRASE_WORDS = 14;
  * with its timeline start time (`word@12.34`), the line's end after it. A new
  * line starts after a pause or a sentence's end, so pauses show between lines.
  */
-export function describeTranscript(clips: readonly Clip[], transcripts: readonly Transcript[], assets: Assets): string {
-  const out: string[] = ["Timeline times. Each word is written word@start; a line ends at the time after the dash."];
+/** `times: "source"`: the clips are whole files (from 0), so their times are the files' own. */
+export function describeTranscript(
+  clips: readonly Clip[],
+  transcripts: readonly Transcript[],
+  assets: Assets,
+  times: "timeline" | "source" = "timeline",
+): string {
+  const kind = times === "source" ? "Source times (seconds into the file)" : "Timeline times";
+  const out: string[] = [`${kind}. Each word is written word@start; a line ends at the time after the dash.`];
   const words = timelineWords(clips, transcripts);
   clips.forEach((clip, group) => {
     const own = words.filter((w) => w.group === group);

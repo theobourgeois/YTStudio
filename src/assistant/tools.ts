@@ -9,8 +9,9 @@
 import { type ToolContent, type ToolName, type ToolResult, textResult } from "@shared/assistant-tools";
 import { captionClips, captionSourceClips } from "@shared/captions";
 import { errorMessage } from "@shared/errors";
-import { templateFromClips } from "@shared/library";
+import { templateFromClips, templateFromSubclip } from "@shared/library";
 import { clamp } from "@shared/math";
+import { getSubclip } from "@shared/subclips";
 import { placeTemplate } from "@shared/library";
 import { clipEnd, getClip, projectDuration, timelineTime } from "@shared/timeline";
 import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, Project, TranscriptionEngineId, TranscriptionJob } from "@shared/types";
@@ -211,6 +212,17 @@ const TOOLS: Record<ToolName, Handler> = {
     const doc = await ctx.doc();
     const project = doc.project;
     const assets = byId(doc.assets);
+    const assetId = optString(input, "assetId");
+    if (assetId) {
+      // A whole file: as a clip of all of it from 0, its timeline times are its source times.
+      const asset = assets[assetId];
+      if (!asset) throw new ToolError(`There's no media "${assetId}" in this video. Call list_media.`);
+      if (!asset.hasAudio || !(asset.duration > 0)) throw new ToolError(`"${asset.name}" has no sound to transcribe.`);
+      const whole: Clip = { id: asset.id, assetId, trackId: "", start: 0, in: 0, out: asset.duration, effects: [] };
+      const engine = await readyEngine(oneOf(input, "engine", ["local", "openai", "groq"] as const));
+      const job = await transcribe([whole], engine, optString(input, "language") ?? "auto", ctx);
+      return textResult(describeTranscript([whole], job.transcripts!, assets, "source"));
+    }
     const ids = optStrings(input, "clipIds");
     const clips = ids ? clipsOf(project, ids) : captionSourceClips(project, assets);
     const heard = clips.filter((c) => assets[c.assetId]?.hasAudio);
@@ -330,6 +342,8 @@ const TOOLS: Record<ToolName, Handler> = {
   set_project: edit("set_project"),
   style_captions: edit("style_captions"),
   merge_captions: edit("merge_captions"),
+  make_subclips: edit("make_subclips"),
+  edit_subclips: edit("edit_subclips"),
   batch: edit("batch"),
 
   // -------------------------------------------------------------------------
@@ -498,13 +512,25 @@ const TOOLS: Record<ToolName, Handler> = {
   async library_save(input, ctx) {
     const { projectId, project } = await ctx.doc();
     const assetIds = optStrings(input, "assetIds") ?? [];
+    const subclipIds = optStrings(input, "subclipIds") ?? [];
     const clipIds = optStrings(input, "clipIds") ?? [];
     const folderId = optString(input, "folderId") ?? null;
-    if (assetIds.length + clipIds.length === 0) throw new ToolError("Give `assetIds` and/or `clipIds`.");
+    if (assetIds.length + subclipIds.length + clipIds.length === 0) throw new ToolError("Give `assetIds`, `subclipIds` and/or `clipIds`.");
+    const assets = byId((await ctx.doc()).assets);
+    const subclips = subclipIds.map((id) => {
+      const subclip = getSubclip(project, id);
+      if (!subclip || !assets[subclip.assetId]) throw new ToolError(`There's no subclip "${id}" in this video. Call list_media. Nothing was saved.`);
+      return subclip;
+    });
     const lines: string[] = [];
     for (const assetId of assetIds) {
       const { item } = await api.saveMediaToLibrary({ assetId, folderId });
       lines.push(`Saved media as item ${item.id} "${item.name}".`);
+    }
+    for (const subclip of subclips) {
+      const template = templateFromSubclip(subclip, assets[subclip.assetId]!);
+      const { item } = await api.saveClipsToLibrary({ projectId, name: subclip.name, folderId, ...template });
+      lines.push(`Saved subclip ${subclip.id} as item ${item.id} "${item.name}".`);
     }
     if (clipIds.length) {
       clipsOf(project, clipIds);

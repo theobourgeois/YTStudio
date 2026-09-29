@@ -427,6 +427,39 @@ test("video settings dialog, clip volume and previewing a library file", async (
   await expect(preview.locator("[title^='In 0:00.00']")).toHaveAttribute("title", /Out 0:02\.[3-7]\d$/);
   await page.keyboard.press("Alt+KeyX");
 
+  // ⌘U keeps the marked part (1s to 2s) as a subclip in Media, and clears the marks for the next part.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("i");
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("o");
+  await page.keyboard.press("ControlOrMeta+u");
+  const subclipCard = page.locator("[data-subclip]").filter({ hasText: "square-1080-5s 1" });
+  await expect(subclipCard).toBeVisible();
+  await expect(preview.getByRole("button", { name: "Clear In and Out" })).toHaveCount(0);
+  await expect(preview.locator("[data-subclip-band]")).toHaveCount(1); // the trimmer shows the part kept
+  type SavedSubclip = { id: string; name: string; in: number; out: number };
+  const subclips = async () => ((await savedProject(page)).subclips ?? []) as SavedSubclip[];
+  await expect.poll(async () => (await subclips()).map((s) => s.name)).toEqual(["square-1080-5s 1"]);
+  const [kept] = await subclips();
+  expect(kept.in).toBeCloseTo(1, 1);
+  expect(kept.out).toBeCloseTo(2, 1);
+  // Opening it shows its part; adding it puts that part on the timeline.
+  await subclipCard.click();
+  await expect(preview.getByText("Subclip", { exact: true })).toBeVisible();
+  await page.mouse.move(700, 300);
+  await preview.getByRole("button", { name: "Add to timeline" }).click();
+  await expect.poll(async () => ((await savedProject(page)).clips as SavedClip[]).length).toBe(clipsBefore.size + 1);
+  const fromSubclip = ((await savedProject(page)).clips as SavedClip[]).find((c) => !clipsBefore.has(c.id))!;
+  expect([fromSubclip.in, fromSubclip.out]).toEqual([kept.in, kept.out]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => ((await savedProject(page)).clips as SavedClip[]).length).toBe(clipsBefore.size);
+  // Deleted from its menu (an edit: the tests after this one find no subclips).
+  await subclipCard.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete subclip" }).click();
+  await expect(subclipCard).toHaveCount(0);
+  await expect.poll(async () => (await subclips()).length).toBe(0);
+
   await page.keyboard.press("Escape");
   await expect(position).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();

@@ -19,6 +19,7 @@ import {
   roundSourceTime,
   sourceRange,
 } from "./timeline.ts";
+import { normalizeSubclips } from "./subclips.ts";
 import { sanitizeTransition } from "./transitions.ts";
 import type { Clip, MediaAsset, Project, Track, TrackKind } from "./types.ts";
 
@@ -29,8 +30,8 @@ type LegacyClip = { volume?: unknown; fit?: unknown };
  * Repair a project from untrusted storage: guarantees at least one video
  * track, video tracks before audio tracks, drops invalid clips (unknown
  * track/asset, non-positive length, out of source range), validates effects
- * (upgrading clips saved before effects existed), clamps values and resolves
- * overlaps. Pass `assets` to also validate clips against their media.
+ * (upgrading clips saved before effects existed) and subclips, clamps values and
+ * resolves overlaps. Pass `assets` to also validate clips against their media.
  */
 export function normalizeProject(
   input: Project,
@@ -132,5 +133,6 @@ export function normalizeProject(
     track.clips.push(clip);
     track.end = Math.max(track.end, clipEnd(clip));
   }
-  return { ...project, clips: placed };
+  const subclips = normalizeSubclips(input?.subclips, assets);
+  return { ...project, clips: placed, ...(subclips.length > 0 && { subclips }) };
 }

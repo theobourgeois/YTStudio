@@ -92,8 +92,8 @@ export const ASSISTANT_TOOLS = [
     title: "List media",
     kind: "look",
     description:
-      "The video's imported media files (id, name, kind, length, size, frame rate, has audio, where it's used). " +
-      "Add one to the timeline with add_clips.",
+      "The video's imported media files (id, name, kind, length, size, frame rate, has audio, where it's used), " +
+      "each followed by its subclips (named parts of it, see make_subclips). Add one to the timeline with add_clips.",
     inputSchema: obj({}),
   }),
   tool({
@@ -140,9 +140,11 @@ export const ASSISTANT_TOOLS = [
     description:
       "What's said in clips, word by word with timeline times ([start, end, word]). Transcribes on first use " +
       "(can take a while; later calls are cached). Default: every clip that's heard. Use it to cut by content " +
-      "(remove ums, repeats, the boring part, find the hook).",
+      "(remove ums, repeats, the boring part, find the hook). With `assetId` instead: a whole media file, in " +
+      "source times, e.g. to find the parts of long footage worth keeping (make_subclips, add_clips in/out).",
     inputSchema: obj({
       clipIds: arr(str("Clip id"), "Clips to transcribe (default: every audible clip)."),
+      assetId: str("A media file to transcribe instead (from list_media)."),
       language: str('"auto" (default) or an ISO 639-1 code like "en".'),
       engine: oneOf(["local", "openai", "groq"], "Transcription engine (default: the first one that's set up)."),
     }),
@@ -249,7 +251,7 @@ export const ASSISTANT_TOOLS = [
     kind: "edit",
     description:
       "Put media on the timeline. Each item: `assetId`, optional `in`/`out` (source seconds, to use part of the " +
-      "file), `start` (timeline seconds; default: after the last clip on a video track, 0 on audio) and " +
+      "file; or `subclipId` for a subclip's part), `start` (timeline seconds; default: after the last clip on a video track, 0 on audio) and " +
       "`trackId`. Pictures go on the bottom video track by default and sound on the top audio track. " +
       '`newTrack: true` puts them on new tracks (video on top). A clip never overlaps another: it moves to the ' +
       "nearest free spot.",
@@ -259,12 +261,12 @@ export const ASSISTANT_TOOLS = [
           obj(
             {
               assetId: str("Media id."),
+              subclipId: str("A subclip instead of `assetId`: its part of its file (`in`/`out` then default to it)."),
               in: num("Source in-point, seconds.", { minimum: 0 }),
               out: num("Source out-point, seconds."),
               start: time("Where it starts."),
               trackId: str("Track to put it on."),
             },
-            ["assetId"],
           ),
           "Clips to add; items without `start` follow each other.",
           { minItems: 1 },
@@ -550,12 +552,67 @@ export const ASSISTANT_TOOLS = [
     inputSchema: obj({ clipId: str("Caption clip id.") }, ["clipId"]),
   }),
   tool({
+    name: "make_subclips",
+    title: "Make subclips",
+    kind: "edit",
+    description:
+      "Keep parts of a long media file as subclips (Premiere's Make Subclip): each is listed in the user's Media " +
+      "tab under the file, with a name, and goes on the timeline as that part (add_clips subclipId). Nothing is " +
+      "copied. Use it to pull the good bits out of raw footage (find them with get_transcript assetId, " +
+      "view_media, detect_scenes) so the user can pick from them. Names default to the file's name, numbered.",
+    inputSchema: obj(
+      {
+        assetId: str("Media id (a video or sound file)."),
+        items: arr(
+          obj(
+            {
+              in: num("Start, source seconds.", { minimum: 0 }),
+              out: num("End, source seconds."),
+              name: str("What it is, e.g. \"Pricing question\"."),
+            },
+            ["in", "out"],
+          ),
+          "The parts to keep.",
+          { minItems: 1, maxItems: 100 },
+        ),
+      },
+      ["assetId", "items"],
+    ),
+  }),
+  tool({
+    name: "edit_subclips",
+    title: "Edit subclips",
+    kind: "edit",
+    description:
+      "Rename subclips, change their part of the file (`in`/`out`, source seconds) or delete them (`delete: true`). " +
+      "Deleting one leaves the file and the timeline as they are.",
+    inputSchema: obj(
+      {
+        items: arr(
+          obj(
+            {
+              subclipId: str("Subclip id (from list_media)."),
+              name: str("New name."),
+              in: num("New start, source seconds.", { minimum: 0 }),
+              out: num("New end, source seconds."),
+              delete: bool("Delete it."),
+            },
+            ["subclipId"],
+          ),
+          "Changes, one per subclip.",
+          { minItems: 1 },
+        ),
+      },
+      ["items"],
+    ),
+  }),
+  tool({
     name: "batch",
     title: "Make several edits",
     kind: "edit",
     description:
       "Run several edit tools in order as ONE undo step (the user undoes them together). Each step is " +
-      '{ "tool": name, "input": {...} } with any edit tool (add_clips ... merge_captions). Later steps see earlier ' +
+      '{ "tool": name, "input": {...} } with any edit tool (add_clips ... edit_subclips). Later steps see earlier ' +
       "steps' results, so use ids you already know. Stops at the first failing step and changes nothing.",
     inputSchema: obj(
       {
@@ -650,10 +707,12 @@ export const ASSISTANT_TOOLS = [
     title: "Save to the Library",
     kind: "action",
     description:
-      "Save to the Library (shared by every video): media files (`assetIds`, one item each), or timeline clips " +
-      "with their effects and transitions as one reusable item (`clipIds` + `name`).",
+      "Save to the Library (shared by every video): media files (`assetIds`, one item each), subclips " +
+      "(`subclipIds`, one item each: that part of the file), or timeline clips with their effects and transitions " +
+      "as one reusable item (`clipIds` + `name`).",
     inputSchema: obj({
       assetIds: arr(str("Media id"), "Media files to add."),
+      subclipIds: arr(str("Subclip id"), "Subclips to add."),
       clipIds: arr(str("Clip id"), "Clips to save together."),
       name: str("Name of the saved clips."),
       folderId: str("Folder to save into (default: top level)."),

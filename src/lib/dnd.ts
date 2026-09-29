@@ -5,6 +5,7 @@
 export const ASSET_DRAG_MIME = "application/x-editor-assets";
 
 export interface AssetDragPayload {
+  /** Media files, and subclips (their ids too: see `addAssetsToTimeline`). */
   assetIds: string[];
 }
 

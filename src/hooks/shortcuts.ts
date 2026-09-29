@@ -23,6 +23,7 @@ export type ShortcutAction =
   | "goToIn"
   | "goToOut"
   | "clearMarks"
+  | "makeSubclip"
   | "split"
   | "trimStart"
   | "trimEnd"
@@ -124,6 +125,9 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
       return "toggleSidebar";
     case "i":
       return "toggleAssistant";
+    // Premiere's Make Subclip (in the source preview).
+    case "u":
+      return "makeSubclip";
   }
   return null;
 }
@@ -249,6 +253,7 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   goToIn: `${SHIFT}I`,
   goToOut: `${SHIFT}O`,
   clearMarks: `${ALT}X`,
+  makeSubclip: `${MOD}U`,
   split: "S",
   trimStart: "Q",
   trimEnd: "W",
@@ -310,6 +315,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Mark In / Out (the part to add)", keys: ["I", "O"] },
       { label: "Go to In / Out", keys: [`${SHIFT}I`, `${SHIFT}O`] },
       { label: "Clear In and Out", keys: [`${ALT}X`] },
+      { label: "Make a subclip of the marked part", keys: [`${MOD}U`] },
       { label: "Back to the timeline", keys: ["Esc"] },
     ],
   },

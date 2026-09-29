@@ -74,6 +74,8 @@ const ICONS: Record<string, IconType> = {
   set_project: PiSlidersHorizontal,
   style_captions: PiSubtitles,
   merge_captions: PiSubtitles,
+  make_subclips: PiScissors,
+  edit_subclips: PiScissors,
   batch: PiMagicWand,
   generate_captions: PiSubtitles,
   import_media: PiUploadSimple,

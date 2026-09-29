@@ -148,6 +148,11 @@ extension** (Node ESM through tsx).
 - Captions are text clips with `caption: true` (only valid on text clips; see `shared/captions.ts`). The Captions tab
   edits style for all of them (never their text or timing); Properties edits one. A caption's animation is its
   `transitionIn`; animated captions end one frame before the next so each animates in from nothing.
+- Subclips (`Project.subclips`, `shared/subclips.ts`) are named parts of a media file made in the source preview
+  (In/Out, ⌘U): listed in the Media tab after their file, and added to the timeline as that part. They point at the
+  file (nothing is copied), are undoable edits, and go with their file. Their ids go wherever media ids do
+  (`addAssetsToTimeline`, drag payloads, `useLibrary.addAssets`). While one is open in the source preview, its range
+  is the In/Out there (`components/preview/source-marking.ts`); a file's own marks are browser state, not the video.
 - Media (`MediaAsset`) belongs to one project. `kind` is video | audio | image. Filmstrip and waveform generation
   finish after import (`status: "processing"`).
 - The Library (`LibraryFolder`, `LibraryItem`) is shared by every project and has its own media (`projectId: null`,

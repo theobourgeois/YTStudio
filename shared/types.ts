@@ -229,6 +229,23 @@ export interface Project {
   settings: ProjectSettings;
   tracks: Track[];
   clips: Clip[];
+  /** Parts of media files kept as media of their own (see `Subclip`), in the order they were made. */
+  subclips?: Subclip[];
+}
+
+/**
+ * A named part of a media file (Premiere's subclip), made in the source preview with In/Out
+ * and ⌘U. It's listed in the Media tab like a file and goes on the timeline as that part.
+ * It only points at the file (nothing is copied), and belongs to the project, so it's undoable.
+ */
+export interface Subclip {
+  id: string;
+  /** The video or sound file it's part of (never an image). */
+  assetId: string;
+  name: string;
+  /** Source seconds: at least `MIN_CLIP_DURATION` apart, inside the file. */
+  in: number;
+  out: number;
 }
 
 // ---------------------------------------------------------------------------

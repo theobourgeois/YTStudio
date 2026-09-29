@@ -38,6 +38,23 @@ describe("assistant edits", () => {
     expect([p.tracks.find((t) => t.id === song.trackId)?.kind, song.start]).toEqual(["audio", 2]);
   });
 
+  it("makes subclips, adds them as their part of the file, and edits or deletes them", () => {
+    const made = EDITS.make_subclips(createDefaultProject(), { assetId: "media_song", items: [{ in: 4, out: 12, name: "Chorus" }, { in: 20, out: 40 }] }, env);
+    const [chorus, end] = made.project.subclips!;
+    expect([chorus.name, end.name, end.out]).toEqual(["Chorus", "media_song 1", 30]);
+    expect(made.text).toMatch(new RegExp(`${chorus.id} "Chorus" 4–12`));
+    const p = run(made.project, ["add_clips", { items: [{ subclipId: chorus.id }, { subclipId: end.id, out: 25 }] }]);
+    expect(p.clips.map((c) => [c.assetId, c.in, c.out])).toEqual([["media_song", 4, 12], ["media_song", 20, 25]]);
+    const edited = run(p, ["edit_subclips", { items: [{ subclipId: chorus.id, name: "Hook", in: 2 }, { subclipId: end.id, delete: true }] }]);
+    expect(edited.subclips).toEqual([{ ...chorus, name: "Hook", in: 2 }]);
+    // The clips made from them stay.
+    expect(edited.clips).toBe(p.clips);
+    expect(() => EDITS.make_subclips(p, { assetId: "media_a", items: [{ in: 11, out: 12 }] }, env)).toThrow(/at least 0.1s long: the file is 0–10s/);
+    expect(() => EDITS.add_clips(p, { items: [{ subclipId: "sub_x" }] }, env)).toThrow(/no subclip "sub_x".*list_media/);
+    expect(() => EDITS.add_clips(p, { items: [{ start: 1 }] }, env)).toThrow(/`assetId` or a `subclipId`/);
+    expect(() => EDITS.edit_subclips(p, { items: [{ subclipId: chorus.id, name: " " }] }, env)).toThrow(/can't be empty/);
+  });
+
   it("explains what's wrong with an input", () => {
     const p = withTwoClips();
     expect(() => EDITS.add_clips(p, { items: [{ assetId: "media_x" }] }, env)).toThrow(/no media "media_x".*list_media/);
