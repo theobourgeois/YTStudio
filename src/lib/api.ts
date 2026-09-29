@@ -1,4 +1,4 @@
-import type { AssistantModel, ChatSnapshot } from "@shared/assistant";
+import type { AssistantProvider, ChatSnapshot } from "@shared/assistant";
 import type { ToolResult } from "@shared/assistant-tools";
 import type {
   ApiError,
@@ -187,8 +187,8 @@ export const api = {
 
   assistantStatus: () => request<AssistantStatus>("/api/assistant/status"),
   getChat: (projectId: string) => request<ChatSnapshot>(`/api/assistant/chats/${projectId}`),
-  setChatModel: (projectId: string, model: AssistantModel) =>
-    request<ChatSnapshot>(`/api/assistant/chats/${projectId}`, { method: "PATCH", body: JSON.stringify({ model }) }),
+  setChatModel: (projectId: string, provider: AssistantProvider, model: string, effort: string | null) =>
+    request<ChatSnapshot>(`/api/assistant/chats/${projectId}`, { method: "PATCH", body: JSON.stringify({ provider, model, effort }) }),
   sendChatMessage: (projectId: string, body: SendChatMessageRequest) =>
     request<void>(`/api/assistant/chats/${projectId}/messages`, { method: "POST", body: JSON.stringify(body) }),
   stopChat: (projectId: string) => request<void>(`/api/assistant/chats/${projectId}/stop`, { method: "POST" }),

@@ -37,6 +37,16 @@ export function formatRelative(then: number, now = Date.now()): string {
   });
 }
 
+/** How long something has been going: "8s", "12m", "1h 5m". */
+export function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+}
+
 /** "2×", "0.5×", "1.25×": a playback speed, to two decimals at most. */
 export function formatSpeed(speed: number): string {
   return `${Math.round(speed * 100) / 100}×`;

@@ -1005,6 +1005,65 @@ test("the assistant edits the video with the editor's tools, live and undoably; 
   await expect.poll(async () => (await savedProject(page)).tracks.length).toBe(tracks + 1);
 });
 
+test("Codex answers too, and a chat keeps editing its video while another one is open", async ({ page }) => {
+  // Codex is played by e2e/fake-codex.mjs (like fake-claude.mjs), which names the model it ran on.
+  await page.goto("/");
+  const projects: { id: string; name: string; status: string }[] = await projectList(page);
+  const [latest] = projects;
+  const other = projects.find((p) => p.id !== latest.id && p.status === "active")!;
+  await page.goto(`/p/${latest.id}`);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(2);
+
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  await panel.getByRole("button", { name: "New chat" }).click();
+  await expect(panel.getByText("Edit with Claude")).toBeVisible();
+
+  // The picker lists each provider's models (Codex's as Codex lists them), newest first.
+  await panel.locator('[data-slot="model-picker"]').click();
+  await page.getByRole("tab", { name: "Codex" }).click();
+  await expect(page.getByRole("option")).toHaveText([/GPT-6-Astra/, /GPT-6-Sol/, /GPT-5.5/]);
+  await expect(page.getByText("Legacy models")).toBeVisible();
+  await page.getByRole("option", { name: /GPT-6-Sol/ }).click();
+  await expect(panel.getByText("Edit with Codex")).toBeVisible();
+  await expect(panel.getByText("ChatGPT")).toBeVisible();
+  // It thinks as hard as asked (the levels are the model's own).
+  await panel.locator('[data-slot="effort-picker"]').click();
+  await expect(page.getByRole("menuitem")).toHaveText(["Auto (Medium)", "Low", "Medium", "High", "Extra high", "Max", "Ultra"]);
+  await page.getByRole("menuitem", { name: "High", exact: true }).click();
+  await expect(panel.locator('[data-slot="effort-picker"]')).toHaveText("High");
+
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill('call get_timeline\ncall split_clips {"at": 0.5, "clipIds": ["$clip"]}');
+  await composer.press("Enter");
+  await expect(panel.locator('[data-tool="split_clips"][data-status="done"]')).toContainText("Split 1 clip at 0.5s");
+  await expect(page.locator("[data-clip-id]")).toHaveCount(3);
+  await expect(panel.getByText("Done on gpt-6-sol at high.")).toBeVisible();
+
+  // Switch to another video mid-answer: the chat carries on with its own video, and the sidebar says so.
+  const tracks = (await savedProject(page)).tracks.length;
+  await composer.fill('sleep 2500\ncall add_track {"kind": "video"}\ncall view_frames {"times": [0.2]}');
+  await composer.press("Enter");
+  const row = page.locator(`[data-project-id="${latest.id}"]`);
+  await expect(row).toHaveAttribute("data-chat-status", "working");
+  await expect(row).toContainText("Working");
+  await page.locator(`[data-project-id="${other.id}"]`).click();
+  await expect(page).toHaveURL(`/p/${other.id}`);
+  const saved = () => page.evaluate((id) => fetch(`/api/projects/${id}`).then((r) => r.json()), latest.id);
+  await expect.poll(async () => (await saved()).tracks.length, { timeout: 15_000 }).toBe(tracks + 1);
+  // It finished (looking at its video offscreen) while the user was elsewhere.
+  await expect(row).toHaveAttribute("data-chat-status", "done", { timeout: 15_000 });
+  await expect(row).toContainText("Done");
+  await expect(page).toHaveURL(`/p/${other.id}`);
+
+  await row.click();
+  await expect(page).toHaveURL(`/p/${latest.id}`);
+  await expect(panel.locator('[data-tool="view_frames"][data-status="done"]')).toBeVisible();
+  await expect(panel.locator('[data-tool="add_track"][data-status="done"]')).toBeVisible();
+  await expect(row).not.toHaveAttribute("data-chat-status", /./);
+  await expect.poll(async () => (await savedProject(page)).tracks.length).toBe(tracks + 1);
+});
+
 test("plays an audio track cut into pieces with one pair of players", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "New video" }).first().click();

@@ -101,12 +101,12 @@ Exports are drawn frame by frame by the same WebGL compositor as the preview, ru
 
 It lives in `data/library`.
 
-### Assistant (Claude)
+### Assistant (Claude or Codex)
 
-The chat button at the top right (`⌘I`) opens the **Assistant**: ask Claude to edit the video in plain words ("cut the
+The chat button at the top right (`⌘I`) opens the **Assistant**: ask it to edit the video in plain words ("cut the
 silences", "add captions in the yellow style", "put the clips in a good order with the music underneath", "organise my
-Library"). It's [Claude Code](https://claude.com/claude-code) running on this computer with your own login and
-subscription, using only the editor's tools: no shell, no files outside the editor.
+Library"). It's [Claude Code](https://claude.com/claude-code) or [Codex](https://developers.openai.com/codex) running on
+this computer with your own login and subscription, using only the editor's tools: no shell, no files outside the editor.
 
 It can see what you see: the timeline, frames of the edited video (the Program monitor), frames of the raw footage,
 what's said (word-timed transcripts), silences and loudness, a song's tempo, beats, bars and drops, shot changes,
@@ -120,10 +120,18 @@ it, add effects and transitions, add text and captions, import files or links, o
 - Each edit is an undo step (`⌘Z`), and **Revert** under an answer takes back everything it changed at once.
   Anything undo can't bring back (deleting media, deleting from the Library) asks you first.
 - Your selection and playhead go with each message, so "this clip" and "here" work. Times in its answers are links.
-- Pick the model (Opus, Sonnet, Haiku, or Claude Code's default) under the message box. Each video keeps its own
-  chat, and the conversation carries on after a restart; **New chat** starts over.
+- Pick the agent and model under the message box: Claude's models (Opus 5.5, Sonnet 5.5, Fable 5.1...) or Codex's
+  (the list Codex itself offers). Search them, star favourites, or press `⌘1`–`⌘9` in the picker. Next to it, pick how
+  hard it thinks (the levels that model has; **Auto** is its default). You can switch mid-chat: the new agent is told
+  what was said so far.
+- Each video keeps its own chat, and the conversation carries on after a restart; **New chat** starts over.
+- Chats run side by side: ask one video's chat for something, switch to another video and start its chat too. A chat
+  always edits its own video (in the background while you're elsewhere; it can still look at its frames), and the
+  sidebar shows each video's chat: **Working** (and the step it's on), **Done** or **Failed** until you look at it, or
+  **Needs you** when it's asking before deleting something.
 
-Needs Claude Code installed and logged in (`claude` in a terminal). Set `CLAUDE_PATH` if it isn't on the `PATH`.
+Needs Claude Code (`claude` in a terminal) and/or Codex (`npm install -g @openai/codex`, then `codex login`) installed
+and logged in. Set `CLAUDE_PATH` or `CODEX_PATH` if they aren't on the `PATH`.
 
 **Other agents** can use the same tools: the server is an MCP server at `http://127.0.0.1:5311/mcp`. For Claude Code in
 a terminal: `claude mcp add --transport http editor http://127.0.0.1:5311/mcp`. Its tools work on the video open in the
@@ -241,7 +249,7 @@ Keyframes stay on their frame of the media when a clip is moved, trimmed or spli
   - `transform.ts`: where a clip lands on the canvas (fit, then scale and rotate around the anchor point, which sits at
     the position). The compositor, the canvas handles and the export all use it.
 - **The assistant** — `shared/assistant-tools.ts` lists the editor's tools for AI agents; `server/assistant/` serves
-  them over MCP (`mcp.ts`), runs Claude Code for the in-app chat (`claude.ts`, `service.ts`) and relays every tool call
+  them over MCP (`mcp.ts`), runs Claude Code or Codex for the in-app chat (`claude.ts`, `codex.ts`, `service.ts`) and relays every tool call
   to the editor tab (`bridge.ts`), which runs it with the same stores and pure edits as the UI (`src/assistant/`).
   So an agent's edits are live, undoable and can't conflict with the document the tab owns.
 - **`server/`** — a small Express server (one router per resource in `server/routes/`) that stores projects and their media in `./data`, probes media and generates

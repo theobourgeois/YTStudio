@@ -38,6 +38,15 @@ export function discardPendingSave(projectId: string) {
   pendingSaves.delete(projectId);
 }
 
+/**
+ * Save a project that isn't open in the editor (the assistant editing it in the background), in the
+ * same queue as the open one's: debounced, in order, and flushed before any project is opened.
+ */
+export function queueSave(projectId: string, project: Project) {
+  pendingSaves.set(projectId, project);
+  if (!saving) scheduleSave(DEBOUNCE_MS);
+}
+
 function scheduleSave(ms: number) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => void runSaves(), ms);

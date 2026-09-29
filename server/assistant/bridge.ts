@@ -2,10 +2,10 @@
  * The link between the server and open editor tabs. Each tab holds an event
  * stream (`GET /api/assistant/events`); tool calls are sent down it, and the
  * tab posts each result back. Chat updates go down the same stream to every
- * tab showing that video.
+ * tab showing that video, and what every chat is doing to every tab.
  */
 import type { Request, Response } from "express";
-import type { ChatEvent, TabEvent } from "../../shared/assistant.ts";
+import type { ChatActivity, ChatEvent, TabEvent } from "../../shared/assistant.ts";
 import type { ToolChanges, ToolContent, ToolResult } from "../../shared/assistant-tools.ts";
 import { createId } from "../../shared/timeline.ts";
 import { HttpError, isObject } from "../storage.ts";
@@ -39,12 +39,15 @@ export interface CallOptions {
   timeoutMs: number;
   /** The chat it's for (its video's id), or null for an outside client. */
   chat: string | null;
+  /** The chat's assistant message it's part of. */
+  turn?: string;
   onProgress?: (fraction: number | null, label?: string) => void;
 }
 
 export class Bridge {
   private tabs = new Map<string, Tab>();
   private calls = new Map<string, PendingCall>();
+  private activity: ChatActivity[] = [];
 
   /** Serve a tab's event stream until it disconnects. */
   connect(req: Request, res: Response, tabId: string, projectId: string | null): void {
@@ -59,6 +62,7 @@ export class Bridge {
     // A reconnect replaces the old stream (the page, and the calls it's running, are the same).
     const tab: Tab = { id: tabId, projectId, focusedAt: Date.now(), send };
     this.tabs.set(tabId, tab);
+    send({ type: "activity", chats: this.activity });
     const heartbeat = setInterval(() => res.write(": ping\n\n"), HEARTBEAT_MS);
     req.on("close", () => {
       clearInterval(heartbeat);
@@ -83,15 +87,16 @@ export class Bridge {
   }
 
   /**
-   * The tab to run a call in: `preferred` if it's still showing the video,
-   * else another tab showing it, else (with no video given) the tab used last.
+   * The tab to run a call in. For a chat's video: `preferred` (the tab its message came from) if it's
+   * showing the video, else another tab showing it, else `preferred` or the tab used last anyway (a tab
+   * can work on a video it isn't showing). With no video given (an outside agent): the tab used last.
    */
   tabFor(projectId: string | null, preferred?: string | null): Tab | undefined {
     const tabs = [...this.tabs.values()].sort((a, b) => b.focusedAt - a.focusedAt);
+    const pick = preferred ? this.tabs.get(preferred) : undefined;
     if (projectId) {
-      const pick = preferred ? this.tabs.get(preferred) : undefined;
       if (pick?.projectId === projectId) return pick;
-      return tabs.find((t) => t.projectId === projectId);
+      return tabs.find((t) => t.projectId === projectId) ?? pick ?? tabs[0];
     }
     return tabs.find((t) => t.projectId) ?? tabs[0];
   }
@@ -105,7 +110,7 @@ export class Bridge {
         opts.timeoutMs,
       );
       this.calls.set(id, { tabId: tab.id, chat: opts.chat, resolve, reject, timer, onProgress: opts.onProgress });
-      tab.send({ type: "call", id, name, input, chat: opts.chat });
+      tab.send({ type: "call", id, name, input, chat: opts.chat, ...(opts.turn && { turn: opts.turn }) });
     });
   }
 
@@ -148,6 +153,12 @@ export class Bridge {
     for (const tab of this.tabs.values()) {
       if (tab.projectId === projectId) tab.send({ type: "chat", projectId, seq, event });
     }
+  }
+
+  /** What every chat is doing, sent to every tab now and to tabs that connect later. */
+  setActivity(chats: ChatActivity[]): void {
+    this.activity = chats;
+    for (const tab of this.tabs.values()) tab.send({ type: "activity", chats });
   }
 
   shutdown(): void {

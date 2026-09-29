@@ -43,12 +43,38 @@ interface Picture {
   shown: Shown;
 }
 
+/** What the engine shows and when: the editor's video and playhead, or (for the assistant) another video at a time. */
+export interface PreviewSource {
+  get(): { project: Project; assets: MediaAsset[]; time: number; playing: boolean };
+  /** Be told when any of it changes. Returns the unsubscribe. */
+  subscribe(listener: () => void): () => void;
+}
+
+/** The Program monitor's source: the open video at the playback clock. */
+export const editorSource: PreviewSource = {
+  get() {
+    const { project, assets } = useEditor.getState();
+    const { time, playing } = usePlayback.getState();
+    return { project, assets, time, playing };
+  },
+  subscribe(listener) {
+    const offPlayback = usePlayback.subscribe(listener);
+    const offEditor = useEditor.subscribe((s, prev) => {
+      if (s.project !== prev.project || s.assets !== prev.assets) listener();
+    });
+    return () => {
+      offPlayback();
+      offEditor();
+    };
+  },
+};
+
 /** What one track draws, bottom track first. */
 type Layer = { kind: "picture"; picture: Picture } | { kind: "transition"; plan: TransitionPlan; from: Picture | null; to: Picture | null };
 
 /**
- * Drives the preview outside React: it subscribes to the playback clock and
- * the project, keeps the media elements playing (or parked) in step, and
+ * Drives the preview outside React: it subscribes to its source (the playback
+ * clock and the project), keeps the media elements playing (or parked) in step, and
  * draws every frame with the compositor (`shared/compositor.ts`) on one
  * WebGL canvas, the same way the export does.
  *
@@ -94,19 +120,16 @@ export class PreviewEngine {
 
   constructor(
     private readonly onStatusChange: (status: { offline: boolean; noWebGl: boolean }) => void,
+    private readonly source: PreviewSource = editorSource,
   ) {}
 
   start() {
     if (this.unsubscribe) return;
-    const offPlayback = usePlayback.subscribe(this.update);
-    const offEditor = useEditor.subscribe((s, prev) => {
-      if (s.project !== prev.project || s.assets !== prev.assets) this.update();
-    });
+    const offSource = this.source.subscribe(this.update);
     // Knowing the installed fonts can change which style a text is drawn in.
     const offFonts = useFonts.subscribe(this.update);
     this.unsubscribe = () => {
-      offPlayback();
-      offEditor();
+      offSource();
       offFonts();
     };
     this.update();
@@ -239,7 +262,7 @@ export class PreviewEngine {
 
   /** Draw again soon (once per animation frame at most), e.g. when a paused video has a new frame. */
   private requestDraw = () => {
-    if (this.drawQueued || usePlayback.getState().playing) return; // playing: every tick draws anyway
+    if (this.drawQueued || this.source.get().playing) return; // playing: every tick draws anyway
     this.drawQueued = true;
     requestAnimationFrame(() => {
       this.drawQueued = false;
@@ -249,8 +272,7 @@ export class PreviewEngine {
 
   private update = () => {
     if (!this.unsubscribe) return;
-    const { project, assets } = useEditor.getState();
-    const { time, playing } = usePlayback.getState();
+    const { project, assets, time, playing } = this.source.get();
     this.indexAssets(assets);
     const trackMuted = new Map(project.tracks.map((t) => [t.id, t.muted]));
     const kindOf = (clip: Clip): ClipKind =>

@@ -6,7 +6,7 @@
 
 export const MCP_INSTRUCTIONS = `\
 Tools for a local video editor that works like Premiere Pro, made for short-form video (9:16 by default). \
-They act on the video open in the editor tab, live: the user sees every change as it happens, and each edit \
+They act on the video open in the editor tab (unless you're told otherwise), live: the user sees every change as it happens, and each edit \
 tool call is one undo step for them.
 
 How the timeline works:
@@ -45,6 +45,11 @@ in the chat, and the clips you change highlighted. They can undo anything.
 
 Each message from the user starts with an <editor-context> block: the playhead and the selection at the \
 moment they sent it. "This clip", "these", "here" refer to that selection and playhead.
+
+This chat belongs to one video, and your tools always act on that video. The user may switch to another video \
+while you work (another chat can be editing that one at the same time). Your edits still land in yours and are \
+saved, but they aren't one of the user's undo steps then, the playhead is at 0 and nothing is selected, and focus \
+does nothing. Don't mention this unless it matters.
 
 ${MCP_INSTRUCTIONS}
 

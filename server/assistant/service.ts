@@ -1,54 +1,81 @@
 /**
- * The in-app assistant: one chat per video, answered by Claude Code (the
- * user's own install and subscription) using the editor's MCP tools, which
- * run in the editor tab (`bridge.ts`). Chats are saved in the data dir
- * (`assistant/chats/<projectId>.json`, pictures the assistant looked at in
- * `assistant/images/<projectId>/`) and continue the same Claude Code session
- * after a restart.
+ * The in-app assistant: one chat per video, answered by the user's own Claude
+ * Code or Codex (their install and subscription; the chat picks which, and
+ * can switch) using the editor's MCP tools, which run in an editor tab
+ * (`bridge.ts`). Chats are saved in the data dir (`assistant/chats/<projectId>.json`,
+ * pictures the assistant looked at in `assistant/images/<projectId>/`) and
+ * continue the same conversation after a restart.
+ *
+ * Chats of different videos run at the same time: a chat's tools act on its
+ * own video, even while the tab shows another. Every tab is told which chats
+ * are working (`ChatActivity`), for the sidebar.
  */
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  type AssistantModel,
+  type AssistantProvider,
+  CLAUDE_MODELS,
+  CODEX_MODELS,
+  type ChatActivity,
   type ChatEvent,
   type ChatSnapshot,
   type ChatState,
   type UserMessage,
   applyChatEvent,
+  chatModel,
+  describeToolCall,
   emptyChat,
-  isAssistantModel,
+  isAssistantProvider,
+  isEffort,
+  isModelId,
+  providerInfo,
+  transcript,
 } from "../../shared/assistant.ts";
 import { type ToolResult, bareToolName, errorResult, toolSpec } from "../../shared/assistant-tools.ts";
 import { errorMessage } from "../../shared/errors.ts";
-import type { AssistantStatus, SendChatMessageRequest } from "../../shared/types.ts";
+import type { AssistantProviderStatus, AssistantStatus, SendChatMessageRequest } from "../../shared/types.ts";
 import { createId } from "../../shared/timeline.ts";
-import { CLAUDE } from "../config.ts";
+import { CLAUDE, CODEX } from "../config.ts";
 import { firstThatRuns, run } from "../process.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
+import type { Agent, AgentHandlers } from "./agent.ts";
 import type { Bridge } from "./bridge.ts";
-import { ClaudeProcess, TurnTranslator, claudeArgs } from "./claude.ts";
+import { ClaudeAgent } from "./claude.ts";
+import { CodexAgent, type CodexInfo, codexInfo, userMcpServers } from "./codex.ts";
 import type { McpCall } from "./mcp.ts";
 import { SYSTEM_PROMPT } from "./prompt.ts";
 
-/** A chat's Claude Code process quits after this long without a message (the session carries on). */
+/** A chat's agent quits after this long without a message (the conversation carries on). */
 const IDLE_MS = 15 * 60_000;
-/** After asking a turn to stop, how long before the process is killed instead. */
+/** After asking a turn to stop, how long before the agent is killed instead. */
 const STOP_GRACE_MS = 5000;
 const MAX_MESSAGE = 20_000;
 const MAX_CONTEXT = 20_000;
 const STATUS_TTL_MS = 30_000;
+/** Codex's model list changes rarely (and asking starts a process). */
+const MODELS_TTL_MS = 10 * 60_000;
 const DEFAULT_TIMEOUT_S = 120;
-
 
 interface Turn {
   messageId: string;
-  translator: TurnTranslator;
-  /** The text sent, to send again if a resumed session couldn't start. */
-  prompt: string;
+  provider: AssistantProvider;
+  model: string;
+  effort: string | null;
+  /** The user's message (with the editor context), before any catching up (see `prompt`). */
+  text: string;
+  /** How many of the chat's messages came before this turn's. */
+  before: number;
   stopping: boolean;
   stopTimer?: ReturnType<typeof setTimeout>;
+  /** It continues a saved conversation (which may fail to start, see `onExit`). */
   resumed: boolean;
+}
+
+/** A provider's conversation, and how many of the chat's messages it has been part of. */
+interface Session {
+  id: string;
+  seen: number;
 }
 
 interface Chat {
@@ -57,14 +84,14 @@ interface Chat {
   /** Events so far (numbered for the tabs, see `ChatSnapshot`). */
   seq: number;
   /**
-   * Results that came back before Claude Code's own output announced the tool (the two
+   * Results that came back before the agent's own output announced the tool (the two
    * arrive by different routes), applied once it does.
    */
   earlyResults: Map<string, ChatEvent>;
-  sessionId: string | null;
-  process: ClaudeProcess | null;
-  /** The model the process was started with. */
-  processModel: AssistantModel | null;
+  sessions: Partial<Record<AssistantProvider, Session>>;
+  agent: Agent | null;
+  /** The provider, model and thinking level the agent was started with. */
+  agentKey: string | null;
   tabId: string | null;
   turn: Turn | null;
   idleTimer?: ReturnType<typeof setTimeout>;
@@ -72,21 +99,28 @@ interface Chat {
 
 interface SavedChat {
   state: ChatState;
-  sessionId: string | null;
+  sessions?: Partial<Record<AssistantProvider, Session>>;
+  /** Before Codex: the Claude Code session. */
+  sessionId?: string | null;
 }
 
 export interface AssistantOptions {
-  /** The command that runs Claude Code (default: found on this computer). */
-  command?: string;
-  /** Where the server is reached, for the MCP URL given to Claude Code. */
+  /** The commands that run each provider's CLI (default: found on this computer). */
+  commands?: Partial<Record<AssistantProvider, string>>;
+  /** Where the server is reached, for the MCP URL given to the agents. */
   port: () => number;
 }
+
+const agentKey = (turn: Pick<Turn, "provider" | "model" | "effort">) => `${turn.provider}:${turn.model}:${turn.effort ?? ""}`;
 
 export class AssistantService {
   private chats = new Map<string, Chat>();
   private loading = new Map<string, Promise<Chat>>();
   private statusCache: { at: number; value: Promise<AssistantStatus> } | null = null;
-  private command: Promise<string | null> | null = null;
+  private commands = new Map<AssistantProvider, Promise<string | null>>();
+  private codexInfoCache: { at: number; value: Promise<CodexInfo> } | null = null;
+  /** What each chat is doing (or last did), for every tab's sidebar. */
+  private activity = new Map<string, ChatActivity>();
 
   constructor(
     private paths: DataPaths,
@@ -103,7 +137,7 @@ export class AssistantService {
   private imageDir(projectId: string) {
     return path.join(this.dir, "images", projectId);
   }
-  /** Where Claude Code runs: an empty folder, so no project settings or CLAUDE.md apply. */
+  /** Where the agents run: an empty folder, so no project settings or instructions apply. */
   private get workDir() {
     return path.join(this.dir, "workspace");
   }
@@ -115,34 +149,50 @@ export class AssistantService {
   }
 
   // -------------------------------------------------------------------------
-  // Claude Code on this computer
+  // Claude Code and Codex on this computer
   // -------------------------------------------------------------------------
 
-  private findCommand(): Promise<string | null> {
-    if (this.opts.command) return Promise.resolve(this.opts.command);
+  private findCommand(provider: AssistantProvider): Promise<string | null> {
+    const given = this.opts.commands?.[provider];
+    if (given) return Promise.resolve(given);
     const home = os.homedir();
-    const candidates = CLAUDE
-      ? [CLAUDE]
-      : ["claude", path.join(home, ".local/bin/claude"), path.join(home, ".claude/local/claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"];
-    this.command ??= firstThatRuns(candidates, ["--version"]).then((found) => {
-      // Not found yet: look again next time (it may be installed meanwhile).
-      if (!found) this.command = null;
-      return found;
-    });
-    return this.command;
+    const candidates =
+      provider === "claude"
+        ? CLAUDE
+          ? [CLAUDE]
+          : ["claude", path.join(home, ".local/bin/claude"), path.join(home, ".claude/local/claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+        : CODEX
+          ? [CODEX]
+          : ["codex", path.join(home, ".local/bin/codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex"];
+    let found = this.commands.get(provider);
+    if (!found) {
+      found = firstThatRuns(candidates, ["--version"]).then((command) => {
+        // Not found yet: look again next time (it may be installed meanwhile).
+        if (!command) this.commands.delete(provider);
+        return command;
+      });
+      this.commands.set(provider, found);
+    }
+    return found;
   }
 
   status(): Promise<AssistantStatus> {
     if (this.statusCache && Date.now() - this.statusCache.at < STATUS_TTL_MS) return this.statusCache.value;
-    const value = this.checkStatus();
+    const value = Promise.all([this.claudeStatus(), this.codexStatus()]).then((providers) => ({ providers }));
     this.statusCache = { at: Date.now(), value };
     return value;
   }
 
-  private async checkStatus(): Promise<AssistantStatus> {
-    const command = await this.findCommand();
+  private async providerStatus(provider: AssistantProvider): Promise<AssistantProviderStatus> {
+    return (await this.status()).providers.find((p) => p.provider === provider)!;
+  }
+
+  private async claudeStatus(): Promise<AssistantProviderStatus> {
+    const base = { provider: "claude" as const, models: [...CLAUDE_MODELS] };
+    const command = await this.findCommand("claude");
     if (!command) {
       return {
+        ...base,
         available: false,
         version: null,
         loggedIn: false,
@@ -156,18 +206,62 @@ export class AssistantService {
       auth = JSON.parse(await run(command, ["auth", "status", "--json"])) as Record<string, unknown>;
     } catch {
       // Older versions: assume it's set up; a failing turn says otherwise.
-      return { available: true, version, loggedIn: true, account: null, problem: null };
+      return { ...base, available: true, version, loggedIn: true, account: null, problem: null };
     }
     const loggedIn = auth.loggedIn === true;
     const plan = typeof auth.subscriptionType === "string" ? auth.subscriptionType : null;
     const account =
       auth.authMethod === "claude.ai" && plan ? `Claude ${plan[0].toUpperCase()}${plan.slice(1)}` : loggedIn ? String(auth.authMethod ?? "") || null : null;
     return {
+      ...base,
       available: true,
       version,
       loggedIn,
       account,
       problem: loggedIn ? null : "Claude Code isn't logged in. Run `claude` in a terminal and log in, then try again.",
+    };
+  }
+
+  private async codexStatus(): Promise<AssistantProviderStatus> {
+    const command = await this.findCommand("codex");
+    if (!command) {
+      return {
+        provider: "codex",
+        models: [...CODEX_MODELS],
+        available: false,
+        version: null,
+        loggedIn: false,
+        account: null,
+        problem: "Codex isn't installed. Install it with `npm install -g @openai/codex`, then log in with `codex login`.",
+      };
+    }
+    const version = (await run(command, ["--version"]).catch(() => "")).trim().split(/\s/).pop() || null;
+    // It says so on stderr, and exits with an error when logged out.
+    let said = "";
+    const login = await run(command, ["login", "status"], { onStderr: (chunk) => (said += chunk.toString()) }).then(
+      (out) => `${out}${said}`.trim(),
+      () => null,
+    );
+    const loggedIn = login !== null && !/not logged in/i.test(login);
+    if (!this.codexInfoCache || Date.now() - this.codexInfoCache.at > MODELS_TTL_MS) {
+      const value = loggedIn ? codexInfo(command) : Promise.resolve({ models: null, account: null });
+      this.codexInfoCache = { at: Date.now(), value };
+      // Couldn't tell: ask again next time.
+      void value.then(({ models }) => {
+        if (!models && this.codexInfoCache?.value === value) this.codexInfoCache = null;
+      });
+    }
+    const info = await this.codexInfoCache?.value;
+    const account = !loggedIn ? null : (info?.account ?? (/chatgpt/i.test(login) ? "ChatGPT" : /api key/i.test(login) ? "API key" : null));
+    const models = info?.models ?? [...CODEX_MODELS];
+    return {
+      provider: "codex",
+      models,
+      available: true,
+      version,
+      loggedIn,
+      account,
+      problem: loggedIn ? null : "Codex isn't logged in. Run `codex login` in a terminal, then try again.",
     };
   }
 
@@ -189,22 +283,29 @@ export class AssistantService {
 
   private async loadChat(projectId: string): Promise<Chat> {
     const saved = await readJson<SavedChat>(this.chatFile(projectId));
-    let state = saved && isObject(saved.state) && Array.isArray(saved.state.messages) ? saved.state : emptyChat();
-    if (!isAssistantModel(state.model)) state = { ...state, model: "default" };
+    let state: ChatState =
+      saved && isObject(saved.state) && Array.isArray(saved.state.messages) ? { ...saved.state, ...chatModel(saved.state) } : emptyChat();
     // Saved mid-turn (the server stopped): that turn is over.
     for (const m of state.messages) {
       if (m.role === "assistant" && m.status === "working") {
         state = applyChatEvent(state, { type: "assistant_end", messageId: m.id, status: "error", error: "The editor's server restarted." });
       }
     }
+    const sessions: Partial<Record<AssistantProvider, Session>> = {};
+    for (const [provider, session] of Object.entries(isObject(saved?.sessions) ? saved.sessions : {})) {
+      if (isAssistantProvider(provider) && isObject(session) && typeof session.id === "string" && typeof session.seen === "number") {
+        sessions[provider] = { id: session.id, seen: session.seen };
+      }
+    }
+    if (!sessions.claude && typeof saved?.sessionId === "string") sessions.claude = { id: saved.sessionId, seen: state.messages.length };
     const chat: Chat = {
       projectId,
       state: { ...state, status: "idle" },
       seq: 0,
       earlyResults: new Map(),
-      sessionId: typeof saved?.sessionId === "string" ? saved.sessionId : null,
-      process: null,
-      processModel: null,
+      sessions,
+      agent: null,
+      agentKey: null,
       tabId: null,
       turn: null,
     };
@@ -216,10 +317,28 @@ export class AssistantService {
     return snapshot(await this.chat(projectId));
   }
 
+  /** Every chat that's working or has answered since the server started. */
+  chatActivity(): ChatActivity[] {
+    return [...this.activity.values()];
+  }
+
+  private setActivity(chat: Chat, status: ChatActivity["status"] | null) {
+    if (status) this.activity.set(chat.projectId, { projectId: chat.projectId, status, since: Date.now(), provider: chat.turn?.provider ?? chat.state.provider });
+    else if (!this.activity.delete(chat.projectId)) return;
+    this.bridge.setActivity(this.chatActivity());
+  }
+
   private emit(chat: Chat, event: ChatEvent) {
     chat.state = applyChatEvent(chat.state, event);
     this.bridge.broadcast(chat.projectId, ++chat.seq, event);
     if (event.type === "tool_start") {
+      // The sidebar shows the step a working chat is on.
+      const activity = this.activity.get(chat.projectId);
+      const step = describeToolCall(event.name, event.input);
+      if (activity?.status === "working" && activity.step !== step) {
+        this.activity.set(chat.projectId, { ...activity, step });
+        this.bridge.setActivity(this.chatActivity());
+      }
       const early = chat.earlyResults.get(event.id);
       chat.earlyResults.delete(event.id);
       if (early) this.emit(chat, early);
@@ -234,15 +353,19 @@ export class AssistantService {
   }
 
   private save(chat: Chat): Promise<void> {
-    const saved: SavedChat = { state: chat.state, sessionId: chat.sessionId };
+    const saved: SavedChat = { state: chat.state, sessions: chat.sessions };
     return writeJson(this.chatFile(chat.projectId), saved).catch((err) => console.error("[assistant] saving the chat failed", err));
   }
 
   async setModel(projectId: string, body: unknown): Promise<ChatSnapshot> {
     const chat = await this.chat(projectId);
-    const model = isObject(body) ? body.model : undefined;
-    if (!isAssistantModel(model)) throw new HttpError(400, "Unknown model.");
-    this.emit(chat, { type: "model", model });
+    const b = isObject(body) ? body : {};
+    const provider = b.provider ?? chat.state.provider;
+    if (!isAssistantProvider(provider)) throw new HttpError(400, "Unknown provider: use claude or codex.");
+    if (!isModelId(b.model)) throw new HttpError(400, "Unknown model.");
+    const effort = b.effort ?? null;
+    if (effort !== null && !isEffort(effort)) throw new HttpError(400, "Unknown thinking level: use low, medium, high... or null for the default.");
+    this.emit(chat, { type: "model", provider, model: b.model, effort });
     await this.save(chat);
     return snapshot(chat);
   }
@@ -250,80 +373,113 @@ export class AssistantService {
   async send(projectId: string, body: unknown): Promise<void> {
     const chat = await this.chat(projectId);
     const req = parseSend(body);
-    if (chat.turn) throw new HttpError(409, "Claude is still working on the last message.");
-    const status = await this.status();
+    if (chat.turn) throw new HttpError(409, `${providerInfo(chat.turn.provider).label} is still working on the last message.`);
+    const { provider, model, effort } = chat.state;
+    const status = await this.providerStatus(provider);
     if (status.problem) throw new HttpError(503, status.problem);
-    const command = await this.findCommand();
-    if (!command) throw new HttpError(503, "Claude Code isn't installed.");
+    if (chat.turn) throw new HttpError(409, "Still working on the last message.");
 
     chat.tabId = req.tab;
     const user: UserMessage = { id: createId("msg"), role: "user", text: req.text, at: Date.now(), ...(req.contextLabel && { context: req.contextLabel }) };
+    const before = chat.state.messages.length;
     this.emit(chat, { type: "user", message: user });
     const messageId = createId("msg");
+    const text = req.context ? `<editor-context>\n${req.context}\n</editor-context>\n\n${req.text}` : req.text;
+    chat.turn = { messageId, provider, model, effort, text, before, stopping: false, resumed: false };
     this.emit(chat, { type: "assistant_start", id: messageId, at: Date.now() });
-    const prompt = req.context ? `<editor-context>\n${req.context}\n</editor-context>\n\n${req.text}` : req.text;
-    this.startTurn(chat, command, messageId, prompt);
+    this.setActivity(chat, "working");
     void this.save(chat);
+    try {
+      await this.startTurn(chat, chat.turn);
+    } catch (err) {
+      this.endTurn(chat, "error", errorMessage(err));
+    }
   }
 
-  private startTurn(chat: Chat, command: string, messageId: string, prompt: string) {
+  /**
+   * What the agent is sent: the user's message, after whatever it missed of the chat (it was
+   * answered by the other provider, or this provider's conversation was lost).
+   */
+  private prompt(chat: Chat, turn: Turn): string {
+    const missed = transcript(chat.state.messages.slice(0, turn.before), chat.sessions[turn.provider]?.seen ?? 0);
+    if (!missed) return turn.text;
+    return `<earlier-conversation>\nEarlier in this chat (answered by another assistant, whose tools were the same as yours):\n\n${missed}\n</earlier-conversation>\n\n${turn.text}`;
+  }
+
+  private async startTurn(chat: Chat, turn: Turn) {
     clearTimeout(chat.idleTimer);
-    // Another model was picked: start over on it (the conversation continues).
-    if (chat.process && chat.processModel !== chat.state.model) {
-      chat.process.stop();
-      chat.process = null;
+    const key = agentKey(turn);
+    // Another provider, model or thinking level was picked: start over on it (the conversation continues).
+    if (chat.agent && chat.agentKey !== key) {
+      chat.agent.stop();
+      chat.agent = null;
+      chat.agentKey = null;
     }
-    const resumed = !chat.process && !!chat.sessionId;
-    chat.turn = { messageId, translator: new TurnTranslator(messageId), prompt, stopping: false, resumed };
-    if (!chat.process) this.spawn(chat, command);
-    chat.process!.send(prompt);
+    if (!chat.agent) {
+      const command = await this.findCommand(turn.provider);
+      if (!command) throw new Error(`${providerInfo(turn.provider).app} isn't installed.`);
+      const disabledServers = turn.provider === "codex" ? await userMcpServers() : [];
+      if (chat.turn !== turn || turn.stopping) return;
+      turn.resumed = !!chat.sessions[turn.provider];
+      this.spawn(chat, turn, command, disabledServers);
+    }
+    chat.agent!.send(turn.messageId, this.prompt(chat, turn));
   }
 
-  private spawn(chat: Chat, command: string) {
-    const url = `http://127.0.0.1:${this.opts.port()}/mcp?chat=${chat.projectId}`;
-    const args = claudeArgs({ mcpUrl: url, systemPrompt: SYSTEM_PROMPT, model: chat.state.model, resume: chat.sessionId });
-    const proc: ClaudeProcess = new ClaudeProcess({
-      command,
-      args,
-      cwd: this.workDir,
-      env: {
-        // Every tool is always listed (there's no tool search without built-in tools).
-        ENABLE_TOOL_SEARCH: "false",
-        // Transcripts of long videos are big.
-        MAX_MCP_OUTPUT_TOKENS: "60000",
+  private spawn(chat: Chat, turn: Turn, command: string, disabledServers: string[]) {
+    const { provider, model, effort } = turn;
+    let agent: Agent | null = null;
+    const mine = () => agent !== null && chat.agent === agent;
+    const handlers: AgentHandlers = {
+      onEvents: (events) => {
+        if (!mine() || !chat.turn) return;
+        for (const event of events) {
+          if (event.type === "tool_end") this.emitResult(chat, event);
+          else this.emit(chat, event);
+        }
       },
-      onLine: (line) => this.onLine(chat, proc, line),
-      onExit: (error) => this.onExit(chat, proc, command, error),
-    });
-    chat.process = proc;
-    chat.processModel = chat.state.model;
-  }
-
-  private onLine(chat: Chat, proc: ClaudeProcess, line: unknown) {
-    const turn = chat.turn;
-    if (chat.process !== proc || !turn) return;
-    const { events, result } = turn.translator.handle(line);
-    if (turn.translator.sessionId && turn.translator.sessionId !== chat.sessionId) chat.sessionId = turn.translator.sessionId;
-    for (const event of events) this.emit(chat, event);
-    if (result) {
-      const status = turn.stopping ? "stopped" : result.isError ? "error" : "done";
-      this.endTurn(chat, status, status === "error" ? result.error : undefined);
-    }
-  }
-
-  private onExit(chat: Chat, proc: ClaudeProcess, command: string, error: string | null) {
-    if (chat.process !== proc) return;
-    chat.process = null;
-    const turn = chat.turn;
-    if (!turn) return;
-    // A saved session that can't be continued (e.g. Claude Code's history was cleared): start a new one.
-    if (turn.resumed && !turn.translator.initialized && !turn.stopping) {
-      chat.sessionId = null;
-      this.startTurn(chat, command, turn.messageId, turn.prompt);
-      return;
-    }
-    if (turn.stopping) this.endTurn(chat, "stopped");
-    else this.endTurn(chat, "error", error ? `Claude Code stopped: ${error}` : "Claude Code stopped unexpectedly.");
+      onSession: (id) => {
+        if (!mine()) return;
+        const known = chat.sessions[provider];
+        if (known?.id !== id) chat.sessions[provider] = { id, seen: 0 };
+      },
+      onTurnEnd: (result) => {
+        const current = chat.turn;
+        if (!mine() || !current) return;
+        const status = current.stopping ? "stopped" : result.isError ? "error" : "done";
+        this.endTurn(chat, status, status === "error" ? result.error : undefined);
+      },
+      onExit: (error, started) => {
+        if (!mine()) return;
+        chat.agent = null;
+        chat.agentKey = null;
+        const current = chat.turn;
+        if (!current) return;
+        // A saved conversation that can't be continued (e.g. its history was cleared): start a new one.
+        if (current.resumed && !started && !current.stopping) {
+          delete chat.sessions[current.provider];
+          current.resumed = false;
+          this.startTurn(chat, current).catch((err) => this.endTurn(chat, "error", errorMessage(err)));
+          return;
+        }
+        const app = providerInfo(current.provider).app;
+        if (current.stopping) this.endTurn(chat, "stopped");
+        else this.endTurn(chat, "error", error ? `${app} stopped: ${error}` : `${app} stopped unexpectedly.`);
+      },
+    };
+    const opts = {
+      command,
+      cwd: this.workDir,
+      mcpUrl: `http://127.0.0.1:${this.opts.port()}/mcp?chat=${chat.projectId}`,
+      systemPrompt: SYSTEM_PROMPT,
+      model,
+      effort,
+      resume: chat.sessions[provider]?.id ?? null,
+      handlers,
+    };
+    agent = provider === "codex" ? new CodexAgent({ ...opts, disabledServers }) : new ClaudeAgent(opts);
+    chat.agent = agent;
+    chat.agentKey = agentKey(turn);
   }
 
   private endTurn(chat: Chat, status: "done" | "error" | "stopped", error?: string) {
@@ -333,12 +489,17 @@ export class AssistantService {
     chat.turn = null;
     this.bridge.cancelChat(chat.projectId);
     this.emit(chat, { type: "assistant_end", messageId: turn.messageId, status, ...(error && { error }) });
+    // The agent has now been part of everything so far.
+    const session = chat.sessions[turn.provider];
+    if (session) session.seen = chat.state.messages.length;
+    this.setActivity(chat, status);
     void this.save(chat);
     clearTimeout(chat.idleTimer);
     chat.idleTimer = setTimeout(() => {
       if (chat.turn) return;
-      chat.process?.stop();
-      chat.process = null;
+      chat.agent?.stop();
+      chat.agent = null;
+      chat.agentKey = null;
     }, IDLE_MS);
   }
 
@@ -348,25 +509,32 @@ export class AssistantService {
     if (!turn || turn.stopping) return;
     turn.stopping = true;
     this.bridge.cancelChat(projectId);
-    chat.process?.interrupt();
+    if (!chat.agent) {
+      this.endTurn(chat, "stopped");
+      return;
+    }
+    chat.agent.interrupt();
     turn.stopTimer = setTimeout(() => {
       if (chat.turn !== turn) return;
-      chat.process?.stop();
-      chat.process = null;
+      chat.agent?.stop();
+      chat.agent = null;
+      chat.agentKey = null;
       this.endTurn(chat, "stopped");
     }, STOP_GRACE_MS);
   }
 
-  /** Start a new chat (forgetting the conversation). */
+  /** Start a new chat (forgetting the conversation), on the same provider and model. */
   async reset(projectId: string): Promise<ChatSnapshot> {
     const chat = await this.chat(projectId);
     if (chat.turn) await this.stop(projectId);
-    chat.process?.stop();
-    chat.process = null;
+    chat.agent?.stop();
+    chat.agent = null;
+    chat.agentKey = null;
     chat.turn = null;
-    chat.sessionId = null;
+    chat.sessions = {};
     chat.earlyResults.clear();
-    this.emit(chat, { type: "reset", state: emptyChat(chat.state.model) });
+    this.emit(chat, { type: "reset", state: emptyChat(chat.state.provider, chat.state.model, chat.state.effort) });
+    this.setActivity(chat, null);
     await fs.rm(this.imageDir(projectId), { recursive: true, force: true });
     await this.save(chat);
     return snapshot(chat);
@@ -375,8 +543,10 @@ export class AssistantService {
   /** Forget a deleted video's chat. */
   async remove(projectId: string): Promise<void> {
     const chat = this.chats.get(projectId);
-    chat?.process?.stop();
+    chat?.agent?.stop();
+    if (chat) clearTimeout(chat.idleTimer);
     this.chats.delete(projectId);
+    if (this.activity.delete(projectId)) this.bridge.setActivity(this.chatActivity());
     await fs.rm(this.chatFile(projectId), { force: true });
     await fs.rm(this.imageDir(projectId), { recursive: true, force: true });
   }
@@ -400,7 +570,7 @@ export class AssistantService {
     if (!tab) {
       return errorResult(
         chatId
-          ? "This video isn't open in the editor any more, so its tools can't run. Ask the user to open it."
+          ? "The editor isn't open in the browser any more, so its tools can't run. Ask the user to open it again."
           : "No video is open in the editor. Ask the user to open the editor in their browser and open a video.",
       );
     }
@@ -411,6 +581,7 @@ export class AssistantService {
       result = await this.bridge.call(tab, bareToolName(call.name), call.input, {
         timeoutMs: (spec.timeout ?? DEFAULT_TIMEOUT_S) * 1000,
         chat: chatId,
+        ...(chat?.turn && { turn: chat.turn.messageId }),
         onProgress,
       });
     } catch (err) {
@@ -452,7 +623,7 @@ export class AssistantService {
   shutdown(): void {
     for (const chat of this.chats.values()) {
       clearTimeout(chat.idleTimer);
-      chat.process?.stop();
+      chat.agent?.stop();
     }
   }
 }

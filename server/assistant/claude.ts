@@ -8,21 +8,21 @@
  * other MCP servers, and it runs in an empty directory of the data dir so no
  * project's CLAUDE.md or settings apply.
  */
-import type { Writable } from "node:stream";
-import type { AssistantModel, ChatEvent } from "../../shared/assistant.ts";
+import type { ChatEvent } from "../../shared/assistant.ts";
 import { MCP_SERVER_NAME, bareToolName } from "../../shared/assistant-tools.ts";
-import { spawnStreaming } from "../process.ts";
+import { type Agent, type AgentOptions, JsonLinesProcess, type TurnResult, isObject } from "./agent.ts";
 
 export interface ClaudeArgsOptions {
   mcpUrl: string;
   systemPrompt: string;
-  model: AssistantModel;
+  model: string;
+  effort?: string | null;
   /** Session to continue. */
   resume: string | null;
 }
 
 /** Command line arguments for a chat's Claude Code process. */
-export function claudeArgs({ mcpUrl, systemPrompt, model, resume }: ClaudeArgsOptions): string[] {
+export function claudeArgs({ mcpUrl, systemPrompt, model, effort, resume }: ClaudeArgsOptions): string[] {
   const mcpConfig = { mcpServers: { [MCP_SERVER_NAME]: { type: "http", url: mcpUrl } } };
   return [
     "-p",
@@ -37,19 +37,11 @@ export function claudeArgs({ mcpUrl, systemPrompt, model, resume }: ClaudeArgsOp
     "--disable-slash-commands",
     "--setting-sources", "project",
     "--system-prompt", systemPrompt,
-    ...(model !== "default" ? ["--model", model] : []),
+    "--model", model,
+    ...(effort ? ["--effort", effort] : []),
     ...(resume ? ["--resume", resume] : []),
   ];
 }
-
-/** How a turn ended, from Claude Code's `result` message. */
-export interface TurnResult {
-  isError: boolean;
-  /** What went wrong, when it did. */
-  error?: string;
-}
-
-const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
 /** The text of a tool result's content (a string, or blocks). */
 function resultText(content: unknown): string {
@@ -169,75 +161,50 @@ export class TurnTranslator {
   }
 }
 
-export interface ClaudeProcessOptions {
-  command: string;
-  args: string[];
-  cwd: string;
-  env: Record<string, string>;
-  onLine: (line: unknown) => void;
-  /** It exited (on its own or killed), with the tail of its stderr when it failed. */
-  onExit: (error: string | null) => void;
-}
+/** Claude Code as the assistant's agent: one `claude -p` process speaking stream-json. */
+export class ClaudeAgent implements Agent {
+  private proc: JsonLinesProcess;
+  private translator: TurnTranslator | null = null;
+  private started = false;
 
-/** A running `claude -p` process speaking stream-json. */
-export class ClaudeProcess {
-  private stdin: Writable;
-  private kill: () => void;
-  private exited = false;
-
-  constructor(opts: ClaudeProcessOptions) {
-    const { child, done } = spawnStreaming([opts.command, ...opts.args], "pipe", "pipe", { cwd: opts.cwd, env: opts.env });
-    this.stdin = child.stdin!;
-    this.stdin.on("error", () => {}); // it died; `done` reports why
-    this.kill = () => child.kill("SIGTERM");
-    let buffer = "";
-    child.stdout!.setEncoding("utf8");
-    child.stdout!.on("data", (chunk: string) => {
-      buffer += chunk;
-      for (let i = buffer.indexOf("\n"); i !== -1; i = buffer.indexOf("\n")) {
-        const line = buffer.slice(0, i).trim();
-        buffer = buffer.slice(i + 1);
-        if (!line) continue;
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(line);
-        } catch {
-          continue;
+  constructor(opts: AgentOptions) {
+    const { handlers } = opts;
+    const args = claudeArgs({ mcpUrl: opts.mcpUrl, systemPrompt: opts.systemPrompt, model: opts.model, effort: opts.effort, resume: opts.resume });
+    this.proc = new JsonLinesProcess({
+      argv: [opts.command, ...args],
+      cwd: opts.cwd,
+      env: {
+        // Every tool is always listed (there's no tool search without built-in tools).
+        ENABLE_TOOL_SEARCH: "false",
+        // Transcripts of long videos are big.
+        MAX_MCP_OUTPUT_TOKENS: "60000",
+      },
+      onLine: (line) => {
+        const translator = this.translator;
+        if (!translator) return;
+        const { events, result } = translator.handle(line);
+        if (translator.initialized) this.started = true;
+        if (translator.sessionId) handlers.onSession(translator.sessionId);
+        if (events.length) handlers.onEvents(events);
+        if (result) {
+          this.translator = null;
+          handlers.onTurnEnd(result);
         }
-        opts.onLine(parsed);
-      }
+      },
+      onExit: (error) => handlers.onExit(error, this.started),
     });
-    done.then(
-      () => this.finish(opts, null),
-      (err: Error) => this.finish(opts, err.message),
-    );
   }
 
-  private finish(opts: ClaudeProcessOptions, error: string | null) {
-    if (this.exited) return;
-    this.exited = true;
-    opts.onExit(error);
+  send(messageId: string, prompt: string): void {
+    this.translator = new TurnTranslator(messageId);
+    this.proc.write({ type: "user", message: { role: "user", content: [{ type: "text", text: prompt }] } });
   }
 
-  get alive(): boolean {
-    return !this.exited;
-  }
-
-  /** Send a user message. */
-  send(text: string): void {
-    this.write({ type: "user", message: { role: "user", content: [{ type: "text", text }] } });
-  }
-
-  /** Stop the turn in progress (it then ends with an error result). */
   interrupt(): void {
-    this.write({ type: "control_request", request_id: `interrupt-${Date.now()}`, request: { subtype: "interrupt" } });
+    this.proc.write({ type: "control_request", request_id: `interrupt-${Date.now()}`, request: { subtype: "interrupt" } });
   }
 
   stop(): void {
-    if (!this.exited) this.kill();
-  }
-
-  private write(message: unknown) {
-    if (!this.exited) this.stdin.write(`${JSON.stringify(message)}\n`);
+    this.proc.stop();
   }
 }

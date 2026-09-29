@@ -34,6 +34,8 @@ export interface AppOptions {
   transcription?: TranscriptionOptions;
   /** The command that runs Claude Code for the assistant (default: found on this computer). */
   claudeCommand?: string;
+  /** Codex's command (default: found on this computer). */
+  codexCommand?: string;
 }
 
 export interface EditorApp {
@@ -62,6 +64,7 @@ export async function createApp({
   ytdlpPath,
   transcription: transcriptionOptions,
   claudeCommand,
+  codexCommand,
 }: AppOptions): Promise<EditorApp> {
   const paths = new DataPaths(dataDir);
   await paths.init();
@@ -78,10 +81,10 @@ export async function createApp({
   const shared = new LibraryStore(paths, libraryMedia, library, (id) => projects.has(id));
   await shared.load();
   const transcription = await TranscriptionService.create(paths, library, transcriptionOptions);
-  // The port Claude Code reaches the MCP server on: the one requests arrive on.
+  // The port the assistant's agents reach the MCP server on: the one requests arrive on.
   let port = config.port;
   const bridge = new Bridge();
-  const assistant = new AssistantService(paths, bridge, { command: claudeCommand, port: () => port });
+  const assistant = new AssistantService(paths, bridge, { commands: { claude: claudeCommand, codex: codexCommand }, port: () => port });
   await assistant.init();
 
   const app = express();

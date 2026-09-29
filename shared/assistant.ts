@@ -1,6 +1,6 @@
 /**
  * The in-app assistant's conversation: one chat per video, kept by the server
- * (`server/assistant/service.ts`, which runs Claude Code) and streamed to the
+ * (`server/assistant/service.ts`, which runs Claude Code or Codex) and streamed to the
  * editor as `ChatEvent`s. Both sides fold the events with `applyChatEvent`,
  * so the server's saved copy and what the chat panel shows can't drift apart.
  *
@@ -8,17 +8,108 @@
  */
 import { type ToolChanges, bareToolName } from "./assistant-tools.ts";
 
-/** Which Claude model the assistant runs on ("default": whatever Claude Code is set to). */
-export type AssistantModel = "default" | "opus" | "sonnet" | "haiku";
+/** Which agent answers: the user's own Claude Code or Codex (each with its own login and subscription). */
+export type AssistantProvider = "claude" | "codex";
 
-export const ASSISTANT_MODELS: readonly { id: AssistantModel; label: string; hint: string }[] = [
-  { id: "default", label: "Default", hint: "Claude Code's own setting" },
-  { id: "opus", label: "Opus", hint: "Most capable" },
-  { id: "sonnet", label: "Sonnet", hint: "Fast and capable" },
-  { id: "haiku", label: "Haiku", hint: "Fastest" },
+export interface AssistantProviderInfo {
+  id: AssistantProvider;
+  /** The model family's name ("Claude"). */
+  label: string;
+  /** The program that runs it ("Claude Code"). */
+  app: string;
+}
+
+export const ASSISTANT_PROVIDERS: readonly AssistantProviderInfo[] = [
+  { id: "claude", label: "Claude", app: "Claude Code" },
+  { id: "codex", label: "Codex", app: "Codex" },
 ];
 
-export const isAssistantModel = (v: unknown): v is AssistantModel => ASSISTANT_MODELS.some((m) => m.id === v);
+export const isAssistantProvider = (v: unknown): v is AssistantProvider => ASSISTANT_PROVIDERS.some((p) => p.id === v);
+export const providerInfo = (id: AssistantProvider): AssistantProviderInfo => ASSISTANT_PROVIDERS.find((p) => p.id === id)!;
+
+/** A model a provider offers, as the picker shows it. */
+export interface AssistantModelInfo {
+  /** What the provider's CLI is given (`--model`). */
+  id: string;
+  label: string;
+  hint?: string;
+  /** Just released: badged in the picker. */
+  isNew?: boolean;
+  /** Listed under "Legacy models". */
+  legacy?: boolean;
+  /** The thinking levels it can run at, least first (none: it can't be set). */
+  efforts?: string[];
+  /** The level it runs at unless another is picked (when the provider says). */
+  defaultEffort?: string;
+}
+
+/** How each thinking level is shown (a provider may offer others: they're shown as they come). */
+export const EFFORT_LABELS: Record<string, string> = {
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+  ultra: "Ultra",
+};
+
+export const effortLabel = (effort: string): string => EFFORT_LABELS[effort] ?? effort[0].toUpperCase() + effort.slice(1);
+
+/** A thinking level as a CLI takes it. */
+export const isEffort = (v: unknown): v is string => typeof v === "string" && /^[a-z]{2,12}$/.test(v);
+
+const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+
+/** Claude's models (Claude Code takes these ids as they are). */
+export const CLAUDE_MODELS: readonly AssistantModelInfo[] = [
+  { id: "claude-opus-5-5", label: "Claude Opus 5.5", hint: "Most capable for editing", isNew: true, efforts: CLAUDE_EFFORTS },
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", hint: "Fast and capable", isNew: true, efforts: CLAUDE_EFFORTS },
+  { id: "claude-fable-5-1", label: "Claude Fable 5.1", hint: "Deepest reasoning, slower", efforts: CLAUDE_EFFORTS },
+  { id: "claude-opus-5", label: "Claude Opus 5", efforts: CLAUDE_EFFORTS },
+  { id: "claude-sonnet-5", label: "Claude Sonnet 5", efforts: CLAUDE_EFFORTS },
+  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", hint: "Fastest" },
+  { id: "claude-opus-4-8", label: "Claude Opus 4.8", legacy: true, efforts: CLAUDE_EFFORTS },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", legacy: true, efforts: ["low", "medium", "high", "max"] },
+];
+
+/**
+ * Codex's models when its own list can't be read (the server asks Codex for the
+ * current list: `model/list`, see `server/assistant/codex.ts`).
+ */
+export const CODEX_MODELS: readonly AssistantModelInfo[] = [
+  { id: "gpt-6-astra", label: "GPT-6-Astra", hint: "Frontier intelligence for the most demanding work.", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultEffort: "low" },
+  { id: "gpt-6-sol", label: "GPT-6-Sol", hint: "Workhorse model for coding and everyday work.", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultEffort: "medium" },
+  { id: "gpt-6-luna", label: "GPT-6-Luna", hint: "Fast and affordable model for easier tasks.", efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium" },
+  { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", legacy: true, efforts: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultEffort: "low" },
+  { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", legacy: true, efforts: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultEffort: "medium" },
+  { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", legacy: true, efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium" },
+  { id: "gpt-5.5", label: "GPT-5.5", legacy: true, efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
+];
+
+export const DEFAULT_MODELS: Record<AssistantProvider, string> = { claude: "claude-opus-5-5", codex: "gpt-6-astra" };
+
+/** A model id as a CLI takes it (anything else is refused before it reaches one). */
+export const isModelId = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,79}$/.test(v);
+
+/** Chats saved before there was a choice of provider named a Claude alias. */
+const LEGACY_MODELS: Record<string, string> = {
+  default: "claude-opus-5-5",
+  opus: "claude-opus-5-5",
+  sonnet: "claude-sonnet-5-5",
+  haiku: "claude-haiku-4-5",
+};
+
+/** A saved chat's provider, model and thinking level, made valid (older chats only had a Claude alias). */
+export function chatModel(raw: { provider?: unknown; model?: unknown; effort?: unknown }): {
+  provider: AssistantProvider;
+  model: string;
+  effort: string | null;
+} {
+  const provider = isAssistantProvider(raw.provider) ? raw.provider : "claude";
+  const model = typeof raw.model === "string" ? (LEGACY_MODELS[raw.model] ?? raw.model) : "";
+  return { provider, model: isModelId(model) ? model : DEFAULT_MODELS[provider], effort: isEffort(raw.effort) ? raw.effort : null };
+}
 
 export interface UserMessage {
   id: string;
@@ -81,10 +172,19 @@ export interface ChatState {
   messages: ChatMessage[];
   /** Working while a turn is being answered. */
   status: "idle" | "working";
-  model: AssistantModel;
+  provider: AssistantProvider;
+  model: string;
+  /** How hard it thinks (a level the model offers), or null for the model's (or CLI's) default. */
+  effort: string | null;
 }
 
-export const emptyChat = (model: AssistantModel = "default"): ChatState => ({ messages: [], status: "idle", model });
+export const emptyChat = (provider: AssistantProvider = "claude", model = DEFAULT_MODELS[provider], effort: string | null = null): ChatState => ({
+  messages: [],
+  status: "idle",
+  provider,
+  model,
+  effort,
+});
 
 /**
  * A chat as the server has it, and how many events it has had (`ChatEvent`s are numbered from 1): a tab applies only
@@ -107,7 +207,7 @@ export type ChatEvent =
   | { type: "tool_progress"; id: string; fraction: number | null; label?: string }
   | { type: "tool_end"; id: string; status: "done" | "error"; output?: string; images?: string[]; changes?: ToolChanges }
   | { type: "assistant_end"; messageId: string; status: Exclude<AssistantStatus, "working">; error?: string }
-  | { type: "model"; model: AssistantModel }
+  | { type: "model"; provider: AssistantProvider; model: string; effort: string | null }
   /** Start over (a new chat), or replace everything (after reconnecting). */
   | { type: "reset"; state: ChatState };
 
@@ -162,7 +262,9 @@ export function applyChatEvent(state: ChatState, event: ChatEvent): ChatState {
     case "reset":
       return event.state;
     case "model":
-      return state.model === event.model ? state : { ...state, model: event.model };
+      return state.provider === event.provider && state.model === event.model && state.effort === event.effort
+        ? state
+        : { ...state, provider: event.provider, model: event.model, effort: event.effort };
     case "user":
       return { ...state, messages: [...state.messages, event.message] };
     case "assistant_start":
@@ -234,14 +336,55 @@ export function applyChatEvent(state: ChatState, event: ChatEvent): ChatState {
   }
 }
 
+/**
+ * What a video's chat is doing, for the sidebar: working (since when), or how its last answer
+ * ended (and when). Every tab gets every chat's, whichever video it shows.
+ */
+export interface ChatActivity {
+  projectId: string;
+  status: "working" | "done" | "error" | "stopped";
+  /** Epoch ms: when it started working, or when it finished. */
+  since: number;
+  provider: AssistantProvider;
+  /** While working: the step it's on ("Split 2 clips at 12.4s"), once it has taken one. */
+  step?: string;
+}
+
+/**
+ * The conversation from message `from` on as plain text, for an agent that wasn't in it (the chat
+ * switched provider): what was asked, what was answered, and which tools ran.
+ */
+export function transcript(messages: readonly ChatMessage[], from = 0): string {
+  const lines: string[] = [];
+  for (const m of messages.slice(from)) {
+    if (m.role === "user") {
+      lines.push(`User: ${m.text}`);
+      continue;
+    }
+    const said: string[] = [];
+    for (const p of m.parts) {
+      if (p.kind === "text" && p.text.trim()) said.push(p.text.trim());
+      else if (p.kind === "tool") said.push(`[${describeToolCall(p.name, p.input)}${p.status === "error" ? " (failed)" : ""}]`);
+    }
+    if (said.length) lines.push(`Assistant: ${said.join("\n")}`);
+  }
+  return lines.join("\n\n");
+}
+
 /** What an editor tab receives on its event stream (`GET /api/assistant/events`). */
 export type TabEvent =
-  /** Run a tool here and post the result back. `chat`: the chat it's for (a video id), or null for an outside agent. */
-  | { type: "call"; id: string; name: string; input: Record<string, unknown>; chat: string | null }
+  /**
+   * Run a tool here and post the result back. `chat`: the chat it's for, which is its video's id (the
+   * tool acts on that video even if this tab shows another), or null for an outside agent (the open video).
+   * `turn`: the chat's assistant message it's part of (its edits can be reverted together).
+   */
+  | { type: "call"; id: string; name: string; input: Record<string, unknown>; chat: string | null; turn?: string }
   /** Stop running a call (its turn was stopped). */
   | { type: "cancel"; id: string }
   /** An update to the chat of a video this tab shows (`seq`: its number, see `ChatSnapshot`). */
-  | { type: "chat"; projectId: string; seq: number; event: ChatEvent };
+  | { type: "chat"; projectId: string; seq: number; event: ChatEvent }
+  /** Every chat that's working or has answered since the server started (sent on connecting and on each change). */
+  | { type: "activity"; chats: ChatActivity[] };
 
 // ---------------------------------------------------------------------------
 // Describing tool calls for people

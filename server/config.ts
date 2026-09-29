@@ -27,3 +27,5 @@ export const GROQ_API_KEY = process.env.GROQ_API_KEY || null;
 export const CLAUDE = process.env.CLAUDE_PATH || null;
 /** "fake" swaps the local transcription engine for one that makes words up (the e2e tests). */
 export const TRANSCRIPTION_ENGINE = process.env.EDITOR_TRANSCRIPTION_ENGINE || null;
+/** Codex's command line tool, which can run the in-app assistant instead (default: on the PATH, else its usual homes). */
+export const CODEX = process.env.CODEX_PATH || null;

@@ -1,9 +1,13 @@
 /**
  * Pictures for the assistant: the Program monitor at a timeline time (the
- * preview canvas, drawn by the same compositor as the export), and frames of
- * media files (drawn by the server with ffmpeg).
+ * preview canvas, drawn by the same compositor as the export), a video that
+ * isn't open drawn the same way offscreen, and frames of media files (drawn
+ * by the server with ffmpeg).
  */
 import type { ToolContent } from "@shared/assistant-tools";
+import { aspectParts, videoTracks } from "@shared/timeline";
+import type { MediaAsset, Project } from "@shared/types";
+import { PreviewEngine, type PreviewSource } from "@/components/preview/engine";
 import { api } from "@/lib/api";
 import { usePlayback } from "@/stores/playback";
 import { useSourcePreview } from "@/stores/source-preview";
@@ -12,16 +16,16 @@ import { ToolError } from "./input";
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** Wait until the preview's media has caught up with a seek (or give up after a while). */
-async function previewSettled(signal: AbortSignal): Promise<void> {
+/** Wait until a preview's media (in `root`) has caught up with a seek (or give up after a while). */
+async function previewSettled(root: ParentNode, signal: AbortSignal): Promise<void> {
   await nextFrame();
   await nextFrame();
   const deadline = performance.now() + 4000;
   while (performance.now() < deadline) {
     if (signal.aborted) throw new ToolError("Stopped.");
-    const videos = [...document.querySelectorAll<HTMLVideoElement>('[data-slot="canvas"] video')];
+    const videos = [...root.querySelectorAll<HTMLVideoElement>("video")];
     const busy = videos.some((v) => v.src && (v.seeking || (v.readyState < HTMLMediaElement.HAVE_CURRENT_DATA && !v.error)));
-    const images = [...document.querySelectorAll<HTMLImageElement>('[data-slot="canvas"] img')];
+    const images = [...root.querySelectorAll<HTMLImageElement>("img")];
     const loading = images.some((i) => i.src && !i.complete);
     if (!busy && !loading) break;
     await sleep(50);
@@ -54,7 +58,7 @@ export async function programFrames(times: number[], width: number, signal: Abor
   const content: ToolContent[] = [];
   for (const time of times) {
     usePlayback.getState().seek(time);
-    await previewSettled(signal);
+    await previewSettled(document.querySelector('[data-slot="canvas"]') ?? document, signal);
     const canvas = document.querySelector<HTMLCanvasElement>('[data-slot="preview-canvas"]');
     if (!canvas || canvas.width === 0 || canvas.height === 0) {
       throw new ToolError("The Program monitor isn't showing, so there's nothing to look at. Ask the user to make the preview visible.");
@@ -65,6 +69,87 @@ export async function programFrames(times: number[], width: number, signal: Abor
     content.push({ type: "image", data: jpeg.data, mimeType: "image/jpeg" });
   }
   return content;
+}
+
+/**
+ * A video that isn't open in the editor at timeline `times`, like `programFrames`: drawn by a
+ * preview engine of its own, on a canvas nobody sees (kept laid out so the browser decodes its media).
+ */
+export async function offscreenFrames(
+  video: { project: Project; assets: readonly MediaAsset[] },
+  times: number[],
+  width: number,
+  signal: AbortSignal,
+): Promise<ToolContent[]> {
+  const [a, b] = aspectParts(video.project.settings.aspectRatio);
+  const size = { width, height: Math.round((width * b) / a) };
+  const root = document.createElement("div");
+  root.dataset.slot = "assistant-offscreen";
+  Object.assign(root.style, {
+    position: "fixed",
+    left: "0",
+    top: "0",
+    width: `${size.width}px`,
+    height: `${size.height}px`,
+    opacity: "0",
+    pointerEvents: "none",
+    zIndex: "-1",
+    overflow: "hidden",
+  });
+  document.body.append(root);
+
+  let state = { project: video.project, assets: [...video.assets], time: 0, playing: false };
+  const listeners = new Set<() => void>();
+  const source: PreviewSource = {
+    get: () => state,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const engine = new PreviewEngine(() => {}, source);
+  const cleanups: (() => void)[] = [];
+  const add = <T extends HTMLElement>(el: T): T => {
+    Object.assign(el.style, { position: "absolute", inset: "0", width: "100%", height: "100%" });
+    root.append(el);
+    return el;
+  };
+  try {
+    for (const track of videoTracks(video.project)) {
+      for (const index of [0, 1] as const) {
+        const v = add(document.createElement("video"));
+        v.muted = true;
+        v.playsInline = true;
+        v.preload = "auto";
+        cleanups.push(engine.attachVideo(track.id, index, v));
+        const img = add(document.createElement("img"));
+        img.decoding = "async";
+        cleanups.push(engine.attachImage(track.id, index, img));
+      }
+    }
+    const canvas = add(document.createElement("canvas"));
+    cleanups.push(engine.attachCanvas(canvas));
+    engine.setCanvasSize(size);
+    engine.start();
+
+    const content: ToolContent[] = [];
+    for (const time of times) {
+      state = { ...state, time };
+      for (const listener of listeners) listener();
+      await previewSettled(root, signal);
+      if (canvas.width === 0 || canvas.height === 0) throw new ToolError("The video couldn't be drawn here (this browser has no WebGL 2).");
+      const jpeg = toJpeg(canvas, width);
+      content.push({ type: "text", text: `Timeline ${Math.round(time * 1000) / 1000}s (${jpeg.width}×${jpeg.height}):` });
+      content.push({ type: "image", data: jpeg.data, mimeType: "image/jpeg" });
+    }
+    return content;
+  } finally {
+    engine.stop();
+    for (const cleanup of cleanups.reverse()) cleanup();
+    // Give the WebGL context back now: browsers allow only a few, and drop the oldest (the preview's) first.
+    root.querySelector("canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext();
+    root.remove();
+  }
 }
 
 async function blobToBase64(blob: Blob): Promise<string> {

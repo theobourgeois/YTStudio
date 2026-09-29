@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type ChatEvent, type ChatState, type ToolPart, applyChatEvent, describeToolCall, emptyChat } from "./assistant.ts";
+import { type ChatEvent, type ChatState, DEFAULT_MODELS, type ToolPart, applyChatEvent, chatModel, describeToolCall, emptyChat, transcript } from "./assistant.ts";
 import { ASSISTANT_TOOLS, bareToolName, toolSpec } from "./assistant-tools.ts";
 
 const fold = (events: ChatEvent[], start: ChatState = emptyChat()) => events.reduce(applyChatEvent, start);
@@ -54,7 +54,36 @@ describe("applyChatEvent", () => {
   });
 
   it("resets", () => {
-    expect(fold([...turn, { type: "reset", state: emptyChat("opus") }])).toEqual(emptyChat("opus"));
+    expect(fold([...turn, { type: "reset", state: emptyChat("codex", "gpt-6-sol") }])).toEqual(emptyChat("codex", "gpt-6-sol"));
+  });
+
+  it("switches provider and model", () => {
+    const state = fold([{ type: "model", provider: "codex", model: "gpt-6-luna", effort: "high" }]);
+    expect(state).toMatchObject({ provider: "codex", model: "gpt-6-luna", effort: "high" });
+    expect(applyChatEvent(state, { type: "model", provider: "codex", model: "gpt-6-luna", effort: "high" })).toBe(state);
+  });
+});
+
+describe("chatModel", () => {
+  it("upgrades chats saved with a Claude alias, and keeps the rest", () => {
+    expect(chatModel({ model: "opus" })).toEqual({ provider: "claude", model: "claude-opus-5-5", effort: null });
+    expect(chatModel({ model: "default" })).toEqual({ provider: "claude", model: "claude-opus-5-5", effort: null });
+    expect(chatModel({ provider: "codex", model: "gpt-6-sol", effort: "xhigh" })).toEqual({ provider: "codex", model: "gpt-6-sol", effort: "xhigh" });
+    expect(chatModel({ provider: "codex", model: "rm -rf /", effort: "--max" })).toEqual({ provider: "codex", model: DEFAULT_MODELS.codex, effort: null });
+    expect(chatModel({ provider: "gemini", model: 3 })).toEqual({ provider: "claude", model: DEFAULT_MODELS.claude, effort: null });
+  });
+});
+
+describe("transcript", () => {
+  it("tells another agent what was said and done", () => {
+    const state = fold(turn);
+    expect(transcript(state.messages)).toMatchInlineSnapshot(`
+      "User: Split it
+
+      Assistant: [Split clips at 2s]
+      Done at 0:02."
+    `);
+    expect(transcript(state.messages, state.messages.length)).toBe("");
   });
 });
 

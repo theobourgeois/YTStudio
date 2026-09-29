@@ -2,6 +2,7 @@
  * Domain + API types shared by the web client and the local render server.
  * All times are in seconds (floating point) unless the name says otherwise.
  */
+import type { AssistantModelInfo, AssistantProvider } from "./assistant.ts";
 import type { ToolResult } from "./assistant-tools.ts";
 
 // ---------------------------------------------------------------------------
@@ -612,15 +613,22 @@ export interface ImportFileRequest {
   path: string;
 }
 
-/** Whether Claude Code can run the assistant on this computer. */
-export interface AssistantStatus {
+/** Whether a provider's CLI (Claude Code, Codex) can run the assistant on this computer, and its models. */
+export interface AssistantProviderStatus {
+  provider: AssistantProvider;
   available: boolean;
   version: string | null;
   loggedIn: boolean;
-  /** "Claude Max", "API key"... */
+  /** "Claude Max", "ChatGPT Plus", "API key"... */
   account: string | null;
   /** Why it can't be used, and what to do. */
   problem: string | null;
+  /** What the picker offers (newest first; `legacy` ones last). */
+  models: AssistantModelInfo[];
+}
+
+export interface AssistantStatus {
+  providers: AssistantProviderStatus[];
 }
 
 export interface SendChatMessageRequest {
@@ -698,15 +706,15 @@ export interface ToolCallProgressRequest {
 //   POST   /api/transcription/jobs  body: TranscribeRequest -> TranscriptionJob (202)
 //   GET    /api/transcription/jobs/:id  -> TranscriptionJob
 //   DELETE /api/transcription/jobs/:id  -> 204 (cancels if running)
-//   GET    /api/assistant/status        -> AssistantStatus (is Claude Code installed and logged in)
+//   GET    /api/assistant/status        -> AssistantStatus (are Claude Code and Codex installed and logged in; their models)
 //   GET    /api/assistant/chats/:projectId  -> ChatSnapshot (a video's chat with the assistant)
-//   PATCH  /api/assistant/chats/:projectId  body: { model } -> ChatSnapshot
+//   PATCH  /api/assistant/chats/:projectId  body: { provider, model, effort } -> ChatSnapshot
 //   POST   /api/assistant/chats/:projectId/messages  body: SendChatMessageRequest -> 204 (the answer streams as events)
 //   POST   /api/assistant/chats/:projectId/stop  -> 204
 //   DELETE /api/assistant/chats/:projectId  -> ChatSnapshot (a new, empty chat)
 //   GET    /api/assistant/images/:projectId/:name -> a picture the assistant looked at
 //   GET    /api/assistant/events?tab=<id>&project=<id> -> text/event-stream of TabEvent (server/assistant/bridge.ts):
-//                                        tool calls for the tab to run, and chat updates for its video
+//                                        tool calls for the tab to run, chat updates for its video, every chat's activity
 //   POST   /api/assistant/tabs/:tab/focus  -> 204 (outside MCP clients act in the tab used last)
 //   POST   /api/assistant/calls/:id/result  body: ToolCallResultRequest -> 204
 //   POST   /api/assistant/calls/:id/progress  body: ToolCallProgressRequest -> 204

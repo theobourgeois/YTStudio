@@ -22,12 +22,13 @@ export default defineConfig({
   webServer: [
     {
       command: `rm -rf ${DATA_DIR} && tsx scripts/make-samples.ts && tsx server/index.ts`,
-      // Stand-ins for the transcription engine and Claude Code: the tests don't need whisper.cpp, an API key or a login.
+      // Stand-ins for the transcription engine, Claude Code and Codex: the tests don't need whisper.cpp, an API key or a login.
       env: {
         EDITOR_DATA_DIR: DATA_DIR,
         EDITOR_SERVER_PORT: String(SERVER_PORT),
         EDITOR_TRANSCRIPTION_ENGINE: "fake",
         CLAUDE_PATH: path.resolve(import.meta.dirname, "e2e/fake-claude.mjs"),
+        CODEX_PATH: path.resolve(import.meta.dirname, "e2e/fake-codex.mjs"),
       },
       url: `http://127.0.0.1:${SERVER_PORT}/api/health`,
       reuseExistingServer: false,
