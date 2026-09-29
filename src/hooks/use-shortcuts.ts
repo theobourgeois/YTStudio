@@ -164,7 +164,8 @@ function run(action: ShortcutAction): boolean {
       // Keyframes selected in the Effect Controls go first (like Premiere).
       if (action === "delete" && hasSelection && deleteSelectedKeyframes(editor.selectedClipIds.at(-1)!)) return true;
       if (!hasSelection && !hasGapOrTransition) return false;
-      editor.deleteSelected(action === "rippleDelete");
+      // ⌫ follows Auto ripple; ⇧⌫ always ripples.
+      editor.deleteSelected(action === "rippleDelete" ? true : undefined);
       return true;
     case "cut":
       if (!hasSelection) return false;

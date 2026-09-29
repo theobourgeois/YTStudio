@@ -143,6 +143,19 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
     };
   }, [asset.id, asset.src, fallbackDuration]);
 
+  // `timeupdate` only fires a few times a second: follow the media every frame while it plays.
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    const tick = () => {
+      const el = mediaRef.current;
+      if (el) setTime(el.currentTime);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing]);
+
   const controller = () => useSourcePreview.getState().controller;
   const mediaProps = {
     ref: mediaRef,

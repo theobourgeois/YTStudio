@@ -97,6 +97,8 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
   }
   const key = e.key.toLowerCase();
   if (key === "z") return e.shiftKey ? "redo" : "undo";
+  // Previous / next clip start or end (also keeps ⌘← from going back a page).
+  if (key === "arrowleft" || key === "arrowright") return e.shiftKey ? null : key === "arrowleft" ? "prevEdit" : "nextEdit";
   // Premiere's "Apply Default Transition" is ⌘D, which duplicates here.
   if (e.shiftKey) return key === "d" ? "addTransition" : null;
   switch (key) {
@@ -296,7 +298,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Pause", keys: ["K"] },
       { label: "Previous / next frame", keys: ["←", "→"] },
       { label: "Back / forward 1 second", keys: [`${SHIFT}←`, `${SHIFT}→`] },
-      { label: "Previous / next edit point", keys: ["↑", "↓"] },
+      { label: "Previous / next clip start or end", keys: [`${MOD}←`, `${MOD}→`, "↑", "↓"] },
+      { label: "Scrub from clip start to clip end", keys: [`${MOD}Drag the playhead`] },
       { label: "Previous / next keyframe of the selected clip", keys: ["[", "]"] },
       { label: "Go to start / end", keys: ["Home", "End"] },
     ],

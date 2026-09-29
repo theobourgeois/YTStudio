@@ -3,6 +3,7 @@ import {
   PiArrowsOutSimple,
   PiFilmStrip,
   PiKeyboard,
+  PiLink,
   PiMagnet,
   PiMagnifyingGlassMinus,
   PiMagnifyingGlassPlus,
@@ -45,6 +46,7 @@ export function TimelineToolbar() {
   const selected = useEditor((s) => s.selectedClipIds.length);
   const gapSelected = useEditor((s) => s.selectedGap !== null);
   const snapping = useEditor((s) => s.snapping);
+  const autoRipple = useEditor((s) => s.autoRipple);
   const zoom = useEditor((s) => s.zoom);
   const minZoom = useMinZoom();
   const hasSound = useEditor((s) => s.project.clips.some((c) => s.assets.find((a) => a.id === c.assetId)?.hasAudio));
@@ -62,7 +64,7 @@ export function TimelineToolbar() {
       <ToolButton
         label={gapSelected ? "Close gap" : selected > 1 ? `Delete ${selected} clips` : "Delete clip"}
         shortcut={SHORTCUT_KEYS.delete}
-        hint={gapSelected ? undefined : `${SHORTCUT_KEYS.rippleDelete} closes the gap`}
+        hint={gapSelected ? undefined : autoRipple ? "Auto ripple closes the gap" : `${SHORTCUT_KEYS.rippleDelete} closes the gap`}
         disabled={selected === 0 && !gapSelected}
         onClick={() => editor().deleteSelected()}
       >
@@ -93,6 +95,27 @@ export function TimelineToolbar() {
             <Kbd>{SHORTCUT_KEYS.toggleSnapping}</Kbd>
           </span>
           <span className="text-muted-foreground">Clip edges stick to other clips, the playhead and the start.</span>
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Toggle
+            size="sm"
+            aria-label="Auto ripple"
+            pressed={autoRipple}
+            onPressedChange={() => editor().toggleAutoRipple()}
+            className="size-8 min-w-8 text-muted-foreground aria-pressed:bg-brand/15 aria-pressed:text-brand hover:aria-pressed:bg-brand/20 hover:aria-pressed:text-brand"
+          >
+            <PiLink />
+          </Toggle>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="flex max-w-60 flex-col gap-0.5">
+          <span>Auto ripple {autoRipple ? "on" : "off"}</span>
+          <span className="text-muted-foreground">
+            Deleting or trimming a clip moves the clips after it on its track to keep them joined, and media dropped
+            onto a track pushes them along.
+          </span>
         </TooltipContent>
       </Tooltip>
 

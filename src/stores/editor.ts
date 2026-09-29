@@ -30,6 +30,7 @@ import {
   gapAt,
   getClip,
   getTrack,
+  insertClip,
   isOnVideoTrack,
   moveClips,
   pasteClips,
@@ -101,6 +102,11 @@ interface EditorState {
   /** Timeline zoom in pixels per second. */
   zoom: number;
   snapping: boolean;
+  /**
+   * Auto ripple (CapCut's, Premiere's ripple edits): deleting closes the gap, trimming moves
+   * the clips after on the track along, and dropping media pushes them right. Kept in this browser.
+   */
+  autoRipple: boolean;
 
   past: Project[];
   future: Project[];
@@ -148,6 +154,7 @@ interface EditorState {
   selectAll: () => void;
   setZoom: (zoom: number) => void;
   toggleSnapping: () => void;
+  toggleAutoRipple: () => void;
   updateSettings: (patch: Partial<ProjectSettings>) => void;
 
   /**
@@ -208,7 +215,10 @@ interface EditorState {
   addEffectTo: (clipIds: string[], type: string) => boolean;
   /** Add a video effect to the selected clips, or when none are, to the top clip under the playhead. */
   applyEffect: (type: string) => void;
-  /** Delete the selection; `ripple` also closes the gaps it leaves. A selected gap is always closed. */
+  /**
+   * Delete the selection; `ripple` (default: `autoRipple`) also closes the gaps it leaves.
+   * A selected gap is always closed.
+   */
   deleteSelected: (ripple?: boolean) => void;
   copySelected: () => void;
   cutSelected: () => void;
@@ -243,6 +253,11 @@ export interface AddToTimelineOptions {
    * `addAssetsToTimeline` defaults it to the files' In/Out marks (`useSourceMarks`).
    */
   ranges?: Record<string, { in: number; out: number }>;
+  /**
+   * Insert at `at`, pushing the clips after it right (`insertClip`) instead of finding it a
+   * free spot. `addAssetsToTimeline` defaults it to `autoRipple`.
+   */
+  ripple?: boolean;
 }
 
 let openToken = 0;
@@ -264,6 +279,8 @@ const emptyEditor = () => ({
   gestureBase: null,
 });
 
+const AUTO_RIPPLE_KEY = "editor-auto-ripple";
+
 export const useEditor = create<EditorState>((set, get) => ({
   projectId: null,
   loading: false,
@@ -278,6 +295,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   effectsClipboard: null,
   zoom: 60,
   snapping: true,
+  autoRipple: localStorage.getItem(AUTO_RIPPLE_KEY) === "true",
   past: [],
   future: [],
   gestureBase: null,
@@ -419,6 +437,12 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   toggleSnapping() {
     set({ snapping: !get().snapping });
+  },
+
+  toggleAutoRipple() {
+    const autoRipple = !get().autoRipple;
+    set({ autoRipple });
+    localStorage.setItem(AUTO_RIPPLE_KEY, String(autoRipple));
   },
 
   updateSettings(patch) {
@@ -565,7 +589,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const ranges = opts.ranges ?? markedRanges(assets);
     let created: string[] = [];
     get().commit((project) => {
-      const placed = placeAssets(project, assets, { ...opts, ranges });
+      const placed = placeAssets(project, assets, { ...opts, ranges, ripple: opts.ripple ?? get().autoRipple });
       created = placed.clipIds;
       return placed.project;
     });
@@ -637,7 +661,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  deleteSelected(ripple = false) {
+  deleteSelected(ripple = get().autoRipple) {
     const transition = get().selectedTransition;
     if (transition) {
       get().commit((p) => removeTransition(p, transition));
@@ -829,7 +853,8 @@ export function placeAssets(project: Project, assets: MediaAsset[], opts: AddToT
     if (at === undefined && getTrack(p, trackId)?.kind === "video") {
       p = appendToTrack(p, clip, trackId);
     } else {
-      p = addClip(p, { ...clip, start: Math.max(0, at ?? 0) });
+      const placed = { ...clip, start: Math.max(0, at ?? 0) };
+      p = opts.ripple && at !== undefined ? insertClip(p, placed) : addClip(p, placed);
     }
     cursor.set(trackId, clipEnd(getClip(p, clip.id)!));
     created.push(clip.id);

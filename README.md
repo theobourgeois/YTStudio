@@ -31,11 +31,12 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Trim before adding | Click a media card to open it in the preview, then mark the part you want in the trimmer under it (the whole file as a filmstrip, or a waveform for sound): drag the frame's handles, or press `I` / `O` at the playhead (or the `{` `}` buttons). Press anywhere else on it to scrub. **Add to timeline**, dragging the picture, or adding the card later all use only that part (a blue bar on the card shows it). `⇧I` / `⇧O` go to the marks, `⌥X` clears them, `Esc` goes back to the timeline |
 | Move | Drag clips anywhere on a track (they snap to edges and the playhead; the magnet toggles snapping). Drop above the top track for a new video track. `⌥←` `⌥→` nudge, `⌥↑` `⌥↓` move between tracks |
 | Trim | Drag a clip's left/right edge |
+| Auto ripple | The chain button under the timeline (off by default). While it's on, deleting a clip closes its gap, trimming or stretching a clip moves the clips after it on its track to keep them joined (the clip keeps its start), and media dropped onto a track pushes the clips after it along instead of looking for a free spot. Moving clips stays free |
 | Speed / reverse | Select clips → the gauge button under the timeline (or `⌘R`, or right-click → **Speed** / **Reverse**). `⌥`-drag a clip's edge to stretch its speed to fit. See [Speed and reverse](#speed-and-reverse) |
 | Split | `S` (or ⌘B) at the playhead |
 | Delete | `⌫` / `Delete` leaves a gap; `⇧⌫` ripple-deletes (closes it). Click an empty stretch of a track and `⌫` to close that gap |
 | Play / pause | `Space` |
-| Step | `←` `→` one frame, `⇧←` `⇧→` one second, `Home` / `End` |
+| Step | `←` `→` one frame, `⇧←` `⇧→` one second, `⌘←` `⌘→` (or `↑` `↓`) previous / next clip start or end, `Home` / `End`. Hold `⌘` while dragging the playhead to snap it to the nearest clip start or end |
 | Zoom | `+` / `-`, or ⌘/Ctrl + scroll. Zooming all the way out shows the whole edit |
 | Undo / redo | ⌘Z / ⇧⌘Z |
 | Select on the canvas | Click a clip in the preview (the topmost one under the pointer); click empty canvas, or anywhere around it, to deselect |

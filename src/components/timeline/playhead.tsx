@@ -39,7 +39,8 @@ export function PlayheadHead() {
     <div ref={ref} className="pointer-events-none absolute inset-y-0 left-0 z-10 will-change-transform">
       <div className="pointer-events-auto absolute top-0 -left-2 flex h-full w-4 cursor-ew-resize justify-center">
         <div className="absolute top-0.5 h-3.5 w-3 rounded-t-[3px] bg-playhead [clip-path:polygon(0_0,100%_0,100%_62%,50%_100%,0_62%)]" />
-        <div className="absolute top-3 bottom-0 w-0.5 bg-playhead" />
+        {/* Over the ruler's bottom border, so it meets the line through the lanes. */}
+        <div className="absolute top-3 -bottom-px w-0.5 bg-playhead" />
       </div>
     </div>
   );

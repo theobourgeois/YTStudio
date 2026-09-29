@@ -45,6 +45,13 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("i", { repeat: true }))).toBeNull();
   });
 
+  it("goes to the previous / next clip start or end with ⌘← / ⌘→", () => {
+    expect(resolveShortcut(key("ArrowLeft", { metaKey: true }))).toBe("prevEdit");
+    expect(resolveShortcut(key("ArrowRight", { ctrlKey: true }))).toBe("nextEdit");
+    expect(resolveShortcut(key("ArrowRight", { metaKey: true, repeat: true }))).toBe("nextEdit");
+    expect(resolveShortcut(key("ArrowRight", { metaKey: true, shiftKey: true }))).toBeNull();
+  });
+
   it("jumps between keyframes with [ and ]", () => {
     expect(resolveShortcut(key("["))).toBe("prevKeyframe");
     expect(resolveShortcut(key("]"))).toBe("nextKeyframe");

@@ -141,6 +141,13 @@ test("drags clips onto the timeline where they're dropped; music goes to audio",
     [15, 0],
   ]);
   await expect.poll(async () => (await trackLayout(page, "audio_1")).length).toBe(1);
+
+  // Scrubbing the ruler with ⌘ held, the playhead hops to the nearest clip start or end.
+  const rulerY = (await page.locator("[data-timeline-lanes]").boundingBox())!.y - 10;
+  await page.keyboard.down("Meta");
+  await drag(page, { x: await timeX(page, 3.2), y: rulerY }, { x: await timeX(page, 13.3), y: rulerY });
+  await page.keyboard.up("Meta");
+  await expect(page.getByText("0:14.00", { exact: true })).toBeVisible();
 });
 
 test("splits at the playhead, deletes (leaving a gap), closes a clicked gap or ripple-deletes, undoes and redoes", async ({ page }) => {
@@ -260,6 +267,24 @@ test("moves clips freely with snapping, onto a new track, and trims an edge", as
   await expect
     .poll(async () => (await timelineClips(page)).find((c) => c.id === head.id)!.w)
     .toBeLessThan(moved.w - 40);
+
+  // Auto ripple on: trimming the middle clip's end brings the clip after it along, keeping the 0.1s between them.
+  await page.getByRole("button", { name: "Auto ripple" }).click();
+  await expect(page.getByRole("button", { name: "Auto ripple" })).toHaveAttribute("aria-pressed", "true");
+  const [before1, before2] = await byStart();
+  const midBox = (await timelineClips(page)).find((c) => c.id === middle.id)!;
+  await drag(
+    page,
+    { x: midBox.x + midBox.w - 2, y: midBox.y + midBox.h / 2 },
+    { x: midBox.x + midBox.w - 2 - PX_PER_S, y: midBox.y + midBox.h / 2 },
+  );
+  await expect.poll(async () => (await byStart())[0].out).toBeLessThan(before1.out - 0.5);
+  const [after1, after2] = await byStart();
+  expect(after1.start).toBe(before1.start);
+  expect(after2.start - (after1.start + after1.out - after1.in)).toBeCloseTo(before2.start - (before1.start + before1.out - before1.in), 3);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await byStart())[1].start).toBe(before2.start);
+  await page.getByRole("button", { name: "Auto ripple" }).click();
 });
 
 test("right-click menus, copy/paste and the shortcuts dialog", async ({ page }) => {

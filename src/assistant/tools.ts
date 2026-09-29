@@ -524,7 +524,7 @@ const TOOLS: Record<ToolName, Handler> = {
     let item;
     if (doc.isOpen) {
       // Whole files, as for a video that isn't open (not the user's In/Out marks).
-      item = await useEditor.getState().addLibraryItem(itemId, { ...opts, ranges: {} });
+      item = await useEditor.getState().addLibraryItem(itemId, { ...opts, ranges: {}, ripple: false });
       if (!item) throw new ToolError("It couldn't be added (see the message in the app). Check the id with get_library.");
     } else {
       const used = await api.useLibraryItem(itemId, { projectId: doc.projectId });
