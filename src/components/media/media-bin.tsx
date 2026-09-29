@@ -7,11 +7,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { TagChip } from "@/components/ui/tag-chip";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
+import { useLibrary } from "@/stores/library";
+import { useSourcePreview } from "@/stores/source-preview";
 import { AssetCard } from "./asset-card";
 import { DeleteAssetDialog } from "./delete-asset-dialog";
 import { ACCEPTED_FILE_TYPES, importMedia } from "./import-media";
 import { clipCountByAsset, filterAssets, type MediaFilter } from "./media-utils";
 import { UploadCard } from "./upload-card";
+import { useGridSelection } from "./use-grid-selection";
 
 const FILTERS: { value: MediaFilter; label: string }[] = [
   { value: "all", label: "All" },
@@ -20,33 +23,39 @@ const FILTERS: { value: MediaFilter; label: string }[] = [
   { value: "image", label: "Image" },
 ];
 
-/** The Media tab: the project's imported media, to preview, add to the timeline or delete. */
+/**
+ * The Media tab: the project's imported media, to preview, add to the timeline
+ * or delete, one file or a selection (⌘/⇧-click, or drag a box).
+ */
 export function MediaBin() {
   const assets = useEditor((s) => s.assets);
   const uploads = useEditor((s) => s.uploads);
   // Compared entry by entry, so moving clips around doesn't re-render the grid.
   const uses = useEditor(useShallow((s) => clipCountByAsset(s.project.clips)));
   const [filter, setFilter] = useState<MediaFilter>("all");
-  const [pendingDelete, setPendingDelete] = useState<{ asset: MediaAsset; uses: number } | null>(
-    null,
-  );
+  const [pendingDelete, setPendingDelete] = useState<{ assets: MediaAsset[]; uses: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const visible = useMemo(() => filterAssets(assets, filter), [assets, filter]);
+  const order = useMemo(() => visible.map((a) => a.id), [visible]);
   const isEmpty = assets.length === 0 && uploads.length === 0;
   const openPicker = () => inputRef.current?.click();
 
-  const addToTimeline = (id: string) => useEditor.getState().addAssetsToTimeline([id]);
-  const requestDelete = (asset: MediaAsset) => {
-    const count = uses.get(asset.id) ?? 0;
-    if (count === 0) {
-      void useEditor.getState().deleteAsset(asset.id);
+  /** Deleting files can't be undone: ask, except for one unused file picked from its menu. */
+  const requestDelete = (ids: string[], ask = false) => {
+    const doomed = new Set(ids);
+    const chosen = assets.filter((a) => doomed.has(a.id));
+    const count = chosen.reduce((n, a) => n + (uses.get(a.id) ?? 0), 0);
+    if (count === 0 && chosen.length === 1 && !ask) {
+      void useEditor.getState().deleteAsset(chosen[0].id);
       return;
     }
-    setPendingDelete({ asset, uses: count });
+    if (chosen.length === 0) return;
+    setPendingDelete({ assets: chosen, uses: count });
     setConfirmOpen(true);
   };
+  const grid = useGridSelection(order, { onDelete: (ids) => requestDelete(ids, true) });
 
   return (
     <>
@@ -80,28 +89,40 @@ export function MediaBin() {
           )}
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              {/* Radix wraps content in a `display: table` div, which defeats `truncate`. */}
-              <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
-                <div className="grid grid-cols-2 gap-x-1 gap-y-1.5 p-2">
-                  {uploads.map((u) => (
-                    <UploadCard key={u.id} upload={u} />
-                  ))}
-                  {visible.map((asset) => (
-                    <AssetCard
-                      key={asset.id}
-                      asset={asset}
-                      uses={uses.get(asset.id) ?? 0}
-                      onAdd={() => addToTimeline(asset.id)}
-                      onDelete={() => requestDelete(asset)}
-                    />
-                  ))}
-                </div>
-                {visible.length === 0 && assets.length > 0 && (
-                  <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-                    No {filter === "image" ? "images" : `${filter} files`} yet.
-                  </p>
-                )}
-              </ScrollArea>
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden" {...grid.containerProps}>
+                {/* Radix wraps content in a `display: table` div, which defeats `truncate`. */}
+                <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
+                  <div ref={grid.contentRef} tabIndex={-1} className="outline-none select-none">
+                    <div className="grid grid-cols-2 gap-x-1 gap-y-1.5 p-2">
+                      {uploads.map((u) => (
+                        <UploadCard key={u.id} upload={u} />
+                      ))}
+                      {visible.map((asset) => (
+                        <AssetCard
+                          key={asset.id}
+                          asset={asset}
+                          uses={uses.get(asset.id) ?? 0}
+                          selected={grid.isSelected(asset.id)}
+                          count={grid.targets(asset.id).length}
+                          onClick={(e) => {
+                            if (grid.click(e, asset.id) && asset.duration > 0) useSourcePreview.getState().open(asset.id);
+                          }}
+                          onGrab={() => grid.grab(asset.id)}
+                          onAdd={() => useEditor.getState().addAssetsToTimeline(grid.targets(asset.id))}
+                          onAddToLibrary={(folderId) => void useLibrary.getState().addAssets(grid.targets(asset.id), folderId)}
+                          onDelete={() => requestDelete(grid.targets(asset.id))}
+                        />
+                      ))}
+                    </div>
+                    {visible.length === 0 && assets.length > 0 && (
+                      <p className="px-4 py-8 text-center text-xs text-muted-foreground">
+                        No {filter === "image" ? "images" : `${filter} files`} yet.
+                      </p>
+                    )}
+                  </div>
+                </ScrollArea>
+                {grid.marquee}
+              </div>
             </ContextMenuTrigger>
             {/* Right-clicking empty space (cards have their own menus). */}
             <ContextMenuContent className="w-48">
@@ -117,10 +138,14 @@ export function MediaBin() {
       <DeleteAssetDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        name={pendingDelete?.asset.name ?? ""}
+        name={pendingDelete?.assets[0]?.name ?? ""}
+        count={pendingDelete?.assets.length ?? 0}
         uses={pendingDelete?.uses ?? 0}
         onConfirm={() => {
-          if (pendingDelete) void useEditor.getState().deleteAsset(pendingDelete.asset.id);
+          if (!pendingDelete) return;
+          void (async () => {
+            for (const asset of pendingDelete.assets) await useEditor.getState().deleteAsset(asset.id);
+          })();
         }}
       />
     </>

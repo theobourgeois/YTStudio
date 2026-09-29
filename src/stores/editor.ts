@@ -167,6 +167,11 @@ interface EditorState {
    * Resolves with the item as the server updated it, or null if nothing was added.
    */
   addLibraryItem: (itemId: string, opts?: AddToTimelineOptions) => Promise<LibraryItem | null>;
+  /**
+   * Put several Library items on the timeline as one undoable step, one after
+   * another from where the first goes. Resolves with the items that were added.
+   */
+  addLibraryItems: (itemIds: string[], opts?: AddToTimelineOptions) => Promise<LibraryItem[]>;
   deleteAsset: (assetId: string) => Promise<void>;
   getAsset: (assetId: string) => MediaAsset | undefined;
   /** Add media imported some other way (by the assistant) to the open project's list. */
@@ -484,32 +489,50 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   async addLibraryItem(itemId, opts = {}) {
+    return (await get().addLibraryItems([itemId], opts))[0] ?? null;
+  },
+
+  async addLibraryItems(itemIds, opts = {}) {
     const projectId = get().projectId;
-    if (!projectId) return null;
-    let used: UseLibraryItemResponse;
-    try {
-      used = await api.useLibraryItem(itemId, { projectId });
-    } catch (err) {
-      toast.error("Couldn't add it from the Library", { description: errorMessage(err) });
-      return null;
+    if (!projectId || itemIds.length === 0) return [];
+    // One at a time: each copies its media into the project, and a later one may reuse it.
+    const used: UseLibraryItemResponse[] = [];
+    for (const itemId of itemIds) {
+      try {
+        used.push(await api.useLibraryItem(itemId, { projectId }));
+      } catch (err) {
+        toast.error("Couldn't add it from the Library", { description: errorMessage(err) });
+      }
+      if (get().projectId !== projectId) return [];
     }
-    if (get().projectId !== projectId) return null;
+    if (used.length === 0) return [];
     const known = new Set(get().assets.map((a) => a.id));
-    set({ assets: [...used.assets.filter((a) => !known.has(a.id)), ...get().assets] });
-    const { template } = used;
-    if (template) {
-      let clipIds: string[] = [];
-      get().commit((p) => {
-        const res = placeTemplate(p, template, { ...opts, at: opts.at ?? usePlayback.getState().time });
-        clipIds = res.clipIds;
-        return res.project;
-      });
-      get().setSelection(clipIds);
-    } else {
-      get().addAssetsToTimeline(used.assets.map((a) => a.id), opts);
-    }
+    const fresh = new Map<string, MediaAsset>();
+    for (const a of used.flatMap((u) => u.assets)) if (!known.has(a.id)) fresh.set(a.id, a);
+    set({ assets: [...fresh.values(), ...get().assets] });
+
+    let lastIds: string[] = [];
+    let lastIsTemplate = false;
+    get().commit((project) => {
+      let p = project;
+      let at = opts.at;
+      for (const { template, assets } of used) {
+        const placed = template
+          ? placeTemplate(p, template, { ...opts, at: at ?? usePlayback.getState().time })
+          : placeAssets(p, assets.filter((a) => a.duration > 0), { ...opts, at });
+        if (placed.clipIds.length === 0) continue;
+        p = placed.project;
+        lastIds = placed.clipIds;
+        lastIsTemplate = !!template;
+        // The next item starts where this one ends.
+        at = Math.max(...placed.clipIds.map((id) => clipEnd(getClip(p, id)!)));
+      }
+      return p;
+    });
+    // Like adding one: saved clips select all of theirs, a file its clip.
+    if (lastIds.length) get().setSelection(lastIsTemplate ? lastIds : [lastIds[lastIds.length - 1]]);
     pollProcessingAssets(useEditor);
-    return used.item;
+    return used.map((u) => u.item);
   },
 
   async deleteAsset(assetId) {

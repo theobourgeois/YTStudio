@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent } from "react";
+import { useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import {
   PiBooks,
   PiDotsThree,
@@ -20,7 +20,6 @@ import { type MenuKit, contextKit, dropdownKit } from "@/components/menu-kit";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { setAssetDragData } from "@/lib/dnd";
 import { cn } from "cn";
-import { useLibrary } from "@/stores/library";
 import { useSourcePreview } from "@/stores/source-preview";
 import { HoverScrub, useHoverX } from "./hover-scrub";
 import { decorativePeaks } from "./media-utils";
@@ -29,14 +28,32 @@ interface AssetCardProps {
   asset: MediaAsset;
   /** Number of timeline clips using this asset. */
   uses: number;
+  selected: boolean;
+  /** How many files its actions apply to: the selection when it's in it, else 1. */
+  count: number;
+  onClick: (e: MouseEvent) => void;
+  /** Right-clicked or dragged: selects it unless it already is. Returns the ids its actions apply to. */
+  onGrab: () => string[];
+  /** These act on `count` files. */
   onAdd: () => void;
+  onAddToLibrary: (folderId: string | null) => void;
   onDelete: () => void;
 }
 
 const overlayButton =
   "grid size-6 place-items-center rounded-md bg-black/55 text-white backdrop-blur-sm transition-colors hover:bg-black/75 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none";
 
-export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
+export function AssetCard({
+  asset,
+  uses,
+  selected,
+  count,
+  onClick,
+  onGrab,
+  onAdd,
+  onAddToLibrary,
+  onDelete,
+}: AssetCardProps) {
   const thumbRef = useRef<HTMLDivElement>(null);
   // "error" only means thumbnails/waveform couldn't be generated; the media itself is fine.
   const previewsFailed = asset.status === "error";
@@ -46,7 +63,7 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
 
   const onDragStart = (e: DragEvent) => {
     scrub.clear();
-    setAssetDragData(e.dataTransfer, { assetIds: [asset.id] });
+    setAssetDragData(e.dataTransfer, { assetIds: onGrab() });
     const thumb = thumbRef.current;
     if (thumb) {
       const rect = thumb.getBoundingClientRect();
@@ -56,7 +73,16 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
     }
   };
 
-  const menu = (kit: MenuKit) => <AssetMenuItems kit={kit} asset={asset} onAdd={onAdd} onDelete={onDelete} />;
+  const menu = (kit: MenuKit) => (
+    <AssetMenuItems
+      kit={kit}
+      asset={asset}
+      count={count}
+      onAdd={onAdd}
+      onAddToLibrary={onAddToLibrary}
+      onDelete={onDelete}
+    />
+  );
 
   return (
     <ContextMenu>
@@ -66,9 +92,12 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
             "group relative flex min-w-0 flex-col gap-1.5 rounded-lg p-1 outline-none",
             "focus-visible:ring-2 focus-visible:ring-ring/60 data-[state=open]:bg-accent/60",
             usable && "cursor-pointer active:cursor-grabbing",
+            selected && "bg-brand/15 data-[state=open]:bg-brand/20",
           )}
           draggable={usable}
           tabIndex={0}
+          data-grid-item={asset.id}
+          aria-selected={selected}
           // Not while skimming: the tooltip would cover the picture.
           title={
             scrub.hoverX !== null
@@ -78,7 +107,8 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
                 : asset.name
           }
           onDragStart={onDragStart}
-          onClick={() => usable && useSourcePreview.getState().open(asset.id)}
+          onClick={onClick}
+          onContextMenu={onGrab}
           onDoubleClick={() => usable && onAdd()}
           onKeyDown={(e) => {
             if (e.key === "Enter" && e.target === e.currentTarget && usable) onAdd();
@@ -180,39 +210,47 @@ export function AssetCard({ asset, uses, onAdd, onDelete }: AssetCardProps) {
 function AssetMenuItems({
   kit,
   asset,
+  count,
   onAdd,
+  onAddToLibrary,
   onDelete,
 }: {
   kit: MenuKit;
   asset: MediaAsset;
+  count: number;
   onAdd: () => void;
+  onAddToLibrary: (folderId: string | null) => void;
   onDelete: () => void;
 }) {
   const { Item, Separator, Sub, SubTrigger, SubContent } = kit;
-  const usable = asset.duration > 0;
+  const many = count > 1;
+  // With several files, the ones that can't be used are skipped.
+  const usable = many || asset.duration > 0;
   return (
     <>
-      <Item disabled={!usable} onSelect={() => useSourcePreview.getState().open(asset.id)}>
-        <PiEye />
-        Preview
-      </Item>
+      {!many && (
+        <Item disabled={!usable} onSelect={() => useSourcePreview.getState().open(asset.id)}>
+          <PiEye />
+          Preview
+        </Item>
+      )}
       <Item disabled={!usable} onSelect={onAdd}>
         <PiPlus />
-        Add to timeline
+        {many ? `Add ${count} to timeline` : "Add to timeline"}
       </Item>
       <Sub>
         <SubTrigger disabled={!usable}>
           <PiBooks />
-          Add to Library
+          {many ? `Add ${count} to Library` : "Add to Library"}
         </SubTrigger>
         <SubContent className="max-h-72 w-52 overflow-y-auto">
-          <FolderMenuItems kit={kit} onSelect={(folderId) => void useLibrary.getState().addAsset(asset.id, folderId)} />
+          <FolderMenuItems kit={kit} onSelect={onAddToLibrary} />
         </SubContent>
       </Sub>
       <Separator />
       <Item variant="destructive" onSelect={onDelete}>
         <PiTrash />
-        Delete
+        {many ? `Delete ${count} files` : "Delete"}
       </Item>
     </>
   );

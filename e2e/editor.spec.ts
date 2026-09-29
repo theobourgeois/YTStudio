@@ -1192,3 +1192,49 @@ test("speeds a clip up, reverses it and stretches it to fit, moving the clips af
   await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
   await expect.poll(async () => (await clips())[0].speed).toBe(3);
 });
+
+test("selects several media cards to drag them together and delete them at once", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "New video" }).first().click();
+  await expect(page.locator("[data-clip-id]")).toHaveCount(0);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[0], FILES[1], FILES[2]]);
+  const card = (name: string) => page.locator("[data-grid-item]").filter({ hasText: name }).first();
+  const selected = page.locator("[data-grid-item][aria-selected=true]");
+  for (const name of ["vertical-1080x1920", "landscape-1920x1080", "square-1080"]) await expect(card(name)).toBeVisible();
+
+  // Click one, ⌘-click another: both selected, and dragging one brings both.
+  await card("vertical-1080x1920").click();
+  await card("square-1080").click({ modifiers: ["ControlOrMeta"] });
+  await expect(selected).toHaveCount(2);
+  await dragAsset(page, "square-1080", await timeX(page, 0.05), await laneY(page, "Video 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
+
+  // ⌘-click takes one out again; Escape clears (after closing the source preview, if it's open).
+  await card("square-1080").click({ modifiers: ["ControlOrMeta"] });
+  await expect(selected).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(selected).toHaveCount(0);
+
+  // A box dragged from the empty space after the cards selects every card it touches.
+  const cards = page.locator("[data-grid-item]");
+  const first = (await cards.nth(0).boundingBox())!;
+  const last = (await cards.nth(2).boundingBox())!;
+  const from = { x: first.x + first.width * 1.5, y: last.y + last.height / 2 };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x - 40, from.y - 20, { steps: 3 });
+  await page.mouse.move(first.x + 10, first.y + 10, { steps: 5 });
+  await page.mouse.up();
+  await expect(selected).toHaveCount(3);
+
+  // Delete asks once for all of them, then removes them and their clips.
+  await page.keyboard.press("Delete");
+  const confirm = page.getByRole("alertdialog");
+  await expect(confirm).toContainText("Remove 3 files?");
+  await expect(confirm).toContainText("used in 2 clips");
+  await confirm.getByRole("button", { name: "Remove" }).click();
+  await expect(cards).toHaveCount(0);
+  await expect.poll(async () => (await savedProject(page)).clips.length).toBe(0);
+});

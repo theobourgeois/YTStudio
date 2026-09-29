@@ -28,6 +28,7 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | --- | --- |
 | Import | Drop files (video, audio, images) on the media panel / timeline (or click the empty media panel to browse) |
 | Add to timeline | Drag from the media panel, double-click, or hover → **+**. Move the mouse across a video's card to skim through it |
+| Select media | In **This video** or the **Library**: `⌘`-click to add or remove a card, `⇧`-click for a run, or drag a box from empty space. Dragging, the right-click menu and `⌫` then act on all of them; `⌘A` selects every card, `Esc` clears |
 | Move | Drag clips anywhere on a track (they snap to edges and the playhead; the magnet toggles snapping). Drop above the top track for a new video track. `⌥←` `⌥→` nudge, `⌥↑` `⌥↓` move between tracks |
 | Trim | Drag a clip's left/right edge |
 | Speed / reverse | Select clips → the gauge button under the timeline (or `⌘R`, or right-click → **Speed** / **Reverse**). `⌥`-drag a clip's edge to stretch its speed to fit. See [Speed and reverse](#speed-and-reverse) |

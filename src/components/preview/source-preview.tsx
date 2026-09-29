@@ -74,7 +74,7 @@ function PreviewBadge({ name }: { name: string }) {
 function SourceActions({ asset }: { asset: MediaAsset }) {
   const add = () => {
     const itemId = useSourcePreview.getState().libraryItemId;
-    if (itemId) void useLibrary.getState().addToTimeline(itemId);
+    if (itemId) void useLibrary.getState().addToTimeline([itemId]);
     else useEditor.getState().addAssetsToTimeline([asset.id]);
   };
   return (

@@ -1,6 +1,6 @@
 /**
- * HTML5 drag-and-drop payload for dragging assets from the media bin onto the
- * timeline. OS file drops use `dataTransfer.files` instead.
+ * HTML5 drag-and-drop payload for dragging assets (a card, or the selected
+ * cards) from the media bin onto the timeline. OS file drops use `dataTransfer.files` instead.
  */
 export const ASSET_DRAG_MIME = "application/x-editor-assets";
 
@@ -51,17 +51,20 @@ export function getEffectDragData(dt: DataTransfer): string | null {
   return dt.getData(EFFECT_DRAG_MIME) || null;
 }
 
-/** A Library item dragged from the Library tab onto the timeline or a Library folder (its id). */
+/**
+ * Library items (or a folder) dragged from the Library tab onto the timeline or
+ * a Library folder: their ids, one per line.
+ */
 export const LIBRARY_DRAG_MIME = "application/x-editor-library-item";
 
-export function setLibraryDragData(dt: DataTransfer, itemId: string) {
-  dt.setData(LIBRARY_DRAG_MIME, itemId);
+export function setLibraryDragData(dt: DataTransfer, ids: string[]) {
+  dt.setData(LIBRARY_DRAG_MIME, ids.join("\n"));
   dt.effectAllowed = "copyMove";
 }
 
 /** Only readable on `drop`. */
-export function getLibraryDragData(dt: DataTransfer): string | null {
-  return dt.getData(LIBRARY_DRAG_MIME) || null;
+export function getLibraryDragData(dt: DataTransfer): string[] {
+  return dt.getData(LIBRARY_DRAG_MIME).split("\n").filter(Boolean);
 }
 
 export type DragKind = "assets" | "library" | "transition" | "effect" | "files";
