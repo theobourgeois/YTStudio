@@ -17,6 +17,9 @@ import type { TransitionDefinition } from "./transitions.ts";
  * Everything a transition's GLSL can use:
  *
  * - `progress` (0..1), `ratio` (canvas width / height), `resolution` (px).
+ * - `fromCentre` / `toCentre`: where the middle of each clip's frame is, in
+ *   uv (the canvas centre when a side is empty), to move a clip around itself
+ *   rather than the canvas (e.g. a text popping in where it is).
  * - `getFromColor(uv)` / `getToColor(uv)`: the outgoing / incoming picture,
  *   premultiplied RGBA, transparent outside 0..1. `uv` (0, 0) is bottom left.
  * - Helpers: `PI`, `ease` (smooth in and out) plus `easeIn`/`easeOut`,
@@ -39,6 +42,8 @@ uniform bool uStraight;
 uniform float progress;
 uniform float ratio;
 uniform vec2 resolution;
+uniform vec2 fromCentre;
+uniform vec2 toCentre;
 
 #define PI 3.141592653589793
 
@@ -90,7 +95,7 @@ void main() {
 `;
 
 /** Names the prelude uses, which parameters can't have. */
-export const RESERVED_UNIFORMS = ["progress", "ratio", "resolution", "uFrom", "uTo", "uStraight", "vUv", "fragColor"];
+export const RESERVED_UNIFORMS = ["progress", "ratio", "resolution", "fromCentre", "toCentre", "uFrom", "uTo", "uStraight", "vUv", "fragColor"];
 
 /** The complete fragment shader of a transition. */
 export function fragmentSource(def: Pick<TransitionDefinition, "params" | "glsl">): string {
@@ -274,6 +279,8 @@ void main() {
     return { tex, fbo };
   });
   let width = 0;
+  /** The middle of each side's frame on the canvas (fractions, y down). */
+  const centres: [number, number][] = [[0.5, 0.5], [0.5, 0.5]];
   let height = 0;
 
   const isRaw = (s: LayerSource): s is { data: Uint8Array; width: number; height: number } =>
@@ -315,6 +322,7 @@ void main() {
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       const [sw, sh] = source ? sizeOf(source) : [0, 0];
+      centres[index] = [0.5, 0.5];
       if (source && sw > 0 && sh > 0 && opacity > 0) {
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, sources[index]);
@@ -332,6 +340,7 @@ void main() {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, shrunk ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
 
         const [a, b, c, d, e, f] = affine;
+        centres[index] = [(a + c) / 2 + e, (b + d) / 2 + f];
         // Canvas fractions (y down) -> clip space (y up), column-major.
         const matrix = new Float32Array([2 * a, -2 * b, 0, 2 * c, -2 * d, 0, 2 * e - 1, 1 - 2 * f, 1]);
         gl.useProgram(layerProgram.program);
@@ -365,6 +374,8 @@ void main() {
       gl.uniform1f(loc("progress"), Math.min(1, Math.max(0, progress)));
       gl.uniform1f(loc("ratio"), width / height);
       gl.uniform2f(loc("resolution"), width, height);
+      gl.uniform2f(loc("fromCentre"), centres[0][0], 1 - centres[0][1]);
+      gl.uniform2f(loc("toCentre"), centres[1][0], 1 - centres[1][1]);
       for (const u of uniforms) {
         const l = loc(u.name);
         if (!l) continue;

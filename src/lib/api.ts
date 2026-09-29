@@ -18,6 +18,11 @@ import type {
   SaveMediaToLibraryRequest,
   UpdateLibraryFolderRequest,
   UpdateLibraryItemRequest,
+  SetUpEngineRequest,
+  TranscribeRequest,
+  TranscriptionEngineId,
+  TranscriptionEngineInfo,
+  TranscriptionJob,
   UpdateProjectRequest,
   UseLibraryItemRequest,
   UseLibraryItemResponse,
@@ -139,6 +144,17 @@ export const api = {
     request<ExportJob>("/api/exports", { method: "POST", body: JSON.stringify(req) }),
   getExport: (id: string) => request<ExportJob>(`/api/exports/${id}`),
   cancelExport: (id: string) => request<void>(`/api/exports/${id}`, { method: "DELETE" }),
+
+  listTranscriptionEngines: () => request<TranscriptionEngineInfo[]>("/api/transcription/engines"),
+  /** Local: starts installing (poll the list). Cloud: checks and saves the API key. */
+  setUpTranscriptionEngine: (id: TranscriptionEngineId, body: SetUpEngineRequest = {}) =>
+    request<TranscriptionEngineInfo>(`/api/transcription/engines/${id}/setup`, { method: "POST", body: JSON.stringify(body) }),
+  forgetTranscriptionKey: (id: TranscriptionEngineId) =>
+    request<TranscriptionEngineInfo>(`/api/transcription/engines/${id}/setup`, { method: "DELETE" }),
+  startTranscription: (req: TranscribeRequest) =>
+    request<TranscriptionJob>("/api/transcription/jobs", { method: "POST", body: JSON.stringify(req) }),
+  getTranscription: (id: string) => request<TranscriptionJob>(`/api/transcription/jobs/${id}`),
+  cancelTranscription: (id: string) => request<void>(`/api/transcription/jobs/${id}`, { method: "DELETE" }),
 };
 
 /** POST a file as the raw body, with upload progress (0..1). */

@@ -315,6 +315,11 @@ export class MediaLibrary {
   }
 
   /** An asset's directory (throws 400 for an invalid id). */
+  /** Cached transcripts of an asset (see `transcription/service.ts`), removed with it. */
+  transcriptsDir(id: string) {
+    return path.join(this.dir(id), "transcripts");
+  }
+
   private dir(id: string) {
     if (!isValidId(id)) throw new HttpError(400, "Invalid media id");
     return path.join(this.root.dir, id);

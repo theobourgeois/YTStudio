@@ -12,6 +12,10 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Receives stdout as it arrives; when set, stdout is not buffered. */
   onStdout?: (chunk: Buffer) => void;
+  /** Receives stderr as it arrives (e.g. progress lines); the tail is still kept for errors. */
+  onStderr?: (chunk: Buffer) => void;
+  /** Extra environment variables. */
+  env?: Record<string, string>;
 }
 
 /**
@@ -20,12 +24,13 @@ export interface RunOptions {
  * signal's reason when aborted (the process is killed).
  */
 export function run(command: string, args: string[], opts: RunOptions = {}): Promise<string> {
-  const { signal, onStdout } = opts;
+  const { signal, onStdout, onStderr, env } = opts;
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason);
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env: env && { ...process.env, ...env } });
     const out: Buffer[] = [];
     const stderr = keepStderrTail(child.stderr);
+    if (onStderr) child.stderr.on("data", onStderr);
 
     const onAbort = () => child.kill("SIGKILL");
     signal?.addEventListener("abort", onAbort, { once: true });

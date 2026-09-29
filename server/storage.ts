@@ -49,6 +49,10 @@ export class DataPaths {
   get music() {
     return path.join(this.root, "music");
   }
+  /** App settings that aren't part of a project (API keys). */
+  get settingsFile() {
+    return path.join(this.root, "settings.json");
+  }
   /** The Library shared by every project: `library.json` (folders and items) and `media/<id>/`. */
   get library() {
     return path.join(this.root, "library");

@@ -5,8 +5,8 @@
  * generated from the effect's parameter specs.
  */
 import { useState } from "react";
-import { PiCaretRight, PiFilmStrip, PiImage, PiMusicNotes, PiSlidersHorizontal, PiTextT } from "react-icons/pi";
-import type { Effect, MediaAsset } from "@shared/types";
+import { PiCaretRight, PiFilmStrip, PiImage, PiMusicNotes, PiSlidersHorizontal, PiSubtitles, PiTextT } from "react-icons/pi";
+import type { Effect, MediaAsset, ParamValues, Project } from "@shared/types";
 import {
   type ClipTraits,
   type EffectDefinition,
@@ -28,6 +28,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { layoutText } from "@/lib/text-render";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
+import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
 import type { DisplayContext } from "./display";
 import { ParamRow, ResetButton, useParamEditors } from "./param-rows";
@@ -70,6 +71,7 @@ export function PropertiesPanel() {
         name={clipName(clip, asset)}
         detail={[trackName, formatDuration(clipDuration(clip))]}
       />
+      {clip.caption && <CaptionNote />}
       {selectedCount > 1 && (
         <p className="border-b px-3 py-2 text-xs text-muted-foreground">
           {selectedCount} clips selected. Showing the last one you selected.
@@ -109,16 +111,30 @@ function ClipHeader({
   );
 }
 
-/** Sections the user collapsed (kept while switching between clips). */
-const collapsed = new Set<string>();
+/** Sections the user opened or closed from how they start (kept while switching between clips). */
+const toggled = new Set<string>();
 
-function EffectSection({
+/**
+ * Where a section's edits go. By default, the clip's own effect (at the
+ * playhead, so animated values get keyframes); the Captions tab sends them to
+ * every caption instead.
+ */
+export interface EffectTarget {
+  apply: (patch: ParamValues) => (p: Project) => Project;
+  reset: (keys: string[]) => void;
+}
+
+export function EffectSection({
   clipId,
   effect,
   def,
   traits,
   time,
   ctx,
+  target,
+  hide = [],
+  collapseKey = def.type,
+  defaultOpen = true,
 }: {
   clipId: string;
   effect: Effect;
@@ -126,19 +142,26 @@ function EffectSection({
   traits: ClipTraits;
   time: number;
   ctx: DisplayContext;
+  target?: EffectTarget;
+  /** Parameters not shown (e.g. the text itself, which is each caption's own). */
+  hide?: string[];
+  /** Sections with the same key open and close together. */
+  collapseKey?: string;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(() => !collapsed.has(def.type));
+  const [open, setOpen] = useState(() => toggled.has(collapseKey) !== defaultOpen);
   const values = storedValuesAt(def, effect, time);
   const commit = useEditor((s) => s.commit);
-  const editor = useParamEditors(
-    (patch) => (p) => setParams(p, clipId, effect.id, patch, time),
-    (key) => commit((p) => resetParams(p, clipId, effect.id, [key])),
-  );
-  const params = def.params.filter((p) => p.appliesTo?.(traits) ?? true);
+  const to: EffectTarget = target ?? {
+    apply: (patch) => (p) => setParams(p, clipId, effect.id, patch, time),
+    reset: (keys) => commit((p) => resetParams(p, clipId, effect.id, keys)),
+  };
+  const editor = useParamEditors(to.apply, (key) => to.reset([key]));
+  const params = def.params.filter((p) => (p.appliesTo?.(traits) ?? true) && !hide.includes(p.key));
   const changed = params.some((p) => !sameValue(effect.params[p.key], p.default)) || !!effect.keyframes;
   const toggle = () => {
-    if (open) collapsed.add(def.type);
-    else collapsed.delete(def.type);
+    if (open === defaultOpen) toggled.add(collapseKey);
+    else toggled.delete(collapseKey);
     setOpen(!open);
   };
 
@@ -159,10 +182,10 @@ function EffectSection({
         {changed && (
           <ResetButton
             label={`Reset ${def.label}`}
-            onClick={() => commit((p) => resetParams(p, clipId, effect.id, params.map((spec) => spec.key)))}
+            onClick={() => to.reset(params.map((spec) => spec.key))}
           />
         )}
-        {!def.alwaysOn && (
+        {!def.alwaysOn && !target && (
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -191,6 +214,23 @@ function EffectSection({
         </div>
       )}
     </section>
+  );
+}
+
+/** A caption's own look is edited here; everyone's is in the Captions tab. */
+function CaptionNote() {
+  return (
+    <p className="flex items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
+      <PiSubtitles className="size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1">Changes here are for this caption only.</span>
+      <button
+        type="button"
+        className="shrink-0 cursor-pointer font-medium text-brand hover:underline"
+        onClick={() => useLayout.getState().setLeftPanel("captions")}
+      >
+        Edit all captions
+      </button>
+    </p>
   );
 }
 

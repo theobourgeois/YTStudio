@@ -111,6 +111,11 @@ export interface Clip {
   transitionIn?: Transition;
   /** Transition at the clip's end: into the clip right after it, otherwise into nothing. */
   transitionOut?: Transition;
+  /**
+   * A text clip made by Auto captions. The Captions tab edits the style of
+   * every caption at once (see `shared/captions.ts`).
+   */
+  caption?: true;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +434,84 @@ export interface FontFamily {
 }
 
 // ---------------------------------------------------------------------------
+// Transcription (Auto captions): speech to timed words, on this computer or
+// with a cloud API. See `server/transcription/`.
+// ---------------------------------------------------------------------------
+
+export type TranscriptionEngineId = "local" | "openai" | "groq";
+
+export interface TranscriptionEngineInfo {
+  id: TranscriptionEngineId;
+  label: string;
+  /** One line on what it is (model, cost, privacy). */
+  description: string;
+  kind: "local" | "cloud";
+  /** `missing`: needs setting up (installing, or an API key). `installing`: being set up now. */
+  status: "ready" | "missing" | "installing" | "error";
+  /** What's missing, what setup is doing, or what went wrong. */
+  message: string | null;
+  /** Setup progress 0..1, null when it can't be told. */
+  progress: number | null;
+  /** The app can set it up by itself (local: Homebrew is installed). */
+  canSetUp: boolean;
+  /** Cloud: the API key comes from an environment variable. */
+  keyFromEnv?: boolean;
+  /** Cloud: an API key is saved in the app's settings (it can be removed). */
+  hasSavedKey?: boolean;
+  /** Cloud: where to get an API key. */
+  keyUrl?: string;
+}
+
+export interface SetUpEngineRequest {
+  /** Cloud engines: the API key to check and save. */
+  apiKey?: string;
+}
+
+/** A stretch of a media file to transcribe (source time). */
+export interface TranscriptionSource {
+  assetId: string;
+  in: number;
+  out: number;
+}
+
+export interface TranscribeRequest {
+  engine: TranscriptionEngineId;
+  /** "auto" to detect it, or an ISO 639-1 code ("en", "fr"...). */
+  language: string;
+  sources: TranscriptionSource[];
+}
+
+export interface TranscriptWord {
+  /** As spoken, with its leading space (none inside words, or in languages written without spaces). */
+  text: string;
+  /** Source time, seconds. */
+  start: number;
+  end: number;
+}
+
+/** The words spoken in one stretch of a media file. */
+export interface Transcript {
+  assetId: string;
+  in: number;
+  out: number;
+  /** Detected (or requested) language code, when known. */
+  language: string | null;
+  words: TranscriptWord[];
+}
+
+export type TranscriptionStatus = "queued" | "running" | "done" | "error" | "cancelled";
+
+export interface TranscriptionJob {
+  id: string;
+  status: TranscriptionStatus;
+  /** 0..1 */
+  progress: number;
+  error?: string;
+  /** Once done: one per stretch transcribed (overlapping sources of one file are merged). */
+  transcripts: Transcript[] | null;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP API (all JSON unless noted; errors are `ApiError` with a 4xx/5xx status)
 //
 //   GET    /api/health                  -> HealthResponse
@@ -468,6 +551,13 @@ export interface FontFamily {
 //   GET    /api/exports/:id             -> ExportJob
 //   DELETE /api/exports/:id             -> 204 (cancels if running)
 //   GET    /api/exports/:id/download    -> file (attachment)
+//   GET    /api/transcription/engines   -> TranscriptionEngineInfo[]
+//   POST   /api/transcription/engines/:id/setup  body: SetUpEngineRequest -> TranscriptionEngineInfo
+//                                        (local: starts installing, poll the list; cloud: checks + saves the key)
+//   DELETE /api/transcription/engines/:id/setup  -> TranscriptionEngineInfo (forgets a saved API key)
+//   POST   /api/transcription/jobs  body: TranscribeRequest -> TranscriptionJob (202)
+//   GET    /api/transcription/jobs/:id  -> TranscriptionJob
+//   DELETE /api/transcription/jobs/:id  -> 204 (cancels if running)
 //   GET    /files/...                   -> static files from the data dir (range requests)
 // ---------------------------------------------------------------------------
 

@@ -4,9 +4,9 @@ const SIDEBAR_KEY = "editor-sidebar-open";
 
 /**
  * The tabs of the left panel: the project's media, the Library shared by every project,
- * online media, transitions, and the selection's properties.
+ * online media, transitions, captions, and the selection's properties.
  */
-export type LeftPanelTab = "media" | "library" | "online" | "transitions" | "properties";
+export type LeftPanelTab = "media" | "library" | "online" | "transitions" | "captions" | "properties";
 
 /** What a press on the canvas does: select and transform clips, or add text (Premiere's Type tool). */
 export type CanvasTool = "select" | "text";

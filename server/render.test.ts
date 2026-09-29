@@ -53,7 +53,7 @@ describe("buildRenderArgs", () => {
 
     const graph = graphOf(argv);
     // clip, clip, gap 3.5..4, clip
-    expect(graph).toContain("[c0_0][c0_1][g0_2][c0_3]concat=n=4:v=1:a=0[t0]");
+    expect(graph).toContain("[c0_0][c0_1][g0_2][c0_3]concat=n=4:v=1:a=0,setpts=N/(30*TB)[t0]");
     expect(graph.find((f) => f.endsWith("[g0_2]"))).toMatch(/^color=c=black@0:.*format=yuva420p.*trim=end_frame=15\[/);
     expect(graph).toContain("[bg][t0]overlay=x=0:y=0:format=yuv420:eof_action=pass[o0]");
     expect(graph).toContain("[o0]format=yuv420p[vout]");
@@ -93,10 +93,10 @@ describe("buildRenderArgs", () => {
     const graph = graphOf(argv);
     expect(graph[0]).toBe("color=c=black:s=1080x1920:r=30,setsar=1,format=yuv420p,trim=end_frame=180[bg]");
     // Bottom track ("main") first: its clip then a gap to the end (6s).
-    expect(graph).toContain("[c0_0][g0_1]concat=n=2:v=1:a=0[t0]");
+    expect(graph).toContain("[c0_0][g0_1]concat=n=2:v=1:a=0,setpts=N/(30*TB)[t0]");
     expect(graph.find((f) => f.endsWith("[g0_1]"))).toContain("trim=end_frame=120");
     // Top track: gap, clip, gap.
-    expect(graph).toContain("[g1_0][c1_1][g1_2]concat=n=3:v=1:a=0[t1]");
+    expect(graph).toContain("[g1_0][c1_1][g1_2]concat=n=3:v=1:a=0,setpts=N/(30*TB)[t1]");
     expect(graph).toContain("[bg][t0]overlay=x=0:y=0:format=yuv420:eof_action=pass[o0]");
     expect(graph).toContain("[o0][t1]overlay=x=0:y=0:format=yuv420:eof_action=pass[o1]");
     expect(graph).toContain("[o1]format=yuv420p[vout]");
