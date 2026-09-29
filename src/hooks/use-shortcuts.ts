@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { adjacentKeyframe } from "@shared/animation";
 import { editPoints, getClip, projectDuration } from "@shared/timeline";
 import { DEFAULT_TRANSITION } from "@shared/transitions";
+import { clearSourceMarks, makeSubclipFromMarks, markSource, shownMarks } from "@/components/preview/source-marking";
 import { deleteSelectedKeyframes } from "@/components/properties/keyframe-lanes";
 import { useKeyframeSelection } from "@/components/properties/keyframe-selection";
 import { retimableIds } from "@/components/timeline/speed-control";
@@ -10,7 +11,6 @@ import { useAssistant } from "@/stores/assistant";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
-import { useSourceMarks } from "@/stores/source-marks";
 import { useSourcePreview } from "@/stores/source-preview";
 import { resolveShortcut, type ShortcutAction } from "./shortcuts";
 
@@ -149,6 +149,7 @@ function run(action: ShortcutAction): boolean {
     case "goToIn":
     case "goToOut":
     case "clearMarks":
+    case "makeSubclip":
       return false;
     case "split":
       editor.splitAtPlayhead();
@@ -289,18 +290,19 @@ function runSourcePreview(action: ShortcutAction): boolean {
       return true;
     case "markIn":
     case "markOut":
-      useSourceMarks.getState().mark(assetId, action === "markIn" ? "in" : "out", source.time(), source.duration());
+      markSource(assetId, action === "markIn" ? "in" : "out", source.time(), source.duration());
       return true;
     case "goToIn":
     case "goToOut": {
-      const marks = useSourceMarks.getState().marks[assetId];
+      const marks = shownMarks(assetId);
       source.pause();
-      source.seek(action === "goToIn" ? (marks?.in ?? 0) : (marks?.out ?? source.duration()));
+      source.seek(action === "goToIn" ? (marks.in ?? 0) : (marks.out ?? source.duration()));
       return true;
     }
     case "clearMarks":
-      useSourceMarks.getState().clear(assetId);
-      return true;
+      return clearSourceMarks(assetId);
+    case "makeSubclip":
+      return makeSubclipFromMarks();
   }
   return false;
 }

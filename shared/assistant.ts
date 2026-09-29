@@ -417,7 +417,7 @@ export function describeToolCall(rawName: string, input: unknown): string {
       return `Watch footage (${count(n, "frame")})`;
     }
     case "get_transcript":
-      return ids() ? `Transcribe ${count(ids(), "clip")}` : "Read the transcript";
+      return f("assetId") ? "Transcribe a media file" : ids() ? `Transcribe ${count(ids(), "clip")}` : "Read the transcript";
     case "analyze_audio":
       return ids() ? `Listen to ${count(ids(), "clip")}` : "Listen for silences";
     case "analyze_music":
@@ -494,6 +494,13 @@ export function describeToolCall(rawName: string, input: unknown): string {
       return "Restyle the captions";
     case "merge_captions":
       return "Merge two captions";
+    case "make_subclips":
+      return `Make ${count(list(f("items")).length, "subclip")}`;
+    case "edit_subclips": {
+      const items = list(f("items"));
+      const n = count(items.length, "subclip");
+      return items.every((i) => field(i, "delete") === true) ? `Delete ${n}` : `Edit ${n}`;
+    }
     case "batch":
       return `Make ${count(list(f("steps")).length, "edit")}`;
     case "generate_captions":

@@ -2,7 +2,15 @@ import { create } from "zustand";
 import { toast } from "sonner";
 import type { LibraryEntry, LibraryFolder, LibraryItem, MediaAsset, UpdateLibraryItemRequest } from "@shared/types";
 import { errorMessage } from "@shared/errors";
-import { type LibraryItemKind, folderPath, folderSubtree, itemMediaIds, sameName, templateFromClips } from "@shared/library";
+import {
+  type LibraryItemKind,
+  folderPath,
+  folderSubtree,
+  itemMediaIds,
+  sameName,
+  templateFromClips,
+  templateFromSubclip,
+} from "@shared/library";
 import { createId } from "@shared/timeline";
 import { api } from "@/lib/api";
 import { type DroppedFolder, droppedFiles, filterDrop } from "@/lib/dropped-files";
@@ -65,8 +73,8 @@ interface LibraryState {
   importFiles: (files: File[], folderId: string | null) => Promise<void>;
   /** Upload dropped files and folders into a folder, merging into same-named subfolders. */
   importTree: (tree: DroppedFolder, folderId: string | null) => Promise<void>;
-  /** Add some of the open project's media files to a folder. */
-  addAssets: (assetIds: string[], folderId: string | null) => Promise<void>;
+  /** Add some of the open project's media files (or subclips: saved as clips of their part) to a folder. */
+  addAssets: (ids: string[], folderId: string | null) => Promise<void>;
   /** Save timeline clips (with their effects and transitions) to a folder. */
   saveClips: (clipIds: string[], name: string, folderId: string | null) => Promise<boolean>;
   updateItem: (id: string, patch: UpdateLibraryItemRequest) => Promise<void>;
@@ -252,11 +260,17 @@ export const useLibrary = create<LibraryState>((set, get) => {
       }
     },
 
-    async addAssets(assetIds, folderId) {
+    async addAssets(ids, folderId) {
       const added: string[] = [];
-      for (const assetId of assetIds) {
+      for (const id of ids) {
         try {
-          const entry = await api.saveMediaToLibrary({ assetId, folderId });
+          const { projectId, getSubclip, getAsset } = useEditor.getState();
+          const subclip = getSubclip(id);
+          const asset = subclip && getAsset(subclip.assetId);
+          const entry =
+            subclip && asset && projectId
+              ? await api.saveClipsToLibrary({ projectId, name: subclip.name, folderId, ...templateFromSubclip(subclip, asset) })
+              : await api.saveMediaToLibrary({ assetId: id, folderId });
           addEntry(entry);
           added.push(entry.item.name);
         } catch (err) {

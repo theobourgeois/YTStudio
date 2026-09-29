@@ -150,9 +150,11 @@ export class ProjectStore {
     const copyId = createId("project");
     try {
       const assetIds = await this.library.copyProject(id, copyId);
-      const clips = source.clips.map((c) => (assetIds.has(c.assetId) ? { ...c, assetId: assetIds.get(c.assetId)! } : c));
+      const copied = <T extends { assetId: string }>(x: T): T => (assetIds.has(x.assetId) ? { ...x, assetId: assetIds.get(x.assetId)! } : x);
+      const clips = source.clips.map(copied);
+      const subclips = source.subclips?.map(copied);
       const name = `${source.name.slice(0, MAX_NAME_LENGTH - COPY_SUFFIX.length)}${COPY_SUFFIX}`;
-      return await this.add(copyId, { ...source, name, clips }, this.now());
+      return await this.add(copyId, { ...source, name, clips, ...(subclips && { subclips }) }, this.now());
     } catch (err) {
       await this.library.removeProject(copyId);
       // Deleted while its media was being copied.

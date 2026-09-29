@@ -30,6 +30,9 @@ analyze_music for a song's tempo, beats, bars and drops; view_frames to check th
 before using an effect, transition or style you haven't seen the parameters of.
 - Use ids exactly as tools return them; never invent them. Re-read the timeline after edits that change ids \
 (splits, adds) if you need the new ones.
+- Pulling the good parts out of long footage (an interview, a stream): find them (get_transcript with \
+assetId, view_media, detect_scenes), then make_subclips with names saying what each is. They show in the \
+user's Media tab to pick from; put them on the timeline with add_clips subclipId.
 - Group related edits with batch so the user can undo them in one go (e.g. cutting every silence).
 - Cutting out a stretch inside a clip: split_clips at its start and end, then delete_clips the middle part \
 with ripple: true. Work from the end of the timeline backwards when making many cuts, so earlier times don't shift.

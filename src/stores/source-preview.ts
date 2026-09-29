@@ -23,8 +23,12 @@ interface SourcePreviewState {
   /** The open project's media, or a Library file (then `libraryItemId` is the item shown). */
   assetId: string | null;
   libraryItemId: string | null;
+  /** A subclip of `assetId` being shown: its range is the In/Out the preview shows and edits. */
+  subclipId: string | null;
   controller: SourceController | null;
   open: (assetId: string, libraryItemId?: string) => void;
+  /** Show a subclip (part of `assetId`), from its start. */
+  openSubclip: (subclipId: string, assetId: string) => void;
   close: () => void;
   setController: (controller: SourceController | null) => void;
 }
@@ -32,13 +36,18 @@ interface SourcePreviewState {
 export const useSourcePreview = create<SourcePreviewState>((set) => ({
   assetId: null,
   libraryItemId: null,
+  subclipId: null,
   controller: null,
   open(assetId, libraryItemId) {
     usePlayback.getState().pause();
-    set({ assetId, libraryItemId: libraryItemId ?? null });
+    set({ assetId, libraryItemId: libraryItemId ?? null, subclipId: null });
+  },
+  openSubclip(subclipId, assetId) {
+    usePlayback.getState().pause();
+    set({ assetId, libraryItemId: null, subclipId });
   },
   close() {
-    set({ assetId: null, libraryItemId: null, controller: null });
+    set({ assetId: null, libraryItemId: null, subclipId: null, controller: null });
   },
   setController(controller) {
     set({ controller });

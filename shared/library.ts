@@ -3,10 +3,11 @@
  * its folder tree and for saved clips (`ClipTemplate`), used by the server
  * (validation) and the client (placing saved clips on a timeline).
  */
+import { defaultEffects } from "./effects.ts";
 import { roundTime } from "./math.ts";
 import { normalizeProject } from "./normalize.ts";
 import { addTrack, clipDuration, clipEnd, createDefaultProject, createId, getTrack, isFree } from "./timeline.ts";
-import type { Clip, ClipTemplate, LibraryFolder, LibraryItem, MediaAsset, Project, TrackKind } from "./types.ts";
+import type { Clip, ClipTemplate, LibraryFolder, LibraryItem, MediaAsset, Project, Subclip, TrackKind } from "./types.ts";
 
 /** The Library media an item uses: its file, or every file its saved clips show. */
 export function itemMediaIds(item: LibraryItem): string[] {
@@ -73,6 +74,22 @@ export function templateFromClips(project: Project, clipIds: string[]): ClipTemp
   const clips = project.clips.filter((c) => ids.has(c.id));
   const used = new Set(clips.map((c) => c.trackId));
   return { tracks: project.tracks.filter((t) => used.has(t.id)), clips };
+}
+
+/** A subclip saved to the Library: one clip of that part of its file, on a track of its own. */
+export function templateFromSubclip(subclip: Subclip, asset: Pick<MediaAsset, "hasVideo">): ClipTemplate {
+  const kind: TrackKind = asset.hasVideo ? "video" : "audio";
+  const track = { id: `${kind}_1`, kind, name: kind === "video" ? "Video 1" : "Audio 1", muted: false };
+  const clip: Clip = {
+    id: createId("clip"),
+    assetId: subclip.assetId,
+    trackId: track.id,
+    start: 0,
+    in: subclip.in,
+    out: subclip.out,
+    effects: defaultEffects(),
+  };
+  return { tracks: [track], clips: [clip] };
 }
 
 /**

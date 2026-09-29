@@ -7,13 +7,16 @@ import {
   PiFilmStrip,
   PiImage,
   PiMusicNote,
+  PiPencilSimple,
   PiPlus,
+  PiScissors,
   PiSpinnerGap,
   PiTrash,
   PiWarning,
 } from "react-icons/pi";
-import type { MediaAsset } from "@shared/types";
-import { formatDuration } from "@shared/format";
+import type { MediaAsset, Subclip } from "@shared/types";
+import { formatDuration, formatTime } from "@shared/format";
+import { filmstripFrameUrl } from "@/lib/api";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { FolderMenuItems } from "@/components/library/folder-menu-items";
@@ -23,11 +26,13 @@ import { setAssetDragData } from "@/lib/dnd";
 import { cn } from "cn";
 import { assetMarkedRange, useSourceMarks } from "@/stores/source-marks";
 import { useSourcePreview } from "@/stores/source-preview";
-import { HoverScrub, useHoverX } from "./hover-scrub";
+import { HoverScrub, filmstripFrameAt, useHoverX } from "./hover-scrub";
 import { decorativePeaks } from "./media-utils";
 
 interface AssetCardProps {
   asset: MediaAsset;
+  /** Shows this part of `asset` instead (a subclip): its name, length and frames. */
+  subclip?: Subclip;
   /** Number of timeline clips using this asset. */
   uses: number;
   selected: boolean;
@@ -40,6 +45,8 @@ interface AssetCardProps {
   onAdd: () => void;
   onAddToLibrary: (folderId: string | null) => void;
   onDelete: () => void;
+  /** Subclips only: ask for a new name. */
+  onRename?: () => void;
 }
 
 const overlayButton =
@@ -47,6 +54,7 @@ const overlayButton =
 
 export function AssetCard({
   asset,
+  subclip,
   uses,
   selected,
   count,
@@ -55,12 +63,15 @@ export function AssetCard({
   onAdd,
   onAddToLibrary,
   onDelete,
+  onRename,
 }: AssetCardProps) {
   const thumbRef = useRef<HTMLDivElement>(null);
   // "error" only means thumbnails/waveform couldn't be generated; the media itself is fine.
   const previewsFailed = asset.status === "error";
   const usable = asset.duration > 0;
-  const previewing = useSourcePreview((s) => s.assetId === asset.id);
+  const previewing = useSourcePreview((s) => (subclip ? s.subclipId === subclip.id : s.assetId === asset.id && !s.subclipId));
+  const id = subclip?.id ?? asset.id;
+  const name = subclip?.name ?? asset.name;
   const scrub = useHoverX();
 
   const onDragStart = (e: DragEvent) => {
@@ -79,10 +90,12 @@ export function AssetCard({
     <AssetMenuItems
       kit={kit}
       asset={asset}
+      subclip={subclip}
       count={count}
       onAdd={onAdd}
       onAddToLibrary={onAddToLibrary}
       onDelete={onDelete}
+      onRename={onRename}
     />
   );
 
@@ -98,15 +111,18 @@ export function AssetCard({
           )}
           draggable={usable}
           tabIndex={0}
-          data-grid-item={asset.id}
+          data-grid-item={id}
+          data-subclip={subclip ? "" : undefined}
           aria-selected={selected}
           // Not while skimming: the tooltip would cover the picture.
           title={
             scrub.hoverX !== null
               ? undefined
-              : previewsFailed
-                ? `${asset.name}\n${asset.error ?? "Couldn't generate previews"}`
-                : asset.name
+              : subclip
+                ? `${subclip.name}\n${formatTime(subclip.in)}–${formatTime(subclip.out)} of ${asset.name}`
+                : previewsFailed
+                  ? `${asset.name}\n${asset.error ?? "Couldn't generate previews"}`
+                  : asset.name
           }
           onDragStart={onDragStart}
           onClick={onClick}
@@ -124,10 +140,14 @@ export function AssetCard({
             )}
             {...scrub.handlers}
           >
-            <Thumbnail asset={asset} />
-            <HoverScrub asset={asset} hoverX={scrub.hoverX} />
+            <Thumbnail asset={asset} at={subclip?.in} />
+            <HoverScrub asset={asset} hoverX={scrub.hoverX} range={subclip} />
 
-            {asset.kind === "image" ? (
+            {subclip ? (
+              <span className="absolute right-1 bottom-1 rounded bg-black/65 px-1 py-px text-[10px] leading-4 font-medium text-white tabular-nums">
+                {formatDuration(subclip.out - subclip.in)}
+              </span>
+            ) : asset.kind === "image" ? (
               <span className="absolute right-1 bottom-1 grid size-5 place-items-center rounded bg-black/65 text-white" title="Image">
                 <PiImage className="size-3" />
               </span>
@@ -154,7 +174,16 @@ export function AssetCard({
               </span>
             )}
 
-            <MarkedRangeBar asset={asset} />
+            {subclip ? (
+              <span
+                className="absolute top-1 left-1 grid size-5 place-items-center rounded bg-black/65 text-white"
+                title={`Subclip of ${asset.name}`}
+              >
+                <PiScissors className="size-3" />
+              </span>
+            ) : (
+              <MarkedRangeBar asset={asset} />
+            )}
 
             {uses > 0 && (
               <span
@@ -200,8 +229,16 @@ export function AssetCard({
             </DropdownMenu>
           </div>
 
-          <p className="truncate px-0.5 text-xs leading-4 text-foreground/90">
-            {asset.name}
+          {/* A subclip's name ends in what tells it apart ("Interview 3"): cut the middle, like Finder. */}
+          <p className="flex min-w-0 px-0.5 text-xs leading-4 whitespace-pre text-foreground/90">
+            {subclip && name.length > 8 ? (
+              <>
+                <span className="truncate">{name.slice(0, -6)}</span>
+                <span className="shrink-0">{name.slice(-6)}</span>
+              </>
+            ) : (
+              <span className="truncate">{name}</span>
+            )}
           </p>
         </div>
       </ContextMenuTrigger>
@@ -214,17 +251,21 @@ export function AssetCard({
 function AssetMenuItems({
   kit,
   asset,
+  subclip,
   count,
   onAdd,
   onAddToLibrary,
   onDelete,
+  onRename,
 }: {
   kit: MenuKit;
   asset: MediaAsset;
+  subclip?: Subclip;
   count: number;
   onAdd: () => void;
   onAddToLibrary: (folderId: string | null) => void;
   onDelete: () => void;
+  onRename?: () => void;
 }) {
   const { Item, Separator, Sub, SubTrigger, SubContent } = kit;
   const many = count > 1;
@@ -233,9 +274,20 @@ function AssetMenuItems({
   return (
     <>
       {!many && (
-        <Item disabled={!usable} onSelect={() => useSourcePreview.getState().open(asset.id)}>
+        <Item
+          disabled={!usable}
+          onSelect={() =>
+            subclip ? useSourcePreview.getState().openSubclip(subclip.id, asset.id) : useSourcePreview.getState().open(asset.id)
+          }
+        >
           <PiEye />
           Preview
+        </Item>
+      )}
+      {!many && onRename && (
+        <Item onSelect={onRename}>
+          <PiPencilSimple />
+          Rename…
         </Item>
       )}
       <Item disabled={!usable} onSelect={onAdd}>
@@ -254,18 +306,21 @@ function AssetMenuItems({
       <Separator />
       <Item variant="destructive" onSelect={onDelete}>
         <PiTrash />
-        {many ? `Delete ${count} files` : "Delete"}
+        {many ? `Delete ${count}` : subclip ? "Delete subclip" : "Delete"}
       </Item>
     </>
   );
 }
 
-function Thumbnail({ asset }: { asset: MediaAsset }) {
+/** The file's poster, or (`at`, a subclip's start) its filmstrip frame there once there's one. */
+function Thumbnail({ asset, at }: { asset: MediaAsset; at?: number }) {
   const [broken, setBroken] = useState(false);
-  if (asset.hasVideo && asset.poster && !broken) {
+  const strip = asset.kind === "video" && at !== undefined ? asset.filmstrip : null;
+  const src = strip ? filmstripFrameUrl(strip.urlPattern, filmstripFrameAt(strip, at!, asset.duration)) : asset.poster;
+  if (asset.hasVideo && src && !broken) {
     return (
       <img
-        src={asset.poster}
+        src={src}
         alt=""
         draggable={false}
         loading="lazy"

@@ -6,6 +6,7 @@ import type {
   MediaAsset,
   Project,
   ProjectSettings,
+  Subclip,
   UseLibraryItemResponse,
   WebClip,
   WebDownloadProgress,
@@ -53,6 +54,7 @@ import {
 import { transitionDefinition } from "@shared/transitions";
 import { errorMessage } from "@shared/errors";
 import { normalizeProject } from "@shared/normalize";
+import { type NewSubclip, addSubclips, getSubclip, removeSubclips, updateSubclip } from "@shared/subclips";
 import { api } from "@/lib/api";
 import { pollProcessingAssets, pollWebDownload, requestReversedCopies } from "./asset-polling";
 import { flushAutosave, startAutosave } from "./autosave";
@@ -186,7 +188,18 @@ interface EditorState {
   addImportedAssets: (assets: MediaAsset[]) => void;
 
   /**
-   * Put assets on the timeline as one undoable step, and select the last one.
+   * Make subclips of a media file (named parts of it, listed in the Media tab) as one
+   * undoable step. Returns their ids (none when the file can't have any or the parts are too short).
+   */
+  makeSubclips: (assetId: string, parts: NewSubclip[]) => string[];
+  renameSubclip: (subclipId: string, name: string) => void;
+  /** Delete subclips (undoable; their file and clips stay). */
+  deleteSubclips: (subclipIds: string[]) => void;
+  getSubclip: (subclipId: string) => Subclip | undefined;
+
+  /**
+   * Put media on the timeline as one undoable step, and select the last one. `ids` are
+   * media files or subclips (which add their part of their file).
    * - `trackId` omitted or incompatible: pictures go on the bottom video track,
    *   sound only on the top audio track (created when there's none).
    * - `at` = timeline time of the first clip's left edge (the rest follow it). Without
@@ -194,7 +207,7 @@ interface EditorState {
    * - A file with In/Out marks (set in the source preview) adds only the marked part.
    * Returns the ids of the created clips.
    */
-  addAssetsToTimeline: (assetIds: string[], opts?: AddToTimelineOptions) => string[];
+  addAssetsToTimeline: (ids: string[], opts?: AddToTimelineOptions) => string[];
   /**
    * Split at the playhead: the selected clips under it or, when none are, every
    * video-track clip under it.
@@ -603,15 +616,45 @@ export const useEditor = create<EditorState>((set, get) => ({
     pollProcessingAssets(useEditor);
   },
 
-  addAssetsToTimeline(assetIds, opts = {}) {
-    const assets = assetIds
-      .map((id) => get().getAsset(id))
-      .filter((a): a is MediaAsset => !!a && a.duration > 0);
-    if (assets.length === 0) return [];
-    const ranges = opts.ranges ?? markedRanges(assets);
+  makeSubclips(assetId, parts) {
+    const asset = get().getAsset(assetId);
+    if (!asset) return [];
+    let ids: string[] = [];
+    get().commit((project) => {
+      const made = addSubclips(project, asset, parts);
+      ids = made.ids;
+      return made.project;
+    });
+    return ids;
+  },
+
+  renameSubclip(subclipId, name) {
+    const subclip = get().getSubclip(subclipId);
+    const asset = subclip && get().getAsset(subclip.assetId);
+    if (asset) get().commit((p) => updateSubclip(p, subclipId, { name }, asset.duration));
+  },
+
+  deleteSubclips(subclipIds) {
+    get().commit((p) => removeSubclips(p, subclipIds));
+  },
+
+  getSubclip(subclipId) {
+    return getSubclip(get().project, subclipId);
+  },
+
+  addAssetsToTimeline(ids, opts = {}) {
+    const items: Placeable[] = [];
+    for (const id of ids) {
+      const subclip = get().getSubclip(id);
+      const asset = get().getAsset(subclip?.assetId ?? id);
+      if (!asset || !(asset.duration > 0)) continue;
+      items.push(subclip ? { asset, range: { in: subclip.in, out: subclip.out } } : asset);
+    }
+    if (items.length === 0) return [];
+    const ranges = opts.ranges ?? markedRanges(items.filter((i): i is MediaAsset => !("asset" in i)));
     let created: string[] = [];
     get().commit((project) => {
-      const placed = placeAssets(project, assets, { ...opts, ranges, ripple: opts.ripple ?? get().autoRipple });
+      const placed = placeAssets(project, items, { ...opts, ranges, ripple: opts.ripple ?? get().autoRipple });
       created = placed.clipIds;
       return placed.project;
     });
@@ -828,11 +871,14 @@ function clipsToCutAt(time: number): Clip[] {
   return selected.length ? selected : under.filter((c) => isOnVideoTrack(project, c));
 }
 
+/** A file to put on the timeline, or a part of one (a subclip), whatever `ranges` says about the file. */
+export type Placeable = MediaAsset | { asset: MediaAsset; range: { in: number; out: number } };
+
 /**
  * Where `addAssetsToTimeline` puts assets (see its doc), as a pure edit: the project with them
  * placed, and the new clips' ids. Also used for videos that aren't open (the assistant).
  */
-export function placeAssets(project: Project, assets: MediaAsset[], opts: AddToTimelineOptions = {}): { project: Project; clipIds: string[] } {
+export function placeAssets(project: Project, items: readonly Placeable[], opts: AddToTimelineOptions = {}): { project: Project; clipIds: string[] } {
   const created: string[] = [];
   let p = project;
   const requested = opts.trackId ? getTrack(p, opts.trackId) : undefined;
@@ -859,9 +905,10 @@ export function placeAssets(project: Project, assets: MediaAsset[], opts: AddToT
 
   // Assets dropped together are laid end to end on each track.
   const cursor = new Map<string, number>();
-  for (const asset of assets) {
+  for (const item of items) {
+    const asset = "asset" in item ? item.asset : item;
+    const range = "asset" in item ? item.range : opts.ranges?.[asset.id];
     const trackId = destination(asset);
-    const range = opts.ranges?.[asset.id];
     const clip: Clip = {
       id: createId("clip"),
       assetId: asset.id,

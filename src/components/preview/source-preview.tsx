@@ -1,8 +1,8 @@
 import { type DragEvent, useEffect, useRef, useState } from "react";
-import { PiMusicNotes, PiPauseFill, PiPlayFill, PiPlus, PiX } from "react-icons/pi";
-import { useShallow } from "zustand/react/shallow";
+import { PiMusicNotes, PiPauseFill, PiPlayFill, PiPlus, PiScissors, PiX } from "react-icons/pi";
 import type { MediaAsset } from "@shared/types";
 import { formatTime } from "@shared/format";
+import { markedRange } from "@/lib/source-marks";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
@@ -10,15 +10,24 @@ import { setAssetDragData, setLibraryDragData } from "@/lib/dnd";
 import type { MarkSide } from "@/lib/source-marks";
 import { useEditor } from "@/stores/editor";
 import { useLibrary } from "@/stores/library";
-import { assetMarkedRange, useSourceMarks } from "@/stores/source-marks";
 import { useSourcePreview } from "@/stores/source-preview";
+import {
+  clearSourceMarks,
+  makeSubclipFromMarks,
+  markSource,
+  shownSubclip,
+  useCanMakeSubclip,
+  useShownMarks,
+  useShownSubclip,
+} from "./source-marking";
 import { SourceTrimmer } from "./source-trimmer";
 import { ShortcutHint, TransportButton } from "./transport";
 
 /**
  * Shows one media or Library file on its own, in place of the timeline preview (Premiere's
  * Source Monitor). A video or sound can be trimmed first with In/Out marks: only the marked
- * part goes on the timeline.
+ * part goes on the timeline, and ⌘U keeps it as a subclip in the Media tab. A subclip shows
+ * here as its whole file with its range as the In/Out (moving them edits it).
  */
 export function SourcePreview({ asset }: { asset: MediaAsset }) {
   return asset.kind === "image" ? <StillPreview asset={asset} /> : <PlayingPreview asset={asset} />;
@@ -26,18 +35,18 @@ export function SourcePreview({ asset }: { asset: MediaAsset }) {
 
 const close = () => useSourcePreview.getState().close();
 
-/** Drag the file itself onto the timeline (its marked part), from the picture. */
+/** Drag the file itself onto the timeline (its marked part, or the subclip shown), from the picture. */
 function dragSource(e: DragEvent, asset: MediaAsset) {
   const itemId = useSourcePreview.getState().libraryItemId;
   if (itemId) setLibraryDragData(e.dataTransfer, [itemId]);
-  else setAssetDragData(e.dataTransfer, { assetIds: [asset.id] });
+  else setAssetDragData(e.dataTransfer, { assetIds: [shownSubclip()?.id ?? asset.id] });
 }
 
 function StillPreview({ asset }: { asset: MediaAsset }) {
   return (
     <>
       <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 pt-12">
-        <PreviewBadge name={asset.name} />
+        <PreviewBadge asset={asset} />
         <img
           src={asset.src}
           alt={asset.name}
@@ -57,11 +66,22 @@ function StillPreview({ asset }: { asset: MediaAsset }) {
   );
 }
 
-function PreviewBadge({ name }: { name: string }) {
+function PreviewBadge({ asset }: { asset: MediaAsset }) {
+  const subclip = useShownSubclip();
   return (
     <div className="absolute top-3 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-background/80 py-1 pr-1 pl-3 text-xs backdrop-blur-sm">
-      <span className="font-medium text-brand">Preview</span>
-      <span className="truncate text-muted-foreground">{name}</span>
+      <span className="font-medium text-brand">{subclip ? "Subclip" : "Preview"}</span>
+      <span className="truncate text-muted-foreground">{subclip?.name ?? asset.name}</span>
+      {subclip && (
+        <button
+          type="button"
+          title="Show the whole file, to mark other parts"
+          onClick={() => useSourcePreview.getState().open(asset.id)}
+          className="max-w-40 shrink cursor-pointer truncate rounded-full px-1.5 text-muted-foreground/80 underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          of {asset.name}
+        </button>
+      )}
       <Tooltip>
         <TooltipTrigger asChild>
           <button
@@ -83,20 +103,42 @@ function PreviewBadge({ name }: { name: string }) {
 }
 
 function SourceActions({ asset }: { asset: MediaAsset }) {
-  const marked = useSourceMarks((s) => assetMarkedRange(asset, s.marks) !== null);
+  const subclip = useShownSubclip();
+  const marks = useShownMarks(asset.id);
+  const marked = asset.kind !== "image" && markedRange(marks, asset.duration) !== null;
+  const canMake = useCanMakeSubclip(asset);
   const add = () => {
     const itemId = useSourcePreview.getState().libraryItemId;
     if (itemId) void useLibrary.getState().addToTimeline([itemId]);
-    else useEditor.getState().addAssetsToTimeline([asset.id]);
+    else useEditor.getState().addAssetsToTimeline([subclip?.id ?? asset.id]);
   };
   return (
     <div className="flex items-center justify-end gap-1.5">
+      {canMake && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {/* A wrapper, so the tooltip still explains the button while it's disabled. */}
+            <span>
+              <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs" disabled={!marked} onClick={makeSubclipFromMarks}>
+                <PiScissors />
+                Make subclip
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <ShortcutHint
+              label={marked ? "Keep the marked part in Media" : "Mark In and Out first, then keep that part in Media"}
+              shortcut={SHORTCUT_KEYS.makeSubclip}
+            />
+          </TooltipContent>
+        </Tooltip>
+      )}
       {asset.duration > 0 && (
         <Button
           variant="outline"
           size="sm"
           className="h-7 px-2.5 text-xs"
-          title={marked ? "Adds the part between In and Out" : undefined}
+          title={subclip ? "Adds this subclip" : marked ? "Adds the part between In and Out" : undefined}
           onClick={add}
         >
           <PiPlus />
@@ -115,6 +157,7 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(asset.duration);
   const [playing, setPlaying] = useState(false);
+  const subclipId = useSourcePreview((s) => s.subclipId);
 
   // The asset object is replaced while it's processing (filmstrip, waveform), so
   // only a different file restarts playback.
@@ -143,13 +186,32 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
     };
   }, [asset.id, asset.src, fallbackDuration]);
 
+  // A subclip plays from its start (after the effect above, which set up the controller).
+  useEffect(() => {
+    const subclip = shownSubclip();
+    const source = useSourcePreview.getState().controller;
+    if (!subclip || !source) return;
+    source.seek(subclip.in);
+    source.play();
+  }, [subclipId]);
+
   // `timeupdate` only fires a few times a second: follow the media every frame while it plays.
+  // Playing into a subclip's end stops there, like Premiere's Source Monitor.
   useEffect(() => {
     if (!playing) return;
     let raf = 0;
+    let last = mediaRef.current?.currentTime ?? 0;
     const tick = () => {
       const el = mediaRef.current;
-      if (el) setTime(el.currentTime);
+      if (el) {
+        const end = shownSubclip()?.out;
+        if (end !== undefined && last < end - 0.01 && el.currentTime >= end) {
+          el.pause();
+          el.currentTime = end;
+        }
+        last = el.currentTime;
+        setTime(el.currentTime);
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -172,7 +234,7 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
   return (
     <>
       <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 pt-12">
-        <PreviewBadge name={asset.name} />
+        <PreviewBadge asset={asset} />
 
         {asset.hasVideo ? (
           <video
@@ -244,7 +306,7 @@ function PlayingPreview({ asset }: { asset: MediaAsset }) {
 function MarkButton({ side, asset }: { side: MarkSide; asset: MediaAsset }) {
   const mark = () => {
     const source = useSourcePreview.getState().controller;
-    if (source) useSourceMarks.getState().mark(asset.id, side, source.time(), source.duration());
+    if (source) markSource(asset.id, side, source.time(), source.duration());
   };
   return (
     <TransportButton
@@ -271,9 +333,11 @@ function MarkIcon({ side }: { side: MarkSide }) {
   );
 }
 
-/** How long the marked part is, and a way to clear the marks. */
+/** How long the marked part (or the subclip) is, and a way to clear a file's marks. */
 function MarkedRange({ asset, duration }: { asset: MediaAsset; duration: number }) {
-  const range = useSourceMarks(useShallow((s) => assetMarkedRange({ ...asset, duration }, s.marks)));
+  const subclip = useShownSubclip();
+  const marks = useShownMarks(asset.id);
+  const range = subclip ?? markedRange(marks, duration);
   if (!range) return null;
   return (
     <span
@@ -281,21 +345,27 @@ function MarkedRange({ asset, duration }: { asset: MediaAsset; duration: number 
       title={`In ${formatTime(range.in)} · Out ${formatTime(range.out)}`}
     >
       <span className="truncate">{formatTime(range.out - range.in)}</span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="Clear In and Out"
-            onClick={() => useSourceMarks.getState().clear(asset.id)}
-            className="grid size-4 shrink-0 cursor-pointer place-items-center rounded-full transition-colors outline-none hover:bg-brand/20 focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            <PiX className="size-2.5" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>
-          <ShortcutHint label="Clear In and Out" shortcut={SHORTCUT_KEYS.clearMarks} />
-        </TooltipContent>
-      </Tooltip>
+      {!subclip && <ClearMarks asset={asset} />}
     </span>
+  );
+}
+
+function ClearMarks({ asset }: { asset: MediaAsset }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label="Clear In and Out"
+          onClick={() => clearSourceMarks(asset.id)}
+          className="grid size-4 shrink-0 cursor-pointer place-items-center rounded-full transition-colors outline-none hover:bg-brand/20 focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <PiX className="size-2.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <ShortcutHint label="Clear In and Out" shortcut={SHORTCUT_KEYS.clearMarks} />
+      </TooltipContent>
+    </Tooltip>
   );
 }

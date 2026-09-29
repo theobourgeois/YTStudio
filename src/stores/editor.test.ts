@@ -71,6 +71,28 @@ describe("editor store", () => {
     expect(getClip(store().project, whole)).toMatchObject({ in: 0, out: 3 });
   });
 
+  it("makes subclips of a file and adds them as their part of it, each an undo step", () => {
+    const [first, second] = store().makeSubclips("b", [{ in: 0.5, out: 1.5 }, { in: 2, out: 9, name: " End " }]);
+    expect(store().project.subclips).toEqual([
+      { id: first, assetId: "b", name: "b 1", in: 0.5, out: 1.5 },
+      { id: second, assetId: "b", name: "End", in: 2, out: 3 },
+    ]);
+    // A subclip id adds its part, even two of one file together, whatever the file's marks.
+    useSourceMarks.getState().mark("b", "in", 1, 3);
+    const [x, y, whole] = store().addAssetsToTimeline([second, first, "a"]);
+    expect(getClip(store().project, x)).toMatchObject({ assetId: "b", in: 2, out: 3, start: 0 });
+    expect(getClip(store().project, y)).toMatchObject({ assetId: "b", in: 0.5, out: 1.5, start: 1 });
+    expect(getClip(store().project, whole)).toMatchObject({ assetId: "a", in: 0, out: 2, start: 2 });
+    store().renameSubclip(first, "Hook");
+    store().deleteSubclips([second]);
+    expect(store().project.subclips?.map((s) => s.name)).toEqual(["Hook"]);
+    store().undo();
+    store().undo();
+    expect(store().project.subclips?.map((s) => s.name)).toEqual(["b 1", "End"]);
+    // Deleting the file takes its subclips with it.
+    return store().deleteAsset("b").then(() => expect(store().project.subclips).toBeUndefined());
+  });
+
   it("routes assets to the right tracks as one undo step", () => {
     store().addAssetsToTimeline(["a", "song", "b"]);
     expect(mainIds()).toEqual(["a", "b"]);
