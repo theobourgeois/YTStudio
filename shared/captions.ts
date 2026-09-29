@@ -12,16 +12,18 @@
 import { APPEARANCE, MOTION, TEXT, findEffect, resetParams, setParams, textEffects, volumeAt } from "./effects.ts";
 import { EPS, roundTime } from "./math.ts";
 import { sanitizeParams } from "./params.ts";
-import { MIN_CLIP_DURATION, addTrack, clipEnd, createId, getTrack, isFree, removeClips, trackClips } from "./timeline.ts";
+import { MIN_CLIP_DURATION, addTrack, clipEnd, clipsById, createId, getTrack, isFree, perClipList, removeClips, trackClips } from "./timeline.ts";
 import { createTransition, transitionDefinition } from "./transitions.ts";
 import type { AspectRatio, Clip, MediaAsset, ParamValues, Project, Transcript, Transition, Vec2 } from "./types.ts";
 
 export const isCaptionClip = (clip: Pick<Clip, "caption">) => clip.caption === true;
 
-/** Every caption, in time order. */
-export function captionClips(project: Project): Clip[] {
-  return project.clips.filter(isCaptionClip).sort((a, b) => a.start - b.start);
-}
+/** Every caption, in time order. Shared between callers: don't change it. */
+export const captionClips = perClipList(({ clips }): readonly Clip[] =>
+  clips.filter(isCaptionClip).sort((a, b) => a.start - b.start),
+);
+
+const captionIds = perClipList(({ clips }): ReadonlySet<string> => new Set(clips.filter(isCaptionClip).map((c) => c.id)));
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -498,14 +500,14 @@ export function setCaptionParams(project: Project, effectType: string, patch: Pa
   const rest = { ...patch };
   if (effectType === TEXT.type) delete rest.text;
   if (Object.keys(rest).length === 0) return project;
-  return captionClips(project).reduce((p, c) => setParams(p, c.id, effectType, rest), project);
+  return setParams(project, captionIds(project), effectType, rest);
 }
 
 /** Put parameters of one effect back to their defaults on every caption (never the text). */
 export function resetCaptionParams(project: Project, effectType: string, keys: string[]): Project {
   const reset = keys.filter((k) => effectType !== TEXT.type || k !== "text");
   if (reset.length === 0) return project;
-  return captionClips(project).reduce((p, c) => resetParams(p, c.id, effectType, reset), project);
+  return resetParams(project, captionIds(project), effectType, reset);
 }
 
 /** Give every caption a preset's look (their positions and animation stay). */
@@ -521,12 +523,24 @@ export function setCaptionText(project: Project, clipId: string, text: string): 
 
 /** The caption right after this one on its track (touching or not), if it's a caption. */
 export function nextCaption(project: Project, clipId: string): Clip | undefined {
-  const clip = project.clips.find((c) => c.id === clipId);
+  const clip = clipsById(project).get(clipId);
   if (!clip) return undefined;
   const clips = trackClips(project, clip.trackId);
-  const next = clips[clips.findIndex((c) => c.id === clipId) + 1];
+  const next = clips[clips.indexOf(clip) + 1];
   return next && isCaptionClip(next) ? next : undefined;
 }
+
+/** Ids of the captions that have a next caption (see `nextCaption`), for many at once. */
+export const captionsWithNext = perClipList((project): ReadonlySet<string> => {
+  const ids = new Set<string>();
+  for (const trackId of new Set(captionClips(project).map((c) => c.trackId))) {
+    const clips = trackClips(project, trackId);
+    clips.forEach((c, i) => {
+      if (isCaptionClip(c) && clips[i + 1] && isCaptionClip(clips[i + 1])) ids.add(c.id);
+    });
+  }
+  return ids;
+});
 
 /** Join a caption with the next one: one caption over both, saying both. */
 export function mergeCaptionWithNext(project: Project, clipId: string): Project {

@@ -444,27 +444,34 @@ export function hasKeyframes(clip: Clip): boolean {
 // Edits (all return a new Project, or the same one when nothing changed)
 // ---------------------------------------------------------------------------
 
-/** Rewrite one of a clip's effects (with its definition); same project when `update` returns the same effect. */
+/** Rewrite one effect on a clip (or several), with its definition; same project when `update` returns the same effect. */
 export function updateEffect(
   project: Project,
-  clipId: string,
+  clipIds: ClipIds,
   effectId: string,
   update: (effect: Effect, def: EffectDefinition) => Effect,
 ): Project {
+  const wanted = typeof clipIds === "string" ? (id: string) => id === clipIds : (id: string) => clipIds.has(id);
   let changed = false;
   const clips = project.clips.map((clip) => {
-    if (clip.id !== clipId) return clip;
+    if (!wanted(clip.id)) return clip;
+    let clipChanged = false;
     const effects = clip.effects.map((e) => {
       const def = e.id === effectId ? byType.get(e.type) : undefined;
       if (!def) return e;
       const next = update(e, def);
-      if (next !== e) changed = true;
+      if (next !== e) clipChanged = true;
       return next;
     });
-    return changed ? { ...clip, effects } : clip;
+    if (!clipChanged) return clip;
+    changed = true;
+    return { ...clip, effects };
   });
   return changed ? { ...project, clips } : project;
 }
+
+/** One clip, or several (one pass over the clips, however many there are). */
+export type ClipIds = string | ReadonlySet<string>;
 
 /**
  * Set parameters of one of a clip's effects (invalid values are clamped or
@@ -473,7 +480,7 @@ export function updateEffect(
  */
 export function setParams(
   project: Project,
-  clipId: string,
+  clipId: ClipIds,
   effectId: string,
   patch: ParamValues,
   time?: number,
@@ -509,7 +516,7 @@ export function setEffectEnabled(project: Project, clipId: string, effectId: str
  * animated one gets a keyframe of its default at source time `time` instead,
  * when given (like Premiere's reset); otherwise its keyframes are dropped.
  */
-export function resetParams(project: Project, clipId: string, effectId: string, keys?: string[], time?: number): Project {
+export function resetParams(project: Project, clipId: ClipIds, effectId: string, keys?: string[], time?: number): Project {
   return updateEffect(project, clipId, effectId, (effect, def) => {
     const reset = def.params.filter((p) => !keys || keys.includes(p.key));
     let params = effect.params;

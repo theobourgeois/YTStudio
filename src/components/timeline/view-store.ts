@@ -58,6 +58,8 @@ interface TimelineViewState {
   /** The clip a video effect being dragged would be added to. */
   effectDrop: string | null;
   scrubbing: boolean;
+  /** The clip being pressed (moved or trimmed): it stays rendered even if it leaves the visible window. */
+  heldClipId: string | null;
 }
 
 const NONE: never[] = [];
@@ -73,6 +75,7 @@ export const useTimelineView = create<TimelineViewState>(() => ({
   transitionDrop: null,
   effectDrop: null,
   scrubbing: false,
+  heldClipId: null,
 }));
 
 export function setView(patch: Partial<TimelineViewState>) {

@@ -52,13 +52,48 @@ export function getTrack(project: Project, trackId: string): Track | undefined {
   return project.tracks.find((t) => t.id === trackId);
 }
 
+/** One clip by id. For many lookups on the same project, use `clipsById`. */
 export function getClip(project: Project, clipId: string): Clip | undefined {
   return project.clips.find((c) => c.id === clipId);
 }
 
-/** Clips on a track, sorted by start time (stable). */
-export function trackClips(project: Project, trackId: string): Clip[] {
-  return project.clips.filter((c) => c.trackId === trackId).sort((a, b) => a.start - b.start);
+/**
+ * `derive(project)` computed once per clip list and then reused, for queries
+ * that read nothing but `project.clips`. Edits never change a `clips` array
+ * in place (they make a new one), so a list's result stays valid for as long
+ * as the list exists. The result is shared: treat it as read-only.
+ */
+export function perClipList<T>(derive: (project: Project) => T): (project: Project) => T {
+  const cache = new WeakMap<readonly Clip[], T>();
+  return (project) => {
+    let value = cache.get(project.clips);
+    if (value === undefined) {
+      value = derive(project);
+      cache.set(project.clips, value);
+    }
+    return value;
+  };
+}
+
+/** Every clip by id. */
+export const clipsById = perClipList(({ clips }): ReadonlyMap<string, Clip> => new Map(clips.map((c) => [c.id, c])));
+
+const clipsByTrack = perClipList(({ clips }) => {
+  const byTrack = new Map<string, Clip[]>();
+  for (const c of clips) {
+    const list = byTrack.get(c.trackId);
+    if (list) list.push(c);
+    else byTrack.set(c.trackId, [c]);
+  }
+  for (const list of byTrack.values()) list.sort((a, b) => a.start - b.start);
+  return byTrack as ReadonlyMap<string, readonly Clip[]>;
+});
+
+const NO_CLIPS: readonly Clip[] = [];
+
+/** Clips on a track, sorted by start time (stable). Shared between callers: don't change it. */
+export function trackClips(project: Project, trackId: string): readonly Clip[] {
+  return clipsByTrack(project).get(trackId) ?? NO_CLIPS;
 }
 
 /** Video tracks in display order: the first one is drawn on top of the others. */
@@ -91,9 +126,17 @@ export function withoutAudioTracks(project: Project): Project {
 
 /** The clip on `trackId` covering `time` (start inclusive, end exclusive). */
 export function clipAtTime(project: Project, trackId: string, time: number): Clip | undefined {
-  return project.clips.find(
-    (c) => c.trackId === trackId && time >= c.start - EPS && time < clipEnd(c) - EPS,
-  );
+  // Clips on a track never overlap, so they're sorted by end too: find the first one ending after `time`.
+  const clips = trackClips(project, trackId);
+  let lo = 0;
+  let hi = clips.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (time < clipEnd(clips[mid]) - EPS) hi = mid;
+    else lo = mid + 1;
+  }
+  const clip = clips[lo];
+  return clip && time >= clip.start - EPS ? clip : undefined;
 }
 
 /** Every clip covering `time`, on any track. */
@@ -164,27 +207,65 @@ export function isFree(
  * `clips` without overlapping any of them (and not before 0).
  */
 export function findFreeStart(
-  clips: Clip[],
+  clips: readonly Clip[],
   desired: number,
   duration: number,
   excludeId?: string,
 ): number {
-  const others = clips.filter((c) => c.id !== excludeId);
-  const fits = (s: number) =>
-    s >= -EPS &&
-    others.every((o) => s + duration <= o.start + EPS || s >= clipEnd(o) - EPS);
-  const candidates = [
-    Math.max(0, desired),
-    ...others.map(clipEnd),
-    ...others.map((o) => o.start - duration),
-  ];
-  let best = Infinity;
-  for (const s of candidates) {
-    if (fits(s) && Math.abs(s - desired) < Math.abs(best - desired)) best = s;
+  // A start inside (o.start - duration, end of o) overlaps o.
+  const blocked: Span[] = [];
+  for (const o of clips) if (o.id !== excludeId) blocked.push([o.start - duration, clipEnd(o)]);
+  return roundTime(Math.max(0, nearestFree(blocked, Math.max(0, desired), 0)));
+}
+
+/** An open interval (from, to) of values that aren't allowed. */
+type Span = [number, number];
+
+/**
+ * The value nearest `want` that's at least `min` and not inside any of the
+ * `blocked` intervals. Touching an interval's end is allowed (with EPS of
+ * slack), so the answer is `want` itself, `min` or the end of a run of
+ * blocked intervals. Ties go to the later value. Sorts `blocked` in place.
+ *
+ * This is how a clip finds where it fits among its neighbours: sorting the
+ * intervals makes it O(n log n), where trying every neighbour's edge against
+ * every neighbour was O(n²) (and O(n²k²) for k clips moving together).
+ */
+function nearestFree(blocked: Span[], want: number, min: number): number {
+  blocked.sort((a, b) => a[0] - b[0]);
+  // Merge intervals into runs, joining two only when they overlap by more than EPS:
+  // the ends of runs are then exactly the edges where something fits.
+  const runs: Span[] = [];
+  for (const [from, to] of blocked) {
+    if (to - from <= 2 * EPS) continue; // blocks nothing
+    const last = runs.at(-1);
+    if (last && from < last[1] - EPS) last[1] = Math.max(last[1], to);
+    else runs.push([from, to]);
   }
-  // Unreachable in practice (the end of the last clip always fits), but be safe.
-  if (!Number.isFinite(best)) best = Math.max(0, ...others.map(clipEnd));
-  return roundTime(Math.max(0, best));
+  const fits = (x: number) => {
+    if (x < min - EPS) return false;
+    // The last run starting before x is the only one that can contain it.
+    let lo = 0;
+    let hi = runs.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (runs[mid][0] + EPS < x) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo === 0 || x >= runs[lo - 1][1] - EPS;
+  };
+  if (fits(want)) return want;
+  // After every run (and at least `min`) always fits.
+  let best = Math.max(min, runs.at(-1)?.[1] ?? min);
+  const consider = (x: number) => {
+    if (Math.abs(x - want) < Math.abs(best - want) - EPS && fits(x)) best = x;
+  };
+  consider(min);
+  for (let i = runs.length - 1; i >= 0; i--) {
+    consider(runs[i][1]);
+    consider(runs[i][0]);
+  }
+  return best;
 }
 
 /** Sorted, de-duplicated edit points (clip starts and ends) plus 0. */
@@ -291,35 +372,15 @@ export function moveClips(
     .map((c) => ({ clip: c, trackId: trackFor(c) }));
   if (moving.length === 0 || moving.some((m) => !getTrack(project, m.trackId))) return project;
 
-  const obstacles = new Map<string, Clip[]>();
-  for (const { trackId } of moving) {
-    if (!obstacles.has(trackId)) {
-      obstacles.set(trackId, project.clips.filter((c) => c.trackId === trackId && !ids.has(c.id)));
+  // A delta inside (o.start - end, o's end - start) makes that moving clip overlap obstacle o.
+  const blocked: Span[] = [];
+  for (const { clip, trackId } of moving) {
+    for (const o of trackClips(project, trackId)) {
+      if (!ids.has(o.id)) blocked.push([o.start - clipEnd(clip), clipEnd(o) - clip.start]);
     }
   }
   const minStart = Math.min(...moving.map((m) => m.clip.start));
-  const fits = (d: number) =>
-    minStart + d >= -EPS &&
-    moving.every(({ clip, trackId }) => {
-      const s = clip.start + d;
-      const e = clipEnd(clip) + d;
-      return obstacles.get(trackId)!.every((o) => e <= o.start + EPS || s >= clipEnd(o) - EPS);
-    });
-
-  // Candidate deltas: as asked, clamped at 0, and every "just touching an obstacle" position.
-  const candidates = [delta, -minStart];
-  let afterAll = -minStart;
-  for (const { clip, trackId } of moving) {
-    for (const o of obstacles.get(trackId)!) {
-      candidates.push(clipEnd(o) - clip.start, o.start - clipEnd(clip));
-      afterAll = Math.max(afterAll, clipEnd(o) - clip.start);
-    }
-  }
-  candidates.push(afterAll); // always fits
-  let best = afterAll;
-  for (const d of candidates) {
-    if (fits(d) && Math.abs(d - delta) < Math.abs(best - delta) - EPS) best = d;
-  }
+  const best = nearestFree(blocked, delta, -minStart);
 
   const updated = new Map<string, Clip>();
   for (const { clip, trackId } of moving) {

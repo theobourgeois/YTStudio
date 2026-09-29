@@ -24,7 +24,7 @@ import { CLIP_INSET_Y, TRIM_THRESHOLD_PX } from "./constants";
 import { type TimelineContextValue, useTimelineContext } from "./context";
 import type { LaneLayout } from "./geometry";
 import { startPointerSession } from "./pointer-session";
-import { useTimelineView } from "./view-store";
+import { useTimelineView, useVisibleWindow } from "./view-store";
 
 /** Narrowest a marker is drawn, so short transitions stay clickable. */
 const MIN_WIDTH = 14;
@@ -32,12 +32,16 @@ const MIN_WIDTH = 14;
 export function TransitionMarkers({ lanes, zoom }: { lanes: LaneLayout[]; zoom: number }) {
   const project = useEditor((s) => s.project);
   const selected = useEditor((s) => s.selectedTransition);
+  const [x0, x1] = useVisibleWindow();
   const laneById = new Map(lanes.map((l) => [l.trackId, l]));
   return (
     <>
       {projectTransitions(project).map((w) => {
         const lane = laneById.get(w.trackId);
-        if (!lane) return null;
+        // Like clips, only the ones in view (markers are at least MIN_WIDTH wide around their middle).
+        const mid = ((w.start + w.end) / 2) * zoom;
+        const half = Math.max(MIN_WIDTH, (w.end - w.start) * zoom) / 2;
+        if (!lane || mid + half < x0 || mid - half > x1) return null;
         return <Marker key={refKey(w.ref)} window={w} lane={lane} zoom={zoom} selected={sameRef(w.ref, selected)} />;
       })}
     </>
