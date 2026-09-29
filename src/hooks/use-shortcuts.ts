@@ -5,6 +5,7 @@ import { DEFAULT_TRANSITION } from "@shared/transitions";
 import { deleteSelectedKeyframes } from "@/components/properties/keyframe-lanes";
 import { useKeyframeSelection } from "@/components/properties/keyframe-selection";
 import { timelineCommands } from "@/components/timeline/view-store";
+import { useAssistant } from "@/stores/assistant";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
@@ -86,6 +87,9 @@ function run(action: ShortcutAction): boolean {
   switch (action) {
     case "toggleSidebar":
       useLayout.getState().toggleSidebar();
+      return true;
+    case "toggleAssistant":
+      useAssistant.getState().toggle();
       return true;
     case "showShortcuts":
       useLayout.getState().setShortcutsOpen(true);

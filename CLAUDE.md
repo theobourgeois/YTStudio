@@ -52,6 +52,9 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   captions.ts        Auto captions: presets, words → caption cues (fitting the canvas), transcripts → timeline,
                      edits to every caption at once (style, animation, merge).
   library.ts         The shared Library: folder tree, saved clips (ClipTemplate: normalize, placeTemplate), search.
+  assistant-tools.ts The editor's tools for AI agents (MCP): names, input schemas, descriptions, kind (look/edit/action).
+  assistant.ts       The assistant's chat: messages, ChatEvent + applyChatEvent (server and tab fold the same events),
+                     describeToolCall (a step's label), TabEvent (what the tab's event stream carries).
   math.ts, format.ts, errors.ts   clamp/EPS/roundTime, time formatting, errorMessage.
 server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
@@ -63,6 +66,11 @@ server/
   transcription/     Speech to timed words for Auto captions. service.ts (jobs, cache, time mapping), audio.ts
                      (decode, squeeze out silences, snap words to the sound), engine.ts (the engine interface),
                      whisper-cpp.ts (local, one-click setup), openai.ts (OpenAI + Groq), fake.ts (e2e).
+  assistant/         The assistant. mcp.ts: the MCP server (POST /mcp, stateless JSON-RPC). bridge.ts: relays tool calls
+                     to an editor tab over its event stream and back. claude.ts: runs `claude -p` (stream-json) and
+                     turns its output into ChatEvents. service.ts: one chat per video (saved in data/assistant),
+                     Claude Code status, tool calls -> chat steps. prompt.ts: what agents are told.
+  media-analysis.ts  ffmpeg looks into media: a frame as JPEG, silences + loudness, shot changes (for the assistant).
   config.ts          Every env var is read here and nowhere else.
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
 src/
@@ -86,6 +94,11 @@ src/
                      Media switches between sources: This video | Library | Online (`MediaSource`); Effects between
                      kinds: Video effects | Transitions (`EffectKind`, `KINDS`). Its right edge resizes it (widths
                      in `stores/layout.ts`, one for usual and one while the keyframe lanes show).
+  assistant/         Where agents' tool calls run (in the tab): tools.ts (every tool's handler), edits.ts (the pure
+                     timeline edits, tested), describe.ts (what the model reads: timeline, clips, catalogue...),
+                     frames.ts (Program monitor + media frames), bridge.ts (the tab's event stream), context.ts.
+  stores/assistant.ts  The side panel, the open video's chat, live activity, clip highlights, confirmations, Revert.
+  components/assistant/  The chat panel (right, full height), its steps, Markdown, the header button, the preview pill.
   components/ui/     shadcn/ui (generated; icons adapted to react-icons/pi).
 ```
 
@@ -194,6 +207,13 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 - **A transcription engine** (another API or local model): implement `TranscriptionEngine` (`server/transcription/
   engine.ts`: 16 kHz mono WAV in, timed words out) and add it to `defaultEngines` in `service.ts`, plus its id to
   `TranscriptionEngineId`. Decoding, silence squeezing, time mapping and caching are the service's job.
+- **Any feature (keep the assistant at parity)**: whatever the user can do, the assistant should be able to do too.
+  When you add or change a feature, add or extend a tool in `shared/assistant-tools.ts` (name, a description written
+  for a model, a JSON schema, its `kind`) and its handler in `src/assistant/tools.ts`; TypeScript won't build until
+  every tool has one. An `edit` tool is a pure `(Project, input, env) => { project, text }` in `src/assistant/edits.ts`
+  (it can then go in a `batch`), with a test in `edits.test.ts`; describe new state in `describe.ts` so the model can
+  see it. Give it a label in `describeToolCall` and an icon in `components/assistant/tool-steps.tsx`. Error messages
+  go to the model: say what's wrong and what to do (which ids exist, which values are allowed).
 - **A left-panel tab**: add it to `LeftPanelTab` (`stores/layout.ts`) and to `TABS` in `workspace/left-panel.tsx`.
   Keep the strip short: a new place to find media is a `MediaSource` (and `SOURCES`), and a new kind of effect
   (video, audio) is an `EffectKind` (and `KINDS`), not a tab.
@@ -222,7 +242,7 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 
 - The timeline works like Premiere/CapCut: free placement with snapping (the magnet toggle), and unlimited video
   tracks created by dropping above the top track. There's **no magnetic main track** and no auto-packing.
-- There's no right-hand inspector. Clip properties are in the left panel's Properties tab. Video settings (aspect ratio
+- There's no right-hand inspector (the right side is only the assistant's chat). Clip properties are in the left panel's Properties tab. Video settings (aspect ratio
   and fps) are in a header dialog. The canvas is always black.
 - Clicking a media card previews that file in the Program monitor's place (the source monitor).
 
@@ -249,4 +269,9 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   whole ms, and without it every transition pulled the rest of its track a frame early.
 - Saves on unload use `keepalive`, which is capped at about 64 KiB in Chromium, so a very large project may lose its
   last edit if the tab closes mid-debounce.
-- The server binds to 127.0.0.1 only and has no auth. It's a local tool.
+- The server binds to 127.0.0.1 only and has no auth. It's a local tool. `/mcp` also refuses requests with a non-local
+  `Origin` or `Host` (web pages and DNS rebinding).
+- The assistant is the user's own Claude Code (`CLAUDE_PATH`, else found on the PATH), run in `data/assistant/workspace`
+  with `--tools ""` (no shell or files), `--strict-mcp-config` and only the editor's MCP server. Tool calls run in the
+  tab, one at a time; a tab that isn't open can't run them. Edits wait for the user's drag to end.
+- The e2e suite plays Claude Code with `e2e/fake-claude.mjs`: a message's `call <tool> <json>` lines are tool calls.

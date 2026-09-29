@@ -4,9 +4,10 @@
  * anchor point; Shift stretches), drag just outside a corner to rotate, drag
  * the anchor point to move it without moving the picture. Every drag is one
  * undo step. With the Type tool, a click adds a text there; double-clicking
- * a text types into it.
+ * a text types into it. Pinching on a trackpad (or ⌃/⌘-scrolling) over the
+ * monitor scales the selected clip, or the one under the pointer.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { Clip, ParamValue, ParamValues, Vec2 } from "@shared/types";
 import { keyframeTime } from "@shared/animation";
 import { keyframeValue } from "@shared/keyframes";
@@ -42,6 +43,10 @@ type Mode =
 
 const SNAP_PX = 6;
 const ROTATE_STEP = 15;
+/** How fast a pinch scales (per pixel of wheel delta), and when it counts as finished. */
+const PINCH_RATE = 0.01;
+const PINCH_IDLE_MS = 300;
+const MIN_SCALE = 0.01;
 
 /** Handles as fractions of the frame: corners, then edge midpoints. */
 const HANDLES: Vec2[] = [
@@ -67,7 +72,7 @@ function resizeCursor(p: Placement, handle: Vec2): string {
   return RESIZE_CURSORS[Math.round(angle / 45) % 4];
 }
 
-export function TransformOverlay({ canvas }: { canvas: Size }) {
+export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObject<HTMLElement | null> }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const time = usePlayback((s) => s.time);
   const project = useEditor((s) => s.project);
@@ -227,6 +232,62 @@ export function TransformOverlay({ canvas }: { canvas: Size }) {
     if (target !== selected) useEditor.getState().select(target.clip.id);
     startDrag(e, target, { kind: "move" }, "move");
   };
+
+  // Pinch to scale (browsers send a pinch as a wheel event with ctrlKey). One pinch is one undo step.
+  const pinchState = useRef({ onCanvas, selected, canvas, tool });
+  pinchState.current = { onCanvas, selected, canvas, tool };
+  useEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    let pinch: { gesture: EditGesture; clipId: string; scale: number; scaleWidth: number; factor: number; time: number; timer?: ReturnType<typeof setTimeout> } | null = null;
+    const finish = () => {
+      pinch?.gesture.end();
+      pinch = null;
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      // Never the page zoom over the monitor.
+      e.preventDefault();
+      const { onCanvas: clips, selected: current, tool: activeTool } = pinchState.current;
+      if (activeTool !== "select" || (!pinch && useEditor.getState().gestureBase)) return;
+      if (pinch && !pinch.gesture.active) pinch = null;
+      if (!pinch) {
+        const r = rootRef.current?.getBoundingClientRect();
+        const under = r ? clipAtPoint(clips, [e.clientX - r.left, e.clientY - r.top]) : undefined;
+        const target = current ?? under;
+        if (!target) return;
+        if (target !== current) useEditor.getState().select(target.clip.id);
+        usePlayback.getState().pause();
+        const t = target.time;
+        const motion = findEffect(target.clip, MOTION.type);
+        const at = (key: string) => {
+          const keys = motion?.keyframes?.[key];
+          return (keys?.length ? keyframeValue(keys, t) : motion?.params[key]) as number;
+        };
+        const gesture = new EditGesture();
+        gesture.begin();
+        const editTime = keyframeTime(target.clip, usePlayback.getState().time, useEditor.getState().project.settings.fps);
+        pinch = { gesture, clipId: target.clip.id, scale: at("scale") ?? 1, scaleWidth: at("scaleWidth") ?? 1, factor: 1, time: editTime };
+      }
+      const p = pinch;
+      // Scrolling with a mouse wheel moves in bigger steps than a trackpad's pinch.
+      const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      p.factor *= Math.exp(-delta * PINCH_RATE);
+      const scale = Math.max(MIN_SCALE, p.scale * p.factor);
+      const scaleWidth = Math.max(MIN_SCALE, p.scaleWidth * p.factor);
+      p.gesture.apply((proj) => setParams(proj, p.clipId, MOTION.type, { scale, scaleWidth }, p.time));
+      clearTimeout(p.timer);
+      p.timer = setTimeout(finish, PINCH_IDLE_MS);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      if (pinch) {
+        clearTimeout(pinch.timer);
+        finish();
+      }
+    };
+  }, [area]);
 
   const onDoubleClick = (e: ReactMouseEvent) => {
     const target = clipAtPoint(onCanvas, pointAt(e));

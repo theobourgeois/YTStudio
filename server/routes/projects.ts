@@ -1,8 +1,8 @@
 import { Router, json } from "express";
 import type { ProjectStore } from "../projects.ts";
 
-/** `/api/projects`: the project list and each project's document. */
-export function projectRoutes(projects: ProjectStore): Router {
+/** `/api/projects`: the project list and each project's document. `onRemove` cleans up after a deleted one. */
+export function projectRoutes(projects: ProjectStore, onRemove?: (id: string) => Promise<void>): Router {
   const router = Router();
   router.use(json({ limit: "10mb" }));
 
@@ -28,6 +28,7 @@ export function projectRoutes(projects: ProjectStore): Router {
   });
   router.delete("/:id", async (req, res) => {
     await projects.remove(req.params.id);
+    await onRemove?.(req.params.id).catch((err) => console.error(err));
     res.sendStatus(204);
   });
   return router;

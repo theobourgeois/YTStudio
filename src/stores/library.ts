@@ -54,6 +54,8 @@ interface LibraryState {
 
   /** Fetch the Library (once; again after a failure). */
   load: () => Promise<void>;
+  /** Fetch it again (after changes made elsewhere, e.g. by the assistant). */
+  refresh: () => Promise<void>;
   createFolder: (name: string, parentId: string | null) => Promise<LibraryFolder | null>;
   renameFolder: (id: string, name: string) => Promise<void>;
   moveFolder: (id: string, parentId: string | null) => Promise<void>;
@@ -160,6 +162,13 @@ export const useLibrary = create<LibraryState>((set, get) => {
           set({ loadError: errorMessage(err) });
         });
       return loading;
+    },
+
+    async refresh() {
+      const { folders, items, media } = await api.getLibrary();
+      set({ folders, items, assets: media, loaded: true, loadError: null });
+      poll();
+      fixView();
     },
 
     async createFolder(name, parentId) {

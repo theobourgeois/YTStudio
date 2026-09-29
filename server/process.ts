@@ -56,8 +56,17 @@ type StreamingChild = ChildProcessByStdio<Writable | null, Readable | null, Read
  * settles when it exits (rejecting with its stderr tail); an unawaited
  * rejection is not reported as unhandled, since cancelled work never awaits it.
  */
-export function spawnStreaming(argv: string[], stdin: "pipe" | "ignore", stdout: "pipe" | "ignore") {
-  const child = spawn(argv[0], argv.slice(1), { stdio: [stdin, stdout, "pipe"] }) as StreamingChild;
+export function spawnStreaming(
+  argv: string[],
+  stdin: "pipe" | "ignore",
+  stdout: "pipe" | "ignore",
+  opts: { cwd?: string; env?: Record<string, string> } = {},
+) {
+  const child = spawn(argv[0], argv.slice(1), {
+    stdio: [stdin, stdout, "pipe"],
+    cwd: opts.cwd,
+    env: opts.env && { ...process.env, ...opts.env },
+  }) as StreamingChild;
   const stderr = keepStderrTail(child.stderr);
   const done = new Promise<void>((resolve, reject) => {
     child.on("error", (err: NodeJS.ErrnoException) => reject(spawnError(argv[0], err)));
@@ -93,4 +102,17 @@ function summarizeStderr(stderr: string): string {
     .slice(-3)
     .join(" · ")
     .slice(0, 500);
+}
+
+/** The first of `candidates` (commands or paths) that runs with `args`, or null when none does. */
+export async function firstThatRuns(candidates: string[], args: string[]): Promise<string | null> {
+  for (const c of candidates) {
+    try {
+      await run(c, args);
+      return c;
+    } catch {
+      // not there
+    }
+  }
+  return null;
 }

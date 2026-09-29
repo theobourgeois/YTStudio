@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Workspace } from "@/components/workspace/workspace";
 import { usePreventFileNavigation } from "@/hooks/use-prevent-file-navigation";
 import { useShortcuts } from "@/hooks/use-shortcuts";
+import { startAssistantBridge } from "@/assistant/bridge";
 import { useProjects } from "@/stores/projects";
 
 export default function App() {
@@ -16,6 +17,8 @@ export default function App() {
   useEffect(() => {
     void useProjects.getState().init();
   }, []);
+  // Agents (the assistant, or any MCP client) run their tools in this tab.
+  useEffect(() => startAssistantBridge(), []);
   useShortcuts();
   usePreventFileNavigation();
 

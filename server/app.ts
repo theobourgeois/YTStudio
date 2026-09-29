@@ -1,6 +1,11 @@
 import path from "node:path";
 import express, { type ErrorRequestHandler, type Express, type Response } from "express";
 import type { HealthResponse } from "../shared/types.ts";
+import { Bridge } from "./assistant/bridge.ts";
+import { mcpHandler } from "./assistant/mcp.ts";
+import { MCP_INSTRUCTIONS } from "./assistant/prompt.ts";
+import { AssistantService } from "./assistant/service.ts";
+import { config } from "./config.ts";
 import { ExportManager } from "./exports.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import { listFonts } from "./fonts.ts";
@@ -8,6 +13,7 @@ import { LibraryStore } from "./library.ts";
 import { MediaLibrary } from "./media.ts";
 import { migrateLegacyData } from "./migrate.ts";
 import { ProjectStore } from "./projects.ts";
+import { assistantRoutes } from "./routes/assistant.ts";
 import { exportRoutes } from "./routes/exports.ts";
 import { libraryRoutes } from "./routes/library.ts";
 import { mediaRoutes } from "./routes/media.ts";
@@ -26,6 +32,8 @@ export interface AppOptions {
   ytdlpPath?: string;
   /** Transcription engines and where their models live (defaults: the real ones). */
   transcription?: TranscriptionOptions;
+  /** The command that runs Claude Code for the assistant (default: found on this computer). */
+  claudeCommand?: string;
 }
 
 export interface EditorApp {
@@ -48,7 +56,13 @@ function setFileHeaders(res: Response, file: string) {
   res.setHeader("Cache-Control", ext === ".json" ? "no-cache" : "public, max-age=31536000, immutable");
 }
 
-export async function createApp({ dataDir, clientDir, ytdlpPath, transcription: transcriptionOptions }: AppOptions): Promise<EditorApp> {
+export async function createApp({
+  dataDir,
+  clientDir,
+  ytdlpPath,
+  transcription: transcriptionOptions,
+  claudeCommand,
+}: AppOptions): Promise<EditorApp> {
   const paths = new DataPaths(dataDir);
   await paths.init();
   const library = new MediaLibrary(paths);
@@ -64,6 +78,11 @@ export async function createApp({ dataDir, clientDir, ytdlpPath, transcription: 
   const shared = new LibraryStore(paths, libraryMedia, library, (id) => projects.has(id));
   await shared.load();
   const transcription = await TranscriptionService.create(paths, library, transcriptionOptions);
+  // The port Claude Code reaches the MCP server on: the one requests arrive on.
+  let port = config.port;
+  const bridge = new Bridge();
+  const assistant = new AssistantService(paths, bridge, { command: claudeCommand, port: () => port });
+  await assistant.init();
 
   const app = express();
   app.disable("x-powered-by");
@@ -74,12 +93,27 @@ export async function createApp({ dataDir, clientDir, ytdlpPath, transcription: 
     res.json(body);
   });
 
-  app.use("/api/projects", projectRoutes(projects));
+  app.use((req, _res, next) => {
+    port = req.socket.localPort ?? port;
+    next();
+  });
+
+  app.use("/api/projects", projectRoutes(projects, (id) => assistant.remove(id)));
   app.use("/api/media", mediaRoutes(library, projects));
   app.use("/api/web", webRoutes(web, projects));
   app.use("/api/library", libraryRoutes(shared));
   app.use("/api/exports", exportRoutes(exports));
   app.use("/api/transcription", transcriptionRoutes(transcription));
+  app.use("/api/assistant", assistantRoutes(assistant, bridge));
+  app.all(
+    "/mcp",
+    express.json({ limit: "4mb" }),
+    mcpHandler({
+      version: "1",
+      instructions: MCP_INSTRUCTIONS,
+      callTool: (call, query) => assistant.callTool(call, query),
+    }),
+  );
   app.get("/api/fonts", async (_req, res) => {
     res.setHeader("Cache-Control", "no-cache");
     res.json(await listFonts());
@@ -121,6 +155,8 @@ export async function createApp({ dataDir, clientDir, ytdlpPath, transcription: 
       exports.shutdown();
       web.shutdown();
       transcription.shutdown();
+      assistant.shutdown();
+      bridge.shutdown();
     },
   };
 }

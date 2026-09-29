@@ -1,5 +1,6 @@
 import type { IconType } from "react-icons";
 import { PiArrowCounterClockwise, PiArrowUUpLeft, PiArrowUUpRight, PiCheckCircle } from "react-icons/pi";
+import { AssistantButton } from "@/components/assistant/assistant-button";
 import { ExportDialog } from "@/components/export/export-dialog";
 import { SidebarToggle } from "@/components/sidebar/sidebar";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,8 @@ export function Header() {
           <SettleButton />
           <ExportDialog />
         </div>
+        <Separator orientation="vertical" className="mx-1.5 data-[orientation=vertical]:h-5" />
+        <AssistantButton />
       </div>
     </header>
   );

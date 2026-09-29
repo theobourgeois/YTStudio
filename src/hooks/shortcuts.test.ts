@@ -96,6 +96,7 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("z", { metaKey: true, ctrlKey: true }))).toBeNull();
     expect(resolveShortcut(key("b", { metaKey: true, shiftKey: true }))).toBeNull();
     expect(resolveShortcut(key("\\", { metaKey: true }))).toBe("toggleSidebar");
+    expect(resolveShortcut(key("i", { metaKey: true }))).toBe("toggleAssistant");
     expect(resolveShortcut(key("s", { shiftKey: true }))).toBeNull();
     expect(resolveShortcut(key(" ", { shiftKey: true }))).toBeNull();
     expect(resolveShortcut(key("c", { metaKey: true, shiftKey: true }))).toBeNull();

@@ -45,14 +45,15 @@ export function Stage() {
   return (
     <div
       ref={areaRef}
-      className="flex min-h-0 flex-1 items-center justify-center p-6"
+      // Handles reach past the canvas, but not over the other panels (like Premiere's Program monitor).
+      className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-6"
       // A press around the canvas clears the selection, like one on an empty part of it.
       // (The canvas and its handles stop the event, so this only sees presses outside them.)
       onPointerDown={(e) => {
         if (e.button === 0 && !useEditor.getState().gestureBase) useEditor.getState().select(null);
       }}
     >
-      {/* The transform handles live outside the clipped canvas so they can reach past its edges. */}
+      {/* The transform handles live outside the clipped canvas so they can reach past its edges (within the monitor). */}
       <div className="relative" style={size}>
       <div
         data-slot="canvas"
@@ -93,7 +94,7 @@ export function Stage() {
           </div>
         )}
       </div>
-      <TransformOverlay canvas={size} />
+      <TransformOverlay canvas={size} area={areaRef} />
       </div>
     </div>
   );

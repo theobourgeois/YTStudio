@@ -1,11 +1,15 @@
+import type { AssistantModel, ChatSnapshot } from "@shared/assistant";
+import type { ToolResult } from "@shared/assistant-tools";
 import type {
   ApiError,
+  AssistantStatus,
   CreateLibraryFolderRequest,
   CreateProjectRequest,
   ExportJob,
   ExportRequest,
   FontFamily,
   HealthResponse,
+  ImportFileRequest,
   ImportWebMediaRequest,
   Library,
   LibraryEntry,
@@ -16,6 +20,9 @@ import type {
   ProjectSummary,
   SaveClipsToLibraryRequest,
   SaveMediaToLibraryRequest,
+  SceneCuts,
+  SendChatMessageRequest,
+  SoundAnalysis,
   UpdateLibraryFolderRequest,
   UpdateLibraryItemRequest,
   SetUpEngineRequest,
@@ -93,6 +100,19 @@ export const api = {
   listMedia: (projectId: string) =>
     request<MediaAsset[]>(`/api/media?projectId=${encodeURIComponent(projectId)}`),
   getMedia: (id: string) => request<MediaAsset>(`/api/media/${id}`),
+  /** Copy a file on this computer into a project's media. */
+  importFile: (body: ImportFileRequest) =>
+    request<MediaAsset>("/api/media/import-file", { method: "POST", body: JSON.stringify(body) }),
+  /** URL of a media file's frame at source time `t`, `width` px wide (a JPEG). */
+  mediaFrameUrl: (id: string, t: number, width: number) =>
+    `/api/media/${id}/frame?t=${Math.round(t * 1000) / 1000}&w=${Math.round(width)}`,
+  analyseSound: (id: string, opts: { from: number; to: number; threshold: number; min: number }, signal?: AbortSignal) =>
+    request<SoundAnalysis>(
+      `/api/media/${id}/sound?from=${opts.from}&to=${opts.to}&threshold=${opts.threshold}&min=${opts.min}`,
+      { signal },
+    ),
+  detectScenes: (id: string, threshold: number, signal?: AbortSignal) =>
+    request<SceneCuts>(`/api/media/${id}/scenes?threshold=${threshold}`, { signal }),
   deleteMedia: (id: string) => request<void>(`/api/media/${id}`, { method: "DELETE" }),
 
   /** Upload a file with progress (0..1). Resolves with the probed asset. */
@@ -159,6 +179,23 @@ export const api = {
     request<TranscriptionJob>("/api/transcription/jobs", { method: "POST", body: JSON.stringify(req) }),
   getTranscription: (id: string) => request<TranscriptionJob>(`/api/transcription/jobs/${id}`),
   cancelTranscription: (id: string) => request<void>(`/api/transcription/jobs/${id}`, { method: "DELETE" }),
+
+  assistantStatus: () => request<AssistantStatus>("/api/assistant/status"),
+  getChat: (projectId: string) => request<ChatSnapshot>(`/api/assistant/chats/${projectId}`),
+  setChatModel: (projectId: string, model: AssistantModel) =>
+    request<ChatSnapshot>(`/api/assistant/chats/${projectId}`, { method: "PATCH", body: JSON.stringify({ model }) }),
+  sendChatMessage: (projectId: string, body: SendChatMessageRequest) =>
+    request<void>(`/api/assistant/chats/${projectId}/messages`, { method: "POST", body: JSON.stringify(body) }),
+  stopChat: (projectId: string) => request<void>(`/api/assistant/chats/${projectId}/stop`, { method: "POST" }),
+  resetChat: (projectId: string) => request<ChatSnapshot>(`/api/assistant/chats/${projectId}`, { method: "DELETE" }),
+  /** The tab's stream of tool calls and chat updates. */
+  assistantEventsUrl: (tab: string, projectId: string | null) =>
+    `/api/assistant/events?tab=${encodeURIComponent(tab)}&project=${encodeURIComponent(projectId ?? "")}`,
+  focusTab: (tab: string) => request<void>(`/api/assistant/tabs/${encodeURIComponent(tab)}/focus`, { method: "POST" }),
+  postToolResult: (callId: string, tab: string, result: ToolResult) =>
+    request<void>(`/api/assistant/calls/${callId}/result`, { method: "POST", body: JSON.stringify({ tab, result }) }),
+  postToolProgress: (callId: string, tab: string, fraction: number | null, label?: string) =>
+    request<void>(`/api/assistant/calls/${callId}/progress`, { method: "POST", body: JSON.stringify({ tab, fraction, label }) }),
 };
 
 /** POST a file as the raw body, with upload progress (0..1). */

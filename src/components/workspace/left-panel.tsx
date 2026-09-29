@@ -24,6 +24,7 @@ import {
   useLayout,
 } from "@/stores/layout";
 import { useLibrary, viewFolder } from "@/stores/library";
+import { useAssistant } from "@/stores/assistant";
 
 /**
  * The tabs, in order. To add one: add its id to `LeftPanelTab`, then an entry here.
@@ -71,6 +72,7 @@ export function LeftPanel() {
   const clipShown = useEditor((s) => s.selectedClipIds.length > 0 && !s.selectedTransition);
   const mode: PanelWidthMode = tab === "properties" && lanes && clipShown ? "lanes" : "normal";
   const width = useLayout((s) => s.panelWidths[mode]);
+  const assistantWidth = useAssistant((s) => (s.open ? s.width : 0));
   const drop = useFileDrop((files, e) => {
     if (inLibrary) {
       const target = (e.target as Element).closest<HTMLElement>("[data-library-folder]");
@@ -88,7 +90,7 @@ export function LeftPanel() {
     <aside
       className="relative flex shrink-0 flex-col border-r bg-background"
       // The preview keeps some room however wide it's dragged.
-      style={{ width: `min(${width}px, max(${MIN_PANEL_WIDTHS[mode]}px, 100vw - 30rem))` }}
+      style={{ width: `min(${width}px, max(${MIN_PANEL_WIDTHS[mode]}px, 100vw - 30rem - ${assistantWidth}px))` }}
       aria-label="Media"
       {...drop.handlers}
     >

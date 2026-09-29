@@ -1,4 +1,5 @@
 import { PiSpinnerGap } from "react-icons/pi";
+import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { AutoCaptionsDialog } from "@/components/captions/auto-captions-dialog";
 import { Header, SidebarLead } from "@/components/header/header";
 import { SaveToLibraryDialog } from "@/components/library/library-dialogs";
@@ -22,10 +23,16 @@ export function Workspace() {
       <div key={projectId} className="flex min-h-0 flex-1 flex-col">
         <Header />
         <div className="flex min-h-0 flex-1">
-          <LeftPanel />
-          <Preview />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1">
+              <LeftPanel />
+              <Preview />
+            </div>
+            <Timeline />
+          </div>
+          {/* Full height beside the preview and the timeline, so both stay in view while it works. */}
+          <AssistantPanel />
         </div>
-        <Timeline />
         <SaveToLibraryDialog />
         <AutoCaptionsDialog />
       </div>
