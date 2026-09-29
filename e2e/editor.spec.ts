@@ -572,6 +572,61 @@ test("adds text with the Type tool, types into it on the canvas, styles it and e
   await expect(page.getByText(/ready|done|finished/i).first()).toBeVisible({ timeout: 30_000 });
 });
 
+test("auto captions: makes captions from the speech, edits one's words and styles them all", async ({ page }) => {
+  await page.goto("/");
+  type Caption = SavedClip & { caption?: true; transitionIn?: { type: string } };
+  const captions = () =>
+    savedProject(page).then((p) => (p.clips as Caption[]).filter((c) => c.caption).sort((a, b) => a.start - b.start));
+  const words = async () => (await captions()).map((c) => effectParams({ clips: [c] }, c.id, "text")!.text);
+
+  await page.getByRole("button", { name: "Auto captions" }).first().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("radio", { name: "Whole timeline" }).click();
+  await dialog.getByRole("radio", { name: "Yellow" }).click();
+  await dialog.getByRole("radio", { name: "Word" }).click();
+  // The (stand-in) local engine is ready, so there's nothing to set up.
+  await expect(dialog.getByRole("radio", { name: /On this Mac/ })).toHaveAttribute("aria-checked", "true");
+  await dialog.getByRole("button", { name: "Generate captions" }).click();
+  await expect(page.getByText(/Added \d+ captions/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("tab", { name: "Captions" })).toHaveAttribute("aria-selected", "true");
+
+  // One word each, in the Yellow style, popping in, on their own track.
+  await expect.poll(async () => (await words()).slice(0, 3)).toEqual(["This", "is", "a"]);
+  const made = await captions();
+  expect(new Set(made.map((c) => c.trackId)).size).toBe(1);
+  expect(effectParams({ clips: made }, made[0].id, "text")).toMatchObject({ font: "Futura", textCase: "upper" });
+  expect(effectParams({ clips: made }, made[0].id, "appearance")!.fill).toBe("#ffe14d");
+  expect(made.every((c) => c.transitionIn?.type === "pop")).toBe(true);
+  await expect(page.locator(`[data-clip-id="${made[0].id}"]`)).toBeVisible();
+
+  // Editing one caption's words in the transcript.
+  const first = page.getByRole("textbox", { name: /^Caption at/ }).first();
+  await first.fill("Hello");
+  await first.press("Enter");
+  await expect(page.getByRole("textbox", { name: /^Caption at/ }).nth(1)).toBeFocused();
+  await expect.poll(async () => (await words())[0]).toBe("Hello");
+
+  // A style for all of them, keeping each one's words; then no animation.
+  await page.getByRole("radio", { name: "Boxed" }).click();
+  await expect.poll(async () => (await captions()).every((c) => effectParams({ clips: [c] }, c.id, "appearance")!.background === 0.8)).toBe(true);
+  expect((await words()).slice(0, 2)).toEqual(["Hello", "is"]);
+  await page.getByRole("combobox", { name: "Animation" }).click();
+  await page.getByRole("option", { name: "None", exact: true }).click();
+  await expect.poll(async () => (await captions()).some((c) => c.transitionIn)).toBe(false);
+
+  // A caption's own look is in Properties, which points back here.
+  await page.getByTitle("Go to this caption").first().click();
+  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("button", { name: "Edit all captions" }).click();
+  await expect(page.getByRole("tab", { name: "Captions" })).toHaveAttribute("aria-selected", "true");
+
+  // Deleting them all is one undoable step.
+  await page.getByRole("button", { name: "Delete all captions" }).click();
+  await expect(page.getByText("No captions yet")).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await captions()).length).toBe(made.length);
+});
+
 test("settles a video, starts the next one, and unsettles it again", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/p\/[\w-]+$/);

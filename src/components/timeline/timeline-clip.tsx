@@ -1,5 +1,5 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
-import { PiTextT, PiWarning } from "react-icons/pi";
+import { PiSubtitles, PiTextT, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
 import { isTextClip } from "@shared/effects";
 import { clipDuration, clipName } from "@shared/timeline";
@@ -68,7 +68,7 @@ export const TimelineClip = memo(function TimelineClip({
         {!offline && (
           <ClipContent asset={asset} clip={clip} audioLane={audioLane} left={left} width={width} height={height} zoom={zoom} />
         )}
-        {width >= 26 && <ClipLabel offline={offline} text={text} name={clipName(clip, asset)} />}
+        {width >= 26 && <ClipLabel offline={offline} text={text} caption={clip.caption === true} name={clipName(clip, asset)} />}
       </div>
       {selected && !placeholder && (
         <div className="pointer-events-none absolute -inset-px rounded-md ring-2 ring-foreground" />
@@ -143,7 +143,7 @@ function ClipContent({
   return asset.poster ? <PosterStrip poster={asset.poster} /> : null;
 }
 
-function ClipLabel({ offline, text, name }: { offline: boolean; text: boolean; name: string }) {
+function ClipLabel({ offline, text, caption, name }: { offline: boolean; text: boolean; caption: boolean; name: string }) {
   return (
     <div
       className={cn(
@@ -152,7 +152,7 @@ function ClipLabel({ offline, text, name }: { offline: boolean; text: boolean; n
       )}
     >
       {offline && <PiWarning className="size-3 shrink-0" />}
-      {text && <PiTextT className="size-3 shrink-0" />}
+      {text && (caption ? <PiSubtitles className="size-3 shrink-0" /> : <PiTextT className="size-3 shrink-0" />)}
       <span className="truncate">{name}</span>
     </div>
   );

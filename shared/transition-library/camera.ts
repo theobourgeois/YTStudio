@@ -38,6 +38,28 @@ const STRENGTH = {
 
 export const BLURS_AND_ZOOMS: TransitionDefinition[] = [
   {
+    type: "pop",
+    label: "Pop",
+    tags: ["zoom"],
+    duration: 0.25,
+    params: [
+      { kind: "number", key: "size", label: "Start Size", default: 0.5, min: 0, max: 1, scale: 100, unit: "%", step: 1, decimals: 0, slider: true },
+      { kind: "number", key: "bounce", label: "Bounce", default: 1, min: 0, max: 3, step: 0.05, decimals: 2 },
+    ],
+    glsl: `
+// B grows in around its own middle (a caption pops up where it is), overshooting a little; A fades away.
+vec4 transition(vec2 uv) {
+  float t = clamp(progress, 0.0, 1.0);
+  float k = 1.70158 * bounce;
+  float u = t - 1.0;
+  float grow = 1.0 + (k + 1.0) * u * u * u + k * u * u;
+  float s = max(1e-3, mix(size, 1.0, grow));
+  vec4 b = getToColor(toCentre + (uv - toCentre) / s) * smoothstep(0.0, 0.4, t);
+  vec4 a = getFromColor(uv) * (1.0 - smoothstep(0.0, 0.3, t));
+  return b + a * (1.0 - b.a);
+}`,
+  },
+  {
     type: "cross-zoom",
     label: "Cross Zoom",
     tags: ["zoom", "blur"],

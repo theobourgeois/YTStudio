@@ -188,7 +188,9 @@ export function buildRenderArgs(
       cursor = piece.f1;
     }
     gap(totalFrames - cursor);
-    graph.push(`${segments.join("")}concat=n=${segments.length}:v=1:a=0[t${l}]`);
+    // Every segment has an exact number of frames, so number them afresh: timestamps carried over
+    // (a transition's file keeps time in whole ms) drift, and each transition would lose a frame.
+    graph.push(`${segments.join("")}concat=n=${segments.length}:v=1:a=0,setpts=N/(${F}*TB)[t${l}]`);
     graph.push(`${canvas}[t${l}]overlay=x=0:y=0:format=yuv420:eof_action=pass[o${l}]`);
     canvas = `[o${l}]`;
   });

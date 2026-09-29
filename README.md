@@ -40,6 +40,7 @@ progress. Toggle the sidebar with `⌘\`.
 | Text | `T` (or the **T** button under the preview), then click the canvas where the text goes and type; `Esc` when done. Double-click a text to type into it again. Font (any font installed on your computer), style, size, colours, stroke, background box and shadow are in **Properties** |
 | Properties | **Properties** tab (or double-click a clip): drag a blue number sideways to change it (⇧ faster, ⌥ finer), click it to type, ↺ resets |
 | Transitions | **Transitions** tab: drag one onto a cut or a clip's edge, or **+** / `⇧⌘D` for the cut nearest the playhead. Click it on the timeline to select it, drag its edges to change its length, `⌫` removes it |
+| Auto captions | **Captions** under the timeline (or right-click a clip → **Auto captions…**): pick a style, length and animation, **Generate captions**. Edit them all in the **Captions** tab |
 
 ### Transitions
 
@@ -57,6 +58,28 @@ out, the first or last frame is held. On a free edge it plays inside the clip, f
 Transitions are exported with the exact same WebGL shaders as the preview, run in a headless Chromium: Playwright's
 (`pnpm exec playwright install chromium-headless-shell`) or your installed Google Chrome (or set `CHROMIUM_PATH`).
 Exports without transitions don't need it.
+
+### Auto captions
+
+**Captions** (the timeline toolbar, the **Captions** tab, or right-click a clip) listens to the selected clips, or the
+whole timeline, and writes what's said as captions timed to the speech. Choose the language (or let it detect it), a
+style (Clean, Bold, Yellow, Boxed, Rounded, Subtitle), how long each caption is (one word, a few words, a line, two
+lines), an animation (Pop, Fade, Rise, Blur, Glitch or any transition) and whether to keep punctuation. You can close
+the dialog while it works. The captions land on a **Captions** track on top, as one undoable step.
+
+The **Captions** tab edits them all at once: a preset, the animation, and the Text, Appearance and Motion values
+(font, size, case, colours, stroke, box, position...). Below that is the transcript: click a line's time to go to it,
+type to fix its words (`Enter` goes to the next one, `⇧Enter` for a new line), and hover a line to join it with the
+next or delete it. Each caption is a normal text clip, so you can move, trim and split it on the timeline, and change
+one caption's own look in **Properties**.
+
+Transcribing happens on this Mac by default: Whisper large-v3 turbo through [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
+on the GPU, free, private and offline. The first time, **Set up** in the dialog installs whisper.cpp with Homebrew and
+downloads the model (574 MB, into `~/.cache/editor/models`, shared by every checkout). Or pick **OpenAI** or **Groq** and
+paste an API key (checked, then saved in `data/settings.json`, or set `OPENAI_API_KEY` / `GROQ_API_KEY`). Before any
+engine hears the audio, long silences are squeezed out and the word timings are lined up with where the sound actually
+is, so captions don't appear early after a pause. Transcripts are cached per clip, so making the captions again in
+another length or style is instant.
 
 ### Online media (music and clips)
 

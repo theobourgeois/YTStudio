@@ -10,8 +10,10 @@ import { ProjectStore } from "./projects.ts";
 import { exportRoutes } from "./routes/exports.ts";
 import { mediaRoutes } from "./routes/media.ts";
 import { projectRoutes } from "./routes/projects.ts";
+import { transcriptionRoutes } from "./routes/transcription.ts";
 import { webRoutes } from "./routes/web.ts";
 import { DataPaths, HttpError } from "./storage.ts";
+import { type TranscriptionOptions, TranscriptionService } from "./transcription/service.ts";
 import { WebMediaLibrary } from "./web-media.ts";
 
 export interface AppOptions {
@@ -20,6 +22,8 @@ export interface AppOptions {
   clientDir?: string;
   /** yt-dlp binary (defaults to `YTDLP_PATH` or `yt-dlp` on the PATH). */
   ytdlpPath?: string;
+  /** Transcription engines and where their models live (defaults: the real ones). */
+  transcription?: TranscriptionOptions;
 }
 
 export interface EditorApp {
@@ -42,7 +46,7 @@ function setFileHeaders(res: Response, file: string) {
   res.setHeader("Cache-Control", ext === ".json" ? "no-cache" : "public, max-age=31536000, immutable");
 }
 
-export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): Promise<EditorApp> {
+export async function createApp({ dataDir, clientDir, ytdlpPath, transcription: transcriptionOptions }: AppOptions): Promise<EditorApp> {
   const paths = new DataPaths(dataDir);
   await paths.init();
   const library = new MediaLibrary(paths);
@@ -54,6 +58,7 @@ export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): 
   const exports = new ExportManager(paths, library);
   const web = new WebMediaLibrary(paths, library, ytdlpPath);
   await web.load();
+  const transcription = await TranscriptionService.create(paths, library, transcriptionOptions);
 
   const app = express();
   app.disable("x-powered-by");
@@ -68,6 +73,7 @@ export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): 
   app.use("/api/media", mediaRoutes(library, projects));
   app.use("/api/web", webRoutes(web, projects));
   app.use("/api/exports", exportRoutes(exports));
+  app.use("/api/transcription", transcriptionRoutes(transcription));
   app.get("/api/fonts", async (_req, res) => {
     res.setHeader("Cache-Control", "no-cache");
     res.json(await listFonts());
@@ -106,6 +112,7 @@ export async function createApp({ dataDir, clientDir, ytdlpPath }: AppOptions): 
       library.shutdown();
       exports.shutdown();
       web.shutdown();
+      transcription.shutdown();
     },
   };
 }

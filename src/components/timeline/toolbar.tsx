@@ -9,6 +9,7 @@ import {
   PiMusicNotes,
   PiPlus,
   PiScissors,
+  PiSubtitles,
   PiTrash,
 } from "react-icons/pi";
 import { addTrack } from "@shared/timeline";
@@ -25,6 +26,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { cn } from "cn";
+import { useCaptions } from "@/stores/captions";
 import { MAX_ZOOM, MIN_ZOOM, useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { TOOLBAR_HEIGHT } from "./constants";
@@ -43,6 +45,7 @@ export function TimelineToolbar() {
   const gapSelected = useEditor((s) => s.selectedGap !== null);
   const snapping = useEditor((s) => s.snapping);
   const zoom = useEditor((s) => s.zoom);
+  const hasSound = useEditor((s) => s.project.clips.some((c) => s.assets.find((a) => a.id === c.assetId)?.hasAudio));
 
   const editor = useEditor.getState;
 
@@ -117,6 +120,18 @@ export function TimelineToolbar() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <ToolButton
+        label="Auto captions"
+        hint="Turn the speech in your clips into captions"
+        wide
+        disabled={!hasSound}
+        onClick={() => useCaptions.getState().openDialog()}
+        className="px-2 text-xs text-muted-foreground hover:text-foreground"
+      >
+        <PiSubtitles />
+        <span>Captions</span>
+      </ToolButton>
 
       <div className="ml-auto flex items-center gap-1">
         <ToolButton label="Zoom out" shortcut={SHORTCUT_KEYS.zoomOut} hint="or ⌘/Ctrl + scroll" disabled={zoom <= MIN_ZOOM} onClick={() => ctx.zoomTo(zoom / ZOOM_STEP)}>

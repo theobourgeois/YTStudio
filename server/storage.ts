@@ -36,6 +36,10 @@ export class DataPaths {
   get music() {
     return path.join(this.root, "music");
   }
+  /** App settings that aren't part of a project (API keys). */
+  get settingsFile() {
+    return path.join(this.root, "settings.json");
+  }
   /** The single project saved before multi-project support (migrated on startup). */
   get legacyProject() {
     return path.join(this.root, "project.json");
@@ -44,6 +48,10 @@ export class DataPaths {
   mediaDir(id: string) {
     if (!isValidId(id)) throw new HttpError(400, "Invalid media id");
     return path.join(this.media, id);
+  }
+  /** Cached transcripts of a media file (removed with it). */
+  transcriptsDir(mediaId: string) {
+    return path.join(this.mediaDir(mediaId), "transcripts");
   }
   projectDir(id: string) {
     if (!isValidId(id)) throw new HttpError(400, "Invalid project id");

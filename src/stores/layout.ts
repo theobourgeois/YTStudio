@@ -2,8 +2,8 @@ import { create } from "zustand";
 
 const SIDEBAR_KEY = "editor-sidebar-open";
 
-/** The tabs of the left panel: the project's media, online media, transitions, and the selection's properties. */
-export type LeftPanelTab = "media" | "online" | "transitions" | "properties";
+/** The tabs of the left panel: the project's media, online media, transitions, captions, and the selection's properties. */
+export type LeftPanelTab = "media" | "online" | "transitions" | "captions" | "properties";
 
 /** What a press on the canvas does: select and transform clips, or add text (Premiere's Type tool). */
 export type CanvasTool = "select" | "text";

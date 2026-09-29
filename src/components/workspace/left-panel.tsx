@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { PiFileArrowUp } from "react-icons/pi";
+import { CaptionsPanel } from "@/components/captions/captions-panel";
 import { MediaBin } from "@/components/media/media-bin";
 import { importMedia } from "@/components/media/import-media";
 import { OnlinePanel } from "@/components/media/online-panel";
@@ -15,12 +16,13 @@ const TABS: { id: LeftPanelTab; label: string; badge?: () => ReactNode }[] = [
   { id: "media", label: "Media", badge: () => <MediaCount /> },
   { id: "online", label: "Online" },
   { id: "transitions", label: "Transitions" },
+  { id: "captions", label: "Captions" },
   { id: "properties", label: "Properties" },
 ];
 
 /**
- * The left panel: the project's media, online media, transitions, and the
- * selection's properties (Premiere's Effect Controls). Files dropped anywhere
+ * The left panel: the project's media, online media, transitions, captions,
+ * and the selection's properties (Premiere's Effect Controls). Files dropped anywhere
  * on it are imported.
  */
 export function LeftPanel() {
@@ -32,9 +34,9 @@ export function LeftPanel() {
   });
 
   return (
-    <aside className="relative flex w-80 shrink-0 flex-col border-r bg-background" aria-label="Media" {...drop.handlers}>
+    <aside className="relative flex w-86 shrink-0 flex-col border-r bg-background" aria-label="Media" {...drop.handlers}>
       <div className="flex h-11 shrink-0 items-center gap-1 border-b pr-2 pl-1.5">
-        <div role="tablist" aria-label="Media sources" className="flex items-center gap-0.5">
+        <div role="tablist" aria-label="Media sources" className="flex items-center">
           {TABS.map((t) => (
             <TabButton key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>
               {t.label}
@@ -48,6 +50,7 @@ export function LeftPanel() {
       {/* Always mounted: it keeps its search results and preview player while hidden. */}
       <OnlinePanel active={tab === "online"} />
       {tab === "transitions" && <TransitionsPanel />}
+      {tab === "captions" && <CaptionsPanel />}
       {tab === "properties" && <PropertiesPanel />}
 
       {drop.active && (
@@ -74,7 +77,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors outline-none",
+        "flex h-7 items-center gap-1 rounded-md px-1.5 text-[13px] font-medium whitespace-nowrap transition-colors outline-none",
         "focus-visible:ring-2 focus-visible:ring-ring/50",
         active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
       )}

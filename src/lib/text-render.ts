@@ -13,7 +13,7 @@
  * All lengths are canvas px; `unit` is canvas px per reference px (the style's
  * sizes are px of the canvas at 1080p).
  */
-import type { TextStyle } from "@shared/effects";
+import { type TextStyle, applyTextCase } from "@shared/effects";
 import { outputSize } from "@shared/timeline";
 import type { AspectRatio, FontStyleInfo } from "@shared/types";
 import { resolveFace } from "@/stores/fonts";
@@ -96,7 +96,7 @@ function measure(style: TextStyle, unit: number, face: FontStyleInfo): TextLayou
     fontPx,
     letterSpacing: (style.tracking / 1000) * fontPx,
   };
-  const texts = style.text.split("\n");
+  const texts = applyTextCase(style.text, style.textCase).split("\n");
   const ctx = measureContext();
   const spacingByHand = ctx ? !setFont(ctx, base) : true;
 

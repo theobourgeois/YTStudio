@@ -89,6 +89,7 @@ export function normalizeProject(
     const transitionOut = kind === "video" ? sanitizeTransition(c.transitionOut) : undefined;
     if (transitionIn) clip.transitionIn = transitionIn;
     if (transitionOut) clip.transitionOut = transitionOut;
+    if (text && c.caption === true) clip.caption = true;
     clips.push(clip);
   }
 
