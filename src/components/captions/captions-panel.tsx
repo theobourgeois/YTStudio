@@ -5,7 +5,7 @@
  * each caption's words are edited in place. One caption's own look is in
  * Properties.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PiArrowLineDown, PiSparkle, PiSubtitles, PiTrash } from "react-icons/pi";
 import type { Clip } from "@shared/types";
 import {
@@ -15,9 +15,9 @@ import {
   captionClips,
   captionPreset,
   captionStyleOf,
+  captionsWithNext,
   matchingPreset,
   mergeCaptionWithNext,
-  nextCaption,
   removeCaptions,
   resetCaptionParams,
   setCaptionAnimation,
@@ -95,7 +95,7 @@ function NoCaptions() {
   );
 }
 
-function Captions({ captions }: { captions: Clip[] }) {
+function Captions({ captions }: { captions: readonly Clip[] }) {
   const aspect = useEditor((s) => s.project.settings.aspectRatio);
   const selectedId = useEditor((s) => s.selectedClipIds.at(-1));
   const commit = useEditor((s) => s.commit);
@@ -193,23 +193,29 @@ function Captions({ captions }: { captions: Clip[] }) {
 }
 
 /** Each caption's words, editable in place, with the one playing highlighted. */
-function Transcript({ captions }: { captions: Clip[] }) {
+function Transcript({ captions }: { captions: readonly Clip[] }) {
   const selected = useEditor(useShallow((s) => s.selectedClipIds));
-  const playing = usePlayback((s) => s.playing);
-  const activeId = usePlayback((s) => captions.find((c) => s.time >= c.start - 1e-4 && s.time < clipEnd(c) - 1e-4)?.id ?? null);
+  const withNext = useEditor((s) => captionsWithNext(s.project));
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
   const list = useRef<HTMLOListElement>(null);
 
+  // Keep the caption playing in view. Watched outside React: each row highlights itself, so playback
+  // never re-renders the whole list.
   useEffect(() => {
-    if (!playing || !activeId) return;
-    list.current?.querySelector(`[data-caption="${activeId}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [playing, activeId]);
+    let shown: string | null = null;
+    return usePlayback.subscribe(({ time, playing }) => {
+      const id = playing ? (captions.find((c) => isPlaying(c, time))?.id ?? null) : null;
+      if (id && id !== shown) list.current?.querySelector(`[data-caption="${id}"]`)?.scrollIntoView({ block: "nearest" });
+      shown = id;
+    });
+  }, [captions]);
 
-  const focusRow = (index: number) => {
+  const focusRow = useCallback((index: number) => {
     const el = list.current?.querySelectorAll<HTMLTextAreaElement>("textarea")[index];
     if (!el) return;
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
-  };
+  }, []);
 
   return (
     <section aria-label="Transcript" className="border-b">
@@ -219,9 +225,10 @@ function Transcript({ captions }: { captions: Clip[] }) {
           <CaptionRow
             key={c.id}
             clip={c}
-            active={c.id === activeId}
-            selected={selected.includes(c.id)}
-            onNext={() => focusRow(i + 1)}
+            index={i}
+            selected={selectedSet.has(c.id)}
+            hasNext={withNext.has(c.id)}
+            focusRow={focusRow}
           />
         ))}
       </ol>
@@ -229,9 +236,24 @@ function Transcript({ captions }: { captions: Clip[] }) {
   );
 }
 
-function CaptionRow({ clip, active, selected, onNext }: { clip: Clip; active: boolean; selected: boolean; onNext: () => void }) {
+/** The caption is on screen at `time`. */
+const isPlaying = (clip: Clip, time: number) => time >= clip.start - 1e-4 && time < clipEnd(clip) - 1e-4;
+
+interface CaptionRowProps {
+  clip: Clip;
+  index: number;
+  selected: boolean;
+  /** There's a caption right after it to join it with. */
+  hasNext: boolean;
+  focusRow: (index: number) => void;
+}
+
+// Memoised: a long transcript re-renders only the rows that changed.
+const CaptionRow = memo(function CaptionRow({ clip, index, selected, hasNext, focusRow }: CaptionRowProps) {
   const text = String(findEffect(clip, TEXT.type)?.params.text ?? "");
-  const hasNext = useEditor((s) => !!nextCaption(s.project, clip.id));
+  const active = usePlayback((s) => isPlaying(clip, s.time));
+  // The row's actions (and their tooltips) only exist while it's hovered: cheaper for long transcripts.
+  const [hovered, setHovered] = useState(false);
   const [gesture] = useState(() => new EditGesture());
   useEffect(() => () => gesture.end(), [gesture]);
   const lines = useMemo(() => Math.min(4, text.split("\n").length), [text]);
@@ -245,8 +267,11 @@ function CaptionRow({ clip, active, selected, onNext }: { clip: Clip; active: bo
   return (
     <li
       data-caption={clip.id}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
       className={cn(
-        "group relative flex items-start gap-2 px-3 py-1 transition-colors",
+        // Rows off screen skip layout and paint (a transcript can have thousands).
+        "group relative flex items-start gap-2 px-3 py-1 transition-colors [contain-intrinsic-size:auto_32px] [content-visibility:auto]",
         active && "bg-brand/10",
         selected && "bg-accent/70",
       )}
@@ -277,25 +302,27 @@ function CaptionRow({ clip, active, selected, onNext }: { clip: Clip; active: bo
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             gesture.end();
-            onNext();
+            focusRow(index + 1);
           }
           if (e.key === "Escape") e.currentTarget.blur();
         }}
         className="min-w-0 flex-1 resize-none rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[13px] leading-snug outline-none hover:border-border focus:border-border focus:bg-background"
       />
-      <div className="absolute top-1 right-2 hidden items-center gap-0.5 rounded-md bg-popover shadow-sm ring-1 ring-border group-hover:flex">
-        {hasNext && (
-          <RowAction label="Join with the next caption" onClick={() => commit((p) => mergeCaptionWithNext(p, clip.id))}>
-            <PiArrowLineDown />
+      {hovered && (
+        <div className="absolute top-1 right-2 hidden items-center gap-0.5 rounded-md bg-popover shadow-sm ring-1 ring-border group-hover:flex">
+          {hasNext && (
+            <RowAction label="Join with the next caption" onClick={() => commit((p) => mergeCaptionWithNext(p, clip.id))}>
+              <PiArrowLineDown />
+            </RowAction>
+          )}
+          <RowAction label="Delete caption" onClick={() => commit((p) => removeClips(p, [clip.id]))}>
+            <PiTrash />
           </RowAction>
-        )}
-        <RowAction label="Delete caption" onClick={() => commit((p) => removeClips(p, [clip.id]))}>
-          <PiTrash />
-        </RowAction>
-      </div>
+        </div>
+      )}
     </li>
   );
-}
+});
 
 function RowAction({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (

@@ -15,6 +15,7 @@ pnpm test:e2e     # Playwright on :5320/5321 with a throwaway e2e/.data (serial,
 pnpm samples      # test media into ./samples
 pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + check transitions
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
+pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
 ```
 
 **Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.
@@ -147,6 +148,24 @@ extension** (Node ESM through tsx).
   editor store.
 - Store subscriptions: select the narrowest value possible. Use `useShallow` for derived arrays, maps or objects.
   Never subscribe to all of `project` in something that renders during drags or playback.
+
+## Performance (edits with thousands of clips)
+
+Auto captions make hundreds of clips, so everything must scale with the clip count. Check with `scripts/perf.ts`.
+- Nothing ever changes a `clips` array or a clip in place, so queries are cached per clip list (`perClipList` in
+  `shared/timeline.ts`): `trackClips` (sorted, shared: don't mutate it), `clipsById`, `captionClips`. Add new
+  whole-project queries the same way instead of filtering/sorting `project.clips` in a hot path.
+- No O(n²): no per-clip `find` inside a loop over clips, and no `reduce` of one-clip edits (each copies the list).
+  Batch them in one pass, as `setParams`/`updateEffect` do with a set of ids (`ClipIds`). Placement
+  (`findFreeStart`, `moveClips`) sorts blocked intervals (`nearestFree`) rather than trying every edge.
+- Store selectors run on **every** store update (each pointer move of a drag), so they must be cheap. Anything
+  computed from the project belongs in a cached query, not in a per-row selector.
+- The timeline renders only the clips in its visible window (`useVisibleWindow`) plus the one being pressed
+  (`heldClipId`). Don't rely on off-screen clips being in the DOM. The same goes for transition markers.
+- Long lists (the transcript) memoise their rows; each row subscribes to its own state (e.g. whether it's playing),
+  so playback never re-renders the whole list.
+- The preview uses a fixed number of media elements: an A/B pair per video track and per audio track, whatever
+  the clip count.
 
 ## How to add…
 

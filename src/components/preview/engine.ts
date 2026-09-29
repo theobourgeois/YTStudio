@@ -13,7 +13,7 @@ import { useFonts } from "@/stores/fonts";
 import { usePlayback } from "@/stores/playback";
 import { ImageSlot, MediaSlot } from "./media-slot";
 import { placeOnCanvas } from "./placement";
-import { type SlotIds, assignSlots, planAudio } from "./sync";
+import { type SlotIds, assignSlots } from "./sync";
 
 /**
  * The hidden elements that decode one video track's pictures: an A/B pair
@@ -26,6 +26,12 @@ interface VideoLayer {
   images: [ImageSlot | null, ImageSlot | null];
   imageIds: SlotIds;
   texts: [TextSlot | null, TextSlot | null];
+}
+
+/** The hidden pair of elements that play one audio track (see `VideoLayer`). */
+interface AudioLayer {
+  slots: [MediaSlot | null, MediaSlot | null];
+  ids: SlotIds;
 }
 
 type ClipKind = "video" | "image" | "text";
@@ -58,14 +64,16 @@ type Layer = { kind: "picture"; picture: Picture } | { kind: "transition"; plan:
  *   bottom first over the black canvas.
  * - While a transition plays, both of its clips play (past their edges into
  *   their media's handles if need be, silent outside the clip itself).
- * - Each audio-track clip has its own <audio> element, played only while the
- *   playhead is inside the clip and parked on its in-point before that.
+ * - Each audio track has an A/B pair of <audio> elements too: one plays the
+ *   clip under the playhead, the other is parked on the next clip's in-point.
+ *   (A pair per track, not an element per clip, so a voiceover cut into
+ *   hundreds of pieces doesn't load its file hundreds of times.)
  * - Frames are drawn on every clock tick while playing, and otherwise when
  *   anything changes, including a video presenting a new frame after a seek.
  */
 export class PreviewEngine {
   private layers = new Map<string, VideoLayer>();
-  private audio = new Map<string, MediaSlot>();
+  private audio = new Map<string, AudioLayer>();
   private unsubscribe: (() => void) | null = null;
   private offline = false;
   private indexedAssets: MediaAsset[] | null = null;
@@ -105,7 +113,7 @@ export class PreviewEngine {
     this.unsubscribe?.();
     this.unsubscribe = null;
     for (const layer of this.layers.values()) for (const slot of layer.videos) slot?.pause();
-    for (const slot of this.audio.values()) slot.pause();
+    for (const layer of this.audio.values()) for (const slot of layer.slots) slot?.pause();
   }
 
   /** The canvas size in CSS px. */
@@ -190,13 +198,19 @@ export class PreviewEngine {
     };
   }
 
-  attachAudio(clipId: string, el: HTMLAudioElement) {
+  attachAudio(trackId: string, index: 0 | 1, el: HTMLAudioElement) {
     const slot = new MediaSlot(el, this.update);
-    this.audio.set(clipId, slot);
+    let layer = this.audio.get(trackId);
+    if (!layer) this.audio.set(trackId, (layer = { slots: [null, null], ids: [null, null] }));
+    layer.slots[index] = slot;
+    layer.ids = withId(layer.ids, index, null);
     this.update();
     return () => {
       slot.dispose();
-      if (this.audio.get(clipId) === slot) this.audio.delete(clipId);
+      if (layer.slots[index] !== slot) return;
+      layer.slots[index] = null;
+      layer.ids = withId(layer.ids, index, null);
+      if (!layer.slots.some(Boolean) && this.audio.get(trackId) === layer) this.audio.delete(trackId);
     };
   }
 
@@ -323,22 +337,33 @@ export class PreviewEngine {
 
     this.draw(project, drawn);
 
-    // Audio tracks: one element per clip.
-    const planned = new Set<string>();
-    for (const { clip, active, time: target } of planAudio(project, time)) {
-      const slot = this.audio.get(clip.id);
-      if (!slot) continue;
-      planned.add(clip.id);
-      const src = this.srcOf(clip);
-      slot.setSrc(src);
-      slot.setAudio(volumeAt(clip, target ?? clip.in), trackMuted.get(clip.trackId) ?? false);
-      if (target === null) slot.pause();
-      else if (active && playing) slot.follow(target);
-      else slot.hold(target);
-      if (active) offline ||= src === null || slot.failed;
+    // Audio tracks: the pair plays the clip under the playhead and parks the next one on its in-point.
+    for (const track of project.tracks) {
+      const layer = track.kind === "audio" ? this.audio.get(track.id) : undefined;
+      if (!layer) continue;
+      const { current, next } = planTrack(project, track.id, time);
+      layer.ids = assignSlots(layer.ids, current?.clip.id ?? null, next?.id ?? null);
+      layer.slots.forEach((slot, i) => {
+        if (!slot) return;
+        const id = layer.ids[i];
+        if (current && id === current.clip.id) {
+          const src = this.srcOf(current.clip);
+          slot.setSrc(src);
+          slot.setAudio(volumeAt(current.clip, current.time), track.muted);
+          if (playing) slot.follow(current.time);
+          else slot.hold(current.time);
+          offline ||= src === null || slot.failed;
+          return;
+        }
+        slot.setAudio(1, true);
+        if (next && id === next.id) {
+          slot.setSrc(this.srcOf(next));
+          slot.hold(next.in);
+        } else {
+          slot.pause();
+        }
+      });
     }
-    // Elements whose clip was just deleted (React unmounts them right after).
-    for (const [id, slot] of this.audio) if (!planned.has(id)) slot.pause();
 
     if (offline !== this.offline) {
       this.offline = offline;

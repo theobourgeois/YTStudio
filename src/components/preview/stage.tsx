@@ -12,11 +12,8 @@ import { TransformOverlay } from "./transform-overlay";
 export function Stage() {
   const aspectRatio = useEditor((s) => s.project.settings.aspectRatio);
   const isEmpty = useEditor((s) => s.project.clips.length === 0);
-  const audioClipIds = useEditor(
-    useShallow((s) => {
-      const audio = new Set(s.project.tracks.filter((t) => t.kind === "audio").map((t) => t.id));
-      return s.project.clips.filter((c) => audio.has(c.trackId)).map((c) => c.id);
-    }),
+  const audioTrackIds = useEditor(
+    useShallow((s) => s.project.tracks.filter((t) => t.kind === "audio").map((t) => t.id).sort()),
   );
   // Stable DOM order (moving a media element in the DOM can pause it); the engine draws them in layer order.
   const videoTrackIds = useEditor(useShallow((s) => videoTracks(s.project).map((t) => t.id).sort()));
@@ -65,8 +62,8 @@ export function Stage() {
           <TrackSources key={trackId} trackId={trackId} engine={engine} />
         ))}
         <canvas ref={attachCanvas} data-slot="preview-canvas" className="absolute inset-0 size-full" />
-        {audioClipIds.map((id) => (
-          <AudioSink key={id} clipId={id} engine={engine} />
+        {audioTrackIds.map((trackId) => (
+          <AudioTrackSources key={trackId} trackId={trackId} engine={engine} />
         ))}
 
         {isEmpty && (
@@ -121,7 +118,14 @@ function TrackSources({ trackId, engine }: { trackId: string; engine: PreviewEng
   );
 }
 
-function AudioSink({ clipId, engine }: { clipId: string; engine: PreviewEngine }) {
-  const ref = useCallback((el: HTMLAudioElement) => engine.attachAudio(clipId, el), [engine, clipId]);
-  return <audio ref={ref} preload="auto" />;
+/** One audio track's players: an A/B pair, like a video track's. */
+function AudioTrackSources({ trackId, engine }: { trackId: string; engine: PreviewEngine }) {
+  const audioA = useCallback((el: HTMLAudioElement) => engine.attachAudio(trackId, 0, el), [engine, trackId]);
+  const audioB = useCallback((el: HTMLAudioElement) => engine.attachAudio(trackId, 1, el), [engine, trackId]);
+  return (
+    <>
+      <audio ref={audioA} preload="auto" />
+      <audio ref={audioB} preload="auto" />
+    </>
+  );
 }

@@ -11,8 +11,10 @@ import {
   ASPECT_RATIOS,
   MIN_CLIP_DURATION,
   TRACK_KIND_LABEL,
-  addClip,
+  clipDuration,
+  clipEnd,
   createDefaultProject,
+  findFreeStart,
   sourceRange,
 } from "./timeline.ts";
 import { sanitizeTransition } from "./transitions.ts";
@@ -93,7 +95,7 @@ export function normalizeProject(
     clips.push(clip);
   }
 
-  let project: Project = {
+  const project: Project = {
     version: 1,
     name: typeof input?.name === "string" && input.name ? input.name : base.name,
     settings: {
@@ -106,7 +108,18 @@ export function normalizeProject(
     clips: [],
   };
 
-  // Re-insert clips one by one (in time order) so any overlaps get resolved.
-  for (const c of clips.sort((a, b) => a.start - b.start)) project = addClip(project, c);
-  return project;
+  // Re-insert clips one by one (in time order) so any overlaps get resolved, as `addClip` would.
+  const placed: Clip[] = [];
+  const byTrack = new Map<string, { clips: Clip[]; end: number }>();
+  for (const c of clips.sort((a, b) => a.start - b.start)) {
+    let track = byTrack.get(c.trackId);
+    if (!track) byTrack.set(c.trackId, (track = { clips: [], end: 0 }));
+    // Usually nothing placed so far reaches past its start, so it stays put without a search.
+    const start = c.start >= track.end - EPS ? c.start : findFreeStart(track.clips, c.start, clipDuration(c));
+    const clip = start === c.start ? c : { ...c, start };
+    placed.push(clip);
+    track.clips.push(clip);
+    track.end = Math.max(track.end, clipEnd(clip));
+  }
+  return { ...project, clips: placed };
 }
