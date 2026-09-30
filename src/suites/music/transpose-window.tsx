@@ -34,9 +34,9 @@ export function TransposeWindow() {
   const names = selected.map((c) => c.name).join(", ");
 
   return (
-    <MusicWindow id="transpose" title="Transpose selected" initial={centredOnDesktop(260, 150)} onClose={close}>
+    <MusicWindow id="transpose" title="Transpose selected" initial={centredOnDesktop(296, 150)} onClose={close}>
       <form
-        className="flex w-[260px] flex-col gap-2.5 p-3"
+        className="flex w-[296px] flex-col gap-2.5 p-3"
         onSubmit={(e) => {
           e.preventDefault();
           accept();
@@ -45,7 +45,7 @@ export function TransposeWindow() {
         <p className="truncate text-[11px] text-muted-foreground" title={names}>
           {selected.length ? `${names}: every note in this pattern` : "Select channels in the rack first"}
         </p>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <label htmlFor="transpose-semitones" className="mr-auto text-xs">
             Semitones
           </label>
@@ -58,7 +58,8 @@ export function TransposeWindow() {
           <Input
             id="transpose-semitones"
             autoFocus
-            className="h-7 w-14 text-center font-mono"
+            className="h-7 shrink-0 px-1 text-center font-mono"
+            style={{ width: 52 }}
             value={text}
             aria-invalid={semitones === null}
             onFocus={(e) => e.currentTarget.select()}
