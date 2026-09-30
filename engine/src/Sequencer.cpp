@@ -10,6 +10,8 @@ constexpr float clickGain = 0.3f;
 constexpr double clickSeconds = 0.025;
 /** How long a channel's plugin sounds when it's heard on its own (a click on its button). */
 constexpr double auditionSeconds = 0.4;
+/** The longest a held key sounds if it's never let go (the tab went away mid-press). */
+constexpr double heldSeconds = 30.0;
 /**
  * Ticks (a fraction of a millionth of a sample's worth): a note that falls exactly on the edge of a
  * block must land in one block or the other, not in whichever the rounding of the position picks.
@@ -37,7 +39,22 @@ void Sequencer::setSong (std::unique_ptr<Song> next)
     delete pending.exchange (next.release());
 }
 
-void Sequencer::play() { ++playRequests; }
+void Sequencer::play (double fromTick)
+{
+    playFrom = juce::jmax (0.0, fromTick);
+    ++playRequests;
+}
+
+bool Sequencer::preview (const juce::String& channelId, int key, float velocity, bool on)
+{
+    const auto channel = channelIds.indexOf (channelId);
+    if (channel < 0)
+        return false;
+    const auto scope = triggerQueue.write (1);
+    if (scope.blockSize1 > 0)
+        triggers[(size_t) scope.startIndex1] = { channel, (float) (key - 60), velocity * velocity / (0.78f * 0.78f), on ? Trigger::Kind::hold : Trigger::Kind::release, key, velocity };
+    return true;
+}
 void Sequencer::stop() { ++stopRequests; }
 
 bool Sequencer::trigger (const juce::String& channelId, float pitch, float gain)
@@ -123,7 +140,7 @@ void Sequencer::process (float* left, float* right, int numSamples)
         if (! playing)
         {
             playing = true;
-            position_ = 0;
+            position_ = song != nullptr ? std::fmod (playFrom.load(), song->loopTicks) : 0;
         }
     }
 
@@ -146,8 +163,23 @@ void Sequencer::process (float* left, float* right, int numSamples)
         for (int i = 0; i < scope.blockSize1 + scope.blockSize2; ++i)
         {
             const auto& trigger = triggers[(size_t) (i < scope.blockSize1 ? scope.startIndex1 + i : scope.startIndex2 + i - scope.blockSize1)];
-            if (trigger.channel >= 0 && trigger.channel < (int) song->channels.size() && song->channels[(size_t) trigger.channel].plugin != nullptr)
-                startNote (*song->channels[(size_t) trigger.channel].plugin, juce::jlimit (0, 127, 60 + (int) std::round (trigger.pitch)), 0.78f, (juce::int64) (auditionSeconds * sampleRate), 0);
+            if (trigger.channel < 0 || trigger.channel >= (int) song->channels.size())
+                continue;
+            auto* plugin = song->channels[(size_t) trigger.channel].plugin.get();
+            if (trigger.kind == Trigger::Kind::release)
+            {
+                // Let the key go: its note ends in this block. (A sampler's note plays itself out.)
+                if (plugin != nullptr)
+                    for (int n = 0; n < plugin->numPending; ++n)
+                        if (plugin->pending[(size_t) n].key == trigger.key)
+                            plugin->pending[(size_t) n].left = 0;
+            }
+            else if (plugin != nullptr)
+            {
+                const auto held = trigger.kind == Trigger::Kind::hold;
+                startNote (*plugin, held ? trigger.key : juce::jlimit (0, 127, 60 + (int) std::round (trigger.pitch)), held ? trigger.velocity : 0.78f,
+                           (juce::int64) ((held ? heldSeconds : auditionSeconds) * sampleRate), 0);
+            }
             else
                 startVoice (trigger.channel, trigger.pitch, trigger.gain, -1, 0);
         }
@@ -200,7 +232,7 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
     {
         const auto& channel = song->channels[(size_t) note->channel];
         if (! channel.isPlugin)
-            startVoice (note->channel, note->pitch, note->gain, note->length, at (note->tick));
+            startVoice (note->channel, note->pitch, note->gain, note->length, at (note->tick), note->pan);
         else if (channel.plugin != nullptr)
             startNote (*channel.plugin, note->key, note->velocity, (juce::int64) (note->length / ticksPerSample), at (note->tick));
     }
@@ -213,7 +245,7 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
         }
 }
 
-void Sequencer::startVoice (int channelIndex, float pitch, float gain, double lengthTicks, int delay)
+void Sequencer::startVoice (int channelIndex, float pitch, float gain, double lengthTicks, int delay, float pan)
 {
     if (channelIndex < 0 || channelIndex >= (int) song->channels.size())
         return;
@@ -249,6 +281,8 @@ void Sequencer::startVoice (int channelIndex, float pitch, float gain, double le
     voice->baseRate = channel.sample->sampleRate / sampleRate;
     voice->pitch = pitch;
     voice->gain = gain;
+    voice->panLeft = juce::jmin (1.0f, 1.0f - pan);
+    voice->panRight = juce::jmin (1.0f, 1.0f + pan);
     voice->delay = delay;
     voice->age = ++voiceCount;
     voice->level = channel.hasEnvelope && channel.envelope.attack > 0 ? 0.0f : 1.0f;
@@ -264,7 +298,7 @@ void Sequencer::render (Voice& voice, float* left, float* right, int numSamples)
     const auto* sourceRight = audio.getReadPointer (audio.getNumChannels() > 1 ? 1 : 0);
     const auto last = audio.getNumSamples() - 1;
     const auto rate = voice.baseRate * std::pow (2.0, (double) (voice.pitch + channel.pitch) / 12.0);
-    const auto gainLeft = voice.gain * channel.gainLeft, gainRight = voice.gain * channel.gainRight;
+    const auto gainLeft = voice.gain * channel.gainLeft * voice.panLeft, gainRight = voice.gain * channel.gainRight * voice.panRight;
     const auto& envelope = channel.envelope;
     const auto perSecond = (float) (1.0 / sampleRate);
     const auto fadeLength = (float) juce::jmax (1, (int) (fadeSeconds * sampleRate));

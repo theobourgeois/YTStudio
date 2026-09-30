@@ -110,6 +110,18 @@ describe.skipIf(!built)("the audio engine, offline", () => {
     await engine.command("trigger", { channel: "chan_synth" });
     expect((await engine.render(SECOND / 4)).peak).toBeGreaterThan(0.05);
 
+    // A key held (the Piano roll's keyboard): it sounds until it's let go.
+    await engine.render(SECOND);
+    await engine.command("preview", { channel: "chan_synth", key: 67, on: true });
+    expect((await engine.render(SECOND)).peak).toBeGreaterThan(0.05);
+    const held = path.join(dir, "held.wav");
+    await engine.render(SECOND, held);
+    expect(peakOf((await readWav(held)).channels[0], SECOND * 0.9)).toBeGreaterThan(0.05);
+    await engine.command("preview", { channel: "chan_synth", key: 67, on: false });
+    await engine.render(SECOND);
+    expect((await engine.render(SECOND / 4)).peak).toBe(0);
+    await expect(engine.command("preview", { channel: "chan_none", key: 60, on: true })).rejects.toMatchObject({ status: 409 });
+
     // Its state is kept beside the project, and the plugin goes when its channel does.
     await engine.saveStates();
     const state = path.join(dir, "projects", project, "plugins", "chan_synth.bin");

@@ -128,6 +128,45 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({ channel, steps: str('The drawing, e.g. "x---x---x---x---".'), pattern }, ["channel", "steps"]),
   }),
   tool({
+    name: "get_notes",
+    title: "Read a channel's notes",
+    kind: "look",
+    description:
+      "A channel's notes in a pattern (what the Piano roll shows): each note's pitch (C5 is middle C, MIDI 60), start and length in " +
+      "sixteenth-note steps from the pattern's start (4 steps are a beat, 16 a bar of 4/4), velocity, pan and whether it's muted.",
+    inputSchema: obj({ channel, pattern }, ["channel"]),
+  }),
+  tool({
+    name: "set_notes",
+    title: "Write a channel's notes",
+    kind: "edit",
+    description:
+      "Write notes for a channel in a pattern (a melody, chords, a bass line): the Piano roll's notes, which any instrument plays. " +
+      'Each note has a pitch ("C5" is middle C; "F#4", "Bb3"; or a MIDI number), a start and a length in sixteenth-note steps from the ' +
+      "pattern's start (fractions allowed: 0.5 is a 32nd), and optionally a velocity (0 to 1, default 0.78). Notes at the same start make a " +
+      'chord. mode "replace" (the default) replaces the channel\'s notes in the pattern; "add" keeps them. The pattern grows to hold them.',
+    inputSchema: obj(
+      {
+        channel,
+        pattern,
+        notes: arr(
+          obj(
+            {
+              pitch: { description: 'A note name ("C5") or a MIDI number (60).', anyOf: [{ type: "string" }, { type: "integer" }] },
+              start: num("Steps from the pattern's start."),
+              length: num("Steps."),
+              velocity: num("0 to 1."),
+            },
+            ["pitch", "start", "length"],
+          ),
+          "The notes.",
+        ),
+        mode: oneOf(["replace", "add"], "Replace the channel's notes (the default), or add to them."),
+      },
+      ["channel", "notes"],
+    ),
+  }),
+  tool({
     name: "edit_step",
     title: "Change a step",
     kind: "edit",

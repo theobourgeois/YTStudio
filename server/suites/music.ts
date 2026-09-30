@@ -24,9 +24,9 @@ tab (unless you're told otherwise), live: the user sees and hears every change a
 
 So far a song is a channel rack and patterns. A channel is a sampler playing one audio file, or an instrument \
 plugin of the user's (a synth, whose sound is set in its own window, not by you); a pattern holds each \
-channel's steps (sixteenth notes) and loops while it plays. There's no piano roll, playlist or mixer yet: a \
-plugin channel can only play steps for now, not a melody. If asked for those, say plainly that the music \
-editor can't do that yet.
+channel's notes and loops while it plays. Drums are usually steps (set_steps: sixteenth notes drawn as text); \
+melodies, chords and bass lines are notes (set_notes, get_notes: the Piano roll's). There's no playlist or \
+mixer yet: if asked for those, say plainly that the music editor can't do that yet.
 
 Start with get_song. To make a beat: add_channel for each sound (the starter kit has kick, clap, hat and \
 snare), then set_steps to draw each channel's steps as text ("x---x---x---x---"). update_song sets the tempo \

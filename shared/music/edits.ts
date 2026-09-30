@@ -16,7 +16,9 @@ import {
   MIN_TEMPO,
   createChannel,
   createPattern,
+  byStart,
   createPluginChannel,
+  nextNoteId,
   patternSteps,
 } from "./project.ts";
 import {
@@ -278,9 +280,16 @@ export function setChannelNotes(song: MusicProject, patternId: string, channelId
   });
 }
 
-const stepNote = (step: number): Note => ({ start: step * STEP_TICKS, length: STEP_TICKS, pitch: ROOT_PITCH, velocity: DEFAULT_VELOCITY });
+const stepNote = (step: number, id: number): Note => ({
+  id,
+  start: step * STEP_TICKS,
+  length: STEP_TICKS,
+  pitch: ROOT_PITCH,
+  velocity: DEFAULT_VELOCITY,
+  pan: 0,
+  muted: false,
+});
 const onStep = (note: Note, step: number) => note.start === step * STEP_TICKS;
-const byStart = (a: Note, b: Note) => a.start - b.start || a.pitch - b.pitch;
 const isStep = (step: number) => Number.isInteger(step) && step >= 0 && step < MAX_STEPS;
 
 /** Switch steps of a channel on or off. Steps already that way are left alone. */
@@ -289,7 +298,8 @@ export function setSteps(song: MusicProject, patternId: string, channelId: strin
     const changing = [...new Set(steps)].filter((s) => isStep(s) && notes.some((n) => onStep(n, s)) !== on);
     if (!changing.length) return notes;
     if (!on) return notes.filter((n) => !changing.some((s) => onStep(n, s)));
-    return [...notes, ...changing.map(stepNote)].sort(byStart);
+    const first = nextNoteId(notes);
+    return [...notes, ...changing.map((step, i) => stepNote(step, first + i))].sort(byStart);
   });
 }
 
@@ -310,7 +320,8 @@ export function drawSteps(song: MusicProject, patternId: string, channelId: stri
       const step = n.start / STEP_TICKS;
       return !Number.isInteger(step) || step >= total || want[step];
     });
-    const added = want.flatMap((on, step) => (on && !isOn(step) ? [stepNote(step)] : []));
+    let id = nextNoteId(notes);
+    const added = want.flatMap((on, step) => (on && !isOn(step) ? [stepNote(step, id++)] : []));
     return [...kept, ...added].sort(byStart);
   });
 }

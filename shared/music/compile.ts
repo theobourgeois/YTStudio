@@ -42,6 +42,14 @@ export interface EngineNote {
   /** For a plugin: the MIDI note, and its velocity (0..1). */
   key: number;
   velocity: number;
+  /** -1 (left) .. 1 (right), on top of the channel's own pan. */
+  pan: number;
+}
+
+/** A part of the pattern to play on its own, in ticks: the Piano roll's time selection. */
+export interface LoopRange {
+  start: number;
+  end: number;
 }
 
 export interface EngineSong {
@@ -50,6 +58,8 @@ export interface EngineSong {
   ppq: number;
   /** The loop's length, in ticks. */
   loopTicks: number;
+  /** Where in the pattern the loop starts (0 unless only a part of it plays): the engine's ticks count from here. */
+  offsetTicks: number;
   /** Ticks per beat and per bar (the metronome). */
   beatTicks: number;
   barTicks: number;
@@ -91,25 +101,33 @@ function engineChannel(channel: Channel): EngineChannel {
   };
 }
 
-/** The song playing `patternId` on a loop (or its first pattern). */
-export function compileSong(song: MusicProject, patternId: string | null): EngineSong {
+/**
+ * The song playing `patternId` on a loop (or its first pattern): the whole pattern, or only `loop`,
+ * a part of it (notes that start in it play; one already sounding when it starts doesn't).
+ */
+export function compileSong(song: MusicProject, patternId: string | null, loop: LoopRange | null = null): EngineSong {
   const pattern = song.patterns.find((p) => p.id === patternId) ?? song.patterns[0];
   const [beats, unit] = song.settings.timeSignature;
   const beatTicks = (PPQ * 4) / unit;
-  const loopTicks = patternSteps(pattern, song.settings.timeSignature) * STEP_TICKS;
+  const patternTicks = patternSteps(pattern, song.settings.timeSignature) * STEP_TICKS;
+  const from = loop && loop.end > loop.start ? Math.max(0, loop.start) : 0;
+  const to = loop && loop.end > loop.start ? loop.end : patternTicks;
+  const loopTicks = to - from;
   const notes: EngineNote[] = [];
   song.channels.forEach((channel, index) => {
     for (const note of pattern.notes[channel.id] ?? []) {
-      // Past a set length: kept in the song, not played.
-      if (note.start >= loopTicks) break;
+      // Past the end (of the loop, or of a set length): kept in the song, not played.
+      if (note.start >= to) break;
+      if (note.start < from || note.muted) continue;
       notes.push({
         channel: index,
-        tick: swungTick(note.start, song.settings.swing),
+        tick: swungTick(note.start, song.settings.swing) - from,
         length: note.length,
         pitch: note.pitch - ROOT_PITCH,
         gain: levelGain(note.velocity, DEFAULT_VELOCITY),
         key: note.pitch,
         velocity: note.velocity,
+        pan: note.pan,
       });
     }
   });
@@ -118,6 +136,7 @@ export function compileSong(song: MusicProject, patternId: string | null): Engin
     tempo: song.settings.tempo,
     ppq: PPQ,
     loopTicks,
+    offsetTicks: from,
     beatTicks,
     barTicks: beatTicks * beats,
     channels: song.channels.map(engineChannel),

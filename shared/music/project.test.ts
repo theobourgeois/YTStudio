@@ -23,7 +23,7 @@ const song: MusicProject = {
     { ...createChannel("Hat", null, "chan_hat"), volume: 0.5, pan: -0.3, pitch: 12, muted: true, envelope: { ...DEFAULT_ENVELOPE, enabled: true } },
   ],
   patterns: [
-    { id: "pat_a", name: "Verse", length: 14, notes: { chan_kick: [{ start: 0, length: 24, pitch: 60, velocity: 0.78 }] } },
+    { id: "pat_a", name: "Verse", length: 14, notes: { chan_kick: [{ id: 3, start: 0, length: 24, pitch: 60, velocity: 0.78, pan: -0.5, muted: true }] } },
     { id: "pat_b", name: "Chorus", length: null, notes: {} },
   ],
 };
@@ -85,7 +85,7 @@ describe("music projects", () => {
           id: "pat_a",
           length: 9000,
           notes: {
-            chan_kick: [{ start: 48.2, velocity: 2 }, { start: 0 }, { start: 512 * 24 }, { start: -1 }, "x"],
+            chan_kick: [{ start: 48.2, velocity: 2 }, { start: 0 }, { start: 1000 * 384 }, { start: -1 }, "x"],
             chan_gone: [{ start: 0 }],
             chan_hat: [],
           },
@@ -104,9 +104,10 @@ describe("music projects", () => {
         name: "Pattern 1",
         length: 512,
         notes: {
+          // Notes without an id are given the next ones, in the order they were in.
           chan_kick: [
-            { start: 0, length: 24, pitch: 60, velocity: 0.78 },
-            { start: 48, length: 24, pitch: 60, velocity: 1 },
+            { id: 2, start: 0, length: 24, pitch: 60, velocity: 0.78, pan: 0, muted: false },
+            { id: 1, start: 48, length: 24, pitch: 60, velocity: 1, pan: 0, muted: false },
           ],
         },
       },
@@ -126,6 +127,15 @@ describe("a pattern's length", () => {
     // A bar of 3/4 is 12 steps.
     const waltz = { ...empty, settings: { ...empty.settings, timeSignature: [3, 4] as [number, number] } };
     expect(steps(setSteps(waltz, FIRST_PATTERN_ID, "chan_kick", [12], true))).toBe(24);
+  });
+
+  it("counts a note to where it ends: one held into the next bar makes the pattern a bar longer", () => {
+    const held = (length: number) => ({ ...empty, patterns: [{ ...empty.patterns[0], notes: { chan_kick: [{ id: 1, start: 360, length, pitch: 60, velocity: 0.78, pan: 0, muted: false }] } }] });
+    expect(steps(held(24))).toBe(16);
+    expect(steps(held(25))).toBe(32);
+    // Ids a song gives twice are given again.
+    const twice = normalizeMusicProject({ ...empty, patterns: [{ id: "pat_1", notes: { chan_kick: [{ id: 4, start: 0 }, { id: 4, start: 24 }, { id: -1, start: 48 }] } }] });
+    expect(twice.patterns[0].notes.chan_kick.map((n) => n.id)).toEqual([4, 5, 6]);
   });
 
   it("is what it's set to otherwise, whatever the notes", () => {

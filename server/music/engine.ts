@@ -111,7 +111,8 @@ export class AudioEngine {
     if (!isObject(body) || !isValidId(body.projectId)) throw new HttpError(400, '"projectId" must be the song\'s project id.');
     const projectId = body.projectId;
     const doc = normalizeMusicProject(body.song, (id) => this.samplePath(projectId, id) !== null);
-    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null);
+    const loop = isObject(body.loop) && isFiniteNumber(body.loop.start) && isFiniteNumber(body.loop.end) ? { start: body.loop.start, end: body.loop.end } : null;
+    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop);
     // A plugin's state is a file of its own beside the project's document: `plugins/<channel id>.bin`.
     const states = path.join(this.paths.projectDir(projectId), "plugins");
     const song = {
@@ -124,7 +125,8 @@ export class AudioEngine {
     };
     this.song = song;
     this.keepStates(song.channels.some((c) => c.plugin));
-    return (await this.request("song", { song })) as SetSongResponse;
+    const answer = (await this.request("song", { song })) as Omit<SetSongResponse, "loop">;
+    return { ...answer, loop: { start: compiled.offsetTicks, ticks: compiled.loopTicks } };
   }
 
   /** Write the song's plugins' states now (the tab asks before it goes). */
@@ -186,9 +188,20 @@ export class AudioEngine {
   private async params(name: EngineCommand, body: Record<string, unknown>): Promise<Record<string, unknown>> {
     switch (name) {
       case "status":
-      case "play":
       case "stop":
         return {};
+      case "play":
+        return { from: isFiniteNumber(body.from) ? Math.max(0, body.from) : 0 };
+      case "preview": {
+        if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');
+        if (!isFiniteNumber(body.key)) throw new HttpError(400, '"key" must be a MIDI note number (0 to 127).');
+        return {
+          channel: body.channel,
+          key: Math.round(clamp(body.key, 0, 127)),
+          on: body.on === true,
+          velocity: isFiniteNumber(body.velocity) ? clamp(body.velocity, 0, 1) : DEFAULT_VELOCITY,
+        };
+      }
       case "metronome":
         return { on: body.on === true };
       case "channelEditor": {

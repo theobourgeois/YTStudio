@@ -11,6 +11,8 @@ import {
   removePatternTool,
   setStepsTool,
   soloChannelTool,
+  setNotesTool,
+  describeNotes,
   updateChannelTool,
   updatePatternTool,
   updateSong,
@@ -87,6 +89,41 @@ describe("the assistant's song edits", () => {
     expect(edited.song.channels[0]).toMatchObject({ cutSelf: true, precomputed: { normalize: true, reverse: true, start: 0.25, length: 1, fadeIn: 0, fadeOut: 0.5 } });
     expect(edited.text).toContain("cut self, sample normalized, reversed, starts at 25%, fade out 50%");
     expect(() => updateChannelTool(rack(), { channel: "Kick", sample: { start: 3 } }, env)).toThrow(/"start" must be a number from 0 to 1/);
+  });
+
+  it("write and read a channel's notes: pitches by name, times in steps", () => {
+    const written = setNotesTool(
+      rack(),
+      {
+        channel: "Kick",
+        notes: [
+          { pitch: "C5", start: 0, length: 4 },
+          { pitch: "E5", start: 0, length: 4, velocity: 0.5 },
+          { pitch: 67, start: 20.5, length: 2 },
+        ],
+      },
+      env,
+    );
+    expect(written.text).toBe('"Kick" has 3 notes in "Pattern 1", which is 32 steps long.');
+    expect(written.song.patterns[0].notes.chan_kick.map((n) => [n.pitch, n.start, n.length, n.velocity])).toEqual([
+      [60, 0, 96, 0.78],
+      [64, 0, 96, 0.5],
+      [67, 492, 48, 0.78],
+    ]);
+    expect(describeNotes(written.song, { channel: "Kick" }, env)).toBe(
+      [
+        '"Kick" in "Pattern 1" (32 steps long): 3 notes, as pitch, start and length in steps.',
+        "- C5 at 0 for 4, velocity 0.78",
+        "- E5 at 0 for 4, velocity 0.50",
+        "- G5 at 20.5 for 2, velocity 0.78",
+      ].join("\n"),
+    );
+    // Added, not replacing.
+    const more = setNotesTool(written.song, { channel: "Kick", notes: [{ pitch: "A5", start: 8, length: 1 }], mode: "add" }, env);
+    expect(more.song.patterns[0].notes.chan_kick).toHaveLength(4);
+    expect(() => setNotesTool(rack(), { channel: "Kick", notes: [{ pitch: "H2", start: 0, length: 1 }] }, env)).toThrow(/Note 1: "pitch"/);
+    expect(() => setNotesTool(rack(), { channel: "Kick", notes: [{ pitch: "C5", start: -1, length: 1 }] }, env)).toThrow(/"start" must be a number/);
+    expect(describeNotes(rack(), { channel: "Hat" }, env)).toBe('"Hat" has no notes in "Pattern 1".');
   });
 
   it("describe the song for the model: channels, every pattern's steps, spare files", () => {

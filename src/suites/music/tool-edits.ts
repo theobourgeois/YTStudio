@@ -23,7 +23,9 @@ import {
   stepString,
   updateChannel,
 } from "@shared/music/edits";
-import { BEAT_UNITS, MAX_STEPS, MAX_TEMPO, MIN_TEMPO } from "@shared/music/project";
+import { addNotes, editNotes } from "@shared/music/notes";
+import { BEAT_UNITS, DEFAULT_VELOCITY, MAX_PATTERN_TICKS, MAX_STEPS, MAX_TEMPO, MIN_TEMPO } from "@shared/music/project";
+import { pitchFromName, pitchName } from "./piano/geometry";
 import { type Channel, type MusicProject, type Pattern, ROOT_PITCH } from "@shared/music/types";
 
 export interface EditEnv {
@@ -150,6 +152,42 @@ export const setStepsTool: SongEdit = (song, input, env) => {
   const next = drawSteps(song, pattern.id, channel.id, drawing, count);
   const now = getPattern(next, pattern.id)!;
   return { song: next, text: `"${channel.name}" in "${pattern.name}": ${stepString(now, channel.id, lengthOf(next, now))}` };
+};
+
+const STEP = 24;
+const steps = (ticks: number) => Math.round((ticks / STEP) * 1000) / 1000;
+
+/** A channel's notes in a pattern, for the model. */
+export function describeNotes(song: MusicProject, input: Input, env: EditEnv): string {
+  const channel = findChannel(song, input.channel);
+  const pattern = findPattern(song, input.pattern, env);
+  const notes = pattern.notes[channel.id] ?? [];
+  if (!notes.length) return `"${channel.name}" has no notes in "${pattern.name}".`;
+  return [
+    `"${channel.name}" in "${pattern.name}" (${lengthOf(song, pattern)} steps long): ${notes.length} note${notes.length === 1 ? "" : "s"}, as pitch, start and length in steps.`,
+    ...notes.map(
+      (n) => `- ${pitchName(n.pitch)} at ${steps(n.start)} for ${steps(n.length)}, velocity ${n.velocity.toFixed(2)}${n.pan ? `, pan ${n.pan.toFixed(2)}` : ""}${n.muted ? ", muted" : ""}`,
+    ),
+  ].join("\n");
+}
+
+export const setNotesTool: SongEdit = (song, input, env) => {
+  const channel = findChannel(song, input.channel);
+  const pattern = findPattern(song, input.pattern, env);
+  if (!Array.isArray(input.notes)) throw new Error('"notes" must be a list of { pitch, start, length }.');
+  const made = input.notes.map((raw, i) => {
+    const note = (raw && typeof raw === "object" ? raw : {}) as Input;
+    const pitch = typeof note.pitch === "string" ? pitchFromName(note.pitch) : Number.isInteger(note.pitch) ? (note.pitch as number) : null;
+    if (pitch === null || pitch < 0 || pitch > 127) throw new Error(`Note ${i + 1}: "pitch" must be a note name like "C5" or "F#4", or a MIDI number from 0 to 127.`);
+    const start = number(note, "start", 0, MAX_PATTERN_TICKS / STEP);
+    const length = number(note, "length", 1 / STEP, 4096);
+    if (start === undefined || length === undefined) throw new Error(`Note ${i + 1}: "start" and "length" are numbers of steps (sixteenth notes).`);
+    const velocity = number(note, "velocity", 0, 1);
+    return { pitch, start: start * STEP, length: length * STEP, velocity: velocity ?? DEFAULT_VELOCITY };
+  });
+  const next = editNotes(song, pattern.id, channel.id, (notes) => addNotes(input.mode === "add" ? notes : [], made).notes);
+  const now = getPattern(next, pattern.id)!;
+  return { song: next, text: `"${channel.name}" has ${(now.notes[channel.id] ?? []).length} notes in "${pattern.name}", which is ${lengthOf(next, now)} steps long.` };
 };
 
 export const editStep: SongEdit = (song, input, env) => {

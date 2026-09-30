@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compileSong, levelGain, panGains, swungTick } from "./compile.ts";
 import { addChannels, addPattern, addPluginChannel, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
+import { editNotes, setNoteProps } from "./notes.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "./project.ts";
 
 const P = FIRST_PATTERN_ID;
@@ -24,7 +25,7 @@ describe("compileSong", () => {
       [48, 1],
       [192, 0],
     ]);
-    expect(compiled.notes[0]).toEqual({ channel: 0, tick: 0, length: 24, pitch: 0, gain: 1, key: 60, velocity: 0.78 });
+    expect(compiled.notes[0]).toEqual({ channel: 0, tick: 0, length: 24, pitch: 0, gain: 1, key: 60, velocity: 0.78, pan: 0 });
   });
 
   it("plays the pattern asked for, or the first", () => {
@@ -42,6 +43,21 @@ describe("compileSong", () => {
     expect(short.loopTicks).toBe(24 * 24);
     expect(short.notes.map((n) => n.tick)).toEqual([0, 480]);
     expect(compileSong(setPatternLength(song, P, 64), P).loopTicks).toBe(64 * 24);
+  });
+
+  it("plays only a part of the pattern when asked (the time selection), counting from its start", () => {
+    const song = setSteps(rack(), P, "chan_kick", [0, 4, 8, 12], true);
+    const part = compileSong(song, P, { start: 96, end: 288 });
+    expect(part).toMatchObject({ loopTicks: 192, offsetTicks: 96 });
+    expect(part.notes.map((n) => n.tick)).toEqual([0, 96]);
+    // A range that's no range plays the whole pattern.
+    expect(compileSong(song, P, { start: 96, end: 96 })).toMatchObject({ loopTicks: 384, offsetTicks: 0 });
+  });
+
+  it("leaves muted notes out, and passes each note's pan on", () => {
+    let song = setSteps(rack(), P, "chan_kick", [0, 4], true);
+    song = editNotes(song, P, "chan_kick", (notes) => setNoteProps(setNoteProps(notes, new Set([notes[0].id]), { muted: true }), new Set([notes[1].id]), { pan: -0.5 }));
+    expect(compileSong(song, P).notes).toMatchObject([{ tick: 96, pan: -0.5 }]);
   });
 
   it("passes on cut self and what's done to the sample, when anything is", () => {

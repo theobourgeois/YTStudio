@@ -4,8 +4,7 @@ How FL Studio's Piano roll works, from the manual (`pianoroll.htm`, `pianoroll_m
 `basics_shortcuts.htm`) and from Théo. See [README.md](README.md) for the sources and for what holds
 everywhere (knobs, menus, windows, the left button does and the right button undoes).
 
-The last two sections are ours: [what we build first](#what-we-build-first) and
-[open questions](#open-questions). Nothing here is built yet.
+The last sections are ours: [where Vaudio differs](#where-vaudio-differs) and what was decided.
 
 ## Anatomy
 
@@ -95,7 +94,7 @@ This is the "select in red and only that plays" feature.
 - **Insert space** (Ctrl+Ins) pushes everything after the selection later by its length; **Delete
   space** (Ctrl+Del) removes what's in it and closes the gap.
 - Without a time selection, **a click on the ruler puts the playhead there**, and play starts from it.
-  **(unverified)**
+  (Théo)
 
 ### Duplicate (Ctrl+B)
 
@@ -104,8 +103,10 @@ This is the "select in red and only that plays" feature.
 - With a **time selection**, the copy goes one *selection length* later instead, so a one-bar selection
   repeats a phrase a bar later even if its notes don't fill the bar. The time selection and the note
   selection are independent: the notes say what's copied, the time selection says how far.
-- The copy becomes the selection (and the time selection moves with it), so pressing Ctrl+B again adds
-  another repeat. **(Théo: confirm; the manual doesn't say.)**
+- The copy becomes the selection and the time selection moves with it, so pressing Ctrl+B again adds
+  another repeat. (Théo)
+- Without a time selection, the distance is the bars the notes span: from the start of the first note's
+  bar to the end of the last note's, rounded up to a bar. (Théo)
 
 ## Snap
 
@@ -172,6 +173,9 @@ part of a selection, it sets them all (and the time fields are hidden).
 - Steps are notes: a step is a note on the grid, as short as a step. Opening a stepped channel in the
   Piano roll shows them as such.
 - **F7** shows or hides the Piano roll (on the selected channel).
+- How Théo opens it: select the channel in the rack, then the Piano roll button on the toolbar; or the
+  channel's right-click menu; or F7. In the Piano roll, the target channel menu lists the channels with
+  notes in this pattern first, then the rest.
 
 ## Keys
 
@@ -233,61 +237,43 @@ changes the note's property; Ctrl+right-click zooms to the selection.
 
 ---
 
-## What we build first
+## Where Vaudio differs
 
-A proposal, to be marked up. "First" is one phase; "later" has no date.
+Built from this document (`src/suites/music/piano/`); every behaviour in the first part has a test in
+`e2e/piano.spec.ts` or beside the code. Decided with Théo: quantize is in (he uses it all the time);
+resizing from the left is out; the "modifier" tools (arpeggiate, randomize, strum...) wait.
 
-**First: the fundamentals**
+**Same as FL Studio**: F7, the toolbar's Piano roll button and the rack menu open it; the target
+channel menu (in-pattern first) and G / K, H / J; the Draw (P), Paint (B), Delete (D), Mute (T), Slice (C)
+and Select (E) tools; left adds, right deletes (sweeping); Ctrl selects (Ctrl+Shift adds); moving,
+resizing by the right edge, Shift+drag to clone, Shift / Ctrl to lock an axis once moving, Alt to bypass
+snap; new notes as long as the last touched; the stretch handle; the snap menu (Line, Cell, none, step
+and beat fractions, bar); the time selection (double-click or Ctrl+drag the ruler, red, loops playback,
+Ctrl+Enter, Ctrl+← / →, a right-click clears it); a ruler click sets where play starts; Ctrl+B with the
+copies selected and the time selection moving; Ctrl+A / D, Shift+I, Ctrl+C / X / V (pasted at the first
+bar in view), Delete; Shift+arrows, Ctrl+↑ / ↓, Alt+arrows, Shift+Ctrl+← / →; Ctrl+G, Ctrl+U, Ctrl+Q,
+Shift+Q, Ctrl+L, Shift+D, Alt+M / Alt+Shift+M; the event editor (velocity and pan; Shift+drag, Alt to
+reset, Alt+wheel on a note; F / Shift+F); the note properties dialog; ghost notes (Alt+V, a double
+right-click on one switches channel); zoom (Ctrl+wheel, Page Up / Down, Shift+1…5, Shift+0), scroll
+(wheel, Shift+wheel, middle-drag); the keyboard sounds while held; a channel whose notes aren't steps
+shows a miniature of them in the rack, which opens them.
 
-- The window: F7, the target channel selector, G / K and H / J to change channel, the preview keyboard
-  (click to hear), the grid with bars and beats, the playhead.
-- **Draw, Paint, Delete, Select, Slice and Mute** tools with their keys; right-click deletes; Ctrl selects.
-- Move, resize (from the right), Shift+drag to clone, Shift / Ctrl to lock an axis, Alt to bypass snap,
-  the stretch handle. New notes as long as the last one touched, heard as they're added and moved.
-- **Snap**: Line, Cell, none, the step and beat fractions, bar.
-- **Selection**: Ctrl+click and drag, Ctrl+Shift, Ctrl+A, Ctrl+D, Shift+I, by key on the keyboard.
-- **The time selection**: double-click and drag the ruler, red, playback loops it; Ctrl+Enter,
-  Ctrl+← / →. A click on the ruler sets where play starts.
-- **Ctrl+B**, Ctrl+C / X / V, Del, Shift+arrows, Ctrl+↑ / ↓, Alt+arrows, Shift+Ctrl+← / →.
-- Ctrl+G glue, Ctrl+U quick chop, Ctrl+Q quick quantize, Ctrl+L quick legato, Shift+D discard lengths,
-  Alt+M / Alt+Shift+M mute.
-- **The event editor** for velocity and pan, with Shift+drag, Alt+click and Alt+wheel; the note
-  properties dialog (velocity, pan, start, duration).
-- **Ghost notes** (Alt+V; double right-click to switch channel).
-- Zoom and scroll: wheel, Ctrl+wheel, Page Up / Down, Shift+1…5, middle-drag.
-- In the rack: the miniature of a channel's notes, and Piano roll in its menu.
-- The assistant: tools to read and write a channel's notes.
+| What | FL Studio | Vaudio now |
+| --- | --- | --- |
+| Backspace | Toggles the global snap | Deletes the selection too (a Mac keyboard has no Delete key) |
+| Paint | Monophonic: replaces the notes it overlaps | Lays notes over what's there |
+| Quantize | Also a dialog (Alt+Q) with strength and swing | Quick quantize only (Ctrl+Q, Shift+Q) |
+| Event editor | Release, fine pitch, Mod X / Y, repeat, automation | Velocity and pan |
+| Zoom tool, Playback tool | Z, Y | Not yet (Ctrl+wheel and the keys zoom) |
+| Scrollbars | Drag their ends to zoom | Drag to scroll only |
+| Snap | Main, Events, Markers | Not those three |
+| Notes | Colour groups (MIDI channels), slide and portamento | None |
+| Per-note pan | Sent to plugins as the note's pan | Heard on samplers; plugins ignore it for now |
+| Time markers, time signatures per pattern, key markers | Yes | No |
+| Scale highlighting, snap to scale, stamp | Yes | Later |
+| Typing keyboard (Ctrl+T), MIDI keyboard, recording | Yes | Later |
 
-What that needs underneath:
-
-- **Notes** gain a pan and a muted flag (velocity, pitch, start and length they have).
-- **A pattern's Auto length** counts to the end of the last note, not just where it starts.
-- **The engine** plays a loop range and starts from a position (the time selection, the playhead), and
-  holds a previewed note for as long as the key or the mouse is down.
-
-**Later**
-
-- Release, fine pitch, Mod X / Mod Y and repeat in the event editor (they need the sampler and the
-  plugins to act on them).
-- Scale highlighting and snap to scale; the stamp tool (chords).
-- Resizing from the left; note groups; colour groups and MIDI channels.
-- Zoom and Playback tools; Insert / delete space; time markers; per-pattern time signatures.
-- Quantize…, Chop…, Articulate… with their dialogs; strum, flam, arpeggiate, flip, randomize.
-- MIDI import / export; recording from a keyboard; the typing keyboard (Ctrl+T).
-- Editable ghosts; the background waveform.
-
-**Not planned** (say if you want them): slide and portamento notes (they only work with FL's own
-instruments), the Riff machine, the chord progression tool, the Claw machine, scripts, score sheets,
-the magic lasso.
-
-## Open questions
-
-1. **Ctrl+B**: after duplicating, is the copy selected (so Ctrl+B again adds another repeat), and does a
-   time selection move along with it? That's what I've written; the manual doesn't say.
-2. **The ruler without a time selection**: does a plain click set where playback starts? I believe so
-   but couldn't find it in the manual.
-3. **Opening it**: in FL, is it a click on the rack's miniature, or the channel's menu, or F7 that you
-   use? And should a brand-new plugin channel open straight into the Piano roll rather than steps?
-4. **Anything in "Later" you use every day** and want in the first pass? Scale highlighting and the
-   typing keyboard are the two I'd guess at.
-5. **Resizing from the left**: off by default in FL. Do you keep it off?
+Performance, measured in the browser (the grid is one canvas; only what's in view is drawn): with
+4 000 notes a frame takes about 1 ms, dragging all of them too, Ctrl+B on all of them 44 ms; with
+20 000 notes a frame is 2 to 3 ms, 40 ms with every note in view at once. A drag changes nothing in the
+song until it's let go, so it's one undo step and nothing is saved or sent to the engine mid-drag.

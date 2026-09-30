@@ -32,9 +32,12 @@ export function selectedIds(): string[] {
   return doc ? selectedIn(doc, useMusicUi.getState().selectedChannelIds).map((c) => c.id) : [];
 }
 
-/** How many steps the rack shows: as wide as it's been dragged, and the pattern's length at least. */
+/** The most steps the rack shows of a long pattern (past them, it's the Piano roll's). */
+export const RACK_MAX_STEPS = 64;
+
+/** How many steps the rack shows: as wide as it's been dragged, and the pattern's length at least (up to a limit). */
 export function shownSteps(doc: MusicProject, currentPatternId: string | null, rackSteps: number): number {
-  return Math.max(rackSteps, lengthOf(doc, currentPattern(doc, currentPatternId)));
+  return Math.max(rackSteps, Math.min(RACK_MAX_STEPS, lengthOf(doc, currentPattern(doc, currentPatternId))));
 }
 
 export const toggleMute = (channelId: string) => commit((doc) => updateChannel(doc, channelId, { muted: !doc.channels.find((c) => c.id === channelId)?.muted }));

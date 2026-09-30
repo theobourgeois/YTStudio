@@ -161,6 +161,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             note.gain = (float) number (item["gain"], 1, 0, 8);
             note.key = (int) number (item["key"], 60, 0, 127);
             note.velocity = (float) number (item["velocity"], 0.78, 0, 1);
+            note.pan = (float) number (item["pan"], 0, -1, 1);
             song->notes.push_back (note);
         }
     juce::StringArray channelIds;

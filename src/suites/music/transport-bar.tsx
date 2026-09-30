@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { PiMetronome, PiPlayFill, PiRows, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiMetronome, PiPianoKeys, PiPlayFill, PiRows, PiStopFill, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { setTempo } from "@shared/music/edits";
 import { MAX_TEMPO, MIN_TEMPO } from "@shared/music/project";
@@ -10,6 +10,7 @@ import { AudioDialog } from "./audio-dialog";
 import { PatternPicker } from "./pattern-picker";
 import { useMusic, useSong } from "./store";
 import { useTransport } from "./transport";
+import { openPianoRoll } from "./piano/actions";
 import { useMusicUi } from "./ui";
 
 /** The toolbar under the header: play and stop, the tempo, the pattern, the metronome, and the output's meter. */
@@ -18,6 +19,7 @@ export function TransportBar() {
   const metronome = useTransport((s) => s.metronome);
   const error = useTransport((s) => s.error);
   const rackOpen = useMusicUi((s) => s.rackOpen);
+  const pianoOpen = useMusicUi((s) => s.pianoOpen);
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-background px-3" role="toolbar" aria-label="Transport">
@@ -44,6 +46,15 @@ export function TransportBar() {
       </Toggle>
       <Toggle size="sm" pressed={rackOpen} onPressedChange={(open) => useMusicUi.getState().setRackOpen(open)} aria-label="Channel rack" title="Channel rack (F6)">
         <PiRows />
+      </Toggle>
+      <Toggle
+        size="sm"
+        pressed={pianoOpen}
+        onPressedChange={(open) => (open ? openPianoRoll() : useMusicUi.getState().setPianoOpen(false))}
+        aria-label="Piano roll"
+        title="Piano roll: the selected channel's notes (F7)"
+      >
+        <PiPianoKeys />
       </Toggle>
 
       <div className="ml-auto flex items-center gap-3">

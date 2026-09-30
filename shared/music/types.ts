@@ -88,6 +88,8 @@ export interface Channel {
 }
 
 export interface Note {
+  /** Tells it from the channel's other notes in the pattern (a small whole number): what's selected is a set of these. */
+  id: number;
   /** Ticks from the pattern's start. */
   start: number;
   /** Ticks. */
@@ -96,6 +98,10 @@ export interface Note {
   pitch: number;
   /** 0..1; `DEFAULT_VELOCITY` plays the sample as it is. */
   velocity: number;
+  /** -1 (left) .. 1 (right). */
+  pan: number;
+  /** Kept, but not played (the Piano roll's mute tool). */
+  muted: boolean;
 }
 
 /** Notes for any of the channels, looped while it plays. */
@@ -103,8 +109,8 @@ export interface Pattern {
   id: string;
   name: string;
   /**
-   * Its length in steps (sixteenth notes), or null for FL Studio's Auto: as long as the last bar with
-   * a note in it (`patternSteps`). Notes past a set length stay, unheard.
+   * Its length in steps (sixteenth notes), or null for FL Studio's Auto: up to the end of the last bar
+   * a note sounds in (`patternSteps`). Notes past a set length stay, unheard.
    */
   length: number | null;
   /** Each channel's notes (by channel id), in order of `start`. Channels without notes are absent. */

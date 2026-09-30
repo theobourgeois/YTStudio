@@ -31,6 +31,8 @@ export const DEFAULT_VELOCITY = 0.78;
 export const MAX_PITCH = 48;
 /** The step sequencer's limit, as in FL Studio (64 bars of 4/4). */
 export const MAX_STEPS = 512;
+/** How far into a pattern a note can start: 1000 bars of 4/4 (the Piano roll goes well past the step sequencer). */
+export const MAX_PATTERN_TICKS = 1000 * 16 * STEP_TICKS;
 export const MAX_NAME = 80;
 /** Limits of an envelope's times, in seconds. */
 export const MAX_ENVELOPE_TIME = 10;
@@ -51,16 +53,32 @@ export function createPattern(name: string, id = createId("pat")): Pattern {
   return { id, name, length: null, notes: {} };
 }
 
+/** Where each note list's last note ends (they're kept per list: nothing changes a list in place). */
+const listEnds = new WeakMap<Note[], number>();
+
+/** Where a pattern's last note ends, in ticks. */
+export function patternEnd(pattern: Pattern): number {
+  let end = 0;
+  for (const notes of Object.values(pattern.notes)) {
+    let listEnd = listEnds.get(notes);
+    if (listEnd === undefined) {
+      listEnd = 0;
+      for (const note of notes) listEnd = Math.max(listEnd, note.start + note.length);
+      listEnds.set(notes, listEnd);
+    }
+    end = Math.max(end, listEnd);
+  }
+  return end;
+}
+
 /**
  * How long a pattern is, in steps: its set length, or (Auto) up to the end of the last bar with a
  * note in it, and a bar at least.
  */
 export function patternSteps(pattern: Pattern, timeSignature: MusicSettings["timeSignature"]): number {
   if (pattern.length !== null) return pattern.length;
-  const bar = stepsPerBar(timeSignature);
-  let last = 0;
-  for (const notes of Object.values(pattern.notes)) if (notes.length) last = Math.max(last, notes[notes.length - 1].start);
-  return Math.min(MAX_STEPS, (Math.floor(last / STEP_TICKS / bar) + 1) * bar);
+  const bar = stepsPerBar(timeSignature) * STEP_TICKS;
+  return (Math.max(1, Math.ceil(Math.min(patternEnd(pattern), MAX_PATTERN_TICKS) / bar)) * bar) / STEP_TICKS;
 }
 
 export function createChannel(name: string, sampleId: string | null, id = createId("chan")): Channel {
@@ -152,19 +170,37 @@ function normalizeChannels(input: unknown, isSample: (id: string) => boolean): C
 function normalizeNotes(input: unknown, end: number): Note[] {
   if (!Array.isArray(input)) return [];
   const notes: Note[] = [];
+  const ids = new Set<number>();
+  const unnamed: Note[] = [];
   for (const raw of input) {
     if (!isObject(raw) || !isFiniteNumber(raw.start)) continue;
     const start = Math.round(raw.start);
     if (start < 0 || start >= end) continue;
-    notes.push({
+    const id = Number.isInteger(raw.id) && (raw.id as number) > 0 && !ids.has(raw.id as number) ? (raw.id as number) : 0;
+    const note: Note = {
+      id,
       start,
       length: Math.round(number(raw.length, 1, end, STEP_TICKS)),
       pitch: Math.round(number(raw.pitch, 0, 127, ROOT_PITCH)),
       velocity: number(raw.velocity, 0, 1, DEFAULT_VELOCITY),
-    });
+      pan: number(raw.pan, -1, 1, 0),
+      muted: raw.muted === true,
+    };
+    if (id) ids.add(id);
+    else unnamed.push(note);
+    notes.push(note);
   }
-  return notes.sort((a, b) => a.start - b.start || a.pitch - b.pitch);
+  // Notes without an id of their own (older songs, or a duplicate) get the next ones.
+  let next = Math.max(0, ...ids);
+  for (const note of unnamed) note.id = ++next;
+  return notes.sort(byStart);
 }
+
+/** The order notes are kept in: by start, then pitch, then id (so it's the same every time). */
+export const byStart = (a: Note, b: Note) => a.start - b.start || a.pitch - b.pitch || a.id - b.id;
+
+/** An id no note of the list has. */
+export const nextNoteId = (notes: readonly Note[]) => notes.reduce((max, note) => Math.max(max, note.id), 0) + 1;
 
 function normalizePatterns(input: unknown, channels: Channel[]): Pattern[] {
   const channelIds = new Set(channels.map((c) => c.id));
@@ -178,7 +214,7 @@ function normalizePatterns(input: unknown, channels: Channel[]): Pattern[] {
     const notes: Pattern["notes"] = {};
     for (const [channelId, list] of Object.entries(isObject(raw.notes) ? raw.notes : {})) {
       if (!channelIds.has(channelId)) continue;
-      const valid = normalizeNotes(list, MAX_STEPS * STEP_TICKS);
+      const valid = normalizeNotes(list, MAX_PATTERN_TICKS);
       if (valid.length) notes[channelId] = valid;
     }
     patterns.push({ id: raw.id, name: text(raw.name, `Pattern ${patterns.length + 1}`), length, notes });

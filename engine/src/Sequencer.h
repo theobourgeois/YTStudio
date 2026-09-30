@@ -23,14 +23,19 @@ public:
 
     // Message thread ---------------------------------------------------------
     void setSong (std::unique_ptr<Song> song);
-    /** From the loop's start. Nothing happens if it's already playing. */
-    void play();
+    /** From `fromTick` into the loop. Nothing happens if it's already playing. */
+    void play (double fromTick = 0);
     /** Stop, silence what's sounding and go back to the start. */
     void stop();
     void setMetronome (bool on) { metronome = on; }
     bool metronomeOn() const { return metronome; }
     /** Play a channel's sample once, now (hearing a channel, outside the pattern). False: no such channel. */
     bool trigger (const juce::String& channelId, float pitch, float gain);
+    /**
+     * A key held on a channel (the Piano roll's keyboard): a plugin plays it until it's let go; a
+     * sampler plays its sample at that pitch. False: no such channel.
+     */
+    bool preview (const juce::String& channelId, int key, float velocity, bool on);
     /** Delete the songs the audio thread has let go of. Call regularly. */
     void collectGarbage();
 
@@ -51,6 +56,8 @@ private:
         /** Where it is in its sample, and how far it moves per output sample at the note's own pitch. */
         double position = 0, baseRate = 1;
         float pitch = 0, gain = 1;
+        /** The note's own pan, as what it leaves of each side. */
+        float panLeft = 1, panRight = 1;
         /** Output samples before it starts (it began part-way through a block). */
         int delay = 0;
         /** Output samples until its note ends; negative: it plays until its sample does. */
@@ -66,6 +73,10 @@ private:
     {
         int channel;
         float pitch, gain;
+        /** A held key: `hold` starts it, `release` lets it go. Otherwise it's played once. */
+        enum class Kind { once, hold, release } kind = Kind::once;
+        int key = 60;
+        float velocity = 0.78f;
     };
 
     /** Set when the song stops: its plugins are told to end every note, in the next block. */
@@ -74,7 +85,7 @@ private:
     void adopt (Song* next);
     void schedule (int numSamples);
     void scheduleRange (double from, double to, double origin, int offset, int length, double ticksPerSample);
-    void startVoice (int channel, float pitch, float gain, double lengthTicks, int delay);
+    void startVoice (int channel, float pitch, float gain, double lengthTicks, int delay, float pan = 0);
     /** A note for a channel's plugin: on at `delay` samples into the block, off `lengthSamples` later. */
     void startNote (HostedPlugin&, int key, float velocity, juce::int64 lengthSamples, int delay);
     /** Send the note-offs that fall in this block, and count the others down. */
@@ -101,6 +112,7 @@ private:
     juce::StringArray channelIds;
 
     std::atomic<int> playRequests { 0 }, stopRequests { 0 };
+    std::atomic<double> playFrom { 0.0 };
     int playsSeen = 0, stopsSeen = 0;
     std::atomic<bool> metronome { false };
 

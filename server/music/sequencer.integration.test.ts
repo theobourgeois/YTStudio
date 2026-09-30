@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, setPatternLength, setStepNote, setSteps, setSwing, setTempo, updateChannel } from "../../shared/music/edits.ts";
+import { editNotes, setNoteProps } from "../../shared/music/notes.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE } from "../config.ts";
@@ -238,6 +239,41 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
     } finally {
       ramp.shutdown();
     }
+  });
+
+  it("starts from where it's told, plays only a part of the pattern, and leaves muted notes out", async () => {
+    const song = setSteps(rack(), P, "chan_kick", [0, 4, 8, 12], true);
+    await play(song);
+    // From the third beat: two hits, then round to the first.
+    await engine.command("play", { from: 192 });
+    expect(onsets((await hear(BEAT * 3)).channels[0])).toEqual([0, BEAT, 2 * BEAT]);
+    expect((await engine.command("status", {})).transport.tick).toBeGreaterThan(95);
+
+    // Only beats two and three, round and round.
+    await engine.command("stop", {});
+    await engine.setSong({ projectId: PROJECT, song, patternId: P, loop: { start: 96, end: 288 } });
+    await engine.command("play", {});
+    expect(onsets((await hear(BEAT * 4)).channels[0])).toEqual([0, BEAT, 2 * BEAT, 3 * BEAT]);
+    expect((await engine.command("status", {})).transport.tick).toBeLessThan(192);
+
+    await engine.command("stop", {});
+    const kick = song.patterns[0].notes.chan_kick;
+    await play(editNotes(song, P, "chan_kick", (notes) => setNoteProps(notes, new Set([kick[1].id, kick[2].id]), { muted: true })));
+    await engine.command("play", {});
+    expect(onsets((await hear(BEAT * 4)).channels[0])).toEqual([0, 3 * BEAT]);
+  });
+
+  it("pans a note on its own, on top of its channel", async () => {
+    let song = setSteps(rack(), P, "chan_kick", [0, 4], true);
+    const [first, second] = song.patterns[0].notes.chan_kick;
+    song = editNotes(song, P, "chan_kick", (notes) => setNoteProps(setNoteProps(notes, new Set([first.id]), { pan: -1 }), new Set([second.id]), { pan: 0.5 }));
+    await play(song);
+    await engine.command("play", {});
+    const sound = await hear(BEAT * 2);
+    expect(peakOf(sound.channels[0], 0, HIT - 1)).toBeCloseTo(0.5, 3);
+    expect(peakOf(sound.channels[1], 0, HIT - 1)).toBe(0);
+    expect(peakOf(sound.channels[0], BEAT, BEAT + HIT - 1)).toBeCloseTo(0.25, 3);
+    expect(peakOf(sound.channels[1], BEAT, BEAT + HIT - 1)).toBeCloseTo(0.5, 3);
   });
 
   it("stops what's sounding when it stops", async () => {

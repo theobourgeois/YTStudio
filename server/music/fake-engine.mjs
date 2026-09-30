@@ -75,7 +75,8 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     Object.assign(device, params);
     return send({ id, ok: true, result: devices() });
   }
-  if (cmd === "play" && playingSince === null) playingSince = Date.now();
+  // Started `from` ticks in: as if it had begun that much earlier.
+  if (cmd === "play" && playingSince === null) playingSince = Date.now() - ((params.from ?? 0) / (song ? song.tempo * song.ppq : 1)) * 60000;
   if (cmd === "stop") {
     playingSince = null;
     sendTransport();
@@ -86,7 +87,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (params.open) editors.add(params.channel);
     else editors.delete(params.channel);
   }
-  if (cmd === "trigger" && !song?.channels.some((c) => c.id === params.channel)) return fail("The song playing has no such channel.");
+  if ((cmd === "trigger" || cmd === "preview") && !song?.channels.some((c) => c.id === params.channel)) return fail("The song playing has no such channel.");
   if (cmd === "tone") tone = params.on;
   if (cmd === "load") {
     const plugin = PLUGINS.find((p) => p.id === params.pluginId);

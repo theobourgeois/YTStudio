@@ -1,5 +1,6 @@
 import { errorMessage } from "@shared/errors";
 import { musicApi } from "./api";
+import { usePiano } from "./piano/store";
 import { useMusic } from "./store";
 import { NO_CHANNELS, useTransport } from "./transport";
 
@@ -25,8 +26,9 @@ export function startEngineSync(): () => void {
       const { projectId, history, patternId } = useMusic.getState();
       if (stopped || !projectId || !history) break;
       try {
-        const { unreadable, channels } = await musicApi.setSong({ projectId, song: history.doc, patternId });
-        useTransport.setState({ unreadable, channels, error: null });
+        // The Piano roll's time selection is what loops, while there is one.
+        const { unreadable, channels, loop } = await musicApi.setSong({ projectId, song: history.doc, patternId, loop: usePiano.getState().time });
+        useTransport.setState({ unreadable, channels, loop, error: null });
       } catch (err) {
         useTransport.setState({ error: errorMessage(err) });
         break;
@@ -37,6 +39,9 @@ export function startEngineSync(): () => void {
 
   const unsubscribe = useMusic.subscribe((state, prev) => {
     if (state.history?.doc !== prev.history?.doc || state.patternId !== prev.patternId || state.projectId !== prev.projectId) void send();
+  });
+  const unsubscribeLoop = usePiano.subscribe((state, prev) => {
+    if (state.time !== prev.time) void send();
   });
   const stopListening = musicApi.onEngineEvent((event) => {
     if (event.event === "transport") {
@@ -68,6 +73,7 @@ export function startEngineSync(): () => void {
   return () => {
     stopped = true;
     unsubscribe();
+    unsubscribeLoop();
     stopListening();
     if (useTransport.getState().playing) void musicApi.engine("stop", {}).catch(() => {});
     // What's been turned in the plugins' own windows is kept.

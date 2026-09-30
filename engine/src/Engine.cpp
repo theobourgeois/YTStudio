@@ -168,9 +168,15 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
     if (command == "play" || command == "stop")
     {
         if (command == "play")
-            sequencer.play();
+            sequencer.play ((double) params["from"]);
         else
             sequencer.stop();
+        return ok();
+    }
+    if (command == "preview")
+    {
+        if (! sequencer.preview (params["channel"].toString(), juce::jlimit (0, 127, (int) params["key"]), (float) (double) params["velocity"], (bool) params["on"]))
+            return reply (fail ("The song playing has no such channel."), {});
         return ok();
     }
     if (command == "metronome")

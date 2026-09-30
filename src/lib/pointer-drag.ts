@@ -8,8 +8,8 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 export interface DragHandlers {
-  /** The mouse button that drags: 0, the primary one (the default), or 2, the secondary (FL Studio's erase). */
-  button?: 0 | 2;
+  /** The mouse button that drags: 0, the primary one (the default), 1 the middle one (panning), or 2, the secondary (FL Studio's erase). */
+  button?: 0 | 1 | 2;
   /** Pointer travel (px) before the drag starts. 0 = start on the first move. */
   threshold: number;
   /** Cursor forced on the whole document while the drag is active. */
@@ -77,7 +77,7 @@ export function startPointerDrag(e: ReactPointerEvent<Element>, h: DragHandlers)
   function onMove(ev: PointerEvent) {
     if (ev.pointerId !== pointerId || done) return;
     // A missed pointerup (e.g. released outside the window without capture).
-    if (ev.pointerType === "mouse" && (ev.buttons & (button === 2 ? 2 : 1)) === 0) {
+    if (ev.pointerType === "mouse" && (ev.buttons & (button === 2 ? 2 : button === 1 ? 4 : 1)) === 0) {
       finish("end");
       return;
     }

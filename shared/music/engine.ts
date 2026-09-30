@@ -92,12 +92,16 @@ export interface SetSongRequest {
   song: MusicProject;
   /** The pattern to loop (default: the first). */
   patternId: string | null;
+  /** Only this part of it, in ticks (the Piano roll's time selection). */
+  loop?: { start: number; end: number } | null;
 }
 
 export interface SetSongResponse {
   /** Channels whose sample the engine couldn't read (they're silent). */
   unreadable: string[];
   channels: EngineChannels;
+  /** What plays, in the pattern's ticks: from `start`, `ticks` long, round and round. The engine's ticks count from `start`. */
+  loop: { start: number; ticks: number };
 }
 
 /** The audio device and what it could be instead (`GET` and `POST /api/engine/devices`). */
@@ -127,12 +131,17 @@ export interface EngineRender {
 /** What `POST /api/engine/<command>` takes. Every command answers with the `EngineStatus`. */
 export interface EngineCommands {
   status: Record<string, never>;
-  /** Play the song from its start (nothing happens if it's playing), or stop and go back there. */
-  play: Record<string, never>;
+  /** Play the song from `from` ticks into its loop, or its start (nothing happens if it's playing); or stop and go back to the start. */
+  play: { from?: number };
   stop: Record<string, never>;
   metronome: { on: boolean };
   /** Play a channel's sample once, now. `pitch` is semitones from its own pitch, `velocity` 0..1. */
   trigger: { channel: string; pitch?: number; velocity?: number };
+  /**
+   * A key held on a channel (the Piano roll's keyboard, a note being drawn): `on` starts it and, for a
+   * plugin, it sounds until it's turned off. `key` is a MIDI note.
+   */
+  preview: { channel: string; key: number; on: boolean; velocity?: number };
   /** Show or close the window of a plugin channel's plugin. */
   channelEditor: { channel: string; open: boolean };
   /** Play a test tone (through the effect). */

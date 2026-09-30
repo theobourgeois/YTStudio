@@ -8,6 +8,7 @@ describe("music keys", () => {
   it("plays with Space, shows the rack with F6, and undoes and redoes with the usual keys", () => {
     expect(press(" ", "Space")).toEqual({ type: "togglePlay" });
     expect(press("F6", "F6")).toEqual({ type: "toggleRack" });
+    expect(press("F7", "F7")).toEqual({ type: "togglePiano" });
     expect(press("z", "KeyZ", { metaKey: true })).toEqual({ type: "undo" });
     expect(press("Z", "KeyZ", { metaKey: true, shiftKey: true })).toEqual({ type: "redo" });
     expect(press("y", "KeyY", { ctrlKey: true })).toEqual({ type: "redo" });

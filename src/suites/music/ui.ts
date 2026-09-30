@@ -3,7 +3,7 @@ import type { MusicProject, Note } from "@shared/music/types";
 import { useMusic } from "./store";
 
 /** A window of the music editor: the channel rack, or a channel's settings. */
-export type WindowId = "rack" | `channel:${string}`;
+export type WindowId = "rack" | "piano" | `channel:${string}`;
 export const channelWindow = (channelId: string): WindowId => `channel:${channelId}`;
 
 export interface WindowPlace {
@@ -30,6 +30,7 @@ interface MusicUiState {
   rackSteps: number;
   graphOpen: boolean;
   rackOpen: boolean;
+  pianoOpen: boolean;
   /** The channels whose settings windows are open. */
   openChannelIds: string[];
   /** Where each window has been put. */
@@ -44,6 +45,7 @@ interface MusicUiState {
   setRackSteps: (steps: number) => void;
   setGraphOpen: (open: boolean) => void;
   setRackOpen: (open: boolean) => void;
+  setPianoOpen: (open: boolean) => void;
   /**
    * Open a channel's settings window (or close it, if it's open). Only one is open at a time, as in
    * FL Studio, unless `keepOthers` (Alt+click).
@@ -62,6 +64,7 @@ const INITIAL = {
   rackSteps: MIN_RACK_STEPS,
   graphOpen: false,
   rackOpen: true,
+  pianoOpen: false,
   openChannelIds: [] as string[],
   places: {},
   order: ["rack"] as WindowId[],
@@ -82,6 +85,8 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   setRackSteps: (steps) => set({ rackSteps: Math.max(MIN_RACK_STEPS, Math.round(steps)) }),
   setGraphOpen: (graphOpen) => set({ graphOpen }),
   setRackOpen: (rackOpen) => set({ rackOpen, order: rackOpen ? toFront(get().order, "rack") : get().order }),
+
+  setPianoOpen: (pianoOpen) => set({ pianoOpen, order: pianoOpen ? toFront(get().order, "piano") : get().order.filter((w) => w !== "piano") }),
 
   toggleChannelWindow(id, keepOthers) {
     const open = get().openChannelIds;

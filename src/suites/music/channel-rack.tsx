@@ -19,6 +19,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Toggle } from "@/components/ui/toggle";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { ChannelPicker } from "./channel-picker";
+import { openPianoRoll } from "./piano/actions";
 import { PERCENT, SongKnob, panText, percent } from "./knob";
 import { Lcd } from "./lcd";
 import {
@@ -38,7 +39,7 @@ import {
   toggleMute,
 } from "./rack-actions";
 import { currentPattern, songGesture, useCurrentPattern, useMusic, useSong } from "./store";
-import { tickNow, useTransport } from "./transport";
+import { patternTickNow, useTransport } from "./transport";
 import { MIN_RACK_STEPS, selectedIn, useMusicUi } from "./ui";
 import { MusicWindow } from "./window";
 
@@ -308,7 +309,7 @@ function StepLights({ steps }: { steps: number }) {
     }
     let frame = 0;
     const draw = () => {
-      const tick = tickNow(useTransport.getState(), performance.now(), tempo, PPQ, loop * STEP_TICKS);
+      const tick = patternTickNow(useTransport.getState(), performance.now(), tempo, PPQ);
       setStep(tick === null ? null : Math.floor(tick / STEP_TICKS));
       frame = requestAnimationFrame(draw);
     };
@@ -432,6 +433,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
           ) : (
             <ContextMenuItem onSelect={() => useMusicUi.getState().openChannelWindow(id)}>Channel settings…</ContextMenuItem>
           )}
+          <ContextMenuItem onSelect={() => openPianoRoll(id)}>Piano roll</ContextMenuItem>
           <ContextMenuItem disabled={silent} onSelect={() => useTransport.getState().audition(id)}>
             Hear it <ContextMenuShortcut>⌘click</ContextMenuShortcut>
           </ContextMenuItem>
@@ -543,6 +545,9 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
   const on = new Set(notes.filter((n) => n.start % STEP_TICKS === 0).map((n) => n.start / STEP_TICKS));
   const gesture = useRef(songGesture()).current;
 
+  // Notes that aren't plain steps (written in the Piano roll): a picture of them instead, as in FL Studio.
+  if (!plainSteps(notes)) return <NotesPreview channelId={channelId} name={name} notes={notes} steps={steps} loop={loop} />;
+
   return (
     <div
       className="relative shrink-0 touch-none"
@@ -610,6 +615,50 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
     </div>
   );
 });
+
+/** Steps: every note on a step, a step long. Anything else is the Piano roll's to show. */
+const plainSteps = (notes: readonly Note[]) => notes.every((n) => n.start % STEP_TICKS === 0 && n.length === STEP_TICKS);
+
+/** A miniature of a channel's notes in the rack's row; a click opens them in the Piano roll. */
+function NotesPreview({ channelId, name, notes, steps, loop }: { channelId: string; name: string; notes: readonly Note[]; steps: number; loop: number }) {
+  const width = stepsWidth(steps);
+  const span = Math.max(steps, loop) * STEP_TICKS;
+  let low = 127;
+  let high = 0;
+  for (const note of notes) {
+    low = Math.min(low, note.pitch);
+    high = Math.max(high, note.pitch);
+  }
+  const range = Math.max(12, high - low + 1);
+  const shown = notes.length > 600 ? notes.slice(0, 600) : notes;
+  return (
+    <button
+      type="button"
+      aria-label={`${name}: open its notes in the Piano roll`}
+      title="Open in the Piano roll"
+      data-notes-preview={channelId}
+      className="relative shrink-0 overflow-hidden rounded-[3px] border border-black/10 bg-muted/60 hover:bg-muted dark:border-white/5"
+      style={{ width, height: ROW_H }}
+      onClick={() => openPianoRoll(channelId)}
+    >
+      {/* A lighter and a darker block per bar. */}
+      {Array.from({ length: Math.ceil(span / (16 * STEP_TICKS)) }, (_, bar) => (
+        <span key={bar} className={cn("absolute inset-y-0", bar % 2 ? "bg-foreground/5" : "")} style={{ left: (bar * 16 * STEP_TICKS * width) / span, width: (16 * STEP_TICKS * width) / span }} />
+      ))}
+      {shown.map((note) => (
+        <span
+          key={note.id}
+          className={cn("absolute h-[2px] rounded-full", note.muted ? "bg-emerald-300/30" : "bg-emerald-300")}
+          style={{
+            left: (note.start * width) / span,
+            width: Math.max(2, (note.length * width) / span),
+            top: 3 + ((high - note.pitch) / range) * (ROW_H - 8) + ((range - (high - low + 1)) / range) * ((ROW_H - 8) / 2),
+          }}
+        />
+      ))}
+    </button>
+  );
+}
 
 type GraphProperty = "note" | "velocity";
 const GRAPH_TABS: { id: GraphProperty; label: string }[] = [

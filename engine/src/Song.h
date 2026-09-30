@@ -86,6 +86,8 @@ struct Song
         /** For a plugin: the MIDI note and its velocity, 0..1. */
         int key = 60;
         float velocity = 0.78f;
+        /** -1 (left) .. 1 (right), on top of the channel's. */
+        float pan = 0;
     };
 
     double tempo = 120, ppq = 96;

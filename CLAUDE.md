@@ -219,8 +219,8 @@ A DAW modelled on **FL Studio**: when in doubt about its UX, do what FL Studio d
 **What FL Studio does is written down in `docs/fl-studio/`** (from its manual, with its screenshots, and from
 Théo): read the panel's document before touching that panel, don't work from memory, and write the document for
 a panel before building it. Each ends with where we still differ.
-Built so far: the channel rack (sampler channels, the step sequencer and its graph editor, patterns, swing), the
-transport and the metronome. Next: the piano roll, plugins as channels, the mixer, the playlist, the browser.
+Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
+swing), the Piano roll, the transport and the metronome. Next: the mixer, the playlist, the browser.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing }, channels,
   patterns }`. A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
@@ -244,6 +244,17 @@ transport and the metronome. Next: the piano roll, plugins as channels, the mixe
 - What volume, pan, velocity and swing *mean* is decided in `shared/music/compile.ts` (`compileSong` → `EngineSong`:
   gains, swung ticks), in tested TypeScript. The engine only plays samples at the moments it's told. Add musical
   rules there, not in C++.
+- **The Piano roll** (`src/suites/music/piano/`): notes have an `id` (a small number, unique in their list: what's
+  selected is a set of them), `pan` and `muted`. Its operations are pure functions of a note list in
+  `shared/music/notes.ts` (move, clone, duplicate, quantize, glue, chop, slice, stretch...: tested, including with
+  20 000 notes), applied with `editNotes`. The window draws on canvases (`draw.ts`) once a frame when something
+  changed; only notes in view are drawn (`visibleRange`). **A drag doesn't edit the song while it lasts**: it's a
+  `PianoDrag` in the Piano roll's store, which the canvas draws the notes through (`applyDrag`, the same function
+  that commits it), and it becomes one edit when it's let go (`commitDrag`). Keep new gestures that way. Its maths
+  is `geometry.ts`, its mouse `pointer.ts`, its keys `keys.ts` (run by the workspace while it's the front window),
+  its commands `actions.ts`. The time selection is what the engine loops (`SetSongRequest.loop`; the engine's
+  ticks then count from the loop's start: `patternTickNow`), and a ruler click is where play starts
+  (`play { from }`).
 - The tab sends the whole song to the engine on every change, even mid-drag (`engine-sync.ts` →
   `POST /api/engine/song`: the server normalises it, compiles it and turns sample ids into paths). The engine
   swaps songs without a gap. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a

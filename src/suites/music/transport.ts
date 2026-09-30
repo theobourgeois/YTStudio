@@ -20,6 +20,10 @@ interface TransportState {
   metronome: boolean;
   /** How long after the engine computes a sound it's heard: the playhead is shown that much late. */
   latencyMs: number;
+  /** What the engine loops, in the pattern's ticks: the whole pattern, or the Piano roll's time selection. */
+  loop: { start: number; ticks: number };
+  /** Where in the pattern play starts (a click on the Piano roll's ruler), in ticks. */
+  startTick: number;
   /** Channels whose sample the engine couldn't read. */
   unreadable: string[];
   /** The song's plugin channels as the engine has them: loaded (and whose window is open), loading, failed. */
@@ -35,13 +39,16 @@ interface TransportState {
   audition: (channelId: string, pitch?: number) => void;
   /** Show or close the window of a plugin channel's plugin. */
   showPlugin: (channelId: string, open: boolean) => void;
+  /** Hold a key on a channel, or let it go (the Piano roll's keyboard, a note being drawn). `key` is a MIDI note. */
+  preview: (channelId: string, key: number, on: boolean, velocity?: number) => void;
+  setStartTick: (tick: number) => void;
 }
 
 export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: [] };
 
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
-  async function run(command: "play" | "stop" | "metronome", body: { on: boolean } | Record<string, never>) {
+  async function run(command: "play" | "stop" | "metronome", body: { on: boolean } | { from?: number }) {
     try {
       const status = await musicApi.engine(command, body as never);
       set({
@@ -66,11 +73,18 @@ export const useTransport = create<TransportState>((set, get) => {
     cpu: 0,
     metronome: false,
     latencyMs: 0,
+    loop: { start: 0, ticks: 0 },
+    startTick: 0,
     unreadable: [],
     channels: NO_CHANNELS,
     error: null,
 
-    play: () => void run("play", {}),
+    // From where the ruler was clicked, if that's inside what loops; the engine counts from the loop's start.
+    play() {
+      const { startTick, loop } = get();
+      const from = startTick - loop.start;
+      void run("play", { from: from > 0 && from < loop.ticks ? from : 0 });
+    },
     stop: () => void run("stop", {}),
     toggle: () => (get().playing ? get().stop() : get().play()),
     setMetronome(on) {
@@ -80,6 +94,10 @@ export const useTransport = create<TransportState>((set, get) => {
     audition(channelId, pitch = 0) {
       void musicApi.engine("trigger", { channel: channelId, pitch }).catch(() => {});
     },
+    preview(channelId, key, on, velocity) {
+      void musicApi.engine("preview", { channel: channelId, key, on, velocity }).catch(() => {});
+    },
+    setStartTick: (tick) => set({ startTick: Math.max(0, Math.round(tick)) }),
     showPlugin(channelId, open) {
       musicApi.engine("channelEditor", { channel: channelId, open }).then(
         (status) => set({ channels: status.channels }),
@@ -98,4 +116,10 @@ export function tickNow(state: Pick<TransportState, "playing" | "tick" | "at" | 
   const tick = state.tick + ((now - state.at - state.latencyMs) / 60_000) * tempo * ppq;
   if (tick < 0) return null;
   return tick % loopTicks;
+}
+
+/** Where the song is playing now in the pattern's own ticks (the loop may be only a part of it), or null. */
+export function patternTickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs" | "loop">, now: number, tempo: number, ppq: number): number | null {
+  const tick = tickNow(state, now, tempo, ppq, state.loop.ticks);
+  return tick === null ? null : state.loop.start + tick;
 }
