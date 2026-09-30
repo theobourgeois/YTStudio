@@ -7,6 +7,7 @@
  */
 import type { EditToolName } from "@shared/assistant-tools";
 import { canAnimate, keyframeTime, setAnimated } from "@shared/animation";
+import { canParent, setParent } from "@shared/parenting";
 import {
   CAPTION_PRESETS,
   applyCaptionPreset,
@@ -25,6 +26,7 @@ import {
   SOLID,
   TEXT,
   addEffect,
+  clipKind,
   copyEffects,
   defaultEffects,
   effectDefinition,
@@ -319,8 +321,8 @@ const addText: EditHandler = (project, input, env) => {
 };
 
 const addLayer: EditHandler = (project, input, env) => {
-  const kind = oneOf(input, "kind", ["adjustment", "solid", "camera"] as const);
-  if (!kind) throw new ToolError('`kind` must be "adjustment", "solid" or "camera".');
+  const kind = oneOf(input, "kind", ["adjustment", "solid", "camera", "null"] as const);
+  if (!kind) throw new ToolError('`kind` must be "adjustment", "solid", "camera" or "null".');
   const start = number(input, "start", { min: 0 });
   const duration = optNumber(input, "duration", { min: MIN_CLIP_DURATION }) ?? STILL_DURATION;
   const trackId = optString(input, "trackId");
@@ -330,6 +332,7 @@ const addLayer: EditHandler = (project, input, env) => {
   const cameraValues = optObject(input, "camera");
   if (kind !== "camera" && cameraValues) throw new ToolError("`camera` is only for cameras.");
   if (kind === "camera" && input.effects !== undefined) throw new ToolError("A camera takes no effects: it's what 3D layers are seen through.");
+  if (kind === "null" && input.effects !== undefined) throw new ToolError("A null object takes no effects: it's only a Motion for clips to follow (set_parent).");
   const values =
     kind === "solid" && color !== undefined
       ? checkParams(SOLID.params, { color }, "Solid").values
@@ -358,8 +361,9 @@ const addLayer: EditHandler = (project, input, env) => {
   return {
     project: p,
     text: withNotes(
-      `Added ${kind === "adjustment" ? "adjustment layer" : kind} ${place(p, placed, env)}${effects.length ? ` with ${effects.join(", ")}` : ""}.` +
-        (kind === "camera" ? " Only 3D layers (motion threeD: true) are seen through it." : ""),
+      `Added ${kind === "adjustment" ? "adjustment layer" : kind === "null" ? "null object" : kind} ${place(p, placed, env)}${effects.length ? ` with ${effects.join(", ")}` : ""}.` +
+        (kind === "camera" ? " Only 3D layers (motion threeD: true) are seen through it." : "") +
+        (kind === "null" ? " Parent clips to it with set_parent, then animate its motion." : ""),
       notes,
     ),
   };
@@ -446,6 +450,26 @@ const trim: EditHandler = (project, input, env) => {
     project: p,
     text: withNotes(`Trimmed: ${place(p, after, env)} (source ${range(after.in, after.out)})${ripple ? "; the rest of the track moved left" : ""}.`, notes),
   };
+};
+
+const setParentTool: EditHandler = (project, input, env) => {
+  const ids = strings(input, "clipIds");
+  const clips = ids.map((id) => clipOf(project, id));
+  const raw = input.parentId;
+  if (raw !== null && typeof raw !== "string") throw new ToolError("`parentId` must be a clip id, or null to unparent.");
+  const at = optNumber(input, "at", { min: 0 }) ?? env.playhead;
+  if (raw === null) {
+    const p = setParent(project, ids, null, at);
+    return { project: p, text: `Unparented ${clips.filter((c) => c.parent).map((c) => c.id).join(", ") || "nothing (none had a parent)"}.` };
+  }
+  const parent = clipOf(project, raw);
+  if (!isOnVideoTrack(project, parent) || clipKind(parent) === "camera") throw new ToolError(`${parent.id} can't be a parent: only visual clips (not cameras) can.`);
+  const refused = clips.filter((c) => !canParent(project, c.id, parent.id) || !isOnVideoTrack(project, c));
+  if (refused.length) {
+    throw new ToolError(`${refused.map((c) => c.id).join(", ")} can't follow ${parent.id}: a clip can't be its own parent or its parent's parent, and only clips on video tracks follow one.`);
+  }
+  const p = setParent(project, ids, parent.id, at);
+  return { project: p, text: `${ids.join(", ")} now ${ids.length === 1 ? "follows" : "follow"} ${parent.id}${parent.nullObject ? " (a null object)" : ""}.` };
 };
 
 const setSpeed: EditHandler = (project, input, env) => {
@@ -927,6 +951,7 @@ export const EDITS: Record<EditToolName, EditHandler> = {
   add_clips: addClips,
   add_text: addText,
   add_layer: addLayer,
+  set_parent: setParentTool,
   apply_preset: applyPreset,
   move_clips: move,
   trim_clip: trim,

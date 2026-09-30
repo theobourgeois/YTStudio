@@ -7,6 +7,7 @@ import type { Clip, Keyframe, ParamValues, Project } from "../shared/types.ts";
 import { createTransition } from "../shared/transitions.ts";
 import { normalizeProject } from "../shared/normalize.ts";
 import { keyframeValue } from "../shared/keyframes.ts";
+import { setParent } from "../shared/parenting.ts";
 import {
   type FrameLayer,
   type RenderAsset,
@@ -493,5 +494,19 @@ describe("lumaWeights", () => {
     expect(lumaWeights("bt2020nc", 2160)).toEqual([0.2627, 0.0593]);
     expect(lumaWeights(null, 1080)).toEqual([0.2126, 0.0722]);
     expect(lumaWeights(undefined, 480)).toEqual([0.299, 0.114]);
+  });
+
+  it("carries parented clips by their parent, and never draws a null object", () => {
+    const nul = { ...newLayerClip("null", 0, 2), trackId: "top" } as Clip;
+    const child = clip("mute", "main", 0, 0, 2);
+    let p = project([nul, child], withTop);
+    p = setParent(p, [child.id], nul.id, 0, canvas);
+    p = setParams(p, nul.id, "motion", { position: [0.75, 0.5] });
+    const plan = planRender(p, assets, opts);
+    const layers = plan.frame(0);
+    expect(layers).toHaveLength(1);
+    const [picture] = pictures(layers);
+    // The 9:16 clip fills the canvas, moved right by a quarter of it.
+    expect(picture.affine.map((v) => Math.round(v * 1e4) / 1e4)).toEqual([1, 0, 0, 1, 0.25, 0]);
   });
 });

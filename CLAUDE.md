@@ -50,6 +50,9 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   layers.ts          clipLayer: a clip as a compositor layer at a moment (opacity, blend mode, edges, effects, and
                      motion blur's moments over the shutter); placer (2D affine or 3D projection), track mattes
                      (withTrackMattes), depth sorting. The preview and the export both build layers here.
+  parenting.ts       Parenting (the pick-whip) and null objects: a child follows its parent's Motion as it moves away
+                     from its pose when linked (`ClipParent.rest`); `placer` applies it (2D affine, or a 3D layer's
+                     placement), the canvas overlay takes it back off drags (`uncarryMotion`).
   camera.ts          3D: Camera clips (the Camera effect), cameraAt, projectLayer (a 3D layer's homography), defocus.
   particles.ts       Particle effects' shaders: `Particle particle(int id)` in a vertex shader, instanced quads.
   presets.ts         Presets (After Effects' Animation Presets): transitions as an adjustment layer across a cut,

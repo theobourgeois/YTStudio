@@ -162,6 +162,23 @@ export interface Clip {
    * it. Only on clips without media, on a video track.
    */
   adjustment?: true;
+  /**
+   * A null object (After Effects'): draws nothing, but has a Motion that the clips parented
+   * to it follow. Only on clips without media, on a video track.
+   */
+  nullObject?: true;
+  /** The clip this one follows (After Effects' parenting, see `shared/parenting.ts`). */
+  parent?: ClipParent;
+}
+
+/**
+ * A clip's parent: another clip of the same sequence whose Motion carries this one. What
+ * carries it is how far the parent's Motion has moved from `rest`, its pose when they were
+ * linked (absent: its defaults, centred at 100% and upright), so linking moves nothing.
+ */
+export interface ClipParent {
+  id: string;
+  rest?: { position: Vec2; scale: Vec2; rotation: number };
 }
 
 // ---------------------------------------------------------------------------

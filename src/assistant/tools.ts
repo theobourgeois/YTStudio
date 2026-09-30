@@ -325,6 +325,7 @@ const TOOLS: Record<ToolName, Handler> = {
   add_clips: edit("add_clips"),
   add_text: edit("add_text"),
   add_layer: edit("add_layer"),
+  set_parent: edit("set_parent"),
   apply_preset: edit("apply_preset"),
   move_clips: edit("move_clips"),
   trim_clip: edit("trim_clip"),

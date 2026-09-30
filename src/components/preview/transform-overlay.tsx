@@ -12,6 +12,7 @@ import type { Clip, ParamValue, ParamValues, Vec2 } from "@shared/types";
 import { keyframeTime } from "@shared/animation";
 import { keyframeValue } from "@shared/keyframes";
 import { MOTION, findEffect, isTextClip, setParams, textStyleAt } from "@shared/effects";
+import { uncarryMotion } from "@shared/parenting";
 import {
   type Placement,
   type Size,
@@ -181,6 +182,8 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
           break;
         }
       }
+      // Dragged where its parents carry it: the clip's own values are what's left once they're taken off.
+      if (target.parent) patch = uncarryMotion(patch, target.parent, canvas);
       gesture.apply((p) => setParams(p, clip.id, MOTION.type, patch, editTime));
       setGuides(nextGuides);
     };
@@ -347,7 +350,9 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
         {guides.y !== null && (
           <line y1={guides.y} y2={guides.y} x1={0} x2={canvas.width} className="stroke-playhead" strokeWidth={1} />
         )}
-        {selected && !editing && <MotionPath clip={selected.clip} canvas={canvas} />}
+        {selected && !editing && !selected.parent && <MotionPath clip={selected.clip} canvas={canvas} />}
+        {onCanvas.map((c) => c.clip.nullObject && <NullBox key={c.clip.id} target={c} />)}
+        {selected?.clip.parent && <ParentLink child={selected} parent={onCanvas.find((c) => c.clip.id === selected.clip.parent!.id)} />}
         {effectDrop && (
           <polygon
             points={frameCorners(effectDrop.placement).map((c) => c.join(",")).join(" ")}
@@ -416,7 +421,8 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
                 />
               );
             })}
-            <g
+            {/* A null object has no picture to pivot on: its anchor is its centre. */}
+            {!selected.clip.nullObject && <g
               className="pointer-events-auto cursor-crosshair"
               data-handle="anchor"
               onPointerDown={(e) => e.button === 0 && startDrag(e, selected, { kind: "anchor" }, "crosshair")}
@@ -425,7 +431,7 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
               <circle cx={p.x} cy={p.y} r={5} className="fill-none stroke-black/50" strokeWidth={3} />
               <circle cx={p.x} cy={p.y} r={5} className="fill-none stroke-white" strokeWidth={1.5} />
               <path d={`M${p.x - 8} ${p.y}h16M${p.x} ${p.y - 8}v16`} className="stroke-white" strokeWidth={1} />
-            </g>
+            </g>}
           </>
         )}
       </svg>
@@ -493,6 +499,25 @@ function TextEditor({ target }: { target: OnCanvas }) {
       }}
     />
   );
+}
+
+/** A null object on the canvas: an outline and a cross where its anchor is (it draws nothing in the video). */
+function NullBox({ target }: { target: OnCanvas }) {
+  const corners = frameCorners(target.placement);
+  const { x, y } = target.placement;
+  return (
+    <g data-null-box={target.clip.id} className="stroke-white/80" style={{ filter: "drop-shadow(0 0 1px rgb(0 0 0 / 0.8))" }}>
+      <polygon points={corners.map((c) => c.join(",")).join(" ")} className="fill-none" strokeWidth={1} strokeDasharray="3 2" />
+      <path d={`M${x - 6} ${y}h12M${x} ${y - 6}v12`} strokeWidth={1} />
+    </g>
+  );
+}
+
+/** A dashed line from a parented clip's anchor to its parent's, like After Effects' parent link. */
+function ParentLink({ child, parent }: { child: OnCanvas; parent: OnCanvas | undefined }) {
+  if (!parent) return null;
+  const [a, b] = [child.placement, parent.placement];
+  return <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="stroke-brand/70" strokeWidth={1} strokeDasharray="2 3" data-parent-link />;
 }
 
 /** Samples drawn per stretch between two position keyframes. */

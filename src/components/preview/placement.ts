@@ -3,7 +3,8 @@ import type { Clip, MediaAsset, Project, Vec2 } from "@shared/types";
 import { isCameraClip, isTextClip, motionAt, opacityAt, textStyleAt } from "@shared/effects";
 import { cameraAt, projectLayer } from "@shared/camera";
 import { placePoint } from "@shared/compositor";
-import { type Placement, type Size, containsPoint, frameCorners, placeClip } from "@shared/transform";
+import { carryPlacement, parentDelta } from "@shared/parenting";
+import { type Matrix, type Placement, type Size, containsPoint, frameCorners, placeClip } from "@shared/transform";
 import { videoTracks } from "@shared/timeline";
 import { type TextLayout, layoutText, textUnit } from "@/lib/text-render";
 import { planTrack } from "@shared/scene";
@@ -17,7 +18,15 @@ export interface OnCanvas {
   text: TextLayout | null;
   /** A 3D layer's corners on the canvas as the camera sees it (null: 2D, or not all in front of the camera). */
   corners3d?: Vec2[] | null;
+  /** What its parents do to it (canvas px), already applied to `placement`; edits go back through it. */
+  parent?: Matrix | null;
 }
+
+/** A null object's box on the canvas at 100% (it has no picture: this is only for grabbing it). */
+export const nullFrame = (canvas: Size): Size => {
+  const side = Math.min(canvas.width, canvas.height) * 0.12;
+  return { width: side, height: side };
+};
 
 /** Where a clip is on the canvas at source time `time` (and its text layout, for text). */
 export function placeOnCanvas(
@@ -32,6 +41,7 @@ export function placeOnCanvas(
     const text = layoutText(textStyleAt(clip, time), textUnit(canvas, project.settings.aspectRatio));
     return { placement: placeClip(canvas, text, motion, text), text };
   }
+  if (clip.nullObject) return { placement: placeClip(canvas, canvas, motion, nullFrame(canvas)), text: null };
   const media = asset?.width && asset.height ? { width: asset.width, height: asset.height } : canvas;
   return { placement: placeClip(canvas, media, motion), text: null };
 }
@@ -54,7 +64,15 @@ export function clipsOnCanvas(project: Project, assets: MediaAsset[], canvas: Si
     if (!current || isCameraClip(current.clip)) continue;
     const asset = byId.get(current.clip.assetId);
     const placed = placeOnCanvas(project, current.clip, asset, canvas, current.time);
-    out.push({ ...current, ...placed, corners3d: projectedCorners(project, current.clip, placed.placement, canvas, current.time, t) });
+    const parent = parentDelta(project, current.clip, t, canvas);
+    const placement = parent ? carryPlacement(placed.placement, parent) : placed.placement;
+    out.push({
+      ...current,
+      ...placed,
+      placement,
+      parent,
+      corners3d: projectedCorners(project, current.clip, placement, canvas, current.time, t),
+    });
   }
   return out;
 }

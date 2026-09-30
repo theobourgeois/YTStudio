@@ -45,6 +45,7 @@
   --clip-adjustment: #c86b8c;
   --clip-solid: #7c8594;
   --clip-camera: #b8923a;
+  --clip-null: #8f96a3;
   --timeline: #f4f5f7;
   --stage: #eceef1;
   --sidebar: #f4f5f7;
@@ -81,6 +82,7 @@
   --clip-adjustment: #975069;
   --clip-solid: #586070;
   --clip-camera: #8a6b27;
+  --clip-null: #4a505b;
   --timeline: #131519;
   --stage: #0f1114;
   --sidebar: #181b1f;
@@ -123,6 +125,7 @@
   --color-clip-adjustment: var(--clip-adjustment);
   --color-clip-solid: var(--clip-solid);
   --color-clip-camera: var(--clip-camera);
+  --color-clip-null: var(--clip-null);
   --color-timeline: var(--timeline);
   --color-stage: var(--stage);
   --color-sidebar: var(--sidebar);
@@ -186,4 +189,11 @@ html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [rol
 html.desktop-darwin:not(.fullscreen) [data-titlebar="sidebar"],
 html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Videos"][inert]) [data-titlebar="header"] {
   padding-left: 84px;
+}
+
+/* The clip under the pick-whip while parenting (properties/parent-row.tsx). */
+[data-pick-target] {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+  border-radius: 6px;
 }

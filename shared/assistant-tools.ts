@@ -313,10 +313,12 @@ export const ASSISTANT_TOOLS = [
       "`effects` adds video effects to it with their parameter values, in order. A camera draws nothing: 3D layers " +
       "(clips with motion threeD: true, positionZ, rotationX, rotationY) are seen through it while it lasts; " +
       "`camera` sets its Camera values (angleOfView, pointOfInterest, interestZ, distance, orbitX, orbitY, roll, " +
-      "depthOfField, focusDistance, aperture), which set_keyframes can animate (effect \"camera\") for camera moves.",
+      "depthOfField, focusDistance, aperture), which set_keyframes can animate (effect \"camera\") for camera moves. " +
+      "A null object draws nothing either: it's a Motion for other clips to follow (set_parent), to move, scale or " +
+      "spin several clips together, or to animate a group from one place.",
     inputSchema: obj(
       {
-        kind: oneOf(["adjustment", "solid", "camera"], "What to add."),
+        kind: oneOf(["adjustment", "solid", "camera", "null"], "What to add."),
         start: time("Where it starts."),
         duration: num("Seconds (default 5).", { minimum: 0.1 }),
         trackId: str("Put it on this video track."),
@@ -412,6 +414,27 @@ export const ASSISTANT_TOOLS = [
         ),
       },
       ["clipIds"],
+    ),
+  }),
+  tool({
+    name: "set_parent",
+    title: "Parent clips",
+    kind: "edit",
+    description:
+      "Parent clips to another clip (After Effects' pick-whip): they then follow the parent's Motion (position, " +
+      "scale, rotation), on top of their own, like layers in a group. Often the parent is a null object (add_layer " +
+      "kind \"null\"), animated with set_keyframes to carry several clips. Linking moves nothing at `at` (the parent's " +
+      "pose then is where it's measured from); parents can have parents. `parentId: null` unparents (a clip whose " +
+      "Motion isn't animated stays where it's seen). The parent must be a visual clip (not a camera) of this video, " +
+      "and not one of the clips' own children. Children follow their parent wherever it is in time (it holds its " +
+      "first/last Motion outside its clip).",
+    inputSchema: obj(
+      {
+        clipIds: clipIds(),
+        parentId: { type: ["string", "null"], description: "The clip to follow, or null to unparent." },
+        at: time("Timeline time at which nothing should move (default: the playhead)."),
+      },
+      ["clipIds", "parentId"],
     ),
   }),
   tool({

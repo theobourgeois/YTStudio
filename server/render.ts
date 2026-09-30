@@ -34,6 +34,7 @@ import { type Adjustment, type Affine, type EffectPass, type Placed, matteIndex 
 import { effectPasses, effectShader } from "../shared/effect-gl.ts";
 import { VOLUME, clipKind, effectDefinition, findEffect, hasMedia, isTextClip, lookAt, motionAt, opacityAt, solidColorAt, volumeAt } from "../shared/effects.ts";
 import { easesIn, easesOut, isPlainSegment, segmentProgress } from "../shared/keyframes.ts";
+import { parentAt } from "../shared/parenting.ts";
 import { EXPORT_SAMPLES, canvasAffine, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "../shared/layers.ts";
 import { type Shown, handleTime, sceneAt, transitionWindows } from "../shared/scene.ts";
 import {
@@ -177,7 +178,7 @@ export function planRender(
   const range = (clip: Clip) => (!hasMedia(clip) ? TEXT_SOURCE_RANGE : sourceRange(renderAssetOf(clip, assets, texts)));
   const layerOptions = { canvas, fps: F, maxSamples: EXPORT_SAMPLES };
   const camera = projectCamera(project, canvas);
-  const canvasAffineOf = (clip: Clip) => canvasAffine(clip, canvas, camera);
+  const canvasAffineOf = (clip: Clip) => canvasAffine(clip, canvas, camera, parentAt(project, clip, canvas));
   const videoTrackIds = videoTracks(project).map((t) => t.id);
   const trackAbove = (id: string) => videoTrackIds[videoTrackIds.indexOf(id) - 1];
   const shotsAt = (f: number) => sceneAt(project, windows, frameTime(f, F), range);
@@ -203,7 +204,8 @@ export function planRender(
     const p = placeClip(canvas, media, motion, asset.frame);
     if (!(Math.abs(p.scaleX) > 0 && Math.abs(p.scaleY) > 0)) return null;
     // A 3D layer can come into view however it's placed in 2D, and nearer the camera it's shown bigger: all its detail.
-    if (motion.threeD) return { id, asset, affine: placementAffine(p, canvas) as Affine, opacity, density: [1, 1] };
+    // So can a parented one, carried wherever (and however big) its parents take it.
+    if (motion.threeD || clip.parent) return { id, asset, affine: placementAffine(p, canvas) as Affine, opacity, density: [1, 1] };
     const corners = frameCorners(p);
     const xs = corners.map((c) => c[0]);
     const ys = corners.map((c) => c[1]);
@@ -309,7 +311,7 @@ export function planRender(
         const key = drawn && keys.get(drawn.id);
         if (!drawn || !key) return null;
         const media = mediaSize(drawn.asset, canvas);
-        const where = placer(clip, canvas, (t) => placeClip(canvas, media, motionAt(clip, t), drawn.asset.frame), camera);
+        const where = placer(clip, canvas, (t) => placeClip(canvas, media, motionAt(clip, t), drawn.asset.frame), camera, parentAt(project, clip, canvas));
         const layer = clipLayer(clip, time, where, layerOptions);
         const native = nativeOf.get(key);
         if (!layer || !native) return layer && { ...byKey(layer), key };
@@ -325,8 +327,8 @@ export function planRender(
         const { trackId } = shot;
         if (shot.kind === "clip") {
           const { clip, time } = shot.shown;
-          // A camera draws nothing: 3D layers are seen through it.
-          if (clipKind(clip) === "camera") continue;
+          // A camera draws nothing (3D layers are seen through it), nor does a null object.
+          if (clipKind(clip) === "camera" || clipKind(clip) === "null") continue;
           const matte = matteIndex(lookAt(clip, time).trackMatte);
           if (clipKind(clip) === "adjustment") {
             const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);

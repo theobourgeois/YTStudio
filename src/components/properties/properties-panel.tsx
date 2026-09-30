@@ -13,6 +13,7 @@ import {
   PiCaretRight,
   PiCircleHalfTilt,
   PiClockCounterClockwise,
+  PiCrosshairSimple,
   PiDiamondsFour,
   PiDotsThree,
   PiFilmStrip,
@@ -68,6 +69,7 @@ import type { DisplayContext } from "./display";
 import { GraphControls, GraphToggle, ParamGraph } from "./graph-editor";
 import { EffectLane, KeyframeRuler, KeyframesRoot, ParamLane } from "./keyframe-lanes";
 import { ParamRow, ResetButton, useParamEditors } from "./param-rows";
+import { ParentRow } from "./parent-row";
 import { TransitionProperties } from "./transition-properties";
 
 export function PropertiesPanel() {
@@ -130,6 +132,19 @@ export function PropertiesPanel() {
             <PiCircleHalfTilt className="size-3.5 shrink-0" />
             <span className="min-w-0 flex-1">Its effects, Motion and Opacity change everything on the tracks below it.</span>
           </p>
+        </PanelRow>
+      )}
+      {kind === "null" && (
+        <PanelRow lanes={lanes} className="border-b">
+          <p className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground" data-null-note>
+            <PiCrosshairSimple className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">Draws nothing. Clips parented to it follow its Motion.</span>
+          </p>
+        </PanelRow>
+      )}
+      {visual && kind !== "camera" && (
+        <PanelRow lanes={lanes} className="border-b">
+          <ParentRow clip={clip} />
         </PanelRow>
       )}
       {kind === "camera" && (
@@ -246,6 +261,8 @@ function ClipHeader({
           ? PiSquare
           : kind === "camera"
             ? PiVideoCamera
+            : kind === "null"
+            ? PiCrosshairSimple
             : asset?.kind === "image"
             ? PiImage
             : asset?.kind === "audio"

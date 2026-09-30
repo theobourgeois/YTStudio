@@ -46,7 +46,7 @@ import type { Clip, Effect, FitMode, Keyframe, ParamValue, ParamValues, Project,
  * What a clip shows: media (video, image or sound), text, a solid colour, or
  * nothing of its own (an adjustment layer, which changes what's below it).
  */
-export type ClipKind = "media" | "text" | "solid" | "adjustment" | "camera";
+export type ClipKind = "media" | "text" | "solid" | "adjustment" | "camera" | "null";
 
 /** What a clip is, which decides the effects it shows. */
 export interface ClipTraits {
@@ -614,20 +614,21 @@ export function isCameraClip(clip: Pick<Clip, "effects">): boolean {
 }
 
 /** What a clip shows (see `ClipKind`). */
-export function clipKind(clip: Pick<Clip, "effects" | "adjustment">): ClipKind {
+export function clipKind(clip: Pick<Clip, "effects" | "adjustment" | "nullObject">): ClipKind {
   if (isTextClip(clip)) return "text";
   if (isSolidClip(clip)) return "solid";
   if (isCameraClip(clip)) return "camera";
+  if (clip.nullObject) return "null";
   return clip.adjustment ? "adjustment" : "media";
 }
 
 /** Whether a clip plays a media file (rather than text, a solid, an adjustment layer or a camera, which have none). */
-export const hasMedia = (clip: Pick<Clip, "effects" | "adjustment">) => clipKind(clip) === "media";
+export const hasMedia = (clip: Pick<Clip, "effects" | "adjustment" | "nullObject">) => clipKind(clip) === "media";
 
 /** Whether a clip has no picture of its own to draw or transition (an adjustment layer or a camera). */
-export const drawsNothing = (clip: Pick<Clip, "effects" | "adjustment">) => {
+export const drawsNothing = (clip: Pick<Clip, "effects" | "adjustment" | "nullObject">) => {
   const kind = clipKind(clip);
-  return kind === "adjustment" || kind === "camera";
+  return kind === "adjustment" || kind === "camera" || kind === "null";
 };
 
 /** How a clip is mixed into the frame at source time `time`: See `Placed` in `compositor.ts`. */

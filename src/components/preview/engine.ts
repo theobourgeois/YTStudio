@@ -2,6 +2,7 @@ import type { Clip, MediaAsset, Project } from "@shared/types";
 import { type TextStyle, clipKind, lookAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
 import { type Compositor, type Placed, createCompositor, matteIndex } from "@shared/compositor";
 import { PREVIEW_SAMPLES, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "@shared/layers";
+import { parentAt } from "@shared/parenting";
 import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
 import { clipEnd, clipSourceRange, clipSpeed, fileTime, sourceTime, videoTracks } from "@shared/timeline";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
@@ -34,7 +35,7 @@ interface AudioLayer {
   ids: SlotIds;
 }
 
-type ClipKind = "video" | "image" | "text" | "solid" | "adjustment" | "camera";
+type ClipKind = "video" | "image" | "text" | "solid" | "adjustment" | "camera" | "null";
 
 /** A picture to draw: the element (or text drawing) it comes from (none for a solid), and when in its clip. */
 interface Picture {
@@ -460,7 +461,13 @@ export class PreviewEngine {
     /** Where a clip is on the canvas at source time `t` (a solid or an adjustment layer fills it at 100%; a 3D layer seen through the camera). */
     const camera = projectCamera(project, this.size);
     const affineAt = (clip: Clip) =>
-      placer(clip, this.size, (t) => placeOnCanvas(project, clip, this.assetById.get(clip.assetId), this.size, t).placement, camera);
+      placer(
+        clip,
+        this.size,
+        (t) => placeOnCanvas(project, clip, this.assetById.get(clip.assetId), this.size, t).placement,
+        camera,
+        parentAt(project, clip, this.size),
+      );
     const placed = (picture: Picture | null): Placed | null => {
       if (!picture) return null;
       const { clip, time } = picture.shown;

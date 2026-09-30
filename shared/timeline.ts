@@ -5,6 +5,7 @@
  */
 import { cameraEffects, clipKind, defaultEffects, hasMedia, solidEffects, textStyleAt } from "./effects.ts";
 import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
+import { pruneParents } from "./parenting.ts";
 import type {
   AspectRatio,
   Clip,
@@ -123,6 +124,7 @@ export function clipName(clip: Clip, asset: Pick<MediaAsset, "name"> | undefined
   if (kind === "solid") return "Solid";
   if (kind === "adjustment") return "Adjustment Layer";
   if (kind === "camera") return "Camera";
+  if (kind === "null") return "Null";
   return asset?.name ?? "Media offline";
 }
 
@@ -452,8 +454,11 @@ export function addTextClip(project: Project, clip: Omit<Clip, "trackId">): { pr
  * timeline time `start`, `duration` long. Its source time runs from 0, so keyframes count
  * from its start.
  */
+/** Clips without media that are made from the Layer menu. */
+export type LayerKind = "adjustment" | "solid" | "camera" | "null";
+
 export function newLayerClip(
-  kind: "adjustment" | "solid" | "camera",
+  kind: LayerKind,
   start: number,
   duration: number,
   params: ParamValues = {},
@@ -461,6 +466,7 @@ export function newLayerClip(
   const base = { id: createId("clip"), assetId: "", start: roundTime(Math.max(0, start)), in: 0, out: roundTime(Math.max(MIN_CLIP_DURATION, duration)) };
   if (kind === "solid") return { ...base, effects: solidEffects(params) };
   if (kind === "camera") return { ...base, effects: cameraEffects(params) };
+  if (kind === "null") return { ...base, effects: defaultEffects(), nullObject: true };
   return { ...base, effects: defaultEffects(), adjustment: true };
 }
 
@@ -584,7 +590,7 @@ export function splitClips(
 export function removeClips(project: Project, clipIds: string[]): Project {
   const ids = new Set(clipIds);
   if (!project.clips.some((c) => ids.has(c.id))) return project;
-  return withClips(project, project.clips.filter((c) => !ids.has(c.id)));
+  return withClips(project, pruneParents(project.clips.filter((c) => !ids.has(c.id))));
 }
 
 /**
@@ -604,7 +610,7 @@ export function rippleDelete(project: Project, clipIds: string[]): Project {
       }
       return shift ? { ...c, start: roundTime(Math.max(0, c.start - shift)) } : c;
     });
-  return withClips(project, clips);
+  return withClips(project, pruneParents(clips));
 }
 
 /** Slide every clip on `trackId` starting at or after `from` left by `amount`. */
@@ -889,10 +895,13 @@ export function pasteClips(
 ): { project: Project; clipIds: string[] } {
   if (copied.length === 0) return { project, clipIds: [] };
   const offset = Math.max(0, at) - Math.min(...copied.map((c) => c.clip.start));
+  const newIds = new Map(copied.map(({ clip }) => [clip.id, createId("clip")]));
   const copies = copied.map(({ clip }) => ({
     ...clip,
-    id: createId("clip"),
+    id: newIds.get(clip.id)!,
     start: roundTime(clip.start + offset),
+    // Copied with its parent: it follows the copy. Otherwise it keeps following the original (when it's still there).
+    ...(clip.parent && newIds.has(clip.parent.id) && { parent: { ...clip.parent, id: newIds.get(clip.parent.id)! } }),
   }));
   const kindOf = new Map(copied.map(({ clip, kind }) => [clip.trackId, kind]));
   const fitsInPlace = copies.every(

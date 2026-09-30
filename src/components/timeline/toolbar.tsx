@@ -16,8 +16,9 @@ import {
   PiVideoCamera,
   PiSubtitles,
   PiTrash,
+  PiCrosshairSimple,
 } from "react-icons/pi";
-import { addTrack } from "@shared/timeline";
+import { type LayerKind, addTrack } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -169,8 +170,8 @@ export function TimelineToolbar() {
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-64">
-            Add an adjustment layer (its effects change everything below it), a solid (a colour for effects to draw on) or
-            a camera (3D layers are seen through it).
+            Add an adjustment layer (its effects change everything below it), a solid (a colour for effects to draw on),
+            a camera (3D layers are seen through it) or a null object (clips parented to it follow its Motion).
           </TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start" className="w-64">
@@ -185,6 +186,9 @@ export function TimelineToolbar() {
           <DropdownMenuItem onSelect={() => newLayer("camera")}>
             <PiVideoCamera /> Camera
             <DropdownMenuShortcut>{SHORTCUT_KEYS.newCamera}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => newLayer("null")}>
+            <PiCrosshairSimple /> Null object
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -230,7 +234,7 @@ export function TimelineToolbar() {
 }
 
 /** Add a layer over the selection (or at the playhead) and show its properties. */
-function newLayer(kind: "adjustment" | "solid" | "camera") {
+function newLayer(kind: LayerKind) {
   useEditor.getState().addLayer(kind);
   useLayout.getState().setLeftPanel("properties");
 }

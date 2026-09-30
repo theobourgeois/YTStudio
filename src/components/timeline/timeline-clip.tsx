@@ -1,5 +1,5 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
-import { PiArrowCounterClockwise, PiCircleHalfTilt, PiIntersectSquare, PiSquare, PiSubtitles, PiTextT, PiVideoCamera, PiWarning } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiCircleHalfTilt, PiCrosshairSimple, PiIntersectSquare, PiSpiral, PiSquare, PiSubtitles, PiTextT, PiVideoCamera, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
 import { type ClipKind, OPACITY, SOLID, clipKind, findEffect, videoEffects } from "@shared/effects";
 import { keyframeTimes, timelineTime } from "@shared/animation";
@@ -78,7 +78,9 @@ export const TimelineClip = memo(function TimelineClip({
                       ? "bg-clip-solid"
                       : kind === "camera"
                         ? "bg-clip-camera"
-                        : audioLane
+                        : kind === "null"
+                          ? "bg-clip-null"
+                          : audioLane
                         ? "bg-clip-audio"
                         : "bg-clip-video",
               ),
@@ -95,6 +97,7 @@ export const TimelineClip = memo(function TimelineClip({
             offline={offline}
             kind={kind}
             matte={(findEffect(clip, OPACITY.type)?.params.trackMatte ?? "none") !== "none"}
+            parented={!!clip.parent}
             caption={clip.caption === true}
             name={clipName(clip, asset)}
             effects={effects.map((e) => e.type)}
@@ -135,6 +138,7 @@ function sameClipProps(a: TimelineClipProps, b: TimelineClipProps) {
     a.clip.speed === b.clip.speed &&
     a.clip.reversed === b.clip.reversed &&
     a.clip.assetId === b.clip.assetId &&
+    a.clip.parent?.id === b.clip.parent?.id &&
     // A text clip's label is its text.
     a.clip.effects === b.clip.effects &&
     a.asset === b.asset &&
@@ -220,6 +224,7 @@ function ClipLabel({
   offline,
   kind,
   matte,
+  parented,
   caption,
   name,
   effects,
@@ -231,6 +236,8 @@ function ClipLabel({
   kind: ClipKind;
   /** Drawn through a track matte (the clip on the track above). */
   matte: boolean;
+  /** Follows another clip (parenting). */
+  parented: boolean;
   caption: boolean;
   name: string;
   /** Its video effects' types. */
@@ -252,6 +259,8 @@ function ClipLabel({
       {kind === "adjustment" && <PiCircleHalfTilt className="size-3 shrink-0" />}
       {kind === "solid" && <PiSquare className="size-3 shrink-0" />}
       {kind === "camera" && <PiVideoCamera className="size-3 shrink-0" />}
+      {kind === "null" && <PiCrosshairSimple className="size-3 shrink-0" />}
+      {parented && <PiSpiral className="size-3 shrink-0 text-brand" aria-label="Parented" data-clip-parented />}
       {matte && <PiIntersectSquare className="size-3 shrink-0 text-sky-300" aria-label="Track matte" data-clip-matte />}
       <span className="truncate">{name}</span>
       {(speed !== 1 || reversed) && (

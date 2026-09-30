@@ -36,6 +36,7 @@ import {
   insertClip,
   isOnVideoTrack,
   moveClips,
+  type LayerKind,
   newLayerClip,
   pasteClips,
   projectDuration,
@@ -63,6 +64,7 @@ import { api } from "@/lib/api";
 import { pollProcessingAssets, pollWebDownload, requestReversedCopies } from "./asset-polling";
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
+import { setParent } from "@shared/parenting";
 import { assetMarkedRange, useSourceMarks } from "./source-marks";
 
 export { discardPendingSave, flushAutosave, onProjectSaved, queueSave } from "./autosave";
@@ -243,7 +245,12 @@ interface EditorState {
    * video track `trackId` when it's free there, else on the top video track or a new one on
    * top; with the video effects `effects` on it. Selects it and returns its id.
    */
-  addLayer: (kind: "adjustment" | "solid" | "camera", opts?: LayerOptions) => string;
+  addLayer: (kind: LayerKind, opts?: LayerOptions) => string;
+  /**
+   * Parent clips to `parentId` (After Effects' pick-whip), or with null unparent them, so
+   * nothing moves at the playhead. Clips that can't have that parent are left alone.
+   */
+  setParent: (clipIds: string[], parentId: string | null) => void;
   /**
    * Put a preset somewhere: a transition preset on an adjustment layer centred on the cut
    * (or clip edge) `edge`; an effect preset on `clipIds`, or with `at`, on an adjustment
@@ -757,6 +764,10 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!get().addEffectTo(targets, type)) {
       toast(`Nothing to add ${label} to`, { description: "Select a clip on a video track, or drag the effect onto one." });
     }
+  },
+
+  setParent(clipIds, parentId) {
+    get().commit((p) => setParent(p, clipIds, parentId, usePlayback.getState().time));
   },
 
   addLayer(kind, opts = {}) {

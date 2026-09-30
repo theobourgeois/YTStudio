@@ -73,6 +73,8 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
     parts.push("solid");
   } else if (kind === "camera") {
     parts.push("camera (3D layers are seen through it)");
+  } else if (kind === "null") {
+    parts.push("null object (draws nothing; clips parented to it follow its motion)");
   } else {
     const kind = asset ? asset.kind : "offline media";
     parts.push(`${quote(clipName(clip, asset), 48)} (${kind}${asset ? `, ${asset.id}` : ""})`);
@@ -100,6 +102,7 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
     else if (summary.length) parts.push(`${effect.id}: ${summary.join(", ")}`);
   }
   if (fx.length) parts.push(`fx: ${fx.join(", ")}`);
+  if (clip.parent) parts.push(`parent: ${clip.parent.id}`);
   for (const w of windows) {
     if (w.ref.clipId !== clip.id) continue;
     const label = `${w.def.type} ${secs(w.transition.duration)}s`;
@@ -159,10 +162,11 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
       track: track && { id: track.id, name: track.name, kind: track.kind },
       start: round(clip.start),
       end: round(clipEnd(clip)),
+      ...(clip.parent && { parent: clip.parent.id }),
       ...(clipKind(clip) === "text"
         ? { kind: clip.caption ? "caption" : "text" }
         : clipKind(clip) !== "media"
-          ? { kind: clipKind(clip) === "adjustment" ? "adjustment layer" : clipKind(clip) }
+          ? { kind: clipKind(clip) === "adjustment" ? "adjustment layer" : clipKind(clip) === "null" ? "null object" : clipKind(clip) }
           : {
             kind: asset?.kind ?? "offline",
             media: asset && { id: asset.id, name: asset.name, duration: round(asset.duration) },

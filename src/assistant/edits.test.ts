@@ -202,6 +202,19 @@ describe("assistant edits", () => {
     expect(JSON.parse(describeClips(out, assets, [a.id]))[0].effects[0].keyframes.scale[0]).toMatchObject({ handleOut: [0.2, 0.9] });
   });
 
+  it("adds a null object and parents clips to it", () => {
+    const p = withTwoClips();
+    const a = main(p)[0];
+    const withNull = EDITS.add_layer(p, { kind: "null", start: 0, duration: 4 }, env);
+    expect(withNull.text).toContain("null object");
+    const nul = withNull.project.clips.find((c) => c.nullObject)!;
+    const linked = run(withNull.project, ["set_parent", { clipIds: [a.id], parentId: nul.id }]);
+    expect(getClip(linked, a.id)?.parent).toEqual({ id: nul.id });
+    expect(describeTimeline(linked, assets, { playhead: 0, selectedClipIds: [] })).toContain(`parent: ${nul.id}`);
+    expect(() => EDITS.set_parent(linked, { clipIds: [nul.id], parentId: a.id }, env)).toThrow(/own parent/);
+    expect(getClip(run(linked, ["set_parent", { clipIds: [a.id], parentId: null }]), a.id)?.parent).toBeUndefined();
+  });
+
   it("keyframes at timeline times (stored in source time)", () => {
     const p = withTwoClips();
     const b = main(p)[1]; // starts at 10, source from 1

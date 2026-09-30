@@ -444,7 +444,7 @@ export function describeToolCall(rawName: string, input: unknown): string {
     }
     case "add_layer": {
       const effects = list(f("effects")).length;
-      const what = f("kind") === "solid" ? "a solid" : f("kind") === "camera" ? "a camera" : "an adjustment layer";
+      const what = f("kind") === "solid" ? "a solid" : f("kind") === "camera" ? "a camera" : f("kind") === "null" ? "a null object" : "an adjustment layer";
       return effects ? `Add ${what} with ${count(effects, "effect")}` : `Add ${what}`;
     }
     case "apply_preset": {
@@ -467,6 +467,8 @@ export function describeToolCall(rawName: string, input: unknown): string {
       if (f("reversed") === false) return `Play ${what} forwards`;
       return `Change the speed of ${what}`;
     }
+    case "set_parent":
+      return f("parentId") ? `Parent ${count(ids(), "clip")} to a clip` : `Unparent ${count(ids(), "clip")}`;
     case "split_clips":
       return `Split ${ids() ? count(ids(), "clip") : "clips"} at ${seconds(f("at"))}`;
     case "delete_clips":

@@ -19,6 +19,7 @@ import {
   roundSourceTime,
   sourceRange,
 } from "./timeline.ts";
+import { pruneParents, sanitizeParent } from "./parenting.ts";
 import { normalizeSubclips } from "./subclips.ts";
 import { sanitizeTransition } from "./transitions.ts";
 import type { Clip, MediaAsset, Project, Track, TrackKind } from "./types.ts";
@@ -67,7 +68,8 @@ export function normalizeProject(
     const effects = normalizeEffects(c.effects, Array.isArray(c.effects) ? undefined : (c as LegacyClip));
     // Text, solids and adjustment layers have no media, and are only ever drawn on a video track.
     const adjustment = c.adjustment === true && clipKind({ effects }) === "media";
-    const noMedia = !hasMedia({ effects, adjustment: adjustment || undefined });
+    const nullObject = !adjustment && c.nullObject === true && clipKind({ effects }) === "media";
+    const noMedia = !hasMedia({ effects, adjustment: adjustment || undefined, nullObject: nullObject || undefined });
     if (noMedia && kind !== "video") continue;
     let out = c.out;
     // Without the media, a negative in-point may still be a valid still-image clip.
@@ -101,13 +103,16 @@ export function normalizeProject(
       effects,
     };
     // Only pictures have transitions (an adjustment layer has no picture of its own).
-    const pictured = !drawsNothing({ effects, adjustment: adjustment || undefined });
+    const pictured = !drawsNothing({ effects, adjustment: adjustment || undefined, nullObject: nullObject || undefined });
     const transitionIn = kind === "video" && pictured ? sanitizeTransition(c.transitionIn) : undefined;
     const transitionOut = kind === "video" && pictured ? sanitizeTransition(c.transitionOut) : undefined;
     if (transitionIn) clip.transitionIn = transitionIn;
     if (transitionOut) clip.transitionOut = transitionOut;
     if (isTextClip(clip) && c.caption === true) clip.caption = true;
     if (adjustment) clip.adjustment = true;
+    if (nullObject) clip.nullObject = true;
+    const parent = kind === "video" ? sanitizeParent(c.parent) : undefined;
+    if (parent) clip.parent = parent;
     clips.push(clip);
   }
 
@@ -138,5 +143,5 @@ export function normalizeProject(
     track.end = Math.max(track.end, clipEnd(clip));
   }
   const subclips = normalizeSubclips(input?.subclips, assets);
-  return { ...project, clips: placed, ...(subclips.length > 0 && { subclips }) };
+  return { ...project, clips: pruneParents(placed), ...(subclips.length > 0 && { subclips }) };
 }
