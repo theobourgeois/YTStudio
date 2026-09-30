@@ -452,8 +452,7 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
 
 /**
  * Where the slice tool cuts for a pointer over the grid: the grid line nearest it (Alt: any tick), in
- * the row under it. The line is drawn there before a press too (`trackSliceHover`), so it's plain
- * where the cut will fall.
+ * the row under it. With Shift held, the line is drawn there before a press too (`trackSliceHover`).
  */
 export function slicePoint(element: Element, ev: { clientX: number; clientY: number; altKey: boolean }, grid: number) {
   const { view } = usePiano.getState();
@@ -461,10 +460,13 @@ export function slicePoint(element: Element, ev: { clientX: number; clientY: num
   return { tick: snapTick(xToTick(view, q.x), ev.altKey ? 1 : grid, "line"), pitch: yToPitch(view, q.y) };
 }
 
-/** The pointer moved over the grid with no button down (or left it: null): the slice tool's line follows. */
-export function trackSliceHover(element: Element, ev: { clientX: number; clientY: number; altKey: boolean } | null) {
+/**
+ * The pointer moved over the grid with no button down (or left it: null): with the slice tool and
+ * Shift held, its line shows where a press would cut (otherwise it's only drawn while cutting).
+ */
+export function trackSliceHover(element: Element, ev: { clientX: number; clientY: number; altKey: boolean; shiftKey: boolean } | null) {
   const piano = usePiano.getState();
-  const ctx = piano.tool === "slice" && ev ? pianoContext() : null;
+  const ctx = piano.tool === "slice" && ev?.shiftKey ? pianoContext() : null;
   const next = ctx && ev ? slicePoint(element, ev, ctx.grid) : null;
   const was = piano.sliceHover;
   if (next?.tick !== was?.tick || next?.pitch !== was?.pitch) usePiano.setState({ sliceHover: next });

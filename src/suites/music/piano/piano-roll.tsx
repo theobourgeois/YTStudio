@@ -301,7 +301,11 @@ function PianoBody() {
     };
     const track = (e: PointerEvent) => (last = e.buttons === 0 ? { clientX: e.clientX, clientY: e.clientY } : last);
     const leave = () => (last = null);
-    const onKey = (e: KeyboardEvent) => (e.key === "Control" || e.key === "Meta") && refresh(e);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Control" || e.key === "Meta") refresh(e);
+      // Shift shows the slice tool's line where the pointer is, without it moving.
+      if (e.key === "Shift") trackSliceHover(canvas, last && { ...last, altKey: e.altKey, shiftKey: e.type === "keydown" });
+    };
     canvas.addEventListener("pointermove", track);
     canvas.addEventListener("pointerleave", leave);
     window.addEventListener("keydown", onKey);
