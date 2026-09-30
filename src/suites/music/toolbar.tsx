@@ -32,7 +32,7 @@ export function MusicToolbar() {
   const error = useTransport((s) => s.error);
 
   return (
-    <header data-titlebar="header" className="flex h-[76px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-2">
+    <header data-titlebar="header" className="flex h-[76px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-2 select-none">
       <div className="flex items-center">
         <SidebarLead />
       </div>

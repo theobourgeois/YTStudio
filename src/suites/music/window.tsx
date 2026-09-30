@@ -248,7 +248,8 @@ export function centredOnDesktop(width: number, height: number): WindowPlace {
 /** Where the music editor's windows float. */
 export function Desktop({ children }: { children: ReactNode }) {
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-stage" data-desktop aria-label="Song">
+    // Nothing on it is text to copy: a drag or a double-click never selects the names on buttons.
+    <div className="relative min-h-0 flex-1 overflow-hidden bg-stage select-none" data-desktop aria-label="Song">
       {children}
       <SnapPreview />
     </div>
