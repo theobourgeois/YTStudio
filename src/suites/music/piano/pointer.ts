@@ -288,10 +288,12 @@ export function gridPointerDown(e: Press) {
   // The slice tool: a line straight down through the notes, at the grid line nearest the pointer,
   // from the row pressed to the row it's dragged to. Each note it crosses is cut there when let go.
   if (tool === "slice") {
+    const from = slicePoint(element, e, ctx.grid);
     const slice = (ev: { clientX: number; clientY: number; altKey: boolean }) => {
-      const q = local(element, ev);
-      usePiano.getState().setDrag({ kind: "slice", tick: snapTick(xToTick(view, q.x), gridOf(ev), "line"), low: pitch0, high: yToPitch(view, q.y) });
+      const to = slicePoint(element, ev, ctx.grid);
+      usePiano.getState().setDrag({ kind: "slice", tick: to.tick, low: from.pitch, high: to.pitch });
     };
+    usePiano.setState({ sliceHover: null });
     show(element, CURSORS.knife);
     slice(e);
     startPointerDrag(e, { threshold: 0, onMove: slice, ...finish });
@@ -446,6 +448,26 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   if (tool === "select") return hit ? "pointer" : "default";
   if (hit) return hit.edge ? RESIZE_CURSOR : MOVE_CURSOR;
   return tool === "paint" ? CURSORS.brush : CURSORS.pencil;
+}
+
+/**
+ * Where the slice tool cuts for a pointer over the grid: the grid line nearest it (Alt: any tick), in
+ * the row under it. The line is drawn there before a press too (`trackSliceHover`), so it's plain
+ * where the cut will fall.
+ */
+export function slicePoint(element: Element, ev: { clientX: number; clientY: number; altKey: boolean }, grid: number) {
+  const { view } = usePiano.getState();
+  const q = local(element, ev);
+  return { tick: snapTick(xToTick(view, q.x), ev.altKey ? 1 : grid, "line"), pitch: yToPitch(view, q.y) };
+}
+
+/** The pointer moved over the grid with no button down (or left it: null): the slice tool's line follows. */
+export function trackSliceHover(element: Element, ev: { clientX: number; clientY: number; altKey: boolean } | null) {
+  const piano = usePiano.getState();
+  const ctx = piano.tool === "slice" && ev ? pianoContext() : null;
+  const next = ctx && ev ? slicePoint(element, ev, ctx.grid) : null;
+  const was = piano.sliceHover;
+  if (next?.tick !== was?.tick || next?.pitch !== was?.pitch) usePiano.setState({ sliceHover: next });
 }
 
 /**

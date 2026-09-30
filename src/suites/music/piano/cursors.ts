@@ -27,7 +27,8 @@ export const CURSORS = {
   ),
   eraser: cursor(`<path d='M3.5 15 L12 6.5 L18.5 13 L10.5 21 H6.5 Z' ${PAPER}/><path d='M7.8 10.7 L14.3 17.2' /><path d='M10.5 21 H20'/>`, 5, 18, "not-allowed"),
   mute: cursor(`<path d='M3 9.5 H6.5 L11.5 5.5 V18.5 L6.5 14.5 H3 Z' ${PAPER}/><path d='M15 9.5 L20 14.5 M20 9.5 L15 14.5'/>`, 11, 12, "pointer"),
-  knife: cursor(`<path d='M12 23 L12 9 L16 5 L16 23 Z' ${PAPER}/><path d='M12.5 5 L12.5 1.5 H15.5 V5' ${INK}/>`, 12, 23, "crosshair"),
+  // Upright, its straight edge down the cut and its point on the hot spot, where the line is drawn.
+  knife: cursor(`<path d='M12 22 V9.5 H16 V14 Q16 19 12 22 Z' ${PAPER}/><path d='M11.8 9.5 V3 Q11.8 2 12.8 2 H15 Q16 2 16 3 V9.5 Z' ${INK}/>`, 12, 22, "crosshair"),
   speaker: cursor(`<path d='M3 9.5 H6.5 L11.5 5.5 V18.5 L6.5 14.5 H3 Z' ${PAPER}/><path d='M14.6 9.2 Q16.6 12 14.6 14.8 M17.4 6.6 Q21.3 12 17.4 17.4'/>`, 7, 12, "pointer"),
 } as const;
 

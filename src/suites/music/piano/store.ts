@@ -66,6 +66,8 @@ interface PianoState {
   editing: number | null;
   /** The key held down on the keyboard, lit while it sounds. */
   heldKey: number | null;
+  /** Where the slice tool would cut if pressed now (the pointer over the grid, no button down). */
+  sliceHover: { tick: number; pitch: number } | null;
 
   setChannel: (channelId: string | null) => void;
   setTool: (tool: PianoTool) => void;
@@ -96,13 +98,14 @@ const INITIAL = {
   copied: null,
   editing: null,
   heldKey: null,
+  sliceHover: null as { tick: number; pitch: number } | null,
 };
 
 export const usePiano = create<PianoState>((set, get) => ({
   ...INITIAL,
   // Another channel's notes are other notes: nothing of this one's stays selected.
   setChannel: (channelId) => channelId !== get().channelId && set({ channelId, selected: new Set(), drag: null, editing: null }),
-  setTool: (tool) => set({ tool }),
+  setTool: (tool) => set({ tool, sliceHover: null }),
   setSnap: (snap) => set({ snap }),
   setView: (view) => set({ view }),
   select: (ids) => set({ selected: new Set(ids) }),

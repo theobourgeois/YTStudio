@@ -24,7 +24,7 @@ import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepar
 import { onFade, vanishing } from "./fades";
 import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, wheelZoomFactor, zoomAt } from "./geometry";
 import { NoteProperties } from "./note-properties";
-import { gridCursor, gridPointerDown, keysPointerDown, lanePointerDown, rulerPointerDown } from "./pointer";
+import { gridCursor, gridPointerDown, keysPointerDown, lanePointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
 import { type PianoTool, usePiano } from "./store";
 
 const KEYS_W = 72;
@@ -234,7 +234,9 @@ function PianoBody() {
         slice:
           drag?.kind === "slice"
             ? { x: Math.round(tickToX(view, drag.tick)) + 0.5, y1: pitchToY(view, Math.max(drag.low, drag.high)), y2: pitchToY(view, Math.min(drag.low, drag.high)) + view.rowHeight }
-            : null,
+            : !drag && piano.sliceHover
+              ? { x: Math.round(tickToX(view, piano.sliceHover.tick)) + 0.5, y1: pitchToY(view, piano.sliceHover.pitch), y2: pitchToY(view, piano.sliceHover.pitch) + view.rowHeight }
+              : null,
         ghosts: piano.ghosts ? Object.entries(ctx.pattern.notes).flatMap(([id, list]) => (id === ctx.channel.id ? [] : [list])) : [],
         barTicks: ctx.barTicks,
         beatTicks: ctx.beatTicks,
@@ -378,7 +380,12 @@ function PianoBody() {
           aria-label="Notes"
           onPointerDown={gridPointerDown}
           // The pointer says what a press would do there; a drag sets its own while it lasts.
-          onPointerMove={(e) => e.buttons === 0 && (e.currentTarget.style.cursor = gridCursor(e.currentTarget, e))}
+          onPointerMove={(e) => {
+            if (e.buttons !== 0) return;
+            e.currentTarget.style.cursor = gridCursor(e.currentTarget, e);
+            trackSliceHover(e.currentTarget, e);
+          }}
+          onPointerLeave={(e) => trackSliceHover(e.currentTarget, null)}
           onPointerUp={(e) => (e.currentTarget.style.cursor = gridCursor(e.currentTarget, e))}
         />
         <div ref={playhead} className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground opacity-0" />
