@@ -4,6 +4,7 @@ import { PiCloudSlash, PiFilmSlate, PiWarning } from "react-icons/pi";
 import { previewSlots } from "@shared/sequences";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
+import { useLayout } from "@/stores/layout";
 import { fitRect } from "./canvas";
 import { PreviewEngine } from "./engine";
 import { TransformOverlay } from "./transform-overlay";
@@ -24,6 +25,8 @@ export function Stage() {
     engine.start();
     return () => engine.stop();
   }, [engine]);
+  const resolution = useLayout((s) => s.previewResolution);
+  useEffect(() => engine.setResolution(resolution), [engine, resolution]);
   // Text clips need to know which styles the installed fonts have.
   useEffect(() => useFonts.getState().load(), []);
 

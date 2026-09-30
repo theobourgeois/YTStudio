@@ -69,6 +69,9 @@ interface LayoutState {
   showEffects: (kind: EffectKind) => void;
   tool: CanvasTool;
   setTool: (tool: CanvasTool) => void;
+  /** The Program monitor draws at this fraction of its pixels (Premiere's Playback Resolution): 1, 0.5 or 0.25. */
+  previewResolution: number;
+  setPreviewResolution: (resolution: number) => void;
   /** The Properties tab shows keyframe lanes next to the values (Premiere's Effect Controls timeline). */
   keyframesOpen: boolean;
   toggleKeyframes: () => void;
@@ -83,6 +86,14 @@ interface LayoutState {
   panelWidths: Record<PanelWidthMode, number>;
   /** Set one of them (clamped); `save` remembers it for next time (at the end of a drag). */
   setPanelWidth: (mode: PanelWidthMode, width: number, save?: boolean) => void;
+}
+
+const RESOLUTION_KEY = "editor-preview-resolution";
+/** The preview resolutions offered: full, half and quarter. */
+export const PREVIEW_RESOLUTIONS = [1, 0.5, 0.25] as const;
+function storedResolution(): number {
+  const stored = Number(localStorage.getItem(RESOLUTION_KEY));
+  return (PREVIEW_RESOLUTIONS as readonly number[]).includes(stored) ? stored : 1;
 }
 
 /** What a property's graph editor shows. */
@@ -121,6 +132,11 @@ export const useLayout = create<LayoutState>((set, get) => ({
   tool: "select",
   setTool(tool) {
     set({ tool });
+  },
+  previewResolution: storedResolution(),
+  setPreviewResolution(previewResolution) {
+    localStorage.setItem(RESOLUTION_KEY, String(previewResolution));
+    set({ previewResolution });
   },
   keyframesOpen: localStorage.getItem(KEYFRAMES_KEY) === "true",
   toggleKeyframes() {

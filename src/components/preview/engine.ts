@@ -1,5 +1,5 @@
 import type { Clip, MediaAsset, Project } from "@shared/types";
-import { type TextStyle, clipKind, isRemapped, lookAt, motionAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
+import { type TextStyle, clipKind, effectDefinition, isRemapped, lookAt, motionAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
 import { nestedSequence, sequenceDuration, sequenceSize, sequenceView } from "@shared/sequences";
 import { mediaTime, remapSpeed } from "@shared/time-remap";
 import { type Compositor, type Placed, createCompositor, matteIndex } from "@shared/compositor";
@@ -50,8 +50,11 @@ interface Picture {
    * frame before is kept (under `${key}~`) and the moment wanted is between the two.
    */
   interp?: { slot: MediaSlot; target: number; flow: boolean };
-  /** A nested sequence: its level and layers, drawn into a group picture (`key`) before it's placed. */
-  nest?: { level: Level; layers: Layer[] };
+  /**
+   * A nested sequence: its level and layers, drawn into a group picture (`key`) before it's placed.
+   * `settled`: everything in it shows what it should for its time, so the frame can be kept.
+   */
+  nest?: { level: Level; layers: Layer[]; settled: boolean };
 }
 
 /**
@@ -71,8 +74,29 @@ interface Level {
   depth: number;
 }
 
+/** What planning found out: media missing, or anything not yet showing what its time says (see `Picture.nest`). */
+interface PlanStatus {
+  offline: boolean;
+  unsettled: boolean;
+}
+
+/** Whether a clip has a time effect on (see `EffectShader.history`). */
+const hasTimeEffects = (clip: Clip) => clip.effects.some((e) => e.enabled && !!effectDefinition(e.type)?.shader?.history);
+
 /** Nested sequences deeper than this aren't drawn (a guard; loops are never saved). */
 const MAX_NESTING = 8;
+
+/** GPU memory nested sequences' kept frames may take (bytes). */
+const NEST_CACHE_BYTES = 384 * 1024 * 1024;
+
+const viewKeys = new WeakMap<Project, number>();
+let nextViewKey = 1;
+/** A number for each sequence view: a new one whenever anything in it (or in what it nests) changes. */
+function viewKey(view: Project): number {
+  let key = viewKeys.get(view);
+  if (key === undefined) viewKeys.set(view, (key = nextViewKey++));
+  return key;
+}
 
 /** A clip's own playback rate times its level's, or null when it can't play (see `mediaOf`). */
 function scaledRate(rate: number | null, levelRate: number): number | null {
@@ -163,6 +187,16 @@ export class PreviewEngine {
   /** Time-interpolated videos' frames: how many the slot had shown, and the media times of the newest two. */
   private frames = new Map<string, { count: number; src: string; time: number; before: number }>();
   private drawQueued = false;
+  /** Preview resolution (Premiere's Playback Resolution): 1 full, 0.5 half, 0.25 quarter. */
+  private resolution = 1;
+  /**
+   * Nested sequences' frames kept on the GPU (by the compositor's picture key, least
+   * recently used first) with their size in bytes: a nest showing a frame it has drawn
+   * before (paused, scrubbing back, a freeze, playing again) isn't drawn again.
+   */
+  private nestFrames = new Map<string, number>();
+  /** Bumped when what's drawn can change without the project changing (media updated, fonts found). */
+  private contentVersion = 0;
 
   constructor(
     private readonly onStatusChange: (status: { offline: boolean; noWebGl: boolean }) => void,
@@ -172,8 +206,12 @@ export class PreviewEngine {
   start() {
     if (this.unsubscribe) return;
     const offSource = this.source.subscribe(this.update);
-    // Knowing the installed fonts can change which style a text is drawn in.
-    const offFonts = useFonts.subscribe(this.update);
+    // Knowing the installed fonts can change which style a text is drawn in (so kept nest frames are stale).
+    const offFonts = useFonts.subscribe(() => {
+      this.contentVersion++;
+      this.clearNestFrames();
+      this.update();
+    });
     this.unsubscribe = () => {
       offSource();
       offFonts();
@@ -186,6 +224,15 @@ export class PreviewEngine {
     this.unsubscribe = null;
     for (const layer of this.layers.values()) for (const slot of layer.videos) slot?.pause();
     for (const layer of this.audio.values()) for (const slot of layer.slots) slot?.pause();
+  }
+
+  /** Draw at a fraction of the canvas' pixels (1, 0.5 or 0.25): less work for heavy edits. */
+  setResolution(resolution: number) {
+    const r = Math.min(1, Math.max(0.125, resolution));
+    if (r === this.resolution) return;
+    this.resolution = r;
+    this.clearNestFrames();
+    this.update();
   }
 
   /** The canvas size in CSS px. */
@@ -230,6 +277,7 @@ export class PreviewEngine {
     this.compositor = gl && !gl.isContextLost() ? createCompositor(gl) : null;
     if (!gl) console.warn("WebGL 2 isn't available, so the preview can't be drawn.");
     this.uploaded.clear();
+    this.nestFrames.clear();
     this.reportStatus();
   }
 
@@ -237,6 +285,7 @@ export class PreviewEngine {
     if (dispose && !this.compositor?.gl.isContextLost()) this.compositor?.dispose();
     this.compositor = null;
     this.uploaded.clear();
+    this.nestFrames.clear();
   }
 
   /** Ref-callback helper: returns the cleanup that releases the element. */
@@ -324,7 +373,7 @@ export class PreviewEngine {
       this.windowsOf = project;
       this.windows.clear();
     }
-    const status = { offline: false };
+    const status = { offline: false, unsettled: false };
     const layers = this.planLevel({ view: project, prefix: "", time, playing, rate: 1, muted: false, gain: 1, canvas: this.size, depth: 0 }, status);
     this.draw(project, layers);
     if (status.offline !== this.offline) {
@@ -338,7 +387,7 @@ export class PreviewEngine {
    * bottom track first, keeping its tracks' media elements playing (or parked) in step. A
    * nested clip's sequence is planned the same way, into a group picture of its own.
    */
-  private planLevel(level: Level, status: { offline: boolean }): Layer[] {
+  private planLevel(level: Level, status: PlanStatus): Layer[] {
     const { view: project, prefix, time, playing, depth } = level;
     const trackMuted = new Map(project.tracks.map((t) => [t.id, t.muted]));
     const kindOf = (clip: Clip): ClipKind => {
@@ -376,9 +425,14 @@ export class PreviewEngine {
         if (kindOf(side.clip) !== "sequence") return;
         const nest = this.nestLevel(level, trackId, side, muted);
         if (!nest) return;
-        const layers = depth < MAX_NESTING ? this.planLevel(nest, status) : [];
-        pictures.set(side.clip.id, { key: `nest:${slotId}:${i}`, source: null, shown: side, nest: { layers, level: nest } });
+        const inner: PlanStatus = { offline: false, unsettled: false };
+        const layers = depth < MAX_NESTING ? this.planLevel(nest, inner) : [];
+        status.offline ||= inner.offline;
+        status.unsettled ||= inner.unsettled;
+        pictures.set(side.clip.id, { key: `nest:${slotId}:${i}`, source: null, shown: side, nest: { layers, level: nest, settled: !inner.unsettled } });
       });
+      // Time effects remember earlier frames: what they show isn't the time's alone.
+      if (shown.some((side) => hasTimeEffects(side.clip))) status.unsettled = true;
 
       if (layer) {
         const ids = (want: ClipKind) => {
@@ -394,6 +448,7 @@ export class PreviewEngine {
           const slot = (layer.texts[i] ??= new TextSlot(document.createElement("canvas")));
           const { placement, text } = placeOnCanvas(project, side.clip, undefined, level.canvas, side.time);
           slot.draw(textStyleAt(side.clip, side.time), text!, textUnit(level.canvas, project.settings.aspectRatio), placement);
+          if (!slot.drawn) status.unsettled = true;
           pictures.set(side.clip.id, { key: `${slotId}:t${i}`, source: slot, shown: side });
         });
 
@@ -420,6 +475,11 @@ export class PreviewEngine {
             const lead = interp && playing ? 1 / fps : 0;
             if (playing && media.plays && rate !== null) slot.follow(media.at(on.time) + lead, rate);
             else slot.hold(media.at(on.time));
+            // Showing the frame of its moment yet? (A frame's slack either way, as media elements land.)
+            const slack = 1 / Math.max(24, fps || 30);
+            if (interp || el.seeking || el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || Math.abs(el.currentTime - media.at(on.time)) > slack) {
+              status.unsettled = true;
+            }
             pictures.set(on.clip.id, {
               key: `${slotId}:v${i}`,
               source: el,
@@ -447,6 +507,7 @@ export class PreviewEngine {
           if (on) {
             const src = this.srcOf(on.clip);
             slot.setSrc(src);
+            if (!slot.el.complete || slot.el.naturalWidth === 0) status.unsettled = true;
             pictures.set(on.clip.id, { key: `${slotId}:i${i}`, source: slot.el, shown: on });
             status.offline ||= src === null || slot.failed;
             return;
@@ -552,7 +613,7 @@ export class PreviewEngine {
     const canvas = this.canvas;
     if (!compositor || !canvas || !(this.size.width > 0 && this.size.height > 0)) return;
     if (compositor.gl.isContextLost()) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = Math.min(2, window.devicePixelRatio || 1) * this.resolution;
     compositor.resize(this.size.width * dpr, this.size.height * dpr);
     compositor.clear();
     const count = this.drawLayers(compositor, project, layers, this.size, dpr);
@@ -583,14 +644,30 @@ export class PreviewEngine {
       const { clip, time } = picture.shown;
       if (picture.nest) {
         // The nested sequence first, into a group picture of its own at about the size it's shown.
-        const { level, layers: inner } = picture.nest;
+        const { level, layers: inner, settled } = picture.nest;
         const zoom = Math.min(4, Math.max(1, Math.abs(motionAt(clip, time).scaleY)));
         const groupDpr = Math.min(4096 / Math.max(level.canvas.width, level.canvas.height, 1), dpr * zoom);
-        compositor.beginGroup(level.canvas.width * groupDpr, level.canvas.height * groupDpr);
-        this.drawLayers(compositor, level.view, inner, level.canvas, groupDpr);
-        compositor.endGroup(picture.key);
+        const [w, h] = [Math.round(level.canvas.width * groupDpr), Math.round(level.canvas.height * groupDpr)];
+        // A frame that depends only on the sequence and its time (everything in it loaded and in step) is kept.
+        const cacheKey = settled
+          ? `nest-frame:${this.contentVersion}:${viewKey(level.view)}:${level.time.toFixed(4)}:${w}x${h}:${level.canvas.width.toFixed(1)}x${level.canvas.height.toFixed(1)}`
+          : null;
+        let key = picture.key;
+        if (cacheKey && compositor.hasPicture(cacheKey) && this.nestFrames.has(cacheKey)) {
+          this.nestFrames.delete(cacheKey);
+          this.nestFrames.set(cacheKey, w * h * 4);
+          key = cacheKey;
+        } else {
+          compositor.beginGroup(w, h);
+          this.drawLayers(compositor, level.view, inner, level.canvas, groupDpr);
+          if (cacheKey) {
+            compositor.endGroup(cacheKey);
+            this.keepNestFrame(compositor, cacheKey, w * h * 4);
+            key = cacheKey;
+          } else compositor.endGroup(picture.key);
+        }
         const layer = clipLayer(clip, time, affineAt(clip), options);
-        return layer && { ...layer, key: picture.key };
+        return layer && { ...layer, key };
       }
       if (picture.source === null) {
         const layer = clipLayer(clip, time, affineAt(clip), options);
@@ -664,6 +741,24 @@ export class PreviewEngine {
     return { transitions };
   }
 
+  /** Remember a nested sequence's frame, letting go of the least recently shown past the budget. */
+  private keepNestFrame(compositor: Compositor, key: string, bytes: number) {
+    this.nestFrames.set(key, bytes);
+    let total = 0;
+    for (const b of this.nestFrames.values()) total += b;
+    for (const [old, b] of this.nestFrames) {
+      if (total <= NEST_CACHE_BYTES || old === key) break;
+      compositor.deletePicture(old);
+      this.nestFrames.delete(old);
+      total -= b;
+    }
+  }
+
+  private clearNestFrames() {
+    for (const key of this.nestFrames.keys()) this.compositor?.deletePicture(key);
+    this.nestFrames.clear();
+  }
+
   /**
    * Make sure the compositor has the picture's current contents: a video's
    * frame is uploaded on every draw, a still or a text only when it changes.
@@ -734,6 +829,8 @@ export class PreviewEngine {
   private indexAssets(assets: MediaAsset[]) {
     if (assets === this.indexedAssets) return;
     this.indexedAssets = assets;
+    this.contentVersion++;
+    this.clearNestFrames();
     this.assetById = new Map(assets.map((a) => [a.id, a]));
   }
 
