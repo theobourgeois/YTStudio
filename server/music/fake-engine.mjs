@@ -14,6 +14,8 @@ let metronome = false;
 let song = null;
 /** When the song started playing (ms), or null. */
 let playingSince = null;
+/** What the desktop app last said of its window (`host`). */
+let host = null;
 /** The plugin channels whose window is open. */
 const editors = new Set();
 
@@ -70,6 +72,8 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     song = params.song;
     return send({ id, ok: true, result: { unreadable: [], channels: channels() } });
   }
+  if (cmd === "host") host = params;
+  if (cmd === "whatHost") return send({ id, ok: true, result: host });
   if (cmd === "devices") return send({ id, ok: true, result: devices() });
   if (cmd === "setDevice") {
     Object.assign(device, params);
@@ -82,6 +86,8 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     sendTransport();
   }
   if (cmd === "metronome") metronome = params.on;
+  // A plugin window's key, as if pressed there (tests): the engine sends it on.
+  if (cmd === "pressKey") send({ event: "key", key: params.key, code: params.code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...params.modifiers });
   if (cmd === "channelEditor") {
     if (!channels().loaded.some((c) => c.channel === params.channel)) return fail("That channel's plugin isn't loaded.");
     if (params.open) editors.add(params.channel);

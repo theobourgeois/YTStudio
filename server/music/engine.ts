@@ -18,6 +18,7 @@ import {
   type EngineRender,
   type EngineSlot,
   type EngineStatus,
+  type HostWindow,
   type LoadedPlugin,
   type SetSongResponse,
 } from "../../shared/music/engine.ts";
@@ -83,6 +84,8 @@ export class AudioEngine {
   /** The song the engine was last given, to give it again if it restarts. */
   private song: Record<string, unknown> | null = null;
   private stateTimer: NodeJS.Timeout | null = null;
+  /** The desktop app's window, to tell a restarted engine too. */
+  private host: HostWindow | null = null;
 
   constructor(
     private readonly paths: DataPaths,
@@ -127,6 +130,15 @@ export class AudioEngine {
     this.keepStates(song.channels.some((c) => c.plugin));
     const answer = (await this.request("song", { song })) as Omit<SetSongResponse, "loop">;
     return { ...answer, loop: { start: compiled.offsetTicks, ticks: compiled.loopTicks } };
+  }
+
+  /**
+   * The desktop app's window changed (focus, minimised, moved): plugin windows follow it. Only sent to a
+   * running engine (it's no reason to start one); a new one is told when it starts.
+   */
+  setHost(host: HostWindow) {
+    this.host = host;
+    if (this.child) void this.request("host", { ...host }).catch(() => {});
   }
 
   /** Write the song's plugins' states now (the tab asks before it goes). */
@@ -322,9 +334,10 @@ export class AudioEngine {
           this.child = child;
           // A restarted engine has forgotten the song: give it back before anything else is asked.
           if (this.song) void this.request("song", { song: this.song }).catch(() => {});
+          if (this.host) void this.request("host", { ...this.host }).catch(() => {});
           resolve();
           this.emit({ event: "ready" });
-        } else if (message.event === "transport") {
+        } else if (message.event === "transport" || message.event === "key") {
           this.emit(message as unknown as EngineEvent);
         } else if (message.event === "status" && isObject(message.status)) {
           void this.withSaved(message.status as unknown as RawStatus).then((status) => this.emit({ event: "status", status }));

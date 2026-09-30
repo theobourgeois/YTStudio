@@ -77,14 +77,42 @@ export interface EngineTransport {
 }
 
 /**
+ * A key pressed in a plugin's window that the plugin didn't use, named as the page names keys: the app
+ * runs its shortcut (Space plays, as in FL Studio). Only the keys shortcuts use are sent.
+ */
+export interface EngineKey {
+  key: string;
+  code: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}
+
+/**
  * What the engine says on its own (`GET /api/engine/events`): where the song is, about 25 times a
  * second while it plays or anything sounds; its status when that changes by itself (a scan ending, a
- * plugin's window closed by hand); and that it has (re)started.
+ * plugin's window closed by hand); a key pressed in a plugin's window; and that it has (re)started.
  */
 export type EngineEvent =
   | ({ event: "transport"; peak: number; cpu: number } & EngineTransport)
   | { event: "status"; status: EngineStatus }
+  | ({ event: "key" } & EngineKey)
   | { event: "ready" };
+
+/**
+ * The desktop app's window, which it tells the engine about whenever it changes, so plugin windows act
+ * as if they were part of it: floating above it while it (or they) are in use, hidden while another app
+ * is or it's minimised, moving along with it (`docs/fl-studio/plugin-window.md`).
+ */
+export interface HostWindow {
+  /** It's the window in front (it has the focus). */
+  active: boolean;
+  /** Neither minimised nor hidden. */
+  visible: boolean;
+  /** Where it is on the screen, in points. */
+  bounds: { x: number; y: number; width: number; height: number };
+}
 
 /** The song to play (`POST /api/engine/song`): the tab's copy of the document, saved or not. */
 export interface SetSongRequest {

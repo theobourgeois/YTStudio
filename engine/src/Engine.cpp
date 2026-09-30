@@ -160,6 +160,11 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             return reply (fail ("That channel's plugin isn't loaded."), {});
         return ok();
     }
+    if (command == "host")
+    {
+        plugins.setHost (params);
+        return ok();
+    }
     if (command == "saveStates")
     {
         plugins.saveStates();

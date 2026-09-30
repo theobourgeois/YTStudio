@@ -1,5 +1,6 @@
 import path from "node:path";
 import express, { type ErrorRequestHandler, type Express, type Response } from "express";
+import type { HostWindow } from "../shared/music/engine.ts";
 import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
@@ -46,6 +47,8 @@ export interface EditorApp {
   app: Express;
   /** Stop background processing and kill running renders. */
   shutdown(): void;
+  /** The desktop app's window changed: the audio engine's plugin windows follow it (`HostWindow`). */
+  setHostWindow(host: HostWindow): void;
 }
 
 /** Content types `mime-types` gets wrong (or too exotic) for browsers. */
@@ -170,6 +173,7 @@ export async function createApp({
 
   return {
     app,
+    setHostWindow: (host) => engine.setHost(host),
     shutdown() {
       library.shutdown();
       libraryMedia.shutdown();

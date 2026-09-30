@@ -11,6 +11,8 @@ about to touch before changing it, and correct it when you learn it's wrong.
   editor, ghost notes and every shortcut. Ends with where Vaudio differs.
 - [toolbar.md](toolbar.md): the main toolbar across the top (transport, tempo, position, pattern
   selector, window buttons, the hint bar, the meters). Ends with where Vaudio differs.
+- [plugin-window.md](plugin-window.md): the window a plugin's interface is shown in (the wrapper): its
+  title bar, and how the keyboard is shared with FL. Ends with where Vaudio differs.
 - Playlist, mixer, browser: not written yet. Write each one before its phase is built.
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).

@@ -1,10 +1,11 @@
 import { useEffect } from "react";
+import type { EngineKey } from "@shared/music/engine";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
 import { ChannelRack } from "./channel-rack";
 import { ChannelSettingsWindow } from "./channel-settings";
 import { startEngineSync } from "./engine-sync";
-import { type MusicKeyAction, isTyping, resolveMusicKey } from "./keys";
+import { type MusicKeyAction, isGlobalKey, isTyping, resolveMusicKey, resolvePluginWindowKey } from "./keys";
 import { cloneSelected, copySteps, cutSteps, deleteSelected, moveSelected, muteAt, pasteSteps, rotate, selectNeighbour } from "./rack-actions";
 import { useMusic, useSong } from "./store";
 import { MusicToolbar } from "./toolbar";
@@ -23,7 +24,7 @@ export default function MusicWorkspace() {
   const loadError = useMusic((s) => s.loadError);
 
   // The engine plays the open song for as long as it's open.
-  useEffect(() => (projectId && loaded ? startEngineSync() : undefined), [projectId, loaded]);
+  useEffect(() => (projectId && loaded ? startEngineSync({ onKey: runPluginWindowKey }) : undefined), [projectId, loaded]);
   useMusicKeys(loaded);
 
   if (!projectId || !loaded) {
@@ -166,14 +167,24 @@ function runKey(action: MusicKeyAction) {
   }
 }
 
+/** Dialogs and open menus own the keyboard. */
+const dialogOpen = () => document.querySelector(":is([role=dialog], [role=alertdialog], [role=menu]):not([data-state=closed])") !== null;
+
+/**
+ * A key a plugin's window passed on (the engine's own window: the page doesn't have the focus). Only a
+ * tab that's showing runs it, so two tabs don't both toggle play.
+ */
+function runPluginWindowKey(key: EngineKey) {
+  const action = resolvePluginWindowKey(key);
+  if (action && document.visibilityState === "visible" && !dialogOpen()) runKey(action);
+}
+
 /** The music editor's keys (`keys.ts`). (The video editor's shortcuts are off without a video open.) */
 function useMusicKeys(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.isComposing || isTyping(e.target)) return;
-      // Dialogs and open menus own the keyboard.
-      if (document.querySelector(":is([role=dialog], [role=alertdialog], [role=menu]):not([data-state=closed])")) return;
+      if (e.isComposing || isTyping(e.target) || dialogOpen()) return;
       // The Piano roll's own keys, while it's the window in front.
       if (frontWindow() === "piano") {
         const piano = resolvePianoKey(e);
@@ -186,7 +197,7 @@ function useMusicKeys(enabled: boolean) {
       const action = resolveMusicKey(e);
       if (!action) return;
       // With the Piano roll in front, only the keys for everything (play, undo, the windows) are the rack's.
-      if (frontWindow() === "piano" && !["togglePlay", "undo", "redo", "toggleRack", "togglePiano"].includes(action.type)) return;
+      if (frontWindow() === "piano" && !isGlobalKey(action)) return;
       // Copying text that's selected on the page is still the browser's.
       if (action.type === "copy" && window.getSelection()?.toString()) return;
       // A focused knob, number or list keeps its own arrows. (A menu's button doesn't: it opens with Enter.)

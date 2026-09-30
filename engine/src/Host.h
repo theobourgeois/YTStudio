@@ -18,6 +18,8 @@ struct HostedPlugin
     ~HostedPlugin();
 
     juce::String channelId, pluginId;
+    /** The channel's name, for its window's title: "Serum 2 (Chorus)". */
+    juce::String channelName;
     std::unique_ptr<juce::AudioPluginInstance> instance;
     /** After `instance`, so it goes first. */
     std::unique_ptr<EditorWindow> window;
@@ -38,18 +40,18 @@ struct HostedPlugin
     int numPending = 0;
 };
 
-class PluginHost
+class PluginHost final : private juce::Timer
 {
 public:
     /** `changed` is called when a plugin finishes loading (or fails), or its window is closed by hand. */
     PluginHost (juce::AudioPluginFormatManager& formats, juce::KnownPluginList& known, std::function<void()> changed);
-    ~PluginHost();
+    ~PluginHost() override;
 
     /**
      * The channel's plugin, if it's loaded. If it isn't, it starts loading (and `changed` says when it
      * has), its state read from `stateFile` if that exists. Null meanwhile, and if it can't be loaded.
      */
-    std::shared_ptr<HostedPlugin> get (const juce::String& channelId, const juce::String& pluginId, const juce::File& stateFile);
+    std::shared_ptr<HostedPlugin> get (const juce::String& channelId, const juce::String& pluginId, const juce::File& stateFile, const juce::String& channelName);
     /** Let go of the plugins of channels that aren't in `channelIds` any more, saving their state first. */
     void keepOnly (const juce::StringArray& channelIds);
     /** Write every plugin's state that has changed since it was last written. */
@@ -57,6 +59,13 @@ public:
     /** False if the channel has no loaded plugin. */
     bool showEditor (const juce::String& channelId, bool open);
     void prepare (double sampleRate, int blockSize);
+    /**
+     * The app's window (`{ active, visible, bounds: { x, y, width, height } }`), which the desktop app
+     * says whenever it changes. From then on, plugin windows act as if they were part of it: they float
+     * above it while it or they are in use, hide while another app is (or the app's window is
+     * minimised or hidden), and move when it moves. Without it (a browser tab) they're ordinary windows.
+     */
+    void setHost (const juce::var& host);
     /** Try again the plugins that couldn't be loaded (a scan may have found them since). */
     void forgetFailures() { failed.clear(); }
 
@@ -65,6 +74,10 @@ public:
 
 private:
     void save (HostedPlugin&);
+    /** Shows, hides and floats the windows as the app's window is (`setHost`). */
+    void timerCallback() override;
+    void placeWindows();
+    static juce::String titleOf (const HostedPlugin&);
 
     juce::AudioPluginFormatManager& formats;
     juce::KnownPluginList& known;
@@ -73,6 +86,12 @@ private:
     /** Channel id -> the plugin id being loaded for it. */
     std::map<juce::String, juce::String> loading;
     std::map<juce::String, juce::String> failed;
+    /** The app's window, once the desktop app has said. */
+    bool hostKnown = false, hostActive = false, hostVisible = true;
+    juce::Rectangle<int> hostBounds;
+    /** When the app or the engine was last in front (ms): switching between them, neither is for a moment. */
+    juce::uint32 lastInUse = 0;
+    bool windowsShown = true;
     double sampleRate = 48000.0;
     int blockSize = 512;
     /** So a load that finishes after the host has gone does nothing. */

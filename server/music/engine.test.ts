@@ -76,6 +76,24 @@ describe("AudioEngine", () => {
     await engine.saveStates();
   });
 
+  it("passes on the keys pressed in plugin windows, and tells the engine (a restarted one too) where the app's window is", async () => {
+    const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
+    const host = { active: true, visible: true, bounds: { x: 10, y: 20, width: 1400, height: 900 } };
+    // Not a reason to start the engine; it's told once it's started.
+    engine.setHost(host);
+    const events: EngineEvent[] = [];
+    engine.onEvent((event) => events.push(event));
+    expect(await request("whatHost", {})).toEqual(host);
+
+    await request("pressKey", { key: " ", code: "Space" });
+    await expect.poll(() => events.find((e) => e.event === "key")).toEqual({ event: "key", key: " ", code: "Space", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false });
+
+    await expect(request("crash", {})).rejects.toMatchObject({ status: 503 });
+    await engine.command("status", {});
+    await expect.poll(() => request("whatHost", {})).toEqual(host);
+    await expect(engine.command("host", host)).rejects.toMatchObject({ status: 404 });
+  });
+
   it("lists the audio devices and changes them", async () => {
     expect(await engine.devices()).toMatchObject({ output: "Fake Output", bufferSizes: [64, 128, 256, 512] });
     expect((await engine.setDevice({ bufferSize: 128, output: "Fake Headphones" })).status).toMatchObject({ bufferSize: 128, device: "Fake Headphones" });

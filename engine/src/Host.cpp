@@ -4,6 +4,10 @@
 
 namespace
 {
+/** How long neither the app nor the engine may be in front before plugin windows hide (a click from one to the other). */
+constexpr juce::uint32 switchGraceMs = 400;
+constexpr int hostCheckMs = 100;
+
 /** The most samples a plugin is asked for at once (the engine's blocks are far smaller). */
 constexpr int maxBlock = 8192;
 
@@ -32,16 +36,26 @@ PluginHost::PluginHost (juce::AudioPluginFormatManager& f, juce::KnownPluginList
 
 PluginHost::~PluginHost()
 {
+    stopTimer();
     *alive = false;
     saveStates();
 }
 
-std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& channelId, const juce::String& pluginId, const juce::File& stateFile)
+std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& channelId, const juce::String& pluginId, const juce::File& stateFile, const juce::String& channelName)
 {
     if (const auto found = loaded.find (channelId); found != loaded.end())
     {
         if (found->second->pluginId == pluginId)
+        {
+            // Renamed: its window's title says so.
+            if (auto& hosted = *found->second; hosted.channelName != channelName)
+            {
+                hosted.channelName = channelName;
+                if (hosted.window != nullptr)
+                    hosted.window->setName (titleOf (hosted));
+            }
             return found->second;
+        }
         // The channel has another plugin now.
         save (*found->second);
         loaded.erase (found);
@@ -60,7 +74,7 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& channelId, co
 
     loading[channelId] = pluginId;
     formats.createPluginInstanceAsync (*description, sampleRate, blockSize,
-                                       [this, stillAlive = alive, channelId, pluginId, stateFile] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
+                                       [this, stillAlive = alive, channelId, pluginId, stateFile, channelName] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
                                            if (! *stillAlive)
                                                return;
                                            // Asked for something else (or nothing) since.
@@ -76,6 +90,7 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& channelId, co
                                            auto hosted = std::make_shared<HostedPlugin>();
                                            hosted->channelId = channelId;
                                            hosted->pluginId = pluginId;
+                                           hosted->channelName = channelName;
                                            hosted->stateFile = stateFile;
                                            hosted->instance = std::move (created);
                                            configurePlugin (*hosted->instance, sampleRate, blockSize);
@@ -145,7 +160,7 @@ bool PluginHost::showEditor (const juce::String& channelId, bool open)
         return true;
     }
     if (hosted.window == nullptr)
-        hosted.window = std::make_unique<EditorWindow> (*hosted.instance, hosted.instance->getName(), [this, stillAlive = alive, channelId] {
+        hosted.window = std::make_unique<EditorWindow> (*hosted.instance, titleOf (hosted), [this, stillAlive = alive, channelId] {
             juce::MessageManager::callAsync ([this, stillAlive, channelId] {
                 if (! *stillAlive)
                     return;
@@ -155,7 +170,66 @@ bool PluginHost::showEditor (const juce::String& channelId, bool open)
             });
         });
     hosted.window->show();
+    placeWindows();
     return true;
+}
+
+juce::String PluginHost::titleOf (const HostedPlugin& hosted)
+{
+    const auto name = hosted.instance->getName();
+    return hosted.channelName.isEmpty() || hosted.channelName == name ? name : name + " (" + hosted.channelName + ")";
+}
+
+void PluginHost::setHost (const juce::var& host)
+{
+    hostActive = (bool) host["active"];
+    hostVisible = (bool) host["visible"];
+    if (hostActive)
+        lastInUse = juce::Time::getMillisecondCounter();
+
+    const auto bounds = host["bounds"];
+    const juce::Rectangle<int> now ((int) bounds["x"], (int) bounds["y"], (int) bounds["width"], (int) bounds["height"]);
+    // Moved (not resized, maximised or made full screen): its plugin windows go along.
+    if (hostKnown && bounds.isObject() && ! hostBounds.isEmpty() && now.getWidth() == hostBounds.getWidth() && now.getHeight() == hostBounds.getHeight())
+    {
+        const auto delta = now.getPosition() - hostBounds.getPosition();
+        if (delta != juce::Point<int>())
+            for (auto& [id, hosted] : loaded)
+                if (hosted->window != nullptr)
+                    hosted->window->setTopLeftPosition (hosted->window->getPosition() + delta);
+    }
+    if (bounds.isObject())
+        hostBounds = now;
+
+    if (! hostKnown)
+    {
+        hostKnown = true;
+        startTimer (hostCheckMs);
+    }
+    placeWindows();
+}
+
+void PluginHost::timerCallback() { placeWindows(); }
+
+void PluginHost::placeWindows()
+{
+    if (! hostKnown)
+        return;
+    const auto now = juce::Time::getMillisecondCounter();
+    if (hostActive || juce::Process::isForegroundProcess())
+        lastInUse = now;
+    const auto shown = hostVisible && now - lastInUse < switchGraceMs;
+    const auto changedState = shown != windowsShown;
+    windowsShown = shown;
+    for (auto& [id, hosted] : loaded)
+        if (auto* window = hosted->window.get())
+        {
+            // Above the app's window, but only while it's in use: then they're gone with it.
+            if (window->isAlwaysOnTop() != shown)
+                window->setAlwaysOnTop (shown);
+            if (changedState || window->isVisible() != shown)
+                window->setVisible (shown);
+        }
 }
 
 void PluginHost::prepare (double rate, int block)

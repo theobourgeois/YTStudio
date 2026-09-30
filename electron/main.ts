@@ -8,6 +8,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, shell } from "electron";
+import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
 import { loadWindowState, trackWindowState } from "./window-state.ts";
 
@@ -37,6 +38,7 @@ let mainWindow: BrowserWindow | null = null;
 let appUrl = "";
 let dataDir = "";
 let closeServer: (() => void) | null = null;
+let setHostWindow: RunningServer["setHostWindow"] | null = null;
 /** Set once the app is quitting (⌘Q, the Dock, logging out), rather than a window closing. */
 let quitting = false;
 
@@ -68,6 +70,7 @@ async function start() {
       ports: DEV_URL ? [devPort] : PACKAGED_PORTS,
     });
     closeServer = server.close;
+    setHostWindow = server.setHostWindow;
     appUrl = DEV_URL ?? `http://127.0.0.1:${server.port}`;
   } catch (err) {
     dialog.showErrorBox(`${APP_NAME} couldn't start`, err instanceof Error ? err.message : String(err));
@@ -115,6 +118,7 @@ function createWindow() {
   win.on("leave-full-screen", () => setFullScreen(false));
   flushBeforeClose(win);
   keepLinksOutside(win);
+  followByPluginWindows(win);
   void win.loadURL(appUrl);
 }
 
@@ -136,6 +140,21 @@ function flushBeforeClose(win: BrowserWindow) {
       else if (!win.isDestroyed()) win.close();
     });
   });
+}
+
+/**
+ * Plugin windows are the audio engine's (another program), so they can't be inside this one: the engine
+ * is told about this window whenever it changes, and makes them float above it, hide with it and move
+ * with it (`HostWindow`, docs/fl-studio/plugin-window.md).
+ */
+function followByPluginWindows(win: BrowserWindow) {
+  const tell = () => {
+    if (win.isDestroyed()) return;
+    setHostWindow?.({ active: win.isFocused(), visible: win.isVisible() && !win.isMinimized(), bounds: win.getBounds() });
+  };
+  for (const event of ["focus", "blur", "show", "hide", "minimize", "restore", "move", "resize"] as const) win.on(event as "focus", tell);
+  win.on("closed", () => setHostWindow?.({ active: false, visible: false, bounds: { x: 0, y: 0, width: 0, height: 0 } }));
+  tell();
 }
 
 /** Links to the web open in the user's browser; the window only ever shows the editor. */

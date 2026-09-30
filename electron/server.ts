@@ -4,7 +4,7 @@
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { createApp } from "../server/app.ts";
+import { type EditorApp, createApp } from "../server/app.ts";
 import { FFMPEG } from "../server/config.ts";
 import { ffmpegVersion } from "../server/ffmpeg.ts";
 import { setGlPageOpener } from "../server/gl-browser.ts";
@@ -22,6 +22,8 @@ export interface RunningServer {
   port: number;
   /** Stop background work and renders, and close the server. */
   close(): void;
+  /** The editor's window changed (focus, minimised, moved): plugin windows follow it. */
+  setHostWindow: EditorApp["setHostWindow"];
 }
 
 function listen(server: http.Server, port: number): Promise<number | null> {
@@ -47,7 +49,7 @@ export async function startServer({ dataDir, clientDir, ports }: ServerOptions):
   if (version) console.log(`[desktop] using ffmpeg ${version}`);
   else console.warn(`[desktop] ffmpeg not found (tried "${FFMPEG}"): importing and exporting won't work.`);
 
-  const { app, shutdown } = await createApp({ dataDir, clientDir });
+  const { app, shutdown, setHostWindow } = await createApp({ dataDir, clientDir });
   const server = http.createServer(app);
   for (const candidate of ports) {
     const port = await listen(server, candidate);
@@ -55,6 +57,7 @@ export async function startServer({ dataDir, clientDir, ports }: ServerOptions):
     console.log(`[desktop] server on http://127.0.0.1:${port} (data: ${dataDir})`);
     return {
       port,
+      setHostWindow,
       close() {
         shutdown();
         server.close();

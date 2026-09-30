@@ -1,4 +1,5 @@
 import { errorMessage } from "@shared/errors";
+import type { EngineKey } from "@shared/music/engine";
 import { musicApi } from "./api";
 import { usePiano } from "./piano/store";
 import { useMusic } from "./store";
@@ -7,10 +8,10 @@ import { NO_CHANNELS, useTransport } from "./transport";
 /**
  * Keeps the audio engine playing the open song: every change of the document (even mid-drag, so a
  * knob is heard as it turns) or of the pattern shown is sent, one request at a time, the latest
- * winning. And the engine's own events feed the transport store. Returns how to stop (which also
- * stops the song).
+ * winning. And the engine's own events feed the transport store, and keys pressed in plugin windows go
+ * to `onKey`. Returns how to stop (which also stops the song).
  */
-export function startEngineSync(): () => void {
+export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }): () => void {
   let stopped = false;
   let sending = false;
   let dirty = false;
@@ -46,6 +47,10 @@ export function startEngineSync(): () => void {
   const stopListening = musicApi.onEngineEvent((event) => {
     if (event.event === "transport") {
       useTransport.setState({ playing: event.playing, tick: event.tick, at: performance.now(), peak: event.peak, cpu: event.cpu });
+    } else if (event.event === "key") {
+      // Pressed in a plugin's window, which the plugin didn't use: the editor's shortcut runs.
+      const { event: _, ...key } = event;
+      onKey(key);
     } else if (event.event === "status") {
       // Its status changed on its own: a plugin finished loading, or its window was closed by hand.
       useTransport.setState({ latencyMs: event.status.outputLatencyMs, metronome: event.status.transport.metronome, channels: event.status.channels });

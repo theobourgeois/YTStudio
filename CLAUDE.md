@@ -340,6 +340,12 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   built. Live and offline share one `Engine::process`, so add sound-making code there and test it offline:
   `server/music/sequencer.integration.test.ts` builds songs with the app's own edits, renders them to a WAV and
   checks where each hit lands, to the sample.
+- A plugin's window is the engine's (`EditorWindow`), so it can't be inside the app's; it acts as if it were
+  (`docs/fl-studio/plugin-window.md`): our own title bar; keys the plugin doesn't use come back as an `EngineEvent`
+  "key" and the tab runs its editor-wide shortcuts (`resolvePluginWindowKey`: Space plays); and the desktop app
+  tells the engine about its window (`HostWindow`, `followByPluginWindows` in `electron/main.ts` →
+  `PluginHost::setHost`), which floats plugin windows above it while it or they are in use, hides them otherwise,
+  and moves them with it.
 - Keep it portable (Windows is planned): only JUCE's APIs, no macOS calls of our own, paths from the server.
 - It's an app bundle (plugin windows need one) with no Dock icon, shipped in the desktop app's resources.
   The desktop app isn't signed, so loading other people's plugins needs nothing; once it's signed with the

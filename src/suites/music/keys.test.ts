@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveMusicKey } from "./keys";
+import { resolveMusicKey, resolvePluginWindowKey } from "./keys";
 
 type Mods = Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolean>>;
 const press = (key: string, code: string, mods: Mods = {}) => resolveMusicKey({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
@@ -45,5 +45,16 @@ describe("music keys", () => {
     expect(press(" ", "Space", { shiftKey: true })).toBeNull();
     expect(press("z", "KeyZ", { metaKey: true, altKey: true })).toBeNull();
     expect(press("a", "KeyA")).toBeNull();
+  });
+
+  it("takes only the keys for the whole editor from a plugin's window", () => {
+    const fromPlugin = (key: string, code: string, mods: Mods = {}) => resolvePluginWindowKey({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
+    expect(fromPlugin(" ", "Space")).toEqual({ type: "togglePlay" });
+    expect(fromPlugin("F7", "F7")).toEqual({ type: "togglePiano" });
+    expect(fromPlugin("z", "KeyZ", { metaKey: true })).toEqual({ type: "undo" });
+    // The rack's own keys stay the rack's: a plugin in front isn't it.
+    expect(fromPlugin("1", "Digit1")).toBeNull();
+    expect(fromPlugin("Delete", "Delete", { altKey: true })).toBeNull();
+    expect(fromPlugin("ArrowDown", "ArrowDown")).toBeNull();
   });
 });

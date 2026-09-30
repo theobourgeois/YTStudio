@@ -125,7 +125,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             {
                 channel.isPlugin = true;
                 const auto state = plugin["state"].toString();
-                channel.plugin = plugins.get (channel.id, plugin["id"].toString(), state.isEmpty() ? juce::File() : juce::File (state));
+                channel.plugin = plugins.get (channel.id, plugin["id"].toString(), state.isEmpty() ? juce::File() : juce::File (state), item["name"].toString());
             }
             Precomputed precomputed;
             if (const auto tools = item["precomputed"]; tools.isObject())

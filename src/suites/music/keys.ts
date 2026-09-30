@@ -56,6 +56,20 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   return null;
 }
 
+/** Keys for the whole editor, whichever window is in front (the Piano roll leaves only these to the rack). */
+const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set(["togglePlay", "undo", "redo", "toggleRack", "togglePiano"]);
+
+export const isGlobalKey = (action: MusicKeyAction) => GLOBAL_KEYS.has(action.type);
+
+/**
+ * A key pressed in a plugin's window that the plugin didn't use (`EngineKey`): only the keys for the
+ * whole editor, as in FL Studio (Space plays; a plugin in front isn't the rack).
+ */
+export function resolvePluginWindowKey(e: KeyLike): MusicKeyAction | null {
+  const action = resolveMusicKey(e);
+  return action && isGlobalKey(action) ? action : null;
+}
+
 /** Typing into a field: the keyboard is the field's. */
 export function isTyping(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select") !== null);

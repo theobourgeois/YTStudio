@@ -8,6 +8,8 @@ import { type Channel, type MusicProject, PPQ, type Precomputed, ROOT_PITCH, STE
 
 export interface EngineChannel {
   id: string;
+  /** Its name, for its plugin's window title. */
+  name: string;
   /** The sample to play: a media id here, which the server turns into the file's path. Null is silence. */
   sample: string | null;
   /** Linear gains of each side (volume, pan and mute together). */
@@ -90,6 +92,7 @@ function engineChannel(channel: Channel): EngineChannel {
   const untouched = (Object.keys(DEFAULT_PRECOMPUTED) as (keyof Precomputed)[]).every((key) => channel.precomputed[key] === DEFAULT_PRECOMPUTED[key]);
   return {
     id: channel.id,
+    name: channel.name,
     sample: channel.sampleId,
     gainLeft: gain * left,
     gainRight: gain * right,
