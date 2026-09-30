@@ -365,7 +365,8 @@ function PianoBody() {
   return (
     <div
       className="grid h-full select-none"
-      style={{ gridTemplateColumns: `${KEYS_W}px 1fr ${SCROLLBAR}px`, gridTemplateRows: `${RULER_H}px 1fr ${laneHeight}px ${SCROLLBAR}px` }}
+      // minmax(0, 1fr): the canvases never hold the rows open while the window shrinks (they're redrawn at the new size).
+      style={{ gridTemplateColumns: `${KEYS_W}px minmax(0, 1fr) ${SCROLLBAR}px`, gridTemplateRows: `${RULER_H}px minmax(0, 1fr) ${laneHeight}px ${SCROLLBAR}px` }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <div className="border-r border-b bg-muted" />
@@ -374,7 +375,9 @@ function PianoBody() {
       </div>
       <div className="border-b bg-muted" />
 
-      <canvas ref={keys} className="size-full border-r" aria-label="Keyboard" onPointerDown={keysPointerDown} />
+      <div className="relative min-h-0 border-r">
+        <canvas ref={keys} className="absolute inset-0 size-full" aria-label="Keyboard" onPointerDown={keysPointerDown} />
+      </div>
       <div ref={gridBox} className="relative min-h-0 overflow-hidden" data-testid="piano-grid">
         <canvas
           ref={grid}
@@ -404,7 +407,9 @@ function PianoBody() {
           >
             {laneProperty === "velocity" ? "Velocity" : "Pan"}
           </button>
-          <canvas ref={lane} className="size-full cursor-ns-resize border-t" aria-label="Event editor" onPointerDown={lanePointerDown} />
+          <div className="relative min-w-0 border-t">
+            <canvas ref={lane} className="absolute inset-0 size-full cursor-ns-resize" aria-label="Event editor" onPointerDown={lanePointerDown} />
+          </div>
           <div className="border-t" />
         </>
       )}
