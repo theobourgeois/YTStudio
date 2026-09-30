@@ -9,6 +9,7 @@ import { ApiRequestError, api } from "@/lib/api";
 import { createAutosaver } from "@/lib/autosaver";
 import { DocumentGesture, type DocumentHistory, commit, historyOf, redo, rewrite, undo } from "@/lib/document-history";
 import { useProjects } from "@/stores/projects";
+import { type DraftPattern, draftAsPattern, editWithDraft, stepPattern } from "./patterns";
 
 /**
  * The open song: its document with undo (`lib/document-history.ts`), the project's media (its
@@ -25,6 +26,8 @@ interface MusicState {
   loadError: string | null;
   /** The pattern the channel rack shows and the engine loops (UI state, not part of the song). */
   patternId: string | null;
+  /** The next pattern, shown empty past the last one, not in the song until something's put in it (`patterns.ts`). */
+  draftPattern: DraftPattern | null;
 
   open: (projectId: string) => Promise<void>;
   close: () => Promise<void>;
@@ -34,6 +37,8 @@ interface MusicState {
   undo: () => void;
   redo: () => void;
   selectPattern: (id: string) => void;
+  /** Show the pattern a step up or down the selector (past the last one, a draft). */
+  stepPattern: (direction: 1 | -1) => void;
   /** Bring audio files into the project and add a channel for each. */
   addSamples: (files: File[]) => Promise<void>;
   /** Add a channel playing an instrument plugin, or an empty sampler. Returns its id. */
@@ -87,12 +92,13 @@ export const useMusic = create<MusicState>((set, get) => {
     loading: false,
     loadError: null,
     patternId: null,
+    draftPattern: null,
 
     async open(projectId) {
       if (get().projectId === projectId && get().history) return;
       await autosaver.flush();
       const token = ++openToken;
-      set({ projectId, history: null, assets: [], loading: true, loadError: null, patternId: null });
+      set({ projectId, history: null, assets: [], loading: true, loadError: null, patternId: null, draftPattern: null });
       try {
         const [song, assets] = await Promise.all([api.getDocument("music", projectId), api.listMedia(projectId)]);
         if (token === openToken) set({ history: historyOf(song), assets, loading: false, patternId: song.patterns[0].id });
@@ -104,7 +110,7 @@ export const useMusic = create<MusicState>((set, get) => {
     async close() {
       ++openToken;
       await autosaver.flush();
-      set({ projectId: null, history: null, assets: [], loading: false, loadError: null, patternId: null });
+      set({ projectId: null, history: null, assets: [], loading: false, loadError: null, patternId: null, draftPattern: null });
     },
 
     async rename(name) {
@@ -118,7 +124,7 @@ export const useMusic = create<MusicState>((set, get) => {
     commit(update) {
       const { history } = get();
       if (!history) return;
-      const next = commit(history, update);
+      const next = commit(history, draftEdit(update));
       if (next !== history) set({ history: next });
     },
 
@@ -132,7 +138,13 @@ export const useMusic = create<MusicState>((set, get) => {
       if (history) set({ history: redo(history) });
     },
 
-    selectPattern: (patternId) => set({ patternId }),
+    selectPattern: (patternId) => set({ patternId, draftPattern: get().draftPattern?.id === patternId ? get().draftPattern : null }),
+    stepPattern(direction) {
+      const { history, patternId, draftPattern } = get();
+      if (!history) return;
+      const next = stepPattern(history.doc, patternId, draftPattern, direction);
+      set({ patternId: next.patternId, draftPattern: next.draft });
+    },
 
     async addSamples(files) {
       const assets = await upload(files);
@@ -189,9 +201,22 @@ if (typeof window !== "undefined") {
 export const flushSongs = () => autosaver.flush();
 export const discardSong = (projectId: string) => autosaver.discard(projectId);
 
+/** An edit of the song as it's shown: with the draft pattern in it, if that's the one shown (`editWithDraft`). */
+function draftEdit(update: (song: MusicProject) => MusicProject): (song: MusicProject) => MusicProject {
+  const { patternId, draftPattern: draft } = useMusic.getState();
+  return draft && draft.id === patternId ? (song) => editWithDraft(song, draft, update) : update;
+}
+
+/** A continuous edit of the song, applied as the song is shown (with the draft pattern, if it's shown). */
+class SongGesture extends DocumentGesture<MusicProject> {
+  apply(update: (song: MusicProject) => MusicProject) {
+    super.apply(draftEdit(update));
+  }
+}
+
 /** A drag or other continuous edit of the open song, as one undo step. */
 export const songGesture = () =>
-  new DocumentGesture<MusicProject>({
+  new SongGesture({
     get: () => useMusic.getState().history,
     set: (history) => useMusic.setState({ history }),
   });
@@ -201,8 +226,14 @@ export function useSong<T>(selector: (song: MusicProject) => T): T {
   return useMusic((s) => selector(s.history!.doc));
 }
 
-/** The pattern being edited: the one picked, or the first if that one is gone (undone, removed). */
-export const currentPattern = (song: MusicProject, patternId: string | null): Pattern => song.patterns.find((p) => p.id === patternId) ?? song.patterns[0];
+/** The pattern being edited: the one picked (maybe the draft), or the first if that one is gone (undone, removed). */
+export function currentPattern(song: MusicProject, patternId: string | null): Pattern {
+  const found = song.patterns.find((p) => p.id === patternId);
+  if (found) return found;
+  // The draft past the last pattern, shown empty.
+  const draft = useMusic.getState().draftPattern;
+  return draft && draft.id === patternId ? draftAsPattern(draft) : song.patterns[0];
+}
 
 export function useCurrentPattern<T>(selector: (pattern: Pattern, song: MusicProject) => T): T {
   return useMusic((s) => selector(currentPattern(s.history!.doc, s.patternId), s.history!.doc));

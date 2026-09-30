@@ -236,7 +236,7 @@ export function moveChannels(song: MusicProject, ids: readonly string[], directi
 // ---------------------------------------------------------------------------
 
 /** "Pattern 3": the first such name no pattern has. */
-function nextPatternName(song: MusicProject): string {
+export function nextPatternName(song: MusicProject): string {
   const names = new Set(song.patterns.map((p) => p.name));
   for (let n = song.patterns.length + 1; ; n++) if (!names.has(`Pattern ${n}`)) return `Pattern ${n}`;
 }

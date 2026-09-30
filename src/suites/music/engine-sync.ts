@@ -2,6 +2,7 @@ import { errorMessage } from "@shared/errors";
 import type { EngineKey } from "@shared/music/engine";
 import { musicApi } from "./api";
 import { usePiano } from "./piano/store";
+import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusic } from "./store";
 import { NO_CHANNELS, useTransport } from "./transport";
 
@@ -24,11 +25,11 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     sending = true;
     do {
       dirty = false;
-      const { projectId, history, patternId } = useMusic.getState();
+      const { projectId, history, patternId, draftPattern } = useMusic.getState();
       if (stopped || !projectId || !history) break;
       try {
-        // The Piano roll's time selection is what loops, while there is one.
-        const { unreadable, channels, loop } = await musicApi.setSong({ projectId, song: history.doc, patternId, loop: usePiano.getState().time });
+        // The Piano roll's time selection is what loops, while there is one. A draft pattern shown plays (empty).
+        const { unreadable, channels, loop } = await musicApi.setSong({ projectId, song: withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern)), patternId, loop: usePiano.getState().time });
         useTransport.setState({ unreadable, channels, loop, error: null });
       } catch (err) {
         useTransport.setState({ error: errorMessage(err) });

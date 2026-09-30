@@ -150,20 +150,37 @@ test("a pattern is as long as its notes: the rack is dragged wider to reach furt
   await page.getByRole("menuitemcheckbox", { name: "Auto" }).click();
   await expect(length).toHaveAttribute("aria-valuenow", "32");
 
-  // Patterns are apart: a new one is empty, and a bar long.
-  await page.getByRole("button", { name: "Pattern", exact: true }).click();
-  await page.getByRole("button", { name: "New", exact: true }).click();
-  await expect(page.getByRole("option")).toHaveCount(2);
-  await page.getByLabel("Pattern name").fill("Fill");
-  await page.getByLabel("Pattern name").press("Enter");
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("button", { name: "Pattern", exact: true })).toContainText("Fill");
+  // Patterns are apart: a new one (+, named) is empty, and a bar long.
+  const pattern = page.getByRole("spinbutton", { name: "Pattern", exact: true });
+  await page.getByRole("button", { name: "New pattern" }).click();
+  await page.getByLabel("New pattern's name").fill("Fill");
+  await page.getByLabel("New pattern's name").press("Enter");
+  await expect(pattern).toContainText("Fill");
   await expect(length).toHaveAttribute("aria-valuenow", "16");
   expect((await drawn(page, "Kick")).includes("x")).toBe(false);
-  await page.getByRole("button", { name: "Pattern", exact: true }).click();
+  await page.getByRole("button", { name: "Patterns", exact: true }).click();
+  await expect(page.getByRole("option")).toHaveCount(2);
   await page.getByRole("option", { name: "Pattern 1" }).click();
   await page.keyboard.press("Escape");
   expect((await drawn(page, "Kick"))[0]).toBe("x");
+
+  // Scrolled up past the last pattern: the next one, which joins the song only once it has a step.
+  await pattern.hover();
+  await page.mouse.wheel(0, -100);
+  await expect(pattern).toContainText("Fill");
+  await page.mouse.wheel(0, -100);
+  await expect(pattern).toContainText("Pattern 3");
+  expect((await drawn(page, "Kick")).includes("x")).toBe(false);
+  await page.mouse.wheel(0, 100);
+  await expect(pattern).toContainText("Fill");
+  expect((await savedSong(page, id)).patterns).toHaveLength(2);
+  await page.mouse.wheel(0, -100);
+  await expect(pattern).toContainText("Pattern 3");
+  await step(page, "Snare", 1).click();
+  await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name)).toEqual(["Pattern 1", "Fill", "Pattern 3"]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedSong(page, id)).patterns).toHaveLength(2);
+  await expect(pattern).toContainText("Pattern 3");
 });
 
 test("mutes and solos, selects, reorders, clones and deletes channels, by mouse and by FL Studio's keys", async ({ page }) => {
@@ -551,7 +568,8 @@ test("the toolbar, as FL Studio's: the tempo LCD drags, + makes a pattern, the p
   await expect(tempo).toHaveValue("120");
 
   await page.getByRole("button", { name: "New pattern" }).click();
-  await expect(page.getByRole("button", { name: "Pattern", exact: true })).toContainText("Pattern 2");
+  await page.getByLabel("New pattern's name").press("Enter");
+  await expect(page.getByRole("spinbutton", { name: "Pattern", exact: true })).toContainText("Pattern 2");
   await expect.poll(async () => (await savedSong(page, id)).patterns.length).toBe(2);
 
   // Halfway along a bar's pattern is its 9th step.

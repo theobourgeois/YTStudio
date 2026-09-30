@@ -41,7 +41,7 @@ Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/
 | Window buttons | Piano roll (F7) and Channel rack (F6): a press opens the window or brings it forward (the keys toggle); the others come with their windows |
 | Snap | The Piano roll has its own; no global snap yet |
 | Metronome | Yes, beside the tempo rather than with the recording buttons |
-| Pattern selector with + | Yes: the name opens the list (rename, clone, delete), + makes a new pattern |
+| Pattern selector with + | Yes: the arrow opens the list (rename, clone, delete); the name is scrolled or dragged up and down through the patterns, and past the last to the next one, empty, which joins the song only once something's put in it (Théo); + asks for a name and shows the new pattern |
 | Song position slider | Yes, along the pattern: drag it to move where play is |
 | CPU, output meter, oscilloscope | The output's level over the last few seconds (mirrored, like a waveform's outline) beside the time, and the engine's load now and over the last half minute, with the audio settings beside them. Not a true oscilloscope: the engine sends levels, not samples |
 | — | Ours: undo and redo, the theme, Settle and the assistant, at the right end |
