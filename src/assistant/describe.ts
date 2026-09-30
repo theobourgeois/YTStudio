@@ -126,7 +126,11 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
   }
   if (fx.length) parts.push(`fx: ${fx.join(", ")}`);
   if (clip.parent) parts.push(`parent: ${clip.parent.id}`);
-  const marks = clipMarkers(clip);
+  // A song's beats are hundreds: counted, with only the named ones (drops) and the user's own listed.
+  const all = clipMarkers(clip);
+  const marks = all.filter((m) => !m.marker.beat || m.marker.label);
+  const beats = all.length - marks.length;
+  if (beats) parts.push(`${beats} beat markers (mark_beats)${all.length > 1 ? `, ${secs(all[0].time)}..${secs(all.at(-1)!.time)}` : ""}`);
   if (marks.length) parts.push(`markers: ${marks.map((m) => markerText(m.marker, m.time)).join(", ")}`);
   const remap = remapSegments(clip);
   if (remap.length) {
@@ -209,7 +213,7 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
       start: round(clip.start),
       end: round(clipEnd(clip)),
       ...(clip.parent && { parent: clip.parent.id }),
-      ...(clipMarkers(clip).length && { markers: clipMarkers(clip).map((m) => ({ id: m.marker.id, time: round(m.time), ...(m.marker.label && { label: m.marker.label }) })) }),
+      ...(clipMarkers(clip).some((m) => !m.marker.beat) && { markers: clipMarkers(clip).filter((m) => !m.marker.beat).map((m) => ({ id: m.marker.id, time: round(m.time), ...(m.marker.label && { label: m.marker.label }) })) }),
       ...(asset?.sequence && { nestedSequence: { id: asset.id, name: asset.name, duration: round(asset.duration) } }),
       ...(isRemapped(clip) && {
         remap: remapSegments(clip).map((seg, index) => ({

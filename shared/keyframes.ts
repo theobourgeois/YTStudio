@@ -17,7 +17,7 @@ import { type ParamSpec, isAnimatable, isPath, sameValue, sanitizeValue } from "
 import { type ArcLengthTable, arcLengthTable, lerpPath, pointAtLength } from "./path.ts";
 import type { Easing, Keyframe, ParamValue, Vec2 } from "./types.ts";
 
-export const EASINGS: readonly Easing[] = ["linear", "ease-in", "ease-out", "ease", "hold"];
+export const EASINGS: readonly Easing[] = ["linear", "ease-in", "ease-out", "ease", "hold", "overshoot", "spring", "bounce"];
 
 /** Keyframes closer than this (seconds) are the same keyframe. */
 export const SAME_KEYFRAME = 1e-3;
@@ -28,6 +28,38 @@ export const MIN_INFLUENCE = 0.01;
 
 /** A keyframe's influence (see `Keyframe.influence`). */
 export const influenceOf = (k: Pick<Keyframe, "influence">) => k.influence ?? DEFAULT_INFLUENCE;
+
+/** The keyframe is arrived at with a movement of its own, which no single Bézier curve makes (see `dynamicProgress`). */
+export const isDynamic = (e: Easing) => e === "overshoot" || e === "spring" || e === "bounce";
+
+/**
+ * How far (0 at the keyframe before, 1 on arrival, beyond 1 while it's past its keyframe)
+ * the value has gone at fraction `f` of the time, arriving by a dynamic easing. `influence`
+ * (the keyframe's, 0.01..1) is how much of it: how far an overshoot goes past (10% at the
+ * usual third), how many times a spring swings. Every one starts at 0 and ends on 1 exactly.
+ */
+export function dynamicProgress(easing: Easing, f: number, influence = DEFAULT_INFLUENCE): number {
+  if (f <= 0) return 0;
+  if (f >= 1) return 1;
+  if (easing === "overshoot") {
+    // Penner's "back out": fast off the mark, past the value, then back onto it.
+    const s = 1.70158 * (influence / DEFAULT_INFLUENCE);
+    const g = f - 1;
+    return 1 + (s + 1) * g * g * g + s * g * g;
+  }
+  if (easing === "spring") {
+    // A damped swing around the value, timed to be on it (and nearly still) at the end.
+    const swings = Math.min(9, Math.max(1, Math.round(influence * 9)));
+    return 1 - Math.exp(-6 * f) * Math.cos((swings + 0.5) * Math.PI * f);
+  }
+  // Penner's "bounce out": it lands, and bounces lower each time.
+  const n = 7.5625;
+  const d = 2.75;
+  if (f < 1 / d) return n * f * f;
+  if (f < 2 / d) return n * (f - 1.5 / d) ** 2 + 0.75;
+  if (f < 2.5 / d) return n * (f - 2.25 / d) ** 2 + 0.9375;
+  return n * (f - 2.625 / d) ** 2 + 0.984375;
+}
 
 /** The keyframe is reached slowly. */
 export const easesIn = (e: Easing) => e === "ease-in" || e === "ease";
@@ -190,10 +222,14 @@ export function segmentHandles(a: Keyframe, b: Keyframe): { out: Vec2; in: Vec2 
 
 /** A segment follows the plain eased (or linear) curve at 33% influence, a cubic in time. */
 export const isPlainSegment = (a: Keyframe, b: Keyframe) =>
-  a.influence === undefined && b.influence === undefined && !a.handleOut && !b.handleIn;
+  a.influence === undefined && b.influence === undefined && !a.handleOut && !b.handleIn && !isDynamic(b.easing);
 
-/** How far (0..1) the value has gone from keyframe `a` to `b` at fraction `f` of the time between them. */
+/** Whether the stretch from `a` to `b` is shaped by how `b` is arrived at (a graph editor handle on either end takes over). */
+export const isDynamicSegment = (a: Keyframe, b: Keyframe) => isDynamic(b.easing) && !a.handleOut && !b.handleIn;
+
+/** How far (0..1, more when it overshoots) the value has gone from keyframe `a` to `b` at fraction `f` of the time between them. */
 export function segmentProgress(a: Keyframe, b: Keyframe, f: number): number {
+  if (isDynamicSegment(a, b)) return dynamicProgress(b.easing, f, influenceOf(b));
   const h = segmentHandles(a, b);
   return bezierProgress(f, h.out[0], h.out[1], h.in[0], h.in[1]);
 }
@@ -261,8 +297,15 @@ export function keyframeSpeed(keyframes: readonly Keyframe[], time: number): num
         ? Math.hypot(b.value[0] - a.value[0], b.value[1] - a.value[1])
         : 0;
   if (!(dt > 0)) return 0;
+  const f = (time - a.time) / dt;
+  if (isDynamicSegment(a, b)) {
+    // No closed form worth having: the slope between two near moments.
+    const e = 1e-4;
+    const [lo, hi] = [Math.max(0, f - e), Math.min(1, f + e)];
+    return (change / dt) * ((segmentProgress(a, b, hi) - segmentProgress(a, b, lo)) / (hi - lo));
+  }
   const h = segmentHandles(a, b);
-  return (change / dt) * bezierSlope((time - a.time) / dt, h.out[0], h.out[1], h.in[0], h.in[1]);
+  return (change / dt) * bezierSlope(f, h.out[0], h.out[1], h.in[0], h.in[1]);
 }
 
 /** The value of sorted keyframes at `time`: held before the first and after the last. */

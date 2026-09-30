@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   bezierProgress,
   bezierSlope,
+  dynamicProgress,
   easedProgress,
+  isDynamicSegment,
   keyframeSpeed,
   keyframeValue,
   sanitizeKeyframes,
@@ -77,5 +79,62 @@ describe("Bézier handles (graph editor)", () => {
   it("keeps a keyframe's handles when its value changes", () => {
     const keys = [key(0, 0, { handleOut: [0.4, 0.2] })];
     expect(setKeyframe(keys, 0, 5)[0]).toEqual({ time: 0, value: 5, easing: "linear", handleOut: [0.4, 0.2] });
+  });
+});
+
+describe("arriving with a movement (overshoot, spring, bounce)", () => {
+  const to = (easing: Keyframe["easing"], extra: Partial<Keyframe> = {}) => [key(0, 0), key(1, 100, { easing, ...extra })];
+  const at = (keys: Keyframe[], t: number) => keyframeValue(keys, t) as number;
+  const samples = (keys: Keyframe[]) => Array.from({ length: 101 }, (_, i) => at(keys, i / 100));
+
+  it("start on the keyframe before and land exactly on their own", () => {
+    for (const easing of ["overshoot", "spring", "bounce"] as const) {
+      expect(dynamicProgress(easing, 0)).toBe(0);
+      expect(dynamicProgress(easing, 1)).toBe(1);
+      expect(at(to(easing), 0)).toBe(0);
+      expect(at(to(easing), 1)).toBe(100);
+      // Held after it, like any keyframe.
+      expect(at(to(easing), 2)).toBe(100);
+    }
+  });
+
+  it("overshoot goes past the value once and comes back; more with more influence", () => {
+    const values = samples(to("overshoot"));
+    expect(Math.max(...values)).toBeCloseTo(110, 0);
+    expect(values.filter((v, i) => i > 0 && v >= 100 && values[i - 1] < 100)).toHaveLength(1);
+    expect(Math.max(...samples(to("overshoot", { influence: 0.75 })))).toBeGreaterThan(125);
+    // Quick off the mark: most of the way there in the first third.
+    expect(at(to("overshoot"), 0.33)).toBeGreaterThan(80);
+  });
+
+  it("spring swings around the value, less each time; influence says how many times", () => {
+    const crossings = (keys: Keyframe[]) => samples(keys).filter((v, i, all) => i > 0 && i < 100 && (v - 100) * (all[i - 1] - 100) < 0).length;
+    expect(crossings(to("spring"))).toBe(3);
+    expect(crossings(to("spring", { influence: 0.75 }))).toBeGreaterThan(5);
+    const values = samples(to("spring"));
+    const peak = Math.max(...values);
+    expect(peak).toBeGreaterThan(110);
+    // The second time past, it's closer than the first.
+    expect(Math.max(...values.slice(60))).toBeLessThan(peak - 8);
+  });
+
+  it("bounce lands and bounces lower each time, never going past", () => {
+    const values = samples(to("bounce"));
+    expect(Math.max(...values)).toBeLessThanOrEqual(100);
+    const landings = values.filter((v, i, all) => i > 0 && i < 100 && v > 99 && all[i - 1] <= v && all[i + 1] < v).length;
+    expect(landings).toBeGreaterThanOrEqual(2);
+  });
+
+  it("give a speed, give way to graph handles, and survive saving", () => {
+    expect(keyframeSpeed(to("overshoot"), 0.1)).toBeGreaterThan(100);
+    expect(keyframeSpeed(to("overshoot"), 0.8)).toBeLessThan(0);
+    // A handle on either end makes it a Bézier curve again.
+    expect(isDynamicSegment(key(0, 0), key(1, 1, { easing: "spring" }))).toBe(true);
+    expect(isDynamicSegment(key(0, 0, { handleOut: [0.3, 0] }), key(1, 1, { easing: "spring" }))).toBe(false);
+    expect(Math.max(...samples([key(0, 0), key(1, 100, { easing: "overshoot", handleIn: [0.7, 1] })]))).toBeLessThanOrEqual(100.0001);
+    expect(sanitizeKeyframes(NUMBER, to("spring", { influence: 0.5 }))).toEqual(to("spring", { influence: 0.5 }));
+    // The way it leaves its own keyframe is plain.
+    const three = [key(0, 0), key(1, 50, { easing: "bounce" }), key(2, 100)];
+    expect(at(three, 1.5)).toBe(75);
   });
 });

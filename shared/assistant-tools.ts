@@ -76,6 +76,22 @@ export const VIDEO_TOOLS = [
     ),
   }),
   tool({
+    name: "get_layout",
+    title: "Measure the canvas",
+    kind: "look",
+    description:
+      "Where everything is on the canvas at a moment, in px (the canvas at 1080p): each visible clip's box, its " +
+      "centre (also as motion position fractions), where its anchor is, its scale and rotation, and for a text " +
+      "the box around its letters (measured in its real font). Use it before placing or sizing things relative " +
+      "to each other: a box or pill behind a title, an underline under a word, a sticker next to a face's frame, " +
+      "two texts on one line, keeping something inside the canvas. Cheaper and more exact than reading positions " +
+      "off view_frames; check the result with view_frames afterwards.",
+    inputSchema: obj({
+      time: time("The moment to measure (default: the playhead)."),
+      clipIds: arr(str("Clip id"), "Only these clips (default: everything on the canvas then)."),
+    }),
+  }),
+  tool({
     name: "view_media",
     title: "Look at footage",
     kind: "look",
@@ -476,7 +492,7 @@ export const VIDEO_TOOLS = [
     kind: "edit",
     description:
       "Add, change or remove markers (Premiere's): named points in time that clips, keyframes and the playhead " +
-      "snap to, shown on the ruler. Use them for beats (analyze_music), cues and notes for the user. Without " +
+      "snap to, shown on the ruler. Use them for cues and notes for the user (a song's beats: mark_beats). Without " +
       "`clipId` a marker is on the timeline at a timeline time; with `clipId` it's on that clip and stays on its " +
       "frame when the clip moves or is trimmed. `add` makes them, `update` changes ones by id (get_timeline lists " +
       "them), `remove` deletes by id, `clear` removes every timeline marker first (e.g. before re-marking beats).",
@@ -508,6 +524,39 @@ export const VIDEO_TOOLS = [
       remove: arr(str("Marker id"), "Markers to delete."),
       clear: bool("Remove every timeline marker first (clip markers stay)."),
     }),
+  }),
+  tool({
+    name: "mark_beats",
+    title: "Mark the beats",
+    kind: "action",
+    timeout: 600,
+    description:
+      "Beat sync, step 1: listen to a music clip and put its beats on it as markers (in place of the beat markers " +
+      "it had; markers added by hand stay). `marks`: every beat, every bar (each 4th beat: a steadier cut), or only " +
+      "the drops. The user sees them on the clip, and clips, keyframes and the playhead snap to them; they stay on " +
+      "the music when the clip moves or is trimmed. Then cut_to_markers puts cuts on them. Returns the tempo and " +
+      "the marked timeline times. `clear: true` just removes the clip's beat markers.",
+    inputSchema: obj(
+      {
+        clipId: str("The clip with the music."),
+        marks: oneOf(["beats", "bars", "drops"], "What to mark (default beats)."),
+        clear: bool("Remove its beat markers instead of making them."),
+      },
+      ["clipId"],
+    ),
+  }),
+  tool({
+    name: "cut_to_markers",
+    title: "Cut to the beat",
+    kind: "edit",
+    description:
+      "Beat sync, step 2: make clips end on markers (the timeline's and other clips', e.g. a song's from " +
+      "mark_beats), so every cut between them lands on the beat. Each clip's end is trimmed or extended to a " +
+      "marker and whatever follows on its track moves along, so clips that were back to back stay so. Without " +
+      "`every`, each ends on the marker nearest to where it ends now (the smallest change); with `every: N` each " +
+      "lasts N markers (1 = a cut on every beat, 4 = every bar when beats are marked). A clip is never made longer " +
+      "than its media. Lay the clips out roughly first (add_clips back to back from the first beat), then call this.",
+    inputSchema: obj({ clipIds: clipIds("The clips to cut (not the music)."), every: int("A cut every N markers.", { minimum: 1, maximum: 64 }) }, ["clipIds"]),
   }),
   tool({
     name: "set_parent",
@@ -596,9 +645,13 @@ export const VIDEO_TOOLS = [
       "Animate one number, point or path parameter (e.g. motion scale for a zoom, motion position for a pan, opacity " +
       "for a fade, volume level, any video effect's amount, a mask's path, which morphs) with keyframes at timeline times, replacing its " +
       "animation. An empty list stops animating it (it keeps `value`, or the value it had at the first " +
-      "keyframe). Easing: linear, ease-in, ease-out, ease, hold. `influence` (0.01..1, default 0.33) is how far " +
+      "keyframe). Easing: linear, ease-in, ease-out, ease, hold; or, for the move that ARRIVES at a keyframe: " +
+      "overshoot (shoots past the value and comes back: the pop of a title or a sticker landing), spring (swings " +
+      "around it until it settles) or bounce (drops onto it and bounces), which make a move feel alive with two " +
+      "keyframes; put it on the keyframe the move ends on. `influence` (0.01..1, default 0.33) is how far " +
       "an eased keyframe's handle reaches, like After Effects' keyframe velocity: 0.75-0.9 on both ends of a move " +
-      "gives the snappy, lingering-then-whipping motion of edit-style zooms and spins. For full control (the graph " +
+      "gives the snappy, lingering-then-whipping motion of edit-style zooms and spins; on overshoot it's how far past " +
+      "it goes (0.33 = 10%), on spring how many times it swings. For full control (the graph " +
       "editor), `handleOut`/`handleIn` are Bézier handles [x, y] in the unit square of the segment leaving/arriving " +
       "at the keyframe: x = fraction of the time to the neighbouring keyframe, y = fraction of the change in value " +
       "(y beyond 0..1 overshoots, e.g. handleOut [0.2, 0.9] shoots off fast; handleIn [0.6, 1.3] overshoots then " +
@@ -617,7 +670,7 @@ export const VIDEO_TOOLS = [
             {
               time: time("When."),
               value: { description: "Number, [x, y] for points, or a path (SVG path data in fractions of the clip's frame, or [[x, y], ...])." },
-              easing: oneOf(["linear", "ease-in", "ease-out", "ease", "hold"], "How it's passed (default linear)."),
+              easing: oneOf(["linear", "ease-in", "ease-out", "ease", "hold", "overshoot", "spring", "bounce"], "How it's passed, or arrived at (default linear)."),
               influence: num("How far its ease reaches, 0.01..1 (default 0.33).", { minimum: 0.01, maximum: 1 }),
               handleIn: arr(num("x, then y."), "Bézier handle arriving at it: [x 0..0.99, y] in the previous segment's unit square."),
               handleOut: arr(num("x, then y."), "Bézier handle leaving it: [x 0.01..1, y] in the next segment's unit square."),

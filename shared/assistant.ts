@@ -483,8 +483,14 @@ export function describeToolCall(rawName: string, input: unknown): string {
       if (f("enabled") === false) return "Turn off time remapping";
       return "Remap a clip's time";
     }
+    case "get_layout":
+      return f("time") === undefined ? "Measure the canvas" : `Measure the canvas at ${seconds(f("time"))}`;
     case "set_expression":
       return f("expression") === null ? `Remove the expression on ${String(f("param") ?? "a property")}` : `Put an expression on ${String(f("param") ?? "a property")}`;
+    case "mark_beats":
+      return f("clear") ? "Clear the beat markers" : f("marks") === "bars" ? "Mark the bars" : f("marks") === "drops" ? "Mark the drops" : "Mark the beats";
+    case "cut_to_markers":
+      return ids() ? `Cut ${count(ids(), "clip")} to the beat` : "Cut to the beat";
     case "set_markers": {
       const [added, changed, removed] = [list(f("add")).length, list(f("update")).length, list(f("remove")).length];
       if (added && !changed && !removed) return `Add ${count(added, "marker")}`;

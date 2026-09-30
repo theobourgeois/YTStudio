@@ -42,7 +42,13 @@ export function normalizeMarkers(raw: unknown, min = -Infinity): Marker[] {
     if (out.some((o) => Math.abs(o.time - time) < SAME_MARKER)) continue;
     ids.add(m.id);
     const label = cleanLabel(m.label);
-    out.push({ id: m.id, time, ...(label && { label }), ...(isColor(m.color) && m.color !== DEFAULT_MARKER_COLOR && { color: m.color }) });
+    out.push({
+      id: m.id,
+      time,
+      ...(label && { label }),
+      ...(isColor(m.color) && m.color !== DEFAULT_MARKER_COLOR && { color: m.color }),
+      ...(m.beat === true && { beat: true as const }),
+    });
   }
   return out.sort((a, b) => a.time - b.time);
 }

@@ -109,42 +109,68 @@ function RulerMarker({ marker, zoom }: { marker: Marker; zoom: number }) {
   );
 }
 
+/** Beat markers closer together than this on screen are thinned out (a song zoomed right out). */
+const BEAT_GAP_PX = 5;
+
 /** A clip's markers along its top edge (those inside what it shows). */
 export function ClipMarkers({ clip, zoom }: { clip: Clip; zoom: number }) {
   const markers = clipMarkers(clip);
   if (!markers.length) return null;
+  let last = -Infinity;
   return (
     <div className="absolute inset-x-0 top-0 z-[2] h-2.5" data-clip-markers={markers.length}>
       {markers.map(({ marker, time }) => {
-        const ref: MarkerRef = { id: marker.id, clipId: clip.id };
-        return (
-          <MarkerEditor key={marker.id} marker={marker} markerRef={ref}>
-            <button
-              type="button"
-              data-marker={marker.id}
-              aria-label={marker.label ? `Clip marker: ${marker.label}` : "Clip marker"}
-              title={marker.label}
-              className="absolute top-0 h-2.5 w-2.5 -translate-x-1/2 cursor-pointer outline-none"
-              style={{ left: (time - clip.start) * zoom }}
-              // Not the clip's drag: a click goes to the marker, a double-click edits it.
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => {
-                usePlayback.getState().pause();
-                usePlayback.getState().seek(time);
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                useMarkerEditing.getState().edit(ref);
-              }}
-            >
-              <span className={cn("block h-2 w-2 shadow-[0_0_0_1px_rgb(0_0_0/0.5)] [clip-path:polygon(0_0,100%_0,50%_100%)]", fillOf(marker))} />
-            </button>
-          </MarkerEditor>
-        );
+        const left = (time - clip.start) * zoom;
+        // Bars and drops (coloured) always show; plain beats only where there's room.
+        if (marker.beat && !marker.color) {
+          if (left - last < BEAT_GAP_PX) return null;
+          last = left;
+        }
+        return <ClipMarker key={marker.id} marker={marker} clipId={clip.id} time={time} left={left} />;
       })}
     </div>
   );
 }
+
+/** One of a clip's markers. A song has hundreds, so only the one being edited mounts an editor. */
+const ClipMarker = memo(function ClipMarker({ marker, clipId, time, left }: { marker: Marker; clipId: string; time: number; left: number }) {
+  const open = useMarkerEditing((s) => s.editing?.id === marker.id && s.editing.clipId === clipId);
+  const ref: MarkerRef = { id: marker.id, clipId };
+  const button = (
+    <button
+      type="button"
+      data-marker={marker.id}
+      data-beat={marker.beat || undefined}
+      aria-label={marker.label ? `Clip marker: ${marker.label}` : marker.beat ? "Beat" : "Clip marker"}
+      title={marker.label}
+      className="absolute top-0 h-2.5 w-2.5 -translate-x-1/2 cursor-pointer outline-none"
+      style={{ left }}
+      // Not the clip's drag: a click goes to the marker, a double-click edits it.
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={() => {
+        usePlayback.getState().pause();
+        usePlayback.getState().seek(time);
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        useMarkerEditing.getState().edit(ref);
+      }}
+    >
+      {marker.beat && !marker.color ? (
+        <span className="mx-auto block h-1.5 w-px bg-emerald-300/80" />
+      ) : (
+        <span className={cn("block h-2 w-2 shadow-[0_0_0_1px_rgb(0_0_0/0.5)] [clip-path:polygon(0_0,100%_0,50%_100%)]", fillOf(marker))} />
+      )}
+    </button>
+  );
+  return open ? (
+    <MarkerEditor marker={marker} markerRef={ref}>
+      {button}
+    </MarkerEditor>
+  ) : (
+    button
+  );
+});
 
 /** A marker's editor, anchored to it: its name, its colour, and Delete. Open while it's the one being edited. */
 function MarkerEditor({ marker, markerRef, children }: { marker: Marker; markerRef: MarkerRef; children: React.ReactNode }) {

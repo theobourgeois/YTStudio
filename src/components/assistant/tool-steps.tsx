@@ -3,6 +3,7 @@ import type { IconType } from "react-icons";
 import {
   PiFlagPennant,
   PiFunction,
+  PiRuler,
   PiGauge,
   PiArrowsLeftRight,
   PiArrowsOutLineHorizontal,
@@ -61,7 +62,10 @@ const ICONS: Record<string, IconType> = {
   add_text: PiTextT,
   add_layer: PiStack,
   set_parent: PiSpiral,
+  get_layout: PiRuler,
   set_markers: PiFlagPennant,
+  mark_beats: PiMetronome,
+  cut_to_markers: PiMetronome,
   set_expression: PiFunction,
   nest_clips: PiStack,
   break_apart: PiStack,

@@ -9,7 +9,7 @@
  * puts it in (time, value); in the speed graph it's drawn at the speed it gives its
  * keyframe (the slope along it), as far out in time as its influence reaches.
  */
-import { MIN_INFLUENCE, segmentHandles } from "@shared/keyframes";
+import { MIN_INFLUENCE, isDynamicSegment, segmentHandles } from "@shared/keyframes";
 import type { Keyframe, ParamValue, Vec2 } from "@shared/types";
 
 export type Side = "in" | "out";
@@ -34,6 +34,8 @@ export interface GraphPoint {
 export function handleSegment(keys: readonly Keyframe[], index: number, side: Side): [Keyframe, Keyframe] | null {
   const [a, b] = side === "out" ? [keys[index], keys[index + 1]] : [keys[index - 1], keys[index]];
   if (!a || !b || a.easing === "hold" || !(b.time > a.time)) return null;
+  // A spring or a bounce isn't a Bézier curve: there are no handles to show for it.
+  if (isDynamicSegment(a, b)) return null;
   return [a, b];
 }
 

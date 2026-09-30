@@ -193,6 +193,8 @@ export interface Marker {
   label?: string;
   /** Absent: green. */
   color?: MarkerColor;
+  /** Put there by beat sync (a song's beat, bar or drop): marking the beats again replaces these, and leaves the others. */
+  beat?: true;
 }
 
 /**
@@ -241,9 +243,12 @@ export type ParamValues = Record<string, ParamValue>;
  * How a keyframe is passed through, like Premiere's temporal interpolation:
  * straight through (`linear`), slowing down on the way in (`ease-in`), easing
  * away from it (`ease-out`) or both (`ease`), or holding its value until the
- * next keyframe (`hold`).
+ * next keyframe (`hold`). Or it's arrived at with a movement of its own (see
+ * `dynamicProgress`): shooting past it and coming back (`overshoot`), swinging
+ * around it until it settles (`spring`), or dropping onto it and bouncing
+ * (`bounce`). Those shape the whole stretch from the keyframe before.
  */
-export type Easing = "linear" | "ease-in" | "ease-out" | "ease" | "hold";
+export type Easing = "linear" | "ease-in" | "ease-out" | "ease" | "hold" | "overshoot" | "spring" | "bounce";
 
 export interface Keyframe {
   /**

@@ -1279,6 +1279,46 @@ test("plays an audio track cut into pieces with one pair of players", async ({ p
   expect(playing[0].t).toBeLessThan(3.5);
 });
 
+test("marks a song's beats on its clip and cuts a clip to them", async ({ page }) => {
+  await page.goto("/");
+  await newVideo(page);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[0], FILES[3]]);
+  await expect(page.locator("[draggable=true]").filter({ hasText: "music-20s" }).first()).toBeVisible();
+  await expect(page.locator("[draggable=true]").filter({ hasText: "vertical-1080x1920" }).first()).toBeVisible();
+  await dragAsset(page, "music-20s", await timeX(page, 0.05), await laneY(page, "Audio 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  await dragAsset(page, "vertical-1080x1920", await timeX(page, 0.05), await laneY(page, "Video 1"));
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
+
+  // The song's menu: the server listens to it, and its beats show along the clip's top edge.
+  const [video, song] = await timelineClips(page);
+  await page.mouse.click(song.x + 30, song.y + song.h - 6, { button: "right" });
+  await page.getByRole("menuitem", { name: "Mark beats" }).click();
+  await page.getByRole("menuitem", { name: "Every beat" }).click();
+  await expect.poll(() => page.locator("[data-beat]").count(), { timeout: 60_000 }).toBeGreaterThan(8);
+  type Marked = { id: string; start: number; in: number; out: number; markers?: { time: number; beat?: boolean }[] };
+  const clips = async () => (await savedProject(page)).clips as Marked[];
+  await expect.poll(async () => (await clips()).find((c) => c.id === song.id)?.markers?.length ?? 0).toBeGreaterThan(8);
+  const beats = (await clips()).find((c) => c.id === song.id)!.markers!;
+  expect(beats.every((m) => m.beat)).toBe(true);
+
+  // The video clip (6 s) is cut to end on a beat: four markers on from its start.
+  await page.mouse.click(video.x + 30, video.y + video.h - 6, { button: "right" });
+  await page.getByRole("menuitem", { name: "Cut to the beat" }).click();
+  await page.getByRole("menuitem", { name: "Every 4 markers" }).click();
+  const fourth = beats.map((m) => m.time).filter((t) => t > 0.001)[3];
+  await expect.poll(async () => {
+    const clip = (await clips()).find((c) => c.id === video.id)!;
+    return Math.abs(clip.out - clip.in - fourth);
+  }).toBeLessThan(0.002);
+  expect(fourth).toBeLessThan(6);
+  // One undo puts its length back; the beats stay.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await clips()).find((c) => c.id === video.id)!.out).toBeGreaterThan(5.9);
+  expect(await page.locator("[data-beat]").count()).toBeGreaterThan(8);
+});
+
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
   await page.goto("/");
   await newVideo(page);

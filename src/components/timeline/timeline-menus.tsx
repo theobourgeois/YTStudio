@@ -33,6 +33,7 @@ import {
   PiArrowLineLeft,
   PiArrowCounterClockwise,
   PiGauge,
+  PiMetronome,
 } from "react-icons/pi";
 import { isNestedClip } from "@shared/sequences";
 import type { Track, TransitionAlignment } from "@shared/types";
@@ -70,6 +71,8 @@ import {
 } from "@/components/ui/context-menu";
 import { useSaveToLibrary } from "@/components/library/library-dialogs";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
+import { BEAT_MARKS } from "@shared/beat-sync";
+import { clearBeats, cutSelectionToMarkers, hasBeats, markBeats } from "@/stores/beat-sync";
 import { useCaptions } from "@/stores/captions";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
@@ -234,6 +237,7 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
           <PiSubtitles /> Auto captions…
         </ContextMenuItem>
       )}
+      <BeatMenu clipId={target.clipId} />
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => editor().splitAt([target.clipId], target.time)}>
         <PiScissors /> Split here
@@ -302,6 +306,53 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
         <PiArrowLineLeft /> Ripple delete{plural}
         <ContextMenuShortcut>{SHORTCUT_KEYS.rippleDelete}</ContextMenuShortcut>
       </ContextMenuItem>
+    </>
+  );
+}
+
+/** Every Nth marker a cut can land on. */
+const CUT_EVERY = [1, 2, 4, 8];
+
+/** Beat sync: mark the beats of the clip under the pointer (when it has sound), and cut the selection to the markers. */
+function BeatMenu({ clipId }: { clipId: string }) {
+  const musical = useEditor((s) => {
+    const clip = getClip(s.project, clipId);
+    return !!clip && !clip.caption && !isNestedClip(clip) && !!s.assets.find((a) => a.id === clip.assetId)?.hasAudio;
+  });
+  return (
+    <>
+      {musical && (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <PiMetronome /> Mark beats
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-48">
+            {BEAT_MARKS.map((m) => (
+              <ContextMenuItem key={m.value} onSelect={() => void markBeats(clipId, m.value)}>
+                {m.label}
+              </ContextMenuItem>
+            ))}
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={!hasBeats([clipId])} onSelect={() => clearBeats([clipId])}>
+              Clear beat markers
+            </ContextMenuItem>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      )}
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>
+          <PiMetronome /> Cut to the beat
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-48">
+          <ContextMenuItem onSelect={() => cutSelectionToMarkers()}>Nearest marker</ContextMenuItem>
+          <ContextMenuSeparator />
+          {CUT_EVERY.map((n) => (
+            <ContextMenuItem key={n} onSelect={() => cutSelectionToMarkers(n)}>
+              {n === 1 ? "Every marker" : `Every ${n} markers`}
+            </ContextMenuItem>
+          ))}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
     </>
   );
 }

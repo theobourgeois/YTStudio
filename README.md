@@ -201,6 +201,19 @@ Markers are named points in time (Premiere's): for beats, cues and notes.
   marker to move it. `⇧M` and `⇧⌘M` jump to the next and previous marker, `⌥M` deletes the one at the playhead.
 - Clips, trims, keyframes and markers themselves **snap** to markers. Each nested sequence has its own.
 
+### Beat sync
+
+Cutting on the beat, without placing the beats by hand:
+
+- Right-click a clip with music → **Mark beats** → **Every beat**, **Every bar** or **Drops only**. The editor
+  listens to the song and puts its beats on the clip as markers (bars in blue, drops in red and named), so clips,
+  trims, keyframes and the playhead snap to them. They stay on the music when the clip moves or is trimmed.
+  **Clear beat markers** removes them and keeps the markers you added yourself.
+- Select the clips to cut (lay them out back to back first), right-click → **Cut to the beat**: **Nearest marker**
+  ends each clip on the marker closest to where it ends now; **Every marker / 2 / 4 / 8 markers** gives each clip
+  that many beats. Clips after them on the track move along, so every cut lands on a marker. A clip is never made
+  longer than its media. It cuts to any marker, so markers you tapped in with `M` work too.
+
 ### Expressions
 
 An expression is a short script on a property (After Effects' expressions): it runs for every frame, and its
@@ -309,7 +322,9 @@ the effects and transitions available, and the Library. So "cut this to the musi
 big moment on the drop. It can search online like the Online tab ("use Blinding Lights as the music" finds the song,
 downloads its sound and puts it under the video). And it can do what you can: add, move, trim, split and delete clips, set any property and keyframe
 it, add effects and transitions, add text and captions, mask clips, build shape layers, animate text letter by
-letter, write expressions, set markers (on the beats, say), import files or links, organise the Library, and export.
+letter, write expressions, set markers, mark a song's beats and cut clips to them, import files or links, organise
+the Library, and export. It can also measure the canvas (where each clip, and each text's letters, sit in pixels), so
+"put a box behind the title" fits the title.
 
 - Every step shows in the chat as it runs; what it changes flashes on the timeline, and a pill over the preview says
   what it's doing. Click a step for its details, or the ⌖ on it to select what it changed.
@@ -443,6 +458,10 @@ Premiere:
   from it), **Ease In and Out** or **Hold** (keeps its value until the next keyframe), and for an eased one its
   **Influence** (After Effects' keyframe velocity): 33% is Premiere's ease; 75–100% hangs near the keyframes and
   whips through the middle, the snappy curve of edit-style zooms and spins.
+- The same menu has three ways of **arriving** at a keyframe with a movement of its own, which would otherwise take
+  several keyframes: **Overshoot** (goes past the value and settles back; its Influence is how far), **Spring**
+  (swings around it and comes to rest; its Influence is how many swings) and **Bounce** (drops onto it and bounces).
+  Such a keyframe shows a zigzag on its left side. Dragging a handle in the graph editor takes over the curve.
 - **Copy and paste:** with keyframes selected, `⌘C` copies them and `⌘V` pastes them with the first at the
   playhead, on the same properties of whichever clip is selected. Right-click another property's lane → **Paste
   onto…** to put one property's keyframes on another (a number's on a number, a point's on a point).

@@ -463,6 +463,19 @@ describe("what the assistant reads", () => {
     expect(() => EDITS.set_markers(p, {}, env)).toThrow(/Give `add`/);
   });
 
+  it("cuts clips to the markers", () => {
+    const p = withTwoClips();
+    const [a, b] = main(p).map((c) => c.id);
+    expect(() => EDITS.cut_to_markers(p, { clipIds: [a, b] }, env)).toThrow(/no markers.*mark_beats/);
+    const marked = run(p, ["set_markers", { add: [3, 6, 9, 12].map((time) => ({ time })) }]);
+    const first = getClip(marked, a)!;
+    const cut = EDITS.cut_to_markers(marked, { clipIds: [a, b], every: 1 }, env);
+    expect(cut.text).toMatch(/^Cut 2 of 2 clips to the markers/);
+    expect(main(cut.project).map((c) => [c.start, clipEnd(c)])).toEqual([[first.start, 3], [3, 6]]);
+    expect(EDITS.cut_to_markers(cut.project, { clipIds: [a, b], every: 1 }, env).text).toMatch(/^Nothing changed/);
+    expect(() => EDITS.cut_to_markers(marked, { clipIds: ["clip_x"] }, env)).toThrow(/no clip "clip_x"/);
+  });
+
   it("animates text letter by letter, and captions with the speech", () => {
     const p = run(createDefaultProject(), ["add_text", { text: "Hello world", start: 0, duration: 3 }]);
     const id = p.clips[0].id;

@@ -102,6 +102,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      helpers (wiggle, loopOut, linear...), `expressionValue`. Effects run it in `effectValuesAt`.
   markers.ts         Sequence markers (`Project.markers`, timeline time) and clip markers (`Clip.markers`, source
                      time): add/update/remove, `allMarkers`, `adjacentMarker`.
+  beat-sync.ts       Beat sync: a song's beats as markers on its clip (`Marker.beat`, `setBeatMarkers` replaces only
+                     those) and `cutToMarkers` (clips end on markers, the rest of their track moves along).
   captions.ts        Auto captions: presets, words → caption cues (fitting the canvas), transcripts → timeline,
                      edits to every caption at once (style, animation, merge). Spoken animations are text animators.
   library.ts         The shared Library: folder tree, saved clips (ClipTemplate: normalize, placeTemplate), search.
@@ -181,6 +183,7 @@ src/
                      edits, tested), describe.ts (what the model reads: timeline, clips, catalogue...), frames.ts
                      (Program monitor, a background video drawn offscreen, media frames), bridge.ts (the tab's event
                      stream; one call queue per video), context.ts.
+                     layout.ts: what `get_layout` reports (clips' boxes on the canvas in px, a text's letters).
   stores/assistant.ts  The side panel, the open video's chat, every chat's activity (sidebar), provider status, live
                      activity, clip highlights, confirmations, Revert.
   components/assistant/  The chat panel (right, full height), the model + thinking pickers, its steps, Markdown, the
@@ -294,6 +297,8 @@ extension** (Node ESM through tsx).
   `mediaTime`/`remapSpeed` (preview `mediaOf`, export native runs and `soundPieces`), never `sourceTime` alone.
 - Parenting (`Clip.parent`, `shared/parenting.ts`) and null objects (`nullObject`): `placer` takes a `parent` delta
   from `parentAt`; code that places clips must pass it (preview, export, canvas overlay).
+- Dynamic easings (`overshoot`, `spring`, `bounce`; `isDynamic`) shape the stretch *arriving* at their keyframe and
+  leave 0..1 (`dynamicProgress`); a Bézier handle on either side of the stretch takes over (`isDynamicSegment`).
 - Keyframe Bézier handles (`handleIn`/`handleOut`, the graph editor) override easing on their side; `segmentHandles`
   is the curve's control points and `bezierProgress` evaluates it.
 - Captions are text clips with `caption: true` (only valid on text clips; see `shared/captions.ts`). The Captions tab

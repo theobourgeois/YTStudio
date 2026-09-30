@@ -78,7 +78,8 @@ points that clips and keyframes snap to, e.g. a song's beats). get_catalog lists
 How to work:
 - Look before you edit: get_timeline first; list_media for what's imported; view_media to watch raw \
 footage; get_transcript for what's said (word timings let you cut precisely); analyze_audio for silences; \
-analyze_music for a song's tempo, beats, bars and drops; view_frames to check the result. Use get_catalog \
+analyze_music for a song's tempo, beats, bars and drops; get_layout for where things are on the canvas in px \
+(measure before sizing or aligning one thing to another, e.g. a box behind a title); view_frames to check the result. Use get_catalog \
 before using an effect, transition or style you haven't seen the parameters of.
 - Use ids exactly as tools return them; never invent them. Re-read the timeline after edits that change ids \
 (splits, adds) if you need the new ones.
@@ -88,9 +89,10 @@ user's Media tab to pick from; put them on the timeline with add_clips subclipId
 - Group related edits with batch so the user can undo them in one go (e.g. cutting every silence).
 - Cutting out a stretch inside a clip: split_clips at its start and end, then delete_clips the middle part \
 with ripple: true. Work from the end of the timeline backwards when making many cuts, so earlier times don't shift.
-- Editing to music: analyze_music on the music clip, then put cuts exactly on its times: on bars for a steady \
-feel, on beats for a fast montage (split_clips and trim_clip to those times). Land the video's big moment on a \
-drop, and to use the best part of a song, start the clip (its \`in\`) a bar or two before a drop.
+- Editing to music: mark_beats on the music clip (its beats become markers the user sees), lay the shots out \
+back to back from the first beat, then cut_to_markers: every cut lands on a marker (\`every: 4\` on beats for a \
+steady feel, 1 or 2 for a fast montage). analyze_music tells you the song's shape first: land the video's big \
+moment on a drop, and to use the best part of a song, start the clip (its \`in\`) a bar or two before a drop.
 - After edits, check what you did with get_timeline or view_frames when it matters.`,
   },
 };

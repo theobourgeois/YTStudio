@@ -72,7 +72,8 @@ import {
   updateEffect,
 } from "@shared/effects";
 import { DEFAULT_INFLUENCE, EASINGS, MIN_INFLUENCE, clampHandle, sanitizeSpatial } from "@shared/keyframes";
-import { MARKER_COLORS, clipMarkers, addClipMarker, addMarker, removeClipMarkers, removeMarkers, sequenceMarkers, updateClipMarker, updateMarker } from "@shared/markers";
+import { cutToMarkers } from "@shared/beat-sync";
+import { MARKER_COLORS, allMarkers, clipMarkers, addClipMarker, addMarker, removeClipMarkers, removeMarkers, sequenceMarkers, updateClipMarker, updateMarker } from "@shared/markers";
 import { addPresetLayer, applyPresetToClips, presetDefinition } from "@shared/presets";
 import { ANIMATOR_PRESETS, addAnimator, animatorPreset } from "@shared/text-animators";
 import { addSubclips, canSubclip, cleanSubclipName, getSubclip, removeSubclips, subclipRange, updateSubclip } from "@shared/subclips";
@@ -722,6 +723,25 @@ const closeGaps: EditHandler = (project, input) => {
   return { project: p, text: closed ? `Closed ${closed} gap${closed === 1 ? "" : "s"} on "${track.name}".` : `"${track.name}" has no gaps.` };
 };
 
+const cutToMarkersTool: EditHandler = (project, input, env) => {
+  const ids = strings(input, "clipIds");
+  ids.forEach((id) => clipOf(project, id));
+  const every = optNumber(input, "every", { min: 1, max: 64 });
+  if (allMarkers(project, new Set(ids)).length === 0) {
+    throw new ToolError("There are no markers to cut to. Call mark_beats on the music clip first (or set_markers).");
+  }
+  const cut = cutToMarkers(project, ids, { every, range: (clip) => clipSourceRange(clip, env.assets[clip.assetId]) });
+  if (!cut.moved) return { project, text: "Nothing changed: those clips already end on markers (or no marker is within their reach)." };
+  const ends = ids.map((id) => getClip(cut.project, id)!).sort((a, b) => a.start - b.start);
+  return {
+    project: cut.project,
+    text: `Cut ${cut.moved} of ${ids.length} clips to the markers; what followed them on their tracks moved along. Now: ${ends
+      .slice(0, 40)
+      .map((c) => `${c.id} ${range(c.start, clipEnd(c))}`)
+      .join(", ")}${ends.length > 40 ? ", …" : ""}.`,
+  };
+};
+
 const duplicate: EditHandler = (project, input, env) => {
   const ids = strings(input, "clipIds");
   ids.forEach((id) => clipOf(project, id));
@@ -1239,6 +1259,7 @@ export const EDITS: Record<EditToolName, EditHandler> = {
   add_layer: addLayer,
   set_parent: setParentTool,
   set_markers: setMarkersTool,
+  cut_to_markers: cutToMarkersTool,
   set_expression: setExpressionTool,
   nest_clips: nestClipsTool,
   break_apart: breakApartTool,

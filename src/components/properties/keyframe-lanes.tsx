@@ -25,7 +25,7 @@ import {
   setKeyframeInfluence,
   timelineTime,
 } from "@shared/animation";
-import { easesIn, easesOut, influenceOf } from "@shared/keyframes";
+import { easesIn, easesOut, influenceOf, isDynamic } from "@shared/keyframes";
 import { allMarkers } from "@shared/markers";
 import { tidy } from "@shared/math";
 import { clipEnd, getClip, sourceDelta } from "@shared/timeline";
@@ -66,6 +66,9 @@ export const EASING_LABELS: { value: Easing; label: string }[] = [
   { value: "ease-out", label: "Ease Out" },
   { value: "ease", label: "Ease In and Out" },
   { value: "hold", label: "Hold" },
+  { value: "overshoot", label: "Overshoot" },
+  { value: "spring", label: "Spring" },
+  { value: "bounce", label: "Bounce" },
 ];
 
 /**
@@ -184,7 +187,7 @@ function KeyframeMenuItems({ clip, refs }: { clip: Clip; refs: KeyframeRef[] }) 
         ))}
       </ContextMenuRadioGroup>
       <ContextMenuSub>
-        <ContextMenuSubTrigger disabled={easing === "linear" || easing === "hold"}>
+        <ContextMenuSubTrigger disabled={easing === "linear" || easing === "hold" || easing === "bounce"}>
           Influence
           <span className="ml-auto pl-2 text-xs text-muted-foreground tabular-nums">
             {influence === null ? "" : `${Math.round(influence * 100)}%`}
@@ -517,7 +520,8 @@ const formatSeconds = (s: number) => `${Math.max(0, s).toFixed(2)}s`;
  */
 export function KeyframeShape({ easing, className }: { easing: Easing; className?: string }) {
   // One outline: down the left side (top to bottom), then back up the right.
-  const left = easesIn(easing) ? "A5 5 0 0 0 5 10" : "L0 5 L5 10";
+  // Arrived at with a wobble: a zigzag on its incoming side.
+  const left = isDynamic(easing) ? "L1.5 2.5 L3.5 5 L0 5 L3.5 7.5 L5 10" : easesIn(easing) ? "A5 5 0 0 0 5 10" : "L0 5 L5 10";
   const right = easing === "hold" ? "L9.5 10 L9.5 0 Z" : easesOut(easing) ? "A5 5 0 0 0 5 0 Z" : "L10 5 Z";
   return (
     <svg viewBox="-1 -1 12 12" aria-hidden className={className} strokeWidth={1} strokeLinejoin="round">
