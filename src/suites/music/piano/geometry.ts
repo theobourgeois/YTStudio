@@ -274,13 +274,18 @@ export function zoomAt(view: PianoView, x: number, pxPerTick: number): PianoView
 
 /** Wheel travel (in pixels) that zooms in or out by 10%: about one notch of a mouse wheel. */
 const WHEEL_ZOOM_STEP = 120;
+/** A trackpad's pinch comes as many small deltas (below this): they zoom 10% every this many pixels. */
+const PINCH_DELTA = 50;
+const PINCH_ZOOM_STEP = 12;
 
 /**
- * How much a Ctrl+wheel event zooms: in proportion to how far the wheel moved, so a trackpad's many
- * small events and a mouse's few large ones zoom alike and gently (10% a notch). Lines and pages
- * (`deltaMode` 1, 2) count as a notch each; one event never zooms more than two notches' worth.
+ * How much a Ctrl+wheel event zooms, in proportion to how far it moved. A mouse wheel's notches
+ * (large deltas) zoom 10% each; a trackpad's pinch (small deltas, dozens a second) zooms 10% every
+ * few pixels, so a whole pinch zooms two or three times. Lines and pages (`deltaMode` 1, 2) count as a
+ * notch each; one event never zooms more than two notches' worth.
  */
 export function wheelZoomFactor(deltaY: number, deltaMode = 0): number {
+  if (deltaMode === 0 && Math.abs(deltaY) < PINCH_DELTA) return 1.1 ** (-deltaY / PINCH_ZOOM_STEP);
   const px = deltaMode === 0 ? deltaY : Math.sign(deltaY) * WHEEL_ZOOM_STEP;
   const notches = clamp(px / WHEEL_ZOOM_STEP, -2, 2);
   return 1.1 ** -notches;

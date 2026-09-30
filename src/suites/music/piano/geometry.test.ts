@@ -172,11 +172,12 @@ describe("notes on screen", () => {
 });
 
 describe("zooming", () => {
-  it("zooms by the wheel in proportion to how far it turned, a notch at 10%", () => {
+  it("zooms by the wheel in proportion to how far it turned: a notch at 10%, a pinch faster", () => {
     expect(wheelZoomFactor(-120)).toBeCloseTo(1.1);
     expect(wheelZoomFactor(120)).toBeCloseTo(1 / 1.1);
-    expect(wheelZoomFactor(-4)).toBeGreaterThan(1);
-    expect(wheelZoomFactor(-4)).toBeLessThan(1.01);
+    // A pinch: small deltas, 10% every 12 px.
+    expect(wheelZoomFactor(-12)).toBeCloseTo(1.1);
+    expect(wheelZoomFactor(6)).toBeCloseTo(1 / Math.sqrt(1.1));
     expect(wheelZoomFactor(-3, 1)).toBeCloseTo(1.1);
     expect(wheelZoomFactor(-5000)).toBeCloseTo(1.21);
     expect(wheelZoomFactor(0)).toBe(1);
