@@ -26,11 +26,16 @@ import { type TransitionWindow, trackTransitions } from "@shared/transition-wind
 import { PRESETS, type PresetDefinition } from "@shared/presets";
 import { TRANSITIONS } from "@shared/transitions";
 import type { Clip, Effect, FontFamily, Library, MediaAsset, MusicAnalysis, ParamValue, Project, Transcript } from "@shared/types";
+import { getSequence, sequenceDuration } from "@shared/sequences";
+import { remapSegments } from "@shared/time-remap";
+import { isRemapped } from "@shared/effects";
 import { range, secs, value } from "./input";
 
 export interface TimelineView {
   playhead: number;
   selectedClipIds: readonly string[];
+  /** The nested sequence `project` is a view of (absent or null: the main one). */
+  sequenceId?: string | null;
 }
 
 export interface TimelineFilter {
@@ -75,6 +80,9 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
     parts.push("camera (3D layers are seen through it)");
   } else if (kind === "null") {
     parts.push("null object (draws nothing; clips parented to it follow its motion)");
+  } else if (asset?.sequence) {
+    parts.push(`nested sequence ${quote(asset.name)} (${asset.id}), showing ${range(clip.in, clip.out)} of its ${secs(asset.duration)}s`);
+    if (clipSpeed(clip) !== 1 || clip.reversed) parts.push([`speed ${clipSpeed(clip)}×`, clip.reversed && "reversed"].filter(Boolean).join(", "));
   } else {
     const kind = asset ? asset.kind : "offline media";
     parts.push(`${quote(clipName(clip, asset), 48)} (${kind}${asset ? `, ${asset.id}` : ""})`);
@@ -103,6 +111,10 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
   }
   if (fx.length) parts.push(`fx: ${fx.join(", ")}`);
   if (clip.parent) parts.push(`parent: ${clip.parent.id}`);
+  const remap = remapSegments(clip);
+  if (remap.length) {
+    parts.push(`time remapped: ${remap.map((s) => `${range(s.start, s.end)} ${s.speed === 0 ? "freeze" : `${Math.round(s.speed * 100)}%`}`).join(", ")}`);
+  }
   for (const w of windows) {
     if (w.ref.clipId !== clip.id) continue;
     const label = `${w.def.type} ${secs(w.transition.duration)}s`;
@@ -115,10 +127,21 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
 /** The whole timeline as text (see `get_timeline`). */
 export function describeTimeline(project: Project, assets: Assets, view: TimelineView, filter: TimelineFilter = {}): string {
   const { width, height } = outputSize(project.settings.aspectRatio, "1080p");
+  const open = view.sequenceId ? getSequence(project, view.sequenceId) : undefined;
   const lines = [
-    `${quote(project.name)} · ${project.settings.aspectRatio} (${width}×${height} at 1080p) · ${project.settings.fps} fps · length ${secs(projectDuration(project))}s`,
+    open
+      ? `Nested sequence ${open.id} ${quote(open.name)} of ${quote(project.name)} · ${project.settings.aspectRatio} (${width}×${height}) · ${project.settings.fps} fps · length ${secs(sequenceDuration(open))}s${open.duration === undefined ? "" : " (set)"} · open_sequence(null) goes back to the main sequence`
+      : `${quote(project.name)} · ${project.settings.aspectRatio} (${width}×${height} at 1080p) · ${project.settings.fps} fps · length ${secs(projectDuration(project))}s`,
     `Playhead ${secs(view.playhead)} · ${view.selectedClipIds.length ? `selected: ${view.selectedClipIds.join(", ")}` : "nothing selected"}`,
   ];
+  const nested = (project.sequences ?? []).filter((s) => s.id !== open?.id);
+  if (nested.length) {
+    lines.push(
+      `Nested sequences (open_sequence to edit inside; add one with add_clips assetId = its id): ${nested
+        .map((s) => `${s.id} ${quote(s.name)} ${s.settings.aspectRatio} ${secs(sequenceDuration(s))}s, ${s.clips.length} clips`)
+        .join("; ")}`,
+    );
+  }
   if (filter.from !== undefined || filter.to !== undefined) lines.push(`Showing ${range(filter.from ?? 0, filter.to ?? projectDuration(project))} only`);
   lines.push("Tracks, top to bottom (a video track is drawn over the ones below it):");
 
@@ -163,6 +186,16 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
       start: round(clip.start),
       end: round(clipEnd(clip)),
       ...(clip.parent && { parent: clip.parent.id }),
+      ...(asset?.sequence && { nestedSequence: { id: asset.id, name: asset.name, duration: round(asset.duration) } }),
+      ...(isRemapped(clip) && {
+        remap: remapSegments(clip).map((seg, index) => ({
+          index,
+          start: round(seg.start),
+          end: round(seg.end),
+          speed: round(seg.speed),
+          media: [round(seg.mediaFrom), round(seg.mediaTo)],
+        })),
+      }),
       ...(clipKind(clip) === "text"
         ? { kind: clip.caption ? "caption" : "text" }
         : clipKind(clip) !== "media"

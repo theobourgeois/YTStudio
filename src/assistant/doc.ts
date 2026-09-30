@@ -7,6 +7,7 @@
  * flushed before any video is opened, so opening it shows them).
  */
 import { normalizeProject } from "@shared/normalize";
+import { everySequence, getSequence, sequenceAssets, sequenceView, writeSequence } from "@shared/sequences";
 import { DEFAULT_PROJECT_NAME, removeAssetClips } from "@shared/timeline";
 import type { MediaAsset, Project } from "@shared/types";
 import { api } from "@/lib/api";
@@ -18,7 +19,15 @@ export interface ToolDoc {
   readonly projectId: string;
   /** It's the video open in the editor: its playhead, selection, undo and Program monitor are the user's. */
   readonly isOpen: boolean;
+  /** The sequence calls act on, as a project (see `sequenceView`): the main one unless a nested one was opened. */
   readonly project: Project;
+  /** The whole video (every sequence). */
+  readonly document: Project;
+  /** The nested sequence calls act on (null: the main one). */
+  readonly sequenceId: string | null;
+  /** Act on another sequence (and, in the open video, show it in the timeline). */
+  openSequence(sequenceId: string | null): void;
+  /** Its media, and its nested sequences as media (see `sequenceAsset`). */
   readonly assets: readonly MediaAsset[];
   asset(assetId: string): MediaAsset | undefined;
   /** Replace the video with an edited one (one undo step when it's open). */
@@ -47,6 +56,15 @@ class EditorDoc implements ToolDoc {
   get project() {
     return this.editor.project;
   }
+  get document() {
+    return this.editor.document;
+  }
+  get sequenceId() {
+    return this.editor.sequenceId;
+  }
+  openSequence(sequenceId: string | null) {
+    this.editor.openSequence(sequenceId);
+  }
   get assets() {
     return this.editor.assets;
   }
@@ -67,6 +85,7 @@ class EditorDoc implements ToolDoc {
     // `deleteAsset` does both (and strips the history); only reached if it was deleted another way.
     const editor = this.editor;
     if (editor.getAsset(assetId)) useEditor.setState({ assets: editor.assets.filter((a) => a.id !== assetId) });
+    // (Nested sequences' clips of it are dropped when the video is next loaded.)
     this.commit(removeAssetClips(editor.project, assetId));
   }
   get playhead() {
@@ -84,11 +103,25 @@ class BackgroundDoc implements ToolDoc {
   readonly selectedClipIds: readonly string[] = [];
   lastUsed = Date.now();
 
+  sequenceId: string | null = null;
+
   constructor(
     readonly projectId: string,
-    public project: Project,
-    public assets: MediaAsset[],
+    public document: Project,
+    private media: MediaAsset[],
   ) {}
+
+  get project() {
+    return sequenceView(this.document, this.sequenceId);
+  }
+  get assets() {
+    return [...this.media, ...sequenceAssets(this.document)];
+  }
+  openSequence(sequenceId: string | null) {
+    this.check();
+    if (sequenceId !== null && !getSequence(this.document, sequenceId)) return;
+    this.sequenceId = sequenceId;
+  }
 
   /** The editor opened it meanwhile: its copy is the one to edit now (this call is refused rather than lost). */
   private check() {
@@ -101,26 +134,32 @@ class BackgroundDoc implements ToolDoc {
   commit(next: Project) {
     this.check();
     if (next === this.project) return;
-    this.project = next;
-    queueSave(this.projectId, next);
+    this.document = writeSequence(this.document, this.sequenceId, next);
+    // A sequence that's gone (deleted from inside itself): back to the main one.
+    if (this.sequenceId !== null && !getSequence(this.document, this.sequenceId)) this.sequenceId = null;
+    queueSave(this.projectId, this.document);
   }
   rename(name: string) {
     const trimmed = name.trim();
-    if (trimmed && trimmed !== this.project.name) this.commit({ ...this.project, name: trimmed });
+    if (!trimmed || trimmed === this.document.name) return;
+    this.check();
+    this.document = { ...this.document, name: trimmed };
+    queueSave(this.projectId, this.document);
   }
   addAssets(assets: MediaAsset[]) {
     this.check();
     const mine = assets.filter((a) => a.projectId === this.projectId);
     if (mine.length === 0) return;
     const ids = new Set(mine.map((a) => a.id));
-    this.assets = [...mine, ...this.assets.filter((a) => !ids.has(a.id))];
+    this.media = [...mine, ...this.media.filter((a) => !ids.has(a.id))];
     // Like the editor: a video's first media names it.
-    if (this.project.name === DEFAULT_PROJECT_NAME) this.rename(mine[0].name.replace(/\.[^.]+$/, ""));
+    if (this.document.name === DEFAULT_PROJECT_NAME) this.rename(mine[0].name.replace(/\.[^.]+$/, ""));
   }
   assetDeleted(assetId: string) {
     this.check();
-    this.assets = this.assets.filter((a) => a.id !== assetId);
-    this.commit(removeAssetClips(this.project, assetId));
+    this.media = this.media.filter((a) => a.id !== assetId);
+    this.document = everySequence(this.document, (v) => removeAssetClips(v, assetId));
+    queueSave(this.projectId, this.document);
   }
 }
 

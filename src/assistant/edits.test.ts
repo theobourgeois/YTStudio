@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { captionClips } from "@shared/captions";
 import { clipKind, findEffect, isVideoEffect, textEffects } from "@shared/effects";
 import { MAIN_TRACK_ID, clipEnd, createDefaultProject, getClip, trackClips } from "@shared/timeline";
+import { sequenceAsset } from "@shared/sequences";
 import type { Clip, MediaAsset, Project } from "@shared/types";
 import { describeCatalog, describeClips, describeMusic, describeTimeline, describeTranscript } from "./describe";
 import { EDITS, type EditEnv, clipChanges } from "./edits";
@@ -213,6 +214,41 @@ describe("assistant edits", () => {
     expect(describeTimeline(linked, assets, { playhead: 0, selectedClipIds: [] })).toContain(`parent: ${nul.id}`);
     expect(() => EDITS.set_parent(linked, { clipIds: [nul.id], parentId: a.id }, env)).toThrow(/own parent/);
     expect(getClip(run(linked, ["set_parent", { clipIds: [a.id], parentId: null }]), a.id)?.parent).toBeUndefined();
+  });
+
+  it("nests clips, changes the sequence, and breaks it apart", () => {
+    const p = withTwoClips();
+    const [a, b] = main(p);
+    const nested = EDITS.nest_clips(p, { clipIds: [a.id, b.id], name: "Intro" }, env);
+    expect(nested.text).toContain("Intro");
+    const seq = nested.project.sequences![0];
+    const nest = main(nested.project)[0];
+    expect(nest.assetId).toBe(seq.id);
+    const withSeq = { ...env, assets: { ...assets, [seq.id]: sequenceAsset(seq) } };
+    expect(describeTimeline(nested.project, withSeq.assets, { playhead: 0, selectedClipIds: [] })).toContain(`nested sequence "Intro" (${seq.id})`);
+    const square = EDITS.edit_sequence(nested.project, { sequenceId: seq.id, aspectRatio: "1:1", duration: 20 }, withSeq);
+    expect(square.project.sequences![0]).toMatchObject({ settings: { aspectRatio: "1:1" }, duration: 20 });
+    const back = EDITS.break_apart(nested.project, { clipId: nest.id }, withSeq);
+    expect(back.project.clips.map((c) => c.assetId).sort()).toEqual(["media_a", "media_b"]);
+    expect(() => EDITS.edit_sequence(nested.project, { sequenceId: "seq_nope" }, withSeq)).toThrow(/no sequence/);
+  });
+
+  it("remaps a clip's time: ramps, freezes and reverses", () => {
+    const p = withTwoClips();
+    const a = main(p)[0];
+    const ramp = EDITS.remap_time(p, { clipId: a.id, speeds: [{ duration: 1, speed: 1 }, { duration: 2, speed: 0.25 }, { duration: 1, speed: 2 }], ease: 0.5 }, env);
+    expect(ramp.text).toContain("remapped");
+    const ramped = main(ramp.project)[0];
+    expect(clipEnd(ramped)).toBeCloseTo(4);
+    // The next clip moved along with its end.
+    expect(main(ramp.project)[1].start).toBeCloseTo(4);
+    const frozen = EDITS.remap_time(ramp.project, { clipId: a.id, freeze: { at: 0.5, duration: 1 } }, env).project;
+    expect(clipEnd(main(frozen)[0])).toBeCloseTo(5);
+    const clips = JSON.parse(describeClips(frozen, assets, [a.id]))[0];
+    expect(clips.remap.some((s: { speed: number }) => s.speed === 0)).toBe(true);
+    const off = EDITS.remap_time(frozen, { clipId: a.id, enabled: false }, env);
+    expect(off.text).toContain("steady speed");
+    expect(() => EDITS.remap_time(p, { clipId: a.id }, env)).toThrow(/Give/);
   });
 
   it("keyframes at timeline times (stored in source time)", () => {

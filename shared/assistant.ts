@@ -467,6 +467,21 @@ export function describeToolCall(rawName: string, input: unknown): string {
       if (f("reversed") === false) return `Play ${what} forwards`;
       return `Change the speed of ${what}`;
     }
+    case "nest_clips":
+      return `Nest ${count(ids(), "clip")}`;
+    case "break_apart":
+      return "Break apart a nested clip";
+    case "edit_sequence":
+      return f("delete") === true ? "Delete a nested sequence" : "Change a nested sequence";
+    case "open_sequence":
+      return f("sequenceId") ? "Open a nested sequence" : "Back to the main sequence";
+    case "remap_time": {
+      if (Array.isArray(f("speeds"))) return `Speed ramp a clip`;
+      if (f("freeze")) return "Freeze a frame";
+      if (f("reverse")) return "Reverse a section";
+      if (f("enabled") === false) return "Turn off time remapping";
+      return "Remap a clip's time";
+    }
     case "set_parent":
       return f("parentId") ? `Parent ${count(ids(), "clip")} to a clip` : `Unparent ${count(ids(), "clip")}`;
     case "split_clips":

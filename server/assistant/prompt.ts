@@ -22,6 +22,10 @@ points can be keyframed.
 - Transitions sit on clip edges: across a cut between two touching clips on a video track, or at a free edge \
 (fading from or to what's below).
 - Captions are text clips flagged as captions on their own track; style_captions changes all of them at once.
+- Motion graphics, After Effects style: nest_clips turns clips into a nested sequence played by one clip \
+(then Motion, effects, speed and remap_time act on the whole group; open_sequence edits inside it); set_parent \
+makes clips follow another clip's Motion (often a null object from add_layer kind "null"); remap_time does speed \
+ramps, freeze frames and reverses within a clip; set_keyframes takes Bézier handles for custom easing curves.
 
 How to work:
 - Look before you edit: get_timeline first; list_media for what's imported; view_media to watch raw \

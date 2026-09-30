@@ -9,6 +9,26 @@ import type { EditToolName } from "@shared/assistant-tools";
 import { canAnimate, keyframeTime, setAnimated } from "@shared/animation";
 import { canParent, setParent } from "@shared/parenting";
 import {
+  breakApart,
+  deleteSequence,
+  getSequence,
+  isNestedClip,
+  nestClips,
+  renameSequence,
+  sequenceDuration,
+  setSequenceDuration,
+} from "@shared/sequences";
+import {
+  MAX_REMAP_SPEED,
+  MIN_REMAP_SPEED,
+  addFreezeFrame,
+  addReverseSection,
+  remapFromSpeeds,
+  remapSegments,
+  setSegmentSpeed,
+  setTimeRemap,
+} from "@shared/time-remap";
+import {
   CAPTION_PRESETS,
   applyCaptionPreset,
   captionAnimation,
@@ -27,6 +47,7 @@ import {
   TEXT,
   addEffect,
   clipKind,
+  isRemapped,
   copyEffects,
   defaultEffects,
   effectDefinition,
@@ -58,6 +79,7 @@ import {
   addTrack,
   canPlaceOnTrack,
   canRetime,
+  canTimeRemap,
   clipDuration,
   clipEnd,
   clipName,
@@ -119,8 +141,11 @@ import {
 } from "./input";
 
 export interface EditEnv {
+  /** The video's media, and its nested sequences as media. */
   assets: Readonly<Record<string, MediaAsset>>;
   playhead: number;
+  /** The nested sequence the project is a view of (null or absent: the main one). */
+  sequenceId?: string | null;
 }
 
 export interface EditOutcome {
@@ -449,6 +474,111 @@ const trim: EditHandler = (project, input, env) => {
   return {
     project: p,
     text: withNotes(`Trimmed: ${place(p, after, env)} (source ${range(after.in, after.out)})${ripple ? "; the rest of the track moved left" : ""}.`, notes),
+  };
+};
+
+const nestClipsTool: EditHandler = (project, input) => {
+  const ids = strings(input, "clipIds");
+  ids.forEach((id) => clipOf(project, id));
+  const res = nestClips(project, ids, optString(input, "name"));
+  if (!res) throw new ToolError("Give the clips to nest.");
+  const seq = getSequence(res.project, res.sequenceId)!;
+  const clip = getClip(res.project, res.clipId)!;
+  return {
+    project: res.project,
+    text:
+      `Nested ${ids.length} clip${ids.length === 1 ? "" : "s"} into sequence ${seq.id} ("${seq.name}", ${secs(sequenceDuration(seq))}s), ` +
+      `played by clip ${clip.id} at ${range(clip.start, clipEnd(clip))} on ${trackName(res.project, clip.trackId)}. ` +
+      `Edit inside it with open_sequence("${seq.id}").`,
+  };
+};
+
+const breakApartTool: EditHandler = (project, input) => {
+  const clip = clipOf(project, string(input, "clipId"));
+  if (!isNestedClip(clip)) throw new ToolError(`${clip.id} isn't a nested sequence's clip.`);
+  const res = breakApart(project, clip.id);
+  if (!res) throw new ToolError(`${clip.id} can't be broken apart: it plays at another speed, backwards or remapped. Set it back to normal speed first (set_speed / remap_time enabled false).`);
+  return { project: res.project, text: `Put ${res.clipIds.length} clips back in its place: ${res.clipIds.join(", ")}.` };
+};
+
+const editSequenceTool: EditHandler = (project, input, env) => {
+  const id = string(input, "sequenceId");
+  const seq = getSequence(project, id);
+  if (!seq) {
+    const all = (project.sequences ?? []).map((s) => `${s.id} (${s.name})`);
+    throw new ToolError(`There's no sequence "${id}".${all.length ? ` Nested sequences: ${all.join(", ")}.` : ""}`);
+  }
+  if (optBoolean(input, "delete")) {
+    if (env.sequenceId === id) throw new ToolError(`${id} is the sequence you're working on: open_sequence(null) first.`);
+    return { project: deleteSequence(project, id), text: `Deleted sequence ${id} and the clips that played it.` };
+  }
+  let p = project;
+  const name = optString(input, "name");
+  if (name !== undefined) p = renameSequence(p, id, name);
+  const aspectRatio = oneOf(input, "aspectRatio", ["9:16", "16:9", "1:1", "4:5"] as const);
+  const fps = optNumber(input, "fps", { min: 1, max: 120 });
+  if (aspectRatio || fps !== undefined) {
+    const patch = { ...(aspectRatio && { aspectRatio }), ...(fps !== undefined && { fps: Math.round(fps) }) };
+    // The sequence being worked on keeps its settings in the view; any other in the list.
+    if (env.sequenceId === id) p = { ...p, settings: { ...p.settings, ...patch } };
+    else p = { ...p, sequences: p.sequences!.map((s) => (s.id === id ? { ...s, settings: { ...s.settings, ...patch } } : s)) };
+  }
+  if ("duration" in input) {
+    const raw = input.duration;
+    if (raw !== null && (typeof raw !== "number" || !(raw > 0))) throw new ToolError("`duration` must be seconds (> 0), or null for as long as its clips.");
+    p = setSequenceDuration(p, id, raw as number | null);
+  }
+  const now = getSequence(p, id) ?? seq;
+  const settings = env.sequenceId === id ? p.settings : now.settings;
+  return { project: p, text: `Sequence ${id}: "${now.name}", ${settings.aspectRatio} at ${settings.fps} fps, ${now.duration === undefined ? `as long as its clips (${secs(sequenceDuration(now))}s)` : `${secs(now.duration)}s`}.` };
+};
+
+const remapTimeTool: EditHandler = (project, input, env) => {
+  const clip = clipOf(project, string(input, "clipId"));
+  const asset = env.assets[clip.assetId];
+  if (!canTimeRemap(clip, asset)) throw new ToolError(`${clip.id} can't have its time remapped: only clips of videos, sounds and nested sequences can.`);
+  const duration = asset?.duration ?? Infinity;
+  let p = project;
+  const notes: string[] = [];
+  const enabled = optBoolean(input, "enabled");
+  if (enabled !== undefined) p = setTimeRemap(p, [clip.id], enabled, { [clip.id]: duration });
+  const rawSpeeds = input.speeds;
+  if (rawSpeeds !== undefined) {
+    if (!Array.isArray(rawSpeeds) || rawSpeeds.length === 0) throw new ToolError("`speeds` must be a list of { duration, speed }.");
+    const steps = rawSpeeds.map((x, i) => {
+      if (!x || typeof x !== "object") throw new ToolError(`speeds[${i}] must be { duration, speed }.`);
+      return { duration: number(x as Input, "duration", { min: 1 / 240 }), speed: number(x as Input, "speed", { min: -MAX_REMAP_SPEED, max: MAX_REMAP_SPEED }) };
+    });
+    p = remapFromSpeeds(p, clip.id, steps, duration, optNumber(input, "ease", { min: 0, max: 1 }) ?? 0);
+  }
+  const freeze = optObject(input, "freeze");
+  if (freeze) p = addFreezeFrame(p, clip.id, number(freeze, "at", { min: 0 }), number(freeze, "duration", { min: 1 / 240 }));
+  const reverse = optObject(input, "reverse");
+  if (reverse) {
+    const from = number(reverse, "from", { min: 0 });
+    const to = number(reverse, "to", { min: 0 });
+    const next = addReverseSection(p, clip.id, from, to);
+    if (next === p) notes.push(`nothing was reversed: ${range(from, to)} must be inside the clip and at least ${MIN_CLIP_DURATION / 2}s long`);
+    p = next;
+  }
+  const stretch = optObject(input, "stretch");
+  if (stretch) {
+    const index = Math.round(number(stretch, "index", { min: 0 }));
+    const next = setSegmentSpeed(p, clip.id, index, number(stretch, "speed", { min: MIN_REMAP_SPEED, max: MAX_REMAP_SPEED }));
+    if (next === p) notes.push(`stretch ${index} wasn't changed (it doesn't exist, or it's a freeze)`);
+    p = next;
+  }
+  if (p === project && !notes.length) throw new ToolError("Give `enabled`, `speeds`, `freeze`, `reverse` and/or `stretch`.");
+  const after = getClip(p, clip.id)!;
+  const stretches = remapSegments(after)
+    .map((s, i) => `#${i} ${range(s.start, s.end)} ${s.speed === 0 ? "freeze" : `${Math.round(s.speed * 100)}%`}`)
+    .join(", ");
+  return {
+    project: p,
+    text: withNotes(
+      isRemapped(after) ? `${clip.id} (${range(after.start, clipEnd(after))}) is remapped: ${stretches}.` : `${clip.id} plays at a steady speed again.`,
+      notes,
+    ),
   };
 };
 
@@ -952,6 +1082,10 @@ export const EDITS: Record<EditToolName, EditHandler> = {
   add_text: addText,
   add_layer: addLayer,
   set_parent: setParentTool,
+  nest_clips: nestClipsTool,
+  break_apart: breakApartTool,
+  edit_sequence: editSequenceTool,
+  remap_time: remapTimeTool,
   apply_preset: applyPreset,
   move_clips: move,
   trim_clip: trim,

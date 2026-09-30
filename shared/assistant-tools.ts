@@ -417,6 +417,91 @@ export const ASSISTANT_TOOLS = [
     ),
   }),
   tool({
+    name: "nest_clips",
+    title: "Nest clips",
+    kind: "edit",
+    description:
+      "Nest clips (Premiere's Nest, After Effects' Pre-compose): they become a nested sequence of their own (on " +
+      "copies of their tracks, the earliest starting at 0), played by one new clip in their place. The nested clip " +
+      "is then like a video clip of the sequence: trim it, move it, give it Motion/Opacity/effects/transitions, " +
+      "speed it up or remap its time (remap_time) to act on everything inside at once, e.g. a speed ramp over a " +
+      "whole edited section, or one zoom over several clips. Edit what's inside with open_sequence. Returns the " +
+      "new sequence's and clip's ids.",
+    inputSchema: obj({ clipIds: clipIds(), name: str("The sequence's name (default \"Nested Sequence N\").") }, ["clipIds"]),
+  }),
+  tool({
+    name: "break_apart",
+    title: "Break apart a nested clip",
+    kind: "edit",
+    description:
+      "Put what a nested clip plays back on the timeline in its place (Premiere's Restore Unnested): the part of its " +
+      "sequence it shows, each of the sequence's tracks on a new track. The nested clip's own Motion, Opacity and " +
+      "effects are dropped. Only for a nested clip at normal speed, forwards and not remapped.",
+    inputSchema: obj({ clipId: str("The nested clip.") }, ["clipId"]),
+  }),
+  tool({
+    name: "edit_sequence",
+    title: "Change a nested sequence",
+    kind: "edit",
+    description:
+      "Change a nested sequence (see get_timeline's sequences): its name, its own frame (aspectRatio) and frame rate, " +
+      "or its length (`duration` in seconds, or null for as long as its clips, the default). `delete: true` deletes " +
+      "it and every clip that plays it.",
+    inputSchema: obj(
+      {
+        sequenceId: str("The sequence."),
+        name: str("New name."),
+        aspectRatio: oneOf(["9:16", "16:9", "1:1", "4:5"], "Its frame."),
+        fps: num("Frames per second.", { minimum: 1, maximum: 120 }),
+        duration: { type: ["number", "null"], description: "Seconds, or null for as long as its clips." },
+        delete: bool("Delete it (and the clips that play it)."),
+      },
+      ["sequenceId"],
+    ),
+  }),
+  tool({
+    name: "open_sequence",
+    title: "Open a sequence",
+    kind: "action",
+    description:
+      "Choose which sequence your next calls act on: a nested sequence (its id, from get_timeline) to edit what's " +
+      "inside it, or null for the video's main sequence. Every other tool (get_timeline, add_clips, set_keyframes...) " +
+      "then works on that sequence's tracks and clips, with times from its own start. In the open video it also " +
+      "shows that sequence in the user's timeline.",
+    inputSchema: obj({ sequenceId: { type: ["string", "null"], description: "A nested sequence's id, or null for the main one." } }, ["sequenceId"]),
+  }),
+  tool({
+    name: "remap_time",
+    title: "Remap a clip's time",
+    kind: "edit",
+    description:
+      "Time remapping (After Effects' Time Remap, Premiere's speed keyframes, CapCut's speed curve) on a video or " +
+      "nested clip: its speed can change within the clip, freeze, or run backwards. `enabled` turns it on (nothing " +
+      "changes until shaped) or off. `speeds` replaces the whole curve with steps from the clip's first frame: each " +
+      "plays at `speed` (1 normal, 0.2 slow motion, 3 fast, 0 a freeze, negative backwards) for `duration` timeline " +
+      "seconds; `ease` (0..1, e.g. 0.6) smooths every change of speed into a ramp, the classic edit speed ramp " +
+      "(fast, slow into the beat, fast again). `freeze` holds the frame at timeline time `at` for `duration` seconds. " +
+      "`reverse` plays timeline span from..to backwards then forwards again. `stretch` sets the speed of one stretch " +
+      "between remap keyframes (its index, see get_clips' remap). The clip's length changes with it and the clips " +
+      "after it on its track move along. Its keyframes (effect \"time-remap\", param \"time\": the source time " +
+      "shown, at timeline times) can also be set with set_keyframes, with Bézier handles for custom ramps.",
+    inputSchema: obj(
+      {
+        clipId: str("A video, sound or nested clip."),
+        enabled: bool("Turn remapping on or off."),
+        speeds: arr(
+          obj({ duration: num("Timeline seconds.", { exclusiveMinimum: 0 }), speed: num("Speed factor (0 = freeze, negative = backwards).") }, ["duration", "speed"]),
+          "The whole curve as steps of speed.",
+        ),
+        ease: num("With `speeds`: how smoothly speed changes, 0 (cuts) to 1.", { minimum: 0, maximum: 1 }),
+        freeze: obj({ at: time("Where."), duration: num("How long, seconds.", { exclusiveMinimum: 0 }) }, ["at", "duration"]),
+        reverse: obj({ from: time("Start of the stretch."), to: time("End of the stretch.") }, ["from", "to"]),
+        stretch: obj({ index: num("Which stretch (0 = the first)."), speed: num("Its speed (0.1 to 10).") }, ["index", "speed"]),
+      },
+      ["clipId"],
+    ),
+  }),
+  tool({
     name: "set_parent",
     title: "Parent clips",
     kind: "edit",

@@ -11,6 +11,7 @@ import { captionClips, captionSourceClips } from "@shared/captions";
 import { errorMessage } from "@shared/errors";
 import { templateFromClips, templateFromSubclip } from "@shared/library";
 import { clamp } from "@shared/math";
+import { getSequence } from "@shared/sequences";
 import { getSubclip } from "@shared/subclips";
 import { placeTemplate } from "@shared/library";
 import { clipEnd, getClip, projectDuration, timelineTime } from "@shared/timeline";
@@ -104,7 +105,7 @@ const edit =
     const doc = await ctx.doc();
     if (doc.isOpen) await gesturesSettled(ctx.signal);
     const before = doc.project;
-    const out = EDITS[name](before, input, { assets: byId(doc.assets), playhead: doc.playhead });
+    const out = EDITS[name](before, input, { assets: byId(doc.assets), playhead: doc.playhead, sequenceId: doc.sequenceId });
     doc.commit(out.project);
     if (out.rename) doc.rename(out.rename);
     return textResult(out.text, finishEdit(doc, before, ctx));
@@ -160,7 +161,7 @@ const TOOLS: Record<ToolName, Handler> = {
       describeTimeline(
         doc.project,
         byId(doc.assets),
-        { playhead: doc.playhead, selectedClipIds: [...doc.selectedClipIds] },
+        { playhead: doc.playhead, selectedClipIds: [...doc.selectedClipIds], sequenceId: doc.sequenceId },
         {
           from: optNumber(input, "from"),
           to: optNumber(input, "to"),
@@ -326,6 +327,10 @@ const TOOLS: Record<ToolName, Handler> = {
   add_text: edit("add_text"),
   add_layer: edit("add_layer"),
   set_parent: edit("set_parent"),
+  nest_clips: edit("nest_clips"),
+  break_apart: edit("break_apart"),
+  edit_sequence: edit("edit_sequence"),
+  remap_time: edit("remap_time"),
   apply_preset: edit("apply_preset"),
   move_clips: edit("move_clips"),
   trim_clip: edit("trim_clip"),
@@ -592,6 +597,18 @@ const TOOLS: Record<ToolName, Handler> = {
     }
     if (job.status !== "done" || !job.url) throw new ToolError(job.error ?? "The export failed.");
     return textResult(`Exported "${job.fileName}" (${job.width}×${job.height}, ${secs(job.duration)}s): ${location.origin}${job.downloadUrl ?? job.url}`);
+  },
+  async open_sequence(input, ctx) {
+    const doc = await ctx.doc();
+    const raw = input.sequenceId;
+    if (raw !== null && typeof raw !== "string") throw new ToolError("`sequenceId` must be a nested sequence's id, or null for the main sequence.");
+    if (raw !== null && !getSequence(doc.document, raw)) {
+      const ids = (doc.document.sequences ?? []).map((s) => `${s.id} (${s.name})`);
+      throw new ToolError(`There's no sequence "${raw}". ${ids.length ? `Nested sequences: ${ids.join(", ")}.` : "This video has no nested sequences (nest_clips makes one)."}`);
+    }
+    doc.openSequence(raw);
+    const name = raw === null ? "the main sequence" : `nested sequence ${raw} (${getSequence(doc.document, raw)!.name})`;
+    return textResult(`Now working on ${name}: ${doc.project.clips.length} clips, ${secs(projectDuration(doc.project))}s. Call get_timeline to see it.`);
   },
   async focus(input, ctx) {
     const doc = await ctx.doc();
