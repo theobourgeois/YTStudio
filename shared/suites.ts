@@ -59,7 +59,7 @@ export const SUITES: Record<SuiteId, SuiteInfo> = {
     label: "Music",
     noun: "song",
     description: "Make a song: tracks, instruments, plugins and a mixer.",
-    app: "a music editor (a DAW, like Ableton Live or Logic)",
+    app: "a music editor (a DAW that works like FL Studio)",
     early: true,
   },
 };

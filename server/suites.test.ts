@@ -4,6 +4,8 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createMusicProject } from "../shared/music/project.ts";
+import { MUSIC_TOOLS } from "../shared/music/tools.ts";
 import type { MusicProject } from "../shared/music/types.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import type { Project, ProjectSummary } from "../shared/types.ts";
@@ -49,12 +51,12 @@ describe("suites", () => {
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ suite: "music", name: "Demo", status: "active", tempo: 120, duration: 0, thumbnail: null });
     const id = created.body.id;
-    expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body).toEqual({ version: 1, name: "Demo", settings: { tempo: 120, timeSignature: [4, 4] } });
+    expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body).toEqual(createMusicProject("Demo"));
 
     // Saved through its own normalisation (not a video's).
     const saved = await send<ProjectSummary>("PUT", `/api/projects/${id}`, { version: 1, name: "Demo", settings: { tempo: 5000, timeSignature: [6, 8] } });
     expect(saved.body).toMatchObject({ suite: "music", tempo: 999 });
-    expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body.settings).toEqual({ tempo: 999, timeSignature: [6, 8] });
+    expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body.settings).toEqual({ tempo: 999, timeSignature: [6, 8], swing: 0 });
 
     await send("PATCH", `/api/projects/${id}`, { name: "Anthem" });
     expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body.name).toBe("Anthem");
@@ -93,8 +95,8 @@ describe("suites", () => {
     const video = (await send<ProjectSummary>("POST", "/api/projects", {})).body;
     const names = async (query: string) => (await mcp(query, "tools/list")).tools!.map((t) => t.name);
 
-    expect(await names(`?chat=${song.id}`)).toEqual(["get_song"]);
-    expect(await names("?suite=music")).toEqual(["get_song"]);
+    expect(await names(`?chat=${song.id}`)).toEqual(MUSIC_TOOLS.map((t) => t.name));
+    expect(await names("?suite=music")).toContain("set_steps");
     expect(await names(`?chat=${video.id}`)).toContain("split_clips");
     // Outside clients (no chat) get the video editor's, as before suites.
     expect(await names("")).toContain("split_clips");

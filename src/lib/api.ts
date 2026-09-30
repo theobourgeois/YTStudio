@@ -89,6 +89,9 @@ export const api = {
   getProject: (id: string) => request<Project>(`/api/projects/${id}`),
   /** Any suite's document (`suite` says which, for its type). */
   getDocument: <S extends SuiteId>(_suite: S, id: string) => request<SuiteDocument<S>>(`/api/projects/${id}`),
+  /** Save any suite's document. Returns the refreshed summary. */
+  saveDocument: <S extends SuiteId>(_suite: S, id: string, doc: SuiteDocument<S>, keepalive = false) =>
+    request<ProjectSummary>(`/api/projects/${id}`, { method: "PUT", body: JSON.stringify(doc), keepalive }),
   /** Save the project document. Returns the refreshed summary (void for keepalive saves on unload). */
   saveProject: (id: string, project: Project, keepalive = false) =>
     request<ProjectSummary>(`/api/projects/${id}`, {

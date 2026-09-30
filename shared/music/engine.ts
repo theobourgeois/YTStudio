@@ -1,11 +1,13 @@
 /**
  * The audio engine as the tab sees it (`/api/engine`). The engine is a native program (`engine/`) the
  * server runs: it owns the audio device and hosts the plugins (VST3, Audio Units), which no browser
- * can load. For now it's a spike: one instrument into one effect, played by hand.
+ * can load. It plays the open song (one pattern, looped: `compile.ts`), and has a test bench for
+ * plugins: one instrument into one effect, played by hand.
  *
  * The server and the engine exchange one JSON object per line: `{ id, cmd, ...params }` in, and
- * `{ id, ok: true, result }` or `{ id, ok: false, error }` out, plus `{ event, status }` on its own.
+ * `{ id, ok: true, result }` or `{ id, ok: false, error }` out, plus events on its own (`EngineEvent`).
  */
+import type { MusicProject } from "./types.ts";
 
 /** A plugin found on this computer. */
 export interface EnginePlugin {
@@ -47,13 +49,58 @@ export interface EngineStatus {
   /** From a note reaching the engine to its sound leaving the device, at worst. */
   outputLatencyMs: number;
   tone: boolean;
-  /** The loudest output sample (0..1+) since the status was last asked for. */
+  /** The output's level (0..1+), falling back slowly: a meter. */
   peak: number;
+  transport: EngineTransport & { metronome: boolean };
   /** A plugin scan in progress. */
   scanning: { progress: number; name: string } | null;
   pluginCount: number;
   instrument: LoadedPlugin | null;
   effect: LoadedPlugin | null;
+}
+
+export interface EngineTransport {
+  playing: boolean;
+  /** Where the loop is, in ticks from its start (what the engine is computing: it's heard `outputLatencyMs` later). */
+  tick: number;
+}
+
+/**
+ * What the engine says on its own (`GET /api/engine/events`): where the song is, about 25 times a
+ * second while it plays or anything sounds; its status when that changes by itself (a scan ending, a
+ * plugin's window closed by hand); and that it has (re)started.
+ */
+export type EngineEvent =
+  | ({ event: "transport"; peak: number; cpu: number } & EngineTransport)
+  | { event: "status"; status: EngineStatus }
+  | { event: "ready" };
+
+/** The song to play (`POST /api/engine/song`): the tab's copy of the document, saved or not. */
+export interface SetSongRequest {
+  projectId: string;
+  song: MusicProject;
+  /** The pattern to loop (default: the first). */
+  patternId: string | null;
+}
+
+export interface SetSongResponse {
+  /** Channels whose sample the engine couldn't read (they're silent). */
+  unreadable: string[];
+}
+
+/** The audio device and what it could be instead (`GET` and `POST /api/engine/devices`). */
+export interface EngineDevices {
+  outputs: string[];
+  output: string | null;
+  bufferSizes: number[];
+  sampleRates: number[];
+  status: EngineStatus;
+}
+
+export interface SetDeviceRequest {
+  output?: string;
+  bufferSize?: number;
+  sampleRate?: number;
 }
 
 /** What an offline engine computed: `frames` samples, measured over both channels. */
@@ -62,11 +109,18 @@ export interface EngineRender {
   sampleRate: number;
   peak: number;
   rms: number;
+  transport: EngineTransport & { metronome: boolean };
 }
 
 /** What `POST /api/engine/<command>` takes. Every command answers with the `EngineStatus`. */
 export interface EngineCommands {
   status: Record<string, never>;
+  /** Play the song from its start (nothing happens if it's playing), or stop and go back there. */
+  play: Record<string, never>;
+  stop: Record<string, never>;
+  metronome: { on: boolean };
+  /** Play a channel's sample once, now. `pitch` is semitones from its own pitch, `velocity` 0..1. */
+  trigger: { channel: string; pitch?: number; velocity?: number };
   /** Play a test tone (through the effect). */
   tone: { on: boolean };
   /** Look for plugins; the status says how far along it is. `rescan` forgets the known ones first. */

@@ -1,14 +1,16 @@
-// The audio engine: the audio device, the plugins it hosts and what plays through them.
+// The audio engine: the audio device (or none, offline), and what plays through it, which is the
+// song (`Sequencer`), the test tone, and the plugin bench's instrument and effect (`PluginBench`).
 //
-// For now (the spike) that's one instrument into one effect, plus a test tone. Commands arrive on
-// the message thread (`handle`); `audioDeviceIOCallbackWithContext` is the real-time side, and the
-// two only meet under `audioLock`, which the audio thread never waits for (it plays silence instead).
+// Commands arrive on the message thread (`handle`); `process` is the real-time side and never waits:
+// the song reaches it lock-free, and the bench is skipped for a block if it's busy being changed.
 #pragma once
+
+#include "Plugins.h"
+#include "Sequencer.h"
+#include "Song.h"
 
 #include <functional>
 #include <juce_audio_devices/juce_audio_devices.h>
-#include <juce_audio_processors/juce_audio_processors.h>
-#include <juce_audio_utils/juce_audio_utils.h>
 
 class Engine final : private juce::AudioIODeviceCallback,
                      private juce::Timer
@@ -18,10 +20,10 @@ public:
     using Reply = std::function<void (const juce::Result&, const juce::var&)>;
 
     /**
-     * `dataDir` keeps the list of scanned plugins; `pluginPaths` are searched besides the usual folders.
-     * `offline` opens no audio device: sound is only made by the `render` command, as fast as it
-     * computes (tests, and later the export), so the same input always gives the same samples.
-     * `onlyPluginPaths` leaves this computer's own plugins out of scans (tests).
+     * `dataDir` keeps what the engine remembers (scanned plugins, the device chosen); `pluginPaths`
+     * are searched besides the usual folders. `offline` opens no audio device: sound is only made by
+     * the `render` command, as fast as it computes (tests, and later the export), so the same input
+     * always gives the same samples. `onlyPluginPaths` leaves this computer's own plugins out of scans.
      */
     Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths, bool offline, bool onlyPluginPaths);
     ~Engine() override;
@@ -32,18 +34,11 @@ public:
     juce::var status() const;
 
 private:
-    struct Slot
-    {
-        std::unique_ptr<juce::AudioPluginInstance> plugin;
-        std::unique_ptr<juce::DocumentWindow> window;
-        juce::String id;
-        juce::var describe() const;
-    };
-
     void audioDeviceIOCallbackWithContext (const float* const*, int, float* const*, int, int,
                                            const juce::AudioIODeviceCallbackContext&) override;
     void audioDeviceAboutToStart (juce::AudioIODevice*) override;
     void audioDeviceStopped() override;
+    /** Tells the server where the song is while it plays, and tidies up after the audio thread. */
     void timerCallback() override;
 
     /** One block of the engine's output: the whole real-time path, whoever asks for it. */
@@ -53,38 +48,29 @@ private:
     /** A device, or the offline engine, (re)starts at this rate and block size. */
     void start (double rate, int block);
 
-    Slot* slotNamed (const juce::var& params, Reply& reply);
-    void startScan (bool rescan);
-    void load (Slot&, const juce::String& pluginId, Reply reply);
-    void unload (Slot&);
-    void prepare (juce::AudioPluginInstance&) const;
-    void sizeScratch();
-    juce::var plugins() const;
+    juce::var transport() const;
+    juce::var deviceOptions() const;
+    juce::Result setDevice (const juce::var& params);
+    void sendStatus() const;
 
+    const bool offline;
+    juce::File deviceFile;
     juce::AudioDeviceManager devices;
-    juce::AudioPluginFormatManager formats;
-    juce::KnownPluginList known;
-    juce::File knownFile, pedalFile;
-    juce::StringArray extraPaths;
+    PluginBench bench;
+    SampleCache samples;
+    Sequencer sequencer;
 
-    // The scan in progress: one scanner per format, stepped a plugin at a time so commands still run.
-    juce::OwnedArray<juce::PluginDirectoryScanner> scanners;
-    int scannerIndex = 0;
-    juce::String scanningName;
-
-    juce::CriticalSection audioLock;
-    Slot instrument, effect;
-    juce::MidiMessageCollector midi;
-    /** Offline there's no clock to time notes by: they wait here for the next rendered block. */
-    juce::MidiBuffer offlineNotes;
-    const bool offline, onlyExtraPaths;
-    juce::AudioBuffer<float> scratch;
+    /** The song and the tone, before the bench's effect. */
+    juce::AudioBuffer<float> mix;
     std::atomic<bool> tone { false };
-    /** The loudest output sample since `status` last read it: a meter, and proof that sound comes out. */
-    mutable std::atomic<float> peak { 0.0f };
+    /** The output's level, falling back slowly: a meter. */
+    std::atomic<float> peak { 0.0f };
     double tonePhase = 0.0;
     double sampleRate = 0.0;
     int blockSize = 0;
+    /** What the last transport event said, to say it again only when it changes. */
+    bool saidPlaying = false;
+    bool saidQuiet = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Engine)
 };

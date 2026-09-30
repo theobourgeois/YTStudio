@@ -2,26 +2,33 @@ import { createMusicProject, normalizeMusicProject } from "../../shared/music/pr
 import { isObject } from "../storage.ts";
 import type { SuiteBackend } from "./suite.ts";
 
-/** The music suite (a DAW): `MusicProject` documents (`shared/music/`). A shell for now. */
+/** The music suite (a DAW): `MusicProject` documents (`shared/music/`), whose samples are the project's media. */
 export const musicSuite: SuiteBackend<"music"> = {
   suite: "music",
   create: (name) => createMusicProject(name),
-  normalize(doc) {
+  normalize(doc, media) {
     if (!isObject(doc)) throw new Error("Not a song.");
-    return normalizeMusicProject(doc);
+    return normalizeMusicProject(doc, (id) => media[id]?.hasAudio === true);
   },
   stats: (doc) => ({ name: doc.name, duration: 0, tempo: doc.settings.tempo, coverAssetId: null }),
-  // Songs don't use media yet.
-  remapMedia: (doc) => doc,
+  remapMedia: (doc, ids) => ({
+    ...doc,
+    channels: doc.channels.map((c) => (c.sampleId ? { ...c, sampleId: ids.get(c.sampleId) ?? null } : c)),
+  }),
   assistant: {
     context: "what the song is like at the moment they sent it",
     background: "nothing is selected",
     instructions: `\
-Tools for a local music editor (a DAW, like Ableton Live or Logic). They act on the song open in the editor \
-tab (unless you're told otherwise), live: the user sees every change as it happens.
+Tools for a local music editor (a DAW that works like FL Studio). They act on the song open in the editor \
+tab (unless you're told otherwise), live: the user sees and hears every change as it happens, and can undo it.
 
-The music editor is new: for now a song only has a name, a tempo and a time signature, and there are no \
-tracks, clips, instruments or plugins yet. Use get_song to read it. If asked to make or change music, say \
-plainly that the music editor can't do that yet.`,
+So far a song is a channel rack and patterns. A channel is a sampler playing one audio file; a pattern holds \
+each channel's steps (sixteenth notes) and loops while it plays. There's no piano roll, playlist, mixer or \
+plugin instrument yet: if asked for one, say plainly that the music editor can't do that yet.
+
+Start with get_song. To make a beat: add_channel for each sound (the starter kit has kick, clap, hat and \
+snare), then set_steps to draw each channel's steps as text ("x---x---x---x---"). update_song sets the tempo \
+and swing; edit_step changes one step's velocity or pitch; add_pattern makes another pattern. You can't hear \
+the song: play_song starts it for the user, so ask them how it sounds rather than claiming it sounds good.`,
   },
 };

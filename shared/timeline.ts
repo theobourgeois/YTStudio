@@ -3,6 +3,7 @@
  * returns a new one (or the same instance when nothing changed), so they are
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
+import { createId } from "./ids.ts";
 import { DEFAULT_PROJECT_NAME } from "./suites.ts";
 import { cameraEffects, clipKind, defaultEffects, hasMedia, solidEffects, textStyleAt } from "./effects.ts";
 import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
@@ -26,9 +27,7 @@ export const MIN_CLIP_DURATION = 0.1;
 /** How long a new clip of a still image is (seconds), like Premiere's default. */
 export const STILL_DURATION = 5;
 
-export function createId(prefix: string): string {
-  return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-}
+export { createId };
 
 export function createDefaultProject(): Project {
   return {

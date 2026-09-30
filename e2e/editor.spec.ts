@@ -1433,7 +1433,7 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await page.keyboard.press("Enter");
   await expect(picker).toHaveCount(0);
   await expect.poll(() => page.url()).not.toBe(videoUrl);
-  await expect(page.getByRole("heading", { name: "Audio engine" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
   const song = (await projectList(page)).find((p: { suite: string }) => p.suite === "music");
   expect(song).toMatchObject({ name: "Untitled", tempo: 120, status: "active" });
   await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("120 BPM");
@@ -1463,5 +1463,5 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   const clips = (await savedProject(page)).clips.length;
   await expect.poll(async () => (await timelineClips(page)).length).toBe(clips);
   await page.goto(`/p/${song.id}`);
-  await expect(page.getByRole("heading", { name: "Audio engine" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
 });

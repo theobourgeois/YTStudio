@@ -95,7 +95,13 @@ export async function createApp({
     suiteOf: (id) => projects.suiteOf(id),
   });
   await assistant.init();
-  const engine = new AudioEngine(paths, engineOptions);
+  const engine = new AudioEngine(paths, {
+    samplePath(projectId, mediaId) {
+      const asset = library.find(mediaId);
+      return asset && asset.projectId === projectId && asset.hasAudio ? library.sourcePath(asset) : null;
+    },
+    ...engineOptions,
+  });
 
   const app = express();
   app.disable("x-powered-by");

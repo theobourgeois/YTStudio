@@ -8,18 +8,26 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import { clamp, isFiniteNumber } from "../../shared/math.ts";
+import { compileSong, levelGain } from "../../shared/music/compile.ts";
 import {
   ENGINE_SLOTS,
   type EngineCommand,
+  type EngineDevices,
+  type EngineEvent,
   type EnginePlugin,
   type EngineRender,
   type EngineSlot,
   type EngineStatus,
   type LoadedPlugin,
+  type SetSongResponse,
 } from "../../shared/music/engine.ts";
+import { DEFAULT_VELOCITY, normalizeMusicProject } from "../../shared/music/project.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
 import { spawnStreaming } from "../process.ts";
-import { type DataPaths, HttpError, isObject, readJson, writeJson } from "../storage.ts";
+import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
+
+/** Where a project's sample is on disk, or null if it has no such audio file. */
+export type SamplePath = (projectId: string, mediaId: string) => string | null;
 
 export interface EngineOptions {
   /** The engine's argv before its options (default: the built engine). Tests pass a fake. */
@@ -29,6 +37,8 @@ export interface EngineOptions {
   offline?: boolean;
   /** Scan only `pluginPaths`, not this computer's plugins (tests: fast, and the same everywhere). */
   onlyPluginPaths?: boolean;
+  /** Finds a song's samples (default: no song has any). */
+  samplePath?: SamplePath;
 }
 
 /** How long the engine has to start, and to answer (loading a big plugin takes a while). */
@@ -44,6 +54,7 @@ interface Pending {
 /** The engine's own status: `hasSavedState` is ours to add. */
 type RawStatus = Omit<EngineStatus, EngineSlot> & Record<EngineSlot, Omit<LoadedPlugin, "hasSavedState"> | null>;
 /** Which plugin each slot's saved state belongs to. */
+type RawDevices = Omit<EngineDevices, "status"> & { status: RawStatus };
 type SavedStates = Partial<Record<EngineSlot, string>>;
 
 const isSlot = (v: unknown): v is EngineSlot => ENGINE_SLOTS.includes(v as EngineSlot);
@@ -59,9 +70,15 @@ export class AudioEngine {
   private pending = new Map<number, Pending>();
   private nextId = 1;
   private saved: SavedStates | null = null;
+  /** Shut down on purpose: the engine's exit isn't news. */
+  private stopping = false;
   private readonly argv: string[];
   private readonly pluginPaths: string[];
   private readonly flags: string[];
+  private readonly samplePath: SamplePath;
+  private readonly listeners = new Set<(event: EngineEvent) => void>();
+  /** The song the engine was last given, to give it again if it restarts. */
+  private song: Record<string, unknown> | null = null;
 
   constructor(
     private readonly paths: DataPaths,
@@ -69,6 +86,7 @@ export class AudioEngine {
   ) {
     this.argv = options.command ?? [ENGINE];
     this.pluginPaths = options.pluginPaths ?? ENGINE_PLUGIN_PATHS;
+    this.samplePath = options.samplePath ?? (() => null);
     this.flags = [...(options.offline ? ["--offline"] : []), ...(options.onlyPluginPaths ? ["--only-plugin-paths"] : [])];
   }
 
@@ -79,6 +97,41 @@ export class AudioEngine {
     const status = (await this.request(name, params)) as RawStatus;
     if (name === "saveState") await this.remember(slotOf(input), status[slotOf(input)]?.id);
     return this.withSaved(status);
+  }
+
+  /**
+   * Play this song (`SetSongRequest`): the document is checked like a saved one, compiled
+   * (`shared/music/compile.ts`) and handed to the engine, which keeps playing through the change.
+   */
+  async setSong(body: unknown): Promise<SetSongResponse> {
+    if (!isObject(body) || !isValidId(body.projectId)) throw new HttpError(400, '"projectId" must be the song\'s project id.');
+    const projectId = body.projectId;
+    const doc = normalizeMusicProject(body.song, (id) => this.samplePath(projectId, id) !== null);
+    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null);
+    const song = { ...compiled, channels: compiled.channels.map((c) => ({ ...c, sample: c.sample && this.samplePath(projectId, c.sample) })) };
+    this.song = song;
+    return (await this.request("song", { song })) as SetSongResponse;
+  }
+
+  async devices(): Promise<EngineDevices> {
+    return this.withSavedIn((await this.request("devices", {})) as RawDevices);
+  }
+
+  /** Change the output device, its buffer size or sample rate (`SetDeviceRequest`); the engine remembers it. */
+  async setDevice(body: unknown): Promise<EngineDevices> {
+    const input = isObject(body) ? body : {};
+    const params: Record<string, unknown> = {};
+    if (typeof input.output === "string" && input.output) params.output = input.output;
+    if (isFiniteNumber(input.bufferSize) && input.bufferSize > 0) params.bufferSize = Math.round(input.bufferSize);
+    if (isFiniteNumber(input.sampleRate) && input.sampleRate > 0) params.sampleRate = input.sampleRate;
+    if (!Object.keys(params).length) throw new HttpError(400, 'Give an "output", a "bufferSize" or a "sampleRate".');
+    return this.withSavedIn((await this.request("setDevice", params)) as RawDevices);
+  }
+
+  /** Be told what the engine says on its own (`EngineEvent`). Returns how to stop listening. */
+  onEvent(listener: (event: EngineEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   /** The plugins found by the last scan. */
@@ -95,6 +148,7 @@ export class AudioEngine {
   }
 
   shutdown() {
+    this.stopping = true;
     this.child?.stdin?.end();
     this.child?.kill();
     this.child = null;
@@ -104,7 +158,16 @@ export class AudioEngine {
   private async params(name: EngineCommand, body: Record<string, unknown>): Promise<Record<string, unknown>> {
     switch (name) {
       case "status":
+      case "play":
+      case "stop":
         return {};
+      case "metronome":
+        return { on: body.on === true };
+      case "trigger": {
+        if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');
+        const velocity = isFiniteNumber(body.velocity) ? clamp(body.velocity, 0, 1) : DEFAULT_VELOCITY;
+        return { channel: body.channel, pitch: isFiniteNumber(body.pitch) ? clamp(body.pitch, -96, 96) : 0, gain: levelGain(velocity, DEFAULT_VELOCITY) };
+      }
       case "tone":
         return { on: body.on === true };
       case "scan":
@@ -155,6 +218,10 @@ export class AudioEngine {
     return { ...status, instrument: slot("instrument"), effect: slot("effect") };
   }
 
+  private async withSavedIn(devices: RawDevices): Promise<EngineDevices> {
+    return { ...devices, status: await this.withSaved(devices.status) };
+  }
+
   private async request(cmd: string, params: Record<string, unknown>): Promise<unknown> {
     await this.start();
     const child = this.child;
@@ -168,6 +235,10 @@ export class AudioEngine {
       this.pending.set(id, { resolve, reject, timer });
       child.stdin!.write(`${JSON.stringify({ ...params, id, cmd })}\n`);
     });
+  }
+
+  private emit(event: EngineEvent) {
+    for (const listener of this.listeners) listener(event);
   }
 
   private start(): Promise<void> {
@@ -204,7 +275,14 @@ export class AudioEngine {
         if (message.event === "ready") {
           clearTimeout(timer);
           this.child = child;
+          // A restarted engine has forgotten the song: give it back before anything else is asked.
+          if (this.song) void this.request("song", { song: this.song }).catch(() => {});
           resolve();
+          this.emit({ event: "ready" });
+        } else if (message.event === "transport") {
+          this.emit(message as unknown as EngineEvent);
+        } else if (message.event === "status" && isObject(message.status)) {
+          void this.withSaved(message.status as unknown as RawStatus).then((status) => this.emit({ event: "status", status }));
         }
         const pending = typeof message.id === "number" ? this.pending.get(message.id) : undefined;
         if (!pending) return;
@@ -214,7 +292,7 @@ export class AudioEngine {
         else pending.reject(new HttpError(409, typeof message.error === "string" ? message.error : "The audio engine refused."));
       });
       done
-        .catch((err: Error) => console.error(`[engine] ${err.message}`))
+        .catch((err: Error) => this.stopping || console.error(`[engine] ${err.message}`))
         .finally(() => {
           clearTimeout(timer);
           if (this.child === child) this.child = null;

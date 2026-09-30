@@ -777,6 +777,10 @@ export interface ToolCallProgressRequest {
 //   POST   /api/assistant/calls/:id/result  body: ToolCallResultRequest -> 204
 //   POST   /api/assistant/calls/:id/progress  body: ToolCallProgressRequest -> 204
 //   GET    /api/engine/plugins         -> EnginePlugin[] (the plugins the audio engine found; shared/music/engine.ts)
+//   POST   /api/engine/song  body: SetSongRequest -> SetSongResponse (the song the engine plays, on every edit)
+//   GET    /api/engine/events           -> text/event-stream of EngineEvent (where the song is, the meter)
+//   GET    /api/engine/devices          -> EngineDevices (the output device and its options)
+//   POST   /api/engine/devices  body: SetDeviceRequest -> EngineDevices
 //   POST   /api/engine/:command  body: EngineCommands[command] -> EngineStatus (starts the engine if needed)
 //   POST   /mcp?chat=<projectId>|suite=<suite>  MCP (Streamable HTTP, JSON responses): a suite's tools for any agent
 //                                        (the chat's project's suite, else `suite`, else video)

@@ -33,6 +33,7 @@ const REGISTRIES = [
 /** A trailing slash is a folder. Everything else at the roots is the video editor's. */
 const PLATFORM = [
   "shared/tool-spec.ts",
+  "shared/ids.ts",
   "shared/assistant.ts",
   "shared/math.ts",
   "shared/format.ts",
@@ -61,6 +62,8 @@ const PLATFORM = [
   "src/lib/route.ts",
   "src/lib/desktop.ts",
   "src/lib/pointer-drag.ts",
+  "src/lib/document-history.ts",
+  "src/lib/autosaver.ts",
   "src/hooks/use-now.ts",
   "src/assistant/bridge.ts",
   "src/components/ui/",
@@ -80,11 +83,8 @@ const PLATFORM = [
  * moving what's shared into the platform (ids, autosave, undo) or behind `ClientSuite`.
  */
 const DEBT: string[] = [
-  "server/assistant/bridge.ts -> shared/timeline.ts",
-  "server/assistant/service.ts -> shared/timeline.ts",
   "server/index.ts -> server/ffmpeg.ts",
   "server/projects.ts -> server/media.ts",
-  "server/projects.ts -> shared/timeline.ts",
   "src/App.tsx -> src/components/shortcuts/shortcuts-dialog.tsx",
   "src/App.tsx -> src/hooks/use-prevent-file-navigation.ts",
   "src/App.tsx -> src/hooks/use-shortcuts.ts",

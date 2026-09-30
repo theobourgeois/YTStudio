@@ -2,6 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { addChannels, setSteps } from "../../shared/music/edits.ts";
+import type { EngineEvent } from "../../shared/music/engine.ts";
+import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
 
@@ -44,6 +47,35 @@ describe("AudioEngine", () => {
       status: 409,
       message: "No plugin is loaded there.",
     });
+  });
+
+  it("plays a song, compiled from its document, and says where it is", async () => {
+    const song = setSteps(addChannels(createMusicProject("Beat"), [{ id: "chan_kick", name: "Kick", sampleId: "media_000000000001" }]), FIRST_PATTERN_ID, "chan_kick", [0], true);
+    const events: EngineEvent[] = [];
+    const stop = engine.onEvent((event) => events.push(event));
+    expect(await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null })).toEqual({ unreadable: [] });
+    expect((await engine.command("play", {})).transport.playing).toBe(true);
+    await engine.command("trigger", { channel: "chan_kick" });
+    await expect(engine.command("trigger", { channel: "chan_none" })).rejects.toMatchObject({ status: 409 });
+    await expect.poll(() => events.filter((e) => e.event === "transport").length).toBeGreaterThan(1);
+    expect((await engine.command("stop", {})).transport).toMatchObject({ playing: false, tick: 0 });
+    stop();
+    await expect(engine.setSong({ song })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("lists the audio devices and changes them", async () => {
+    expect(await engine.devices()).toMatchObject({ output: "Fake Output", bufferSizes: [64, 128, 256, 512] });
+    expect((await engine.setDevice({ bufferSize: 128, output: "Fake Headphones" })).status).toMatchObject({ bufferSize: 128, device: "Fake Headphones" });
+    await expect(engine.setDevice({ bufferSize: "small" })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("gives a restarted engine its song back", async () => {
+    const song = addChannels(createMusicProject("Beat"), [{ id: "chan_kick", name: "Kick", sampleId: null }]);
+    await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
+    const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
+    await expect(request("crash", {})).rejects.toMatchObject({ status: 503 });
+    // The fake only knows the channel if it was given the song again.
+    await engine.command("trigger", { channel: "chan_kick" });
   });
 
   it("starts again after the engine dies", async () => {

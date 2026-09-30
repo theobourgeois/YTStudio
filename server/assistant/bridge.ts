@@ -7,7 +7,7 @@
 import type { Request, Response } from "express";
 import type { ChatActivity, ChatEvent, TabEvent } from "../../shared/assistant.ts";
 import type { ToolChanges, ToolContent, ToolResult } from "../../shared/tool-spec.ts";
-import { createId } from "../../shared/timeline.ts";
+import { createId } from "../../shared/ids.ts";
 import { HttpError, isObject } from "../storage.ts";
 
 const HEARTBEAT_MS = 15_000;

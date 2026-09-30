@@ -1,5 +1,15 @@
 /** The music suite's own endpoints (the platform's are in `@/lib/api`). */
-import type { EngineCommand, EngineCommands, EnginePlugin, EngineStatus } from "@shared/music/engine";
+import type {
+  EngineCommand,
+  EngineCommands,
+  EngineDevices,
+  EngineEvent,
+  EnginePlugin,
+  EngineStatus,
+  SetDeviceRequest,
+  SetSongRequest,
+  SetSongResponse,
+} from "@shared/music/engine";
 import { request } from "@/lib/api";
 
 export const musicApi = {
@@ -7,4 +17,14 @@ export const musicApi = {
   engine: <C extends EngineCommand>(command: C, body: EngineCommands[C]) =>
     request<EngineStatus>(`/api/engine/${command}`, { method: "POST", body: JSON.stringify(body) }),
   listEnginePlugins: () => request<EnginePlugin[]>("/api/engine/plugins"),
+  /** The song the engine plays: sent whole on every edit (it keeps playing through the change). */
+  setSong: (body: SetSongRequest) => request<SetSongResponse>("/api/engine/song", { method: "POST", body: JSON.stringify(body) }),
+  devices: () => request<EngineDevices>("/api/engine/devices"),
+  setDevice: (body: SetDeviceRequest) => request<EngineDevices>("/api/engine/devices", { method: "POST", body: JSON.stringify(body) }),
+  /** What the engine says on its own (where the song is, the meter). Returns how to stop listening. */
+  onEngineEvent(listener: (event: EngineEvent) => void): () => void {
+    const source = new EventSource("/api/engine/events");
+    source.onmessage = (message) => listener(JSON.parse(message.data) as EngineEvent);
+    return () => source.close();
+  },
 };

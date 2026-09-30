@@ -6,8 +6,8 @@ It's a React app (`src/`) plus a local Express + ffmpeg server (`server/`), shar
 README.md is the user-facing guide. This file is for working on the code.
 
 It's growing into a **creative suite**: every project belongs to one app, a *suite* (`SuiteId`: video, music; image
-next), picked in the sidebar's New project picker. The video editor is the real app; **music (a DAW) is a shell**
-so far: an empty document and its audio engine on a test bench. See "Suites" below: most of this file is about the video editor, which lives at the roots of
+next), picked in the sidebar's New project picker. The video editor is the furthest along; **music is a DAW modelled on
+FL Studio**, with its channel rack built so far (see "The music suite"). See "Suites" below: most of this file is about the video editor, which lives at the roots of
 `shared/`, `server/` and `src/`; every other suite has folders of its own.
 
 ## Commands
@@ -27,6 +27,7 @@ pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when e
 pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/Vaudio.app, then launch it, export, check
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
+pnpm tsx scripts/make-kit.ts   # synthesise the music suite's starter kit into public/kit/
 ```
 
 **Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.
@@ -47,8 +48,10 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   suites.ts          The suites: SuiteId, their names (SUITES), each one's document type (SuiteDocuments).
   suite-tools.ts     Every suite's assistant tools (SUITE_TOOLS), toolSpec/suiteToolSpec/toolSuite.
   tool-spec.ts       What a tool is (ToolSpec, kinds, JSON schema helpers) and its results, for every suite.
-  music/             The music suite: its document (types.ts), create/normalise (project.ts), its tools (tools.ts),
-                     and the audio engine's commands and status (engine.ts).
+  ids.ts             createId, for everything the app makes.
+  music/             The music suite: its document (types.ts), create/normalise (project.ts), its pure edits
+                     (edits.ts), the song as the engine plays it (compile.ts: swing, gains, mutes), its tools
+                     (tools.ts), and the audio engine's commands, status and events (engine.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -102,8 +105,9 @@ server/
                      (decode, squeeze out silences, snap words to the sound), engine.ts (the engine interface),
                      whisper-cpp.ts (local, one-click setup), openai.ts (OpenAI + Groq), fake.ts (e2e).
   music/             The music suite's server side. engine.ts: AudioEngine runs the audio engine's process, JSON
-                     lines over its stdin/stdout, restarts it when it dies. routes.ts: `/api/engine`.
-                     fake-engine.mjs stands in for it in tests (and the e2e suite).
+                     lines over its stdin/stdout, restarts it when it dies (and gives it its song back), compiles
+                     the song it's sent. routes.ts: `/api/engine`. fake-engine.mjs stands in for it in tests (and
+                     the e2e suite). wav.ts reads and writes WAVs for the tests of what it plays.
   architecture.test.ts  The layering between the platform and the suites, checked on every import (see Suites).
   assistant/         The assistant. mcp.ts: the MCP server (POST /mcp, stateless JSON-RPC). bridge.ts: relays tool calls
                      to an editor tab over its event stream and back, and every chat's activity to every tab.
@@ -117,9 +121,12 @@ server/
                      beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops.
   config.ts          Every env var is read here and nowhere else.
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
-engine/            The music suite's audio engine, a C++/JUCE program (CMake; JUCE is fetched into engine/build):
-                     the audio device, plugin hosting (VST3, Audio Units), plugin windows. src/Engine.cpp is the
-                     audio side, Protocol.cpp the JSON lines, test-plugin/ a VST3 synth of our own to test with.
+engine/            The music suite's audio engine, a C++/JUCE program (CMake; JUCE is fetched into engine/build).
+                     src/Engine.cpp: the device, commands, the real-time `process`. Song.cpp: a compiled song
+                     and its samples. Sequencer.cpp: the transport, the sampler's voices, the metronome.
+                     Plugins.cpp: plugin scanning and the bench's two slots and their windows. Protocol.cpp:
+                     the JSON lines. One file per job: split a file rather than let it grow past a few hundred
+                     lines. test-plugin/ is a VST3 synth of our own to test with.
 electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
                      main process and shows the page in a window; packaged, data is in userData, in development ./data.
                      gl-window.ts: the export's compositor page in a hidden window (`setGlPageOpener`), so no Playwright.
@@ -129,8 +136,13 @@ electron/          The desktop app (Vaudio). main.ts: runs the server (electron/
 src/
   suites/            Each suite in the tab (ClientSuite): open/close its store, its Workspace, sidebar line, the
                      assistant's side (message context, chat texts, tool handlers). index.ts is the registry;
-                     video.ts plugs in the video editor; music/ is the music shell (store, workspace, tools,
-                     api.ts: its endpoints' client, engine-panel.tsx: the audio engine's test bench).
+                     video.ts plugs in the video editor; music/ is the music editor: store.ts (the song, undo,
+                     autosave), engine-sync.ts + transport.ts (the engine follows the song; where it's playing),
+                     channel-rack.tsx, knob.tsx, channel-settings.tsx, pattern-picker.tsx, transport-bar.tsx,
+                     audio-dialog.tsx (device + engine-panel.tsx, the plugin bench), panel.tsx (a panel's
+                     frame), keys.ts, api.ts, and the assistant's side (tools.ts, tool-edits.ts, context.ts).
+  lib/document-history.ts, autosaver.ts   Undo (with gestures) and autosave for any suite's document; music uses
+                     them, the video editor still has its own in stores/editor.ts and stores/autosave.ts.
   stores/projects.ts The project list (every suite) and which one is open (`openId`, in the URL); hands it to its suite.
   stores/editor.ts   THE video document store: project, assets, selection, undo history, gestures, edit commands.
   stores/autosave.ts, asset-polling.ts   Side effects of the editor store (kept out of it).
@@ -196,10 +208,35 @@ extension** (Node ESM through tsx).
 - Imports: import suites from `@/suites` (the registry), never a suite's module directly; they form an import cycle
   with `stores/projects.ts`, which is safe only because nothing uses `useProjects` at module level. Keep it that way.
 
-## The music suite's audio engine
+## The music suite
 
-The music suite is becoming an FL Studio clone (channel rack, piano roll, playlist, mixer, browser): when in doubt
-about its UX, do what FL Studio does. So far only its engine exists, as a spike.
+A DAW modelled on **FL Studio**: when in doubt about its UX, do what FL Studio does (as video follows Premiere).
+Built so far: the channel rack (sampler channels, the step sequencer and its graph editor, patterns, swing), the
+transport and the metronome. Next: the piano roll, plugins as channels, the mixer, the playlist, the browser.
+
+- The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing }, channels,
+  patterns }`. A `Channel` is a sampler playing one of the project's media (`sampleId`); a `Pattern` has
+  `notes[channelId]`, sorted by `start`. **Musical time is whole ticks, `PPQ` (96) to a quarter note**, never
+  seconds; a step is `STEP_TICKS` (24). A step of the sequencer is simply a note starting on the grid
+  (`stepNotes`), so the piano roll will edit the same notes.
+- Edits are pure functions in `shared/music/edits.ts` that return the same instance when nothing changes, exactly
+  like the video editor's. The store (`src/suites/music/store.ts`) keeps a `DocumentHistory`: `commit(edit)` for a
+  one-shot edit, `songGesture()` for a drag (one undo step). Which pattern is shown and which channel is selected
+  are UI state, not the song.
+- What volume, pan, velocity and swing *mean* is decided in `shared/music/compile.ts` (`compileSong` → `EngineSong`:
+  gains, swung ticks), in tested TypeScript. The engine only plays samples at the moments it's told. Add musical
+  rules there, not in C++.
+- The tab sends the whole song to the engine on every change, even mid-drag (`engine-sync.ts` →
+  `POST /api/engine/song`: the server normalises it, compiles it and turns sample ids into paths). The engine
+  swaps songs without a gap. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a
+  second); the tab fills in between (`tickNow`) and shows it late by the output's latency.
+- Panels (`panel.tsx`) are docked; they're framed as windows so they can float like FL Studio's one day.
+- The starter kit (`public/kit/`, made by `scripts/make-kit.ts`) becomes ordinary project media when it's added.
+- The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
+  edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested). Channels and patterns can be
+  named by id or by name. `describeSong` (`context.ts`) is what `get_song` returns.
+
+### The audio engine
 
 - Plugins are native code, so sound can't be made in the tab: the engine (`engine/`) is a native program the server
   starts on the first `/api/engine` call. It owns the audio device and the plugins, and opens plugin editors as
@@ -207,12 +244,18 @@ about its UX, do what FL Studio does. So far only its engine exists, as a spike.
 - The server talks to it in JSON lines (`shared/music/engine.ts`); the engine keeps stdout for that alone (plugins'
   prints go to stderr) and quits when its stdin closes. If it dies (a plugin crashed), the next command starts it
   again; what was loaded is lost until the song's document drives it.
-- Commands run on the engine's message thread; the audio callback never waits (`audioLock` is only tried there).
-  Keep it that way: no allocation, locks or I/O on the audio thread.
+- Commands run on the engine's message thread; the audio callback never waits. A song reaches it through an
+  atomic pointer and goes back through a lock-free queue to be deleted (`Sequencer::setSong`, `collectGarbage`);
+  requests are atomics and queues; the plugin bench has a lock the audio thread only tries (a block goes out
+  without the bench if it's busy). Keep it that way: no allocation, locks or I/O on the audio thread.
+- Samples are read whole into memory on the message thread and never dropped while the engine runs (`SampleCache`):
+  a sounding voice holds a bare pointer to its sample.
 - `--offline` (`AudioEngine`'s `offline`) opens no device: `render` computes the next samples on request, as fast
   as it can, and measures them (or writes a WAV). `server/music/engine.integration.test.ts` tests what things
   *sound like* this way, with the real engine and the test synth, silently; it's skipped when the engine isn't
-  built. Live and offline share one `Engine::process`, so add sound-making code there and test it offline.
+  built. Live and offline share one `Engine::process`, so add sound-making code there and test it offline:
+  `server/music/sequencer.integration.test.ts` builds songs with the app's own edits, renders them to a WAV and
+  checks where each hit lands, to the sample.
 - Keep it portable (Windows is planned): only JUCE's APIs, no macOS calls of our own, paths from the server.
 - It's an app bundle (plugin windows need one) with no Dock icon, shipped in the desktop app's resources.
   The desktop app isn't signed, so loading other people's plugins needs nothing; once it's signed with the
@@ -362,6 +405,12 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 - **A transcription engine** (another API or local model): implement `TranscriptionEngine` (`server/transcription/
   engine.ts`: 16 kHz mono WAV in, timed words out) and add it to `defaultEngines` in `service.ts`, plus its id to
   `TranscriptionEngineId`. Decoding, silence squeezing, time mapping and caching are the service's job.
+- **Something to the music editor**: the field in `shared/music/types.ts`, validated in `project.ts`
+  (`normalizeMusicProject`, or it's dropped on load and save); a pure edit in `edits.ts` (tested); what it means to
+  the sound in `compile.ts` (tested) and, only if the engine must do something new, `engine/src/Song.cpp` (parse)
+  and `Sequencer.cpp` (play), with a test in `sequencer.integration.test.ts`; the UI in `src/suites/music/`; a tool
+  for the assistant; and a test in `e2e/music.spec.ts`. The stand-in engine (`fake-engine.mjs`) must answer any
+  new command.
 - **Any feature (keep the assistant at parity)**: whatever the user can do, the assistant should be able to do too.
   When you add or change a feature, add or extend a tool in `shared/assistant-tools.ts` (the video editor's; other
   suites: `shared/<suite>/tools.ts` and `src/suites/<suite>/tools.ts`) (name, a description written
