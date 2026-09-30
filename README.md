@@ -16,6 +16,18 @@ pnpm dev                 # server on :5311, app on http://localhost:5310 (next f
 
 Then drag files from `./samples` (or anywhere) into the media panel or straight onto the timeline.
 
+### Desktop app (Vaudio)
+
+The same editor in its own window (Electron), with the server running inside the app:
+
+```bash
+pnpm dev:desktop         # a window with hot reload, using ./data like pnpm dev (don't run both at once)
+pnpm build:desktop       # release/mac-arm64/Vaudio.app: drag it into Applications (unsigned: right-click → Open the first time)
+```
+
+The built app keeps its videos in `~/Library/Application Support/Vaudio/data` (Help → Show Data Folder), separate
+from `./data`. It finds ffmpeg and the rest through your shell's PATH, and draws exports in its own Chromium.
+
 ## Using it
 
 Every video is its own project with its own media. Start one with **New video** (or drop clips on the empty screen),
@@ -360,5 +372,8 @@ MP3/AAC/WAV/FLAC/Ogg/Opus audio, and PNG/JPEG/WebP/BMP (or single-frame GIF) ima
 | `pnpm typecheck` | TypeScript |
 | `pnpm build && pnpm start` | production build served by the server on :5311 |
 | `pnpm samples` | generate test media into `./samples` |
+| `pnpm dev:desktop` | the desktop app with hot reload |
+| `pnpm build:desktop` / `pnpm package:desktop` | `release/`: Vaudio.app / a .dmg and .zip |
+| `pnpm test:desktop` | launch the built app on throwaway data, export a transition, check it |
 
 Working on the code (architecture, conventions, how to add things): see [CLAUDE.md](CLAUDE.md).

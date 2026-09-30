@@ -17,6 +17,9 @@ pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + c
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
 pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + check presets
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
+pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
+pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/Vaudio.app, then launch it, export, check
+pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
 ```
 
 **Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.
@@ -93,6 +96,12 @@ server/
                      beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops.
   config.ts          Every env var is read here and nowhere else.
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
+electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
+                     main process and shows the page in a window; packaged, data is in userData, in development ./data.
+                     gl-window.ts: the export's compositor page in a hidden window (`setGlPageOpener`), so no Playwright.
+                     shell-path.ts: the login shell's PATH (Finder-launched apps get a bare one). preload.ts only marks
+                     the page (`html.desktop`: drag regions, room for the window buttons in src/index.css).
+                     scripts/desktop.ts bundles it with esbuild: the packaged app ships no node_modules.
 src/
   stores/editor.ts   THE document store: project, assets, selection, undo history, gestures, edit commands.
   stores/autosave.ts, asset-polling.ts   Side effects of the editor store (kept out of it).
@@ -308,6 +317,11 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 - Clicking a media card previews that file in the Program monitor's place (the source monitor).
 
 ## Gotchas
+
+- Terminals inside Electron apps (T3 Code, VS Code) set `ELECTRON_RUN_AS_NODE=1`, which makes Electron a plain Node.js:
+  the desktop scripts remove it, but launching the app's binary by hand from such a terminal quits silently.
+- The desktop app is still the web app: keep features working in the browser (`pnpm dev`); `src/lib/desktop.ts` is
+  the only place the page knows it's in the app (it gives the app `flush` to save before closing).
 
 - `createCompositor` and `drawSampleScene` are serialised with `toString()` and injected into the headless
   export page. They must not reference anything at module level.
