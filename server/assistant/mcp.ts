@@ -1,16 +1,18 @@
 /**
  * The editor's MCP server (Streamable HTTP, stateless): `POST /mcp` takes a
- * JSON-RPC message (or a batch) and answers with JSON. It lists the tools of
- * `shared/assistant-tools.ts` and hands every call to `callTool` (the bridge
- * to the editor tab). No server-to-client stream: `GET` is refused, which the
- * spec allows.
+ * JSON-RPC message (or a batch) and answers with JSON. It lists one suite's
+ * tools (`shared/suite-tools.ts`: the chat's project's suite, see `suiteFor`)
+ * and hands every call to `callTool` (the bridge to the editor tab). No
+ * server-to-client stream: `GET` is refused, which the spec allows.
  *
  * Only what clients need is implemented: initialize, ping, tools/list and
  * tools/call. Other requests get "method not found" (clients then fall back,
  * e.g. from the newer `server/discover` probe to `initialize`).
  */
 import type { Request, Response } from "express";
-import { ASSISTANT_TOOLS, type ToolResult, errorResult, toolSpec } from "../../shared/assistant-tools.ts";
+import type { SuiteId } from "../../shared/suites.ts";
+import { suiteToolSpec, suiteTools } from "../../shared/suite-tools.ts";
+import { type ToolResult, errorResult } from "../../shared/tool-spec.ts";
 import { errorMessage } from "../../shared/errors.ts";
 
 /** Newest first; a client asking for another gets the newest. */
@@ -25,8 +27,10 @@ export interface McpCall {
 
 export interface McpServerOptions {
   version: string;
-  /** Told to every client at initialize: how to use the tools. */
-  instructions: string;
+  /** The suite a request is for, from its query string (which chat it's for, or `suite`). */
+  suiteFor: (query: Record<string, string>) => SuiteId;
+  /** Told to every client at initialize: how to use the suite's tools. */
+  instructions: (suite: SuiteId) => string;
   /** Runs a call; `query` is the request's query string (which chat it's for). */
   callTool: (call: McpCall, query: Record<string, string>) => Promise<ToolResult>;
 }
@@ -50,9 +54,9 @@ const rpcError = (id: string | number | null, code: number, message: string): Js
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
-/** Tools as MCP lists them. */
-export function mcpTools() {
-  return ASSISTANT_TOOLS.map((t) => ({
+/** A suite's tools as MCP lists them. */
+export function mcpTools(suite: SuiteId) {
+  return suiteTools(suite).map((t) => ({
     name: t.name,
     title: t.title,
     description: t.description,
@@ -79,6 +83,7 @@ export async function handleRpc(
   if (msg.id === undefined) return null;
   const ok = (result: unknown): JsonRpcResponse => ({ jsonrpc: "2.0", id, result });
   const params = isObject(msg.params) ? msg.params : {};
+  const suite = opts.suiteFor(query);
 
   switch (msg.method) {
     case "initialize": {
@@ -87,16 +92,16 @@ export async function handleRpc(
         protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "editor", title: "Video editor", version: opts.version },
-        instructions: opts.instructions,
+        instructions: opts.instructions(suite),
       });
     }
     case "ping":
       return ok({});
     case "tools/list":
-      return ok({ tools: mcpTools() });
+      return ok({ tools: mcpTools(suite) });
     case "tools/call": {
       const name = typeof params.name === "string" ? params.name : "";
-      if (!toolSpec(name)) return rpcError(id, -32602, `Unknown tool: ${name}`);
+      if (!suiteToolSpec(suite, name)) return rpcError(id, -32602, `Unknown tool: ${name}`);
       const input = isObject(params.arguments) ? params.arguments : {};
       const meta = isObject(params._meta) ? params._meta : {};
       const agentId = meta["claudecode/toolUseId"] ?? meta.callId;

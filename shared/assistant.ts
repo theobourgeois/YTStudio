@@ -6,7 +6,8 @@
  *
  * The tools themselves are in `assistant-tools.ts`.
  */
-import { type ToolChanges, bareToolName } from "./assistant-tools.ts";
+import { toolSpec } from "./suite-tools.ts";
+import { type ToolChanges, bareToolName } from "./tool-spec.ts";
 
 /** Which agent answers: the user's own Claude Code or Codex (each with its own login and subscription). */
 export type AssistantProvider = "claude" | "codex";
@@ -535,6 +536,7 @@ export function describeToolCall(rawName: string, input: unknown): string {
     case "focus":
       return typeof f("time") === "number" ? `Show ${seconds(f("time"))}` : "Select clips";
     default:
-      return name.replace(/_/g, " ");
+      // Other suites' tools, until they need a label of their own.
+      return toolSpec(name)?.title ?? name.replace(/_/g, " ");
   }
 }

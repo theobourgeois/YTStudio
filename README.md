@@ -30,10 +30,11 @@ from `./data`. It finds ffmpeg and the rest through your shell's PATH, and draws
 
 ## Using it
 
-Every video is its own project with its own media. Start one with **New video** (or drop clips on the empty screen),
+Every video is its own project with its own media. Start one with **New project** in the sidebar (it asks what to
+make: a **Video**, or a **Music** project, which is only an empty shell so far), or drop clips on the empty screen,
 work on it, then hit **Settle** when it's done: it moves to the *Settled* pile at the bottom of the sidebar and the
-editor jumps to your next video in progress. Open a settled video any time, and **Unsettle** it to put it back in
-progress. Right-click a video in the sidebar (or use its **⋯** menu) to settle, duplicate or delete it; a duplicate
+editor jumps to your next project in progress. Open a settled project any time, and **Unsettle** it to put it back in
+progress. Right-click a project in the sidebar (or use its **⋯** menu) to settle, duplicate or delete it; a duplicate
 gets its own copy of the media. Toggle the sidebar with `⌘\`.
 
 | Action | How |
@@ -317,6 +318,10 @@ Keyframes stay on their frame of the media when a clip is moved, trimmed or spli
 
 ## How it works
 
+- **Suites** — the editor is growing into a creative suite: every project belongs to one app (`SuiteId`: video, music…),
+  chosen when it's made. The project list, sidebar, URL, assistant chats and MCP server are shared; each suite brings
+  its document (`shared/suites.ts`, `server/suites/`), its workspace and store (`src/suites/`) and its assistant's
+  prompt and tools (`shared/suite-tools.ts`). The video editor is below; music is a shell (`shared/music/`, `src/suites/music/`).
 - **`src/`** — React + Vite + Tailwind + shadcn/ui. The document lives in the zustand store `stores/editor.ts`
   (project, media library, selection, undo history; autosave is in `stores/autosave.ts`), the playback clock in
   `stores/playback.ts`.
@@ -341,8 +346,8 @@ Keyframes stay on their frame of the media when a clip is moved, trimmed or spli
     contact sheet and checks it starts and ends on the right pictures.
   - `transform.ts`: where a clip lands on the canvas (fit, then scale and rotate around the anchor point, which sits at
     the position). The compositor, the canvas handles and the export all use it.
-- **The assistant** — `shared/assistant-tools.ts` lists the editor's tools for AI agents; `server/assistant/` serves
-  them over MCP (`mcp.ts`), runs Claude Code or Codex for the in-app chat (`claude.ts`, `codex.ts`, `service.ts`) and relays every tool call
+- **The assistant** — `shared/assistant-tools.ts` lists the video editor's tools for AI agents (each suite has its own,
+  gathered in `shared/suite-tools.ts`); `server/assistant/` serves a chat's suite's tools over MCP (`mcp.ts`), runs Claude Code or Codex for the in-app chat (`claude.ts`, `codex.ts`, `service.ts`) and relays every tool call
   to the editor tab (`bridge.ts`), which runs it with the same stores and pure edits as the UI (`src/assistant/`).
   So an agent's edits are live, undoable and can't conflict with the document the tab owns.
 - **`server/`** — a small Express server (one router per resource in `server/routes/`) that stores projects and their media in `./data`, probes media and generates

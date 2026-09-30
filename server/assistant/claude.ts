@@ -9,7 +9,7 @@
  * project's CLAUDE.md or settings apply.
  */
 import type { ChatEvent } from "../../shared/assistant.ts";
-import { MCP_SERVER_NAME, bareToolName } from "../../shared/assistant-tools.ts";
+import { MCP_SERVER_NAME, bareToolName } from "../../shared/tool-spec.ts";
 import { type Agent, type AgentOptions, JsonLinesProcess, type TurnResult, isObject } from "./agent.ts";
 
 export interface ClaudeArgsOptions {

@@ -17,7 +17,8 @@ import { type McpCall, handleRpc, mcpHandler } from "./mcp.ts";
 const calls: McpCall[] = [];
 const opts = {
   version: "1",
-  instructions: "Use the tools.",
+  suiteFor: (query: Record<string, string>) => (query.suite === "music" ? ("music" as const) : ("video" as const)),
+  instructions: (suite: string) => (suite === "music" ? "Use the music tools." : "Use the tools."),
   callTool: async (call: McpCall) => {
     calls.push(call);
     return { content: [{ type: "text" as const, text: `ran ${call.name}` }], changes: { added: [], changed: [], removed: 0 } };
@@ -47,6 +48,16 @@ describe("MCP server", () => {
     // Codex names its calls differently.
     await handleRpc({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "get_timeline", arguments: {}, _meta: { callId: "exec-1" } } }, opts, {});
     expect(calls.at(-1)).toEqual({ name: "get_timeline", input: {}, toolUseId: "exec-1" });
+  });
+
+  it("lists and runs only the suite's tools", async () => {
+    const init = await handleRpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, opts, { suite: "music" });
+    expect(init).toMatchObject({ result: { instructions: "Use the music tools." } });
+    const list = (await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }, opts, { suite: "music" })) as { result: { tools: { name: string }[] } };
+    expect(list.result.tools.map((t) => t.name)).toContain("get_song");
+    expect(list.result.tools.map((t) => t.name)).not.toContain("split_clips");
+    const call = { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "split_clips", arguments: {} } };
+    expect(await handleRpc(call, opts, { suite: "music" })).toMatchObject({ error: { code: -32602 } });
   });
 
   it("answers errors the JSON-RPC way, and notifications not at all", async () => {

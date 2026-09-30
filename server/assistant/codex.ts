@@ -14,7 +14,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { type AssistantModelInfo, type ChatEvent, isEffort } from "../../shared/assistant.ts";
-import { MCP_SERVER_NAME } from "../../shared/assistant-tools.ts";
+import { MCP_SERVER_NAME } from "../../shared/tool-spec.ts";
 import { type Agent, type AgentOptions, JsonLinesProcess, type TurnResult, isObject } from "./agent.ts";
 
 /** Codex features that would give it tools other than the editor's (unknown ones are ignored). */

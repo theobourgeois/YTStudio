@@ -3,7 +3,6 @@ import express, { type ErrorRequestHandler, type Express, type Response } from "
 import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
-import { MCP_INSTRUCTIONS } from "./assistant/prompt.ts";
 import { AssistantService } from "./assistant/service.ts";
 import { config } from "./config.ts";
 import { ExportManager } from "./exports.ts";
@@ -18,6 +17,7 @@ import { exportRoutes } from "./routes/exports.ts";
 import { libraryRoutes } from "./routes/library.ts";
 import { mediaRoutes } from "./routes/media.ts";
 import { projectRoutes } from "./routes/projects.ts";
+import { suiteBackend } from "./suites/index.ts";
 import { transcriptionRoutes } from "./routes/transcription.ts";
 import { webRoutes } from "./routes/web.ts";
 import { DataPaths, HttpError } from "./storage.ts";
@@ -84,7 +84,11 @@ export async function createApp({
   // The port the assistant's agents reach the MCP server on: the one requests arrive on.
   let port = config.port;
   const bridge = new Bridge();
-  const assistant = new AssistantService(paths, bridge, { commands: { claude: claudeCommand, codex: codexCommand }, port: () => port });
+  const assistant = new AssistantService(paths, bridge, {
+    commands: { claude: claudeCommand, codex: codexCommand },
+    port: () => port,
+    suiteOf: (id) => projects.suiteOf(id),
+  });
   await assistant.init();
 
   const app = express();
@@ -113,7 +117,8 @@ export async function createApp({
     express.json({ limit: "4mb" }),
     mcpHandler({
       version: "1",
-      instructions: MCP_INSTRUCTIONS,
+      suiteFor: (query) => assistant.suiteFor(query),
+      instructions: (suite) => suiteBackend(suite).assistant.instructions,
       callTool: (call, query) => assistant.callTool(call, query),
     }),
   );

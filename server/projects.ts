@@ -1,44 +1,43 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { DEFAULT_PROJECT_NAME, createDefaultProject, createId, isOnVideoTrack, projectDuration } from "../shared/timeline.ts";
-import { hasMedia } from "../shared/effects.ts";
-import type { Project, ProjectStatus, ProjectSummary, UpdateProjectRequest } from "../shared/types.ts";
-import { normalizeProject } from "../shared/normalize.ts";
+import { DEFAULT_PROJECT_NAME, createId } from "../shared/timeline.ts";
+import { DEFAULT_SUITE, type SuiteDocument, type SuiteId, isSuiteId, suiteNoun } from "../shared/suites.ts";
+import type { ProjectStatus, ProjectSummary, UpdateProjectRequest } from "../shared/types.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError, MAX_NAME_LENGTH, isObject, isValidId, parseName, readJson, writeJson } from "./storage.ts";
+import { type DocStats, suiteBackend } from "./suites/index.ts";
 
 /** `data/projects/<id>/meta.json`. Written after `project.json`, so it marks a committed project. */
-type ProjectMeta = Pick<ProjectSummary, "id" | "status" | "createdAt" | "updatedAt" | "settledAt">;
-
-/** Summary fields derived from the project document (cached; refreshed on every write). */
-interface DocStats {
-  name: string;
-  aspectRatio: ProjectSummary["aspectRatio"];
-  duration: number;
-  clipCount: number;
-  /** Asset of the earliest clip on any video track; its poster is the thumbnail. */
-  coverAssetId: string | null;
-}
+type ProjectMeta = Pick<ProjectSummary, "id" | "suite" | "status" | "createdAt" | "updatedAt" | "settledAt">;
 
 interface Entry {
   meta: ProjectMeta;
-  stats: DocStats;
+  stats: DocStats<SuiteId>;
 }
 
 const STATUSES: readonly ProjectStatus[] = ["active", "settled"];
 const COPY_SUFFIX = " copy";
 
-
-function isMeta(v: unknown, id: string): v is ProjectMeta {
-  if (!isObject(v)) return false;
-  return (
+/** A saved meta.json (projects saved before suites have none: they're videos). */
+function parseMeta(v: unknown, id: string): ProjectMeta | null {
+  if (!isObject(v)) return null;
+  const valid =
     v.id === id &&
     STATUSES.includes(v.status as ProjectStatus) &&
     typeof v.createdAt === "number" &&
     typeof v.updatedAt === "number" &&
-    (v.settledAt === null || typeof v.settledAt === "number")
-  );
+    (v.settledAt === null || typeof v.settledAt === "number") &&
+    (v.suite === undefined || isSuiteId(v.suite));
+  if (!valid) return null;
+  return {
+    id,
+    suite: (v.suite as SuiteId | undefined) ?? DEFAULT_SUITE,
+    status: v.status as ProjectStatus,
+    createdAt: v.createdAt as number,
+    updatedAt: v.updatedAt as number,
+    settledAt: v.settledAt as number | null,
+  };
 }
 
 function parseUpdate(body: unknown): UpdateProjectRequest {
@@ -57,28 +56,10 @@ function parseUpdate(body: unknown): UpdateProjectRequest {
   return update;
 }
 
-function statsOf(doc: Project): DocStats {
-  return {
-    name: doc.name,
-    aspectRatio: doc.settings.aspectRatio,
-    duration: projectDuration(doc),
-    clipCount: doc.clips.length,
-    coverAssetId: firstVideoClip(doc)?.assetId ?? null,
-  };
-}
-
-/** The earliest media clip on any video track (the bottom-most track wins a tie). */
-function firstVideoClip(doc: Project) {
-  const layer = (trackId: string) => doc.tracks.findIndex((t) => t.id === trackId);
-  return doc.clips
-    .filter((c) => isOnVideoTrack(doc, c) && hasMedia(c))
-    .sort((a, b) => a.start - b.start || layer(b.trackId) - layer(a.trackId))[0];
-}
-
 /**
- * Projects on disk under `data/projects/<id>/` (`project.json` + `meta.json`),
- * with their summaries cached in memory. Documents are always normalised
- * against the project's own media.
+ * Projects of every suite on disk under `data/projects/<id>/` (`project.json` + `meta.json`,
+ * which says the suite), with their summaries cached in memory. Documents are opaque here: their
+ * suite (`server/suites/`) makes, normalises (against the project's own media) and summarises them.
  */
 export class ProjectStore {
   private entries = new Map<string, Entry>();
@@ -95,12 +76,12 @@ export class ProjectStore {
   async load(): Promise<void> {
     for (const entry of await fs.readdir(this.paths.projects, { withFileTypes: true })) {
       if (!entry.isDirectory() || !isValidId(entry.name)) continue;
-      const meta = await readJson<unknown>(this.metaFile(entry.name));
-      if (!isMeta(meta, entry.name)) {
+      const meta = parseMeta(await readJson<unknown>(this.metaFile(entry.name)), entry.name);
+      if (!meta) {
         console.warn(`[projects] skipping ${entry.name}: missing or invalid meta.json`);
         continue;
       }
-      this.entries.set(meta.id, { meta, stats: statsOf(await this.readDoc(meta.id)) });
+      this.entries.set(meta.id, { meta, stats: this.statsOf(meta.suite, await this.readDoc(meta.id, meta.suite)) });
     }
   }
 
@@ -119,42 +100,47 @@ export class ProjectStore {
     return this.toSummary(this.entry(id));
   }
 
-  async get(id: string): Promise<Project> {
-    this.entry(id);
-    return this.readDoc(id);
+  /** Which suite a project belongs to (null if there's no such project). */
+  suiteOf(id: string): SuiteId | null {
+    return (isValidId(id) && this.entries.get(id)?.meta.suite) || null;
+  }
+
+  async get(id: string): Promise<SuiteDocument> {
+    const { meta } = this.entry(id);
+    return this.readDoc(id, meta.suite);
   }
 
   async create(body: unknown): Promise<ProjectSummary> {
     const input = body ?? {};
-    if (!isObject(input)) throw new HttpError(400, "Expected { name? }.");
+    if (!isObject(input)) throw new HttpError(400, "Expected { name?, suite? }.");
     const name = input.name === undefined ? DEFAULT_PROJECT_NAME : parseName(input.name);
-    return this.add(createId("project"), { ...createDefaultProject(), name }, this.now());
+    if (input.suite !== undefined && !isSuiteId(input.suite)) throw new HttpError(400, "Unknown suite: use video or music.");
+    const suite = (input.suite as SuiteId | undefined) ?? DEFAULT_SUITE;
+    return this.add(createId("project"), suite, suiteBackend(suite).create(name), this.now());
   }
 
   /** Commit a new project with the given document and timestamps (`updatedAt` = `createdAt`). */
-  async add(id: string, doc: Project, createdAt: number): Promise<ProjectSummary> {
-    const meta: ProjectMeta = { id, status: "active", createdAt, updatedAt: createdAt, settledAt: null };
+  async add<S extends SuiteId>(id: string, suite: S, doc: SuiteDocument<S>, createdAt: number): Promise<ProjectSummary> {
+    const meta: ProjectMeta = { id, suite, status: "active", createdAt, updatedAt: createdAt, settledAt: null };
     await this.writes(async () => {
       await fs.mkdir(this.paths.projectDir(id), { recursive: true });
       await writeJson(this.docFile(id), doc);
       await writeJson(this.metaFile(id), meta);
-      this.entries.set(id, { meta, stats: statsOf(this.normalize(id, doc)) });
+      this.entries.set(id, { meta, stats: this.statsOf(suite, this.normalize(id, suite, doc)) });
     });
     return this.summary(id);
   }
 
   /** Copy a project and its media into a new active project named "<name> copy". */
   async duplicate(id: string): Promise<ProjectSummary> {
-    this.entry(id);
-    const source = await this.readDoc(id);
+    const { suite } = this.entry(id).meta;
+    const source = await this.readDoc(id, suite);
     const copyId = createId("project");
     try {
       const assetIds = await this.library.copyProject(id, copyId);
-      const copied = <T extends { assetId: string }>(x: T): T => (assetIds.has(x.assetId) ? { ...x, assetId: assetIds.get(x.assetId)! } : x);
-      const clips = source.clips.map(copied);
-      const subclips = source.subclips?.map(copied);
       const name = `${source.name.slice(0, MAX_NAME_LENGTH - COPY_SUFFIX.length)}${COPY_SUFFIX}`;
-      return await this.add(copyId, { ...source, name, clips, ...(subclips && { subclips }) }, this.now());
+      const copy = suiteBackend(suite).remapMedia(source as never, assetIds);
+      return await this.add(copyId, suite, { ...copy, name }, this.now());
     } catch (err) {
       await this.library.removeProject(copyId);
       // Deleted while its media was being copied.
@@ -163,15 +149,15 @@ export class ProjectStore {
     }
   }
 
-  /** Replace the document (normalised against the project's media). */
+  /** Replace the document (normalised by its suite, against the project's media). */
   async save(id: string, input: unknown): Promise<ProjectSummary> {
-    this.entry(id);
+    const { suite } = this.entry(id).meta;
     if (!isObject(input)) throw new HttpError(400, "Expected a project object.");
-    let doc: Project;
+    let doc: SuiteDocument;
     try {
-      doc = this.normalize(id, input as unknown as Project);
+      doc = this.normalize(id, suite, input);
     } catch {
-      throw new HttpError(400, "The project is malformed.");
+      throw new HttpError(400, `The ${suiteNoun(suite)} is malformed.`);
     }
     await this.writes(() => this.write(id, { doc }));
     return this.summary(id);
@@ -188,7 +174,7 @@ export class ProjectStore {
         patch.status = status;
         patch.settledAt = status === "settled" ? Date.now() : null;
       }
-      const doc = name === undefined ? undefined : { ...(await this.readDoc(id)), name };
+      const doc = name === undefined ? undefined : { ...(await this.readDoc(id, meta.suite)), name };
       await this.write(id, { doc, patch });
     });
     return this.summary(id);
@@ -213,7 +199,7 @@ export class ProjectStore {
   }
 
   /** Write a new document (bumps `updatedAt`) and/or meta changes. Run inside `writes`. */
-  private async write(id: string, { doc, patch }: { doc?: Project; patch?: Partial<ProjectMeta> }) {
+  private async write(id: string, { doc, patch }: { doc?: SuiteDocument; patch?: Partial<ProjectMeta> }) {
     const current = this.entry(id);
     const meta: ProjectMeta = { ...current.meta, ...patch };
     if (doc) {
@@ -221,27 +207,32 @@ export class ProjectStore {
       await writeJson(this.docFile(id), doc);
     }
     await writeJson(this.metaFile(id), meta);
-    this.entries.set(id, { meta, stats: doc ? statsOf(doc) : current.stats });
+    this.entries.set(id, { meta, stats: doc ? this.statsOf(meta.suite, doc) : current.stats });
   }
 
   private toSummary({ meta, stats: { coverAssetId, ...stats } }: Entry): ProjectSummary {
     const thumbnail = coverAssetId ? (this.library.find(coverAssetId)?.poster ?? null) : null;
-    return { ...meta, ...stats, thumbnail };
+    // Each suite's stats go with its own meta.
+    return { ...meta, ...stats, thumbnail } as ProjectSummary;
   }
 
-  private normalize(id: string, doc: Project): Project {
-    return normalizeProject(doc, this.library.byId(id));
+  private statsOf(suite: SuiteId, doc: SuiteDocument): DocStats<SuiteId> {
+    return suiteBackend(suite).stats(doc as never);
   }
 
-  /** The saved document, normalised (a default one if it's missing or corrupt). */
-  private async readDoc(id: string): Promise<Project> {
-    const saved = await readJson<Project>(this.docFile(id));
-    if (!isObject(saved)) return createDefaultProject();
+  private normalize(id: string, suite: SuiteId, doc: unknown): SuiteDocument {
+    return suiteBackend(suite).normalize(doc, this.library.byId(id));
+  }
+
+  /** The saved document, normalised (a new one if it's missing or corrupt). */
+  private async readDoc(id: string, suite: SuiteId): Promise<SuiteDocument> {
+    const saved = await readJson<unknown>(this.docFile(id));
     try {
-      return this.normalize(id, saved);
+      if (isObject(saved)) return this.normalize(id, suite, saved);
     } catch {
-      return createDefaultProject();
+      // Beyond repair: start again.
     }
+    return suiteBackend(suite).create(DEFAULT_PROJECT_NAME);
   }
 
   /** Strictly increasing epoch ms, so "most recently updated" never ties. */

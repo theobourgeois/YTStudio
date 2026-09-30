@@ -184,6 +184,6 @@ html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [rol
   -webkit-app-region: no-drag;
 }
 html.desktop-darwin:not(.fullscreen) [data-titlebar="sidebar"],
-html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Videos"][inert]) [data-titlebar="header"] {
+html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert]) [data-titlebar="header"] {
   padding-left: 84px;
 }

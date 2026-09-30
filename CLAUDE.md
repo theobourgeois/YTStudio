@@ -5,6 +5,11 @@ when in doubt about UX, do what Premiere does (Effect Controls, Program Monitor 
 It's a React app (`src/`) plus a local Express + ffmpeg server (`server/`), sharing pure domain logic (`shared/`).
 README.md is the user-facing guide. This file is for working on the code.
 
+It's growing into a **creative suite**: every project belongs to one app, a *suite* (`SuiteId`: video, music; image
+next), picked in the sidebar's New project picker. The video editor is the real app; **music (a DAW) is an empty
+shell** so far. See "Suites" below: most of this file is about the video editor, which lives at the roots of
+`shared/`, `server/` and `src/`; every other suite has folders of its own.
+
 ## Commands
 
 ```bash
@@ -35,6 +40,10 @@ pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into reso
 
 ```
 shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only: canvas/WebGL).
+  suites.ts          The suites: SuiteId, their names (SUITES), each one's document type (SuiteDocuments).
+  suite-tools.ts     Every suite's assistant tools (SUITE_TOOLS), toolSpec/suiteToolSpec/toolSuite.
+  tool-spec.ts       What a tool is (ToolSpec, kinds, JSON schema helpers) and its results, for every suite.
+  music/             The music suite: its document (types.ts), create/normalise (project.ts), its tools (tools.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -70,13 +79,16 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   captions.ts        Auto captions: presets, words → caption cues (fitting the canvas), transcripts → timeline,
                      edits to every caption at once (style, animation, merge).
   library.ts         The shared Library: folder tree, saved clips (ClipTemplate: normalize, placeTemplate), search.
-  assistant-tools.ts The editor's tools for AI agents (MCP): names, input schemas, descriptions, kind (look/edit/action).
+  assistant-tools.ts The video editor's tools for AI agents (MCP): names, input schemas, descriptions, kind (look/edit/action).
   assistant.ts       The assistant's chat: messages, ChatEvent + applyChatEvent (server and tab fold the same events),
                      describeToolCall (a step's label), TabEvent (what the tab's event stream carries).
   math.ts, format.ts, errors.ts   clamp/EPS/roundTime, time formatting, errorMessage.
 server/
   index.ts → app.ts  Startup wiring; routes live in routes/<resource>.ts (one Router each).
-  projects.ts, media.ts, web-media.ts, exports.ts   Services behind the routes.
+  suites/            Each suite's server side (SuiteBackend): create/normalise/summarise its documents, what its
+                     assistant is told. index.ts is the registry; video.ts wraps the video editor's.
+  projects.ts        ProjectStore: every suite's projects (meta.json says the suite; none = video), opaque documents.
+  media.ts, web-media.ts, exports.ts   Services behind the routes.
   library.ts         LibraryStore: library.json (folders, items) + its own MediaLibrary under data/library/media.
   render.ts          Export plan (pure, unit-tested): planRender (decoders + per-frame layers), audioArgs, encoderArgs.
   frame-render.ts + gl-browser.ts   Runs the plan: decoders -> headless Chromium compositor -> encoder.
@@ -90,7 +102,7 @@ server/
                      codex.ts: runs `codex app-server` (JSON-RPC), its model list and account. Both turn their output
                      into ChatEvents. service.ts: one chat per video (saved in data/assistant) on a provider + model +
                      thinking level, a conversation per provider, their status, tool calls -> chat steps. prompt.ts:
-                     what agents are told.
+                     the system prompt around a suite's instructions. A chat's suite picks its prompt and MCP tools.
   media-analysis.ts  ffmpeg looks into media: a frame as JPEG, silences + loudness, shot changes, music (for the assistant).
   beats.ts           Music analysis (pure, tested on synthetic drums): onsets, tempo (with the half/double choice),
                      beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops.
@@ -103,9 +115,13 @@ electron/          The desktop app (Vaudio). main.ts: runs the server (electron/
                      the page (`html.desktop`: drag regions, room for the window buttons in src/index.css).
                      scripts/desktop.ts bundles it with esbuild: the packaged app ships no node_modules.
 src/
-  stores/editor.ts   THE document store: project, assets, selection, undo history, gestures, edit commands.
+  suites/            Each suite in the tab (ClientSuite): open/close its store, its Workspace, sidebar line, the
+                     assistant's side (message context, chat texts, tool handlers). index.ts is the registry;
+                     video.ts plugs in the video editor; music/ is the music shell (store, workspace, tools).
+  stores/projects.ts The project list (every suite) and which one is open (`openId`, in the URL); hands it to its suite.
+  stores/editor.ts   THE video document store: project, assets, selection, undo history, gestures, edit commands.
   stores/autosave.ts, asset-polling.ts   Side effects of the editor store (kept out of it).
-  stores/playback.ts The playback clock (rAF). layout.ts = panel/tool UI state. projects.ts = project list.
+  stores/playback.ts The playback clock (rAF). layout.ts = panel/tool UI state.
   stores/library.ts  The Library (folders, items, their media) and how its tab is browsed.
   lib/api.ts         Typed client for every endpoint. lib/edit-gesture.ts, lib/pointer-drag.ts (see below).
   lib/text-render.ts Text layout + drawing (browser text engine); used by preview, export and canvas editor.
@@ -119,6 +135,9 @@ src/
   components/library/  The Library tab, its cards and dialogs (Save to Library), folder drop targets.
   components/effects/  The Effects tab: video effects and transitions (library-grid.tsx is their shared search,
                      category chips and cards; thumbnails.ts draws every card with one shared compositor).
+  components/workspace/workspace.tsx   The main column: the open project's suite's Workspace, or the empty state.
+  components/workspace/video-workspace.tsx   The video editor's (header, left panel, preview, timeline, assistant).
+  components/sidebar/new-project-dialog.tsx  The New project picker (a suite per row, ⌘1, ⌘2…).
   components/workspace/left-panel.tsx   Left panel tabs: Media | Effects | Captions | Properties.
                      Media switches between sources: This video | Library | Online (`MediaSource`); Effects between
                      kinds: Video effects | Presets | Transitions (`EffectKind`, `KINDS`). Its right edge resizes it (widths
@@ -137,6 +156,23 @@ src/
 
 Imports: `src/` uses `@/…` and `@shared/…`. `server/`, `shared/` and `scripts/` use relative paths **with the `.ts`
 extension** (Node ESM through tsx).
+
+## Suites
+
+- A project's suite is fixed when it's made (`POST /api/projects { suite }`) and kept in its `meta.json`.
+  `ProjectSummary` is a union on `suite`: common fields plus the suite's own (`SuiteSummaries`).
+- Everything suite-agnostic goes through the registries, keyed by `SuiteId` so TypeScript insists on every suite:
+  `SUITES` + `SuiteDocuments` (`shared/suites.ts`), `SUITE_TOOLS` (`shared/suite-tools.ts`), `suiteBackend`
+  (`server/suites/`) and `clientSuite` (`src/suites/`). Don't branch on a suite id anywhere else.
+- `useProjects.openId` is the open project, of any suite. Opening one closes the previous suite's store and calls
+  the new suite's `open`. `useEditor.projectId` is only the *video* store's project: use `openId` for anything
+  that isn't the video editor (sidebar, assistant panel, bridge).
+- The assistant: one chat per project, for every suite. The chat's suite decides the system prompt (`systemPrompt`
+  around `SuiteBackend.assistant`), the MCP tools listed (`/mcp?chat=<id>`; outside clients get video's, or
+  `?suite=`) and who runs the calls in the tab (`clientSuite(suite).runTool`). Tool names are unique across suites
+  (tested). The panel (`AssistantPanel suite=…`) takes its texts from `ClientSuite.chat`.
+- Imports: import suites from `@/suites` (the registry), never a suite's module directly; they form an import cycle
+  with `stores/projects.ts`, which is safe only because nothing uses `useProjects` at module level. Keep it that way.
 
 ## Data model (shared/types.ts)
 
@@ -246,6 +282,13 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 
 ## How to add…
 
+- **A suite** (image, vector…): its id in `SuiteId` and `SUITES` (name, noun, picker line, what its assistant works
+  in) and its document in `SuiteDocuments` (`shared/suites.ts`); its document type, `create`/`normalize` (tested)
+  and tools in `shared/<suite>/`, listed in `SUITE_TOOLS`; a `SuiteBackend` in `server/suites/<suite>.ts` (+ its
+  summary fields in `SuiteSummaries`, and what its assistant is told); a `ClientSuite` in `src/suites/<suite>/`
+  (store, `lazy` Workspace that renders `<AssistantPanel suite=…>`, tool handlers). TypeScript lists what's missing.
+  Then an e2e test that makes one from the picker. Music is the template.
+
 - **A property on an existing effect**: add a spec to its definition in `shared/effects.ts`. The panel, validation
   and keyframing (stopwatch, lanes) then work automatically. Then apply the value where clips are drawn: preview
   (`components/preview/engine.ts` / `placement.ts`) and export (`server/render.ts`: `planRender`'s `draw`,
@@ -275,7 +318,8 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   engine.ts`: 16 kHz mono WAV in, timed words out) and add it to `defaultEngines` in `service.ts`, plus its id to
   `TranscriptionEngineId`. Decoding, silence squeezing, time mapping and caching are the service's job.
 - **Any feature (keep the assistant at parity)**: whatever the user can do, the assistant should be able to do too.
-  When you add or change a feature, add or extend a tool in `shared/assistant-tools.ts` (name, a description written
+  When you add or change a feature, add or extend a tool in `shared/assistant-tools.ts` (the video editor's; other
+  suites: `shared/<suite>/tools.ts` and `src/suites/<suite>/tools.ts`) (name, a description written
   for a model, a JSON schema, its `kind`) and its handler in `src/assistant/tools.ts`; TypeScript won't build until
   every tool has one. An `edit` tool is a pure `(Project, input, env) => { project, text }` in `src/assistant/edits.ts`
   (it can then go in a `batch`), with a test in `edits.test.ts`; describe new state in `describe.ts` so the model can

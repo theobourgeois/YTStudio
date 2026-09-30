@@ -6,7 +6,8 @@
  * highlighted); otherwise on a background copy of it. Looking and slower
  * actions use the same stores and API as the rest of the app.
  */
-import { type ToolContent, type ToolName, type ToolResult, textResult } from "@shared/assistant-tools";
+import type { VideoToolName } from "@shared/assistant-tools";
+import { type ToolContent, type ToolResult, textResult } from "@shared/tool-spec";
 import { captionClips, captionSourceClips } from "@shared/captions";
 import { errorMessage } from "@shared/errors";
 import { templateFromClips, templateFromSubclip } from "@shared/library";
@@ -149,7 +150,7 @@ async function libraryNow(): Promise<Library> {
   return { folders, items, media: assets };
 }
 
-const TOOLS: Record<ToolName, Handler> = {
+const TOOLS: Record<VideoToolName, Handler> = {
   // -------------------------------------------------------------------------
   // Looking
   // -------------------------------------------------------------------------

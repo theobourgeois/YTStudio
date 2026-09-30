@@ -39,6 +39,12 @@ async function projectList(page: Page) {
   return page.evaluate(() => fetch("/api/projects").then((r) => r.json()));
 }
 
+/** Start a new video from the sidebar's New project picker. */
+async function newVideo(page: Page) {
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("dialog").getByRole("option", { name: /^Video/ }).click();
+}
+
 /** HTML5-drag a media card onto a point on the page. */
 async function dragAsset(page: Page, name: string, x: number, y: number) {
   const card = page.locator("[draggable=true]").filter({ hasText: name }).first();
@@ -100,7 +106,7 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 
 test("starts a new video from the empty state", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Start a new video" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Start something new" })).toBeVisible();
   await page.getByRole("button", { name: "New video" }).last().click();
   await expect(page).toHaveURL(/\/p\/[\w-]+$/);
   await expect(page.locator("header").getByRole("button", { name: "Settle", exact: true })).toBeVisible();
@@ -933,7 +939,7 @@ test("settles a video, starts the next one, and unsettles it again", async ({ pa
   const [first] = await projectList(page);
 
   // Start a second video from the sidebar; it opens empty.
-  await page.getByRole("button", { name: "New video" }).first().click();
+  await newVideo(page);
   await expect.poll(() => page.url()).not.toBe(firstUrl);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   const secondUrl = page.url();
@@ -1009,7 +1015,7 @@ test("keeps media and saved clips in the Library and uses them in another video"
   await expect.poll(async () => (await library()).items.map((i: { kind: string }) => i.kind).sort()).toEqual(["clips", "media"]);
 
   // A new video can use both.
-  await page.getByRole("button", { name: "New video" }).first().click();
+  await newVideo(page);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   await page.getByRole("tab", { name: "Library" }).click();
   const saved = page.locator("[data-library-item]").filter({ hasText: "Intro shot" });
@@ -1055,7 +1061,7 @@ test("keeps media and saved clips in the Library and uses them in another video"
 
 test("skims a video's card and copies one clip's effects onto another", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "New video" }).first().click();
+  await newVideo(page);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   await page.getByRole("tab", { name: /^This video/ }).click();
   await page.locator("input[type=file]").first().setInputFiles([FILES[1], FILES[2]]);
@@ -1224,7 +1230,7 @@ test("Codex answers too, and a chat keeps editing its video while another one is
 
 test("plays an audio track cut into pieces with one pair of players", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "New video" }).first().click();
+  await newVideo(page);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   await page.getByRole("tab", { name: /^This video/ }).click();
   await page.locator("input[type=file]").first().setInputFiles(FILES[3]);
@@ -1262,7 +1268,7 @@ test("plays an audio track cut into pieces with one pair of players", async ({ p
 
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "New video" }).first().click();
+  await newVideo(page);
   await page.getByRole("tab", { name: /^This video/ }).click();
   await page.locator("input[type=file]").first().setInputFiles(FILES[0]);
   await expect(page.locator("[draggable=true]").filter({ hasText: "vertical-1080x1920" }).first()).toBeVisible();
@@ -1286,7 +1292,7 @@ test("pinching over the monitor scales the selected clip, as one undo step", asy
 
 test("speeds a clip up, reverses it and stretches it to fit, moving the clips after it", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "New video" }).first().click();
+  await newVideo(page);
   await page.getByRole("tab", { name: /^This video/ }).click();
   await page.locator("input[type=file]").first().setInputFiles(FILES[0]);
   await expect(page.locator("[draggable=true]").filter({ hasText: "vertical-1080x1920" }).first()).toBeVisible();
@@ -1353,7 +1359,7 @@ test("speeds a clip up, reverses it and stretches it to fit, moving the clips af
 
 test("selects several media cards to drag them together and delete them at once", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "New video" }).first().click();
+  await newVideo(page);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   await page.getByRole("tab", { name: /^This video/ }).click();
   await page.locator("input[type=file]").first().setInputFiles([FILES[0], FILES[1], FILES[2]]);
@@ -1411,4 +1417,51 @@ test("selects several media cards to drag them together and delete them at once"
   await confirm.getByRole("button", { name: "Remove" }).click();
   await expect(cards).toHaveCount(0);
   await expect.poll(async () => (await savedProject(page)).clips.length).toBe(0);
+});
+
+test("starts a song in the music suite, with its own assistant, then goes back to a video", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/p\/[\w-]+$/);
+  const videoUrl = page.url();
+
+  // The sidebar's New project picker lists every suite; typing narrows it, Enter makes one.
+  await page.getByRole("button", { name: "New project" }).click();
+  const picker = page.getByRole("dialog");
+  await expect(picker.getByRole("option")).toHaveCount(2);
+  await picker.getByRole("textbox").fill("song");
+  await expect(picker.getByRole("option")).toHaveCount(1);
+  await page.keyboard.press("Enter");
+  await expect(picker).toHaveCount(0);
+  await expect.poll(() => page.url()).not.toBe(videoUrl);
+  await expect(page.getByRole("heading", { name: "An empty song" })).toBeVisible();
+  const song = (await projectList(page)).find((p: { suite: string }) => p.suite === "music");
+  expect(song).toMatchObject({ name: "Untitled", tempo: 120, status: "active" });
+  await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("120 BPM");
+
+  // Renamed from its header, like a video.
+  await page.locator("header").getByTitle("Rename project").click();
+  await page.getByRole("textbox", { name: "Project name" }).fill("Anthem");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("Anthem");
+  await expect.poll(async () => (await projectList(page)).find((p: { id: string }) => p.id === song.id).name).toBe("Anthem");
+
+  // Its assistant has the music editor's tools (and not the video editor's).
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await expect(composer).toHaveAttribute("placeholder", /help with your song/);
+  await expect(panel.getByText("120 BPM, 4/4")).toBeVisible();
+  await composer.fill('call get_song\ncall split_clips {"at": 1}');
+  await composer.press("Enter");
+  await expect(panel.locator('[data-tool="get_song"][data-status="done"]')).toContainText("Read the song");
+  await expect(panel.locator('[data-tool="split_clips"][data-status="error"]')).toBeVisible();
+
+  // Back to the video: its editor opens as it was.
+  await page.goto(videoUrl);
+  await expect(page.locator("header").getByRole("button", { name: "Settle", exact: true })).toBeVisible();
+  await expect(page.getByText("Video 1", { exact: true }).last()).toBeVisible();
+  const clips = (await savedProject(page)).clips.length;
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(clips);
+  await page.goto(`/p/${song.id}`);
+  await expect(page.getByRole("heading", { name: "An empty song" })).toBeVisible();
 });

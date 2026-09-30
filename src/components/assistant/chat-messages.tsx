@@ -1,7 +1,7 @@
 import { memo, type ReactNode } from "react";
 import { PiArrowCounterClockwise, PiCrosshair, PiSparkleFill, PiStopCircle, PiWarningCircle } from "react-icons/pi";
 import type { AssistantMessage, AssistantPart, ChatMessage, ToolPart, UserMessage } from "@shared/assistant";
-import { toolSpec } from "@shared/assistant-tools";
+import { toolSpec } from "@shared/suite-tools";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { useAssistant } from "@/stores/assistant";

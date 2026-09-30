@@ -5,13 +5,12 @@ import {
   PiCircleDashedBold,
   PiCopy,
   PiDotsThree,
-  PiFilmSlate,
   PiHandPalm,
   PiTrash,
   PiWarningCircle,
 } from "react-icons/pi";
 import type { ProjectSummary } from "@shared/types";
-import { formatDuration, formatElapsed, formatRelative } from "@shared/format";
+import { formatElapsed, formatRelative } from "@shared/format";
 import { ProviderIcon } from "@/components/assistant/provider-icon";
 import { useNow } from "@/hooks/use-now";
 import {
@@ -31,8 +30,8 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "cn";
 import { useAssistant } from "@/stores/assistant";
-import { useEditor } from "@/stores/editor";
 import { useProjects } from "@/stores/projects";
+import { clientSuite, describeProject } from "@/suites";
 import { type ChatStatus, chatStatus } from "./chat-status";
 import { DeleteProjectDialog } from "./delete-project-dialog";
 
@@ -44,8 +43,8 @@ interface ProjectItemProps {
 }
 
 export const ProjectItem = memo(function ProjectItem({ project, selected, now }: ProjectItemProps) {
-  // The open project's name updates live while it's being renamed.
-  const liveName = useEditor((s) => (s.projectId === project.id ? s.project.name : null));
+  // The open project's name updates live while it's being renamed. (A project's suite never changes, so the hook is always the same one.)
+  const liveName = clientSuite(project.suite).useLiveName(project.id);
   const activity = useAssistant((s) => s.chatActivity[project.id]);
   const seenAt = useAssistant((s) => s.seen[project.id]);
   const waiting = useAssistant((s) => s.confirmations.some((c) => c.projectId === project.id));
@@ -55,7 +54,7 @@ export const ProjectItem = memo(function ProjectItem({ project, selected, now }:
   const settled = project.status === "settled";
   const name = liveName ?? project.name;
 
-  const open = () => useProjects.getState().open(project.id);
+  const open = () => void useProjects.getState().open(project.id);
   const toggleSettled = () => {
     const projects = useProjects.getState();
     void (settled ? projects.unsettle(project.id) : projects.settle(project.id));
@@ -91,7 +90,7 @@ export const ProjectItem = memo(function ProjectItem({ project, selected, now }:
               selected ? "bg-accent" : "hover:bg-accent/60 data-[state=open]:bg-accent/60",
             )}
           >
-            <Thumbnail url={project.thumbnail} dimmed={settled} />
+            <Thumbnail project={project} dimmed={settled} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className={cn("truncate text-sm leading-5 font-medium", settled && !selected && "text-muted-foreground")}>{name}</span>
@@ -109,9 +108,7 @@ export const ProjectItem = memo(function ProjectItem({ project, selected, now }:
                 <p className="min-w-0 flex-1 truncate text-xs leading-5 text-muted-foreground">
                   {status?.kind === "working" && status.step
                     ? status.step
-                    : project.clipCount === 0
-                      ? "Empty"
-                      : `${formatDuration(project.duration)} · ${project.clipCount} clip${project.clipCount === 1 ? "" : "s"}`}
+                    : describeProject(project)}
                 </p>
                 {status && <ProviderIcon provider={status.provider} className="size-3.5 opacity-80" />}
               </div>
@@ -235,18 +232,21 @@ function Working({ since }: { since: number }) {
   );
 }
 
-function Thumbnail({ url, dimmed }: { url: string | null; dimmed: boolean }) {
+/** Its picture, else its suite's icon. */
+function Thumbnail({ project, dimmed }: { project: ProjectSummary; dimmed: boolean }) {
+  const { icon: Icon, tint } = clientSuite(project.suite);
   return (
     <div
       className={cn(
-        "grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted ring-1 ring-border ring-inset",
+        "grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg ring-1 ring-border ring-inset",
+        project.thumbnail ? "bg-muted" : tint,
         dimmed && "opacity-60 grayscale",
       )}
     >
-      {url ? (
-        <img src={url} alt="" draggable={false} className="size-full object-cover" />
+      {project.thumbnail ? (
+        <img src={project.thumbnail} alt="" draggable={false} className="size-full object-cover" />
       ) : (
-        <PiFilmSlate className="size-4 text-muted-foreground" />
+        <Icon className="size-4" />
       )}
     </div>
   );
