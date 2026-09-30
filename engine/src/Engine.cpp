@@ -8,6 +8,8 @@ constexpr double fallbackSampleRate = 44100.0;
 constexpr int fallbackBlockSize = 512;
 constexpr double toneHz = 440.0;
 constexpr float toneGain = 0.15f;
+constexpr double offlineSampleRate = 48000.0;
+constexpr int offlineBlockSize = 512;
 
 /** A plugin's own window: its editor, or a row per parameter for plugins without one. */
 class EditorWindow final : public juce::DocumentWindow
@@ -65,15 +67,23 @@ juce::var Engine::Slot::describe() const
     return result;
 }
 
-Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths)
+Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths, bool isOffline, bool onlyPluginPaths)
     : knownFile (dataDir.getChildFile ("plugins.xml")),
       pedalFile (dataDir.getChildFile ("scan-crashed.txt")),
-      extraPaths (pluginPaths)
+      extraPaths (pluginPaths),
+      offline (isOffline),
+      onlyExtraPaths (onlyPluginPaths)
 {
     dataDir.createDirectory();
     formats.addDefaultFormats();
     if (auto xml = juce::parseXML (knownFile))
         known.recreateFromXml (*xml);
+
+    if (offline)
+    {
+        start (offlineSampleRate, offlineBlockSize);
+        return;
+    }
 
     // Output only for now: opening inputs asks for the microphone, which recording will need.
     const auto error = devices.initialise (0, 2, nullptr, true);
@@ -85,8 +95,11 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths)
 Engine::~Engine()
 {
     stopTimer();
-    devices.removeAudioCallback (this);
-    devices.closeAudioDevice();
+    if (! offline)
+    {
+        devices.removeAudioCallback (this);
+        devices.closeAudioDevice();
+    }
     unload (instrument);
     unload (effect);
 }
@@ -94,7 +107,7 @@ Engine::~Engine()
 juce::var Engine::status() const
 {
     auto* device = devices.getCurrentAudioDevice();
-    const auto rate = device != nullptr ? device->getCurrentSampleRate() : 0.0;
+    const auto rate = device != nullptr ? device->getCurrentSampleRate() : sampleRate;
     juce::var scanning;
     if (! scanners.isEmpty())
     {
@@ -103,8 +116,11 @@ juce::var Engine::status() const
     }
     return protocol::object ({
         { "device", device != nullptr ? juce::var (device->getName()) : juce::var() },
+        { "offline", offline },
         { "sampleRate", rate },
-        { "bufferSize", device != nullptr ? device->getCurrentBufferSizeSamples() : 0 },
+        { "bufferSize", device != nullptr ? device->getCurrentBufferSizeSamples() : blockSize },
+        { "cpu", devices.getCpuUsage() },
+        { "dropouts", juce::jmax (0, devices.getXRunCount()) },
         { "outputLatencyMs", device != nullptr && rate > 0 ? 1000.0 * (device->getOutputLatencyInSamples() + device->getCurrentBufferSizeSamples()) / rate : 0.0 },
         { "tone", tone.load() },
         { "peak", peak.exchange (0.0f) },
@@ -163,9 +179,19 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         const auto velocity = juce::jlimit (0.0f, 1.0f, (float) (double) params["velocity"]);
         auto message = (bool) params["on"] ? juce::MidiMessage::noteOn (1, pitch, velocity) : juce::MidiMessage::noteOff (1, pitch);
         message.setTimeStamp (juce::Time::getMillisecondCounterHiRes() * 0.001);
-        if (sampleRate > 0)
+        if (offline)
+            offlineNotes.addEvent (message, 0);
+        else if (sampleRate > 0)
             midi.addMessageToQueue (message);
         return ok();
+    }
+
+    if (command == "render")
+    {
+        if (! offline)
+            return reply (fail ("Only an offline engine renders."), {});
+        const auto file = params["file"].toString();
+        return render ((int) params["frames"], file.isEmpty() ? juce::File() : juce::File (file), std::move (reply));
     }
 
     auto* slot = slotNamed (params, reply);
@@ -233,8 +259,11 @@ void Engine::startScan (bool rescan)
         known.clear();
     for (auto* format : formats.getFormats())
     {
-        auto paths = format->getDefaultLocationsToSearch();
-        if (format->getName() == "VST3")
+        const auto isVst3 = format->getName() == "VST3";
+        if (onlyExtraPaths && ! isVst3)
+            continue;
+        auto paths = onlyExtraPaths ? juce::FileSearchPath() : format->getDefaultLocationsToSearch();
+        if (isVst3)
             for (const auto& extra : extraPaths)
                 paths.add (juce::File (extra));
         scanners.add (new juce::PluginDirectoryScanner (known, *format, paths, true, pedalFile));
@@ -319,9 +348,14 @@ void Engine::unload (Slot& slot)
 
 void Engine::audioDeviceAboutToStart (juce::AudioIODevice* device)
 {
+    start (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
+}
+
+void Engine::start (double rate, int block)
+{
     const juce::ScopedLock lock (audioLock);
-    sampleRate = device->getCurrentSampleRate();
-    blockSize = device->getCurrentBufferSizeSamples();
+    sampleRate = rate;
+    blockSize = block;
     midi.reset (sampleRate);
     for (auto* slot : { &instrument, &effect })
         if (slot->plugin != nullptr)
@@ -332,10 +366,41 @@ void Engine::audioDeviceAboutToStart (juce::AudioIODevice* device)
     sizeScratch();
 }
 
+void Engine::render (int frames, const juce::File& file, Reply reply)
+{
+    frames = juce::jlimit (0, (int) offlineSampleRate * 600, frames);
+    juce::AudioBuffer<float> rendered (2, frames);
+    for (int done = 0; done < frames; done += blockSize)
+    {
+        float* channels[] = { rendered.getWritePointer (0, done), rendered.getWritePointer (1, done) };
+        process (channels, 2, juce::jmin (blockSize, frames - done));
+    }
+
+    if (file != juce::File())
+    {
+        file.deleteFile();
+        std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (file);
+        const auto options = juce::AudioFormatWriterOptions().withSampleRate (sampleRate).withNumChannels (2).withBitsPerSample (24);
+        auto writer = juce::WavAudioFormat().createWriterFor (stream, options);
+        if (writer == nullptr || ! writer->writeFromAudioSampleBuffer (rendered, 0, frames))
+            return reply (fail ("Couldn't write the rendered sound."), {});
+    }
+    reply (juce::Result::ok(),
+           protocol::object ({ { "frames", frames },
+                               { "sampleRate", sampleRate },
+                               { "peak", frames > 0 ? rendered.getMagnitude (0, frames) : 0.0f },
+                               { "rms", frames > 0 ? rendered.getRMSLevel (0, 0, frames) : 0.0f } }));
+}
+
 void Engine::audioDeviceStopped() {}
 
 void Engine::audioDeviceIOCallbackWithContext (const float* const*, int, float* const* output, int numOutputs, int numSamples,
                                                const juce::AudioIODeviceCallbackContext&)
+{
+    process (output, numOutputs, numSamples);
+}
+
+void Engine::process (float* const* output, int numOutputs, int numSamples)
 {
     juce::ScopedNoDenormals noDenormals;
     for (int ch = 0; ch < numOutputs; ++ch)
@@ -348,7 +413,10 @@ void Engine::audioDeviceIOCallbackWithContext (const float* const*, int, float* 
         return;
 
     juce::MidiBuffer notes;
-    midi.removeNextBlockOfMessages (notes, numSamples);
+    if (offline)
+        notes.swapWith (offlineNotes);
+    else
+        midi.removeNextBlockOfMessages (notes, numSamples);
 
     const auto view = [&] (const juce::AudioPluginInstance& plugin) {
         return juce::AudioBuffer<float> (scratch.getArrayOfWritePointers(), juce::jmax (2, channelsNeeded (&plugin)), numSamples);

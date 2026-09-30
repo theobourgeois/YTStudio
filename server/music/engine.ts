@@ -8,7 +8,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import { clamp, isFiniteNumber } from "../../shared/math.ts";
-import { ENGINE_SLOTS, type EngineCommand, type EnginePlugin, type EngineSlot, type EngineStatus, type LoadedPlugin } from "../../shared/music/engine.ts";
+import {
+  ENGINE_SLOTS,
+  type EngineCommand,
+  type EnginePlugin,
+  type EngineRender,
+  type EngineSlot,
+  type EngineStatus,
+  type LoadedPlugin,
+} from "../../shared/music/engine.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
 import { spawnStreaming } from "../process.ts";
 import { type DataPaths, HttpError, isObject, readJson, writeJson } from "../storage.ts";
@@ -17,6 +25,10 @@ export interface EngineOptions {
   /** The engine's argv before its options (default: the built engine). Tests pass a fake. */
   command?: string[];
   pluginPaths?: string[];
+  /** No audio device: nothing is heard, and `render` computes sound on request (tests, the export). */
+  offline?: boolean;
+  /** Scan only `pluginPaths`, not this computer's plugins (tests: fast, and the same everywhere). */
+  onlyPluginPaths?: boolean;
 }
 
 /** How long the engine has to start, and to answer (loading a big plugin takes a while). */
@@ -49,6 +61,7 @@ export class AudioEngine {
   private saved: SavedStates | null = null;
   private readonly argv: string[];
   private readonly pluginPaths: string[];
+  private readonly flags: string[];
 
   constructor(
     private readonly paths: DataPaths,
@@ -56,6 +69,7 @@ export class AudioEngine {
   ) {
     this.argv = options.command ?? [ENGINE];
     this.pluginPaths = options.pluginPaths ?? ENGINE_PLUGIN_PATHS;
+    this.flags = [...(options.offline ? ["--offline"] : []), ...(options.onlyPluginPaths ? ["--only-plugin-paths"] : [])];
   }
 
   /** Run a command from the tab (`POST /api/engine/:command`): validates it, and answers with the status. */
@@ -70,6 +84,14 @@ export class AudioEngine {
   /** The plugins found by the last scan. */
   async plugins(): Promise<EnginePlugin[]> {
     return (await this.request("plugins", {})) as EnginePlugin[];
+  }
+
+  /**
+   * Offline engines only: compute the next `frames` samples of what's loaded and playing, and measure
+   * them; with `file`, they're written there as a WAV too.
+   */
+  async render(frames: number, file?: string): Promise<EngineRender> {
+    return (await this.request("render", { frames, file })) as EngineRender;
   }
 
   shutdown() {
@@ -162,6 +184,7 @@ export class AudioEngine {
     }
     await fs.mkdir(this.paths.engine, { recursive: true });
     const args = ["--data", this.paths.engine, ...this.pluginPaths.filter((dir) => existsSync(dir)).flatMap((dir) => ["--plugin-path", dir])];
+    args.push(...this.flags);
     const { child, done } = spawnStreaming([...this.argv, ...args], "pipe", "pipe");
     // A write to an engine that just died must not take the server down with it.
     child.stdin!.on("error", () => {});

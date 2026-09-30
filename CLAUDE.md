@@ -16,7 +16,8 @@ so far: an empty document and its audio engine on a test bench. See "Suites" bel
 pnpm dev          # server :5311 + app http://localhost:5310 (moves to 5410/5411… if taken)
 pnpm typecheck    # tsc -b (app + node projects)
 pnpm test         # vitest: shared/, src/, server/ (the server integration tests need ffmpeg)
-pnpm test:e2e     # Playwright on :5320/5321 with a throwaway e2e/.data (serial, ~1 min)
+pnpm test:e2e     # Playwright on :5320/5321 with a throwaway e2e/.data (serial, ~2 min)
+pnpm test:e2e music   # only e2e/music.spec.ts (seconds): each suite's spec stands on its own
 pnpm samples      # test media into ./samples
 pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + check transitions
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
@@ -31,6 +32,8 @@ pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into reso
 **Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.
 - Don't edit `src/` while e2e runs: Vite hot-reloads the page mid-test and a test fails for no real reason.
 - The e2e tests depend on each other (serial, shared state), so run the whole file rather than `-g` one test.
+  Each suite has its own spec (`e2e/editor.spec.ts` is the video editor's, `e2e/music.spec.ts` the music
+  suite's) that makes its own projects, so one suite's file runs alone.
 - After touching a shader, `transition-gl.ts`, `effect-gl.ts`, `layers.ts` or `compositor.ts`, run the transition-sheet,
   effect-sheet and preset-sheet scripts. They compile every shader in headless Chromium and check that each transition
   (and transition preset) starts on the outgoing picture and ends on the incoming one, and that each effect visibly
@@ -98,8 +101,10 @@ server/
   transcription/     Speech to timed words for Auto captions. service.ts (jobs, cache, time mapping), audio.ts
                      (decode, squeeze out silences, snap words to the sound), engine.ts (the engine interface),
                      whisper-cpp.ts (local, one-click setup), openai.ts (OpenAI + Groq), fake.ts (e2e).
-  music/engine.ts    AudioEngine: runs the audio engine's process, JSON lines over its stdin/stdout, restarts it
-                     when it dies. fake-engine.mjs stands in for it in tests (and the e2e suite).
+  music/             The music suite's server side. engine.ts: AudioEngine runs the audio engine's process, JSON
+                     lines over its stdin/stdout, restarts it when it dies. routes.ts: `/api/engine`.
+                     fake-engine.mjs stands in for it in tests (and the e2e suite).
+  architecture.test.ts  The layering between the platform and the suites, checked on every import (see Suites).
   assistant/         The assistant. mcp.ts: the MCP server (POST /mcp, stateless JSON-RPC). bridge.ts: relays tool calls
                      to an editor tab over its event stream and back, and every chat's activity to every tab.
                      agent.ts: the Agent interface each provider implements. claude.ts: runs `claude -p` (stream-json).
@@ -125,7 +130,7 @@ src/
   suites/            Each suite in the tab (ClientSuite): open/close its store, its Workspace, sidebar line, the
                      assistant's side (message context, chat texts, tool handlers). index.ts is the registry;
                      video.ts plugs in the video editor; music/ is the music shell (store, workspace, tools,
-                     engine-panel.tsx: the audio engine's test bench).
+                     api.ts: its endpoints' client, engine-panel.tsx: the audio engine's test bench).
   stores/projects.ts The project list (every suite) and which one is open (`openId`, in the URL); hands it to its suite.
   stores/editor.ts   THE video document store: project, assets, selection, undo history, gestures, edit commands.
   stores/autosave.ts, asset-polling.ts   Side effects of the editor store (kept out of it).
@@ -179,6 +184,15 @@ extension** (Node ESM through tsx).
   around `SuiteBackend.assistant`), the MCP tools listed (`/mcp?chat=<id>`; outside clients get video's, or
   `?suite=`) and who runs the calls in the tab (`clientSuite(suite).runTool`). Tool names are unique across suites
   (tested). The panel (`AssistantPanel suite=…`) takes its texts from `ClientSuite.chat`.
+- **Layering** (`server/architecture.test.ts` checks every import): the *platform* is what every suite stands on
+  (projects, sidebar, assistant, storage, `components/ui`, `lib/api.ts`...: its `PLATFORM` list); a *suite* is its
+  own folders (`shared/<suite>/`, `server/<suite>/`, `src/suites/<suite>/`), and video is everything else at the
+  roots. A suite imports the platform and itself, never another suite; the platform never imports a suite except
+  through a registry. So a new suite's routes go in `server/<suite>/routes.ts`, its client in
+  `src/suites/<suite>/api.ts` (on `request` from `lib/api.ts`), its API types in `shared/<suite>/`: not in
+  `server/routes/`, `lib/api.ts` or `shared/types.ts`, which are the platform's and the video editor's.
+  Something two suites need (undo, autosave, ids) moves into the platform first; it isn't imported from video.
+  The test's `DEBT` list is where the platform still reaches into the video editor: it may only shrink.
 - Imports: import suites from `@/suites` (the registry), never a suite's module directly; they form an import cycle
   with `stores/projects.ts`, which is safe only because nothing uses `useProjects` at module level. Keep it that way.
 
@@ -195,6 +209,10 @@ about its UX, do what FL Studio does. So far only its engine exists, as a spike.
   again; what was loaded is lost until the song's document drives it.
 - Commands run on the engine's message thread; the audio callback never waits (`audioLock` is only tried there).
   Keep it that way: no allocation, locks or I/O on the audio thread.
+- `--offline` (`AudioEngine`'s `offline`) opens no device: `render` computes the next samples on request, as fast
+  as it can, and measures them (or writes a WAV). `server/music/engine.integration.test.ts` tests what things
+  *sound like* this way, with the real engine and the test synth, silently; it's skipped when the engine isn't
+  built. Live and offline share one `Engine::process`, so add sound-making code there and test it offline.
 - Keep it portable (Windows is planned): only JUCE's APIs, no macOS calls of our own, paths from the server.
 - It's an app bundle (plugin windows need one) with no Dock icon, shipped in the desktop app's resources.
   The desktop app isn't signed, so loading other people's plugins needs nothing; once it's signed with the
@@ -373,6 +391,9 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 - Design: minimal, like T3 Code; a darker One Dark palette; DM Sans. The accent colour is `brand`. Light and dark
   themes are both supported.
 - Put pure logic in `shared/` (or a pure module next to the component) and unit-test it. Components stay thin.
+- Tests, from cheapest: pure logic in vitest beside the code (most of them); a service against a stand-in
+  program (`fake-engine.mjs`, `e2e/fake-claude.mjs`); the real program where only it can tell (exports in
+  `server/integration.test.ts`, sound in `server/music/engine.integration.test.ts`); then one e2e spec per suite.
 - Server: validate every request body inside the service (bodies are `unknown`). Paths come from `DataPaths` and
   ids are checked with `isValidId`. Start external programs only through `process.ts`.
 

@@ -1,6 +1,6 @@
 // The engine's program: started by the server with
 //
-//   "Vaudio Engine" --data <dir> [--plugin-path <dir>]...
+//   "Vaudio Engine" --data <dir> [--plugin-path <dir>]... [--offline] [--only-plugin-paths]
 //
 // it answers commands until the server closes its stdin (so it never outlives the app).
 #include "Engine.h"
@@ -28,7 +28,7 @@ public:
                 pluginPaths.add (juce::File::getCurrentWorkingDirectory().getChildFile (args[i + 1]).getFullPathName());
         }
 
-        engine = std::make_unique<Engine> (dataDir, pluginPaths);
+        engine = std::make_unique<Engine> (dataDir, pluginPaths, args.contains ("--offline"), args.contains ("--only-plugin-paths"));
         protocol::send (protocol::object ({ { "event", "ready" }, { "status", engine->status() } }));
 
         protocol::startReading (

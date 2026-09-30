@@ -4,7 +4,7 @@
  * old documents upgraded here), or it's dropped.
  */
 import { clamp, isFiniteNumber } from "../math.ts";
-import { DEFAULT_PROJECT_NAME } from "../timeline.ts";
+import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import type { MusicProject } from "./types.ts";
 
 export const DEFAULT_TEMPO = 120;

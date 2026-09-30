@@ -3,6 +3,7 @@
  * returns a new one (or the same instance when nothing changed), so they are
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
+import { DEFAULT_PROJECT_NAME } from "./suites.ts";
 import { cameraEffects, clipKind, defaultEffects, hasMedia, solidEffects, textStyleAt } from "./effects.ts";
 import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
 import type {
@@ -19,7 +20,7 @@ import type {
 /** Id of the video track a new project starts with. */
 export const MAIN_TRACK_ID = "main";
 /** A new project's name, until it's renamed (or named after its first import). */
-export const DEFAULT_PROJECT_NAME = "Untitled";
+export { DEFAULT_PROJECT_NAME };
 /** Shortest clip the editor allows (seconds). */
 export const MIN_CLIP_DURATION = 0.1;
 /** How long a new clip of a still image is (seconds), like Premiere's default. */

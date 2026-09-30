@@ -1,0 +1,174 @@
+/**
+ * The layering that keeps the suites apart, checked on every import in the repo:
+ *
+ *   platform   what every suite stands on: projects, the sidebar, the assistant, storage, UI primitives
+ *   a suite    music (`shared/music/`, `server/music/`, `src/suites/music/`...), and video, which came
+ *              first and is everything at the roots that isn't platform
+ *   registry   the few files that list every suite, and so may import them all
+ *
+ * A suite may import the platform and itself, never another suite. The platform may not import a
+ * suite, except through a registry. What breaks that today is listed in `DEBT`: the test fails when
+ * a new leak appears, and when a listed one is fixed (so the list only shrinks).
+ */
+import fs from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+
+const ROOT = path.resolve(import.meta.dirname, "..");
+
+/** Suites with folders of their own. Add a suite's here when it's made. */
+const SUITE_FOLDERS: Record<string, string[]> = {
+  music: ["shared/music/", "server/music/", "server/suites/music.ts", "src/suites/music/"],
+};
+
+/** Files that list every suite (or wire the app together), so they import all of them. */
+const REGISTRIES = [
+  "shared/suites.ts",
+  "shared/suite-tools.ts",
+  "server/suites/index.ts",
+  "server/app.ts",
+  "src/suites/index.ts",
+];
+
+/** A trailing slash is a folder. Everything else at the roots is the video editor's. */
+const PLATFORM = [
+  "shared/tool-spec.ts",
+  "shared/assistant.ts",
+  "shared/math.ts",
+  "shared/format.ts",
+  "shared/errors.ts",
+  // The HTTP API's types, with the video editor's domain types still among them.
+  "shared/types.ts",
+  "server/index.ts",
+  "server/config.ts",
+  "server/storage.ts",
+  "server/process.ts",
+  "server/queue.ts",
+  "server/projects.ts",
+  "server/routes/projects.ts",
+  "server/routes/assistant.ts",
+  "server/routes/util.ts",
+  "server/assistant/",
+  "server/suites/suite.ts",
+  "src/main.tsx",
+  "src/App.tsx",
+  "src/suites/types.ts",
+  "src/stores/projects.ts",
+  "src/stores/assistant.ts",
+  "src/stores/theme.ts",
+  "src/stores/layout.ts",
+  "src/lib/api.ts",
+  "src/lib/route.ts",
+  "src/lib/desktop.ts",
+  "src/lib/pointer-drag.ts",
+  "src/hooks/use-now.ts",
+  "src/assistant/bridge.ts",
+  "src/components/ui/",
+  "src/components/brand/",
+  "src/components/sidebar/",
+  "src/components/assistant/",
+  "src/components/header/header.tsx",
+  "src/components/header/project-name.tsx",
+  "src/components/header/theme-menu.tsx",
+  "src/components/workspace/workspace.tsx",
+  "src/components/workspace/plain-workspace.tsx",
+  "src/components/workspace/empty-state.tsx",
+];
+
+/**
+ * Platform code that still reaches into the video editor ("importer -> imported"). Fixing one means
+ * moving what's shared into the platform (ids, autosave, undo) or behind `ClientSuite`.
+ */
+const DEBT: string[] = [
+  "server/assistant/bridge.ts -> shared/timeline.ts",
+  "server/assistant/service.ts -> shared/timeline.ts",
+  "server/index.ts -> server/ffmpeg.ts",
+  "server/projects.ts -> server/media.ts",
+  "server/projects.ts -> shared/timeline.ts",
+  "src/App.tsx -> src/components/shortcuts/shortcuts-dialog.tsx",
+  "src/App.tsx -> src/hooks/use-prevent-file-navigation.ts",
+  "src/App.tsx -> src/hooks/use-shortcuts.ts",
+  "src/components/assistant/assistant-button.tsx -> src/hooks/shortcuts.ts",
+  "src/components/assistant/assistant-panel.tsx -> src/hooks/shortcuts.ts",
+  "src/components/assistant/chat-messages.tsx -> src/stores/editor.ts",
+  "src/components/assistant/markdown.tsx -> src/stores/playback.ts",
+  "src/components/assistant/tool-steps.tsx -> shared/timeline.ts",
+  "src/components/assistant/tool-steps.tsx -> src/stores/editor.ts",
+  "src/components/assistant/tool-steps.tsx -> src/stores/playback.ts",
+  "src/components/header/header.tsx -> src/components/export/export-dialog.tsx",
+  "src/components/header/header.tsx -> src/components/header/settings-dialog.tsx",
+  "src/components/header/header.tsx -> src/hooks/shortcuts.ts",
+  "src/components/header/header.tsx -> src/stores/editor.ts",
+  "src/components/sidebar/sidebar.tsx -> src/hooks/shortcuts.ts",
+  "src/components/workspace/empty-state.tsx -> src/components/media/import-media.ts",
+  "src/components/workspace/empty-state.tsx -> src/hooks/use-file-drop.ts",
+  "src/stores/assistant.ts -> src/stores/editor.ts",
+  "src/stores/projects.ts -> src/stores/autosave.ts",
+];
+
+function sourceFiles(dir: string): string[] {
+  return fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((entry) => {
+    const file = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) return sourceFiles(file);
+    return /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name) ? [file] : [];
+  });
+}
+
+const FILES = ["shared", "server", "src"].flatMap(sourceFiles);
+const KNOWN = new Set(FILES);
+
+/** The repo file an import names, or null for packages and Node. */
+function resolveImport(from: string, spec: string): string | null {
+  const base = spec.startsWith("@/")
+    ? `src/${spec.slice(2)}`
+    : spec.startsWith("@shared/")
+      ? `shared/${spec.slice(8)}`
+      : spec.startsWith(".")
+        ? path.posix.join(path.posix.dirname(from), spec)
+        : null;
+  if (!base) return null;
+  return [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`].find((c) => KNOWN.has(c)) ?? null;
+}
+
+function importsOf(file: string): string[] {
+  const source = fs.readFileSync(path.join(ROOT, file), "utf8");
+  const found = [...source.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*["']([^"']+)["']/g)].map((m) => resolveImport(file, m[1]));
+  return [...new Set(found.filter((f): f is string => f !== null))];
+}
+
+const inAny = (file: string, entries: string[]) => entries.some((e) => (e.endsWith("/") ? file.startsWith(e) : file === e));
+
+/** "platform", "registry", or the suite a file belongs to. */
+function zoneOf(file: string): string {
+  if (REGISTRIES.includes(file)) return "registry";
+  const suite = Object.keys(SUITE_FOLDERS).find((id) => inAny(file, SUITE_FOLDERS[id]));
+  if (suite) return suite;
+  return inAny(file, PLATFORM) ? "platform" : "video";
+}
+
+/** Every import that crosses a line it shouldn't, as "importer -> imported". */
+function leaks(allowed: (from: string, to: string) => boolean): string[] {
+  return FILES.flatMap((file) => {
+    const from = zoneOf(file);
+    return importsOf(file)
+      .filter((target) => !allowed(from, zoneOf(target)))
+      .map((target) => `${file} -> ${target}`);
+  }).sort();
+}
+
+describe("architecture", () => {
+  it("knows the files it names", () => {
+    const named = [...REGISTRIES, ...PLATFORM, ...Object.values(SUITE_FOLDERS).flat()];
+    expect(named.filter((e) => !FILES.some((f) => inAny(f, [e])))).toEqual([]);
+  });
+
+  it("keeps each suite out of the others", () => {
+    const crossing = leaks((from, to) => from === "platform" || from === "registry" || to === from || to === "platform" || to === "registry");
+    expect(crossing).toEqual([]);
+  });
+
+  it("keeps the platform out of the suites, but for the known debt", () => {
+    const reaching = leaks((from, to) => from !== "platform" || to === "platform" || to === "registry");
+    expect(reaching).toEqual([...DEBT].sort());
+  });
+});

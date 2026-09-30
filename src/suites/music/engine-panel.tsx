@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { api } from "@/lib/api";
+import { musicApi } from "./api";
 
 /** How often the status is read: the meter, a scan's progress, a plugin window closed by hand. */
 const POLL_MS = 200;
@@ -35,7 +35,7 @@ export function EnginePanel() {
 
   const run = useCallback(async <C extends EngineCommand>(command: C, body: EngineCommands[C]) => {
     try {
-      const next = await api.engine(command, body);
+      const next = await musicApi.engine(command, body);
       setStatus(next);
       setError(null);
       return next;
@@ -46,7 +46,7 @@ export function EnginePanel() {
   }, []);
 
   const loadPlugins = useCallback(() => {
-    api.listEnginePlugins().then(setPlugins, () => {});
+    musicApi.listEnginePlugins().then(setPlugins, () => {});
   }, []);
 
   useEffect(() => {
@@ -102,7 +102,9 @@ export function EnginePanel() {
               <p className="truncate text-sm font-medium">{status ? (status.device ?? "No output device") : "Starting…"}</p>
               {status && (
                 <p className="text-xs text-muted-foreground tabular-nums" data-testid="engine-device">
-                  {(status.sampleRate / 1000).toFixed(1)} kHz · {status.bufferSize} samples · {status.outputLatencyMs.toFixed(0)} ms out
+                  {(status.sampleRate / 1000).toFixed(1)} kHz · {status.bufferSize} samples · {status.outputLatencyMs.toFixed(0)} ms out ·{" "}
+                  {(status.cpu * 100).toFixed(0)}% CPU
+                  {status.dropouts > 0 && ` · ${status.dropouts} dropouts`}
                   {roundTrip !== null && ` · ${roundTrip.toFixed(0)} ms to the engine and back`}
                 </p>
               )}

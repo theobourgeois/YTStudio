@@ -17,8 +17,13 @@ public:
     /** A command's answer: a result, or what went wrong (said to the user). */
     using Reply = std::function<void (const juce::Result&, const juce::var&)>;
 
-    /** `dataDir` keeps the list of scanned plugins; `pluginPaths` are searched besides the usual folders. */
-    Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths);
+    /**
+     * `dataDir` keeps the list of scanned plugins; `pluginPaths` are searched besides the usual folders.
+     * `offline` opens no audio device: sound is only made by the `render` command, as fast as it
+     * computes (tests, and later the export), so the same input always gives the same samples.
+     * `onlyPluginPaths` leaves this computer's own plugins out of scans (tests).
+     */
+    Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths, bool offline, bool onlyPluginPaths);
     ~Engine() override;
 
     /** Run a command (message thread). `reply` is called once, possibly later. */
@@ -40,6 +45,13 @@ private:
     void audioDeviceAboutToStart (juce::AudioIODevice*) override;
     void audioDeviceStopped() override;
     void timerCallback() override;
+
+    /** One block of the engine's output: the whole real-time path, whoever asks for it. */
+    void process (float* const* output, int numOutputs, int numSamples);
+    /** Offline: compute `frames` samples now and measure them (and write them to `file`, a WAV, if given). */
+    void render (int frames, const juce::File& file, Reply reply);
+    /** A device, or the offline engine, (re)starts at this rate and block size. */
+    void start (double rate, int block);
 
     Slot* slotNamed (const juce::var& params, Reply& reply);
     void startScan (bool rescan);
@@ -63,6 +75,9 @@ private:
     juce::CriticalSection audioLock;
     Slot instrument, effect;
     juce::MidiMessageCollector midi;
+    /** Offline there's no clock to time notes by: they wait here for the next rendered block. */
+    juce::MidiBuffer offlineNotes;
+    const bool offline, onlyExtraPaths;
     juce::AudioBuffer<float> scratch;
     std::atomic<bool> tone { false };
     /** The loudest output sample since `status` last read it: a meter, and proof that sound comes out. */

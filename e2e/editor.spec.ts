@@ -1445,21 +1445,6 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("Anthem");
   await expect.poll(async () => (await projectList(page)).find((p: { id: string }) => p.id === song.id).name).toBe("Anthem");
 
-  // The audio engine (a stand-in here) starts, loads a plugin and opens its window.
-  await expect(page.getByTestId("engine-device")).toContainText("48.0 kHz");
-  const keys = page.getByRole("group", { name: "Keys" }).getByRole("button");
-  await expect(keys.first()).toBeDisabled();
-  await page.getByRole("combobox", { name: "Instrument plugin" }).click();
-  await expect(page.getByRole("option")).toHaveCount(1);
-  await page.getByRole("option", { name: /Fake Synth/ }).click();
-  const instrument = page.locator('[data-slot-name="instrument"]');
-  await instrument.getByRole("button", { name: "Open window" }).click();
-  await expect(instrument.getByRole("button", { name: "Close window" })).toBeVisible();
-  await expect(instrument.getByRole("button", { name: "Restore" })).toBeDisabled();
-  await instrument.getByRole("button", { name: "Save state" }).click();
-  await expect(instrument.getByRole("button", { name: "Restore" })).toBeEnabled();
-  await expect(keys.first()).toBeEnabled();
-
   // Its assistant has the music editor's tools (and not the video editor's).
   await page.getByRole("button", { name: "Assistant" }).click();
   const panel = page.locator('[data-slot="assistant-panel"]');

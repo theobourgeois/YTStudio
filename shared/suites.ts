@@ -66,6 +66,9 @@ export const SUITES: Record<SuiteId, SuiteInfo> = {
 
 export const SUITE_IDS = Object.keys(SUITES) as SuiteId[];
 
+/** A new project's name, in every suite, until it's given one. */
+export const DEFAULT_PROJECT_NAME = "Untitled";
+
 /** Projects made before there were suites are videos. */
 export const DEFAULT_SUITE: SuiteId = "video";
 

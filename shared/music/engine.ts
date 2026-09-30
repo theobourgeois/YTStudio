@@ -36,6 +36,12 @@ export interface LoadedPlugin extends EnginePlugin {
 export interface EngineStatus {
   /** The output device's name, or null when there's none. */
   device: string | null;
+  /** No device at all: sound is only computed on request (`EngineRender`), for tests and the export. */
+  offline: boolean;
+  /** How much of each block's time the audio thread spends computing it (0..1): near 1, sound breaks up. */
+  cpu: number;
+  /** Blocks the device had to go without since the engine started. */
+  dropouts: number;
   sampleRate: number;
   bufferSize: number;
   /** From a note reaching the engine to its sound leaving the device, at worst. */
@@ -48,6 +54,14 @@ export interface EngineStatus {
   pluginCount: number;
   instrument: LoadedPlugin | null;
   effect: LoadedPlugin | null;
+}
+
+/** What an offline engine computed: `frames` samples, measured over both channels. */
+export interface EngineRender {
+  frames: number;
+  sampleRate: number;
+  peak: number;
+  rms: number;
 }
 
 /** What `POST /api/engine/<command>` takes. Every command answers with the `EngineStatus`. */

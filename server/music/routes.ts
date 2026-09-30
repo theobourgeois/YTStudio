@@ -1,5 +1,5 @@
 import { Router, json } from "express";
-import type { AudioEngine } from "../music/engine.ts";
+import type { AudioEngine } from "./engine.ts";
 
 /** `/api/engine`: the music suite's audio engine (the plugins it found, and commands to it). */
 export function engineRoutes(engine: AudioEngine): Router {

@@ -10,6 +10,9 @@ const slots = { instrument: null, effect: null };
 let tone = false;
 const status = () => ({
   device: "Fake Output",
+  offline: false,
+  cpu: 0.02,
+  dropouts: 0,
   sampleRate: 48000,
   bufferSize: 512,
   outputLatencyMs: 12,
