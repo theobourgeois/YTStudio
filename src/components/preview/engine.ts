@@ -1,12 +1,12 @@
 import type { Clip, MediaAsset, Project } from "@shared/types";
-import { type TextStyle, clipKind, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
-import { type Affine, type Compositor, type Placed, createCompositor } from "@shared/compositor";
-import { PREVIEW_SAMPLES, clipLayer } from "@shared/layers";
+import { type TextStyle, clipKind, lookAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
+import { type Compositor, type Placed, createCompositor, matteIndex } from "@shared/compositor";
+import { PREVIEW_SAMPLES, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "@shared/layers";
 import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
 import { clipEnd, clipSourceRange, clipSpeed, fileTime, sourceTime, videoTracks } from "@shared/timeline";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
-import { type Placement, type Size, placementAffine } from "@shared/transform";
+import type { Placement, Size } from "@shared/transform";
 import { type TextLayout, rasterizeText, textUnit } from "@/lib/text-render";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
@@ -34,13 +34,19 @@ interface AudioLayer {
   ids: SlotIds;
 }
 
-type ClipKind = "video" | "image" | "text" | "solid" | "adjustment";
+type ClipKind = "video" | "image" | "text" | "solid" | "adjustment" | "camera";
 
 /** A picture to draw: the element (or text drawing) it comes from (none for a solid), and when in its clip. */
 interface Picture {
   key: string;
   source: HTMLVideoElement | HTMLImageElement | TextSlot | null;
   shown: Shown;
+  /**
+   * A time-interpolated video (`Clip.timeInterpolation`): its slot (whose frames are counted),
+   * the file time wanted, and whether to use optical flow. It plays a frame ahead, so the
+   * frame before is kept (under `${key}~`) and the moment wanted is between the two.
+   */
+  interp?: { slot: MediaSlot; target: number; flow: boolean };
 }
 
 /** What the engine shows and when: the editor's video and playhead, or (for the assistant) another video at a time. */
@@ -69,11 +75,14 @@ export const editorSource: PreviewSource = {
   },
 };
 
+/** A track matte to draw a layer through: the picture on the track above, and how (`MATTE_MODES`). */
+type LayerMatte = { mode: number; picture: Picture };
+
 /** What one track draws, bottom track first. */
 type Layer =
-  | { kind: "picture"; picture: Picture }
-  | { kind: "adjustment"; shown: Shown }
-  | { kind: "transition"; plan: TransitionPlan; from: Picture | null; to: Picture | null };
+  | { kind: "picture"; trackId: string; picture: Picture; matte?: LayerMatte }
+  | { kind: "adjustment"; trackId: string; shown: Shown; matte?: LayerMatte }
+  | { kind: "transition"; trackId: string; plan: TransitionPlan; from: Picture | null; to: Picture | null };
 
 /**
  * Drives the preview outside React: it subscribes to its source (the playback
@@ -119,6 +128,8 @@ export class PreviewEngine {
   private compositor: Compositor | null = null;
   /** What each stored picture was made from (to know when it has to be uploaded again). */
   private uploaded = new Map<string, string>();
+  /** Time-interpolated videos' frames: how many the slot had shown, and the media times of the newest two. */
+  private frames = new Map<string, { count: number; src: string; time: number; before: number }>();
   private drawQueued = false;
 
   constructor(
@@ -335,9 +346,18 @@ export class PreviewEngine {
           // A transition may show a clip past its edges; it's only heard inside them.
           const audible = time >= on.clip.start - 1e-6 && time < clipEnd(on.clip) - 1e-6;
           slot.setAudio(volumeAt(on.clip, on.time), muted || (!!transition && !audible) || !media.plays, on.clip.keepPitch !== false);
-          if (playing && media.plays) slot.follow(media.at(on.time), clipSpeed(on.clip));
+          // Time interpolation plays a frame ahead, keeping the one before: the moment wanted is between them.
+          const fps = this.assetById.get(on.clip.assetId)?.fps ?? 0;
+          const interp = on.clip.timeInterpolation && fps > 0 && media.plays ? on.clip.timeInterpolation : undefined;
+          const lead = interp && playing ? 1 / fps : 0;
+          if (playing && media.plays) slot.follow(media.at(on.time) + lead, clipSpeed(on.clip));
           else slot.hold(media.at(on.time));
-          pictures.set(on.clip.id, { key: `${trackId}:v${i}`, source: el, shown: on });
+          pictures.set(on.clip.id, {
+            key: `${trackId}:v${i}`,
+            source: el,
+            shown: on,
+            ...(interp && { interp: { slot, target: media.at(on.time), flow: interp === "flow" } }),
+          });
           offline ||= media.src === null || slot.failed;
           return;
         }
@@ -368,12 +388,25 @@ export class PreviewEngine {
       });
 
       const pictureOf = (side: Shown | null) => (side && pictures.get(side.clip.id)) ?? null;
-      if (transition) drawn.push({ kind: "transition", plan: transition, from: pictureOf(transition.from), to: pictureOf(transition.to) });
-      else if (current && kindOf(current.clip) === "adjustment") drawn.push({ kind: "adjustment", shown: current });
-      else if (current && pictures.has(current.clip.id)) drawn.push({ kind: "picture", picture: pictures.get(current.clip.id)! });
+      if (transition) {
+        drawn.push({ kind: "transition", trackId, plan: transition, from: pictureOf(transition.from), to: pictureOf(transition.to) });
+      } else if (current && kindOf(current.clip) === "adjustment") drawn.push({ kind: "adjustment", trackId, shown: current });
+      else if (current && pictures.has(current.clip.id)) drawn.push({ kind: "picture", trackId, picture: pictures.get(current.clip.id)! });
     }
 
-    this.draw(project, drawn);
+    // Track mattes: a clip that uses one is drawn through the picture on the track above, which isn't drawn itself.
+    const trackIds = videoTracks(project).map((t) => t.id);
+    const matted = withTrackMattes(
+      drawn,
+      (id) => trackIds[trackIds.indexOf(id) - 1],
+      (l) => {
+        const shown = l.kind === "picture" ? l.picture.shown : l.kind === "adjustment" ? l.shown : null;
+        return shown ? matteIndex(lookAt(shown.clip, shown.time).trackMatte) : 0;
+      },
+      (l) => l.kind === "picture",
+      (l, m, mode) => (l.kind === "transition" || m.kind !== "picture" ? l : { ...l, matte: { mode, picture: m.picture } }),
+    );
+    this.draw(project, matted);
 
     // Audio tracks: the pair plays the clip under the playhead and parks the next one on its in-point.
     for (const track of project.tracks) {
@@ -424,9 +457,10 @@ export class PreviewEngine {
     compositor.resize(this.size.width * dpr, this.size.height * dpr);
     const pixels = { width: Math.round(this.size.width * dpr), height: Math.round(this.size.height * dpr) };
     const options = { canvas: pixels, fps: project.settings.fps, maxSamples: PREVIEW_SAMPLES };
-    /** Where a clip is on the canvas at source time `t` (a solid or an adjustment layer fills it at 100%). */
-    const affineAt = (clip: Clip) => (t: number) =>
-      placementAffine(placeOnCanvas(project, clip, this.assetById.get(clip.assetId), this.size, t).placement, this.size) as Affine;
+    /** Where a clip is on the canvas at source time `t` (a solid or an adjustment layer fills it at 100%; a 3D layer seen through the camera). */
+    const camera = projectCamera(project, this.size);
+    const affineAt = (clip: Clip) =>
+      placer(clip, this.size, (t) => placeOnCanvas(project, clip, this.assetById.get(clip.assetId), this.size, t).placement, camera);
     const placed = (picture: Picture | null): Placed | null => {
       if (!picture) return null;
       const { clip, time } = picture.shown;
@@ -436,15 +470,35 @@ export class PreviewEngine {
       }
       if (!this.upload(compositor, picture)) return null;
       const layer = clipLayer(clip, time, affineAt(clip), options);
-      return layer && { ...layer, key: picture.key };
+      if (!layer) return null;
+      // Between the frame before and the newest one, when the moment wanted is.
+      const frames = picture.interp && this.frames.get(picture.key);
+      const previous = `${picture.key}~`;
+      if (picture.interp && frames && frames.time > frames.before && compositor.hasPicture(previous)) {
+        const step = frames.time - frames.before;
+        const amount = (picture.interp.target - frames.before) / step;
+        if (amount > -0.25 && amount < 1.25) {
+          const interpolate = { key: picture.key, amount: Math.min(1, Math.max(0, amount)), flow: picture.interp.flow };
+          return { ...layer, key: previous, interpolate };
+        }
+      }
+      return { ...layer, key: picture.key };
     };
     compositor.clear();
     let transitions = 0;
-    for (const layer of layers) {
+    const matteOf = (matte: LayerMatte | undefined) => {
+      const picture = matte && placed(matte.picture);
+      return matte && picture ? { matte: { mode: matte.mode, layer: picture } } : {};
+    };
+    // Pictures are placed first, so 3D layers on neighbouring tracks can be drawn far first.
+    const resolved = layers.map((layer) => (layer.kind === "picture" ? { ...layer, own: placed(layer.picture) } : layer));
+    const ordered = sortByDepth(resolved, (l) => (l.kind === "picture" ? (l.own as { depth?: number } | null)?.depth : undefined));
+    for (const layer of ordered) {
       if (layer.kind === "adjustment") {
         const { clip, time } = layer.shown;
-        const adjustment = clipLayer(clip, time, affineAt(clip), options);
-        if (!adjustment) continue;
+        const own = clipLayer(clip, time, affineAt(clip), options);
+        if (!own) continue;
+        const adjustment = { ...own, ...matteOf(layer.matte) };
         try {
           compositor.drawAdjustment(adjustment);
         } catch (err) {
@@ -454,8 +508,9 @@ export class PreviewEngine {
         continue;
       }
       if (layer.kind === "picture") {
-        const picture = placed(layer.picture);
-        if (!picture) continue;
+        const { own } = layer;
+        if (!own) continue;
+        const picture = { ...own, ...matteOf(layer.matte) };
         try {
           compositor.drawPicture(picture);
         } catch (err) {
@@ -489,8 +544,9 @@ export class PreviewEngine {
    * frame is uploaded on every draw, a still or a text only when it changes.
    * False when there's nothing to draw yet (e.g. the media is still loading).
    */
-  private upload(compositor: Compositor, { key, source }: Picture): boolean {
+  private upload(compositor: Compositor, { key, source, interp }: Picture): boolean {
     if (!source) return true;
+    if (interp && source instanceof HTMLVideoElement) this.keepFrame(compositor, key, source, interp.slot);
     let version: string | null;
     let ready: boolean;
     if (source instanceof TextSlot) {
@@ -523,6 +579,20 @@ export class PreviewEngine {
       this.uploaded.set(key, tag);
     }
     return true;
+  }
+
+  /**
+   * A time-interpolated video showed a new frame: keep the one it replaces (under `${key}~`)
+   * and remember both frames' media times.
+   */
+  private keepFrame(compositor: Compositor, key: string, video: HTMLVideoElement, slot: MediaSlot) {
+    const last = this.frames.get(key);
+    if (last && last.count === slot.presentedFrames && last.src === video.currentSrc) return;
+    const same = !!last && last.src === video.currentSrc && compositor.hasPicture(key);
+    if (same) compositor.shiftPicture(key, `${key}~`);
+    else compositor.deletePicture(`${key}~`);
+    const time = Number.isFinite(slot.presentedTime) ? slot.presentedTime : video.currentTime;
+    this.frames.set(key, { count: slot.presentedFrames, src: video.currentSrc, time, before: same ? last!.time : Number.NaN });
   }
 
   /** The transition playing on a track at `time` (windows are cached per project). */

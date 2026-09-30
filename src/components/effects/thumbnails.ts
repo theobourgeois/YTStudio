@@ -102,7 +102,19 @@ export function effectThumb(def: EffectDefinition): Thumb {
       key: `effect:${def.type}`,
       shaders: [first.shader],
       posterAt: 0.6,
-      render: (compositor, time) => compositor.drawPicture({ key: "plain", affine: IDENTITY, opacity: 1, effects: [pass(time)!] }),
+      render: def.shader?.history
+        ? // A time effect needs a moving picture and the frames before: the sunset drifting, a third of a second of them.
+          (compositor, time) => {
+            for (let k = 10; k >= 0; k--) {
+              const t = time - k / 30;
+              if (k > 0) compositor.clear([0, 0, 0, 0]);
+              const drift = Math.sin(t * 3) * 0.12;
+              compositor.drawPicture({ key: "plain", affine: [1, 0, 0, 1, drift, 0], opacity: 1 });
+              const time_ = effectPass(def, values, t, 30, `thumb/${def.type}`);
+              if (time_) compositor.drawAdjustment({ affine: IDENTITY, opacity: 1, effects: [time_] });
+            }
+          }
+        : (compositor, time) => compositor.drawPicture({ key: "plain", affine: IDENTITY, opacity: 1, effects: [pass(time)!] }),
     };
     thumbs.set(def, thumb);
   }

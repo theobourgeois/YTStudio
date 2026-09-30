@@ -20,6 +20,7 @@ import {
   APPEARANCE,
   EFFECTS,
   type EffectDefinition,
+  CAMERA,
   MOTION,
   SOLID,
   TEXT,
@@ -318,16 +319,24 @@ const addText: EditHandler = (project, input, env) => {
 };
 
 const addLayer: EditHandler = (project, input, env) => {
-  const kind = oneOf(input, "kind", ["adjustment", "solid"] as const);
-  if (!kind) throw new ToolError('`kind` must be "adjustment" or "solid".');
+  const kind = oneOf(input, "kind", ["adjustment", "solid", "camera"] as const);
+  if (!kind) throw new ToolError('`kind` must be "adjustment", "solid" or "camera".');
   const start = number(input, "start", { min: 0 });
   const duration = optNumber(input, "duration", { min: MIN_CLIP_DURATION }) ?? STILL_DURATION;
   const trackId = optString(input, "trackId");
-  if (trackId && trackOf(project, trackId).kind !== "video") throw new ToolError(`A ${kind === "solid" ? "solid" : "layer"} goes on a video track.`);
+  if (trackId && trackOf(project, trackId).kind !== "video") throw new ToolError(`A ${kind === "solid" ? "solid" : kind} goes on a video track.`);
   const color = optString(input, "color");
-  const solid = color === undefined ? {} : checkParams(SOLID.params, { color }, "Solid").values;
-  if (kind === "adjustment" && color !== undefined) throw new ToolError("`color` is only for solids.");
-  const clip = newLayerClip(kind, start, duration, solid);
+  if (kind !== "solid" && color !== undefined) throw new ToolError("`color` is only for solids.");
+  const cameraValues = optObject(input, "camera");
+  if (kind !== "camera" && cameraValues) throw new ToolError("`camera` is only for cameras.");
+  if (kind === "camera" && input.effects !== undefined) throw new ToolError("A camera takes no effects: it's what 3D layers are seen through.");
+  const values =
+    kind === "solid" && color !== undefined
+      ? checkParams(SOLID.params, { color }, "Solid").values
+      : kind === "camera" && cameraValues
+        ? checkParams(CAMERA.params, cameraValues, "Camera").values
+        : {};
+  const clip = newLayerClip(kind, start, duration, values);
   let p = addLayerClip(project, clip, trackId).project;
   const notes: string[] = [];
   const raw = input.effects;
@@ -348,7 +357,11 @@ const addLayer: EditHandler = (project, input, env) => {
   const effects = placed.effects.filter(isVideoEffect).map((e) => e.id);
   return {
     project: p,
-    text: withNotes(`Added ${kind === "solid" ? "solid" : "adjustment layer"} ${place(p, placed, env)}${effects.length ? ` with ${effects.join(", ")}` : ""}.`, notes),
+    text: withNotes(
+      `Added ${kind === "adjustment" ? "adjustment layer" : kind} ${place(p, placed, env)}${effects.length ? ` with ${effects.join(", ")}` : ""}.` +
+        (kind === "camera" ? " Only 3D layers (motion threeD: true) are seen through it." : ""),
+      notes,
+    ),
   };
 };
 
@@ -442,9 +455,10 @@ const setSpeed: EditHandler = (project, input, env) => {
   const duration = optNumber(input, "duration", { min: MIN_CLIP_DURATION });
   const reversed = optBoolean(input, "reversed");
   const keepPitch = optBoolean(input, "keepPitch");
+  const interpolation = oneOf(input, "interpolation", ["frames", "blend", "flow"] as const);
   if (speed !== undefined && duration !== undefined) throw new ToolError("Give `speed` or `duration`, not both.");
-  if (speed === undefined && duration === undefined && reversed === undefined && keepPitch === undefined) {
-    throw new ToolError("Give `speed`, `duration`, `reversed` and/or `keepPitch`.");
+  if (speed === undefined && duration === undefined && reversed === undefined && keepPitch === undefined && interpolation === undefined) {
+    throw new ToolError("Give `speed`, `duration`, `reversed`, `keepPitch` and/or `interpolation`.");
   }
   const still = clips.find((c) => !canRetime(c, env.assets[c.assetId]));
   if (still) throw new ToolError(`${still.id} is ${isTextClip(still) ? "text" : "a still image"}: only video and sound clips have a speed. Change its length with trim_clip.`);
@@ -454,12 +468,12 @@ const setSpeed: EditHandler = (project, input, env) => {
     // Each clip gets its own speed to last `duration`.
     for (const clip of clips) {
       const fit = speedForDuration(clip, duration);
-      p = setClipSpeed(p, [clip.id], { speed: fit, reversed, keepPitch });
+      p = setClipSpeed(p, [clip.id], { speed: fit, reversed, keepPitch, interpolation });
       const lasts = clipDuration(getClip(p, clip.id)!);
       if (Math.abs(lasts - duration) > 1e-3) notes.push(`${clip.id} can only go from ${secs((clip.out - clip.in) / maxClipSpeed(clip))}s to ${secs((clip.out - clip.in) / MIN_SPEED)}s at speeds ${MIN_SPEED}–${MAX_SPEED}, so it lasts ${secs(lasts)}s`);
     }
   } else {
-    p = setClipSpeed(p, ids, { speed, reversed, keepPitch });
+    p = setClipSpeed(p, ids, { speed, reversed, keepPitch, interpolation });
     for (const clip of clips) {
       const got = clipSpeed(getClip(p, clip.id)!);
       if (speed !== undefined && Math.abs(got - speed) > 1e-6) notes.push(`${clip.id} is too short to play faster than ${got}× (a clip lasts at least ${MIN_CLIP_DURATION}s)`);
@@ -468,7 +482,12 @@ const setSpeed: EditHandler = (project, input, env) => {
   if (p === project) return { project, text: withNotes("Nothing changed: the clips already play like that.", notes) };
   const lines = ids.map((id) => {
     const c = getClip(p, id)!;
-    const how = [`${clipSpeed(c)}×`, ...(c.reversed ? ["reversed"] : []), ...(c.keepPitch === false ? ["pitch follows speed"] : [])];
+    const how = [
+      `${clipSpeed(c)}×`,
+      ...(c.reversed ? ["reversed"] : []),
+      ...(c.keepPitch === false ? ["pitch follows speed"] : []),
+      ...(c.timeInterpolation ? [c.timeInterpolation === "flow" ? "optical flow" : "frame blending"] : []),
+    ];
     return `${place(p, c, env)}: ${how.join(", ")}.`;
   });
   const moved = p.clips.filter((c) => !ids.includes(c.id) && getClip(project, c.id)?.start !== c.start).length;

@@ -54,12 +54,23 @@ export interface PresetKey {
   nudge?: number;
 }
 
+/** Where a preset landed: seconds into its clip where it starts, and how long it lasts there. */
+export interface PresetSpan {
+  start: number;
+  length: number;
+}
+
 /** One effect a preset sets: a built-in one (motion, opacity) or a video effect it adds. */
 export interface PresetEffect {
   type: string;
-  params?: ParamValues;
+  /** Values, or values worked out from where the preset landed (e.g. a dissolve timed to it). */
+  params?: ParamValues | ((span: PresetSpan) => ParamValues);
   keys?: Record<string, PresetKey[]>;
 }
+
+/** An effect's values in a preset, for where it landed. */
+const paramsOf = (fx: PresetEffect, span: PresetSpan): ParamValues | undefined =>
+  typeof fx.params === "function" ? fx.params(span) : fx.params;
 
 export interface PresetDefinition {
   type: string;
@@ -95,7 +106,7 @@ export function presetProblems(def: PresetDefinition): string[] {
       problems.push(`${def.type}: unknown effect ${fx.type}`);
       continue;
     }
-    for (const [key, v] of Object.entries(fx.params ?? {})) {
+    for (const [key, v] of Object.entries(paramsOf(fx, { start: 0, length: def.duration }) ?? {})) {
       const spec = paramSpec(effect, key);
       if (!spec || sanitizeValue(spec, v) === undefined) problems.push(`${def.type}: ${fx.type}.${key} = ${JSON.stringify(v)}`);
     }
@@ -129,7 +140,8 @@ function applyEffects(project: Project, clipId: string, def: PresetDefinition, f
     } else if (!findEffect(clip, fx.type)) {
       continue;
     }
-    if (fx.params) p = setParams(p, clipId, effectId, fx.params);
+    const values = paramsOf(fx, { start: from - clip.start, length });
+    if (values) p = setParams(p, clipId, effectId, values);
     const keys = fx.keys;
     if (!keys) continue;
     const at = getClip(p, clipId)!;

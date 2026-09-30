@@ -30,12 +30,12 @@
  * - Colour: videos are decoded as YUV and turned into RGB by the compositor
  *   with their own YCbCr matrix; the output is BT.709, tagged as such.
  */
-import type { Adjustment, Affine, EffectPass, Placed } from "../shared/compositor.ts";
-import { effectPasses } from "../shared/effect-gl.ts";
-import { VOLUME, clipKind, findEffect, hasMedia, isTextClip, motionAt, opacityAt, solidColorAt, volumeAt } from "../shared/effects.ts";
+import { type Adjustment, type Affine, type EffectPass, type Placed, matteIndex } from "../shared/compositor.ts";
+import { effectPasses, effectShader } from "../shared/effect-gl.ts";
+import { VOLUME, clipKind, effectDefinition, findEffect, hasMedia, isTextClip, lookAt, motionAt, opacityAt, solidColorAt, volumeAt } from "../shared/effects.ts";
 import { easesIn, easesOut, segmentProgress } from "../shared/keyframes.ts";
-import { EXPORT_SAMPLES, canvasAffine, clipLayer } from "../shared/layers.ts";
-import { type Shown, sceneAt, transitionWindows } from "../shared/scene.ts";
+import { EXPORT_SAMPLES, canvasAffine, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "../shared/layers.ts";
+import { type Shown, handleTime, sceneAt, transitionWindows } from "../shared/scene.ts";
 import {
   END_GUARD,
   TEXT_SOURCE_RANGE,
@@ -45,6 +45,7 @@ import {
   projectDuration,
   sourceRange,
   trackClips,
+  videoTracks,
 } from "../shared/timeline.ts";
 import { type UniformValue, transitionShader, transitionUniforms } from "../shared/transition-gl.ts";
 import { type Size, frameCorners, placeClip, placementAffine } from "../shared/transform.ts";
@@ -58,7 +59,7 @@ const LIMITER = "alimiter=limit=0.98:level=0:latency=1";
 /** Largest picture decoded, per side (well within any WebGL 2 texture limit). */
 const MAX_PICTURE = 8192;
 
-export type RenderAsset = Pick<MediaAsset, "kind" | "hasAudio" | "hasVideo" | "width" | "height" | "duration"> & {
+export type RenderAsset = Pick<MediaAsset, "kind" | "hasAudio" | "hasVideo" | "width" | "height" | "duration"> & Partial<Pick<MediaAsset, "fps">> & {
   path: string;
   /** Its reversed copy (see `MediaAsset.reversed`), needed when a clip plays it backwards. */
   reversedPath?: string;
@@ -100,6 +101,12 @@ export interface RenderSource {
   /** A drawn text's PNG, sent as it is (then `argv` is empty). */
   png?: Buffer;
   argv: string[];
+  /**
+   * Time interpolation (`Clip.timeInterpolation`): the media is decoded at its own frame rate
+   * (`fps`) from file time `start`, one frame at a time as the output needs them, and each
+   * output frame gets the two either side of its moment (see `Placed.interpolate`).
+   */
+  native?: { fps: number; start: number };
 }
 
 /** Bytes of one of a source's frames. */
@@ -169,7 +176,10 @@ export function planRender(
   for (const clip of project.clips) if (hasPicture(clip)) renderAssetOf(clip, assets, texts);
   const range = (clip: Clip) => (!hasMedia(clip) ? TEXT_SOURCE_RANGE : sourceRange(renderAssetOf(clip, assets, texts)));
   const layerOptions = { canvas, fps: F, maxSamples: EXPORT_SAMPLES };
-  const canvasAffineOf = (clip: Clip) => canvasAffine(clip, canvas);
+  const camera = projectCamera(project, canvas);
+  const canvasAffineOf = (clip: Clip) => canvasAffine(clip, canvas, camera);
+  const videoTrackIds = videoTracks(project).map((t) => t.id);
+  const trackAbove = (id: string) => videoTrackIds[videoTrackIds.indexOf(id) - 1];
   const shotsAt = (f: number) => sceneAt(project, windows, frameTime(f, F), range);
 
   /** The picture a clip shows at a moment: its media, or its text's drawing then. */
@@ -189,12 +199,16 @@ export function planRender(
     if (!(opacity > 0)) return null;
     const { id, asset } = pictureAt(shown);
     const media = mediaSize(asset, canvas);
-    const p = placeClip(canvas, media, motionAt(clip, time), asset.frame);
+    const motion = motionAt(clip, time);
+    const p = placeClip(canvas, media, motion, asset.frame);
+    if (!(Math.abs(p.scaleX) > 0 && Math.abs(p.scaleY) > 0)) return null;
+    // A 3D layer can come into view however it's placed in 2D, and nearer the camera it's shown bigger: all its detail.
+    if (motion.threeD) return { id, asset, affine: placementAffine(p, canvas) as Affine, opacity, density: [1, 1] };
     const corners = frameCorners(p);
     const xs = corners.map((c) => c[0]);
     const ys = corners.map((c) => c[1]);
     const onCanvas = Math.max(...xs) > 0 && Math.min(...xs) < W && Math.max(...ys) > 0 && Math.min(...ys) < H;
-    if (!onCanvas || !(Math.abs(p.scaleX) > 0 && Math.abs(p.scaleY) > 0)) return null;
+    if (!onCanvas) return null;
     return {
       id,
       asset,
@@ -220,7 +234,17 @@ export function planRender(
   const shaders: Record<string, string> = {};
   // Every video effect a visible clip has on, whenever it's shown.
   for (const clip of project.clips) {
-    for (const pass of effectPasses(clip, clip.in)) shaders[pass.shader.key] = pass.shader.source;
+    for (const pass of effectPasses(clip, clip.in)) {
+      shaders[pass.shader.key] = pass.shader.source;
+      // A particle effect's own vertex shader travels under its key and "#vs".
+      if (pass.shader.vertex) shaders[`${pass.shader.key}#vs`] = pass.shader.vertex;
+      if (pass.shader.base) shaders[`${pass.shader.key}#base`] = pass.shader.base;
+    }
+  }
+  // 3D layers' depth of field blurs with Gaussian Blur, whatever effects the clips have.
+  if (project.clips.some((c) => findEffect(c, "motion")?.params.threeD === true)) {
+    const blur = effectShader(effectDefinition("gaussian-blur")!);
+    if (blur) shaders[blur.key] = blur.source;
   }
   for (let f = 0; f < frames; f++) {
     for (const shot of shotsAt(f)) {
@@ -253,8 +277,18 @@ export function planRender(
       const size = { width: side(media.width, density[0]), height: side(media.height, density[1]) };
       if (still) return { ...base, still, ...size, luma: null, argv: stillArgs(asset, size, opts) };
       const luma = lumaWeights(asset.colorSpace, asset.height);
+      const fps = asset.fps ?? 0;
+      if (clip.timeInterpolation && fps > 0) {
+        // The file times it shows, a frame's margin either side, on the media's own frame grid.
+        const fileAt = (f: number) => fileTime(clip, handleTime(clip, frameTime(f, F), range(clip)), asset.duration);
+        const [a, b] = [fileAt(first), fileAt(end - 1)];
+        const start = Math.max(0, Math.floor((Math.min(a, b) - 1 / fps) * fps + 1e-6) / fps);
+        const length = Math.max(a, b) + 3 / fps - start;
+        return { ...base, still, ...size, luma, argv: nativeArgs(clip, asset, size, start, length, opts), native: { fps, start } };
+      }
       return { ...base, still, ...size, luma, argv: videoArgs(clip, asset, size, first, end, opts) };
     });
+  const nativeOf = new Map(sources.flatMap((s) => (s.native ? [[s.key, s.native] as const] : [])));
 
   return {
     width: W,
@@ -275,34 +309,62 @@ export function planRender(
         const key = drawn && keys.get(drawn.id);
         if (!drawn || !key) return null;
         const media = mediaSize(drawn.asset, canvas);
-        const affineAt = (t: number) => placementAffine(placeClip(canvas, media, motionAt(clip, t), drawn.asset.frame), canvas) as Affine;
-        const layer = clipLayer(clip, time, affineAt, layerOptions);
-        return layer && { ...byKey(layer), key };
+        const where = placer(clip, canvas, (t) => placeClip(canvas, media, motionAt(clip, t), drawn.asset.frame), camera);
+        const layer = clipLayer(clip, time, where, layerOptions);
+        const native = nativeOf.get(key);
+        if (!layer || !native) return layer && { ...byKey(layer), key };
+        // Between which two of the media's frames this moment is, and how far along.
+        const x = (fileTime(clip, time, drawn.asset.duration) - native.start) * native.fps;
+        const index = Math.max(0, Math.floor(x + 1e-6));
+        const interpolate = { key: `${key}+`, amount: Math.min(1, Math.max(0, x - index)), flow: clip.timeInterpolation === "flow", index };
+        return { ...byKey(layer), key, interpolate };
       };
-      const layers: FrameLayer[] = [];
+      /** Each track's layer, bottom first, with how its clip wants a track matte. */
+      const layers: { trackId: string; matte: number; layer: FrameLayer }[] = [];
       for (const shot of shotsAt(f)) {
+        const { trackId } = shot;
         if (shot.kind === "clip") {
           const { clip, time } = shot.shown;
+          // A camera draws nothing: 3D layers are seen through it.
+          if (clipKind(clip) === "camera") continue;
+          const matte = matteIndex(lookAt(clip, time).trackMatte);
           if (clipKind(clip) === "adjustment") {
             const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
-            if (layer) layers.push({ kind: "adjustment", adjustment: byKey(layer) });
+            if (layer) layers.push({ trackId, matte, layer: { kind: "adjustment", adjustment: byKey(layer) } });
             continue;
           }
           const picture = placed(shot.shown);
-          if (picture) layers.push({ kind: "picture", picture });
+          if (picture) layers.push({ trackId, matte, layer: { kind: "picture", picture } });
           continue;
         }
         const def = shot.window.def;
         layers.push({
-          kind: "transition",
-          shader: def.type,
-          uniforms: transitionUniforms(def, shot.window.transition.params),
-          progress: shot.progress,
-          from: placed(shot.from),
-          to: placed(shot.to),
+          trackId,
+          matte: 0,
+          layer: {
+            kind: "transition",
+            shader: def.type,
+            uniforms: transitionUniforms(def, shot.window.transition.params),
+            progress: shot.progress,
+            from: placed(shot.from),
+            to: placed(shot.to),
+          },
         });
       }
-      return layers;
+      const matted = withTrackMattes(
+        layers,
+        trackAbove,
+        (l) => l.matte,
+        (l) => l.layer.kind === "picture",
+        (l, m, mode) => {
+          const matte = { mode, layer: (m.layer as Extract<FrameLayer, { kind: "picture" }>).picture };
+          if (l.layer.kind === "picture") return { ...l, layer: { ...l.layer, picture: { ...l.layer.picture, matte } } };
+          if (l.layer.kind === "adjustment") return { ...l, layer: { ...l.layer, adjustment: { ...l.layer.adjustment, matte } } };
+          return l;
+        },
+      );
+      // 3D layers on neighbouring tracks are drawn far first.
+      return sortByDepth(matted, (l) => (l.layer.kind === "picture" ? (l.layer.picture as { depth?: number }).depth : undefined)).map((l) => l.layer);
     },
   };
 }
@@ -316,11 +378,12 @@ const hasPicture = (clip: Clip) => {
 /** A layer's shaders named by key (their sources travel separately, in `RenderPlan.shaders`). */
 function byKey(layer: Omit<Placed, "key">): Omit<PlacedRef, "key"> {
   const keyed = (effects: EffectPass[]) => effects.map((pass) => ({ ...pass, shader: pass.shader.key }));
-  const { effects, samples, ...rest } = layer;
+  const { effects, samples, matte, ...rest } = layer;
   return {
     ...rest,
     ...(effects && { effects: keyed(effects) }),
     ...(samples && { samples: samples.map(({ effects: e, ...sample }) => ({ ...sample, ...(e && { effects: keyed(e) }) })) }),
+    ...(matte && { matte: { mode: matte.mode, layer: { ...byKey(matte.layer), key: matte.layer.key } } }),
   };
 }
 
@@ -412,6 +475,20 @@ function videoArgs(clip: Clip, asset: RenderAsset, size: Size, first: number, en
       `tpad=${holdFirst ? `start_mode=clone:start=${holdFirst}:` : ""}stop_mode=clone:stop=${n}`,
       `trim=end_frame=${n}`,
     ].join(","),
+    ...rawOut("yuv420p"),
+  ];
+}
+
+/**
+ * A time-interpolated clip's frames (`RenderSource.native`): its media from file time
+ * `start` for `length` seconds, at the media's own frame rate (so frame i is at
+ * start + i / fps), at `size`, as YUV 4:2:0.
+ */
+function nativeArgs(clip: Clip, asset: RenderAsset, size: Size, start: number, length: number, opts: RenderOptions): string[] {
+  return [
+    opts.ffmpegPath ?? "ffmpeg", ...FFMPEG_QUIET,
+    "-ss", sec(start), "-t", sec(length), "-i", playedFile(clip, asset),
+    "-vf", ["setpts=PTS-STARTPTS", `fps=${asset.fps}`, `scale=${size.width}:${size.height}:out_range=tv`, "format=yuv420p"].join(","),
     ...rawOut("yuv420p"),
   ];
 }

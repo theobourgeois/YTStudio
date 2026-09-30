@@ -45,17 +45,22 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      keying, glitch...); common.ts has helpers.
   effect-gl.ts       Video effect shader prelude, effectShader, effectPasses (a clip's effects at a moment).
   layers.ts          clipLayer: a clip as a compositor layer at a moment (opacity, blend mode, edges, effects, and
-                     motion blur's moments over the shutter). The preview and the export both build layers here.
+                     motion blur's moments over the shutter); placer (2D affine or 3D projection), track mattes
+                     (withTrackMattes), depth sorting. The preview and the export both build layers here.
+  camera.ts          3D: Camera clips (the Camera effect), cameraAt, projectLayer (a 3D layer's homography), defocus.
+  particles.ts       Particle effects' shaders: `Particle particle(int id)` in a vertex shader, instanced quads.
   presets.ts         Presets (After Effects' Animation Presets): transitions as an adjustment layer across a cut,
                      moves/looks on clips; applyPresetToClips, addPresetLayer. Definitions in preset-library/.
   transitions.ts     Transition registry, timing specs, sanitize/patch.
   transition-library/  One file per category of GLSL transitions; common.ts has shared specs.
   transition-windows.ts  Where transitions play on the timeline + edits to them.
   compositor.ts      THE renderer (WebGL2), an After Effects-style layer stack: pictures and solids (after their
-                     video effects) placed by an affine + opacity + blend mode (BLEND_MODES) + edges (mirror/tile),
-                     adjustment layers (drawAdjustment: the frame so far through effects and Motion), motion blur
-                     (samples averaged in a float buffer), transitions, YUV in/out. Draws the preview, the Effects
-                     tab's thumbnails and every export frame.
+                     video effects) placed by an affine or projective map (3D) + opacity + blend mode (BLEND_MODES)
+                     + edges (mirror/tile) + track matte, adjustment layers (drawAdjustment: the frame so far
+                     through effects and Motion), motion blur (samples averaged in a float buffer), time effects'
+                     frame history (texture arrays) and GPU optical flow, time interpolation between two frames,
+                     particle passes (instanced), Grow Bounds, transitions, YUV in/out. Draws the preview, the
+                     Effects tab's thumbnails and every export frame.
   scene.ts           What each video track shows at time t (clip + source time, or transition + sides).
   transition-gl.ts   Transition shader prelude, fragmentSource, uniforms.
   transform.ts       Where a clip lands on the canvas (fit → scale/rotate around the anchor).
@@ -148,8 +153,19 @@ extension** (Node ESM through tsx).
   the compositor; generator effects go on it) and adjustment layer (`assetId: ""` + `adjustment: true`: its effects,
   Motion and Opacity apply to everything below it; no transitions, and neighbours can't transition into it). Use
   `hasMedia` where code needs a media file. Solids and adjustment layers fill the canvas at 100%.
-- Opacity has a `blendMode`, Motion has `edges` (none/mirror/tile/extend: what shows past the frame) and `motionBlur`
-  + `shutterAngle`. A keyframe's `influence` (0..1, absent = 1/3) is After Effects' ease velocity influence.
+- Opacity has a `blendMode` and a `trackMatte` (the clip on the video track right above is its matte and isn't drawn);
+  Motion has `edges` (none/mirror/tile/extend: what shows past the frame), `motionBlur` + `shutterAngle`, and
+  `threeD` + `positionZ`/`rotationX`/`rotationY` (a 3D layer, seen through the topmost Camera clip: `camera.ts`).
+  A keyframe's `influence` (0..1, absent = 1/3) is After Effects' ease velocity influence.
+- `Clip.timeInterpolation` (blend | flow; videos only) is Premiere's Time Interpolation: the export decodes such a
+  clip at its media's own frame rate (`RenderSource.native`) and sends the two frames either side of each moment;
+  the preview plays it a frame ahead and keeps the previous frame (`PreviewEngine.keepFrame`). Both go through
+  `Placed.interpolate`.
+- Time effects (`EffectShader.history`: Echo, Posterize Time, Trails, Datamosh, Pixel Motion Blur...) read their
+  earlier inputs, own last output and optical flow; the compositor keeps them per clip/effect by source time. They
+  only exist while playing and in the export (frames drawn in order); paused, the preview shows the frame alone.
+- Particle effects (`EffectShader.particles`) place particles in closed form from their birth, so any frame draws on
+  its own. Effects that draw past the clip's frame ask for room (`EffectShader.grow`, `frameUv` in GLSL).
 - `Effect = { id, type, enabled, params, keyframes? }`. Built-in effects (motion, opacity, volume) are on every clip,
   and Text/Appearance on text clips. All of these have `id === type`, and code addresses them by type.
 - Video effects (a definition with a `shader`) are the ones the user adds: any number, in the order they're drawn,
@@ -226,7 +242,7 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   (`components/preview/engine.ts` / `placement.ts`) and export (`server/render.ts`: `planRender`'s `draw`,
   `audioArgs`). Anything drawn should become compositor work (`shared/compositor.ts`) so both get it at once.
 - **A video effect** (added by the user from the Effects tab): add a `videoEffect(...)` to a
-  `shared/effect-library/*.ts` file. The GLSL defines `vec4 effect(vec2 uv)`; params become uniforms. See the
+  `shared/effect-library/*.ts` file (time effects in `time.ts`, particles in `particles.ts`). The GLSL defines `vec4 effect(vec2 uv)`; params become uniforms. See the
   prelude docs in `effect-gl.ts`, and give it `demo` values if its defaults don't read on a card. Then run the
   effect-sheet script. The panel, keyframes, preview and export then work with no other change.
 - **A built-in effect**: add an `EffectDefinition` to `EFFECTS` (`builtIn` puts it on every clip it `appliesTo`), plus

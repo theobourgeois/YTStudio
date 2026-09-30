@@ -3,7 +3,7 @@
  * returns a new one (or the same instance when nothing changed), so they are
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
-import { clipKind, defaultEffects, hasMedia, solidEffects, textStyleAt } from "./effects.ts";
+import { cameraEffects, clipKind, defaultEffects, hasMedia, solidEffects, textStyleAt } from "./effects.ts";
 import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
 import type {
   AspectRatio,
@@ -122,6 +122,7 @@ export function clipName(clip: Clip, asset: Pick<MediaAsset, "name"> | undefined
   if (kind === "text") return textStyleAt(clip, clip.in).text.trim().split("\n")[0].trim() || "Text";
   if (kind === "solid") return "Solid";
   if (kind === "adjustment") return "Adjustment Layer";
+  if (kind === "camera") return "Camera";
   return asset?.name ?? "Media offline";
 }
 
@@ -452,13 +453,15 @@ export function addTextClip(project: Project, clip: Omit<Clip, "trackId">): { pr
  * from its start.
  */
 export function newLayerClip(
-  kind: "adjustment" | "solid",
+  kind: "adjustment" | "solid" | "camera",
   start: number,
   duration: number,
-  solid: ParamValues = {},
+  params: ParamValues = {},
 ): Omit<Clip, "trackId"> {
   const base = { id: createId("clip"), assetId: "", start: roundTime(Math.max(0, start)), in: 0, out: roundTime(Math.max(MIN_CLIP_DURATION, duration)) };
-  return kind === "solid" ? { ...base, effects: solidEffects(solid) } : { ...base, effects: defaultEffects(), adjustment: true };
+  if (kind === "solid") return { ...base, effects: solidEffects(params) };
+  if (kind === "camera") return { ...base, effects: cameraEffects(params) };
+  return { ...base, effects: defaultEffects(), adjustment: true };
 }
 
 /**
@@ -760,6 +763,8 @@ export interface SpeedChange {
   speed?: number;
   reversed?: boolean;
   keepPitch?: boolean;
+  /** Time Interpolation (see `Clip.timeInterpolation`): `frames` is Frame Sampling. */
+  interpolation?: "frames" | "blend" | "flow";
 }
 
 /** The fastest a clip can play: `MAX_SPEED`, or as fast as keeps it `MIN_CLIP_DURATION` long. */
@@ -782,13 +787,22 @@ function retimed(clip: Clip, change: SpeedChange): Clip {
   const speed = change.speed === undefined ? clipSpeed(clip) : clampSpeed(clip, change.speed);
   const reversed = change.reversed ?? clip.reversed === true;
   const keepPitch = change.keepPitch ?? clip.keepPitch !== false;
-  if (speed === clipSpeed(clip) && reversed === (clip.reversed === true) && keepPitch === (clip.keepPitch !== false)) return clip;
-  const { speed: _s, reversed: _r, keepPitch: _k, ...rest } = clip;
+  const interpolation = change.interpolation ?? clip.timeInterpolation ?? "frames";
+  if (
+    speed === clipSpeed(clip) &&
+    reversed === (clip.reversed === true) &&
+    keepPitch === (clip.keepPitch !== false) &&
+    interpolation === (clip.timeInterpolation ?? "frames")
+  ) {
+    return clip;
+  }
+  const { speed: _s, reversed: _r, keepPitch: _k, timeInterpolation: _i, ...rest } = clip;
   return {
     ...rest,
     ...(Math.abs(speed - 1) > 1e-9 && { speed }),
     ...(reversed && { reversed: true as const }),
     ...(!keepPitch && { keepPitch: false as const }),
+    ...(interpolation !== "frames" && { timeInterpolation: interpolation }),
   };
 }
 

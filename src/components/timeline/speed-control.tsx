@@ -7,7 +7,7 @@
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { PiArrowCounterClockwise, PiGauge, PiWaveform } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiFilmStrip, PiGauge, PiWaveform } from "react-icons/pi";
 import type { Clip, MediaAsset, Project } from "@shared/types";
 import { formatSpeed, formatTime, parseSpeed } from "@shared/format";
 import {
@@ -23,6 +23,7 @@ import {
 } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -131,6 +132,10 @@ export function SpeedControl({ clipIds, clip }: { clipIds: readonly string[]; cl
   const reversed = clip.reversed === true;
   const keepPitch = clip.keepPitch !== false;
   const several = clipIds.length > 1;
+  const hasPicture = useEditor((s) =>
+    clipIds.some((id) => s.assets.find((a) => a.id === clipsById(s.project).get(id)?.assetId)?.kind === "video"),
+  );
+  const interpolation = clip.timeInterpolation ?? "frames";
 
   const setSpeed = (value: number) => commitSpeed(clipIds, { speed: value });
   const drag = (value: number) =>
@@ -194,6 +199,27 @@ export function SpeedControl({ clipIds, clip }: { clipIds: readonly string[]; cl
             onChange={(on) => commitSpeed(clipIds, { keepPitch: on })}
           />
         )}
+        {hasPicture && (
+          <div className="flex items-center gap-2.5">
+            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground [&_svg]:size-3.5">
+              <PiFilmStrip />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] leading-4 font-medium">Time interpolation</span>
+              <span className="block truncate text-xs text-muted-foreground">{INTERPOLATION_HINTS[interpolation]}</span>
+            </span>
+            <Select value={interpolation} onValueChange={(v) => commitSpeed(clipIds, { interpolation: v as SpeedChange["interpolation"] })}>
+              <SelectTrigger size="sm" aria-label="Time interpolation" className="h-7! w-32 rounded px-2 text-xs shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper" align="end">
+                <SelectItem value="frames" className="text-xs">Frame Sampling</SelectItem>
+                <SelectItem value="blend" className="text-xs">Frame Blending</SelectItem>
+                <SelectItem value="flow" className="text-xs">Optical Flow</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
       <p className="border-t pt-2.5 text-xs text-muted-foreground">
         Tip: hold <kbd className="font-sans">{IS_MAC ? "⌥" : "Alt"}</kbd> while dragging a clip's edge to stretch
@@ -235,6 +261,13 @@ function SpeedInput({ speed, clip, onChange }: { speed: number; clip: Clip; onCh
     />
   );
 }
+
+/** What each of Premiere's Time Interpolation choices does, under its name. */
+const INTERPOLATION_HINTS: Record<NonNullable<SpeedChange["interpolation"]>, string> = {
+  frames: "Repeats or skips frames",
+  blend: "Cross-fades between frames",
+  flow: "Makes new frames: smooth slow motion",
+};
 
 function SwitchRow({
   icon,

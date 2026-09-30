@@ -7,6 +7,8 @@
  * Premiere draws standard effects before Motion and Opacity.
  */
 import type { EffectPass, Shader } from "./compositor.ts";
+import { particleSources } from "./particles.ts";
+import { timelineTime } from "./timeline.ts";
 import { type EffectDefinition, effectDefinition, storedValuesAt } from "./effects.ts";
 import type { ParamSpec } from "./params.ts";
 import { GLSL_HELPERS, type UniformSpec, type UniformValue, paramUniforms, uniformDeclarations } from "./transition-gl.ts";
@@ -17,8 +19,10 @@ import type { Clip, ParamValues } from "./types.ts";
  *
  * - `ratio` (the clip's frame width / height as shown), `resolution` (px of the
  *   picture being worked on: about its size on the output), `time` (the
- *   clip's source time in seconds, for effects that move), `pass` (which run
- *   of a multi-pass effect this is, from 0).
+ *   clip's source time in seconds, for effects that move), `clipTime` (seconds
+ *   since the clip started on the timeline, for timing things within it), `fps` (the video's
+ *   frame rate, for effects that blur their own motion over a frame's
+ *   shutter), `pass` (which run of a multi-pass effect this is, from 0).
  * - `getColor(uv)`: the clip's picture (after the effects before this one,
  *   and in a multi-pass effect, after its passes so far), premultiplied RGBA;
  *   past the edges it repeats the edge pixels (or mirrors or tiles the
@@ -46,11 +50,17 @@ uniform sampler2D uInput;
 uniform float ratio;
 uniform vec2 resolution;
 uniform float time;
+uniform float clipTime;
+uniform float fps;
 uniform int pass;
+uniform vec4 uFrame;
 ${GLSL_HELPERS}
 vec4 getColor(vec2 uv) { return texture(uSrc, uv); }
 vec4 getColorOrClear(vec2 uv) { return inside(uv) ? texture(uSrc, uv) : vec4(0.0); }
 vec4 getInput(vec2 uv) { return texture(uInput, uv); }
+// A point of the clip's frame (fractions, y down, like a Center parameter) in this layer's uv: the
+// same as toUv, unless an effect grew the layer past the frame (Grow Bounds).
+vec2 frameUv(vec2 p) { vec2 q = toUv(p); return uFrame.xy + q * (uFrame.zw - uFrame.xy); }
 vec3 unpremultiply(vec4 c) { return c.a > 0.0 ? c.rgb / c.a : vec3(0.0); }
 vec4 withRgb(vec4 c, vec3 rgb) { return vec4(clamp(rgb, 0.0, 1.0) * c.a, c.a); }
 `;
@@ -63,15 +73,87 @@ void main() {
 }
 `;
 
+/** Most earlier frames a time effect keeps. */
+export const MAX_HISTORY = 48;
+
+/**
+ * What a time effect (`EffectShader.history`) can also use:
+ *
+ * - `getFrameAgo(seconds, uv)`: its input that long ago (blending the two frames recorded
+ *   around then), or its input now when there's nothing that old (`historyReach` is how
+ *   far back frames go, 0 for none).
+ * - `getFeedback(uv)`: its own output a frame ago (for trails and datamosh), transparent
+ *   when there's none (`hasFeedback`).
+ * - `getFlow(uv)`: how far the picture at `uv` moved since the last frame, in uv
+ *   (optical flow: now ≈ a frame ago at `uv - getFlow(uv)`); zero when unknown.
+ */
+const HISTORY_PRELUDE = `
+uniform highp sampler2DArray uHistory;
+uniform float uHistoryAge[${MAX_HISTORY}];
+uniform int uHistoryCount;
+uniform sampler2D uFeedback;
+uniform bool hasFeedback;
+uniform sampler2D uFlow;
+uniform bool hasFlow;
+float historyReach() {
+  float most = 0.0;
+  for (int i = 0; i < ${MAX_HISTORY}; i++) {
+    if (i >= uHistoryCount) break;
+    most = max(most, uHistoryAge[i]);
+  }
+  return most;
+}
+vec4 getFrameAgo(float seconds, vec2 uv) {
+  if (seconds <= 0.0 || uHistoryCount == 0) return getInput(uv);
+  // The recorded frames just newer and just older than then (now counts as age 0).
+  float newer = 0.0;
+  int newerAt = -1;
+  float older = 1e9;
+  int olderAt = -1;
+  for (int i = 0; i < ${MAX_HISTORY}; i++) {
+    if (i >= uHistoryCount) break;
+    float age = uHistoryAge[i];
+    if (age < 0.0) continue;
+    if (age <= seconds && age >= newer) { newer = age; newerAt = i; }
+    if (age >= seconds && age < older) { older = age; olderAt = i; }
+  }
+  vec4 a = newerAt < 0 ? getInput(uv) : texture(uHistory, vec3(uv, float(newerAt)));
+  if (olderAt < 0) return a;
+  vec4 b = texture(uHistory, vec3(uv, float(olderAt)));
+  return older > newer ? mix(a, b, (seconds - newer) / (older - newer)) : b;
+}
+vec4 getFeedback(vec2 uv) { return hasFeedback && inside(uv) ? texture(uFeedback, uv) : vec4(0.0); }
+vec2 getFlow(vec2 uv) { return hasFlow ? texture(uFlow, uv).xy : vec2(0.0); }
+`;
+
 /** Names the prelude uses, which parameters can't have. */
-export const RESERVED_EFFECT_UNIFORMS = ["uSrc", "uInput", "ratio", "resolution", "time", "pass", "vUv", "fragColor"];
+export const RESERVED_EFFECT_UNIFORMS = [
+  "uSrc",
+  "uInput",
+  "ratio",
+  "resolution",
+  "time",
+  "clipTime",
+  "fps",
+  "uFrame",
+  "pass",
+  "vUv",
+  "fragColor",
+  "uHistory",
+  "uHistoryAge",
+  "uHistoryCount",
+  "uFeedback",
+  "hasFeedback",
+  "uFlow",
+  "hasFlow",
+];
 
 const isUniformSpec = (spec: ParamSpec): spec is UniformSpec =>
   spec.kind === "number" || spec.kind === "boolean" || spec.kind === "choice" || spec.kind === "vec2" || spec.kind === "color";
 
-/** The complete fragment shader of a video effect. */
-export function effectFragmentSource(def: { params: readonly ParamSpec[]; glsl: string }): string {
-  return `${PRELUDE}\n${uniformDeclarations(def.params.filter(isUniformSpec))}\n${def.glsl}\n${MAIN}`;
+/** The complete fragment shader of a video effect (a time effect's with its history helpers). */
+export function effectFragmentSource(def: { params: readonly ParamSpec[]; glsl: string; history?: unknown }): string {
+  return `${PRELUDE}${def.history ? HISTORY_PRELUDE : ""}\n${uniformDeclarations(def.params.filter(isUniformSpec))}\n${def.glsl}\n${MAIN}`;
 }
 
 const shaders = new Map<string, Shader>();
@@ -82,21 +164,66 @@ export function effectShader(def: EffectDefinition): Shader | null {
   let shader = shaders.get(def.type);
   if (!shader) {
     // Keyed apart from transitions, which share the compositor's program cache.
-    shader = { key: `fx:${def.type}`, source: effectFragmentSource({ params: def.params, glsl: def.shader.glsl }) };
+    const key = `fx:${def.type}`;
+    if (def.shader.particles) {
+      // The particles' shaders, and the layer under them (the effect's own `effect(uv)`).
+      const { vertex, fragment } = particleSources(uniformDeclarations(def.params.filter(isUniformSpec)), def.shader.particles.glsl);
+      shader = { key, source: fragment, vertex, base: effectFragmentSource({ params: def.params, glsl: def.shader.glsl }) };
+    } else {
+      shader = { key, source: effectFragmentSource({ params: def.params, glsl: def.shader.glsl, history: def.shader.history }) };
+    }
     shaders.set(def.type, shader);
   }
   return shader;
 }
 
-/** A video effect's values (and the time) as uniforms. */
-export function effectUniforms(def: EffectDefinition, values: ParamValues, time: number): UniformValue[] {
-  return [...paramUniforms(def.params.filter(isUniformSpec), values), { name: "time", type: "float", value: time }];
+/** Frame rate effects are drawn at when nobody says (cards, sheets). */
+export const DEFAULT_FPS = 30;
+
+/** A video effect's values (and the time, time into its clip and frame rate) as uniforms. */
+export function effectUniforms(def: EffectDefinition, values: ParamValues, time: number, fps = DEFAULT_FPS, clipTime = time): UniformValue[] {
+  return [
+    ...paramUniforms(def.params.filter(isUniformSpec), values),
+    { name: "time", type: "float", value: time },
+    { name: "clipTime", type: "float", value: clipTime },
+    { name: "fps", type: "float", value: fps },
+  ];
 }
 
-/** The pass of one effect with these values, at source time `time`. */
-export function effectPass(def: EffectDefinition, values: ParamValues, time: number): EffectPass | null {
+/**
+ * The pass of one effect with these values, at source time `time`. A time effect keeps its
+ * earlier frames under `instance` (a clip's effect: see `EffectPass.history`), only
+ * recording new ones when `record` (not for motion blur's in-between moments).
+ */
+export function effectPass(
+  def: EffectDefinition,
+  values: ParamValues,
+  time: number,
+  fps = DEFAULT_FPS,
+  instance?: string,
+  record = true,
+  clipTime = time,
+): EffectPass | null {
   const shader = effectShader(def);
-  return shader && { shader, uniforms: effectUniforms(def, values, time), passes: def.shader?.passes ?? 1 };
+  if (!shader) return null;
+  const pass: EffectPass = { shader, uniforms: effectUniforms(def, values, time, fps, clipTime), passes: def.shader?.passes ?? 1 };
+  const particles = def.shader?.particles;
+  if (particles) pass.particles = { count: Math.max(0, Math.round(particles.count(values))), blend: particles.blend(values) };
+  const grow = def.shader?.grow?.(values) ?? 0;
+  if (grow > 0) pass.grow = grow;
+  const history = def.shader?.history;
+  if (history && instance) {
+    pass.history = {
+      id: instance,
+      time,
+      fps,
+      reach: Math.max(1 / fps, Math.min(history.reach(values, fps), MAX_HISTORY / fps)),
+      ...(history.feedback && { feedback: true }),
+      ...(history.flow && { flow: true }),
+      ...(!record && { record: false }),
+    };
+  }
+  return pass;
 }
 
 /**
@@ -117,12 +244,16 @@ export function effectsChange(clip: Clip, a: number, b: number): boolean {
   return false;
 }
 
-/** What a clip's enabled video effects draw at source time `time`, in order. */
-export function effectPasses(clip: Clip, time: number): EffectPass[] {
+/**
+ * What a clip's enabled video effects draw at source time `time`, in order. `record`: time
+ * effects add this moment to their earlier frames (not for motion blur's in-between moments).
+ */
+export function effectPasses(clip: Clip, time: number, fps = DEFAULT_FPS, record = true): EffectPass[] {
   const passes: EffectPass[] = [];
   for (const effect of clip.effects) {
     const def = effect.enabled ? effectDefinition(effect.type) : undefined;
-    const pass = def?.shader ? effectPass(def, storedValuesAt(def, effect, time), time) : null;
+    const clipTime = timelineTime(clip, time) - clip.start;
+    const pass = def?.shader ? effectPass(def, storedValuesAt(def, effect, time), time, fps, `${clip.id}/${effect.id}`, record, clipTime) : null;
     if (pass) passes.push(pass);
   }
   return passes;

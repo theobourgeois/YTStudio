@@ -444,7 +444,7 @@ export function describeToolCall(rawName: string, input: unknown): string {
     }
     case "add_layer": {
       const effects = list(f("effects")).length;
-      const what = f("kind") === "solid" ? "a solid" : "an adjustment layer";
+      const what = f("kind") === "solid" ? "a solid" : f("kind") === "camera" ? "a camera" : "an adjustment layer";
       return effects ? `Add ${what} with ${count(effects, "effect")}` : `Add ${what}`;
     }
     case "apply_preset": {

@@ -243,7 +243,7 @@ interface EditorState {
    * video track `trackId` when it's free there, else on the top video track or a new one on
    * top; with the video effects `effects` on it. Selects it and returns its id.
    */
-  addLayer: (kind: "adjustment" | "solid", opts?: LayerOptions) => string;
+  addLayer: (kind: "adjustment" | "solid" | "camera", opts?: LayerOptions) => string;
   /**
    * Put a preset somewhere: a transition preset on an adjustment layer centred on the cut
    * (or clip edge) `edge`; an effect preset on `clipIds`, or with `at`, on an adjustment

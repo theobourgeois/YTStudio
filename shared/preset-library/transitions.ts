@@ -285,4 +285,86 @@ export const TRANSITION_PRESETS: PresetDefinition[] = [
     duration: 0.8,
     effects: [{ type: "lens-blur", keys: { blurRadius: spike(0.08, 0, 0.5) } }],
   }),
+  // 3D: the picture below as a card in space, seen through the default camera.
+  transition({
+    type: "flip-3d",
+    label: "3D Flip",
+    tags: ["spin"],
+    duration: 0.6,
+    // Edge on at the cut: the outgoing shot turns away, the incoming one turns in from the other side.
+    effects: [{ type: "motion", params: { threeD: true, motionBlur: true }, keys: { rotationY: throughCut(0, 90, -90, 0, 0.8), scale: spike(0.85, 1) } }],
+  }),
+  transition({
+    type: "tumble-3d",
+    label: "3D Tumble",
+    tags: ["spin"],
+    duration: 0.7,
+    effects: [
+      {
+        type: "motion",
+        params: { threeD: true, motionBlur: true },
+        keys: { rotationX: throughCut(0, 90, -90, 0, 0.8), positionZ: spike(900, 0, 0.6) },
+      },
+    ],
+  }),
+  transition({
+    type: "swing-3d",
+    label: "3D Swing",
+    tags: ["spin", "slide"],
+    duration: 0.7,
+    effects: [
+      {
+        type: "motion",
+        params: { threeD: true, motionBlur: true, anchor: [0, 0.5], position: [0, 0.5] },
+        keys: { rotationY: throughCut(0, -100, 100, 0, 0.8) },
+      },
+    ],
+  }),
+  transition({
+    type: "dolly-3d",
+    label: "3D Push Through",
+    tags: ["zoom"],
+    duration: 0.6,
+    // Rushes at the camera until it's behind it, and the next shot arrives from far away.
+    effects: [{ type: "motion", params: { threeD: true, ...MOVING }, keys: { positionZ: throughCut(0, -1400, 4000, 0, 0.85) } }],
+  }),
+  // Sapphire S_Shake-style: a hit at the cut, blurred along its own path, colour split.
+  transition({
+    type: "shake-hit",
+    label: "Shake Hit",
+    tags: ["shake"],
+    duration: 0.6,
+    effects: [
+      {
+        type: "shake",
+        params: { frequency: 12, amplitudeX: 0.06, amplitudeY: 0.06, rotation: 6, zoom: 0.08, tiltX: 8, tiltY: 8, jaggedness: 0.5, motionBlur: 1.5, chromaSplit: 0.5 },
+        keys: { amount: spike(2, 0, 0.7) },
+      },
+    ],
+  }),
+  // Time effects: these show while playing and in the export (they need the frames before).
+  transition({
+    type: "ghost-zoom",
+    label: "Ghost Zoom",
+    tags: ["zoom", "blur"],
+    duration: 0.6,
+    effects: [
+      { type: "motion", params: MOVING, keys: { scale: throughCut(1, 1.8, 0.6, 1) } },
+      { type: "echo", params: { echoTime: -0.033, echoes: 5, startingIntensity: 1, decay: 0.65, operator: "maximum" } },
+    ],
+  }),
+  transition({
+    type: "datamosh-bloom",
+    label: "Datamosh Bloom",
+    tags: ["glitch"],
+    duration: 1,
+    // The incoming shot's motion drags the outgoing one's pixels until it breaks through.
+    effects: [
+      {
+        type: "datamosh",
+        params: { blockSize: 0.025, refresh: 0.03 },
+        keys: { amount: [key(0, 0, "hold"), key(0.5, 1, "hold"), key(0.8, 1, "ease-out"), key(1, 0)] },
+      },
+    ],
+  }),
 ];

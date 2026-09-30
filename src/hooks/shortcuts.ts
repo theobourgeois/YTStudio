@@ -38,6 +38,7 @@ export type ShortcutAction =
   | "addTransition"
   | "newAdjustmentLayer"
   | "newSolid"
+  | "newCamera"
   | "speed"
   | "nudgeLeft"
   | "nudgeRight"
@@ -97,6 +98,8 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
   if (e.altKey) {
     // After Effects' New Adjustment Layer (its New Solid, ⌘Y, is redo here).
     if (e.code === "KeyY") return e.shiftKey ? "newSolid" : "newAdjustmentLayer";
+    // After Effects' New Camera.
+    if (e.code === "KeyC" && e.shiftKey) return "newCamera";
     if (e.shiftKey) return null;
     return e.code === "KeyC" ? "copyEffects" : e.code === "KeyV" ? "pasteEffects" : null;
   }
@@ -272,6 +275,7 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   addTransition: `${SHIFT}${MOD}D`,
   newAdjustmentLayer: `${ALT}${MOD}Y`,
   newSolid: `${ALT}${SHIFT}${MOD}Y`,
+  newCamera: `${ALT}${SHIFT}${MOD}C`,
   speed: `${MOD}R`,
   nudgeLeft: `${ALT}←`,
   nudgeRight: `${ALT}→`,
@@ -338,6 +342,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Add a cross dissolve at the nearest cut", keys: [`${SHIFT}${MOD}D`] },
       { label: "New adjustment layer (over the selection, or at the playhead)", keys: [`${ALT}${MOD}Y`] },
       { label: "New solid", keys: [`${ALT}${SHIFT}${MOD}Y`] },
+      { label: "New camera (for 3D layers)", keys: [`${ALT}${SHIFT}${MOD}C`] },
       { label: "Speed / reverse the selected clips", keys: [`${MOD}R`] },
       { label: "Stretch a clip's speed to fit", keys: [`${ALT}Drag an edge`] },
       { label: "Nudge 1 frame", keys: [`${ALT}←`, `${ALT}→`] },

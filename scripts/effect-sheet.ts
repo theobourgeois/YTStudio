@@ -11,7 +11,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { GlSession } from "../server/gl-browser.ts";
-import { effectRows } from "../server/effect-rows.ts";
+import { effectRows, timeEffectRows } from "../server/effect-rows.ts";
 import { type EffectTag, VIDEO_EFFECTS } from "../shared/effects.ts";
 
 const args = process.argv.slice(2);
@@ -29,14 +29,31 @@ if (defs.length === 0) {
 
 const session = await GlSession.open();
 try {
-  const { sheet, results } = await session.effects({ rows: effectRows(defs), cell: { width: 180, height: 120 } });
-  await fs.writeFile(out, sheet);
-  console.log(`Wrote ${out}`);
   let failed = false;
-  for (const r of results) {
-    const ok = !r.error && r.max >= 16;
-    failed ||= !ok;
-    console.log(`${ok ? "ok  " : "FAIL"} ${r.label.padEnd(22)} max Δ${r.max} mean Δ${r.mean.toFixed(1)}${r.error ? `  ${r.error}` : ""}`);
+  const cell = { width: 180, height: 120 };
+  const plain = effectRows(defs);
+  if (plain.length) {
+    const { sheet, results } = await session.effects({ rows: plain, cell });
+    await fs.writeFile(out, sheet);
+    console.log(`Wrote ${out}`);
+    for (const r of results) {
+      const ok = !r.error && r.max >= 16;
+      failed ||= !ok;
+      console.log(`${ok ? "ok  " : "FAIL"} ${r.label.padEnd(22)} max Δ${r.max} mean Δ${r.mean.toFixed(1)}${r.error ? `  ${r.error}` : ""}`);
+    }
+  }
+  // Time effects play a moving picture frame by frame, into a sheet of their own.
+  const timed = timeEffectRows(defs);
+  if (timed.length) {
+    const timeOut = out.replace(/(\.png)?$/, "-time.png");
+    const { sheet, results } = await session.layers({ rows: timed, cell });
+    await fs.writeFile(timeOut, sheet);
+    console.log(`Wrote ${timeOut}`);
+    for (const r of results) {
+      const ok = !r.error && r.end >= 16;
+      failed ||= !ok;
+      console.log(`${ok ? "ok  " : "FAIL"} ${r.label.padEnd(22)} last frame Δ${r.end}${r.error ? `  ${r.error}` : ""}`);
+    }
   }
   process.exitCode = failed ? 1 : 0;
 } finally {

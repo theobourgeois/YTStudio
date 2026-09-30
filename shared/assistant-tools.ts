@@ -310,14 +310,18 @@ export const ASSISTANT_TOOLS = [
       "A solid is a colour filling the canvas (`color`; Solid `fill` 0 makes it transparent) for generator effects " +
       "(noise, gradients, light) to draw on, or to tint with a blend mode. Both go on `trackId` when it's a free " +
       "video track there, else on the top video track or a new one on top (they must be above what they affect). " +
-      "`effects` adds video effects to it with their parameter values, in order.",
+      "`effects` adds video effects to it with their parameter values, in order. A camera draws nothing: 3D layers " +
+      "(clips with motion threeD: true, positionZ, rotationX, rotationY) are seen through it while it lasts; " +
+      "`camera` sets its Camera values (angleOfView, pointOfInterest, interestZ, distance, orbitX, orbitY, roll, " +
+      "depthOfField, focusDistance, aperture), which set_keyframes can animate (effect \"camera\") for camera moves.",
     inputSchema: obj(
       {
-        kind: oneOf(["adjustment", "solid"], "What to add."),
+        kind: oneOf(["adjustment", "solid", "camera"], "What to add."),
         start: time("Where it starts."),
         duration: num("Seconds (default 5).", { minimum: 0.1 }),
         trackId: str("Put it on this video track."),
         color: str('A solid\'s colour, like "#000000".'),
+        camera: params("A camera's Camera values."),
         effects: arr(
           obj({ type: str("Video effect type."), params: params("Parameter values by key.") }, ["type"]),
           "Video effects to put on it, drawn in this order.",
@@ -402,6 +406,10 @@ export const ASSISTANT_TOOLS = [
         duration: num("Instead of `speed`: how long each clip should last, in timeline seconds.", { exclusiveMinimum: 0 }),
         reversed: bool("Play backwards (true) or forwards (false)."),
         keepPitch: bool("Keep the sound's pitch at other speeds (default true)."),
+        interpolation: oneOf(
+          ["frames", "blend", "flow"],
+          "Time Interpolation for the frames in between (videos): frames repeats or skips them (default), blend cross-fades, flow makes new ones along the optical flow (smooth slow motion, like Twixtor).",
+        ),
       },
       ["clipIds"],
     ),
@@ -445,9 +453,12 @@ export const ASSISTANT_TOOLS = [
     description:
       "Set parameters of one effect on clips. `effect` is an effect id on the clip: motion (position, scale, " +
       "rotation, anchor, fit, edges: none/mirror/tile/extend for what shows past the frame when it's zoomed out " +
-      "or turned, motionBlur and shutterAngle), opacity (opacity, blendMode: normal, add, screen, multiply, " +
-      "overlay, soft-light, difference, color-dodge, stencil-alpha... see get_catalog), volume (level), solid " +
-      "(color, fill), text (text, font, size...), appearance (fill, stroke, shadow...) or a video effect's id " +
+      "or turned, motionBlur and shutterAngle, threeD with positionZ, rotationX and rotationY for a 3D layer seen " +
+      "through the camera), opacity (opacity, blendMode: normal, add, screen, multiply, overlay, soft-light, " +
+      "difference, color-dodge, stencil-alpha... see get_catalog; trackMatte: alpha, alpha-inverted, luma, " +
+      "luma-inverted to show the clip only through the clip on the video track right above it, which then isn't " +
+      "drawn itself: text reveals, video inside text), volume (level), solid (color, fill), camera (a camera " +
+      "clip's lens and orbit), text (text, font, size...), appearance (fill, stroke, shadow...) or a video effect's id " +
       "(see get_timeline). A parameter that's animated gets a keyframe at `at` (timeline seconds) instead; " +
       "without `at` animated parameters are skipped.",
     inputSchema: obj(

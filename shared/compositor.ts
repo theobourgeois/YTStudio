@@ -58,9 +58,38 @@ export type Affine = [number, number, number, number, number, number];
 
 export const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
 
+/**
+ * A projective map (a homography, row-major 3x3) from a point of a picture
+ * (u, v fractions, v down) to the canvas (fractions, y down), in homogeneous
+ * coordinates: x = (m0·u + m1·v + m2) / w, y = (m3·u + m4·v + m5) / w, with
+ * w = m6·u + m7·v + m8 (a depth in front of the camera). A 3D layer seen in
+ * perspective (see `camera.ts`).
+ */
+export type Projective = [number, number, number, number, number, number, number, number, number];
+
+/** Where a picture goes: an affine map for a 2D layer, a projective one for a 3D layer. */
+export type Placement2D = Affine | Projective;
+
+/** A placement as a row-major 3x3 matrix. */
+export function toMatrix3(t: Placement2D): Projective {
+  return t.length === 9 ? t : [t[0], t[2], t[4], t[1], t[3], t[5], 0, 0, 1];
+}
+
+/** Where a picture's point (u, v) lands on the canvas (fractions), or null behind the camera. */
+export function placePoint(t: Placement2D, u: number, v: number): [number, number] | null {
+  const m = toMatrix3(t);
+  const w = m[6] * u + m[7] * v + m[8];
+  if (!(w > 1e-9)) return null;
+  return [(m[0] * u + m[1] * v + m[2]) / w, (m[3] * u + m[4] * v + m[5]) / w];
+}
+
 export interface Shader {
   key: string;
   source: string;
+  /** Its own vertex shader (a particle effect's, which places each particle); the full-frame quad's otherwise. */
+  vertex?: string;
+  /** A particle effect's: the fragment shader (a usual effect's) that draws the layer under its particles. */
+  base?: string;
 }
 
 /**
@@ -72,6 +101,26 @@ export interface EffectPass<S = Shader> {
   uniforms: UniformValue[];
   /** Times the shader runs in a row, each over the last one's result (its `pass` uniform counts them). */
   passes: number;
+  /**
+   * A time effect (see `EffectShader.history`): its earlier inputs (and outputs) are kept
+   * under `id`, by `time` (its clip's source time), for `reach` seconds; it gets its own last
+   * output with `feedback`, and optical flow with `flow`. `record: false` reads without
+   * adding this moment (motion blur's in-between moments).
+   */
+  history?: { id: string; time: number; fps: number; reach: number; feedback?: boolean; flow?: boolean; record?: false };
+  /**
+   * A particle effect: its shader's `base` draws the layer (from its input, like any effect),
+   * then `count` particles (instances of a quad its vertex shader places) go over that,
+   * mixed in by `blend` (0 over, 1 add, 2 screen). The vertex shader reads the input
+   * (`uSrc`), to emit from the layer's shape and colours.
+   */
+  particles?: { count: number; blend: number };
+  /**
+   * Room this effect needs past the picture's frame (a fraction of its height on every side),
+   * like After Effects' Grow Bounds: particles flying off a text, a glow spilling past it.
+   * The layer is made that much bigger for every effect; `uFrame` says where the frame is in it.
+   */
+  grow?: number;
 }
 
 /**
@@ -128,9 +177,19 @@ export function edgeIndex(mode: string): number {
   return Math.max(0, EDGE_MODES.indexOf(mode as (typeof EDGE_MODES)[number]));
 }
 
+/**
+ * Track matte modes (After Effects' TrkMat), in menu order: a layer shows only where its
+ * matte (the layer on the track above) is opaque or bright, or only where it isn't.
+ */
+export const MATTE_MODES = ["none", "alpha", "alpha-inverted", "luma", "luma-inverted"] as const;
+
+export function matteIndex(mode: string): number {
+  return Math.max(0, MATTE_MODES.indexOf(mode as (typeof MATTE_MODES)[number]));
+}
+
 /** One moment of a motion-blurred layer: where it is and how it looks then. */
 export interface Sample<S = Shader> {
-  affine: Affine;
+  affine: Placement2D;
   opacity: number;
   effects?: EffectPass<S>[];
 }
@@ -138,8 +197,13 @@ export interface Sample<S = Shader> {
 /** A stored picture (by key), or a solid colour, placed on the canvas, after its effects (in order). */
 export interface Placed<S = Shader> {
   key: string;
-  affine: Affine;
+  affine: Placement2D;
   opacity: number;
+  /**
+   * The picture's shape as placed (width / height), which effects work in: a 3D layer's
+   * perspective doesn't squash them. By default it's taken from `affine`.
+   */
+  aspect?: number;
   effects?: EffectPass<S>[];
   /** Index into `BLEND_MODES` (0, Normal, when absent). */
   blend?: number;
@@ -155,6 +219,15 @@ export interface Placed<S = Shader> {
    * `opacity` and `effects`). Fewer than two draws the layer once.
    */
   samples?: Sample<S>[];
+  /** A track matte: the layer shows only through `layer` (drawn first, never itself), by `mode` (see `MATTE_MODES`). */
+  matte?: { mode: number; layer: Placed<S> };
+  /**
+   * Time interpolation (a retimed clip between two of its media's frames, Premiere's Frame
+   * Blending and Optical Flow): the picture is `amount` (0..1) of the way from the stored
+   * picture `key` to the stored picture `interpolate.key`, cross-faded, or with `flow`, each
+   * warped along the optical flow between them to where things are in between (Twixtor).
+   */
+  interpolate?: { key: string; amount: number; flow: boolean; /** The export's: which frame of its media `key` is. */ index?: number };
 }
 
 /** An adjustment layer: the frame so far, through its effects and placed by its Motion (the canvas at 100%). */
@@ -168,6 +241,11 @@ export interface Compositor {
   setPicture(key: string, source: PictureSource): void;
   hasPicture(key: string): boolean;
   deletePicture(key: string): void;
+  /**
+   * Keep the picture under `key` as `previous` (swapping their textures, so nothing is copied):
+   * the frame before a video's next one, for time interpolation.
+   */
+  shiftPicture(key: string, previous: string): void;
   /** Start a frame filled with `color` (premultiplied RGBA 0..1; default opaque black). */
   clear(color?: [number, number, number, number]): void;
   /** Draw a stored picture over the frame (nothing if it isn't stored), by its blend mode. */
@@ -221,6 +299,8 @@ void main() {
   // (`uMargin`, in fractions) so the fragment shader can fade them smoothly.
   // With `uFill` the quad covers the whole target instead (the picture
   // continues past its edges): `uInverse` maps clip space back to the picture.
+  // A 3D layer's matrix is projective: its third row is the depth, which becomes w
+  // (so the picture is drawn in true perspective), and filling needs a divide per pixel.
   const PICTURE_VS = `#version 300 es
 in vec2 aPos;
 uniform mat3 uMatrix;
@@ -228,16 +308,19 @@ uniform mat3 uInverse;
 uniform vec2 uMargin;
 uniform bool uFill;
 out vec2 vTex;
+out vec3 vFill;
 void main() {
   if (uFill) {
     vec2 p = aPos * 2.0 - 1.0;
-    vTex = (uInverse * vec3(p, 1.0)).xy;
+    vFill = uInverse * vec3(p, 1.0);
+    vTex = vec2(0.0);
     gl_Position = vec4(p, 0.0, 1.0);
     return;
   }
   vTex = aPos * (1.0 + 2.0 * uMargin) - uMargin;
+  vFill = vec3(0.0);
   vec3 p = uMatrix * vec3(vTex, 1.0);
-  gl_Position = vec4(p.xy, 0.0, 1.0);
+  gl_Position = vec4(p.xy, 0.0, p.z);
 }`;
   // `uPixels`: output px per picture fraction along u and v, for the edge
   // coverage. A YUV picture has its planes in uSrc (Y), uU and uV, and its
@@ -247,6 +330,7 @@ void main() {
   const PICTURE_FS = `#version 300 es
 precision highp float;
 in vec2 vTex;
+in vec3 vFill;
 out vec4 fragColor;
 uniform sampler2D uSrc;
 uniform sampler2D uU;
@@ -257,6 +341,7 @@ uniform bool uFill;
 uniform vec2 uK;
 uniform float uOpacity;
 uniform vec2 uPixels;
+uniform bool uPerspective;
 vec4 pictureAt(vec2 t) {
   if (uLayer) return texture(uSrc, vec2(t.x, 1.0 - t.y));
   if (!uYuv) return texture(uSrc, t);
@@ -270,11 +355,15 @@ vec4 pictureAt(vec2 t) {
 }
 void main() {
   if (uFill) {
-    vec4 c = pictureAt(vTex);
+    // Past the horizon of a 3D layer there's nothing.
+    if (vFill.z <= 0.0) discard;
+    vec4 c = pictureAt(vFill.xy / vFill.z);
     fragColor = (uLayer ? c : vec4(c.rgb * c.a, c.a)) * uOpacity;
     return;
   }
-  vec2 edge = clamp(min(vTex, 1.0 - vTex) * uPixels + 0.5, 0.0, 1.0);
+  // Output px per picture fraction: fixed for a 2D layer, changing across a layer in perspective.
+  vec2 pixels = uPerspective ? 1.0 / max(fwidth(vTex), vec2(1e-6)) : uPixels;
+  vec2 edge = clamp(min(vTex, 1.0 - vTex) * pixels + 0.5, 0.0, 1.0);
   vec4 c = pictureAt(clamp(vTex, 0.0, 1.0));
   fragColor = (uLayer ? c : vec4(c.rgb * c.a, c.a)) * (uOpacity * edge.x * edge.y);
 }`;
@@ -301,6 +390,8 @@ uniform sampler2D uLayer;
 uniform int uMode;
 uniform float uOpacity;
 uniform bool uReplace;
+uniform sampler2D uMatte;
+uniform int uMatteMode;
 float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
 vec3 clipColor(vec3 c) {
   float l = lum(c);
@@ -360,6 +451,14 @@ vec3 blendRgb(int m, vec3 b, vec3 s) {
 void main() {
   vec4 B = texture(uBase, vUv);
   vec4 S = texture(uLayer, vUv);
+  // A track matte's coverage: its alpha or its brightness, or the opposite.
+  float m = 1.0;
+  if (uMatteMode > 0) {
+    vec4 M = texture(uMatte, vUv);
+    m = uMatteMode <= 2 ? M.a : dot(M.rgb, vec3(0.2126, 0.7152, 0.0722));
+    if (uMatteMode == 2 || uMatteMode == 4) m = 1.0 - m;
+    if (!uReplace) S *= m;
+  }
   vec4 top;
   if (uMode >= 26) {
     // Stencil / silhouette: the layer's alpha (or luma) keeps or cuts out what's below.
@@ -373,7 +472,7 @@ void main() {
     vec3 mixed = clamp(blendRgb(uMode, cb, cs), 0.0, 1.0);
     top = vec4((1.0 - B.a) * S.rgb + (1.0 - S.a) * B.rgb + S.a * B.a * mixed, S.a + B.a - S.a * B.a);
   }
-  fragColor = uReplace ? mix(B, top, uOpacity) : top;
+  fragColor = uReplace ? mix(B, top, uOpacity * m) : top;
 }`;
 
   // Packs 4 bytes of the YUV 4:2:0 planes (Y, then U, then V, as one byte
@@ -415,6 +514,110 @@ void main() {
     }
   }
   fragColor = o;
+}`;
+
+  // Optical flow (for time effects' `getFlow`): pictures as luma at a small size, halved
+  // into a pyramid, then Lucas-Kanade from the coarsest level down, each level starting
+  // from the one above (flow is kept in uv, so it carries over between sizes).
+  const LUMA_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uSrc;
+uniform highp sampler2DArray uArr;
+uniform bool uFromArray;
+uniform float uLayer;
+uniform vec2 uStep;
+float lumaAt(vec2 p) {
+  vec4 c = uFromArray ? texture(uArr, vec3(p, uLayer)) : texture(uSrc, p);
+  return dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+}
+void main() {
+  // A little box filter, so the small picture doesn't alias.
+  float l = 0.25 * (lumaAt(vUv + uStep * vec2(-0.25, -0.25)) + lumaAt(vUv + uStep * vec2(0.25, -0.25)) +
+    lumaAt(vUv + uStep * vec2(-0.25, 0.25)) + lumaAt(vUv + uStep * vec2(0.25, 0.25)));
+  fragColor = vec4(l, 0.0, 0.0, 1.0);
+}`;
+  const LK_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uCur;
+uniform sampler2D uPrev;
+uniform sampler2D uFlowIn;
+uniform bool uHasIn;
+uniform vec2 uTexel;
+void main() {
+  vec2 d = uHasIn ? texture(uFlowIn, vUv).xy : vec2(0.0);
+  mat2 A = mat2(0.0);
+  vec2 b = vec2(0.0);
+  for (int y = -2; y <= 2; y++) {
+    for (int x = -2; x <= 2; x++) {
+      vec2 p = vUv + vec2(float(x), float(y)) * uTexel;
+      float w = exp(-0.25 * float(x * x + y * y));
+      float ix = 0.5 * (texture(uCur, p + vec2(uTexel.x, 0.0)).r - texture(uCur, p - vec2(uTexel.x, 0.0)).r);
+      float iy = 0.5 * (texture(uCur, p + vec2(0.0, uTexel.y)).r - texture(uCur, p - vec2(0.0, uTexel.y)).r);
+      float it = texture(uCur, p).r - texture(uPrev, p - d).r;
+      A += w * mat2(ix * ix, ix * iy, ix * iy, iy * iy);
+      b += w * vec2(ix * it, iy * it);
+    }
+  }
+  // Regularised: flat areas keep the coarser estimate.
+  A += mat2(1e-4, 0.0, 0.0, 1e-4);
+  vec2 step = -inverse(A) * b;
+  step = clamp(step, vec2(-2.0), vec2(2.0));
+  fragColor = vec4(d + step * uTexel, 0.0, 1.0);
+}`;
+  const FLOW_SMOOTH_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uFlowIn;
+uniform sampler2D uCur;
+uniform vec2 uTexel;
+void main() {
+  // An edge-aware average: neighbours on the same surface (similar brightness) count most.
+  float l0 = texture(uCur, vUv).r;
+  vec2 sum = vec2(0.0);
+  float total = 0.0;
+  for (int y = -2; y <= 2; y++) {
+    for (int x = -2; x <= 2; x++) {
+      vec2 p = vUv + vec2(float(x), float(y)) * uTexel;
+      float dl = texture(uCur, p).r - l0;
+      float w = exp(-0.3 * float(x * x + y * y) - dl * dl * 400.0);
+      sum += texture(uFlowIn, p).xy * w;
+      total += w;
+    }
+  }
+  fragColor = vec4(sum / total, 0.0, 1.0);
+}`;
+
+  // A moment between two frames: each warped by its flow towards the other, then cross-faded.
+  const INTERP_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uA;
+uniform sampler2D uB;
+uniform sampler2D uAB;
+uniform sampler2D uBA;
+uniform bool uFlow;
+uniform float uAmount;
+void main() {
+  if (!uFlow) {
+    fragColor = mix(texture(uA, vUv), texture(uB, vUv), uAmount);
+    return;
+  }
+  // B(x) = A(x - ab(x)) and A(x) = B(x - ba(x)): at the moment between, what's at x was
+  // amount of the way along its path from A.
+  vec2 ab = texture(uAB, vUv).xy;
+  vec2 ba = texture(uBA, vUv).xy;
+  vec4 a = texture(uA, vUv - uAmount * ab);
+  vec4 b = texture(uB, vUv - (1.0 - uAmount) * ba);
+  // Where the two disagree (something appeared or was covered), lean on the nearer frame.
+  float disagree = clamp(length(a - b) * 2.0, 0.0, 1.0);
+  float t = mix(uAmount, step(0.5, uAmount), disagree * 0.6);
+  fragColor = mix(a, b, t);
 }`;
 
   // Compiling and linking don't wait for the GPU; asking for their status (or a uniform) does.
@@ -476,7 +679,7 @@ void main() {
   const shaderProgram = (shader: Shader) => {
     let entry = programs.get(shader.key);
     if (entry) return entry;
-    const pending = compiling.get(shader.key) ?? startLink(QUAD_VS, shader.source);
+    const pending = compiling.get(shader.key) ?? startLink(shader.vertex ?? QUAD_VS, shader.source);
     compiling.delete(shader.key);
     entry = finishLink(pending);
     programs.set(shader.key, entry);
@@ -512,6 +715,8 @@ void main() {
   let spare = target();
   const sides = [target(), target()];
   const accum = target();
+  // Where a track matte is drawn before the layer it cuts out.
+  const matteTarget = target();
   // Where `readYuv420` packs the frame (sized on first use).
   const yuv = { ...target(), width: 0, height: 0 };
   let width = 0;
@@ -579,19 +784,63 @@ void main() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
   };
 
+  /** A placement as a row-major 3x3 matrix (a local copy of `toMatrix3`: this function can't refer outside itself). */
+  const matrixOf = (t: Placement2D): number[] => (t.length === 9 ? t : [t[0], t[2], t[4], t[1], t[3], t[5], 0, 0, 1]);
+  /** A picture's corners on a `tw` x `th` target in px (null: behind the camera). */
+  const cornersOf = (m: number[], tw: number, th: number) =>
+    ([[0, 0], [1, 0], [0, 1], [1, 1]] as const).map(([u, v]) => {
+      const w = m[6] * u + m[7] * v + m[8];
+      return w > 1e-9 ? ([((m[0] * u + m[1] * v + m[2]) / w) * tw, ((m[3] * u + m[4] * v + m[5]) / w) * th] as const) : null;
+    });
+  /** Output px per picture fraction along u and v (the most, for a layer in perspective), and the least of either. */
+  const shownSize = (t: Placement2D, tw: number, th: number): { pu: number; pv: number; least: number } | null => {
+    if (t.length === 6) {
+      const [a, b, c, d] = t;
+      const pu = Math.hypot(a * tw, b * th);
+      const pv = Math.hypot(c * tw, d * th);
+      return { pu, pv, least: Math.min(pu, pv) };
+    }
+    const [c00, c10, c01, c11] = cornersOf(t, tw, th);
+    const span = (p: readonly number[] | null, q: readonly number[] | null) => (p && q ? Math.hypot(p[0] - q[0], p[1] - q[1]) : NaN);
+    const us = [span(c00, c10), span(c01, c11)].filter(Number.isFinite);
+    const vs = [span(c00, c01), span(c10, c11)].filter(Number.isFinite);
+    // Partly behind the camera: as big as a canvas side, which is as much detail as is ever needed.
+    const pu = us.length ? Math.max(...us) : Math.max(tw, th);
+    const pv = vs.length ? Math.max(...vs) : Math.max(tw, th);
+    const least = Math.min(...(us.length ? us : [pu]), ...(vs.length ? vs : [pv]));
+    return { pu, pv, least };
+  };
+  /** The inverse of a 3x3 matrix (row-major), or null. */
+  const invert3 = (m: number[]): number[] | null => {
+    const [a, b, c, d, e, f, g, h, i] = m;
+    const A = e * i - f * h;
+    const B = -(d * i - f * g);
+    const C = d * h - e * g;
+    const det = a * A + b * B + c * C;
+    if (!(Math.abs(det) > 1e-18)) return null;
+    return [A, -(b * i - c * h), b * f - c * e, B, a * i - c * g, -(a * f - c * d), C, -(a * h - b * g), a * e - b * d].map((x) => x / det);
+  };
+
   /**
-   * Draw a picture by `affine` into the bound framebuffer, `tw` x `th` px (blending as
+   * Draw a picture by `placement` into the bound framebuffer, `tw` x `th` px (blending as
    * currently set). `layer`: it's a picture after its effects (see PICTURE_FS). With
    * `edges` (see `EDGE_MODES`) it continues past its edges over the whole target.
    */
-  const drawTextures = (pic: Picture, affine: Affine, opacity: number, tw: number, th: number, layer: boolean, edges = 0) => {
+  const drawTextures = (pic: Picture, placement: Placement2D, opacity: number, tw: number, th: number, layer: boolean, edges = 0) => {
     if (!(opacity > 0)) return;
-    const [a, b, c, d, e, f] = affine;
-    // Output px per picture fraction along each of its axes.
-    const pu = Math.hypot(a * tw, b * th);
-    const pv = Math.hypot(c * tw, d * th);
-    const det = a * d - b * c;
-    if (!(pu > 1e-6 && pv > 1e-6) || !(Math.abs(det) > 1e-12)) return;
+    const m = matrixOf(placement);
+    const perspective = placement.length === 9;
+    if (perspective && cornersOf(m, tw, th).every((c) => !c)) return;
+    const size = shownSize(placement, tw, th);
+    if (!size || !(size.pu > 1e-6 && size.pv > 1e-6)) return;
+    const { pu, pv, least } = size;
+    // Canvas fractions (y down) -> clip space (y up), keeping w: x' = 2x - w, y' = w - 2y.
+    const r0 = [2 * m[0] - m[6], 2 * m[1] - m[7], 2 * m[2] - m[8]];
+    const r1 = [m[6] - 2 * m[3], m[7] - 2 * m[4], m[8] - 2 * m[5]];
+    const r2 = [m[6], m[7], m[8]];
+    const clip = [...r0, ...r1, ...r2];
+    const inverse = edges ? invert3(clip) : null;
+    if (edges && !inverse) return;
     // Mipmaps keep a big picture drawn small from shimmering (layers are made about the size they're shown).
     const shrunk = !layer && (pic.width > pu * 1.5 || pic.height > pv * 1.5);
     const wrap = wrapOf(edges);
@@ -608,27 +857,17 @@ void main() {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
     }
     if (shrunk) pic.mipmapped = true;
-    // Canvas fractions (y down) -> clip space (y up), column-major.
-    const matrix = new Float32Array([2 * a, -2 * b, 0, 2 * c, -2 * d, 0, 2 * e - 1, 1 - 2 * f, 1]);
     const { program, loc } = pictureProgram;
     gl.useProgram(program);
-    gl.uniformMatrix3fv(loc("uMatrix"), false, matrix);
-    if (edges) {
-      // Clip space -> canvas fractions (x' = (x + 1) / 2, y' = (1 - y) / 2) -> picture fractions.
-      const ia = d / det;
-      const ib = -b / det;
-      const ic = -c / det;
-      const id = a / det;
-      const ie = -(ia * e + ic * f);
-      const iff = -(ib * e + id * f);
-      gl.uniformMatrix3fv(
-        loc("uInverse"),
-        false,
-        new Float32Array([ia / 2, ib / 2, 0, -ic / 2, -id / 2, 0, (ia + ic) / 2 + ie, (ib + id) / 2 + iff, 1]),
-      );
-    }
+    // Column-major for GL.
+    const columns = (r: number[]) => new Float32Array([r[0], r[3], r[6], r[1], r[4], r[7], r[2], r[5], r[8]]);
+    gl.uniformMatrix3fv(loc("uMatrix"), false, columns(clip));
+    if (inverse) gl.uniformMatrix3fv(loc("uInverse"), false, columns(inverse));
     gl.uniform1i(loc("uFill"), edges ? 1 : 0);
-    gl.uniform2f(loc("uMargin"), Math.min(1, 1 / pu), Math.min(1, 1 / pv));
+    gl.uniform1i(loc("uPerspective"), perspective ? 1 : 0);
+    // The quad reaches a pixel past the edges to fade them (not far past, in perspective: never behind the camera).
+    const margin = perspective ? Math.min(0.02, 1 / Math.max(least, 1)) : 0;
+    gl.uniform2f(loc("uMargin"), perspective ? margin : Math.min(1, 1 / pu), perspective ? margin : Math.min(1, 1 / pv));
     gl.uniform2f(loc("uPixels"), pu, pv);
     gl.uniform1i(loc("uSrc"), 0);
     gl.uniform1i(loc("uU"), 1);
@@ -667,14 +906,332 @@ void main() {
 
   /** Where a layer's picture comes from: a stored picture, a solid colour, or the frame so far (an adjustment). */
   type Source =
-    | { kind: "picture"; pic: Picture }
+    | { kind: "picture"; pic: Picture; next?: { pic: Picture; amount: number; flow: boolean } }
     | { kind: "solid"; color: [number, number, number, number]; width: number; height: number }
     | { kind: "frame" };
 
   const sourceOf = (p: Placed): Source | null => {
     if (p.solid) return { kind: "solid", ...p.solid };
     const pic = pictures.get(p.key);
-    return pic ? { kind: "picture", pic } : null;
+    if (!pic) return null;
+    const next = p.interpolate && pictures.get(p.interpolate.key);
+    // Only strictly between the two frames is there anything to interpolate.
+    const amount = p.interpolate?.amount ?? 0;
+    if (!next || !(amount > 1e-3 && amount < 1 - 1e-3)) return { kind: "picture", pic: next && amount >= 1 - 1e-3 ? next : pic };
+    return { kind: "picture", pic, next: { pic: next, amount, flow: p.interpolate!.flow } };
+  };
+
+  // ---------------------------------------------------------------------------
+  // Time effects: each one's earlier inputs (a texture array of up to 48 frames, at
+  // most 960 px on a side), its last two outputs (for feedback) and optical flow.
+  // ---------------------------------------------------------------------------
+  const HISTORY_DEPTH = 48;
+  const HISTORY_SIDE = 960;
+  interface History {
+    array: WebGLTexture;
+    w: number;
+    h: number;
+    depth: number;
+    /** Each layer's time (NaN: empty). */
+    times: number[];
+    next: number;
+    latest: number;
+    /** Its outputs: the newest first, and their times. */
+    outputs: [Target, Target] | null;
+    outputTimes: [number, number];
+    used: number;
+  }
+  const histories = new Map<string, History>();
+  let draws = 0;
+  const historyFbo = gl.createFramebuffer()!;
+  let flowPrograms: { luma: ReturnType<typeof link>; lk: ReturnType<typeof link>; smooth: ReturnType<typeof link> } | null = null;
+  // The flow pyramid's targets, by size: luma now and before, and flow in two buffers.
+  const flowTargets = new Map<string, { cur: Target; prev: Target; a: Target; b: Target }>();
+
+  const deleteHistory = (h: History) => {
+    gl.deleteTexture(h.array);
+    for (const t of h.outputs ?? []) {
+      gl.deleteTexture(t.tex);
+      gl.deleteFramebuffer(t.fbo);
+    }
+  };
+
+  /** The history under `info.id`, for layers of `w` x `h` px, fresh when its size or depth changed or time jumped. */
+  const historyFor = (info: NonNullable<EffectPass["history"]>, w: number, h: number): History => {
+    const k = Math.min(1, HISTORY_SIDE / Math.max(w, h));
+    const hw = Math.max(1, Math.round(w * k));
+    const hh = Math.max(1, Math.round(h * k));
+    const depth = Math.max(2, Math.min(HISTORY_DEPTH, Math.ceil(info.reach * info.fps) + 2));
+    let hist = histories.get(info.id);
+    if (hist && (hist.w !== hw || hist.h !== hh || hist.depth < depth || !!hist.outputs !== !!info.feedback)) {
+      deleteHistory(hist);
+      hist = undefined;
+    }
+    if (!hist) {
+      const array = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, array);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, hw, hh, depth, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+      let outputs: [Target, Target] | null = null;
+      if (info.feedback) {
+        outputs = [target(), target()];
+        for (const t of outputs) allocate(t, hw, hh);
+      }
+      hist = { array, w: hw, h: hh, depth, times: new Array(depth).fill(NaN), next: 0, latest: NaN, outputs, outputTimes: [NaN, NaN], used: draws };
+      histories.set(info.id, hist);
+    }
+    hist.used = draws;
+    const step = 1 / Math.max(1, info.fps);
+    // Played backwards, or jumped: what's recorded isn't this moment's past any more.
+    if (!Number.isNaN(hist.latest) && (info.time < hist.latest - 1.5 * step || info.time > hist.latest + info.reach + 2 * step)) {
+      hist.times.fill(NaN);
+      hist.latest = NaN;
+      hist.outputTimes = [NaN, NaN];
+    }
+    return hist;
+  };
+
+  /** How long ago each recorded frame was (-1: empty, or too old to matter). */
+  const historyAges = (hist: History, info: NonNullable<EffectPass["history"]>) =>
+    hist.times.map((t) => {
+      const age = info.time - t;
+      return Number.isNaN(t) || age < 0 || age > info.reach + 1.5 / info.fps ? -1 : age;
+    });
+
+  /** Draw `tex` (or a layer of the history array) into `t` (`w` x `h`) as luma. */
+  const drawLuma = (t: Target, w: number, h: number, source: { tex: WebGLTexture } | { array: WebGLTexture; layer: number }, sw: number, sh: number) => {
+    const { program, loc } = flowPrograms!.luma;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(program);
+    gl.uniform1i(loc("uFlipY"), 0);
+    gl.uniform1i(loc("uSrc"), 0);
+    gl.uniform1i(loc("uArr"), 3);
+    const fromArray = "array" in source;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, fromArray ? null : source.tex);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, fromArray ? source.array : null);
+    gl.uniform1i(loc("uFromArray"), fromArray ? 1 : 0);
+    gl.uniform1f(loc("uLayer"), fromArray ? source.layer : 0);
+    gl.uniform2f(loc("uStep"), sw / w / sw, sh / h / sh);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+    gl.activeTexture(gl.TEXTURE0);
+  };
+
+  /**
+   * Optical flow from `prev` (a texture, or a layer of a history's array; `pw` x `ph` px) to
+   * `cur` (`cw` x `ch` px): how far the picture moved, in uv, as a float texture (null without
+   * float targets). Flows worked out at once need different `slot`s (their targets are shared).
+   */
+  const computeFlow = (
+    prev: { tex: WebGLTexture } | { array: WebGLTexture; layer: number },
+    pw: number,
+    ph: number,
+    cur: WebGLTexture,
+    cw: number,
+    ch: number,
+    slot = 0,
+  ): WebGLTexture | null => {
+    if (!floatTargets) return null;
+    flowPrograms ??= { luma: link(QUAD_VS, LUMA_FS), lk: link(QUAD_VS, LK_FS), smooth: link(QUAD_VS, FLOW_SMOOTH_FS) };
+    const k = Math.min(1, 320 / Math.max(cw, ch));
+    const levels: { w: number; h: number; t: { cur: Target; prev: Target; a: Target; b: Target } }[] = [];
+    for (let i = 0; i < 4; i++) {
+      const w = Math.max(4, Math.round((cw * k) / 2 ** i));
+      const h = Math.max(4, Math.round((ch * k) / 2 ** i));
+      const id = `${w}x${h}/${slot}`;
+      let t = flowTargets.get(id);
+      if (!t) {
+        t = { cur: target(), prev: target(), a: target(), b: target() };
+        allocate(t.cur, w, h);
+        allocate(t.prev, w, h);
+        allocate(t.a, w, h, true);
+        allocate(t.b, w, h, true);
+        flowTargets.set(id, t);
+      }
+      levels.push({ w, h, t });
+    }
+    gl.disable(gl.BLEND);
+    for (const { w, h, t } of levels) {
+      drawLuma(t.cur, w, h, { tex: cur }, cw, ch);
+      drawLuma(t.prev, w, h, prev, pw, ph);
+    }
+    let flow: WebGLTexture | null = null;
+    for (let i = levels.length - 1; i >= 0; i--) {
+      const { w, h, t } = levels[i];
+      // Two steps of Lucas-Kanade at this level, the first from the coarser level's flow.
+      for (let pass = 0; pass < 2; pass++) {
+        const out = pass === 0 ? t.a : t.b;
+        const { program, loc } = flowPrograms.lk;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
+        gl.viewport(0, 0, w, h);
+        gl.useProgram(program);
+        gl.uniform1i(loc("uFlipY"), 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, t.cur.tex);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, t.prev.tex);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, pass === 0 ? flow : t.a.tex);
+        gl.uniform1i(loc("uCur"), 0);
+        gl.uniform1i(loc("uPrev"), 1);
+        gl.uniform1i(loc("uFlowIn"), 2);
+        gl.uniform1i(loc("uHasIn"), pass === 0 && !flow ? 0 : 1);
+        gl.uniform2f(loc("uTexel"), 1 / w, 1 / h);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+      // Smoothed back into the first buffer, which the next level up starts from.
+      const { program, loc } = flowPrograms.smooth;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, t.a.fbo);
+      gl.useProgram(program);
+      gl.uniform1i(loc("uFlipY"), 0);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, t.b.tex);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, t.cur.tex);
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.uniform1i(loc("uFlowIn"), 0);
+      gl.uniform1i(loc("uCur"), 1);
+      gl.uniform2f(loc("uTexel"), 1 / w, 1 / h);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      flow = t.a.tex;
+    }
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.activeTexture(gl.TEXTURE0);
+    return flow;
+  };
+
+  /**
+   * Get a time effect's history ready before it draws: its earlier frames, its output a frame
+   * ago and the flow since the last frame. Returns what to bind (see `bindHistory`).
+   */
+  const beginHistory = (info: NonNullable<EffectPass["history"]>, input: WebGLTexture, w: number, h: number) => {
+    const hist = historyFor(info, w, h);
+    const ages = historyAges(hist, info);
+    // The newest earlier frame (not this moment's own), for the flow.
+    let prevLayer = -1;
+    ages.forEach((age, i) => {
+      if (age > 0.25 / info.fps && (prevLayer < 0 || age < ages[prevLayer])) prevLayer = i;
+    });
+    const flow = info.flow && prevLayer >= 0 ? computeFlow({ array: hist.array, layer: prevLayer }, hist.w, hist.h, input, w, h) : null;
+    // Its output a frame ago: the newest one, unless that's this moment's own (a redraw).
+    let feedback: WebGLTexture | null = null;
+    if (hist.outputs) {
+      const [t0, t1] = hist.outputTimes;
+      const pick = Math.abs(info.time - t0) < 1e-4 ? 1 : 0;
+      const age = info.time - (pick ? t1 : t0);
+      if (age > 0.25 / info.fps && age < info.reach + 2 / info.fps) feedback = hist.outputs[pick].tex;
+    }
+    return { hist, ages, flow, feedback };
+  };
+
+  const bindHistory = (loc: (name: string) => WebGLUniformLocation | null, state: ReturnType<typeof beginHistory>) => {
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, state.hist.array);
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, state.feedback);
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D, state.flow);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(loc("uHistory"), 3);
+    gl.uniform1i(loc("uFeedback"), 4);
+    gl.uniform1i(loc("uFlow"), 5);
+    const ages = new Float32Array(HISTORY_DEPTH).fill(-1);
+    state.ages.forEach((a, i) => (ages[i] = a));
+    gl.uniform1fv(loc("uHistoryAge"), ages);
+    gl.uniform1i(loc("uHistoryCount"), state.ages.length);
+    gl.uniform1i(loc("hasFeedback"), state.feedback ? 1 : 0);
+    gl.uniform1i(loc("hasFlow"), state.flow ? 1 : 0);
+  };
+
+  /** After a time effect drew: add this moment's input (and output) to its history. */
+  const endHistory = (info: NonNullable<EffectPass["history"]>, state: ReturnType<typeof beginHistory>, input: WebGLTexture, output: WebGLTexture) => {
+    for (const unit of [3, 4, 5]) {
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(unit === 3 ? gl.TEXTURE_2D_ARRAY : gl.TEXTURE_2D, null);
+    }
+    gl.activeTexture(gl.TEXTURE0);
+    if (info.record === false) return;
+    const { hist } = state;
+    const step = 1 / Math.max(1, info.fps);
+    gl.disable(gl.BLEND);
+    let layer = -1;
+    if (Number.isNaN(hist.latest) || info.time - hist.latest >= 0.5 * step) {
+      layer = hist.next;
+      hist.next = (hist.next + 1) % hist.depth;
+      hist.latest = info.time;
+    } else if (Math.abs(info.time - hist.latest) < 1e-4) {
+      layer = (hist.next - 1 + hist.depth) % hist.depth;
+    }
+    if (layer >= 0) {
+      hist.times[layer] = info.time;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, historyFbo);
+      gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, hist.array, 0, layer);
+      gl.viewport(0, 0, hist.w, hist.h);
+      copy(input);
+    }
+    if (hist.outputs) {
+      const [t0] = hist.outputTimes;
+      if (Number.isNaN(t0) || info.time - t0 >= 0.5 * step) {
+        hist.outputs.reverse();
+        hist.outputTimes = [info.time, t0];
+      }
+      if (Math.abs(hist.outputTimes[0] - info.time) < 1e-4) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, hist.outputs[0].fbo);
+        gl.viewport(0, 0, hist.w, hist.h);
+        copy(output);
+      }
+    }
+  };
+
+  let interpProgram: ReturnType<typeof link> | null = null;
+  /**
+   * The moment `next.amount` of the way from picture `a` to `next.pic`, into one of `set`'s
+   * layers (`w` x `h`): both frames are drawn into the others first. Returns which layer.
+   */
+  const interpolateInto = (set: Target[], a: Picture, next: { pic: Picture; amount: number; flow: boolean }, w: number, h: number) => {
+    for (const [i, pic] of [a, next.pic].entries()) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, set[i].fbo);
+      gl.viewport(0, 0, w, h);
+      gl.disable(gl.BLEND);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      drawTextures(pic, IDENTITY_AFFINE, 1, w, h, false);
+    }
+    const ab = next.flow ? computeFlow({ tex: set[0].tex }, w, h, set[1].tex, w, h, 0) : null;
+    const ba = next.flow ? computeFlow({ tex: set[1].tex }, w, h, set[0].tex, w, h, 1) : null;
+    interpProgram ??= link(QUAD_VS, INTERP_FS);
+    const { program, loc } = interpProgram;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, set[2].fbo);
+    gl.viewport(0, 0, w, h);
+    gl.disable(gl.BLEND);
+    gl.useProgram(program);
+    [set[0].tex, set[1].tex, ab, ba].forEach((tex, i) => {
+      gl.activeTexture(gl.TEXTURE0 + i);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+    });
+    gl.uniform1i(loc("uA"), 0);
+    gl.uniform1i(loc("uB"), 1);
+    gl.uniform1i(loc("uAB"), 2);
+    gl.uniform1i(loc("uBA"), 3);
+    gl.uniform1i(loc("uFlipY"), 0);
+    gl.uniform1i(loc("uFlow"), ab && ba ? 1 : 0);
+    gl.uniform1f(loc("uAmount"), next.amount);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    for (let i = 3; i >= 0; i--) {
+      gl.activeTexture(gl.TEXTURE0 + i);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+    return 2;
   };
 
   /**
@@ -682,9 +1239,15 @@ void main() {
    * size it's shown (never bigger than itself; a frame is always the canvas) with every
    * effect run over it. Past its edges, effects read what `edges` says.
    */
-  const prepare = (source: Source, affine: Affine, effects: EffectPass[] | undefined, edges: number): { pic: Picture; layer: boolean } | null => {
+  const prepare = (
+    source: Source,
+    placement: Placement2D,
+    effects: EffectPass[] | undefined,
+    edges: number,
+    aspect?: number,
+  ): { pic: Picture; layer: boolean; placement?: Placement2D } | null => {
     const passes = effects?.filter((fx) => fx.passes > 0) ?? [];
-    if (!passes.length && source.kind === "picture") return { pic: source.pic, layer: false };
+    if (!passes.length && source.kind === "picture" && !source.next) return { pic: source.pic, layer: false };
     if (!passes.length && source.kind === "solid") {
       const [r, g, b, a] = source.color;
       gl.bindTexture(gl.TEXTURE_2D, solidTex);
@@ -692,12 +1255,12 @@ void main() {
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
       return { pic: { textures: [solidTex], yuv: null, width: source.width, height: source.height, mipmapped: true }, layer: true };
     }
-    const [a, b, c, d] = affine;
-    const pu = Math.hypot(a * width, b * height);
-    const pv = Math.hypot(c * width, d * height);
-    if (!(pu > 1e-6 && pv > 1e-6)) return null;
+    const size = shownSize(placement, width, height);
+    if (!size || !(size.pu > 1e-6 && size.pv > 1e-6)) return null;
+    const { pu, pv } = size;
     let w: number;
     let h: number;
+    let placed = placement;
     if (source.kind === "frame") {
       w = width;
       h = height;
@@ -708,7 +1271,7 @@ void main() {
       w = side(pu, own.width);
       h = side(pv, own.height);
     }
-    const set = scratchSet(w, h);
+    let set = scratchSet(w, h);
     const wrap = wrapOf(edges);
     for (const t of set) setWrap(t.tex, wrap);
     // The picture itself, filling the first layer (bottom row first, like every framebuffer).
@@ -722,21 +1285,108 @@ void main() {
       gl.clear(gl.COLOR_BUFFER_BIT);
     } else if (source.kind === "frame") {
       copy(frame.tex);
+    } else if (source.next) {
+      input = interpolateInto(set, source.pic, source.next, w, h);
     } else {
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       drawTextures(source.pic, IDENTITY_AFFINE, 1, w, h, false);
     }
-    const ratio = source.kind === "frame" ? width / height : pu / pv;
+    let ratio = source.kind === "frame" ? width / height : (aspect ?? pu / pv);
+    // Room past the frame (Grow Bounds): the picture so far goes in the middle of a bigger layer.
+    let frameRect = [0, 0, 1, 1];
+    const grow = source.kind === "frame" ? 0 : Math.max(0, ...passes.map((fx) => fx.grow ?? 0));
+    if (grow > 0) {
+      const m = Math.round(Math.min(grow, 4) * h);
+      const W = Math.min(maxLayer, w + 2 * m);
+      const H = Math.min(maxLayer, h + 2 * m);
+      const [mx, my] = [(W - w) / 2, (H - h) / 2];
+      const big = scratchSet(W, H);
+      for (const t of big) setWrap(t.tex, gl.CLAMP_TO_EDGE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, big[0].fbo);
+      gl.viewport(0, 0, W, H);
+      gl.disable(gl.BLEND);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      const inner: Affine = [w / W, 0, 0, h / H, mx / W, my / H];
+      drawTextures({ textures: [set[input].tex], yuv: null, width: w, height: h, mipmapped: false }, inner, 1, W, H, true);
+      ratio = (ratio * h + 2 * mx) / (h + 2 * my);
+      frameRect = [mx / W, my / H, 1 - mx / W, 1 - my / H];
+      // The bigger layer goes where the picture went, grown by the same room.
+      const m3 = matrixOf(placement);
+      const [fx0, fy0] = [mx / W, my / H];
+      const [sx, sy] = [1 / (1 - 2 * fx0), 1 / (1 - 2 * fy0)];
+      const grown = [
+        m3[0] * sx, m3[1] * sy, m3[2] - (m3[0] * fx0 * sx + m3[1] * fy0 * sy),
+        m3[3] * sx, m3[4] * sy, m3[5] - (m3[3] * fx0 * sx + m3[4] * fy0 * sy),
+        m3[6] * sx, m3[7] * sy, m3[8] - (m3[6] * fx0 * sx + m3[7] * fy0 * sy),
+      ];
+      placed = placement.length === 9 ? (grown as Projective) : ([grown[0], grown[3], grown[1], grown[4], grown[2], grown[5]] as Affine);
+      set = big;
+      input = 0;
+      w = W;
+      h = H;
+    }
     for (const fx of passes) {
+      if (fx.particles) {
+        // Particles: the layer under them (the effect's base shader over its input), then every particle as a quad.
+        const dst = [0, 1, 2].find((i) => i !== input)!;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, set[dst].fbo);
+        gl.viewport(0, 0, w, h);
+        gl.disable(gl.BLEND);
+        if (fx.shader.base) {
+          const base = shaderProgram({ key: `${fx.shader.key}#base`, source: fx.shader.base });
+          gl.useProgram(base.program);
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, set[input].tex);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, set[input].tex);
+          gl.uniform1i(base.loc("uSrc"), 0);
+          gl.uniform1i(base.loc("uInput"), 1);
+          gl.uniform1i(base.loc("uFlipY"), 0);
+          gl.uniform1f(base.loc("ratio"), ratio);
+          gl.uniform2f(base.loc("resolution"), w, h);
+          gl.uniform1i(base.loc("pass"), 0);
+          gl.uniform4f(base.loc("uFrame"), frameRect[0], frameRect[1], frameRect[2], frameRect[3]);
+          setUniforms(base.loc, fx.uniforms);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, null);
+        } else copy(set[input].tex);
+        const { program, loc } = shaderProgram(fx.shader);
+        gl.useProgram(program);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, set[input].tex);
+        gl.uniform1i(loc("uSrc"), 0);
+        gl.uniform1f(loc("ratio"), ratio);
+        gl.uniform2f(loc("resolution"), w, h);
+        gl.uniform4f(loc("uFrame"), frameRect[0], frameRect[1], frameRect[2], frameRect[3]);
+        setUniforms(loc, fx.uniforms);
+        gl.enable(gl.BLEND);
+        const mode = fx.particles.blend;
+        if (mode === 1) gl.blendFunc(gl.ONE, gl.ONE);
+        else if (mode === 2) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_COLOR);
+        else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        if (fx.particles.count > 0) gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, Math.min(200_000, Math.floor(fx.particles.count)));
+        gl.disable(gl.BLEND);
+        input = dst;
+        continue;
+      }
+      // A time effect's earlier frames and flow (which draws on its own targets first).
+      const temporal = fx.history ? beginHistory(fx.history, set[input].tex, w, h) : null;
       const { program, loc } = shaderProgram(fx.shader);
       gl.useProgram(program);
+      gl.viewport(0, 0, w, h);
+      gl.disable(gl.BLEND);
       gl.uniform1i(loc("uSrc"), 0);
       gl.uniform1i(loc("uInput"), 1);
       gl.uniform1i(loc("uFlipY"), 0);
       gl.uniform1f(loc("ratio"), ratio);
       gl.uniform2f(loc("resolution"), w, h);
+      gl.uniform4f(loc("uFrame"), frameRect[0], frameRect[1], frameRect[2], frameRect[3]);
       setUniforms(loc, fx.uniforms);
+      if (temporal) bindHistory(loc, temporal);
+      const effectInput = input;
       // Every pass can read the effect's input (`getInput`); passes go back and forth between the other two layers.
       let src = input;
       const others = [0, 1, 2].filter((i) => i !== input);
@@ -752,11 +1402,15 @@ void main() {
         src = dst;
       }
       input = src;
+      if (fx.history && temporal) {
+        endHistory(fx.history, temporal, set[effectInput].tex, set[input].tex);
+        gl.viewport(0, 0, w, h);
+      }
     }
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE0);
-    return { pic: { textures: [set[input].tex], yuv: null, width: w, height: h, mipmapped: false }, layer: true };
+    return { pic: { textures: [set[input].tex], yuv: null, width: w, height: h, mipmapped: false }, layer: true, placement: placed };
   };
 
   const bind = (t: { fbo: WebGLFramebuffer } | null) => {
@@ -783,11 +1437,11 @@ void main() {
     const samples = p.samples && p.samples.length > 1 ? p.samples : null;
     if (!samples) {
       if (!(p.opacity > 0)) return;
-      const prepared = prepare(source, p.affine, p.effects, edges);
+      const prepared = prepare(source, p.affine, p.effects, edges, p.aspect);
       if (!prepared) return;
       bind(t);
       blendOver();
-      drawTextures(prepared.pic, p.affine, p.opacity, width, height, prepared.layer, edges);
+      drawTextures(prepared.pic, prepared.placement ?? p.affine, p.opacity, width, height, prepared.layer, edges);
       gl.disable(gl.BLEND);
       return;
     }
@@ -795,13 +1449,13 @@ void main() {
     const n = samples.length;
     for (const sample of samples) {
       if (!(sample.opacity > 0)) continue;
-      const prepared = prepare(source, sample.affine, sample.effects ?? p.effects, edges);
+      const prepared = prepare(source, sample.affine, sample.effects ?? p.effects, edges, p.aspect);
       if (!prepared) continue;
       bind(accum);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE);
       // Each moment adds its share; the float buffer keeps the sum smooth.
-      drawTextures(prepared.pic, sample.affine, sample.opacity / n, width, height, prepared.layer, edges);
+      drawTextures(prepared.pic, prepared.placement ?? sample.affine, sample.opacity / n, width, height, prepared.layer, edges);
     }
     bind(t);
     blendOver();
@@ -809,8 +1463,20 @@ void main() {
     gl.disable(gl.BLEND);
   };
 
-  /** Mix canvas-sized `layer` into the frame by blend mode `mode` (see BLEND_FS), swapping the frame with its spare. */
-  const blendInto = (layer: Target, mode: number, opacity: number, replace: boolean) => {
+  /** Draw a track matte into its target; the mode to use it with (0 when there's none to draw). */
+  const drawMatte = (matte: Placed["matte"]): number => {
+    clearTarget(matteTarget);
+    if (!matte || matte.mode <= 0) return 0;
+    const source = sourceOf(matte.layer);
+    if (source) drawLayer(matteTarget, source, matte.layer);
+    return matte.mode;
+  };
+
+  /**
+   * Mix canvas-sized `layer` into the frame by blend mode `mode` (see BLEND_FS), through the
+   * track matte in `matteTarget` (by `matteMode`), swapping the frame with its spare.
+   */
+  const blendInto = (layer: Target, mode: number, opacity: number, replace: boolean, matteMode = 0) => {
     blendProgram ??= link(QUAD_VS, BLEND_FS);
     const { program, loc } = blendProgram;
     bind(spare);
@@ -820,13 +1486,19 @@ void main() {
     gl.bindTexture(gl.TEXTURE_2D, frame.tex);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, layer.tex);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, matteTarget.tex);
     gl.uniform1i(loc("uBase"), 0);
     gl.uniform1i(loc("uLayer"), 1);
+    gl.uniform1i(loc("uMatte"), 2);
+    gl.uniform1i(loc("uMatteMode"), matteMode);
     gl.uniform1i(loc("uFlipY"), 0);
     gl.uniform1i(loc("uMode"), mode);
     gl.uniform1f(loc("uOpacity"), Math.min(1, Math.max(0, opacity)));
     gl.uniform1i(loc("uReplace"), replace ? 1 : 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE0);
@@ -894,7 +1566,7 @@ void main() {
       height = h;
       gl.canvas.width = w;
       gl.canvas.height = h;
-      for (const t of [frame, spare, ...sides]) allocate(t, w, h);
+      for (const t of [frame, spare, ...sides, matteTarget]) allocate(t, w, h);
       allocate(accum, w, h, floatTargets);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
@@ -946,7 +1618,25 @@ void main() {
 
     deletePicture,
 
+    shiftPicture(key, previous) {
+      const current = pictures.get(key);
+      if (!current) return;
+      const older = pictures.get(previous);
+      pictures.set(previous, current);
+      if (older) pictures.set(key, older);
+      else pictures.delete(key);
+    },
+
     clear(color = [0, 0, 0, 1]) {
+      // Time effects that stopped drawing let go of their frames.
+      draws++;
+      if (draws % 120 === 0) {
+        for (const [id, h] of histories) {
+          if (draws - h.used <= 240) continue;
+          deleteHistory(h);
+          histories.delete(id);
+        }
+      }
       bind(frame);
       gl.disable(gl.BLEND);
       gl.clearColor(color[0], color[1], color[2], color[3]);
@@ -957,29 +1647,31 @@ void main() {
       const source = sourceOf(picture);
       if (!source) return;
       const mode = picture.blend ?? 0;
-      if (mode === 0) {
+      if (mode === 0 && !picture.matte) {
         drawLayer(frame, source, picture);
         return;
       }
+      const matteMode = drawMatte(picture.matte);
       clearTarget(sides[0]);
       drawLayer(sides[0], source, picture);
-      blendInto(sides[0], mode, 1, false);
+      blendInto(sides[0], mode, 1, false, matteMode);
     },
 
     drawAdjustment(adjustment) {
       // Opacity mixes the adjusted frame with the one below; each moment is drawn whole.
       const whole = { ...adjustment, opacity: 1, samples: adjustment.samples?.map((s) => ({ ...s, opacity: 1 })) };
       if (!(adjustment.opacity > 0)) return;
+      const matteMode = drawMatte(adjustment.matte);
       clearTarget(sides[0]);
       drawLayer(sides[0], { kind: "frame" }, whole);
-      blendInto(sides[0], adjustment.blend ?? 0, adjustment.opacity, true);
+      blendInto(sides[0], adjustment.blend ?? 0, adjustment.opacity, true, matteMode);
     },
 
     prepareShader(shader) {
       if (programs.has(shader.key)) return true;
       let pending = compiling.get(shader.key);
       if (!pending) {
-        pending = startLink(QUAD_VS, shader.source);
+        pending = startLink(shader.vertex ?? QUAD_VS, shader.source);
         compiling.set(shader.key, pending);
       }
       return !parallel || gl.getProgramParameter(pending.program, parallel.COMPLETION_STATUS_KHR) === true;
@@ -1010,9 +1702,10 @@ void main() {
       gl.uniform2f(loc("resolution"), width, height);
       // The middle of each side's frame, in uv (y up); the canvas centre for an empty side.
       const centre = (side: Placed | null): [number, number] => {
-        if (!side) return [0.5, 0.5];
-        const [a, b, c, d, e, f] = side.affine;
-        return [(a + c) / 2 + e, 1 - ((b + d) / 2 + f)];
+        const m = side && matrixOf(side.affine);
+        const w = m ? m[6] / 2 + m[7] / 2 + m[8] : 0;
+        if (!m || !(w > 1e-9)) return [0.5, 0.5];
+        return [(m[0] / 2 + m[1] / 2 + m[2]) / w, 1 - (m[3] / 2 + m[4] / 2 + m[5]) / w];
       };
       gl.uniform2f(loc("fromCentre"), ...centre(from));
       gl.uniform2f(loc("toCentre"), ...centre(to));
@@ -1103,11 +1796,23 @@ void main() {
       gl.deleteProgram(pictureProgram.program);
       gl.deleteProgram(copyProgram.program);
       for (const key of [...pictures.keys()]) deletePicture(key);
-      for (const { tex, fbo } of [frame, spare, ...sides, accum, yuv]) {
+      for (const { tex, fbo } of [frame, spare, ...sides, accum, matteTarget, yuv]) {
         gl.deleteTexture(tex);
         gl.deleteFramebuffer(fbo);
       }
       gl.deleteTexture(solidTex);
+      for (const h of histories.values()) deleteHistory(h);
+      histories.clear();
+      for (const t of flowTargets.values()) {
+        for (const x of [t.cur, t.prev, t.a, t.b]) {
+          gl.deleteTexture(x.tex);
+          gl.deleteFramebuffer(x.fbo);
+        }
+      }
+      flowTargets.clear();
+      gl.deleteFramebuffer(historyFbo);
+      if (flowPrograms) for (const f of Object.values(flowPrograms)) gl.deleteProgram(f.program);
+      if (interpProgram) gl.deleteProgram(interpProgram.program);
       gl.deleteBuffer(quad);
     },
   };

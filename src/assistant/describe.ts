@@ -15,6 +15,7 @@ import {
   VOLUME,
   effectDefinition,
   clipKind,
+  CAMERA,
   SOLID,
 } from "@shared/effects";
 import { folderPath, folderSubtree, libraryItemDuration, libraryItemKind, searchItems } from "@shared/library";
@@ -70,6 +71,8 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
     parts.push("adjustment layer (changes the tracks below it)");
   } else if (kind === "solid") {
     parts.push("solid");
+  } else if (kind === "camera") {
+    parts.push("camera (3D layers are seen through it)");
   } else {
     const kind = asset ? asset.kind : "offline media";
     parts.push(`${quote(clipName(clip, asset), 48)} (${kind}${asset ? `, ${asset.id}` : ""})`);
@@ -78,6 +81,7 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
       ...(clipSpeed(clip) !== 1 ? [`speed ${clipSpeed(clip)}×`] : []),
       ...(clip.reversed ? ["reversed"] : []),
       ...(clip.keepPitch === false ? ["pitch follows speed"] : []),
+      ...(clip.timeInterpolation ? [clip.timeInterpolation === "flow" ? "optical flow" : "frame blending"] : []),
     ];
     if (timing.length) parts.push(timing.join(", "));
   }
@@ -158,7 +162,7 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
       ...(clipKind(clip) === "text"
         ? { kind: clip.caption ? "caption" : "text" }
         : clipKind(clip) !== "media"
-          ? { kind: clipKind(clip) === "adjustment" ? "adjustment layer" : "solid" }
+          ? { kind: clipKind(clip) === "adjustment" ? "adjustment layer" : clipKind(clip) }
           : {
             kind: asset?.kind ?? "offline",
             media: asset && { id: asset.id, name: asset.name, duration: round(asset.duration) },
@@ -166,6 +170,7 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
             speed: clipSpeed(clip),
             reversed: clip.reversed === true,
             keepPitch: clip.keepPitch !== false,
+            timeInterpolation: clip.timeInterpolation ?? "frames",
           }),
       effects: clip.effects.map((e) => ({
         id: e.id,
@@ -294,9 +299,17 @@ export function describeCatalog(kind: CatalogKind, query?: string, fonts: readon
     case "clip_properties":
       return [
         "Built-in effects (set_properties / set_keyframes with these effect ids):",
-        ...[MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, SOLID].map((d) => {
+        ...[MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, SOLID, CAMERA].map((d) => {
           const where =
-            d === VOLUME ? "clips with sound" : d === TEXT || d === APPEARANCE ? "text clips" : d === SOLID ? "solids" : "clips with a picture, and adjustment layers";
+            d === VOLUME
+              ? "clips with sound"
+              : d === TEXT || d === APPEARANCE
+                ? "text clips"
+                : d === SOLID
+                  ? "solids"
+                  : d === CAMERA
+                    ? "camera clips (add_layer kind camera)"
+                    : "clips with a picture, and adjustment layers";
           return `${d.type}  "${d.label}" (${where})\n${params(d.params)}`;
         }),
       ].join("\n");

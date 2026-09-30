@@ -103,7 +103,6 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("ç", { metaKey: true, altKey: true, code: "KeyC" }))).toBe("copyEffects");
     expect(resolveShortcut(key("√", { metaKey: true, altKey: true, code: "KeyV" }))).toBe("pasteEffects");
     expect(resolveShortcut(key("c", { ctrlKey: true, altKey: true, code: "KeyC" }))).toBe("copyEffects");
-    expect(resolveShortcut(key("Ç", { metaKey: true, altKey: true, shiftKey: true, code: "KeyC" }))).toBeNull();
     expect(resolveShortcut(key("c", { altKey: true, code: "KeyC" }))).toBeNull();
   });
 
@@ -112,6 +111,7 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("Á", { metaKey: true, altKey: true, shiftKey: true, code: "KeyY" }))).toBe("newSolid");
     expect(resolveShortcut(key("y", { ctrlKey: true, altKey: true, code: "KeyY" }))).toBe("newAdjustmentLayer");
     expect(resolveShortcut(key("y", { metaKey: true, code: "KeyY" }))).toBe("redo");
+    expect(resolveShortcut(key("Ç", { metaKey: true, altKey: true, shiftKey: true, code: "KeyC" }))).toBe("newCamera");
   });
 
   it("ignores combos that aren't ours", () => {

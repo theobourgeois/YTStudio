@@ -319,7 +319,9 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
   const effectDrop = effectDropId ? onCanvas.find((c) => c.clip.id === effectDropId) : undefined;
 
   if (!(canvas.width > 0 && canvas.height > 0)) return null;
-  const p = selected?.placement;
+  // A 3D layer only moves on the canvas (its other values are in Properties): its outline as the camera sees it.
+  const flat = selected && !selected.corners3d;
+  const p = flat ? selected.placement : undefined;
   const corners = p ? frameCorners(p) : null;
   // No handles while typing: the text box is being edited, not transformed.
   const handles = selected && selected !== editing;
@@ -360,6 +362,18 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
             strokeWidth={1}
             strokeDasharray="4 3"
           />
+        )}
+        {handles && selected.corners3d && (
+          <>
+            <polygon
+              data-handle="move-3d"
+              points={selected.corners3d.map((c) => c.join(",")).join(" ")}
+              className="pointer-events-auto cursor-move fill-transparent stroke-black/40"
+              strokeWidth={3}
+              onPointerDown={(e) => e.button === 0 && startDrag(e, selected, { kind: "move" }, "move")}
+            />
+            <polygon points={selected.corners3d.map((c) => c.join(",")).join(" ")} className="fill-none stroke-brand" strokeWidth={1.5} strokeDasharray="6 3" />
+          </>
         )}
         {handles && p && corners && (
           <>

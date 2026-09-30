@@ -1,7 +1,7 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
-import { PiArrowCounterClockwise, PiCircleHalfTilt, PiSquare, PiSubtitles, PiTextT, PiWarning } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiCircleHalfTilt, PiIntersectSquare, PiSquare, PiSubtitles, PiTextT, PiVideoCamera, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
-import { type ClipKind, SOLID, clipKind, findEffect, videoEffects } from "@shared/effects";
+import { type ClipKind, OPACITY, SOLID, clipKind, findEffect, videoEffects } from "@shared/effects";
 import { keyframeTimes, timelineTime } from "@shared/animation";
 import { clipDuration, clipName, clipSpeed, sourceDelta, sourceEdge } from "@shared/timeline";
 import { formatSpeed } from "@shared/format";
@@ -76,7 +76,9 @@ export const TimelineClip = memo(function TimelineClip({
                     ? "bg-clip-adjustment"
                     : kind === "solid"
                       ? "bg-clip-solid"
-                      : audioLane
+                      : kind === "camera"
+                        ? "bg-clip-camera"
+                        : audioLane
                         ? "bg-clip-audio"
                         : "bg-clip-video",
               ),
@@ -92,6 +94,7 @@ export const TimelineClip = memo(function TimelineClip({
           <ClipLabel
             offline={offline}
             kind={kind}
+            matte={(findEffect(clip, OPACITY.type)?.params.trackMatte ?? "none") !== "none"}
             caption={clip.caption === true}
             name={clipName(clip, asset)}
             effects={effects.map((e) => e.type)}
@@ -216,6 +219,7 @@ function ClipKeyframes({ clip, zoom }: { clip: Clip; zoom: number }) {
 function ClipLabel({
   offline,
   kind,
+  matte,
   caption,
   name,
   effects,
@@ -225,6 +229,8 @@ function ClipLabel({
 }: {
   offline: boolean;
   kind: ClipKind;
+  /** Drawn through a track matte (the clip on the track above). */
+  matte: boolean;
   caption: boolean;
   name: string;
   /** Its video effects' types. */
@@ -245,6 +251,8 @@ function ClipLabel({
       {kind === "text" && (caption ? <PiSubtitles className="size-3 shrink-0" /> : <PiTextT className="size-3 shrink-0" />)}
       {kind === "adjustment" && <PiCircleHalfTilt className="size-3 shrink-0" />}
       {kind === "solid" && <PiSquare className="size-3 shrink-0" />}
+      {kind === "camera" && <PiVideoCamera className="size-3 shrink-0" />}
+      {matte && <PiIntersectSquare className="size-3 shrink-0 text-sky-300" aria-label="Track matte" data-clip-matte />}
       <span className="truncate">{name}</span>
       {(speed !== 1 || reversed) && (
         // Premiere puts the speed after the name ("clip.mp4 [200%]"); a reversed clip's is negative.

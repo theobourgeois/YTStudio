@@ -664,6 +664,37 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     expect(blurred, `blurred ${blurred} vs sharp ${sharp}`).toBeGreaterThan(sharp + 20);
   });
 
+  it("exports slow motion with new frames in between (optical flow), or repeats frames (frame sampling)", async () => {
+    // A quarter speed: each source frame lasts four output frames.
+    const slow = (start: number, timeInterpolation?: "flow" | "blend"): Clip => ({
+      ...clip("landscape", "main", start, 0, 1),
+      speed: 0.25,
+      ...(timeInterpolation && { timeInterpolation }),
+    });
+    const project = projectWith([slow(0, "flow"), slow(4), slow(8, "blend")]);
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    // How different two output frames are (mean channel difference over a row through the moving pattern).
+    const row = (time: number) =>
+      execFileSync(FFMPEG, [
+        "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", String(time), "-i", output,
+        "-frames:v", "1", "-vf", "format=rgb24,crop=720:1:0:640", "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+      ]);
+    const change = (a: number, b: number) => {
+      const [x, y] = [row(a), row(b)];
+      let sum = 0;
+      for (let i = 0; i < x.length; i++) sum += Math.abs(x[i] - y[i]);
+      return sum / x.length;
+    };
+    // Frames 31 and 32 (1.033 s, 1.067 s): the same source frame when sampled, a step apart when interpolated.
+    const [f1, f2] = [31.5 / 30, 32.5 / 30];
+    expect(change(4 + f1, 4 + f2)).toBeLessThan(1);
+    expect(change(f1, f2)).toBeGreaterThan(1);
+    expect(change(8 + f1, 8 + f2)).toBeGreaterThan(1);
+  });
+
   it("exports video in its true colours, whatever matrix it's stored in", async () => {
     const ids: string[] = [];
     for (const file of ["teal-709.mp4", "teal-hd.mp4", "teal-sd.mp4"]) {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { placePoint } from "./compositor.ts";
 import { findEffect, isVideoEffect, motionAt } from "./effects.ts";
+import { canvasAffine } from "./layers.ts";
 import { PRESETS, PRESET_TAGS, addPresetLayer, applyPresetToClips, presetClip, presetDefinition, presetProblems } from "./presets.ts";
 import { MAIN_TRACK_ID, clipEnd, createDefaultProject, getClip } from "./timeline.ts";
 import type { Clip, Project } from "./types.ts";
@@ -21,15 +23,18 @@ describe("preset library", () => {
     }
   });
 
-  it("transitions start and end on the picture they're given (every animated value back at rest)", () => {
-    // Whole turns, and whole canvases away over a tiled picture, look the same.
-    const wrap = (v: number, period: number) => Math.round((((v % period) + period) % period) * 1e6) / 1e6;
+  it("transitions start and end on the picture they're given (the layer back exactly over the canvas)", () => {
+    // Whole canvases away over a tiled picture look the same.
+    const wrap = (v: number) => (Math.round((((v % 1) + 1) % 1) * 1e5) / 1e5) % 1;
+    const canvas = { width: 1080, height: 1920 };
     for (const def of PRESETS.filter((p) => p.kind === "transition")) {
       const layer = presetClip(def);
+      const at = canvasAffine(layer, canvas);
       for (const t of [0, def.duration]) {
-        const motion = motionAt(layer, t);
-        const [x, y] = motion.position;
-        expect([motion.scaleX, wrap(motion.rotation, 360), wrap(x - 0.5, 1), wrap(y - 0.5, 1)], `${def.type} at ${t}`).toEqual([1, 0, 0, 0]);
+        const where = at(t)!;
+        const affine = Array.isArray(where) ? where : where.affine;
+        const corners = ([[0, 0], [1, 0], [0, 1], [1, 1]] as const).map(([u, v]) => placePoint(affine, u, v)!.map(wrap));
+        expect(corners, `${def.type} at ${t}`).toEqual([[0, 0], [0, 0], [0, 0], [0, 0]]);
       }
     }
   });

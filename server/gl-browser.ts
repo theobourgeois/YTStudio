@@ -217,18 +217,31 @@ function pageScript(): string {
           }
           for (const key of head.release) compositor.deletePicture(key);
           compositor.clear();
-          const shader = (key: string): Shader => ({ key, source: shaders[key] });
+          const shader = (key: string): Shader => ({
+            key,
+            source: shaders[key],
+            ...(shaders[`${key}#vs`] && { vertex: shaders[`${key}#vs`] }),
+            ...(shaders[`${key}#base`] && { base: shaders[`${key}#base`] }),
+          });
           // Effects name their shaders by key; the sources came in earlier packets.
           const passes = (effects: EffectPass<string>[] | undefined) => effects?.map((fx) => ({ ...fx, shader: shader(fx.shader) }));
-          const withShaders = <T extends Omit<PlacedRef, "key">>(p: T) => ({
+          const samples = (list: PlacedRef["samples"]) => list?.map((sample) => ({ ...sample, effects: passes(sample.effects) }));
+          const toPlaced = (p: PlacedRef): Placed => ({
             ...p,
             effects: passes(p.effects),
-            samples: p.samples?.map((sample) => ({ ...sample, effects: passes(sample.effects) })),
+            samples: samples(p.samples),
+            matte: p.matte && { mode: p.matte.mode, layer: toPlaced(p.matte.layer) },
           });
-          const placed = (p: PlacedRef | null): Placed | null => p && withShaders(p);
+          const toAdjustment = (a: Adjustment<string>): Adjustment => ({
+            ...a,
+            effects: passes(a.effects),
+            samples: samples(a.samples),
+            matte: a.matte && { mode: a.matte.mode, layer: toPlaced(a.matte.layer) },
+          });
+          const placed = (p: PlacedRef | null): Placed | null => p && toPlaced(p);
           for (const layer of head.layers) {
             if (layer.kind === "picture") compositor.drawPicture(placed(layer.picture)!);
-            else if (layer.kind === "adjustment") compositor.drawAdjustment(withShaders(layer.adjustment));
+            else if (layer.kind === "adjustment") compositor.drawAdjustment(toAdjustment(layer.adjustment));
             else compositor.drawTransition(shader(layer.shader), layer.uniforms, layer.progress, placed(layer.from), placed(layer.to));
           }
           return compositor.readYuv420Async();

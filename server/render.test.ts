@@ -318,6 +318,22 @@ describe("solids and adjustment layers", () => {
   });
 });
 
+describe("track mattes", () => {
+  it("draw a clip through the picture on the track above, which isn't drawn itself", () => {
+    const matte = { ...newLayerClip("solid", 0, 2, { color: "#ffffff" }), trackId: "top" };
+    const below = clip("vid", "main", 0, 0, 2, { opacity: { trackMatte: "luma-inverted" } });
+    const p = project([below, matte], withTop);
+    const layers = planRender(p, assets, opts).frame(15);
+    expect(layers).toHaveLength(1);
+    const [only] = pictures(layers);
+    expect(only.key).not.toBe("");
+    expect(only.matte).toMatchObject({ mode: 4, layer: { key: "", solid: { color: [1, 1, 1, 1] } } });
+    // Without the clip above, it's just drawn.
+    const alone = planRender(project([below]), assets, opts).frame(15);
+    expect(pictures(alone)[0].matte).toBeUndefined();
+  });
+});
+
 describe("presets", () => {
   it("export a transition preset as a motion-blurred adjustment layer over the cut", () => {
     const p = addPresetLayer(project([clip("vid", "main", 0, 0, 2), clip("vid", "main", 2, 4, 6)]), "spin", 2).project;

@@ -131,6 +131,14 @@ export interface Clip {
    */
   keepPitch?: false;
   /**
+   * How the frames between its media's own are made when it's slowed down (or sped up, or at
+   * another frame rate), Premiere's Time Interpolation: absent is Frame Sampling (the nearest
+   * frame is shown), `blend` cross-fades the two frames either side, `flow` warps both along
+   * the optical flow between them to where things are in between (smooth slow motion, like
+   * Twixtor). Only clips of videos.
+   */
+  timeInterpolation?: "blend" | "flow";
+  /**
    * Everything else about the clip (framing, position, scale, opacity, volume...),
    * as effects in the order they apply. See `shared/effects.ts`.
    */

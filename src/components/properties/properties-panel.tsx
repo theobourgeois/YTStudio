@@ -12,6 +12,7 @@ import {
   PiArrowUp,
   PiCaretRight,
   PiCircleHalfTilt,
+  PiClockCounterClockwise,
   PiDiamondsFour,
   PiDotsThree,
   PiFilmStrip,
@@ -21,6 +22,7 @@ import {
   PiSparkle,
   PiSquare,
   PiSubtitles,
+  PiVideoCamera,
   PiTextT,
   PiTrash,
 } from "react-icons/pi";
@@ -129,6 +131,14 @@ export function PropertiesPanel() {
           </p>
         </PanelRow>
       )}
+      {kind === "camera" && (
+        <PanelRow lanes={lanes} className="border-b">
+          <p className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground" data-camera-note>
+            <PiVideoCamera className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">3D layers (Motion → 3D Layer) are seen through it while it lasts.</span>
+          </p>
+        </PanelRow>
+      )}
       {selectedCount > 1 && (
         <PanelRow lanes={lanes} className="border-b">
           <p className="px-3 py-2 text-xs text-muted-foreground">{selectedCount} clips selected. Showing the last one you selected.</p>
@@ -151,7 +161,7 @@ export function PropertiesPanel() {
         </Fragment>
       ))}
       {retimable && firstVideoEffect === sections.length && <SpeedSection clip={clip} lanes={lanes} />}
-      {visual && (
+      {visual && kind !== "camera" && (
         <PanelRow lanes={lanes}>
           <AddEffectRow />
         </PanelRow>
@@ -233,7 +243,9 @@ function ClipHeader({
         ? PiCircleHalfTilt
         : kind === "solid"
           ? PiSquare
-          : asset?.kind === "image"
+          : kind === "camera"
+            ? PiVideoCamera
+            : asset?.kind === "image"
             ? PiImage
             : asset?.kind === "audio"
               ? PiMusicNotes
@@ -365,6 +377,14 @@ export function EffectSection({
       </PanelRow>
       {open && (
         <div className={cn(!effect.enabled && "[&_[data-param]]:opacity-60")}>
+          {def.shader?.history && (
+            <PanelRow lanes={lanes}>
+              <p className="flex items-center gap-2 px-3 pb-1.5 text-[11px] leading-snug text-muted-foreground" data-time-effect-note>
+                <PiClockCounterClockwise className="size-3.5 shrink-0" />
+                Uses the frames before this one: it shows while playing and in the export.
+              </p>
+            </PanelRow>
+          )}
           {params.map((spec) => {
             const animatable = isAnimatable(spec) && !target;
             const animated = !!effect.keyframes?.[spec.key]?.length;

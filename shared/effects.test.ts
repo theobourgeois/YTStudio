@@ -53,6 +53,7 @@ describe("effect definitions", () => {
     expect(clip.effects.map((e) => e.id)).toEqual(["motion", "opacity", "volume"]);
     expect(motionAt(clip, 0)).toEqual({
       fit: "contain", position: [0.5, 0.5], scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5],
+      threeD: false, z: 0, rotationX: 0, rotationY: 0,
     });
     expect(opacityAt(clip, 0)).toBe(1);
     expect(volumeAt(clip, 0)).toBe(1);
@@ -67,6 +68,7 @@ describe("effect definitions", () => {
     expect(shown(true, false, "text")).toEqual(["motion", "opacity", "text", "appearance"]);
     expect(shown(true, false, "solid")).toEqual(["motion", "opacity", "solid"]);
     expect(shown(true, false, "adjustment")).toEqual(["motion", "opacity"]);
+    expect(shown(true, false, "camera")).toEqual(["camera"]);
   });
 });
 
@@ -215,7 +217,7 @@ describe("evaluation", () => {
   it("uses defaults while an effect is off", () => {
     const p = setEffectEnabled(setParams(projectWith(clipWith()), "c", "opacity", { opacity: 0.2 }), "c", "opacity", false);
     expect(opacityAt(p.clips[0], 0)).toBe(1);
-    expect(valuesAt(OPACITY, undefined, 0)).toEqual({ opacity: 1, blendMode: "normal" });
+    expect(valuesAt(OPACITY, undefined, 0)).toEqual({ opacity: 1, blendMode: "normal", trackMatte: "none" });
   });
 
   it("stretches only when uniform scale is off", () => {
@@ -306,6 +308,8 @@ describe("video effects", () => {
         expect(["number", "boolean", "choice", "vec2", "color"], `${def.type}.${p.key}`).toContain(p.kind);
         expect(RESERVED_EFFECT_UNIFORMS, `${def.type}.${p.key}`).not.toContain(p.key);
       }
+      // A particle effect places particles (`particle(id)`); every other one shades pixels.
+      if (def.shader!.particles) expect(def.shader!.particles.glsl).toContain("Particle particle(int id)");
       expect(effectFragmentSource({ params: def.params, glsl: def.shader!.glsl })).toContain("vec4 effect(vec2 uv)");
     }
   });

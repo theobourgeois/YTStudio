@@ -71,6 +71,15 @@ Effects and After Effects' effects and plugins:
 - **Generate** (best on a solid): fractal noise, gradient ramp, 4-color gradient, shape, checkerboard, particles
   (dust, snow, rain, sparks, stars), cell pattern, radio waves, lines, beam.
 - **Keying:** chroma key, luma key, matte choker, invert alpha, fill, drop shadow, outline.
+- **Shake:** Shake (Sapphire S_Shake-style: position, rotation, zoom and 3D tilt, with its own motion blur, jaggedness
+  and chromatic split) and Impact Shake (a hit that settles).
+- **Time:** Echo, Posterize Time, Time Displacement (slit-scan), Frame Blend, Trails (feedback: tunnels, spirals),
+  Pixel Motion Blur (optical-flow motion blur, like ReelSmart Motion Blur) and Datamosh. They use the frames
+  before, so they show while the video plays and in the export; paused, the preview shows the frame as it is.
+- **Particle World:** simulated particles (like CC Particle World and Particular): emit from a point, line, box,
+  circle, the layer's own shape, or the edge of the layer dissolving (Thanos-style disintegrate), with velocity,
+  spread, gravity, wind, air resistance, turbulence, life, size and colour over life, shapes (glow dots, discs,
+  sparkles, squares, rings, bokeh, shards), motion-blurred streaks and bursts. Any frame is exact, however you seek.
 
 Every amount can be keyframed, and each effect also works on an adjustment layer, where it changes everything below.
 Filter them by category or search; hover a card to compare before and after (moving effects play).
@@ -96,6 +105,19 @@ Like After Effects and Premiere, layers can change or add to the picture instead
   blend mode.
 
 Both go on a track above what they should affect. Clicks on the canvas go through adjustment layers to the clips below.
+
+### 3D, cameras and track mattes
+
+- **3D layers:** turn on Motion's **3D Layer** and a clip becomes a card in space: **Position Z** moves it nearer or
+  further, **X Rotation** and **Y Rotation** turn it, with true perspective (and motion blur). 3D layers on
+  neighbouring tracks are drawn far first. An adjustment layer can be 3D too: the whole picture below as a card
+  (the 3D Flip, Tumble and Swing presets).
+- **Camera:** **Layer** → **Camera** (`⌥⇧⌘C`) adds a camera clip. While it lasts, 3D layers are seen through it:
+  angle of view, point of interest, distance (dolly), orbit X/Y, roll, and depth of field (focus distance and blur
+  level). Keyframe them for camera moves around 3D text and pictures.
+- **Track mattes:** a clip's Opacity **Track Matte** (Alpha, Alpha Inverted, Luma, Luma Inverted) shows it only through
+  the clip on the video track right above it, which then isn't drawn itself: video inside text, text reveals, wipes
+  with a moving shape.
 
 ### Presets
 
@@ -252,6 +274,9 @@ Like Premiere's Speed/Duration, any video or sound clip can play faster, slower 
 - The clip keeps its start, and the clips after it on its track move with its end, so speeding up leaves no gap and
   slowing down never overlaps the next clip.
 - **Rate stretch:** hold `⌥` while dragging a clip's edge to change its speed so the same footage fills the new length.
+- **Time interpolation** (videos), like Premiere's: **Frame Sampling** repeats or skips frames, **Frame Blending**
+  cross-fades them, and **Optical Flow** makes new frames in between from the motion (smooth slow motion, like
+  Twixtor). The export is exact; the preview shows it while playing.
 - A retimed clip shows its speed on the timeline (with ⟲ when reversed). Keyframes stay on their frames, so an
   animation speeds up (or plays backwards) with its clip. Stills and text have no speed: trim them to change their
   length. Reversed speech isn't captioned.

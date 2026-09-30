@@ -5,7 +5,7 @@
  * `Track` or `Clip` must be validated here (and old documents upgraded here),
  * or it's dropped.
  */
-import { hasMedia, isTextClip, normalizeEffects } from "./effects.ts";
+import { clipKind, drawsNothing, hasMedia, isTextClip, normalizeEffects } from "./effects.ts";
 import { EPS, clamp, isFiniteNumber, roundTime } from "./math.ts";
 import {
   ASPECT_RATIOS,
@@ -66,7 +66,7 @@ export function normalizeProject(
     if (!nums.every((n) => typeof n === "number" && Number.isFinite(n))) continue;
     const effects = normalizeEffects(c.effects, Array.isArray(c.effects) ? undefined : (c as LegacyClip));
     // Text, solids and adjustment layers have no media, and are only ever drawn on a video track.
-    const adjustment = c.adjustment === true && !isTextClip({ effects }) && !effects.some((e) => e.type === "solid");
+    const adjustment = c.adjustment === true && clipKind({ effects }) === "media";
     const noMedia = !hasMedia({ effects, adjustment: adjustment || undefined });
     if (noMedia && kind !== "video") continue;
     let out = c.out;
@@ -84,10 +84,11 @@ export function normalizeProject(
     // Only media that plays (not stills, or clips without media) has a speed and a direction.
     const retimable = !noMedia && (!assets || assets[c.assetId]?.kind !== "image");
     const speed = retimable && isFiniteNumber(c.speed) && c.speed > 0 ? clampSpeed({ in: inPoint, out }, c.speed) : 1;
-    const timing: Pick<Clip, "speed" | "reversed" | "keepPitch"> = {
+    const timing: Pick<Clip, "speed" | "reversed" | "keepPitch" | "timeInterpolation"> = {
       ...(speed !== 1 && { speed }),
       ...(retimable && c.reversed === true && { reversed: true as const }),
       ...(retimable && c.keepPitch === false && { keepPitch: false as const }),
+      ...(retimable && kind === "video" && (c.timeInterpolation === "blend" || c.timeInterpolation === "flow") && { timeInterpolation: c.timeInterpolation }),
     };
     const clip: Clip = {
       id: c.id,
@@ -100,8 +101,9 @@ export function normalizeProject(
       effects,
     };
     // Only pictures have transitions (an adjustment layer has no picture of its own).
-    const transitionIn = kind === "video" && !adjustment ? sanitizeTransition(c.transitionIn) : undefined;
-    const transitionOut = kind === "video" && !adjustment ? sanitizeTransition(c.transitionOut) : undefined;
+    const pictured = !drawsNothing({ effects, adjustment: adjustment || undefined });
+    const transitionIn = kind === "video" && pictured ? sanitizeTransition(c.transitionIn) : undefined;
+    const transitionOut = kind === "video" && pictured ? sanitizeTransition(c.transitionOut) : undefined;
     if (transitionIn) clip.transitionIn = transitionIn;
     if (transitionOut) clip.transitionOut = transitionOut;
     if (isTextClip(clip) && c.caption === true) clip.caption = true;

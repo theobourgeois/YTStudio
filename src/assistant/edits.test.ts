@@ -159,6 +159,23 @@ describe("assistant edits", () => {
     expect(describeCatalog("presets", "spin")).toContain('spin  "Spin" transition');
   });
 
+  it("adds cameras for 3D layers, track mattes and optical-flow slow motion", () => {
+    const p = withTwoClips();
+    const [a, b] = main(p);
+    const out = EDITS.add_layer(p, { kind: "camera", start: 0, duration: 4, camera: { orbitY: 30, distance: 0.8 } }, env);
+    const cam = out.project.clips.find((c) => clipKind(c) === "camera")!;
+    expect(findEffect(cam, "camera")!.params).toMatchObject({ orbitY: 30, distance: 0.8 });
+    expect(out.text).toMatch(/3D layers/);
+    expect(() => EDITS.add_layer(p, { kind: "camera", start: 0, effects: [{ type: "invert" }] }, env)).toThrow(/no effects/);
+    const threeD = run(p, ["set_properties", { clipIds: [a.id], effect: "motion", params: { threeD: true, rotationY: 40, positionZ: 300 } }]);
+    expect(findEffect(getClip(threeD, a.id)!, "motion")!.params).toMatchObject({ threeD: true, rotationY: 40, positionZ: 300 });
+    const matted = run(p, ["set_properties", { clipIds: [a.id], effect: "opacity", params: { trackMatte: "luma" } }]);
+    expect(findEffect(getClip(matted, a.id)!, "opacity")!.params.trackMatte).toBe("luma");
+    const slow = run(p, ["set_speed", { clipIds: [b.id], speed: 0.5, interpolation: "flow" }]);
+    expect(getClip(slow, b.id)).toMatchObject({ speed: 0.5, timeInterpolation: "flow" });
+    expect(describeTimeline(slow, assets, { playhead: 0, selectedClipIds: [] })).toContain("optical flow");
+  });
+
   it("sets blend modes, motion blur and snappy keyframes", () => {
     const p = withTwoClips();
     const [a] = main(p);

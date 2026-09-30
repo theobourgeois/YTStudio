@@ -15,7 +15,9 @@
  * A solid (After Effects' solid layer) has no media either: it carries the
  * Solid effect, a colour filling the canvas, which generator effects (noise,
  * gradients, light) draw over. An adjustment layer (`Clip.adjustment`) draws
- * nothing itself: its effects, Motion and Opacity apply to what's below it.
+ * nothing itself: its effects, Motion and Opacity apply to what's below it. A
+ * camera (the Camera effect) draws nothing either: 3D layers are seen through
+ * it while it lasts (`camera.ts`).
  *
  * Video effects (blur, colour, glitch...) are the ones the user adds from the
  * Effects tab, any number of times and in any order. Each is a shader
@@ -31,6 +33,9 @@ import { DISTORT_EFFECTS } from "./effect-library/distort.ts";
 import { LIGHT_EFFECTS } from "./effect-library/light.ts";
 import { GENERATE_EFFECTS } from "./effect-library/generate.ts";
 import { KEYING_EFFECTS } from "./effect-library/keying.ts";
+import { SHAKE_EFFECTS } from "./effect-library/shake.ts";
+import { TIME_EFFECTS } from "./effect-library/time.ts";
+import { PARTICLE_EFFECTS } from "./effect-library/particles.ts";
 import { BLEND_MODES } from "./compositor.ts";
 import { keyframeValue, sanitizeKeyframes, setKeyframe } from "./keyframes.ts";
 import { tidy } from "./math.ts";
@@ -41,7 +46,7 @@ import type { Clip, Effect, FitMode, Keyframe, ParamValue, ParamValues, Project,
  * What a clip shows: media (video, image or sound), text, a solid colour, or
  * nothing of its own (an adjustment layer, which changes what's below it).
  */
-export type ClipKind = "media" | "text" | "solid" | "adjustment";
+export type ClipKind = "media" | "text" | "solid" | "adjustment" | "camera";
 
 /** What a clip is, which decides the effects it shows. */
 export interface ClipTraits {
@@ -68,7 +73,7 @@ export interface EffectDefinition {
 }
 
 /** Categories of video effects, in the order the Effects tab's filter shows them. */
-export const EFFECT_TAGS = ["color", "blur", "light", "stylize", "distort", "camera", "glitch", "generate", "keying"] as const;
+export const EFFECT_TAGS = ["color", "blur", "light", "stylize", "distort", "camera", "time", "glitch", "generate", "keying"] as const;
 
 export type EffectTag = (typeof EFFECT_TAGS)[number];
 
@@ -79,6 +84,7 @@ export const EFFECT_TAG_LABELS: Record<EffectTag, string> = {
   stylize: "Stylize",
   distort: "Distort",
   camera: "Camera",
+  time: "Time",
   glitch: "Glitch",
   generate: "Generate",
   keying: "Keying",
@@ -100,6 +106,28 @@ export interface EffectShader {
   tags: EffectTag[];
   /** Values its card shows, where the defaults are too subtle to read at that size. */
   demo?: ParamValues;
+  /**
+   * A time effect (After Effects' Echo, Posterize Time...): it reads its input at earlier
+   * moments (`getFrameAgo`, up to `reach` seconds back), and optionally its own output a frame
+   * ago (`feedback`: `getFeedback`) and how the picture moved since the last frame (`flow`:
+   * `getFlow`, optical flow). Earlier frames exist while a video plays and in the export,
+   * which draws every frame in order; paused on a frame, the preview only has that frame.
+   */
+  history?: { reach: (values: ParamValues, fps: number) => number; feedback?: boolean; flow?: boolean };
+  /**
+   * A particle effect (see `particles.ts`): `glsl` (its `effect(uv)`) draws the layer under
+   * the particles (as it is, faded, dissolving...), and `particles.glsl` defines
+   * `Particle particle(int id)` for the vertex shader that places them. `count` is how many
+   * to draw for these values (at most as many as can be alive at once), `blend` how they
+   * mix in (0 over, 1 add, 2 screen).
+   */
+  particles?: { glsl: string; count: (values: ParamValues) => number; blend: (values: ParamValues) => number };
+  /**
+   * Room past the clip's frame this effect needs, as a fraction of its height on every side
+   * (After Effects' Grow Bounds), so what it draws there isn't cut off: see `EffectPass.grow`.
+   * Positions then go through `frameUv`.
+   */
+  grow?: (values: ParamValues) => number;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +138,7 @@ export const MOTION: EffectDefinition = {
   type: "motion",
   label: "Motion",
   builtIn: true,
-  appliesTo: (c) => c.visual,
+  appliesTo: (c) => c.visual && c.kind !== "camera",
   params: [
     {
       kind: "choice",
@@ -149,6 +177,42 @@ export const MOTION: EffectDefinition = {
     },
     { kind: "boolean", key: "uniformScale", label: "Uniform Scale", default: true },
     { kind: "number", key: "rotation", label: "Rotation", default: 0, min: -36_000, max: 36_000, unit: "°", step: 1, decimals: 1 },
+    // After Effects' 3D layer switch: a card in space, with a depth and turns about X and Y, seen through the camera.
+    { kind: "boolean", key: "threeD", label: "3D Layer", default: false },
+    {
+      kind: "number",
+      key: "positionZ",
+      label: "Position Z",
+      default: 0,
+      min: -100_000,
+      max: 100_000,
+      ...PIXELS,
+      disabledFor: (v) => v.threeD !== true,
+    },
+    {
+      kind: "number",
+      key: "rotationX",
+      label: "X Rotation",
+      default: 0,
+      min: -36_000,
+      max: 36_000,
+      unit: "°",
+      step: 1,
+      decimals: 1,
+      disabledFor: (v) => v.threeD !== true,
+    },
+    {
+      kind: "number",
+      key: "rotationY",
+      label: "Y Rotation",
+      default: 0,
+      min: -36_000,
+      max: 36_000,
+      unit: "°",
+      step: 1,
+      decimals: 1,
+      disabledFor: (v) => v.threeD !== true,
+    },
     // The point of the clip's frame that scaling and rotation happen around.
     { kind: "vec2", key: "anchor", label: "Anchor Point", default: [0.5, 0.5], space: "media", min: -10, max: 10, step: 1, decimals: 1 },
     // What shows past the frame's edges (After Effects' Motion Tile): nothing, or the picture
@@ -194,11 +258,25 @@ export const OPACITY: EffectDefinition = {
   type: "opacity",
   label: "Opacity",
   builtIn: true,
-  appliesTo: (c) => c.visual,
+  appliesTo: (c) => c.visual && c.kind !== "camera",
   params: [
     { kind: "number", key: "opacity", label: "Opacity", default: 1, min: 0, max: 1, slider: true, ...PERCENT },
     // How the clip mixes with what's below it (Premiere's and After Effects' blend modes).
     { kind: "choice", key: "blendMode", label: "Blend Mode", default: "normal", options: BLEND_MODES.map(({ value, label }) => ({ value, label })) },
+    // After Effects' TrkMat: shown only through the clip on the video track right above it, which isn't drawn itself.
+    {
+      kind: "choice",
+      key: "trackMatte",
+      label: "Track Matte",
+      default: "none",
+      options: [
+        { value: "none", label: "None" },
+        { value: "alpha", label: "Alpha Matte" },
+        { value: "alpha-inverted", label: "Alpha Inverted" },
+        { value: "luma", label: "Luma Matte" },
+        { value: "luma-inverted", label: "Luma Inverted" },
+      ],
+    },
   ],
 };
 
@@ -257,6 +335,51 @@ export const TEXT: EffectDefinition = {
 
 const off = (key: string) => (v: ParamValues) => !((v[key] as number) > 0);
 
+/**
+ * A camera clip's lens and where it looks (After Effects' camera, as an orbit around a point
+ * of interest): 3D layers are seen through the topmost camera under the playhead (`camera.ts`).
+ */
+export const CAMERA: EffectDefinition = {
+  type: "camera",
+  label: "Camera",
+  builtIn: false,
+  alwaysOn: true,
+  appliesTo: (c) => c.kind === "camera",
+  params: [
+    // Vertical; 40° is the default camera, which shows depth 0 as it is in 2D.
+    { kind: "number", key: "angleOfView", label: "Angle of View", default: 40, min: 1, max: 170, unit: "°", step: 0.5, decimals: 1 },
+    { kind: "vec2", key: "pointOfInterest", label: "Point of Interest", default: [0.5, 0.5], space: "canvas", min: -10, max: 10, step: 1, decimals: 1 },
+    { kind: "number", key: "interestZ", label: "Point of Interest Z", default: 0, min: -100_000, max: 100_000, ...PIXELS },
+    // Dolly: 100% shows depth 0 at its size; less is closer.
+    { kind: "number", key: "distance", label: "Distance", default: 1, min: 0.01, max: 20, ...PERCENT },
+    { kind: "number", key: "orbitX", label: "Orbit X", default: 0, min: -36_000, max: 36_000, unit: "°", step: 1, decimals: 1 },
+    { kind: "number", key: "orbitY", label: "Orbit Y", default: 0, min: -36_000, max: 36_000, unit: "°", step: 1, decimals: 1 },
+    { kind: "number", key: "roll", label: "Roll", default: 0, min: -36_000, max: 36_000, unit: "°", step: 1, decimals: 1 },
+    { kind: "boolean", key: "depthOfField", label: "Depth of Field", default: false },
+    {
+      kind: "number",
+      key: "focusDistance",
+      label: "Focus Distance",
+      default: 1,
+      min: 0.01,
+      max: 20,
+      ...PERCENT,
+      disabledFor: (v) => v.depthOfField !== true,
+    },
+    {
+      kind: "number",
+      key: "aperture",
+      label: "Blur Level",
+      default: 0.02,
+      min: 0,
+      max: 0.2,
+      slider: true,
+      ...PERCENT,
+      disabledFor: (v) => v.depthOfField !== true,
+    },
+  ],
+};
+
 /** A solid's fill: a colour covering the canvas (at 100%), which generator effects draw over. */
 export const SOLID: EffectDefinition = {
   type: "solid",
@@ -298,13 +421,16 @@ export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
   ...STYLIZE_EFFECTS,
   ...DISTORT_EFFECTS,
   ...MOTION_EFFECTS,
+  ...SHAKE_EFFECTS,
+  ...TIME_EFFECTS,
   ...GLITCH_EFFECTS,
   ...GENERATE_EFFECTS,
+  ...PARTICLE_EFFECTS,
   ...KEYING_EFFECTS,
 ];
 
 /** Every effect definition; built-in ones in the order they're listed (and applied). */
-export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, SOLID, ...VIDEO_EFFECTS];
+export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, SOLID, CAMERA, ...VIDEO_EFFECTS];
 
 const byType = new Map(EFFECTS.map((d) => [d.type, d]));
 
@@ -341,6 +467,11 @@ export function defaultEffects(): Effect[] {
 /** A new solid's effects: the built-in ones, then Solid (with `params` over the defaults). */
 export function solidEffects(params: ParamValues = {}): Effect[] {
   return [...defaultEffects(), sanitizeEffect(SOLID, { params }, SOLID.type)];
+}
+
+/** A new camera's effects: the built-in ones, then Camera (with `params` over the defaults). */
+export function cameraEffects(params: ParamValues = {}): Effect[] {
+  return [...defaultEffects(), sanitizeEffect(CAMERA, { params }, CAMERA.type)];
 }
 
 /** A new text clip's effects: the built-in ones, then Text (with `params` over the defaults) and Appearance. */
@@ -381,9 +512,10 @@ export function normalizeEffects(raw: unknown, legacy?: { volume?: unknown; fit?
   for (const e of stored) {
     const def = byType.get(e.type)!;
     if (def.builtIn) continue;
-    if (def === SOLID && isText) continue;
+    if ((def === SOLID || def === CAMERA) && isText) continue;
+    if (def === CAMERA && stored.some((x) => x.type === SOLID.type)) continue;
     // Like built-ins, these are addressed by their type (`setParams(p, clipId, TEXT.type, ...)`).
-    if (def === TEXT || def === APPEARANCE || def === SOLID) {
+    if (def === TEXT || def === APPEARANCE || def === SOLID || def === CAMERA) {
       if (once.has(def.type)) continue;
       once.add(def.type);
       ids.add(def.type);
@@ -436,6 +568,11 @@ export interface Motion {
   rotation: number;
   /** As fractions of the clip's frame. */
   anchor: Vec2;
+  /** A 3D layer (see `camera.ts`): its depth (px at 1080p) and turns about X and Y count. */
+  threeD?: boolean;
+  z?: number;
+  rotationX?: number;
+  rotationY?: number;
 }
 
 /** A clip's motion at source time `time`. */
@@ -449,6 +586,10 @@ export function motionAt(clip: Clip, time: number): Motion {
     scaleY: scale,
     rotation: v.rotation as number,
     anchor: v.anchor as Vec2,
+    threeD: v.threeD === true,
+    z: v.positionZ as number,
+    rotationX: v.rotationX as number,
+    rotationY: v.rotationY as number,
   };
 }
 
@@ -467,21 +608,35 @@ export function isSolidClip(clip: Pick<Clip, "effects">): boolean {
   return clip.effects.some((e) => e.type === SOLID.type);
 }
 
+/** Whether a clip is a camera (carries the Camera effect). */
+export function isCameraClip(clip: Pick<Clip, "effects">): boolean {
+  return clip.effects.some((e) => e.type === CAMERA.type);
+}
+
 /** What a clip shows (see `ClipKind`). */
 export function clipKind(clip: Pick<Clip, "effects" | "adjustment">): ClipKind {
   if (isTextClip(clip)) return "text";
   if (isSolidClip(clip)) return "solid";
+  if (isCameraClip(clip)) return "camera";
   return clip.adjustment ? "adjustment" : "media";
 }
 
-/** Whether a clip plays a media file (rather than text, a solid or an adjustment layer, which have none). */
+/** Whether a clip plays a media file (rather than text, a solid, an adjustment layer or a camera, which have none). */
 export const hasMedia = (clip: Pick<Clip, "effects" | "adjustment">) => clipKind(clip) === "media";
+
+/** Whether a clip has no picture of its own to draw or transition (an adjustment layer or a camera). */
+export const drawsNothing = (clip: Pick<Clip, "effects" | "adjustment">) => {
+  const kind = clipKind(clip);
+  return kind === "adjustment" || kind === "camera";
+};
 
 /** How a clip is mixed into the frame at source time `time`: See `Placed` in `compositor.ts`. */
 export interface Look {
   opacity: number;
   /** A `BLEND_MODES` value. */
   blendMode: string;
+  /** A `MATTE_MODES` value: how the clip on the track above cuts it out. */
+  trackMatte: string;
   edges: EdgeMode;
   /** Shutter angle in degrees when motion blur is on, else 0. */
   shutter: number;
@@ -496,6 +651,7 @@ export function lookAt(clip: Clip, time: number): Look {
   return {
     opacity: o.opacity as number,
     blendMode: o.blendMode as string,
+    trackMatte: o.trackMatte as string,
     edges: m.edges as EdgeMode,
     shutter: m.motionBlur === true ? (m.shutterAngle as number) : 0,
   };
@@ -688,7 +844,7 @@ export function addEffect(project: Project, clipIds: string[], type: string): { 
   if (!def?.shader) return { project, added };
   const videoTracks = new Set(project.tracks.filter((t) => t.kind === "video").map((t) => t.id));
   const clips = project.clips.map((clip) => {
-    if (!clipIds.includes(clip.id) || !videoTracks.has(clip.trackId)) return clip;
+    if (!clipIds.includes(clip.id) || !videoTracks.has(clip.trackId) || isCameraClip(clip)) return clip;
     const ids = new Set(clip.effects.map((e) => e.id));
     let id = def.type;
     for (let n = 2; ids.has(id); n++) id = `${def.type}_${n}`;
