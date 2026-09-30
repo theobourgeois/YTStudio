@@ -2,7 +2,7 @@
  * The desktop app (electron/): run it in development, or build it.
  *
  *   pnpm dev:desktop       Vite (hot reload) + Electron; the main process restarts when electron/ or server/ change
- *   pnpm build:desktop     release/mac-<arch>/Editor.app (unsigned), to try the packaged app
+ *   pnpm build:desktop     release/mac-<arch>/Vaudio.app (unsigned), to try the packaged app
  *   pnpm package:desktop   the same as a .dmg and a .zip in release/
  *
  * The main process (electron/main.ts, which runs the server) is bundled with esbuild into one file, so the
@@ -165,14 +165,16 @@ async function pack(targets: "dir" | "installers") {
   // The app's own package.json: no dependencies, everything is in the bundle.
   writeFileSync(
     path.join(STAGE, "package.json"),
-    JSON.stringify({ name: "editor", productName: "Editor", version: pkg.version, private: true, type: "module", main: "main.mjs" }, null, 2),
+    JSON.stringify({ name: "vaudio", productName: "Vaudio", version: pkg.version, private: true, type: "module", main: "main.mjs" }, null, 2),
   );
   const { build: builder } = await import("electron-builder");
   await builder({
     projectDir: ROOT,
     config: {
-      appId: "gg.jestr.editor",
-      productName: "Editor",
+      appId: "gg.jestr.vaudio",
+      productName: "Vaudio",
+      // scripts/make-icon.ts draws it; electron-builder makes the .icns / .ico from the 1024 px PNG.
+      icon: path.join(ROOT, "resources", "icon.png"),
       electronVersion: electronPkg.version,
       directories: { app: STAGE, output: path.join(ROOT, "release") },
       // Everything is bundled: electron-builder would otherwise copy in the repo's dependencies.

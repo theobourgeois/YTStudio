@@ -20,9 +20,9 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const outIndex = process.argv.indexOf("--out");
 const SCREENSHOT = outIndex > 0 ? path.resolve(process.argv[outIndex + 1]) : path.join(ROOT, "desktop-smoke.png");
 const APP = {
-  darwin: `release/mac-${process.arch}/Editor.app/Contents/MacOS/Editor`,
-  linux: "release/linux-unpacked/editor",
-  win32: "release/win-unpacked/Editor.exe",
+  darwin: `release/mac-${process.arch}/Vaudio.app/Contents/MacOS/Vaudio`,
+  linux: "release/linux-unpacked/vaudio",
+  win32: "release/win-unpacked/Vaudio.exe",
 }[process.platform as "darwin" | "linux" | "win32"];
 
 const executablePath = APP && path.join(ROOT, APP);
