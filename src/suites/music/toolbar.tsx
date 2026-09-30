@@ -260,40 +260,91 @@ function PositionLcd() {
   );
 }
 
+/** The song position slider's thumb, in px. */
+const THUMB = 12;
+
 /**
- * The song position slider: along the pattern, where play is (it moves while playing); a press or a
- * drag moves play there, to the step.
+ * The song position slider: along the pattern, where play is (it moves while playing), lit with the
+ * accent up to there. A press or a drag moves play there, to the step (the thumb follows the pointer
+ * while it's held); the arrow keys move it a step, Home and End to the ends.
  */
 function PositionSlider() {
   const patternTicks = useCurrentPattern((pattern, song) => lengthOf(song, pattern) * STEP_TICKS);
   const thumb = useRef<HTMLDivElement>(null);
+  const fill = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLDivElement>(null);
+  const held = useRef(false);
+  /** Where this press last sent play: while playing, each jump restarts the engine there, so only a new step does. */
+  const sent = useRef<number | null>(null);
+  const [now, setNow] = useState(0);
+  const show = (fraction: number) => {
+    const x = fraction * Math.max(0, (track.current?.clientWidth ?? 0) - THUMB);
+    if (thumb.current) thumb.current.style.transform = `translateX(${x}px)`;
+    if (fill.current) fill.current.style.width = fraction > 0 ? `${x + THUMB / 2}px` : "0px";
+  };
   usePlayTick((tick) => {
-    const width = track.current?.clientWidth ?? 0;
-    const fraction = patternTicks > 0 ? Math.min(1, Math.max(0, tick / patternTicks)) : 0;
-    if (thumb.current) thumb.current.style.transform = `translateX(${fraction * Math.max(0, width - 12)}px)`;
+    if (held.current) return;
+    show(patternTicks > 0 ? Math.min(1, Math.max(0, tick / patternTicks)) : 0);
   });
+  const jump = (tick: number) => {
+    setNow(tick);
+    if (tick === sent.current) return;
+    sent.current = tick;
+    useTransport.getState().jumpTo(tick);
+  };
   const moveTo = (clientX: number) => {
     const rect = track.current!.getBoundingClientRect();
-    useTransport.getState().jumpTo(positionAt((clientX - rect.left) / rect.width, patternTicks));
+    const fraction = Math.min(1, Math.max(0, (clientX - rect.left - THUMB / 2) / Math.max(1, rect.width - THUMB)));
+    show(fraction);
+    jump(positionAt(fraction, patternTicks));
   };
+  const lastStep = Math.max(0, patternTicks - STEP_TICKS);
   return (
     <div
       ref={track}
       role="slider"
+      tabIndex={0}
       aria-label="Song position"
       aria-valuemin={0}
       aria-valuemax={patternTicks}
+      aria-valuenow={now}
       title="Song position: drag to move where play is"
-      className="relative ml-1 h-3 min-w-0 flex-1 cursor-pointer touch-none"
+      className="relative ml-1 h-4 min-w-0 flex-1 cursor-pointer touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       onPointerDown={(e) => {
         if (e.button !== 0) return;
+        e.preventDefault();
+        e.currentTarget.focus();
+        held.current = true;
+        sent.current = null;
         moveTo(e.clientX);
-        startPointerDrag(e, { threshold: 0, onMove: (ev) => moveTo(ev.clientX) });
+        const release = () => {
+          held.current = false;
+          // On its step, if it's not playing (playing, the next frame puts it where play is).
+          const tick = useTransport.getState().startTick;
+          if (patternTicks > 0) show(tick / patternTicks);
+        };
+        const started = startPointerDrag(e, { threshold: 0, onMove: (ev) => moveTo(ev.clientX), onEnd: release, onCancel: release, onClick: release });
+        if (!started) release();
+      }}
+      onKeyDown={(e) => {
+        const from = useTransport.getState().startTick;
+        const to =
+          e.key === "ArrowLeft" || e.key === "ArrowDown" ? from - STEP_TICKS
+          : e.key === "ArrowRight" || e.key === "ArrowUp" ? from + STEP_TICKS
+          : e.key === "Home" ? 0
+          : e.key === "End" ? lastStep
+          : null;
+        if (to === null) return;
+        e.preventDefault();
+        e.stopPropagation();
+        sent.current = null;
+        jump(Math.min(lastStep, Math.max(0, to)));
       }}
     >
-      <div className="sunken absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full" />
-      <div ref={thumb} className="raised absolute top-0 left-0 size-3 rounded-full" />
+      <div className="sunken absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full">
+        <div ref={fill} className="h-full w-0 rounded-full bg-brand" />
+      </div>
+      <div ref={thumb} className="raised absolute top-0.5 left-0 size-3 rounded-full" />
     </div>
   );
 }
