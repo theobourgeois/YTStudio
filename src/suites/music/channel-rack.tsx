@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
+import { soundingChannels } from "@shared/music/compile";
 import { type StepPatch, drawSteps, fillSteps, lengthOf, setPatternLength, setStepNotes, setSteps, setSwing, stepNotes, updateChannel } from "@shared/music/edits";
 import { DEFAULT_VELOCITY, DEFAULT_VOLUME, MAX_STEPS, stepsPerBar } from "@shared/music/project";
 import { type Channel, type MusicProject, type Note, PPQ, ROOT_PITCH, STEP_TICKS } from "@shared/music/types";
@@ -67,7 +68,7 @@ const stepsWidth = (steps: number) => stepLeft(steps - 1) + STEP_W;
 /** FL Studio's rack alternates two colours, beat by beat. */
 const oddBeat = (step: number) => Math.floor(step / GROUP) % 2 === 1;
 /** Width of everything left of the steps in a row. */
-const LEAD = "w-[204px]";
+const LEAD = "w-[212px]";
 const isAudio = (file: File) => file.type.startsWith("audio/") || /\.(wav|aiff?|flac|mp3|ogg|m4a)$/i.test(file.name);
 const audioFiles = (files: FileList | null) => [...(files ?? [])].filter(isAudio);
 
@@ -80,6 +81,37 @@ const stepAt = (root: Element, x: number, y: number) => {
   const hit = under(root, x, y, "step");
   return hit ? Number(hit.dataset.step) : null;
 };
+
+/** The channels making a sound now, while the song plays (their selectors light up); updated a frame at a time, only when it changes. */
+function useSoundingChannels(): ReadonlySet<string> {
+  const playing = useTransport((s) => s.playing);
+  const [sounding, setSounding] = useState<ReadonlySet<string>>(NONE_SOUNDING);
+  useEffect(() => {
+    if (!playing) {
+      setSounding(NONE_SOUNDING);
+      return;
+    }
+    let frame = 0;
+    let key = "";
+    const draw = () => {
+      frame = requestAnimationFrame(draw);
+      const { history, patternId } = useMusic.getState();
+      if (!history) return;
+      const song = history.doc;
+      const tick = patternTickNow(useTransport.getState(), performance.now(), song.settings.tempo, PPQ);
+      const next = tick === null ? NONE_SOUNDING : soundingChannels(song, currentPattern(song, patternId), tick);
+      const nextKey = [...next].join(",");
+      if (nextKey !== key) {
+        key = nextKey;
+        setSounding(next);
+      }
+    };
+    frame = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(frame);
+  }, [playing]);
+  return sounding;
+}
+const NONE_SOUNDING: ReadonlySet<string> = new Set();
 
 /** How many steps the rack shows now. */
 function useShownSteps(): number {
@@ -98,6 +130,7 @@ export function ChannelRack() {
   const steps = useShownSteps();
   const graph = useMusicUi((s) => s.graphOpen);
   const selectedIdsNow = useMusicUi((s) => s.selectedChannelIds);
+  const sounding = useSoundingChannels();
   const selected = selectedIn({ channels } as MusicProject, selectedIdsNow);
   const file = useRef<HTMLInputElement>(null);
   const [dropping, setDropping] = useState(false);
@@ -131,7 +164,7 @@ export function ChannelRack() {
         <div className="flex">
           <div className={cn("flex shrink-0 flex-col", LEAD)} style={{ gap: ROW_GAP, paddingTop: LIGHTS_H + ROW_GAP }} role="list" aria-label="Channels">
             {channels.map((channel) => (
-              <ChannelLead key={channel.id} channel={channel} selected={selectedIdsNow.includes(channel.id)} />
+              <ChannelLead key={channel.id} channel={channel} selected={selectedIdsNow.includes(channel.id)} sounding={sounding.has(channel.id)} />
             ))}
           </div>
           <div className="ml-1.5 max-w-[min(62vw,1180px)] overflow-x-auto pb-1" data-testid="rack-steps">
@@ -321,7 +354,7 @@ function StepLights({ steps }: { steps: number }) {
 }
 
 /** The left of a channel's row: mute light, pan, volume, its button and its selector. */
-const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: Channel; selected: boolean }) {
+const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: { channel: Channel; selected: boolean; sounding: boolean }) {
   const isPlugin = channel.kind === "plugin";
   const unreadable = useTransport((s) => s.unreadable.includes(channel.id));
   const settingsOpen = useMusicUi((s) => s.openChannelIds.includes(channel.id));
@@ -544,11 +577,10 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
         aria-label={`Select ${channel.name}`}
         aria-pressed={selected}
         title="Select (drag or Shift+click for a range, right-click to add one, double-click for all)"
-        // FL Studio's selector: a thin light after the button, lit when the channel is selected.
-        className={cn(
-          "ml-0.5 h-[22px] w-1.5 shrink-0 touch-none rounded-[2px]",
-          selected ? "border border-brand-edge bg-brand shadow-[0_0_4px] shadow-brand/60" : "sunken hover:bg-surface-3",
-        )}
+        data-sounding={sounding || undefined}
+        // FL Studio's selector: a thin light after the button (in a wider target, so it's easy to hit),
+        // outlined when the channel is selected and lit while it makes a sound.
+        className="group flex h-[24px] w-4 shrink-0 touch-none justify-center"
         onDoubleClick={() => useMusicUi.getState().setSelection(useMusic.getState().history!.doc.channels.map((c) => c.id))}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
@@ -581,7 +613,15 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
             },
           });
         }}
-      />
+      >
+        <span
+          className={cn(
+            "my-px w-1.5 rounded-[2px] transition-[background-color,box-shadow] duration-75",
+            sounding ? "bg-brand shadow-[0_0_5px] shadow-brand/70" : "sunken group-hover:bg-surface-3",
+            selected && "outline-[1.5px] outline-offset-1 outline-brand outline-solid",
+          )}
+        />
+      </button>
     </div>
   );
 });

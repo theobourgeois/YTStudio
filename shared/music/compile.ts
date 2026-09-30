@@ -4,7 +4,7 @@
  * gains. The engine (`engine/src/Song.cpp`) only has to play samples at the right moments.
  */
 import { DEFAULT_PRECOMPUTED, DEFAULT_VELOCITY, DEFAULT_VOLUME, patternSteps } from "./project.ts";
-import { type Channel, type MusicProject, PPQ, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { type Channel, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 export interface EngineChannel {
   id: string;
@@ -145,4 +145,26 @@ export function compileSong(song: MusicProject, patternId: string | null, loop: 
     channels: song.channels.map(engineChannel),
     notes,
   };
+}
+
+/**
+ * The channels making a sound at a tick of the pattern (the rack lights their selectors): a note of
+ * theirs is sounding there, as the engine plays it (swung, and at least a step long, so a short hit
+ * still shows). Muted channels and muted notes don't sound.
+ */
+export function soundingChannels(song: MusicProject, pattern: Pattern, tick: number): Set<string> {
+  const sounding = new Set<string>();
+  for (const channel of song.channels) {
+    if (channel.muted) continue;
+    for (const note of pattern.notes[channel.id] ?? []) {
+      // Sorted by start: nothing later can have started (swing moves a note later by less than a step).
+      if (note.start > tick) break;
+      const start = swungTick(note.start, song.settings.swing);
+      if (!note.muted && tick >= start && tick < start + Math.max(note.length, STEP_TICKS)) {
+        sounding.add(channel.id);
+        break;
+      }
+    }
+  }
+  return sounding;
 }

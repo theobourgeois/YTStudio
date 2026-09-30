@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileSong, levelGain, panGains, swungTick } from "./compile.ts";
+import { compileSong, levelGain, panGains, soundingChannels, swungTick } from "./compile.ts";
 import { addChannels, addPattern, addPluginChannel, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
 import { editNotes, setNoteProps } from "./notes.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "./project.ts";
@@ -110,5 +110,22 @@ describe("compileSong", () => {
   it("counts beats and bars by the time signature", () => {
     expect(compileSong(setTimeSignature(rack(), [6, 8]), P)).toMatchObject({ beatTicks: 48, barTicks: 288 });
     expect(compileSong(setTimeSignature(rack(), [3, 4]), P)).toMatchObject({ beatTicks: 96, barTicks: 288 });
+  });
+});
+
+describe("soundingChannels", () => {
+  it("are the unmuted channels with a note sounding at a tick, at least a step long, swung", () => {
+    let song = setSteps(rack(), P, "chan_kick", [0, 4], true);
+    song = setSteps(song, P, "chan_hat", [1], true);
+    const at = (tick: number, s = song) => [...soundingChannels(s, s.patterns[0], tick)].sort();
+    expect(at(0)).toEqual(["chan_kick"]);
+    expect(at(30)).toEqual(["chan_hat"]);
+    expect(at(60)).toEqual([]);
+    expect(at(100)).toEqual(["chan_kick"]);
+    // Swing moves the hat later.
+    const swung = setSwing(song, 1);
+    expect(at(30, swung)).toEqual([]);
+    expect(at(50, swung)).toEqual(["chan_hat"]);
+    expect(at(0, updateChannel(song, "chan_kick", { muted: true }))).toEqual([]);
   });
 });

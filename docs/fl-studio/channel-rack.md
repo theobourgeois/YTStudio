@@ -122,6 +122,8 @@ than fit. The window's **height follows the number of channels**.
 ### Channel selector (10)
 
 - **Click**: select this channel only (or deselect it).
+- Ours (Théo): a selected channel's selector is outlined, and it lights up fully while the channel makes a
+  sound, so the rack shows what's playing. Its target is wider than the light, so it's easy to hit.
 - **Right-click**: add it to, or take it out of, the selection.
 - **Right-click and drag down** the selectors: select several.
 - **Double-click**: select all.
