@@ -34,6 +34,8 @@ const TIGHTNESS = 100;
 const MIN_CONFIDENCE = 0.15;
 /** A faster tempo wins when its beats land on the bass this share as often as the best candidate's. */
 const OCTAVE_SHARE = 0.65;
+/** How many multiples of a beat the tempo's score looks at: two bars of 4/4. */
+const COMB = 8;
 
 
 // ---------------------------------------------------------------------------
@@ -202,7 +204,7 @@ export function estimatePeriod(onset: Float64Array): { period: number; periodici
   for (const v of onset) mean += v;
   mean /= onset.length;
   const centred = onset.map((v) => v - mean);
-  const top = maxLag * 4 + 2;
+  const top = maxLag * COMB + COMB + 2;
   const corr = new Float64Array(top + 1);
   for (let lag = 0; lag <= top; lag++) {
     let s = 0;
@@ -210,14 +212,29 @@ export function estimatePeriod(onset: Float64Array): { period: number; periodici
     corr[lag] = s / (centred.length - lag);
   }
   if (corr[0] <= 0) return null;
-  const at = (lag: number) => Math.max(corr[Math.floor(lag)], corr[Math.ceil(lag)]);
+  /** The strongest correlation within `reach` frames of `lag` (a beat's multiples drift off whole frames). */
+  const near = (lag: number, reach: number) => {
+    let most = 0;
+    for (let l = Math.max(0, Math.floor(lag - reach)); l <= Math.min(top, Math.ceil(lag + reach)); l++) most = Math.max(most, corr[l]);
+    return most;
+  };
+  // A beat repeats at every multiple of itself, up to two bars, where syncopation doesn't: drum & bass's
+  // kick 1.5 beats after the first, or hip-hop's at ¾ of one, repeats once and then falls off the grid,
+  // though it can be the strongest single lag. So a lag scores for all its multiples (a comb), which the
+  // true beat wins.
+  const comb = (lag: number) => {
+    let sum = 0;
+    for (let k = 1; k <= COMB; k++) sum += near(k * lag, 1 + k / 2);
+    return sum;
+  };
   // Tempos near 120 BPM are likelier (a log-Gaussian over the period, one octave wide);
   // `chooseOctave` then settles between half and double.
   const priorLag = (60 * FPS) / PRIOR_BPM;
-  const score = (lag: number) => at(lag) * Math.exp(-0.5 * Math.log2(lag / priorLag) ** 2);
+  const score = (lag: number) => comb(lag) * Math.exp(-0.5 * Math.log2(lag / priorLag) ** 2);
   let best = minLag;
   for (let lag = minLag; lag <= maxLag; lag++) if (score(lag) > score(best)) best = lag;
-  const periodicity = corr[best] / corr[0];
+  // How regular: the beat's multiples on average (the beat alone can be faint when the bar is strong).
+  const periodicity = comb(best) / COMB / corr[0];
   if (periodicity <= 0) return null;
   // Between frames: the peak of the parabola through the best lag and its neighbours.
   const [a, b, c] = [corr[best - 1], corr[best], corr[best + 1]];
