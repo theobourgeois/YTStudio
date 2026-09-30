@@ -26,13 +26,17 @@ const local = (element: Element, ev: { clientX: number; clientY: number }) => {
 /** Show this pointer over the grid while a press lasts (the grid's own, set here, would hide the drag's). */
 const show = (element: HTMLElement, cursor: string) => (element.style.cursor = cursor);
 
-/** Play a key of the channel for as long as it's held, moving to another as the pointer does. */
-function holdKey(channelId: string) {
+/**
+ * Play a key of the channel for as long as it's held, moving to another as the pointer does. `quiet`
+ * while the song plays (notes drawn on the grid): what's heard is the song, as in FL Studio.
+ */
+function holdKey(channelId: string, quietWhilePlaying = false) {
   let held: number | null = null;
   return {
     to(key: number) {
       if (key === held) return;
       const transport = useTransport.getState();
+      if (quietWhilePlaying && transport.playing && held === null) return;
       if (held !== null) transport.preview(channelId, held, false);
       held = key;
       transport.preview(channelId, key, true);
@@ -294,7 +298,7 @@ export function gridPointerDown(e: Press) {
     return;
   }
 
-  const keys = holdKey(ctx.channel.id);
+  const keys = holdKey(ctx.channel.id, true);
 
   // Draw and Paint, on a note: move it (Shift: a copy of it) or, by its right edge, resize it. The
   // selection goes along if the note is in it.
