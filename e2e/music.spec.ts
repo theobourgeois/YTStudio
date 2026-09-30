@@ -542,3 +542,16 @@ test("the toolbar, as FL Studio's: the tempo LCD drags, + makes a pattern, the p
   await page.getByRole("button", { name: "Metronome" }).hover();
   await expect(page.getByTestId("hint-bar")).toHaveText("Metronome");
 });
+
+test("a double-click on the rack's title sends it to the desktop's corner, and another brings it back", async ({ page }) => {
+  await openNewSong(page, "Corner");
+  const rack = page.locator('[data-window="rack"]');
+  const desktop = (await page.locator("[data-desktop]").boundingBox())!;
+  const before = (await rack.boundingBox())!;
+  expect(before.x - desktop.x).toBeGreaterThan(0);
+  await rack.locator("[data-window-title]").dblclick({ position: { x: 150, y: 10 } });
+  await expect.poll(async () => (await rack.boundingBox())!.x - desktop.x).toBeCloseTo(0, 0);
+  expect((await rack.boundingBox())!.y - desktop.y).toBeCloseTo(0, 0);
+  await rack.locator("[data-window-title]").dblclick({ position: { x: 150, y: 10 } });
+  await expect.poll(async () => (await rack.boundingBox())!.x).toBeCloseTo(before.x, 0);
+});

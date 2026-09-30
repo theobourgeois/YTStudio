@@ -43,6 +43,8 @@ interface MusicUiState {
   places: Partial<Record<WindowId, WindowPlace>>;
   /** Windows from back to front. */
   order: WindowId[];
+  /** Where a window sent to the corner came from, to go back there. */
+  cornerFrom: Partial<Record<WindowId, WindowPlace>>;
   /** Where the window being dragged would snap to if it were let go now (drawn on the desktop). */
   snapPreview: WindowSnap | null;
 
@@ -65,6 +67,11 @@ interface MusicUiState {
   placeWindow: (id: WindowId, place: WindowPlace) => void;
   /** Fill the desktop with a window, or put it back as it was (a double-click on its title). */
   toggleMaximised: (id: WindowId, initial: WindowPlace) => void;
+  /**
+   * Send a window to the desktop's top-left corner, or back from it to where it was (a double-click on
+   * the title of a window that doesn't resize, like the channel rack).
+   */
+  toggleCorner: (id: WindowId, initial: WindowPlace) => void;
   setSnapPreview: (snap: WindowSnap | null) => void;
 }
 
@@ -79,6 +86,7 @@ const INITIAL = {
   openChannelIds: [] as string[],
   places: {},
   order: ["rack"] as WindowId[],
+  cornerFrom: {} as Partial<Record<WindowId, WindowPlace>>,
   snapPreview: null as WindowSnap | null,
 };
 
@@ -118,6 +126,18 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   toggleMaximised(id, initial) {
     const place = get().places[id] ?? initial;
     get().placeWindow(id, { ...place, snap: place.snap === "full" ? null : "full" });
+  },
+  toggleCorner(id, initial) {
+    const place = get().places[id] ?? initial;
+    const from = get().cornerFrom[id];
+    const inCorner = place.x === 0 && place.y === 0;
+    if (inCorner && from) {
+      set({ cornerFrom: { ...get().cornerFrom, [id]: undefined } });
+      get().placeWindow(id, from);
+    } else if (!inCorner) {
+      set({ cornerFrom: { ...get().cornerFrom, [id]: place } });
+      get().placeWindow(id, { ...place, x: 0, y: 0 });
+    }
   },
   setSnapPreview: (snapPreview) => get().snapPreview !== snapPreview && set({ snapPreview }),
 }));

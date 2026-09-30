@@ -305,7 +305,8 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
 - **Everything is a window** (`window.tsx`: `MusicWindow` on the `Desktop`), as in FL Studio: dragged by its
   title bar, its edges sticking to the desktop's and other windows' (Alt: not), brought forward when touched,
   closed and reopened (`ui.ts` keeps which are open and where). A `resizable` one also resizes by its edges and
-  fills the desktop (double-click its title, or drag it to the top) or half of it (drag it to a side); the Piano
+  fills the desktop (double-click its title, or drag it to the top) or half of it (drag it to a side); one that
+  doesn't resize (the rack) goes to the corner and back on that double-click (`toggleCorner`); the Piano
   roll opens that way. The maths is `window-geometry.ts`. A new panel is a new window, not a docked pane. One thing to know: a menu opened from inside a window is drawn
   elsewhere on the page but its React events still bubble through the window, so a handler on a container must
   check `currentTarget.contains(target)` before treating a press as its own (the title bar's drag does).

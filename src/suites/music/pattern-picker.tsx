@@ -24,7 +24,7 @@ export function PatternPicker() {
   };
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex w-full items-center gap-1.5">
       <Popover
         open={open}
         onOpenChange={(next) => {
@@ -36,12 +36,12 @@ export function PatternPicker() {
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="sunken flex h-6 w-36 items-center justify-between gap-1 rounded-sm pr-1 pl-2 text-left text-xs outline-none hover:border-brand/60 focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="sunken flex h-[26px] min-w-0 flex-1 items-center justify-between gap-1 rounded-sm pr-1.5 pl-2 text-left text-[13px] outline-none hover:border-brand/60 focus-visible:ring-2 focus-visible:ring-ring/60"
             aria-label="Pattern"
             title="Pattern: which one the rack shows and play loops"
           >
             <span className="truncate">{current.name}</span>
-            <PiCaretDown className="size-3 shrink-0 text-muted-foreground" />
+            <PiCaretDown className="size-3.5 shrink-0 text-muted-foreground" />
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 p-2">
@@ -93,7 +93,7 @@ export function PatternPicker() {
           </div>
         </PopoverContent>
       </Popover>
-      <Button variant="outline" size="icon-xs" className="h-6" aria-label="New pattern" title="New pattern" onClick={() => make((id) => (song) => addPattern(song, { id }))}>
+      <Button variant="outline" size="icon-xs" className="size-[26px] [&_svg:not([class*=size-])]:size-3.5" aria-label="New pattern" title="New pattern" onClick={() => make((id) => (song) => addPattern(song, { id }))}>
         <PiPlus />
       </Button>
     </div>

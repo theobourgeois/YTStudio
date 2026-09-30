@@ -174,9 +174,12 @@ export function MusicWindow({ id, title, initial, onClose, menu, controls, resiz
         className="flex h-7 shrink-0 cursor-grab items-center gap-1.5 border-b border-line bg-surface-1 pr-1 pl-1 select-none active:cursor-grabbing"
         data-window-title
         onPointerDown={dragTitle}
+        // A double-click on the title fills the desktop with a window that resizes; one that doesn't goes
+        // to the desktop's corner (and back).
         onDoubleClick={(e) => {
-          if (!resizable || (e.target as HTMLElement).closest("button, [role=slider], [role=spinbutton], input")) return;
-          useMusicUi.getState().toggleMaximised(id, initial);
+          if (!e.currentTarget.contains(e.target as Node) || (e.target as HTMLElement).closest("button, [role=slider], [role=spinbutton], input")) return;
+          if (resizable) useMusicUi.getState().toggleMaximised(id, initial);
+          else useMusicUi.getState().toggleCorner(id, initial);
         }}
       >
         {menu}

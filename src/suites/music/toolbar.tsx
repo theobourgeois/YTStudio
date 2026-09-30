@@ -32,28 +32,28 @@ export function MusicToolbar() {
   const error = useTransport((s) => s.error);
 
   return (
-    <header data-titlebar="header" className="flex h-[58px] shrink-0 items-stretch gap-2 border-b border-line bg-surface-1 px-2 py-1.5">
+    <header data-titlebar="header" className="flex h-[74px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-2.5">
       <div className="flex items-center">
         <SidebarLead />
       </div>
-      <div className="flex w-44 min-w-0 shrink-0 flex-col justify-between">
+      <div className="flex w-40 min-w-0 shrink-0 flex-col justify-center gap-1">
         <div className="flex min-w-0 items-center gap-1.5">
-          <ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 h-6 px-1 text-[13px]" />
+          <ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 h-7 px-1 text-[14px]" />
           <SettledBadge />
         </div>
         <HintBar />
       </div>
       <Groove />
 
-      <div className="flex items-center gap-1.5" role="toolbar" aria-label="Transport">
+      <div className="flex items-center gap-2" role="toolbar" aria-label="Transport">
         <PlayButtons />
         <TempoLcd />
         <PositionLcd />
       </div>
       <Groove />
 
-      <div className="flex w-[172px] shrink-0 flex-col justify-between">
-        <div className="flex items-center gap-1">
+      <div className="flex w-[212px] shrink-0 flex-col justify-between">
+        <div className="flex items-center gap-1.5">
           <MetronomeToggle />
           <WindowToggles />
           <PositionSlider />
@@ -62,7 +62,7 @@ export function MusicToolbar() {
       </div>
       <Groove />
 
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-2">
         <Monitor />
         <AudioDialog />
         {error && (
@@ -74,6 +74,7 @@ export function MusicToolbar() {
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        <Groove className="mr-1.5 h-6 self-center" />
         <HistoryButtons />
         <Groove className="mx-1.5 h-6 self-center" />
         <ThemeMenu />
@@ -129,17 +130,17 @@ function PlayButtons() {
         <Button
           size="icon"
           variant={playing ? "default" : "outline"}
-          className="size-8"
+          className="size-10"
           aria-label="Play"
           aria-pressed={playing}
           onClick={() => useTransport.getState().toggle()}
         >
-          <PiPlayFill className="size-4" />
+          <PiPlayFill className="size-[18px]" />
         </Button>
       </Tip>
       <Tip text="Stop (Space)">
-        <Button size="icon" variant="outline" className="size-8" aria-label="Stop" onClick={() => useTransport.getState().stop()}>
-          <PiStopFill className="size-4" />
+        <Button size="icon" variant="outline" className="size-10" aria-label="Stop" onClick={() => useTransport.getState().stop()}>
+          <PiStopFill className="size-[18px]" />
         </Button>
       </Tip>
     </div>
@@ -160,12 +161,12 @@ function TempoLcd() {
   const set = (value: number) => useMusic.getState().commit((song) => setTempo(song, value));
 
   return (
-    <Lcd label="BPM" className="w-[66px]">
+    <Lcd label="BPM" className="w-[76px]">
       <input
         aria-label="Tempo"
         title="Tempo: drag up and down, or click to type it"
         inputMode="decimal"
-        className="w-full cursor-ns-resize bg-transparent text-right font-mono text-[16px] leading-none tabular-nums outline-none focus:cursor-text"
+        className="w-full cursor-ns-resize bg-transparent text-right font-mono text-[18px] leading-none tabular-nums outline-none focus:cursor-text"
         value={draft ?? String(tempo)}
         onPointerDown={(e) => {
           const input = e.currentTarget;
@@ -214,7 +215,7 @@ function TempoLcd() {
 /** A recessed number display with its small label in the corner, as FL Studio's toolbar has. */
 function Lcd({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <div className={cn("sunken relative flex h-9 items-end rounded-sm px-1.5 pt-3 pb-1.5", className)}>
+    <div className={cn("sunken relative flex h-10 items-end rounded-sm px-2 pt-3 pb-2", className)}>
       <span className="pointer-events-none absolute top-0.5 right-1.5 text-[8px] leading-none font-semibold tracking-wide text-muted-foreground">{label}</span>
       {children}
     </div>
@@ -251,8 +252,8 @@ function PositionLcd() {
     if (text.current) text.current.textContent = positionText(tick, barSteps);
   });
   return (
-    <Lcd label="B:S:T" className="w-[84px] justify-end">
-      <span ref={text} className="font-mono text-[16px] leading-none tabular-nums" title="Where the pattern is playing, or where play starts (bar:step:tick)" aria-label="Position">
+    <Lcd label="B:S:T" className="w-[96px] justify-end">
+      <span ref={text} className="font-mono text-[18px] leading-none tabular-nums" title="Where the pattern is playing, or where play starts (bar:step:tick)" aria-label="Position">
         1:01:00
       </span>
     </Lcd>
@@ -300,7 +301,7 @@ function PositionSlider() {
 function MetronomeToggle() {
   const metronome = useTransport((s) => s.metronome);
   return (
-    <Toggle size="sm" className="h-6 min-w-6 px-1" pressed={metronome} onPressedChange={(on) => useTransport.getState().setMetronome(on)} aria-label="Metronome" title="Metronome">
+    <Toggle size="sm" className="h-[26px] min-w-[26px] px-1 [&_svg:not([class*=size-])]:size-4" pressed={metronome} onPressedChange={(on) => useTransport.getState().setMetronome(on)} aria-label="Metronome" title="Metronome">
       <PiMetronome />
     </Toggle>
   );
@@ -312,12 +313,12 @@ function WindowToggles() {
   const pianoOpen = useMusicUi((s) => s.pianoOpen);
   return (
     <>
-      <Toggle size="sm" className="h-6 min-w-6 px-1" pressed={rackOpen} onPressedChange={(open) => useMusicUi.getState().setRackOpen(open)} aria-label="Channel rack" title="Channel rack (F6)">
+      <Toggle size="sm" className="h-[26px] min-w-[26px] px-1 [&_svg:not([class*=size-])]:size-4" pressed={rackOpen} onPressedChange={(open) => useMusicUi.getState().setRackOpen(open)} aria-label="Channel rack" title="Channel rack (F6)">
         <PiRows />
       </Toggle>
       <Toggle
         size="sm"
-        className="h-6 min-w-6 px-1"
+        className="h-[26px] min-w-[26px] px-1 [&_svg:not([class*=size-])]:size-4"
         pressed={pianoOpen}
         onPressedChange={(open) => (open ? openPianoRoll() : useMusicUi.getState().setPianoOpen(false))}
         aria-label="Piano roll"
@@ -344,7 +345,7 @@ function Monitor() {
   const level = Math.max(0, Math.min(1, (db + 48) / 48));
   return (
     <div
-      className="sunken flex h-9 w-28 shrink-0 flex-col justify-center gap-1 rounded-sm px-2"
+      className="sunken flex h-10 w-28 shrink-0 flex-col justify-center gap-1.5 rounded-sm px-2"
       title={`Output ${Number.isFinite(db) ? `${db.toFixed(1)} dB` : "silent"} · engine ${cpu}%`}
     >
       <div className="flex items-baseline justify-between text-[10px] leading-none text-muted-foreground">
