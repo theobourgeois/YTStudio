@@ -269,7 +269,7 @@ Shift+click, which select a range.
 | "Mute removed steps" | A step turned off keeps its note, muted | The note is removed | With the piano roll (muted notes) |
 | Solo | "Restore previous state after solo" is a setting | Un-soloing always unmutes everything | Later |
 | Knob menu | Also Edit events, Create automation clip, Link to controller | Reset, Copy, Paste, Type in value | With automation |
-| Windows | Snap to each other; can be detached; Esc closes; remembered | Float, drag, close; positions are forgotten with the page | Snapping and detaching later |
+| Windows | Snap to each other; can be detached; Esc closes; remembered | Float, drag, close, stick to edges and each other; resizable ones maximise and snap to half the desktop; positions are forgotten with the page | Detaching later |
 | Channel menu | Rename/color/icon, Insert, Replace, Piano roll, Advanced fill, Burn… | What's listed above | Color later; the rest with their phases |
 | Rack menu | Sort, group, zip, colour, swing mix, auto resize… | Add, clone, delete, move, mute/unmute selected | Later |
 | Graph editor | Also Release, Fine, Pan, Mod X/Y, Shift, Rep | Note and Velocity | With the piano roll's note properties |

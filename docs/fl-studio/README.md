@@ -11,6 +11,8 @@ about to touch before changing it, and correct it when you learn it's wrong.
   editor, ghost notes and every shortcut. Ends with where Vaudio differs.
 - Playlist, mixer, browser: not written yet. Write each one before its phase is built.
 
+Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).
+
 ## Where this comes from
 
 1. **The FL Studio online manual** (Image-Line), the primary source. Pages are at

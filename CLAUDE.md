@@ -220,7 +220,8 @@ A DAW modelled on **FL Studio**: when in doubt about its UX, do what FL Studio d
 Théo): read the panel's document before touching that panel, don't work from memory, and write the document for
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
-swing), the Piano roll, the transport and the metronome. Next: the mixer, the playlist, the browser.
+swing), the Piano roll, the transport and the metronome. Where it is and every step still to come, in order:
+`docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing }, channels,
   patterns }`. A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
