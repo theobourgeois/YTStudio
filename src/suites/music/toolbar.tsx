@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { canRedo, canUndo } from "@/lib/document-history";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { AudioDialog } from "./audio-dialog";
+import { CpuGraph, OutputGraph } from "./monitors";
 import { PatternPicker } from "./pattern-picker";
 import { openPianoRoll } from "./piano/actions";
 import { positionAt, positionText } from "./position";
@@ -55,8 +56,9 @@ export function MusicToolbar() {
             <TempoLcd />
             <PositionLcd />
           </div>
+          <OutputGraph className="w-32 shrink-0" />
           <Groove className="mx-1 h-8 self-center" />
-          <Monitor />
+          <CpuGraph className="w-32 shrink-0" />
           <AudioDialog />
           {error && (
             <span className="flex max-w-60 min-w-0 items-center gap-1.5 text-xs text-destructive" role="alert" title={error}>
@@ -391,35 +393,6 @@ function WindowButton({ onOpen, label, title, children }: { onOpen: () => void; 
     >
       {children}
     </button>
-  );
-}
-
-/** The engine's load and the output's level (the last 48 dB fill the bar), in one recessed panel. */
-function Monitor() {
-  const peak = useTransport((s) => s.peak);
-  const cpu = useTransport((s) => Math.round(s.cpu * 100));
-  // The engine only speaks while something sounds: let the bar fall when it goes quiet.
-  const [, tick] = useState(0);
-  useEffect(() => {
-    if (peak <= 0) return;
-    const timer = setTimeout(() => tick((n) => n + 1), 300);
-    return () => clearTimeout(timer);
-  }, [peak]);
-  const db = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
-  const level = Math.max(0, Math.min(1, (db + 48) / 48));
-  return (
-    <div
-      className="sunken flex h-10 w-24 shrink-0 flex-col justify-center gap-1.5 rounded-sm px-2"
-      title={`Output ${Number.isFinite(db) ? `${db.toFixed(1)} dB` : "silent"} · engine ${cpu}%`}
-    >
-      <div className="flex items-baseline justify-between text-[10px] leading-none text-muted-foreground">
-        <span className="font-semibold tracking-wide">CPU</span>
-        <span className="font-mono tabular-nums text-foreground">{cpu}%</span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-[1px] bg-foreground/10" role="meter" aria-label="Output level" aria-valuenow={Math.round(level * 100)}>
-        <div className={cn("h-full transition-[width] duration-100", peak >= 1 ? "bg-destructive" : "bg-brand")} style={{ width: `${level * 100}%` }} />
-      </div>
-    </div>
   );
 }
 

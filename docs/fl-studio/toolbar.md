@@ -43,5 +43,5 @@ Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/
 | Metronome | Yes, beside the tempo rather than with the recording buttons |
 | Pattern selector with + | Yes: the name opens the list (rename, clone, delete), + makes a new pattern |
 | Song position slider | Yes, along the pattern: drag it to move where play is |
-| CPU, output meter | Yes (the engine's load and the output's peak), with the audio settings beside them |
+| CPU, output meter, oscilloscope | The output's level over the last few seconds (mirrored, like a waveform's outline) beside the time, and the engine's load now and over the last half minute, with the audio settings beside them. Not a true oscilloscope: the engine sends levels, not samples |
 | — | Ours: undo and redo, the theme, Settle and the assistant, at the right end |
