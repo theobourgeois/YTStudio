@@ -1,7 +1,8 @@
 /**
- * The editor's tools for AI agents, served over MCP (`server/assistant/mcp.ts`)
+ * The video editor's tools for AI agents, served over MCP (`server/assistant/mcp.ts`)
  * to the in-app assistant (Claude Code run by the server) and to any MCP client,
  * e.g. Claude Code in a terminal: `claude mcp add --transport http editor http://127.0.0.1:5311/mcp`.
+ * (Other suites list theirs in their own folder; `suite-tools.ts` gathers them.)
  *
  * Every tool runs in the editor tab (`src/assistant/tools.ts`): edits go
  * through the editor store like the user's own (one undo step each, live on
@@ -12,54 +13,16 @@
  * added to the editor, add (or extend) a tool here and its handler in
  * `src/assistant/`; TypeScript then insists every tool has a handler.
  */
+import { type Schema, type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "./tool-spec.ts";
 
-type Schema = Record<string, unknown>;
-
-const num = (description: string, extra: Schema = {}): Schema => ({ type: "number", description, ...extra });
-const int = (description: string, extra: Schema = {}): Schema => ({ type: "integer", description, ...extra });
-const str = (description: string, extra: Schema = {}): Schema => ({ type: "string", description, ...extra });
-const bool = (description: string): Schema => ({ type: "boolean", description });
-const oneOf = (values: readonly string[], description: string): Schema => ({ type: "string", enum: values, description });
-const arr = (items: Schema, description: string, extra: Schema = {}): Schema => ({ type: "array", items, description, ...extra });
-const obj = (properties: Record<string, Schema>, required: string[] = [], description?: string): Schema => ({
-  type: "object",
-  properties,
-  ...(required.length && { required }),
-  additionalProperties: false,
-  ...(description && { description }),
-});
 /** Parameter values of an effect or transition: keys and value types as listed by `get_catalog`. */
 const params = (description: string): Schema => ({ type: "object", description, additionalProperties: true });
 
 const clipIds = (description = "Clip ids (from get_timeline)."): Schema => arr(str("Clip id"), description, { minItems: 1 });
 const time = (description: string): Schema => num(`${description} Timeline seconds.`, { minimum: 0 });
 
-/** What a tool does to the video, which decides how it's run and shown. */
-export type ToolKind =
-  /** Only reads (safe to repeat, no undo step). */
-  | "look"
-  /** A synchronous edit of the timeline: one undo step, can go in a `batch`. */
-  | "edit"
-  /** Anything slower or outside the timeline (captions, imports, the Library, export). */
-  | "action";
-
-export interface ToolSpec {
-  name: string;
-  /** Short title for people (the chat shows `describeToolCall` instead where it can). */
-  title: string;
-  description: string;
-  inputSchema: Schema;
-  kind: ToolKind;
-  /** Deletes something undo can't bring back: the user confirms it in the app first. */
-  destructive?: boolean;
-  /** How long the tab may take (seconds); 120 by default. */
-  timeout?: number;
-}
-
-const tool = <N extends string, K extends ToolKind>(spec: ToolSpec & { name: N; kind: K }) => spec;
-
-/** Every tool, in the order clients list them. */
-export const ASSISTANT_TOOLS = [
+/** Every video tool, in the order clients list them. */
+export const VIDEO_TOOLS = [
   // -------------------------------------------------------------------------
   // Looking
   // -------------------------------------------------------------------------
@@ -821,49 +784,6 @@ export const ASSISTANT_TOOLS = [
   }),
 ] as const satisfies readonly ToolSpec[];
 
-export type ToolName = (typeof ASSISTANT_TOOLS)[number]["name"];
+export type VideoToolName = (typeof VIDEO_TOOLS)[number]["name"];
 
-export type EditToolName = Extract<(typeof ASSISTANT_TOOLS)[number], { kind: "edit" }>["name"];
-
-const byName = new Map<string, ToolSpec>(ASSISTANT_TOOLS.map((t) => [t.name, t]));
-
-export function toolSpec(name: string): ToolSpec | undefined {
-  return byName.get(name);
-}
-
-/** The MCP server's name: Claude Code calls its tools `mcp__editor__<tool>`. */
-export const MCP_SERVER_NAME = "editor";
-
-/** A tool's own name from what an MCP client calls it (`mcp__editor__split_clips` -> `split_clips`). */
-export function bareToolName(name: string): string {
-  const prefix = `mcp__${MCP_SERVER_NAME}__`;
-  return name.startsWith(prefix) ? name.slice(prefix.length) : name;
-}
-
-// ---------------------------------------------------------------------------
-// Results
-// ---------------------------------------------------------------------------
-
-/** MCP tool result content. */
-export type ToolContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
-
-/** What an edit did to the timeline, for highlighting it and for the chat's summary. */
-export interface ToolChanges {
-  added: string[];
-  changed: string[];
-  removed: number;
-}
-
-export interface ToolResult {
-  content: ToolContent[];
-  isError?: boolean;
-  /** Not sent to the model: what changed (edits). */
-  changes?: ToolChanges;
-}
-
-export const textResult = (text: string, changes?: ToolChanges): ToolResult => ({
-  content: [{ type: "text", text }],
-  ...(changes && { changes }),
-});
-
-export const errorResult = (message: string): ToolResult => ({ content: [{ type: "text", text: message }], isError: true });
+export type EditToolName = Extract<(typeof VIDEO_TOOLS)[number], { kind: "edit" }>["name"];

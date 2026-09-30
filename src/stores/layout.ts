@@ -56,6 +56,9 @@ interface LayoutState {
   /** The keyboard shortcuts dialog. */
   shortcutsOpen: boolean;
   setShortcutsOpen: (open: boolean) => void;
+  /** The New project picker (which suite to make a project in). */
+  newProjectOpen: boolean;
+  setNewProjectOpen: (open: boolean) => void;
   /** The timeline toolbar's Speed popover (⌘R, like Premiere's Speed/Duration). */
   speedOpen: boolean;
   setSpeedOpen: (open: boolean) => void;
@@ -88,6 +91,10 @@ export const useLayout = create<LayoutState>((set, get) => ({
   shortcutsOpen: false,
   setShortcutsOpen(shortcutsOpen) {
     set({ shortcutsOpen });
+  },
+  newProjectOpen: false,
+  setNewProjectOpen(newProjectOpen) {
+    set({ newProjectOpen });
   },
   speedOpen: false,
   setSpeedOpen(speedOpen) {

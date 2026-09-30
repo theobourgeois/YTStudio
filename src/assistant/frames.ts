@@ -4,7 +4,7 @@
  * isn't open drawn the same way offscreen, and frames of media files (drawn
  * by the server with ffmpeg).
  */
-import type { ToolContent } from "@shared/assistant-tools";
+import type { ToolContent } from "@shared/tool-spec";
 import { aspectParts, videoTracks } from "@shared/timeline";
 import type { MediaAsset, Project } from "@shared/types";
 import { PreviewEngine, type PreviewSource } from "@/components/preview/engine";

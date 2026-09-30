@@ -92,7 +92,7 @@ describe("legacy data migration", () => {
     const [summary, ...rest] = await get<ProjectSummary[]>("/api/projects");
     expect(rest).toEqual([]);
     expect(summary).toMatchObject({
-      name: "My short", status: "active", settledAt: null, createdAt: MTIME.getTime(),
+      suite: "video", name: "My short", status: "active", settledAt: null, createdAt: MTIME.getTime(),
       updatedAt: MTIME.getTime(), aspectRatio: "1:1", duration: 2, clipCount: 1,
       thumbnail: legacyAsset.poster,
     });
@@ -107,7 +107,7 @@ describe("legacy data migration", () => {
     const projectDir = path.join(dataDir, "projects", summary.id);
     expect(JSON.parse(readFileSync(path.join(projectDir, "project.json"), "utf8"))).toEqual(upgradedProject);
     expect(JSON.parse(readFileSync(path.join(projectDir, "meta.json"), "utf8"))).toEqual({
-      id: summary.id, status: "active", createdAt: MTIME.getTime(), updatedAt: MTIME.getTime(), settledAt: null,
+      id: summary.id, suite: "video", status: "active", createdAt: MTIME.getTime(), updatedAt: MTIME.getTime(), settledAt: null,
     });
 
     // Idempotent: a restart changes nothing.

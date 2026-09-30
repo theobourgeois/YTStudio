@@ -7,18 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { cn } from "cn";
-import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { activeProjects, settledProjects, useProjects } from "@/stores/projects";
 import { ProjectItem } from "./project-item";
 
 const SETTLED_OPEN_KEY = "editor-settled-open";
 
-/** Collapsible project list: videos in progress on top, the settled pile below. */
+/** Collapsible project list (every suite's): projects in progress on top, the settled pile below. */
 export function Sidebar() {
   const open = useLayout((s) => s.sidebarOpen);
   const projects = useProjects((s) => s.projects);
-  const openId = useEditor((s) => s.projectId);
+  const openId = useProjects((s) => s.openId);
   const [query, setQuery] = useState("");
   const [settledOpen, setSettledOpen] = useState(() => localStorage.getItem(SETTLED_OPEN_KEY) === "true");
   const now = useNow(30_000);
@@ -41,7 +40,7 @@ export function Sidebar() {
 
   return (
     <aside
-      aria-label="Videos"
+      aria-label="Projects"
       inert={!open}
       className={cn(
         "h-full shrink-0 overflow-hidden bg-sidebar transition-[width] duration-200 ease-out",
@@ -62,7 +61,7 @@ export function Sidebar() {
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && setQuery("")}
               placeholder="Search"
-              aria-label="Search videos"
+              aria-label="Search projects"
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
@@ -72,13 +71,13 @@ export function Sidebar() {
                 variant="ghost"
                 size="icon"
                 className="size-9 text-muted-foreground hover:text-foreground [&_svg:not([class*='size-'])]:size-4.5"
-                aria-label="New video"
-                onClick={() => void useProjects.getState().create()}
+                aria-label="New project"
+                onClick={() => useLayout.getState().setNewProjectOpen(true)}
               >
                 <PiNotePencil />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">New video</TooltipContent>
+            <TooltipContent side="bottom">New project</TooltipContent>
           </Tooltip>
         </div>
 
@@ -91,7 +90,7 @@ export function Sidebar() {
             </div>
           ) : (
             <p className="px-3 py-6 text-center text-[13px] leading-5 text-muted-foreground">
-              {query ? "No videos match." : "Nothing in progress. Start a new video to get going."}
+              {query ? "Nothing matches." : "Nothing in progress. Start a new project to get going."}
             </p>
           )}
         </nav>

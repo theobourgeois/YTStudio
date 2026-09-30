@@ -1,9 +1,7 @@
 import { useRef, useState } from "react";
-import { useEditor } from "@/stores/editor";
 
 /** The project name; click to rename (Enter/blur saves, Escape cancels). */
-export function ProjectName() {
-  const name = useEditor((s) => s.project.name);
+export function ProjectName({ name, onRename }: { name: string; onRename: (name: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
   // Escape unmounts the input, which can still fire a blur; this makes finishing idempotent.
   const finished = useRef(false);
@@ -18,7 +16,7 @@ export function ProjectName() {
     finished.current = true;
     const next = draft.trim();
     if (save && next && next !== name) {
-      useEditor.getState().renameProject(next);
+      onRename(next);
     }
     setDraft(null);
   };

@@ -1,5 +1,6 @@
 import type { AssistantProvider, ChatSnapshot } from "@shared/assistant";
-import type { ToolResult } from "@shared/assistant-tools";
+import type { SuiteDocument, SuiteId } from "@shared/suites";
+import type { ToolResult } from "@shared/tool-spec";
 import type {
   ApiError,
   AssistantStatus,
@@ -85,6 +86,8 @@ export const api = {
   createProject: (body: CreateProjectRequest = {}) =>
     request<ProjectSummary>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
   getProject: (id: string) => request<Project>(`/api/projects/${id}`),
+  /** Any suite's document (`suite` says which, for its type). */
+  getDocument: <S extends SuiteId>(_suite: S, id: string) => request<SuiteDocument<S>>(`/api/projects/${id}`),
   /** Save the project document. Returns the refreshed summary (void for keepalive saves on unload). */
   saveProject: (id: string, project: Project, keepalive = false) =>
     request<ProjectSummary>(`/api/projects/${id}`, {

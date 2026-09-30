@@ -20,6 +20,7 @@ import { errorMessage } from "@shared/errors";
 import type { AssistantProviderStatus, AssistantStatus, Project } from "@shared/types";
 import { api } from "@/lib/api";
 import { useEditor } from "./editor";
+import { useProjects } from "./projects";
 
 const OPEN_KEY = "editor-assistant-open";
 const WIDTH_KEY = "editor-assistant-width";
@@ -199,8 +200,8 @@ export const useAssistant = create<AssistantState>((set, get) => ({
 
   chatActivity: {},
   setChatActivity(chats) {
-    const open = useEditor.getState().projectId;
-    // A chat that finishes while its video is open has been seen.
+    const open = useProjects.getState().openId;
+    // A chat that finishes while its project is open has been seen.
     const mine = chats.find((c) => c.projectId === open);
     if (open && mine && mine.status !== "working" && mine.status !== get().chatActivity[open]?.status) get().markSeen(open);
     set({ chatActivity: Object.fromEntries(chats.map((c) => [c.projectId, c])) });
@@ -360,12 +361,10 @@ export const useAssistant = create<AssistantState>((set, get) => ({
   },
 }));
 
-// Opening a video: its chat has been seen, and answers that edited it in the background (or before it was
-// last opened) can still be reverted if it's just as they left it.
+// Opening a video: answers that edited it in the background (or before it was last opened) can still be
+// reverted if it's just as they left it. (Its chat is marked seen by the bridge, for every suite.)
 useEditor.subscribe((s, prev) => {
   if (s.projectId === prev.projectId || !s.projectId) return;
-  if (prev.projectId) useAssistant.getState().markSeen(prev.projectId);
-  useAssistant.getState().markSeen(s.projectId);
   const { turns } = useAssistant.getState();
   let text: string | null = null;
   let changed = false;
