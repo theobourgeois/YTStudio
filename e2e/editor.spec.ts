@@ -82,6 +82,17 @@ type SavedClip = {
   parent?: { id: string };
 };
 
+/** A saved clip with everything about its effects (keyframes, expressions) and its markers. */
+type FullClip = Omit<SavedClip, "effects"> & { effects: FullEffect[]; markers?: { id: string; time: number; label?: string }[] };
+type FullEffect = {
+  id: string;
+  type: string;
+  enabled: boolean;
+  params: Record<string, unknown>;
+  keyframes?: Record<string, { time: number; value: unknown; easing: string; spatialOut?: number[] }[]>;
+  expressions?: Record<string, string>;
+};
+
 /** A saved clip's parameters for one of its effects. */
 function effectParams(project: { clips: SavedClip[] }, clipId: string, type: string) {
   return project.clips.find((c) => c.id === clipId)?.effects.find((e) => e.type === type)?.params;
@@ -1478,6 +1489,256 @@ test("parents to a null, nests clips, opens the nest in a tab, and remaps its ti
   await page.getByRole("radio", { name: "Speed" }).click();
   await expect(page.locator("[data-graph=speed]")).toBeVisible();
   await page.getByRole("button", { name: "Hide keyframes" }).click();
+});
+
+/** The colour the Program monitor shows at a point of the canvas (fractions from its top-left). */
+async function monitorPixel(page: Page, u: number, v: number): Promise<number[]> {
+  return page.evaluate(
+    ([x, y]) => {
+      const canvas = document.querySelector<HTMLCanvasElement>("[data-slot=preview-canvas]")!;
+      const gl = canvas.getContext("webgl2")!;
+      const px = new Uint8Array(4);
+      gl.readPixels(Math.floor(x * canvas.width), Math.floor((1 - y) * canvas.height), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return [px[0], px[1], px[2]];
+    },
+    [u, v],
+  );
+}
+/** A point of the Program monitor's canvas on the page. */
+async function monitorPoint(page: Page, u: number, v: number) {
+  const box = (await page.locator("[data-slot=canvas]").boundingBox())!;
+  return { x: box.x + box.width * u, y: box.y + box.height * v };
+}
+/** Click the middle of something drawn on the monitor's overlay (its presses are the overlay's own). */
+async function clickOn(page: Page, selector: string, alt = false) {
+  const box = (await page.locator(selector).first().boundingBox())!;
+  if (alt) await page.keyboard.down("Alt");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  if (alt) await page.keyboard.up("Alt");
+}
+const effectsOf = (clip: FullClip | undefined, type: string) => clip?.effects.filter((e) => e.type === type) ?? [];
+
+test("masks a clip with shapes and the pen, and draws shape layers with operators", async ({ page }) => {
+  await page.goto("/");
+  await newVideo(page);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(0);
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[0]]);
+  await page.locator("[data-grid-item]").filter({ hasText: "vertical-1080x1920" }).first().dblclick();
+  await expect(page.locator("[data-clip-id]")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  const video = () => savedProject(page).then((p) => (p.clips as FullClip[])[0]);
+  const black = (c: number[]) => c.every((v) => v < 30);
+
+  // An ellipse mask from Properties: the corners of the picture go, its middle stays.
+  await page.locator("[data-clip-id]").first().click();
+  await page.getByRole("tab", { name: "Properties" }).click();
+  await expect.poll(async () => black(await monitorPixel(page, 0.04, 0.03))).toBe(false);
+  await page.getByRole("button", { name: "Add a mask" }).click();
+  await page.getByRole("menuitem", { name: "Ellipse" }).click();
+  await expect.poll(async () => effectsOf(await video(), "mask").length).toBe(1);
+  await expect.poll(async () => black(await monitorPixel(page, 0.04, 0.03))).toBe(true);
+  expect(black(await monitorPixel(page, 0.5, 0.5))).toBe(false);
+
+  // Its points show on the monitor: dragging the top one down reshapes it.
+  await expect(page.locator("[data-path-vertex]")).toHaveCount(4);
+  const top = (await page.locator("[data-path-vertex='0']").boundingBox())!;
+  await drag(page, { x: top.x + 3, y: top.y + 3 }, { x: top.x + 3, y: top.y + 60 });
+  type Path = { vertices: { point: number[] }[]; closed: boolean };
+  await expect.poll(async () => (effectsOf(await video(), "mask")[0].params.path as Path).vertices[0].point[1]).toBeGreaterThan(0.15);
+  // ⌥-click makes that point a corner; feather softens the edge.
+  await clickOn(page, "[data-path-vertex='0']", true);
+  await expect.poll(async () => JSON.stringify((effectsOf(await video(), "mask")[0].params.path as { vertices: { out: number[] }[] }).vertices[0].out)).toBe("[0,0]");
+  await page.getByRole("spinbutton", { name: "Feather" }).click();
+  await page.keyboard.type("40");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => effectsOf(await video(), "mask")[0].params.feather).toBe(40);
+
+  // The pen draws a second mask, click by click, closed on its first point; it takes a triangle out.
+  await page.keyboard.press("p");
+  for (const [u, v] of [[0.3, 0.4], [0.7, 0.4], [0.5, 0.6]]) {
+    const pt = await monitorPoint(page, u, v);
+    await page.mouse.click(pt.x, pt.y);
+  }
+  const first = await monitorPoint(page, 0.3, 0.4);
+  await page.mouse.click(first.x, first.y);
+  await expect.poll(async () => effectsOf(await video(), "mask").map((m) => [(m.params.path as Path).vertices.length, (m.params.path as Path).closed])).toEqual([[4, true], [3, true]]);
+  await page.keyboard.press("v");
+  await page.getByRole("region", { name: "Mask 2" }).getByRole("combobox", { name: "Mode" }).click();
+  await page.getByRole("option", { name: "Subtract" }).click();
+  await expect.poll(async () => black(await monitorPixel(page, 0.5, 0.45))).toBe(true);
+  expect(black(await monitorPixel(page, 0.5, 0.75))).toBe(false);
+  // A selected point is deleted with ⌫ (the clip stays).
+  await clickOn(page, "[data-path-vertex='1']");
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (effectsOf(await video(), "mask")[1].params.path as Path).vertices.length).toBe(2);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(1);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (effectsOf(await video(), "mask")[1].params.path as Path).vertices.length).toBe(3);
+
+  // Nothing selected: the Rectangle tool drags out a shape layer instead.
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-clip-id][data-selected]")).toHaveCount(0);
+  await page.keyboard.press("r");
+  await drag(page, await monitorPoint(page, 0.2, 0.7), await monitorPoint(page, 0.8, 0.9));
+  const shape = () => savedProject(page).then((p) => (p.clips as FullClip[]).find((c) => c.effects.some((e) => e.type === "vector-shape")));
+  await expect.poll(async () => effectsOf(await shape(), "vector-shape")[0]?.params.kind).toBe("rectangle");
+  const rect = effectsOf(await shape(), "vector-shape")[0].params as { position: number[]; size: number[] };
+  expect(rect.position[0]).toBeCloseTo(0.5, 1);
+  expect(rect.position[1]).toBeCloseTo(0.8, 1);
+  expect(rect.size[0]).toBeCloseTo(0.6 * 1080, -1);
+  await expect(page.locator("[data-clip-id]").filter({ hasText: "Shape" })).toHaveCount(1);
+  await expect.poll(async () => monitorPixel(page, 0.5, 0.8)).toEqual([255, 255, 255]);
+
+  // Its contents in Properties: a repeater, then a star on top; the fill's colour.
+  const addToShape = async (name: string) => {
+    await page.getByRole("button", { name: "Add to the shape layer" }).click();
+    await page.getByRole("menuitem", { name }).click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+  };
+  await addToShape("Repeater");
+  await addToShape("Star");
+  await expect.poll(async () => (await shape())?.effects.slice(3).map((e) => e.type)).toEqual(["vector-shape", "repeater", "vector-shape"]);
+  await expect(page.getByRole("region", { name: "Shape 2" })).toBeVisible();
+  // Trim Paths from the menu, then taken off again; the last shape can't go.
+  await addToShape("Trim Paths");
+  await page.getByRole("button", { name: "Trim Paths options" }).click();
+  await page.getByRole("menuitem", { name: "Remove Trim Paths" }).click();
+  await expect.poll(async () => (await shape())?.effects.some((e) => e.type === "trim-paths")).toBe(false);
+});
+
+test("animates text by word, links properties with an expression, marks the timeline and bends a motion path", async ({ page }) => {
+  await page.goto("/");
+  await newVideo(page);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const text = () => savedProject(page).then((p) => (p.clips as FullClip[])[0]);
+  const lanes = (await page.locator("[data-timeline-lanes]").boundingBox())!;
+  const seek = (t: number) => page.mouse.click(lanes.x + t * 60, lanes.y - 10);
+
+  // A text, with an animator from the menu: its range is keyframed from the clip's start.
+  await page.getByRole("button", { name: /^Type tool/ }).click();
+  const mid = await monitorPoint(page, 0.5, 0.4);
+  await page.mouse.click(mid.x, mid.y);
+  await expect(page.getByRole("textbox", { name: "Text on canvas" })).toBeFocused();
+  await page.keyboard.type("One two three");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Add a text animator" }).click();
+  await page.getByRole("menuitem", { name: "Pop in by word" }).click();
+  await expect.poll(async () => effectsOf(await text(), "text-animator")[0]?.keyframes?.start.map((k) => k.value)).toEqual([0, 1]);
+  expect(effectsOf(await text(), "text-animator")[0].params).toMatchObject({ basedOn: "words", scale: 0, opacity: 0 });
+  // At its start nothing of it shows yet; once the animation is over all of it does.
+  const white = async () => {
+    for (let u = 0.2; u < 0.8; u += 0.02) if ((await monitorPixel(page, u, 0.4)).every((c) => c > 200)) return true;
+    return false;
+  };
+  await seek(0);
+  await expect.poll(white).toBe(false);
+  await seek(2);
+  await expect.poll(white).toBe(true);
+
+  // ⌥-click a stopwatch: an expression on Rotation, with what it gives; a mistake says what's wrong.
+  const motion = page.getByRole("region", { name: "Motion" });
+  await motion.getByRole("button", { name: "Animate Rotation" }).click({ modifiers: ["Alt"] });
+  const script = page.getByRole("textbox", { name: "Rotation expression" });
+  await expect(script).toHaveValue("value");
+  await script.fill("time * 10");
+  await expect(page.locator("[data-expression=rotation] [data-expression-status]")).toHaveText("= 20");
+  await script.blur();
+  await expect.poll(async () => effectsOf(await text(), "motion")[0].expressions).toEqual({ rotation: "time * 10" });
+  await script.fill("wigle(1, 2)");
+  await expect(page.locator("[data-expression=rotation] [data-expression-status]")).toContainText("wigle");
+  await script.fill("wiggle(1, 2)");
+  await script.blur();
+  // Its examples menu writes one; the ✕ takes the expression away.
+  await page.getByRole("button", { name: "Rotation expression examples" }).click();
+  await page.getByRole("menuitem", { name: /Swing back and forth/ }).click();
+  await expect.poll(async () => effectsOf(await text(), "motion")[0].expressions?.rotation).toContain("Math.sin");
+  await page.getByRole("button", { name: "Remove Rotation expression" }).click();
+  await expect.poll(async () => effectsOf(await text(), "motion")[0].expressions).toBeUndefined();
+
+  // M marks the selected clip under the playhead; with nothing selected, the timeline.
+  await page.keyboard.press("m");
+  await expect.poll(async () => (await text()).markers?.map((m) => m.time)).toEqual([2]);
+  await expect(page.locator("[data-clip-markers]")).toHaveAttribute("data-clip-markers", "1");
+  await page.keyboard.press("Escape");
+  await seek(3);
+  await page.keyboard.press("m");
+  await expect.poll(async () => ((await savedProject(page)).markers as { time: number }[] | undefined)?.map((m) => m.time)).toEqual([3]);
+  // ⇧⌘M goes back to the clip's marker, ⇧M on to the timeline's; M on a marker opens its name.
+  await page.keyboard.press("ControlOrMeta+Shift+m");
+  await expect(page.getByText("0:02.00").first()).toBeVisible();
+  await page.keyboard.press("Shift+m");
+  await expect(page.getByText("0:03.00").first()).toBeVisible();
+  await page.keyboard.press("m");
+  await page.getByRole("textbox", { name: "Marker name" }).fill("Drop");
+  await page.getByRole("radio", { name: "Red" }).click();
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await savedProject(page)).markers).toEqual([{ id: expect.any(String), time: 3, label: "Drop", color: "red" }]);
+  // Dragged along the ruler (once the playhead is off it); ⌥M at the playhead deletes it.
+  await seek(1);
+  const flag = (await page.locator("[data-marker]").first().boundingBox())!;
+  await drag(page, { x: flag.x + flag.width / 2, y: flag.y + 16 }, { x: flag.x + flag.width / 2 + 60, y: flag.y + 16 });
+  await expect.poll(async () => (await savedProject(page)).markers[0].time).toBe(4);
+  await seek(4);
+  await page.keyboard.press("Alt+m");
+  await expect.poll(async () => (await savedProject(page)).markers).toBeUndefined();
+
+  // A position animated by dragging on the monitor: its path shows, with a dot per keyframe.
+  await seek(0);
+  await page.locator("[data-clip-id]").first().click();
+  await motion.getByRole("button", { name: "Animate Position", exact: true }).click();
+  await seek(2);
+  const from = await monitorPoint(page, 0.5, 0.4);
+  await drag(page, from, await monitorPoint(page, 0.5, 0.7));
+  type Keys = { time: number; value: number[]; easing: string; spatialOut?: number[]; spatialIn?: number[] }[];
+  const keys = async () => (effectsOf(await text(), "motion")[0].keyframes?.position ?? []) as Keys;
+  await expect.poll(async () => (await keys()).map((k) => k.time)).toEqual([0, 2]);
+  const dots = page.locator("[data-motion-keyframe]");
+  await expect(dots).toHaveCount(2);
+  // ⌥-click a dot: the path leaves it smoothly (a handle to bend it with). Dragging the dot moves that keyframe.
+  await dots.first().click({ modifiers: ["Alt"] });
+  await expect.poll(async () => (await keys())[0].spatialOut?.length).toBe(2);
+  await expect(page.locator("[data-motion-handle=out]")).toHaveCount(1);
+  const handle = (await page.locator("[data-motion-handle=out]").boundingBox())!;
+  await drag(page, { x: handle.x + 4, y: handle.y + 4 }, { x: handle.x + 64, y: handle.y + 4 });
+  await expect.poll(async () => (await keys())[0].spatialOut![0]).toBeGreaterThan(0.1);
+  const dot = (await dots.first().boundingBox())!;
+  await drag(page, { x: dot.x + 4, y: dot.y + 4 }, { x: dot.x - 40, y: dot.y + 4 });
+  await expect.poll(async () => (await keys())[0].value[0]).toBeLessThan(0.45);
+
+  // The lanes: copy a keyframe, paste it at the playhead, ease it with F9, then stretch all three with ⌥-drag.
+  await page.getByRole("button", { name: "Show keyframes" }).click();
+  const diamonds = page.getByRole("group", { name: "Position keyframes", exact: true }).locator("[data-refs]");
+  await diamonds.first().click();
+  await page.keyboard.press("ControlOrMeta+c");
+  await seek(4);
+  await page.keyboard.press("ControlOrMeta+v");
+  await expect.poll(async () => (await keys()).map((k) => k.time)).toEqual([0, 2, 4]);
+  await page.keyboard.press("F9");
+  await expect.poll(async () => (await keys()).map((k) => k.easing)).toEqual(["linear", "linear", "ease"]);
+  await expect(page.locator("[data-clip-id]")).toHaveCount(1);
+  await diamonds.first().click();
+  await diamonds.nth(1).click({ modifiers: ["Shift"] });
+  await diamonds.nth(2).click({ modifiers: ["Shift"] });
+  const last = (await diamonds.nth(2).boundingBox())!;
+  await page.keyboard.down("Alt");
+  await drag(page, { x: last.x + last.width / 2, y: last.y + last.height / 2 }, { x: last.x + last.width / 2 - 60, y: last.y + last.height / 2 });
+  await page.keyboard.up("Alt");
+  await expect.poll(async () => {
+    const k = await keys();
+    // Still evenly spaced from the first, which stayed put.
+    return k.length === 3 && k[0].time === 0 && k[2].time < 3.8 && Math.abs(k[1].time - k[2].time / 2) < 0.05;
+  }).toBe(true);
+  await page.getByRole("button", { name: "Hide keyframes" }).click();
+
+  // It all exports: the animated text is drawn again for every frame it changes in.
+  await page.getByRole("button", { name: /^export$/i }).first().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByText("720p").click();
+  await dialog.getByRole("button", { name: /^export$/i }).click();
+  await expect(dialog.getByRole("link", { name: /download/i }).or(dialog.getByRole("button", { name: /download/i }))).toBeVisible({ timeout: 60_000 });
 });
 
 test("starts a song in the music suite, with its own assistant, then goes back to a video", async ({ page }) => {

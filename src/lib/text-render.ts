@@ -14,6 +14,7 @@
  * sizes are px of the canvas at 1080p).
  */
 import { type TextStyle, applyTextCase } from "@shared/effects";
+import { type TextAnimation, glyphSelections } from "@shared/text-animators";
 import { outputSize } from "@shared/timeline";
 import type { AspectRatio, FontStyleInfo } from "@shared/types";
 import { resolveFace } from "@/stores/fonts";
@@ -78,7 +79,9 @@ const CACHE_SIZE = 200;
 
 export function layoutText(style: TextStyle, unit: number): TextLayout {
   const face = resolveFace(style.font, style.fontStyle);
-  const key = JSON.stringify([style, unit, face]);
+  // What the animators do at this moment changes the drawing, never the layout.
+  const { animators: _, ...laidOut } = style;
+  const key = JSON.stringify([laidOut, unit, face]);
   const hit = cache.get(key);
   if (hit) return hit;
   const layout = measure(style, unit, face);
@@ -137,8 +140,10 @@ function measure(style: TextStyle, unit: number, face: FontStyleInfo): TextLayou
   const padY = fontPx * 0.12;
   const stroke = style.strokeWidth * unit;
   const shadow = style.shadow > 0 ? (style.shadowDistance + style.shadowBlur) * unit : 0;
-  const x = Math.max(padX, overX + stroke) + shadow;
-  const y = Math.max(padY, overY + stroke) + shadow;
+  // Room for letters its animators move, grow or blur.
+  const reach = (style.reach ?? 0) * unit;
+  const x = Math.max(padX, overX + stroke) + shadow + reach;
+  const y = Math.max(padY, overY + stroke) + shadow + reach;
   return {
     ...base,
     width: blockWidth + 2 * x,
@@ -231,17 +236,138 @@ export function drawText(ctx: Ctx, style: TextStyle, layout: TextLayout, unit: n
     );
     ctx.fill();
   }
+  // With animators, each letter is drawn on its own, where and how they put it.
+  const glyphs = style.animators?.length ? animatedGlyphs(ctx, style, layout, unit, style.animators, spacingByHand) : null;
+  const eachGlyph = (paint: (g: AnimatedGlyph) => void) => {
+    for (const g of glyphs!) {
+      ctx.save();
+      ctx.globalAlpha = g.opacity;
+      // Canvas filters are in device px, whatever the transform.
+      if (g.blur > 0 && "filter" in ctx) ctx.filter = `blur(${g.blur * scale}px)`;
+      for (const t of g.transforms) {
+        ctx.translate(t.dx, t.dy);
+        ctx.translate(t.cx, t.cy);
+        ctx.rotate((t.rotation * Math.PI) / 180);
+        ctx.scale(t.scale, t.scale);
+        ctx.translate(-t.cx, -t.cy);
+      }
+      paint(g);
+      ctx.restore();
+    }
+  };
+
   if (style.strokeWidth > 0) {
     castShadow(shadowPending);
     ctx.strokeStyle = style.strokeColor;
     // Centred on the outline, half of it hidden under the fill.
     ctx.lineWidth = 2 * style.strokeWidth * unit;
     ctx.lineJoin = "round";
-    eachLine((text, x, y) => ctx.strokeText(text, x, y));
+    if (glyphs) eachGlyph((g) => ctx.strokeText(g.text, g.x, g.y));
+    else eachLine((text, x, y) => ctx.strokeText(text, x, y));
   }
   castShadow(shadowPending);
   ctx.fillStyle = style.fill;
-  eachLine((text, x, y) => ctx.fillText(text, x, y));
+  if (glyphs) {
+    eachGlyph((g) => {
+      ctx.fillStyle = g.fill;
+      ctx.fillText(g.text, g.x, g.y);
+    });
+  } else eachLine((text, x, y) => ctx.fillText(text, x, y));
+}
+
+/** One letter of an animated text: where it's drawn, and what its animators do to it. */
+interface AnimatedGlyph {
+  text: string;
+  x: number;
+  y: number;
+  opacity: number;
+  /** Canvas px. */
+  blur: number;
+  fill: string;
+  /** One per animator that acts on it, in order: moved by (dx, dy), then turned and scaled around (cx, cy). */
+  transforms: { dx: number; dy: number; cx: number; cy: number; rotation: number; scale: number }[];
+}
+
+function mixColor(a: string, b: string, f: number): string {
+  if (f <= 0) return a;
+  const [x, y] = [Number.parseInt(a.slice(1), 16), Number.parseInt(b.slice(1), 16)];
+  const ch = (shift: number) => Math.round(((x >> shift) & 255) + (((y >> shift) & 255) - ((x >> shift) & 255)) * Math.min(1, f));
+  return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
+}
+
+/**
+ * Every letter of a text with what its animators do to it (see `shared/text-animators.ts`):
+ * each animator acts on its own units (characters, words or lines), turning and scaling
+ * them around their middle.
+ */
+function animatedGlyphs(ctx: Ctx, style: TextStyle, layout: TextLayout, unit: number, animators: TextAnimation[], spacingByHand: boolean): AnimatedGlyph[] {
+  const lines = layout.lines.map((l) => l.text);
+  const selections = animators.map((a) => glyphSelections(lines, a));
+  const em = layout.fontPx;
+  // Where each letter sits in its line, from the widths of the text before it (so kerning is kept).
+  const placed = layout.lines.map((line, i) => {
+    const chars = [...line.text];
+    const edges = [0];
+    let prefix = "";
+    for (const [k, ch] of chars.entries()) {
+      prefix += ch;
+      edges.push(ctx.measureText(prefix).width + (spacingByHand ? (k + 1) * layout.letterSpacing : 0));
+    }
+    // Tracking from the animators opens the line up after each letter; the line stays aligned as it was.
+    const extra = chars.map((_, k) => animators.reduce((sum, a, j) => sum + selections[j][i][k].amount * (a.tracking / 1000) * em, 0));
+    const total = extra.reduce((a, b) => a + b, 0);
+    const lead = style.align === "left" ? 0 : style.align === "right" ? -total : -total / 2;
+    let shift = lead;
+    const xs = chars.map((_, k) => {
+      const x = layout.x + line.x + edges[k] + shift;
+      shift += extra[k];
+      return x;
+    });
+    return { chars, xs, widths: chars.map((_, k) => edges[k + 1] - edges[k]), y: layout.y + i * layout.lineHeight + layout.baseline };
+  });
+  // Each animator's units: the box around their letters, to turn and scale around its middle.
+  const centres = animators.map((_, j) => {
+    const boxes = new Map<number, { left: number; right: number; top: number; bottom: number }>();
+    placed.forEach((line, i) => {
+      line.chars.forEach((_, k) => {
+        const { unit: u } = selections[j][i][k];
+        if (u < 0) return;
+        const box = boxes.get(u) ?? { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+        box.left = Math.min(box.left, line.xs[k]);
+        box.right = Math.max(box.right, line.xs[k] + line.widths[k]);
+        // About the middle of the letters: between the baseline and the capitals' tops.
+        box.top = Math.min(box.top, line.y - em * 0.7);
+        box.bottom = Math.max(box.bottom, line.y);
+        boxes.set(u, box);
+      });
+    });
+    return boxes;
+  });
+  const out: AnimatedGlyph[] = [];
+  placed.forEach((line, i) => {
+    line.chars.forEach((text, k) => {
+      if (!text.trim()) return;
+      const glyph: AnimatedGlyph = { text, x: line.xs[k], y: line.y, opacity: 1, blur: 0, fill: style.fill, transforms: [] };
+      animators.forEach((a, j) => {
+        const { unit: u, amount } = selections[j][i][k];
+        if (!(amount > 0)) return;
+        glyph.opacity *= 1 + amount * (a.opacity - 1);
+        glyph.blur += amount * a.blur * unit;
+        if (a.fill) glyph.fill = mixColor(glyph.fill.startsWith("#") ? glyph.fill : style.fill, a.fill, amount);
+        const box = centres[j].get(u)!;
+        glyph.transforms.push({
+          dx: amount * a.position[0] * unit,
+          dy: amount * a.position[1] * unit,
+          cx: (box.left + box.right) / 2,
+          cy: (box.top + box.bottom) / 2,
+          rotation: amount * a.rotation,
+          scale: 1 + amount * (a.scale - 1),
+        });
+      });
+      if (glyph.opacity > 0) out.push(glyph);
+    });
+  });
+  return out;
 }
 
 /** Largest side, in device px, a drawn text may have (browsers cap canvases). */

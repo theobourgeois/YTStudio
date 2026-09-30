@@ -187,6 +187,66 @@ export function matteIndex(mode: string): number {
   return Math.max(0, MATTE_MODES.indexOf(mode as (typeof MATTE_MODES)[number]));
 }
 
+/**
+ * A mask on a layer (After Effects'): the layer only shows inside its path (or outside it,
+ * `inverted`), before its effects run. Several combine in order: the first decides what
+ * shows, each later one adds to that, takes away from it or keeps only what they share.
+ */
+export interface MaskShape {
+  /** SVG path data, in fractions of the layer's frame (x right, y down). */
+  d: string;
+  /** 0 add, 1 subtract, 2 intersect (see `MASK_MODES`). */
+  mode: number;
+  inverted?: boolean;
+  /** How much it covers (0..1). */
+  opacity: number;
+  /** How soft its edge is and how far it's grown (shrunk when negative), as fractions of the frame's height. */
+  feather: number;
+  expansion: number;
+}
+
+export const MASK_MODES = ["add", "subtract", "intersect"] as const;
+
+export function maskModeIndex(mode: string): number {
+  return Math.max(0, MASK_MODES.indexOf(mode as (typeof MASK_MODES)[number]));
+}
+
+/** What fills or strokes a vector shape: a CSS colour, or a gradient between two points (in the drawing's px). */
+export type VectorPaint =
+  | string
+  | { type: "linear" | "radial"; from: [number, number]; to: [number, number]; stops: [number, string][] };
+
+/** One shape of a vector drawing: a path, filled and then stroked. */
+export interface VectorOp {
+  /** SVG path data, in the drawing's px. */
+  d: string;
+  /** Where the path goes in the drawing (a repeater's copies): an affine map of its px. */
+  transform?: Affine;
+  fill?: VectorPaint;
+  fillRule?: "nonzero" | "evenodd";
+  stroke?: VectorPaint;
+  /** Stroke width and dashes (dash, gap, ...) in the drawing's px. */
+  strokeWidth?: number;
+  join?: "miter" | "round" | "bevel";
+  cap?: "butt" | "round" | "square";
+  miterLimit?: number;
+  dash?: number[];
+  dashOffset?: number;
+  /** 0..1 over both the fill and the stroke. */
+  opacity?: number;
+}
+
+/**
+ * A vector drawing (a shape layer's picture): shapes in a space of `width` x `height` px,
+ * bottom first, drawn by the browser's 2D canvas at whatever size the layer is shown, so
+ * it's sharp at any scale.
+ */
+export interface VectorDrawing {
+  width: number;
+  height: number;
+  ops: VectorOp[];
+}
+
 /** One moment of a motion-blurred layer: where it is and how it looks then. */
 export interface Sample<S = Shader> {
   affine: Placement2D;
@@ -214,6 +274,10 @@ export interface Placed<S = Shader> {
    * unused), `width` x `height` px at 100%, the most detail its effects are drawn with.
    */
   solid?: { color: [number, number, number, number]; width: number; height: number };
+  /** A vector drawing instead of a stored picture (`key` is then unused): a shape layer's shapes. */
+  vector?: VectorDrawing;
+  /** Masks cutting the layer out, in order, before its effects (an adjustment layer: where it changes what's below). */
+  masks?: MaskShape[];
   /**
    * Motion blur: the moments across the shutter to average (replacing `affine`,
    * `opacity` and `effects`). Fewer than two draws the layer once.
@@ -231,7 +295,7 @@ export interface Placed<S = Shader> {
 }
 
 /** An adjustment layer: the frame so far, through its effects and placed by its Motion (the canvas at 100%). */
-export type Adjustment<S = Shader> = Omit<Placed<S>, "key" | "solid">;
+export type Adjustment<S = Shader> = Omit<Placed<S>, "key" | "solid" | "vector">;
 
 export interface Compositor {
   readonly gl: WebGL2RenderingContext;
@@ -399,6 +463,8 @@ uniform float uOpacity;
 uniform bool uReplace;
 uniform sampler2D uMatte;
 uniform int uMatteMode;
+uniform sampler2D uMask;
+uniform bool uMasked;
 float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
 vec3 clipColor(vec3 c) {
   float l = lum(c);
@@ -466,6 +532,8 @@ void main() {
     if (uMatteMode == 2 || uMatteMode == 4) m = 1.0 - m;
     if (!uReplace) S *= m;
   }
+  // An adjustment layer's masks: it only changes what's below inside them.
+  if (uMasked) m *= texture(uMask, vUv).a;
   vec4 top;
   if (uMode >= 26) {
     // Stencil / silhouette: the layer's alpha (or luma) keeps or cuts out what's below.
@@ -480,6 +548,17 @@ void main() {
     top = vec4((1.0 - B.a) * S.rgb + (1.0 - S.a) * B.rgb + S.a * B.a * mixed, S.a + B.a - S.a * B.a);
   }
   fragColor = uReplace ? mix(B, top, uOpacity * m) : top;
+}`;
+
+  // A layer (uSrc, bottom row first) times the coverage of its masks (uMask, top row first).
+  const MASK_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uSrc;
+uniform sampler2D uMask;
+void main() {
+  fragColor = texture(uSrc, vUv) * texture(uMask, vec2(vUv.x, 1.0 - vUv.y)).a;
 }`;
 
   // Packs 4 bytes of the YUV 4:2:0 planes (Y, then U, then V, as one byte
@@ -724,6 +803,8 @@ void main() {
   let accumTarget = target();
   // Where a track matte is drawn before the layer it cuts out.
   let matteTarget = target();
+  // Where an adjustment layer's masks are placed (made when first needed), by frame size.
+  const maskTargets = new Map<string, Target>();
   // Where `readYuv420` packs the frame (sized on first use).
   const yuv = { ...target(), width: 0, height: 0 };
   let width = 0;
@@ -918,10 +999,12 @@ void main() {
   type Source =
     | { kind: "picture"; pic: Picture; next?: { pic: Picture; amount: number; flow: boolean } }
     | { kind: "solid"; color: [number, number, number, number]; width: number; height: number }
+    | { kind: "vector"; drawing: VectorDrawing }
     | { kind: "frame" };
 
   const sourceOf = (p: Placed): Source | null => {
     if (p.solid) return { kind: "solid", ...p.solid };
+    if (p.vector) return { kind: "vector", drawing: p.vector };
     const pic = pictures.get(p.key);
     if (!pic) return null;
     const next = p.interpolate && pictures.get(p.interpolate.key);
@@ -1203,6 +1286,153 @@ void main() {
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // Masks and vector drawings: drawn with the browser's 2D canvas (the export's page has
+  // one too), then uploaded. The last few are kept, so a still shape isn't drawn again.
+  // ---------------------------------------------------------------------------
+  type Ctx2d = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
+  const boards: (Ctx2d | null)[] = [];
+  /** One of a few 2D canvases, cleared at `w` x `h`. */
+  const board = (i: number, w: number, h: number): Ctx2d | null => {
+    if (boards[i] === undefined) {
+      const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, h) : typeof document !== "undefined" ? document.createElement("canvas") : null;
+      boards[i] = canvas ? (canvas.getContext("2d") as Ctx2d | null) : null;
+    }
+    const ctx = boards[i];
+    if (!ctx) return null;
+    // Setting the size clears the canvas and resets its state.
+    ctx.canvas.width = w;
+    ctx.canvas.height = h;
+    return ctx;
+  };
+  const MAX_RASTERS = 16;
+  const rasters = new Map<string, Picture>();
+  /** The picture kept under `id` (most recently used last), or a fresh one drawn by `draw` and uploaded. */
+  const raster = (id: string, w: number, h: number, draw: (ctx: Ctx2d) => void): Picture | null => {
+    const hit = rasters.get(id);
+    if (hit) {
+      rasters.delete(id);
+      rasters.set(id, hit);
+      return hit;
+    }
+    const ctx = board(0, w, h);
+    if (!ctx) return null;
+    draw(ctx);
+    // The least recently used one's texture is filled again.
+    let tex: WebGLTexture | null = null;
+    if (rasters.size >= MAX_RASTERS) {
+      const [old, stale] = rasters.entries().next().value as [string, Picture];
+      rasters.delete(old);
+      tex = stale.textures[0];
+    }
+    tex ??= texture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ctx.canvas as TexImageSource);
+    const pic: Picture = { textures: [tex], yuv: null, width: w, height: h, mipmapped: false };
+    rasters.set(id, pic);
+    return pic;
+  };
+
+  /** How much of a `w` x `h` layer its masks leave, as a picture's alpha. */
+  const maskPicture = (masks: MaskShape[], w: number, h: number): Picture | null =>
+    raster(`m:${w}x${h}:${JSON.stringify(masks)}`, w, h, (acc) => {
+      // A first mask that takes away (or keeps what's shared) starts from the whole layer.
+      if (masks[0].mode !== 0) {
+        acc.fillStyle = "#fff";
+        acc.fillRect(0, 0, w, h);
+      }
+      for (const mask of masks) {
+        const sigma = Math.max(0, mask.feather * h) / 2;
+        // Room around the layer, so a soft edge doesn't fade where the mask runs off it.
+        const room = Math.min(512, Math.ceil(sigma * 3));
+        const one = board(1, w + 2 * room, h + 2 * room);
+        if (!one) continue;
+        const shape = new Path2D();
+        shape.addPath(new Path2D(mask.d), new DOMMatrix([w, 0, 0, h, room, room]));
+        one.fillStyle = "#fff";
+        one.strokeStyle = "#fff";
+        one.lineJoin = "round";
+        one.fill(shape, "nonzero");
+        const grow = mask.expansion * h;
+        if (Math.abs(grow) > 1e-3) {
+          // Grown by a stroke of that width around it; shrunk by rubbing the same stroke out.
+          one.lineWidth = 2 * Math.abs(grow);
+          if (grow < 0) one.globalCompositeOperation = "destination-out";
+          one.stroke(shape);
+          one.globalCompositeOperation = "source-over";
+        }
+        if (mask.inverted) {
+          one.globalCompositeOperation = "xor";
+          one.fillRect(0, 0, w + 2 * room, h + 2 * room);
+          one.globalCompositeOperation = "source-over";
+        }
+        acc.globalAlpha = Math.min(1, Math.max(0, mask.opacity));
+        acc.globalCompositeOperation = mask.mode === 1 ? "destination-out" : mask.mode === 2 ? "destination-in" : "source-over";
+        if (sigma > 0.25 && "filter" in acc) {
+          acc.filter = `blur(${sigma}px)`;
+          acc.drawImage(one.canvas, -room, -room);
+          acc.filter = "none";
+        } else if (sigma > 0.25) {
+          // No canvas filters (Safari): the shape's blurred shadow, the shape itself drawn out of sight.
+          const far = w + 2 * room + 16;
+          acc.shadowColor = "#fff";
+          acc.shadowBlur = sigma * 2;
+          acc.shadowOffsetX = far;
+          acc.drawImage(one.canvas, -room - far, -room);
+          acc.shadowColor = "transparent";
+          acc.shadowOffsetX = 0;
+          acc.shadowBlur = 0;
+        } else {
+          acc.drawImage(one.canvas, -room, -room);
+        }
+      }
+      acc.globalAlpha = 1;
+      acc.globalCompositeOperation = "source-over";
+    });
+
+  /** A vector drawing at `w` x `h` px. */
+  const vectorPicture = (drawing: VectorDrawing, w: number, h: number): Picture | null =>
+    raster(`v:${w}x${h}:${JSON.stringify(drawing)}`, w, h, (ctx) => {
+      const sx = w / Math.max(1e-6, drawing.width);
+      const sy = h / Math.max(1e-6, drawing.height);
+      const paint = (p: VectorPaint): string | CanvasGradient => {
+        if (typeof p === "string") return p;
+        const g =
+          p.type === "radial"
+            ? ctx.createRadialGradient(p.from[0], p.from[1], 0, p.from[0], p.from[1], Math.hypot(p.to[0] - p.from[0], p.to[1] - p.from[1]))
+            : ctx.createLinearGradient(p.from[0], p.from[1], p.to[0], p.to[1]);
+        for (const [at, color] of p.stops) g.addColorStop(Math.min(1, Math.max(0, at)), color);
+        return g;
+      };
+      for (const op of drawing.ops) {
+        const t = op.transform ?? IDENTITY_AFFINE;
+        ctx.setTransform(sx * t[0], sy * t[1], sx * t[2], sy * t[3], sx * t[4], sy * t[5]);
+        ctx.globalAlpha = Math.min(1, Math.max(0, op.opacity ?? 1));
+        const shape = new Path2D(op.d);
+        if (op.fill !== undefined) {
+          ctx.fillStyle = paint(op.fill);
+          ctx.fill(shape, op.fillRule ?? "nonzero");
+        }
+        if (op.stroke !== undefined && (op.strokeWidth ?? 0) > 0) {
+          ctx.strokeStyle = paint(op.stroke);
+          ctx.lineWidth = op.strokeWidth!;
+          ctx.lineJoin = op.join ?? "miter";
+          ctx.lineCap = op.cap ?? "butt";
+          ctx.miterLimit = op.miterLimit ?? 4;
+          ctx.setLineDash(op.dash ?? []);
+          ctx.lineDashOffset = op.dashOffset ?? 0;
+          ctx.stroke(shape);
+        }
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+    });
+  let maskProgram: ReturnType<typeof link> | null = null;
+
   let interpProgram: ReturnType<typeof link> | null = null;
   /**
    * The moment `next.amount` of the way from picture `a` to `next.pic`, into one of `set`'s
@@ -1255,10 +1485,13 @@ void main() {
     effects: EffectPass[] | undefined,
     edges: number,
     aspect?: number,
+    masks?: MaskShape[],
   ): { pic: Picture; layer: boolean; placement?: Placement2D } | null => {
     const passes = effects?.filter((fx) => fx.passes > 0) ?? [];
-    if (!passes.length && source.kind === "picture" && !source.next) return { pic: source.pic, layer: !!source.pic.layer };
-    if (!passes.length && source.kind === "solid") {
+    // An adjustment layer's masks say where it changes the frame (see `blendInto`), not what its effects see.
+    const masked = source.kind !== "frame" && !!masks?.length;
+    if (!passes.length && !masked && source.kind === "picture" && !source.next) return { pic: source.pic, layer: !!source.pic.layer };
+    if (!passes.length && !masked && source.kind === "solid") {
       const [r, g, b, a] = source.color;
       gl.bindTexture(gl.TEXTURE_2D, solidTex);
       const bytes = new Uint8Array([r, g, b, a].map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255)));
@@ -1276,11 +1509,16 @@ void main() {
       h = height;
     } else {
       // Rounded up to 32 px so a picture that's scaling doesn't need new layers every frame.
-      const own = source.kind === "picture" ? source.pic : source;
+      // (A vector drawing has as much detail as it's asked for.)
+      const own = source.kind === "picture" ? source.pic : source.kind === "vector" ? { width: maxLayer, height: maxLayer } : source;
       const side = (shown: number, max: number) => Math.max(1, Math.min(max, maxLayer, Math.ceil(shown / 32) * 32));
       w = side(pu, own.width);
       h = side(pv, own.height);
     }
+    // A vector drawing is drawn at that size; with nothing else to do to it, that's the layer.
+    const drawn = source.kind === "vector" ? vectorPicture(source.drawing, w, h) : null;
+    if (source.kind === "vector" && !drawn) return null;
+    if (drawn && !passes.length && !masked) return { pic: drawn, layer: false };
     let set = scratchSet(w, h);
     const wrap = wrapOf(edges);
     for (const t of set) setWrap(t.tex, wrap);
@@ -1295,12 +1533,38 @@ void main() {
       gl.clear(gl.COLOR_BUFFER_BIT);
     } else if (source.kind === "frame") {
       copy(frame.tex);
+    } else if (source.kind === "vector") {
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      drawTextures(drawn!, IDENTITY_AFFINE, 1, w, h, false);
     } else if (source.next) {
       input = interpolateInto(set, source.pic, source.next, w, h);
     } else {
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       drawTextures(source.pic, IDENTITY_AFFINE, 1, w, h, !!source.pic.layer);
+    }
+    // Masks cut the picture out before any effect sees it.
+    const coverage = masked ? maskPicture(masks!, w, h) : null;
+    if (coverage) {
+      maskProgram ??= link(QUAD_VS, MASK_FS);
+      const dst = input === 0 ? 1 : 0;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, set[dst].fbo);
+      gl.viewport(0, 0, w, h);
+      gl.disable(gl.BLEND);
+      gl.useProgram(maskProgram.program);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, coverage.textures[0]);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, set[input].tex);
+      gl.uniform1i(maskProgram.loc("uSrc"), 0);
+      gl.uniform1i(maskProgram.loc("uMask"), 1);
+      gl.uniform1i(maskProgram.loc("uFlipY"), 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.activeTexture(gl.TEXTURE0);
+      input = dst;
     }
     let ratio = source.kind === "frame" ? width / height : (aspect ?? pu / pv);
     // Room past the frame (Grow Bounds): the picture so far goes in the middle of a bigger layer.
@@ -1447,7 +1711,7 @@ void main() {
     const samples = p.samples && p.samples.length > 1 ? p.samples : null;
     if (!samples) {
       if (!(p.opacity > 0)) return;
-      const prepared = prepare(source, p.affine, p.effects, edges, p.aspect);
+      const prepared = prepare(source, p.affine, p.effects, edges, p.aspect, p.masks);
       if (!prepared) return;
       bind(t);
       blendOver();
@@ -1459,7 +1723,7 @@ void main() {
     const n = samples.length;
     for (const sample of samples) {
       if (!(sample.opacity > 0)) continue;
-      const prepared = prepare(source, sample.affine, sample.effects ?? p.effects, edges, p.aspect);
+      const prepared = prepare(source, sample.affine, sample.effects ?? p.effects, edges, p.aspect, p.masks);
       if (!prepared) continue;
       bind(accumTarget);
       gl.enable(gl.BLEND);
@@ -1486,7 +1750,7 @@ void main() {
    * Mix canvas-sized `layer` into the frame by blend mode `mode` (see BLEND_FS), through the
    * track matte in `matteTarget` (by `matteMode`), swapping the frame with its spare.
    */
-  const blendInto = (layer: Target, mode: number, opacity: number, replace: boolean, matteMode = 0) => {
+  const blendInto = (layer: Target, mode: number, opacity: number, replace: boolean, matteMode = 0, mask: Target | null = null) => {
     blendProgram ??= link(QUAD_VS, BLEND_FS);
     const { program, loc } = blendProgram;
     bind(spare);
@@ -1500,6 +1764,10 @@ void main() {
     gl.bindTexture(gl.TEXTURE_2D, matteTarget.tex);
     gl.uniform1i(loc("uBase"), 0);
     gl.uniform1i(loc("uLayer"), 1);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, mask ? mask.tex : null);
+    gl.uniform1i(loc("uMask"), 3);
+    gl.uniform1i(loc("uMasked"), mask ? 1 : 0);
     gl.uniform1i(loc("uMatte"), 2);
     gl.uniform1i(loc("uMatteMode"), matteMode);
     gl.uniform1i(loc("uFlipY"), 0);
@@ -1507,12 +1775,36 @@ void main() {
     gl.uniform1f(loc("uOpacity"), Math.min(1, Math.max(0, opacity)));
     gl.uniform1i(loc("uReplace"), replace ? 1 : 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE0);
     [frame, spare] = [spare, frame];
+  };
+
+  /**
+   * An adjustment layer's masks, placed where the layer is, in a frame-sized target (its
+   * alpha is where the layer changes the frame); null without masks.
+   */
+  const placeMasks = (adjustment: Adjustment): Target | null => {
+    if (!adjustment.masks?.length) return null;
+    const coverage = maskPicture(adjustment.masks, width, height);
+    if (!coverage) return null;
+    const id = `${width}x${height}`;
+    let t = maskTargets.get(id);
+    if (!t) {
+      t = target();
+      allocate(t, width, height);
+      maskTargets.set(id, t);
+    }
+    clearTarget(t);
+    blendOver();
+    drawTextures(coverage, adjustment.affine, 1, width, height, false);
+    gl.disable(gl.BLEND);
+    return t;
   };
 
   const deletePicture = (key: string) => {
@@ -1692,9 +1984,10 @@ void main() {
       const whole = { ...adjustment, opacity: 1, samples: adjustment.samples?.map((s) => ({ ...s, opacity: 1 })) };
       if (!(adjustment.opacity > 0)) return;
       const matteMode = drawMatte(adjustment.matte);
+      const mask = placeMasks(adjustment);
       clearTarget(sides[0]);
       drawLayer(sides[0], { kind: "frame" }, whole);
-      blendInto(sides[0], adjustment.blend ?? 0, adjustment.opacity, true, matteMode);
+      blendInto(sides[0], adjustment.blend ?? 0, adjustment.opacity, true, matteMode, mask);
     },
 
     beginGroup(w, h) {
@@ -1879,6 +2172,14 @@ void main() {
         gl.deleteFramebuffer(fbo);
       }
       gl.deleteTexture(solidTex);
+      for (const pic of rasters.values()) gl.deleteTexture(pic.textures[0]);
+      rasters.clear();
+      for (const { tex, fbo } of maskTargets.values()) {
+        gl.deleteTexture(tex);
+        gl.deleteFramebuffer(fbo);
+      }
+      maskTargets.clear();
+      if (maskProgram) gl.deleteProgram(maskProgram.program);
       for (const h of histories.values()) deleteHistory(h);
       histories.clear();
       for (const t of flowTargets.values()) {

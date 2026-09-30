@@ -3,6 +3,7 @@
  * All times are in seconds (floating point) unless the name says otherwise.
  */
 import type { AssistantModelInfo, AssistantProvider } from "./assistant.ts";
+import type { BezierPath } from "./path.ts";
 import type { SuiteId } from "./suites.ts";
 import type { ToolResult } from "./tool-spec.ts";
 
@@ -175,6 +176,22 @@ export interface Clip {
   nullObject?: true;
   /** The clip this one follows (After Effects' parenting, see `shared/parenting.ts`). */
   parent?: ClipParent;
+  /** Clip markers, in source time and in order (see `shared/markers.ts`). */
+  markers?: Marker[];
+}
+
+export type MarkerColor = "green" | "red" | "orange" | "yellow" | "blue" | "purple" | "white";
+
+/**
+ * A marker (Premiere's): a named point in time to cut, snap and animate to. On a
+ * sequence its `time` is timeline time; on a clip, source time.
+ */
+export interface Marker {
+  id: string;
+  time: number;
+  label?: string;
+  /** Absent: green. */
+  color?: MarkerColor;
 }
 
 /**
@@ -212,7 +229,8 @@ export interface Transition {
 /** A 2D value, e.g. a position as fractions of the canvas. */
 export type Vec2 = [number, number];
 
-export type ParamValue = number | boolean | string | Vec2;
+/** A number, a switch, text (or a choice, a colour, a font), a point, or a Bézier path (a mask's or a shape's outline). */
+export type ParamValue = number | boolean | string | Vec2 | BezierPath;
 
 /** Parameter values of one effect, by parameter key. */
 export type ParamValues = Record<string, ParamValue>;
@@ -250,6 +268,15 @@ export interface Keyframe {
    */
   handleIn?: Vec2;
   handleOut?: Vec2;
+  /**
+   * A point's spatial Bézier handles (After Effects' motion path tangents), relative to its
+   * value and in the value's own units: `spatialOut` leaves towards the next keyframe,
+   * `spatialIn` arrives from the one before. Between two keyframes the point then travels
+   * along that curve (at the pace the temporal curve says) instead of a straight line. Only
+   * on keyframes of points.
+   */
+  spatialIn?: Vec2;
+  spatialOut?: Vec2;
 }
 
 /** One effect on a clip (Premiere's "Effect Controls" entries). */
@@ -267,6 +294,13 @@ export interface Effect {
    * its static value. Nothing creates keyframes yet.
    */
   keyframes?: Record<string, Keyframe[]>;
+  /**
+   * Expressions (After Effects'), by parameter key: a short script run for every frame whose
+   * result is the parameter's value then, e.g. `wiggle(2, 0.02)` or `loopOut()` (see
+   * `shared/expressions.ts`). It sees the value the parameter would have without it (static,
+   * or keyframed). Only on numbers and points.
+   */
+  expressions?: Record<string, string>;
 }
 
 /**
@@ -282,6 +316,8 @@ export interface Project {
   settings: ProjectSettings;
   tracks: Track[];
   clips: Clip[];
+  /** The (main) sequence's markers, in time order (see `shared/markers.ts`). */
+  markers?: Marker[];
   /** Parts of media files kept as media of their own (see `Subclip`), in the order they were made. */
   subclips?: Subclip[];
   /**
@@ -305,6 +341,8 @@ export interface Sequence {
   clips: Clip[];
   /** Seconds. Absent: as long as its clips (they end where its last clip ends). */
   duration?: number;
+  /** Its own markers, in time order. */
+  markers?: Marker[];
 }
 
 /**

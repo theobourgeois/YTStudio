@@ -47,8 +47,12 @@ export type MediaSource = "project" | "library" | "online";
  */
 export type EffectKind = "video" | "presets" | "transitions";
 
-/** What a press on the canvas does: select and transform clips, or add text (Premiere's Type tool). */
-export type CanvasTool = "select" | "text";
+/**
+ * What a press on the canvas does: select and transform clips, add text (Premiere's Type
+ * tool), or draw a path: a mask on the selected clip, else a shape (the Pen, Rectangle and
+ * Ellipse tools).
+ */
+export type CanvasTool = "select" | "text" | "pen" | "rectangle" | "ellipse";
 
 interface LayoutState {
   sidebarOpen: boolean;

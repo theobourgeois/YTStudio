@@ -49,7 +49,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
   params.ts          ParamSpec types (number, vec2, boolean, choice, text, color, font…) + sanitize/defaults.
   keyframes.ts       Keyframe validation, interpolation (easedProgress), setKeyframe.
-  animation.ts       Keyframe edits (stopwatch, navigator, move/delete/easing/Bézier handles) and timeline<->keyframe time helpers.
+  animation.ts       Keyframe edits (stopwatch, navigator, move/delete/easing/Bézier handles, copy/paste, stretch, rove,
+                     a point's spatial handles: `setKeyframeSpatial`, `smoothMotionPath`) and timeline<->keyframe time helpers.
   sequences.ts       Nested sequences: `sequenceView`/`writeSequence` (a sequence edited as a project), `sequenceAsset`
                      (a sequence as media, so nested clips trim/retime like videos), nest/break apart, preview slots.
   time-remap.ts      Time remapping (the Time Remapping effect's keyframes map a clip's clock to source time):
@@ -58,7 +59,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      evaluation (motionAt, opacityAt, volumeAt, textStyleAt), edits (setParams, resetParams,
                      setEffectEnabled, addEffect/removeEffect/moveEffect for video effects).
   effect-library/    One file per category of GLSL video effects (colour, blur, light, stylize, distort, generate,
-                     keying, glitch...); common.ts has helpers.
+                     keying, glitch...); common.ts has helpers. Also the definitions of what's added to a clip
+                     without being a shader (`stackable`): mask.ts, shape.ts (Shape + operators), text-animator.ts.
   effect-gl.ts       Video effect shader prelude, effectShader, effectPasses (a clip's effects at a moment).
   layers.ts          clipLayer: a clip as a compositor layer at a moment (opacity, blend mode, edges, effects, and
                      motion blur's moments over the shutter); placer (2D affine or 3D projection), track mattes
@@ -73,8 +75,10 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   transitions.ts     Transition registry, timing specs, sanitize/patch.
   transition-library/  One file per category of GLSL transitions; common.ts has shared specs.
   transition-windows.ts  Where transitions play on the timeline + edits to them.
-  compositor.ts      THE renderer (WebGL2), an After Effects-style layer stack: pictures and solids (after their
-                     video effects) placed by an affine or projective map (3D) + opacity + blend mode (BLEND_MODES)
+  compositor.ts      THE renderer (WebGL2), an After Effects-style layer stack: pictures, solids and vector drawings
+                     (`Placed.vector`, a shape layer: drawn by the browser's 2D canvas at the size shown) after their
+                     masks (`Placed.masks`, also drawn by the 2D canvas) and video effects, placed by an affine or
+                     projective map (3D) + opacity + blend mode (BLEND_MODES)
                      + edges (mirror/tile) + track matte, adjustment layers (drawAdjustment: the frame so far
                      through effects and Motion), motion blur (samples averaged in a float buffer), time effects'
                      frame history (texture arrays) and GPU optical flow, time interpolation between two frames,
@@ -85,8 +89,19 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   transform.ts       Where a clip lands on the canvas (fit → scale/rotate around the anchor).
   path.ts            Bézier paths (AE-style relative handles) for masks, shapes, text on a path, motion paths: shapes,
                      lengths, bounds, flattening, strokes, hit tests, edits, morphing, triangulation, SVG in/out.
+  shape-ops.ts       Shape operators' geometry on paths: polygon booleans (mergePaths), trimPaths, offsetPath, zigZag,
+                     wigglePath, roundCorners.
+  masks.ts           Masks at a moment (`masksAt` -> the compositor's `MaskShape`s), addMask.
+  shapes.ts          Shape layers at a moment: a clip's Shape effects and operators walked in order into a
+                     `VectorDrawing` (`shapeDrawingAt`), plus its bounds and hit test for the canvas.
+  text-animators.ts  Text animators: units (characters/words/lines), `selectionAmount` (the range and its shape),
+                     `glyphSelections`, the ready-made ones (ANIMATOR_PRESETS, addAnimator).
+  expressions.ts     The expression language: its own tokenizer, parser and interpreter (never `eval`), the AE
+                     helpers (wiggle, loopOut, linear...), `expressionValue`. Effects run it in `effectValuesAt`.
+  markers.ts         Sequence markers (`Project.markers`, timeline time) and clip markers (`Clip.markers`, source
+                     time): add/update/remove, `allMarkers`, `adjacentMarker`.
   captions.ts        Auto captions: presets, words → caption cues (fitting the canvas), transcripts → timeline,
-                     edits to every caption at once (style, animation, merge).
+                     edits to every caption at once (style, animation, merge). Spoken animations are text animators.
   library.ts         The shared Library: folder tree, saved clips (ClipTemplate: normalize, placeTemplate), search.
   assistant-tools.ts The video editor's tools for AI agents (MCP): names, input schemas, descriptions, kind (look/edit/action).
   assistant.ts       The assistant's chat: messages, ChatEvent + applyChatEvent (server and tab fold the same events),
@@ -138,10 +153,15 @@ src/
   components/preview/sync.ts, placement.ts   Its pure planners (tested). The engine plans each sequence as a `Level`
                      (a nested one draws into a compositor group), with media elements per `previewSlots` id.
   components/properties/graph-editor.tsx   The graph editor (value/speed graphs, Bézier handles; maths in graph-geometry.ts).
+  components/preview/path-overlay.tsx   Paths on the Program monitor (masks, drawn shapes): the pen, rectangle and ellipse
+                     tools, vertices and handles (pure maths in path-geometry.ts; which path is edited: stores/path-editing.ts).
+                     transform-overlay.tsx also draws the motion path (keyframe dots and spatial handles).
   components/timeline/  Timeline UI; geometry.ts is its pure maths, view-store.ts its interaction-speed state.
+                     markers.tsx: markers on the ruler and on clips, with their editor (stores/markers.ts).
   components/properties/  Spec-driven properties panel (param-rows.tsx renders any ParamSpec), the stopwatch and
-                     navigator (animation-controls.tsx) and the keyframe lanes (keyframe-lanes.tsx, pure maths in
-                     keyframe-geometry.ts, selection in keyframe-selection.ts).
+                     navigator (animation-controls.tsx), the keyframe lanes (keyframe-lanes.tsx, pure maths in
+                     keyframe-geometry.ts, selection and the keyframe clipboard in keyframe-selection.ts) and a
+                     property's expression (expression-row.tsx: the script, its pick-whip, examples).
   components/captions/   Auto captions dialog, engine picker/setup, the Captions tab. State in stores/captions.ts.
   components/library/  The Library tab, its cards and dialogs (Save to Library), folder drop targets.
   components/effects/  The Effects tab: video effects and transitions (library-grid.tsx is their shared search,
@@ -206,7 +226,9 @@ extension** (Node ESM through tsx).
 - Text clip: `assetId: ""` plus the Text and Appearance effects (`isTextClip`). The browser draws text in any installed
   font. The export receives PNGs drawn by the browser (`ExportRequest.texts`). Don't switch to ffmpeg `drawtext`.
 - Clip kinds (`clipKind`): media, text, solid (`assetId: ""` + the Solid effect: a colour filling the canvas, drawn by
-  the compositor; generator effects go on it) and adjustment layer (`assetId: ""` + `adjustment: true`: its effects,
+  the compositor; generator effects go on it), shape layer (`assetId: ""` + one or more Shape effects, type
+  `vector-shape`, and shape operators between them, applied in order: `shared/shapes.ts`; its frame is the canvas,
+  the canvas overlay's handles go around what it draws) and adjustment layer (`assetId: ""` + `adjustment: true`: its effects,
   Motion and Opacity apply to everything below it; no transitions, and neighbours can't transition into it). Use
   `hasMedia` where code needs a media file. Solids and adjustment layers fill the canvas at 100%.
 - Opacity has a `blendMode` and a `trackMatte` (the clip on the video track right above is its matte and isn't drawn);
@@ -227,6 +249,24 @@ extension** (Node ESM through tsx).
 - Video effects (a definition with a `shader`) are the ones the user adds: any number, in the order they're drawn,
   after the others in `clip.effects`, with ids `type`, `type_2`... Each runs over the clip's own picture before
   Motion places it (Premiere's standard effects), so blur sizes etc. are fractions of the clip's frame.
+- Effects the user adds (`isAddedEffect`): video effects (a `shader`) and `stackable` ones (masks, a shape layer's
+  shapes and operators, text animators). `orderEffects` keeps each kind together in `clip.effects` (built-ins, what
+  the clip is, Time Remapping, shapes/animators, masks, video effects); `addEffect`/`removeEffect`/`moveEffect` work
+  for all of them; `effectLabel` numbers several of a type ("Mask 2").
+- A `path` parameter (`PathSpec`, a `BezierPath` in fractions of the clip's frame) is animatable: keyframes morph it
+  (`lerpPath`). `ParamValue` includes paths: check `isPath` before treating an object value as anything else.
+- Masks (`mask` effects) cut a clip's picture out before its video effects; on an adjustment layer they say where it
+  changes what's below. `clipLayer` puts them on the layer (`masksAt`), so the preview and the export get them alike.
+- Text animators (`text-animator` effects on text) reach the drawing through `textStyleAt` (`TextStyle.animators`, and
+  `reach`: room the text's frame keeps for them, the same at every moment). `text-render.ts` then draws letter by
+  letter. The export draws the text again at every frame they (or an expression) change it (`draw-texts.ts`).
+- Expressions (`Effect.expressions`, by parameter key; numbers and points only, never Volume): anything that draws
+  must read values with `effectValuesAt(def, effect, time, clip)` (or `valuesAt`/`motionAt`..., which do), never
+  `storedValuesAt`, which is the plain value the panel edits. `time` in an expression is the clip's source time.
+- A point's keyframes can carry spatial handles (`Keyframe.spatialIn/Out`, the motion path): `keyframeValue` then
+  travels the curve at an even pace by length (`spatialCurve`).
+- Markers: `Project.markers` / `Sequence.markers` (timeline time; a sequence view's `markers` are that sequence's) and
+  `Clip.markers` (source time). `snapPoints` includes them.
 - Keyframes are stored in **source time** (so they stay on their frame when the clip moves, trims or splits). Read
   values with `sourceTime(clip, playheadTime)`; write them at `keyframeTime(clip, playhead, fps)` (the frame under
   the playhead, or an existing keyframe within half a frame), which every editing surface uses. A keyframe's `easing`
@@ -249,8 +289,9 @@ extension** (Node ESM through tsx).
 - Keyframe Bézier handles (`handleIn`/`handleOut`, the graph editor) override easing on their side; `segmentHandles`
   is the curve's control points and `bezierProgress` evaluates it.
 - Captions are text clips with `caption: true` (only valid on text clips; see `shared/captions.ts`). The Captions tab
-  edits style for all of them (never their text or timing); Properties edits one. A caption's animation is its
-  `transitionIn`; animated captions end one frame before the next so each animates in from nothing.
+  edits style for all of them (never their text or timing); Properties edits one. A caption's animation is a text
+  animator stepping through its words at the times they're said (`SPOKEN_ANIMATIONS`, hold keyframes), or a
+  transition on its `transitionIn`; only transition-animated captions end one frame before the next.
 - Subclips (`Project.subclips`, `shared/subclips.ts`) are named parts of a media file made in the source preview
   (In/Out, ⌘U): listed in the Media tab after their file, and added to the timeline as that part. They point at the
   file (nothing is copied), are undoable edits, and go with their file. Their ids go wherever media ids do
@@ -330,6 +371,12 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 - **A preset**: add a `PresetDefinition` to `shared/preset-library/transitions.ts` or `effects.ts` (keys are fractions of
   its length; `common.ts` has the across/throughCut/spike shapes and MOVING). Transitions must end with every moved
   value back at rest (tested). Run the preset-sheet script and look at it.
+- **A shape operator, or anything else added to clips without a shader**: an `EffectDefinition` with `stackable`
+  (`shape` | `animator` | `mask`) in `shared/effect-library/`, listed in `EFFECTS`; evaluate it where its kind is
+  drawn (`shapes.ts` `itemsAt`, `masks.ts`, `text-animators.ts`) with `effectValuesAt`; list it in the Properties
+  add row (`AddEffectRow`) and in `describeCatalog`. The panel, keyframes, expressions and `add_effect` then work.
+- **An expression function**: a global in `shared/expressions.ts` (`GLOBALS`, with its signature and description,
+  which the assistant's catalogue and the tests read). Keep it pure and repeatable (seeded by the scope).
 - **A transition**: add a definition to a `shared/transition-library/*.ts` file. The GLSL defines
   `vec4 transition(vec2 uv)`; params become uniforms. See the prelude docs in `transition-gl.ts`. Then run the
   transition-sheet script. No server change is needed.
@@ -394,7 +441,10 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   the only place the page knows it's in the app (it gives the app `flush` to save before closing).
 
 - `createCompositor` and `drawSampleScene` are serialised with `toString()` and injected into the headless
-  export page. They must not reference anything at module level.
+  export page. They must not reference anything at module level. (Masks and shape layers are drawn there with the
+  page's own 2D canvas: `Path2D`, `OffscreenCanvas`, which the preview has too.)
+- Store selectors must return the same value for the same state: `project.markers ?? []` makes a new array on every
+  call and loops React for ever. Use a shared empty constant (`sequenceMarkers` does).
 - The export draws every frame in headless Chromium with `shared/compositor.ts`; ffmpeg only decodes (video as YUV
   4:2:0 at the size it's shown; the compositor converts with the source's matrix), mixes audio and encodes (BT.709).
   Everything animates exactly: Motion/Opacity per frame in `planRender`, volume as an ffmpeg expression of the same

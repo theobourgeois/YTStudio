@@ -5,7 +5,9 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { addEffect, defaultEffects, setEffectEnabled, setParams, solidEffects, textEffects } from "../shared/effects.ts";
+import { addEffect, defaultEffects, setEffectEnabled, setParams, shapeEffects, solidEffects, textEffects } from "../shared/effects.ts";
+import { addMask } from "../shared/masks.ts";
+import { ellipsePath, polygonPath, rectPath } from "../shared/path.ts";
 import { addFreezeFrame, addReverseSection } from "../shared/time-remap.ts";
 import { nestClips } from "../shared/sequences.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
@@ -664,6 +666,61 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     const blurred = row(4.5);
     const sharp = row(5.5);
     expect(blurred, `blurred ${blurred} vs sharp ${sharp}`).toBeGreaterThan(sharp + 20);
+  });
+
+  it("exports masks and shape layers", async () => {
+    const tracks = [
+      { id: "fx", kind: "video" as const, name: "Video 3", muted: false },
+      { id: "top", kind: "video" as const, name: "Video 2", muted: false },
+      ...createDefaultProject().tracks,
+    ];
+    const shape = (start: number, params: ParamValues): Clip => ({
+      id: `shape_${start}`, assetId: "", trackId: "top", start, in: 0, out: 1, effects: shapeEffects(params),
+    });
+    const red = (start: number, id: string): Clip => ({ ...clip("red", "main", start, 0, 1), id });
+    let project: Project = {
+      ...projectWith([
+        red(0, "left"),
+        red(1, "hole"),
+        shape(2, { size: [540, 540], fillColor: "#0000ff", strokeWidth: 60, strokeColor: "#00ff00" }),
+        red(3, "under"),
+        { id: "adjust", assetId: "", trackId: "fx", start: 3, in: 0, out: 1, effects: defaultEffects(), adjustment: true },
+        shape(4, { size: [200, 200] }),
+      ]),
+      tracks,
+    };
+    // The red picture is 720 x 360 in the middle of the 720 x 1280 frame.
+    project = addMask(project, "left", { path: polygonPath([[0, 0], [0.5, 0], [0.5, 1], [0, 1]], true) }).project;
+    project = addMask(project, "hole", { path: rectPath(0, 0, 1, 1) }).project;
+    project = addMask(project, "hole", { path: ellipsePath(0.5, 0.5, 0.25, 0.5), mode: "subtract" }).project;
+    project = addEffect(project, ["adjust"], "invert").project;
+    project = addMask(project, "adjust", { path: rectPath(0, 0, 0.5, 1) }).project;
+    project = addEffect(project, ["shape_4"], "repeater", { copies: 2, position: [300, 0] }).project;
+
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    const near = (actual: number[], expected: number[], at: string) =>
+      actual.forEach((v, i) => expect(Math.abs(v - expected[i]), `${actual} vs ${expected} ${at}`).toBeLessThan(40));
+
+    // Only the left half of the picture shows.
+    near(pixelAt(output, 0.5, 180, 640), [255, 0, 0], "inside the mask");
+    near(pixelAt(output, 0.5, 540, 640), [0, 0, 0], "outside the mask");
+    // A second mask takes an ellipse out of the middle.
+    near(pixelAt(output, 1.5, 360, 640), [0, 0, 0], "the hole");
+    near(pixelAt(output, 1.5, 60, 640), [255, 0, 0], "around the hole");
+    // A blue square (360 px at 720p) with a green stroke centred on its edge.
+    near(pixelAt(output, 2.5, 360, 640), [0, 0, 255], "fill");
+    near(pixelAt(output, 2.5, 180, 640), [0, 255, 0], "stroke");
+    near(pixelAt(output, 2.5, 100, 640), [0, 0, 0], "outside the shape");
+    // A masked adjustment layer only inverts the left half of what's below it.
+    near(pixelAt(output, 3.5, 180, 640), [0, 255, 255], "adjusted");
+    near(pixelAt(output, 3.5, 540, 640), [255, 0, 0], "not adjusted");
+    // Two copies of a white square, 200 px (at 720p) apart.
+    near(pixelAt(output, 4.5, 360, 640), [255, 255, 255], "first copy");
+    near(pixelAt(output, 4.5, 560, 640), [255, 255, 255], "second copy");
+    near(pixelAt(output, 4.5, 460, 640), [0, 0, 0], "between the copies");
   });
 
   it("exports slow motion with new frames in between (optical flow), or repeats frames (frame sampling)", async () => {

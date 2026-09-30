@@ -66,7 +66,14 @@ points can be keyframed.
 - Motion graphics, After Effects style: nest_clips turns clips into a nested sequence played by one clip \
 (then Motion, effects, speed and remap_time act on the whole group; open_sequence edits inside it); set_parent \
 makes clips follow another clip's Motion (often a null object from add_layer kind "null"); remap_time does speed \
-ramps, freeze frames and reverses within a clip; set_keyframes takes Bézier handles for custom easing curves.
+ramps, freeze frames and reverses within a clip; set_keyframes takes Bézier handles for custom easing curves, \
+and spatial handles that bend a position's path.
+- More motion tools: masks (add_effect type "mask": a path the clip only shows inside, in fractions of its frame; \
+keyframe the path to animate a reveal); shape layers (add_layer kind "shape": rectangles, ellipses, stars and \
+drawn paths with fills and strokes, plus operators such as trim-paths, which draws a line on, and repeater); text \
+animators (add_effect type "text-animator", or its presets: text appearing letter by letter or word by word); \
+expressions (set_expression: wiggle, loopOut, or a property following another); markers (set_markers: named \
+points that clips and keyframes snap to, e.g. a song's beats). get_catalog lists each of them.
 
 How to work:
 - Look before you edit: get_timeline first; list_media for what's imported; view_media to watch raw \

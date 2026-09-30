@@ -445,7 +445,7 @@ export function describeToolCall(rawName: string, input: unknown): string {
     }
     case "add_layer": {
       const effects = list(f("effects")).length;
-      const what = f("kind") === "solid" ? "a solid" : f("kind") === "camera" ? "a camera" : f("kind") === "null" ? "a null object" : "an adjustment layer";
+      const what = f("kind") === "solid" ? "a solid" : f("kind") === "shape" ? "a shape layer" : f("kind") === "camera" ? "a camera" : f("kind") === "null" ? "a null object" : "an adjustment layer";
       return effects ? `Add ${what} with ${count(effects, "effect")}` : `Add ${what}`;
     }
     case "apply_preset": {
@@ -482,6 +482,15 @@ export function describeToolCall(rawName: string, input: unknown): string {
       if (f("reverse")) return "Reverse a section";
       if (f("enabled") === false) return "Turn off time remapping";
       return "Remap a clip's time";
+    }
+    case "set_expression":
+      return f("expression") === null ? `Remove the expression on ${String(f("param") ?? "a property")}` : `Put an expression on ${String(f("param") ?? "a property")}`;
+    case "set_markers": {
+      const [added, changed, removed] = [list(f("add")).length, list(f("update")).length, list(f("remove")).length];
+      if (added && !changed && !removed) return `Add ${count(added, "marker")}`;
+      if (removed && !added && !changed) return `Remove ${count(removed, "marker")}`;
+      if (f("clear") && !added && !changed) return "Clear the markers";
+      return "Change the markers";
     }
     case "set_parent":
       return f("parentId") ? `Parent ${count(ids(), "clip")} to a clip` : `Unparent ${count(ids(), "clip")}`;

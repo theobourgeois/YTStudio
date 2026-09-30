@@ -13,7 +13,8 @@
  * snaps across in between, the curve every "smooth" edit transition uses.
  */
 import { isFiniteNumber, tidy } from "./math.ts";
-import { type ParamSpec, isAnimatable, sameValue, sanitizeValue } from "./params.ts";
+import { type ParamSpec, isAnimatable, isPath, sameValue, sanitizeValue } from "./params.ts";
+import { type ArcLengthTable, arcLengthTable, lerpPath, pointAtLength } from "./path.ts";
 import type { Easing, Keyframe, ParamValue, Vec2 } from "./types.ts";
 
 export const EASINGS: readonly Easing[] = ["linear", "ease-in", "ease-out", "ease", "hold"];
@@ -50,6 +51,12 @@ export function sanitizeKeyframes(spec: ParamSpec, raw: unknown): Keyframe[] {
     const handleOut = sanitizeHandle(k.handleOut, "out");
     if (handleIn) key.handleIn = handleIn;
     if (handleOut) key.handleOut = handleOut;
+    if (spec.kind === "vec2") {
+      const spatialIn = sanitizeSpatial(k.spatialIn);
+      const spatialOut = sanitizeSpatial(k.spatialOut);
+      if (spatialIn) key.spatialIn = spatialIn;
+      if (spatialOut) key.spatialOut = spatialOut;
+    }
     byTime.set(time, key);
   }
   return [...byTime.values()].sort((a, b) => a.time - b.time);
@@ -66,6 +73,17 @@ export const MAX_OVERSHOOT = 10;
 export function clampHandle([x, y]: Vec2, side: "in" | "out"): Vec2 {
   const cx = side === "out" ? Math.min(1, Math.max(MIN_INFLUENCE, x)) : Math.min(1 - MIN_INFLUENCE, Math.max(0, x));
   return [tidy(cx), tidy(Math.min(MAX_OVERSHOOT, Math.max(-MAX_OVERSHOOT, y)))];
+}
+
+/** How far a spatial handle may reach (in the value's units: many canvases). */
+const MAX_SPATIAL = 20;
+
+/** A spatial handle from storage (none when it's missing, invalid, or no handle at all: [0, 0]). */
+export function sanitizeSpatial(raw: unknown): Vec2 | undefined {
+  if (!Array.isArray(raw) || raw.length !== 2 || !isFiniteNumber(raw[0]) || !isFiniteNumber(raw[1])) return undefined;
+  const at = (v: number) => tidy(Math.min(MAX_SPATIAL, Math.max(-MAX_SPATIAL, v)));
+  const handle: Vec2 = [at(raw[0]), at(raw[1])];
+  return handle[0] === 0 && handle[1] === 0 ? undefined : handle;
 }
 
 function sanitizeHandle(raw: unknown, side: "in" | "out"): Vec2 | undefined {
@@ -180,9 +198,46 @@ export function segmentProgress(a: Keyframe, b: Keyframe, f: number): number {
   return bezierProgress(f, h.out[0], h.out[1], h.in[0], h.in[1]);
 }
 
+/** Spatial curves' lengths, measured once per pair of keyframes (keyframes are never changed in place). */
+const curves = new WeakMap<Keyframe, { to: Keyframe; table: ArcLengthTable }>();
+
+/**
+ * The curve a point travels from keyframe `a` to `b` when either has a spatial handle on
+ * that side (see `Keyframe.spatialIn`), measured by length; null when it's the straight line.
+ */
+export function spatialCurve(a: Keyframe, b: Keyframe): ArcLengthTable | null {
+  if ((!a.spatialOut && !b.spatialIn) || !Array.isArray(a.value) || !Array.isArray(b.value)) return null;
+  const kept = curves.get(a);
+  if (kept?.to === b) return kept.table;
+  const table = arcLengthTable(
+    {
+      vertices: [
+        { point: a.value, in: [0, 0], out: a.spatialOut ?? [0, 0] },
+        { point: b.value, in: b.spatialIn ?? [0, 0], out: [0, 0] },
+      ],
+      closed: false,
+    },
+    // Values are fractions of the canvas: far finer than a pixel.
+    1e-5,
+  );
+  curves.set(a, { to: b, table });
+  return table;
+}
+
+/** Where a point is `progress` of the way (by length; it may overshoot) along a spatial curve. */
+function alongCurve(table: ArcLengthTable, progress: number): Vec2 {
+  const at = pointAtLength(table, Math.min(1, Math.max(0, progress)) * table.total)!;
+  if (progress >= 0 && progress <= 1) return at.point;
+  // Past an end (an overshooting ease): straight on along the curve's direction there.
+  const over = (progress > 1 ? progress - 1 : progress) * table.total;
+  return [at.point[0] + at.tangent[0] * over, at.point[1] + at.tangent[1] * over];
+}
+
 function mix(a: ParamValue, b: ParamValue, f: number): ParamValue {
   if (isFiniteNumber(a) && isFiniteNumber(b)) return a + (b - a) * f;
   if (Array.isArray(a) && Array.isArray(b)) return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+  // A path morphs, vertex by vertex.
+  if (isPath(a) && isPath(b)) return f <= 0 ? a : f >= 1 ? b : lerpPath(a, b, f);
   return f < 1 ? a : b;
 }
 
@@ -197,11 +252,14 @@ export function keyframeSpeed(keyframes: readonly Keyframe[], time: number): num
   const b = keyframes[next];
   if (a.easing === "hold") return 0;
   const dt = b.time - a.time;
-  const change = isFiniteNumber(a.value) && isFiniteNumber(b.value)
-    ? b.value - a.value
-    : Array.isArray(a.value) && Array.isArray(b.value)
-      ? Math.hypot(b.value[0] - a.value[0], b.value[1] - a.value[1])
-      : 0;
+  const curve = spatialCurve(a, b);
+  const change = curve
+    ? curve.total
+    : isFiniteNumber(a.value) && isFiniteNumber(b.value)
+      ? b.value - a.value
+      : Array.isArray(a.value) && Array.isArray(b.value)
+        ? Math.hypot(b.value[0] - a.value[0], b.value[1] - a.value[1])
+        : 0;
   if (!(dt > 0)) return 0;
   const h = segmentHandles(a, b);
   return (change / dt) * bezierSlope((time - a.time) / dt, h.out[0], h.out[1], h.in[0], h.in[1]);
@@ -216,5 +274,16 @@ export function keyframeValue(keyframes: Keyframe[], time: number): ParamValue {
   const b = keyframes[next];
   if (a.easing === "hold") return a.value;
   const f = (time - a.time) / (b.time - a.time);
+  const curve = spatialCurve(a, b);
+  if (curve) return alongCurve(curve, segmentProgress(a, b, f));
   return mix(a.value, b.value, segmentProgress(a, b, f));
+}
+
+/** How far a point travels from keyframe `a` to `b`: along its spatial curve, or straight (0 for anything but numbers and points). */
+export function keyframeDistance(a: Keyframe, b: Keyframe): number {
+  const curve = spatialCurve(a, b);
+  if (curve) return curve.total;
+  if (isFiniteNumber(a.value) && isFiniteNumber(b.value)) return Math.abs(b.value - a.value);
+  if (Array.isArray(a.value) && Array.isArray(b.value)) return Math.hypot(b.value[0] - a.value[0], b.value[1] - a.value[1]);
+  return 0;
 }

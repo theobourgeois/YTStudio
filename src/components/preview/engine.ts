@@ -6,7 +6,8 @@ import { type Compositor, type Placed, createCompositor, matteIndex } from "@sha
 import { PREVIEW_SAMPLES, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "@shared/layers";
 import { parentAt } from "@shared/parenting";
 import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
-import { clipEnd, clipSourceRange, clipSpeed, fileTime, sourceTime, videoTracks } from "@shared/timeline";
+import { shapeDrawingAt } from "@shared/shapes";
+import { clipEnd, clipSourceRange, clipSpeed, fileTime, outputSize, sourceTime, videoTracks } from "@shared/timeline";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
 import { type Placement, type Size, fittedSize } from "@shared/transform";
@@ -37,7 +38,7 @@ interface AudioLayer {
   ids: SlotIds;
 }
 
-type ClipKind = "video" | "image" | "text" | "solid" | "adjustment" | "camera" | "null" | "sequence";
+type ClipKind = "video" | "image" | "text" | "solid" | "shape" | "adjustment" | "camera" | "null" | "sequence";
 
 /** A picture to draw: the element (or text drawing) it comes from (none for a solid), and when in its clip. */
 interface Picture {
@@ -415,9 +416,10 @@ export class PreviewEngine {
       /** The picture showing each clip on screen, by clip id. */
       const pictures = new Map<string, Picture>();
 
-      // Solids are drawn by the compositor itself.
+      // Solids and shape layers are drawn by the compositor itself.
       for (const side of shown) {
-        if (kindOf(side.clip) === "solid") pictures.set(side.clip.id, { key: "", source: null, shown: side });
+        const kind = kindOf(side.clip);
+        if (kind === "solid" || kind === "shape") pictures.set(side.clip.id, { key: "", source: null, shown: side });
       }
 
       // Nested sequences: planned as a level of their own, drawn into a group.
@@ -671,7 +673,9 @@ export class PreviewEngine {
       }
       if (picture.source === null) {
         const layer = clipLayer(clip, time, affineAt(clip), options);
-        return layer && { ...layer, key: "", solid: { color: solidColorAt(clip, time), ...pixels } };
+        if (!layer) return null;
+        if (clipKind(clip) === "shape") return { ...layer, key: "", vector: shapeDrawingAt(clip, time, outputSize(project.settings.aspectRatio, "1080p")) };
+        return { ...layer, key: "", solid: { color: solidColorAt(clip, time), ...pixels } };
       }
       if (!this.upload(compositor, picture)) return null;
       const layer = clipLayer(clip, time, affineAt(clip), options);

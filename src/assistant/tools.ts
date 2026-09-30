@@ -295,7 +295,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     );
   },
   async get_catalog(input) {
-    const kind = oneOf(input, "kind", ["video_effects", "presets", "transitions", "clip_properties", "caption_styles", "fonts"] as const) as CatalogKind | undefined;
+    const kind = oneOf(input, "kind", ["video_effects", "masks_and_shapes", "text_animators", "expressions", "presets", "transitions", "clip_properties", "caption_styles", "fonts"] as const) as CatalogKind | undefined;
     if (!kind) throw new ToolError("`kind` is required.");
     const fonts = kind === "fonts" ? await api.listFonts() : [];
     return textResult(describeCatalog(kind, optString(input, "query"), fonts));
@@ -328,6 +328,8 @@ const TOOLS: Record<VideoToolName, Handler> = {
   add_text: edit("add_text"),
   add_layer: edit("add_layer"),
   set_parent: edit("set_parent"),
+  set_markers: edit("set_markers"),
+  set_expression: edit("set_expression"),
   nest_clips: edit("nest_clips"),
   break_apart: edit("break_apart"),
   edit_sequence: edit("edit_sequence"),

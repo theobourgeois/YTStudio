@@ -52,6 +52,7 @@ import { parentAt } from "../shared/parenting.ts";
 import { EXPORT_SAMPLES, canvasAffine, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "../shared/layers.ts";
 import { even } from "../shared/math.ts";
 import { type Shown, sceneAt, transitionWindows } from "../shared/scene.ts";
+import { shapeDrawingAt } from "../shared/shapes.ts";
 import { allClips, getSequence, isNestedClip, nestedSequence, sequenceDuration, sequenceSize, sequenceView } from "../shared/sequences.ts";
 import { mediaTime } from "../shared/time-remap.ts";
 import {
@@ -60,6 +61,7 @@ import {
   clipEnd,
   clipSpeed,
   fileTime,
+  outputSize,
   projectDuration,
   sourceEdge,
   sourceRange,
@@ -489,6 +491,11 @@ export function planRender(
       if (clipKind(clip) === "solid") {
         const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
         return layer && { ...byKey(layer), key: "", solid: { color: solidColorAt(clip, time), width: canvas.width, height: canvas.height } };
+      }
+      if (clipKind(clip) === "shape") {
+        // Drawn by the page's 2D canvas, from the same drawing the preview makes.
+        const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
+        return layer && { ...byKey(layer), key: "", vector: shapeDrawingAt(clip, time, outputSize(level.view.settings.aspectRatio, "1080p")) };
       }
       const drawn = draw(level, shown);
       if (!drawn) return null;

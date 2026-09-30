@@ -1,5 +1,5 @@
 import type { Clip, ExportResolution, Project, TextRaster } from "@shared/types";
-import { APPEARANCE, MOTION, TEXT, type TextStyle, findEffect, isTextClip, textStyleAt } from "@shared/effects";
+import { APPEARANCE, MOTION, TEXT, TEXT_ANIMATOR, type TextStyle, findEffect, hasExpressions, isTextClip, textStyleAt } from "@shared/effects";
 import { keyframeTimes } from "@shared/animation";
 import { sequenceView } from "@shared/sequences";
 import { isOnVideoTrack, outputSize } from "@shared/timeline";
@@ -57,13 +57,14 @@ async function rasterize(style: TextStyle, unit: number, scale: number): Promise
  * keyframes (the look holds outside them).
  */
 function lookTimes(clip: Clip, fps: number): number[] {
-  const keys = [TEXT, APPEARANCE].flatMap((def) => {
-    const effect = findEffect(clip, def.type);
-    return effect?.enabled ? keyframeTimes(clip, { effectId: effect.id }) : [];
-  });
-  if (keys.length === 0) return [clip.in];
-  const from = Math.max(clip.in, Math.min(...keys));
-  const to = Math.min(clip.out, Math.max(...keys));
+  // Its words and look, and its animators (each letter is drawn where they put it).
+  const animated = clip.effects.filter((e) => e.enabled && (e.type === TEXT.type || e.type === APPEARANCE.type || e.type === TEXT_ANIMATOR.type));
+  const keys = animated.flatMap((effect) => keyframeTimes(clip, { effectId: effect.id }));
+  // An expression can change its look at any frame of the clip.
+  const always = animated.some(hasExpressions);
+  if (keys.length === 0 && !always) return [clip.in];
+  const from = always ? clip.in : Math.max(clip.in, Math.min(...keys));
+  const to = always ? clip.out : Math.min(clip.out, Math.max(...keys));
   // The export's frames: frame f shows timeline time (f + 0.001) / fps.
   const first = Math.ceil((clip.start + (from - clip.in)) * fps - 1e-3);
   const last = Math.floor((clip.start + (to - clip.in)) * fps);

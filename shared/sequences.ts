@@ -77,6 +77,8 @@ export function sequenceView(project: Project, id: string | null): Project {
     settings: seq.settings,
     tracks: seq.tracks,
     clips: seq.clips,
+    // The view's markers are the sequence's own.
+    ...(seq.markers && { markers: seq.markers }),
     ...(subclips && { subclips }),
     ...(sequences && { sequences }),
   };
@@ -92,9 +94,11 @@ export function sequenceView(project: Project, id: string | null): Project {
 export function writeSequence(project: Project, id: string | null, view: Project): Project {
   if (id === null) return view;
   if (view === sequenceView(project, id)) return project;
-  const sequences = (view.sequences ?? []).map((s) =>
-    s.id === id ? { ...s, settings: view.settings, tracks: view.tracks, clips: view.clips } : s,
-  );
+  const sequences = (view.sequences ?? []).map((s) => {
+    if (s.id !== id) return s;
+    const { markers: _, ...rest } = s;
+    return { ...rest, settings: view.settings, tracks: view.tracks, clips: view.clips, ...(view.markers?.length && { markers: view.markers }) };
+  });
   const next: Project = { ...project, sequences };
   if (view.subclips) next.subclips = view.subclips;
   else delete next.subclips;

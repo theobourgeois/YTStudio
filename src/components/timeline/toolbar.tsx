@@ -11,6 +11,7 @@ import {
   PiMusicNotes,
   PiPlus,
   PiScissors,
+  PiPolygon,
   PiSquare,
   PiStack,
   PiVideoCamera,
@@ -171,7 +172,8 @@ export function TimelineToolbar() {
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-64">
             Add an adjustment layer (its effects change everything below it), a solid (a colour for effects to draw on),
-            a camera (3D layers are seen through it) or a null object (clips parented to it follow its Motion).
+            a shape layer (vector shapes, drawn with the Pen, Rectangle and Ellipse tools too), a camera (3D layers are
+            seen through it) or a null object (clips parented to it follow its Motion).
           </TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start" className="w-64">
@@ -182,6 +184,9 @@ export function TimelineToolbar() {
           <DropdownMenuItem onSelect={() => newLayer("solid")}>
             <PiSquare /> Solid
             <DropdownMenuShortcut>{SHORTCUT_KEYS.newSolid}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => newLayer("shape")}>
+            <PiPolygon /> Shape layer
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => newLayer("camera")}>
             <PiVideoCamera /> Camera

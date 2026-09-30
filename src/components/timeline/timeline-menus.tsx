@@ -25,6 +25,8 @@ import {
   PiSlidersHorizontal,
   PiSpeakerHigh,
   PiSpeakerSlash,
+  PiFlagPennant,
+  PiPolygon,
   PiSquare,
   PiSubtitles,
   PiTrash,
@@ -35,6 +37,7 @@ import {
 import { isNestedClip } from "@shared/sequences";
 import type { Track, TransitionAlignment } from "@shared/types";
 import { toast } from "sonner";
+import { addMarker } from "@shared/markers";
 import { MOTION, clipKind, effectDefinition, findEffect, isVideoEffect, setParams } from "@shared/effects";
 import { type TransitionRef, findWindow, parseRefKey, setTransitionParams } from "@shared/transition-windows";
 import {
@@ -350,7 +353,7 @@ function PasteEffectsMenu({ plural }: { plural: string }) {
       const clips = s.selectedClipIds.map((id) => getClip(s.project, id));
       const visual = clips.some((c) => c && isOnVideoTrack(s.project, c));
       const pastable = copied.filter(
-        (e) => (visual && isVideoEffect(e)) || clips.some((c) => c?.effects.some((own) => own.id === e.id)),
+        (e) => (visual && (isVideoEffect(e) || e.type === "mask")) || clips.some((c) => c?.effects.some((own) => own.id === e.id)),
       );
       return [...new Set(pastable.map((e) => e.type))];
     }),
@@ -401,6 +404,13 @@ function LaneMenuItems({ target }: { target: Extract<MenuTarget, { kind: "lane" 
       <ContextMenuItem onSelect={() => editor().addLayer("solid", { trackId: trackId ?? undefined, at: time })}>
         <PiSquare /> New solid here
         <ContextMenuShortcut>{SHORTCUT_KEYS.newSolid}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => editor().addLayer("shape", { trackId: trackId ?? undefined, at: time })}>
+        <PiPolygon /> New shape layer here
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => editor().commit((p) => addMarker(p, Math.round(time * p.settings.fps) / p.settings.fps).project)}>
+        <PiFlagPennant /> Add marker here
+        <ContextMenuShortcut>{SHORTCUT_KEYS.addMarker}</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem disabled={!hasClips} onSelect={() => editor().selectAll()}>

@@ -395,8 +395,24 @@ export function pointAtLength(path: BezierPath | ArcLengthTable, distance: numbe
   }
   const b = samples[lo];
   const a = lo > 0 && samples[lo - 1].segment === b.segment ? samples[lo - 1] : undefined;
-  const t = a && b.at > a.at ? a.t + ((b.t - a.t) * (d - a.at)) / (b.at - a.at) : b.t;
   const seg = table.segments[b.segment];
+  let t = b.t;
+  if (a && b.at > a.at) {
+    // Between two samples the curve is as good as straight, but it isn't travelled at an even
+    // pace (a segment without handles eases in and out of its ends): find the parameter that
+    // far from the first sample, rather than splitting the parameter in proportion.
+    const from = pointAt(seg, a.t);
+    const want = d - a.at;
+    let near = a.t;
+    let far = b.t;
+    for (let i = 0; i < 30; i++) {
+      const mid = (near + far) / 2;
+      const at = pointAt(seg, mid);
+      if (Math.hypot(at[0] - from[0], at[1] - from[1]) < want) near = mid;
+      else far = mid;
+    }
+    t = (near + far) / 2;
+  }
   const tangent = directionAt(seg, t);
   return {
     point: pointAt(seg, t),
@@ -747,6 +763,61 @@ export function moveVertex(path: BezierPath, index: number, to: Vec2): BezierPat
 export function setVertex(path: BezierPath, index: number, patch: Partial<PathVertex>): BezierPath {
   if (!path.vertices[index]) return path;
   return { vertices: path.vertices.map((v, k) => (k === index ? { ...v, ...patch } : v)), closed: path.closed };
+}
+
+/** Whether a vertex is a corner: no handle on either side. */
+export const isCornerVertex = (v: PathVertex) => v.in[0] === 0 && v.in[1] === 0 && v.out[0] === 0 && v.out[1] === 0;
+
+/**
+ * Vertex `index` turned from a corner into a smooth point or back (After Effects' Convert
+ * Vertex tool): smooth, its handles run along the line between its neighbours, a third of
+ * the way towards each.
+ */
+export function toggleSmooth(path: BezierPath, index: number): BezierPath {
+  const vs = path.vertices;
+  const v = vs[index];
+  if (!v) return path;
+  if (!isCornerVertex(v)) return setVertex(path, index, { in: [0, 0], out: [0, 0] });
+  const n = vs.length;
+  const prev = path.closed ? vs[(index - 1 + n) % n] : vs[index - 1];
+  const next = path.closed ? vs[(index + 1) % n] : vs[index + 1];
+  const a = prev?.point ?? v.point;
+  const b = next?.point ?? v.point;
+  const dir = unit(sub(b, a));
+  if (dir[0] === 0 && dir[1] === 0) return path;
+  return setVertex(path, index, {
+    in: prev ? scale(dir, -distance(v.point, prev.point) / 3) : [0, 0],
+    out: next ? scale(dir, distance(v.point, next.point) / 3) : [0, 0],
+  });
+}
+
+/**
+ * One handle of vertex `index` dragged to `handle` (relative to the vertex). With `mirror`
+ * the other handle stays opposite it, keeping its own length (or taking this one's, when it
+ * had none): a smooth point. Without, the other handle is left alone (a cusp).
+ */
+export function setHandle(path: BezierPath, index: number, side: "in" | "out", handle: Vec2, mirror: boolean): BezierPath {
+  const v = path.vertices[index];
+  if (!v) return path;
+  const other = side === "in" ? "out" : "in";
+  const patch: Partial<PathVertex> = { [side]: [handle[0], handle[1]] };
+  if (mirror) {
+    const reach = length(v[other]) || length(handle);
+    patch[other] = scale(unit(handle), -reach);
+  }
+  return setVertex(path, index, patch);
+}
+
+/** Several vertices moved by `delta`, their handles going with them. */
+export function moveVertices(path: BezierPath, indices: readonly number[], delta: Vec2): BezierPath {
+  if ((delta[0] === 0 && delta[1] === 0) || indices.length === 0) return path;
+  return { vertices: path.vertices.map((v, k) => (indices.includes(k) ? { ...v, point: add(v.point, delta) } : v)), closed: path.closed };
+}
+
+/** The path without the vertices `indices` (see `removeVertex`). */
+export function removeVertices(path: BezierPath, indices: readonly number[]): BezierPath {
+  if (!indices.some((i) => path.vertices[i])) return path;
+  return { vertices: path.vertices.filter((_, k) => !indices.includes(k)), closed: path.closed };
 }
 
 /** The same shape drawn the other way (a closed path keeps its first vertex first). */

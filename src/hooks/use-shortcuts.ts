@@ -4,12 +4,14 @@ import { editPoints, getClip, projectDuration } from "@shared/timeline";
 import { DEFAULT_TRANSITION } from "@shared/transitions";
 import { clearSourceMarks, makeSubclipFromMarks, markSource, shownMarks } from "@/components/preview/source-marking";
 import { deleteSelectedKeyframes } from "@/components/properties/keyframe-lanes";
-import { useKeyframeSelection } from "@/components/properties/keyframe-selection";
+import { copySelectedKeyframes, easeSelectedKeyframes, pasteCopiedKeyframes, useKeyframeSelection } from "@/components/properties/keyframe-selection";
 import { retimableIds } from "@/components/timeline/speed-control";
 import { timelineCommands } from "@/components/timeline/view-store";
 import { useAssistant } from "@/stores/assistant";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
+import { addMarkerAtPlayhead, deleteMarkerAtPlayhead, goToMarker } from "@/stores/markers";
+import { deleteSelectedVertices, usePathEditing } from "@/stores/path-editing";
 import { usePlayback } from "@/stores/playback";
 import { useSourcePreview } from "@/stores/source-preview";
 import { resolveShortcut, type ShortcutAction } from "./shortcuts";
@@ -28,6 +30,11 @@ const EDITS = new Set<ShortcutAction>([
   "paste",
   "copyEffects",
   "pasteEffects",
+  "easyEase",
+  "easyEaseIn",
+  "easyEaseOut",
+  "addMarker",
+  "deleteMarker",
   "duplicate",
   "newAdjustmentLayer",
   "newSolid",
@@ -170,7 +177,8 @@ function run(action: ShortcutAction): boolean {
       return true;
     case "delete":
     case "rippleDelete":
-      // Keyframes selected in the Effect Controls go first (like Premiere).
+      // A path's selected points go first, then keyframes selected in the Effect Controls (like Premiere).
+      if (action === "delete" && deleteSelectedVertices()) return true;
       if (action === "delete" && hasSelection && deleteSelectedKeyframes(editor.selectedClipIds.at(-1)!)) return true;
       if (!hasSelection && !hasGapOrTransition) return false;
       // ⌫ follows Auto ripple; ⇧⌫ always ripples.
@@ -181,13 +189,32 @@ function run(action: ShortcutAction): boolean {
       editor.cutSelected();
       return true;
     case "copy":
+      // Selected keyframes go first; copying clips afterwards makes ⌘V paste clips again.
+      if (copySelectedKeyframes()) return true;
       if (!hasSelection) return false;
+      useKeyframeSelection.getState().setClipboard(null);
       editor.copySelected();
       return true;
     case "paste":
+      if (useKeyframeSelection.getState().clipboard) return pasteCopiedKeyframes();
       if (editor.clipboard.length === 0) return false;
       editor.paste();
       return true;
+    case "addMarker":
+      addMarkerAtPlayhead();
+      return true;
+    case "nextMarker":
+      return goToMarker(1);
+    case "prevMarker":
+      return goToMarker(-1);
+    case "deleteMarker":
+      return deleteMarkerAtPlayhead();
+    case "easyEase":
+      return easeSelectedKeyframes("ease");
+    case "easyEaseIn":
+      return easeSelectedKeyframes("ease-in");
+    case "easyEaseOut":
+      return easeSelectedKeyframes("ease-out");
     case "copyEffects":
       if (!hasSelection) return false;
       editor.copyEffects();
@@ -247,8 +274,17 @@ function run(action: ShortcutAction): boolean {
       editor.selectAll();
       return true;
     case "deselect":
+      // The pen stops drawing first, then the path stops showing its points.
+      if (usePathEditing.getState().drawing) {
+        usePathEditing.getState().finishDrawing();
+        return true;
+      }
       if (useLayout.getState().tool !== "select") {
         useLayout.getState().setTool("select");
+        return true;
+      }
+      if (usePathEditing.getState().target) {
+        usePathEditing.getState().edit(null);
         return true;
       }
       if (useKeyframeSelection.getState().refs.length) {
@@ -275,6 +311,15 @@ function run(action: ShortcutAction): boolean {
       return true;
     case "textTool":
       useLayout.getState().setTool("text");
+      return true;
+    case "penTool":
+      useLayout.getState().setTool("pen");
+      return true;
+    case "rectangleTool":
+      useLayout.getState().setTool("rectangle");
+      return true;
+    case "ellipseTool":
+      useLayout.getState().setTool("ellipse");
       return true;
   }
 }

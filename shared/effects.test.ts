@@ -10,6 +10,8 @@ import {
   VOLUME,
   addEffect,
   defaultEffects,
+  expressionProblem,
+  setExpression,
   findEffect,
   motionAt,
   moveEffect,
@@ -61,8 +63,8 @@ describe("effect definitions", () => {
 
   it("show Motion and Opacity for pictures, Volume for sound, Text and Appearance for text, Solid for solids", () => {
     const shown = (visual: boolean, audible: boolean, kind: ClipKind = "media") =>
-      // Time Remapping only shows on clips it's been turned on for.
-      EFFECTS.filter((d) => !d.shader && d.type !== "time-remap" && d.appliesTo({ visual, audible, kind })).map((d) => d.type);
+      // Time Remapping only shows on clips it's been turned on for; masks and the like once they're added.
+      EFFECTS.filter((d) => !d.shader && !d.stackable && d.type !== "time-remap" && d.appliesTo({ visual, audible, kind })).map((d) => d.type);
     expect(shown(true, true)).toEqual(["motion", "opacity", "volume"]);
     expect(shown(true, false)).toEqual(["motion", "opacity"]);
     expect(shown(false, true)).toEqual(["volume"]);
@@ -409,5 +411,84 @@ describe("copy / paste effects", () => {
     expect(videoEffects(pasteEffects(p, ["d"], copyEffects(p.clips[0]), ["mosaic"]).clips[1]).map((e) => e.id)).toEqual(["vignette", "mosaic"]);
     const audio = { ...p, tracks: p.tracks.map((t) => ({ ...t, kind: "audio" as const })) };
     expect(videoEffects(pasteEffects(audio, ["d"], copyEffects(p.clips[0])).clips[1]).map((e) => e.id)).toEqual(["vignette"]);
+  });
+});
+
+describe("expressions", () => {
+  const p = projectWith(clipWith());
+  const clipOf = (q: Project) => q.clips[0];
+
+  it("replace a parameter's value at every frame, from the value it would have without them", () => {
+    const moved = setExpression(setParams(p, "c", "motion", { rotation: 10 }), "c", "motion", "rotation", "value + time * 90");
+    expect(motionOf(moved).expressions).toEqual({ rotation: "value + time * 90" });
+    expect(motionAt(clipOf(moved), 0).rotation).toBe(10);
+    expect(motionAt(clipOf(moved), 2).rotation).toBe(190);
+    // The stored value is untouched (it's what the panel edits).
+    expect(motionOf(moved).params.rotation).toBe(10);
+    // A point from a point; results are kept in the parameter's range.
+    const slid = setExpression(p, "c", "motion", "position", "[value[0] + time / 10, value[1]]");
+    expect(motionAt(clipOf(slid), 1).position).toEqual([0.6, 0.5]);
+    expect(opacityAt(clipOf(setExpression(p, "c", "opacity", "opacity", "5")), 0)).toBe(1);
+    expect(setExpression(moved, "c", "motion", "rotation", "value + time * 90")).toBe(moved);
+    expect(motionOf(setExpression(moved, "c", "motion", "rotation", "  "))).not.toHaveProperty("expressions");
+    expect(motionOf(setExpression(moved, "c", "motion", "rotation", null))).not.toHaveProperty("expressions");
+  });
+
+  it("wiggle the same way on every draw, differently for every property", () => {
+    const shaky = setExpression(setExpression(p, "c", "motion", "rotation", "wiggle(3, 20)"), "c", "motion", "scale", "wiggle(3, 0.2)");
+    const at = (t: number) => motionAt(clipOf(shaky), t);
+    expect(at(1.3).rotation).toBe(at(1.3).rotation);
+    expect(Math.abs(at(1.3).rotation)).toBeLessThanOrEqual(20);
+    expect(at(1.3).rotation).not.toBe(at(1.6).rotation);
+    // Not the same wiggle on both.
+    expect(at(1.3).rotation / 20).not.toBeCloseTo((at(1.3).scaleY - 1) / 0.2, 3);
+  });
+
+  it("follow keyframes (loopOut) and other properties of the clip (the pick-whip)", () => {
+    const key = (time: number, value: number): Keyframe => ({ time, value, easing: "linear" });
+    const [motion, ...rest] = defaultEffects();
+    const spun = projectWith(clipWith([{ ...motion, keyframes: { rotation: [key(0, 0), key(1, 90)] } }, ...rest]));
+    const looped = setExpression(spun, "c", "motion", "rotation", 'loopOut("cycle")');
+    expect(motionAt(clipOf(looped), 0.5).rotation).toBe(45);
+    expect(motionAt(clipOf(looped), 2.5).rotation).toBeCloseTo(45);
+    // Opacity follows the rotation, which has an expression of its own.
+    const linked = setExpression(looped, "c", "opacity", "opacity", 'prop("motion.rotation") / 90');
+    expect(opacityAt(clipOf(linked), 2.5)).toBeCloseTo(0.5);
+    // Two properties reading each other don't loop for ever: where the circle closes, the plain value is read.
+    const knot = setExpression(setExpression(p, "c", "motion", "rotation", 'prop("motion.scale") * 10'), "c", "motion", "scale", 'prop("motion.rotation") + 2');
+    // Rotation: scale (the plain rotation 0 + 2) × 10. Scale: rotation (the plain scale 1 × 10) + 2.
+    expect(motionAt(clipOf(knot), 0).rotation).toBe(20);
+    expect(motionAt(clipOf(knot), 0).scaleY).toBe(12);
+  });
+
+  it("leave the value alone when they fail, and say what's wrong", () => {
+    const broken = setExpression(setParams(p, "c", "motion", { rotation: 30 }), "c", "motion", "rotation", "value +");
+    expect(motionAt(clipOf(broken), 1).rotation).toBe(30);
+    expect(expressionProblem(MOTION, motionOf(broken), "rotation", 0, clipOf(broken))).toMatch(/at 7/);
+    const missing = setExpression(p, "c", "motion", "rotation", 'prop("motion.nope")');
+    expect(expressionProblem(MOTION, motionOf(missing), "rotation", 0, clipOf(missing))).toMatch(/motion\.nope/);
+    expect(expressionProblem(MOTION, motionOf(setExpression(p, "c", "motion", "position", '"left"')), "position", 0)).toMatch(/must be a point/);
+    expect(expressionProblem(MOTION, motionOf(setExpression(p, "c", "motion", "rotation", "wiggle(1, 5)")), "rotation", 0)).toBeNull();
+    expect(expressionProblem(MOTION, motionOf(p), "rotation", 0)).toBeNull();
+  });
+
+  it("only go on numbers and points, never on the volume, and are kept when saved", () => {
+    expect(setExpression(p, "c", "motion", "fit", "1")).toBe(p);
+    expect(setExpression(p, "c", "volume", "level", "0.5")).toBe(p);
+    const saved = setExpression(p, "c", "motion", "scale", "wiggle(2, 0.1)");
+    expect(normalizeEffects(JSON.parse(JSON.stringify(clipOf(saved).effects)))).toEqual(clipOf(saved).effects);
+    const junk = normalizeEffects([{ ...motionOf(saved), expressions: { scale: 7, fit: "1", rotation: "x".repeat(6000), position: "[0.5, 0.5]" } as never }]);
+    expect(junk[0].expressions).toEqual({ position: "[0.5, 0.5]" });
+    // Resetting a parameter takes its expression with it; pasting effects brings them along.
+    expect(motionOf(resetParams(saved, "c", "motion", ["scale"]))).not.toHaveProperty("expressions");
+    const other: Clip = { ...clipWith(), id: "d" };
+    const pasted = pasteEffects({ ...saved, clips: [clipOf(saved), other] }, ["d"], copyEffects(clipOf(saved)), ["motion"]);
+    expect(findEffect(pasted.clips[1], "motion")!.expressions).toEqual({ scale: "wiggle(2, 0.1)" });
+    // A video effect's amount, too.
+    const blurred = addEffect(p, ["c"], "gaussian-blur").project;
+    const pulsing = setExpression(blurred, "c", "gaussian-blur", "blurriness", "0.01 + 0.01 * Math.sin(time)");
+    const amount = (t: number) => effectPasses(clipOf(pulsing), t)[0].uniforms.find((u) => u.name === "blurriness")!.value as number;
+    expect(amount(0)).toBeCloseTo(0.01);
+    expect(amount(Math.PI / 2)).toBeCloseTo(0.02);
   });
 });

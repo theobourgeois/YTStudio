@@ -5,6 +5,7 @@ import { usePlayback } from "@/stores/playback";
 import { cn } from "cn";
 import { lanePoint, useTimelineContext } from "./context";
 import { rulerTicks } from "./geometry";
+import { RulerMarkers } from "./markers";
 import { PlayheadHead } from "./playhead";
 import { startPointerSession } from "./pointer-session";
 import { setView, useVisibleWindow } from "./view-store";
@@ -62,6 +63,7 @@ export function Ruler({ width, zoom }: { width: number; zoom: number }) {
   return (
     <div className="relative h-full touch-none select-none" style={{ width }} onPointerDown={onPointerDown}>
       <Ticks width={width} zoom={zoom} />
+      <RulerMarkers zoom={zoom} />
       <PlayheadHead />
     </div>
   );

@@ -1,5 +1,5 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
-import { PiArrowCounterClockwise, PiCircleHalfTilt, PiCrosshairSimple, PiIntersectSquare, PiSpiral, PiSquare, PiSubtitles, PiTextT, PiVideoCamera, PiWarning } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiCircleHalfTilt, PiCrosshairSimple, PiIntersectSquare, PiPolygon, PiSpiral, PiSquare, PiSubtitles, PiTextT, PiVideoCamera, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
 import { isNestedClip } from "@shared/sequences";
 import { useEditor } from "@/stores/editor";
@@ -8,6 +8,7 @@ import { keyframeTimes, timelineTime } from "@shared/animation";
 import { clipDuration, clipName, clipSpeed, sourceDelta, sourceEdge } from "@shared/timeline";
 import { formatSpeed } from "@shared/format";
 import { cn } from "cn";
+import { ClipMarkers } from "./markers";
 import { useAssistant } from "@/stores/assistant";
 import { useLayout } from "@/stores/layout";
 import { startClipMove, startClipTrim } from "./clip-gestures";
@@ -80,7 +81,7 @@ export const TimelineClip = memo(function TimelineClip({
                   ? "bg-clip-graphic"
                   : kind === "adjustment"
                     ? "bg-clip-adjustment"
-                    : kind === "solid"
+                    : kind === "solid" || kind === "shape"
                       ? "bg-clip-solid"
                       : kind === "camera"
                         ? "bg-clip-camera"
@@ -114,6 +115,7 @@ export const TimelineClip = memo(function TimelineClip({
         )}
         <ClipKeyframes clip={clip} zoom={zoom} />
       </div>
+      {!placeholder && <ClipMarkers clip={clip} zoom={zoom} />}
       {selected && !placeholder && (
         <div className="pointer-events-none absolute -inset-px rounded-md ring-2 ring-foreground" />
       )}
@@ -145,6 +147,7 @@ function sameClipProps(a: TimelineClipProps, b: TimelineClipProps) {
     a.clip.reversed === b.clip.reversed &&
     a.clip.assetId === b.clip.assetId &&
     a.clip.parent?.id === b.clip.parent?.id &&
+    a.clip.markers === b.clip.markers &&
     // A text clip's label is its text.
     a.clip.effects === b.clip.effects &&
     a.asset === b.asset &&
@@ -264,6 +267,7 @@ function ClipLabel({
       {kind === "text" && (caption ? <PiSubtitles className="size-3 shrink-0" /> : <PiTextT className="size-3 shrink-0" />)}
       {kind === "adjustment" && <PiCircleHalfTilt className="size-3 shrink-0" />}
       {kind === "solid" && <PiSquare className="size-3 shrink-0" />}
+      {kind === "shape" && <PiPolygon className="size-3 shrink-0" />}
       {kind === "camera" && <PiVideoCamera className="size-3 shrink-0" />}
       {kind === "null" && <PiCrosshairSimple className="size-3 shrink-0" />}
       {parented && <PiSpiral className="size-3 shrink-0 text-brand" aria-label="Parented" data-clip-parented />}

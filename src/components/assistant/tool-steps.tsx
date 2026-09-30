@@ -1,6 +1,8 @@
 import { memo, useState } from "react";
 import type { IconType } from "react-icons";
 import {
+  PiFlagPennant,
+  PiFunction,
   PiGauge,
   PiArrowsLeftRight,
   PiArrowsOutLineHorizontal,
@@ -59,6 +61,8 @@ const ICONS: Record<string, IconType> = {
   add_text: PiTextT,
   add_layer: PiStack,
   set_parent: PiSpiral,
+  set_markers: PiFlagPennant,
+  set_expression: PiFunction,
   nest_clips: PiStack,
   break_apart: PiStack,
   edit_sequence: PiStack,

@@ -19,6 +19,7 @@ import {
   roundSourceTime,
   sourceRange,
 } from "./timeline.ts";
+import { normalizeMarkers } from "./markers.ts";
 import { pruneParents, sanitizeParent } from "./parenting.ts";
 import { normalizeSubclips } from "./subclips.ts";
 import { sanitizeTransition } from "./transitions.ts";
@@ -60,15 +61,19 @@ export function normalizeProject(input: Project, assets?: Assets): Project {
       clips,
     };
     if (isFiniteNumber(raw.duration) && raw.duration > 0) seq.duration = roundTime(Math.max(MIN_CLIP_DURATION, raw.duration));
+    const markers = normalizeMarkers(raw.markers, 0);
+    if (markers.length) seq.markers = markers;
     return seq;
   });
   const subclips = normalizeSubclips(input?.subclips, assets);
+  const markers = normalizeMarkers(input?.markers, 0);
   const project: Project = {
     version: 1,
     name: typeof input?.name === "string" && input.name ? input.name : base.name,
     settings: normalizeSettings(input?.settings),
     tracks: main.tracks,
     clips: main.clips,
+    ...(markers.length > 0 && { markers }),
     ...(subclips.length > 0 && { subclips }),
     ...(sequences.length > 0 && { sequences }),
   };
@@ -201,6 +206,8 @@ function normalizeTimeline(
     if (nullObject) clip.nullObject = true;
     const parent = kind === "video" ? sanitizeParent(c.parent) : undefined;
     if (parent) clip.parent = parent;
+    const clipMarkers = normalizeMarkers(c.markers);
+    if (clipMarkers.length) clip.markers = clipMarkers;
     clips.push(clip);
   }
 

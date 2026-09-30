@@ -10,9 +10,19 @@
  */
 import { TIME_REMAP, effectDefinition, paramSpec, storedValuesAt, updateEffect } from "./effects.ts";
 import { setTimeRemap } from "./time-remap.ts";
-import { DEFAULT_INFLUENCE, MIN_INFLUENCE, SAME_KEYFRAME, clampHandle, keyframeAt, keyframeValue, setKeyframe } from "./keyframes.ts";
+import {
+  DEFAULT_INFLUENCE,
+  MIN_INFLUENCE,
+  SAME_KEYFRAME,
+  clampHandle,
+  keyframeAt,
+  keyframeDistance,
+  keyframeValue,
+  sanitizeSpatial,
+  setKeyframe,
+} from "./keyframes.ts";
 import { tidy } from "./math.ts";
-import { isAnimatable } from "./params.ts";
+import { isAnimatable, sanitizeValue } from "./params.ts";
 import { clipEnd, sourceTime, timelineTime } from "./timeline.ts";
 import type { Clip, Easing, Effect, Keyframe, Project, Vec2 } from "./types.ts";
 
@@ -281,4 +291,203 @@ export function clipKeyframes(clip: Clip, filter: { time?: number; effectId?: st
     }
   }
   return refs;
+}
+
+// ---------------------------------------------------------------------------
+// Motion paths: a point's spatial handles (see `Keyframe.spatialIn`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Set (or with null, clear) one point keyframe's spatial handles, each relative to its
+ * value. Absent sides are left alone.
+ */
+export function setKeyframeSpatial(
+  project: Project,
+  clipId: string,
+  ref: KeyframeRef,
+  handles: { in?: Vec2 | null; out?: Vec2 | null },
+): Project {
+  return updateKeys(project, clipId, ref.effectId, ref.key, (keys, effect) => {
+    const at = keyframeAt(keys, ref.time);
+    if (!at || !Array.isArray(at.value) || paramSpec(effectDefinition(effect.type)!, ref.key)?.kind !== "vec2") return null;
+    const next: Keyframe = { ...at };
+    for (const side of ["in", "out"] as const) {
+      const h = handles[side];
+      if (h === undefined) continue;
+      const field = side === "in" ? "spatialIn" : "spatialOut";
+      const clean = h === null ? undefined : sanitizeSpatial(h);
+      if (clean) next[field] = clean;
+      else delete next[field];
+    }
+    const same = (a?: Vec2, b?: Vec2) => (!a && !b) || (!!a && !!b && a[0] === b[0] && a[1] === b[1]);
+    if (same(next.spatialIn, at.spatialIn) && same(next.spatialOut, at.spatialOut)) return null;
+    return { keys: keys.map((k) => (k === at ? next : k)) };
+  });
+}
+
+/**
+ * Make point keyframes pass smoothly along their path (After Effects' Auto Bézier): each
+ * one's handles run along the line between its neighbours, a third of the way to each.
+ * With `smooth` false, back to straight lines (no handles).
+ */
+export function smoothMotionPath(project: Project, clipId: string, refs: readonly KeyframeRef[], smooth: boolean): Project {
+  let p = project;
+  for (const { effectId, key, times } of byParam(refs).values()) {
+    p = updateKeys(p, clipId, effectId, key, (keys) => {
+      let changed = false;
+      const next = keys.map((k, i) => {
+        if (!isAny(times)(k) || !Array.isArray(k.value)) return k;
+        const { spatialIn: _i, spatialOut: _o, ...bare } = k;
+        if (!smooth) {
+          if (!k.spatialIn && !k.spatialOut) return k;
+          changed = true;
+          return bare;
+        }
+        const here = k.value as Vec2;
+        const before = keys[i - 1]?.value;
+        const after = keys[i + 1]?.value;
+        const a = (Array.isArray(before) ? before : here) as Vec2;
+        const b = (Array.isArray(after) ? after : here) as Vec2;
+        const along: Vec2 = [b[0] - a[0], b[1] - a[1]];
+        const length = Math.hypot(along[0], along[1]);
+        if (!(length > 0)) return k;
+        const reach = (to: Vec2) => Math.hypot(to[0] - here[0], to[1] - here[1]) / 3 / length;
+        const smoothed: Keyframe = { ...bare };
+        if (Array.isArray(before)) smoothed.spatialIn = [tidy(-along[0] * reach(a)), tidy(-along[1] * reach(a))];
+        if (Array.isArray(after)) smoothed.spatialOut = [tidy(along[0] * reach(b)), tidy(along[1] * reach(b))];
+        changed = true;
+        return smoothed;
+      });
+      return changed ? { keys: next } : null;
+    });
+  }
+  return p;
+}
+
+// ---------------------------------------------------------------------------
+// Keyframe workflow: copy and paste, stretching, roving
+// ---------------------------------------------------------------------------
+
+/** Keyframes copied to paste elsewhere: each property's, with times from the first one copied. */
+export interface CopiedKeyframes {
+  items: { effectId: string; effectType: string; key: string; keys: Keyframe[] }[];
+}
+
+/** Copy keyframes of a clip (⌘C with keyframes selected). Null when none of `refs` exist. */
+export function copyKeyframes(clip: Clip, refs: readonly KeyframeRef[]): CopiedKeyframes | null {
+  const items: CopiedKeyframes["items"] = [];
+  let first = Infinity;
+  for (const { effectId, key, times } of byParam(refs).values()) {
+    const effect = clip.effects.find((e) => e.id === effectId);
+    const keys = (effect?.keyframes?.[key] ?? []).filter(isAny(times));
+    if (!effect || !keys.length) continue;
+    first = Math.min(first, keys[0].time);
+    items.push({ effectId, effectType: effect.type, key, keys });
+  }
+  if (!items.length) return null;
+  return { items: items.map((item) => ({ ...item, keys: item.keys.map((k) => ({ ...k, time: tidy(k.time - first) })) })) };
+}
+
+/**
+ * Paste copied keyframes onto a clip, the first one landing at source time `time`, each
+ * property's onto the same property (of the effect with the same id, else the first of
+ * its type): across clips, or later on the same one. With `onto`, one copied property's
+ * keyframes go onto that property instead, whatever it is, as long as it holds the same
+ * kind of value (a number's onto a number, a point's onto a point). Values are checked
+ * against the property they land on; keyframes already at those times are replaced.
+ * Returns what was pasted (to select it).
+ */
+export function pasteKeyframes(
+  project: Project,
+  clipId: string,
+  copied: CopiedKeyframes,
+  time: number,
+  onto?: { effectId: string; key: string },
+): { project: Project; refs: KeyframeRef[] } {
+  const clip = project.clips.find((c) => c.id === clipId);
+  const refs: KeyframeRef[] = [];
+  if (!clip || (onto && copied.items.length !== 1)) return { project, refs };
+  let p = project;
+  for (const item of copied.items) {
+    const effect = onto
+      ? clip.effects.find((e) => e.id === onto.effectId)
+      : (clip.effects.find((e) => e.id === item.effectId && e.type === item.effectType) ?? clip.effects.find((e) => e.type === item.effectType));
+    const key = onto?.key ?? item.key;
+    const def = effect && effectDefinition(effect.type);
+    const spec = def && paramSpec(def, key);
+    if (!effect || !spec || !isAnimatable(spec)) continue;
+    const pasted: Keyframe[] = [];
+    for (const k of item.keys) {
+      const value = sanitizeValue(spec, k.value);
+      if (value === undefined) continue;
+      const next: Keyframe = { ...k, time: tidy(time + k.time), value };
+      // Spatial handles only mean something on points.
+      if (spec.kind !== "vec2") {
+        delete next.spatialIn;
+        delete next.spatialOut;
+      }
+      pasted.push(next);
+    }
+    if (!pasted.length) continue;
+    p = updateKeys(p, clipId, effect.id, key, (keys) => ({
+      keys: [...keys.filter((k) => !pasted.some((n) => Math.abs(n.time - k.time) < SAME_KEYFRAME)), ...pasted].sort((a, b) => a.time - b.time),
+    }));
+    refs.push(...pasted.map((k) => ({ effectId: effect.id, key, time: k.time })));
+  }
+  return { project: p, refs };
+}
+
+/**
+ * Stretch keyframes in time about source time `pivot` by `factor` (After Effects' ⌥-drag
+ * of the first or last selected keyframe): their spacing scales, their order stays. One
+ * that lands on a keyframe that isn't moving replaces it.
+ */
+export function scaleKeyframes(project: Project, clipId: string, refs: readonly KeyframeRef[], pivot: number, factor: number): Project {
+  if (!(factor > 0) || Math.abs(factor - 1) < 1e-9) return project;
+  let p = project;
+  for (const { effectId, key, times } of byParam(refs).values()) {
+    p = updateKeys(p, clipId, effectId, key, (keys) => {
+      const moving = keys.filter(isAny(times));
+      if (!moving.length) return null;
+      const moved = moving.map((k) => ({ ...k, time: tidy(pivot + (k.time - pivot) * factor) }));
+      // Squeezed onto each other: the first of them stays.
+      const apart = moved.filter((k, i) => !moved.slice(0, i).some((m) => Math.abs(m.time - k.time) < SAME_KEYFRAME));
+      const staying = keys.filter((k) => !moving.includes(k) && !apart.some((m) => Math.abs(m.time - k.time) < SAME_KEYFRAME));
+      return { keys: [...staying, ...apart].sort((a, b) => a.time - b.time) };
+    });
+  }
+  return p;
+}
+
+/**
+ * After Effects' Rove Across Time, done once: of each property's selected keyframes, the
+ * ones between the first and the last are moved in time so the value travels at one even
+ * speed through all of them (by distance: along the motion path for a point), and passed
+ * straight through (linear). Needs three or more selected keyframes of a number or point.
+ */
+export function roveKeyframes(project: Project, clipId: string, refs: readonly KeyframeRef[]): Project {
+  let p = project;
+  for (const { effectId, key, times } of byParam(refs).values()) {
+    p = updateKeys(p, clipId, effectId, key, (keys) => {
+      const chosen = keys.filter(isAny(times));
+      if (chosen.length < 3) return null;
+      const [first, last] = [keys.indexOf(chosen[0]), keys.indexOf(chosen.at(-1)!)];
+      // Every keyframe between the two ends roves, selected or not (they're on the way).
+      const span = keys.slice(first, last + 1);
+      const lengths = span.slice(1).map((k, i) => keyframeDistance(span[i], k));
+      const total = lengths.reduce((a, b) => a + b, 0);
+      if (!(total > 0)) return null;
+      let travelled = 0;
+      const roved = span.map((k, i) => {
+        if (i === 0 || i === span.length - 1) return k;
+        travelled += lengths[i - 1];
+        const time = tidy(span[0].time + ((span.at(-1)!.time - span[0].time) * travelled) / total);
+        const { handleIn: _i, handleOut: _o, influence: _f, ...rest } = k;
+        return { ...rest, time, easing: "linear" as const };
+      });
+      if (roved.every((k, i) => k.time === span[i].time && k.easing === span[i].easing && !span[i].handleIn && !span[i].handleOut)) return null;
+      return { keys: [...keys.slice(0, first), ...roved, ...keys.slice(last + 1)].sort((a, b) => a.time - b.time) };
+    });
+  }
+  return p;
 }

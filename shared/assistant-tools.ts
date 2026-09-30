@@ -163,14 +163,16 @@ export const VIDEO_TOOLS = [
     title: "Browse the catalogue",
     kind: "look",
     description:
-      "What exists to use: `video_effects` (type, tags, parameters), `transitions` (type, tags, parameters), " +
+      "What exists to use: `video_effects` (type, tags, parameters), `masks_and_shapes` (masks for any clip, and " +
+      "what goes on a shape layer: shapes and their operators), `text_animators` (per-character/word/line text " +
+      "animation and its presets), `expressions` (what set_expression scripts can use), `transitions` (type, tags, parameters), " +
       "`presets` (ready-made After Effects-style transitions and moves/looks built from effects and keyframes), " +
       "`clip_properties` (the built-in effects every clip has: motion, opacity, volume, text, appearance, solid), " +
       "`caption_styles` (presets, lengths, animations), or installed `fonts`. Parameters list key, kind, " +
       "default and range: values are in these units (e.g. scale 1 = 100%, position in canvas fractions).",
     inputSchema: obj(
       {
-        kind: oneOf(["video_effects", "presets", "transitions", "clip_properties", "caption_styles", "fonts"], "What to list."),
+        kind: oneOf(["video_effects", "masks_and_shapes", "text_animators", "expressions", "presets", "transitions", "clip_properties", "caption_styles", "fonts"], "What to list."),
         query: str("Filter by name or tag."),
       },
       ["kind"],
@@ -266,7 +268,7 @@ export const VIDEO_TOOLS = [
     title: "Add a layer",
     kind: "edit",
     description:
-      "Add an adjustment layer or a solid (After Effects' layers). An adjustment layer draws nothing itself: its " +
+      "Add an adjustment layer, a solid or a shape layer (After Effects' layers). An adjustment layer draws nothing itself: its " +
       "video effects, Motion (scale, position, rotation: zooms or shakes everything below) and Opacity (how much " +
       "of the effect shows, and its blendMode) apply to every track below it while it lasts, so it's how you grade, " +
       "stylise or zoom/shake several clips at once, or put an effect across a cut (a transition built from effects). " +
@@ -278,17 +280,21 @@ export const VIDEO_TOOLS = [
       "`camera` sets its Camera values (angleOfView, pointOfInterest, interestZ, distance, orbitX, orbitY, roll, " +
       "depthOfField, focusDistance, aperture), which set_keyframes can animate (effect \"camera\") for camera moves. " +
       "A null object draws nothing either: it's a Motion for other clips to follow (set_parent), to move, scale or " +
-      "spin several clips together, or to animate a group from one place.",
+      "spin several clips together, or to animate a group from one place. A shape layer draws vector shapes (boxes " +
+      "behind text, circles, lines, badges, animated strokes): `shape` sets its first shape (kind rectangle | ellipse | " +
+      "polygon | star | path, position, size in px at 1080p, fillColor, strokeWidth...: see get_catalog " +
+      "\"masks_and_shapes\"); `effects` can add more shapes (type vector-shape) and operators (trim-paths, repeater...).",
     inputSchema: obj(
       {
-        kind: oneOf(["adjustment", "solid", "camera", "null"], "What to add."),
+        kind: oneOf(["adjustment", "solid", "shape", "camera", "null"], "What to add."),
         start: time("Where it starts."),
         duration: num("Seconds (default 5).", { minimum: 0.1 }),
         trackId: str("Put it on this video track."),
         color: str('A solid\'s colour, like "#000000".'),
         camera: params("A camera's Camera values."),
+        shape: params("A shape layer's first shape (vector-shape values)."),
         effects: arr(
-          obj({ type: str("Video effect type."), params: params("Parameter values by key.") }, ["type"]),
+          obj({ type: str("Video effect type (or mask; on a shape layer also vector-shape and the operators)."), params: params("Parameter values by key.") }, ["type"]),
           "Video effects to put on it, drawn in this order.",
         ),
       },
@@ -465,6 +471,45 @@ export const VIDEO_TOOLS = [
     ),
   }),
   tool({
+    name: "set_markers",
+    title: "Set markers",
+    kind: "edit",
+    description:
+      "Add, change or remove markers (Premiere's): named points in time that clips, keyframes and the playhead " +
+      "snap to, shown on the ruler. Use them for beats (analyze_music), cues and notes for the user. Without " +
+      "`clipId` a marker is on the timeline at a timeline time; with `clipId` it's on that clip and stays on its " +
+      "frame when the clip moves or is trimmed. `add` makes them, `update` changes ones by id (get_timeline lists " +
+      "them), `remove` deletes by id, `clear` removes every timeline marker first (e.g. before re-marking beats).",
+    inputSchema: obj({
+      add: arr(
+        obj(
+          {
+            time: time("Where."),
+            label: str("Its name."),
+            color: oneOf(["green", "red", "orange", "yellow", "blue", "purple", "white"], "Its colour (default green)."),
+            clipId: str("Put it on this clip instead of the timeline (the time must be inside the clip)."),
+          },
+          ["time"],
+        ),
+        "Markers to add.",
+      ),
+      update: arr(
+        obj(
+          {
+            id: str("Marker id."),
+            time: time("Move it here."),
+            label: str('Its name ("" removes it).'),
+            color: oneOf(["green", "red", "orange", "yellow", "blue", "purple", "white"], "Its colour."),
+          },
+          ["id"],
+        ),
+        "Markers to change.",
+      ),
+      remove: arr(str("Marker id"), "Markers to delete."),
+      clear: bool("Remove every timeline marker first (clip markers stay)."),
+    }),
+  }),
+  tool({
     name: "set_parent",
     title: "Parent clips",
     kind: "edit",
@@ -529,7 +574,8 @@ export const VIDEO_TOOLS = [
       "difference, color-dodge, stencil-alpha... see get_catalog; trackMatte: alpha, alpha-inverted, luma, " +
       "luma-inverted to show the clip only through the clip on the video track right above it, which then isn't " +
       "drawn itself: text reveals, video inside text), volume (level), solid (color, fill), camera (a camera " +
-      "clip's lens and orbit), text (text, font, size...), appearance (fill, stroke, shadow...) or a video effect's id " +
+      "clip's lens and orbit), text (text, font, size...), appearance (fill, stroke, shadow...) or the id of something " +
+      "added to the clip: a video effect, a mask, a shape layer's shape or operator, a text animator " +
       "(see get_timeline). A parameter that's animated gets a keyframe at `at` (timeline seconds) instead; " +
       "without `at` animated parameters are skipped.",
     inputSchema: obj(
@@ -547,8 +593,8 @@ export const VIDEO_TOOLS = [
     title: "Animate a property",
     kind: "edit",
     description:
-      "Animate one number or point parameter (e.g. motion scale for a zoom, motion position for a pan, opacity " +
-      "for a fade, volume level, any video effect's amount) with keyframes at timeline times, replacing its " +
+      "Animate one number, point or path parameter (e.g. motion scale for a zoom, motion position for a pan, opacity " +
+      "for a fade, volume level, any video effect's amount, a mask's path, which morphs) with keyframes at timeline times, replacing its " +
       "animation. An empty list stops animating it (it keeps `value`, or the value it had at the first " +
       "keyframe). Easing: linear, ease-in, ease-out, ease, hold. `influence` (0.01..1, default 0.33) is how far " +
       "an eased keyframe's handle reaches, like After Effects' keyframe velocity: 0.75-0.9 on both ends of a move " +
@@ -556,7 +602,11 @@ export const VIDEO_TOOLS = [
       "editor), `handleOut`/`handleIn` are Bézier handles [x, y] in the unit square of the segment leaving/arriving " +
       "at the keyframe: x = fraction of the time to the neighbouring keyframe, y = fraction of the change in value " +
       "(y beyond 0..1 overshoots, e.g. handleOut [0.2, 0.9] shoots off fast; handleIn [0.6, 1.3] overshoots then " +
-      "settles). A handle overrides easing on its side. Turn on motion blur (set_properties motion motionBlur) for fast moves.",
+      "settles). A handle overrides easing on its side. Turn on motion blur (set_properties motion motionBlur) for fast moves. " +
+      "A point's keyframes (motion position) can also bend the path it travels (After Effects' motion path): " +
+      "`spatialOut`/`spatialIn` are tangent handles [dx, dy] relative to the keyframe's value, in its units " +
+      "(canvas fractions), leaving towards the next keyframe / arriving from the previous one, e.g. an arc instead " +
+      "of a straight slide. The value keeps an even pace along the curve, shaped in time by the easing.",
     inputSchema: obj(
       {
         clipId: str("Clip id."),
@@ -566,11 +616,13 @@ export const VIDEO_TOOLS = [
           obj(
             {
               time: time("When."),
-              value: { description: "Number, or [x, y] for points." },
+              value: { description: "Number, [x, y] for points, or a path (SVG path data in fractions of the clip's frame, or [[x, y], ...])." },
               easing: oneOf(["linear", "ease-in", "ease-out", "ease", "hold"], "How it's passed (default linear)."),
               influence: num("How far its ease reaches, 0.01..1 (default 0.33).", { minimum: 0.01, maximum: 1 }),
               handleIn: arr(num("x, then y."), "Bézier handle arriving at it: [x 0..0.99, y] in the previous segment's unit square."),
               handleOut: arr(num("x, then y."), "Bézier handle leaving it: [x 0.01..1, y] in the next segment's unit square."),
+              spatialIn: arr(num("dx, then dy."), "A point's path arriving at it: a tangent handle relative to its value."),
+              spatialOut: arr(num("dx, then dy."), "A point's path leaving it: a tangent handle relative to its value."),
             },
             ["time", "value"],
           ),
@@ -582,14 +634,54 @@ export const VIDEO_TOOLS = [
     ),
   }),
   tool({
+    name: "set_expression",
+    title: "Set an expression",
+    kind: "edit",
+    description:
+      "Put an expression on a number or point parameter (After Effects' expressions): a short script run at every " +
+      "frame whose result is the parameter's value then, for motion that would take many keyframes. `value` is " +
+      "what the parameter would be without it (its static value, or its keyframes at that moment), `time` the " +
+      "clip's source time in seconds (the clock its keyframes are in; for text, shapes and solids: seconds since " +
+      "the clip started). E.g. `wiggle(2, 0.02)` on motion position shakes it (2 times a second, by up to 2% of " +
+      "the canvas: values are in the parameter's own units, see get_catalog), `wiggle(3, 5)` on rotation, " +
+      '`loopOut("cycle")` or `loopOut("pingpong")` repeats the keyframes for the rest of the clip, ' +
+      "`value + time * 90` spins 90° a second, `value + [0, Math.sin(time * 4) * 0.01]` bobs up and down, " +
+      '`prop("motion.rotation") / 360` reads another parameter of the same clip ("effectId.paramKey"). The last ' +
+      'statement is the result; variables (`a = 2; a * value`), `if`/`else`, `?:` and Math are there; see get_catalog ' +
+      "\"expressions\" for every function. Not on volume. `expression: null` removes it. It fails with what's wrong if it can't run.",
+    inputSchema: obj(
+      {
+        clipIds: clipIds(),
+        effect: str("Effect id (motion, opacity, a video effect, a mask, a shape, an animator...)."),
+        param: str("Parameter key (a number or a point), e.g. position, rotation, scale, opacity."),
+        expression: { type: ["string", "null"], description: "The expression, or null to remove it." },
+      },
+      ["clipIds", "effect", "param", "expression"],
+    ),
+  }),
+  tool({
     name: "add_effect",
     title: "Add an effect",
     kind: "edit",
     description:
       'Add a video effect (see get_catalog "video_effects") to clips on video tracks, drawn over their other ' +
-      "effects, optionally with parameter values. Returns each clip's new effect id (the type, or type_2...).",
+      "effects, optionally with parameter values. Returns each clip's new effect id (the type, or type_2...). " +
+      'Also adds a mask (type "mask": the clip only shows inside `path`, given as SVG path data or [[x, y], ...] ' +
+      "points in fractions of the clip's frame, e.g. [[0,0],[0.5,0],[0.5,1],[0,1]] keeps its left half; mode add | " +
+      "subtract | intersect, inverted, feather and expansion in px; keyframe `path` with set_keyframes to animate " +
+      'a reveal), and to a shape layer more shapes (type "vector-shape") and shape operators (trim-paths, repeater, ' +
+      'offset-paths, round-corners, wiggle-paths, zig-zag, merge-paths): see get_catalog "masks_and_shapes". ' +
+      'And to a text clip a text animator (type "text-animator"): a range over its characters, words or lines ' +
+      "(start, end, offset: fractions of the text) and what the letters inside it get (position in px, scale, " +
+      "rotation, opacity, blur, tracking, fill); keyframe the range with set_keyframes to sweep it across the text, " +
+      'or pass `preset` for a ready-made one (fade-characters, typewriter, pop-words...): see get_catalog "text_animators".',
     inputSchema: obj(
-      { clipIds: clipIds(), type: str("Video effect type."), params: params("Parameter values by key.") },
+      {
+        clipIds: clipIds(),
+        type: str('Video effect type, "mask", "text-animator" (text clips), or on a shape layer "vector-shape" or an operator.'),
+        params: params("Parameter values by key."),
+        preset: str('For "text-animator": a ready-made animator (get_catalog "text_animators"), animated from each clip\'s start.'),
+      },
       ["clipIds", "type"],
     ),
   }),
@@ -598,8 +690,9 @@ export const VIDEO_TOOLS = [
     title: "Change an effect",
     kind: "edit",
     description:
-      "Turn one of clips' effects on or off, reset its parameters to their defaults, move a video effect " +
-      "earlier/later in the drawing order, or remove it (video effects only).",
+      "Turn one of clips' effects on or off, reset its parameters to their defaults, move a video effect, a mask " +
+      "or a shape layer's shape or operator earlier/later among the others of its kind, or remove it (not the " +
+      "built-in effects).",
     inputSchema: obj(
       {
         clipIds: clipIds(),
@@ -679,14 +772,15 @@ export const VIDEO_TOOLS = [
     kind: "edit",
     description:
       'Change the look of every caption at once (get_catalog "caption_styles"): a `preset`, Text/Appearance ' +
-      "parameter values, their `position` (canvas fractions), and their `animation` (a transition type, or " +
-      '"none"). Their words and timing stay.',
+      "parameter values, their `position` (canvas fractions), and their `animation`: spoken-words (each word " +
+      "appears as it's said), spoken-highlight (the word being said is coloured) or spoken-bounce (it grows), " +
+      'which follow the speech; or a transition type each caption appears with; or "none". Their words and timing stay.',
     inputSchema: obj({
       preset: str("Caption style preset id."),
       text: params("Text parameters (font, fontStyle, size, textCase...)."),
       appearance: params("Appearance parameters (fill, strokeWidth, shadow...)."),
       position: arr(num("Fraction"), "[x, y] canvas fractions.", { minItems: 2, maxItems: 2 }),
-      animation: str('Transition type each caption appears with, or "none".'),
+      animation: str('spoken-words, spoken-highlight, spoken-bounce, a transition type, or "none".'),
     }),
   }),
   tool({
@@ -783,12 +877,13 @@ export const VIDEO_TOOLS = [
       "Transcribe speech and add captions (text clips flagged as captions, on a Captions track), replacing " +
       "captions already over those clips. Default: every clip that's heard, the last options the user chose. " +
       'Options: preset (see get_catalog "caption_styles"), length (word | short | line | lines), animation ' +
-      '(transition type or "none"), punctuation, language, engine.',
+      '(spoken-words, spoken-highlight or spoken-bounce to follow the speech word by word; or a transition type; or "none"), ' +
+      "punctuation, language, engine.",
     inputSchema: obj({
       clipIds: arr(str("Clip id"), "Only these clips."),
       preset: str("Style preset id."),
       length: oneOf(["word", "short", "line", "lines"], "How much each caption shows."),
-      animation: str('Transition type, or "none".'),
+      animation: str('spoken-words, spoken-highlight, spoken-bounce, a transition type, or "none".'),
       punctuation: bool("Keep punctuation."),
       language: str('"auto" or an ISO 639-1 code.'),
       engine: oneOf(["local", "openai", "groq"], "Transcription engine."),

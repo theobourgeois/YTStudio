@@ -378,4 +378,127 @@ describe("what the assistant reads", () => {
     ]);
     expect(describeMusic("x", { ...music, bpm: null, beats: [], downbeats: [] }, 0, { start: 0, end: 30 }, false)).toContain("No steady beat");
   });
+
+  it("masks clips, morphs a mask, and builds shape layers", () => {
+    const p = withTwoClips();
+    const [a] = main(p).map((c) => c.id);
+    // A mask from a list of points (the left half), then a second one as SVG path data.
+    const masked = EDITS.add_effect(p, { clipIds: [a], type: "mask", params: { path: [[0, 0], [0.5, 0], [0.5, 1], [0, 1]], feather: 20 } }, env);
+    expect(masked.text).toMatch(new RegExp(`Added Mask \\(effect ids: ${a}: mask\\)`));
+    const two = run(masked.project, ["add_effect", { clipIds: [a], type: "mask", params: { path: "M0.2 0.2 L0.8 0.2 C0.8 0.6 0.6 0.8 0.2 0.8 Z", mode: "subtract" } }]);
+    const masks = getClip(two, a)!.effects.filter((e) => e.type === "mask");
+    expect(masks.map((m) => [m.id, (m.params.path as { vertices: unknown[]; closed: boolean }).vertices.length, m.params.mode])).toEqual([["mask", 4, "add"], ["mask_2", 3, "subtract"]]);
+    expect(() => EDITS.add_effect(p, { clipIds: [a], type: "mask", params: { path: "nonsense" } }, env)).toThrow(/"path" must be a path in fractions/);
+    // The model reads paths back the way it writes them.
+    expect(describeTimeline(two, assets, { playhead: 0, selectedClipIds: [] })).toContain('mask (path "M0 0 L0.5 0 L0.5 1 L0 1 Z", feather 20)');
+    expect(JSON.parse(describeClips(two, assets, [a]))[0].effects.find((e: { id: string }) => e.id === "mask_2").params.path).toBe("M0.2 0.2 L0.8 0.2 C0.8 0.6 0.6 0.8 0.2 0.8 Z");
+
+    // A wipe: the mask's path keyframed from nothing to the whole frame.
+    const wipe = run(masked.project, [
+      "set_keyframes",
+      { clipId: a, effect: "mask", param: "path", keyframes: [{ time: 0, value: [[0, 0], [0.01, 0], [0.01, 1], [0, 1]] }, { time: 2, value: "M0 0 L1 0 L1 1 L0 1 Z", easing: "ease" }] },
+    ]);
+    const keys = getClip(wipe, a)!.effects.find((e) => e.id === "mask")!.keyframes!.path;
+    expect(keys.map((k) => [k.time, (k.value as { vertices: { point: number[] }[] }).vertices[1].point[0]])).toEqual([[0, 0.01], [2, 1]]);
+    // Masks can be removed; the built-in effects can't.
+    expect(getClip(run(two, ["edit_effect", { clipIds: [a], effect: "mask", remove: true }]), a)!.effects.map((e) => e.id)).toContain("mask_2");
+    expect(() => EDITS.edit_effect(two, { clipIds: [a], effect: "motion", remove: true }, env)).toThrow(/built in/);
+
+    // A shape layer: a first shape, then more contents in order.
+    const made = EDITS.add_layer(
+      p,
+      { kind: "shape", start: 1, duration: 3, shape: { kind: "ellipse", size: [300, 300], fillColor: "#ff0000" }, effects: [{ type: "vector-shape", params: { kind: "star", points: 6 } }, { type: "trim-paths", params: { end: 0.5 } }] },
+      env,
+    );
+    expect(made.text).toMatch(/Added shape layer .* with vector-shape, vector-shape_2, trim-paths\. Add more shapes/);
+    const layer = made.project.clips.find((c) => clipKind(c) === "shape")!;
+    expect(layer.effects.filter((e) => e.type === "vector-shape").map((e) => [e.params.kind, e.params.fillColor])).toEqual([["ellipse", "#ff0000"], ["star", "#ffffff"]]);
+    expect(describeTimeline(made.project, assets, { playhead: 0, selectedClipIds: [] })).toContain("shape layer");
+    // Shape contents only go on shape layers; a shape layer keeps a shape.
+    expect(() => EDITS.add_effect(p, { clipIds: [a], type: "repeater" }, env)).toThrow(/only goes on shape layers/);
+    expect(() => EDITS.add_layer(p, { kind: "solid", start: 0, shape: {} }, env)).toThrow(/only for shape layers/);
+    const lone = EDITS.add_layer(p, { kind: "shape", start: 1 }, env).project;
+    const loneId = lone.clips.find((c) => clipKind(c) === "shape")!.id;
+    expect(() => EDITS.edit_effect(lone, { clipIds: [loneId], effect: "vector-shape", remove: true }, env)).toThrow(/keeps at least one shape/);
+    expect(describeCatalog("masks_and_shapes")).toMatch(/mask {2}"Mask"[\s\S]*vector-shape {2}"Shape"[\s\S]*trim-paths[\s\S]*merge-paths/);
+    expect(describeCatalog("masks_and_shapes", "repeat")).toMatch(/repeater/);
+  });
+
+  it("bends a position's path with spatial handles", () => {
+    const p = withTwoClips();
+    const [a] = main(p).map((c) => c.id);
+    const out = run(p, [
+      "set_keyframes",
+      { clipId: a, effect: "motion", param: "position", keyframes: [{ time: 0, value: [0.2, 0.5], spatialOut: [0, -0.3] }, { time: 2, value: [0.8, 0.5], spatialIn: [0, -0.3] }] },
+    ]);
+    const keys = findEffect(getClip(out, a)!, "motion")!.keyframes!.position;
+    expect(keys.map((k) => [k.spatialIn, k.spatialOut])).toEqual([[undefined, [0, -0.3]], [[0, -0.3], undefined]]);
+    expect(JSON.parse(describeClips(out, assets, [a]))[0].effects[0].keyframes.position[0].spatialOut).toEqual([0, -0.3]);
+    expect(() =>
+      EDITS.set_keyframes(p, { clipId: a, effect: "motion", param: "scale", keyframes: [{ time: 0, value: 1, spatialOut: [0, 1] }] }, env),
+    ).toThrow(/isn't a point/);
+  });
+
+  it("sets markers on the timeline and on clips", () => {
+    const p = withTwoClips();
+    const [a] = main(p).map((c) => c.id);
+    const made = EDITS.set_markers(p, { add: [{ time: 4, label: "Drop", color: "red" }, { time: 1 }, { time: 2.5, clipId: a, label: "hit" }] }, env);
+    expect(made.text).toMatch(/^Markers: added marker_\w+ at 4, marker_\w+ at 1, marker_\w+ on clip_\w+ at 2\.5\.$/);
+    expect(made.project.markers!.map((m) => [m.time, m.label, m.color])).toEqual([[1, undefined, undefined], [4, "Drop", "red"]]);
+    const onClip = getClip(made.project, a)!.markers![0];
+    expect([onClip.time, onClip.label]).toEqual([2.5, "hit"]);
+    const text = describeTimeline(made.project, assets, { playhead: 0, selectedClipIds: [] });
+    expect(text).toMatch(/Markers \(set_markers\): 1 \(marker_\w+\), 4 "Drop" \(marker_\w+\)/);
+    expect(text).toMatch(/markers: 2\.5 "hit" \(marker_\w+\)/);
+    // Change by id (wherever it is), remove, and clear.
+    const drop = made.project.markers![1].id;
+    const edited = run(made.project, ["set_markers", { update: [{ id: drop, time: 5, label: "" }, { id: onClip.id, color: "blue" }], remove: [made.project.markers![0].id] }]);
+    expect(edited.markers).toEqual([{ id: drop, time: 5, color: "red" }]);
+    expect(getClip(edited, a)!.markers![0].color).toBe("blue");
+    const cleared = run(edited, ["set_markers", { clear: true, add: [{ time: 2 }] }]);
+    expect(cleared.markers!.map((m) => m.time)).toEqual([2]);
+    expect(getClip(cleared, a)!.markers).toHaveLength(1);
+    expect(() => EDITS.set_markers(p, { add: [{ time: 50, clipId: a }] }, env)).toThrow(/is outside/);
+    expect(() => EDITS.set_markers(p, { remove: ["marker_x"] }, env)).toThrow(/no marker "marker_x".*get_timeline/);
+    expect(() => EDITS.set_markers(p, {}, env)).toThrow(/Give `add`/);
+  });
+
+  it("animates text letter by letter, and captions with the speech", () => {
+    const p = run(createDefaultProject(), ["add_text", { text: "Hello world", start: 0, duration: 3 }]);
+    const id = p.clips[0].id;
+    const preset = EDITS.add_effect(p, { clipIds: [id], type: "text-animator", preset: "pop-words", params: { scale: 0.5 } }, env);
+    expect(preset.text).toMatch(/Added the Pop in by word animator \(effect ids: clip_\w+: text-animator\)/);
+    const animator = getClip(preset.project, id)!.effects.at(-1)!;
+    expect(animator.params).toMatchObject({ basedOn: "words", scale: 0.5, opacity: 0 });
+    expect(animator.keyframes!.start).toHaveLength(2);
+    // A blank one, then its range keyframed by hand.
+    const own = run(p, ["add_effect", { clipIds: [id], type: "text-animator", params: { opacity: 0 } }], ["set_keyframes", { clipId: id, effect: "text-animator", param: "start", keyframes: [{ time: 0, value: 0 }, { time: 1, value: 1 }] }]);
+    expect(getClip(own, id)!.effects.at(-1)!.keyframes!.start.map((k) => k.value)).toEqual([0, 1]);
+    expect(() => EDITS.add_effect(p, { clipIds: [id], type: "text-animator", preset: "nope" }, env)).toThrow(/no animator preset "nope".*fade-characters/);
+    expect(() => EDITS.add_effect(p, { clipIds: [id], type: "gaussian-blur", preset: "typewriter" }, env)).toThrow(/only for type "text-animator"/);
+    const video = withTwoClips();
+    expect(() => EDITS.add_effect(video, { clipIds: [main(video)[0].id], type: "text-animator" }, env)).toThrow(/only goes on text clips/);
+    expect(describeCatalog("text_animators")).toMatch(/text-animator {2}"Animator"[\s\S]*basedOn: characters \| words \| lines[\s\S]*typewriter {2}"Typewriter"/);
+    expect(describeCatalog("caption_styles")).toMatch(/spoken-highlight \(Highlight/);
+  });
+
+  it("puts expressions on properties, and says what they give or what's wrong", () => {
+    const p = withTwoClips();
+    const [a] = main(p).map((c) => c.id);
+    const spun = EDITS.set_expression(p, { clipIds: [a], effect: "motion", param: "rotation", expression: "value + time * 90" }, env);
+    expect(spun.text).toBe(`rotation (motion) now follows the expression. It gives ${a}: 0 at its start, 90 1s in.`);
+    expect(findEffect(getClip(spun.project, a)!, "motion")!.expressions).toEqual({ rotation: "value + time * 90" });
+    expect(describeTimeline(spun.project, assets, { playhead: 0, selectedClipIds: [] })).toContain('rotation = expression "value + time * 90"');
+    expect(JSON.parse(describeClips(spun.project, assets, [a]))[0].effects[0].expressions).toEqual({ rotation: "value + time * 90" });
+    // Removed with null.
+    const removed = EDITS.set_expression(spun.project, { clipIds: [a], effect: "motion", param: "rotation", expression: null }, env);
+    expect(findEffect(getClip(removed.project, a)!, "motion")).not.toHaveProperty("expressions");
+    expect(EDITS.set_expression(p, { clipIds: [a], effect: "motion", param: "rotation", expression: null }, env).text).toMatch(/had no expression/);
+    // What's wrong comes back to the model, and nothing is written.
+    expect(() => EDITS.set_expression(p, { clipIds: [a], effect: "motion", param: "rotation", expression: "wigle(2, 5)" }, env)).toThrow(/doesn't run: .*wigle.*get_catalog "expressions"/);
+    expect(() => EDITS.set_expression(p, { clipIds: [a], effect: "motion", param: "position", expression: '"left"' }, env)).toThrow(/must be a point/);
+    expect(() => EDITS.set_expression(p, { clipIds: [a], effect: "volume", param: "level", expression: "0.5" }, env)).toThrow(/can't have an expression \(none of its parameters can\)/);
+    expect(() => EDITS.set_expression(p, { clipIds: [a], effect: "motion", param: "fit", expression: "1" }, env)).toThrow(/its numbers and points can: position, scale/);
+    expect(describeCatalog("expressions")).toMatch(/wiggle\(freq, amp[\s\S]*loopOut/);
+  });
 });
