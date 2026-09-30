@@ -250,8 +250,31 @@ function ContextMenuSubContent({
   )
 }
 
+/**
+ * A menu in columns, as FL Studio's channel menu: rows of cells side by side (a vertical line between
+ * them), each row's cells as tall as its tallest, so what's beside each other lines up. Put it in a
+ * `ContextMenuContent className="p-0"`; between rows, `<ContextMenuSeparator className="col-span-full m-0" />`.
+ */
+function ContextMenuColumns({ className, columns = 2, style, ...props }: React.ComponentProps<"div"> & { columns?: number }) {
+  return (
+    <div
+      data-slot="context-menu-columns"
+      className={cn("grid", className)}
+      style={{ gridTemplateColumns: `repeat(${columns}, auto)`, ...style }}
+      {...props}
+    />
+  )
+}
+
+/** A cell of `ContextMenuColumns`: a group of items, with a line on its left unless it's the first of its row. */
+function ContextMenuCell({ className, first, ...props }: React.ComponentProps<"div"> & { first?: boolean }) {
+  return <div data-slot="context-menu-cell" className={cn("flex min-w-44 flex-col p-1", !first && "border-l border-line", className)} {...props} />
+}
+
 export {
   ContextMenu,
+  ContextMenuColumns,
+  ContextMenuCell,
   ContextMenuPortal,
   ContextMenuTrigger,
   ContextMenuContent,

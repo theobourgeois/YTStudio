@@ -28,7 +28,9 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
+  ContextMenuCell,
   ContextMenuCheckboxItem,
+  ContextMenuColumns,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
@@ -461,6 +463,42 @@ function Menus() {
           <ContextMenuItem variant="destructive">
             <PiTrash /> Delete <ContextMenuShortcut>⌫</ContextMenuShortcut>
           </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            data-gallery-target="context-columns"
+            className="flex h-28 w-60 items-center justify-center rounded-md border border-dashed border-line-strong text-xs text-muted-foreground"
+          >
+            Right-click: in columns
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="p-0">
+          <ContextMenuColumns>
+            <ContextMenuCell first>
+              <ContextMenuItem inset>Piano roll</ContextMenuItem>
+              <ContextMenuCheckboxItem checked>Cut itself</ContextMenuCheckboxItem>
+            </ContextMenuCell>
+            <ContextMenuCell>
+              <ContextMenuItem inset>Cut</ContextMenuItem>
+              <ContextMenuItem inset>Copy</ContextMenuItem>
+              <ContextMenuItem inset disabled>
+                Paste
+              </ContextMenuItem>
+            </ContextMenuCell>
+            <ContextMenuSeparator className="col-span-full m-0" />
+            <ContextMenuCell first>
+              <ContextMenuItem inset variant="destructive">
+                Delete
+              </ContextMenuItem>
+            </ContextMenuCell>
+            <ContextMenuCell>
+              <ContextMenuItem inset>
+                Rotate left <ContextMenuShortcut>⇧⌘←</ContextMenuShortcut>
+              </ContextMenuItem>
+            </ContextMenuCell>
+          </ContextMenuColumns>
         </ContextMenuContent>
       </ContextMenu>
     </div>

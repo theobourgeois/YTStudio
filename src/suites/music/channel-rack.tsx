@@ -7,7 +7,9 @@ import { DEFAULT_VELOCITY, DEFAULT_VOLUME, MAX_STEPS, stepsPerBar } from "@share
 import { type Channel, type MusicProject, type Note, PPQ, ROOT_PITCH, STEP_TICKS } from "@shared/music/types";
 import {
   ContextMenu,
+  ContextMenuCell,
   ContextMenuCheckboxItem,
+  ContextMenuColumns,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
@@ -435,55 +437,93 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
             </span>
           </button>
         </ContextMenuTrigger>
-        <ContextMenuContent>
-          {isPlugin ? (
-            <ContextMenuItem disabled={silent || pluginLoading} onSelect={() => useTransport.getState().showPlugin(id, true)}>
-              Open {channel.plugin?.name ?? "the plugin"}…
-            </ContextMenuItem>
-          ) : (
-            <ContextMenuItem onSelect={() => useMusicUi.getState().openChannelWindow(id)}>Channel settings…</ContextMenuItem>
-          )}
-          <ContextMenuItem onSelect={() => openPianoRoll(id)}>Piano roll</ContextMenuItem>
-          <ContextMenuItem disabled={silent} onSelect={() => useTransport.getState().audition(id)}>
-            Hear it <ContextMenuShortcut>⌘click</ContextMenuShortcut>
-          </ContextMenuItem>
-          {!isPlugin && <ContextMenuItem onSelect={() => file.current?.click()}>Load sample…</ContextMenuItem>}
-          {!isPlugin && (
-            <ContextMenuCheckboxItem checked={channel.cutSelf} onSelect={() => commit((song) => updateChannel(song, id, { cutSelf: !channel.cutSelf }))}>
-              Cut self
-            </ContextMenuCheckboxItem>
-          )}
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => cutSteps(id)}>Cut</ContextMenuItem>
-          <ContextMenuItem onSelect={() => copySteps(id)}>Copy</ContextMenuItem>
-          <ContextMenuItem disabled={!canPaste} onSelect={() => pasteSteps(id)}>
-            Paste
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {[2, 4, 8].map((every) => (
-            <ContextMenuItem key={every} onSelect={() => commit((song) => fillSteps(song, now().patternId, id, every, now().steps))}>
-              Fill each {every} steps
-            </ContextMenuItem>
-          ))}
-          <ContextMenuItem onSelect={() => commit((song) => drawSteps(song, now().patternId, id, "-", MAX_STEPS))}>Clear steps</ContextMenuItem>
-          <ContextMenuItem onSelect={() => rotate(-1, id)}>
-            Rotate left <ContextMenuShortcut>⇧⌘←</ContextMenuShortcut>
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={() => rotate(1, id)}>
-            Rotate right <ContextMenuShortcut>⇧⌘→</ContextMenuShortcut>
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onSelect={() => {
-              useMusicUi.getState().setSelection([id]);
-              cloneSelected();
-            }}
-          >
-            Clone
-          </ContextMenuItem>
-          <ContextMenuItem variant="destructive" onSelect={() => deleteChannels([id])}>
-            Delete
-          </ContextMenuItem>
+        {/* FL Studio's channel menu: the channel on the left, its steps on the right. */}
+        <ContextMenuContent className="p-0" data-testid="channel-menu">
+          <ContextMenuColumns>
+            <ContextMenuCell first>
+              <ContextMenuItem inset onSelect={() => openPianoRoll(id)}>
+                Piano roll
+              </ContextMenuItem>
+              <ContextMenuItem
+                inset
+                onSelect={() => {
+                  useMusicUi.getState().setSelection([id]);
+                  useMusicUi.getState().setGraphOpen(true);
+                }}
+              >
+                Graph editor <ContextMenuShortcut>⌘K</ContextMenuShortcut>
+              </ContextMenuItem>
+              {isPlugin ? (
+                <ContextMenuItem inset disabled={silent || pluginLoading} onSelect={() => useTransport.getState().showPlugin(id, true)}>
+                  Open {channel.plugin?.name ?? "the plugin"}…
+                </ContextMenuItem>
+              ) : (
+                <ContextMenuItem inset onSelect={() => useMusicUi.getState().openChannelWindow(id)}>
+                  Channel settings…
+                </ContextMenuItem>
+              )}
+            </ContextMenuCell>
+            <ContextMenuCell>
+              <ContextMenuItem inset onSelect={() => cutSteps(id)}>
+                Cut
+              </ContextMenuItem>
+              <ContextMenuItem inset onSelect={() => copySteps(id)}>
+                Copy
+              </ContextMenuItem>
+              <ContextMenuItem inset disabled={!canPaste} onSelect={() => pasteSteps(id)}>
+                Paste
+              </ContextMenuItem>
+            </ContextMenuCell>
+            <ContextMenuSeparator className="col-span-full m-0" />
+            <ContextMenuCell first>
+              {!isPlugin && (
+                <ContextMenuItem inset onSelect={() => file.current?.click()}>
+                  Load sample…
+                </ContextMenuItem>
+              )}
+              {!isPlugin && (
+                <ContextMenuCheckboxItem checked={channel.cutSelf} onSelect={() => commit((song) => updateChannel(song, id, { cutSelf: !channel.cutSelf }))}>
+                  Cut itself
+                </ContextMenuCheckboxItem>
+              )}
+              <ContextMenuItem inset disabled={silent} onSelect={() => useTransport.getState().audition(id)}>
+                Hear it <ContextMenuShortcut>⌘click</ContextMenuShortcut>
+              </ContextMenuItem>
+            </ContextMenuCell>
+            <ContextMenuCell>
+              {[2, 4, 8].map((every) => (
+                <ContextMenuItem inset key={every} onSelect={() => commit((song) => fillSteps(song, now().patternId, id, every, now().steps))}>
+                  Fill each {every} steps
+                </ContextMenuItem>
+              ))}
+              <ContextMenuItem inset onSelect={() => commit((song) => drawSteps(song, now().patternId, id, "-", MAX_STEPS))}>
+                Clear steps
+              </ContextMenuItem>
+            </ContextMenuCell>
+            <ContextMenuSeparator className="col-span-full m-0" />
+            <ContextMenuCell first>
+              <ContextMenuItem
+                inset
+                onSelect={() => {
+                  useMusicUi.getState().setSelection([id]);
+                  cloneSelected();
+                }}
+              >
+                Clone
+              </ContextMenuItem>
+              <ContextMenuItem inset variant="destructive" onSelect={() => deleteChannels([id])}>
+                Delete
+              </ContextMenuItem>
+            </ContextMenuCell>
+            <ContextMenuCell>
+              <ContextMenuItem inset onSelect={() => rotate(-1, id)}>
+                Rotate left <ContextMenuShortcut>⇧⌘←</ContextMenuShortcut>
+              </ContextMenuItem>
+              <ContextMenuItem inset onSelect={() => rotate(1, id)}>
+                Rotate right <ContextMenuShortcut>⇧⌘→</ContextMenuShortcut>
+              </ContextMenuItem>
+            </ContextMenuCell>
+          </ContextMenuColumns>
         </ContextMenuContent>
       </ContextMenu>
       <input
