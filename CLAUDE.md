@@ -40,7 +40,11 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
   params.ts          ParamSpec types (number, vec2, boolean, choice, text, color, font…) + sanitize/defaults.
   keyframes.ts       Keyframe validation, interpolation (easedProgress), setKeyframe.
-  animation.ts       Keyframe edits (stopwatch, navigator, move/delete/easing) and timeline<->keyframe time helpers.
+  animation.ts       Keyframe edits (stopwatch, navigator, move/delete/easing/Bézier handles) and timeline<->keyframe time helpers.
+  sequences.ts       Nested sequences: `sequenceView`/`writeSequence` (a sequence edited as a project), `sequenceAsset`
+                     (a sequence as media, so nested clips trim/retime like videos), nest/break apart, preview slots.
+  time-remap.ts      Time remapping (the Time Remapping effect's keyframes map a clip's clock to source time):
+                     `mediaTime`, `remapSpeed`, freeze/reverse/velocity edits, `remapFromSpeeds`.
   effects.ts         Effect definitions (Motion, Opacity, Volume, Text, Appearance, then the video effects),
                      evaluation (motionAt, opacityAt, volumeAt, textStyleAt), edits (setParams, resetParams,
                      setEffectEnabled, addEffect/removeEffect/moveEffect for video effects).
@@ -115,7 +119,9 @@ src/
   lib/api.ts         Typed client for every endpoint. lib/edit-gesture.ts, lib/pointer-drag.ts (see below).
   lib/text-render.ts Text layout + drawing (browser text engine); used by preview, export and canvas editor.
   components/preview/engine.ts   Imperative preview: drives hidden <video>/<img> and draws with the compositor.
-  components/preview/sync.ts, placement.ts   Its pure planners (tested).
+  components/preview/sync.ts, placement.ts   Its pure planners (tested). The engine plans each sequence as a `Level`
+                     (a nested one draws into a compositor group), with media elements per `previewSlots` id.
+  components/properties/graph-editor.tsx   The graph editor (value/speed graphs, Bézier handles; maths in graph-geometry.ts).
   components/timeline/  Timeline UI; geometry.ts is its pure maths, view-store.ts its interaction-speed state.
   components/properties/  Spec-driven properties panel (param-rows.tsx renders any ParamSpec), the stopwatch and
                      navigator (animation-controls.tsx) and the keyframe lanes (keyframe-lanes.tsx, pure maths in
@@ -191,6 +197,21 @@ extension** (Node ESM through tsx).
   says how it's passed through (Premiere's Ease In/Out, Hold); `easedProgress` is the curve.
 - Transitions are stored on clip edges. At a cut, the outgoing clip's `transitionOut` wins. See
   `transition-windows.ts` for the rules, and use `storedTransition`/`findWindow`/`refKey` rather than reading fields.
+- Nested sequences (`Project.sequences`, `shared/sequences.ts`): a clip plays one when its `assetId` is the sequence's
+  id (`seq_…`); `sequenceAsset` describes it as a video (in the editor's `assets`, never sent to the server), so
+  nested clips trim, retime and place like media. The editor store holds the whole video in `document` and the open
+  sequence's view in `project` (identical on the main sequence); every edit is a `(Project) => Project` on the view,
+  written back with `writeSequence`; undo history and autosave are documents. Anything that must see every clip
+  (export texts, reversed copies, deleting media) walks `allClips`/`everySequence`. The preview plans nests as levels
+  drawn into compositor groups (`beginGroup`/`endGroup`) and keeps settled nest frames; the export emits `group`
+  frame layers and decodes nested clips natively (`planRender`).
+- Time remapping: a clip with Time Remapping keyframes (`isRemapped`) runs its own clock at 1× (its `in`/`out` and all
+  its keyframes are in it) and shows `mediaTime(clip, s)`. Anything that picks a media frame or sound must go through
+  `mediaTime`/`remapSpeed` (preview `mediaOf`, export native runs and `soundPieces`), never `sourceTime` alone.
+- Parenting (`Clip.parent`, `shared/parenting.ts`) and null objects (`nullObject`): `placer` takes a `parent` delta
+  from `parentAt`; code that places clips must pass it (preview, export, canvas overlay).
+- Keyframe Bézier handles (`handleIn`/`handleOut`, the graph editor) override easing on their side; `segmentHandles`
+  is the curve's control points and `bezierProgress` evaluates it.
 - Captions are text clips with `caption: true` (only valid on text clips; see `shared/captions.ts`). The Captions tab
   edits style for all of them (never their text or timing); Properties edits one. A caption's animation is its
   `transitionIn`; animated captions end one frame before the next so each animates in from nothing.

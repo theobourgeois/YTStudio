@@ -47,6 +47,9 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Trim | Drag a clip's left/right edge |
 | Auto ripple | The chain button under the timeline (off by default). While it's on, deleting a clip closes its gap, trimming or stretching a clip moves the clips after it on its track to keep them joined (the clip keeps its start), and media dropped onto a track pushes the clips after it along instead of looking for a free spot. Moving clips stays free |
 | Speed / reverse | Select clips → the gauge button under the timeline (or `⌘R`, or right-click → **Speed** / **Reverse**). `⌥`-drag a clip's edge to stretch its speed to fit. See [Speed and reverse](#speed-and-reverse) |
+| Nest | Select clips → `⌥G` (or right-click → **Nest**); double-click the nested clip to edit inside it. See [Nested sequences](#nested-sequences) |
+| Parent | **Parent** in a clip's Properties, or drag its pick-whip onto another clip. See [Parenting and null objects](#parenting-and-null-objects) |
+| Preview resolution | **Full**, **1/2** or **1/4** next to the canvas tools: fewer pixels keep a heavy edit playing smoothly (exports are always full) |
 | Split | `S` (or ⌘B) at the playhead |
 | Delete | `⌫` / `Delete` leaves a gap; `⇧⌫` ripple-deletes (closes it). Click an empty stretch of a track and `⌫` to close that gap |
 | Play / pause | `Space` |
@@ -130,6 +133,31 @@ Both go on a track above what they should affect. Clicks on the canvas go throug
 - **Track mattes:** a clip's Opacity **Track Matte** (Alpha, Alpha Inverted, Luma, Luma Inverted) shows it only through
   the clip on the video track right above it, which then isn't drawn itself: video inside text, text reveals, wipes
   with a moving shape.
+
+### Nested sequences
+
+Like Premiere's nests and After Effects' precomps, clips can become a sequence of their own, played by one clip:
+
+- Select clips and press `⌥G` (or right-click → **Nest**). They move into a new sequence (on copies of their tracks)
+  and one clip plays it in their place. Trim it, move it, give it Motion, effects, transitions, a speed or time
+  remapping, and it acts on everything inside at once: one zoom over a whole section, a speed ramp over an edited
+  montage.
+- **Double-click** a nested clip (or its card in the Media tab) to open it in a **tab** above the timeline and edit
+  what's inside; changes show wherever it's used. **Main** goes back. Double-click a tab to rename the sequence.
+- With a nested sequence open, the **video settings** (the button next to the video's name) are that sequence's own:
+  its frame, frame rate and **Length** (as long as its clips, or a set length).
+- Nested sequences are listed in the Media tab: drag one onto the timeline to use it again (a sequence can't go
+  inside itself). Deleting one there deletes the clips that play it.
+- Right-click a nested clip → **Break apart** puts its clips back in its place (for a nest at normal speed).
+
+### Parenting and null objects
+
+- **Parent** (at the top of a clip's Properties) makes a clip follow another one's Motion, like After Effects'
+  parenting: moving, scaling or turning the parent carries it along, on top of its own Motion. Pick the parent from
+  the menu or drag the **pick-whip** (the spiral) onto a clip in the timeline. Parenting never makes anything jump;
+  parents can have parents. Parented clips show a spiral on the timeline.
+- **Layer** → **Null object** adds a clip that draws nothing (just an outline on the canvas while editing): parent
+  clips to it and animate the null to move them all together.
 
 ### Presets
 
@@ -293,6 +321,20 @@ Like Premiere's Speed/Duration, any video or sound clip can play faster, slower 
   animation speeds up (or plays backwards) with its clip. Stills and text have no speed: trim them to change their
   length. Reversed speech isn't captioned.
 
+### Time remapping
+
+Like After Effects' Time Remap and Premiere's speed keyframes, a clip's speed can change within it:
+
+- Turn on **Time Remapping** in the clip's **Speed** section (Properties). Nothing changes until you shape it.
+- **Freeze frame** holds the frame at the playhead for a second; **Reverse section** plays the stretch under the
+  playhead backwards and then forwards again. The Speed section lists each stretch with its speed: drag or type one
+  (a velocity edit). The clip gets longer or shorter and the clips after it move along.
+- For ramps, add keyframes to **Time Remapping → Source Time** (the frame shown) and shape them in its **Speed
+  graph** (see below): the classic fast–slow–fast edit ramp is two keyframes with long, flat handles.
+- It works on nested clips too, so a whole edited section can be ramped at once. The export follows the curve exactly
+  (sound included, pieces played faster, slower or backwards); the preview plays it at the curve's speed, and shows
+  frozen or backwards stretches frame by frame.
+
 ### Keyframes
 
 Any number or point (position, scale, rotation, opacity, volume, text size, stroke...) can be animated, like in
@@ -312,6 +354,11 @@ Premiere:
   **Influence** (After Effects' keyframe velocity): 33% is Premiere's ease; 75–100% hangs near the keyframes and
   whips through the middle, the snappy curve of edit-style zooms and spins.
 - Keyframed clips show marks on the timeline, and an animated position draws its motion path on the canvas.
+- **Graph editor:** with the keyframes shown, the chart button at the end of a number's (or point's) row opens its
+  graph below it: the **Value** graph draws the curve, the **Speed** graph how fast it changes. Drag keyframes (in
+  time, and in the value graph up and down), and drag each keyframe's **Bézier handles** to shape the curve, like
+  After Effects' Graph Editor: handles stay in line (a smooth keyframe) unless you hold `⌥`; `⇧` keeps a drag
+  straight. Choosing an interpolation from the right-click menu puts the handles back.
 
 Keyframes stay on their frame of the media when a clip is moved, trimmed or split, and exports play them exactly.
 
