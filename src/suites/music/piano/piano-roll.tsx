@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { PiCaretDownBold, PiEraser, PiGhost, PiKnife, PiMagnet, PiPaintBrush, PiPencilSimple, PiSelection, PiSpeakerSlash } from "react-icons/pi";
+import { useEffect, useRef } from "react";
+import { PiCaretDownBold, PiEraser, PiGhost, PiKnife, PiMagnet, PiPaintBrush, PiPencilSimple, PiSelection, PiSpeakerHigh, PiSpeakerSlash } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { noteBounds } from "@shared/music/notes";
@@ -21,12 +21,13 @@ import { MusicWindow } from "../window";
 import { pianoChannel, pianoContext } from "./actions";
 import { applyDrag } from "./drag";
 import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepare, readPalette, stretchHandle } from "./draw";
-import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, tickToX, zoomAt } from "./geometry";
+import { onFade, vanishing } from "./fades";
+import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, zoomAt } from "./geometry";
 import { NoteProperties } from "./note-properties";
 import { gridCursor, gridPointerDown, keysPointerDown, lanePointerDown, rulerPointerDown } from "./pointer";
 import { type PianoTool, usePiano } from "./store";
 
-const KEYS_W = 56;
+const KEYS_W = 72;
 const RULER_H = 22;
 const SCROLLBAR = 12;
 const MIN_W = 480;
@@ -39,6 +40,7 @@ const TOOLS: { tool: PianoTool; label: string; key: string; icon: typeof PiPenci
   { tool: "mute", label: "Mute", key: "T", icon: PiSpeakerSlash },
   { tool: "slice", label: "Slice", key: "C", icon: PiKnife },
   { tool: "select", label: "Select", key: "E", icon: PiSelection },
+  { tool: "playback", label: "Playback", key: "Y", icon: PiSpeakerHigh },
 ];
 
 const EMPTY: Note[] = [];
@@ -57,8 +59,6 @@ export function PianoRoll() {
   usePiano((s) => s.channelId);
   useMusicUi((s) => s.selectedChannelIds);
   const editing = usePiano((s) => s.editing);
-  const width = usePiano((s) => s.width);
-  const height = usePiano((s) => s.height);
   // What loops and where play starts, on the element too (the tests read them there).
   const loop = useTransport((s) => `${s.loop.start}:${s.loop.ticks}`);
   const startTick = useTransport((s) => s.startTick);
@@ -68,7 +68,10 @@ export function PianoRoll() {
     <MusicWindow
       id="piano"
       title={channel ? `Piano roll - ${channel.name}` : "Piano roll"}
-      initial={{ x: 70, y: 70 }}
+      // It fills the desktop when it opens (as FL Studio's does); a double-click on its title puts it
+      // in a window of this size.
+      initial={{ x: 60, y: 40, width: 960, height: 600, snap: "full" }}
+      resizable={{ minWidth: MIN_W, minHeight: MIN_H }}
       onClose={() => {
         useMusicUi.getState().setPianoOpen(false);
         // What loops is the time selection only while it can be seen.
@@ -77,8 +80,7 @@ export function PianoRoll() {
       controls={<PianoControls />}
     >
       <div
-        className="relative"
-        style={{ width, height }}
+        className="relative min-h-0 flex-1"
         data-testid="piano-roll"
         data-channel-name={channel?.name}
         data-loop={loop}
@@ -86,7 +88,6 @@ export function PianoRoll() {
         data-selected={selectedCount}
       >
         {channel ? <PianoBody /> : <p className="p-6 text-sm text-muted-foreground">Add a channel to the rack to write its notes here.</p>}
-        <ResizeCorner />
       </div>
       {editing !== null && <NoteProperties />}
     </MusicWindow>
@@ -184,27 +185,8 @@ function ChannelMenu() {
   );
 }
 
-/** The window's bottom-right corner, dragged to make it bigger or smaller. */
-function ResizeCorner() {
-  return (
-    <div
-      aria-label="Resize the Piano roll"
-      className="absolute right-0 bottom-0 z-10 size-3 cursor-nwse-resize"
-      onPointerDown={(e) => {
-        const { width, height } = usePiano.getState();
-        const origin = { x: e.clientX, y: e.clientY };
-        startPointerDrag(e, {
-          threshold: 0,
-          cursor: "nwse-resize",
-          onMove: (ev) => usePiano.setState({ width: Math.max(MIN_W, width + ev.clientX - origin.x), height: Math.max(MIN_H, height + ev.clientY - origin.y) }),
-        });
-      }}
-    />
-  );
-}
-
 /** The last drag preview worked out, to reuse while neither the notes nor the drag change. */
-let previewCache: { notes: Note[]; drag: unknown; grid: number; result: Note[] } | null = null;
+let previewCache: { notes: Note[]; drag: unknown; result: Note[]; created: number[] } | null = null;
 
 function PianoBody() {
   const grid = useRef<HTMLCanvasElement>(null);
@@ -215,7 +197,6 @@ function PianoBody() {
   const gridBox = useRef<HTMLDivElement>(null);
   const laneHeight = usePiano((s) => s.laneHeight);
   const laneProperty = usePiano((s) => s.lane);
-  const [cursor, setCursor] = useState("crosshair");
 
   // Drawing: once a frame, when anything it shows has changed.
   useEffect(() => {
@@ -230,18 +211,28 @@ function PianoBody() {
       const { gridWidth: width, gridHeight: height, view, drag } = piano;
       const palette = readPalette(box);
       let notes = ctx.notes;
+      let selected = ctx.selected;
       if (drag) {
-        if (previewCache?.notes !== ctx.notes || previewCache.drag !== drag || previewCache.grid !== ctx.grid) {
-          previewCache = { notes: ctx.notes, drag, grid: ctx.grid, result: applyDrag(ctx.notes, drag, ctx.grid).notes };
+        if (previewCache?.notes !== ctx.notes || previewCache.drag !== drag) {
+          const result = applyDrag(ctx.notes, drag);
+          previewCache = { notes: ctx.notes, drag, result: result.notes, created: result.created };
         }
         notes = previewCache.result;
+        // A slice shows the pieces it cuts off in the selected colour, so what it would do is seen.
+        if (drag.kind === "slice" && previewCache.created.length) selected = new Set([...selected, ...previewCache.created]);
       }
+      const fading = vanishing(performance.now());
       const scene: Scene = {
         view,
         width,
         height,
         notes,
-        selected: ctx.selected,
+        selected,
+        vanishing: fading,
+        slice:
+          drag?.kind === "slice"
+            ? { x: Math.round(tickToX(view, drag.tick)) + 0.5, y1: pitchToY(view, Math.max(drag.low, drag.high)), y2: pitchToY(view, Math.min(drag.low, drag.high)) + view.rowHeight }
+            : null,
         ghosts: piano.ghosts ? Object.entries(ctx.pattern.notes).flatMap(([id, list]) => (id === ctx.channel.id ? [] : [list])) : [],
         barTicks: ctx.barTicks,
         beatTicks: ctx.beatTicks,
@@ -267,6 +258,8 @@ function PianoBody() {
       // How long a frame took, for the stress tests.
       box.dataset.drawMs = (performance.now() - started).toFixed(2);
       box.dataset.notes = String(notes.length);
+      // Deleted notes still fading: another frame.
+      if (fading.length) schedule();
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(draw);
@@ -276,6 +269,7 @@ function PianoBody() {
       usePiano.subscribe(schedule),
       useMusicUi.subscribe((s, p) => s.selectedChannelIds !== p.selectedChannelIds && schedule()),
       useTransport.subscribe((s, p) => s.startTick !== p.startTick && schedule()),
+      onFade(schedule),
     ];
     // The theme (light or dark) changes the colours.
     const theme = new MutationObserver(schedule);
@@ -292,6 +286,31 @@ function PianoBody() {
       for (const stop of stops) stop();
       theme.disconnect();
       resize.disconnect();
+    };
+  }, []);
+
+  // The pointer over the grid changes with the tool, and with Ctrl (selecting), without moving.
+  useEffect(() => {
+    let last: { clientX: number; clientY: number } | null = null;
+    const canvas = grid.current;
+    if (!canvas) return;
+    const refresh = (keys?: { ctrlKey: boolean; metaKey: boolean }) => {
+      if (last && !usePiano.getState().drag) canvas.style.cursor = gridCursor(canvas, { ...last, ...keys });
+    };
+    const track = (e: PointerEvent) => (last = e.buttons === 0 ? { clientX: e.clientX, clientY: e.clientY } : last);
+    const leave = () => (last = null);
+    const onKey = (e: KeyboardEvent) => (e.key === "Control" || e.key === "Meta") && refresh(e);
+    canvas.addEventListener("pointermove", track);
+    canvas.addEventListener("pointerleave", leave);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKey);
+    const stop = usePiano.subscribe((s, p) => s.tool !== p.tool && refresh());
+    return () => {
+      canvas.removeEventListener("pointermove", track);
+      canvas.removeEventListener("pointerleave", leave);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKey);
+      stop();
     };
   }, []);
 
@@ -354,13 +373,11 @@ function PianoBody() {
         <canvas
           ref={grid}
           className="absolute inset-0 size-full"
-          style={{ cursor }}
           aria-label="Notes"
-          onPointerDown={(e) => {
-            // The grid's keys go to it: the window it's in comes to the front first.
-            gridPointerDown(e);
-          }}
-          onPointerMove={(e) => e.buttons === 0 && setCursor(gridCursor(e.currentTarget, e))}
+          onPointerDown={gridPointerDown}
+          // The pointer says what a press would do there; a drag sets its own while it lasts.
+          onPointerMove={(e) => e.buttons === 0 && (e.currentTarget.style.cursor = gridCursor(e.currentTarget, e))}
+          onPointerUp={(e) => (e.currentTarget.style.cursor = gridCursor(e.currentTarget, e))}
         />
         <div ref={playhead} className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground opacity-0" />
       </div>

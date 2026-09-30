@@ -137,11 +137,11 @@ void Sequencer::process (float* left, float* right, int numSamples)
     if (const auto plays = playRequests.load(); plays != playsSeen)
     {
         playsSeen = plays;
-        if (! playing)
-        {
-            playing = true;
-            position_ = song != nullptr ? std::fmod (playFrom.load(), song->loopTicks) : 0;
-        }
+        // Played while playing (the ruler clicked): it goes there, the notes sounding cut short.
+        if (playing)
+            silenceVoices();
+        playing = true;
+        position_ = song != nullptr ? std::fmod (playFrom.load(), song->loopTicks) : 0;
     }
 
     if (song != nullptr)

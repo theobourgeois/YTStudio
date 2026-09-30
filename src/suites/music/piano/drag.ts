@@ -17,14 +17,10 @@ import {
   stretchNotes,
 } from "@shared/music/notes";
 import type { Note } from "@shared/music/types";
-import { sliceLine } from "./geometry";
 import type { PianoDrag } from "./store";
 
-/**
- * The notes after a drag, and the ones it made (to select them). `grid` is the snap, for the slice
- * tool's cuts. A selection rectangle changes no notes.
- */
-export function applyDrag(notes: Note[], drag: PianoDrag | null, grid: number): Created {
+/** The notes after a drag, and the ones it made (to select them). A selection rectangle and scrubbing change no notes. */
+export function applyDrag(notes: Note[], drag: PianoDrag | null): Created {
   const same = (list: Note[]): Created => ({ notes: list, created: [] });
   if (!drag) return same(notes);
   switch (drag.kind) {
@@ -42,9 +38,12 @@ export function applyDrag(notes: Note[], drag: PianoDrag | null, grid: number): 
       return same(setNoteProps(notes, drag.ids, { muted: drag.muted }));
     case "values":
       return same(setNoteValues(notes, drag.values));
-    case "slice":
-      return sliceNotes(notes, sliceLine(drag.a, drag.b, grid));
+    case "slice": {
+      const { tick, low, high } = drag;
+      return sliceNotes(notes, (pitch) => (pitch >= Math.min(low, high) && pitch <= Math.max(low, high) ? tick : null));
+    }
     case "rect":
+    case "playback":
       return same(notes);
   }
 }

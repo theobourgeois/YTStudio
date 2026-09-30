@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { MusicProject, Note } from "@shared/music/types";
 import { useMusic } from "./store";
+import type { WindowSnap } from "./window-geometry";
 
 /** A window of the music editor: the channel rack, or a channel's settings. */
 export type WindowId = "rack" | "piano" | `channel:${string}`;
@@ -9,6 +10,11 @@ export const channelWindow = (channelId: string): WindowId => `channel:${channel
 export interface WindowPlace {
   x: number;
   y: number;
+  /** A resizable window's size (the others fit what's in them). */
+  width?: number;
+  height?: number;
+  /** Filling the desktop or half of it; `x`… `height` are then where it goes back to. */
+  snap?: WindowSnap | null;
 }
 
 /** The fewest steps the rack shows: a bar of 4/4, FL Studio's default. */
@@ -37,6 +43,8 @@ interface MusicUiState {
   places: Partial<Record<WindowId, WindowPlace>>;
   /** Windows from back to front. */
   order: WindowId[];
+  /** Where the window being dragged would snap to if it were let go now (drawn on the desktop). */
+  snapPreview: WindowSnap | null;
 
   /** Select one channel (or, already the only one selected, none); `add` toggles it among the others. */
   selectChannel: (id: string, mode?: "only" | "add") => void;
@@ -55,6 +63,9 @@ interface MusicUiState {
   closeChannelWindow: (id: string) => void;
   focusWindow: (id: WindowId) => void;
   placeWindow: (id: WindowId, place: WindowPlace) => void;
+  /** Fill the desktop with a window, or put it back as it was (a double-click on its title). */
+  toggleMaximised: (id: WindowId, initial: WindowPlace) => void;
+  setSnapPreview: (snap: WindowSnap | null) => void;
 }
 
 const INITIAL = {
@@ -68,6 +79,7 @@ const INITIAL = {
   openChannelIds: [] as string[],
   places: {},
   order: ["rack"] as WindowId[],
+  snapPreview: null as WindowSnap | null,
 };
 
 const toFront = (order: WindowId[], id: WindowId) => [...order.filter((w) => w !== id), id];
@@ -103,6 +115,11 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
     if (order[order.length - 1] !== id) set({ order: toFront(order, id) });
   },
   placeWindow: (id, place) => set({ places: { ...get().places, [id]: place } }),
+  toggleMaximised(id, initial) {
+    const place = get().places[id] ?? initial;
+    get().placeWindow(id, { ...place, snap: place.snap === "full" ? null : "full" });
+  },
+  setSnapPreview: (snapPreview) => get().snapPreview !== snapPreview && set({ snapPreview }),
 }));
 
 // Another song: its own selection and windows.

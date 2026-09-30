@@ -72,13 +72,15 @@ export function patternEnd(pattern: Pattern): number {
 }
 
 /**
- * How long a pattern is, in steps: its set length, or (Auto) up to the end of the last bar with a
- * note in it, and a bar at least.
+ * How long a pattern is, in steps: up to the end of the last bar with a note in it, and a bar at least
+ * (Auto), or its set length if that's longer. As in FL Studio, a note is never left out: one written
+ * past the set length (in the Piano roll) makes the pattern reach the end of its bar.
  */
 export function patternSteps(pattern: Pattern, timeSignature: MusicSettings["timeSignature"]): number {
-  if (pattern.length !== null) return pattern.length;
   const bar = stepsPerBar(timeSignature) * STEP_TICKS;
-  return (Math.max(1, Math.ceil(Math.min(patternEnd(pattern), MAX_PATTERN_TICKS) / bar)) * bar) / STEP_TICKS;
+  const auto = (Math.max(1, Math.ceil(Math.min(patternEnd(pattern), MAX_PATTERN_TICKS) / bar)) * bar) / STEP_TICKS;
+  if (pattern.length === null) return auto;
+  return patternEnd(pattern) > pattern.length * STEP_TICKS ? Math.max(pattern.length, auto) : pattern.length;
 }
 
 export function createChannel(name: string, sampleId: string | null, id = createId("chan")): Channel {
@@ -103,9 +105,13 @@ export function createPluginChannel(plugin: PluginRef, id = createId("chan")): C
   return { ...createChannel(plugin.name, null, id), kind: "plugin", plugin };
 }
 
+/** The channel an empty rack has, as in FL Studio: a sampler with no sample yet. */
+export const FIRST_CHANNEL_ID = "chan_sampler";
+export const emptyRack = (): Channel[] => [createChannel("Sampler", null, FIRST_CHANNEL_ID)];
+
 export function createMusicProject(name = DEFAULT_PROJECT_NAME): MusicProject {
   const settings: MusicSettings = { tempo: DEFAULT_TEMPO, timeSignature: [4, 4], swing: 0 };
-  return { version: 1, name, settings, channels: [], patterns: [createPattern("Pattern 1", FIRST_PATTERN_ID)] };
+  return { version: 1, name, settings, channels: emptyRack(), patterns: [createPattern("Pattern 1", FIRST_PATTERN_ID)] };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -141,8 +147,9 @@ function normalizePlugin(input: unknown): PluginRef | null {
   return { id: input.id, name: text(input.name, "Plugin"), format: text(input.format, "") || "VST3" };
 }
 
+/** The song's channels; never none (a rack is never empty: `emptyRack`). */
 function normalizeChannels(input: unknown, isSample: (id: string) => boolean): Channel[] {
-  if (!Array.isArray(input)) return [];
+  if (!Array.isArray(input)) return emptyRack();
   const seen = new Set<string>();
   const channels: Channel[] = [];
   for (const raw of input) {
@@ -164,7 +171,7 @@ function normalizeChannels(input: unknown, isSample: (id: string) => boolean): C
       precomputed: normalizePrecomputed(raw.precomputed),
     });
   }
-  return channels;
+  return channels.length ? channels : emptyRack();
 }
 
 function normalizeNotes(input: unknown, end: number): Note[] {

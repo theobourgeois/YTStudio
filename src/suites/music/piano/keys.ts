@@ -41,7 +41,7 @@ export type PianoKeyAction =
 
 type KeyLike = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">;
 
-const TOOLS: Record<string, PianoTool> = { P: "draw", B: "paint", D: "delete", T: "mute", C: "slice", E: "select" };
+const TOOLS: Record<string, PianoTool> = { P: "draw", B: "paint", D: "delete", T: "mute", C: "slice", E: "select", Y: "playback" };
 
 export function resolvePianoKey(e: KeyLike): PianoKeyAction | null {
   const command = e.metaKey || e.ctrlKey;

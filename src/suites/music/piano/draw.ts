@@ -2,34 +2,99 @@
  * Drawing the Piano roll: its grid (with the notes), ruler, keyboard and event editor, each a canvas.
  * Only what's in view is drawn (the notes by `visibleRange`), so a pattern of thousands of notes draws
  * in about the time of a screenful. The component calls these once per frame when something changed.
+ *
+ * The look is FL Studio's: a blue-grey grid whose lines are darker than its cells, pale green notes
+ * (red when selected) with a rounded, lit edge and their name on them, and a keyboard drawn as a real
+ * one, white keys of their true sizes under the black ones. Its colours are its own, one set for the
+ * dark theme and one for the light (`readPalette`), so the grid stands out from the page in both.
  */
 import type { Note } from "@shared/music/types";
-import { type PianoView, gridTicks, isBlackKey, pitchName, pitchToY, tickToX, visibleRange, xToTick, yToPitch } from "./geometry";
+import { BLACK_KEY_WIDTH, type PianoView, gridTicks, isBlackKey, pitchName, pitchToY, tickToX, visibleRange, whiteKeys, xToTick, yToPitch } from "./geometry";
 import type { LaneProperty, PianoDrag, TimeRange } from "./store";
 
-/** The theme's colours, read from the page's CSS variables (so light and dark both work). */
-export interface Palette {
-  background: string;
-  foreground: string;
-  muted: string;
-  border: string;
-  note: string;
-  selected: string;
-  time: string;
+/** A note's colours: its body from top to bottom, its outline and its name. */
+interface NoteColours {
+  top: string;
+  bottom: string;
+  edge: string;
+  text: string;
 }
 
-export function readPalette(element: Element): Palette {
-  const css = getComputedStyle(element);
-  const get = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
-  return {
-    background: get("--background", "#16181c"),
-    foreground: get("--foreground", "#e6e6e6"),
-    muted: get("--muted", "#2a2d33"),
-    border: get("--border", "#33363d"),
-    note: get("--brand", "#6aacf0"),
-    selected: "#f0606d",
-    time: "#e5484d",
-  };
+export interface Palette {
+  dark: boolean;
+  foreground: string;
+  /** The grid: rows of white keys and of black keys, and its lines, fainter to stronger. */
+  row: string;
+  blackRow: string;
+  line: string;
+  beatLine: string;
+  barLine: string;
+  /** What's past the pattern's end is covered with this. */
+  outside: string;
+  ruler: string;
+  rulerText: string;
+  note: NoteColours;
+  selected: NoteColours;
+  muted: NoteColours;
+  ghost: string;
+  time: string;
+  /** Where play starts (the ruler's marker), and the slice and playback tools' lines. */
+  start: string;
+  tool: string;
+}
+
+const NOTE: NoteColours = { top: "#c4f1bf", bottom: "#8fd78c", edge: "#3e7d40", text: "#1d4721" };
+const SELECTED: NoteColours = { top: "#ffc2bd", bottom: "#f48b84", edge: "#9b3934", text: "#561712" };
+const MUTED: NoteColours = { top: "#b9c1bb", bottom: "#98a29b", edge: "#5d6660", text: "#39413b" };
+
+const DARK: Palette = {
+  dark: true,
+  foreground: "#e6e8eb",
+  row: "#2c333c",
+  blackRow: "#262c34",
+  line: "#20252c",
+  beatLine: "#1a1e24",
+  barLine: "#12151a",
+  outside: "rgba(8, 10, 13, 0.42)",
+  ruler: "#1d2127",
+  rulerText: "#aeb6c0",
+  note: NOTE,
+  selected: SELECTED,
+  muted: MUTED,
+  ghost: "rgba(190, 205, 222, 0.16)",
+  time: "#ef4d55",
+  start: "#f2a93b",
+  tool: "#6fb6ff",
+};
+
+const LIGHT: Palette = {
+  dark: false,
+  foreground: "#22262c",
+  row: "#eef1f5",
+  blackRow: "#e2e7ed",
+  line: "#d3d9e1",
+  beatLine: "#bcc4ce",
+  barLine: "#949eaa",
+  outside: "rgba(40, 52, 66, 0.1)",
+  ruler: "#e3e7ec",
+  rulerText: "#4b535d",
+  note: NOTE,
+  selected: SELECTED,
+  muted: MUTED,
+  ghost: "rgba(60, 76, 94, 0.14)",
+  time: "#e5484d",
+  start: "#e08a12",
+  tool: "#2f7be5",
+};
+
+/** The palette for the theme the element is shown in. */
+export const readPalette = (element: Element): Palette => (element.closest(".dark") ? DARK : LIGHT);
+
+/** A note fading away after it's deleted (`fades.ts`): how far through (0..1), and how it looked. */
+export interface Vanishing {
+  note: Note;
+  progress: number;
+  selected: boolean;
 }
 
 export interface Scene {
@@ -42,12 +107,16 @@ export interface Scene {
   selected: ReadonlySet<number>;
   /** Other channels' notes in the pattern, drawn behind (or none). */
   ghosts: readonly (readonly Note[])[];
+  /** Notes just deleted, fading out. */
+  vanishing: readonly Vanishing[];
   barTicks: number;
   beatTicks: number;
   /** Where the pattern ends: past it the grid is dimmed. */
   patternTicks: number;
   time: TimeRange | null;
   drag: PianoDrag | null;
+  /** The slice tool's cut, as a line on screen (`sliceGuide`), while it's dragged. */
+  slice: { x: number; y1: number; y2: number } | null;
   palette: Palette;
 }
 
@@ -77,111 +146,184 @@ function gridLines(view: PianoView, width: number, barTicks: number, beatTicks: 
   return lines;
 }
 
-function drawNotes(ctx: CanvasRenderingContext2D, scene: Scene, notes: readonly Note[], style: "notes" | "ghosts") {
-  const { view, width, height, selected, palette } = scene;
+/**
+ * A note's body: rounded, lit from above, outlined, with a highlight along its top edge. Gradients
+ * depend only on where a row is, so they're made once per row and colour and reused.
+ */
+function noteBody(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, colours: NoteColours, gradients: Map<string, CanvasGradient>) {
+  if (w < 4 || h < 5) {
+    ctx.fillStyle = colours.bottom;
+    ctx.fillRect(x, y, w, h);
+    return;
+  }
+  const key = `${colours.top}${y}`;
+  let fill = gradients.get(key);
+  if (!fill) {
+    fill = ctx.createLinearGradient(0, y, 0, y + h);
+    fill.addColorStop(0, colours.top);
+    fill.addColorStop(1, colours.bottom);
+    gradients.set(key, fill);
+  }
+  ctx.beginPath();
+  ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, Math.min(3, h / 4));
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.strokeStyle = colours.edge;
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+  ctx.fillRect(x + 2, y + 1.5, w - 4, 1);
+}
+
+function drawNotes(ctx: CanvasRenderingContext2D, scene: Scene) {
+  const { view, width, height, selected, palette, notes } = scene;
   const [from, to] = visibleRange(notes, xToTick(view, 0), xToTick(view, width));
   const low = yToPitch(view, height) - 1;
   const high = yToPitch(view, 0) + 1;
   const h = Math.max(2, view.rowHeight - 1);
-  const labels = style === "notes" && view.rowHeight >= 11;
-  ctx.font = `${Math.min(11, view.rowHeight - 4)}px ui-sans-serif, system-ui, sans-serif`;
+  const labels = view.rowHeight >= 11;
+  const gradients = new Map<string, CanvasGradient>();
+  ctx.font = `600 ${Math.min(11, view.rowHeight - 5)}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textBaseline = "middle";
+  ctx.lineWidth = 1;
   for (let i = from; i < to; i++) {
     const note = notes[i];
     if (note.pitch < low || note.pitch > high) continue;
-    const x = tickToX(view, note.start);
-    const w = Math.max(2, note.length * view.pxPerTick - 1);
+    const x = Math.round(tickToX(view, note.start));
+    const w = Math.max(3, Math.round(note.length * view.pxPerTick));
     if (x > width || x + w < 0) continue;
-    const y = pitchToY(view, note.pitch) + 0.5;
-    if (style === "ghosts") {
-      ctx.globalAlpha = 0.16;
-      ctx.fillStyle = palette.foreground;
-      ctx.fillRect(x, y, w, h);
-      continue;
+    const y = Math.round(pitchToY(view, note.pitch));
+    const colours = note.muted ? palette.muted : selected.has(note.id) ? palette.selected : palette.note;
+    ctx.globalAlpha = note.muted ? 0.7 : 1;
+    noteBody(ctx, x, y, w, h, colours, gradients);
+    if (labels && w > 24) {
+      ctx.fillStyle = colours.text;
+      ctx.fillText(pitchName(note.pitch), x + 4, y + h / 2 + 0.5, w - 7);
     }
-    const isSelected = selected.has(note.id);
-    ctx.globalAlpha = note.muted ? 0.35 : 1;
-    ctx.fillStyle = isSelected ? palette.selected : palette.note;
-    ctx.fillRect(x, y, w, h);
-    // A darker end, so notes that touch read as separate.
-    ctx.globalAlpha = note.muted ? 0.2 : 0.35;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(x + w - 1, y, 1, h);
-    if (labels && w > 26) {
-      ctx.globalAlpha = note.muted ? 0.5 : 0.85;
-      ctx.fillText(pitchName(note.pitch), x + 3, y + h / 2, w - 5);
-    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawGhosts(ctx: CanvasRenderingContext2D, scene: Scene, notes: readonly Note[]) {
+  const { view, width, height, palette } = scene;
+  const [from, to] = visibleRange(notes, xToTick(view, 0), xToTick(view, width));
+  const low = yToPitch(view, height) - 1;
+  const high = yToPitch(view, 0) + 1;
+  const h = Math.max(2, view.rowHeight - 1);
+  ctx.fillStyle = palette.ghost;
+  ctx.beginPath();
+  for (let i = from; i < to; i++) {
+    const note = notes[i];
+    if (note.pitch < low || note.pitch > high) continue;
+    const x = Math.round(tickToX(view, note.start));
+    const w = Math.max(3, Math.round(note.length * view.pxPerTick) - 1);
+    if (x > width || x + w < 0) continue;
+    ctx.roundRect(x + 0.5, Math.round(pitchToY(view, note.pitch)) + 0.5, w - 1, h - 1, 2);
+  }
+  ctx.fill();
+}
+
+/** Deleted notes shrink into their middle as they fade, as FL Studio's do. */
+function drawVanishing(ctx: CanvasRenderingContext2D, scene: Scene) {
+  const { view, palette } = scene;
+  const gradients = new Map<string, CanvasGradient>();
+  for (const { note, progress, selected } of scene.vanishing) {
+    const eased = 1 - (1 - progress) ** 2;
+    const w = Math.max(3, note.length * view.pxPerTick) * (1 - 0.3 * eased);
+    const h = Math.max(2, view.rowHeight - 1) * (1 - 0.6 * eased);
+    const cx = tickToX(view, note.start) + (note.length * view.pxPerTick) / 2;
+    const cy = pitchToY(view, note.pitch) + view.rowHeight / 2;
+    ctx.globalAlpha = 1 - eased;
+    noteBody(ctx, Math.round(cx - w / 2), Math.round(cy - h / 2), Math.round(w), Math.round(h), selected ? palette.selected : palette.note, gradients);
   }
   ctx.globalAlpha = 1;
 }
 
 export function drawGrid(ctx: CanvasRenderingContext2D, scene: Scene) {
   const { view, width, height, palette, barTicks, beatTicks, patternTicks, time, drag } = scene;
-  ctx.fillStyle = palette.background;
+  ctx.fillStyle = palette.row;
   ctx.fillRect(0, 0, width, height);
 
-  // Rows: the black keys' darker, a line under every C.
+  // Rows: the black keys' darker, a line between each, a stronger one under every C.
   const top = yToPitch(view, 0);
   const bottom = yToPitch(view, height);
   for (let pitch = top; pitch >= bottom; pitch--) {
-    const y = pitchToY(view, pitch);
+    const y = Math.round(pitchToY(view, pitch));
     if (isBlackKey(pitch)) {
-      ctx.fillStyle = palette.muted;
-      ctx.globalAlpha = 0.55;
-      ctx.fillRect(0, y, width, view.rowHeight);
+      ctx.fillStyle = palette.blackRow;
+      ctx.fillRect(0, y, width, Math.round(view.rowHeight));
     }
-    ctx.globalAlpha = pitch % 12 === 0 ? 0.5 : 0.18;
-    ctx.fillStyle = palette.border;
-    ctx.fillRect(0, y + view.rowHeight - 1, width, 1);
+    ctx.fillStyle = pitch % 12 === 0 ? palette.beatLine : palette.line;
+    ctx.fillRect(0, Math.round(pitchToY(view, pitch - 1)) - 1, width, 1);
   }
 
   for (const [tick, weight] of gridLines(view, width, barTicks, beatTicks)) {
-    ctx.globalAlpha = weight === 2 ? 0.9 : weight === 1 ? 0.45 : 0.2;
-    ctx.fillStyle = palette.border;
-    ctx.fillRect(Math.round(tickToX(view, tick)), 0, 1, height);
+    ctx.fillStyle = weight === 2 ? palette.barLine : weight === 1 ? palette.beatLine : palette.line;
+    ctx.fillRect(Math.round(tickToX(view, tick)) - (weight === 2 ? 1 : 0), 0, weight === 2 ? 2 : 1, height);
   }
 
   // Past the pattern's end: what doesn't play (yet).
   const end = tickToX(view, patternTicks);
   if (end < width) {
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = palette.outside;
     ctx.fillRect(Math.max(0, end), 0, width - Math.max(0, end), height);
   }
 
   if (time) {
-    ctx.globalAlpha = 0.1;
+    ctx.globalAlpha = palette.dark ? 0.1 : 0.08;
     ctx.fillStyle = palette.time;
     ctx.fillRect(tickToX(view, time.start), 0, (time.end - time.start) * view.pxPerTick, height);
+    ctx.globalAlpha = 0.6;
+    ctx.fillRect(Math.round(tickToX(view, time.start)), 0, 1, height);
+    ctx.fillRect(Math.round(tickToX(view, time.end)) - 1, 0, 1, height);
+    ctx.globalAlpha = 1;
   }
-  ctx.globalAlpha = 1;
 
-  for (const ghosts of scene.ghosts) drawNotes(ctx, scene, ghosts, "ghosts");
-  drawNotes(ctx, scene, scene.notes, "notes");
+  for (const ghosts of scene.ghosts) drawGhosts(ctx, scene, ghosts);
+  drawNotes(ctx, scene);
+  drawVanishing(ctx, scene);
 
   if (drag?.kind === "rect") {
-    const x = tickToX(view, Math.min(drag.from, drag.to));
-    const y = pitchToY(view, Math.max(drag.low, drag.high));
-    const w = Math.abs(drag.to - drag.from) * view.pxPerTick;
-    const h = (Math.abs(drag.high - drag.low) + 1) * view.rowHeight;
-    ctx.globalAlpha = 0.12;
-    ctx.fillStyle = palette.selected;
+    const x = Math.round(tickToX(view, Math.min(drag.from, drag.to)));
+    const y = Math.round(pitchToY(view, Math.max(drag.low, drag.high)));
+    const w = Math.round(Math.abs(drag.to - drag.from) * view.pxPerTick);
+    const h = Math.round((Math.abs(drag.high - drag.low) + 1) * view.rowHeight);
+    ctx.globalAlpha = 0.14;
+    ctx.fillStyle = palette.time;
     ctx.fillRect(x, y, w, h);
-    ctx.globalAlpha = 0.9;
-    ctx.strokeStyle = palette.selected;
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = palette.time;
+    ctx.lineWidth = 1;
     ctx.strokeRect(x + 0.5, y + 0.5, w, h);
   }
-  if (drag?.kind === "slice") {
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = palette.foreground;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    ctx.moveTo(tickToX(view, drag.a.tick), (view.topPitch - drag.a.pitch) * view.rowHeight);
-    ctx.lineTo(tickToX(view, drag.b.tick), (view.topPitch - drag.b.pitch) * view.rowHeight);
-    ctx.stroke();
-    ctx.setLineDash([]);
+  if (scene.slice) drawCutLine(ctx, scene.slice.x, scene.slice.y1, scene.slice.y2, palette.tool);
+  if (drag?.kind === "playback") {
+    const x = Math.round(tickToX(view, drag.tick)) + 0.5;
+    ctx.fillStyle = palette.tool;
+    ctx.fillRect(x - 1, 0, 2, height);
   }
-  ctx.globalAlpha = 1;
+}
+
+/** The slice tool's line: straight down through the notes it cuts, with an arrowhead at each end. */
+function drawCutLine(ctx: CanvasRenderingContext2D, x: number, y1: number, y2: number, colour: string) {
+  const top = Math.min(y1, y2);
+  const bottom = Math.max(y1, y2);
+  ctx.strokeStyle = colour;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, top);
+  ctx.lineTo(x, bottom);
+  // The arrowheads point out along the line: a "Y" at the top, an upside-down one at the bottom.
+  ctx.moveTo(x - 6, top - 7);
+  ctx.lineTo(x, top);
+  ctx.lineTo(x + 6, top - 7);
+  ctx.moveTo(x - 6, bottom + 7);
+  ctx.lineTo(x, bottom);
+  ctx.lineTo(x + 6, bottom + 7);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.lineCap = "butt";
 }
 
 /** The stretch handle of a selection: a small square past its end, level with its middle. */
@@ -192,106 +334,181 @@ export function stretchHandle(view: PianoView, bounds: { end: number; low: numbe
 }
 
 export function drawHandle(ctx: CanvasRenderingContext2D, handle: { x: number; y: number; size: number }, palette: Palette) {
-  ctx.fillStyle = palette.selected;
-  ctx.fillRect(handle.x, handle.y, handle.size, handle.size);
-  ctx.fillStyle = palette.background;
-  ctx.fillRect(handle.x + 3, handle.y + 3, handle.size - 6, handle.size - 6);
+  ctx.beginPath();
+  ctx.roundRect(handle.x + 0.5, handle.y + 0.5, handle.size, handle.size, 2);
+  ctx.fillStyle = palette.selected.bottom;
+  ctx.fill();
+  ctx.strokeStyle = palette.selected.edge;
+  ctx.stroke();
+  // Two arrows, ⟷, say which way it goes.
+  ctx.strokeStyle = palette.selected.text;
+  ctx.beginPath();
+  const cy = handle.y + handle.size / 2 + 0.5;
+  ctx.moveTo(handle.x + 2.5, cy);
+  ctx.lineTo(handle.x + handle.size - 1.5, cy);
+  ctx.stroke();
 }
 
 export function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene, startTick: number) {
   const { view, width, height, palette, barTicks, beatTicks, time, patternTicks } = scene;
-  ctx.fillStyle = palette.muted;
+  ctx.fillStyle = palette.ruler;
   ctx.fillRect(0, 0, width, height);
-  if (time) {
-    ctx.fillStyle = palette.time;
-    ctx.globalAlpha = 0.85;
-    ctx.fillRect(tickToX(view, time.start), height - 7, (time.end - time.start) * view.pxPerTick, 7);
-    ctx.globalAlpha = 1;
+  // Past the pattern's end.
+  const end = tickToX(view, patternTicks);
+  if (end < width) {
+    ctx.fillStyle = palette.outside;
+    ctx.fillRect(Math.max(0, end), 0, width - Math.max(0, end), height);
   }
-  // Bar numbers, as many as fit.
+  if (time) {
+    const x = tickToX(view, time.start);
+    const w = (time.end - time.start) * view.pxPerTick;
+    ctx.fillStyle = palette.time;
+    ctx.globalAlpha = 0.28;
+    ctx.fillRect(x, 0, w, height);
+    ctx.globalAlpha = 1;
+    ctx.fillRect(x, height - 6, w, 6);
+  }
+  // Bar numbers, as many as fit, and ticks for the beats and steps.
   const barPx = barTicks * view.pxPerTick;
   const every = Math.max(1, 2 ** Math.ceil(Math.log2(Math.max(1, 28 / barPx))));
-  ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+  ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
   ctx.textBaseline = "top";
-  ctx.fillStyle = palette.foreground;
   for (const [tick, weight] of gridLines(view, width, barTicks, beatTicks)) {
     const x = Math.round(tickToX(view, tick));
-    ctx.globalAlpha = weight === 2 ? 0.7 : 0.3;
-    ctx.fillRect(x, weight === 2 ? 0 : height - 5, 1, weight === 2 ? height : 5);
     const bar = tick / barTicks;
+    ctx.fillStyle = palette.rulerText;
+    ctx.globalAlpha = weight === 2 ? 0.8 : weight === 1 ? 0.5 : 0.28;
+    const tall = weight === 2 ? height : weight === 1 ? 7 : 4;
+    ctx.fillRect(x, height - tall, 1, tall);
     if (weight === 2 && bar % every === 0) {
-      ctx.globalAlpha = 0.8;
-      ctx.fillText(String(bar + 1), x + 3, 3);
+      ctx.globalAlpha = 1;
+      ctx.fillText(String(bar + 1), x + 4, 4);
     }
   }
-  // Where the pattern ends, and where play starts.
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = palette.note;
-  ctx.fillRect(Math.round(tickToX(view, patternTicks)) - 1, 0, 2, height);
-  const start = tickToX(view, startTick);
-  ctx.fillStyle = palette.foreground;
-  ctx.beginPath();
-  ctx.moveTo(start - 5, 0);
-  ctx.lineTo(start + 5, 0);
-  ctx.lineTo(start, 7);
-  ctx.fill();
   ctx.globalAlpha = 1;
+  // Where the pattern ends.
+  ctx.fillStyle = palette.tool;
+  ctx.fillRect(Math.round(end) - 1, 0, 2, height);
+  // Where play starts: FL Studio's orange marker.
+  const start = Math.round(tickToX(view, startTick));
+  ctx.fillStyle = palette.start;
+  ctx.beginPath();
+  ctx.moveTo(start, 0);
+  ctx.lineTo(start + 9, 0);
+  ctx.lineTo(start + 9, 5);
+  ctx.lineTo(start, 12);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillRect(start, 0, 1.5, height);
 }
 
+/**
+ * The keyboard, drawn as a piano: white keys at their true sizes (three to the five rows from C to E,
+ * four to the seven from F to B), black keys over them. Every white key is named when the rows are
+ * tall enough to read, else only the Cs.
+ */
 export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: number, height: number, palette: Palette, held: number | null) {
-  ctx.fillStyle = palette.background;
+  ctx.fillStyle = palette.dark ? "#101215" : "#8b929b";
   ctx.fillRect(0, 0, width, height);
-  ctx.font = `${Math.min(10, view.rowHeight - 3)}px ui-sans-serif, system-ui, sans-serif`;
+  const top = yToPitch(view, 0) + 1;
+  const bottom = yToPitch(view, height) - 1;
+  const blackWidth = Math.round(width * BLACK_KEY_WIDTH);
+  const white = ctx.createLinearGradient(0, 0, width, 0);
+  white.addColorStop(0, "#c9ccd1");
+  white.addColorStop(0.12, "#eceef0");
+  white.addColorStop(0.75, "#fbfbfc");
+  white.addColorStop(1, "#e4e6e9");
+  const shaded = ctx.createLinearGradient(0, 0, width, 0);
+  shaded.addColorStop(0, "#b7bbc2");
+  shaded.addColorStop(0.12, "#d9dce1");
+  shaded.addColorStop(1, "#d0d4da");
+  const pressed = ctx.createLinearGradient(0, 0, width, 0);
+  pressed.addColorStop(0, "#7fbf82");
+  pressed.addColorStop(1, "#b9ecb6");
+  const names = view.rowHeight >= 12;
+  ctx.font = `600 ${Math.min(10, Math.max(8, view.rowHeight - 5))}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textBaseline = "middle";
-  for (let pitch = yToPitch(view, 0); pitch >= yToPitch(view, height); pitch--) {
-    const y = pitchToY(view, pitch);
-    const black = isBlackKey(pitch);
-    ctx.fillStyle = pitch === held ? palette.note : black ? "#1d1f24" : "#e9eaec";
-    ctx.fillRect(0, y, black ? width * 0.62 : width, view.rowHeight - 1);
-    if (!black && pitch % 12 === 0 && view.rowHeight >= 9) {
-      ctx.fillStyle = "#4a4f57";
-      ctx.fillText(pitchName(pitch), width - 24, y + view.rowHeight / 2);
+  ctx.textAlign = "right";
+
+  for (const key of whiteKeys(view, bottom, top)) {
+    const y = Math.round(key.top);
+    const h = Math.round(key.bottom) - y;
+    ctx.fillStyle = key.pitch === held ? pressed : key.pitch % 12 === 0 ? shaded : white;
+    ctx.fillRect(0, y, width - 1, h - 1);
+    ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
+    ctx.fillRect(0, y + h - 1, width - 1, 1);
+    if (names || key.pitch % 12 === 0) {
+      ctx.fillStyle = key.pitch % 12 === 0 ? "#2b3036" : "#6a717b";
+      ctx.fillText(pitchName(key.pitch), width - 5, pitchToY(view, key.pitch) + view.rowHeight / 2 + 0.5);
     }
   }
+  for (let pitch = top; pitch >= bottom; pitch--) {
+    if (!isBlackKey(pitch)) continue;
+    const y = Math.round(pitchToY(view, pitch));
+    const h = Math.max(3, Math.round(view.rowHeight));
+    // Its shadow on the white keys, its body, then its lit front face.
+    ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+    ctx.fillRect(blackWidth, y + 1, 3, h);
+    ctx.fillStyle = pitch === held ? "#2f6b33" : "#16181c";
+    ctx.fillRect(0, y, blackWidth, h);
+    if (h >= 6) {
+      const face = ctx.createLinearGradient(0, 0, blackWidth, 0);
+      face.addColorStop(0, pitch === held ? "#3f8a44" : "#24272c");
+      face.addColorStop(1, pitch === held ? "#5fb364" : "#454951");
+      ctx.fillStyle = face;
+      ctx.fillRect(1, y + 1, blackWidth - 6, h - 3);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+      ctx.fillRect(blackWidth - 5, y + 1, 1, h - 3);
+    }
+  }
+  ctx.textAlign = "left";
+  ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+  ctx.fillRect(width - 1, 0, 1, height);
 }
 
 /** The event editor: a stem per note, from the bottom (velocity) or the middle (pan), with its length as a tail. */
 export function drawLane(ctx: CanvasRenderingContext2D, scene: Scene, property: LaneProperty) {
   const { view, width, height, palette, notes, selected, barTicks, beatTicks } = scene;
-  ctx.fillStyle = palette.background;
+  ctx.fillStyle = palette.row;
   ctx.fillRect(0, 0, width, height);
   for (const [tick, weight] of gridLines(view, width, barTicks, beatTicks)) {
     if (weight < 1) continue;
-    ctx.globalAlpha = weight === 2 ? 0.7 : 0.3;
-    ctx.fillStyle = palette.border;
+    ctx.fillStyle = weight === 2 ? palette.barLine : palette.beatLine;
     ctx.fillRect(Math.round(tickToX(view, tick)), 0, 1, height);
+  }
+  const end = tickToX(view, scene.patternTicks);
+  if (end < width) {
+    ctx.fillStyle = palette.outside;
+    ctx.fillRect(Math.max(0, end), 0, width - Math.max(0, end), height);
   }
   const pad = 6;
   const span = height - pad * 2;
   const base = property === "pan" ? pad + span / 2 : height - pad;
   if (property === "pan") {
-    ctx.globalAlpha = 0.5;
-    ctx.fillStyle = palette.border;
+    ctx.fillStyle = palette.beatLine;
     ctx.fillRect(0, base, width, 1);
   }
   const [from, to] = visibleRange(notes, xToTick(view, 0), xToTick(view, width));
+  ctx.lineWidth = 2;
   for (let i = from; i < to; i++) {
     const note = notes[i];
-    const x = Math.round(tickToX(view, note.start)) + 0.5;
+    const x = Math.round(tickToX(view, note.start)) + 1;
     if (x < -2 || x > width + 2) continue;
-    const y = property === "pan" ? base - (note.pan * span) / 2 : base - note.velocity * span;
-    const color = selected.has(note.id) ? palette.selected : palette.note;
-    ctx.globalAlpha = note.muted ? 0.35 : 1;
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
+    const y = Math.round(property === "pan" ? base - (note.pan * span) / 2 : base - note.velocity * span);
+    const colours = note.muted ? palette.muted : selected.has(note.id) ? palette.selected : palette.note;
+    ctx.globalAlpha = note.muted ? 0.6 : 1;
+    ctx.fillStyle = colours.bottom;
+    ctx.fillRect(x - 1, Math.min(y, base), 2, Math.abs(base - y));
+    ctx.globalAlpha = note.muted ? 0.35 : 0.6;
+    ctx.fillRect(x, y, Math.max(3, note.length * view.pxPerTick - 3), 1);
+    ctx.globalAlpha = note.muted ? 0.6 : 1;
     ctx.beginPath();
-    ctx.moveTo(x, base);
-    ctx.lineTo(x, y);
-    ctx.lineTo(x + Math.max(3, note.length * view.pxPerTick - 2), y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = colours.top;
     ctx.fill();
+    ctx.strokeStyle = colours.edge;
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
 }

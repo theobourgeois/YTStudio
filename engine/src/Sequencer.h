@@ -23,7 +23,7 @@ public:
 
     // Message thread ---------------------------------------------------------
     void setSong (std::unique_ptr<Song> song);
-    /** From `fromTick` into the loop. Nothing happens if it's already playing. */
+    /** From `fromTick` into the loop; if it's already playing, it goes there (what sounds is cut short). */
     void play (double fromTick = 0);
     /** Stop, silence what's sounding and go back to the start. */
     void stop();

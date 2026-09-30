@@ -260,6 +260,100 @@ test("the ruler: a click sets where play starts; a double-click drag selects tim
   await expect(roll).toHaveAttribute("data-loop", /^0:/);
 });
 
+test("the window fills the desktop, resizes and snaps; the ruler moves a playing song; a click away deselects; each tool has its pointer", async ({ page }) => {
+  const id = await openPiano(page, "Window", [{ start: 0, pitch: 72 }]);
+  const roll = page.getByTestId("piano-roll");
+  const win = page.locator('[data-window="piano"]');
+  const desktop = (await page.locator("[data-desktop]").boundingBox())!;
+
+  // It opens filling the desktop; a double-click on its title makes it a window, and another fills again.
+  await expect(win).toHaveAttribute("data-snap", "full");
+  expect((await win.boundingBox())!.width).toBeCloseTo(desktop.width, 0);
+  const title = win.locator("[data-window-title]");
+  await title.dblclick({ position: { x: 200, y: 10 } });
+  await expect(win).not.toHaveAttribute("data-snap");
+  const floating = (await win.boundingBox())!;
+  expect(floating.width).toBeLessThan(desktop.width - 100);
+
+  // Its right edge resizes it.
+  const edge = (await win.locator('[data-resize="e"]').boundingBox())!;
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + edge.width / 2 - 120, edge.y + edge.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => Math.round((await win.boundingBox())!.width - floating.width)).toBe(-120);
+
+  // Dragged to the desktop's top, it fills it again; to its left side, half of it.
+  const grab = (await title.boundingBox())!;
+  await page.mouse.move(grab.x + 200, grab.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(desktop.x + 400, desktop.y + 150, { steps: 4 });
+  await page.mouse.move(desktop.x + 1, desktop.y + 300, { steps: 4 });
+  await expect(page.getByTestId("snap-preview")).toBeVisible();
+  await page.mouse.up();
+  await expect(win).toHaveAttribute("data-snap", "left");
+  await win.getByRole("button", { name: /^Maximise/ }).click();
+  await expect(win).toHaveAttribute("data-snap", "full");
+
+  // Each tool has its pointer; the right button's is the eraser while it sweeps.
+  const grid = page.getByTestId("piano-grid").locator("canvas");
+  const cursor = () => grid.evaluate((el) => (el as HTMLElement).style.cursor);
+  const empty = await at(page, 600, 60);
+  await page.mouse.move(empty.x, empty.y);
+  await page.mouse.move(empty.x + 3, empty.y);
+  const pencil = await cursor();
+  expect(pencil).toContain("svg");
+  await page.keyboard.press("c");
+  await expect.poll(cursor).not.toBe(pencil);
+  const knife = await cursor();
+  await page.keyboard.press("y");
+  await expect.poll(cursor).not.toBe(knife);
+  await page.keyboard.press("p");
+  await expect.poll(cursor).toBe(pencil);
+  await page.mouse.down({ button: "right" });
+  expect(await cursor()).not.toBe(pencil);
+  await page.mouse.up({ button: "right" });
+  const onNote = await at(page, 40, 72);
+  await page.mouse.move(onNote.x, onNote.y);
+  await expect.poll(cursor).toBe("grab");
+
+  // A note past the pattern's end takes the pattern to the end of that note's bar.
+  await expect(roll).toHaveAttribute("data-loop", "0:384");
+  await click(page, 900, 70);
+  await expect(roll).toHaveAttribute("data-loop", "0:1152");
+
+  // With notes selected, a click on nothing deselects them, and adds nothing.
+  await page.keyboard.press("ControlOrMeta+a");
+  await expect(roll).toHaveAttribute("data-selected", "2");
+  await click(page, 600, 60);
+  await expect(roll).toHaveAttribute("data-selected", "0");
+  await expect.poll(async () => (await saved(page, id)).length).toBe(2);
+
+  // A double-click on the ruler, without dragging, clears the time selection.
+  const ruler = (await page.getByLabel("Ruler").boundingBox())!;
+  const rx = (tick: number) => ruler.x + tick * PX_PER_TICK;
+  const ry = ruler.y + ruler.height / 2;
+  await holding(page, "ControlOrMeta", async () => {
+    await page.mouse.move(rx(0), ry);
+    await page.mouse.down();
+    await page.mouse.move(rx(380), ry, { steps: 5 });
+    await page.mouse.up();
+  });
+  await expect(roll).toHaveAttribute("data-loop", "0:384");
+  await page.mouse.dblclick(rx(100), ry);
+  await expect(roll).toHaveAttribute("data-loop", "0:1152");
+
+  // While it plays, a click on the ruler takes it there at once.
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await page.mouse.click(rx(768), ry);
+  await expect(roll).toHaveAttribute("data-start", "768");
+  const status = await (await page.request.post("/api/engine/status", { data: {} })).json();
+  expect(status.transport.tick).toBeGreaterThanOrEqual(768);
+  expect(status.transport.tick).toBeLessThan(900);
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+});
+
 test("the event editor, note properties, ghost notes and the target channel", async ({ page }) => {
   const id = await openPiano(page, "Lane", [
     { start: 0, pitch: 72 },

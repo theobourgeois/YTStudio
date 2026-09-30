@@ -42,6 +42,8 @@ interface TransportState {
   /** Hold a key on a channel, or let it go (the Piano roll's keyboard, a note being drawn). `key` is a MIDI note. */
   preview: (channelId: string, key: number, on: boolean, velocity?: number) => void;
   setStartTick: (tick: number) => void;
+  /** Set where play starts, and if it's playing, go there now. */
+  jumpTo: (tick: number) => void;
 }
 
 export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: [] };
@@ -98,6 +100,10 @@ export const useTransport = create<TransportState>((set, get) => {
       void musicApi.engine("preview", { channel: channelId, key, on, velocity }).catch(() => {});
     },
     setStartTick: (tick) => set({ startTick: Math.max(0, Math.round(tick)) }),
+    jumpTo(tick) {
+      get().setStartTick(tick);
+      if (get().playing) get().play();
+    },
     showPlugin(channelId, open) {
       musicApi.engine("channelEditor", { channel: channelId, open }).then(
         (status) => set({ channels: status.channels }),

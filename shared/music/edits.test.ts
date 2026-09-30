@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addChannels,
   addPattern,
+  addPluginChannel,
   cloneChannel,
   clonePattern,
   drawSteps,
@@ -82,6 +83,19 @@ describe("channels", () => {
     expect(steps(removed, "chan_hat")).toBe("-x--------------");
     expect(removeChannel(song, "chan_none")).toBe(song);
     expect(normalizeMusicProject(removed)).toEqual(removed);
+  });
+
+  it("never leave the rack empty: its sampler, while untouched, gives way to the first channels added", () => {
+    const empty = removeChannels(rack(), rack().channels.map((c) => c.id));
+    expect(empty.channels.map((c) => c.name)).toEqual(["Sampler"]);
+    expect(normalizeMusicProject({ ...empty, channels: [] }).channels).toEqual(empty.channels);
+    expect(order(addChannels(empty, [{ id: "chan_kick", name: "Kick", sampleId: "s1" }]))).toEqual(["kick"]);
+    expect(addPluginChannel(empty, { id: "p", name: "Serum 2", format: "VST3" }).channels.map((c) => c.name)).toEqual(["Serum 2"]);
+    // Once it's been given notes (or anything else), it's a channel like any other.
+    const used = setSteps(empty, P, empty.channels[0].id, [0], true);
+    expect(order(addChannels(used, [{ id: "chan_kick", name: "Kick", sampleId: "s1" }]))).toEqual(["sampler", "kick"]);
+    const renamed = updateChannel(empty, empty.channels[0].id, { name: "Bass" });
+    expect(addChannels(renamed, [{ id: "chan_kick", name: "Kick", sampleId: "s1" }]).channels).toHaveLength(2);
   });
 
   it("are cloned with their settings but without their notes", () => {

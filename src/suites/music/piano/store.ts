@@ -4,7 +4,7 @@ import type { Note } from "@shared/music/types";
 import { useMusic } from "../store";
 import type { PianoView, Snap } from "./geometry";
 
-export const PIANO_TOOLS = ["draw", "paint", "delete", "mute", "slice", "select"] as const;
+export const PIANO_TOOLS = ["draw", "paint", "delete", "mute", "slice", "select", "playback"] as const;
 /** The Piano roll's tool: what the left button does on the grid (FL Studio's, with its keys). */
 export type PianoTool = (typeof PIANO_TOOLS)[number];
 
@@ -33,8 +33,10 @@ export type PianoDrag =
   | { kind: "mute"; ids: ReadonlySet<number>; muted: boolean }
   /** The selection rectangle, in ticks and pitches. `add`: with what's already selected. */
   | { kind: "rect"; from: number; to: number; low: number; high: number; add: boolean }
-  /** The slice tool's line: its ends as ticks and (fractional) pitches. */
-  | { kind: "slice"; a: { tick: number; pitch: number }; b: { tick: number; pitch: number } }
+  /** The slice tool's line: straight down at `tick` (on the grid), across the rows from `low` to `high`. */
+  | { kind: "slice"; tick: number; low: number; high: number }
+  /** The playback tool (scrubbing): the notes at `tick` sound. Changes no notes. */
+  | { kind: "playback"; tick: number }
   /** Values being drawn in the event editor. */
   | { kind: "values"; values: ReadonlyMap<number, NotePatch> };
 
@@ -44,9 +46,7 @@ interface PianoState {
   tool: PianoTool;
   snap: Snap;
   view: PianoView;
-  /** The window's size, and the grid's within it (measured; the zoom commands need it). */
-  width: number;
-  height: number;
+  /** The grid's size (measured; the zoom commands need it). */
   gridWidth: number;
   gridHeight: number;
   /** The event editor's height (0: hidden), and the property it shows. */
@@ -84,8 +84,6 @@ const INITIAL = {
   snap: "line" as Snap,
   // About four bars across, and three octaves up from C4.
   view: { scrollTick: 0, pxPerTick: 0.5, topPitch: 84, rowHeight: 16 },
-  width: 920,
-  height: 540,
   gridWidth: 800,
   gridHeight: 360,
   laneHeight: DEFAULT_LANE_HEIGHT,

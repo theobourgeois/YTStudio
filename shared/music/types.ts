@@ -110,7 +110,8 @@ export interface Pattern {
   name: string;
   /**
    * Its length in steps (sixteenth notes), or null for FL Studio's Auto: up to the end of the last bar
-   * a note sounds in (`patternSteps`). Notes past a set length stay, unheard.
+   * a note sounds in (`patternSteps`). A set length is the least it is: notes past it take the pattern to
+   * the end of their bar, as in FL Studio.
    */
   length: number | null;
   /** Each channel's notes (by channel id), in order of `start`. Channels without notes are absent. */

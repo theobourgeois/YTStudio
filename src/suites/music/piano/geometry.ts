@@ -46,6 +46,64 @@ export function pitchFromName(name: string): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// The keyboard
+// ---------------------------------------------------------------------------
+
+/** How much of the keyboard's width its black keys take. */
+export const BLACK_KEY_WIDTH = 0.6;
+
+/**
+ * An octave's white keys as a piano has them: three share the five rows from C to E, four the seven
+ * from F to B. `[semitone, from, to]`, in rows up from the bottom of the octave's C.
+ */
+const WHITE_KEYS: [number, number, number][] = [
+  [0, 0, 5 / 3],
+  [2, 5 / 3, 10 / 3],
+  [4, 10 / 3, 5],
+  [5, 5, 5 + 7 / 4],
+  [7, 5 + 7 / 4, 5 + 14 / 4],
+  [9, 5 + 14 / 4, 5 + 21 / 4],
+  [11, 5 + 21 / 4, 12],
+];
+
+export interface WhiteKey {
+  pitch: number;
+  /** Its top and bottom edges on screen. */
+  top: number;
+  bottom: number;
+}
+
+/** The white keys of the pitches from `low` to `high`, drawn at their true sizes. */
+export function whiteKeys(view: PianoView, low: number, high: number): WhiteKey[] {
+  const keys: WhiteKey[] = [];
+  for (let octave = Math.floor(low / 12); octave <= Math.floor(high / 12); octave++) {
+    // The bottom of the octave's C row.
+    const base = pitchToY(view, octave * 12) + view.rowHeight;
+    for (const [semitone, from, to] of WHITE_KEYS) {
+      const pitch = octave * 12 + semitone;
+      if (pitch < low || pitch > high) continue;
+      keys.push({ pitch, top: base - to * view.rowHeight, bottom: base - from * view.rowHeight });
+    }
+  }
+  return keys;
+}
+
+/**
+ * The key under a point of the keyboard (`blackWidth` px of it are black keys' width): a black key
+ * where one is drawn, else the white key whose true shape the point is in.
+ */
+export function keyAt(view: PianoView, x: number, y: number, blackWidth: number): number {
+  const pitch = yToPitch(view, y);
+  if (isBlackKey(pitch) && x < blackWidth) return pitch;
+  // Rows up from the bottom of pitch 0's row.
+  const rows = view.topPitch + 1 - y / view.rowHeight;
+  const octave = Math.floor(rows / 12);
+  const within = rows - octave * 12;
+  const key = WHITE_KEYS.find(([, from, to]) => within >= from && within < to) ?? WHITE_KEYS[6];
+  return clamp(octave * 12 + key[0], LOWEST_PITCH, HIGHEST_PITCH);
+}
+
+// ---------------------------------------------------------------------------
 // Grid and snap
 // ---------------------------------------------------------------------------
 
@@ -191,23 +249,6 @@ export function hitNote(notes: readonly Note[], view: PianoView, x: number, y: n
   const width = best.length * view.pxPerTick;
   const fromEnd = tickToX(view, best.start + best.length) - x;
   return { note: best, edge: fromEnd <= Math.min(RESIZE_ZONE, width / 2) };
-}
-
-/**
- * The slice tool's line as a cut: for a pitch, the tick where the line crosses the middle of its row,
- * on the grid; null for the pitches it doesn't reach. `a` and `b` are its ends, as ticks and
- * (fractional) pitches.
- */
-export function sliceLine(a: { tick: number; pitch: number }, b: { tick: number; pitch: number }, grid: number): (pitch: number) => number | null {
-  const low = Math.min(a.pitch, b.pitch);
-  const high = Math.max(a.pitch, b.pitch);
-  return (pitch) => {
-    const middle = pitch - 0.5;
-    // A row is crossed if the line reaches any part of it.
-    if (pitch - 1 > high || pitch < low) return null;
-    const along = a.pitch === b.pitch ? 0 : clamp((middle - a.pitch) / (b.pitch - a.pitch), 0, 1);
-    return snapTick(a.tick + (b.tick - a.tick) * along, grid, "line");
-  };
 }
 
 /**

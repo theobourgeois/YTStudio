@@ -243,13 +243,20 @@ Built from this document (`src/suites/music/piano/`); every behaviour in the fir
 `e2e/piano.spec.ts` or beside the code. Decided with Théo: quantize is in (he uses it all the time);
 resizing from the left is out; the "modifier" tools (arpeggiate, randomize, strum...) wait.
 
-**Same as FL Studio**: F7, the toolbar's Piano roll button and the rack menu open it; the target
-channel menu (in-pattern first) and G / K, H / J; the Draw (P), Paint (B), Delete (D), Mute (T), Slice (C)
-and Select (E) tools; left adds, right deletes (sweeping); Ctrl selects (Ctrl+Shift adds); moving,
+**Same as FL Studio**: F7, the toolbar's Piano roll button and the rack menu open it, filling the
+desktop (a double-click on its title makes it a window, resizable by its edges; dragged to the top it fills
+the desktop again, to a side half of it); the target channel menu (in-pattern first) and G / K, H / J; the
+Draw (P), Paint (B), Delete (D), Mute (T), Slice (C), Select (E) and Playback (Y, or Alt+right-drag) tools,
+each with its own pointer; the slice line straight down at the grid line nearest the pointer, the pieces it
+cuts off shown red (selected) while it's dragged; deleted notes shrink and fade; left adds, right deletes
+(sweeping), with the eraser pointer; a click on nothing with notes selected deselects them (and adds
+nothing); Ctrl selects (Ctrl+Shift adds); moving,
 resizing by the right edge, Shift+drag to clone, Shift / Ctrl to lock an axis once moving, Alt to bypass
 snap; new notes as long as the last touched; the stretch handle; the snap menu (Line, Cell, none, step
 and beat fractions, bar); the time selection (double-click or Ctrl+drag the ruler, red, loops playback,
-Ctrl+Enter, Ctrl+← / →, a right-click clears it); a ruler click sets where play starts; Ctrl+B with the
+Ctrl+Enter, Ctrl+← / →, a right-click or a double-click without a drag clears it); a ruler click sets where
+play starts, and while the song plays it goes there at once; a note past the pattern's end makes the
+pattern reach the end of that note's bar (a set length is only the least it is); Ctrl+B with the
 copies selected and the time selection moving; Ctrl+A / D, Shift+I, Ctrl+C / X / V (pasted at the first
 bar in view), Delete; Shift+arrows, Ctrl+↑ / ↓, Alt+arrows, Shift+Ctrl+← / →; Ctrl+G, Ctrl+U, Ctrl+Q,
 Shift+Q, Ctrl+L, Shift+D, Alt+M / Alt+Shift+M; the event editor (velocity and pan; Shift+drag, Alt to
@@ -264,7 +271,8 @@ shows a miniature of them in the rack, which opens them.
 | Paint | Monophonic: replaces the notes it overlaps | Lays notes over what's there |
 | Quantize | Also a dialog (Alt+Q) with strength and swing | Quick quantize only (Ctrl+Q, Shift+Q) |
 | Event editor | Release, fine pitch, Mod X / Y, repeat, automation | Velocity and pan |
-| Zoom tool, Playback tool | Z, Y | Not yet (Ctrl+wheel and the keys zoom) |
+| Zoom tool | Z | Not yet (Ctrl+wheel and the keys zoom) |
+| Look | FL Studio's artwork | Its layout and colours (pale green notes, red selected, a blue-grey grid, real piano keys), drawn our way, in a dark and a light version |
 | Scrollbars | Drag their ends to zoom | Drag to scroll only |
 | Snap | Main, Events, Markers | Not those three |
 | Notes | Colour groups (MIDI channels), slide and portamento | None |

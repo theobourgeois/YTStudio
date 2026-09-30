@@ -10,9 +10,11 @@ import { type NewNote, type NotePatch, noteBounds } from "@shared/music/notes";
 import type { Note } from "@shared/music/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useTransport } from "../transport";
-import { commitDrag, cancelDrag, deselect, pianoContext, selectTime } from "./actions";
+import { type PianoContext, commitDrag, cancelDrag, deselect, pianoContext, selectTime } from "./actions";
+import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR } from "./cursors";
 import { stretchHandle } from "./draw";
-import { type PianoView, hitNote, paintStarts, snapDelta, snapTick, tickToX, xToTick, yToPitch } from "./geometry";
+import { fadeOut } from "./fades";
+import { BLACK_KEY_WIDTH, type PianoView, hitNote, keyAt, paintStarts, snapDelta, snapTick, tickToX, visibleRange, xToTick, yToPitch } from "./geometry";
 import { usePiano } from "./store";
 
 type Press = ReactPointerEvent<HTMLElement>;
@@ -21,8 +23,8 @@ const local = (element: Element, ev: { clientX: number; clientY: number }) => {
   const rect = element.getBoundingClientRect();
   return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
 };
-/** The pitch a y is at, as a fraction (the slice tool's line isn't on rows). */
-const exactPitch = (view: PianoView, y: number) => view.topPitch - y / view.rowHeight + 0.5;
+/** Show this pointer over the grid while a press lasts (the grid's own, set here, would hide the drag's). */
+const show = (element: HTMLElement, cursor: string) => (element.style.cursor = cursor);
 
 /** Play a key of the channel for as long as it's held, moving to another as the pointer does. */
 function holdKey(channelId: string) {
@@ -40,6 +42,86 @@ function holdKey(channelId: string) {
       held = null;
     },
   };
+}
+
+/** Play the keys of the channel that are held (the notes under the playback tool), letting go of the others. */
+function holdKeys(channelId: string) {
+  const held = new Map<number, number>();
+  const transport = () => useTransport.getState();
+  return {
+    set(keys: ReadonlyMap<number, number>) {
+      for (const key of held.keys()) if (!keys.has(key)) transport().preview(channelId, key, false);
+      for (const [key, velocity] of keys) if (!held.has(key)) transport().preview(channelId, key, true, velocity);
+      held.clear();
+      for (const [key, velocity] of keys) held.set(key, velocity);
+    },
+    release() {
+      this.set(new Map());
+    },
+  };
+}
+
+/** The notes sounding at a tick: their keys and velocities (the loudest, where two share a key). */
+function notesAt(notes: readonly Note[], tick: number): Map<number, number> {
+  const keys = new Map<number, number>();
+  const [from, to] = visibleRange(notes, tick, tick + 1);
+  for (let i = from; i < to; i++) {
+    const note = notes[i];
+    if (note.muted || tick < note.start || tick >= note.start + note.length) continue;
+    keys.set(note.pitch, Math.max(keys.get(note.pitch) ?? 0, note.velocity));
+  }
+  return keys;
+}
+
+/**
+ * The playback tool (Alt+right-drag with the others): what's under the pointer sounds, as it's moved
+ * along, at whatever speed and in whichever direction.
+ */
+function scrub(e: Press, element: HTMLElement, ctx: PianoContext, button: 0 | 2) {
+  const { view } = usePiano.getState();
+  const keys = holdKeys(ctx.channel.id);
+  const at = (x: number) => {
+    const tick = Math.max(0, xToTick(view, x));
+    keys.set(notesAt(ctx.notes, tick));
+    usePiano.getState().setDrag({ kind: "playback", tick });
+  };
+  show(element, CURSORS.speaker);
+  at(local(element, e).x);
+  const stop = () => {
+    keys.release();
+    cancelDrag();
+  };
+  startPointerDrag(e, { button, threshold: 0, onMove: (ev) => at(local(element, ev).x), onEnd: stop, onClick: stop, onCancel: stop });
+}
+
+/** Sweep across notes with the right button or the delete tool: each is deleted as it's touched. */
+function erase(e: Press, element: HTMLElement, ctx: PianoContext, hit: Note | null, button: 0 | 2, onClickNothing?: () => void) {
+  const { view } = usePiano.getState();
+  const erased = new Set<number>();
+  const take = (note: Note | null) => {
+    if (!note || erased.has(note.id)) return;
+    erased.add(note.id);
+    fadeOut([note], ctx.selected);
+    usePiano.getState().setDrag({ kind: "erase", ids: new Set(erased) });
+  };
+  show(element, CURSORS.eraser);
+  usePiano.getState().setDrag({ kind: "erase", ids: new Set() });
+  take(hit);
+  startPointerDrag(e, {
+    button,
+    threshold: 0,
+    onMove(ev) {
+      const q = local(element, ev);
+      take(noteAt(ctx.notes, view, q.x, q.y));
+    },
+    onEnd: commitDrag,
+    onClick() {
+      if (erased.size) return commitDrag();
+      cancelDrag();
+      onClickNothing?.();
+    },
+    onCancel: cancelDrag,
+  });
 }
 
 /** The notes under a point, for the sweeping tools (erase, mute). */
@@ -79,6 +161,7 @@ export function gridPointerDown(e: Press) {
   // The middle button pans, whatever the tool.
   if (e.button === 1) {
     e.preventDefault();
+    show(element, MOVING_CURSOR);
     startPointerDrag(e, {
       button: 1,
       threshold: 0,
@@ -97,8 +180,10 @@ export function gridPointerDown(e: Press) {
 
   const hit = hitNote(ctx.notes, view, p.x, p.y, ctx.selected);
 
-  // The right button deletes, sweeping; on nothing, it deselects. Twice on a ghost note: to its channel.
+  // The right button deletes, sweeping; on nothing, it deselects. Twice on a ghost note: to its
+  // channel. With Alt: the playback tool.
   if (e.button === 2) {
+    if (e.altKey) return scrub(e, element, ctx, 2);
     if (!hit && piano.ghosts) {
       const ghost = Object.entries(ctx.pattern.notes).find(([id, notes]) => id !== ctx.channel.id && noteAt(notes, view, p.x, p.y));
       if (ghost) {
@@ -108,28 +193,7 @@ export function gridPointerDown(e: Press) {
         return;
       }
     }
-    const erased = new Set<number>(hit ? [hit.note.id] : []);
-    piano.setDrag({ kind: "erase", ids: new Set(erased) });
-    startPointerDrag(e, {
-      button: 2,
-      threshold: 0,
-      onMove(ev) {
-        const q = at(ev);
-        const note = noteAt(ctx.notes, view, q.x, q.y);
-        if (note && !erased.has(note.id)) {
-          erased.add(note.id);
-          usePiano.getState().setDrag({ kind: "erase", ids: new Set(erased) });
-        }
-      },
-      onEnd: commitDrag,
-      onClick() {
-        if (!erased.size) {
-          cancelDrag();
-          deselect();
-        } else commitDrag();
-      },
-      onCancel: cancelDrag,
-    });
+    erase(e, element, ctx, hit?.note ?? null, 2, deselect);
     return;
   }
   if (e.button !== 0) return;
@@ -146,6 +210,7 @@ export function gridPointerDown(e: Press) {
     const handle = stretchHandle(view, bounds);
     if (p.x >= handle.x - 2 && p.x <= handle.x + handle.size + 2 && p.y >= handle.y - 2 && p.y <= handle.y + handle.size + 2) {
       const span = bounds.end - bounds.start;
+      show(element, RESIZE_CURSOR);
       startPointerDrag(e, {
         threshold: 0,
         cursor: "ew-resize",
@@ -169,6 +234,7 @@ export function gridPointerDown(e: Press) {
       piano.select(next);
       return;
     }
+    show(element, "crosshair");
     startPointerDrag(e, {
       threshold: 3,
       onMove(ev) {
@@ -190,28 +256,14 @@ export function gridPointerDown(e: Press) {
     return;
   }
 
-  if (tool === "delete") {
-    const erased = new Set<number>(hit ? [hit.note.id] : []);
-    piano.setDrag({ kind: "erase", ids: new Set(erased) });
-    startPointerDrag(e, {
-      threshold: 0,
-      onMove(ev) {
-        const q = at(ev);
-        const note = noteAt(ctx.notes, view, q.x, q.y);
-        if (note && !erased.has(note.id)) {
-          erased.add(note.id);
-          usePiano.getState().setDrag({ kind: "erase", ids: new Set(erased) });
-        }
-      },
-      ...finish,
-    });
-    return;
-  }
+  if (tool === "delete") return erase(e, element, ctx, hit?.note ?? null, 0);
+  if (tool === "playback") return scrub(e, element, ctx, 0);
 
   if (tool === "mute") {
     // The first note says which way: muting, or unmuting what's swept after it.
     const muted = hit ? !hit.note.muted : true;
     const swept = new Set<number>(hit ? [hit.note.id] : []);
+    show(element, CURSORS.mute);
     piano.setDrag({ kind: "mute", ids: new Set(swept), muted });
     startPointerDrag(e, {
       threshold: 0,
@@ -228,19 +280,16 @@ export function gridPointerDown(e: Press) {
     return;
   }
 
+  // The slice tool: a line straight down through the notes, at the grid line nearest the pointer,
+  // from the row pressed to the row it's dragged to. Each note it crosses is cut there when let go.
   if (tool === "slice") {
-    const a = { tick: tick0, pitch: exactPitch(view, p.y) };
-    startPointerDrag(e, {
-      threshold: 0,
-      cursor: "crosshair",
-      onMove(ev) {
-        const q = local(element, ev);
-        // Shift: straight down, at the time it started.
-        const b = { tick: ev.shiftKey ? tick0 : xToTick(view, q.x), pitch: exactPitch(view, q.y) };
-        usePiano.getState().setDrag({ kind: "slice", a, b });
-      },
-      ...finish,
-    });
+    const slice = (ev: { clientX: number; clientY: number; altKey: boolean }) => {
+      const q = local(element, ev);
+      usePiano.getState().setDrag({ kind: "slice", tick: snapTick(xToTick(view, q.x), gridOf(ev), "line"), low: pitch0, high: yToPitch(view, q.y) });
+    };
+    show(element, CURSORS.knife);
+    slice(e);
+    startPointerDrag(e, { threshold: 0, onMove: slice, ...finish });
     return;
   }
 
@@ -253,6 +302,7 @@ export function gridPointerDown(e: Press) {
     usePiano.setState({ noteLength: hit.note.length });
     if (hit.edge) {
       const end = hit.note.start + hit.note.length;
+      show(element, RESIZE_CURSOR);
       startPointerDrag(e, {
         threshold: 2,
         cursor: "ew-resize",
@@ -267,6 +317,7 @@ export function gridPointerDown(e: Press) {
       return;
     }
     const clone = e.shiftKey;
+    show(element, MOVING_CURSOR);
     keys.to(hit.note.pitch);
     startPointerDrag(e, {
       threshold: 2,
@@ -291,6 +342,12 @@ export function gridPointerDown(e: Press) {
         cancelDrag();
       },
     });
+    return;
+  }
+
+  // On nothing, with notes selected: a click away from them deselects them (and adds nothing).
+  if (ctx.selected.size) {
+    piano.select([]);
     return;
   }
 
@@ -360,19 +417,37 @@ export function gridPointerDown(e: Press) {
   });
 }
 
-/** The pointer's cursor over the grid: resize on a note's edge, move on a note. */
-export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY: number }): string {
+/**
+ * The pointer over the grid, for the tool and what's under it: FL Studio's, a pencil or a brush on
+ * the background, a hand on a note, ⟷ on its right edge, the delete, mute, slice and playback tools'
+ * own; a cross while Ctrl (selecting) is held.
+ */
+export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY: number; ctrlKey?: boolean; metaKey?: boolean }): string {
   const ctx = pianoContext();
   if (!ctx) return "default";
   const { view, tool } = usePiano.getState();
+  if (ev.ctrlKey || ev.metaKey) return "crosshair";
+  if (tool === "delete") return CURSORS.eraser;
+  if (tool === "mute") return CURSORS.mute;
+  if (tool === "slice") return CURSORS.knife;
+  if (tool === "playback") return CURSORS.speaker;
   const p = local(element, ev);
-  if (tool === "slice") return "crosshair";
-  if (tool === "delete" || tool === "mute" || tool === "select") return "default";
+  const bounds = ctx.selected.size > 1 ? noteBounds(ctx.notes, ctx.selected) : null;
+  if (bounds) {
+    const handle = stretchHandle(view, bounds);
+    if (p.x >= handle.x - 2 && p.x <= handle.x + handle.size + 2 && p.y >= handle.y - 2 && p.y <= handle.y + handle.size + 2) return RESIZE_CURSOR;
+  }
   const hit = hitNote(ctx.notes, view, p.x, p.y, ctx.selected);
-  return hit ? (hit.edge ? "ew-resize" : "move") : "crosshair";
+  if (tool === "select") return hit ? "pointer" : "default";
+  if (hit) return hit.edge ? RESIZE_CURSOR : MOVE_CURSOR;
+  return tool === "paint" ? CURSORS.brush : CURSORS.pencil;
 }
 
-/** The ruler: a click sets where play starts; a double-click (or Ctrl) and drag selects a range of time; a right-click clears it. */
+/**
+ * The ruler: a click (or a drag) sets where play starts, and while the song plays, it goes there at
+ * once. A double-click and drag (or Ctrl and drag) selects a range of time; a double-click without
+ * dragging, or a right-click, clears it.
+ */
 export function rulerPointerDown(e: Press) {
   const ctx = pianoContext();
   if (!ctx) return;
@@ -386,11 +461,24 @@ export function rulerPointerDown(e: Press) {
   if (e.button !== 0) return;
   const start = tickAt(e);
   if (isDouble(e) || e.ctrlKey || e.metaKey) {
-    startPointerDrag(e, { threshold: 2, onMove: (ev) => selectTime(start, tickAt(ev)) });
+    const double = !(e.ctrlKey || e.metaKey);
+    startPointerDrag(e, { threshold: 2, onMove: (ev) => selectTime(start, tickAt(ev)), onClick: () => double && usePiano.setState({ time: null }) });
     return;
   }
-  useTransport.getState().setStartTick(start);
-  startPointerDrag(e, { threshold: 2, onMove: (ev) => useTransport.getState().setStartTick(tickAt(ev)) });
+  const transport = useTransport.getState();
+  transport.jumpTo(start);
+  // Dragged: the start follows; a playing song goes along, but not more often than it can be heard.
+  let last = performance.now();
+  startPointerDrag(e, {
+    threshold: 2,
+    onMove(ev) {
+      const now = performance.now();
+      if (useTransport.getState().playing && now - last < 60) return useTransport.getState().setStartTick(tickAt(ev));
+      last = now;
+      useTransport.getState().jumpTo(tickAt(ev));
+    },
+    onEnd: () => useTransport.getState().jumpTo(useTransport.getState().startTick),
+  });
 }
 
 /** The keyboard: a key sounds while it's held (sliding to others); Ctrl selects the notes of the keys dragged over. */
@@ -399,7 +487,11 @@ export function keysPointerDown(e: Press) {
   if (!ctx || e.button !== 0) return;
   const element = e.currentTarget;
   const { view } = usePiano.getState();
-  const pitchAt = (ev: { clientX: number; clientY: number }) => yToPitch(view, local(element, ev).y);
+  const blackWidth = element.getBoundingClientRect().width * BLACK_KEY_WIDTH;
+  const pitchAt = (ev: { clientX: number; clientY: number }) => {
+    const q = local(element, ev);
+    return keyAt(view, q.x, q.y, blackWidth);
+  };
   const first = pitchAt(e);
   if (e.ctrlKey || e.metaKey) {
     const select = (a: number, b: number) =>

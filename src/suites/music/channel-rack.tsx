@@ -14,7 +14,6 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Toggle } from "@/components/ui/toggle";
 import { startPointerDrag } from "@/lib/pointer-drag";
@@ -124,43 +123,26 @@ export function ChannelRack() {
           if (audio.length) void useMusic.getState().addSamples(audio);
         }}
       >
-        {channels.length === 0 ? (
-          <div className="flex w-[520px] flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-10 text-center">
-            <p className="text-sm text-muted-foreground">No channels yet. Add an instrument, start with four drums, or drop your own samples here.</p>
-            <div className="flex items-center gap-2">
-              <ChannelPicker />
-              <Button size="sm" onClick={() => void useMusic.getState().addStarterKit()}>
-                Add starter kit
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => file.current?.click()}>
-                Add samples…
-              </Button>
-            </div>
+        <div className="flex">
+          <div className={cn("flex shrink-0 flex-col", LEAD)} style={{ gap: ROW_GAP, paddingTop: 12 }} role="list" aria-label="Channels">
+            {channels.map((channel) => (
+              <ChannelLead key={channel.id} channel={channel} selected={selectedIdsNow.includes(channel.id)} />
+            ))}
           </div>
-        ) : (
-          <div className="flex">
-            <div className={cn("flex shrink-0 flex-col", LEAD)} style={{ gap: ROW_GAP, paddingTop: 12 }} role="list" aria-label="Channels">
+          <div className="ml-2 max-w-[min(62vw,1180px)] overflow-x-auto pb-1" data-testid="rack-steps">
+            <div className="flex flex-col" style={{ gap: ROW_GAP, width: stepsWidth(steps) }}>
+              <StepLights steps={steps} />
               {channels.map((channel) => (
-                <ChannelLead key={channel.id} channel={channel} selected={selectedIdsNow.includes(channel.id)} />
+                <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
               ))}
-            </div>
-            <div className="ml-2 max-w-[min(62vw,1180px)] overflow-x-auto pb-1" data-testid="rack-steps">
-              <div className="flex flex-col" style={{ gap: ROW_GAP, width: stepsWidth(steps) }}>
-                <StepLights steps={steps} />
-                {channels.map((channel) => (
-                  <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
-                ))}
-                {graph && (selected[0] ?? channels[0]) && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
-              </div>
+              {graph && (selected[0] ?? channels[0]) && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
             </div>
           </div>
-        )}
+        </div>
 
-        {channels.length > 0 && (
-          <div className={cn("flex justify-center", LEAD)}>
-            <ChannelPicker />
-          </div>
-        )}
+        <div className={cn("flex justify-center", LEAD)}>
+          <ChannelPicker />
+        </div>
         <input
           ref={file}
           type="file"

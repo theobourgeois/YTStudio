@@ -76,7 +76,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     return send({ id, ok: true, result: devices() });
   }
   // Started `from` ticks in: as if it had begun that much earlier.
-  if (cmd === "play" && playingSince === null) playingSince = Date.now() - ((params.from ?? 0) / (song ? song.tempo * song.ppq : 1)) * 60000;
+  if (cmd === "play") playingSince = Date.now() - ((params.from ?? 0) / (song ? song.tempo * song.ppq : 1)) * 60000;
   if (cmd === "stop") {
     playingSince = null;
     sendTransport();

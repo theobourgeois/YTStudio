@@ -8,17 +8,18 @@ import {
   gridTicks,
   hitNote,
   isBlackKey,
+  keyAt,
   paintStarts,
   parseTime,
   pitchFromName,
   pitchName,
   pitchToY,
-  sliceLine,
   snapDelta,
   snapTick,
   snapTicks,
   tickToX,
   visibleRange,
+  whiteKeys,
   xToTick,
   yToPitch,
   zoomAt,
@@ -55,6 +56,32 @@ describe("where things are", () => {
     expect(pitchFromName("H2")).toBeNull();
     expect(pitchFromName("C99")).toBeNull();
     expect([60, 61, 62, 63, 64].map(isBlackKey)).toEqual([false, true, false, true, false]);
+  });
+
+  it("draws white keys at a piano's sizes: three from C to E, four from F to B, meeting the rows at E|F and B|C", () => {
+    // C5's row is y 192 to 208; the octave's rows go up from 208, 16 px each.
+    const keys = whiteKeys(view, 60, 71);
+    expect(keys.map((k) => k.pitch)).toEqual([60, 62, 64, 65, 67, 69, 71]);
+    expect(keys[0]).toEqual({ pitch: 60, top: 208 - (16 * 5) / 3, bottom: 208 });
+    expect(keys[2].top).toBe(128);
+    expect(keys[3].bottom).toBe(128);
+    expect(keys[6].top).toBe(16);
+    // Every key meets the next: no gaps, no overlaps.
+    for (let i = 1; i < keys.length; i++) expect(keys[i].bottom).toBeCloseTo(keys[i - 1].top);
+  });
+
+  it("finds the key under the pointer by its true shape, black keys over the white", () => {
+    const black = 30;
+    // In C#5's row: on the black key, or past its end, on C5 or D5 by where the white keys meet.
+    expect(keyAt(view, 10, 185, black)).toBe(61);
+    expect(keyAt(view, 40, 185, black)).toBe(60);
+    expect(keyAt(view, 40, 178, black)).toBe(62);
+    expect(keyAt(view, 10, 170, black)).toBe(62);
+    // Either side of E|F, and of B|C.
+    expect(keyAt(view, 40, 129, black)).toBe(64);
+    expect(keyAt(view, 40, 127, black)).toBe(65);
+    expect(keyAt(view, 40, 15, black)).toBe(72);
+    expect(keyAt(view, 40, 17, black)).toBe(71);
   });
 });
 
@@ -127,17 +154,6 @@ describe("notes on screen", () => {
     // A short note's edge is never more than half of it.
     expect(hitNote(notes, flat, 805, y(60))).toMatchObject({ note: { id: 5 }, edge: false });
     expect(hitNote(notes, flat, 820, y(60))).toMatchObject({ note: { id: 5 }, edge: true });
-  });
-
-  it("turns the slice tool's line into a cut per pitch", () => {
-    // Straight down through 3 rows at tick 100: the same cut on each, on the grid.
-    const straight = sliceLine({ tick: 100, pitch: 64.5 }, { tick: 100, pitch: 61.5 }, 24);
-    expect([65, 64, 63, 62, 61, 60].map(straight)).toEqual([96, 96, 96, 96, null, null]);
-    // Slanted: later on the lower rows.
-    const slanted = sliceLine({ tick: 0, pitch: 64 }, { tick: 96, pitch: 60 }, 1);
-    expect(slanted(64)).toBe(12);
-    expect(slanted(61)).toBe(84);
-    expect(slanted(70)).toBeNull();
   });
 
   it("lays a paint stroke's notes end to end", () => {

@@ -30,6 +30,7 @@ import { currentPattern, useMusic } from "../store";
 import { patternTickNow, useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
+import { fadeOut } from "./fades";
 import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, snapTicks, zoomAt, zoomToRange } from "./geometry";
 import { DEFAULT_LANE_HEIGHT, type PianoTool, usePiano } from "./store";
 
@@ -106,7 +107,8 @@ export function commitDrag() {
   usePiano.setState({ drag: null });
   if (!drag || !ctx) return;
   if (drag.kind === "rect") return piano.select(rectSelection(ctx.notes, drag, ctx.selected));
-  const result = applyDrag(ctx.notes, drag, ctx.grid);
+  if (drag.kind === "playback") return;
+  const result = applyDrag(ctx.notes, drag);
   if (result.notes === ctx.notes) return;
   edit(ctx, () => result.notes);
   // Copies take the selection with them; so do the halves a slice made of selected notes.
@@ -166,6 +168,7 @@ export function shiftTime(direction: -1 | 1) {
 export function deleteSelected() {
   const ctx = pianoContext();
   if (!ctx?.selected.size) return;
+  fadeOut(ctx.notes.filter((n) => ctx.selected.has(n.id)), ctx.selected);
   edit(ctx, (notes) => removeNotes(notes, ctx.selected));
   usePiano.getState().select([]);
 }

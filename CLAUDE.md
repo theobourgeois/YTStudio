@@ -254,14 +254,19 @@ swing), the Piano roll, the transport and the metronome. Next: the mixer, the pl
   is `geometry.ts`, its mouse `pointer.ts`, its keys `keys.ts` (run by the workspace while it's the front window),
   its commands `actions.ts`. The time selection is what the engine loops (`SetSongRequest.loop`; the engine's
   ticks then count from the loop's start: `patternTickNow`), and a ruler click is where play starts
-  (`play { from }`).
+  (`play { from }`; sent while playing, the engine goes there at once). Its look is FL's, in colours of its own
+  for each theme (`readPalette`): don't take the page's theme colours for the grid or the notes. Each tool has its
+  pointer (`cursors.ts`, picked by `gridCursor`; a drag sets the canvas's own while it lasts), and deleted notes
+  fade out (`fades.ts`: call `fadeOut` wherever notes are deleted).
 - The tab sends the whole song to the engine on every change, even mid-drag (`engine-sync.ts` →
   `POST /api/engine/song`: the server normalises it, compiles it and turns sample ids into paths). The engine
   swaps songs without a gap. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a
   second); the tab fills in between (`tickNow`) and shows it late by the output's latency.
 - **Everything is a window** (`window.tsx`: `MusicWindow` on the `Desktop`), as in FL Studio: dragged by its
-  title bar, brought forward when touched, closed and reopened (`ui.ts` keeps which are open and where). A new
-  panel is a new window, not a docked pane. One thing to know: a menu opened from inside a window is drawn
+  title bar, its edges sticking to the desktop's and other windows' (Alt: not), brought forward when touched,
+  closed and reopened (`ui.ts` keeps which are open and where). A `resizable` one also resizes by its edges and
+  fills the desktop (double-click its title, or drag it to the top) or half of it (drag it to a side); the Piano
+  roll opens that way. The maths is `window-geometry.ts`. A new panel is a new window, not a docked pane. One thing to know: a menu opened from inside a window is drawn
   elsewhere on the page but its React events still bubble through the window, so a handler on a container must
   check `currentTarget.contains(target)` before treating a press as its own (the title bar's drag does).
 - **Mouse conventions** (FL's, and the ones to keep in every panel): the left button adds or turns on, the right

@@ -15,6 +15,7 @@ import {
   MIN_SAMPLE_LENGTH,
   MIN_TEMPO,
   createChannel,
+  emptyRack,
   createPattern,
   byStart,
   createPluginChannel,
@@ -91,16 +92,30 @@ export const setTimeSignature = (song: MusicProject, timeSignature: [number, num
 // Channels
 // ---------------------------------------------------------------------------
 
+/**
+ * The channels new ones go after. A rack is never empty (`emptyRack`), but the sampler it's given then
+ * is only a placeholder: while it's untouched (no sample, no notes, its settings as they came), the
+ * first channels added take its place.
+ */
+function channelsBefore(song: MusicProject): Channel[] {
+  const [only] = song.channels;
+  const untouched =
+    song.channels.length === 1 &&
+    JSON.stringify(only) === JSON.stringify(emptyRack()[0]) &&
+    song.patterns.every((p) => !p.notes[only.id]?.length);
+  return untouched ? [] : song.channels;
+}
+
 /** Add sampler channels at the end of the rack, one per sample. */
 export function addChannels(song: MusicProject, samples: { id?: string; name: string; sampleId: string | null }[]): MusicProject {
   if (!samples.length) return song;
-  return { ...song, channels: [...song.channels, ...samples.map((s) => createChannel(s.name.trim().slice(0, MAX_NAME) || "Channel", s.sampleId, s.id))] };
+  return { ...song, channels: [...channelsBefore(song), ...samples.map((s) => createChannel(s.name.trim().slice(0, MAX_NAME) || "Channel", s.sampleId, s.id))] };
 }
 
 /** Add a channel playing an instrument plugin, at the end of the rack. */
 export const addPluginChannel = (song: MusicProject, plugin: PluginRef, id?: string): MusicProject => ({
   ...song,
-  channels: [...song.channels, createPluginChannel(plugin, id)],
+  channels: [...channelsBefore(song), createPluginChannel(plugin, id)],
 });
 
 export type ChannelPatch = Partial<Pick<Channel, "name" | "sampleId" | "volume" | "pan" | "pitch" | "muted" | "cutSelf">> & {
@@ -179,7 +194,8 @@ export function removeChannels(song: MusicProject, ids: readonly string[]): Musi
   if (!gone.size) return song;
   return {
     ...song,
-    channels: song.channels.filter((c) => !gone.has(c.id)),
+    // All of them: the rack gets a sampler again, rather than being left empty.
+    channels: gone.size === song.channels.length ? emptyRack() : song.channels.filter((c) => !gone.has(c.id)),
     patterns: song.patterns.map((p) => {
       if (!Object.keys(p.notes).some((id) => gone.has(id))) return p;
       return { ...p, notes: Object.fromEntries(Object.entries(p.notes).filter(([id]) => !gone.has(id))) };

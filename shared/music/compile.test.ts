@@ -36,12 +36,13 @@ describe("compileSong", () => {
     expect(compileSong(song, null).loopTicks).toBe(384);
   });
 
-  it("loops a pattern over its length: automatic (the bars with notes), or set, leaving later notes unplayed", () => {
+  it("loops a pattern over its length: automatic (the bars with notes), or set, but never leaving notes out", () => {
     const song = setSteps(rack(), P, "chan_kick", [0, 20, 40], true);
     expect(compileSong(song, P)).toMatchObject({ loopTicks: 48 * 24, notes: [{ tick: 0 }, { tick: 480 }, { tick: 960 }] });
     const short = compileSong(setPatternLength(song, P, 24), P);
-    expect(short.loopTicks).toBe(24 * 24);
-    expect(short.notes.map((n) => n.tick)).toEqual([0, 480]);
+    expect(short.loopTicks).toBe(48 * 24);
+    expect(short.notes.map((n) => n.tick)).toEqual([0, 480, 960]);
+    expect(compileSong(setPatternLength(setSteps(rack(), P, "chan_kick", [0, 20], true), P, 24), P).loopTicks).toBe(24 * 24);
     expect(compileSong(setPatternLength(song, P, 64), P).loopTicks).toBe(64 * 24);
   });
 

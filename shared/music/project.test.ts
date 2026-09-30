@@ -3,6 +3,7 @@ import { setSteps } from "./edits.ts";
 import {
   DEFAULT_ENVELOPE,
   DEFAULT_PRECOMPUTED,
+  FIRST_CHANNEL_ID,
   FIRST_PATTERN_ID,
   MAX_TEMPO,
   createChannel,
@@ -29,12 +30,12 @@ const song: MusicProject = {
 };
 
 describe("music projects", () => {
-  it("start at 120 BPM in 4/4, with an empty rack and one pattern of automatic length", () => {
+  it("start at 120 BPM in 4/4, with a sampler in the rack and one pattern of automatic length", () => {
     expect(createMusicProject("Demo")).toEqual({
       version: 1,
       name: "Demo",
       settings: { tempo: 120, timeSignature: [4, 4], swing: 0 },
-      channels: [],
+      channels: [expect.objectContaining({ id: FIRST_CHANNEL_ID, name: "Sampler", kind: "sampler", sampleId: null })],
       patterns: [{ id: FIRST_PATTERN_ID, name: "Pattern 1", length: null, notes: {} }],
     });
     expect(stepsPerBar([3, 4])).toBe(12);
@@ -138,8 +139,11 @@ describe("a pattern's length", () => {
     expect(twice.patterns[0].notes.chan_kick.map((n) => n.id)).toEqual([4, 5, 6]);
   });
 
-  it("is what it's set to otherwise, whatever the notes", () => {
+  it("is at least what it's set to, and reaches the end of the bar of a note past that", () => {
     const set = { ...empty, patterns: [{ ...empty.patterns[0], length: 20 }] };
-    expect(steps(setSteps(set, FIRST_PATTERN_ID, "chan_kick", [40], true))).toBe(20);
+    expect(steps(setSteps(set, FIRST_PATTERN_ID, "chan_kick", [4], true))).toBe(20);
+    expect(steps(setSteps(set, FIRST_PATTERN_ID, "chan_kick", [19], true))).toBe(20);
+    expect(steps(setSteps(set, FIRST_PATTERN_ID, "chan_kick", [20], true))).toBe(32);
+    expect(steps(setSteps(set, FIRST_PATTERN_ID, "chan_kick", [40], true))).toBe(48);
   });
 });

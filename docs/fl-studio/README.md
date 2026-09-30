@@ -8,7 +8,7 @@ about to touch before changing it, and correct it when you learn it's wrong.
 - [channel-rack.md](channel-rack.md): the Channel Rack, the step sequencer, the graph editor and the
   Channel Settings window. Ends with where Vaudio differs today and what to change.
 - [piano-roll.md](piano-roll.md): the Piano roll's tools, selecting, the time selection, snap, the event
-  editor, ghost notes and every shortcut. Ends with what we build first. Not built yet.
+  editor, ghost notes and every shortcut. Ends with where Vaudio differs.
 - Playlist, mixer, browser: not written yet. Write each one before its phase is built.
 
 ## Where this comes from

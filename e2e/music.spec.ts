@@ -47,13 +47,21 @@ const muted = (page: Page) =>
   page.locator("[role=listitem][data-channel]").evaluateAll((rows) => rows.map((r) => (r.querySelector("button")!.getAttribute("aria-pressed") === "false" ? "M" : "-")).join(""));
 const rackOrder = (page: Page) => page.locator("[role=listitem][data-channel]").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-channel-name")));
 
+/** The rack's menu → Add starter kit: four drums. */
+async function addStarterKit(page: Page) {
+  await page.getByRole("button", { name: "Channel rack menu" }).click();
+  await page.getByRole("menuitem", { name: "Add starter kit" }).click();
+}
+
 test("makes a beat in the channel rack as in FL Studio: left turns steps on, right turns them off", async ({ page }) => {
   const id = await openNewSong(page, "First beat");
   const rack = page.getByTestId("channel-rack");
-  await expect(rack).toContainText("No channels yet");
+  // A new song's rack isn't empty: it has a sampler, as FL Studio's does, which the first channels added replace.
+  await expect(rack.getByRole("listitem")).toHaveCount(1);
+  await expect(rack).toContainText("Sampler");
 
   // The starter kit is four drums, in FL Studio's order, each a sample in the project's media.
-  await rack.getByRole("button", { name: "Add starter kit" }).click();
+  await addStarterKit(page);
   await expect(rack.getByRole("listitem")).toHaveCount(4);
   await expect.poll(async () => (await savedSong(page, id)).channels.map((c: { name: string }) => c.name)).toEqual(["Kick", "Clap", "Hat", "Snare"]);
   expect((await savedSong(page, id)).channels.every((c: { sampleId: string | null }) => c.sampleId)).toBe(true);
@@ -111,7 +119,7 @@ test("makes a beat in the channel rack as in FL Studio: left turns steps on, rig
 
 test("a pattern is as long as its notes: the rack is dragged wider to reach further steps", async ({ page }) => {
   const id = await openNewSong(page, "Length");
-  await page.getByRole("button", { name: "Add starter kit" }).click();
+  await addStarterKit(page);
   await expect(page.getByRole("listitem")).toHaveCount(4);
   const length = page.getByRole("spinbutton", { name: /Pattern length/ });
   await expect(length).toHaveAttribute("aria-valuenow", "16");
@@ -127,12 +135,17 @@ test("a pattern is as long as its notes: the rack is dragged wider to reach furt
   await expect(length).toHaveAttribute("aria-valuenow", "32");
   await expect.poll(async () => (await savedSong(page, id)).patterns[0]).toMatchObject({ length: null });
 
-  // Its menu sets a length; the steps past it stay, dimmed and unplayed. Auto brings the length back.
+  // Its menu sets a length: longer than the notes, it's that; shorter, the notes past it still play
+  // (as in FL Studio), so it reaches the end of their bar. Auto brings the length back.
+  await length.click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "4 bars" }).click();
+  await expect(length).toHaveAttribute("aria-valuenow", "64");
+  await expect.poll(async () => (await savedSong(page, id)).patterns[0].length).toBe(64);
   await length.click({ button: "right" });
   await page.getByRole("menuitemcheckbox", { name: "1 bar" }).click();
-  await expect(length).toHaveAttribute("aria-valuenow", "16");
-  expect((await drawn(page, "Clap"))[20]).toBe("x");
   await expect.poll(async () => (await savedSong(page, id)).patterns[0].length).toBe(16);
+  await expect(length).toHaveAttribute("aria-valuenow", "32");
+  expect((await drawn(page, "Clap"))[20]).toBe("x");
   await length.click({ button: "right" });
   await page.getByRole("menuitemcheckbox", { name: "Auto" }).click();
   await expect(length).toHaveAttribute("aria-valuenow", "32");
@@ -155,7 +168,7 @@ test("a pattern is as long as its notes: the rack is dragged wider to reach furt
 
 test("mutes and solos, selects, reorders, clones and deletes channels, by mouse and by FL Studio's keys", async ({ page }) => {
   const id = await openNewSong(page, "Channels");
-  await page.getByRole("button", { name: "Add starter kit" }).click();
+  await addStarterKit(page);
   await expect(page.getByRole("listitem")).toHaveCount(4);
 
   // The green light mutes; its right-click menu solos (again: everything back on).
@@ -281,7 +294,7 @@ test("the rack's + adds an instrument: a plugin of this computer's, or a sampler
 
 test("knobs work as in FL Studio, and a channel opens its settings window", async ({ page }) => {
   const id = await openNewSong(page, "Knobs");
-  await page.getByRole("button", { name: "Add starter kit" }).click();
+  await addStarterKit(page);
   await expect(page.getByRole("listitem")).toHaveCount(4);
 
   const tempo = page.getByRole("textbox", { name: "Tempo" });
@@ -361,7 +374,7 @@ test("knobs work as in FL Studio, and a channel opens its settings window", asyn
 
 test("the graph editor draws, scales, ramps and resets the selected channel's steps", async ({ page }) => {
   const id = await openNewSong(page, "Graph");
-  await page.getByRole("button", { name: "Add starter kit" }).click();
+  await addStarterKit(page);
   await expect(page.getByRole("listitem")).toHaveCount(4);
   await drag(page, step(page, "Hat", 1), step(page, "Hat", 8));
   await page.getByRole("button", { name: "Select Hat" }).click();

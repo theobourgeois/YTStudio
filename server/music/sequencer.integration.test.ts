@@ -168,17 +168,23 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
     expect(peakOf(left, STEP + 0.06 * RATE)).toBe(0);
   });
 
-  it("loops a pattern of automatic length over the bars with notes, and a set one over its length", async () => {
+  it("loops a pattern of automatic length over the bars with notes, and a set one over its length (or its notes')", async () => {
     // A hit on the first step of bar 2: two bars, so a hit every two bars, a bar in.
     await play(setSteps(rack(), P, "chan_kick", [16], true));
     await engine.command("play", {});
     expect(onsets((await hear(BEAT * 16)).channels[0])).toEqual([BEAT * 4, BEAT * 12]);
 
     await engine.command("stop", {});
-    // Set to half a bar, the hit in bar 2 is never reached.
-    await play(setPatternLength(setSteps(rack(), P, "chan_kick", [0, 16], true), P, 8));
+    // Set to half a bar: a hit every half bar.
+    await play(setPatternLength(setSteps(rack(), P, "chan_kick", [0], true), P, 8));
     await engine.command("play", {});
     expect(onsets((await hear(BEAT * 8)).channels[0])).toEqual([0, BEAT * 2, BEAT * 4, BEAT * 6]);
+
+    // A note past the set length makes it reach the end of that note's bar.
+    await engine.command("stop", {});
+    await play(setPatternLength(setSteps(rack(), P, "chan_kick", [0, 16], true), P, 8));
+    await engine.command("play", {});
+    expect(onsets((await hear(BEAT * 8)).channels[0])).toEqual([0, BEAT * 4]);
   });
 
   it("cuts a channel's own notes short with cut self", async () => {
@@ -241,13 +247,17 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
     }
   });
 
-  it("starts from where it's told, plays only a part of the pattern, and leaves muted notes out", async () => {
+  it("starts from where it's told (playing or not), plays only a part of the pattern, and leaves muted notes out", async () => {
     const song = setSteps(rack(), P, "chan_kick", [0, 4, 8, 12], true);
     await play(song);
     // From the third beat: two hits, then round to the first.
     await engine.command("play", { from: 192 });
     expect(onsets((await hear(BEAT * 3)).channels[0])).toEqual([0, BEAT, 2 * BEAT]);
     expect((await engine.command("status", {})).transport.tick).toBeGreaterThan(95);
+    // Played again while it plays (the ruler clicked): it goes there at once.
+    await hear(BEAT / 2);
+    await engine.command("play", { from: 288 });
+    expect(onsets((await hear(BEAT * 2)).channels[0])).toEqual([0, BEAT]);
 
     // Only beats two and three, round and round.
     await engine.command("stop", {});
