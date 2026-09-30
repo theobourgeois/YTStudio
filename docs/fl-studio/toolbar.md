@@ -37,9 +37,9 @@ Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/
 | Record, countdown, typing keyboard | Not yet (recording) |
 | Tempo LCD | Yes: drag it up and down, or click it to type |
 | Position LCD | Yes, in B:S:T (where the pattern is, or where play starts) |
-| Window buttons | Channel rack (F6) and Piano roll (F7); the others come with their windows |
+| Window buttons | Piano roll (F7) and Channel rack (F6): a press opens the window or brings it forward (the keys toggle); the others come with their windows |
 | Snap | The Piano roll has its own; no global snap yet |
-| Metronome | Yes |
+| Metronome | Yes, beside the tempo rather than with the recording buttons |
 | Pattern selector with + | Yes: the name opens the list (rename, clone, delete), + makes a new pattern |
 | Song position slider | Yes, along the pattern: drag it to move where play is |
 | CPU, output meter | Yes (the engine's load and the output's peak), with the audio settings beside them |

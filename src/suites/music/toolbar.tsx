@@ -23,7 +23,7 @@ import { useMusicUi } from "./ui";
 
 /**
  * The music editor's toolbar, FL Studio's (`docs/fl-studio/toolbar.md`), with only what Vaudio does: the
- * title and the hint bar, the transport (play, stop, tempo, position), the metronome and the windows,
+ * title and the hint bar, the transport (play, stop, the metronome, tempo, position), the windows,
  * the pattern selector and the song position, the engine's load and output, and at the right end the
  * app's own (undo, theme, Settle, the assistant). Two dense rows, groups apart by grooves.
  */
@@ -47,6 +47,7 @@ export function MusicToolbar() {
 
       <div className="flex items-center gap-2" role="toolbar" aria-label="Transport">
         <PlayButtons />
+        <MetronomeToggle />
         <TempoLcd />
         <PositionLcd />
       </div>
@@ -54,7 +55,6 @@ export function MusicToolbar() {
 
       <div className="flex w-[212px] shrink-0 flex-col justify-center gap-1">
         <div className="flex items-center gap-1.5">
-          <MetronomeToggle />
           <WindowToggles />
           <PositionSlider />
         </div>
@@ -301,7 +301,7 @@ function PositionSlider() {
 function MetronomeToggle() {
   const metronome = useTransport((s) => s.metronome);
   return (
-    <Toggle size="sm" className="size-7 min-w-7 px-0 [&_svg:not([class*=size-])]:size-[18px]" pressed={metronome} onPressedChange={(on) => useTransport.getState().setMetronome(on)} aria-label="Metronome" title="Metronome">
+    <Toggle className="size-10 min-w-10 px-0 [&_svg:not([class*=size-])]:size-5" pressed={metronome} onPressedChange={(on) => useTransport.getState().setMetronome(on)} aria-label="Metronome" title="Metronome">
       <PiMetronome />
     </Toggle>
   );
@@ -316,11 +316,11 @@ function WindowToggles() {
   const pianoOpen = useMusicUi((s) => s.pianoOpen);
   return (
     <>
-      <WindowButton open={rackOpen} onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (F6)">
-        <PiRows />
-      </WindowButton>
       <WindowButton open={pianoOpen} onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (F7)">
         <PiPianoKeys />
+      </WindowButton>
+      <WindowButton open={rackOpen} onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (F6)">
+        <PiRows />
       </WindowButton>
     </>
   );
