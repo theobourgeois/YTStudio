@@ -53,7 +53,7 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
                 type="button"
                 aria-label={channel.muted ? `Unmute ${channel.name}` : `Mute ${channel.name}`}
                 aria-pressed={!channel.muted}
-                className={cn("my-1.5 size-3.5 rounded-full border", channel.muted ? "border-border bg-muted" : "border-emerald-600/50 bg-emerald-400 shadow-[0_0_6px] shadow-emerald-400/60")}
+                className={cn("my-1.5 size-3.5 rounded-full border", channel.muted ? "sunken" : "border-brand-edge bg-brand shadow-[0_0_5px] shadow-brand/70 inset-shadow-[0_1px_0_rgb(255_255_255/0.45)]")}
                 onClick={(e) => (e.altKey || e.metaKey || e.ctrlKey ? solo(id) : toggleMute(id))}
               />
             </Labelled>
@@ -138,7 +138,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Light({ label, on, onChange }: { label: string; on: boolean; onChange: (on: boolean) => void }) {
   return (
     <button type="button" role="switch" aria-checked={on} className="flex items-center gap-2 text-[13px]" onClick={() => onChange(!on)}>
-      <span className={cn("size-3 rounded-full border", on ? "border-amber-500/60 bg-amber-400 shadow-[0_0_6px] shadow-amber-400/60" : "border-border bg-muted")} />
+      <span className={cn("size-3 rounded-full border", on ? "border-brand-edge bg-brand shadow-[0_0_5px] shadow-brand/70 inset-shadow-[0_1px_0_rgb(255_255_255/0.45)]" : "sunken")} />
       {label}
     </button>
   );
@@ -309,7 +309,7 @@ function Waveform({ url, precomputed, onClick }: { url: string | null; precomput
     >
       <svg width={WAVE_W} height={WAVE_H} viewBox={`0 0 ${WAVE_W} ${WAVE_H}`} className="block" aria-hidden>
         <line x1={0} x2={WAVE_W} y1={mid} y2={mid} className="stroke-border" />
-        <path d={path} className="fill-rose-400" />
+        <path d={path} className="fill-brand" />
       </svg>
     </button>
   );
