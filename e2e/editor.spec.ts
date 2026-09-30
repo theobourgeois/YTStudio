@@ -1433,7 +1433,7 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await page.keyboard.press("Enter");
   await expect(picker).toHaveCount(0);
   await expect.poll(() => page.url()).not.toBe(videoUrl);
-  await expect(page.getByRole("heading", { name: "An empty song" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Audio engine" })).toBeVisible();
   const song = (await projectList(page)).find((p: { suite: string }) => p.suite === "music");
   expect(song).toMatchObject({ name: "Untitled", tempo: 120, status: "active" });
   await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("120 BPM");
@@ -1444,6 +1444,21 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await page.keyboard.press("Enter");
   await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("Anthem");
   await expect.poll(async () => (await projectList(page)).find((p: { id: string }) => p.id === song.id).name).toBe("Anthem");
+
+  // The audio engine (a stand-in here) starts, loads a plugin and opens its window.
+  await expect(page.getByTestId("engine-device")).toContainText("48.0 kHz");
+  const keys = page.getByRole("group", { name: "Keys" }).getByRole("button");
+  await expect(keys.first()).toBeDisabled();
+  await page.getByRole("combobox", { name: "Instrument plugin" }).click();
+  await expect(page.getByRole("option")).toHaveCount(1);
+  await page.getByRole("option", { name: /Fake Synth/ }).click();
+  const instrument = page.locator('[data-slot-name="instrument"]');
+  await instrument.getByRole("button", { name: "Open window" }).click();
+  await expect(instrument.getByRole("button", { name: "Close window" })).toBeVisible();
+  await expect(instrument.getByRole("button", { name: "Restore" })).toBeDisabled();
+  await instrument.getByRole("button", { name: "Save state" }).click();
+  await expect(instrument.getByRole("button", { name: "Restore" })).toBeEnabled();
+  await expect(keys.first()).toBeEnabled();
 
   // Its assistant has the music editor's tools (and not the video editor's).
   await page.getByRole("button", { name: "Assistant" }).click();
@@ -1463,5 +1478,5 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   const clips = (await savedProject(page)).clips.length;
   await expect.poll(async () => (await timelineClips(page)).length).toBe(clips);
   await page.goto(`/p/${song.id}`);
-  await expect(page.getByRole("heading", { name: "An empty song" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Audio engine" })).toBeVisible();
 });

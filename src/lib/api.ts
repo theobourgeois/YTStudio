@@ -1,4 +1,5 @@
 import type { AssistantProvider, ChatSnapshot } from "@shared/assistant";
+import type { EngineCommand, EngineCommands, EnginePlugin, EngineStatus } from "@shared/music/engine";
 import type { SuiteDocument, SuiteId } from "@shared/suites";
 import type { ToolResult } from "@shared/tool-spec";
 import type {
@@ -176,6 +177,11 @@ export const api = {
     request<ExportJob>("/api/exports", { method: "POST", body: JSON.stringify(req) }),
   getExport: (id: string) => request<ExportJob>(`/api/exports/${id}`),
   cancelExport: (id: string) => request<void>(`/api/exports/${id}`, { method: "DELETE" }),
+
+  /** A command to the music suite's audio engine (starting it if needed); every one answers with its status. */
+  engine: <C extends EngineCommand>(command: C, body: EngineCommands[C]) =>
+    request<EngineStatus>(`/api/engine/${command}`, { method: "POST", body: JSON.stringify(body) }),
+  listEnginePlugins: () => request<EnginePlugin[]>("/api/engine/plugins"),
 
   listTranscriptionEngines: () => request<TranscriptionEngineInfo[]>("/api/transcription/engines"),
   /** Local: starts installing (poll the list). Cloud: checks and saves the API key. */

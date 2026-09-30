@@ -11,8 +11,10 @@ import { listFonts } from "./fonts.ts";
 import { LibraryStore } from "./library.ts";
 import { MediaLibrary } from "./media.ts";
 import { migrateLegacyData } from "./migrate.ts";
+import { AudioEngine, type EngineOptions } from "./music/engine.ts";
 import { ProjectStore } from "./projects.ts";
 import { assistantRoutes } from "./routes/assistant.ts";
+import { engineRoutes } from "./routes/engine.ts";
 import { exportRoutes } from "./routes/exports.ts";
 import { libraryRoutes } from "./routes/library.ts";
 import { mediaRoutes } from "./routes/media.ts";
@@ -36,6 +38,8 @@ export interface AppOptions {
   claudeCommand?: string;
   /** Codex's command (default: found on this computer). */
   codexCommand?: string;
+  /** The music suite's audio engine (default: the one built in `engine/`). */
+  engine?: EngineOptions;
 }
 
 export interface EditorApp {
@@ -65,6 +69,7 @@ export async function createApp({
   transcription: transcriptionOptions,
   claudeCommand,
   codexCommand,
+  engine: engineOptions,
 }: AppOptions): Promise<EditorApp> {
   const paths = new DataPaths(dataDir);
   await paths.init();
@@ -90,6 +95,7 @@ export async function createApp({
     suiteOf: (id) => projects.suiteOf(id),
   });
   await assistant.init();
+  const engine = new AudioEngine(paths, engineOptions);
 
   const app = express();
   app.disable("x-powered-by");
@@ -112,6 +118,7 @@ export async function createApp({
   app.use("/api/exports", exportRoutes(exports));
   app.use("/api/transcription", transcriptionRoutes(transcription));
   app.use("/api/assistant", assistantRoutes(assistant, bridge));
+  app.use("/api/engine", engineRoutes(engine));
   app.all(
     "/mcp",
     express.json({ limit: "4mb" }),
@@ -165,6 +172,7 @@ export async function createApp({
       transcription.shutdown();
       assistant.shutdown();
       bridge.shutdown();
+      engine.shutdown();
     },
   };
 }

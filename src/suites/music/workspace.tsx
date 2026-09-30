@@ -1,4 +1,3 @@
-import { PiWaveform } from "react-icons/pi";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { SettleButton, SettledBadge, SidebarLead } from "@/components/header/header";
@@ -6,9 +5,10 @@ import { ProjectName } from "@/components/header/project-name";
 import { ThemeMenu } from "@/components/header/theme-menu";
 import { Separator } from "@/components/ui/separator";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
+import { EnginePanel } from "./engine-panel";
 import { useMusic } from "./store";
 
-/** The music suite's main column (`clientSuite("music").Workspace`). Empty for now, beside its assistant. */
+/** The music suite's main column (`clientSuite("music").Workspace`). For now the audio engine's test bench, beside its assistant. */
 export default function MusicWorkspace() {
   const projectId = useMusic((s) => s.projectId);
   const loaded = useMusic((s) => s.song !== null);
@@ -21,17 +21,7 @@ export default function MusicWorkspace() {
     <div key={projectId} className="flex min-h-0 flex-1 flex-col" data-suite="music">
       <MusicHeader />
       <div className="flex min-h-0 flex-1">
-        <section className="flex min-w-0 flex-1 items-center justify-center bg-stage p-8" aria-label="Song">
-          <div className="flex max-w-sm flex-col items-center text-center">
-            <span className="grid size-12 place-items-center rounded-xl bg-muted text-muted-foreground">
-              <PiWaveform className="size-6" />
-            </span>
-            <h1 className="mt-5 text-lg font-semibold tracking-tight">An empty song</h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              The music editor is being built. Tracks, instruments and the mixer will live here.
-            </p>
-          </div>
-        </section>
+        <EnginePanel />
         <AssistantPanel suite="music" />
       </div>
     </div>

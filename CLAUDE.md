@@ -6,8 +6,8 @@ It's a React app (`src/`) plus a local Express + ffmpeg server (`server/`), shar
 README.md is the user-facing guide. This file is for working on the code.
 
 It's growing into a **creative suite**: every project belongs to one app, a *suite* (`SuiteId`: video, music; image
-next), picked in the sidebar's New project picker. The video editor is the real app; **music (a DAW) is an empty
-shell** so far. See "Suites" below: most of this file is about the video editor, which lives at the roots of
+next), picked in the sidebar's New project picker. The video editor is the real app; **music (a DAW) is a shell**
+so far: an empty document and its audio engine on a test bench. See "Suites" below: most of this file is about the video editor, which lives at the roots of
 `shared/`, `server/` and `src/`; every other suite has folders of its own.
 
 ## Commands
@@ -24,6 +24,7 @@ pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + c
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/Vaudio.app, then launch it, export, check
+pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
 pnpm tsx scripts/make-icon.ts [--variant dark]   # redraw the app icon into resources/
 ```
 
@@ -43,7 +44,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   suites.ts          The suites: SuiteId, their names (SUITES), each one's document type (SuiteDocuments).
   suite-tools.ts     Every suite's assistant tools (SUITE_TOOLS), toolSpec/suiteToolSpec/toolSuite.
   tool-spec.ts       What a tool is (ToolSpec, kinds, JSON schema helpers) and its results, for every suite.
-  music/             The music suite: its document (types.ts), create/normalise (project.ts), its tools (tools.ts).
+  music/             The music suite: its document (types.ts), create/normalise (project.ts), its tools (tools.ts),
+                     and the audio engine's commands and status (engine.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -96,6 +98,8 @@ server/
   transcription/     Speech to timed words for Auto captions. service.ts (jobs, cache, time mapping), audio.ts
                      (decode, squeeze out silences, snap words to the sound), engine.ts (the engine interface),
                      whisper-cpp.ts (local, one-click setup), openai.ts (OpenAI + Groq), fake.ts (e2e).
+  music/engine.ts    AudioEngine: runs the audio engine's process, JSON lines over its stdin/stdout, restarts it
+                     when it dies. fake-engine.mjs stands in for it in tests (and the e2e suite).
   assistant/         The assistant. mcp.ts: the MCP server (POST /mcp, stateless JSON-RPC). bridge.ts: relays tool calls
                      to an editor tab over its event stream and back, and every chat's activity to every tab.
                      agent.ts: the Agent interface each provider implements. claude.ts: runs `claude -p` (stream-json).
@@ -108,6 +112,9 @@ server/
                      beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops.
   config.ts          Every env var is read here and nowhere else.
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
+engine/            The music suite's audio engine, a C++/JUCE program (CMake; JUCE is fetched into engine/build):
+                     the audio device, plugin hosting (VST3, Audio Units), plugin windows. src/Engine.cpp is the
+                     audio side, Protocol.cpp the JSON lines, test-plugin/ a VST3 synth of our own to test with.
 electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
                      main process and shows the page in a window; packaged, data is in userData, in development ./data.
                      gl-window.ts: the export's compositor page in a hidden window (`setGlPageOpener`), so no Playwright.
@@ -117,7 +124,8 @@ electron/          The desktop app (Vaudio). main.ts: runs the server (electron/
 src/
   suites/            Each suite in the tab (ClientSuite): open/close its store, its Workspace, sidebar line, the
                      assistant's side (message context, chat texts, tool handlers). index.ts is the registry;
-                     video.ts plugs in the video editor; music/ is the music shell (store, workspace, tools).
+                     video.ts plugs in the video editor; music/ is the music shell (store, workspace, tools,
+                     engine-panel.tsx: the audio engine's test bench).
   stores/projects.ts The project list (every suite) and which one is open (`openId`, in the URL); hands it to its suite.
   stores/editor.ts   THE video document store: project, assets, selection, undo history, gestures, edit commands.
   stores/autosave.ts, asset-polling.ts   Side effects of the editor store (kept out of it).
@@ -173,6 +181,25 @@ extension** (Node ESM through tsx).
   (tested). The panel (`AssistantPanel suite=…`) takes its texts from `ClientSuite.chat`.
 - Imports: import suites from `@/suites` (the registry), never a suite's module directly; they form an import cycle
   with `stores/projects.ts`, which is safe only because nothing uses `useProjects` at module level. Keep it that way.
+
+## The music suite's audio engine
+
+The music suite is becoming an FL Studio clone (channel rack, piano roll, playlist, mixer, browser): when in doubt
+about its UX, do what FL Studio does. So far only its engine exists, as a spike.
+
+- Plugins are native code, so sound can't be made in the tab: the engine (`engine/`) is a native program the server
+  starts on the first `/api/engine` call. It owns the audio device and the plugins, and opens plugin editors as
+  windows of its own. The tab never gets audio, only a status (`EngineStatus`, polled: the meter, scan progress).
+- The server talks to it in JSON lines (`shared/music/engine.ts`); the engine keeps stdout for that alone (plugins'
+  prints go to stderr) and quits when its stdin closes. If it dies (a plugin crashed), the next command starts it
+  again; what was loaded is lost until the song's document drives it.
+- Commands run on the engine's message thread; the audio callback never waits (`audioLock` is only tried there).
+  Keep it that way: no allocation, locks or I/O on the audio thread.
+- Keep it portable (Windows is planned): only JUCE's APIs, no macOS calls of our own, paths from the server.
+- It's an app bundle (plugin windows need one) with no Dock icon, shipped in the desktop app's resources.
+  The desktop app isn't signed, so loading other people's plugins needs nothing; once it's signed with the
+  hardened runtime, the engine needs the `com.apple.security.cs.disable-library-validation` entitlement.
+- JUCE is used under its free Starter licence (a personal tool); selling this changes that.
 
 ## Data model (shared/types.ts)
 
@@ -378,6 +405,9 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   positions, transitions and colours of real exports).
 - `data/` (or `EDITOR_DATA_DIR`) holds the projects, media, exports (never cleaned up yet) and `tmp`, which is wiped
   on startup. Export jobs live in memory.
+- The audio engine: `EDITOR_ENGINE_PATH` (default: `engine/build/...`, else the packaged app's resources) and
+  `EDITOR_PLUGIN_PATHS` (extra VST3 folders; default: the test synth's build folder). The e2e suite sets the first to
+  `server/music/fake-engine.mjs`, so tests never make a sound or depend on this computer's plugins.
 - External programs: ffmpeg/ffprobe (import and export; `FFMPEG_PATH`/`FFPROBE_PATH`), yt-dlp for the Online tab
   (`YTDLP_PATH`), whisper.cpp's `whisper-cli` for local transcription (`WHISPER_PATH`; model in `EDITOR_MODELS_DIR`,
   default `~/.cache/editor/models`), and Chromium for every export (`CHROMIUM_PATH`, else Playwright's, else Chrome). The

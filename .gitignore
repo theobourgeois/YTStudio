@@ -12,3 +12,4 @@ dist-electron
 build/desktop
 release
 desktop-smoke.png
+engine/build

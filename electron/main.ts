@@ -28,6 +28,11 @@ if (app.isPackaged && !process.env.EDITOR_DATA_DIR) {
   process.env.EDITOR_DATA_DIR = path.join(app.getPath("userData"), "data");
 }
 
+// The audio engine ships in the app's resources (scripts/desktop.ts); development uses engine/build.
+if (app.isPackaged && !process.env.EDITOR_ENGINE_PATH) {
+  process.env.EDITOR_ENGINE_PATH = path.join(process.resourcesPath, "Vaudio Engine.app", "Contents", "MacOS", "Vaudio Engine");
+}
+
 let mainWindow: BrowserWindow | null = null;
 let appUrl = "";
 let dataDir = "";

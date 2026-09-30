@@ -17,7 +17,8 @@
     "test:watch": "vitest",
     "samples": "tsx scripts/make-samples.ts",
     "test:e2e": "playwright test",
-    "test:desktop": "tsx scripts/desktop-smoke.ts"
+    "test:desktop": "tsx scripts/desktop-smoke.ts",
+    "engine:build": "cmake -S engine -B engine/build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build engine/build"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.3.0",

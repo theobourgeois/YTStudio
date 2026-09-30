@@ -776,6 +776,8 @@ export interface ToolCallProgressRequest {
 //   POST   /api/assistant/tabs/:tab/focus  -> 204 (outside MCP clients act in the tab used last)
 //   POST   /api/assistant/calls/:id/result  body: ToolCallResultRequest -> 204
 //   POST   /api/assistant/calls/:id/progress  body: ToolCallProgressRequest -> 204
+//   GET    /api/engine/plugins         -> EnginePlugin[] (the plugins the audio engine found; shared/music/engine.ts)
+//   POST   /api/engine/:command  body: EngineCommands[command] -> EngineStatus (starts the engine if needed)
 //   POST   /mcp?chat=<projectId>|suite=<suite>  MCP (Streamable HTTP, JSON responses): a suite's tools for any agent
 //                                        (the chat's project's suite, else `suite`, else video)
 //   GET    /files/...                   -> static files from the data dir (range requests)
