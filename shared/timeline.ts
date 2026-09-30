@@ -3,8 +3,9 @@
  * returns a new one (or the same instance when nothing changed), so they are
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
-import { cameraEffects, clipKind, defaultEffects, hasMedia, solidEffects, textStyleAt } from "./effects.ts";
+import { cameraEffects, clipKind, defaultEffects, hasMedia, isRemapped, shapeEffects, solidEffects, textStyleAt } from "./effects.ts";
 import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
+import { pruneParents } from "./parenting.ts";
 import type {
   AspectRatio,
   Clip,
@@ -121,8 +122,10 @@ export function clipName(clip: Clip, asset: Pick<MediaAsset, "name"> | undefined
   const kind = clipKind(clip);
   if (kind === "text") return textStyleAt(clip, clip.in).text.trim().split("\n")[0].trim() || "Text";
   if (kind === "solid") return "Solid";
+  if (kind === "shape") return "Shape";
   if (kind === "adjustment") return "Adjustment Layer";
   if (kind === "camera") return "Camera";
+  if (kind === "null") return "Null";
   return asset?.name ?? "Media offline";
 }
 
@@ -177,7 +180,8 @@ export function clipSourceRange(
   clip: Clip,
   asset: Pick<MediaAsset, "kind" | "duration"> | undefined,
 ): { min: number; max: number } {
-  if (!hasMedia(clip)) return TEXT_SOURCE_RANGE;
+  // A remapped clip's in and out are in its own clock, which runs as long as it's stretched (it holds its last frame).
+  if (!hasMedia(clip) || isRemapped(clip)) return TEXT_SOURCE_RANGE;
   return asset ? sourceRange(asset) : { min: clip.in, max: clip.out };
 }
 
@@ -234,6 +238,11 @@ export function fileTime(clip: Pick<Clip, "reversed">, s: number, duration: numb
 
 /** Can play at another speed or backwards: clips of videos and sounds (not stills, text or other layers). */
 export function canRetime(clip: Clip, asset: Pick<MediaAsset, "kind"> | undefined): boolean {
+  return canTimeRemap(clip, asset) && !isRemapped(clip);
+}
+
+/** Can have its time remapped (keyframed speed, freezes, reversing within it): clips of videos and sounds. */
+export function canTimeRemap(clip: Clip, asset: Pick<MediaAsset, "kind"> | undefined): boolean {
   return hasMedia(clip) && !!asset && asset.kind !== "image";
 }
 
@@ -361,7 +370,7 @@ export function nearestPoint(points: readonly number[], time: number): number {
 // Snapping
 // ---------------------------------------------------------------------------
 
-/** Candidate snap targets: 0, the playhead and every clip edge (except `exclude`d clips). */
+/** Candidate snap targets: 0, the playhead, every marker and every clip edge (except `exclude`d clips and their markers). */
 export function snapPoints(
   project: Project,
   playhead: number,
@@ -369,10 +378,17 @@ export function snapPoints(
 ): number[] {
   const skip = typeof exclude === "string" ? new Set([exclude]) : exclude;
   const pts = new Set<number>([0, roundTime(playhead)]);
+  for (const m of project.markers ?? []) pts.add(roundTime(m.time));
   for (const c of project.clips) {
     if (skip.has(c.id)) continue;
+    const end = clipEnd(c);
     pts.add(roundTime(c.start));
-    pts.add(roundTime(clipEnd(c)));
+    pts.add(roundTime(end));
+    // Its own markers, where they show (they're in source time).
+    for (const m of c.markers ?? []) {
+      const t = roundTime(timelineTime(c, m.time));
+      if (t > c.start + EPS && t < end - EPS) pts.add(t);
+    }
   }
   return [...pts];
 }
@@ -399,7 +415,7 @@ function withClips(project: Project, clips: Clip[]): Project {
   return { ...project, clips };
 }
 
-function replaceClips(project: Project, updated: Map<string, Clip>): Project {
+export function replaceClips(project: Project, updated: Map<string, Clip>): Project {
   if (updated.size === 0) return project;
   return withClips(project, project.clips.map((c) => updated.get(c.id) ?? c));
 }
@@ -452,15 +468,20 @@ export function addTextClip(project: Project, clip: Omit<Clip, "trackId">): { pr
  * timeline time `start`, `duration` long. Its source time runs from 0, so keyframes count
  * from its start.
  */
+/** Clips without media that are made from the Layer menu. */
+export type LayerKind = "adjustment" | "solid" | "shape" | "camera" | "null";
+
 export function newLayerClip(
-  kind: "adjustment" | "solid" | "camera",
+  kind: LayerKind,
   start: number,
   duration: number,
   params: ParamValues = {},
 ): Omit<Clip, "trackId"> {
   const base = { id: createId("clip"), assetId: "", start: roundTime(Math.max(0, start)), in: 0, out: roundTime(Math.max(MIN_CLIP_DURATION, duration)) };
   if (kind === "solid") return { ...base, effects: solidEffects(params) };
+  if (kind === "shape") return { ...base, effects: shapeEffects(params) };
   if (kind === "camera") return { ...base, effects: cameraEffects(params) };
+  if (kind === "null") return { ...base, effects: defaultEffects(), nullObject: true };
   return { ...base, effects: defaultEffects(), adjustment: true };
 }
 
@@ -584,7 +605,7 @@ export function splitClips(
 export function removeClips(project: Project, clipIds: string[]): Project {
   const ids = new Set(clipIds);
   if (!project.clips.some((c) => ids.has(c.id))) return project;
-  return withClips(project, project.clips.filter((c) => !ids.has(c.id)));
+  return withClips(project, pruneParents(project.clips.filter((c) => !ids.has(c.id))));
 }
 
 /**
@@ -604,7 +625,7 @@ export function rippleDelete(project: Project, clipIds: string[]): Project {
       }
       return shift ? { ...c, start: roundTime(Math.max(0, c.start - shift)) } : c;
     });
-  return withClips(project, clips);
+  return withClips(project, pruneParents(clips));
 }
 
 /** Slide every clip on `trackId` starting at or after `from` left by `amount`. */
@@ -889,10 +910,13 @@ export function pasteClips(
 ): { project: Project; clipIds: string[] } {
   if (copied.length === 0) return { project, clipIds: [] };
   const offset = Math.max(0, at) - Math.min(...copied.map((c) => c.clip.start));
+  const newIds = new Map(copied.map(({ clip }) => [clip.id, createId("clip")]));
   const copies = copied.map(({ clip }) => ({
     ...clip,
-    id: createId("clip"),
+    id: newIds.get(clip.id)!,
     start: roundTime(clip.start + offset),
+    // Copied with its parent: it follows the copy. Otherwise it keeps following the original (when it's still there).
+    ...(clip.parent && newIds.has(clip.parent.id) && { parent: { ...clip.parent, id: newIds.get(clip.parent.id)! } }),
   }));
   const kindOf = new Map(copied.map(({ clip, kind }) => [clip.trackId, kind]));
   const fitsInPlace = copies.every(

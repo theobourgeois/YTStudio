@@ -3,11 +3,13 @@
  * lane spanning the selected clip with its keyframes, under a ruler that
  * scrubs the playhead. Keyframes are selected by clicking (Shift/⌘ to add)
  * or by dragging a box, dragged in time (snapping to the playhead, other
- * keyframes and frames), given an interpolation from their right-click menu,
+ * keyframes and frames; ⌥-dragging the first or last of several stretches
+ * them), given an interpolation from their right-click menu, copied and pasted
+ * (⌘C / ⌘V: at the playhead, or onto another property from its lane's menu)
  * and deleted with ⌫. An effect's own row sums up its keyframes.
  */
 import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { PiTrash } from "react-icons/pi";
+import { PiArrowsOutLineHorizontal, PiClipboardText, PiCopy, PiLineSegments, PiTrash, PiWaveSine } from "react-icons/pi";
 import {
   type KeyframeRef,
   clipKeyframes,
@@ -15,12 +17,16 @@ import {
   keyframeTime,
   keyframeTimes,
   moveKeyframes,
+  roveKeyframes,
   sameRef,
+  scaleKeyframes,
+  smoothMotionPath,
   setKeyframeEasing,
   setKeyframeInfluence,
   timelineTime,
 } from "@shared/animation";
-import { easesIn, easesOut, influenceOf } from "@shared/keyframes";
+import { easesIn, easesOut, influenceOf, isDynamic } from "@shared/keyframes";
+import { allMarkers } from "@shared/markers";
 import { tidy } from "@shared/math";
 import { clipEnd, getClip, sourceDelta } from "@shared/timeline";
 import type { Clip, Easing, Keyframe } from "@shared/types";
@@ -45,7 +51,7 @@ import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import { type LaneRange, clampDelta, laneLeft, laneTicks, pxPerSecond, snapTime, timeAtX } from "./keyframe-geometry";
-import { selectedKeyframes, useKeyframeSelection } from "./keyframe-selection";
+import { copySelectedKeyframes, pasteCopiedKeyframes, selectedKeyframes, useKeyframeSelection } from "./keyframe-selection";
 
 const editor = useEditor.getState;
 /** Pointer distance (px) within which a dragged keyframe snaps. */
@@ -60,6 +66,9 @@ export const EASING_LABELS: { value: Easing; label: string }[] = [
   { value: "ease-out", label: "Ease Out" },
   { value: "ease", label: "Ease In and Out" },
   { value: "hold", label: "Hold" },
+  { value: "overshoot", label: "Overshoot" },
+  { value: "spring", label: "Spring" },
+  { value: "bounce", label: "Bounce" },
 ];
 
 /**
@@ -94,15 +103,24 @@ function useSelected(clip: Clip): KeyframeRef[] {
  */
 export function KeyframesRoot({ clip, offset, children }: { clip: Clip; offset: string; children: ReactNode }) {
   const [menuRefs, setMenuRefs] = useState<KeyframeRef[]>([]);
+  // A lane's own menu (right-clicking its empty part): the property to paste onto.
+  const [menuLane, setMenuLane] = useState<{ effectId: string; key: string; label: string } | null>(null);
   // Keyframes that aren't on screen can't stay selected (⌫ would delete them unseen).
   useEffect(() => () => useKeyframeSelection.getState().clear(), []);
 
   const onContextMenu = (e: React.MouseEvent) => {
     const diamond = (e.target as Element).closest("[data-refs]");
+    const lane = (e.target as Element).closest<HTMLElement>("[data-lane-param]");
+    if (!diamond && lane && !editor().gestureBase && useKeyframeSelection.getState().clipboard) {
+      const [effectId, key] = JSON.parse(lane.dataset.laneParam!) as [string, string];
+      setMenuLane({ effectId, key, label: lane.getAttribute("aria-label")?.replace(/ keyframes$/, "") ?? key });
+      return;
+    }
     if (!diamond || editor().gestureBase) {
       e.preventDefault(); // keeps the menu closed
       return;
     }
+    setMenuLane(null);
     const refs = refsOf(diamond);
     const selected = selectedKeyframes(clip);
     // Like a file browser: right-clicking outside the selection selects what's under the pointer.
@@ -119,10 +137,27 @@ export function KeyframesRoot({ clip, offset, children }: { clip: Clip; offset: 
           <PlayheadLine clip={clip} offset={offset} />
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
-        <KeyframeMenuItems clip={clip} refs={menuRefs} />
+      <ContextMenuContent className="w-56">
+        {menuLane ? <LaneMenuItems lane={menuLane} /> : <KeyframeMenuItems clip={clip} refs={menuRefs} />}
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** A lane's menu: paste the copied keyframes onto its property (one property's, of the same kind), first at the playhead. */
+function LaneMenuItems({ lane }: { lane: { effectId: string; key: string; label: string } }) {
+  const clipboard = useKeyframeSelection((s) => s.clipboard);
+  const single = clipboard?.items.length === 1;
+  return (
+    <>
+      <ContextMenuItem disabled={!single} onSelect={() => pasteCopiedKeyframes({ effectId: lane.effectId, key: lane.key })}>
+        <PiClipboardText /> Paste onto {lane.label}
+      </ContextMenuItem>
+      <ContextMenuItem disabled={!clipboard} onSelect={() => pasteCopiedKeyframes()}>
+        <PiClipboardText /> Paste at the playhead
+        <ContextMenuShortcut>{SHORTCUT_KEYS.paste}</ContextMenuShortcut>
+      </ContextMenuItem>
+    </>
   );
 }
 
@@ -131,6 +166,10 @@ function KeyframeMenuItems({ clip, refs }: { clip: Clip; refs: KeyframeRef[] }) 
   const influence = commonInfluence(clip, refs);
   const commit = editor().commit;
   const one = refs.length === 1;
+  const keys = keyframesOf(clip, refs);
+  // Points travel along a path, which can bend at each keyframe.
+  const points = keys.length > 0 && keys.every((k) => Array.isArray(k.value));
+  const bent = keys.some((k) => k.spatialIn || k.spatialOut);
   return (
     <>
       <ContextMenuLabel className="text-xs text-muted-foreground">
@@ -148,7 +187,7 @@ function KeyframeMenuItems({ clip, refs }: { clip: Clip; refs: KeyframeRef[] }) 
         ))}
       </ContextMenuRadioGroup>
       <ContextMenuSub>
-        <ContextMenuSubTrigger disabled={easing === "linear" || easing === "hold"}>
+        <ContextMenuSubTrigger disabled={easing === "linear" || easing === "hold" || easing === "bounce"}>
           Influence
           <span className="ml-auto pl-2 text-xs text-muted-foreground tabular-nums">
             {influence === null ? "" : `${Math.round(influence * 100)}%`}
@@ -168,6 +207,23 @@ function KeyframeMenuItems({ clip, refs }: { clip: Clip; refs: KeyframeRef[] }) 
         </ContextMenuSubContent>
       </ContextMenuSub>
       <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => commit((p) => setKeyframeEasing(p, clip.id, refs, "ease"))}>
+        <PiWaveSine /> Easy Ease
+        <ContextMenuShortcut>{SHORTCUT_KEYS.easyEase}</ContextMenuShortcut>
+      </ContextMenuItem>
+      {points && (
+        <ContextMenuItem onSelect={() => commit((p) => smoothMotionPath(p, clip.id, refs, !bent))}>
+          <PiLineSegments /> {bent ? "Straight path through here" : "Smooth path through here"}
+        </ContextMenuItem>
+      )}
+      <ContextMenuItem disabled={refs.length < 3} onSelect={() => commit((p) => roveKeyframes(p, clip.id, refs))}>
+        <PiArrowsOutLineHorizontal /> Rove across time (even speed)
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => copySelectedKeyframes()}>
+        <PiCopy /> {one ? "Copy keyframe" : "Copy keyframes"}
+        <ContextMenuShortcut>{SHORTCUT_KEYS.copy}</ContextMenuShortcut>
+      </ContextMenuItem>
       <ContextMenuItem variant="destructive" onSelect={() => deleteSelectedKeyframes(clip.id)}>
         <PiTrash /> {one ? "Delete keyframe" : "Delete keyframes"}
         <ContextMenuShortcut>{SHORTCUT_KEYS.delete}</ContextMenuShortcut>
@@ -297,7 +353,7 @@ export function ParamLane({ clip, effectId, paramKey, label }: { clip: Clip; eff
   const selected = useSelected(clip);
   const range = laneRange(clip);
   return (
-    <Lane clip={clip} label={`${label} keyframes`}>
+    <Lane clip={clip} label={`${label} keyframes`} param={[effectId, paramKey]}>
       {keys.map((k) => {
         const ref: KeyframeRef = { effectId, key: paramKey, time: k.time };
         return (
@@ -343,13 +399,20 @@ export function EffectLane({ clip, effectId, label }: { clip: Clip; effectId: st
 }
 
 /** A lane's background: dragging on it draws a selection box; a click clears the selection. */
-function Lane({ clip, label, children }: { clip: Clip; label: string; children?: ReactNode }) {
+function Lane({ clip, label, param, children }: { clip: Clip; label: string; param?: [effectId: string, key: string]; children?: ReactNode }) {
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || e.target !== e.currentTarget) return;
     startMarquee(e, clip.id);
   };
   return (
-    <div data-lane role="group" aria-label={label} className="absolute inset-0 touch-none" onPointerDown={onPointerDown}>
+    <div
+      data-lane
+      data-lane-param={param && JSON.stringify(param)}
+      role="group"
+      aria-label={label}
+      className="absolute inset-0 touch-none"
+      onPointerDown={onPointerDown}
+    >
       {children}
     </div>
   );
@@ -457,7 +520,8 @@ const formatSeconds = (s: number) => `${Math.max(0, s).toFixed(2)}s`;
  */
 export function KeyframeShape({ easing, className }: { easing: Easing; className?: string }) {
   // One outline: down the left side (top to bottom), then back up the right.
-  const left = easesIn(easing) ? "A5 5 0 0 0 5 10" : "L0 5 L5 10";
+  // Arrived at with a wobble: a zigzag on its incoming side.
+  const left = isDynamic(easing) ? "L1.5 2.5 L3.5 5 L0 5 L3.5 7.5 L5 10" : easesIn(easing) ? "A5 5 0 0 0 5 10" : "L0 5 L5 10";
   const right = easing === "hold" ? "L9.5 10 L9.5 0 Z" : easesOut(easing) ? "A5 5 0 0 0 5 0 Z" : "L10 5 Z";
   return (
     <svg viewBox="-1 -1 12 12" aria-hidden className={className} strokeWidth={1} strokeLinejoin="round">
@@ -498,9 +562,17 @@ function startKeyframeDrag(e: ReactPointerEvent<HTMLElement>, clipId: string, re
   const stillTimes = keyframeTimes(clip)
     .filter((t) => !sources.some((s) => Math.abs(s - t) < 1e-3))
     .map((s) => timelineTime(clip, s));
+  // Markers (the sequence's and any clip's) are worth landing on: a beat, a cue.
+  const markerTimes = allMarkers(project).map((m) => m.time);
   const x0 = e.clientX;
   const gesture = new EditGesture();
   let delta = 0;
+  // ⌥-dragging the first or last of several selected keyframes stretches them all about the other end (After Effects).
+  const [firstTime, lastTime] = [Math.min(...sources), Math.max(...sources)];
+  const pressed = refs[0].time;
+  const stretch = e.altKey && lastTime - firstTime > 1e-3 && (Math.abs(pressed - firstTime) < 1e-3 || Math.abs(pressed - lastTime) < 1e-3);
+  const pivot = Math.abs(pressed - firstTime) < 1e-3 ? lastTime : firstTime;
+  let factor = 1;
 
   startPointerDrag(e, {
     threshold: 3,
@@ -508,8 +580,16 @@ function startKeyframeDrag(e: ReactPointerEvent<HTMLElement>, clipId: string, re
     onStart: () => gesture.begin(),
     onMove: (ev) => {
       const raw = anchor + (ev.clientX - x0) / pps;
-      const targets = editor().snapping ? [usePlayback.getState().time, range.start, range.end, ...stillTimes] : [];
+      const targets = editor().snapping ? [usePlayback.getState().time, range.start, range.end, ...stillTimes, ...markerTimes] : [];
       const snapped = snapTime(raw, targets, SNAP_PX / pps, fps);
+      if (stretch) {
+        // Never through the pivot: at least a frame's worth of the stretch stays.
+        const to = pressed + sourceDelta(clip, snapped - anchor);
+        const least = 1 / fps / (lastTime - firstTime);
+        factor = Math.max(least, (to - pivot) / (pressed - pivot));
+        gesture.apply((p) => scaleKeyframes(editor().gestureBase ?? p, clipId, moving, pivot, factor));
+        return;
+      }
       // The lane is in timeline time; keyframes move in source time (faster, or backwards, on a retimed clip).
       delta = tidy(clampDelta(sourceDelta(clip, snapped - anchor), sources, clip.in, clip.out));
       // Always from where they started (the gesture's base), not from the last preview.
@@ -517,7 +597,8 @@ function startKeyframeDrag(e: ReactPointerEvent<HTMLElement>, clipId: string, re
     },
     onEnd: () => {
       gesture.end();
-      useKeyframeSelection.getState().select(clipId, moving.map((m) => ({ ...m, time: tidy(m.time + delta) })));
+      const landed = (time: number) => (stretch ? tidy(pivot + (time - pivot) * factor) : tidy(time + delta));
+      useKeyframeSelection.getState().select(clipId, moving.map((m) => ({ ...m, time: landed(m.time) })));
     },
     onCancel: () => gesture.cancel(),
     onClick: () => {

@@ -20,6 +20,7 @@ import {
   presetStyle,
   setCaptionAnimation,
   setCaptionParams,
+  setCaptionText,
   spaceCaptions,
   stripPunctuation,
   timelineWords,
@@ -110,7 +111,7 @@ describe("captionCues", () => {
       { text: " yes", start: 1.02, end: 1.3, group: 1, limit: 10 },
     ];
     const cues = captionCues(words, opts());
-    expect(cues).toEqual([{ start: 1, end: expect.any(Number), text: "uh yes" }]);
+    expect(cues).toEqual([{ start: 1, end: expect.any(Number), text: "uh yes", words: [1, 1.02] }]);
   });
 });
 
@@ -214,6 +215,51 @@ describe("addCaptions", () => {
     const none = setCaptionAnimation(slide, null);
     expect(captionClips(none).some((c) => c.transitionIn)).toBe(false);
     expect(setCaptionAnimation(none, null)).toBe(none);
+  });
+
+  it("follows the speech word by word with a text animator", () => {
+    const spoken = [{ start: 0, end: 1, text: "Hello there", words: [0, 0.5] }, { start: 1, end: 2.5, text: "how are you", words: [1, 1.4, 2] }];
+    const { project } = addCaptions(base, spoken, { style, motion: {}, animation: captionAnimation("spoken-words"), replace: [] });
+    const [first, second] = captionClips(project);
+    // No transition, and no gap between them: each word just appears when it's said.
+    expect([first.transitionIn, first.out, second.start]).toEqual([undefined, 1, 1]);
+    const animator = first.effects.find((e) => e.type === "text-animator")!;
+    expect(animator.params).toMatchObject({ basedOn: "words", opacity: 0 });
+    expect(animator.keyframes!.start.map((k) => [k.time, k.value, k.easing])).toEqual([[0, 0.5, "hold"], [0.5, 1, "hold"]]);
+    // Before "there" is said only "Hello" shows: the range from `start` on is hidden.
+    expect(textStyleAt(first, 0.2).animators![0]).toMatchObject({ start: 0.5, end: 1, opacity: 0 });
+    expect(textStyleAt(first, 0.7).animators![0].start).toBe(1);
+    expect(captionAnimationOf(project)).toEqual({ type: "spoken-words", duration: 0 });
+
+    // A highlight on the word being said: a range one word long, stepping along; the words keep their times.
+    const lit = setCaptionAnimation(project, captionAnimation("spoken-highlight"));
+    const light = captionClips(lit)[1].effects.filter((e) => e.type === "text-animator");
+    expect(light).toHaveLength(1);
+    expect(light[0].params).toMatchObject({ recolor: true, fill: "#ffe14d", start: 0 });
+    expect(light[0].params.end).toBeCloseTo(1 / 3);
+    expect(light[0].keyframes!.offset.map((k) => [k.time, k.easing])).toEqual([[0, "hold"], [0.4, "hold"], [1, "hold"]]);
+    expect(light[0].keyframes!.offset.map((k) => k.value as number)[2]).toBeCloseTo(2 / 3);
+    expect(captionAnimationOf(lit)?.type).toBe("spoken-highlight");
+    expect(setCaptionAnimation(lit, captionAnimation("spoken-highlight"))).toBe(lit);
+    // Yellow captions get a white highlight.
+    const yellow = setCaptionAnimation(setCaptionParams(project, APPEARANCE.type, { fill: "#ffe14d" }), captionAnimation("spoken-highlight"));
+    expect(captionClips(yellow)[0].effects.find((e) => e.type === "text-animator")!.params.fill).toBe("#ffffff");
+
+    // To a transition and back: the animator goes, then comes back spread evenly (the times are gone).
+    const popped = setCaptionAnimation(lit, captionAnimation("pop"));
+    expect(captionClips(popped).every((c) => c.transitionIn?.type === "pop" && !c.effects.some((e) => e.type === "text-animator"))).toBe(true);
+    expect(captionClips(setCaptionAnimation(popped, captionAnimation("spoken-bounce")))[0].effects.find((e) => e.type === "text-animator")!.params.scale).toBe(1.18);
+    const none = setCaptionAnimation(lit, null);
+    expect(captionClips(none).some((c) => c.effects.some((e) => e.type === "text-animator"))).toBe(false);
+
+    // Merged captions keep each word at the time it's said; retyped ones are spread evenly.
+    const merged = mergeCaptionWithNext(lit, captionClips(lit)[0].id);
+    const joined = captionClips(merged)[0];
+    expect(textStyleAt(joined, 0).text).toBe("Hello there how are you");
+    expect(joined.effects.find((e) => e.type === "text-animator")!.keyframes!.offset.map((k) => k.time)).toEqual([0, 0.5, 1, 1.4, 2]);
+    const retyped = setCaptionText(lit, captionClips(lit)[0].id, "Hi");
+    expect(captionClips(retyped)[0].effects.find((e) => e.type === "text-animator")!.params.end).toBe(1);
+    expect(normalizeProject(JSON.parse(JSON.stringify(lit))).clips).toEqual(lit.clips);
   });
 
   it("survives saving and loading, and splits into two captions", () => {

@@ -3,10 +3,15 @@ import { addEffect, defaultEffects, setEffectEnabled, setParams, textEffects } f
 import { createDefaultProject, newLayerClip, setClipSpeed } from "../shared/timeline.ts";
 import { addPresetLayer } from "../shared/presets.ts";
 import { placeClip, placementAffine } from "../shared/transform.ts";
-import type { Clip, Keyframe, ParamValues, Project } from "../shared/types.ts";
+import type { Clip, Keyframe, ParamValues, Project, TextLayoutAt } from "../shared/types.ts";
+import { addAnimator } from "../shared/text-animators.ts";
 import { createTransition } from "../shared/transitions.ts";
 import { normalizeProject } from "../shared/normalize.ts";
 import { keyframeValue } from "../shared/keyframes.ts";
+import { setParent } from "../shared/parenting.ts";
+import { addReverseSection, addFreezeFrame } from "../shared/time-remap.ts";
+import { nestClips, getSequence } from "../shared/sequences.ts";
+import { soundPieces } from "./render.ts";
 import {
   type FrameLayer,
   type RenderAsset,
@@ -217,39 +222,53 @@ describe("text clips", () => {
     id: "t1", assetId: "", trackId: "main", start: 1, in: 0, out: 2,
     effects: textEffects({ text: "Hi" }),
   };
-  const drawing = (from?: number, width = 400): RenderAsset => ({
-    path: "", png: Buffer.from(`png ${from}`), kind: "image", hasVideo: true, hasAudio: false,
-    width: width * 2, height: 200, duration: 0, frame: { width, height: 100 }, ...(from === undefined ? {} : { from }),
+  /** A layout as the tab measures it: a frame of `width` x 100 output px. */
+  const layout = (from?: number, width = 400): TextLayoutAt => ({
+    layout: {
+      width, height: 100, x: 20, y: 10, blockWidth: width - 40, blockHeight: 80, lines: [{ text: "Hi", x: 0, width: width - 40 }],
+      lineHeight: 80, baseline: 60, padX: 12, padY: 5, font: '700 64px "Helvetica Neue", sans-serif', stretch: "normal", fontPx: 64, letterSpacing: 0,
+    },
+    ...(from === undefined ? {} : { from }),
   });
 
-  it("are drawn from their image as it is (decoded by the page), placed at their own frame size", () => {
-    const plan = planRender(project([clip("vid", "main", 3, 0, 2), text]), assets, opts, { t1: [drawing()] });
-    const source = plan.sources.find((s) => s.clipId === "t1")!;
-    expect(source).toMatchObject({ still: true, width: 800, height: 200, first: 30, end: 90, argv: [] });
-    expect(source.png!.toString()).toBe("png undefined");
-    // The 800px drawing lands 400px wide (its frame at 100%), centred on the canvas.
+  it("are drawn by the compositor from their layout (no picture to decode), placed at their own frame size", () => {
+    const plan = planRender(project([clip("vid", "main", 3, 0, 2), text]), assets, opts, { t1: [layout()] });
+    expect(plan.sources.some((s) => s.clipId === "t1")).toBe(false);
+    expect(plan.fonts).toEqual(['700 64px "Helvetica Neue", sans-serif']);
+    // Its frame lands 400 px wide, centred on the canvas, with what to draw in it.
     const [pic] = pictures(plan.frame(45));
+    expect(pic.key).toBe("");
     expect(pic.affine.map((v, i) => Math.round(v * (i % 2 ? 1920 : 1080)) || 0)).toEqual([400, 0, 0, 100, 340, 910]);
+    expect(pic.text).toMatchObject({ width: 400, height: 100, fill: "#ffffff", lines: [{ text: "Hi", x: 20, y: 70 }], fontPx: 64 });
+    expect(pic.text).not.toHaveProperty("animators");
   });
 
-  it("switch drawings where an animated look changes, each placed at its own size", () => {
-    const plan = planRender(project([text]), assets, opts, { t1: [drawing(), drawing(0.5, 500)] });
-    expect(plan.sources.map((s) => [s.first, s.end, s.png!.toString()])).toEqual([[30, 45, "png undefined"], [45, 90, "png 0.5"]]);
-    expect(pictures(plan.frame(44))[0].key).toBe("s0");
-    const [pic] = pictures(plan.frame(45));
-    expect(pic.key).toBe("s1");
-    expect(Math.round(pic.affine[0] * 1080)).toBe(500);
+  it("switch layouts where an animated text changes size, and carry its look and animators at each frame", () => {
+    let p = project([text]);
+    p = setParams(p, "t1", "appearance", { fill: "#ff0000", strokeWidth: 4 });
+    p = addAnimator(p, "t1", "typewriter").project;
+    const plan = planRender(p, assets, opts, { t1: [layout(), layout(0.5, 500)] });
+    const at = (f: number) => pictures(plan.frame(f))[0];
+    expect(Math.round(at(44).affine[0] * 1080)).toBe(400);
+    expect(Math.round(at(45).affine[0] * 1080)).toBe(500);
+    expect(at(45).text).toMatchObject({ fill: "#ff0000", stroke: { color: "#000000", width: 4 } });
+    // The typewriter's hidden range shrinks: at the start both letters are in it, at the end neither.
+    const amounts = (f: number) => at(f).text!.animators![0].glyphs[0].map((g) => Math.round(g.amount * 10) / 10);
+    expect(at(30).text!.animators![0]).toMatchObject({ opacity: 0 });
+    expect(amounts(30)).toEqual([1, 1]);
+    expect(amounts(39)).toEqual([0, 1]);
+    expect(amounts(60)).toEqual([0, 0]);
   });
 
-  it("need their drawing", () => {
-    expect(() => planRender(project([text]), assets, opts)).toThrow(/text/i);
+  it("need their layout", () => {
+    expect(() => planRender(project([text]), assets, opts)).toThrow(/text layout/i);
   });
 
   it("can be a side of a transition", () => {
-    const plan = planRender(project([{ ...text, transitionIn: createTransition("cross-dissolve", 0.5) }]), assets, opts, { t1: [drawing()] });
+    const plan = planRender(project([{ ...text, transitionIn: createTransition("cross-dissolve", 0.5) }]), assets, opts, { t1: [layout()] });
     expect(plan.frame(0)).toEqual([]);
     const [layer] = plan.frame(31);
-    expect(layer).toMatchObject({ kind: "transition", from: null, to: { key: "s0" } });
+    expect(layer).toMatchObject({ kind: "transition", from: null, to: { key: "", text: { lines: [{ text: "Hi" }] } } });
   });
 });
 
@@ -493,5 +512,92 @@ describe("lumaWeights", () => {
     expect(lumaWeights("bt2020nc", 2160)).toEqual([0.2627, 0.0593]);
     expect(lumaWeights(null, 1080)).toEqual([0.2126, 0.0722]);
     expect(lumaWeights(undefined, 480)).toEqual([0.299, 0.114]);
+  });
+
+  it("carries parented clips by their parent, and never draws a null object", () => {
+    const nul = { ...newLayerClip("null", 0, 2), trackId: "top" } as Clip;
+    const child = clip("mute", "main", 0, 0, 2);
+    let p = project([nul, child], withTop);
+    p = setParent(p, [child.id], nul.id, 0, canvas);
+    p = setParams(p, nul.id, "motion", { position: [0.75, 0.5] });
+    const plan = planRender(p, assets, opts);
+    const layers = plan.frame(0);
+    expect(layers).toHaveLength(1);
+    const [picture] = pictures(layers);
+    // The 9:16 clip fills the canvas, moved right by a quarter of it.
+    expect(picture.affine.map((v) => Math.round(v * 1e4) / 1e4)).toEqual([1, 0, 0, 1, 0.25, 0]);
+  });
+
+  it("decodes a remapped clip at its media's rate, backwards stretches from the reversed copy", () => {
+    const c = clip("back", "main", 0, 0, 4);
+    let p = project([c]);
+    p = addReverseSection(p, c.id, 1, 2); // forwards 0-2, back 2-3, forwards 3-6
+    const plan = planRender(p, assets, opts);
+    expect(plan.needsReversed).toEqual([]);
+    const natives = plan.sources.filter((s) => s.native);
+    // (Frame 60 is a hair past the turn, still on its way forwards.)
+    expect(natives.map((s) => [s.first, s.end])).toEqual([[0, 61], [61, 91], [91, 180]]);
+    // The backwards run reads the reversed copy.
+    expect(inputsOf(natives[1].argv)).toEqual(["/media/back-reversed.mp4"]);
+    expect(inputsOf(natives[0].argv)).toEqual(["/media/back.mp4"]);
+    // Frame 75 (2.5 s) shows media 1.5 s, frame 45 of the reversed copy's decode (at 30 fps).
+    const [picture] = pictures(plan.frame(75));
+    expect(picture.key).toBe(natives[1].key);
+    const reversedFile = 10 - 0.001 - 1.5;
+    expect(picture.interpolate?.index).toBe(Math.round((reversedFile - natives[1].native!.start) * 30));
+    // Without a reversed copy, the plan asks for one.
+    const noCopy = { ...assets, back: { ...assets.back, reversedPath: undefined } };
+    expect(planRender(p, noCopy, opts).needsReversed).toEqual(["back"]);
+  });
+
+  it("holds a frozen frame without decoding anything new", () => {
+    const c = clip("vid", "main", 0, 0, 2);
+    const p = addFreezeFrame(project([c]), c.id, 1, 1);
+    const plan = planRender(p, assets, opts);
+    const index = (f: number) => pictures(plan.frame(f))[0].interpolate!.index!;
+    expect(index(31)).toBe(index(50));
+    expect(index(80)).toBeGreaterThan(index(50));
+  });
+
+  it("draws a nested sequence into a group placed like a clip", () => {
+    const a = clip("vid", "main", 0, 0, 2, { motion: { scale: 0.5 } });
+    const t = clip("photo", "top", 0, 0, 2);
+    const nested = nestClips(project([a, t], withTop), [a.id, t.id])!;
+    let p = setParams(nested.project, nested.clipId, "motion", { position: [0.25, 0.5] });
+    p = normalizeProject(p, library);
+    const plan = planRender(p, assets, opts);
+    const layers = plan.frame(10);
+    expect(layers.map((l) => l.kind)).toEqual(["group", "picture"]);
+    const group = layers[0] as Extract<FrameLayer, { kind: "group" }>;
+    // At the export's size (the sequence is 9:16 too), holding the nested clips bottom first.
+    expect([group.width, group.height]).toEqual([1080, 1920]);
+    expect(group.layers.map((l) => l.kind)).toEqual(["picture", "picture"]);
+    const placed = (layers[1] as Extract<FrameLayer, { kind: "picture" }>).picture;
+    expect(placed.key).toBe(group.key);
+    expect(placed.affine.map((v) => Math.round(v * 1e4) / 1e4 + 0)).toEqual([1, 0, 0, 1, -0.25, 0]);
+    // Clips inside are decoded frame by frame (their timing depends on the nest's).
+    expect(plan.sources.find((s) => s.clipId === a.id)?.native).toBeDefined();
+    expect(getSequence(p, nested.sequenceId)!.clips).toHaveLength(2);
+  });
+
+  it("plays a nested sequence's sound, and a remapped clip's in steady pieces", () => {
+    const song = clip("song", "audio_1", 1, 10, 14);
+    const nested = nestClips(project([song]), [song.id])!;
+    const p = normalizeProject(nested.project, library);
+    const nest = p.clips.find((c) => c.id === nested.clipId)!;
+    const pieces = soundPieces(p, assets, nest);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0]).toMatchObject({ file: "/media/song.mp3", backwards: false, speed: 1, gain: 1 });
+    expect(pieces[0].at).toBeCloseTo(1, 2);
+    expect(pieces[0].from).toBeCloseTo(10, 2);
+    expect(pieces[0].duration).toBeCloseTo(4, 1);
+    const args = audioArgs(p, assets, { outputPath: "/tmp/out.flac" });
+    expect(inputsOf(args)).toEqual(["/media/song.mp3"]);
+
+    const v = clip("vid", "main", 0, 0, 4);
+    const back = addReverseSection(project([v]), v.id, 1, 2);
+    const vPieces = soundPieces(back, assets, back.clips[0]);
+    expect(vPieces.map((x) => x.backwards)).toEqual([false, true, false]);
+    expect(vPieces[1].speed).toBeCloseTo(1, 1);
   });
 });

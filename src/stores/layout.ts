@@ -47,8 +47,12 @@ export type MediaSource = "project" | "library" | "online";
  */
 export type EffectKind = "video" | "presets" | "transitions";
 
-/** What a press on the canvas does: select and transform clips, or add text (Premiere's Type tool). */
-export type CanvasTool = "select" | "text";
+/**
+ * What a press on the canvas does: select and transform clips, add text (Premiere's Type
+ * tool), or draw a path: a mask on the selected clip, else a shape (the Pen, Rectangle and
+ * Ellipse tools).
+ */
+export type CanvasTool = "select" | "text" | "pen" | "rectangle" | "ellipse";
 
 interface LayoutState {
   sidebarOpen: boolean;
@@ -72,14 +76,38 @@ interface LayoutState {
   showEffects: (kind: EffectKind) => void;
   tool: CanvasTool;
   setTool: (tool: CanvasTool) => void;
+  /** The Program monitor draws at this fraction of its pixels (Premiere's Playback Resolution): 1, 0.5 or 0.25. */
+  previewResolution: number;
+  setPreviewResolution: (resolution: number) => void;
   /** The Properties tab shows keyframe lanes next to the values (Premiere's Effect Controls timeline). */
   keyframesOpen: boolean;
   toggleKeyframes: () => void;
+  /**
+   * Properties whose graph editor is open under their keyframe lane (by `graphId`), and
+   * which graph each shows: the value, or the speed (After Effects' Value and Speed Graphs).
+   */
+  graphs: Record<string, GraphMode>;
+  /** Open a property's graph (in `mode`) or, with null, close it. */
+  setGraph: (id: string, mode: GraphMode | null) => void;
   /** The left panel's widths in px, as dragged (the panel keeps them inside the window). */
   panelWidths: Record<PanelWidthMode, number>;
   /** Set one of them (clamped); `save` remembers it for next time (at the end of a drag). */
   setPanelWidth: (mode: PanelWidthMode, width: number, save?: boolean) => void;
 }
+
+const RESOLUTION_KEY = "editor-preview-resolution";
+/** The preview resolutions offered: full, half and quarter. */
+export const PREVIEW_RESOLUTIONS = [1, 0.5, 0.25] as const;
+function storedResolution(): number {
+  const stored = Number(localStorage.getItem(RESOLUTION_KEY));
+  return (PREVIEW_RESOLUTIONS as readonly number[]).includes(stored) ? stored : 1;
+}
+
+/** What a property's graph editor shows. */
+export type GraphMode = "value" | "speed";
+
+/** A property's graph editor, by effect type (so it stays open from clip to clip) and parameter. */
+export const graphId = (effectType: string, key: string) => `${effectType}:${key}`;
 
 export const useLayout = create<LayoutState>((set, get) => ({
   sidebarOpen: localStorage.getItem(SIDEBAR_KEY) !== "false",
@@ -116,11 +144,21 @@ export const useLayout = create<LayoutState>((set, get) => ({
   setTool(tool) {
     set({ tool });
   },
+  previewResolution: storedResolution(),
+  setPreviewResolution(previewResolution) {
+    localStorage.setItem(RESOLUTION_KEY, String(previewResolution));
+    set({ previewResolution });
+  },
   keyframesOpen: localStorage.getItem(KEYFRAMES_KEY) === "true",
   toggleKeyframes() {
     const keyframesOpen = !get().keyframesOpen;
     localStorage.setItem(KEYFRAMES_KEY, String(keyframesOpen));
     set({ keyframesOpen });
+  },
+  graphs: {},
+  setGraph(id, mode) {
+    const { [id]: _, ...rest } = get().graphs;
+    set({ graphs: mode ? { ...rest, [id]: mode } : rest });
   },
   panelWidths: storedPanelWidths(),
   setPanelWidth(mode, width, save = false) {

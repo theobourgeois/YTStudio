@@ -16,10 +16,11 @@
  *   output. A transition may show a clip past its edges (the media's
  *   handles); where the media ends, its first or last frame is held. A clip
  *   at another speed is decoded at that rate; one played backwards is decoded
- *   (forwards) from its media's reversed copy. Stills (and drawn texts) are decoded once. Frames are decoded at the size the
+ *   (forwards) from its media's reversed copy. Stills are decoded once. Frames are decoded at the size the
  *   clip is shown at, never bigger than its media.
- * - Text clips arrive already drawn (by the browser, in the user's fonts) as
- *   images with their frame size; they're placed like any other still.
+ * - Text clips arrive laid out (by the browser tab, which knows the user's
+ *   fonts); each frame says what to draw from the layout and the text's look
+ *   then (`textDrawing`), and the page's compositor draws it, like the preview.
  * - Every clip with sound on an unmuted track (video or audio) is cut to its
  *   exact sample length, delayed to its timeline start and summed (no
  *   normalisation) on top of silence covering the whole timeline, in a pass of
@@ -32,24 +33,50 @@
  */
 import { type Adjustment, type Affine, type EffectPass, type Placed, matteIndex } from "../shared/compositor.ts";
 import { effectPasses, effectShader } from "../shared/effect-gl.ts";
-import { VOLUME, clipKind, effectDefinition, findEffect, hasMedia, isTextClip, lookAt, motionAt, opacityAt, solidColorAt, volumeAt } from "../shared/effects.ts";
-import { easesIn, easesOut, segmentProgress } from "../shared/keyframes.ts";
+import { type Camera3D } from "../shared/camera.ts";
+import {
+  VOLUME,
+  atFrameRate,
+  clipKind,
+  effectDefinition,
+  findEffect,
+  hasMedia,
+  isRemapped,
+  isTextClip,
+  lookAt,
+  motionAt,
+  opacityAt,
+  solidColorAt,
+  textStyleAt,
+  volumeAt,
+} from "../shared/effects.ts";
+import { type TextLayout, textDrawing, textUnit } from "../shared/text-drawing.ts";
+import { easesIn, easesOut, isPlainSegment, segmentProgress } from "../shared/keyframes.ts";
+import { parentAt } from "../shared/parenting.ts";
 import { EXPORT_SAMPLES, canvasAffine, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "../shared/layers.ts";
-import { type Shown, handleTime, sceneAt, transitionWindows } from "../shared/scene.ts";
+import { even } from "../shared/math.ts";
+import { type Shown, sceneAt, transitionWindows } from "../shared/scene.ts";
+import { shapeDrawingAt } from "../shared/shapes.ts";
+import { allClips, getSequence, isNestedClip, nestedSequence, sequenceDuration, sequenceSize, sequenceView } from "../shared/sequences.ts";
+import { mediaTime } from "../shared/time-remap.ts";
 import {
   END_GUARD,
   TEXT_SOURCE_RANGE,
   clipEnd,
   clipSpeed,
   fileTime,
+  outputSize,
   projectDuration,
+  sourceEdge,
   sourceRange,
+  sourceTime,
   trackClips,
   videoTracks,
 } from "../shared/timeline.ts";
 import { type UniformValue, transitionShader, transitionUniforms } from "../shared/transition-gl.ts";
+import type { TransitionWindow } from "../shared/transition-windows.ts";
 import { type Size, frameCorners, placeClip, placementAffine } from "../shared/transform.ts";
-import type { Clip, Keyframe, MediaAsset, Project } from "../shared/types.ts";
+import type { Clip, Keyframe, MediaAsset, Project, TextLayoutAt } from "../shared/types.ts";
 import { FFMPEG_QUIET } from "./ffmpeg.ts";
 import { run } from "./process.ts";
 
@@ -63,14 +90,8 @@ export type RenderAsset = Pick<MediaAsset, "kind" | "hasAudio" | "hasVideo" | "w
   path: string;
   /** Its reversed copy (see `MediaAsset.reversed`), needed when a clip plays it backwards. */
   reversedPath?: string;
-  /** Size at 100% on the output canvas when it isn't the media fitted to it (a drawn text). */
-  frame?: Size;
   /** The video's YCbCr matrix as ffprobe names it (`color_space`), when known. */
   colorSpace?: string | null;
-  /** A drawn text: the PNG itself (`path` is unused). */
-  png?: Buffer;
-  /** A drawn text's drawing is shown from this source time on (the first one: from the start). */
-  from?: number;
 };
 
 export interface RenderOptions {
@@ -86,7 +107,7 @@ export interface RenderSource {
   key: string;
   clipId: string;
   /**
-   * A still (an image or a text) is one RGBA frame drawn all along; a video
+   * A still (an image) is one RGBA frame drawn all along; a video
    * is one YUV 4:2:0 frame (limited range, in its own matrix: `luma`) per output frame.
    */
   still: boolean;
@@ -98,8 +119,6 @@ export interface RenderSource {
   height: number;
   /** A video's YCbCr matrix, as the luma weights of red and blue. */
   luma: [number, number] | null;
-  /** A drawn text's PNG, sent as it is (then `argv` is empty). */
-  png?: Buffer;
   argv: string[];
   /**
    * Time interpolation (`Clip.timeInterpolation`): the media is decoded at its own frame rate
@@ -128,7 +147,9 @@ export type FrameLayer =
       progress: number;
       from: PlacedRef | null;
       to: PlacedRef | null;
-    };
+    }
+  /** A nested sequence: `layers` drawn into a `width` x `height` picture `key` (see `Compositor.beginGroup`), for later layers to place. */
+  | { kind: "group"; key: string; width: number; height: number; layers: FrameLayer[] };
 
 export interface RenderPlan {
   width: number;
@@ -139,8 +160,15 @@ export interface RenderPlan {
   sources: RenderSource[];
   /** Fragment shader sources by key. */
   shaders: Record<string, string>;
+  /** The CSS fonts its texts are drawn in, for the page to have ready before the first frame. */
+  fonts: string[];
   /** What output frame `f` draws, bottom layer first. */
   frame(f: number): FrameLayer[];
+  /**
+   * Media that's shown backwards somewhere (a remapped clip running back, or inside a nest
+   * that does) without a reversed copy in `assets`: plan again once they have one.
+   */
+  needsReversed: string[];
 }
 
 /** Index of the first output frame at or after time t. */
@@ -164,50 +192,99 @@ export function planRender(
   project: Project,
   assets: Record<string, RenderAsset>,
   opts: RenderOptions,
-  /** Drawn text clips, by clip id: one drawing, or several over time for an animated text (see `RenderAsset.from`). */
-  texts: Record<string, RenderAsset[]> = {},
+  /** Text clips' layouts, by clip id: one, or several over time when the text's words or size change (see `TextLayoutAt.from`). */
+  texts: Record<string, TextLayoutAt[]> = {},
 ): RenderPlan {
   const { width: W, height: H, fps: F } = opts;
   const total = projectDuration(project);
   if (!(total > 0)) throw new Error("Nothing to render: the timeline is empty.");
   const frames = frameAtFps(F)(total);
-  const canvas = { width: W, height: H };
-  const windows = transitionWindows(project);
-  for (const clip of project.clips) if (hasPicture(clip)) renderAssetOf(clip, assets, texts);
-  const range = (clip: Clip) => (!hasMedia(clip) ? TEXT_SOURCE_RANGE : sourceRange(renderAssetOf(clip, assets, texts)));
-  const layerOptions = { canvas, fps: F, maxSamples: EXPORT_SAMPLES };
-  const camera = projectCamera(project, canvas);
-  const canvasAffineOf = (clip: Clip) => canvasAffine(clip, canvas, camera);
-  const videoTrackIds = videoTracks(project).map((t) => t.id);
-  const trackAbove = (id: string) => videoTrackIds[videoTrackIds.indexOf(id) - 1];
-  const shotsAt = (f: number) => sceneAt(project, windows, frameTime(f, F), range);
+  const everyClip = allClips(project);
+  for (const clip of everyClip) {
+    if (hasPicture(clip)) renderAssetOf(clip, assets);
+    if (isTextClip(clip) && !texts[clip.id]?.length) throw new Error(`Missing text layout for clip ${clip.id}.`);
+  }
+  const range = (clip: Clip) =>
+    !hasMedia(clip) || isNestedClip(clip) || isRemapped(clip) ? TEXT_SOURCE_RANGE : sourceRange(renderAssetOf(clip, assets));
+  // Nested sequences are drawn at the export's scale: their 1080p frame times this.
+  const scale = Math.min(W, H) / 1080;
 
-  /** The picture a clip shows at a moment: its media, or its text's drawing then. */
-  const pictureAt = ({ clip, time }: Shown): { id: string; asset: RenderAsset } => {
-    if (!isTextClip(clip)) return { id: clip.id, asset: renderAssetOf(clip, assets, texts) };
-    const drawings = texts[clip.id];
-    let i = 0;
-    while (i + 1 < drawings.length && (drawings[i + 1].from ?? -Infinity) <= time + 1e-9) i++;
-    return { id: `${clip.id}#${i}`, asset: drawings[i] };
+  /** A sequence as drawn: the main one (null) or a nested one, with what's needed to draw it. */
+  interface Level {
+    view: Project;
+    canvas: Size;
+    windows: Map<string, TransitionWindow[]>;
+    camera: (t: number) => Camera3D;
+    trackAbove: (id: string) => string | undefined;
+    layerOptions: { canvas: Size; fps: number; maxSamples: number };
+  }
+  const levels = new Map<string, Level>();
+  const levelOf = (id: string | null): Level => {
+    const key = id ?? "";
+    let level = levels.get(key);
+    if (level) return level;
+    const view = sequenceView(project, id);
+    const seq = id === null ? null : getSequence(project, id);
+    const size = seq ? sequenceSize(seq) : null;
+    const canvas = size ? { width: even(size.width * scale), height: even(size.height * scale) } : { width: W, height: H };
+    const ids = videoTracks(view).map((t) => t.id);
+    level = {
+      view,
+      canvas,
+      windows: transitionWindows(view),
+      camera: projectCamera(view, canvas),
+      trackAbove: (tid) => ids[ids.indexOf(tid) - 1],
+      layerOptions: { canvas, fps: view.settings.fps, maxSamples: EXPORT_SAMPLES },
+    };
+    levels.set(key, level);
+    return level;
+  };
+  const top = levelOf(null);
+  const shotsAt = (level: Level, t: number) => sceneAt(level.view, level.windows, t, range);
+
+  /** The time a nested clip shows of its sequence (null: past its sequence, nothing). */
+  const innerTime = ({ clip, time }: Shown): number | null => {
+    const seq = nestedSequence(project, clip);
+    if (!seq) return null;
+    const T = mediaTime(clip, time);
+    return T >= -1e-6 && T < sequenceDuration(seq) - 1e-6 ? Math.max(0, T) : null;
   };
 
-  /** Where a clip with a picture is drawn at a moment, or null when none of it is visible. */
-  const draw = (shown: Shown): (Drawn & { id: string; asset: RenderAsset }) | null => {
+  /** A text clip's layout at source time `time`. */
+  const layoutAt = (clip: Clip, time: number): TextLayout => {
+    const layouts = texts[clip.id];
+    let i = 0;
+    while (i + 1 < layouts.length && (layouts[i + 1].from ?? -Infinity) <= time + 1e-9) i++;
+    return layouts[i].layout;
+  };
+
+  /** A nested clip's sequence as the media it's placed like (its frame at 1080p). */
+  const nestMedia = (clip: Clip): RenderAsset | null => {
+    const seq = nestedSequence(project, clip);
+    if (!seq) return null;
+    return { ...sequenceSize(seq), kind: "video", hasAudio: false, hasVideo: true, duration: sequenceDuration(seq), path: "" };
+  };
+
+  /** Where a clip with a picture (or a nested sequence) is drawn at a moment, or null when none of it is visible. */
+  const draw = (level: Level, shown: Shown): (Drawn & { id: string; asset: RenderAsset }) | null => {
     const { clip, time } = shown;
-    if (!hasPicture(clip)) return null;
+    const nest = isNestedClip(clip) ? nestMedia(clip) : null;
+    if (!hasPicture(clip) && !nest) return null;
     const opacity = opacityAt(clip, time);
     if (!(opacity > 0)) return null;
-    const { id, asset } = pictureAt(shown);
+    const { id, asset } = { id: clip.id, asset: nest ?? renderAssetOf(clip, assets) };
+    const { canvas } = level;
     const media = mediaSize(asset, canvas);
     const motion = motionAt(clip, time);
-    const p = placeClip(canvas, media, motion, asset.frame);
+    const p = placeClip(canvas, media, motion);
     if (!(Math.abs(p.scaleX) > 0 && Math.abs(p.scaleY) > 0)) return null;
     // A 3D layer can come into view however it's placed in 2D, and nearer the camera it's shown bigger: all its detail.
-    if (motion.threeD) return { id, asset, affine: placementAffine(p, canvas) as Affine, opacity, density: [1, 1] };
+    // So can a parented one, carried wherever (and however big) its parents take it.
+    if (motion.threeD || clip.parent) return { id, asset, affine: placementAffine(p, canvas) as Affine, opacity, density: [1, 1] };
     const corners = frameCorners(p);
     const xs = corners.map((c) => c[0]);
     const ys = corners.map((c) => c[1]);
-    const onCanvas = Math.max(...xs) > 0 && Math.min(...xs) < W && Math.max(...ys) > 0 && Math.min(...ys) < H;
+    const onCanvas = Math.max(...xs) > 0 && Math.min(...xs) < canvas.width && Math.max(...ys) > 0 && Math.min(...ys) < canvas.height;
     if (!onCanvas) return null;
     return {
       id,
@@ -218,22 +295,69 @@ export function planRender(
     };
   };
 
-  // Every visible picture: the frames it's drawn in and the most detail it's ever drawn with.
-  const seen = new Map<string, { clip: Clip; asset: RenderAsset; first: number; end: number; density: [number, number] }>();
-  const see = (f: number, shown: Shown | null) => {
-    const drawn = shown && draw(shown);
-    if (!shown || !drawn) return;
-    const s = seen.get(drawn.id);
-    if (!s) {
-      seen.set(drawn.id, { clip: shown.clip, asset: drawn.asset, first: f, end: f + 1, density: [...drawn.density] });
+  /**
+   * Whether a video clip is decoded at its media's own frame rate, frame by frame as the
+   * output needs them: when time interpolation needs the frames either side, when it's
+   * remapped (its speed changes), and inside a nested sequence (whose clips' speeds depend
+   * on the clip playing the sequence). Everything else is decoded straight at the output rate.
+   */
+  const isNative = (path: string, clip: Clip, asset: RenderAsset) =>
+    asset.kind === "video" && (path !== "" || isRemapped(clip) || (!!clip.timeInterpolation && (asset.fps ?? 0) > 0));
+  /** The media time a clip shows (inside its media). */
+  const mediaAt = (shown: Shown, asset: RenderAsset) =>
+    Math.min(Math.max(mediaTime(shown.clip, shown.time), 0), Math.max(0, asset.duration - END_GUARD));
+
+  // Every visible picture: the frames it's drawn in, the most detail it's ever drawn with, and
+  // (decoded natively) the media time it shows in each of them.
+  interface Seen {
+    clip: Clip;
+    asset: RenderAsset;
+    first: number;
+    end: number;
+    density: [number, number];
+    native: boolean;
+    times: [number, number][];
+  }
+  const seen = new Map<string, Seen>();
+  const see = (f: number, level: Level, path: string, shown: Shown | null, depth: number) => {
+    if (!shown) return;
+    if (isNestedClip(shown.clip)) {
+      const T = innerTime(shown);
+      const seq = nestedSequence(project, shown.clip);
+      if (T === null || !seq || depth > 16 || !(opacityAt(shown.clip, shown.time) > 0)) return;
+      visit(f, levelOf(seq.id), `${path}${shown.clip.id}/`, T, depth + 1);
       return;
     }
-    s.end = f + 1;
-    s.density = [Math.max(s.density[0], drawn.density[0]), Math.max(s.density[1], drawn.density[1])];
+    const drawn = draw(level, shown);
+    if (!drawn) return;
+    const id = path + drawn.id;
+    let s = seen.get(id);
+    if (!s) {
+      const native = isNative(path, shown.clip, drawn.asset);
+      s = { clip: shown.clip, asset: drawn.asset, first: f, end: f + 1, density: [...drawn.density], native, times: [] };
+      seen.set(id, s);
+    } else {
+      s.end = f + 1;
+      s.density = [Math.max(s.density[0], drawn.density[0]), Math.max(s.density[1], drawn.density[1])];
+    }
+    if (s.native && s.times.at(-1)?.[0] !== f) s.times.push([f, mediaAt(shown, drawn.asset)]);
   };
   const shaders: Record<string, string> = {};
+  const visit = (f: number, level: Level, path: string, t: number, depth: number) =>
+    // Expressions are told this sequence's frame rate (here and in `layersOf`).
+    atFrameRate(level.view.settings.fps, () => {
+      for (const shot of shotsAt(level, t)) {
+        if (shot.kind === "clip") see(f, level, path, shot.shown, depth);
+        else {
+          see(f, level, path, shot.from, depth);
+          see(f, level, path, shot.to, depth);
+          const shader = transitionShader(shot.window.def);
+          shaders[shader.key] = shader.source;
+        }
+      }
+    });
   // Every video effect a visible clip has on, whenever it's shown.
-  for (const clip of project.clips) {
+  for (const clip of everyClip) {
     for (const pass of effectPasses(clip, clip.in)) {
       shaders[pass.shader.key] = pass.shader.source;
       // A particle effect's own vertex shader travels under its key and "#vs".
@@ -242,53 +366,101 @@ export function planRender(
     }
   }
   // 3D layers' depth of field blurs with Gaussian Blur, whatever effects the clips have.
-  if (project.clips.some((c) => findEffect(c, "motion")?.params.threeD === true)) {
+  if (everyClip.some((c) => findEffect(c, "motion")?.params.threeD === true)) {
     const blur = effectShader(effectDefinition("gaussian-blur")!);
     if (blur) shaders[blur.key] = blur.source;
   }
-  for (let f = 0; f < frames; f++) {
-    for (const shot of shotsAt(f)) {
-      if (shot.kind === "clip") see(f, shot.shown);
-      else {
-        see(f, shot.from);
-        see(f, shot.to);
-        const shader = transitionShader(shot.window.def);
-        shaders[shader.key] = shader.source;
-      }
-    }
-  }
+  for (let f = 0; f < frames; f++) visit(f, top, "", frameTime(f, F), 0);
 
+  /** A natively decoded picture's runs: stretches of its frames where its media time only goes one way. */
+  interface Run {
+    key: string;
+    first: number;
+    end: number;
+    /** Backwards: decoded from the media's reversed copy, where media time `m` is at `duration - m`. */
+    backwards: boolean;
+    fps: number;
+    start: number;
+    duration: number;
+  }
+  const runsOf = new Map<string, Run[]>();
   const keys = new Map<string, string>();
-  const sources = [...seen.entries()]
-    .sort(([, a], [, b]) => a.first - b.first)
-    .map(([id, { clip, asset, first, end, density }], i): RenderSource => {
-      const key = `s${i}`;
+  const needsReversed = new Set<string>();
+  const sources: RenderSource[] = [];
+  let n = 0;
+  const sizeOf = (asset: RenderAsset, density: [number, number], still: boolean, canvas: Size) => {
+    const media = mediaSize(asset, canvas);
+    // YUV 4:2:0 needs even sizes.
+    const side = (length: number, d: number) => {
+      const k = Math.max(1, Math.min(MAX_PICTURE, Math.ceil(length * Math.min(1, d) - 1e-6)));
+      return still ? k : k + (k % 2);
+    };
+    return { width: side(media.width, density[0]), height: side(media.height, density[1]) };
+  };
+  for (const [id, { clip, asset, first, end, density, native, times }] of [...seen.entries()].sort(([, a], [, b]) => a.first - b.first)) {
+    const base = { clipId: clip.id, first, end };
+    const still = asset.kind === "image";
+    const size = sizeOf(asset, density, still, top.canvas);
+    if (still) {
+      const key = `s${n++}`;
       keys.set(id, key);
-      const base = { key, clipId: clip.id, first, end };
-      // A drawn text is sent as it is (already at the size it needs), for the page to decode.
-      if (asset.png) return { ...base, still: true, width: asset.width!, height: asset.height!, luma: null, png: asset.png, argv: [] };
-      const media = mediaSize(asset, canvas);
-      const still = asset.kind === "image";
-      // YUV 4:2:0 needs even sizes.
-      const side = (length: number, d: number) => {
-        const n = Math.max(1, Math.min(MAX_PICTURE, Math.ceil(length * Math.min(1, d) - 1e-6)));
-        return still ? n : n + (n % 2);
-      };
-      const size = { width: side(media.width, density[0]), height: side(media.height, density[1]) };
-      if (still) return { ...base, still, ...size, luma: null, argv: stillArgs(asset, size, opts) };
-      const luma = lumaWeights(asset.colorSpace, asset.height);
-      const fps = asset.fps ?? 0;
-      if (clip.timeInterpolation && fps > 0) {
-        // The file times it shows, a frame's margin either side, on the media's own frame grid.
-        const fileAt = (f: number) => fileTime(clip, handleTime(clip, frameTime(f, F), range(clip)), asset.duration);
-        const [a, b] = [fileAt(first), fileAt(end - 1)];
-        const start = Math.max(0, Math.floor((Math.min(a, b) - 1 / fps) * fps + 1e-6) / fps);
-        const length = Math.max(a, b) + 3 / fps - start;
-        return { ...base, still, ...size, luma, argv: nativeArgs(clip, asset, size, start, length, opts), native: { fps, start } };
+      sources.push({ ...base, key, still, ...size, luma: null, argv: stillArgs(asset, size, opts) });
+      continue;
+    }
+    const luma = lumaWeights(asset.colorSpace, asset.height);
+    if (!native) {
+      const key = `s${n++}`;
+      keys.set(id, key);
+      sources.push({ ...base, key, still, ...size, luma, argv: videoArgs(clip, asset, size, first, end, opts) });
+      continue;
+    }
+    // Split where the media time turns around; a backwards stretch plays the reversed copy forwards.
+    const fps = asset.fps && asset.fps > 0 ? asset.fps : F;
+    const stretches: { backwards: boolean; times: [number, number][] }[] = [];
+    let dir = 0;
+    for (const [i, [f, m]] of times.entries()) {
+      const d = i === 0 ? 0 : m - times[i - 1][1];
+      const step = d > 1e-7 ? 1 : d < -1e-7 ? -1 : 0;
+      const current = stretches.at(-1);
+      if (!current || (step !== 0 && dir !== 0 && step !== dir)) {
+        stretches.push({ backwards: false, times: [[f, m]] });
+        dir = 0;
+        continue;
       }
-      return { ...base, still, ...size, luma, argv: videoArgs(clip, asset, size, first, end, opts) };
-    });
-  const nativeOf = new Map(sources.flatMap((s) => (s.native ? [[s.key, s.native] as const] : [])));
+      if (step !== 0 && dir === 0) {
+        dir = step;
+        current.backwards = step < 0;
+      }
+      current.times.push([f, m]);
+    }
+    const runs: Run[] = [];
+    for (const stretch of stretches) {
+      const key = `s${n++}`;
+      const file = (m: number) => (stretch.backwards ? asset.duration - END_GUARD - m : m);
+      const at = stretch.times.map(([, m]) => file(m));
+      const lo = Math.min(...at);
+      const hi = Math.max(...at);
+      const start = Math.max(0, Math.floor((lo - 1 / fps) * fps + 1e-6) / fps);
+      const length = hi + 3 / fps - start;
+      const path = stretch.backwards ? asset.reversedPath : asset.path;
+      if (stretch.backwards && !asset.reversedPath) needsReversed.add(clip.assetId);
+      const first = stretch.times[0][0];
+      const endRun = stretch.times.at(-1)![0] + 1;
+      runs.push({ key, first, end: endRun, backwards: stretch.backwards, fps, start, duration: asset.duration });
+      sources.push({
+        clipId: clip.id,
+        key,
+        first,
+        end: endRun,
+        still,
+        ...size,
+        luma,
+        argv: nativeArgs(path ?? asset.path, fps, size, start, length, opts),
+        native: { fps, start },
+      });
+    }
+    runsOf.set(id, runs);
+  }
 
   return {
     width: W,
@@ -297,83 +469,135 @@ export function planRender(
     frames,
     sources,
     shaders,
+    fonts: [...new Set(Object.values(texts).flatMap((layouts) => layouts.map((l) => l.layout.font)))],
+    needsReversed: [...needsReversed],
     frame(f) {
-      const placed = (shown: Shown | null): PlacedRef | null => {
-        if (!shown) return null;
-        const { clip, time } = shown;
-        if (clipKind(clip) === "solid") {
-          const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
-          return layer && { ...byKey(layer), key: "", solid: { color: solidColorAt(clip, time), width: W, height: H } };
-        }
-        const drawn = draw(shown);
-        const key = drawn && keys.get(drawn.id);
-        if (!drawn || !key) return null;
-        const media = mediaSize(drawn.asset, canvas);
-        const where = placer(clip, canvas, (t) => placeClip(canvas, media, motionAt(clip, t), drawn.asset.frame), camera);
-        const layer = clipLayer(clip, time, where, layerOptions);
-        const native = nativeOf.get(key);
-        if (!layer || !native) return layer && { ...byKey(layer), key };
-        // Between which two of the media's frames this moment is, and how far along.
-        const x = (fileTime(clip, time, drawn.asset.duration) - native.start) * native.fps;
-        const index = Math.max(0, Math.floor(x + 1e-6));
-        const interpolate = { key: `${key}+`, amount: Math.min(1, Math.max(0, x - index)), flow: clip.timeInterpolation === "flow", index };
-        return { ...byKey(layer), key, interpolate };
-      };
-      /** Each track's layer, bottom first, with how its clip wants a track matte. */
-      const layers: { trackId: string; matte: number; layer: FrameLayer }[] = [];
-      for (const shot of shotsAt(f)) {
-        const { trackId } = shot;
-        if (shot.kind === "clip") {
-          const { clip, time } = shot.shown;
-          // A camera draws nothing: 3D layers are seen through it.
-          if (clipKind(clip) === "camera") continue;
-          const matte = matteIndex(lookAt(clip, time).trackMatte);
-          if (clipKind(clip) === "adjustment") {
-            const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
-            if (layer) layers.push({ trackId, matte, layer: { kind: "adjustment", adjustment: byKey(layer) } });
-            continue;
-          }
-          const picture = placed(shot.shown);
-          if (picture) layers.push({ trackId, matte, layer: { kind: "picture", picture } });
-          continue;
-        }
-        const def = shot.window.def;
-        layers.push({
-          trackId,
-          matte: 0,
-          layer: {
-            kind: "transition",
-            shader: def.type,
-            uniforms: transitionUniforms(def, shot.window.transition.params),
-            progress: shot.progress,
-            from: placed(shot.from),
-            to: placed(shot.to),
-          },
-        });
-      }
-      const matted = withTrackMattes(
-        layers,
-        trackAbove,
-        (l) => l.matte,
-        (l) => l.layer.kind === "picture",
-        (l, m, mode) => {
-          const matte = { mode, layer: (m.layer as Extract<FrameLayer, { kind: "picture" }>).picture };
-          if (l.layer.kind === "picture") return { ...l, layer: { ...l.layer, picture: { ...l.layer.picture, matte } } };
-          if (l.layer.kind === "adjustment") return { ...l, layer: { ...l.layer, adjustment: { ...l.layer.adjustment, matte } } };
-          return l;
-        },
-      );
-      // 3D layers on neighbouring tracks are drawn far first.
-      return sortByDepth(matted, (l) => (l.layer.kind === "picture" ? (l.layer.picture as { depth?: number }).depth : undefined)).map((l) => l.layer);
+      return layersOf(top, "", frameTime(f, F), f, 0);
     },
   };
+
+  /** A level's layers at its time `t` (output frame `f`), bottom first: groups (nested sequences) before what uses them. */
+  function layersOf(level: Level, path: string, t: number, f: number, depth: number): FrameLayer[] {
+    return atFrameRate(level.view.settings.fps, () => levelLayers(level, path, t, f, depth));
+  }
+
+  function levelLayers(level: Level, path: string, t: number, f: number, depth: number): FrameLayer[] {
+    const { canvas, camera, layerOptions } = level;
+    const groups: FrameLayer[] = [];
+    const canvasAffineOf = (clip: Clip) => canvasAffine(clip, canvas, camera, parentAt(level.view, clip, canvas));
+    const placed = (shown: Shown | null): PlacedRef | null => {
+      if (!shown) return null;
+      const { clip, time } = shown;
+      if (clipKind(clip) === "solid") {
+        const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
+        return layer && { ...byKey(layer), key: "", solid: { color: solidColorAt(clip, time), width: canvas.width, height: canvas.height } };
+      }
+      if (clipKind(clip) === "shape") {
+        // Drawn by the page's 2D canvas, from the same drawing the preview makes.
+        const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
+        return layer && { ...byKey(layer), key: "", vector: shapeDrawingAt(clip, time, outputSize(level.view.settings.aspectRatio, "1080p")) };
+      }
+      if (clipKind(clip) === "text") {
+        // Laid out by the tab, drawn by the page's 2D canvas at the size it's shown (like the preview).
+        const where = placer(
+          clip,
+          canvas,
+          (s) => {
+            const frame = layoutAt(clip, s);
+            return placeClip(canvas, frame, motionAt(clip, s), frame);
+          },
+          camera,
+          parentAt(level.view, clip, canvas),
+        );
+        const layer = clipLayer(clip, time, where, layerOptions);
+        const unit = textUnit(canvas, level.view.settings.aspectRatio);
+        return layer && { ...byKey(layer), key: "", text: textDrawing(textStyleAt(clip, time), layoutAt(clip, time), unit) };
+      }
+      const drawn = draw(level, shown);
+      if (!drawn) return null;
+      const where = placer(clip, canvas, (s) => placeClip(canvas, mediaSize(drawn.asset, canvas), motionAt(clip, s)), camera, parentAt(level.view, clip, canvas));
+      if (isNestedClip(clip)) {
+        // The sequence it plays, drawn into a picture of its own first.
+        const seq = nestedSequence(project, clip);
+        const T = innerTime(shown);
+        if (!seq || T === null || depth > 16) return null;
+        const inner = levelOf(seq.id);
+        const key = `g:${path}${clip.id}`;
+        groups.push({ kind: "group", key, ...inner.canvas, layers: layersOf(inner, `${path}${clip.id}/`, T, f, depth + 1) });
+        const layer = clipLayer(clip, time, where, layerOptions);
+        return layer && { ...byKey(layer), key };
+      }
+      const id = path + drawn.id;
+      const runs = runsOf.get(id);
+      const layer = clipLayer(clip, time, where, layerOptions);
+      if (!layer) return null;
+      if (!runs) {
+        const key = keys.get(id);
+        return key ? { ...byKey(layer), key } : null;
+      }
+      // Decoded natively: the run this frame is in, and between which two of its frames this moment is.
+      const run = runs.find((r) => f >= r.first && f < r.end);
+      if (!run) return null;
+      const m = mediaAt(shown, drawn.asset);
+      const x = ((run.backwards ? run.duration - END_GUARD - m : m) - run.start) * run.fps;
+      const blend = !!clip.timeInterpolation;
+      // Without time interpolation, the nearest frame (frame sampling).
+      const index = Math.max(0, blend ? Math.floor(x + 1e-6) : Math.round(x));
+      const interpolate = { key: `${run.key}+`, amount: blend ? Math.min(1, Math.max(0, x - index)) : 0, flow: clip.timeInterpolation === "flow", index };
+      return { ...byKey(layer), key: run.key, interpolate };
+    };
+    /** Each track's layer, bottom first, with how its clip wants a track matte. */
+    const layers: { trackId: string; matte: number; layer: FrameLayer }[] = [];
+    for (const shot of shotsAt(level, t)) {
+      const { trackId } = shot;
+      if (shot.kind === "clip") {
+        const { clip, time } = shot.shown;
+        // A camera draws nothing (3D layers are seen through it), nor does a null object.
+        if (clipKind(clip) === "camera" || clipKind(clip) === "null") continue;
+        const matte = matteIndex(lookAt(clip, time).trackMatte);
+        if (clipKind(clip) === "adjustment") {
+          const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
+          if (layer) layers.push({ trackId, matte, layer: { kind: "adjustment", adjustment: byKey(layer) } });
+          continue;
+        }
+        const picture = placed(shot.shown);
+        if (picture) layers.push({ trackId, matte, layer: { kind: "picture", picture } });
+        continue;
+      }
+      const def = shot.window.def;
+      layers.push({
+        trackId,
+        matte: 0,
+        layer: {
+          kind: "transition",
+          shader: def.type,
+          uniforms: transitionUniforms(def, shot.window.transition.params),
+          progress: shot.progress,
+          from: placed(shot.from),
+          to: placed(shot.to),
+        },
+      });
+    }
+    const matted = withTrackMattes(
+      layers,
+      level.trackAbove,
+      (l) => l.matte,
+      (l) => l.layer.kind === "picture",
+      (l, m, mode) => {
+        const matte = { mode, layer: (m.layer as Extract<FrameLayer, { kind: "picture" }>).picture };
+        if (l.layer.kind === "picture") return { ...l, layer: { ...l.layer, picture: { ...l.layer.picture, matte } } };
+        if (l.layer.kind === "adjustment") return { ...l, layer: { ...l.layer, adjustment: { ...l.layer.adjustment, matte } } };
+        return l;
+      },
+    );
+    // 3D layers on neighbouring tracks are drawn far first.
+    const drawnLayers = sortByDepth(matted, (l) => (l.layer.kind === "picture" ? (l.layer.picture as { depth?: number }).depth : undefined)).map((l) => l.layer);
+    return [...groups, ...drawnLayers];
+  }
 }
 
-/** Whether a clip's picture comes from a source (its media, or its text's drawing): not a solid or an adjustment layer. */
-const hasPicture = (clip: Clip) => {
-  const kind = clipKind(clip);
-  return kind === "media" || kind === "text";
-};
+/** Whether a clip's picture comes from a source (its media): not text, a solid, a shape or an adjustment layer, which the compositor draws. */
+const hasPicture = (clip: Clip) => clipKind(clip) === "media" && !isNestedClip(clip);
 
 /** A layer's shaders named by key (their sources travel separately, in `RenderPlan.shaders`). */
 function byKey(layer: Omit<Placed, "key">): Omit<PlacedRef, "key"> {
@@ -387,11 +611,10 @@ function byKey(layer: Omit<Placed, "key">): Omit<PlacedRef, "key"> {
   };
 }
 
-/** A clip's media, or its (first) text drawing. */
-function renderAssetOf(clip: Clip, assets: Record<string, RenderAsset>, texts: Record<string, RenderAsset[]>): RenderAsset {
-  const text = isTextClip(clip);
-  const asset = text ? texts[clip.id]?.[0] : assets[clip.assetId];
-  if (!asset) throw new Error(text ? `Missing text image for clip ${clip.id}.` : `Missing media for clip ${clip.id}.`);
+/** A clip's media. */
+function renderAssetOf(clip: Clip, assets: Record<string, RenderAsset>): RenderAsset {
+  const asset = assets[clip.assetId];
+  if (!asset) throw new Error(`Missing media for clip ${clip.id}.`);
   return asset;
 }
 
@@ -480,15 +703,15 @@ function videoArgs(clip: Clip, asset: RenderAsset, size: Size, first: number, en
 }
 
 /**
- * A time-interpolated clip's frames (`RenderSource.native`): its media from file time
- * `start` for `length` seconds, at the media's own frame rate (so frame i is at
- * start + i / fps), at `size`, as YUV 4:2:0.
+ * A natively decoded clip's frames (`RenderSource.native`): `file` (its media, or the media's
+ * reversed copy) from file time `start` for `length` seconds, at the media's own frame rate
+ * `fps` (so frame i is at start + i / fps), at `size`, as YUV 4:2:0.
  */
-function nativeArgs(clip: Clip, asset: RenderAsset, size: Size, start: number, length: number, opts: RenderOptions): string[] {
+function nativeArgs(file: string, fps: number, size: Size, start: number, length: number, opts: RenderOptions): string[] {
   return [
     opts.ffmpegPath ?? "ffmpeg", ...FFMPEG_QUIET,
-    "-ss", sec(start), "-t", sec(length), "-i", playedFile(clip, asset),
-    "-vf", ["setpts=PTS-STARTPTS", `fps=${asset.fps}`, `scale=${size.width}:${size.height}:out_range=tv`, "format=yuv420p"].join(","),
+    "-ss", sec(start), "-t", sec(length), "-i", file,
+    "-vf", ["setpts=PTS-STARTPTS", `fps=${fps}`, `scale=${size.width}:${size.height}:out_range=tv`, "format=yuv420p"].join(","),
     ...rawOut("yuv420p"),
   ];
 }
@@ -516,7 +739,6 @@ export function audioArgs(
   project: Project,
   assets: Record<string, RenderAsset>,
   opts: Pick<RenderOptions, "ffmpegPath"> & { outputPath: string },
-  texts: Record<string, RenderAsset[]> = {},
 ): string[] {
   const total = projectDuration(project);
   if (!(total > 0)) throw new Error("Nothing to render: the timeline is empty.");
@@ -531,7 +753,35 @@ export function audioArgs(
     for (const clip of trackClips(project, track.id)) {
       // Text, solids and adjustment layers are silent.
       if (!hasMedia(clip)) continue;
-      const asset = renderAssetOf(clip, assets, texts);
+      // A remapped clip's sound, or what a nested sequence plays, goes in stretches of steady speed.
+      if (isNestedClip(clip) || isRemapped(clip)) {
+        for (const piece of soundPieces(project, assets, clip)) {
+          const index = mixInputs.length;
+          const at = sampleAt(piece.at);
+          const samples = sampleAt(piece.at + piece.duration) - at;
+          if (samples <= 0) continue;
+          inputs.push("-ss", sec(piece.from), "-t", sec(piece.length), "-i", piece.file);
+          const gain = piece.levels
+            ? ["asetnsamples=n=64:p=0", `volume=volume='${keyframeExpression(piece.levels, piece.from)}*${piece.gain}':eval=frame`]
+            : piece.gain !== 1
+              ? [`volume=${piece.gain}`]
+              : [];
+          const chain = [
+            AUDIO_FORMAT,
+            "asetpts=PTS-STARTPTS",
+            ...gain,
+            ...(piece.backwards ? ["areverse"] : []),
+            ...tempoFilters(piece.speed, piece.keepPitch),
+            `apad=whole_len=${samples}`,
+            `atrim=end_sample=${samples}`,
+            `adelay=delays=${at}S:all=1`,
+          ];
+          graph.push(`[${index}:a]${chain.join(",")}[m${index}]`);
+          mixInputs.push(`[m${index}]`);
+        }
+        continue;
+      }
+      const asset = renderAssetOf(clip, assets);
       if (!asset.hasAudio) continue;
       const samples = sampleAt(clipEnd(clip)) - sampleAt(clip.start);
       if (samples <= 0) continue;
@@ -581,6 +831,128 @@ export function audioArgs(
   ];
 }
 
+/** A stretch of a file's sound played at one speed (forwards or backwards) from timeline time `at`. */
+export interface SoundPiece {
+  file: string;
+  /** File seconds read: from `from`, `length` long (for a backwards piece, the stretch that's reversed). */
+  from: number;
+  length: number;
+  backwards: boolean;
+  /** Timeline seconds it lasts, from `at`. */
+  at: number;
+  duration: number;
+  speed: number;
+  keepPitch: boolean;
+  /** Its level: the clip's volume keyframes (in file time, forwards pieces of clips at steady speed only) times `gain`. */
+  levels?: Keyframe[];
+  gain: number;
+}
+
+/** How finely a changing speed is followed (timeline seconds), and how far a piece may drift from the curve. */
+const SOUND_STEP = 1 / 100;
+const SOUND_TOLERANCE = 2e-3;
+/** Slower than this (a freeze, nearly), a piece is silent. */
+const SILENT_SPEED = 0.05;
+
+/**
+ * The sound of a remapped clip, or of everything a nested clip's sequence plays (and the
+ * sequences inside it), in stretches of steady speed: the time mapping is followed in
+ * steps of `SOUND_STEP` and cut wherever it bends, turns round or stops. Levels multiply
+ * down the nesting; muted tracks inside are silent.
+ */
+export function soundPieces(project: Project, assets: Record<string, RenderAsset>, clip: Clip): SoundPiece[] {
+  const pieces: SoundPiece[] = [];
+  /** What `c` plays, where `toLocal` maps timeline time to the time of the sequence it's in. */
+  const walk = (c: Clip, toLocal: (t: number) => number | null, gain: (t: number) => number, from: number, to: number, depth: number) => {
+    /** `c`'s own source time at timeline time t, or null when it isn't playing then. */
+    const clockAt = (t: number) => {
+      const local = toLocal(t);
+      if (local === null || local < c.start - 1e-9 || local >= clipEnd(c) - 1e-9) return null;
+      return sourceTime(c, local);
+    };
+    const level = (t: number) => {
+      const s = clockAt(t);
+      return s === null ? 0 : gain(t) * volumeAt(c, s);
+    };
+    if (isNestedClip(c)) {
+      const seq = nestedSequence(project, c);
+      if (!seq || depth > 16) return;
+      const inner = sequenceView(project, seq.id);
+      const innerAt = (t: number) => {
+        const s = clockAt(t);
+        return s === null ? null : mediaTime(c, s);
+      };
+      for (const track of inner.tracks) {
+        if (track.muted) continue;
+        for (const x of trackClips(inner, track.id)) if (hasMedia(x)) walk(x, innerAt, level, from, to, depth + 1);
+      }
+      return;
+    }
+    const asset = assets[c.assetId];
+    if (!asset?.hasAudio) return;
+    const last = Math.max(0, asset.duration - END_GUARD);
+    const mediaAt = (t: number) => {
+      const s = clockAt(t);
+      return s === null ? null : Math.min(last, Math.max(0, isRemapped(c) ? mediaTime(c, s) : sourceEdge(c, toLocal(t)!)));
+    };
+    // Follow the curve, cutting into straight pieces.
+    const steps = Math.ceil((to - from) / SOUND_STEP);
+    let start: { t: number; m: number } | null = null;
+    let prev: { t: number; m: number } | null = null;
+    let slope = 0;
+    const close = (end: { t: number; m: number }) => {
+      if (!start || end.t - start.t < 1e-3) return;
+      const duration = end.t - start.t;
+      const change = end.m - start.m;
+      const speed = Math.abs(change) / duration;
+      if (speed < SILENT_SPEED) return;
+      const mid = (start.t + end.t) / 2;
+      const steady = !isRemapped(c) && change > 0 && gain(mid) > 0;
+      const volume = findEffect(c, VOLUME.type);
+      const keys = steady && volume?.enabled ? volume.keyframes?.level : undefined;
+      pieces.push({
+        file: asset.path,
+        from: Math.min(start.m, end.m),
+        length: Math.abs(change),
+        backwards: change < 0,
+        at: start.t,
+        duration,
+        speed: Math.min(100, speed),
+        keepPitch: c.keepPitch !== false,
+        ...(keys?.length ? { levels: keys, gain: Math.round(gain(mid) * 1e6) / 1e6 } : { gain: Math.round(level(mid) * 1e6) / 1e6 }),
+      });
+    };
+    for (let i = 0; i <= steps; i++) {
+      const t = Math.min(to, from + i * SOUND_STEP);
+      const m = mediaAt(t);
+      if (m === null) {
+        if (prev) close(prev);
+        start = prev = null;
+        continue;
+      }
+      const here = { t, m };
+      if (!start) {
+        start = prev = here;
+        slope = NaN;
+        continue;
+      }
+      const s = (m - prev!.m) / (t - prev!.t || 1);
+      if (Number.isNaN(slope)) slope = s;
+      // Still on the line from where this piece started?
+      const predicted = start.m + slope * (t - start.t);
+      if (Math.abs(predicted - m) > SOUND_TOLERANCE || Math.sign(s) !== Math.sign(slope)) {
+        close(prev!);
+        start = prev!;
+        slope = (m - prev!.m) / (t - prev!.t || 1);
+      }
+      prev = here;
+    }
+    if (prev) close(prev);
+  };
+  walk(clip, (t) => t, () => 1, clip.start, clipEnd(clip), 0);
+  return pieces;
+}
+
 /** Bytes of one composited frame as the compositor hands it over (YUV 4:2:0, see `readYuv420`). */
 export const frameBytes = (plan: Pick<RenderPlan, "width" | "height">) => (plan.width * plan.height * 3) / 2;
 
@@ -600,7 +972,7 @@ export function keyframeExpression(keys: readonly Keyframe[], offset: number, ti
     if (a.easing !== "hold" && b.value !== a.value) {
       const f = `((${time}-${at(a)})/${n(b.time - a.time)})`;
       const change = n((b.value as number) - (a.value as number));
-      if (a.influence === undefined && b.influence === undefined) {
+      if (isPlainSegment(a, b)) {
         // easedProgress at 33% influence: 3(1-f)²f·y1 + 3(1-f)f²·y2 + f³.
         const g = `(1-${f})`;
         const y1 = easesOut(a.easing) ? 0 : 1 / 3;
@@ -608,7 +980,7 @@ export function keyframeExpression(keys: readonly Keyframe[], offset: number, ti
         const curve = `(${n(3 * y1)}*${g}*${g}*${f}+${n(3 * y2)}*${g}*${f}*${f}+${f}*${f}*${f})`;
         piece = `${value(a)}+${change}*${curve}`;
       } else {
-        // Other influences need the curve solved for time: follow it in short straight pieces.
+        // Other influences and the graph editor's handles need the curve solved for time: follow it in short straight pieces.
         const PIECES = 48;
         let curve = "1";
         for (let j = PIECES - 1; j >= 0; j--) {

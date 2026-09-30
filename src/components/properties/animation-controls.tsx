@@ -32,8 +32,16 @@ function now(clipId: string): { clip: Clip; time: number; playhead: number; fps:
   return { clip, playhead, fps, time: keyframeTime(clip, playhead, fps) };
 }
 
-export function Stopwatch({ clipId, effectId, paramKey, label, animated }: Target & { animated: boolean }) {
-  const toggle = () => {
+export function Stopwatch({
+  clipId,
+  effectId,
+  paramKey,
+  label,
+  animated,
+  onAltClick,
+}: Target & { animated: boolean; /** ⌥-click (After Effects: add or remove the property's expression). */ onAltClick?: () => void }) {
+  const toggle = (e: React.MouseEvent) => {
+    if (e.altKey && onAltClick) return onAltClick();
     const at = now(clipId);
     if (at) editor().commit((p) => setAnimated(p, clipId, effectId, paramKey, at.time, !animated));
   };
@@ -54,7 +62,10 @@ export function Stopwatch({ clipId, effectId, paramKey, label, animated }: Targe
           <Icon className="size-3.5" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">{animated ? `Stop animating ${label} (removes its keyframes)` : `Animate ${label}`}</TooltipContent>
+      <TooltipContent side="top">
+        {animated ? `Stop animating ${label} (removes its keyframes)` : `Animate ${label}`}
+        {onAltClick && <span className="block text-muted-foreground">⌥-click: add or remove an expression</span>}
+      </TooltipContent>
     </Tooltip>
   );
 }

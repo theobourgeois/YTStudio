@@ -7,6 +7,27 @@
  */
 import type { EditToolName } from "@shared/assistant-tools";
 import { canAnimate, keyframeTime, setAnimated } from "@shared/animation";
+import { canParent, setParent } from "@shared/parenting";
+import {
+  breakApart,
+  deleteSequence,
+  getSequence,
+  isNestedClip,
+  nestClips,
+  renameSequence,
+  sequenceDuration,
+  setSequenceDuration,
+} from "@shared/sequences";
+import {
+  MAX_REMAP_SPEED,
+  MIN_REMAP_SPEED,
+  addFreezeFrame,
+  addReverseSection,
+  remapFromSpeeds,
+  remapSegments,
+  setSegmentSpeed,
+  setTimeRemap,
+} from "@shared/time-remap";
 import {
   CAPTION_PRESETS,
   applyCaptionPreset,
@@ -22,14 +43,25 @@ import {
   type EffectDefinition,
   CAMERA,
   MOTION,
+  SHAPE,
   SOLID,
+  TEXT_ANIMATOR,
   TEXT,
   addEffect,
+  clipKind,
+  isRemapped,
   copyEffects,
   defaultEffects,
   effectDefinition,
   isTextClip,
+  MAX_EXPRESSION,
+  atFrameRate,
+  canExpress,
+  effectValuesAt,
+  expressionProblem,
+  isAddedEffect,
   isVideoEffect,
+  setExpression,
   moveEffect,
   pasteEffects,
   removeEffect,
@@ -39,8 +71,11 @@ import {
   textEffects,
   updateEffect,
 } from "@shared/effects";
-import { DEFAULT_INFLUENCE, EASINGS, MIN_INFLUENCE } from "@shared/keyframes";
+import { DEFAULT_INFLUENCE, EASINGS, MIN_INFLUENCE, clampHandle, sanitizeSpatial } from "@shared/keyframes";
+import { cutToMarkers } from "@shared/beat-sync";
+import { MARKER_COLORS, allMarkers, clipMarkers, addClipMarker, addMarker, removeClipMarkers, removeMarkers, sequenceMarkers, updateClipMarker, updateMarker } from "@shared/markers";
 import { addPresetLayer, applyPresetToClips, presetDefinition } from "@shared/presets";
+import { ANIMATOR_PRESETS, addAnimator, animatorPreset } from "@shared/text-animators";
 import { addSubclips, canSubclip, cleanSubclipName, getSubclip, removeSubclips, subclipRange, updateSubclip } from "@shared/subclips";
 import { EPS, roundTime, tidy } from "@shared/math";
 import { type ParamSpec, sanitizeValue } from "@shared/params";
@@ -56,6 +91,7 @@ import {
   addTrack,
   canPlaceOnTrack,
   canRetime,
+  canTimeRemap,
   clipDuration,
   clipEnd,
   clipName,
@@ -100,7 +136,9 @@ import { ALIGNMENT_SPEC, DURATION_SPEC, transitionDefinition } from "@shared/tra
 import type { AspectRatio, Clip, Easing, Effect, Keyframe, MediaAsset, ParamValues, Project, Track } from "@shared/types";
 import {
   type Input,
+  PATH_FORMAT,
   ToolError,
+  coercePath,
   number,
   oneOf,
   optBoolean,
@@ -117,8 +155,11 @@ import {
 } from "./input";
 
 export interface EditEnv {
+  /** The video's media, and its nested sequences as media. */
   assets: Readonly<Record<string, MediaAsset>>;
   playhead: number;
+  /** The nested sequence the project is a view of (null or absent: the main one). */
+  sequenceId?: string | null;
 }
 
 export interface EditOutcome {
@@ -175,6 +216,8 @@ function expected(spec: ParamSpec): string {
       return `one of ${spec.options.map((o) => JSON.stringify(o.value)).join(", ")}`;
     case "color":
       return 'a colour like "#ff0000"';
+    case "path":
+      return PATH_FORMAT;
     default:
       return "a string";
   }
@@ -198,9 +241,9 @@ function checkParams(
       const keys = specs.filter((s) => !skip.includes(s.key)).map((s) => s.key);
       throw new ToolError(`${label} has no parameter "${key}". Its parameters: ${keys.join(", ")}.`);
     }
-    const clean = sanitizeValue(spec, v);
+    const clean = sanitizeValue(spec, spec.kind === "path" ? coercePath(v) : v);
     if (clean === undefined) throw new ToolError(`${label} "${key}" must be ${expected(spec)}.`);
-    if (JSON.stringify(clean) !== JSON.stringify(v) && spec.kind !== "color") notes.push(`${key} was limited to ${value(clean)}`);
+    if (JSON.stringify(clean) !== JSON.stringify(v) && spec.kind !== "color" && spec.kind !== "path") notes.push(`${key} was limited to ${value(clean)}`);
     values[key] = clean;
   }
   return { values, notes };
@@ -319,8 +362,8 @@ const addText: EditHandler = (project, input, env) => {
 };
 
 const addLayer: EditHandler = (project, input, env) => {
-  const kind = oneOf(input, "kind", ["adjustment", "solid", "camera"] as const);
-  if (!kind) throw new ToolError('`kind` must be "adjustment", "solid" or "camera".');
+  const kind = oneOf(input, "kind", ["adjustment", "solid", "shape", "camera", "null"] as const);
+  if (!kind) throw new ToolError('`kind` must be "adjustment", "solid", "shape", "camera" or "null".');
   const start = number(input, "start", { min: 0 });
   const duration = optNumber(input, "duration", { min: MIN_CLIP_DURATION }) ?? STILL_DURATION;
   const trackId = optString(input, "trackId");
@@ -329,37 +372,46 @@ const addLayer: EditHandler = (project, input, env) => {
   if (kind !== "solid" && color !== undefined) throw new ToolError("`color` is only for solids.");
   const cameraValues = optObject(input, "camera");
   if (kind !== "camera" && cameraValues) throw new ToolError("`camera` is only for cameras.");
+  const shapeValues = optObject(input, "shape");
+  if (kind !== "shape" && shapeValues) throw new ToolError("`shape` is only for shape layers.");
+  const notes: string[] = [];
+  const shape = kind === "shape" ? checkParams(SHAPE.params, shapeValues ?? {}, "Shape") : null;
+  if (shape) notes.push(...shape.notes);
   if (kind === "camera" && input.effects !== undefined) throw new ToolError("A camera takes no effects: it's what 3D layers are seen through.");
+  if (kind === "null" && input.effects !== undefined) throw new ToolError("A null object takes no effects: it's only a Motion for clips to follow (set_parent).");
   const values =
     kind === "solid" && color !== undefined
       ? checkParams(SOLID.params, { color }, "Solid").values
       : kind === "camera" && cameraValues
         ? checkParams(CAMERA.params, cameraValues, "Camera").values
-        : {};
+        : (shape?.values ?? {});
   const clip = newLayerClip(kind, start, duration, values);
   let p = addLayerClip(project, clip, trackId).project;
-  const notes: string[] = [];
   const raw = input.effects;
   if (raw !== undefined && !Array.isArray(raw)) throw new ToolError("`effects` must be a list of { type, params }.");
   for (const [i, item] of (raw ?? []).entries()) {
     if (!item || typeof item !== "object") throw new ToolError(`effects[${i}] must be { type, params }.`);
     const type = string(item as Input, "type");
     const def = effectDefinition(type);
-    if (!def?.shader) throw new ToolError(`effects[${i}]: "${type}" isn't a video effect. See get_catalog with kind "video_effects".`);
+    if (!def || !(def.shader || def.stackable)) {
+      throw new ToolError(`effects[${i}]: "${type}" isn't a video effect, a mask or a shape layer's content. See get_catalog with kind "video_effects" or "masks_and_shapes".`);
+    }
     const { values, notes: clamped } = checkParams(def.params, optObject(item as Input, "params") ?? {}, def.label);
     notes.push(...clamped);
-    const res = addEffect(p, [clip.id], type);
+    const res = addEffect(p, [clip.id], type, values);
+    if (!res.added.size) throw new ToolError(`effects[${i}]: ${def.label} doesn't go on ${kind === "shape" ? "a shape layer" : `a ${kind} layer`}.`);
     p = res.project;
-    if (Object.keys(values).length) p = setParams(p, clip.id, res.added.get(clip.id)!, values);
   }
   const placed = getClip(p, clip.id)!;
   if (trackId && placed.trackId !== trackId) notes.push(`${trackName(project, trackId)} wasn't free there, so it went on ${trackName(p, placed.trackId)}`);
-  const effects = placed.effects.filter(isVideoEffect).map((e) => e.id);
+  const effects = placed.effects.filter(isAddedEffect).map((e) => e.id);
   return {
     project: p,
     text: withNotes(
-      `Added ${kind === "adjustment" ? "adjustment layer" : kind} ${place(p, placed, env)}${effects.length ? ` with ${effects.join(", ")}` : ""}.` +
-        (kind === "camera" ? " Only 3D layers (motion threeD: true) are seen through it." : ""),
+      `Added ${kind === "adjustment" ? "adjustment layer" : kind === "null" ? "null object" : kind === "shape" ? "shape layer" : kind} ${place(p, placed, env)}${effects.length ? ` with ${effects.join(", ")}` : ""}.` +
+        (kind === "camera" ? " Only 3D layers (motion threeD: true) are seen through it." : "") +
+        (kind === "shape" ? " Add more shapes and operators to it with add_effect, in the order they apply." : "") +
+        (kind === "null" ? " Parent clips to it with set_parent, then animate its motion." : ""),
       notes,
     ),
   };
@@ -446,6 +498,131 @@ const trim: EditHandler = (project, input, env) => {
     project: p,
     text: withNotes(`Trimmed: ${place(p, after, env)} (source ${range(after.in, after.out)})${ripple ? "; the rest of the track moved left" : ""}.`, notes),
   };
+};
+
+const nestClipsTool: EditHandler = (project, input) => {
+  const ids = strings(input, "clipIds");
+  ids.forEach((id) => clipOf(project, id));
+  const res = nestClips(project, ids, optString(input, "name"));
+  if (!res) throw new ToolError("Give the clips to nest.");
+  const seq = getSequence(res.project, res.sequenceId)!;
+  const clip = getClip(res.project, res.clipId)!;
+  return {
+    project: res.project,
+    text:
+      `Nested ${ids.length} clip${ids.length === 1 ? "" : "s"} into sequence ${seq.id} ("${seq.name}", ${secs(sequenceDuration(seq))}s), ` +
+      `played by clip ${clip.id} at ${range(clip.start, clipEnd(clip))} on ${trackName(res.project, clip.trackId)}. ` +
+      `Edit inside it with open_sequence("${seq.id}").`,
+  };
+};
+
+const breakApartTool: EditHandler = (project, input) => {
+  const clip = clipOf(project, string(input, "clipId"));
+  if (!isNestedClip(clip)) throw new ToolError(`${clip.id} isn't a nested sequence's clip.`);
+  const res = breakApart(project, clip.id);
+  if (!res) throw new ToolError(`${clip.id} can't be broken apart: it plays at another speed, backwards or remapped. Set it back to normal speed first (set_speed / remap_time enabled false).`);
+  return { project: res.project, text: `Put ${res.clipIds.length} clips back in its place: ${res.clipIds.join(", ")}.` };
+};
+
+const editSequenceTool: EditHandler = (project, input, env) => {
+  const id = string(input, "sequenceId");
+  const seq = getSequence(project, id);
+  if (!seq) {
+    const all = (project.sequences ?? []).map((s) => `${s.id} (${s.name})`);
+    throw new ToolError(`There's no sequence "${id}".${all.length ? ` Nested sequences: ${all.join(", ")}.` : ""}`);
+  }
+  if (optBoolean(input, "delete")) {
+    if (env.sequenceId === id) throw new ToolError(`${id} is the sequence you're working on: open_sequence(null) first.`);
+    return { project: deleteSequence(project, id), text: `Deleted sequence ${id} and the clips that played it.` };
+  }
+  let p = project;
+  const name = optString(input, "name");
+  if (name !== undefined) p = renameSequence(p, id, name);
+  const aspectRatio = oneOf(input, "aspectRatio", ["9:16", "16:9", "1:1", "4:5"] as const);
+  const fps = optNumber(input, "fps", { min: 1, max: 120 });
+  if (aspectRatio || fps !== undefined) {
+    const patch = { ...(aspectRatio && { aspectRatio }), ...(fps !== undefined && { fps: Math.round(fps) }) };
+    // The sequence being worked on keeps its settings in the view; any other in the list.
+    if (env.sequenceId === id) p = { ...p, settings: { ...p.settings, ...patch } };
+    else p = { ...p, sequences: p.sequences!.map((s) => (s.id === id ? { ...s, settings: { ...s.settings, ...patch } } : s)) };
+  }
+  if ("duration" in input) {
+    const raw = input.duration;
+    if (raw !== null && (typeof raw !== "number" || !(raw > 0))) throw new ToolError("`duration` must be seconds (> 0), or null for as long as its clips.");
+    p = setSequenceDuration(p, id, raw as number | null);
+  }
+  const now = getSequence(p, id) ?? seq;
+  const settings = env.sequenceId === id ? p.settings : now.settings;
+  return { project: p, text: `Sequence ${id}: "${now.name}", ${settings.aspectRatio} at ${settings.fps} fps, ${now.duration === undefined ? `as long as its clips (${secs(sequenceDuration(now))}s)` : `${secs(now.duration)}s`}.` };
+};
+
+const remapTimeTool: EditHandler = (project, input, env) => {
+  const clip = clipOf(project, string(input, "clipId"));
+  const asset = env.assets[clip.assetId];
+  if (!canTimeRemap(clip, asset)) throw new ToolError(`${clip.id} can't have its time remapped: only clips of videos, sounds and nested sequences can.`);
+  const duration = asset?.duration ?? Infinity;
+  let p = project;
+  const notes: string[] = [];
+  const enabled = optBoolean(input, "enabled");
+  if (enabled !== undefined) p = setTimeRemap(p, [clip.id], enabled, { [clip.id]: duration });
+  const rawSpeeds = input.speeds;
+  if (rawSpeeds !== undefined) {
+    if (!Array.isArray(rawSpeeds) || rawSpeeds.length === 0) throw new ToolError("`speeds` must be a list of { duration, speed }.");
+    const steps = rawSpeeds.map((x, i) => {
+      if (!x || typeof x !== "object") throw new ToolError(`speeds[${i}] must be { duration, speed }.`);
+      return { duration: number(x as Input, "duration", { min: 1 / 240 }), speed: number(x as Input, "speed", { min: -MAX_REMAP_SPEED, max: MAX_REMAP_SPEED }) };
+    });
+    p = remapFromSpeeds(p, clip.id, steps, duration, optNumber(input, "ease", { min: 0, max: 1 }) ?? 0);
+  }
+  const freeze = optObject(input, "freeze");
+  if (freeze) p = addFreezeFrame(p, clip.id, number(freeze, "at", { min: 0 }), number(freeze, "duration", { min: 1 / 240 }));
+  const reverse = optObject(input, "reverse");
+  if (reverse) {
+    const from = number(reverse, "from", { min: 0 });
+    const to = number(reverse, "to", { min: 0 });
+    const next = addReverseSection(p, clip.id, from, to);
+    if (next === p) notes.push(`nothing was reversed: ${range(from, to)} must be inside the clip and at least ${MIN_CLIP_DURATION / 2}s long`);
+    p = next;
+  }
+  const stretch = optObject(input, "stretch");
+  if (stretch) {
+    const index = Math.round(number(stretch, "index", { min: 0 }));
+    const next = setSegmentSpeed(p, clip.id, index, number(stretch, "speed", { min: MIN_REMAP_SPEED, max: MAX_REMAP_SPEED }));
+    if (next === p) notes.push(`stretch ${index} wasn't changed (it doesn't exist, or it's a freeze)`);
+    p = next;
+  }
+  if (p === project && !notes.length) throw new ToolError("Give `enabled`, `speeds`, `freeze`, `reverse` and/or `stretch`.");
+  const after = getClip(p, clip.id)!;
+  const stretches = remapSegments(after)
+    .map((s, i) => `#${i} ${range(s.start, s.end)} ${s.speed === 0 ? "freeze" : `${Math.round(s.speed * 100)}%`}`)
+    .join(", ");
+  return {
+    project: p,
+    text: withNotes(
+      isRemapped(after) ? `${clip.id} (${range(after.start, clipEnd(after))}) is remapped: ${stretches}.` : `${clip.id} plays at a steady speed again.`,
+      notes,
+    ),
+  };
+};
+
+const setParentTool: EditHandler = (project, input, env) => {
+  const ids = strings(input, "clipIds");
+  const clips = ids.map((id) => clipOf(project, id));
+  const raw = input.parentId;
+  if (raw !== null && typeof raw !== "string") throw new ToolError("`parentId` must be a clip id, or null to unparent.");
+  const at = optNumber(input, "at", { min: 0 }) ?? env.playhead;
+  if (raw === null) {
+    const p = setParent(project, ids, null, at);
+    return { project: p, text: `Unparented ${clips.filter((c) => c.parent).map((c) => c.id).join(", ") || "nothing (none had a parent)"}.` };
+  }
+  const parent = clipOf(project, raw);
+  if (!isOnVideoTrack(project, parent) || clipKind(parent) === "camera") throw new ToolError(`${parent.id} can't be a parent: only visual clips (not cameras) can.`);
+  const refused = clips.filter((c) => !canParent(project, c.id, parent.id) || !isOnVideoTrack(project, c));
+  if (refused.length) {
+    throw new ToolError(`${refused.map((c) => c.id).join(", ")} can't follow ${parent.id}: a clip can't be its own parent or its parent's parent, and only clips on video tracks follow one.`);
+  }
+  const p = setParent(project, ids, parent.id, at);
+  return { project: p, text: `${ids.join(", ")} now ${ids.length === 1 ? "follows" : "follow"} ${parent.id}${parent.nullObject ? " (a null object)" : ""}.` };
 };
 
 const setSpeed: EditHandler = (project, input, env) => {
@@ -546,6 +723,25 @@ const closeGaps: EditHandler = (project, input) => {
   return { project: p, text: closed ? `Closed ${closed} gap${closed === 1 ? "" : "s"} on "${track.name}".` : `"${track.name}" has no gaps.` };
 };
 
+const cutToMarkersTool: EditHandler = (project, input, env) => {
+  const ids = strings(input, "clipIds");
+  ids.forEach((id) => clipOf(project, id));
+  const every = optNumber(input, "every", { min: 1, max: 64 });
+  if (allMarkers(project, new Set(ids)).length === 0) {
+    throw new ToolError("There are no markers to cut to. Call mark_beats on the music clip first (or set_markers).");
+  }
+  const cut = cutToMarkers(project, ids, { every, range: (clip) => clipSourceRange(clip, env.assets[clip.assetId]) });
+  if (!cut.moved) return { project, text: "Nothing changed: those clips already end on markers (or no marker is within their reach)." };
+  const ends = ids.map((id) => getClip(cut.project, id)!).sort((a, b) => a.start - b.start);
+  return {
+    project: cut.project,
+    text: `Cut ${cut.moved} of ${ids.length} clips to the markers; what followed them on their tracks moved along. Now: ${ends
+      .slice(0, 40)
+      .map((c) => `${c.id} ${range(c.start, clipEnd(c))}`)
+      .join(", ")}${ends.length > 40 ? ", …" : ""}.`,
+  };
+};
+
 const duplicate: EditHandler = (project, input, env) => {
   const ids = strings(input, "clipIds");
   ids.forEach((id) => clipOf(project, id));
@@ -589,7 +785,8 @@ const setKeyframes: EditHandler = (project, input) => {
   const key = string(input, "param");
   const spec = def.params.find((s) => s.key === key);
   if (!spec) throw new ToolError(`${def.label} has no parameter "${key}". Its parameters: ${def.params.map((s) => s.key).join(", ")}.`);
-  if (!canAnimate(effect, key)) throw new ToolError(`${def.label} "${key}" can't be animated (only numbers and points can).`);
+  if (!canAnimate(effect, key)) throw new ToolError(`${def.label} "${key}" can't be animated (only numbers, points and paths can).`);
+  const clean = (v: unknown) => sanitizeValue(spec, spec.kind === "path" ? coercePath(v) : v);
   const raw = input.keyframes;
   if (!Array.isArray(raw)) throw new ToolError("`keyframes` must be a list (empty to stop animating).");
 
@@ -598,9 +795,9 @@ const setKeyframes: EditHandler = (project, input) => {
     let p = setAnimated(project, clip.id, effect.id, key, first, false);
     const still = input.value;
     if (still !== undefined) {
-      const clean = sanitizeValue(spec, still);
-      if (clean === undefined) throw new ToolError(`\`value\` must be ${expected(spec)}.`);
-      p = setParams(p, clip.id, effect.id, { [key]: clean });
+      const kept = clean(still);
+      if (kept === undefined) throw new ToolError(`\`value\` must be ${expected(spec)}.`);
+      p = setParams(p, clip.id, effect.id, { [key]: kept });
     }
     return { project: p, text: `${key} of ${clip.id} isn't animated any more.` };
   }
@@ -614,13 +811,27 @@ const setKeyframes: EditHandler = (project, input) => {
     if (t < clip.start - 1e-3 || t > clipEnd(clip) + 1e-3) {
       throw new ToolError(`keyframes[${i}] at ${secs(t)} is outside ${clip.id} (${range(clip.start, clipEnd(clip))}).`);
     }
-    const v = sanitizeValue(spec, kf.value);
+    const v = clean(kf.value);
     if (v === undefined) throw new ToolError(`keyframes[${i}].value must be ${expected(spec)}.`);
-    if (JSON.stringify(v) !== JSON.stringify(kf.value)) notes.push(`a value was limited to ${value(v)}`);
+    if (spec.kind !== "path" && JSON.stringify(v) !== JSON.stringify(kf.value)) notes.push(`a value was limited to ${value(v)}`);
     const easing: Easing = oneOf(kf, "easing", EASINGS) ?? "linear";
     const influence = optNumber(kf, "influence", { min: MIN_INFLUENCE, max: 1 });
     const time = toSource(clip, t);
-    keys.set(time, { time, value: v, easing, ...(influence !== undefined && Math.abs(influence - DEFAULT_INFLUENCE) > 1e-6 && { influence: tidy(influence) }) });
+    const handleIn = optVec2(kf, "handleIn");
+    const handleOut = optVec2(kf, "handleOut");
+    const spatialIn = sanitizeSpatial(optVec2(kf, "spatialIn"));
+    const spatialOut = sanitizeSpatial(optVec2(kf, "spatialOut"));
+    if ((spatialIn || spatialOut) && spec.kind !== "vec2") throw new ToolError(`keyframes[${i}]: spatialIn/spatialOut bend a point's path; ${def.label} "${key}" isn't a point.`);
+    keys.set(time, {
+      time,
+      value: v,
+      easing,
+      ...(influence !== undefined && Math.abs(influence - DEFAULT_INFLUENCE) > 1e-6 && { influence: tidy(influence) }),
+      ...(handleIn && { handleIn: clampHandle(handleIn, "in") }),
+      ...(handleOut && { handleOut: clampHandle(handleOut, "out") }),
+      ...(spatialIn && { spatialIn }),
+      ...(spatialOut && { spatialOut }),
+    });
   }
   const sorted = [...keys.values()].sort((a, b) => a.time - b.time);
   const p = updateEffect(project, clip.id, effect.id, (e) => ({ ...e, keyframes: { ...e.keyframes, [key]: sorted } }));
@@ -633,15 +844,32 @@ const addEffects: EditHandler = (project, input) => {
   ids.forEach((id) => clipOf(project, id));
   const type = string(input, "type");
   const def = effectDefinition(type);
-  if (!def?.shader) throw new ToolError(`"${type}" isn't a video effect. See get_catalog with kind "video_effects".`);
+  if (!def || !(def.shader || def.stackable)) {
+    throw new ToolError(`"${type}" isn't a video effect, a mask or a shape layer's content. See get_catalog with kind "video_effects" or "masks_and_shapes".`);
+  }
   const raw = optObject(input, "params") ?? {};
   const { values, notes } = checkParams(def.params, raw, def.label);
-  const res = addEffect(project, ids, type);
-  if (res.added.size === 0) throw new ToolError("Video effects only go on clips on video tracks.");
-  let p = res.project;
-  if (Object.keys(values).length) for (const [clipId, effectId] of res.added) p = setParams(p, clipId, effectId, values);
+  const preset = optString(input, "preset");
+  if (preset !== undefined) {
+    if (def !== TEXT_ANIMATOR) throw new ToolError('`preset` is only for type "text-animator".');
+    if (!animatorPreset(preset)) throw new ToolError(`There's no animator preset "${preset}". They are: ${ANIMATOR_PRESETS.map((p) => p.id).join(", ")}.`);
+    let p = project;
+    const added: string[] = [];
+    for (const id of ids) {
+      const made = addAnimator(p, id, preset, values);
+      if (!made.effectId) continue;
+      p = made.project;
+      added.push(`${id}: ${made.effectId}`);
+    }
+    if (!added.length) throw new ToolError("Animators only go on text clips.");
+    return { project: p, text: withNotes(`Added the ${animatorPreset(preset)!.label} animator (effect ids: ${added.join(", ")}). Its range is keyframed from each clip's start (see get_clips).`, notes) };
+  }
+  const res = addEffect(project, ids, type, values);
+  const what = def.stackable === "shape" ? "only goes on shape layers (add_layer kind shape)" : def.stackable === "animator" ? "only goes on text clips" : "only goes on clips on video tracks";
+  if (res.added.size === 0) throw new ToolError(`${def.label} ${what}.`);
+  const p = res.project;
   const skipped = ids.filter((id) => !res.added.has(id));
-  if (skipped.length) notes.push(`not on a video track, so skipped: ${skipped.join(", ")}`);
+  if (skipped.length) notes.push(`${def.label} ${what}, so skipped: ${skipped.join(", ")}`);
   const added = [...res.added].map(([clipId, effectId]) => `${clipId}: ${effectId}`).join(", ");
   return { project: p, text: withNotes(`Added ${def.label} (effect ids: ${added}).`, notes) };
 };
@@ -659,8 +887,10 @@ const editEffect: EditHandler = (project, input) => {
   for (const id of ids) {
     const { effect, def } = effectOf(clipOf(p, id), effectId);
     if (remove) {
-      if (!isVideoEffect(effect)) throw new ToolError(`${def.label} is built in and can't be removed; turn it off (enabled: false) or reset it.`);
-      p = removeEffect(p, id, effect.id);
+      if (!isAddedEffect(effect)) throw new ToolError(`${def.label} is built in and can't be removed; turn it off (enabled: false) or reset it.`);
+      const next = removeEffect(p, id, effect.id);
+      if (next === p) throw new ToolError(`${id} is a shape layer: it keeps at least one shape. Delete the clip instead (delete_clips).`);
+      p = next;
       continue;
     }
     if (reset) p = resetParams(p, id, effect.id);
@@ -806,7 +1036,7 @@ const styleCaptions: EditHandler = (project, input) => {
     if (animation === "none") p = setCaptionAnimation(p, null);
     else {
       const anim = captionAnimation(animation);
-      if (!anim) throw new ToolError(`There's no transition "${animation}" to animate captions with. See get_catalog "caption_styles".`);
+      if (!anim) throw new ToolError(`There's no animation "${animation}" for captions (spoken-words, spoken-highlight, spoken-bounce, or a transition type). See get_catalog "caption_styles".`);
       p = setCaptionAnimation(p, anim);
     }
   }
@@ -914,10 +1144,127 @@ const editSubclips: EditHandler = (project, input, env) => {
 };
 
 /** Every edit tool's handler. */
+const setExpressionTool: EditHandler = (project, input) => {
+  const ids = strings(input, "clipIds");
+  const effectId = string(input, "effect");
+  const key = string(input, "param");
+  const source = input.expression;
+  if (source !== null && typeof source !== "string") throw new ToolError("`expression` must be a string, or null to remove it.");
+  let p = project;
+  const results: string[] = [];
+  for (const id of ids) {
+    const clip = clipOf(p, id);
+    const { effect, def } = effectOf(clip, effectId);
+    const spec = def.params.find((s) => s.key === key);
+    if (!spec) throw new ToolError(`${def.label} has no parameter "${key}". Its parameters: ${def.params.map((s) => s.key).join(", ")}.`);
+    if (!canExpress(def, spec)) {
+      const ok = def.params.filter((s) => canExpress(def, s)).map((s) => s.key);
+      throw new ToolError(`${def.label} "${key}" can't have an expression${ok.length ? ` (its numbers and points can: ${ok.join(", ")})` : " (none of its parameters can)"}.`);
+    }
+    if (source === null || !source.trim()) {
+      p = setExpression(p, id, effect.id, key, null);
+      continue;
+    }
+    if (source.length > MAX_EXPRESSION) throw new ToolError(`The expression is too long (over ${MAX_EXPRESSION} characters).`);
+    const next = setExpression(p, id, effect.id, key, source);
+    const after = clipOf(next, id);
+    const written = after.effects.find((e) => e.id === effect.id)!;
+    // Run it where the clip starts and a little later: what's wrong, or what it gives.
+    const fps = p.settings.fps;
+    const problem = atFrameRate(fps, () => expressionProblem(def, written, key, clip.in, after));
+    if (problem) throw new ToolError(`The expression doesn't run: ${problem}. See get_catalog "expressions" for what it can use.`);
+    const at = (t: number) => value(atFrameRate(fps, () => effectValuesAt(def, written, t, after))[key]);
+    results.push(`${id}: ${at(clip.in)} at its start, ${at(clip.in + Math.min(1, (clip.out - clip.in) / 2))} ${secs(Math.min(1, (clip.out - clip.in) / 2))}s in`);
+    p = next;
+  }
+  if (source === null || !source.trim()) return { project: p, text: p === project ? `${key} had no expression.` : `Removed the expression on ${key} (${effectId}) of ${ids.join(", ")}.` };
+  return { project: p, text: `${key} (${effectId}) now follows the expression. It gives ${results.join("; ")}.` };
+};
+
+const MARKER_COLOR_VALUES = MARKER_COLORS.map((c) => c.value);
+
+function setMarkersTool(project: Project, input: Input): EditOutcome {
+  const list = (key: string): Input[] => {
+    const raw = input[key];
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw) || raw.some((x) => !x || typeof x !== "object")) throw new ToolError(`\`${key}\` must be a list of objects.`);
+    return raw as Input[];
+  };
+  const adds = list("add");
+  const updates = list("update");
+  const removes = optStrings(input, "remove") ?? [];
+  const clear = optBoolean(input, "clear") ?? false;
+  if (!adds.length && !updates.length && !removes.length && !clear) throw new ToolError("Give `add`, `update`, `remove` or `clear`.");
+  let p = project;
+  const done: string[] = [];
+  if (clear && sequenceMarkers(p).length) {
+    done.push(`cleared ${sequenceMarkers(p).length} timeline marker${sequenceMarkers(p).length === 1 ? "" : "s"}`);
+    p = removeMarkers(p, sequenceMarkers(p).map((m) => m.id));
+  }
+  /** The clip a marker id is on (undefined: the timeline's), or an error naming what exists. */
+  const find = (id: string): { clipId?: string } => {
+    if (sequenceMarkers(p).some((m) => m.id === id)) return {};
+    // The clip that shows it first (after a split both halves carry it; only one shows it).
+    const has = (c: Clip) => !!c.markers?.some((m) => m.id === id);
+    const clip = p.clips.find((c) => has(c) && clipMarkers(c).some((m) => m.marker.id === id)) ?? p.clips.find(has);
+    if (clip) return { clipId: clip.id };
+    throw new ToolError(`There's no marker "${id}". Call get_timeline for the markers and their ids.`);
+  };
+  for (const id of removes) {
+    const { clipId } = find(id);
+    p = clipId ? removeClipMarkers(p, clipId, [id]) : removeMarkers(p, [id]);
+  }
+  if (removes.length) done.push(`removed ${removes.length}`);
+  for (const [i, item] of updates.entries()) {
+    const id = string(item, "id");
+    const { clipId } = find(id);
+    const patch = {
+      ...(optNumber(item, "time", { min: 0 }) !== undefined && { time: optNumber(item, "time", { min: 0 })! }),
+      ...(optString(item, "label") !== undefined && { label: optString(item, "label")! }),
+      ...(oneOf(item, "color", MARKER_COLOR_VALUES) && { color: oneOf(item, "color", MARKER_COLOR_VALUES)! }),
+    };
+    if (!Object.keys(patch).length) throw new ToolError(`update[${i}] changes nothing: give \`time\`, \`label\` or \`color\`.`);
+    if (clipId && patch.time !== undefined) {
+      const clip = clipOf(p, clipId);
+      if (patch.time < clip.start - 1e-3 || patch.time > clipEnd(clip) + 1e-3) throw new ToolError(`update[${i}]: ${secs(patch.time)} is outside ${clipId} (${range(clip.start, clipEnd(clip))}).`);
+    }
+    p = clipId ? updateClipMarker(p, clipId, id, patch) : updateMarker(p, id, patch);
+  }
+  if (updates.length) done.push(`changed ${updates.length}`);
+  const added: string[] = [];
+  for (const [i, item] of adds.entries()) {
+    const t = number(item, "time", { min: 0 });
+    const init = { ...(optString(item, "label") && { label: optString(item, "label")! }), ...(oneOf(item, "color", MARKER_COLOR_VALUES) && { color: oneOf(item, "color", MARKER_COLOR_VALUES)! }) };
+    const clipId = optString(item, "clipId");
+    if (clipId) {
+      const clip = clipOf(p, clipId);
+      const made = addClipMarker(p, clipId, t, init);
+      if (!made.id) throw new ToolError(`add[${i}]: ${secs(t)} is outside ${clipId} (${range(clip.start, clipEnd(clip))}).`);
+      p = made.project;
+      added.push(`${made.id} on ${clipId} at ${secs(t)}`);
+    } else {
+      const made = addMarker(p, t, init);
+      // One already there takes the new name and colour.
+      p = Object.keys(init).length ? updateMarker(made.project, made.id, init) : made.project;
+      added.push(`${made.id} at ${secs(t)}`);
+    }
+  }
+  if (added.length) done.push(`added ${added.length > 12 ? `${added.length} markers` : added.join(", ")}`);
+  return { project: p, text: p === project ? "Nothing changed." : `Markers: ${done.join("; ")}.` };
+}
+
 export const EDITS: Record<EditToolName, EditHandler> = {
   add_clips: addClips,
   add_text: addText,
   add_layer: addLayer,
+  set_parent: setParentTool,
+  set_markers: setMarkersTool,
+  cut_to_markers: cutToMarkersTool,
+  set_expression: setExpressionTool,
+  nest_clips: nestClipsTool,
+  break_apart: breakApartTool,
+  edit_sequence: editSequenceTool,
+  remap_time: remapTimeTool,
   apply_preset: applyPreset,
   move_clips: move,
   trim_clip: trim,

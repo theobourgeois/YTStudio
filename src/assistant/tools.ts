@@ -8,15 +8,22 @@
  */
 import type { VideoToolName } from "@shared/assistant-tools";
 import { type ToolContent, type ToolResult, textResult } from "@shared/tool-spec";
+import { beatMarkerCount, beatMarks, setBeatMarkers } from "@shared/beat-sync";
 import { captionClips, captionSourceClips } from "@shared/captions";
+import { isRemapped } from "@shared/effects";
+import { clipMarkers } from "@shared/markers";
 import { errorMessage } from "@shared/errors";
 import { templateFromClips, templateFromSubclip } from "@shared/library";
 import { clamp } from "@shared/math";
+import { getSequence } from "@shared/sequences";
 import { getSubclip } from "@shared/subclips";
 import { placeTemplate } from "@shared/library";
-import { clipEnd, getClip, projectDuration, timelineTime } from "@shared/timeline";
+import { clipEnd, getClip, projectDuration, timelineTime, outputSize } from "@shared/timeline";
 import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, Project, TranscriptionEngineId, TranscriptionJob } from "@shared/types";
-import { drawTexts } from "@/components/export/draw-texts";
+import { layoutTexts } from "@/components/export/layout-texts";
+import { clipsOnCanvas } from "@/components/preview/placement";
+import { fontsSettled } from "@/stores/fonts";
+import { describeLayout } from "./layout";
 import { api } from "@/lib/api";
 import { useAssistant } from "@/stores/assistant";
 import { type CaptionOptions, captionsFor, useCaptions } from "@/stores/captions";
@@ -105,7 +112,7 @@ const edit =
     const doc = await ctx.doc();
     if (doc.isOpen) await gesturesSettled(ctx.signal);
     const before = doc.project;
-    const out = EDITS[name](before, input, { assets: byId(doc.assets), playhead: doc.playhead });
+    const out = EDITS[name](before, input, { assets: byId(doc.assets), playhead: doc.playhead, sequenceId: doc.sequenceId });
     doc.commit(out.project);
     if (out.rename) doc.rename(out.rename);
     return textResult(out.text, finishEdit(doc, before, ctx));
@@ -161,7 +168,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
       describeTimeline(
         doc.project,
         byId(doc.assets),
-        { playhead: doc.playhead, selectedClipIds: [...doc.selectedClipIds] },
+        { playhead: doc.playhead, selectedClipIds: [...doc.selectedClipIds], sequenceId: doc.sequenceId },
         {
           from: optNumber(input, "from"),
           to: optNumber(input, "to"),
@@ -189,6 +196,16 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const at = times.map((t) => clamp(t, 0, Math.max(0, duration - 0.001)));
     const content = doc.isOpen ? await programFrames(at, width, ctx.signal) : await offscreenFrames(doc, at, width, ctx.signal);
     return { content };
+  },
+  async get_layout(input, ctx) {
+    const doc = await ctx.doc();
+    const time = optNumber(input, "time", { min: 0 }) ?? doc.playhead;
+    const only = optStrings(input, "clipIds");
+    if (only) clipsOf(doc.project, only);
+    // Texts are measured in their real fonts.
+    await fontsSettled();
+    const canvas = outputSize(doc.project.settings.aspectRatio, "1080p");
+    return textResult(describeLayout(clipsOnCanvas(doc.project, [...doc.assets], canvas, time), byId(doc.assets), canvas, time, only));
   },
   async view_media(input, ctx) {
     const doc = await ctx.doc();
@@ -280,6 +297,40 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const music = await api.analyseMusic(asset.id, { from, to }, ctx.signal);
     return textResult(describeMusic(`"${asset.name}" (${asset.id})`, music, 0, { start: from, end: to }, false));
   },
+  async mark_beats(input, ctx) {
+    const doc = await ctx.doc();
+    const clipId = string(input, "clipId");
+    const [clip] = clipsOf(doc.project, [clipId]);
+    const before = doc.project;
+    if (optBoolean(input, "clear")) {
+      const had = beatMarkerCount(clip);
+      if (doc.isOpen) await gesturesSettled(ctx.signal);
+      doc.commit(setBeatMarkers(doc.project, clipId, []));
+      return textResult(had ? `Removed ${had} beat markers from ${clipId}.` : `${clipId} has no beat markers.`, finishEdit(doc, before, ctx));
+    }
+    const asset = doc.asset(clip.assetId);
+    if (!asset?.hasAudio) throw new ToolError(`${clipId} has no sound. Give the clip with the music.`);
+    if (isRemapped(clip)) throw new ToolError(`${clipId} is time-remapped, so its beats aren't steady. Use analyze_music and set_markers instead.`);
+    const which = oneOf(input, "marks", ["beats", "bars", "drops"] as const) ?? "beats";
+    ctx.progress(null, "Listening for the beat");
+    const music = await api.analyseMusic(asset.id, { from: clip.in, to: clip.out }, ctx.signal);
+    const marks = beatMarks(music, which);
+    if (!marks.length) {
+      throw new ToolError(which === "drops" ? `No drops were found in ${clipId}. Try marks "bars".` : `No steady beat was found in ${clipId}: it may not be music. Place markers yourself with set_markers.`);
+    }
+    if (doc.isOpen) await gesturesSettled(ctx.signal);
+    // (Its clip as it is now: the listening took a while.)
+    if (!getClip(doc.project, clipId)) throw new ToolError(`${clipId} was deleted meanwhile.`);
+    doc.commit(setBeatMarkers(doc.project, clipId, marks));
+    const now = getClip(doc.project, clipId)!;
+    const times = clipMarkers(now).filter((m) => m.marker.beat).map((m) => m.time);
+    return textResult(
+      `Marked ${times.length} ${which} on ${clipId} "${asset.name}" ${music.bpm ? ` (${Math.round(music.bpm)} BPM${music.confidence < 0.4 ? ", a weak beat: check by ear" : ""})` : ""}. ` +
+        `Timeline times: ${times.slice(0, 200).map(secs).join(", ")}${times.length > 200 ? `, … ${times.length - 200} more` : ""}.\n` +
+        "They're markers on the clip now (they move with it). cut_to_markers ends clips on them.",
+      finishEdit(doc, before, ctx),
+    );
+  },
   async detect_scenes(input, ctx) {
     const doc = await ctx.doc();
     const asset = doc.asset(string(input, "assetId"));
@@ -294,7 +345,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     );
   },
   async get_catalog(input) {
-    const kind = oneOf(input, "kind", ["video_effects", "presets", "transitions", "clip_properties", "caption_styles", "fonts"] as const) as CatalogKind | undefined;
+    const kind = oneOf(input, "kind", ["video_effects", "masks_and_shapes", "text_animators", "expressions", "presets", "transitions", "clip_properties", "caption_styles", "fonts"] as const) as CatalogKind | undefined;
     if (!kind) throw new ToolError("`kind` is required.");
     const fonts = kind === "fonts" ? await api.listFonts() : [];
     return textResult(describeCatalog(kind, optString(input, "query"), fonts));
@@ -326,6 +377,14 @@ const TOOLS: Record<VideoToolName, Handler> = {
   add_clips: edit("add_clips"),
   add_text: edit("add_text"),
   add_layer: edit("add_layer"),
+  set_parent: edit("set_parent"),
+  set_markers: edit("set_markers"),
+  cut_to_markers: edit("cut_to_markers"),
+  set_expression: edit("set_expression"),
+  nest_clips: edit("nest_clips"),
+  break_apart: edit("break_apart"),
+  edit_sequence: edit("edit_sequence"),
+  remap_time: edit("remap_time"),
   apply_preset: edit("apply_preset"),
   move_clips: edit("move_clips"),
   trim_clip: edit("trim_clip"),
@@ -575,7 +634,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     if (project.clips.length === 0) throw new ToolError("The timeline is empty: there's nothing to export.");
     const resolution: ExportResolution = oneOf(input, "resolution", ["720p", "1080p", "4k"] as const) ?? "1080p";
     ctx.progress(null, "Preparing");
-    const texts = await drawTexts(project, resolution);
+    const texts = await layoutTexts(project, resolution);
     let job: ExportJob = await api.startExport({
       project,
       resolution,
@@ -592,6 +651,18 @@ const TOOLS: Record<VideoToolName, Handler> = {
     }
     if (job.status !== "done" || !job.url) throw new ToolError(job.error ?? "The export failed.");
     return textResult(`Exported "${job.fileName}" (${job.width}×${job.height}, ${secs(job.duration)}s): ${location.origin}${job.downloadUrl ?? job.url}`);
+  },
+  async open_sequence(input, ctx) {
+    const doc = await ctx.doc();
+    const raw = input.sequenceId;
+    if (raw !== null && typeof raw !== "string") throw new ToolError("`sequenceId` must be a nested sequence's id, or null for the main sequence.");
+    if (raw !== null && !getSequence(doc.document, raw)) {
+      const ids = (doc.document.sequences ?? []).map((s) => `${s.id} (${s.name})`);
+      throw new ToolError(`There's no sequence "${raw}". ${ids.length ? `Nested sequences: ${ids.join(", ")}.` : "This video has no nested sequences (nest_clips makes one)."}`);
+    }
+    doc.openSequence(raw);
+    const name = raw === null ? "the main sequence" : `nested sequence ${raw} (${getSequence(doc.document, raw)!.name})`;
+    return textResult(`Now working on ${name}: ${doc.project.clips.length} clips, ${secs(projectDuration(doc.project))}s. Call get_timeline to see it.`);
   },
   async focus(input, ctx) {
     const doc = await ctx.doc();

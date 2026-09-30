@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { isNestedClip } from "@shared/sequences";
 import { toast } from "sonner";
 import type { LibraryEntry, LibraryFolder, LibraryItem, MediaAsset, UpdateLibraryItemRequest } from "@shared/types";
 import { errorMessage } from "@shared/errors";
@@ -285,8 +286,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
     async saveClips(clipIds, name, folderId) {
       const { projectId, project } = useEditor.getState();
       if (!projectId) return false;
+      // The Library keeps files: a nested sequence's clip can't go (break it apart first).
+      const ids = clipIds.filter((id) => !isNestedClip(project.clips.find((c) => c.id === id) ?? { assetId: "" }));
+      if (ids.length === 0) {
+        toast.error("Nested sequences can't be saved to the Library", { description: "Break the clip apart first, then save its clips." });
+        return false;
+      }
       try {
-        const entry = await api.saveClipsToLibrary({ projectId, name, folderId, ...templateFromClips(project, clipIds) });
+        const entry = await api.saveClipsToLibrary({ projectId, name, folderId, ...templateFromClips(project, ids) });
         addEntry(entry);
         toast.success(`Saved “${entry.item.name}” to ${where(folderId)}`);
         return true;

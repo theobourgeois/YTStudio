@@ -6,6 +6,8 @@ import { useState, type MouseEvent, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   PiArrowDown,
+  PiSquaresFour,
+  PiStack,
   PiArrowUp,
   PiArrowsIn,
   PiArrowsOut,
@@ -23,14 +25,20 @@ import {
   PiSlidersHorizontal,
   PiSpeakerHigh,
   PiSpeakerSlash,
+  PiFlagPennant,
+  PiPolygon,
   PiSquare,
   PiSubtitles,
   PiTrash,
   PiArrowLineLeft,
   PiArrowCounterClockwise,
   PiGauge,
+  PiMetronome,
 } from "react-icons/pi";
+import { isNestedClip } from "@shared/sequences";
 import type { Track, TransitionAlignment } from "@shared/types";
+import { toast } from "sonner";
+import { addMarker } from "@shared/markers";
 import { MOTION, clipKind, effectDefinition, findEffect, isVideoEffect, setParams } from "@shared/effects";
 import { type TransitionRef, findWindow, parseRefKey, setTransitionParams } from "@shared/transition-windows";
 import {
@@ -63,6 +71,8 @@ import {
 } from "@/components/ui/context-menu";
 import { useSaveToLibrary } from "@/components/library/library-dialogs";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
+import { BEAT_MARKS } from "@shared/beat-sync";
+import { clearBeats, cutSelectionToMarkers, hasBeats, markBeats } from "@/stores/beat-sync";
 import { useCaptions } from "@/stores/captions";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
@@ -178,9 +188,14 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
   const hasSound = useEditor((s) =>
     s.selectedClipIds.some((id) => {
       const clip = getClip(s.project, id);
-      return !!clip && !clip.caption && !!s.assets.find((a) => a.id === clip.assetId)?.hasAudio;
+      // (A nested sequence has no file to transcribe: its clips inside do.)
+      return !!clip && !clip.caption && !isNestedClip(clip) && !!s.assets.find((a) => a.id === clip.assetId)?.hasAudio;
     }),
   );
+  const nested = useEditor((s) => {
+    const clip = getClip(s.project, target.clipId);
+    return clip && isNestedClip(clip) ? clip.assetId : null;
+  });
 
   const setFit = (value: string) => {
     const s = editor();
@@ -197,11 +212,32 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
       <ContextMenuItem onSelect={() => useLayout.getState().setLeftPanel("properties")}>
         <PiSlidersHorizontal /> Properties
       </ContextMenuItem>
+      {nested && (
+        <ContextMenuItem onSelect={() => editor().openSequence(nested)}>
+          <PiStack /> Open nested sequence
+        </ContextMenuItem>
+      )}
+      <ContextMenuItem onSelect={() => editor().nestSelected()}>
+        <PiStack /> Nest{plural}
+        <ContextMenuShortcut>{SHORTCUT_KEYS.nest}</ContextMenuShortcut>
+      </ContextMenuItem>
+      {nested && (
+        <ContextMenuItem
+          onSelect={() => {
+            if (!editor().breakApartSelected()) {
+              toast.error("Couldn't break it apart", { description: "Only a nest playing at normal speed, forwards and not remapped can be put back as it plays." });
+            }
+          }}
+        >
+          <PiSquaresFour /> Break apart
+        </ContextMenuItem>
+      )}
       {hasSound && (
         <ContextMenuItem onSelect={() => useCaptions.getState().openDialog(editor().selectedClipIds)}>
           <PiSubtitles /> Auto captions…
         </ContextMenuItem>
       )}
+      <BeatMenu clipId={target.clipId} />
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => editor().splitAt([target.clipId], target.time)}>
         <PiScissors /> Split here
@@ -274,6 +310,53 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
   );
 }
 
+/** Every Nth marker a cut can land on. */
+const CUT_EVERY = [1, 2, 4, 8];
+
+/** Beat sync: mark the beats of the clip under the pointer (when it has sound), and cut the selection to the markers. */
+function BeatMenu({ clipId }: { clipId: string }) {
+  const musical = useEditor((s) => {
+    const clip = getClip(s.project, clipId);
+    return !!clip && !clip.caption && !isNestedClip(clip) && !!s.assets.find((a) => a.id === clip.assetId)?.hasAudio;
+  });
+  return (
+    <>
+      {musical && (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <PiMetronome /> Mark beats
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-48">
+            {BEAT_MARKS.map((m) => (
+              <ContextMenuItem key={m.value} onSelect={() => void markBeats(clipId, m.value)}>
+                {m.label}
+              </ContextMenuItem>
+            ))}
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={!hasBeats([clipId])} onSelect={() => clearBeats([clipId])}>
+              Clear beat markers
+            </ContextMenuItem>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      )}
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>
+          <PiMetronome /> Cut to the beat
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-48">
+          <ContextMenuItem onSelect={() => cutSelectionToMarkers()}>Nearest marker</ContextMenuItem>
+          <ContextMenuSeparator />
+          {CUT_EVERY.map((n) => (
+            <ContextMenuItem key={n} onSelect={() => cutSelectionToMarkers(n)}>
+              {n === 1 ? "Every marker" : `Every ${n} markers`}
+            </ContextMenuItem>
+          ))}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+    </>
+  );
+}
+
 /** Speed presets and Reverse for the selected video and sound clips; "Speed…" opens the full control. */
 function SpeedMenu() {
   const ids = useRetimableSelection();
@@ -321,7 +404,7 @@ function PasteEffectsMenu({ plural }: { plural: string }) {
       const clips = s.selectedClipIds.map((id) => getClip(s.project, id));
       const visual = clips.some((c) => c && isOnVideoTrack(s.project, c));
       const pastable = copied.filter(
-        (e) => (visual && isVideoEffect(e)) || clips.some((c) => c?.effects.some((own) => own.id === e.id)),
+        (e) => (visual && (isVideoEffect(e) || e.type === "mask")) || clips.some((c) => c?.effects.some((own) => own.id === e.id)),
       );
       return [...new Set(pastable.map((e) => e.type))];
     }),
@@ -372,6 +455,13 @@ function LaneMenuItems({ target }: { target: Extract<MenuTarget, { kind: "lane" 
       <ContextMenuItem onSelect={() => editor().addLayer("solid", { trackId: trackId ?? undefined, at: time })}>
         <PiSquare /> New solid here
         <ContextMenuShortcut>{SHORTCUT_KEYS.newSolid}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => editor().addLayer("shape", { trackId: trackId ?? undefined, at: time })}>
+        <PiPolygon /> New shape layer here
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => editor().commit((p) => addMarker(p, Math.round(time * p.settings.fps) / p.settings.fps).project)}>
+        <PiFlagPennant /> Add marker here
+        <ContextMenuShortcut>{SHORTCUT_KEYS.addMarker}</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem disabled={!hasClips} onSelect={() => editor().selectAll()}>

@@ -36,6 +36,7 @@ import {
   insertClip,
   isOnVideoTrack,
   moveClips,
+  type LayerKind,
   newLayerClip,
   pasteClips,
   projectDuration,
@@ -63,6 +64,21 @@ import { api } from "@/lib/api";
 import { pollProcessingAssets, pollWebDownload, requestReversedCopies } from "./asset-polling";
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
+import { setParent } from "@shared/parenting";
+import {
+  breakApart,
+  canNestIn,
+  deleteSequence,
+  everySequence,
+  getSequence,
+  nestClips,
+  renameSequence,
+  sequenceAssets,
+  sequenceDuration,
+  sequenceView,
+  setSequenceDuration,
+  writeSequence,
+} from "@shared/sequences";
 import { assetMarkedRange, useSourceMarks } from "./source-marks";
 
 export { discardPendingSave, flushAutosave, onProjectSaved, queueSave } from "./autosave";
@@ -87,7 +103,17 @@ interface EditorState {
   /** True while a project is being fetched. */
   loading: boolean;
   loadError: string | null;
+  /**
+   * The sequence open in the timeline, as a project (see `sequenceView`): every edit and view
+   * works on this. On the main sequence it's the whole video (`document`) itself.
+   */
   project: Project;
+  /** The whole video: the main sequence and every nested one. What's saved, exported and undone. */
+  document: Project;
+  /** The nested sequence open in the timeline, or null for the main one. */
+  sequenceId: string | null;
+  /** Nested sequences open as timeline tabs (after the main sequence's), in the order they were opened. */
+  openSequences: string[];
   /** The open project's media, newest first. */
   assets: MediaAsset[];
   uploads: Upload[];
@@ -114,10 +140,13 @@ interface EditorState {
    */
   autoRipple: boolean;
 
+  /** Earlier and later states of the whole video (`document`), for undo and redo. */
   past: Project[];
   future: Project[];
-  /** Project snapshot taken at `beginGesture`, while a drag is in progress. */
+  /** The open sequence as it was at `beginGesture`, while a drag is in progress. */
   gestureBase: Project | null;
+  /** The whole video as it was at `beginGesture`. */
+  gestureDocument: Project | null;
   /** Id of the latest gesture; a gesture is active while `gestureBase` is set. */
   gestureId: number;
 
@@ -127,6 +156,10 @@ interface EditorState {
   closeProject: () => Promise<void>;
   /** Rename the open project. Names aren't part of undo history. */
   renameProject: (name: string) => void;
+  /** Show a sequence in the timeline (null: the main one), opening a tab for it. */
+  openSequence: (sequenceId: string | null) => void;
+  /** Close a nested sequence's tab (showing the main sequence if it was open). */
+  closeSequence: (sequenceId: string) => void;
 
   /**
    * Apply an edit as one undoable step. An edit arriving mid-gesture (e.g. an
@@ -243,7 +276,12 @@ interface EditorState {
    * video track `trackId` when it's free there, else on the top video track or a new one on
    * top; with the video effects `effects` on it. Selects it and returns its id.
    */
-  addLayer: (kind: "adjustment" | "solid" | "camera", opts?: LayerOptions) => string;
+  addLayer: (kind: LayerKind, opts?: LayerOptions) => string;
+  /**
+   * Parent clips to `parentId` (After Effects' pick-whip), or with null unparent them, so
+   * nothing moves at the playhead. Clips that can't have that parent are left alone.
+   */
+  setParent: (clipIds: string[], parentId: string | null) => void;
   /**
    * Put a preset somewhere: a transition preset on an adjustment layer centred on the cut
    * (or clip edge) `edge`; an effect preset on `clipIds`, or with `at`, on an adjustment
@@ -261,6 +299,18 @@ interface EditorState {
    * A selected gap is always closed.
    */
   deleteSelected: (ripple?: boolean) => void;
+  /**
+   * Nest the selected clips (Premiere's Nest): they become a new sequence, played by one clip
+   * in their place, which is then selected. Returns the new sequence's id (null: nothing selected).
+   */
+  nestSelected: (name?: string) => string | null;
+  /** Put the selected nested clips' contents back on the timeline in their place (see `breakApart`). False when none could be. */
+  breakApartSelected: () => boolean;
+  /** Rename a nested sequence, or set its length (null: as long as its clips). */
+  renameSequence: (sequenceId: string, name: string) => void;
+  setSequenceDuration: (sequenceId: string, duration: number | null) => void;
+  /** Delete a nested sequence and every clip that plays it. */
+  deleteSequence: (sequenceId: string) => void;
   copySelected: () => void;
   cutSelected: () => void;
   /** Paste the clipboard with its first clip at `at` (default: the playhead). */
@@ -319,7 +369,8 @@ let opening: string | null = null;
 export const editorProjectId = (): string | null => opening ?? useEditor.getState().projectId;
 
 const emptyEditor = () => ({
-  project: createDefaultProject(),
+  ...atSequence(createDefaultProject(), null),
+  openSequences: [] as string[],
   assets: [] as MediaAsset[],
   uploads: [] as Upload[],
   selectedClipIds: [] as string[],
@@ -328,6 +379,7 @@ const emptyEditor = () => ({
   past: [] as Project[],
   future: [] as Project[],
   gestureBase: null,
+  gestureDocument: null,
 });
 
 const AUTO_RIPPLE_KEY = "editor-auto-ripple";
@@ -336,7 +388,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   projectId: null,
   loading: false,
   loadError: null,
-  project: createDefaultProject(),
+  ...atSequence(createDefaultProject(), null),
+  openSequences: [],
   assets: [],
   uploads: [],
   selectedClipIds: [],
@@ -350,6 +403,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   past: [],
   future: [],
   gestureBase: null,
+  gestureDocument: null,
   gestureId: 0,
 
   async openProject(projectId) {
@@ -370,7 +424,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       opening = null;
       const byId = Object.fromEntries(assets.map((a) => [a.id, a]));
       // One `set` so subscribers see the project switch atomically (autosave ignores it).
-      set({ ...emptyEditor(), projectId, project: normalizeProject(project, byId), assets, loading: false });
+      const document = normalizeProject(project, byId);
+      set({ ...emptyEditor(), projectId, ...atSequence(document, null), assets: [...assets, ...sequenceAssets(document)], loading: false });
       usePlayback.getState().seek(0);
       startAutosave(useEditor);
       requestReversedCopies(useEditor);
@@ -395,60 +450,84 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   renameProject(name) {
     const trimmed = name.trim();
-    if (!trimmed || trimmed === get().project.name) return;
+    if (!trimmed || trimmed === get().document.name) return;
     set(rewriteHistory(get(), (p) => ({ ...p, name: trimmed })));
+  },
+
+  openSequence(sequenceId) {
+    const { document, openSequences } = get();
+    if (sequenceId !== null && !getSequence(document, sequenceId)) return;
+    if (sequenceId === get().sequenceId) return;
+    get().endGesture();
+    usePlayback.getState().pause();
+    set({
+      ...atSequence(document, sequenceId),
+      openSequences: sequenceId === null || openSequences.includes(sequenceId) ? openSequences : [...openSequences, sequenceId],
+      selectedClipIds: [],
+      selectedGap: null,
+      selectedTransition: null,
+    });
+    usePlayback.getState().seek(0);
+  },
+
+  closeSequence(sequenceId) {
+    const { openSequences } = get();
+    if (get().sequenceId === sequenceId) get().openSequence(null);
+    set({ openSequences: openSequences.filter((id) => id !== sequenceId) });
   },
 
   commit(update) {
     if (get().gestureBase) get().endGesture();
-    const { project, past } = get();
+    const { project, document, sequenceId, past } = get();
     const next = update(project);
     if (next === project) return;
-    set({ project: next, past: [...past, project].slice(-HISTORY_LIMIT), future: [] });
+    const edited = writeSequence(document, sequenceId, next);
+    set({ ...atSequence(edited, sequenceId), past: [...past, document].slice(-HISTORY_LIMIT), future: [] });
     fixSelection();
   },
 
   beginGesture() {
     if (get().gestureBase) get().endGesture();
     const gestureId = get().gestureId + 1;
-    set({ gestureBase: get().project, gestureId });
+    set({ gestureBase: get().project, gestureDocument: get().document, gestureId });
     return gestureId;
   },
 
   preview(update) {
     if (!get().gestureBase) return;
-    const next = update(get().project);
-    if (next !== get().project) set({ project: next });
+    const { project, document, sequenceId } = get();
+    const next = update(project);
+    if (next !== project) set(atSequence(writeSequence(document, sequenceId, next), sequenceId));
   },
 
   endGesture(id) {
-    const { gestureBase, gestureId, project, past } = get();
-    if (!gestureBase || (id !== undefined && id !== gestureId)) return;
-    if (gestureBase === project || JSON.stringify(gestureBase) === JSON.stringify(project)) {
-      set({ gestureBase: null, project: gestureBase });
+    const { gestureBase, gestureDocument, gestureId, document, sequenceId, past } = get();
+    if (!gestureBase || !gestureDocument || (id !== undefined && id !== gestureId)) return;
+    if (gestureDocument === document || JSON.stringify(gestureDocument) === JSON.stringify(document)) {
+      set({ gestureBase: null, gestureDocument: null, ...atSequence(gestureDocument, sequenceId) });
       return;
     }
-    set({ gestureBase: null, past: [...past, gestureBase].slice(-HISTORY_LIMIT), future: [] });
+    set({ gestureBase: null, gestureDocument: null, past: [...past, gestureDocument].slice(-HISTORY_LIMIT), future: [] });
     fixSelection();
   },
 
   cancelGesture(id) {
-    const { gestureBase, gestureId } = get();
-    if (!gestureBase || (id !== undefined && id !== gestureId)) return;
-    set({ project: gestureBase, gestureBase: null });
+    const { gestureDocument, gestureId, sequenceId } = get();
+    if (!gestureDocument || (id !== undefined && id !== gestureId)) return;
+    set({ ...atSequence(gestureDocument, sequenceId), gestureBase: null, gestureDocument: null });
   },
 
   undo() {
-    const { past, project, future, gestureBase } = get();
+    const { past, document, future, gestureBase } = get();
     if (gestureBase || past.length === 0) return;
-    set({ project: past[past.length - 1], past: past.slice(0, -1), future: [project, ...future] });
+    set({ ...showing(past[past.length - 1]), past: past.slice(0, -1), future: [document, ...future] });
     fixSelection();
   },
 
   redo() {
-    const { past, project, future, gestureBase } = get();
+    const { past, document, future, gestureBase } = get();
     if (gestureBase || future.length === 0) return;
-    set({ project: future[0], future: future.slice(1), past: [...past, project] });
+    set({ ...showing(future[0]), future: future.slice(1), past: [...past, document] });
     fixSelection();
   },
 
@@ -630,7 +709,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     // so strip it from history too to keep undo from resurrecting dangling clips.
     set({
       assets: get().assets.filter((a) => a.id !== assetId),
-      ...rewriteHistory(get(), (p) => removeAssetClips(p, assetId)),
+      ...rewriteHistory(get(), (p) => everySequence(p, (v) => removeAssetClips(v, assetId))),
     });
     useSourceMarks.getState().clear(assetId);
     fixSelection();
@@ -645,7 +724,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (mine.length === 0) return;
     const ids = new Set(mine.map((a) => a.id));
     set({ assets: [...mine, ...get().assets.filter((a) => !ids.has(a.id))] });
-    if (get().project.name === DEFAULT_PROJECT_NAME) get().renameProject(mine[0].name.replace(/\.[^.]+$/, ""));
+    if (get().document.name === DEFAULT_PROJECT_NAME) get().renameProject(mine[0].name.replace(/\.[^.]+$/, ""));
     pollProcessingAssets(useEditor);
   },
 
@@ -681,6 +760,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       const subclip = get().getSubclip(id);
       const asset = get().getAsset(subclip?.assetId ?? id);
       if (!asset || !(asset.duration > 0)) continue;
+      // A sequence can't go inside itself (or inside a sequence it's in).
+      if (asset.sequence && !canNestIn(get().document, get().sequenceId, asset.id)) {
+        toast("A sequence can't go inside itself", { description: `“${asset.name}” is the sequence open here, or contains it.` });
+        continue;
+      }
       items.push(subclip ? { asset, range: { in: subclip.in, out: subclip.out } } : asset);
     }
     if (items.length === 0) return [];
@@ -759,6 +843,10 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
+  setParent(clipIds, parentId) {
+    get().commit((p) => setParent(p, clipIds, parentId, usePlayback.getState().time));
+  },
+
   addLayer(kind, opts = {}) {
     const { project, selectedClipIds } = get();
     const selected = selectedClipIds.map((id) => getClip(project, id)).filter((c): c is Clip => !!c);
@@ -816,6 +904,59 @@ export const useEditor = create<EditorState>((set, get) => ({
       return c && isOnVideoTrack(project, c);
     });
     get().addPresetAt(type, targets.length ? { clipIds: targets } : { at: time });
+  },
+
+  nestSelected(name) {
+    const { selectedClipIds, project } = get();
+    const res = nestClips(project, selectedClipIds, name);
+    if (!res) return null;
+    get().commit(() => res.project);
+    get().select(res.clipId);
+    return res.sequenceId;
+  },
+
+  breakApartSelected() {
+    const ids = get().selectedClipIds;
+    let placed: string[] = [];
+    get().commit((p) => {
+      let q = p;
+      for (const id of ids) {
+        const res = breakApart(q, id);
+        if (!res) continue;
+        q = res.project;
+        placed = [...placed, ...res.clipIds];
+      }
+      return q;
+    });
+    if (placed.length) get().setSelection(placed);
+    return placed.length > 0;
+  },
+
+  renameSequence(sequenceId, name) {
+    // A sequence's name isn't an edit of its own (like the video's), so it isn't undone.
+    set(rewriteHistory(get(), (p) => renameSequence(p, sequenceId, name)));
+  },
+
+  setSequenceDuration(sequenceId, duration) {
+    const { document, sequenceId: open, past } = get();
+    const next = setSequenceDuration(document, sequenceId, duration);
+    if (next === document) return;
+    get().endGesture();
+    set({ ...atSequence(next, open), past: [...past, document].slice(-HISTORY_LIMIT), future: [] });
+  },
+
+  deleteSequence(sequenceId) {
+    const { document, sequenceId: open, past, openSequences } = get();
+    const next = deleteSequence(document, sequenceId);
+    if (next === document) return;
+    get().endGesture();
+    set({
+      ...atSequence(next, open === sequenceId ? null : open),
+      openSequences: openSequences.filter((id) => id !== sequenceId),
+      past: [...past, document].slice(-HISTORY_LIMIT),
+      future: [],
+    });
+    fixSelection();
   },
 
   deleteSelected(ripple = get().autoRipple) {
@@ -1052,15 +1193,32 @@ function markedRanges(assets: MediaAsset[]): Record<string, { in: number; out: n
  * the old state.
  */
 function rewriteHistory(
-  state: Pick<EditorState, "project" | "past" | "future" | "gestureBase">,
+  state: Pick<EditorState, "document" | "sequenceId" | "past" | "future" | "gestureDocument">,
   rewrite: (p: Project) => Project,
-): Pick<EditorState, "project" | "past" | "future" | "gestureBase"> {
+): Pick<EditorState, "project" | "document" | "past" | "future" | "gestureBase" | "gestureDocument"> {
+  const gestureDocument = state.gestureDocument ? rewrite(state.gestureDocument) : null;
   return {
-    project: rewrite(state.project),
+    ...atSequence(rewrite(state.document), state.sequenceId),
     past: state.past.map(rewrite),
     future: state.future.map(rewrite),
-    gestureBase: state.gestureBase ? rewrite(state.gestureBase) : null,
+    gestureDocument,
+    gestureBase: gestureDocument ? sequenceView(gestureDocument, state.sequenceId) : null,
   };
+}
+
+/** The store's document and the open sequence's view of it. */
+function atSequence(document: Project, sequenceId: string | null): Pick<EditorState, "document" | "project" | "sequenceId"> {
+  const id = sequenceId !== null && getSequence(document, sequenceId) ? sequenceId : null;
+  return { document, project: sequenceView(document, id), sequenceId: id };
+}
+
+/**
+ * A state of the whole video brought back (undo, redo), showing the sequence that's open
+ * if it's still there (else the main one), and only the tabs of sequences that are.
+ */
+function showing(document: Project): Pick<EditorState, "document" | "project" | "sequenceId" | "openSequences"> {
+  const { sequenceId, openSequences } = useEditor.getState();
+  return { ...atSequence(document, sequenceId), openSequences: openSequences.filter((id) => getSequence(document, id)) };
 }
 
 /**
@@ -1078,6 +1236,18 @@ function fixSelection() {
 // Keep the playback clock's duration in sync with the timeline.
 useEditor.subscribe((state, prev) => {
   if (state.project !== prev.project) {
-    usePlayback.getState().setDuration(projectDuration(state.project));
+    // A nested sequence with a set length lasts that long, whatever its clips do.
+    const seq = state.sequenceId ? getSequence(state.document, state.sequenceId) : undefined;
+    usePlayback.getState().setDuration(seq ? sequenceDuration(seq) : projectDuration(state.project));
   }
+});
+
+// Nested sequences stand in for media (`sequenceAsset`): keep them among the assets as they change.
+useEditor.subscribe((state, prev) => {
+  if (state.document.sequences === prev.document.sequences && state.assets === prev.assets) return;
+  const media = state.assets.filter((a) => !a.sequence);
+  const nested = sequenceAssets(state.document);
+  const current = state.assets.filter((a) => a.sequence);
+  if (current.length === nested.length && current.every((a, i) => a === nested[i])) return;
+  useEditor.setState({ assets: [...media, ...nested] });
 });

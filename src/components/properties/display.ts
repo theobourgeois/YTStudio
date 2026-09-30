@@ -37,6 +37,8 @@ export function numberDisplay(spec: NumberSpec | Vec2Spec, ctx: DisplayContext, 
 
 function displayFactor(spec: NumberSpec | Vec2Spec, ctx: DisplayContext, axis: 0 | 1): number {
   if (spec.kind === "number") return spec.scale ?? 1;
+  // Already in px.
+  if (spec.space === "px") return 1;
   const frame = spec.space === "canvas" ? ctx.canvas : ctx.media;
   return axis === 0 ? frame.width : frame.height;
 }

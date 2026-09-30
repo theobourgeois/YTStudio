@@ -16,6 +16,7 @@ import { TimelineContext, type TimelineContextValue } from "./context";
 import { anchoredScrollLeft, fitZoom, type LaneLayout } from "./geometry";
 import { cancelActiveDrag } from "@/lib/pointer-drag";
 import { TimelineBody } from "./timeline-body";
+import { SequenceTabs } from "./sequence-tabs";
 import { TimelineToolbar } from "./toolbar";
 import { minZoom, setView, timelineCommands, useTimelineView } from "./view-store";
 
@@ -98,6 +99,7 @@ export function Timeline() {
         style={{ height, maxHeight: `${PANEL_MAX_FRACTION * 100}vh` }}
       >
         <ResizeHandle height={height} onResize={setHeight} />
+        <SequenceTabs />
         <TimelineToolbar />
         <TimelineBody />
       </section>

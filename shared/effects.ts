@@ -36,8 +36,14 @@ import { KEYING_EFFECTS } from "./effect-library/keying.ts";
 import { SHAKE_EFFECTS } from "./effect-library/shake.ts";
 import { TIME_EFFECTS } from "./effect-library/time.ts";
 import { PARTICLE_EFFECTS } from "./effect-library/particles.ts";
+import { MASK } from "./effect-library/mask.ts";
+import { SHAPE, SHAPE_EFFECTS } from "./effect-library/shape.ts";
+import { TEXT_ANIMATOR } from "./effect-library/text-animator.ts";
 import { BLEND_MODES } from "./compositor.ts";
+import { type ExprValue, expressionError, expressionValue, evaluateExpression, parseExpression } from "./expressions.ts";
 import { keyframeValue, sanitizeKeyframes, setKeyframe } from "./keyframes.ts";
+// (A cycle with this file, which is fine: neither uses the other until a function is called.)
+import { type TextAnimation, animatorReach, textAnimationsAt } from "./text-animators.ts";
 import { tidy } from "./math.ts";
 import { PERCENT, PIXELS, type ParamSpec, defaultParams, sameValue, sanitizeParams, sanitizeValue } from "./params.ts";
 import type { Clip, Effect, FitMode, Keyframe, ParamValue, ParamValues, Project, Vec2 } from "./types.ts";
@@ -46,7 +52,7 @@ import type { Clip, Effect, FitMode, Keyframe, ParamValue, ParamValues, Project,
  * What a clip shows: media (video, image or sound), text, a solid colour, or
  * nothing of its own (an adjustment layer, which changes what's below it).
  */
-export type ClipKind = "media" | "text" | "solid" | "adjustment" | "camera";
+export type ClipKind = "media" | "text" | "solid" | "shape" | "adjustment" | "camera" | "null";
 
 /** What a clip is, which decides the effects it shows. */
 export interface ClipTraits {
@@ -70,6 +76,12 @@ export interface EffectDefinition {
   adjust?: (current: ParamValues, patch: ParamValues) => ParamValues;
   /** A video effect (added by the user, see the top of this file): how it's drawn. */
   shader?: EffectShader;
+  /**
+   * Added by the user like a video effect (any number of them, removable, in an order that
+   * matters) without being a shader: a mask, a shape layer's shapes and their operators, a
+   * text's animators. Says which of those it is: each kind is listed (and applied) together.
+   */
+  stackable?: "shape" | "animator" | "mask";
 }
 
 /** Categories of video effects, in the order the Effects tab's filter shows them. */
@@ -414,6 +426,36 @@ export const APPEARANCE: EffectDefinition = {
 };
 
 /** The video effects, in the order the Effects tab shows them. */
+/**
+ * Time Remapping (After Effects'; Premiere's speed keyframes): with keyframes on `time`, the
+ * clip shows the source time they say at each moment of its own clock, so its speed can
+ * ramp, freeze or run backwards within the clip (see `shared/time-remap.ts`). The clip's
+ * other keyframes, and its in and out points, are then in that clock (which runs at 1×),
+ * not in its media's time. Only clips that play media, added when remapping is turned on.
+ */
+export const TIME_REMAP: EffectDefinition = {
+  type: "time-remap",
+  label: "Time Remapping",
+  builtIn: false,
+  alwaysOn: true,
+  appliesTo: (c) => c.kind === "media",
+  params: [
+    {
+      kind: "number",
+      key: "time",
+      label: "Source Time",
+      default: 0,
+      min: 0,
+      max: 1_000_000,
+      unit: "s",
+      step: 0.03,
+      decimals: 2,
+      // The Speed Graph: source seconds per second, as a percentage (100% plays at normal speed).
+      speed: { scale: 100, unit: "%" },
+    },
+  ],
+};
+
 export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
   ...COLOR_EFFECTS,
   ...BLUR_EFFECTS,
@@ -430,7 +472,9 @@ export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
 ];
 
 /** Every effect definition; built-in ones in the order they're listed (and applied). */
-export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, SOLID, CAMERA, ...VIDEO_EFFECTS];
+export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, SOLID, CAMERA, TIME_REMAP, ...SHAPE_EFFECTS, TEXT_ANIMATOR, MASK, ...VIDEO_EFFECTS];
+
+export { MASK, SHAPE, TEXT_ANIMATOR };
 
 const byType = new Map(EFFECTS.map((d) => [d.type, d]));
 
@@ -456,7 +500,24 @@ function sanitizeEffect(def: EffectDefinition, raw: Partial<Effect> | undefined,
   }
   const effect: Effect = { id, type: def.type, enabled: def.alwaysOn || raw?.enabled !== false, params };
   if (Object.keys(keyframes).length) effect.keyframes = keyframes;
+  const expressions: Record<string, string> = {};
+  for (const spec of def.params) {
+    const source = raw?.expressions?.[spec.key];
+    if (typeof source === "string" && source.trim() && source.length <= MAX_EXPRESSION && canExpress(def, spec)) expressions[spec.key] = source;
+  }
+  if (Object.keys(expressions).length) effect.expressions = expressions;
   return effect;
+}
+
+/** The longest an expression can be (characters). */
+export const MAX_EXPRESSION = 5000;
+
+/**
+ * Whether a parameter can have an expression: numbers and points, except a clip's volume (the
+ * export mixes sound with ffmpeg, which can't run one) and Time Remapping's source time.
+ */
+export function canExpress(def: EffectDefinition, spec: ParamSpec): boolean {
+  return (spec.kind === "number" || spec.kind === "vec2") && def !== VOLUME && def !== TIME_REMAP;
 }
 
 /** The built-in effects with default values (a new clip's). */
@@ -467,6 +528,11 @@ export function defaultEffects(): Effect[] {
 /** A new solid's effects: the built-in ones, then Solid (with `params` over the defaults). */
 export function solidEffects(params: ParamValues = {}): Effect[] {
   return [...defaultEffects(), sanitizeEffect(SOLID, { params }, SOLID.type)];
+}
+
+/** A new shape layer's effects: the built-in ones, then one Shape (with `params` over the defaults). */
+export function shapeEffects(params: ParamValues = {}): Effect[] {
+  return [...defaultEffects(), sanitizeEffect(SHAPE, { params }, SHAPE.type)];
 }
 
 /** A new camera's effects: the built-in ones, then Camera (with `params` over the defaults). */
@@ -505,17 +571,21 @@ export function normalizeEffects(raw: unknown, legacy?: { volume?: unknown; fit?
   });
   const ids = new Set(builtIns.map((e) => e.id));
   const extras: Effect[] = [];
-  // Text clips carry Text and Appearance once each (Appearance added when missing); a clip is text or a solid.
+  // Text clips carry Text and Appearance once each (Appearance added when missing); a clip is text, a shape layer or a solid.
   const isText = stored.some((e) => e.type === TEXT.type);
+  const isShape = !isText && stored.some((e) => e.type === SHAPE.type);
   if (isText && !stored.some((e) => e.type === APPEARANCE.type)) stored.push({ type: APPEARANCE.type });
   const once = new Set<string>();
   for (const e of stored) {
     const def = byType.get(e.type)!;
     if (def.builtIn) continue;
-    if ((def === SOLID || def === CAMERA) && isText) continue;
+    if ((def === SOLID || def === CAMERA) && (isText || isShape)) continue;
+    // A shape layer's contents only go on shape layers, and animators on text.
+    if (def.stackable === "shape" && !isShape) continue;
+    if (def.stackable === "animator" && !isText) continue;
     if (def === CAMERA && stored.some((x) => x.type === SOLID.type)) continue;
     // Like built-ins, these are addressed by their type (`setParams(p, clipId, TEXT.type, ...)`).
-    if (def === TEXT || def === APPEARANCE || def === SOLID || def === CAMERA) {
+    if (def === TEXT || def === APPEARANCE || def === SOLID || def === CAMERA || def === TIME_REMAP) {
       if (once.has(def.type)) continue;
       once.add(def.type);
       ids.add(def.type);
@@ -527,7 +597,28 @@ export function normalizeEffects(raw: unknown, legacy?: { volume?: unknown; fit?
     ids.add(id);
     extras.push(sanitizeEffect(def, e, id));
   }
-  return [...builtIns, ...extras];
+  return orderEffects([...builtIns, ...extras]);
+}
+
+/** Where an effect is listed among a clip's: the built-in ones, what the clip is, Time Remapping, then what the user added, kind by kind. */
+function effectRank(effect: Pick<Effect, "type">): number {
+  const def = byType.get(effect.type);
+  if (!def) return 9;
+  if (def.builtIn) return 0;
+  if (def === TIME_REMAP) return 2;
+  if (def.stackable === "shape" || def.stackable === "animator") return 3;
+  if (def.stackable === "mask") return 4;
+  return def.shader ? 5 : 1;
+}
+
+/**
+ * A clip's effects in the order they're listed and applied (see `effectRank`): each kind
+ * together, in the order they were added within it. The same array when already so.
+ */
+export function orderEffects(effects: Effect[]): Effect[] {
+  const ranked = effects.map((e, i) => ({ e, i, rank: effectRank(e) }));
+  if (ranked.every((r, i) => i === 0 || ranked[i - 1].rank <= r.rank)) return effects;
+  return ranked.sort((a, b) => a.rank - b.rank || a.i - b.i).map((r) => r.e);
 }
 
 // ---------------------------------------------------------------------------
@@ -544,12 +635,126 @@ export function storedValuesAt(def: EffectDefinition, effect: Effect, time: numb
   return values;
 }
 
+/** Frame rate expressions are told when nobody says (they only use it for stepped time and `random`). */
+const EXPRESSION_FPS = 30;
+
+let frameRate = EXPRESSION_FPS;
+
+/**
+ * Work out values with expressions told a sequence's frame rate (their `fps`, and how often
+ * `random()` changes): whatever draws a sequence wraps its work in this (the preview's and the
+ * export's levels, the canvas overlay), so they all give an expression the same answer.
+ * Values are read in too many places to hand the rate to each; it's only ever set for the
+ * length of one synchronous call.
+ */
+export function atFrameRate<T>(fps: number, work: () => T): T {
+  const before = frameRate;
+  if (fps > 0 && Number.isFinite(fps)) frameRate = fps;
+  try {
+    return work();
+  } finally {
+    frameRate = before;
+  }
+}
+
+/** A number for each property, so their wiggles and random numbers differ but are the same on every draw. */
+function seedOf(text: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+/** Properties being worked out for an expression's `prop()`, to stop two that read each other. */
+const reading = new Set<string>();
+
+/**
+ * What one expression sees: its own property's value without it (at any time), its keyframe
+ * times, and the other properties of its clip (`prop("motion.position")`, with their own
+ * expressions applied). `time` is the clip's source time, the clock its keyframes are in: for
+ * text, shapes and solids seconds since the clip's start; for media the time in the file.
+ */
+function expressionScope(def: EffectDefinition, effect: Effect, key: string, time: number, clip: Pick<Clip, "id" | "effects"> | undefined, fps: number) {
+  const spec = paramSpec(def, key)!;
+  const keys = effect.keyframes?.[key];
+  const own = (t: number) => (keys?.length ? keyframeValue(keys, t) : (effect.params[key] ?? spec.default)) as number | number[];
+  return {
+    time,
+    fps,
+    value: own(time),
+    valueAtTime: own,
+    keyTimes: keys?.map((k) => k.time) ?? [],
+    seed: seedOf(`${clip?.id ?? ""}/${effect.id}/${key}`),
+    prop(path: string, t = time): ExprValue | undefined {
+      const dot = path.indexOf(".");
+      const other = clip?.effects.find((e) => e.id === path.slice(0, dot)) ?? clip?.effects.find((e) => e.type === path.slice(0, dot));
+      const otherDef = other && byType.get(other.type);
+      const otherSpec = otherDef && paramSpec(otherDef, path.slice(dot + 1));
+      if (!other || !otherDef || !otherSpec || dot < 0) return undefined;
+      const id = `${clip!.id}/${other.id}/${otherSpec.key}`;
+      // A property that (in the end) reads itself gets its plain value.
+      const v = reading.has(id) ? storedValuesAt(otherDef, other, t)[otherSpec.key] : effectValuesAt(otherDef, other, t, clip, fps)[otherSpec.key];
+      return typeof v === "object" && !Array.isArray(v) ? undefined : (v as ExprValue);
+    },
+  };
+}
+
+/**
+ * The values an effect draws with at source time `time`: its stored values (`storedValuesAt`)
+ * with its expressions run over them. `clip` is the clip it's on, for expressions that read
+ * its other properties. An expression that fails leaves its property as it is without it.
+ */
+export function effectValuesAt(def: EffectDefinition, effect: Effect, time: number, clip?: Pick<Clip, "id" | "effects">, fps = frameRate): ParamValues {
+  const values = storedValuesAt(def, effect, time);
+  if (!effect.expressions) return values;
+  for (const [key, source] of Object.entries(effect.expressions)) {
+    const spec = paramSpec(def, key);
+    if (!spec || !canExpress(def, spec)) continue;
+    const id = `${clip?.id ?? ""}/${effect.id}/${key}`;
+    if (reading.has(id)) continue;
+    reading.add(id);
+    try {
+      const result = expressionValue(source, expressionScope(def, effect, key, time, clip, fps), values[key] as number | number[]);
+      const clean = result === undefined ? undefined : sanitizeValue(spec, result);
+      if (clean !== undefined) values[key] = clean;
+    } finally {
+      reading.delete(id);
+    }
+  }
+  return values;
+}
+
+/**
+ * What's wrong with one of an effect's expressions at source time `time` (it doesn't parse, it
+ * names something that isn't there, its result isn't a number or a point...), or null when it
+ * runs: for showing under the expression while it's written.
+ */
+export function expressionProblem(def: EffectDefinition, effect: Effect, key: string, time: number, clip?: Pick<Clip, "id" | "effects">): string | null {
+  const source = effect.expressions?.[key];
+  const spec = paramSpec(def, key);
+  if (source === undefined || !spec) return null;
+  const parse = expressionError(source);
+  if (parse) return parse;
+  try {
+    const result = evaluateExpression(parseExpression(source), expressionScope(def, effect, key, time, clip, frameRate));
+    const point = spec.kind === "vec2";
+    if (typeof result === "string" || (point && typeof result === "boolean")) return point ? "The result must be a point, like [x, y]" : "The result must be a number";
+    if (Array.isArray(result) && result.length < (point ? 2 : 1)) return point ? "The result must be a point, like [x, y]" : "The result must be a number";
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+/** Whether an effect has an expression on any of its parameters (its values can then change at every frame). */
+export const hasExpressions = (effect: Pick<Effect, "expressions">) => !!effect.expressions && Object.keys(effect.expressions).length > 0;
+
 /**
  * The values an effect applies at source time `time`: its keyframed or static
- * values, or the defaults when it's off (or missing).
+ * values with its expressions run (see `effectValuesAt`), or the defaults when
+ * it's off (or missing).
  */
-export function valuesAt(def: EffectDefinition, effect: Effect | undefined, time: number): ParamValues {
-  return effect?.enabled ? storedValuesAt(def, effect, time) : defaultParams(def.params);
+export function valuesAt(def: EffectDefinition, effect: Effect | undefined, time: number, clip?: Pick<Clip, "id" | "effects">): ParamValues {
+  return effect?.enabled ? effectValuesAt(def, effect, time, clip) : defaultParams(def.params);
 }
 
 /** The first effect of a type on a clip (built-in effects exist once). */
@@ -577,7 +782,7 @@ export interface Motion {
 
 /** A clip's motion at source time `time`. */
 export function motionAt(clip: Clip, time: number): Motion {
-  const v = valuesAt(MOTION, findEffect(clip, MOTION.type), time);
+  const v = valuesAt(MOTION, findEffect(clip, MOTION.type), time, clip);
   const scale = v.scale as number;
   return {
     fit: v.fit as FitMode,
@@ -595,7 +800,18 @@ export function motionAt(clip: Clip, time: number): Motion {
 
 /** A clip's opacity (0..1) at source time `time`. */
 export function opacityAt(clip: Clip, time: number): number {
-  return valuesAt(OPACITY, findEffect(clip, OPACITY.type), time).opacity as number;
+  return valuesAt(OPACITY, findEffect(clip, OPACITY.type), time, clip).opacity as number;
+}
+
+/** Whether a clip's time is remapped: it has Time Remapping keyframes (see `TIME_REMAP`). */
+export function isRemapped(clip: Pick<Clip, "effects">): boolean {
+  return !!remapKeys(clip);
+}
+
+/** A remapped clip's Time Remapping keyframes (clip clock -> source time), else undefined. */
+export function remapKeys(clip: Pick<Clip, "effects">): Keyframe[] | undefined {
+  const keys = clip.effects.find((e) => e.type === TIME_REMAP.type)?.keyframes?.time;
+  return keys?.length ? keys : undefined;
 }
 
 /** Whether a clip is text (drawn from its Text effect) rather than media. */
@@ -608,26 +824,33 @@ export function isSolidClip(clip: Pick<Clip, "effects">): boolean {
   return clip.effects.some((e) => e.type === SOLID.type);
 }
 
+/** Whether a clip is a shape layer (drawn from its Shape effects). */
+export function isShapeClip(clip: Pick<Clip, "effects">): boolean {
+  return clip.effects.some((e) => e.type === SHAPE.type);
+}
+
 /** Whether a clip is a camera (carries the Camera effect). */
 export function isCameraClip(clip: Pick<Clip, "effects">): boolean {
   return clip.effects.some((e) => e.type === CAMERA.type);
 }
 
 /** What a clip shows (see `ClipKind`). */
-export function clipKind(clip: Pick<Clip, "effects" | "adjustment">): ClipKind {
+export function clipKind(clip: Pick<Clip, "effects" | "adjustment" | "nullObject">): ClipKind {
   if (isTextClip(clip)) return "text";
+  if (isShapeClip(clip)) return "shape";
   if (isSolidClip(clip)) return "solid";
   if (isCameraClip(clip)) return "camera";
+  if (clip.nullObject) return "null";
   return clip.adjustment ? "adjustment" : "media";
 }
 
 /** Whether a clip plays a media file (rather than text, a solid, an adjustment layer or a camera, which have none). */
-export const hasMedia = (clip: Pick<Clip, "effects" | "adjustment">) => clipKind(clip) === "media";
+export const hasMedia = (clip: Pick<Clip, "effects" | "adjustment" | "nullObject">) => clipKind(clip) === "media";
 
 /** Whether a clip has no picture of its own to draw or transition (an adjustment layer or a camera). */
-export const drawsNothing = (clip: Pick<Clip, "effects" | "adjustment">) => {
+export const drawsNothing = (clip: Pick<Clip, "effects" | "adjustment" | "nullObject">) => {
   const kind = clipKind(clip);
-  return kind === "adjustment" || kind === "camera";
+  return kind === "adjustment" || kind === "camera" || kind === "null";
 };
 
 /** How a clip is mixed into the frame at source time `time`: See `Placed` in `compositor.ts`. */
@@ -646,8 +869,8 @@ export type EdgeMode = "none" | "mirror" | "tile" | "extend";
 
 /** A clip's opacity, blend mode, edges and motion blur at source time `time`. */
 export function lookAt(clip: Clip, time: number): Look {
-  const o = valuesAt(OPACITY, findEffect(clip, OPACITY.type), time);
-  const m = valuesAt(MOTION, findEffect(clip, MOTION.type), time);
+  const o = valuesAt(OPACITY, findEffect(clip, OPACITY.type), time, clip);
+  const m = valuesAt(MOTION, findEffect(clip, MOTION.type), time, clip);
   return {
     opacity: o.opacity as number,
     blendMode: o.blendMode as string,
@@ -659,7 +882,7 @@ export function lookAt(clip: Clip, time: number): Look {
 
 /** A solid's colour as premultiplied RGBA (0..1) at source time `time`. */
 export function solidColorAt(clip: Clip, time: number): [number, number, number, number] {
-  const v = valuesAt(SOLID, findEffect(clip, SOLID.type), time);
+  const v = valuesAt(SOLID, findEffect(clip, SOLID.type), time, clip);
   const n = Number.parseInt((v.color as string).slice(1), 16);
   const a = v.fill as number;
   return [(((n >> 16) & 255) / 255) * a, (((n >> 8) & 255) / 255) * a, ((n & 255) / 255) * a, a];
@@ -690,6 +913,10 @@ export interface TextStyle {
   shadowColor: string;
   shadowDistance: number;
   shadowBlur: number;
+  /** Its animators' values at this moment (absent without any): the text is then drawn letter by letter. */
+  animators?: TextAnimation[];
+  /** Room (reference px) the text's frame keeps around it for what its animators do (see `animatorReach`). */
+  reach?: number;
 }
 
 /** How a text's letters are cased when drawn. */
@@ -702,9 +929,16 @@ export function applyTextCase(text: string, textCase: TextCase): string {
 
 /** A text clip's text and look at source time `time`. */
 export function textStyleAt(clip: Clip, time: number): TextStyle {
-  const text = valuesAt(TEXT, findEffect(clip, TEXT.type), time);
-  const look = valuesAt(APPEARANCE, findEffect(clip, APPEARANCE.type), time);
-  return { ...text, ...look } as unknown as TextStyle;
+  const text = valuesAt(TEXT, findEffect(clip, TEXT.type), time, clip);
+  const look = valuesAt(APPEARANCE, findEffect(clip, APPEARANCE.type), time, clip);
+  const style = { ...text, ...look } as unknown as TextStyle;
+  const animators = textAnimationsAt(clip, time);
+  if (animators.length) {
+    style.animators = animators;
+    const reach = animatorReach(clip, style.size);
+    if (reach > 0) style.reach = reach;
+  }
+  return style;
 }
 
 /** A clip's linear gain (0..1) at source time `time`. */
@@ -712,9 +946,28 @@ export function volumeAt(clip: Clip, time: number): number {
   return valuesAt(VOLUME, findEffect(clip, VOLUME.type), time).level as number;
 }
 
-/** Whether any parameter of the clip is animated. */
+/** Whether any parameter of the clip is animated (by keyframes, or by an expression). */
 export function hasKeyframes(clip: Clip): boolean {
-  return clip.effects.some((e) => e.keyframes && Object.keys(e.keyframes).length > 0);
+  return clip.effects.some((e) => (e.keyframes && Object.keys(e.keyframes).length > 0) || hasExpressions(e));
+}
+
+/**
+ * Give a parameter an expression (or with null or "", take it away). The same project when
+ * nothing changes; a parameter that can't have one is left alone.
+ */
+export function setExpression(project: Project, clipId: ClipIds, effectId: string, key: string, source: string | null): Project {
+  return updateEffect(project, clipId, effectId, (effect, def) => {
+    const spec = paramSpec(def, key);
+    if (!spec || !canExpress(def, spec)) return effect;
+    const text = source?.trim() ? source.slice(0, MAX_EXPRESSION) : null;
+    if ((effect.expressions?.[key] ?? null) === text) return effect;
+    const { [key]: _, ...others } = effect.expressions ?? {};
+    const expressions = text === null ? others : { ...others, [key]: text };
+    const next: Effect = { ...effect };
+    if (Object.keys(expressions).length) next.expressions = expressions;
+    else delete next.expressions;
+    return next;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -811,10 +1064,15 @@ export function resetParams(project: Project, clipId: ClipIds, effectId: string,
       }
       if (!sameValue(params[p.key], p.default)) params = { ...params, [p.key]: p.default };
     }
-    if (params === effect.params && keyframes === effect.keyframes) return effect;
+    // Back to the defaults: their expressions go too.
+    const kept = Object.entries(effect.expressions ?? {}).filter(([key]) => !reset.some((p) => p.key === key));
+    const expressions = kept.length === Object.keys(effect.expressions ?? {}).length ? effect.expressions : kept.length ? Object.fromEntries(kept) : undefined;
+    if (params === effect.params && keyframes === effect.keyframes && expressions === effect.expressions) return effect;
     const next: Effect = { ...effect, params };
     if (keyframes) next.keyframes = keyframes;
     else delete next.keyframes;
+    if (expressions) next.expressions = expressions;
+    else delete next.expressions;
     return next;
   });
 }
@@ -823,9 +1081,31 @@ export function resetParams(project: Project, clipId: ClipIds, effectId: string,
 // Video effects: adding, removing and reordering them
 // ---------------------------------------------------------------------------
 
-/** Whether an effect is one the user added (a video effect), which can be removed and moved. */
+/** Whether an effect is a video effect (drawn by a shader over the clip's picture). */
 export function isVideoEffect(effect: Pick<Effect, "type">): boolean {
   return !!byType.get(effect.type)?.shader;
+}
+
+/** Whether an effect is one the user added (a video effect, a mask, a shape, an animator...), which can be removed and moved. */
+export function isAddedEffect(effect: Pick<Effect, "type">): boolean {
+  const def = byType.get(effect.type);
+  return !!def && (!!def.shader || !!def.stackable);
+}
+
+/**
+ * What to call one of a clip's effects: its definition's label, numbered when the clip has
+ * several of it ("Mask 2").
+ */
+export function effectLabel(clip: Pick<Clip, "effects">, effect: Pick<Effect, "id" | "type">): string {
+  const def = byType.get(effect.type);
+  if (!def) return effect.type;
+  const same = clip.effects.filter((e) => e.type === effect.type);
+  return same.length > 1 ? `${def.label} ${same.findIndex((e) => e.id === effect.id) + 1}` : def.label;
+}
+
+/** A clip's masks, in the order they combine. */
+export function maskEffects(clip: Pick<Clip, "effects">): Effect[] {
+  return clip.effects.filter((e) => e.type === MASK.type);
 }
 
 /** A clip's video effects, in the order they're drawn. */
@@ -834,40 +1114,53 @@ export function videoEffects(clip: Clip): Effect[] {
 }
 
 /**
- * Add a video effect (with its default values) to the end of each clip's
- * effects, so it's drawn over what's there; clips that aren't on a video
- * track are skipped. Returns the new effects' ids by clip.
+ * Add a video effect (or a mask, a shape, an animator...: anything the user adds), with its
+ * default values (and `params` over them), after each clip's others of its kind, so it's
+ * drawn over what's there; clips it doesn't apply to (not on a video track, a shape
+ * operator on a video...) are skipped. Returns the new effects' ids by clip.
  */
-export function addEffect(project: Project, clipIds: string[], type: string): { project: Project; added: Map<string, string> } {
+export function addEffect(project: Project, clipIds: string[], type: string, params?: ParamValues): { project: Project; added: Map<string, string> } {
   const def = byType.get(type);
   const added = new Map<string, string>();
-  if (!def?.shader) return { project, added };
+  if (!def || !(def.shader || def.stackable)) return { project, added };
   const videoTracks = new Set(project.tracks.filter((t) => t.kind === "video").map((t) => t.id));
   const clips = project.clips.map((clip) => {
     if (!clipIds.includes(clip.id) || !videoTracks.has(clip.trackId) || isCameraClip(clip)) return clip;
+    if (!def.appliesTo({ visual: true, audible: false, kind: clipKind(clip) })) return clip;
     const ids = new Set(clip.effects.map((e) => e.id));
     let id = def.type;
     for (let n = 2; ids.has(id); n++) id = `${def.type}_${n}`;
     added.set(clip.id, id);
-    return { ...clip, effects: [...clip.effects, sanitizeEffect(def, undefined, id)] };
+    return { ...clip, effects: orderEffects([...clip.effects, sanitizeEffect(def, params ? { params } : undefined, id)]) };
   });
   return added.size ? { project: { ...project, clips }, added } : { project, added };
 }
 
-/** Remove one of a clip's video effects (built-in ones and text can't be). */
+/** Remove one of a clip's added effects (built-in ones and what the clip is, like its text, can't be). */
 export function removeEffect(project: Project, clipId: string, effectId: string): Project {
   const clip = project.clips.find((c) => c.id === clipId);
   const effect = clip?.effects.find((e) => e.id === effectId);
-  if (!clip || !effect || !isVideoEffect(effect)) return project;
+  if (!clip || !effect || !isAddedEffect(effect)) return project;
+  // A shape layer keeps at least one shape (it's what the clip is).
+  if (byType.get(effect.type)?.alwaysOn && clip.effects.filter((e) => e.type === effect.type).length < 2) return project;
   const next = { ...clip, effects: clip.effects.filter((e) => e !== effect) };
   return { ...project, clips: project.clips.map((c) => (c === clip ? next : c)) };
 }
 
-/** Swap a video effect with the one drawn before (-1) or after (+1) it. */
+/** The ids of the effects `effectId` can change places with: the clip's added effects of its kind, in order. */
+export function effectPeers(clip: Pick<Clip, "effects">, effectId: string): string[] {
+  const effect = clip.effects.find((e) => e.id === effectId);
+  if (!effect || !isAddedEffect(effect)) return [];
+  const rank = effectRank(effect);
+  return clip.effects.filter((e) => isAddedEffect(e) && effectRank(e) === rank).map((e) => e.id);
+}
+
+/** Swap an added effect with the one of its kind applied before (-1) or after (+1) it. */
 export function moveEffect(project: Project, clipId: string, effectId: string, by: -1 | 1): Project {
   const clip = project.clips.find((c) => c.id === clipId);
   if (!clip) return project;
-  const order = clip.effects.flatMap((e, i) => (isVideoEffect(e) ? [i] : []));
+  const peers = effectPeers(clip, effectId);
+  const order = clip.effects.flatMap((e, i) => (peers.includes(e.id) ? [i] : []));
   const at = order.findIndex((i) => clip.effects[i].id === effectId);
   const other = order[at + by];
   if (at < 0 || other === undefined) return project;
@@ -920,11 +1213,18 @@ export function pasteEffects(project: Project, clipIds: readonly string[], copie
         const next: Effect = { ...effect, enabled: source.enabled || !!def.alwaysOn, params };
         if (Object.keys(keyframes).length) next.keyframes = keyframes;
         else delete next.keyframes;
+        if (source.expressions) next.expressions = source.expressions;
+        else delete next.expressions;
         return JSON.stringify(next) === JSON.stringify(effect) ? effect : next;
       });
     }
     const missing = videoTracks.has(clip.trackId)
-      ? pasted.filter((e) => isVideoEffect(e) && !clip.effects.some((own) => own.id === e.id))
+      ? pasted.filter(
+          (e) =>
+            isAddedEffect(e) &&
+            !clip.effects.some((own) => own.id === e.id) &&
+            byType.get(e.type)!.appliesTo({ visual: true, audible: false, kind: clipKind(clip) }),
+        )
       : [];
     if (missing.length === 0) continue;
     const added = missing.map((e): Effect => {
@@ -932,7 +1232,7 @@ export function pasteEffects(project: Project, clipIds: readonly string[], copie
       if (e.keyframes) next.keyframes = Object.fromEntries(Object.entries(e.keyframes).map(([key, keys]) => [key, moved(keys)]));
       return next;
     });
-    p = { ...p, clips: p.clips.map((c) => (c.id === clipId ? { ...c, effects: [...c.effects, ...added] } : c)) };
+    p = { ...p, clips: p.clips.map((c) => (c.id === clipId ? { ...c, effects: orderEffects([...c.effects, ...added]) } : c)) };
   }
   return p;
 }

@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEditor } from "@/stores/editor";
-import { drawTexts } from "./draw-texts";
+import { layoutTexts } from "./layout-texts";
 import { ExportForm, brandButton } from "./export-form";
 import { ExportDone, ExportError, ExportProgress, formatElapsed } from "./export-status";
 import { useExportJob, type ExportPhase } from "./use-export-job";
@@ -24,7 +24,8 @@ export function ExportDialog() {
   const [open, setOpen] = useState(false);
   const [resolution, setResolution] = useState<ExportResolution>("1080p");
   const [excludeAudioTracks, setExcludeAudioTracks] = useState(false);
-  const empty = useEditor((s) => s.project.clips.length === 0);
+  // The whole video is exported (its main sequence), whichever sequence the timeline shows.
+  const empty = useEditor((s) => s.document.clips.length === 0);
   const ffmpeg = useFfmpegStatus(open);
   const { phase, start, reset } = useExportJob();
   const lastRun = useRef({ fileName: "", excludeAudioTracks: false });
@@ -38,8 +39,8 @@ export function ExportDialog() {
 
   const run = (fileName: string, excludeAudioTracks: boolean) => {
     lastRun.current = { fileName, excludeAudioTracks };
-    const project = useEditor.getState().project;
-    void start(drawTexts(project, resolution).then((texts) => ({ project, resolution, fileName, excludeAudioTracks, texts })));
+    const project = useEditor.getState().document;
+    void start(layoutTexts(project, resolution).then((texts) => ({ project, resolution, fileName, excludeAudioTracks, texts })));
   };
 
   const trigger = (

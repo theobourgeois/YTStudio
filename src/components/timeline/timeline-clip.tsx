@@ -1,11 +1,14 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
-import { PiArrowCounterClockwise, PiCircleHalfTilt, PiIntersectSquare, PiSquare, PiSubtitles, PiTextT, PiVideoCamera, PiWarning } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiCircleHalfTilt, PiCrosshairSimple, PiIntersectSquare, PiPolygon, PiSpiral, PiSquare, PiSubtitles, PiTextT, PiVideoCamera, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
+import { isNestedClip } from "@shared/sequences";
+import { useEditor } from "@/stores/editor";
 import { type ClipKind, OPACITY, SOLID, clipKind, findEffect, videoEffects } from "@shared/effects";
 import { keyframeTimes, timelineTime } from "@shared/animation";
 import { clipDuration, clipName, clipSpeed, sourceDelta, sourceEdge } from "@shared/timeline";
 import { formatSpeed } from "@shared/format";
 import { cn } from "cn";
+import { ClipMarkers } from "./markers";
 import { useAssistant } from "@/stores/assistant";
 import { useLayout } from "@/stores/layout";
 import { startClipMove, startClipTrim } from "./clip-gestures";
@@ -61,7 +64,11 @@ export const TimelineClip = memo(function TimelineClip({
       )}
       style={{ left, top: lane.top + CLIP_INSET_Y, width, height }}
       onPointerDown={(e) => startClipMove(e, clip.id, ctx)}
-      onDoubleClick={() => useLayout.getState().setLeftPanel("properties")}
+      onDoubleClick={() => {
+        // A nested sequence opens in its own tab (Premiere); anything else shows its properties.
+        if (isNestedClip(clip)) useEditor.getState().openSequence(clip.assetId);
+        else useLayout.getState().setLeftPanel("properties");
+      }}
     >
       <div
         className={cn(
@@ -74,11 +81,13 @@ export const TimelineClip = memo(function TimelineClip({
                   ? "bg-clip-graphic"
                   : kind === "adjustment"
                     ? "bg-clip-adjustment"
-                    : kind === "solid"
+                    : kind === "solid" || kind === "shape"
                       ? "bg-clip-solid"
                       : kind === "camera"
                         ? "bg-clip-camera"
-                        : audioLane
+                        : kind === "null"
+                          ? "bg-clip-null"
+                          : audioLane
                         ? "bg-clip-audio"
                         : "bg-clip-video",
               ),
@@ -95,6 +104,7 @@ export const TimelineClip = memo(function TimelineClip({
             offline={offline}
             kind={kind}
             matte={(findEffect(clip, OPACITY.type)?.params.trackMatte ?? "none") !== "none"}
+            parented={!!clip.parent}
             caption={clip.caption === true}
             name={clipName(clip, asset)}
             effects={effects.map((e) => e.type)}
@@ -105,6 +115,7 @@ export const TimelineClip = memo(function TimelineClip({
         )}
         <ClipKeyframes clip={clip} zoom={zoom} />
       </div>
+      {!placeholder && <ClipMarkers clip={clip} zoom={zoom} />}
       {selected && !placeholder && (
         <div className="pointer-events-none absolute -inset-px rounded-md ring-2 ring-foreground" />
       )}
@@ -135,6 +146,8 @@ function sameClipProps(a: TimelineClipProps, b: TimelineClipProps) {
     a.clip.speed === b.clip.speed &&
     a.clip.reversed === b.clip.reversed &&
     a.clip.assetId === b.clip.assetId &&
+    a.clip.parent?.id === b.clip.parent?.id &&
+    a.clip.markers === b.clip.markers &&
     // A text clip's label is its text.
     a.clip.effects === b.clip.effects &&
     a.asset === b.asset &&
@@ -220,6 +233,7 @@ function ClipLabel({
   offline,
   kind,
   matte,
+  parented,
   caption,
   name,
   effects,
@@ -231,6 +245,8 @@ function ClipLabel({
   kind: ClipKind;
   /** Drawn through a track matte (the clip on the track above). */
   matte: boolean;
+  /** Follows another clip (parenting). */
+  parented: boolean;
   caption: boolean;
   name: string;
   /** Its video effects' types. */
@@ -251,7 +267,10 @@ function ClipLabel({
       {kind === "text" && (caption ? <PiSubtitles className="size-3 shrink-0" /> : <PiTextT className="size-3 shrink-0" />)}
       {kind === "adjustment" && <PiCircleHalfTilt className="size-3 shrink-0" />}
       {kind === "solid" && <PiSquare className="size-3 shrink-0" />}
+      {kind === "shape" && <PiPolygon className="size-3 shrink-0" />}
       {kind === "camera" && <PiVideoCamera className="size-3 shrink-0" />}
+      {kind === "null" && <PiCrosshairSimple className="size-3 shrink-0" />}
+      {parented && <PiSpiral className="size-3 shrink-0 text-brand" aria-label="Parented" data-clip-parented />}
       {matte && <PiIntersectSquare className="size-3 shrink-0 text-sky-300" aria-label="Track matte" data-clip-matte />}
       <span className="truncate">{name}</span>
       {(speed !== 1 || reversed) && (

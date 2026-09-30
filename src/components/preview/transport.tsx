@@ -3,8 +3,11 @@ import {
   PiCaretLineLeft,
   PiCaretLineRight,
   PiCursor,
+  PiCircle,
   PiPauseFill,
+  PiPenNib,
   PiPlayFill,
+  PiRectangle,
   PiSkipBack,
   PiSkipForward,
   PiTextT,
@@ -15,7 +18,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
-import { type CanvasTool, useLayout } from "@/stores/layout";
+import { type CanvasTool, PREVIEW_RESOLUTIONS, useLayout } from "@/stores/layout";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePlayback } from "@/stores/playback";
 
 /** Pause and move the playhead by whole frames, landing on the frame grid. */
@@ -77,20 +81,52 @@ export function Transport() {
           <PiCaretLineRight />
         </TransportButton>
       </div>
-      <CanvasTools />
+      <div className="flex items-center gap-1.5 justify-self-end">
+        <ResolutionPicker />
+        <CanvasTools />
+      </div>
     </div>
   );
 }
 
-/** The canvas tools, like Premiere's Selection and Type tools. */
+const RESOLUTION_LABELS: Record<number, string> = { 1: "Full", 0.5: "1/2", 0.25: "1/4" };
+
+/** Premiere's Playback Resolution: drawing fewer pixels keeps heavy edits (nests, effects) playing smoothly. */
+function ResolutionPicker() {
+  const resolution = useLayout((s) => s.previewResolution);
+  return (
+    <Select value={String(resolution)} onValueChange={(v) => useLayout.getState().setPreviewResolution(Number(v))}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <SelectTrigger size="sm" aria-label="Preview resolution" className="h-7! w-auto gap-1 rounded-md border-none bg-muted px-2 text-xs shadow-none">
+            <SelectValue />
+          </SelectTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Preview resolution (the export is always full)</TooltipContent>
+      </Tooltip>
+      <SelectContent position="popper" align="end">
+        {PREVIEW_RESOLUTIONS.map((r) => (
+          <SelectItem key={r} value={String(r)} className="text-xs">
+            {RESOLUTION_LABELS[r]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** The canvas tools, like Premiere's Selection, Type, Pen, Rectangle and Ellipse tools. */
 function CanvasTools() {
   const tool = useLayout((s) => s.tool);
   const tools: { id: CanvasTool; label: string; shortcut: string; icon: ReactNode }[] = [
     { id: "select", label: "Selection tool", shortcut: SHORTCUT_KEYS.selectTool, icon: <PiCursor /> },
     { id: "text", label: "Type tool: click the canvas to add text", shortcut: SHORTCUT_KEYS.textTool, icon: <PiTextT /> },
+    { id: "pen", label: "Pen tool: draw a mask on the selected clip, or a shape", shortcut: SHORTCUT_KEYS.penTool, icon: <PiPenNib /> },
+    { id: "rectangle", label: "Rectangle tool: drag a mask on the selected clip, or a shape", shortcut: SHORTCUT_KEYS.rectangleTool, icon: <PiRectangle /> },
+    { id: "ellipse", label: "Ellipse tool: drag a mask on the selected clip, or a shape", shortcut: SHORTCUT_KEYS.ellipseTool, icon: <PiCircle /> },
   ];
   return (
-    <div role="toolbar" aria-label="Canvas tools" className="flex items-center gap-0.5 justify-self-end rounded-md bg-muted p-0.5">
+    <div role="toolbar" aria-label="Canvas tools" className="flex items-center gap-0.5 rounded-md bg-muted p-0.5">
       {tools.map((t) => (
         <Tooltip key={t.id}>
           <TooltipTrigger asChild>

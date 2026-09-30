@@ -30,6 +30,26 @@ function drums(bpm: number, seconds: number, opts: { offset?: number; gain?: num
   return out;
 }
 
+/** A bar's drums on repeat: kicks and snares at these beats of the bar, hi-hats on each eighth (or `hats` per bar). */
+function pattern(bpm: number, seconds: number, opts: { kicks: number[]; snares: number[]; hats?: number; gain?: number }): Float32Array {
+  const { kicks, snares, hats = 8, gain = 1.2 } = opts;
+  const out = new Float32Array(Math.round(seconds * SAMPLE_RATE));
+  const beat = 60 / bpm;
+  let seed = 1;
+  const noise = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  const hit = (at: number, length: number, sound: (t: number) => number) => {
+    const start = Math.round(at * SAMPLE_RATE);
+    for (let n = 0; n < length * SAMPLE_RATE && start + n < out.length; n++) out[start + n] += sound(n / SAMPLE_RATE);
+  };
+  for (let bar = 0; 0.25 + bar * 4 * beat < seconds; bar++) {
+    const t0 = 0.25 + bar * 4 * beat;
+    for (const k of kicks) hit(t0 + k * beat, 0.15, (t) => 0.8 * Math.sin(2 * Math.PI * (55 + 60 * Math.exp(-t * 30)) * t) * Math.exp(-t * 18));
+    for (const k of snares) hit(t0 + k * beat, 0.12, (t) => gain * (0.7 * noise() + 0.3 * Math.sin(2 * Math.PI * 200 * t)) * Math.exp(-t * 25));
+    for (let h = 0; h < hats; h++) hit(t0 + (h * 4 * beat) / hats, 0.03, (t) => 0.1 * noise() * Math.exp(-t * 150));
+  }
+  return out;
+}
+
 describe("beats", () => {
   it("does a correct FFT", () => {
     const re = new Float64Array(8).map((_, i) => Math.cos((2 * Math.PI * i) / 8));
@@ -50,6 +70,20 @@ describe("beats", () => {
       expect(Math.abs(t - (0.25 + k * beat))).toBeLessThan(0.025);
     }
     expect(r.beats.length).toBeGreaterThan(20 / beat - 3);
+  });
+
+  it.each([170, 174])("finds %i BPM in drum & bass, whose kick 1.5 beats in repeats more plainly than the beat", (bpm) => {
+    const r = analyseRhythm(pattern(bpm, 30, { kicks: [0, 2.5], snares: [1, 3] }));
+    expect(Math.abs(r.bpm! - bpm)).toBeLessThan(1.5);
+  });
+
+  it("finds hip-hop's and trap's tempo, not a syncopated kick's spacing", () => {
+    // Half or double the tempo is a matter of feel (the beats are the same ones, or every other one);
+    // a kick ¾ of a beat after another used to read as 120 here, and trap's as 80.
+    const hiphop = analyseRhythm(pattern(90, 30, { kicks: [0, 1.5, 2.25], snares: [1, 3], gain: 0.5 }));
+    expect([90, 180].some((t) => Math.abs(hiphop.bpm! - t) < 1.5)).toBe(true);
+    const trap = analyseRhythm(pattern(140, 30, { kicks: [0, 1.75, 2.5], snares: [2], hats: 16 }));
+    expect([70, 140].some((t) => Math.abs(trap.bpm! - t) < 1.5)).toBe(true);
   });
 
   it("puts bars on the loudest kicks", () => {

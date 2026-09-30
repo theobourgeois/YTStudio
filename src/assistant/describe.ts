@@ -16,8 +16,14 @@ import {
   effectDefinition,
   clipKind,
   CAMERA,
+  MASK,
   SOLID,
+  TEXT_ANIMATOR,
 } from "@shared/effects";
+import { ANIMATOR_PRESETS } from "@shared/text-animators";
+import { SHAPE_EFFECTS } from "@shared/effect-library/shape";
+import { EXPRESSION_GLOBALS } from "@shared/expressions";
+import { isPath } from "@shared/params";
 import { folderPath, folderSubtree, libraryItemDuration, libraryItemKind, searchItems } from "@shared/library";
 import { type ParamSpec, sameValue } from "@shared/params";
 import { subclipsByAsset } from "@shared/subclips";
@@ -25,12 +31,18 @@ import { clipEnd, clipName, clipSpeed, getTrack, outputSize, projectDuration, ti
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
 import { PRESETS, type PresetDefinition } from "@shared/presets";
 import { TRANSITIONS } from "@shared/transitions";
-import type { Clip, Effect, FontFamily, Library, MediaAsset, MusicAnalysis, ParamValue, Project, Transcript } from "@shared/types";
-import { range, secs, value } from "./input";
+import type { Clip, Effect, FontFamily, Library, Marker, MediaAsset, MusicAnalysis, ParamValue, Project, Transcript } from "@shared/types";
+import { clipMarkers, sequenceMarkers } from "@shared/markers";
+import { getSequence, sequenceDuration } from "@shared/sequences";
+import { remapSegments } from "@shared/time-remap";
+import { isRemapped } from "@shared/effects";
+import { pathText, range, secs, value } from "./input";
 
 export interface TimelineView {
   playhead: number;
   selectedClipIds: readonly string[];
+  /** The nested sequence `project` is a view of (absent or null: the main one). */
+  sequenceId?: string | null;
 }
 
 export interface TimelineFilter {
@@ -44,16 +56,22 @@ type Assets = Readonly<Record<string, MediaAsset>>;
 
 const quote = (s: string, max = 60) => JSON.stringify(s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
+/** `3.5 "Drop" (marker_ab12)`. */
+const markerText = (m: Marker, time: number) => `${secs(time)}${m.label ? ` ${quote(m.label, 40)}` : ""} (${m.id})`;
+
 /** What's different about one effect: `scale 1.2, position animated (3 keyframes)`. */
 function effectSummary(def: EffectDefinition, effect: Effect, skip: readonly string[] = []): string[] {
   const out: string[] = [];
   for (const spec of def.params) {
     if (skip.includes(spec.key)) continue;
     const keys = effect.keyframes?.[spec.key];
+    const expression = effect.expressions?.[spec.key];
+    if (expression !== undefined) out.push(`${spec.key} = expression ${quote(expression.replace(/\s+/g, " "), 80)}`);
     if (keys?.length) {
       out.push(`${spec.key} animated (${keys.length} keyframe${keys.length === 1 ? "" : "s"})`);
       continue;
     }
+    if (expression !== undefined) continue;
     const v = effect.params[spec.key];
     if (v !== undefined && !sameValue(v, spec.default)) out.push(`${spec.key} ${value(v)}`);
   }
@@ -71,8 +89,15 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
     parts.push("adjustment layer (changes the tracks below it)");
   } else if (kind === "solid") {
     parts.push("solid");
+  } else if (kind === "shape") {
+    parts.push("shape layer (vector shapes; its contents are its effects, in order)");
   } else if (kind === "camera") {
     parts.push("camera (3D layers are seen through it)");
+  } else if (kind === "null") {
+    parts.push("null object (draws nothing; clips parented to it follow its motion)");
+  } else if (asset?.sequence) {
+    parts.push(`nested sequence ${quote(asset.name)} (${asset.id}), showing ${range(clip.in, clip.out)} of its ${secs(asset.duration)}s`);
+    if (clipSpeed(clip) !== 1 || clip.reversed) parts.push([`speed ${clipSpeed(clip)}×`, clip.reversed && "reversed"].filter(Boolean).join(", "));
   } else {
     const kind = asset ? asset.kind : "offline media";
     parts.push(`${quote(clipName(clip, asset), 48)} (${kind}${asset ? `, ${asset.id}` : ""})`);
@@ -89,7 +114,7 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
   for (const effect of clip.effects) {
     const def = effectDefinition(effect.type);
     if (!def) continue;
-    if (def.shader) {
+    if (def.shader || def.stackable) {
       const summary = effectSummary(def, effect);
       fx.push(`${effect.id}${effect.enabled ? "" : " (off)"}${summary.length ? ` (${summary.join(", ")})` : ""}`);
       continue;
@@ -100,6 +125,17 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
     else if (summary.length) parts.push(`${effect.id}: ${summary.join(", ")}`);
   }
   if (fx.length) parts.push(`fx: ${fx.join(", ")}`);
+  if (clip.parent) parts.push(`parent: ${clip.parent.id}`);
+  // A song's beats are hundreds: counted, with only the named ones (drops) and the user's own listed.
+  const all = clipMarkers(clip);
+  const marks = all.filter((m) => !m.marker.beat || m.marker.label);
+  const beats = all.length - marks.length;
+  if (beats) parts.push(`${beats} beat markers (mark_beats)${all.length > 1 ? `, ${secs(all[0].time)}..${secs(all.at(-1)!.time)}` : ""}`);
+  if (marks.length) parts.push(`markers: ${marks.map((m) => markerText(m.marker, m.time)).join(", ")}`);
+  const remap = remapSegments(clip);
+  if (remap.length) {
+    parts.push(`time remapped: ${remap.map((s) => `${range(s.start, s.end)} ${s.speed === 0 ? "freeze" : `${Math.round(s.speed * 100)}%`}`).join(", ")}`);
+  }
   for (const w of windows) {
     if (w.ref.clipId !== clip.id) continue;
     const label = `${w.def.type} ${secs(w.transition.duration)}s`;
@@ -112,10 +148,26 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
 /** The whole timeline as text (see `get_timeline`). */
 export function describeTimeline(project: Project, assets: Assets, view: TimelineView, filter: TimelineFilter = {}): string {
   const { width, height } = outputSize(project.settings.aspectRatio, "1080p");
+  const open = view.sequenceId ? getSequence(project, view.sequenceId) : undefined;
   const lines = [
-    `${quote(project.name)} · ${project.settings.aspectRatio} (${width}×${height} at 1080p) · ${project.settings.fps} fps · length ${secs(projectDuration(project))}s`,
+    open
+      ? `Nested sequence ${open.id} ${quote(open.name)} of ${quote(project.name)} · ${project.settings.aspectRatio} (${width}×${height}) · ${project.settings.fps} fps · length ${secs(sequenceDuration(open))}s${open.duration === undefined ? "" : " (set)"} · open_sequence(null) goes back to the main sequence`
+      : `${quote(project.name)} · ${project.settings.aspectRatio} (${width}×${height} at 1080p) · ${project.settings.fps} fps · length ${secs(projectDuration(project))}s`,
     `Playhead ${secs(view.playhead)} · ${view.selectedClipIds.length ? `selected: ${view.selectedClipIds.join(", ")}` : "nothing selected"}`,
   ];
+  const markers = sequenceMarkers(project);
+  if (markers.length) {
+    const shown = markers.slice(0, 60).map((m) => markerText(m, m.time));
+    lines.push(`Markers (set_markers): ${shown.join(", ")}${markers.length > 60 ? `, … ${markers.length - 60} more` : ""}`);
+  }
+  const nested = (project.sequences ?? []).filter((s) => s.id !== open?.id);
+  if (nested.length) {
+    lines.push(
+      `Nested sequences (open_sequence to edit inside; add one with add_clips assetId = its id): ${nested
+        .map((s) => `${s.id} ${quote(s.name)} ${s.settings.aspectRatio} ${secs(sequenceDuration(s))}s, ${s.clips.length} clips`)
+        .join("; ")}`,
+    );
+  }
   if (filter.from !== undefined || filter.to !== undefined) lines.push(`Showing ${range(filter.from ?? 0, filter.to ?? projectDuration(project))} only`);
   lines.push("Tracks, top to bottom (a video track is drawn over the ones below it):");
 
@@ -143,8 +195,9 @@ export function describeTimeline(project: Project, assets: Assets, view: Timelin
   return lines.join("\n");
 }
 
+/** A value as the model reads it: numbers rounded, a path as SVG path data (in fractions of the clip's frame). */
 const round = (v: ParamValue): ParamValue =>
-  typeof v === "number" ? Math.round(v * 10000) / 10000 : Array.isArray(v) ? [round(v[0]) as number, round(v[1]) as number] : v;
+  typeof v === "number" ? Math.round(v * 10000) / 10000 : Array.isArray(v) ? [round(v[0]) as number, round(v[1]) as number] : isPath(v) ? pathText(v) : v;
 
 /** Everything about some clips, as JSON (see `get_clips`). Keyframe times are timeline times. */
 export function describeClips(project: Project, assets: Assets, ids: readonly string[]): string {
@@ -159,10 +212,22 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
       track: track && { id: track.id, name: track.name, kind: track.kind },
       start: round(clip.start),
       end: round(clipEnd(clip)),
+      ...(clip.parent && { parent: clip.parent.id }),
+      ...(clipMarkers(clip).some((m) => !m.marker.beat) && { markers: clipMarkers(clip).filter((m) => !m.marker.beat).map((m) => ({ id: m.marker.id, time: round(m.time), ...(m.marker.label && { label: m.marker.label }) })) }),
+      ...(asset?.sequence && { nestedSequence: { id: asset.id, name: asset.name, duration: round(asset.duration) } }),
+      ...(isRemapped(clip) && {
+        remap: remapSegments(clip).map((seg, index) => ({
+          index,
+          start: round(seg.start),
+          end: round(seg.end),
+          speed: round(seg.speed),
+          media: [round(seg.mediaFrom), round(seg.mediaTo)],
+        })),
+      }),
       ...(clipKind(clip) === "text"
         ? { kind: clip.caption ? "caption" : "text" }
         : clipKind(clip) !== "media"
-          ? { kind: clipKind(clip) === "adjustment" ? "adjustment layer" : clipKind(clip) }
+          ? { kind: clipKind(clip) === "adjustment" ? "adjustment layer" : clipKind(clip) === "null" ? "null object" : clipKind(clip) === "shape" ? "shape layer" : clipKind(clip) }
           : {
             kind: asset?.kind ?? "offline",
             media: asset && { id: asset.id, name: asset.name, duration: round(asset.duration) },
@@ -177,6 +242,7 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
         type: e.type,
         enabled: e.enabled,
         params: Object.fromEntries(Object.entries(e.params).map(([k, v]) => [k, round(v)])),
+        ...(e.expressions && { expressions: e.expressions }),
         ...(e.keyframes && {
           keyframes: Object.fromEntries(
             Object.entries(e.keyframes).map(([k, keys]) => [
@@ -186,6 +252,10 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
                 value: round(kf.value),
                 easing: kf.easing,
                 ...(kf.influence !== undefined && { influence: kf.influence }),
+                ...(kf.handleIn && { handleIn: kf.handleIn }),
+                ...(kf.handleOut && { handleOut: kf.handleOut }),
+                ...(kf.spatialIn && { spatialIn: kf.spatialIn }),
+                ...(kf.spatialOut && { spatialOut: kf.spatialOut }),
               })),
             ]),
           ),
@@ -241,7 +311,11 @@ function specLine(spec: ParamSpec): string {
       return `${spec.key}: ${spec.min}..${spec.max}${unit}, default ${d}`;
     }
     case "vec2":
-      return `${spec.key}: [x, y] as fractions of the ${spec.space === "canvas" ? "canvas" : "clip's frame"}, default ${d}`;
+      return spec.space === "px"
+        ? `${spec.key}: [x, y] in px (of the canvas at 1080p), default ${d}`
+        : `${spec.key}: [x, y] as fractions of the ${spec.space === "canvas" ? "canvas" : "clip's frame"}, default ${d}`;
+    case "path":
+      return `${spec.key}: a path in fractions of the clip's frame (SVG path data, or [[x, y], ...] for a polygon), default ${d}`;
     case "choice":
       return `${spec.key}: ${spec.options.map((o) => o.value).join(" | ")}, default ${d}`;
     case "boolean":
@@ -260,7 +334,7 @@ function specLine(spec: ParamSpec): string {
 const matches = (query: string | undefined, ...fields: string[]) =>
   !query || fields.some((f) => f.toLowerCase().includes(query.toLowerCase()));
 
-export type CatalogKind = "video_effects" | "presets" | "transitions" | "clip_properties" | "caption_styles" | "fonts";
+export type CatalogKind = "video_effects" | "masks_and_shapes" | "text_animators" | "expressions" | "presets" | "transitions" | "clip_properties" | "caption_styles" | "fonts";
 
 /** What exists to use (see `get_catalog`). Fonts are passed in (they come from the server). */
 export function describeCatalog(kind: CatalogKind, query?: string, fonts: readonly FontFamily[] = []): string {
@@ -274,6 +348,38 @@ export function describeCatalog(kind: CatalogKind, query?: string, fonts: readon
         ...found.map((d) => `${d.type}  "${d.label}" [${(d.shader?.tags ?? []).map((t) => EFFECT_TAG_LABELS[t]).join(", ")}]\n${params(d.params)}`),
       ].join("\n");
     }
+    case "masks_and_shapes": {
+      const found = [MASK, ...SHAPE_EFFECTS].filter((d) => matches(query, d.type, d.label));
+      if (!found.length) return `No mask or shape content matches "${query}".`;
+      return [
+        "Masks and shape layers (add_effect with these types; then set_properties / set_keyframes with the effect id it returns).",
+        "mask goes on any clip with a picture (and on adjustment layers: where they change what's below): the clip only shows inside its path. " +
+          "Several combine in order (mode add / subtract / intersect); feather softens the edge, expansion grows or shrinks it; keyframe `path` to morph it (e.g. a reveal, a rotoscope).",
+        "The rest are a shape layer's contents (add_layer kind \"shape\" makes one with a first vector-shape): vector-shape draws a rectangle, ellipse, polygon, star or a drawn path " +
+          "with its own fill, gradient and stroke; the operators change every shape before them in the list (edit_effect move to reorder): trim-paths (animate end 0→1 to draw a line on), " +
+          "repeater, offset-paths, round-corners, wiggle-paths, zig-zag, merge-paths. Sizes are px of the canvas at 1080p; positions and path points are fractions of the frame.",
+        ...found.map((d) => `${d.type}  "${d.label}"\n${params(d.params)}`),
+      ].join("\n");
+    }
+    case "expressions":
+      return [
+        "Expressions (set_expression): a JavaScript-like script on a number or point parameter, run at every frame; its last statement is the value. " +
+          "Numbers, [x, y] arrays (array ± array, array * number), + - * / % **, comparisons, && || ?:, variables (a = 1), if/else, Math.*. No loops or functions. " +
+          "Values are in the parameter's own units (see the other catalogues): positions are canvas fractions, scale 1 = 100%, rotation degrees.",
+        ...EXPRESSION_GLOBALS.filter((g) => matches(query, g.name, g.description)).map((g) => `  ${g.signature}: ${g.description}`),
+      ].join("\n");
+    case "text_animators":
+      return [
+        'Text animators (add_effect type "text-animator" on text clips; a text can have several). The text is laid along 0..1, each ' +
+          "character (or word, or line: basedOn) taking an equal stretch; the range start..end (both moved by offset) picks the ones the values " +
+          "below are applied to, by `shape`: square (all or nothing, partly for a unit the range only partly covers), ramp-up / ramp-down " +
+          "(building up / fading out across the range, and staying past its end), triangle, round, smooth (peaking in the middle). " +
+          "Letters outside the range are untouched. So to fade a text in letter by letter: opacity 0, and keyframe `start` from 0 to 1 " +
+          "(set_keyframes effect text-animator param start): the hidden range shrinks from the left.",
+        `text-animator  "Animator"\n${params(TEXT_ANIMATOR.params)}`,
+        "Presets (add_effect type text-animator, preset <id>): their range is keyframed from the clip's start, longer for longer texts.",
+        ...ANIMATOR_PRESETS.filter((p) => matches(query, p.id, p.label)).map((p) => `  ${p.id}  "${p.label}": ${JSON.stringify(p.params)}, animates ${Object.keys(p.keys).join(", ")}`),
+      ].join("\n");
     case "presets": {
       const found = PRESETS.filter((d) => matches(query, d.type, d.label, d.kind, ...d.tags));
       if (!found.length) return `No preset matches "${query}".`;
@@ -319,7 +425,7 @@ export function describeCatalog(kind: CatalogKind, query?: string, fonts: readon
         ...CAPTION_PRESETS.map((p) => `  ${p.id}  "${p.label}": ${JSON.stringify({ ...p.text, ...p.appearance })}`),
         "Lengths (generate_captions length):",
         ...CAPTION_LENGTHS.map((l) => `  ${l.value}: ${l.hint}`),
-        'Animations (a transition each caption appears with; any transition type works, or "none"):',
+        'Animations (spoken-* follow the speech word by word with a text animator; the others are a transition each caption appears with, and any transition type works; or "none"):',
         ...CAPTION_ANIMATIONS.map((a) => `  ${a.type} (${a.label}, ${a.duration}s)`),
       ].join("\n");
     case "fonts": {

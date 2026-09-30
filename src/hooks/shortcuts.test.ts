@@ -35,6 +35,23 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("x"))).toBeNull();
   });
 
+  it("picks the path tools, eases keyframes and works markers", () => {
+    expect(resolveShortcut(key("p"))).toBe("penTool");
+    expect(resolveShortcut(key("r"))).toBe("rectangleTool");
+    expect(resolveShortcut(key("e"))).toBe("ellipseTool");
+    // ⌘R is still Speed, not the rectangle.
+    expect(resolveShortcut(key("r", { metaKey: true }))).toBe("speed");
+    expect(resolveShortcut(key("F9"))).toBe("easyEase");
+    expect(resolveShortcut(key("F9", { shiftKey: true }))).toBe("easyEaseIn");
+    expect(resolveShortcut(key("F9", { shiftKey: true, metaKey: true }))).toBe("easyEaseOut");
+    expect(resolveShortcut(key("m"))).toBe("addMarker");
+    expect(resolveShortcut(key("M", { shiftKey: true }))).toBe("nextMarker");
+    expect(resolveShortcut(key("M", { shiftKey: true, metaKey: true }))).toBe("prevMarker");
+    expect(resolveShortcut(key("µ", { altKey: true, code: "KeyM" }))).toBe("deleteMarker");
+    expect(resolveShortcut(key("M", { shiftKey: true, repeat: true }))).toBe("nextMarker");
+    expect(resolveShortcut(key("m", { repeat: true }))).toBeNull();
+  });
+
   it("marks In and Out like Premiere", () => {
     expect(resolveShortcut(key("i"))).toBe("markIn");
     expect(resolveShortcut(key("o"))).toBe("markOut");
@@ -112,6 +129,7 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("y", { ctrlKey: true, altKey: true, code: "KeyY" }))).toBe("newAdjustmentLayer");
     expect(resolveShortcut(key("y", { metaKey: true, code: "KeyY" }))).toBe("redo");
     expect(resolveShortcut(key("Ç", { metaKey: true, altKey: true, shiftKey: true, code: "KeyC" }))).toBe("newCamera");
+    expect(resolveShortcut(key("©", { altKey: true, code: "KeyG" }))).toBe("nest");
   });
 
   it("ignores combos that aren't ours", () => {

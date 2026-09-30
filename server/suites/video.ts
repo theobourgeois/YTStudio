@@ -1,16 +1,23 @@
 import { hasMedia } from "../../shared/effects.ts";
 import { normalizeProject } from "../../shared/normalize.ts";
+import { nestedSequence, sequenceView } from "../../shared/sequences.ts";
 import { createDefaultProject, isOnVideoTrack, projectDuration } from "../../shared/timeline.ts";
 import type { Project } from "../../shared/types.ts";
 import { isObject } from "../storage.ts";
 import type { SuiteBackend } from "./suite.ts";
 
-/** The earliest media clip on any video track (the bottom-most track wins a tie). */
-function firstVideoClip(doc: Project) {
+/**
+ * The earliest media clip on any video track (the bottom-most track wins a tie); for a nested
+ * sequence there, the earliest in that sequence, and so on.
+ */
+function firstVideoClip(doc: Project, depth = 0): Project["clips"][number] | undefined {
   const layer = (trackId: string) => doc.tracks.findIndex((t) => t.id === trackId);
-  return doc.clips
+  const first = doc.clips
     .filter((c) => isOnVideoTrack(doc, c) && hasMedia(c))
     .sort((a, b) => a.start - b.start || layer(b.trackId) - layer(a.trackId))[0];
+  const seq = first && nestedSequence(doc, first);
+  if (!seq || depth > 8) return first;
+  return firstVideoClip(sequenceView(doc, seq.id), depth + 1);
 }
 
 /** The video editor: `Project` documents (`shared/types.ts`), normalised by `normalizeProject`. */
@@ -31,7 +38,9 @@ export const videoSuite: SuiteBackend<"video"> = {
   remapMedia(doc, ids) {
     const copied = <T extends { assetId: string }>(x: T): T => (ids.has(x.assetId) ? { ...x, assetId: ids.get(x.assetId)! } : x);
     const subclips = doc.subclips?.map(copied);
-    return { ...doc, clips: doc.clips.map(copied), ...(subclips && { subclips }) };
+    // Nested sequences' clips play the copies too (a clip of a sequence keeps its sequence's id).
+    const sequences = doc.sequences?.map((seq) => ({ ...seq, clips: seq.clips.map(copied) }));
+    return { ...doc, clips: doc.clips.map(copied), ...(subclips && { subclips }), ...(sequences && { sequences }) };
   },
   assistant: {
     context: "the playhead and the selection at the moment they sent it. \"This clip\", \"these\", \"here\" refer to that selection and playhead",
@@ -54,11 +63,23 @@ points can be keyframed.
 - Transitions sit on clip edges: across a cut between two touching clips on a video track, or at a free edge \
 (fading from or to what's below).
 - Captions are text clips flagged as captions on their own track; style_captions changes all of them at once.
+- Motion graphics, After Effects style: nest_clips turns clips into a nested sequence played by one clip \
+(then Motion, effects, speed and remap_time act on the whole group; open_sequence edits inside it); set_parent \
+makes clips follow another clip's Motion (often a null object from add_layer kind "null"); remap_time does speed \
+ramps, freeze frames and reverses within a clip; set_keyframes takes Bézier handles for custom easing curves, \
+and spatial handles that bend a position's path.
+- More motion tools: masks (add_effect type "mask": a path the clip only shows inside, in fractions of its frame; \
+keyframe the path to animate a reveal); shape layers (add_layer kind "shape": rectangles, ellipses, stars and \
+drawn paths with fills and strokes, plus operators such as trim-paths, which draws a line on, and repeater); text \
+animators (add_effect type "text-animator", or its presets: text appearing letter by letter or word by word); \
+expressions (set_expression: wiggle, loopOut, or a property following another); markers (set_markers: named \
+points that clips and keyframes snap to, e.g. a song's beats). get_catalog lists each of them.
 
 How to work:
 - Look before you edit: get_timeline first; list_media for what's imported; view_media to watch raw \
 footage; get_transcript for what's said (word timings let you cut precisely); analyze_audio for silences; \
-analyze_music for a song's tempo, beats, bars and drops; view_frames to check the result. Use get_catalog \
+analyze_music for a song's tempo, beats, bars and drops; get_layout for where things are on the canvas in px \
+(measure before sizing or aligning one thing to another, e.g. a box behind a title); view_frames to check the result. Use get_catalog \
 before using an effect, transition or style you haven't seen the parameters of.
 - Use ids exactly as tools return them; never invent them. Re-read the timeline after edits that change ids \
 (splits, adds) if you need the new ones.
@@ -68,9 +89,10 @@ user's Media tab to pick from; put them on the timeline with add_clips subclipId
 - Group related edits with batch so the user can undo them in one go (e.g. cutting every silence).
 - Cutting out a stretch inside a clip: split_clips at its start and end, then delete_clips the middle part \
 with ripple: true. Work from the end of the timeline backwards when making many cuts, so earlier times don't shift.
-- Editing to music: analyze_music on the music clip, then put cuts exactly on its times: on bars for a steady \
-feel, on beats for a fast montage (split_clips and trim_clip to those times). Land the video's big moment on a \
-drop, and to use the best part of a song, start the clip (its \`in\`) a bar or two before a drop.
+- Editing to music: mark_beats on the music clip (its beats become markers the user sees), lay the shots out \
+back to back from the first beat, then cut_to_markers: every cut lands on a marker (\`every: 4\` on beats for a \
+steady feel, 1 or 2 for a fast montage). analyze_music tells you the song's shape first: land the video's big \
+moment on a drop, and to use the best part of a song, start the clip (its \`in\`) a bar or two before a drop.
 - After edits, check what you did with get_timeline or view_frames when it matters.`,
   },
 };
