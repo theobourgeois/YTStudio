@@ -30,6 +30,7 @@ Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/
 
 | FL Studio | Vaudio |
 | --- | --- |
+| Layout: groups of two rows each | Ours (Théo): the title and hint at the left; in the middle two rows, the transport, tempo, position and monitors above, the window buttons, pattern selector and a wide song position slider below |
 | Menus | None yet. The project's name (click to rename) is in their place, as the title |
 | Hint bar | Yes: the name of what's under the pointer (its title) |
 | PAT / SONG | No song mode yet (the playlist): it always plays the pattern |

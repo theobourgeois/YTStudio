@@ -25,14 +25,15 @@ import { useMusicUi } from "./ui";
  * The music editor's toolbar, FL Studio's (`docs/fl-studio/toolbar.md`), with only what Vaudio does: the
  * title and the hint bar, the transport (play, stop, the metronome, tempo, position), the windows,
  * the pattern selector and the song position, the engine's load and output, and at the right end the
- * app's own (undo, theme, Settle, the assistant). Two dense rows, groups apart by grooves.
+ * app's own (undo, theme, Settle, the assistant). In the middle, two rows: the transport and the
+ * monitors above, the windows, the pattern and the song position below; groups apart by grooves.
  */
 export function MusicToolbar() {
   const name = useSong((song) => song.name);
   const error = useTransport((s) => s.error);
 
   return (
-    <header data-titlebar="header" className="flex h-[76px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-2 select-none">
+    <header data-titlebar="header" className="flex h-[98px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-2 select-none">
       <div className="flex items-center">
         <SidebarLead />
       </div>
@@ -45,32 +46,35 @@ export function MusicToolbar() {
       </div>
       <Groove />
 
-      <div className="flex items-center gap-2" role="toolbar" aria-label="Transport">
-        <PlayButtons />
-        <MetronomeToggle />
-        <TempoLcd />
-        <PositionLcd />
-      </div>
-      <Groove />
-
-      <div className="flex w-[212px] shrink-0 flex-col justify-center gap-1">
-        <div className="flex items-center gap-1.5">
-          <WindowToggles />
+      {/* Two rows: what plays and what it sounds like, then what's shown and where in it. */}
+      <div className="flex min-w-0 flex-1 flex-col justify-between">
+        <div className="flex h-10 min-w-0 items-center gap-2">
+          <div className="flex items-center gap-2" role="toolbar" aria-label="Transport">
+            <PlayButtons />
+            <MetronomeToggle />
+            <TempoLcd />
+            <PositionLcd />
+          </div>
+          <Groove className="mx-1 h-8 self-center" />
+          <Monitor />
+          <AudioDialog />
+          {error && (
+            <span className="flex max-w-60 min-w-0 items-center gap-1.5 text-xs text-destructive" role="alert" title={error}>
+              <PiWarning className="shrink-0" />
+              <span className="truncate">{error}</span>
+            </span>
+          )}
+        </div>
+        <div className="flex h-8 min-w-0 items-center gap-2">
+          <div className="flex items-center gap-1">
+            <WindowToggles />
+          </div>
+          <Groove className="mx-1 h-6 self-center" />
+          <div className="w-60 shrink-0">
+            <PatternPicker />
+          </div>
           <PositionSlider />
         </div>
-        <PatternPicker />
-      </div>
-      <Groove />
-
-      <div className="flex min-w-0 items-center gap-2">
-        <Monitor />
-        <AudioDialog />
-        {error && (
-          <span className="flex max-w-60 min-w-0 items-center gap-1.5 text-xs text-destructive" role="alert" title={error}>
-            <PiWarning className="shrink-0" />
-            <span className="truncate">{error}</span>
-          </span>
-        )}
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
@@ -261,7 +265,7 @@ function PositionLcd() {
 }
 
 /** The song position slider's thumb, in px. */
-const THUMB = 12;
+const THUMB = 16;
 
 /**
  * The song position slider: along the pattern, where play is (it moves while playing), lit with the
@@ -309,7 +313,7 @@ function PositionSlider() {
       aria-valuemax={patternTicks}
       aria-valuenow={now}
       title="Song position: drag to move where play is"
-      className="relative ml-1 h-4 min-w-0 flex-1 cursor-pointer touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      className="relative ml-1 h-6 max-w-[520px] min-w-24 flex-1 cursor-pointer touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -341,10 +345,10 @@ function PositionSlider() {
         jump(Math.min(lastStep, Math.max(0, to)));
       }}
     >
-      <div className="sunken absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full">
+      <div className="sunken absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full">
         <div ref={fill} className="h-full w-0 rounded-full bg-brand" />
       </div>
-      <div ref={thumb} className="raised absolute top-0.5 left-0 size-3 rounded-full" />
+      <div ref={thumb} className="raised absolute top-1 left-0 size-4 rounded-full" />
     </div>
   );
 }
