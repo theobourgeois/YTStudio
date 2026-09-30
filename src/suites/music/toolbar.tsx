@@ -9,7 +9,7 @@ import { SettleButton, SettledBadge, SidebarLead } from "@/components/header/hea
 import { ProjectName } from "@/components/header/project-name";
 import { ThemeMenu } from "@/components/header/theme-menu";
 import { Button } from "@/components/ui/button";
-import { Toggle } from "@/components/ui/toggle";
+import { Toggle, toggleVariants } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { canRedo, canUndo } from "@/lib/document-history";
 import { startPointerDrag } from "@/lib/pointer-drag";
@@ -307,26 +307,37 @@ function MetronomeToggle() {
   );
 }
 
-/** Buttons that show and hide the windows (F6, F7), as FL Studio's toolbar has for each of its own. */
+/**
+ * Buttons that bring up the windows, as FL Studio's toolbar has for each of its own: a press opens the
+ * window, or brings it to the front if it's open (lit while it is). F6 and F7 are the toggles.
+ */
 function WindowToggles() {
   const rackOpen = useMusicUi((s) => s.rackOpen);
   const pianoOpen = useMusicUi((s) => s.pianoOpen);
   return (
     <>
-      <Toggle size="sm" className="size-7 min-w-7 px-0 [&_svg:not([class*=size-])]:size-[18px]" pressed={rackOpen} onPressedChange={(open) => useMusicUi.getState().setRackOpen(open)} aria-label="Channel rack" title="Channel rack (F6)">
+      <WindowButton open={rackOpen} onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (F6)">
         <PiRows />
-      </Toggle>
-      <Toggle
-        size="sm"
-        className="size-7 min-w-7 px-0 [&_svg:not([class*=size-])]:size-[18px]"
-        pressed={pianoOpen}
-        onPressedChange={(open) => (open ? openPianoRoll() : useMusicUi.getState().setPianoOpen(false))}
-        aria-label="Piano roll"
-        title="Piano roll: the selected channel's notes (F7)"
-      >
+      </WindowButton>
+      <WindowButton open={pianoOpen} onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (F7)">
         <PiPianoKeys />
-      </Toggle>
+      </WindowButton>
     </>
+  );
+}
+
+function WindowButton({ open, onOpen, label, title, children }: { open: boolean; onOpen: () => void; label: string; title: string; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      data-state={open ? "on" : "off"}
+      className={cn(toggleVariants({ size: "sm" }), "size-7 min-w-7 px-0 [&_svg:not([class*=size-])]:size-[18px]")}
+      onClick={onOpen}
+      aria-label={label}
+      title={title}
+    >
+      {children}
+    </button>
   );
 }
 
