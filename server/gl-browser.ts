@@ -7,10 +7,13 @@
  * loaded from (much faster for big binary frames than going through the
  * DevTools protocol): while compositing, the page posts each finished frame
  * and gets the next one's layers and pictures in the response.
+ *
+ * The page is Chromium launched through Playwright, or in the desktop app a
+ * hidden window of its own Chromium (`setGlPageOpener`).
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { type Browser, type Page, chromium } from "playwright-core";
+import type { Browser } from "playwright-core";
 import { type Adjustment, type EffectPass, IDENTITY, type Placed, type Shader, createCompositor } from "../shared/compositor.ts";
 import { errorMessage } from "../shared/errors.ts";
 import type { UniformValue } from "../shared/transition-gl.ts";
@@ -30,6 +33,8 @@ export const NO_BROWSER_MESSAGE =
 
 /** Playwright's own Chromium, else the installed Google Chrome (or `CHROMIUM_PATH`). */
 async function launch(): Promise<Browser> {
+  // Loaded when needed: the desktop app draws in its own Chromium and doesn't ship Playwright.
+  const { chromium } = await import("playwright-core");
   if (CHROMIUM) return chromium.launch({ executablePath: CHROMIUM, args: ARGS });
   try {
     return await chromium.launch({ args: ARGS });
@@ -40,6 +45,43 @@ async function launch(): Promise<Browser> {
       throw new Error(NO_BROWSER_MESSAGE);
     }
   }
+}
+
+/** A browser page with the compositor loaded: all `GlSession` needs of a browser. */
+export interface GlPage {
+  /** Run `fn(arg)` in the page (`fn` is sent as source, so it only reaches the page's globals). */
+  evaluate<A, R>(fn: (arg: A) => R | Promise<R>, arg: A): Promise<R>;
+  close(): Promise<void>;
+}
+
+/** Load `url` in a new page; fails if the page threw while loading. */
+export type GlPageOpener = (url: string) => Promise<GlPage>;
+
+/** A page in a headless Chromium of its own (see `launch`). */
+const openChromiumPage: GlPageOpener = async (url) => {
+  const browser = await launch();
+  try {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (err) => errors.push(err.message));
+    await page.goto(url);
+    if (errors.length) throw new Error(errors[0]);
+    return {
+      // Playwright's types unbox the argument; ours are plain JSON.
+      evaluate: <A, R>(fn: (arg: A) => R | Promise<R>, arg: A) => page.evaluate(fn as never, arg as never) as Promise<R>,
+      close: () => browser.close().catch(() => {}),
+    };
+  } catch (err) {
+    await browser.close().catch(() => {});
+    throw err;
+  }
+};
+
+let openPage: GlPageOpener = openChromiumPage;
+
+/** Draw in pages from `opener` instead of launching Chromium (the desktop app uses its own). */
+export function setGlPageOpener(opener: GlPageOpener) {
+  openPage = opener;
 }
 
 /** What the page script exposes (see `pageScript`). */
@@ -460,8 +502,7 @@ export class GlSession {
 
   private constructor(
     private readonly server: http.Server,
-    private readonly browser: Browser,
-    private readonly page: Page,
+    private readonly page: GlPage,
   ) {}
 
   static async open(): Promise<GlSession> {
@@ -486,18 +527,11 @@ export class GlSession {
       }
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    let browser: Browser | null = null;
     try {
-      browser = await launch();
-      const page = await browser.newPage();
-      const errors: string[] = [];
-      page.on("pageerror", (err) => errors.push(err.message));
-      await page.goto(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`);
-      if (errors.length) throw new Error(errors[0]);
-      session = new GlSession(server, browser, page);
+      const page = await openPage(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`);
+      session = new GlSession(server, page);
       return session;
     } catch (err) {
-      await browser?.close().catch(() => {});
       server.close();
       throw err;
     }
@@ -569,7 +603,7 @@ export class GlSession {
   }
 
   async close() {
-    await this.browser.close().catch(() => {});
+    await this.page.close();
     this.server.close();
   }
 }
