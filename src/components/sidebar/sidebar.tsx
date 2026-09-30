@@ -49,7 +49,7 @@ export function Sidebar() {
       )}
     >
       <div className="flex h-full w-76 flex-col">
-        <div className="flex h-13 shrink-0 items-center gap-2.5 px-3">
+        <div data-titlebar="sidebar" className="flex h-13 shrink-0 items-center gap-2.5 px-3">
           <SidebarToggle />
         </div>
 

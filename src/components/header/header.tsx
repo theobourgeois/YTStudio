@@ -19,7 +19,7 @@ export function Header() {
   const canRedo = useEditor((s) => s.future.length > 0 && !s.gestureBase);
 
   return (
-    <header className="flex h-13 shrink-0 items-center gap-2 border-b bg-background px-3">
+    <header data-titlebar="header" className="flex h-13 shrink-0 items-center gap-2 border-b bg-background px-3">
       <SidebarLead />
       <ProjectName />
       <SettledBadge />

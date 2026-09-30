@@ -3,7 +3,7 @@
  * Everything else (projects, media, export, assistant) is the same code as `pnpm dev`.
  *
  *   pnpm dev:desktop     development (Vite with hot reload, data in ./data)
- *   pnpm build:desktop   a packaged app in release/ (data in ~/Library/Application Support/Editor)
+ *   pnpm build:desktop   a packaged app in release/ (data in ~/Library/Application Support/Vaudio)
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -11,7 +11,7 @@ import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, shel
 import { loadShellPath } from "./shell-path.ts";
 import { loadWindowState, trackWindowState } from "./window-state.ts";
 
-const APP_NAME = "Editor";
+const APP_NAME = "Vaudio";
 /** The packaged app's server port, kept the same across launches so the page's origin (and its saved layout) is too. */
 const PACKAGED_PORTS = [5611, 5612, 5613, 5614, 5615, 0];
 /** Set by scripts/desktop.ts in development: Vite's URL (it proxies /api and /files to our server). */
@@ -70,6 +70,8 @@ async function start() {
     return;
   }
   Menu.setApplicationMenu(buildMenu());
+  // A packaged app has its icon in its bundle; in development the Dock would show Electron's.
+  if (!app.isPackaged) app.dock?.setIcon(path.join(import.meta.dirname, "..", "resources", "icon.png"));
   createWindow();
 }
 
@@ -82,7 +84,7 @@ function createWindow() {
     title: APP_NAME,
     show: false,
     backgroundColor: "#16191d",
-    ...(isMac && { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 18 } }),
+    ...(isMac && { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 20 } }),
     webPreferences: {
       preload: path.join(import.meta.dirname, "preload.cjs"),
       sandbox: true,
@@ -101,6 +103,11 @@ function createWindow() {
     // Hidden export windows don't count: without the editor's window the app is done (except on a Mac).
     if (!isMac) app.quit();
   });
+  // The window buttons hide in full screen, and the page stops making room for them (src/index.css).
+  const setFullScreen = (on: boolean) =>
+    void win.webContents.executeJavaScript(`document.documentElement.classList.toggle("fullscreen", ${on})`).catch(() => {});
+  win.on("enter-full-screen", () => setFullScreen(true));
+  win.on("leave-full-screen", () => setFullScreen(false));
   flushBeforeClose(win);
   keepLinksOutside(win);
   void win.loadURL(appUrl);
