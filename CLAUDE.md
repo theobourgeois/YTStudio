@@ -15,15 +15,17 @@ pnpm test:e2e     # Playwright on :5320/5321 with a throwaway e2e/.data (serial,
 pnpm samples      # test media into ./samples
 pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + check transitions
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
+pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + check presets
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
 ```
 
 **Verify every change** with `pnpm typecheck && pnpm test`, and also `pnpm test:e2e` for anything the UI touches.
 - Don't edit `src/` while e2e runs: Vite hot-reloads the page mid-test and a test fails for no real reason.
 - The e2e tests depend on each other (serial, shared state), so run the whole file rather than `-g` one test.
-- After touching a shader, `transition-gl.ts`, `effect-gl.ts` or `compositor.ts`, run the transition-sheet and effect-sheet
-  scripts. They compile every shader in headless Chromium and check that each transition starts on the outgoing
-  picture and ends on the incoming one, and that each effect visibly changes the picture (look at the sheet too).
+- After touching a shader, `transition-gl.ts`, `effect-gl.ts`, `layers.ts` or `compositor.ts`, run the transition-sheet,
+  effect-sheet and preset-sheet scripts. They compile every shader in headless Chromium and check that each transition
+  (and transition preset) starts on the outgoing picture and ends on the incoming one, and that each effect visibly
+  changes the picture (look at the sheets too).
 - If `pnpm install` output looks stale (e.g. "Cannot find package 'playwright-core'"), run `pnpm install`.
 
 ## Layout
@@ -39,13 +41,21 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   effects.ts         Effect definitions (Motion, Opacity, Volume, Text, Appearance, then the video effects),
                      evaluation (motionAt, opacityAt, volumeAt, textStyleAt), edits (setParams, resetParams,
                      setEffectEnabled, addEffect/removeEffect/moveEffect for video effects).
-  effect-library/    One file per category of GLSL video effects (blur, colour, glitch...); common.ts has helpers.
+  effect-library/    One file per category of GLSL video effects (colour, blur, light, stylize, distort, generate,
+                     keying, glitch...); common.ts has helpers.
   effect-gl.ts       Video effect shader prelude, effectShader, effectPasses (a clip's effects at a moment).
+  layers.ts          clipLayer: a clip as a compositor layer at a moment (opacity, blend mode, edges, effects, and
+                     motion blur's moments over the shutter). The preview and the export both build layers here.
+  presets.ts         Presets (After Effects' Animation Presets): transitions as an adjustment layer across a cut,
+                     moves/looks on clips; applyPresetToClips, addPresetLayer. Definitions in preset-library/.
   transitions.ts     Transition registry, timing specs, sanitize/patch.
   transition-library/  One file per category of GLSL transitions; common.ts has shared specs.
   transition-windows.ts  Where transitions play on the timeline + edits to them.
-  compositor.ts      THE renderer (WebGL2): pictures (after their video effects) placed by an affine + opacity,
-                     transitions, YUV in/out. Draws the preview, the Effects tab's thumbnails and every export frame.
+  compositor.ts      THE renderer (WebGL2), an After Effects-style layer stack: pictures and solids (after their
+                     video effects) placed by an affine + opacity + blend mode (BLEND_MODES) + edges (mirror/tile),
+                     adjustment layers (drawAdjustment: the frame so far through effects and Motion), motion blur
+                     (samples averaged in a float buffer), transitions, YUV in/out. Draws the preview, the Effects
+                     tab's thumbnails and every export frame.
   scene.ts           What each video track shows at time t (clip + source time, or transition + sides).
   transition-gl.ts   Transition shader prelude, fragmentSource, uniforms.
   transform.ts       Where a clip lands on the canvas (fit → scale/rotate around the anchor).
@@ -97,7 +107,7 @@ src/
                      category chips and cards; thumbnails.ts draws every card with one shared compositor).
   components/workspace/left-panel.tsx   Left panel tabs: Media | Effects | Captions | Properties.
                      Media switches between sources: This video | Library | Online (`MediaSource`); Effects between
-                     kinds: Video effects | Transitions (`EffectKind`, `KINDS`). Its right edge resizes it (widths
+                     kinds: Video effects | Presets | Transitions (`EffectKind`, `KINDS`). Its right edge resizes it (widths
                      in `stores/layout.ts`, one for usual and one while the keyframe lanes show).
   assistant/         Where agents' tool calls run (in the tab): tools.ts (every tool's handler), doc.ts (the video a call
                      acts on: the open one via the editor store, or a background copy), edits.ts (the pure timeline
@@ -134,6 +144,12 @@ extension** (Node ESM through tsx).
   preview never plays a reversed clip any other way.
 - Text clip: `assetId: ""` plus the Text and Appearance effects (`isTextClip`). The browser draws text in any installed
   font. The export receives PNGs drawn by the browser (`ExportRequest.texts`). Don't switch to ffmpeg `drawtext`.
+- Clip kinds (`clipKind`): media, text, solid (`assetId: ""` + the Solid effect: a colour filling the canvas, drawn by
+  the compositor; generator effects go on it) and adjustment layer (`assetId: ""` + `adjustment: true`: its effects,
+  Motion and Opacity apply to everything below it; no transitions, and neighbours can't transition into it). Use
+  `hasMedia` where code needs a media file. Solids and adjustment layers fill the canvas at 100%.
+- Opacity has a `blendMode`, Motion has `edges` (none/mirror/tile/extend: what shows past the frame) and `motionBlur`
+  + `shutterAngle`. A keyframe's `influence` (0..1, absent = 1/3) is After Effects' ease velocity influence.
 - `Effect = { id, type, enabled, params, keyframes? }`. Built-in effects (motion, opacity, volume) are on every clip,
   and Text/Appearance on text clips. All of these have `id === type`, and code addresses them by type.
 - Video effects (a definition with a `shader`) are the ones the user adds: any number, in the order they're drawn,
@@ -217,6 +233,9 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   the same preview and export work as a property.
 - **A new kind of parameter**: a spec type and a `sanitizeValue` case in `shared/params.ts`, a row in
   `components/properties/param-rows.tsx`, and display maths in `properties/display.ts` if it's numeric.
+- **A preset**: add a `PresetDefinition` to `shared/preset-library/transitions.ts` or `effects.ts` (keys are fractions of
+  its length; `common.ts` has the across/throughCut/spike shapes and MOVING). Transitions must end with every moved
+  value back at rest (tested). Run the preset-sheet script and look at it.
 - **A transition**: add a definition to a `shared/transition-library/*.ts` file. The GLSL defines
   `vec4 transition(vec2 uv)`; params become uniforms. See the prelude docs in `transition-gl.ts`. Then run the
   transition-sheet script. No server change is needed.
@@ -243,7 +262,7 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 - **A clip kind (like text) or a track kind**: there's no registry yet. Clip kinds are branched on in
   `preview/engine.ts` (`kindOf` and each kind's slots), `preview/stage.tsx`, `preview/placement.ts`,
   `timeline/timeline-clip.tsx`, `timeline-menus.tsx`, `properties-panel.tsx`, `server/render.ts` and
-  `server/exports.ts`. Track kinds assume video|audio in `shared/timeline.ts` (addTrack, pruneEmptyTrack,
+  `server/exports.ts` (`clipKind` is the one place that says what a clip is). Track kinds assume video|audio in `shared/timeline.ts` (addTrack, pruneEmptyTrack,
   canPlaceOnTrack), `normalize.ts`, `timeline/geometry.ts`, `track-headers.tsx`, `lane-overlays.tsx`,
   `clip-gestures.ts` and `editor.ts` (`addAssetsToTimeline`, `moveSelectedToTrack`). Consider adding a registry
   before a third kind.

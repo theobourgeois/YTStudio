@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { addEffect, defaultEffects, setEffectEnabled, textEffects } from "../shared/effects.ts";
-import { createDefaultProject, setClipSpeed } from "../shared/timeline.ts";
+import { addEffect, defaultEffects, setEffectEnabled, setParams, textEffects } from "../shared/effects.ts";
+import { createDefaultProject, newLayerClip, setClipSpeed } from "../shared/timeline.ts";
+import { addPresetLayer } from "../shared/presets.ts";
 import { placeClip, placementAffine } from "../shared/transform.ts";
 import type { Clip, Keyframe, ParamValues, Project } from "../shared/types.ts";
 import { createTransition } from "../shared/transitions.ts";
@@ -276,6 +277,63 @@ describe("animation", () => {
   });
 });
 
+describe("solids and adjustment layers", () => {
+  it("draw a solid from its colour, and adjust what's below, without decoding anything", () => {
+    const solid = { ...newLayerClip("solid", 0, 1, { color: "#ff8000" }), trackId: "top" };
+    const adjust = { ...newLayerClip("adjustment", 1, 1), trackId: "top" };
+    let p = project([clip("vid", "main", 0, 0, 2), solid, adjust], withTop);
+    p = addEffect(p, [adjust.id], "invert").project;
+    p = setParams(p, solid.id, "opacity", { opacity: 0.5, blendMode: "screen" });
+    const plan = planRender(p, assets, opts);
+    expect(plan.sources.map((s) => s.clipId)).toEqual([p.clips[0].id]);
+    const [below, over] = plan.frame(15);
+    expect(below.kind).toBe("picture");
+    expect(over).toMatchObject({
+      kind: "picture",
+      picture: { key: "", opacity: 0.5, blend: 7, solid: { color: [1, 128 / 255, 0, 1], width: 1080, height: 1920 } },
+    });
+    const [, adjusted] = plan.frame(45);
+    expect(adjusted).toMatchObject({ kind: "adjustment", adjustment: { opacity: 1, effects: [{ shader: "fx:invert" }] } });
+    expect(Object.keys(plan.shaders)).toEqual(["fx:invert"]);
+    // Silent: nothing to mix but the video's own sound.
+    expect(inputsOf(audioArgs(p, assets, { outputPath: "/tmp/mix.flac" }))).toEqual(["/media/vid.mp4"]);
+  });
+
+  it("average moments over the shutter with motion blur, as many as the move needs", () => {
+    const moving = clip("photo", "main", 0, 0, 2, { motion: { motionBlur: true, shutterAngle: 180 } });
+    const key = (time: number, value: [number, number]) => ({ time, value, easing: "linear" as const });
+    moving.effects = moving.effects.map((e) =>
+      e.type === "motion" ? { ...e, keyframes: { position: [key(0, [0, 0.5]), key(2, [1, 0.5])] } } : e,
+    );
+    const still = clip("photo", "main", 2, 0, 1, { motion: { motionBlur: true } });
+    const plan = planRender(project([moving, still]), assets, opts);
+    const [picture] = pictures(plan.frame(30));
+    // 540 px a second = 18 px a frame, half of it over a 180° shutter: 9 px in 1.5 px steps.
+    expect(picture.samples).toHaveLength(6);
+    const xs = picture.samples!.map((s) => s.affine[4] * 1080);
+    expect(xs[5] - xs[0]).toBeCloseTo(9 * (5 / 6), 1);
+    expect((xs[0] + xs[5]) / 2).toBeCloseTo(picture.affine[4] * 1080, 1);
+    // Standing still, there's nothing to blur.
+    expect(pictures(plan.frame(75))[0].samples).toBeUndefined();
+  });
+});
+
+describe("presets", () => {
+  it("export a transition preset as a motion-blurred adjustment layer over the cut", () => {
+    const p = addPresetLayer(project([clip("vid", "main", 0, 0, 2), clip("vid", "main", 2, 4, 6)]), "spin", 2).project;
+    const plan = planRender(p, assets, opts);
+    // At the cut (frame 60) the layer spins fastest: many moments, each turned a little further.
+    const layers = plan.frame(60);
+    const adjustment = layers.find((l) => l.kind === "adjustment");
+    expect(adjustment?.kind).toBe("adjustment");
+    const samples = adjustment?.kind === "adjustment" ? adjustment.adjustment.samples : undefined;
+    expect(samples?.length).toBeGreaterThan(20);
+    expect(adjustment?.kind === "adjustment" && adjustment.adjustment.edges).toBe(1);
+    // Before and after the layer, nothing adjusts the picture.
+    expect(plan.frame(30).some((l) => l.kind === "adjustment")).toBe(false);
+  });
+});
+
 describe("audioArgs", () => {
   const out = { outputPath: "/tmp/mix.flac" };
   const graphOf = (argv: string[]) => argv[argv.indexOf("-filter_complex") + 1].split(";");
@@ -333,6 +391,24 @@ describe("audioArgs", () => {
       t: number, if_: (c: number, a: number, b: number) => number, lt: (a: number, b: number) => number) => number;
     for (const s of [4, 5, 5.25, 5.5, 6, 6.3, 6.9, 7.2, 7.5, 8]) {
       expect(evaluate(s - 4, (c, a, b) => (c ? a : b), (a, b) => Number(a < b))).toBeCloseTo(keyframeValue(levels, s) as number, 5);
+    }
+  });
+
+  it("follows a snappy (high influence) volume curve closely", () => {
+    const loud = clip("vid", "main", 0, 0, 4);
+    const levels: Keyframe[] = [
+      { time: 1, value: 0, easing: "ease", influence: 0.9 },
+      { time: 3, value: 1, easing: "ease", influence: 0.9 },
+    ];
+    loud.effects = loud.effects.map((e) => (e.type === "volume" ? { ...e, keyframes: { level: levels } } : e));
+    const chain = graphOf(audioArgs(project([loud]), assets, out)).find((f) => f.endsWith("[m0]"))!;
+    const expr = /volume=volume='([^']+)':eval=frame/.exec(chain)![1];
+    const evaluate = new Function("t", "if_", "lt", `return ${expr.replace(/\bif\(/g, "if_(")};`) as (
+      t: number, if_: (c: number, a: number, b: number) => number, lt: (a: number, b: number) => number) => number;
+    // Within a hundredth (the curve is followed in straight pieces).
+    for (let s = 0; s <= 4; s += 0.1) {
+      const error = Math.abs(evaluate(s, (c, a, b) => (c ? a : b), (a, b) => Number(a < b)) - (keyframeValue(levels, s) as number));
+      expect(error).toBeLessThan(0.01);
     }
   });
 

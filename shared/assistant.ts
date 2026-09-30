@@ -442,6 +442,15 @@ export function describeToolCall(rawName: string, input: unknown): string {
       const text = String(f("text") ?? "").replace(/\s+/g, " ").trim();
       return text ? `Add text “${text.length > 28 ? `${text.slice(0, 27)}…` : text}”` : "Add text";
     }
+    case "add_layer": {
+      const effects = list(f("effects")).length;
+      const what = f("kind") === "solid" ? "a solid" : "an adjustment layer";
+      return effects ? `Add ${what} with ${count(effects, "effect")}` : `Add ${what}`;
+    }
+    case "apply_preset": {
+      const type = String(f("type") ?? "").replace(/-/g, " ").trim();
+      return type ? `Apply the ${type} preset` : "Apply a preset";
+    }
     case "move_clips": {
       const what = count(ids(), "clip");
       if (typeof f("to") === "number") return `Move ${what} to ${seconds(f("to"))}`;

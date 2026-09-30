@@ -21,6 +21,7 @@ import {
   EFFECTS,
   type EffectDefinition,
   MOTION,
+  SOLID,
   TEXT,
   addEffect,
   copyEffects,
@@ -37,7 +38,8 @@ import {
   textEffects,
   updateEffect,
 } from "@shared/effects";
-import { EASINGS } from "@shared/keyframes";
+import { DEFAULT_INFLUENCE, EASINGS, MIN_INFLUENCE } from "@shared/keyframes";
+import { addPresetLayer, applyPresetToClips, presetDefinition } from "@shared/presets";
 import { addSubclips, canSubclip, cleanSubclipName, getSubclip, removeSubclips, subclipRange, updateSubclip } from "@shared/subclips";
 import { EPS, roundTime, tidy } from "@shared/math";
 import { type ParamSpec, sanitizeValue } from "@shared/params";
@@ -48,6 +50,7 @@ import {
   MIN_SPEED,
   STILL_DURATION,
   addClip,
+  addLayerClip,
   addTextClip,
   addTrack,
   canPlaceOnTrack,
@@ -66,6 +69,7 @@ import {
   isOnVideoTrack,
   maxClipSpeed,
   moveClips,
+  newLayerClip,
   pasteClips,
   removeClips,
   removeTrack,
@@ -313,6 +317,68 @@ const addText: EditHandler = (project, input, env) => {
   return { project: p, text: withNotes(`Added text ${place(p, getClip(p, clip.id)!, env)}.`, [...t.notes, ...look.notes]) };
 };
 
+const addLayer: EditHandler = (project, input, env) => {
+  const kind = oneOf(input, "kind", ["adjustment", "solid"] as const);
+  if (!kind) throw new ToolError('`kind` must be "adjustment" or "solid".');
+  const start = number(input, "start", { min: 0 });
+  const duration = optNumber(input, "duration", { min: MIN_CLIP_DURATION }) ?? STILL_DURATION;
+  const trackId = optString(input, "trackId");
+  if (trackId && trackOf(project, trackId).kind !== "video") throw new ToolError(`A ${kind === "solid" ? "solid" : "layer"} goes on a video track.`);
+  const color = optString(input, "color");
+  const solid = color === undefined ? {} : checkParams(SOLID.params, { color }, "Solid").values;
+  if (kind === "adjustment" && color !== undefined) throw new ToolError("`color` is only for solids.");
+  const clip = newLayerClip(kind, start, duration, solid);
+  let p = addLayerClip(project, clip, trackId).project;
+  const notes: string[] = [];
+  const raw = input.effects;
+  if (raw !== undefined && !Array.isArray(raw)) throw new ToolError("`effects` must be a list of { type, params }.");
+  for (const [i, item] of (raw ?? []).entries()) {
+    if (!item || typeof item !== "object") throw new ToolError(`effects[${i}] must be { type, params }.`);
+    const type = string(item as Input, "type");
+    const def = effectDefinition(type);
+    if (!def?.shader) throw new ToolError(`effects[${i}]: "${type}" isn't a video effect. See get_catalog with kind "video_effects".`);
+    const { values, notes: clamped } = checkParams(def.params, optObject(item as Input, "params") ?? {}, def.label);
+    notes.push(...clamped);
+    const res = addEffect(p, [clip.id], type);
+    p = res.project;
+    if (Object.keys(values).length) p = setParams(p, clip.id, res.added.get(clip.id)!, values);
+  }
+  const placed = getClip(p, clip.id)!;
+  if (trackId && placed.trackId !== trackId) notes.push(`${trackName(project, trackId)} wasn't free there, so it went on ${trackName(p, placed.trackId)}`);
+  const effects = placed.effects.filter(isVideoEffect).map((e) => e.id);
+  return {
+    project: p,
+    text: withNotes(`Added ${kind === "solid" ? "solid" : "adjustment layer"} ${place(p, placed, env)}${effects.length ? ` with ${effects.join(", ")}` : ""}.`, notes),
+  };
+};
+
+const applyPreset: EditHandler = (project, input, env) => {
+  const type = string(input, "type");
+  const def = presetDefinition(type);
+  if (!def) throw new ToolError(`There's no preset "${type}". See get_catalog with kind "presets".`);
+  const at = optNumber(input, "at", { min: 0 });
+  const ids = optStrings(input, "clipIds");
+  const trackId = optString(input, "trackId");
+  if (trackId && trackOf(project, trackId).kind !== "video") throw new ToolError("A preset's adjustment layer goes on a video track.");
+  if (def.kind === "effect" && ids?.length) {
+    ids.forEach((id) => clipOf(project, id));
+    const p = applyPresetToClips(project, ids, type);
+    if (p === project) throw new ToolError("Presets only go on clips on video tracks.");
+    return { project: p, text: `Put ${def.label} on ${ids.join(", ")} (see get_clips for the effects and keyframes it added).` };
+  }
+  if (at === undefined) {
+    throw new ToolError(def.kind === "transition" ? "`at` (the cut's timeline time) is required for a transition preset." : "Give `clipIds`, or `at` for an adjustment layer.");
+  }
+  const { project: p, clipId } = addPresetLayer(project, type, at, trackId);
+  const layer = getClip(p, clipId!)!;
+  const effects = layer.effects.filter(isVideoEffect).map((e) => e.id);
+  const where = def.kind === "transition" ? `centred on ${secs(at)}` : `from ${secs(layer.start)}`;
+  return {
+    project: p,
+    text: `Added ${def.label}: adjustment layer ${place(p, layer, env)} ${where}${effects.length ? ` with ${effects.join(", ")}` : ""}.`,
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Arranging
 // ---------------------------------------------------------------------------
@@ -533,8 +599,9 @@ const setKeyframes: EditHandler = (project, input) => {
     if (v === undefined) throw new ToolError(`keyframes[${i}].value must be ${expected(spec)}.`);
     if (JSON.stringify(v) !== JSON.stringify(kf.value)) notes.push(`a value was limited to ${value(v)}`);
     const easing: Easing = oneOf(kf, "easing", EASINGS) ?? "linear";
+    const influence = optNumber(kf, "influence", { min: MIN_INFLUENCE, max: 1 });
     const time = toSource(clip, t);
-    keys.set(time, { time, value: v, easing });
+    keys.set(time, { time, value: v, easing, ...(influence !== undefined && Math.abs(influence - DEFAULT_INFLUENCE) > 1e-6 && { influence: tidy(influence) }) });
   }
   const sorted = [...keys.values()].sort((a, b) => a.time - b.time);
   const p = updateEffect(project, clip.id, effect.id, (e) => ({ ...e, keyframes: { ...e.keyframes, [key]: sorted } }));
@@ -831,6 +898,8 @@ const editSubclips: EditHandler = (project, input, env) => {
 export const EDITS: Record<EditToolName, EditHandler> = {
   add_clips: addClips,
   add_text: addText,
+  add_layer: addLayer,
+  apply_preset: applyPreset,
   move_clips: move,
   trim_clip: trim,
   set_speed: setSpeed,

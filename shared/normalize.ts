@@ -5,7 +5,7 @@
  * `Track` or `Clip` must be validated here (and old documents upgraded here),
  * or it's dropped.
  */
-import { isTextClip, normalizeEffects } from "./effects.ts";
+import { hasMedia, isTextClip, normalizeEffects } from "./effects.ts";
 import { EPS, clamp, isFiniteNumber, roundTime } from "./math.ts";
 import {
   ASPECT_RATIOS,
@@ -65,13 +65,14 @@ export function normalizeProject(
     const nums = [c.start, c.in, c.out];
     if (!nums.every((n) => typeof n === "number" && Number.isFinite(n))) continue;
     const effects = normalizeEffects(c.effects, Array.isArray(c.effects) ? undefined : (c as LegacyClip));
-    // Text has no media, and is only ever drawn on a video track.
-    const text = isTextClip({ effects });
-    if (text && kind !== "video") continue;
+    // Text, solids and adjustment layers have no media, and are only ever drawn on a video track.
+    const adjustment = c.adjustment === true && !isTextClip({ effects }) && !effects.some((e) => e.type === "solid");
+    const noMedia = !hasMedia({ effects, adjustment: adjustment || undefined });
+    if (noMedia && kind !== "video") continue;
     let out = c.out;
     // Without the media, a negative in-point may still be a valid still-image clip.
     let inPoint = c.in;
-    if (assets && !text) {
+    if (assets && !noMedia) {
       const a = assets[c.assetId];
       if (!a || (kind === "video" ? !a.hasVideo : !a.hasAudio)) continue;
       const range = sourceRange(a);
@@ -80,8 +81,8 @@ export function normalizeProject(
     }
     if (out - inPoint < MIN_CLIP_DURATION - EPS) continue;
     clipIds.add(c.id);
-    // Only media that plays (not text or stills) has a speed and a direction.
-    const retimable = !text && (!assets || assets[c.assetId]?.kind !== "image");
+    // Only media that plays (not stills, or clips without media) has a speed and a direction.
+    const retimable = !noMedia && (!assets || assets[c.assetId]?.kind !== "image");
     const speed = retimable && isFiniteNumber(c.speed) && c.speed > 0 ? clampSpeed({ in: inPoint, out }, c.speed) : 1;
     const timing: Pick<Clip, "speed" | "reversed" | "keepPitch"> = {
       ...(speed !== 1 && { speed }),
@@ -90,7 +91,7 @@ export function normalizeProject(
     };
     const clip: Clip = {
       id: c.id,
-      assetId: text ? "" : String(c.assetId),
+      assetId: noMedia ? "" : String(c.assetId),
       trackId: c.trackId,
       start: roundTime(Math.max(0, c.start)),
       in: roundSourceTime(timing, inPoint),
@@ -98,12 +99,13 @@ export function normalizeProject(
       ...timing,
       effects,
     };
-    // Only pictures have transitions.
-    const transitionIn = kind === "video" ? sanitizeTransition(c.transitionIn) : undefined;
-    const transitionOut = kind === "video" ? sanitizeTransition(c.transitionOut) : undefined;
+    // Only pictures have transitions (an adjustment layer has no picture of its own).
+    const transitionIn = kind === "video" && !adjustment ? sanitizeTransition(c.transitionIn) : undefined;
+    const transitionOut = kind === "video" && !adjustment ? sanitizeTransition(c.transitionOut) : undefined;
     if (transitionIn) clip.transitionIn = transitionIn;
     if (transitionOut) clip.transitionOut = transitionOut;
-    if (text && c.caption === true) clip.caption = true;
+    if (isTextClip(clip) && c.caption === true) clip.caption = true;
+    if (adjustment) clip.adjustment = true;
     clips.push(clip);
   }
 

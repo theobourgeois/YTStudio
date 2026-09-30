@@ -36,6 +36,8 @@ export type ShortcutAction =
   | "pasteEffects"
   | "duplicate"
   | "addTransition"
+  | "newAdjustmentLayer"
+  | "newSolid"
   | "speed"
   | "nudgeLeft"
   | "nudgeRight"
@@ -93,6 +95,8 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
   if (e.metaKey && e.ctrlKey) return null;
   // ⌥ changes `key` on a Mac (⌥C is "ç"), so these go by the physical key.
   if (e.altKey) {
+    // After Effects' New Adjustment Layer (its New Solid, ⌘Y, is redo here).
+    if (e.code === "KeyY") return e.shiftKey ? "newSolid" : "newAdjustmentLayer";
     if (e.shiftKey) return null;
     return e.code === "KeyC" ? "copyEffects" : e.code === "KeyV" ? "pasteEffects" : null;
   }
@@ -266,6 +270,8 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   pasteEffects: `${ALT}${MOD}V`,
   duplicate: `${MOD}D`,
   addTransition: `${SHIFT}${MOD}D`,
+  newAdjustmentLayer: `${ALT}${MOD}Y`,
+  newSolid: `${ALT}${SHIFT}${MOD}Y`,
   speed: `${MOD}R`,
   nudgeLeft: `${ALT}←`,
   nudgeRight: `${ALT}→`,
@@ -330,6 +336,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Copy / paste effects (onto the selected clips)", keys: [`${ALT}${MOD}C`, `${ALT}${MOD}V`] },
       { label: "Duplicate", keys: [`${MOD}D`] },
       { label: "Add a cross dissolve at the nearest cut", keys: [`${SHIFT}${MOD}D`] },
+      { label: "New adjustment layer (over the selection, or at the playhead)", keys: [`${ALT}${MOD}Y`] },
+      { label: "New solid", keys: [`${ALT}${SHIFT}${MOD}Y`] },
       { label: "Speed / reverse the selected clips", keys: [`${MOD}R`] },
       { label: "Stretch a clip's speed to fit", keys: [`${ALT}Drag an edge`] },
       { label: "Nudge 1 frame", keys: [`${ALT}←`, `${ALT}→`] },

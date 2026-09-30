@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import {
   PiArrowsOutSimple,
+  PiCircleHalfTilt,
   PiFilmStrip,
   PiKeyboard,
   PiLink,
@@ -10,6 +11,8 @@ import {
   PiMusicNotes,
   PiPlus,
   PiScissors,
+  PiSquare,
+  PiStack,
   PiSubtitles,
   PiTrash,
 } from "react-icons/pi";
@@ -19,6 +22,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
@@ -148,6 +152,37 @@ export function TimelineToolbar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="New layer"
+                className="px-2 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <PiStack />
+                <span>Layer</span>
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-64">
+            Add an adjustment layer (its effects change everything below it) or a solid (a colour for effects to draw on).
+          </TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start" className="w-64">
+          <DropdownMenuItem onSelect={() => newLayer("adjustment")}>
+            <PiCircleHalfTilt /> Adjustment layer
+            <DropdownMenuShortcut>{SHORTCUT_KEYS.newAdjustmentLayer}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => newLayer("solid")}>
+            <PiSquare /> Solid
+            <DropdownMenuShortcut>{SHORTCUT_KEYS.newSolid}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <ToolButton
         label="Auto captions"
         hint="Turn the speech in your clips into captions"
@@ -186,6 +221,12 @@ export function TimelineToolbar() {
       </div>
     </div>
   );
+}
+
+/** Add a layer over the selection (or at the playhead) and show its properties. */
+function newLayer(kind: "adjustment" | "solid") {
+  useEditor.getState().addLayer(kind);
+  useLayout.getState().setLeftPanel("properties");
 }
 
 function Kbd({ children }: { children: ReactNode }) {

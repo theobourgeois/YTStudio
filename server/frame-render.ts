@@ -187,7 +187,7 @@ export async function renderVideo(
       };
       for (const layer of layers) {
         if (layer.kind === "picture") await send(layer.picture.key);
-        else {
+        else if (layer.kind === "transition") {
           await send(layer.from?.key);
           await send(layer.to?.key);
         }

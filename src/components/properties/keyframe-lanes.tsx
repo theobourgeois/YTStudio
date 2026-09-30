@@ -17,9 +17,10 @@ import {
   moveKeyframes,
   sameRef,
   setKeyframeEasing,
+  setKeyframeInfluence,
   timelineTime,
 } from "@shared/animation";
-import { easesIn, easesOut } from "@shared/keyframes";
+import { easesIn, easesOut, influenceOf } from "@shared/keyframes";
 import { tidy } from "@shared/math";
 import { clipEnd, getClip, sourceDelta } from "@shared/timeline";
 import type { Clip, Easing, Keyframe } from "@shared/types";
@@ -33,6 +34,9 @@ import {
   ContextMenuRadioItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { EditGesture } from "@/lib/edit-gesture";
@@ -56,6 +60,18 @@ export const EASING_LABELS: { value: Easing; label: string }[] = [
   { value: "ease-out", label: "Ease Out" },
   { value: "ease", label: "Ease In and Out" },
   { value: "hold", label: "Hold" },
+];
+
+/**
+ * How far eased keyframes' handles reach (After Effects' velocity influence): Premiere's
+ * ease, then snappier curves that hang near the keyframes and whip across in between.
+ */
+export const INFLUENCES: { value: number; label: string }[] = [
+  { value: 1 / 3, label: "33% (Premiere)" },
+  { value: 0.5, label: "50%" },
+  { value: 0.75, label: "75% (Smooth)" },
+  { value: 0.9, label: "90% (Snappy)" },
+  { value: 1, label: "100% (Whip)" },
 ];
 
 /** The refs a diamond stands for, stored on its element (for box selection and the menu). */
@@ -112,6 +128,7 @@ export function KeyframesRoot({ clip, offset, children }: { clip: Clip; offset: 
 
 function KeyframeMenuItems({ clip, refs }: { clip: Clip; refs: KeyframeRef[] }) {
   const easing = commonEasing(clip, refs);
+  const influence = commonInfluence(clip, refs);
   const commit = editor().commit;
   const one = refs.length === 1;
   return (
@@ -130,6 +147,26 @@ function KeyframeMenuItems({ clip, refs }: { clip: Clip; refs: KeyframeRef[] }) 
           </ContextMenuRadioItem>
         ))}
       </ContextMenuRadioGroup>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger disabled={easing === "linear" || easing === "hold"}>
+          Influence
+          <span className="ml-auto pl-2 text-xs text-muted-foreground tabular-nums">
+            {influence === null ? "" : `${Math.round(influence * 100)}%`}
+          </span>
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-44">
+          <ContextMenuRadioGroup
+            value={influence === null ? "" : String(influence)}
+            onValueChange={(v) => commit((p) => setKeyframeInfluence(p, clip.id, refs, Number(v)))}
+          >
+            {INFLUENCES.map((i) => (
+              <ContextMenuRadioItem key={i.value} value={String(i.value)}>
+                {i.label}
+              </ContextMenuRadioItem>
+            ))}
+          </ContextMenuRadioGroup>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
       <ContextMenuSeparator />
       <ContextMenuItem variant="destructive" onSelect={() => deleteSelectedKeyframes(clip.id)}>
         <PiTrash /> {one ? "Delete keyframe" : "Delete keyframes"}
@@ -139,14 +176,25 @@ function KeyframeMenuItems({ clip, refs }: { clip: Clip; refs: KeyframeRef[] }) 
   );
 }
 
+/** The keyframes `refs` stand for. */
+function keyframesOf(clip: Clip, refs: KeyframeRef[]): Keyframe[] {
+  return refs.flatMap((r) => {
+    const k = clip.effects.find((e) => e.id === r.effectId)?.keyframes?.[r.key]?.find((kf) => sameRef(r, { ...r, time: kf.time }));
+    return k ? [k] : [];
+  });
+}
+
 /** The interpolation all of `refs` share, if they do. */
 function commonEasing(clip: Clip, refs: KeyframeRef[]): Easing | null {
-  const easings = new Set<Easing>();
-  for (const r of refs) {
-    const k = clip.effects.find((e) => e.id === r.effectId)?.keyframes?.[r.key]?.find((kf) => sameRef(r, { ...r, time: kf.time }));
-    if (k) easings.add(k.easing);
-  }
+  const easings = new Set(keyframesOf(clip, refs).map((k) => k.easing));
   return easings.size === 1 ? [...easings][0] : null;
+}
+
+/** The influence all of `refs` share (one of `INFLUENCES`), if they do. */
+function commonInfluence(clip: Clip, refs: KeyframeRef[]): number | null {
+  const values = new Set(keyframesOf(clip, refs).map(influenceOf));
+  const [only] = values;
+  return values.size === 1 ? (INFLUENCES.find((i) => Math.abs(i.value - only) < 1e-6)?.value ?? null) : null;
 }
 
 /** Delete the selected keyframes of `clipId` (a parameter left without any keeps the value at the playhead). */

@@ -107,6 +107,13 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("c", { altKey: true, code: "KeyC" }))).toBeNull();
   });
 
+  it("adds an adjustment layer with ⌥⌘Y and a solid with ⌥⇧⌘Y (After Effects' keys; ⌘Y stays redo)", () => {
+    expect(resolveShortcut(key("¥", { metaKey: true, altKey: true, code: "KeyY" }))).toBe("newAdjustmentLayer");
+    expect(resolveShortcut(key("Á", { metaKey: true, altKey: true, shiftKey: true, code: "KeyY" }))).toBe("newSolid");
+    expect(resolveShortcut(key("y", { ctrlKey: true, altKey: true, code: "KeyY" }))).toBe("newAdjustmentLayer");
+    expect(resolveShortcut(key("y", { metaKey: true, code: "KeyY" }))).toBe("redo");
+  });
+
   it("ignores combos that aren't ours", () => {
     expect(resolveShortcut(key("s", { metaKey: true }))).toBeNull(); // save
     expect(resolveShortcut(key("=", { metaKey: true }))).toBeNull(); // browser zoom

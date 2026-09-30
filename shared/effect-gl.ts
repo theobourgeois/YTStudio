@@ -19,9 +19,13 @@ import type { Clip, ParamValues } from "./types.ts";
  *   picture being worked on: about its size on the output), `time` (the
  *   clip's source time in seconds, for effects that move), `pass` (which run
  *   of a multi-pass effect this is, from 0).
- * - `getColor(uv)`: the clip's picture (after the effects before this one),
- *   premultiplied RGBA; past the edges it repeats the edge pixels.
- *   `getColorOrClear(uv)` is transparent there instead. `uv` (0, 0) is bottom left.
+ * - `getColor(uv)`: the clip's picture (after the effects before this one,
+ *   and in a multi-pass effect, after its passes so far), premultiplied RGBA;
+ *   past the edges it repeats the edge pixels (or mirrors or tiles the
+ *   picture, as the clip's Motion Edges say). `getColorOrClear(uv)` is
+ *   transparent there instead. `getInput(uv)` is what this effect started
+ *   from, for multi-pass effects that combine their result with it (a glow
+ *   blurs in its passes, then adds to the picture). `uv` (0, 0) is bottom left.
  * - `unpremultiply(c)` (its straight RGB) and `withRgb(c, rgb)` (straight RGB
  *   back with `c`'s alpha, clamped), for colour maths.
  * - Helpers shared with transitions: `PI`, `ease`, `hash`/`hash2`, `noise`,
@@ -38,6 +42,7 @@ precision highp int;
 in vec2 vUv;
 out vec4 fragColor;
 uniform sampler2D uSrc;
+uniform sampler2D uInput;
 uniform float ratio;
 uniform vec2 resolution;
 uniform float time;
@@ -45,6 +50,7 @@ uniform int pass;
 ${GLSL_HELPERS}
 vec4 getColor(vec2 uv) { return texture(uSrc, uv); }
 vec4 getColorOrClear(vec2 uv) { return inside(uv) ? texture(uSrc, uv) : vec4(0.0); }
+vec4 getInput(vec2 uv) { return texture(uInput, uv); }
 vec3 unpremultiply(vec4 c) { return c.a > 0.0 ? c.rgb / c.a : vec3(0.0); }
 vec4 withRgb(vec4 c, vec3 rgb) { return vec4(clamp(rgb, 0.0, 1.0) * c.a, c.a); }
 `;
@@ -58,7 +64,7 @@ void main() {
 `;
 
 /** Names the prelude uses, which parameters can't have. */
-export const RESERVED_EFFECT_UNIFORMS = ["uSrc", "ratio", "resolution", "time", "pass", "vUv", "fragColor"];
+export const RESERVED_EFFECT_UNIFORMS = ["uSrc", "uInput", "ratio", "resolution", "time", "pass", "vUv", "fragColor"];
 
 const isUniformSpec = (spec: ParamSpec): spec is UniformSpec =>
   spec.kind === "number" || spec.kind === "boolean" || spec.kind === "choice" || spec.kind === "vec2" || spec.kind === "color";
@@ -91,6 +97,24 @@ export function effectUniforms(def: EffectDefinition, values: ParamValues, time:
 export function effectPass(def: EffectDefinition, values: ParamValues, time: number): EffectPass | null {
   const shader = effectShader(def);
   return shader && { shader, uniforms: effectUniforms(def, values, time), passes: def.shader?.passes ?? 1 };
+}
+
+/**
+ * Whether a clip's video effects draw differently at source times `a` and `b`: a
+ * value changes (keyframes), or an effect that moves by itself is on.
+ */
+export function effectsChange(clip: Clip, a: number, b: number): boolean {
+  if (a === b) return false;
+  for (const effect of clip.effects) {
+    const def = effect.enabled ? effectDefinition(effect.type) : undefined;
+    if (!def?.shader) continue;
+    if (def.shader.animated) return true;
+    if (!effect.keyframes) continue;
+    const va = storedValuesAt(def, effect, a);
+    const vb = storedValuesAt(def, effect, b);
+    if (Object.keys(effect.keyframes).some((key) => JSON.stringify(va[key]) !== JSON.stringify(vb[key]))) return true;
+  }
+  return false;
 }
 
 /** What a clip's enabled video effects draw at source time `time`, in order. */

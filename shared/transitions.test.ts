@@ -95,6 +95,18 @@ describe("transition library", () => {
   });
 });
 
+describe("adjustment layers", () => {
+  it("have no transitions, and aren't a side of their neighbours'", () => {
+    const adjust = clip("adj", 2, 2, { adjustment: true, assetId: "" });
+    const p = project(clip("a", 0, 2, { transitionOut: dissolve() }), adjust, clip("b", 4, 2));
+    // "a" fades into nothing at its end: the adjustment layer after it has no picture to fade to.
+    expect(windows(p)).toEqual([{ ref: "a.out", from: "a", to: null, start: 1, end: 2 }]);
+    expect(addTransition(p, { clipId: "adj", edge: "in" }, "cross-dissolve").ref).toBeNull();
+    expect(transitionTargetAt(p, MAIN_TRACK_ID, 3)).toBeNull();
+    expect(nearestEdge(p, 2.1)).toEqual({ clipId: "a", edge: "out" });
+  });
+});
+
 describe("transition windows", () => {
   it("plays across a cut, aligned to it, and inside the clip at a free edge", () => {
     expect(windows(project(clip("a", 0, 4, { transitionOut: dissolve(1) }), clip("b", 4, 4)))).toEqual([

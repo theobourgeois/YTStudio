@@ -8,6 +8,9 @@
  * speed, like Premiere's Ease In / Ease Out (a Bezier with 33% influence).
  * With that influence the curve is a plain cubic in time (`easedProgress`),
  * which the export can evaluate exactly too (e.g. in an ffmpeg expression).
+ * A keyframe's `influence` stretches its eased handles further (After
+ * Effects' keyframe velocity): at 90% the value hangs near the keyframes and
+ * snaps across in between, the curve every "smooth" edit transition uses.
  */
 import { isFiniteNumber, tidy } from "./math.ts";
 import { type ParamSpec, isAnimatable, sameValue, sanitizeValue } from "./params.ts";
@@ -17,6 +20,13 @@ export const EASINGS: readonly Easing[] = ["linear", "ease-in", "ease-out", "eas
 
 /** Keyframes closer than this (seconds) are the same keyframe. */
 export const SAME_KEYFRAME = 1e-3;
+
+/** An eased side's handle length when the keyframe doesn't say (Premiere's Ease In/Out). */
+export const DEFAULT_INFLUENCE = 1 / 3;
+export const MIN_INFLUENCE = 0.01;
+
+/** A keyframe's influence (see `Keyframe.influence`). */
+export const influenceOf = (k: Pick<Keyframe, "influence">) => k.influence ?? DEFAULT_INFLUENCE;
 
 /** The keyframe is reached slowly. */
 export const easesIn = (e: Easing) => e === "ease-in" || e === "ease";
@@ -32,7 +42,11 @@ export function sanitizeKeyframes(spec: ParamSpec, raw: unknown): Keyframe[] {
     const value = sanitizeValue(spec, k.value);
     if (value === undefined) continue;
     const time = tidy(k.time);
-    byTime.set(time, { time, value, easing: EASINGS.includes(k.easing) ? k.easing : "linear" });
+    const key: Keyframe = { time, value, easing: EASINGS.includes(k.easing) ? k.easing : "linear" };
+    if (isFiniteNumber(k.influence) && Math.abs(k.influence - DEFAULT_INFLUENCE) > 1e-6) {
+      key.influence = tidy(Math.min(1, Math.max(MIN_INFLUENCE, k.influence)));
+    }
+    byTime.set(time, key);
   }
   return [...byTime.values()].sort((a, b) => a.time - b.time);
 }
@@ -50,19 +64,57 @@ export function setKeyframe(keys: Keyframe[], time: number, value: ParamValue): 
   const at = keyframeAt(keys, time);
   if (at && sameValue(at.value, value)) return keys;
   const added: Keyframe = { time: at?.time ?? tidy(time), value, easing: at?.easing ?? "linear" };
+  if (at?.influence !== undefined) added.influence = at.influence;
   return [...keys.filter((k) => k !== at), added].sort((a, b) => a.time - b.time);
 }
 
 /**
  * How far (0..1) the value has gone from `a` to `b` at fraction `f` of the
- * time between them: a cubic Bezier whose handles have 33% influence, flat on
- * an eased side. (Its x is then just `f`, so no solving is needed.)
+ * time between them: a cubic Bezier from (0, 0) to (1, 1), flat on an eased
+ * side, whose handles reach `outInfluence` (leaving `a`) and `inInfluence`
+ * (reaching `b`) of the way across. A linear side's handle points straight
+ * along the line at a third. At 33% influence x is just `f`, so no solving is
+ * needed; otherwise the curve's x is solved for `f` first.
  */
-export function easedProgress(f: number, easeOut: boolean, easeIn: boolean): number {
+export function easedProgress(
+  f: number,
+  easeOut: boolean,
+  easeIn: boolean,
+  outInfluence = DEFAULT_INFLUENCE,
+  inInfluence = DEFAULT_INFLUENCE,
+): number {
+  const x1 = easeOut ? outInfluence : 1 / 3;
   const y1 = easeOut ? 0 : 1 / 3;
+  const x2 = easeIn ? 1 - inInfluence : 2 / 3;
   const y2 = easeIn ? 1 : 2 / 3;
-  const g = 1 - f;
-  return 3 * g * g * f * y1 + 3 * g * f * f * y2 + f * f * f;
+  const bezier = (s: number, p1: number, p2: number) => {
+    const g = 1 - s;
+    return 3 * g * g * s * p1 + 3 * g * s * s * p2 + s * s * s;
+  };
+  let s = f;
+  if (Math.abs(x1 - 1 / 3) > 1e-9 || Math.abs(x2 - 2 / 3) > 1e-9) {
+    if (f <= 0) return 0;
+    if (f >= 1) return 1;
+    // x(s) rises monotonically (handles stay inside 0..1): Newton, falling back to bisection.
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 24; i++) {
+      const x = bezier(s, x1, x2) - f;
+      if (Math.abs(x) < 1e-7) break;
+      if (x > 0) hi = s;
+      else lo = s;
+      const g = 1 - s;
+      const dx = 3 * g * g * x1 + 6 * g * s * (x2 - x1) + 3 * s * s * (1 - x2);
+      const next = dx > 1e-6 ? s - x / dx : (lo + hi) / 2;
+      s = next > lo && next < hi ? next : (lo + hi) / 2;
+    }
+  }
+  return bezier(s, y1, y2);
+}
+
+/** How far (0..1) the value has gone from keyframe `a` to `b` at fraction `f` of the time between them. */
+export function segmentProgress(a: Keyframe, b: Keyframe, f: number): number {
+  return easedProgress(f, easesOut(a.easing), easesIn(b.easing), influenceOf(a), influenceOf(b));
 }
 
 function mix(a: ParamValue, b: ParamValue, f: number): ParamValue {
@@ -80,5 +132,5 @@ export function keyframeValue(keyframes: Keyframe[], time: number): ParamValue {
   const b = keyframes[next];
   if (a.easing === "hold") return a.value;
   const f = (time - a.time) / (b.time - a.time);
-  return mix(a.value, b.value, easedProgress(f, easesOut(a.easing), easesIn(b.easing)));
+  return mix(a.value, b.value, segmentProgress(a, b, f));
 }

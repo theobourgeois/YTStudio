@@ -6,8 +6,10 @@
  *
  * - Output frame f shows timeline time f / fps: what `sceneAt` says each video
  *   track shows then (a clip, or a transition with both sides), with its video
- *   effects, placed by its Motion and faded by its Opacity at that moment,
- *   bottom track first over a black canvas.
+ *   effects, placed by its Motion and faded by its Opacity at that moment
+ *   (averaged over the shutter with motion blur, see `shared/layers.ts`),
+ *   bottom track first over a black canvas. Solids are drawn by the compositor
+ *   and adjustment layers change what's below them, so neither has a source.
  * - Each clip that's ever visible is decoded once by its own ffmpeg
  *   (`RenderSource`) into raw RGBA frames, one per output frame from the
  *   first it's drawn in to the last, so the stream stays in step with the
@@ -28,10 +30,11 @@
  * - Colour: videos are decoded as YUV and turned into RGB by the compositor
  *   with their own YCbCr matrix; the output is BT.709, tagged as such.
  */
-import type { Affine, Placed } from "../shared/compositor.ts";
+import type { Adjustment, Affine, EffectPass, Placed } from "../shared/compositor.ts";
 import { effectPasses } from "../shared/effect-gl.ts";
-import { VOLUME, findEffect, isTextClip, motionAt, opacityAt, volumeAt } from "../shared/effects.ts";
-import { easesIn, easesOut } from "../shared/keyframes.ts";
+import { VOLUME, clipKind, findEffect, hasMedia, isTextClip, motionAt, opacityAt, solidColorAt, volumeAt } from "../shared/effects.ts";
+import { easesIn, easesOut, segmentProgress } from "../shared/keyframes.ts";
+import { EXPORT_SAMPLES, canvasAffine, clipLayer } from "../shared/layers.ts";
 import { type Shown, sceneAt, transitionWindows } from "../shared/scene.ts";
 import {
   END_GUARD,
@@ -109,6 +112,7 @@ export type PlacedRef = Placed<string>;
 /** One layer of an output frame, bottom first. */
 export type FrameLayer =
   | { kind: "picture"; picture: PlacedRef }
+  | { kind: "adjustment"; adjustment: Adjustment<string> }
   | {
       kind: "transition";
       /** Key into `RenderPlan.shaders`. */
@@ -162,8 +166,10 @@ export function planRender(
   const frames = frameAtFps(F)(total);
   const canvas = { width: W, height: H };
   const windows = transitionWindows(project);
-  for (const clip of project.clips) renderAssetOf(clip, assets, texts);
-  const range = (clip: Clip) => (isTextClip(clip) ? TEXT_SOURCE_RANGE : sourceRange(renderAssetOf(clip, assets, texts)));
+  for (const clip of project.clips) if (hasPicture(clip)) renderAssetOf(clip, assets, texts);
+  const range = (clip: Clip) => (!hasMedia(clip) ? TEXT_SOURCE_RANGE : sourceRange(renderAssetOf(clip, assets, texts)));
+  const layerOptions = { canvas, fps: F, maxSamples: EXPORT_SAMPLES };
+  const canvasAffineOf = (clip: Clip) => canvasAffine(clip, canvas);
   const shotsAt = (f: number) => sceneAt(project, windows, frameTime(f, F), range);
 
   /** The picture a clip shows at a moment: its media, or its text's drawing then. */
@@ -175,9 +181,10 @@ export function planRender(
     return { id: `${clip.id}#${i}`, asset: drawings[i] };
   };
 
-  /** Where a clip is drawn at a moment, or null when none of it is visible. */
+  /** Where a clip with a picture is drawn at a moment, or null when none of it is visible. */
   const draw = (shown: Shown): (Drawn & { id: string; asset: RenderAsset }) | null => {
     const { clip, time } = shown;
+    if (!hasPicture(clip)) return null;
     const opacity = opacityAt(clip, time);
     if (!(opacity > 0)) return null;
     const { id, asset } = pictureAt(shown);
@@ -258,15 +265,29 @@ export function planRender(
     shaders,
     frame(f) {
       const placed = (shown: Shown | null): PlacedRef | null => {
-        const drawn = shown && draw(shown);
+        if (!shown) return null;
+        const { clip, time } = shown;
+        if (clipKind(clip) === "solid") {
+          const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
+          return layer && { ...byKey(layer), key: "", solid: { color: solidColorAt(clip, time), width: W, height: H } };
+        }
+        const drawn = draw(shown);
         const key = drawn && keys.get(drawn.id);
         if (!drawn || !key) return null;
-        const effects = effectPasses(shown.clip, shown.time).map((pass) => ({ ...pass, shader: pass.shader.key }));
-        return { key, affine: drawn.affine, opacity: drawn.opacity, ...(effects.length && { effects }) };
+        const media = mediaSize(drawn.asset, canvas);
+        const affineAt = (t: number) => placementAffine(placeClip(canvas, media, motionAt(clip, t), drawn.asset.frame), canvas) as Affine;
+        const layer = clipLayer(clip, time, affineAt, layerOptions);
+        return layer && { ...byKey(layer), key };
       };
       const layers: FrameLayer[] = [];
       for (const shot of shotsAt(f)) {
         if (shot.kind === "clip") {
+          const { clip, time } = shot.shown;
+          if (clipKind(clip) === "adjustment") {
+            const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
+            if (layer) layers.push({ kind: "adjustment", adjustment: byKey(layer) });
+            continue;
+          }
           const picture = placed(shot.shown);
           if (picture) layers.push({ kind: "picture", picture });
           continue;
@@ -283,6 +304,23 @@ export function planRender(
       }
       return layers;
     },
+  };
+}
+
+/** Whether a clip's picture comes from a source (its media, or its text's drawing): not a solid or an adjustment layer. */
+const hasPicture = (clip: Clip) => {
+  const kind = clipKind(clip);
+  return kind === "media" || kind === "text";
+};
+
+/** A layer's shaders named by key (their sources travel separately, in `RenderPlan.shaders`). */
+function byKey(layer: Omit<Placed, "key">): Omit<PlacedRef, "key"> {
+  const keyed = (effects: EffectPass[]) => effects.map((pass) => ({ ...pass, shader: pass.shader.key }));
+  const { effects, samples, ...rest } = layer;
+  return {
+    ...rest,
+    ...(effects && { effects: keyed(effects) }),
+    ...(samples && { samples: samples.map(({ effects: e, ...sample }) => ({ ...sample, ...(e && { effects: keyed(e) }) })) }),
   };
 }
 
@@ -414,6 +452,8 @@ export function audioArgs(
   for (const track of project.tracks) {
     if (track.muted) continue;
     for (const clip of trackClips(project, track.id)) {
+      // Text, solids and adjustment layers are silent.
+      if (!hasMedia(clip)) continue;
       const asset = renderAssetOf(clip, assets, texts);
       if (!asset.hasAudio) continue;
       const samples = sampleAt(clipEnd(clip)) - sampleAt(clip.start);
@@ -481,13 +521,26 @@ export function keyframeExpression(keys: readonly Keyframe[], offset: number, ti
     const [a, b] = [keys[i], keys[i + 1]];
     let piece = value(a);
     if (a.easing !== "hold" && b.value !== a.value) {
-      // easedProgress: 3(1-f)²f·y1 + 3(1-f)f²·y2 + f³.
       const f = `((${time}-${at(a)})/${n(b.time - a.time)})`;
-      const g = `(1-${f})`;
-      const y1 = easesOut(a.easing) ? 0 : 1 / 3;
-      const y2 = easesIn(b.easing) ? 1 : 2 / 3;
-      const curve = `(${n(3 * y1)}*${g}*${g}*${f}+${n(3 * y2)}*${g}*${f}*${f}+${f}*${f}*${f})`;
-      piece = `${value(a)}+${n((b.value as number) - (a.value as number))}*${curve}`;
+      const change = n((b.value as number) - (a.value as number));
+      if (a.influence === undefined && b.influence === undefined) {
+        // easedProgress at 33% influence: 3(1-f)²f·y1 + 3(1-f)f²·y2 + f³.
+        const g = `(1-${f})`;
+        const y1 = easesOut(a.easing) ? 0 : 1 / 3;
+        const y2 = easesIn(b.easing) ? 1 : 2 / 3;
+        const curve = `(${n(3 * y1)}*${g}*${g}*${f}+${n(3 * y2)}*${g}*${f}*${f}+${f}*${f}*${f})`;
+        piece = `${value(a)}+${change}*${curve}`;
+      } else {
+        // Other influences need the curve solved for time: follow it in short straight pieces.
+        const PIECES = 48;
+        let curve = "1";
+        for (let j = PIECES - 1; j >= 0; j--) {
+          const [f0, f1] = [j / PIECES, (j + 1) / PIECES];
+          const [p0, p1] = [segmentProgress(a, b, f0), segmentProgress(a, b, f1)];
+          curve = `if(lt(${f},${n(f1)}),${n(p0)}+${n((p1 - p0) * PIECES)}*(${f}-${n(f0)}),${curve})`;
+        }
+        piece = `${value(a)}+${change}*(${curve})`;
+      }
     }
     expr = `if(lt(${time},${at(b)}),${piece},${expr})`;
   }

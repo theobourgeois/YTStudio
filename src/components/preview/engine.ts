@@ -1,7 +1,7 @@
 import type { Clip, MediaAsset, Project } from "@shared/types";
-import { type TextStyle, isTextClip, opacityAt, textStyleAt, volumeAt } from "@shared/effects";
-import { type Compositor, type Placed, createCompositor } from "@shared/compositor";
-import { effectPasses } from "@shared/effect-gl";
+import { type TextStyle, clipKind, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
+import { type Affine, type Compositor, type Placed, createCompositor } from "@shared/compositor";
+import { PREVIEW_SAMPLES, clipLayer } from "@shared/layers";
 import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
 import { clipEnd, clipSourceRange, clipSpeed, fileTime, sourceTime, videoTracks } from "@shared/timeline";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
@@ -34,12 +34,12 @@ interface AudioLayer {
   ids: SlotIds;
 }
 
-type ClipKind = "video" | "image" | "text";
+type ClipKind = "video" | "image" | "text" | "solid" | "adjustment";
 
-/** A picture to draw: the element (or text drawing) it comes from, and when in its clip. */
+/** A picture to draw: the element (or text drawing) it comes from (none for a solid), and when in its clip. */
 interface Picture {
   key: string;
-  source: HTMLVideoElement | HTMLImageElement | TextSlot;
+  source: HTMLVideoElement | HTMLImageElement | TextSlot | null;
   shown: Shown;
 }
 
@@ -70,7 +70,10 @@ export const editorSource: PreviewSource = {
 };
 
 /** What one track draws, bottom track first. */
-type Layer = { kind: "picture"; picture: Picture } | { kind: "transition"; plan: TransitionPlan; from: Picture | null; to: Picture | null };
+type Layer =
+  | { kind: "picture"; picture: Picture }
+  | { kind: "adjustment"; shown: Shown }
+  | { kind: "transition"; plan: TransitionPlan; from: Picture | null; to: Picture | null };
 
 /**
  * Drives the preview outside React: it subscribes to its source (the playback
@@ -275,8 +278,11 @@ export class PreviewEngine {
     const { project, assets, time, playing } = this.source.get();
     this.indexAssets(assets);
     const trackMuted = new Map(project.tracks.map((t) => [t.id, t.muted]));
-    const kindOf = (clip: Clip): ClipKind =>
-      isTextClip(clip) ? "text" : this.assetById.get(clip.assetId)?.kind === "image" ? "image" : "video";
+    const kindOf = (clip: Clip): ClipKind => {
+      const kind = clipKind(clip);
+      if (kind !== "media") return kind;
+      return this.assetById.get(clip.assetId)?.kind === "image" ? "image" : "video";
+    };
     let offline = false;
     const drawn: Layer[] = [];
 
@@ -303,6 +309,11 @@ export class PreviewEngine {
       layer.imageIds = assignSlots(layer.imageIds, ...ids("image"));
       /** The picture showing each clip on screen, by clip id. */
       const pictures = new Map<string, Picture>();
+
+      // Solids are drawn by the compositor itself.
+      for (const side of shown) {
+        if (kindOf(side.clip) === "solid") pictures.set(side.clip.id, { key: "", source: null, shown: side });
+      }
 
       shown.forEach((side, i) => {
         if (kindOf(side.clip) !== "text") return;
@@ -358,6 +369,7 @@ export class PreviewEngine {
 
       const pictureOf = (side: Shown | null) => (side && pictures.get(side.clip.id)) ?? null;
       if (transition) drawn.push({ kind: "transition", plan: transition, from: pictureOf(transition.from), to: pictureOf(transition.to) });
+      else if (current && kindOf(current.clip) === "adjustment") drawn.push({ kind: "adjustment", shown: current });
       else if (current && pictures.has(current.clip.id)) drawn.push({ kind: "picture", picture: pictures.get(current.clip.id)! });
     }
 
@@ -410,21 +422,37 @@ export class PreviewEngine {
     if (compositor.gl.isContextLost()) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     compositor.resize(this.size.width * dpr, this.size.height * dpr);
+    const pixels = { width: Math.round(this.size.width * dpr), height: Math.round(this.size.height * dpr) };
+    const options = { canvas: pixels, fps: project.settings.fps, maxSamples: PREVIEW_SAMPLES };
+    /** Where a clip is on the canvas at source time `t` (a solid or an adjustment layer fills it at 100%). */
+    const affineAt = (clip: Clip) => (t: number) =>
+      placementAffine(placeOnCanvas(project, clip, this.assetById.get(clip.assetId), this.size, t).placement, this.size) as Affine;
     const placed = (picture: Picture | null): Placed | null => {
-      if (!picture || !this.upload(compositor, picture)) return null;
+      if (!picture) return null;
       const { clip, time } = picture.shown;
-      const placement = placeOnCanvas(project, clip, this.assetById.get(clip.assetId), this.size, time).placement;
-      const effects = effectPasses(clip, time);
-      return {
-        key: picture.key,
-        affine: placementAffine(placement, this.size),
-        opacity: opacityAt(clip, time),
-        ...(effects.length && { effects }),
-      };
+      if (picture.source === null) {
+        const layer = clipLayer(clip, time, affineAt(clip), options);
+        return layer && { ...layer, key: "", solid: { color: solidColorAt(clip, time), ...pixels } };
+      }
+      if (!this.upload(compositor, picture)) return null;
+      const layer = clipLayer(clip, time, affineAt(clip), options);
+      return layer && { ...layer, key: picture.key };
     };
     compositor.clear();
     let transitions = 0;
     for (const layer of layers) {
+      if (layer.kind === "adjustment") {
+        const { clip, time } = layer.shown;
+        const adjustment = clipLayer(clip, time, affineAt(clip), options);
+        if (!adjustment) continue;
+        try {
+          compositor.drawAdjustment(adjustment);
+        } catch (err) {
+          console.error("An adjustment layer's effects failed to draw", err);
+          compositor.drawAdjustment({ ...adjustment, effects: undefined, samples: undefined });
+        }
+        continue;
+      }
       if (layer.kind === "picture") {
         const picture = placed(layer.picture);
         if (!picture) continue;
@@ -433,7 +461,7 @@ export class PreviewEngine {
         } catch (err) {
           // An effect that won't compile: the clip still shows, without its effects.
           console.error("A clip's effects failed to draw", err);
-          compositor.drawPicture({ ...picture, effects: undefined });
+          compositor.drawPicture({ ...picture, effects: undefined, samples: undefined });
         }
         continue;
       }
@@ -462,6 +490,7 @@ export class PreviewEngine {
    * False when there's nothing to draw yet (e.g. the media is still loading).
    */
   private upload(compositor: Compositor, { key, source }: Picture): boolean {
+    if (!source) return true;
     let version: string | null;
     let ready: boolean;
     if (source instanceof TextSlot) {

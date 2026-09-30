@@ -8,6 +8,7 @@ import {
   moveKeyframes,
   setAnimated,
   setKeyframeEasing,
+  setKeyframeInfluence,
   toggleKeyframe,
 } from "./animation.ts";
 import { defaultEffects, findEffect, motionAt, setParams } from "./effects.ts";
@@ -103,6 +104,18 @@ describe("keyframe edits", () => {
     expect(motion(gone).params.scale).toBeCloseTo(1.5);
     expect(times(gone, "rotation")).toHaveLength(3);
     expect(deleteKeyframes(p, "c", [{ effectId: "motion", key: "rotation", time: 11 }], 11)).toBe(p);
+  });
+
+  it("change how far their ease reaches (After Effects' influence), dropping it at Premiere's 33%", () => {
+    const ref = [{ effectId: "motion", key: "rotation", time: 12 }];
+    const eased = setKeyframeEasing(p, "c", ref, "ease");
+    const snappy = setKeyframeInfluence(eased, "c", ref, 0.9);
+    expect(motion(snappy).keyframes!.rotation.map((kf) => kf.influence)).toEqual([undefined, 0.9, undefined]);
+    // Arriving at 12 (eased, 90%): slower near the keyframe than at 33%.
+    expect(motionAt(snappy.clips[0], 11.8).rotation).toBeGreaterThan(motionAt(eased.clips[0], 11.8).rotation);
+    expect(setKeyframeInfluence(snappy, "c", ref, 0.9)).toBe(snappy);
+    expect(motion(setKeyframeInfluence(snappy, "c", ref, 1 / 3)).keyframes!.rotation[1]).not.toHaveProperty("influence");
+    expect(motion(setKeyframeInfluence(snappy, "c", ref, 5)).keyframes!.rotation[1].influence).toBe(1);
   });
 
   it("change their interpolation", () => {

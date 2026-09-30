@@ -53,6 +53,23 @@ export function getEffectDragData(dt: DataTransfer): string | null {
 }
 
 /**
+ * A preset dragged from the Effects tab's Presets (its type). A transition preset drops like a
+ * transition (on the nearest cut), an effect preset like a video effect (on a clip, or on empty
+ * space as an adjustment layer), so `dragKind` reports them as those.
+ */
+export const PRESET_DRAG_MIME = { transition: "application/x-editor-preset-transition", effect: "application/x-editor-preset-effect" } as const;
+
+export function setPresetDragData(dt: DataTransfer, kind: "transition" | "effect", type: string) {
+  dt.setData(PRESET_DRAG_MIME[kind], type);
+  dt.effectAllowed = "copy";
+}
+
+/** Only readable on `drop`: the preset's type, if a preset is being dropped. */
+export function getPresetDragData(dt: DataTransfer): string | null {
+  return dt.getData(PRESET_DRAG_MIME.transition) || dt.getData(PRESET_DRAG_MIME.effect) || null;
+}
+
+/**
  * Library items (or a folder) dragged from the Library tab onto the timeline or
  * a Library folder: their ids, one per line.
  */
@@ -74,8 +91,8 @@ export type DragKind = "assets" | "library" | "transition" | "effect" | "files";
 export function dragKind(dt: DataTransfer): DragKind | null {
   if (dt.types.includes(ASSET_DRAG_MIME)) return "assets";
   if (dt.types.includes(LIBRARY_DRAG_MIME)) return "library";
-  if (dt.types.includes(TRANSITION_DRAG_MIME)) return "transition";
-  if (dt.types.includes(EFFECT_DRAG_MIME)) return "effect";
+  if (dt.types.includes(TRANSITION_DRAG_MIME) || dt.types.includes(PRESET_DRAG_MIME.transition)) return "transition";
+  if (dt.types.includes(EFFECT_DRAG_MIME) || dt.types.includes(PRESET_DRAG_MIME.effect)) return "effect";
   if (dt.types.includes("Files")) return "files";
   return null;
 }

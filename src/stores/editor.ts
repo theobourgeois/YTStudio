@@ -12,11 +12,13 @@ import type {
   WebDownloadProgress,
   WebMediaKind,
 } from "@shared/types";
-import { type CopiedEffects, addEffect, copyEffects, defaultEffects, effectDefinition, isTextClip, pasteEffects } from "@shared/effects";
+import { type CopiedEffects, addEffect, copyEffects, defaultEffects, effectDefinition, hasMedia, pasteEffects } from "@shared/effects";
 import { placeTemplate } from "@shared/library";
 import {
   type CopiedClip,
+  STILL_DURATION,
   addClip,
+  addLayerClip,
   addTrack,
   adjacentTrack,
   appendToTrack,
@@ -34,6 +36,7 @@ import {
   insertClip,
   isOnVideoTrack,
   moveClips,
+  newLayerClip,
   pasteClips,
   projectDuration,
   pruneEmptyTrack,
@@ -52,6 +55,7 @@ import {
   removeTransition,
 } from "@shared/transition-windows";
 import { transitionDefinition } from "@shared/transitions";
+import { addPresetLayer, applyPresetToClips, presetDefinition } from "@shared/presets";
 import { errorMessage } from "@shared/errors";
 import { normalizeProject } from "@shared/normalize";
 import { type NewSubclip, addSubclips, getSubclip, removeSubclips, updateSubclip } from "@shared/subclips";
@@ -234,6 +238,25 @@ interface EditorState {
   /** Add a video effect to the selected clips, or when none are, to the top clip under the playhead. */
   applyEffect: (type: string) => void;
   /**
+   * Add a solid or an adjustment layer (After Effects' New > Solid / Adjustment Layer) at `at`
+   * (default: the playhead), `duration` long (default: the selected clips' span, else 5 s), on
+   * video track `trackId` when it's free there, else on the top video track or a new one on
+   * top; with the video effects `effects` on it. Selects it and returns its id.
+   */
+  addLayer: (kind: "adjustment" | "solid", opts?: LayerOptions) => string;
+  /**
+   * Put a preset somewhere: a transition preset on an adjustment layer centred on the cut
+   * (or clip edge) `edge`; an effect preset on `clipIds`, or with `at`, on an adjustment
+   * layer from there (on `trackId` when it's free). Selects what it made. False when it
+   * couldn't go there.
+   */
+  addPresetAt: (type: string, target: { edge?: TransitionRef; clipIds?: string[]; at?: number; trackId?: string }) => boolean;
+  /**
+   * Apply a preset like double-clicking its card: a transition at the cut nearest the
+   * playhead, an effect preset on the selected clips (or over the playhead when none are).
+   */
+  applyPreset: (type: string) => void;
+  /**
    * Delete the selection; `ripple` (default: `autoRipple`) also closes the gaps it leaves.
    * A selected gap is always closed.
    */
@@ -254,6 +277,16 @@ interface EditorState {
   moveSelectedToTrack: (dir: -1 | 1) => void;
   /** Cut the part before (`start`) or after (`end`) the playhead off the clips under it, closing the gap. */
   trimToPlayhead: (edge: "start" | "end") => void;
+}
+
+export interface LayerOptions {
+  trackId?: string;
+  at?: number;
+  duration?: number;
+  /** Video effect types to put on it. */
+  effects?: string[];
+  /** A solid's colour (`#rrggbb`). */
+  color?: string;
 }
 
 export interface AddToTimelineOptions {
@@ -726,6 +759,65 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
+  addLayer(kind, opts = {}) {
+    const { project, selectedClipIds } = get();
+    const selected = selectedClipIds.map((id) => getClip(project, id)).filter((c): c is Clip => !!c);
+    // Over the selected clips, like After Effects' layer bars, when there's no time given.
+    const span =
+      opts.at === undefined && opts.duration === undefined && selected.length
+        ? { at: Math.min(...selected.map((c) => c.start)), end: Math.max(...selected.map(clipEnd)) }
+        : null;
+    const at = opts.at ?? span?.at ?? usePlayback.getState().time;
+    const duration = opts.duration ?? (span ? span.end - span.at : STILL_DURATION);
+    const clip = newLayerClip(kind, at, duration, opts.color ? { color: opts.color } : {});
+    let next = addLayerClip(project, clip, opts.trackId).project;
+    for (const type of opts.effects ?? []) next = addEffect(next, [clip.id], type).project;
+    get().commit(() => next);
+    get().select(clip.id);
+    return clip.id;
+  },
+
+  addPresetAt(type, target) {
+    const def = presetDefinition(type);
+    const { project } = get();
+    if (!def) return false;
+    if (target.clipIds?.length) {
+      const next = applyPresetToClips(project, target.clipIds, type);
+      if (next === project) return false;
+      get().commit(() => next);
+      if (!target.clipIds.some((id) => get().selectedClipIds.includes(id))) get().setSelection(target.clipIds);
+      return true;
+    }
+    const clip = target.edge && getClip(project, target.edge.clipId);
+    const at = clip && target.edge ? (target.edge.edge === "out" ? clipEnd(clip) : clip.start) : target.at;
+    if (at === undefined) return false;
+    const { project: next, clipId } = addPresetLayer(project, type, at, target.trackId);
+    if (!clipId) return false;
+    get().commit(() => next);
+    get().select(clipId);
+    return true;
+  },
+
+  applyPreset(type) {
+    const def = presetDefinition(type);
+    if (!def) return;
+    const { project, selectedClipIds, selectedTransition } = get();
+    const time = usePlayback.getState().time;
+    if (def.kind === "transition") {
+      const selected = selectedClipIds.map((id) => getClip(project, id)).find((c) => c && isOnVideoTrack(project, c) && !c.adjustment);
+      const edge = selectedTransition ?? nearestEdge(project, time, selected ? [selected.trackId] : undefined);
+      if (!edge || !get().addPresetAt(type, { edge })) {
+        toast(`Nowhere to put ${def.label}`, { description: "Add clips to a video track first: it goes on the cut nearest the playhead." });
+      }
+      return;
+    }
+    const targets = selectedClipIds.filter((id) => {
+      const c = getClip(project, id);
+      return c && isOnVideoTrack(project, c);
+    });
+    get().addPresetAt(type, targets.length ? { clipIds: targets } : { at: time });
+  },
+
   deleteSelected(ripple = get().autoRipple) {
     const transition = get().selectedTransition;
     if (transition) {
@@ -771,7 +863,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   paste(at) {
     const assetIds = new Set(get().assets.map((a) => a.id));
     // The media may have been deleted (or belong to another project) since the copy.
-    const copied = get().clipboard.filter((c) => isTextClip(c.clip) || assetIds.has(c.clip.assetId));
+    const copied = get().clipboard.filter((c) => !hasMedia(c.clip) || assetIds.has(c.clip.assetId));
     if (copied.length === 0) {
       if (get().clipboard.length) toast("The copied clips' media isn't in this project");
       return;

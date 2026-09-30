@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_PROJECT_NAME, createDefaultProject, createId, isOnVideoTrack, projectDuration } from "../shared/timeline.ts";
-import { isTextClip } from "../shared/effects.ts";
+import { hasMedia } from "../shared/effects.ts";
 import type { Project, ProjectStatus, ProjectSummary, UpdateProjectRequest } from "../shared/types.ts";
 import { normalizeProject } from "../shared/normalize.ts";
 import type { MediaLibrary } from "./media.ts";
@@ -71,7 +71,7 @@ function statsOf(doc: Project): DocStats {
 function firstVideoClip(doc: Project) {
   const layer = (trackId: string) => doc.tracks.findIndex((t) => t.id === trackId);
   return doc.clips
-    .filter((c) => isOnVideoTrack(doc, c) && !isTextClip(c))
+    .filter((c) => isOnVideoTrack(doc, c) && hasMedia(c))
     .sort((a, b) => a.start - b.start || layer(b.trackId) - layer(a.trackId))[0];
 }
 

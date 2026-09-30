@@ -36,8 +36,10 @@ import {
   trackClips,
   trimClip,
   withoutAudioTracks,
+  newLayerClip,
 } from "./timeline.ts";
-import { defaultEffects, motionAt, setParams, volumeAt } from "./effects.ts";
+import { clipKind, defaultEffects, motionAt, setParams, volumeAt } from "./effects.ts";
+import { createTransition } from "./transitions.ts";
 import { formatDuration, formatRelative, formatTime } from "./format.ts";
 import { normalizeProject } from "./normalize.ts";
 
@@ -415,6 +417,19 @@ describe("normalizeProject", () => {
     // The same clip against a video is cut to the video's range.
     const v = normalizeProject(input, { asset: { kind: "video", duration: 5, hasVideo: true, hasAudio: false } });
     expect(v.clips[0]).toMatchObject({ in: 0, out: 5 });
+  });
+
+  it("keeps solids and adjustment layers on video tracks only, without media, and adjustment layers without transitions", () => {
+    const solid = { ...newLayerClip("solid", 0, 2, { color: "#123456" }), trackId: MAIN_TRACK_ID };
+    const adjust = { ...newLayerClip("adjustment", 2, 2), trackId: MAIN_TRACK_ID, transitionIn: createTransition("cross-dissolve") };
+    const onAudio = { ...newLayerClip("adjustment", 0, 2), id: "heard", trackId: AUDIO };
+    const p = normalizeProject({ ...createDefaultProject(), clips: [solid, adjust, onAudio] }, {});
+    expect(p.clips.map((c) => clipKind(c))).toEqual(["solid", "adjustment"]);
+    expect(p.clips[1]).not.toHaveProperty("transitionIn");
+    expect(p.clips[1].adjustment).toBe(true);
+    // A text or a solid can't also be an adjustment layer.
+    const both = normalizeProject({ ...createDefaultProject(), clips: [{ ...solid, adjustment: true }] });
+    expect(both.clips[0]).not.toHaveProperty("adjustment");
   });
 
   it("gives every clip its effects, upgrading old clips", () => {

@@ -45,9 +45,15 @@ export function clipsOnCanvas(project: Project, assets: MediaAsset[], canvas: Si
   return out;
 }
 
-/** The topmost visible clip under a canvas point. */
-export function clipAtPoint(clips: OnCanvas[], point: Vec2): OnCanvas | undefined {
-  return clips.find((c) => opacityAt(c.clip, c.time) > 0 && containsPoint(c.placement, point));
+/**
+ * The topmost visible clip under a canvas point. Adjustment layers (which cover the
+ * whole canvas but show nothing of their own) are only found when `adjustments` says so,
+ * e.g. to drag the selected one; otherwise clicks go through to what's below.
+ */
+export function clipAtPoint(clips: OnCanvas[], point: Vec2, adjustments = false): OnCanvas | undefined {
+  return clips.find(
+    (c) => (adjustments || !c.clip.adjustment) && opacityAt(c.clip, c.time) > 0 && containsPoint(c.placement, point),
+  );
 }
 
 /**

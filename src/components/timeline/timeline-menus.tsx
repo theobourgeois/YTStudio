@@ -10,6 +10,7 @@ import {
   PiArrowsIn,
   PiArrowsOut,
   PiBooks,
+  PiCircleHalfTilt,
   PiClipboard,
   PiCopy,
   PiCopySimple,
@@ -22,6 +23,7 @@ import {
   PiSlidersHorizontal,
   PiSpeakerHigh,
   PiSpeakerSlash,
+  PiSquare,
   PiSubtitles,
   PiTrash,
   PiArrowLineLeft,
@@ -29,7 +31,7 @@ import {
   PiGauge,
 } from "react-icons/pi";
 import type { Track, TransitionAlignment } from "@shared/types";
-import { MOTION, effectDefinition, findEffect, isTextClip, isVideoEffect, setParams } from "@shared/effects";
+import { MOTION, clipKind, effectDefinition, findEffect, isVideoEffect, setParams } from "@shared/effects";
 import { type TransitionRef, findWindow, parseRefKey, setTransitionParams } from "@shared/transition-windows";
 import {
   addTrack,
@@ -163,10 +165,10 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
     const clip = getClip(s.project, target.clipId);
     return clip && (findEffect(clip, MOTION.type)?.params.fit as string | undefined);
   });
-  // Media on a video track is framed; text has no frame to fit.
+  // Media on a video track is framed; text, solids and adjustment layers have no frame to fit.
   const framed = useEditor((s) => {
     const clip = getClip(s.project, target.clipId);
-    return !!clip && isOnVideoTrack(s.project, clip) && !isTextClip(clip);
+    return !!clip && isOnVideoTrack(s.project, clip) && clipKind(clip) === "media";
   });
   const playheadOnSelection = useEditor((s) => {
     const t = usePlayback.getState().time;
@@ -185,7 +187,7 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
     s.commit((p) =>
       s.selectedClipIds.reduce((q, id) => {
         const clip = getClip(q, id);
-        return clip && isOnVideoTrack(q, clip) && !isTextClip(clip) ? setParams(q, id, MOTION.type, { fit: value }) : q;
+        return clip && isOnVideoTrack(q, clip) && clipKind(clip) === "media" ? setParams(q, id, MOTION.type, { fit: value }) : q;
       }, p),
     );
   };
@@ -361,6 +363,15 @@ function LaneMenuItems({ target }: { target: Extract<MenuTarget, { kind: "lane" 
         onSelect={() => trackId && editor().commit((p) => closeGap(p, trackId, time))}
       >
         <PiArrowLineLeft /> Close gap
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => editor().addLayer("adjustment", { trackId: trackId ?? undefined, at: time })}>
+        <PiCircleHalfTilt /> New adjustment layer here
+        <ContextMenuShortcut>{SHORTCUT_KEYS.newAdjustmentLayer}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => editor().addLayer("solid", { trackId: trackId ?? undefined, at: time })}>
+        <PiSquare /> New solid here
+        <ContextMenuShortcut>{SHORTCUT_KEYS.newSolid}</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem disabled={!hasClips} onSelect={() => editor().selectAll()}>

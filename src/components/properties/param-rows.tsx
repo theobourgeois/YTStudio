@@ -7,6 +7,7 @@ import { PiArrowCounterClockwise } from "react-icons/pi";
 import type { ParamValue, ParamValues, Project, Vec2 } from "@shared/types";
 import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type ParamSpec, type Vec2Spec, sameValue } from "@shared/params";
 import { ColorControl, FontControl, FontStyleControl, TextControl } from "./text-controls";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -217,7 +218,26 @@ function BooleanControl({ value, label, disabled, edit }: ControlProps<BooleanSp
   );
 }
 
+/** Choices with more options than this are a menu rather than a row of buttons. */
+const MAX_BUTTONS = 4;
+
 function ChoiceControl({ spec, value, label, disabled, edit }: ControlProps<ChoiceSpec, string>) {
+  if (spec.options.length > MAX_BUTTONS) {
+    return (
+      <Select value={value} onValueChange={(v) => edit.set(v)} disabled={disabled}>
+        <SelectTrigger size="sm" aria-label={label} className="ml-1 h-7! w-full max-w-40 min-w-0 rounded px-2 text-xs shadow-none">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper" align="start" className="max-h-80">
+          {spec.options.map((o) => (
+            <SelectItem key={o.value} value={o.value} className="text-xs">
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  }
   return (
     <ToggleGroup
       type="single"

@@ -55,10 +55,25 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 ### Video effects
 
 The **Effects** tab's **Video effects** are shader effects you add to clips on video tracks, like Premiere's Video
-Effects: colour (brightness & contrast, hue & saturation, temperature, black & white, sepia, duotone, invert,
-vignette), blur (gaussian, directional, zoom, sharpen), stylize (mosaic, posterize, find edges, glow, film grain,
-mirror, grid), distortions (wave warp, bulge, twirl), camera moves (shake, pulse) and glitches (RGB split, glitch,
-VHS). Filter them by category or search; hover a card to compare before and after (moving effects play).
+Effects and After Effects' effects and plugins:
+
+- **Color:** brightness & contrast, hue & saturation, temperature, black & white, sepia, duotone, invert, vignette,
+  levels, curves, exposure, vibrance, tint, gradient map, color balance, channel mixer, looks (teal & orange, bleach
+  bypass, cross process, noir, warm film, cold night, faded, vintage), leave color, threshold.
+- **Blur:** gaussian, directional, zoom, radial (spin/zoom), camera lens blur (bokeh), channel blur, smart blur, sharpen.
+- **Light:** Deep Glow, light rays, glint, lens flare, light sweep, chromatic aberration, flash, light leak, bokeh.
+- **Stylize:** mosaic, posterize, find edges, glow, film grain, mirror, grid, halftone, CRT, emboss, cartoon, pixel
+  sort, dither, ASCII, neon edges, strobe light.
+- **Distort:** lens (CC Lens), optics compensation, turbulent displace, polar coordinates, ripple, kaleida, bend,
+  offset, transform, wiggle, spherize, motion tile, wave warp, bulge, twirl.
+- **Camera and glitch:** shake, pulse, RGB split, glitch, VHS, block glitch, scan tear, digital noise, RGB wave,
+  glitch slice.
+- **Generate** (best on a solid): fractal noise, gradient ramp, 4-color gradient, shape, checkerboard, particles
+  (dust, snow, rain, sparks, stars), cell pattern, radio waves, lines, beam.
+- **Keying:** chroma key, luma key, matte choker, invert alpha, fill, drop shadow, outline.
+
+Every amount can be keyframed, and each effect also works on an adjustment layer, where it changes everything below.
+Filter them by category or search; hover a card to compare before and after (moving effects play).
 
 Drag one onto a clip on the timeline or on the canvas (onto a selected clip: all the selected clips get it), or select
 clips and press **+** (with nothing selected it goes on the top clip under the playhead). A clip with effects shows
@@ -66,6 +81,34 @@ clips and press **+** (with nothing selected it goes on the top clip under the p
 keyframed), the **fx** bypass switch, reset, and a **⋯** menu to move it up or down (effects are drawn in order,
 each over the result of the one before) or remove it. Effects work on the clip's own picture before its Motion, so
 they move and scale with it.
+
+### Adjustment layers and solids
+
+Like After Effects and Premiere, layers can change or add to the picture instead of showing media:
+
+- An **adjustment layer** draws nothing itself: its video effects, **Motion** and **Opacity** apply to everything on
+  the tracks below it while it lasts. Grade or stylise many clips at once, shake or zoom the whole picture, or put
+  effects across a cut. Add one with the **Layer** button under the timeline (over the selected clips, or at the
+  playhead), right-click empty track space → **New adjustment layer here**, or `⌥⌘Y`. Dropping a video effect on
+  empty track space makes one with that effect (CapCut's effects track).
+- A **solid** is a colour filling the canvas (**Layer** → **Solid**, or `⌥⇧⌘Y`). Put generator effects on it (noise,
+  gradients, shapes, particles, light), set its **Fill** to 0% for a transparent layer, or tint what's below with a
+  blend mode.
+
+Both go on a track above what they should affect. Clicks on the canvas go through adjustment layers to the clips below.
+
+### Presets
+
+The **Effects** tab's **Presets** are ready-made After Effects-style moves, made from the editor's own effects and
+keyframes, so everything they do can be changed afterwards:
+
+- **Transitions** (zoom through, spin, whip pans, glitch cut, twirl, impact shake...) are an adjustment layer centred
+  on a cut: the picture speeds away from the outgoing shot with motion blur and mirrored edges and lands in the
+  incoming one. Drag one onto a cut, or double-click it / press **+** to put it on the cut nearest the playhead.
+  Lengthen the layer or edit its keyframes to retime it.
+- **Moves and looks** (punch in, slow push in, entrances and exits, fades, shakes, VHS, dreamy glow...) go on the
+  clips you drop them on (or the selected clips): entrances from the clip's start, exits at its end, slow moves over
+  all of it. Dropped on empty track space, they make an adjustment layer.
 
 ### Transitions
 
@@ -181,7 +224,14 @@ The **Properties** tab in the left panel shows the selected clip's effects, like
 - **Motion** (clips on video tracks): framing (fit the whole frame, or fill the canvas: that's 100%), position,
   scale, scale width (turn off *Uniform Scale* to stretch), rotation and anchor point. Positions are shown in pixels of
   the video at 1080p, anchor points in pixels of the clip's own media.
-- **Opacity** (clips on video tracks).
+- **Motion** also has **Edges** (what shows past the frame when it's zoomed out or turned: mirrored, tiled or its
+  edge pixels stretched, instead of black) and **Motion Blur** with a **Shutter Angle** (180° is film's), like After
+  Effects' layer switch: fast moves and spins blur along their path.
+- **Opacity** (clips on video tracks), with a **Blend Mode**: Normal, Darken, Multiply, Color Burn, Linear Burn,
+  Lighten, Screen, Color Dodge, Add, Overlay, Soft/Hard/Linear/Vivid/Pin Light, Hard Mix, Difference, Exclusion,
+  Subtract, Divide, Hue, Saturation, Color, Luminosity, and After Effects' Stencil and Silhouette (the layer's alpha
+  or luma keeps, or cuts out, everything below it).
+- **Solid** (solids): its colour and fill.
 - **Volume** (clips with sound).
 - Any **video effects** added to it (see above).
 
@@ -221,7 +271,9 @@ Premiere:
   playhead, other keyframes and frames), double-click one to go to it, and press ⌫ to delete. An effect's own row
   shows all of its keyframes.
 - Right-click a keyframe for its interpolation: **Linear**, **Ease In** (slows down into it), **Ease Out** (eases away
-  from it), **Ease In and Out** or **Hold** (keeps its value until the next keyframe).
+  from it), **Ease In and Out** or **Hold** (keeps its value until the next keyframe), and for an eased one its
+  **Influence** (After Effects' keyframe velocity): 33% is Premiere's ease; 75–100% hangs near the keyframes and
+  whips through the middle, the snappy curve of edit-style zooms and spins.
 - Keyframed clips show marks on the timeline, and an animated position draws its motion path on the canvas.
 
 Keyframes stay on their frame of the media when a clip is moved, trimmed or split, and exports play them exactly.

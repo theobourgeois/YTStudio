@@ -11,6 +11,7 @@ import {
   PiArrowDown,
   PiArrowUp,
   PiCaretRight,
+  PiCircleHalfTilt,
   PiDiamondsFour,
   PiDotsThree,
   PiFilmStrip,
@@ -18,6 +19,7 @@ import {
   PiMusicNotes,
   PiSlidersHorizontal,
   PiSparkle,
+  PiSquare,
   PiSubtitles,
   PiTextT,
   PiTrash,
@@ -25,11 +27,12 @@ import {
 import { keyframeTime } from "@shared/animation";
 import type { Clip, Effect, MediaAsset, ParamValues, Project } from "@shared/types";
 import {
+  type ClipKind,
   type ClipTraits,
   type EffectDefinition,
   effectDefinition,
+  clipKind,
   hasKeyframes,
-  isTextClip,
   isVideoEffect,
   moveEffect,
   removeEffect,
@@ -85,8 +88,9 @@ export function PropertiesPanel() {
   // Values show at the playhead; edits keyframe the frame there (or a keyframe right next to it).
   const time = sourceTime(clip, playhead);
   const editTime = keyframeTime(clip, playhead, fps);
-  const text = isTextClip(clip);
-  const traits: ClipTraits = { visual, audible: !!asset?.hasAudio, text };
+  const kind = clipKind(clip);
+  const text = kind === "text";
+  const traits: ClipTraits = { visual, audible: kind === "media" && !!asset?.hasAudio, kind };
   const canvas = outputSize(aspectRatio, "1080p");
   // Points on the clip's own frame are px of its media, or of the text's box at 1080p.
   const frame = text ? layoutText(textStyleAt(clip, time), 1) : asset?.width && asset.height ? asset : canvas;
@@ -103,7 +107,7 @@ export function PropertiesPanel() {
       <PanelRow lanes={lanes} lane={<KeyframeRuler clip={clip} />} className="sticky top-0 z-[5] border-b bg-background">
         <ClipHeader
           asset={asset}
-          text={text}
+          kind={kind}
           name={clipName(clip, asset)}
           detail={[
             trackName,
@@ -115,6 +119,14 @@ export function PropertiesPanel() {
       {clip.caption && (
         <PanelRow lanes={lanes} className="border-b">
           <CaptionNote />
+        </PanelRow>
+      )}
+      {kind === "adjustment" && (
+        <PanelRow lanes={lanes} className="border-b">
+          <p className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground" data-adjustment-note>
+            <PiCircleHalfTilt className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">Its effects, Motion and Opacity change everything on the tracks below it.</span>
+          </p>
         </PanelRow>
       )}
       {selectedCount > 1 && (
@@ -205,16 +217,27 @@ function KeyframesToggle() {
 
 function ClipHeader({
   asset,
-  text,
+  kind,
   name,
   detail,
 }: {
   asset: MediaAsset | undefined;
-  text: boolean;
+  kind: ClipKind;
   name: string;
   detail: (string | undefined)[];
 }) {
-  const Icon = text ? PiTextT : asset?.kind === "image" ? PiImage : asset?.kind === "audio" ? PiMusicNotes : PiFilmStrip;
+  const Icon =
+    kind === "text"
+      ? PiTextT
+      : kind === "adjustment"
+        ? PiCircleHalfTilt
+        : kind === "solid"
+          ? PiSquare
+          : asset?.kind === "image"
+            ? PiImage
+            : asset?.kind === "audio"
+              ? PiMusicNotes
+              : PiFilmStrip;
   return (
     <div className="flex items-center gap-2.5 px-3 py-2.5">
       <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground ring-1 ring-border ring-inset">

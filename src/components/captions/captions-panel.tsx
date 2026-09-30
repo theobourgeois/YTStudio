@@ -42,7 +42,7 @@ import { usePlayback } from "@/stores/playback";
 import { useShallow } from "zustand/react/shallow";
 import { AnimationSelect, StylePicker } from "./auto-captions-dialog";
 
-const TRAITS: ClipTraits = { visual: true, audible: false, text: true };
+const TRAITS: ClipTraits = { visual: true, audible: false, kind: "text" };
 
 export function CaptionsPanel() {
   const captions = useEditor(useShallow((s) => captionClips(s.project)));

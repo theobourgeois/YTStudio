@@ -293,7 +293,7 @@ const TOOLS: Record<ToolName, Handler> = {
     );
   },
   async get_catalog(input) {
-    const kind = oneOf(input, "kind", ["video_effects", "transitions", "clip_properties", "caption_styles", "fonts"] as const) as CatalogKind | undefined;
+    const kind = oneOf(input, "kind", ["video_effects", "presets", "transitions", "clip_properties", "caption_styles", "fonts"] as const) as CatalogKind | undefined;
     if (!kind) throw new ToolError("`kind` is required.");
     const fonts = kind === "fonts" ? await api.listFonts() : [];
     return textResult(describeCatalog(kind, optString(input, "query"), fonts));
@@ -324,6 +324,8 @@ const TOOLS: Record<ToolName, Handler> = {
   // -------------------------------------------------------------------------
   add_clips: edit("add_clips"),
   add_text: edit("add_text"),
+  add_layer: edit("add_layer"),
+  apply_preset: edit("apply_preset"),
   move_clips: edit("move_clips"),
   trim_clip: edit("trim_clip"),
   set_speed: edit("set_speed"),

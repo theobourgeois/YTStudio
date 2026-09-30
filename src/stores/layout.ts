@@ -41,10 +41,11 @@ export type LeftPanelTab = "media" | "effects" | "captions" | "properties";
 export type MediaSource = "project" | "library" | "online";
 
 /**
- * What the Effects tab browses: video effects (added to clips) or transitions (put on cuts). Like
- * Premiere's Effects panel, every kind lives in one tab with a switch, rather than a tab each.
+ * What the Effects tab browses: video effects (added to clips), presets (ready-made moves, looks
+ * and adjustment-layer transitions, like After Effects' Animation Presets) or transitions (put on
+ * cuts). Like Premiere's Effects panel, every kind lives in one tab with a switch, rather than a tab each.
  */
-export type EffectKind = "video" | "transitions";
+export type EffectKind = "video" | "presets" | "transitions";
 
 /** What a press on the canvas does: select and transform clips, or add text (Premiere's Type tool). */
 export type CanvasTool = "select" | "text";

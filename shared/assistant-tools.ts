@@ -201,12 +201,13 @@ export const ASSISTANT_TOOLS = [
     kind: "look",
     description:
       "What exists to use: `video_effects` (type, tags, parameters), `transitions` (type, tags, parameters), " +
-      "`clip_properties` (the built-in effects every clip has: motion, opacity, volume, text, appearance), " +
+      "`presets` (ready-made After Effects-style transitions and moves/looks built from effects and keyframes), " +
+      "`clip_properties` (the built-in effects every clip has: motion, opacity, volume, text, appearance, solid), " +
       "`caption_styles` (presets, lengths, animations), or installed `fonts`. Parameters list key, kind, " +
       "default and range: values are in these units (e.g. scale 1 = 100%, position in canvas fractions).",
     inputSchema: obj(
       {
-        kind: oneOf(["video_effects", "transitions", "clip_properties", "caption_styles", "fonts"], "What to list."),
+        kind: oneOf(["video_effects", "presets", "transitions", "clip_properties", "caption_styles", "fonts"], "What to list."),
         query: str("Filter by name or tag."),
       },
       ["kind"],
@@ -295,6 +296,56 @@ export const ASSISTANT_TOOLS = [
         position: arr(num("Fraction"), "[x, y] canvas fractions.", { minItems: 2, maxItems: 2 }),
       },
       ["text", "start"],
+    ),
+  }),
+  tool({
+    name: "add_layer",
+    title: "Add a layer",
+    kind: "edit",
+    description:
+      "Add an adjustment layer or a solid (After Effects' layers). An adjustment layer draws nothing itself: its " +
+      "video effects, Motion (scale, position, rotation: zooms or shakes everything below) and Opacity (how much " +
+      "of the effect shows, and its blendMode) apply to every track below it while it lasts, so it's how you grade, " +
+      "stylise or zoom/shake several clips at once, or put an effect across a cut (a transition built from effects). " +
+      "A solid is a colour filling the canvas (`color`; Solid `fill` 0 makes it transparent) for generator effects " +
+      "(noise, gradients, light) to draw on, or to tint with a blend mode. Both go on `trackId` when it's a free " +
+      "video track there, else on the top video track or a new one on top (they must be above what they affect). " +
+      "`effects` adds video effects to it with their parameter values, in order.",
+    inputSchema: obj(
+      {
+        kind: oneOf(["adjustment", "solid"], "What to add."),
+        start: time("Where it starts."),
+        duration: num("Seconds (default 5).", { minimum: 0.1 }),
+        trackId: str("Put it on this video track."),
+        color: str('A solid\'s colour, like "#000000".'),
+        effects: arr(
+          obj({ type: str("Video effect type."), params: params("Parameter values by key.") }, ["type"]),
+          "Video effects to put on it, drawn in this order.",
+        ),
+      },
+      ["kind", "start"],
+    ),
+  }),
+  tool({
+    name: "apply_preset",
+    title: "Apply a preset",
+    kind: "edit",
+    description:
+      'Use a preset (get_catalog "presets"). A transition preset is an adjustment layer centred on the cut at ' +
+      "`at` (a cut's timeline time from get_timeline), animating Motion (with motion blur and mirrored edges) and " +
+      "effects across it: edit-style zooms, spins, whips, glitches. It changes every track below it, so it's the " +
+      "stylish alternative to set_transition. An effect preset (a move or a look: punch-in, shake, entrance, " +
+      "exit, VHS...) goes on `clipIds` (their own Motion/effects, timed from their start or to their end), or " +
+      "with `at` instead, on an adjustment layer from there. Everything it adds is ordinary effects and keyframes " +
+      "you can then change with set_properties / set_keyframes.",
+    inputSchema: obj(
+      {
+        type: str("Preset type."),
+        at: time("A transition: the cut. An effect preset without clips: where its adjustment layer starts."),
+        clipIds: arr(str("Clip id"), "Effect presets: the clips to put it on."),
+        trackId: str("Put its adjustment layer on this video track (when free)."),
+      },
+      ["type"],
     ),
   }),
   tool({
@@ -393,9 +444,12 @@ export const ASSISTANT_TOOLS = [
     kind: "edit",
     description:
       "Set parameters of one effect on clips. `effect` is an effect id on the clip: motion (position, scale, " +
-      "rotation, anchor, fit), opacity, volume (level), text (text, font, size...), appearance (fill, stroke, " +
-      "shadow...) or a video effect's id (see get_timeline). A parameter that's animated gets a keyframe at `at` " +
-      "(timeline seconds) instead; without `at` animated parameters are skipped.",
+      "rotation, anchor, fit, edges: none/mirror/tile/extend for what shows past the frame when it's zoomed out " +
+      "or turned, motionBlur and shutterAngle), opacity (opacity, blendMode: normal, add, screen, multiply, " +
+      "overlay, soft-light, difference, color-dodge, stencil-alpha... see get_catalog), volume (level), solid " +
+      "(color, fill), text (text, font, size...), appearance (fill, stroke, shadow...) or a video effect's id " +
+      "(see get_timeline). A parameter that's animated gets a keyframe at `at` (timeline seconds) instead; " +
+      "without `at` animated parameters are skipped.",
     inputSchema: obj(
       {
         clipIds: clipIds(),
@@ -412,9 +466,12 @@ export const ASSISTANT_TOOLS = [
     kind: "edit",
     description:
       "Animate one number or point parameter (e.g. motion scale for a zoom, motion position for a pan, opacity " +
-      "for a fade, volume level) with keyframes at timeline times, replacing its animation. An empty list stops " +
-      "animating it (it keeps `value`, or the value it had at the first keyframe). Easing: linear, ease-in, " +
-      "ease-out, ease, hold.",
+      "for a fade, volume level, any video effect's amount) with keyframes at timeline times, replacing its " +
+      "animation. An empty list stops animating it (it keeps `value`, or the value it had at the first " +
+      "keyframe). Easing: linear, ease-in, ease-out, ease, hold. `influence` (0.01..1, default 0.33) is how far " +
+      "an eased keyframe's handle reaches, like After Effects' keyframe velocity: 0.75-0.9 on both ends of a move " +
+      "gives the snappy, lingering-then-whipping motion of edit-style zooms and spins. Turn on motion blur " +
+      "(set_properties motion motionBlur) for fast moves.",
     inputSchema: obj(
       {
         clipId: str("Clip id."),
@@ -426,6 +483,7 @@ export const ASSISTANT_TOOLS = [
               time: time("When."),
               value: { description: "Number, or [x, y] for points." },
               easing: oneOf(["linear", "ease-in", "ease-out", "ease", "hold"], "How it's passed (default linear)."),
+              influence: num("How far its ease reaches, 0.01..1 (default 0.33).", { minimum: 0.01, maximum: 1 }),
             },
             ["time", "value"],
           ),

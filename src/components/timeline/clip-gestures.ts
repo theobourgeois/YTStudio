@@ -22,7 +22,7 @@ import {
   stretchClip,
   trimClip,
 } from "@shared/timeline";
-import { isTextClip } from "@shared/effects";
+import { hasMedia } from "@shared/effects";
 import { useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import { DRAG_THRESHOLD_PX, MARQUEE_THRESHOLD_PX, SNAP_PX, TRIM_THRESHOLD_PX } from "./constants";
@@ -131,9 +131,10 @@ export function startClipMove(
       target = { trackId: clip.trackId };
 
       const asset = s.getAsset(clip.assetId);
-      const text = isTextClip(clip);
+      // Text, solids and adjustment layers are only ever drawn on video tracks.
+      const noMedia = !hasMedia(clip);
       allowed = (kind, trackId) =>
-        text ? kind === "video" : asset ? canPlaceOnTrack(asset, { kind }) : trackId === clip.trackId;
+        noMedia ? kind === "video" : asset ? canPlaceOnTrack(asset, { kind }) : trackId === clip.trackId;
       // Originals stay put when duplicating, so they're snap targets too.
       points = s.snapping
         ? moveSnapPoints(base, duplicate ? [] : movingIds, usePlayback.getState().time)

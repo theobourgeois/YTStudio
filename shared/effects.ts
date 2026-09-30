@@ -12,6 +12,10 @@
  *
  * A text clip is a clip with no media (`assetId` is "") that carries the Text
  * and Appearance effects; the browser draws it (`src/lib/text-render.ts`).
+ * A solid (After Effects' solid layer) has no media either: it carries the
+ * Solid effect, a colour filling the canvas, which generator effects (noise,
+ * gradients, light) draw over. An adjustment layer (`Clip.adjustment`) draws
+ * nothing itself: its effects, Motion and Opacity apply to what's below it.
  *
  * Video effects (blur, colour, glitch...) are the ones the user adds from the
  * Effects tab, any number of times and in any order. Each is a shader
@@ -23,10 +27,21 @@ import { BLUR_EFFECTS } from "./effect-library/blur.ts";
 import { STYLIZE_EFFECTS } from "./effect-library/stylize.ts";
 import { MOTION_EFFECTS } from "./effect-library/motion.ts";
 import { GLITCH_EFFECTS } from "./effect-library/glitch.ts";
+import { DISTORT_EFFECTS } from "./effect-library/distort.ts";
+import { LIGHT_EFFECTS } from "./effect-library/light.ts";
+import { GENERATE_EFFECTS } from "./effect-library/generate.ts";
+import { KEYING_EFFECTS } from "./effect-library/keying.ts";
+import { BLEND_MODES } from "./compositor.ts";
 import { keyframeValue, sanitizeKeyframes, setKeyframe } from "./keyframes.ts";
 import { tidy } from "./math.ts";
 import { PERCENT, PIXELS, type ParamSpec, defaultParams, sameValue, sanitizeParams, sanitizeValue } from "./params.ts";
 import type { Clip, Effect, FitMode, Keyframe, ParamValue, ParamValues, Project, Vec2 } from "./types.ts";
+
+/**
+ * What a clip shows: media (video, image or sound), text, a solid colour, or
+ * nothing of its own (an adjustment layer, which changes what's below it).
+ */
+export type ClipKind = "media" | "text" | "solid" | "adjustment";
 
 /** What a clip is, which decides the effects it shows. */
 export interface ClipTraits {
@@ -34,8 +49,7 @@ export interface ClipTraits {
   visual: boolean;
   /** Has sound. */
   audible: boolean;
-  /** A text clip (no media). */
-  text: boolean;
+  kind: ClipKind;
 }
 
 export interface EffectDefinition {
@@ -54,17 +68,20 @@ export interface EffectDefinition {
 }
 
 /** Categories of video effects, in the order the Effects tab's filter shows them. */
-export const EFFECT_TAGS = ["color", "blur", "stylize", "distort", "camera", "glitch"] as const;
+export const EFFECT_TAGS = ["color", "blur", "light", "stylize", "distort", "camera", "glitch", "generate", "keying"] as const;
 
 export type EffectTag = (typeof EFFECT_TAGS)[number];
 
 export const EFFECT_TAG_LABELS: Record<EffectTag, string> = {
   color: "Color",
   blur: "Blur",
+  light: "Light",
   stylize: "Stylize",
   distort: "Distort",
   camera: "Camera",
   glitch: "Glitch",
+  generate: "Generate",
+  keying: "Keying",
 };
 
 export interface EffectShader {
@@ -99,8 +116,8 @@ export const MOTION: EffectDefinition = {
       kind: "choice",
       key: "fit",
       label: "Framing",
-      // Text is laid out at its own size; there's no frame to fit.
-      appliesTo: (c) => !c.text,
+      // Only media has a frame of its own to fit (text is laid out at its own size, the rest fills the canvas).
+      appliesTo: (c) => c.kind === "media",
       default: "contain",
       options: [
         { value: "contain", label: "Fit" },
@@ -134,6 +151,35 @@ export const MOTION: EffectDefinition = {
     { kind: "number", key: "rotation", label: "Rotation", default: 0, min: -36_000, max: 36_000, unit: "°", step: 1, decimals: 1 },
     // The point of the clip's frame that scaling and rotation happen around.
     { kind: "vec2", key: "anchor", label: "Anchor Point", default: [0.5, 0.5], space: "media", min: -10, max: 10, step: 1, decimals: 1 },
+    // What shows past the frame's edges (After Effects' Motion Tile): nothing, or the picture
+    // continued, so zooming out of or spinning a clip never shows the black behind it.
+    {
+      kind: "choice",
+      key: "edges",
+      label: "Edges",
+      appliesTo: (c) => c.kind !== "text",
+      default: "none",
+      options: [
+        { value: "none", label: "None" },
+        { value: "mirror", label: "Mirror" },
+        { value: "tile", label: "Tile" },
+        { value: "extend", label: "Extend" },
+      ],
+    },
+    // After Effects' layer motion blur: the frame is an average over the shutter's opening.
+    { kind: "boolean", key: "motionBlur", label: "Motion Blur", default: false },
+    {
+      kind: "number",
+      key: "shutterAngle",
+      label: "Shutter Angle",
+      disabledFor: (v) => v.motionBlur !== true,
+      default: 180,
+      min: 0,
+      max: 720,
+      unit: "°",
+      step: 5,
+      decimals: 0,
+    },
   ],
   // While scale is uniform the width follows it, so turning uniform scale off starts from the same size.
   adjust: (current, patch) => {
@@ -149,7 +195,11 @@ export const OPACITY: EffectDefinition = {
   label: "Opacity",
   builtIn: true,
   appliesTo: (c) => c.visual,
-  params: [{ kind: "number", key: "opacity", label: "Opacity", default: 1, min: 0, max: 1, slider: true, ...PERCENT }],
+  params: [
+    { kind: "number", key: "opacity", label: "Opacity", default: 1, min: 0, max: 1, slider: true, ...PERCENT },
+    // How the clip mixes with what's below it (Premiere's and After Effects' blend modes).
+    { kind: "choice", key: "blendMode", label: "Blend Mode", default: "normal", options: BLEND_MODES.map(({ value, label }) => ({ value, label })) },
+  ],
 };
 
 export const VOLUME: EffectDefinition = {
@@ -169,7 +219,7 @@ export const TEXT: EffectDefinition = {
   label: "Text",
   builtIn: false,
   alwaysOn: true,
-  appliesTo: (c) => c.text,
+  appliesTo: (c) => c.kind === "text",
   params: [
     { kind: "text", key: "text", label: "Text", default: "Text" },
     { kind: "font", key: "font", label: "Font", default: "Helvetica Neue" },
@@ -207,12 +257,26 @@ export const TEXT: EffectDefinition = {
 
 const off = (key: string) => (v: ParamValues) => !((v[key] as number) > 0);
 
+/** A solid's fill: a colour covering the canvas (at 100%), which generator effects draw over. */
+export const SOLID: EffectDefinition = {
+  type: "solid",
+  label: "Solid",
+  builtIn: false,
+  alwaysOn: true,
+  appliesTo: (c) => c.kind === "solid",
+  params: [
+    { kind: "color", key: "color", label: "Color", default: "#000000" },
+    // 0% is Premiere's Transparent Video: a clear layer for effects to draw on.
+    { kind: "number", key: "fill", label: "Fill", default: 1, min: 0, max: 1, slider: true, ...PERCENT, decimals: 0 },
+  ],
+};
+
 /** How a text clip's letters are painted: fill, stroke, a box behind them and a drop shadow. */
 export const APPEARANCE: EffectDefinition = {
   type: "appearance",
   label: "Appearance",
   builtIn: false,
-  appliesTo: (c) => c.text,
+  appliesTo: (c) => c.kind === "text",
   params: [
     { kind: "color", key: "fill", label: "Fill", default: "#ffffff" },
     { kind: "number", key: "strokeWidth", label: "Stroke", default: 0, min: 0, max: 200, ...PIXELS, step: 0.5, decimals: 1 },
@@ -230,13 +294,17 @@ export const APPEARANCE: EffectDefinition = {
 export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
   ...COLOR_EFFECTS,
   ...BLUR_EFFECTS,
+  ...LIGHT_EFFECTS,
   ...STYLIZE_EFFECTS,
+  ...DISTORT_EFFECTS,
   ...MOTION_EFFECTS,
   ...GLITCH_EFFECTS,
+  ...GENERATE_EFFECTS,
+  ...KEYING_EFFECTS,
 ];
 
 /** Every effect definition; built-in ones in the order they're listed (and applied). */
-export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, ...VIDEO_EFFECTS];
+export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, SOLID, ...VIDEO_EFFECTS];
 
 const byType = new Map(EFFECTS.map((d) => [d.type, d]));
 
@@ -270,6 +338,11 @@ export function defaultEffects(): Effect[] {
   return EFFECTS.filter((d) => d.builtIn).map((d) => sanitizeEffect(d, undefined, d.type));
 }
 
+/** A new solid's effects: the built-in ones, then Solid (with `params` over the defaults). */
+export function solidEffects(params: ParamValues = {}): Effect[] {
+  return [...defaultEffects(), sanitizeEffect(SOLID, { params }, SOLID.type)];
+}
+
 /** A new text clip's effects: the built-in ones, then Text (with `params` over the defaults) and Appearance. */
 export function textEffects(params: ParamValues = {}): Effect[] {
   return [
@@ -301,15 +374,16 @@ export function normalizeEffects(raw: unknown, legacy?: { volume?: unknown; fit?
   });
   const ids = new Set(builtIns.map((e) => e.id));
   const extras: Effect[] = [];
-  // Text clips carry Text and Appearance once each (Appearance added when missing).
+  // Text clips carry Text and Appearance once each (Appearance added when missing); a clip is text or a solid.
   const isText = stored.some((e) => e.type === TEXT.type);
   if (isText && !stored.some((e) => e.type === APPEARANCE.type)) stored.push({ type: APPEARANCE.type });
   const once = new Set<string>();
   for (const e of stored) {
     const def = byType.get(e.type)!;
     if (def.builtIn) continue;
+    if (def === SOLID && isText) continue;
     // Like built-ins, these are addressed by their type (`setParams(p, clipId, TEXT.type, ...)`).
-    if (def === TEXT || def === APPEARANCE) {
+    if (def === TEXT || def === APPEARANCE || def === SOLID) {
       if (once.has(def.type)) continue;
       once.add(def.type);
       ids.add(def.type);
@@ -386,6 +460,53 @@ export function opacityAt(clip: Clip, time: number): number {
 /** Whether a clip is text (drawn from its Text effect) rather than media. */
 export function isTextClip(clip: Pick<Clip, "effects">): boolean {
   return clip.effects.some((e) => e.type === TEXT.type);
+}
+
+/** Whether a clip is a solid (drawn from its Solid effect). */
+export function isSolidClip(clip: Pick<Clip, "effects">): boolean {
+  return clip.effects.some((e) => e.type === SOLID.type);
+}
+
+/** What a clip shows (see `ClipKind`). */
+export function clipKind(clip: Pick<Clip, "effects" | "adjustment">): ClipKind {
+  if (isTextClip(clip)) return "text";
+  if (isSolidClip(clip)) return "solid";
+  return clip.adjustment ? "adjustment" : "media";
+}
+
+/** Whether a clip plays a media file (rather than text, a solid or an adjustment layer, which have none). */
+export const hasMedia = (clip: Pick<Clip, "effects" | "adjustment">) => clipKind(clip) === "media";
+
+/** How a clip is mixed into the frame at source time `time`: See `Placed` in `compositor.ts`. */
+export interface Look {
+  opacity: number;
+  /** A `BLEND_MODES` value. */
+  blendMode: string;
+  edges: EdgeMode;
+  /** Shutter angle in degrees when motion blur is on, else 0. */
+  shutter: number;
+}
+
+export type EdgeMode = "none" | "mirror" | "tile" | "extend";
+
+/** A clip's opacity, blend mode, edges and motion blur at source time `time`. */
+export function lookAt(clip: Clip, time: number): Look {
+  const o = valuesAt(OPACITY, findEffect(clip, OPACITY.type), time);
+  const m = valuesAt(MOTION, findEffect(clip, MOTION.type), time);
+  return {
+    opacity: o.opacity as number,
+    blendMode: o.blendMode as string,
+    edges: m.edges as EdgeMode,
+    shutter: m.motionBlur === true ? (m.shutterAngle as number) : 0,
+  };
+}
+
+/** A solid's colour as premultiplied RGBA (0..1) at source time `time`. */
+export function solidColorAt(clip: Clip, time: number): [number, number, number, number] {
+  const v = valuesAt(SOLID, findEffect(clip, SOLID.type), time);
+  const n = Number.parseInt((v.color as string).slice(1), 16);
+  const a = v.fill as number;
+  return [(((n >> 16) & 255) / 255) * a, (((n >> 8) & 255) / 255) * a, ((n & 255) / 255) * a, a];
 }
 
 /** Everything that decides how a text clip looks, at one point in time. */

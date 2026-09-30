@@ -3,13 +3,14 @@
  * returns a new one (or the same instance when nothing changed), so they are
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
-import { isTextClip, textStyleAt } from "./effects.ts";
+import { clipKind, defaultEffects, hasMedia, solidEffects, textStyleAt } from "./effects.ts";
 import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
 import type {
   AspectRatio,
   Clip,
   ExportResolution,
   MediaAsset,
+  ParamValues,
   Project,
   Track,
   TrackKind,
@@ -115,9 +116,12 @@ export function isOnVideoTrack(project: Project, clip: Clip): boolean {
   return getTrack(project, clip.trackId)?.kind === "video";
 }
 
-/** What to call a clip: its text's first line, or its media's file name. */
+/** What to call a clip: its text's first line, its kind of layer, or its media's file name. */
 export function clipName(clip: Clip, asset: Pick<MediaAsset, "name"> | undefined): string {
-  if (isTextClip(clip)) return textStyleAt(clip, clip.in).text.trim().split("\n")[0].trim() || "Text";
+  const kind = clipKind(clip);
+  if (kind === "text") return textStyleAt(clip, clip.in).text.trim().split("\n")[0].trim() || "Text";
+  if (kind === "solid") return "Solid";
+  if (kind === "adjustment") return "Adjustment Layer";
   return asset?.name ?? "Media offline";
 }
 
@@ -161,7 +165,7 @@ export function sourceRange(asset: Pick<MediaAsset, "kind" | "duration">): { min
   return asset.kind === "image" ? { min: -Infinity, max: Infinity } : { min: 0, max: asset.duration };
 }
 
-/** A text clip has no media, so like a still it can be stretched either way. */
+/** A clip without media (text, a solid, an adjustment layer), like a still, can be stretched either way. */
 export const TEXT_SOURCE_RANGE = { min: -Infinity, max: Infinity } as const;
 
 /**
@@ -172,7 +176,7 @@ export function clipSourceRange(
   clip: Clip,
   asset: Pick<MediaAsset, "kind" | "duration"> | undefined,
 ): { min: number; max: number } {
-  if (isTextClip(clip)) return TEXT_SOURCE_RANGE;
+  if (!hasMedia(clip)) return TEXT_SOURCE_RANGE;
   return asset ? sourceRange(asset) : { min: clip.in, max: clip.out };
 }
 
@@ -227,9 +231,9 @@ export function fileTime(clip: Pick<Clip, "reversed">, s: number, duration: numb
   return clip.reversed ? duration - END_GUARD - s : s;
 }
 
-/** Can play at another speed or backwards: clips of videos and sounds (not stills or text). */
+/** Can play at another speed or backwards: clips of videos and sounds (not stills, text or other layers). */
 export function canRetime(clip: Clip, asset: Pick<MediaAsset, "kind"> | undefined): boolean {
-  return !isTextClip(clip) && !!asset && asset.kind !== "image";
+  return hasMedia(clip) && !!asset && asset.kind !== "image";
 }
 
 /**
@@ -440,6 +444,34 @@ export function addTextClip(project: Project, clip: Omit<Clip, "trackId">): { pr
     project: withClips(added.project, [...added.project.clips, { ...clip, trackId: added.trackId }]),
     trackId: added.trackId,
   };
+}
+
+/**
+ * A new solid (with `solid`'s values over the Solid defaults) or adjustment layer from
+ * timeline time `start`, `duration` long. Its source time runs from 0, so keyframes count
+ * from its start.
+ */
+export function newLayerClip(
+  kind: "adjustment" | "solid",
+  start: number,
+  duration: number,
+  solid: ParamValues = {},
+): Omit<Clip, "trackId"> {
+  const base = { id: createId("clip"), assetId: "", start: roundTime(Math.max(0, start)), in: 0, out: roundTime(Math.max(MIN_CLIP_DURATION, duration)) };
+  return kind === "solid" ? { ...base, effects: solidEffects(solid) } : { ...base, effects: defaultEffects(), adjustment: true };
+}
+
+/**
+ * Add a clip that goes over the picture (a solid or an adjustment layer): on the video
+ * track `trackId` when it's free there, else like text, on the top video track or a new
+ * one on top.
+ */
+export function addLayerClip(project: Project, clip: Omit<Clip, "trackId">, trackId?: string): { project: Project; trackId: string } {
+  const track = trackId ? getTrack(project, trackId) : undefined;
+  if (track?.kind === "video" && isFree(project, track.id, clip.start, clipDuration(clip as Clip))) {
+    return { project: withClips(project, [...project.clips, { ...clip, trackId: track.id }]), trackId: track.id };
+  }
+  return addTextClip(project, clip);
 }
 
 /** Add a clip right after the last clip on `trackId`. */
