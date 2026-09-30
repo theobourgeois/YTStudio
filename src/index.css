@@ -231,7 +231,8 @@
 html.desktop [data-titlebar] {
   -webkit-app-region: drag;
 }
-html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [role="button"], [contenteditable]) {
+/* Controls take their own presses (a slider or a scrolled value would otherwise move the window). */
+html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [role="button"], [role="slider"], [role="spinbutton"], [contenteditable], [data-no-drag]) {
   -webkit-app-region: no-drag;
 }
 html.desktop-darwin:not(.fullscreen) [data-titlebar="sidebar"],
