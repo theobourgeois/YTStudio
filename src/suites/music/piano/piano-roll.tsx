@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { PiCaretDownBold, PiEraser, PiGhost, PiKnife, PiMagnet, PiPaintBrush, PiPencilSimple, PiSelection, PiSpeakerHigh, PiSpeakerSlash } from "react-icons/pi";
+import { type ReactNode, useEffect, useRef } from "react";
+import { PiCaretDownBold, PiGhost, PiMagnet } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { noteBounds } from "@shared/music/notes";
@@ -25,6 +25,7 @@ import { onFade, vanishing } from "./fades";
 import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, wheelZoomFactor, zoomAt } from "./geometry";
 import { gridCursor, gridPointerDown, keysPointerDown, lanePointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
 import { type PianoTool, usePiano } from "./store";
+import { DeleteIcon, DrawIcon, MuteIcon, PaintIcon, PlaybackIcon, SelectIcon, SliceIcon } from "./tool-icons";
 
 const KEYS_W = 72;
 const RULER_H = 22;
@@ -32,14 +33,14 @@ const SCROLLBAR = 12;
 const MIN_W = 480;
 const MIN_H = 280;
 
-const TOOLS: { tool: PianoTool; label: string; key: string; icon: typeof PiPencilSimple }[] = [
-  { tool: "draw", label: "Draw", key: "P", icon: PiPencilSimple },
-  { tool: "paint", label: "Paint", key: "B", icon: PiPaintBrush },
-  { tool: "delete", label: "Delete", key: "D", icon: PiEraser },
-  { tool: "mute", label: "Mute", key: "T", icon: PiSpeakerSlash },
-  { tool: "slice", label: "Slice", key: "C", icon: PiKnife },
-  { tool: "select", label: "Select", key: "E", icon: PiSelection },
-  { tool: "playback", label: "Playback", key: "Y", icon: PiSpeakerHigh },
+const TOOLS: { tool: PianoTool; label: string; key: string; icon: (props: { className?: string }) => ReactNode }[] = [
+  { tool: "draw", label: "Draw", key: "P", icon: DrawIcon },
+  { tool: "paint", label: "Paint", key: "B", icon: PaintIcon },
+  { tool: "delete", label: "Delete", key: "D", icon: DeleteIcon },
+  { tool: "mute", label: "Mute", key: "T", icon: MuteIcon },
+  { tool: "slice", label: "Slice", key: "C", icon: SliceIcon },
+  { tool: "select", label: "Select", key: "E", icon: SelectIcon },
+  { tool: "playback", label: "Playback", key: "Y", icon: PlaybackIcon },
 ];
 
 const EMPTY: Note[] = [];
@@ -110,7 +111,7 @@ function PianoControls() {
             className={cn("grid size-5.5 place-items-center rounded-sm", tool === id ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
             onClick={() => usePiano.getState().setTool(id)}
           >
-            <Icon className="size-3.5" />
+            <Icon className="size-4" />
           </button>
         ))}
       </div>
