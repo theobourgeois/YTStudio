@@ -3,7 +3,7 @@
  * returns a new one (or the same instance when nothing changed), so they are
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
-import { cameraEffects, clipKind, defaultEffects, hasMedia, isRemapped, solidEffects, textStyleAt } from "./effects.ts";
+import { cameraEffects, clipKind, defaultEffects, hasMedia, isRemapped, shapeEffects, solidEffects, textStyleAt } from "./effects.ts";
 import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
 import { pruneParents } from "./parenting.ts";
 import type {
@@ -122,6 +122,7 @@ export function clipName(clip: Clip, asset: Pick<MediaAsset, "name"> | undefined
   const kind = clipKind(clip);
   if (kind === "text") return textStyleAt(clip, clip.in).text.trim().split("\n")[0].trim() || "Text";
   if (kind === "solid") return "Solid";
+  if (kind === "shape") return "Shape";
   if (kind === "adjustment") return "Adjustment Layer";
   if (kind === "camera") return "Camera";
   if (kind === "null") return "Null";
@@ -369,7 +370,7 @@ export function nearestPoint(points: readonly number[], time: number): number {
 // Snapping
 // ---------------------------------------------------------------------------
 
-/** Candidate snap targets: 0, the playhead and every clip edge (except `exclude`d clips). */
+/** Candidate snap targets: 0, the playhead, every marker and every clip edge (except `exclude`d clips and their markers). */
 export function snapPoints(
   project: Project,
   playhead: number,
@@ -377,10 +378,17 @@ export function snapPoints(
 ): number[] {
   const skip = typeof exclude === "string" ? new Set([exclude]) : exclude;
   const pts = new Set<number>([0, roundTime(playhead)]);
+  for (const m of project.markers ?? []) pts.add(roundTime(m.time));
   for (const c of project.clips) {
     if (skip.has(c.id)) continue;
+    const end = clipEnd(c);
     pts.add(roundTime(c.start));
-    pts.add(roundTime(clipEnd(c)));
+    pts.add(roundTime(end));
+    // Its own markers, where they show (they're in source time).
+    for (const m of c.markers ?? []) {
+      const t = roundTime(timelineTime(c, m.time));
+      if (t > c.start + EPS && t < end - EPS) pts.add(t);
+    }
   }
   return [...pts];
 }
@@ -461,7 +469,7 @@ export function addTextClip(project: Project, clip: Omit<Clip, "trackId">): { pr
  * from its start.
  */
 /** Clips without media that are made from the Layer menu. */
-export type LayerKind = "adjustment" | "solid" | "camera" | "null";
+export type LayerKind = "adjustment" | "solid" | "shape" | "camera" | "null";
 
 export function newLayerClip(
   kind: LayerKind,
@@ -471,6 +479,7 @@ export function newLayerClip(
 ): Omit<Clip, "trackId"> {
   const base = { id: createId("clip"), assetId: "", start: roundTime(Math.max(0, start)), in: 0, out: roundTime(Math.max(MIN_CLIP_DURATION, duration)) };
   if (kind === "solid") return { ...base, effects: solidEffects(params) };
+  if (kind === "shape") return { ...base, effects: shapeEffects(params) };
   if (kind === "camera") return { ...base, effects: cameraEffects(params) };
   if (kind === "null") return { ...base, effects: defaultEffects(), nullObject: true };
   return { ...base, effects: defaultEffects(), adjustment: true };

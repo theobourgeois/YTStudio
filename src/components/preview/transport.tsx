@@ -3,8 +3,11 @@ import {
   PiCaretLineLeft,
   PiCaretLineRight,
   PiCursor,
+  PiCircle,
   PiPauseFill,
+  PiPenNib,
   PiPlayFill,
+  PiRectangle,
   PiSkipBack,
   PiSkipForward,
   PiTextT,
@@ -112,12 +115,15 @@ function ResolutionPicker() {
   );
 }
 
-/** The canvas tools, like Premiere's Selection and Type tools. */
+/** The canvas tools, like Premiere's Selection, Type, Pen, Rectangle and Ellipse tools. */
 function CanvasTools() {
   const tool = useLayout((s) => s.tool);
   const tools: { id: CanvasTool; label: string; shortcut: string; icon: ReactNode }[] = [
     { id: "select", label: "Selection tool", shortcut: SHORTCUT_KEYS.selectTool, icon: <PiCursor /> },
     { id: "text", label: "Type tool: click the canvas to add text", shortcut: SHORTCUT_KEYS.textTool, icon: <PiTextT /> },
+    { id: "pen", label: "Pen tool: draw a mask on the selected clip, or a shape", shortcut: SHORTCUT_KEYS.penTool, icon: <PiPenNib /> },
+    { id: "rectangle", label: "Rectangle tool: drag a mask on the selected clip, or a shape", shortcut: SHORTCUT_KEYS.rectangleTool, icon: <PiRectangle /> },
+    { id: "ellipse", label: "Ellipse tool: drag a mask on the selected clip, or a shape", shortcut: SHORTCUT_KEYS.ellipseTool, icon: <PiCircle /> },
   ];
   return (
     <div role="toolbar" aria-label="Canvas tools" className="flex items-center gap-0.5 rounded-md bg-muted p-0.5">

@@ -8,16 +8,22 @@
  */
 import type { VideoToolName } from "@shared/assistant-tools";
 import { type ToolContent, type ToolResult, textResult } from "@shared/tool-spec";
+import { beatMarkerCount, beatMarks, setBeatMarkers } from "@shared/beat-sync";
 import { captionClips, captionSourceClips } from "@shared/captions";
+import { isRemapped } from "@shared/effects";
+import { clipMarkers } from "@shared/markers";
 import { errorMessage } from "@shared/errors";
 import { templateFromClips, templateFromSubclip } from "@shared/library";
 import { clamp } from "@shared/math";
 import { getSequence } from "@shared/sequences";
 import { getSubclip } from "@shared/subclips";
 import { placeTemplate } from "@shared/library";
-import { clipEnd, getClip, projectDuration, timelineTime } from "@shared/timeline";
+import { clipEnd, getClip, projectDuration, timelineTime, outputSize } from "@shared/timeline";
 import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, Project, TranscriptionEngineId, TranscriptionJob } from "@shared/types";
-import { drawTexts } from "@/components/export/draw-texts";
+import { layoutTexts } from "@/components/export/layout-texts";
+import { clipsOnCanvas } from "@/components/preview/placement";
+import { fontsSettled } from "@/stores/fonts";
+import { describeLayout } from "./layout";
 import { api } from "@/lib/api";
 import { useAssistant } from "@/stores/assistant";
 import { type CaptionOptions, captionsFor, useCaptions } from "@/stores/captions";
@@ -191,6 +197,16 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const content = doc.isOpen ? await programFrames(at, width, ctx.signal) : await offscreenFrames(doc, at, width, ctx.signal);
     return { content };
   },
+  async get_layout(input, ctx) {
+    const doc = await ctx.doc();
+    const time = optNumber(input, "time", { min: 0 }) ?? doc.playhead;
+    const only = optStrings(input, "clipIds");
+    if (only) clipsOf(doc.project, only);
+    // Texts are measured in their real fonts.
+    await fontsSettled();
+    const canvas = outputSize(doc.project.settings.aspectRatio, "1080p");
+    return textResult(describeLayout(clipsOnCanvas(doc.project, [...doc.assets], canvas, time), byId(doc.assets), canvas, time, only));
+  },
   async view_media(input, ctx) {
     const doc = await ctx.doc();
     const assetId = string(input, "assetId");
@@ -281,6 +297,40 @@ const TOOLS: Record<VideoToolName, Handler> = {
     const music = await api.analyseMusic(asset.id, { from, to }, ctx.signal);
     return textResult(describeMusic(`"${asset.name}" (${asset.id})`, music, 0, { start: from, end: to }, false));
   },
+  async mark_beats(input, ctx) {
+    const doc = await ctx.doc();
+    const clipId = string(input, "clipId");
+    const [clip] = clipsOf(doc.project, [clipId]);
+    const before = doc.project;
+    if (optBoolean(input, "clear")) {
+      const had = beatMarkerCount(clip);
+      if (doc.isOpen) await gesturesSettled(ctx.signal);
+      doc.commit(setBeatMarkers(doc.project, clipId, []));
+      return textResult(had ? `Removed ${had} beat markers from ${clipId}.` : `${clipId} has no beat markers.`, finishEdit(doc, before, ctx));
+    }
+    const asset = doc.asset(clip.assetId);
+    if (!asset?.hasAudio) throw new ToolError(`${clipId} has no sound. Give the clip with the music.`);
+    if (isRemapped(clip)) throw new ToolError(`${clipId} is time-remapped, so its beats aren't steady. Use analyze_music and set_markers instead.`);
+    const which = oneOf(input, "marks", ["beats", "bars", "drops"] as const) ?? "beats";
+    ctx.progress(null, "Listening for the beat");
+    const music = await api.analyseMusic(asset.id, { from: clip.in, to: clip.out }, ctx.signal);
+    const marks = beatMarks(music, which);
+    if (!marks.length) {
+      throw new ToolError(which === "drops" ? `No drops were found in ${clipId}. Try marks "bars".` : `No steady beat was found in ${clipId}: it may not be music. Place markers yourself with set_markers.`);
+    }
+    if (doc.isOpen) await gesturesSettled(ctx.signal);
+    // (Its clip as it is now: the listening took a while.)
+    if (!getClip(doc.project, clipId)) throw new ToolError(`${clipId} was deleted meanwhile.`);
+    doc.commit(setBeatMarkers(doc.project, clipId, marks));
+    const now = getClip(doc.project, clipId)!;
+    const times = clipMarkers(now).filter((m) => m.marker.beat).map((m) => m.time);
+    return textResult(
+      `Marked ${times.length} ${which} on ${clipId} "${asset.name}" ${music.bpm ? ` (${Math.round(music.bpm)} BPM${music.confidence < 0.4 ? ", a weak beat: check by ear" : ""})` : ""}. ` +
+        `Timeline times: ${times.slice(0, 200).map(secs).join(", ")}${times.length > 200 ? `, … ${times.length - 200} more` : ""}.\n` +
+        "They're markers on the clip now (they move with it). cut_to_markers ends clips on them.",
+      finishEdit(doc, before, ctx),
+    );
+  },
   async detect_scenes(input, ctx) {
     const doc = await ctx.doc();
     const asset = doc.asset(string(input, "assetId"));
@@ -295,7 +345,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     );
   },
   async get_catalog(input) {
-    const kind = oneOf(input, "kind", ["video_effects", "presets", "transitions", "clip_properties", "caption_styles", "fonts"] as const) as CatalogKind | undefined;
+    const kind = oneOf(input, "kind", ["video_effects", "masks_and_shapes", "text_animators", "expressions", "presets", "transitions", "clip_properties", "caption_styles", "fonts"] as const) as CatalogKind | undefined;
     if (!kind) throw new ToolError("`kind` is required.");
     const fonts = kind === "fonts" ? await api.listFonts() : [];
     return textResult(describeCatalog(kind, optString(input, "query"), fonts));
@@ -328,6 +378,9 @@ const TOOLS: Record<VideoToolName, Handler> = {
   add_text: edit("add_text"),
   add_layer: edit("add_layer"),
   set_parent: edit("set_parent"),
+  set_markers: edit("set_markers"),
+  cut_to_markers: edit("cut_to_markers"),
+  set_expression: edit("set_expression"),
   nest_clips: edit("nest_clips"),
   break_apart: edit("break_apart"),
   edit_sequence: edit("edit_sequence"),
@@ -581,7 +634,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     if (project.clips.length === 0) throw new ToolError("The timeline is empty: there's nothing to export.");
     const resolution: ExportResolution = oneOf(input, "resolution", ["720p", "1080p", "4k"] as const) ?? "1080p";
     ctx.progress(null, "Preparing");
-    const texts = await drawTexts(project, resolution);
+    const texts = await layoutTexts(project, resolution);
     let job: ExportJob = await api.startExport({
       project,
       resolution,

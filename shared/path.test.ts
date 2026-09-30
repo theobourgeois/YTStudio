@@ -175,6 +175,11 @@ describe("lengths", () => {
     near(pointAtLength(line, 1000)!.point, [100, 100]);
   });
 
+  it("pointAtLength is even along straight segments too (which ease in and out in their parameter)", () => {
+    const line = polygonPath([[0, 0], [100, 0]], false);
+    for (const d of [10, 25, 50, 75, 90]) near(pointAtLength(line, d)!.point, [d, 0], 4);
+  });
+
   it("pointAtLength wraps around a closed path and follows a circle", () => {
     const c = circle(100);
     const total = pathLength(c);

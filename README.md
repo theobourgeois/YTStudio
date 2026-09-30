@@ -59,7 +59,11 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Undo / redo | ⌘Z / ⇧⌘Z |
 | Select on the canvas | Click a clip in the preview (the topmost one under the pointer); click empty canvas, or anywhere around it, to deselect |
 | Move / scale / rotate | Drag the selected clip on the canvas; drag a handle to scale around the anchor point (⇧ stretches instead of keeping the proportions); drag just outside a corner to rotate (⇧ = 15° steps); drag the crosshair to move the anchor point. ⇧ keeps a move on one axis, ⌥ turns snapping off |
-| Text | `T` (or the **T** button under the preview), then click the canvas where the text goes and type; `Esc` when done. Double-click a text to type into it again. Font (any font installed on your computer), style, size, colours, stroke, background box and shadow are in **Properties** |
+| Text | `T` (or the **T** button under the preview), then click the canvas where the text goes and type; `Esc` when done. Double-click a text to type into it again. Font (any font installed on your computer), style, size, colours, stroke, background box and shadow are in **Properties**; **Animator** there animates it letter by letter. See [Text animators](#text-animators) |
+| Masks | Select a clip, then **Mask** at the bottom of its Properties (a rectangle or an ellipse), or draw one on the canvas with the Pen (`P`), Rectangle (`R`) or Ellipse (`E`) tool. See [Masks](#masks) |
+| Shapes | With nothing selected, the Pen, Rectangle and Ellipse tools draw a shape layer instead (or **Layer** → **Shape layer**). See [Shape layers](#shape-layers) |
+| Markers | `M` at the playhead: on the selected clip under it, else on the timeline. `⇧M` / `⇧⌘M` go to the next / previous one, `⌥M` deletes the one at the playhead. See [Markers](#markers) |
+| Expressions | `⌥`-click a property's stopwatch (or right-click its name) to drive it with a short script like `wiggle(2, 5)`. See [Expressions](#expressions) |
 | Properties | **Properties** tab (or double-click a clip): drag a blue number sideways to change it (⇧ faster, ⌥ finer), click it to type, ↺ resets |
 | Left panel width | Drag its right edge (or focus it and use ←/→); double-click the edge for the usual width. It remembers a separate width for when the keyframes show |
 | Video effects | **Effects** tab → **Video effects**: drag one onto a clip (on the timeline or the canvas), or select clips and press **+**. Change, animate, reorder (⋯) or remove it in **Properties** |
@@ -134,6 +138,100 @@ Both go on a track above what they should affect. Clicks on the canvas go throug
 - **Track mattes:** a clip's Opacity **Track Matte** (Alpha, Alpha Inverted, Luma, Luma Inverted) shows it only through
   the clip on the video track right above it, which then isn't drawn itself: video inside text, text reveals, wipes
   with a moving shape.
+
+### Masks
+
+A mask keeps only part of a clip's picture (After Effects' masks): anything with a picture can have any number of
+them, and an adjustment layer's masks say where it changes what's below it.
+
+- **Mask** at the bottom of a clip's Properties adds a **Rectangle** or an **Ellipse**; or draw one straight on the
+  canvas with a clip selected: the **Rectangle** (`R`) and **Ellipse** (`E`) tools drag one out (`⇧` keeps it
+  square), and the **Pen** (`P`) places it point by point: click for a corner, drag to pull out curve handles,
+  click the first point to close it (`Enter` or `Esc` stops).
+- A mask's points show on the canvas while it's being edited (**Edit** on its **Mask Path** row, or click its
+  outline): drag points, a segment or a curve's handles (`⌥`-drag moves one handle on its own), `⌥`-click a point
+  to turn a corner into a smooth point and back, `⇧`-click to select several, `⌫` deletes the selected ones. With
+  the Pen, click the outline to add a point. Click anywhere else to go back to moving the clip.
+- Each mask has a **Mode** (Add, Subtract, Intersect: they combine in order), **Inverted**, **Feather** (a soft
+  edge), **Mask Opacity** and **Expansion** (grown or shrunk). The ⋯ menu reorders and removes them.
+- The **Mask Path** has a stopwatch like any property: keyframed, the mask morphs from one shape to the next (a
+  wipe, a reveal, following something by hand). Masks cut the picture out before its video effects run, and they
+  export exactly as they preview.
+
+### Shape layers
+
+A shape layer draws vector shapes (After Effects' shape layers): boxes and pills behind text, circles, lines,
+badges, animated strokes. It's a clip on a video track, with Motion, Opacity, effects, masks and transitions like
+any other.
+
+- **Layer** → **Shape layer**, or draw one: with nothing selected, the **Rectangle** (`R`), **Ellipse** (`E`) and
+  **Pen** (`P`) tools make a new shape layer; with a shape layer selected they add a shape to it.
+- Each **Shape** is a Rectangle, Ellipse, Polygon, Star or a drawn Path, with its position, size, rotation and
+  roundness, a **fill** (a colour, or a linear or radial gradient to a second colour) and a **stroke** (width,
+  colour, join, cap, dashes). Everything that's a number is animatable.
+- **Shape** at the bottom of its Properties adds more shapes and the operators, which change every shape before
+  them in the list: **Trim Paths** (animate End from 0% to 100% to draw a line on), **Repeater** (copies, each
+  moved, scaled, turned and faded a bit more), **Offset Paths**, **Round Corners**, **Wiggle Paths**, **Zig Zag**
+  and **Merge Paths** (add, subtract, intersect or exclude the shapes so far). Reorder them with each one's ⋯ menu.
+- On the canvas the handles go around what the layer draws, and a click only selects it on its shapes. Shapes are
+  drawn by the browser at whatever size they're shown, so they stay sharp at any scale, in the export too.
+
+### Text animators
+
+An **Animator** (at the bottom of a text's Properties) changes part of a text, After Effects' way: a **range**
+over its characters, words or lines (Start, End, Offset), and what the letters inside it get: Position, Scale,
+Rotation, Opacity, Blur, Tracking and a Fill Color. Animate the range and the change sweeps across the text.
+
+- The menu has ready-made ones, their range already keyframed from the clip's start (longer for longer texts):
+  **Fade in by character**, **Typewriter**, **Pop in by word**, **Rise by word**, **Slide up by line**, **Blur in
+  by character**, **Drop in by character**, **Tracking in**. **Blank animator** starts from nothing.
+- **Shape** says how the change falls off across the range: all at once (Square), building up or fading out
+  (Ramp Up / Down, for soft reveals), or peaking in the middle (Triangle, Round, Smooth: a wave running along).
+  **Random Order** picks the letters out of order.
+- A text can have several animators, and they're ordinary properties: keyframes, the graph editor and expressions
+  all work on them. Captions use them to follow the speech (see [Auto captions](#auto-captions)).
+
+### Markers
+
+Markers are named points in time (Premiere's): for beats, cues and notes.
+
+- `M` adds one at the playhead: on the **selected clip** when the playhead is on it (a clip marker, which stays on
+  its frame when the clip moves, is trimmed or split), otherwise on the **timeline's ruler**.
+- Click a marker to go to it; **double-click** it (or press `M` on it) for its name and colour; drag a ruler
+  marker to move it. `⇧M` and `⇧⌘M` jump to the next and previous marker, `⌥M` deletes the one at the playhead.
+- Clips, trims, keyframes and markers themselves **snap** to markers. Each nested sequence has its own.
+
+### Beat sync
+
+Cutting on the beat, without placing the beats by hand:
+
+- Right-click a clip with music → **Mark beats** → **Every beat**, **Every bar** or **Drops only**. The editor
+  listens to the song and puts its beats on the clip as markers (bars in blue, drops in red and named), so clips,
+  trims, keyframes and the playhead snap to them. They stay on the music when the clip moves or is trimmed.
+  **Clear beat markers** removes them and keeps the markers you added yourself.
+- Select the clips to cut (lay them out back to back first), right-click → **Cut to the beat**: **Nearest marker**
+  ends each clip on the marker closest to where it ends now; **Every marker / 2 / 4 / 8 markers** gives each clip
+  that many beats. Clips after them on the track move along, so every cut lands on a marker. A clip is never made
+  longer than its media. It cuts to any marker, so markers you tapped in with `M` work too.
+
+### Expressions
+
+An expression is a short script on a property (After Effects' expressions): it runs for every frame, and its
+result is the property's value then. Motion that would take dozens of keyframes is one line.
+
+- `⌥`-click a number's or point's **stopwatch**, or right-click its name → **Add expression**. A box opens under
+  it, starting with `value` (what the property would be without the expression: its own value or keyframes).
+  Under the box is what it gives at the playhead, or what's wrong with it.
+- The **ƒ** menu has examples sized for the property: `wiggle(2, 5)` (shake: twice a second, by up to 5),
+  `loopOut("cycle")` / `loopOut("pingpong")` (repeat the keyframes for the rest of the clip), `value + time * 90`
+  (keep turning), `value + Math.sin(time * 3) * 5` (swing), `posterizeTime(12); value` (stutter).
+- The **pick-whip** (the spiral) links properties: drag it onto another property of the clip and the expression
+  reads it, e.g. `prop("motion.rotation") / 360` on Opacity.
+- It's JavaScript-like (numbers, `[x, y]` points, `+ - * /`, `?:`, `if`/`else`, variables, `Math`) with After
+  Effects' helpers (`wiggle`, `loopIn`/`loopOut`, `linear`, `ease`, `clamp`, `random`, `noise`, `valueAtTime`...),
+  but it isn't run as JavaScript: the editor interprets it itself, so a project (or the assistant) can't run code
+  on your computer. `time` is the clip's own clock in seconds, the one its keyframes are in. Everything random is
+  repeatable, so the export matches the preview. Volume can't have one.
 
 ### Nested sequences
 
@@ -223,7 +321,10 @@ what's said (word-timed transcripts), silences and loudness, a song's tempo, bea
 the effects and transitions available, and the Library. So "cut this to the music" puts the cuts on the bars and the
 big moment on the drop. It can search online like the Online tab ("use Blinding Lights as the music" finds the song,
 downloads its sound and puts it under the video). And it can do what you can: add, move, trim, split and delete clips, set any property and keyframe
-it, add effects and transitions, add text and captions, import files or links, organise the Library, and export.
+it, add effects and transitions, add text and captions, mask clips, build shape layers, animate text letter by
+letter, write expressions, set markers, mark a song's beats and cut clips to them, import files or links, organise
+the Library, and export. It can also measure the canvas (where each clip, and each text's letters, sit in pixels), so
+"put a box behind the title" fits the title.
 
 - Every step shows in the chat as it runs; what it changes flashes on the timeline, and a pill over the preview says
   what it's doing. Click a step for its details, or the ⌖ on it to select what it changed.
@@ -252,7 +353,10 @@ editor tab you used last (the editor must be open in a browser), and a notice th
 **Captions** (the timeline toolbar, the **Captions** tab, or right-click a clip) listens to the selected clips, or the
 whole timeline, and writes what's said as captions timed to the speech. Choose the language (or let it detect it), a
 style (Clean, Bold, Yellow, Boxed, Rounded, Subtitle), how long each caption is (one word, a few words, a line, two
-lines), an animation (Pop, Fade, Rise, Blur, Glitch or any transition) and whether to keep punctuation. You can close
+lines), an animation and whether to keep punctuation. **Word by word**, **Highlight** and **Bounce** follow the
+speech: each word appears as it's said, or the word being said is coloured or grows (a text animator on each
+caption, stepping from word to word at the times they're spoken). Pop, Fade, Rise, Blur, Glitch or any transition
+play as each caption appears instead. You can close
 the dialog while it works. The captions land on a **Captions** track on top, as one undoable step.
 
 The **Captions** tab edits them all at once: a preset, the animation, and the Text, Appearance and Motion values
@@ -354,7 +458,20 @@ Premiere:
   from it), **Ease In and Out** or **Hold** (keeps its value until the next keyframe), and for an eased one its
   **Influence** (After Effects' keyframe velocity): 33% is Premiere's ease; 75–100% hangs near the keyframes and
   whips through the middle, the snappy curve of edit-style zooms and spins.
-- Keyframed clips show marks on the timeline, and an animated position draws its motion path on the canvas.
+- The same menu has three ways of **arriving** at a keyframe with a movement of its own, which would otherwise take
+  several keyframes: **Overshoot** (goes past the value and settles back; its Influence is how far), **Spring**
+  (swings around it and comes to rest; its Influence is how many swings) and **Bounce** (drops onto it and bounces).
+  Such a keyframe shows a zigzag on its left side. Dragging a handle in the graph editor takes over the curve.
+- **Copy and paste:** with keyframes selected, `⌘C` copies them and `⌘V` pastes them with the first at the
+  playhead, on the same properties of whichever clip is selected. Right-click another property's lane → **Paste
+  onto…** to put one property's keyframes on another (a number's on a number, a point's on a point).
+- **Easy Ease:** `F9` eases the selected keyframes in and out (`⇧F9` in, `⇧⌘F9` out). **Stretch:** `⌥`-drag the
+  first or last of several selected keyframes to scale their timing about the other end. **Rove across time**
+  (right-click, three or more selected) re-times the ones in between so the value travels at one even speed.
+- Keyframed clips show marks on the timeline, and an animated position draws its **motion path** on the canvas,
+  with a dot for each keyframe: drag a dot to move that keyframe, `⌥`-click it to make the path pass smoothly
+  through it (or straight again), and drag the handles that appear to bend the path (`⌥` moves one on its own).
+  The clip keeps an even pace along a curved path; the easing still shapes it in time.
 - **Graph editor:** with the keyframes shown, the chart button at the end of a number's (or point's) row opens its
   graph below it: the **Value** graph draws the curve, the **Speed** graph how fast it changes. Drag keyframes (in
   time, and in the value graph up and down), and drag each keyframe's **Bézier handles** to shape the curve, like

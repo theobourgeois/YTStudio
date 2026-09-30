@@ -2,15 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   adjacentKeyframe,
   clipKeyframes,
+  copyKeyframes,
   deleteKeyframes,
   keyframeTime,
   keyframeTimes,
   moveKeyframes,
+  pasteKeyframes,
+  roveKeyframes,
+  scaleKeyframes,
   setAnimated,
   setKeyframeEasing,
   setKeyframeInfluence,
+  setKeyframeSpatial,
+  smoothMotionPath,
   toggleKeyframe,
 } from "./animation.ts";
+import { keyframeDistance } from "./keyframes.ts";
 import { defaultEffects, findEffect, motionAt, setParams } from "./effects.ts";
 import { MAIN_TRACK_ID, createDefaultProject } from "./timeline.ts";
 import type { Clip, Keyframe, Project } from "./types.ts";
@@ -123,5 +130,112 @@ describe("keyframe edits", () => {
     expect(motion(eased).keyframes!.rotation.map((kf) => kf.easing)).toEqual(["linear", "ease", "linear"]);
     expect(motionAt(eased.clips[0], 11).rotation).toBeGreaterThan(22.5);
     expect(setKeyframeEasing(eased, "c", [{ effectId: "motion", key: "rotation", time: 12 }], "ease")).toBe(eased);
+  });
+});
+
+describe("motion paths", () => {
+  const ref = (time: number) => ({ effectId: "motion", key: "position", time });
+  const straight = project(clip({ position: [k(10, [0, 0]), k(12, [1, 0]), k(14, [1, 1])] }));
+
+  it("bend a point's travel with spatial handles, still reaching each keyframe on time", () => {
+    // Leaving the first keyframe downwards: the path bows below the straight line.
+    const bent = setKeyframeSpatial(straight, "c", ref(10), { out: [0, 0.5] });
+    expect(motion(bent).keyframes!.position[0].spatialOut).toEqual([0, 0.5]);
+    expect(motionAt(bent.clips[0], 10).position).toEqual([0, 0]);
+    expect(motionAt(bent.clips[0], 12).position).toEqual([1, 0]);
+    const mid = motionAt(bent.clips[0], 11).position;
+    expect(mid[1]).toBeGreaterThan(0.1);
+    // The straight stretch after it is as it was.
+    expect(motionAt(bent.clips[0], 13).position).toEqual([1, 0.5]);
+    // Even pace along the curve: the halfway point in time is halfway along its length.
+    const [a, b] = motion(bent).keyframes!.position;
+    const total = keyframeDistance(a, b);
+    expect(total).toBeGreaterThan(1);
+    let walked = 0;
+    let prev = motionAt(bent.clips[0], 10).position;
+    for (let i = 1; i <= 200; i++) {
+      const at = motionAt(bent.clips[0], 10 + i / 200).position;
+      walked += Math.hypot(at[0] - prev[0], at[1] - prev[1]);
+      prev = at;
+    }
+    expect(walked).toBeCloseTo(total / 2, 2);
+    // Clearing the handle straightens it; the same handles change nothing.
+    expect(setKeyframeSpatial(bent, "c", ref(10), { out: [0, 0.5] })).toBe(bent);
+    expect(motion(setKeyframeSpatial(bent, "c", ref(10), { out: null })).keyframes!.position[0]).not.toHaveProperty("spatialOut");
+    // Not on numbers.
+    const spin = project(clip({ rotation: [k(10, 0), k(12, 90)] }));
+    expect(setKeyframeSpatial(spin, "c", { effectId: "motion", key: "rotation", time: 10 }, { out: [1, 1] })).toBe(spin);
+  });
+
+  it("smooth a keyframe along the line between its neighbours, and straighten it again", () => {
+    const smooth = smoothMotionPath(straight, "c", [ref(12)], true);
+    const corner = motion(smooth).keyframes!.position[1];
+    // Its neighbours are at (0, 0) and (1, 1): the handles run along that diagonal, a third of the way to each.
+    expect(corner.spatialIn![0]).toBeCloseTo(-corner.spatialIn![1] * -1);
+    expect(Math.hypot(...corner.spatialIn!)).toBeCloseTo(1 / 3);
+    expect(corner.spatialOut![0]).toBeCloseTo(corner.spatialOut![1]);
+    expect(corner.spatialOut![0]).toBeGreaterThan(0);
+    // The path now cuts the corner's outside: before it, the point swings past x = 1.
+    expect(Math.max(...[11.6, 11.8, 12.2, 12.4].map((t) => motionAt(smooth.clips[0], t).position[0]))).toBeGreaterThan(1);
+    expect(smoothMotionPath(smooth, "c", [ref(12)], false)).toEqual(straight);
+    expect(smoothMotionPath(straight, "c", [ref(12)], false)).toBe(straight);
+    // The ends get one handle each.
+    const ends = motion(smoothMotionPath(straight, "c", [ref(10), ref(14)], true)).keyframes!.position;
+    expect([!!ends[0].spatialIn, !!ends[0].spatialOut, !!ends[2].spatialIn, !!ends[2].spatialOut]).toEqual([false, true, true, false]);
+  });
+});
+
+describe("keyframe workflow", () => {
+  const ref = (key: string, time: number) => ({ effectId: "motion", key, time });
+  const p = project(clip({ position: [k(10, [0, 0]), k(11, [1, 0], "ease"), k(14, [1, 1])], rotation: [k(10, 0), k(12, 90)] }));
+
+  it("copies keyframes and pastes them at another time, on the same properties", () => {
+    const copied = copyKeyframes(p.clips[0], [ref("position", 11), ref("position", 14), ref("rotation", 12)])!;
+    // Times count from the first keyframe copied.
+    expect(copied.items.map((i) => [i.key, i.keys.map((kf) => kf.time)])).toEqual([["position", [0, 3]], ["rotation", [1]]]);
+    const pasted = pasteKeyframes(p, "c", copied, 15);
+    expect(times(pasted.project, "position")).toEqual([[10, [0, 0]], [11, [1, 0]], [14, [1, 1]], [15, [1, 0]], [18, [1, 1]]]);
+    expect(times(pasted.project, "rotation")).toEqual([[10, 0], [12, 90], [16, 90]]);
+    expect(motion(pasted.project).keyframes!.position[3].easing).toBe("ease");
+    expect(pasted.refs).toEqual([ref("position", 15), ref("position", 18), ref("rotation", 16)]);
+    // Pasting over keyframes replaces them.
+    expect(times(pasteKeyframes(p, "c", copied, 11).project, "position")).toEqual([[10, [0, 0]], [11, [1, 0]], [14, [1, 1]]]);
+    expect(copyKeyframes(p.clips[0], [ref("scale", 10)])).toBeNull();
+  });
+
+  it("pastes onto another clip, and one property's keyframes onto another property of the same kind", () => {
+    const other: Clip = { ...clip(), id: "d", start: 20, in: 0, out: 5 };
+    const both: Project = { ...p, clips: [...p.clips, other] };
+    const copied = copyKeyframes(p.clips[0], [ref("rotation", 10), ref("rotation", 12)])!;
+    const across = pasteKeyframes(both, "d", copied, 1);
+    expect(findEffect(across.project.clips[1], "motion")!.keyframes!.rotation.map((kf) => [kf.time, kf.value])).toEqual([[1, 0], [3, 90]]);
+    // Rotation's keyframes onto Scale (both numbers): the values are limited to what Scale takes.
+    const onto = pasteKeyframes(p, "c", copied, 10, { effectId: "motion", key: "scale" });
+    expect(times(onto.project, "scale")).toEqual([[10, 0], [12, 90]]);
+    expect(onto.refs).toEqual([ref("scale", 10), ref("scale", 12)]);
+    // A number's can't go onto a point, and only one property's at a time.
+    expect(pasteKeyframes(p, "c", copied, 10, { effectId: "motion", key: "position" }).project).toBe(p);
+    const two = copyKeyframes(p.clips[0], [ref("rotation", 10), ref("position", 10)])!;
+    expect(pasteKeyframes(p, "c", two, 10, { effectId: "motion", key: "scale" }).project).toBe(p);
+  });
+
+  it("stretches keyframes about a pivot", () => {
+    const refs = [ref("position", 10), ref("position", 11), ref("position", 14)];
+    expect(times(scaleKeyframes(p, "c", refs, 10, 2), "position")!.map(([t]) => t)).toEqual([10, 12, 18]);
+    expect(times(scaleKeyframes(p, "c", refs, 14, 0.5), "position")!.map(([t]) => t)).toEqual([12, 12.5, 14]);
+    expect(scaleKeyframes(p, "c", refs, 10, 1)).toBe(p);
+    expect(scaleKeyframes(p, "c", refs, 10, 0)).toBe(p);
+    // Only the selected ones move.
+    expect(times(scaleKeyframes(p, "c", [ref("position", 11), ref("position", 14)], 14, 2), "position")!.map(([t]) => t)).toEqual([8, 10, 14]);
+  });
+
+  it("roves keyframes so the value travels at an even speed", () => {
+    // Two legs of the same length, the first in 1 s and the second in 3 s: the middle keyframe goes to the middle.
+    const roved = roveKeyframes(p, "c", [ref("position", 10), ref("position", 11), ref("position", 14)]);
+    expect(motion(roved).keyframes!.position.map((kf) => [kf.time, kf.easing])).toEqual([[10, "linear"], [12, "linear"], [14, "linear"]]);
+    expect(motionAt(roved.clips[0], 11).position).toEqual([0.5, 0]);
+    expect(roveKeyframes(roved, "c", [ref("position", 10), ref("position", 12), ref("position", 14)])).toBe(roved);
+    // Two keyframes have nothing between them to rove.
+    expect(roveKeyframes(p, "c", [ref("rotation", 10), ref("rotation", 12)])).toBe(p);
   });
 });

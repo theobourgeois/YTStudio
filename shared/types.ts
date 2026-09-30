@@ -3,6 +3,8 @@
  * All times are in seconds (floating point) unless the name says otherwise.
  */
 import type { AssistantModelInfo, AssistantProvider } from "./assistant.ts";
+import type { BezierPath } from "./path.ts";
+import type { TextLayout } from "./text-drawing.ts";
 import type { SuiteId } from "./suites.ts";
 import type { ToolResult } from "./tool-spec.ts";
 
@@ -175,6 +177,24 @@ export interface Clip {
   nullObject?: true;
   /** The clip this one follows (After Effects' parenting, see `shared/parenting.ts`). */
   parent?: ClipParent;
+  /** Clip markers, in source time and in order (see `shared/markers.ts`). */
+  markers?: Marker[];
+}
+
+export type MarkerColor = "green" | "red" | "orange" | "yellow" | "blue" | "purple" | "white";
+
+/**
+ * A marker (Premiere's): a named point in time to cut, snap and animate to. On a
+ * sequence its `time` is timeline time; on a clip, source time.
+ */
+export interface Marker {
+  id: string;
+  time: number;
+  label?: string;
+  /** Absent: green. */
+  color?: MarkerColor;
+  /** Put there by beat sync (a song's beat, bar or drop): marking the beats again replaces these, and leaves the others. */
+  beat?: true;
 }
 
 /**
@@ -212,7 +232,8 @@ export interface Transition {
 /** A 2D value, e.g. a position as fractions of the canvas. */
 export type Vec2 = [number, number];
 
-export type ParamValue = number | boolean | string | Vec2;
+/** A number, a switch, text (or a choice, a colour, a font), a point, or a Bézier path (a mask's or a shape's outline). */
+export type ParamValue = number | boolean | string | Vec2 | BezierPath;
 
 /** Parameter values of one effect, by parameter key. */
 export type ParamValues = Record<string, ParamValue>;
@@ -222,9 +243,12 @@ export type ParamValues = Record<string, ParamValue>;
  * How a keyframe is passed through, like Premiere's temporal interpolation:
  * straight through (`linear`), slowing down on the way in (`ease-in`), easing
  * away from it (`ease-out`) or both (`ease`), or holding its value until the
- * next keyframe (`hold`).
+ * next keyframe (`hold`). Or it's arrived at with a movement of its own (see
+ * `dynamicProgress`): shooting past it and coming back (`overshoot`), swinging
+ * around it until it settles (`spring`), or dropping onto it and bouncing
+ * (`bounce`). Those shape the whole stretch from the keyframe before.
  */
-export type Easing = "linear" | "ease-in" | "ease-out" | "ease" | "hold";
+export type Easing = "linear" | "ease-in" | "ease-out" | "ease" | "hold" | "overshoot" | "spring" | "bounce";
 
 export interface Keyframe {
   /**
@@ -250,6 +274,15 @@ export interface Keyframe {
    */
   handleIn?: Vec2;
   handleOut?: Vec2;
+  /**
+   * A point's spatial Bézier handles (After Effects' motion path tangents), relative to its
+   * value and in the value's own units: `spatialOut` leaves towards the next keyframe,
+   * `spatialIn` arrives from the one before. Between two keyframes the point then travels
+   * along that curve (at the pace the temporal curve says) instead of a straight line. Only
+   * on keyframes of points.
+   */
+  spatialIn?: Vec2;
+  spatialOut?: Vec2;
 }
 
 /** One effect on a clip (Premiere's "Effect Controls" entries). */
@@ -267,6 +300,13 @@ export interface Effect {
    * its static value. Nothing creates keyframes yet.
    */
   keyframes?: Record<string, Keyframe[]>;
+  /**
+   * Expressions (After Effects'), by parameter key: a short script run for every frame whose
+   * result is the parameter's value then, e.g. `wiggle(2, 0.02)` or `loopOut()` (see
+   * `shared/expressions.ts`). It sees the value the parameter would have without it (static,
+   * or keyframed). Only on numbers and points.
+   */
+  expressions?: Record<string, string>;
 }
 
 /**
@@ -282,6 +322,8 @@ export interface Project {
   settings: ProjectSettings;
   tracks: Track[];
   clips: Clip[];
+  /** The (main) sequence's markers, in time order (see `shared/markers.ts`). */
+  markers?: Marker[];
   /** Parts of media files kept as media of their own (see `Subclip`), in the order they were made. */
   subclips?: Subclip[];
   /**
@@ -305,6 +347,8 @@ export interface Sequence {
   clips: Clip[];
   /** Seconds. Absent: as long as its clips (they end where its last clip ends). */
   duration?: number;
+  /** Its own markers, in time order. */
+  markers?: Marker[];
 }
 
 /**
@@ -496,21 +540,18 @@ export interface ExportRequest {
   /** Render without the audio tracks (e.g. to add the song in-app when posting). */
   excludeAudioTracks?: boolean;
   /**
-   * Every text clip drawn by the browser at the export's size (the server has
-   * no way to lay out text in the user's fonts), by clip id: one drawing, or
-   * one per change of an animated text's look.
+   * Every text clip laid out by the browser at the export's size (the server has
+   * no way to measure text in the user's fonts), by clip id: one layout, or
+   * one per change when its words, size or font are animated. The export's page
+   * draws the text itself from these.
    */
-  texts?: Record<string, TextRaster[]>;
+  texts?: Record<string, TextLayoutAt[]>;
 }
 
-/** A text clip drawn to an image for the export. */
-export interface TextRaster {
-  /** Base64 PNG. It may be drawn larger than `width` x `height` so a scaled-up text stays sharp. */
-  png: string;
-  /** The text's frame at 100% scale, in output px (what its Motion places). */
-  width: number;
-  height: number;
-  /** Source time this drawing is shown from, until the next one's (the first is shown from the start). */
+/** A text clip's layout for the export, in output px (see `shared/text-drawing.ts`). */
+export interface TextLayoutAt {
+  layout: TextLayout;
+  /** Source time this layout holds from, until the next one's (the first holds from the start). */
   from?: number;
 }
 

@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import { EXPORT_RESOLUTIONS, createId, outputSize, projectDuration, withoutAudioTracks } from "../shared/timeline.ts";
 import { hasMedia, isTextClip } from "../shared/effects.ts";
-import type { ExportJob, ExportRequest, ExportResolution, Project } from "../shared/types.ts";
+import { sanitizeTextLayout } from "../shared/text-drawing.ts";
+import type { ExportJob, ExportRequest, ExportResolution, Project, TextLayoutAt } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
 import { normalizeProject } from "../shared/normalize.ts";
 import { allClips, isNestedClip } from "../shared/sequences.ts";
@@ -17,53 +18,26 @@ import { type DataPaths, HttpError, isValidId } from "./storage.ts";
 interface JobState {
   job: ExportJob;
   project: Project;
-  /** The text clips drawn by the browser (one drawing per look, in time order), by clip id. */
-  texts: Map<string, DrawnText[]>;
+  /** The text clips' layouts, measured by the browser (in time order), by clip id. */
+  texts: Map<string, TextLayoutAt[]>;
   controller: AbortController;
 }
 
-interface DrawnText {
-  png: Buffer;
-  /** Pixel size of the image. */
-  pixels: { width: number; height: number };
-  /** Frame size at 100%, in output px. */
-  frame: { width: number; height: number };
-  /** Source time it's shown from (see `TextRaster.from`). */
-  from?: number;
-}
+/** Most layouts of one animated text. */
+const MAX_TEXT_LAYOUTS = 20_000;
 
-/** Most drawings of one animated text. */
-const MAX_TEXT_DRAWINGS = 20_000;
-
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const MAX_TEXT_PIXELS = 16_384;
-
-/** A text image from an export request, or null when it isn't a sane PNG. */
-function parseDrawnText(raw: unknown): DrawnText | null {
-  const t = raw as { png?: unknown; width?: unknown; height?: unknown } | null;
-  if (!t || typeof t.png !== "string") return null;
-  const frame = { width: Number(t.width), height: Number(t.height) };
-  if (!(frame.width > 0 && frame.height > 0 && Number.isFinite(frame.width) && Number.isFinite(frame.height))) return null;
-  const png = Buffer.from(t.png, "base64");
-  // The signature, then the IHDR chunk with the image's width and height.
-  if (png.length < 24 || !png.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
-  const pixels = { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
-  if (!(pixels.width > 0 && pixels.height > 0 && pixels.width <= MAX_TEXT_PIXELS && pixels.height <= MAX_TEXT_PIXELS)) return null;
-  const from = (raw as { from?: unknown }).from;
-  return { png, pixels, frame, ...(typeof from === "number" && Number.isFinite(from) ? { from } : {}) };
-}
-
-/** A text clip's drawings from an export request (one, or several in time order), or null when they aren't sane. */
-function parseDrawings(raw: unknown): DrawnText[] | null {
+/** A text clip's layouts from an export request (one, or several in time order), or null when they aren't sane. */
+function parseLayouts(raw: unknown): TextLayoutAt[] | null {
   const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
-  if (list.length === 0 || list.length > MAX_TEXT_DRAWINGS) return null;
-  const drawings: DrawnText[] = [];
-  for (const item of list) {
-    const drawn = parseDrawnText(item);
-    if (!drawn) return null;
-    drawings.push(drawn);
+  if (list.length === 0 || list.length > MAX_TEXT_LAYOUTS) return null;
+  const layouts: TextLayoutAt[] = [];
+  for (const item of list as Partial<TextLayoutAt>[]) {
+    const layout = sanitizeTextLayout(item?.layout);
+    if (!layout) return null;
+    const from = item.from;
+    layouts.push({ layout, ...(typeof from === "number" && Number.isFinite(from) ? { from } : {}) });
   }
-  return drawings.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity));
+  return layouts.sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity));
 }
 
 /** Characters that are unsafe in file names on common OSes. */
@@ -115,13 +89,13 @@ export class ExportManager {
       }
     }
 
-    const texts = new Map<string, DrawnText[]>();
+    const texts = new Map<string, TextLayoutAt[]>();
     // Texts in nested sequences too: every clip that could be drawn.
     for (const clip of allClips(project)) {
       if (!isTextClip(clip)) continue;
-      const drawn = parseDrawings(req.texts?.[clip.id]);
-      if (!drawn) throw new HttpError(400, "A text clip is missing its image. Try exporting again.");
-      texts.set(clip.id, drawn);
+      const layouts = parseLayouts(req.texts?.[clip.id]);
+      if (!layouts) throw new HttpError(400, "A text clip is missing its layout. Try exporting again.");
+      texts.set(clip.id, layouts);
     }
 
     const { width, height } = outputSize(project.settings.aspectRatio, req.resolution as ExportResolution);
@@ -181,16 +155,9 @@ export class ExportManager {
     try {
       const library = this.library.byId();
       const assets: Record<string, RenderAsset> = {};
-      const drawn: Record<string, RenderAsset[]> = {};
+      const drawn: Record<string, TextLayoutAt[]> = Object.fromEntries(texts);
       for (const clip of allClips(project)) {
-        const text = texts.get(clip.id);
-        if (text) {
-          drawn[clip.id] = text.map((d) => ({
-            kind: "image", hasAudio: false, hasVideo: true, duration: 0, ...d.pixels, frame: d.frame, path: "", png: d.png, from: d.from,
-          }));
-          continue;
-        }
-        // Solids and adjustment layers are drawn by the compositor itself, and a nested sequence from its clips.
+        // Text, solids, shapes and adjustment layers are drawn by the compositor itself, and a nested sequence from its clips.
         if (!hasMedia(clip) || isNestedClip(clip)) continue;
         const asset = library[clip.assetId];
         if (!asset) throw new Error("Some media was deleted before the export started.");
@@ -219,7 +186,7 @@ export class ExportManager {
       // The sound first (quick), then every frame, drawn and encoded with it.
       const audioShare = 0.03;
       await runWithProgress(
-        audioArgs(project, assets, { ...opts, outputPath: audio }, drawn),
+        audioArgs(project, assets, { ...opts, outputPath: audio }),
         job.duration,
         (p) => (job.progress = audioShare * p),
         signal,

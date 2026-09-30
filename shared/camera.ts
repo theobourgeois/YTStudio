@@ -183,7 +183,7 @@ const cameraClips = perClipList((project) => {
 
 /** A camera clip's settings at source time `time`. */
 export function cameraSettingsAt(clip: Clip, time: number): CameraSettings {
-  return valuesAt(CAMERA, findEffect(clip, CAMERA.type), time) as unknown as CameraSettings;
+  return valuesAt(CAMERA, findEffect(clip, CAMERA.type), time, clip) as unknown as CameraSettings;
 }
 
 /** The camera 3D layers are seen through at timeline time `t`: the topmost Camera clip there, or the default. */

@@ -10,6 +10,7 @@ import { type EffectPass, type Placed, type Placement2D, type Sample, blendIndex
 import { effectPass, effectPasses, effectsChange } from "./effect-gl.ts";
 import { effectDefinition, lookAt, motionAt, opacityAt } from "./effects.ts";
 import { sourceDelta, timelineTime } from "./timeline.ts";
+import { masksAt } from "./masks.ts";
 import { carryAffine, carryPlacement } from "./parenting.ts";
 import { type Matrix, type Placement, type Size, placeClip, placementAffine } from "./transform.ts";
 import type { Clip, Project } from "./types.ts";
@@ -189,10 +190,12 @@ export function clipLayer(clip: Clip, time: number, placeAt: AffineAt, opts: Lay
   const { affine } = where;
   const look = lookAt(clip, time);
   const effects = [...effectPasses(clip, time, opts.fps), ...defocusPasses(where, time, opts)];
+  const masks = masksAt(clip, time);
   const layer: Omit<Placed, "key"> & { depth?: number } = {
     affine,
     opacity: look.opacity,
     ...(effects.length && { effects }),
+    ...(masks.length && { masks }),
     ...(look.blendMode !== "normal" && { blend: blendIndex(look.blendMode) }),
     ...(look.edges !== "none" && { edges: edgeIndex(look.edges) }),
     ...(where.aspect !== undefined && { aspect: where.aspect }),

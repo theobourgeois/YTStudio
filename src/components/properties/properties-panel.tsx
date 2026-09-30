@@ -10,7 +10,13 @@ import { useShallow } from "zustand/react/shallow";
 import {
   PiArrowDown,
   PiArrowUp,
+  PiBezierCurve,
   PiCaretRight,
+  PiCircle,
+  PiPenNib,
+  PiPlus,
+  PiPolygon,
+  PiRectangle,
   PiCircleHalfTilt,
   PiClockCounterClockwise,
   PiCrosshairSimple,
@@ -24,6 +30,7 @@ import {
   PiSquare,
   PiStack,
   PiSubtitles,
+  PiTextAa,
   PiVideoCamera,
   PiTextT,
   PiTrash,
@@ -35,11 +42,15 @@ import {
   type ClipTraits,
   type EffectDefinition,
   effectDefinition,
+  addEffect,
+  canExpress,
   clipKind,
+  effectLabel,
+  effectPeers,
   hasKeyframes,
   TIME_REMAP,
+  isAddedEffect,
   isRemapped,
-  isVideoEffect,
   moveEffect,
   removeEffect,
   resetParams,
@@ -48,7 +59,11 @@ import {
   storedValuesAt,
   textStyleAt,
 } from "@shared/effects";
+import { MASK, SHAPE } from "@shared/effects";
+import { SHAPE_OPERATORS } from "@shared/effect-library/shape";
 import { formatDuration, formatSpeed } from "@shared/format";
+import { maskPresetPath } from "@shared/masks";
+import { ANIMATOR_PRESETS, addAnimator } from "@shared/text-animators";
 import { type NumberSpec, type Vec2Spec, isAnimatable, sameValue } from "@shared/params";
 import { canTimeRemap, clipDuration, clipName, clipSpeed, getClip, getTrack, isOnVideoTrack, outputSize, sourceTime } from "@shared/timeline";
 import { refKey } from "@shared/transition-windows";
@@ -66,8 +81,10 @@ import { layoutText } from "@/lib/text-render";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
 import { graphId, useLayout } from "@/stores/layout";
+import { usePathEditing } from "@/stores/path-editing";
 import { usePlayback } from "@/stores/playback";
 import { KeyframeNavigator, Stopwatch } from "./animation-controls";
+import { ExpressionRow, toggleExpression } from "./expression-row";
 import type { DisplayContext } from "./display";
 import { GraphControls, GraphToggle, ParamGraph } from "./graph-editor";
 import { EffectLane, KeyframeRuler, KeyframesRoot, ParamLane } from "./keyframe-lanes";
@@ -112,7 +129,7 @@ export function PropertiesPanel() {
   const retimable = canTimeRemap(clip, asset);
   // Speed goes before Time Remapping and the video effects.
   const firstVideoEffect = ((i) => (i === -1 ? sections.length : i))(
-    sections.findIndex((s) => isVideoEffect(s.effect) || s.effect.type === TIME_REMAP.type),
+    sections.findIndex((s) => isAddedEffect(s.effect) || s.effect.type === TIME_REMAP.type),
   );
 
   const body = (
@@ -176,6 +193,9 @@ export function PropertiesPanel() {
             clip={clip}
             effect={effect}
             def={def}
+            label={effectLabel(clip, effect)}
+            // Several masks or shapes each open and close on their own.
+            collapseKey={def.stackable ? `${def.type}:${effect.id}` : def.type}
             traits={traits}
             time={time}
             editTime={editTime}
@@ -187,7 +207,7 @@ export function PropertiesPanel() {
       {retimable && firstVideoEffect === sections.length && <SpeedSection clip={clip} lanes={lanes} />}
       {visual && kind !== "camera" && (
         <PanelRow lanes={lanes}>
-          <AddEffectRow />
+          <AddEffectRow clipId={clip.id} kind={kind} />
         </PanelRow>
       )}
     </>
@@ -269,6 +289,8 @@ function ClipHeader({
           ? PiSquare
           : kind === "camera"
             ? PiVideoCamera
+            : kind === "shape"
+            ? PiPolygon
             : kind === "null"
             ? PiCrosshairSimple
             : asset?.sequence
@@ -322,10 +344,13 @@ export function EffectSection({
   hide = [],
   collapseKey = def.type,
   defaultOpen = true,
+  label: sectionLabel = def.label,
 }: {
   clip: Clip;
   effect: Effect;
   def: EffectDefinition;
+  /** What the section is called (the definition's label, numbered when there are several). */
+  label?: string;
   traits: ClipTraits;
   /** Source time the values show at. */
   time: number;
@@ -352,7 +377,7 @@ export function EffectSection({
     reset: (keys) => commit((p) => resetParams(p, clipId, effect.id, keys, editTime)),
   };
   const editor = useParamEditors(to.apply, (key) => to.reset([key]));
-  const params = def.params.filter((p) => (p.appliesTo?.(traits) ?? true) && !hide.includes(p.key));
+  const params = def.params.filter((p) => (p.appliesTo?.(traits) ?? true) && !hide.includes(p.key) && !p.hiddenFor?.(values));
   const changed = params.some((p) => !sameValue(effect.params[p.key], p.default)) || !!effect.keyframes;
   const toggle = () => {
     if (open === defaultOpen) toggled.add(collapseKey);
@@ -361,8 +386,8 @@ export function EffectSection({
   };
 
   return (
-    <section aria-label={def.label} className="border-b">
-      <PanelRow lanes={lanes} lane={<EffectLane clip={clip} effectId={effect.id} label={def.label} />}>
+    <section aria-label={sectionLabel} className="border-b" data-effect-id={effect.id}>
+      <PanelRow lanes={lanes} lane={<EffectLane clip={clip} effectId={effect.id} label={sectionLabel} />}>
         <div className="flex h-9 items-center gap-1 pr-1 pl-1.5">
           <button
             type="button"
@@ -372,16 +397,16 @@ export function EffectSection({
           >
             <PiCaretRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
             <span className={cn("truncate", !effect.enabled && "text-muted-foreground line-through decoration-muted-foreground/60")}>
-              {def.label}
+              {sectionLabel}
             </span>
           </button>
           {changed && (
             <ResetButton
-              label={`Reset ${def.label}`}
+              label={`Reset ${sectionLabel}`}
               onClick={() => to.reset(params.map((spec) => spec.key))}
             />
           )}
-          {!target && isVideoEffect(effect) && <EffectMenu clipId={clipId} effectId={effect.id} label={def.label} />}
+          {!target && isAddedEffect(effect) && <EffectMenu clipId={clipId} effectId={effect.id} label={sectionLabel} />}
           {!def.alwaysOn && !target && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -389,7 +414,7 @@ export function EffectSection({
                   type="button"
                   role="switch"
                   aria-checked={effect.enabled}
-                  aria-label={`${def.label} on`}
+                  aria-label={`${sectionLabel} on`}
                   onClick={() => commit((p) => setEffectEnabled(p, clipId, effect.id, !effect.enabled))}
                   className={cn(
                     "grid h-5 cursor-pointer place-items-center rounded px-1 font-serif text-[11px] leading-none font-semibold italic transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -399,7 +424,7 @@ export function EffectSection({
                   fx
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="left">{effect.enabled ? `Turn ${def.label} off` : `Turn ${def.label} on`}</TooltipContent>
+              <TooltipContent side="left">{effect.enabled ? `Turn ${sectionLabel} off` : `Turn ${sectionLabel} on`}</TooltipContent>
             </Tooltip>
           )}
         </div>
@@ -421,6 +446,9 @@ export function EffectSection({
             const param = { clipId, effectId: effect.id, paramKey: spec.key, label };
             const graphable = lanes && animatable && animated && (spec.kind === "number" || spec.kind === "vec2");
             const graph = graphable ? graphId(effect.type, spec.key) : null;
+            // Expressions: on numbers and points of the clip's own effects (not where edits go to every caption).
+            const expressible = !target && canExpress(def, spec);
+            const expression = expressible && effect.expressions?.[spec.key] !== undefined;
             return (
               <Fragment key={spec.key}>
                 <PanelRow
@@ -440,11 +468,22 @@ export function EffectSection({
                     specs={params}
                     ctx={ctx}
                     edit={editor(spec.key)}
+                    owner={target ? undefined : { clipId, effectId: effect.id }}
                     // Edits that go elsewhere (all captions) can't animate this clip: no stopwatch column at all.
-                    animation={target ? undefined : animatable ? <Stopwatch {...param} animated={animated} /> : null}
+                    animation={
+                      target ? undefined : animatable ? (
+                        <Stopwatch {...param} animated={animated} onAltClick={expressible ? () => toggleExpression(clipId, effect.id, spec.key) : undefined} />
+                      ) : null
+                    }
+                    expression={expressible ? { on: expression, toggle: () => toggleExpression(clipId, effect.id, spec.key) } : undefined}
                     navigator={animatable && animated ? <KeyframeNavigator {...param} /> : null}
                   />
                 </PanelRow>
+                {expression && (
+                  <PanelRow lanes={lanes}>
+                    <ExpressionRow clip={clip} effect={effect} def={def} spec={spec} time={time} />
+                  </PanelRow>
+                )}
                 {graph && openGraphs[graph] && (
                   <PanelRow
                     lanes={lanes}
@@ -517,14 +556,18 @@ function SpeedSection({ clip, lanes }: { clip: Clip; lanes: boolean }) {
   );
 }
 
-/** A video effect's "⋯" menu: move it before or after the others, or remove it. */
+/** An added effect's "⋯" menu: move it before or after the others of its kind, or remove it. */
 function EffectMenu({ clipId, effectId, label }: { clipId: string; effectId: string; label: string }) {
   const commit = useEditor((s) => s.commit);
-  // Whether it can move up or down among the clip's video effects.
-  const [first, last] = useEditor(
+  // Whether it can move up or down among the clip's effects of its kind, and whether it can go at all.
+  const [first, last, only] = useEditor(
     useShallow((s) => {
-      const ids = getClip(s.project, clipId)?.effects.filter(isVideoEffect).map((e) => e.id) ?? [];
-      return [ids[0] === effectId, ids.at(-1) === effectId];
+      const clip = getClip(s.project, clipId);
+      const ids = clip ? effectPeers(clip, effectId) : [];
+      const effect = clip?.effects.find((e) => e.id === effectId);
+      // A shape layer keeps its last shape.
+      const kept = !!effect && !!effectDefinition(effect.type)?.alwaysOn && clip!.effects.filter((e) => e.type === effect.type).length < 2;
+      return [ids[0] === effectId, ids.at(-1) === effectId, kept];
     }),
   );
   return (
@@ -548,7 +591,7 @@ function EffectMenu({ clipId, effectId, label }: { clipId: string; effectId: str
           Move down
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={() => commit((p) => removeEffect(p, clipId, effectId))}>
+        <DropdownMenuItem variant="destructive" disabled={only} onSelect={() => commit((p) => removeEffect(p, clipId, effectId))}>
           <PiTrash />
           Remove {label}
         </DropdownMenuItem>
@@ -557,18 +600,108 @@ function EffectMenu({ clipId, effectId, label }: { clipId: string; effectId: str
   );
 }
 
-/** Where to find more effects for the clip (the Effects tab). */
-function AddEffectRow() {
+const ADD_BUTTON =
+  "flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed text-xs text-muted-foreground transition-colors outline-none hover:border-foreground/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50";
+
+/** What can be added to the clip: an effect (from the Effects tab), a mask, and on a shape layer more shapes and operators. */
+function AddEffectRow({ clipId, kind }: { clipId: string; kind: ClipKind }) {
+  const commit = useEditor((s) => s.commit);
+  /** Add one and show its path on the monitor, when it has one to edit. */
+  const add = (type: string, params?: ParamValues, editPath = false) => {
+    let effectId: string | undefined;
+    commit((p) => {
+      const made = addEffect(p, [clipId], type, params);
+      effectId = made.added.get(clipId);
+      return made.project;
+    });
+    if (effectId && editPath) usePathEditing.getState().edit({ clipId, effectId, key: "path" });
+  };
+  const pen = () => {
+    usePathEditing.getState().edit(null);
+    useLayout.getState().setTool("pen");
+  };
   return (
-    <div className="px-3 py-2.5">
-      <button
-        type="button"
-        onClick={() => useLayout.getState().showEffects("video")}
-        className="flex h-8 w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed text-xs text-muted-foreground transition-colors outline-none hover:border-foreground/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        <PiSparkle className="size-3.5" />
-        Add an effect
+    <div className="flex gap-1.5 px-3 py-2.5">
+      <button type="button" aria-label="Add an effect" onClick={() => useLayout.getState().showEffects("video")} className={ADD_BUTTON}>
+        <PiSparkle className="size-3.5 shrink-0" />
+        <span className="truncate">Effect</span>
       </button>
+      {kind === "text" && (
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <button type="button" aria-label="Add a text animator" className={ADD_BUTTON}>
+              <PiTextAa className="size-3.5 shrink-0" />
+              <span className="truncate">Animator</span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="center" className="w-52">
+            {ANIMATOR_PRESETS.map((preset) => (
+              <DropdownMenuItem key={preset.id} onSelect={() => commit((p) => addAnimator(p, clipId, preset.id).project)}>
+                {preset.label}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => commit((p) => addAnimator(p, clipId).project)}>Blank animator</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      {kind === "shape" && (
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <button type="button" aria-label="Add to the shape layer" className={ADD_BUTTON}>
+              <PiPlus className="size-3.5 shrink-0" />
+              <span className="truncate">Shape</span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="center" className="w-48">
+            {(
+              [
+                ["rectangle", "Rectangle", <PiRectangle key="i" />],
+                ["ellipse", "Ellipse", <PiCircle key="i" />],
+                ["polygon", "Polygon", <PiPolygon key="i" />],
+                ["star", "Star", <PiSparkle key="i" />],
+              ] as const
+            ).map(([shape, name, icon]) => (
+              <DropdownMenuItem key={shape} onSelect={() => add(SHAPE.type, { kind: shape })}>
+                {icon}
+                {name}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuItem onSelect={pen}>
+              <PiPenNib />
+              Draw a path
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {SHAPE_OPERATORS.map((op) => (
+              <DropdownMenuItem key={op.type} onSelect={() => add(op.type)}>
+                {op.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      {kind !== "null" && <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <button type="button" aria-label="Add a mask" className={ADD_BUTTON}>
+            <PiBezierCurve className="size-3.5 shrink-0" />
+            <span className="truncate">Mask</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onSelect={() => add(MASK.type, { path: maskPresetPath("rectangle") }, true)}>
+            <PiRectangle />
+            Rectangle
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => add(MASK.type, { path: maskPresetPath("ellipse") }, true)}>
+            <PiCircle />
+            Ellipse
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={pen}>
+            <PiPenNib />
+            Draw with the pen
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>}
     </div>
   );
 }

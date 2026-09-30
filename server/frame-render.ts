@@ -91,7 +91,7 @@ class Decoder {
     readonly process: Spawned | null,
   ) {
     this.reader = process ? new FrameReader(process.child.stdout!, sourceFrameBytes(source)) : null;
-    this.still = source.png ?? null;
+    this.still = null;
     this.next = source.first;
   }
 
@@ -193,8 +193,8 @@ export async function renderVideo(
     const prepare = async (f: number): Promise<FramePacket> => {
       while (pending.length && pending[0].first <= f + lookahead) {
         const source = pending.shift()!;
-        const process = source.png ? null : spawnStreaming(source.argv, "ignore", "pipe");
-        if (process) processes.push(process);
+        const process = spawnStreaming(source.argv, "ignore", "pipe");
+        processes.push(process);
         running.set(source.key, new Decoder(source, process));
       }
       const release: string[] = [];
@@ -223,8 +223,8 @@ export async function renderVideo(
         // The page keeps a still until it's released.
         if (decoder.source.still && decoder.sent) return;
         decoder.sent = true;
-        const { width, height, luma, png } = decoder.source;
-        pictures.push({ key: key!, width, height, luma, png: !!png, data: await decoder.frameAt(f) });
+        const { width, height, luma } = decoder.source;
+        pictures.push({ key: key!, width, height, luma, data: await decoder.frameAt(f) });
       };
       const groups = new Set<string>();
       const sendAll = async (list: FrameLayer[]) => {
@@ -262,7 +262,7 @@ export async function renderVideo(
       const packet = prepared.then(() => prepare(f));
       prepared = packet.catch(() => {});
       return packet;
-    });
+    }, plan.fonts);
     if (written !== plan.frames) throw new Error("Some frames weren't drawn.");
     stdin.end();
     for (const decoder of running.values()) decoder.close();

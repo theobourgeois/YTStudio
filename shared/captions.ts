@@ -7,14 +7,16 @@
  * that the Captions tab edits their style together (like Premiere's caption
  * track style, or CapCut's "apply to all"): style edits go to every caption,
  * while each caption keeps its own text and timing. A caption's animation is
- * a transition on its in-edge.
+ * a text animator keyed to its words as they're said (word by word, a
+ * highlight running along, a bounce), or a transition on its in-edge.
  */
-import { APPEARANCE, MOTION, TEXT, findEffect, resetParams, setParams, textEffects, volumeAt } from "./effects.ts";
+import { APPEARANCE, MOTION, TEXT, TEXT_ANIMATOR, findEffect, normalizeEffects, resetParams, setParams, textEffects, volumeAt } from "./effects.ts";
+import { unitCount } from "./text-animators.ts";
 import { EPS, roundTime } from "./math.ts";
 import { sanitizeParams } from "./params.ts";
 import { MIN_CLIP_DURATION, addTrack, clipEnd, clipsById, createId, getTrack, isFree, perClipList, removeClips, timelineTime, trackClips } from "./timeline.ts";
 import { createTransition, transitionDefinition } from "./transitions.ts";
-import type { AspectRatio, Clip, MediaAsset, ParamValues, Project, Transcript, Transition, Vec2 } from "./types.ts";
+import type { AspectRatio, Clip, Effect, Keyframe, MediaAsset, ParamValues, Project, Transcript, Transition, Vec2 } from "./types.ts";
 
 export const isCaptionClip = (clip: Pick<Clip, "caption">) => clip.caption === true;
 
@@ -136,19 +138,36 @@ export function matchingPreset(style: CaptionStyle, aspect: AspectRatio): Captio
 }
 
 // ---------------------------------------------------------------------------
-// Animation: a transition on each caption's in-edge
+// Animation: a text animator in time with the words, or a transition on each caption's in-edge
 // ---------------------------------------------------------------------------
 
 export interface CaptionAnimation {
-  /** A transition type (see `TRANSITIONS`). */
+  /** One of `SPOKEN_ANIMATIONS` (a text animator following the words as they're said), or a transition type (see `TRANSITIONS`). */
   type: string;
   duration: number;
   /** Over the transition's defaults. */
   params?: ParamValues;
 }
 
+/**
+ * Animations that follow the speech, word by word (text animators, see
+ * `text-animators.ts`): each word appears as it's said, or the word being said is
+ * highlighted, or grows.
+ */
+export const SPOKEN_ANIMATIONS = ["spoken-words", "spoken-highlight", "spoken-bounce"] as const;
+export type SpokenAnimation = (typeof SPOKEN_ANIMATIONS)[number];
+
+export const isSpokenAnimation = (type: string): type is SpokenAnimation => (SPOKEN_ANIMATIONS as readonly string[]).includes(type);
+
+/** The highlight's colour (and what it is on captions that are already that colour). */
+const HIGHLIGHT = "#ffe14d";
+const HIGHLIGHT_ON_YELLOW = "#ffffff";
+
 /** The animations offered first, with values that suit a short caption. The rest of the transitions follow. */
 export const CAPTION_ANIMATIONS: readonly (CaptionAnimation & { label: string })[] = [
+  { label: "Word by word", type: "spoken-words", duration: 0 },
+  { label: "Highlight", type: "spoken-highlight", duration: 0 },
+  { label: "Bounce", type: "spoken-bounce", duration: 0 },
   { label: "Pop", type: "pop", duration: 0.25 },
   { label: "Fade", type: "cross-dissolve", duration: 0.15 },
   { label: "Rise", type: "rise", duration: 0.25 },
@@ -159,10 +178,72 @@ export const CAPTION_ANIMATIONS: readonly (CaptionAnimation & { label: string })
 /** How long a caption animation of another type (one of the other transitions) lasts. */
 export const CAPTION_ANIMATION_DURATION = 0.2;
 
-/** The recommended values for a transition type used as a caption animation. */
+/** The recommended values for an animation type (one that follows the words, or a transition) used on captions. */
 export function captionAnimation(type: string): CaptionAnimation | null {
-  if (!transitionDefinition(type)) return null;
+  if (!isSpokenAnimation(type) && !transitionDefinition(type)) return null;
   return CAPTION_ANIMATIONS.find((a) => a.type === type) ?? { type, duration: CAPTION_ANIMATION_DURATION };
+}
+
+const isAnimator = (e: Pick<Effect, "type">) => e.type === TEXT_ANIMATOR.type;
+
+/** Which spoken animation a caption's animator is (told by what it changes), if it has one. */
+function spokenAnimationOf(clip: Clip): SpokenAnimation | null {
+  const animator = clip.effects.find(isAnimator);
+  if (!animator) return null;
+  if (animator.params.opacity === 0) return "spoken-words";
+  if (animator.params.recolor === true) return "spoken-highlight";
+  return animator.params.scale !== 1 ? "spoken-bounce" : null;
+}
+
+/** When each word of a caption starts (timeline times), as its spoken animator's keyframes say; null when it has none to tell. */
+function wordStarts(clip: Clip): number[] | null {
+  const animator = clip.effects.find(isAnimator);
+  const keys = animator?.keyframes?.start ?? animator?.keyframes?.offset;
+  return keys?.length ? keys.map((k) => timelineTime(clip, k.time)) : null;
+}
+
+/**
+ * A caption with an animation (null: none), replacing the one it had. A spoken animation
+ * steps through the caption's words at `starts` (timeline times, one per word); without
+ * them (or when the caption doesn't have that many words any more) at the times its
+ * animator already had, else evenly across the caption.
+ */
+function animated(clip: Clip, animation: CaptionAnimation | null, starts?: readonly number[]): Clip {
+  const known = starts ?? wordStarts(clip);
+  const { transitionIn: _, ...bare } = clip;
+  const effects = clip.effects.filter((e) => !isAnimator(e));
+  const plain: Clip = effects.length === clip.effects.length ? bare : { ...bare, effects };
+  if (!animation) return clip.transitionIn || plain.effects !== clip.effects ? plain : clip;
+  if (!isSpokenAnimation(animation.type)) {
+    if (!transitionDefinition(animation.type)) return plain;
+    const transition = animationTransition(animation);
+    if (plain.effects === clip.effects && JSON.stringify(clip.transitionIn) === JSON.stringify(transition)) return clip;
+    return { ...plain, transitionIn: transition };
+  }
+  const style = findEffect(clip, TEXT.type)?.params;
+  const count = unitCount(String(style?.text ?? ""), "words");
+  if (count === 0) return plain;
+  const length = clipEnd(clip) - clip.start;
+  const times = known?.length === count ? known : Array.from({ length: count }, (_, i) => clip.start + (length * i) / count);
+  // Each word takes over at its start (a hold: nothing in between).
+  const steps = (value: (i: number) => number): Keyframe[] =>
+    times.map((t, i) => ({ time: roundTime(i === 0 ? clip.in : clip.in + Math.max(0, t - clip.start)), value: value(i), easing: "hold" as const }));
+  const fill = findEffect(clip, APPEARANCE.type)?.params.fill;
+  const animator: Partial<Effect> & { type: string } =
+    animation.type === "spoken-words"
+      ? // Everything from `start` on is hidden; it moves along one word at a time.
+        { type: TEXT_ANIMATOR.type, params: { basedOn: "words", opacity: 0 }, keyframes: { start: steps((i) => (i + 1) / count) } }
+      : {
+          type: TEXT_ANIMATOR.type,
+          // A range one word long, stepping from word to word.
+          params:
+            animation.type === "spoken-highlight"
+              ? { basedOn: "words", end: 1 / count, recolor: true, fill: fill === HIGHLIGHT ? HIGHLIGHT_ON_YELLOW : HIGHLIGHT, ...animation.params }
+              : { basedOn: "words", end: 1 / count, scale: 1.18, ...animation.params },
+          keyframes: { offset: steps((i) => i / count) },
+        };
+  const next: Clip = { ...plain, effects: normalizeEffects([...effects, animator]) };
+  return JSON.stringify(next.effects) === JSON.stringify(clip.effects) && !clip.transitionIn ? clip : next;
 }
 
 function animationTransition(animation: CaptionAnimation): Transition {
@@ -173,7 +254,10 @@ function animationTransition(animation: CaptionAnimation): Transition {
 
 /** The captions' animation (the first caption's), or null for none. */
 export function captionAnimationOf(project: Project): CaptionAnimation | null {
-  const t = captionClips(project)[0]?.transitionIn;
+  const first = captionClips(project)[0];
+  const spoken = first && spokenAnimationOf(first);
+  if (spoken) return { type: spoken, duration: 0 };
+  const t = first?.transitionIn;
   return t ? { type: t.type, duration: t.duration, params: t.params } : null;
 }
 
@@ -199,24 +283,19 @@ export function spaceCaptions(project: Project): Project {
   return { ...project, clips: project.clips.map((c) => shortened.get(c.id) ?? c) };
 }
 
-/** Give every caption this animation (null: none). */
+/** Give every caption this animation (null: none). Spoken ones keep following the words where the captions already did. */
 export function setCaptionAnimation(project: Project, animation: CaptionAnimation | null): Project {
-  const transition = animation && transitionDefinition(animation.type) ? animationTransition(animation) : null;
+  const known = animation && captionAnimation(animation.type) ? animation : null;
   let changed = false;
   const clips = project.clips.map((clip) => {
     if (!isCaptionClip(clip)) return clip;
-    if (!transition) {
-      if (!clip.transitionIn) return clip;
-      changed = true;
-      const { transitionIn: _, ...rest } = clip;
-      return rest;
-    }
-    if (JSON.stringify(clip.transitionIn) === JSON.stringify(transition)) return clip;
-    changed = true;
-    return { ...clip, transitionIn: transition };
+    const next = animated(clip, known);
+    if (next !== clip) changed = true;
+    return next;
   });
   const next = changed ? { ...project, clips } : project;
-  return transition ? spaceCaptions(next) : next;
+  // A transition plays in from nothing only when the caption before has ended.
+  return known && !isSpokenAnimation(known.type) ? spaceCaptions(next) : next;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +329,8 @@ export interface CaptionCue {
   start: number;
   end: number;
   text: string;
+  /** When each of its words starts (timeline times), for animations that follow the speech. */
+  words?: number[];
 }
 
 export interface CueOptions {
@@ -349,7 +430,7 @@ export function captionCues(input: readonly TimedWord[], opts: CueOptions): Capt
     // A single word too long for a line still gets shown (on one line).
     const text = layoutLines(group, opts.lines, opts) ?? (opts.punctuation ? joinWords(group) : stripPunctuation(joinWords(group)));
     if (!text) continue;
-    cues.push({ start: group[0].start, end: Math.max(...group.map((w) => w.end)), text, limit: group[0].limit });
+    cues.push({ start: group[0].start, end: Math.max(...group.map((w) => w.end)), text, limit: group[0].limit, words: group.map((w) => w.start) });
   }
 
   // Timing: until the next caption when it's close, else a little into the silence; never past the clip.
@@ -365,10 +446,11 @@ export function captionCues(input: readonly TimedWord[], opts: CueOptions): Capt
     if (end - start < MIN_CLIP_DURATION - EPS) {
       // Too short to be a clip (words said on top of each other): it joins the next caption.
       if (next) next.text = `${cue.text} ${next.text}`.replace(/\n/g, " ");
+      if (next) next.words = [...(cue.words ?? []), ...(next.words ?? [])];
       if (next) next.start = Math.min(next.start, cue.start);
       return;
     }
-    out.push({ start, end, text: cue.text });
+    out.push({ start, end, text: cue.text, ...(cue.words && { words: cue.words }) });
   });
   return out;
 }
@@ -450,8 +532,7 @@ function captionClip(cue: CaptionCue, trackId: string, opts: AddCaptionsOptions)
     effects,
     caption: true,
   };
-  if (opts.animation && transitionDefinition(opts.animation.type)) clip.transitionIn = animationTransition(opts.animation);
-  return clip;
+  return animated(clip, opts.animation, cue.words);
 }
 
 /**
@@ -480,7 +561,7 @@ export function addCaptions(
   }
   const clips = cues.map((cue) => captionClip(cue, trackId, opts));
   p = { ...p, clips: [...p.clips, ...clips] };
-  return { project: opts.animation ? spaceCaptions(p) : p, clipIds: clips.map((c) => c.id) };
+  return { project: opts.animation && !isSpokenAnimation(opts.animation.type) ? spaceCaptions(p) : p, clipIds: clips.map((c) => c.id) };
 }
 
 function captionsTrackName(project: Project): string {
@@ -519,9 +600,17 @@ export function applyCaptionPreset(project: Project, preset: CaptionPreset): Pro
   return setCaptionParams(setCaptionParams(project, TEXT.type, style.text), APPEARANCE.type, style.appearance);
 }
 
-/** Change one caption's words. */
+/** Change one caption's words. An animation that follows its words is fitted to the new ones. */
 export function setCaptionText(project: Project, clipId: string, text: string): Project {
-  return setParams(project, clipId, TEXT.type, { text });
+  const p = setParams(project, clipId, TEXT.type, { text });
+  if (p === project) return project;
+  return { ...p, clips: p.clips.map((c) => (c.id === clipId ? refitted(c) : c)) };
+}
+
+/** A caption whose spoken animation steps through the words it has now. */
+function refitted(clip: Clip, starts?: readonly number[]): Clip {
+  const spoken = spokenAnimationOf(clip);
+  return spoken ? animated(clip, { type: spoken, duration: 0 }, starts) : clip;
 }
 
 /** The caption right after this one on its track (touching or not), if it's a caption. */
@@ -558,7 +647,10 @@ export function mergeCaptionWithNext(project: Project, clipId: string): Project 
     ...project,
     clips: project.clips.filter((c) => c.id !== next.id).map((c) => (c.id === clipId ? merged : c)),
   };
-  return setCaptionText(p, clipId, joined);
+  // The words keep the times they're said at, in both halves.
+  const [a, b] = [wordStarts(clip), wordStarts(next)];
+  const withText = setParams(p, clipId, TEXT.type, { text: joined });
+  return { ...withText, clips: withText.clips.map((c) => (c.id === clipId ? refitted(c, a && b ? [...a, ...b] : undefined) : c)) };
 }
 
 /** Remove every caption. */

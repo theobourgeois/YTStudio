@@ -1,16 +1,17 @@
 import type { Clip, MediaAsset, Project } from "@shared/types";
-import { type TextStyle, clipKind, effectDefinition, isRemapped, lookAt, motionAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
+import { atFrameRate, clipKind, effectDefinition, isRemapped, lookAt, motionAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
 import { nestedSequence, sequenceDuration, sequenceSize, sequenceView } from "@shared/sequences";
 import { mediaTime, remapSpeed } from "@shared/time-remap";
 import { type Compositor, type Placed, createCompositor, matteIndex } from "@shared/compositor";
 import { PREVIEW_SAMPLES, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "@shared/layers";
 import { parentAt } from "@shared/parenting";
 import { type Shown, type TransitionPlan, planTrack, planTransition } from "@shared/scene";
-import { clipEnd, clipSourceRange, clipSpeed, fileTime, sourceTime, videoTracks } from "@shared/timeline";
+import { shapeDrawingAt } from "@shared/shapes";
+import { clipEnd, clipSourceRange, clipSpeed, fileTime, outputSize, sourceTime, videoTracks } from "@shared/timeline";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
-import { type Placement, type Size, fittedSize } from "@shared/transform";
-import { type TextLayout, rasterizeText, textUnit } from "@/lib/text-render";
+import { textDrawing, textUnit } from "@shared/text-drawing";
+import { type Size, fittedSize } from "@shared/transform";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
 import { usePlayback } from "@/stores/playback";
@@ -20,15 +21,14 @@ import { type SlotIds, assignSlots } from "./sync";
 
 /**
  * The hidden elements that decode one video track's pictures: an A/B pair
- * for video clips, one for still images, and offscreen canvases for text
- * (one per side of a transition).
+ * for video clips, and one for still images. (Text, solids and shapes have
+ * none: the compositor draws them itself.)
  */
 interface VideoLayer {
   videos: [MediaSlot | null, MediaSlot | null];
   videoIds: SlotIds;
   images: [ImageSlot | null, ImageSlot | null];
   imageIds: SlotIds;
-  texts: [TextSlot | null, TextSlot | null];
 }
 
 /** The hidden pair of elements that play one audio track (see `VideoLayer`). */
@@ -37,12 +37,12 @@ interface AudioLayer {
   ids: SlotIds;
 }
 
-type ClipKind = "video" | "image" | "text" | "solid" | "adjustment" | "camera" | "null" | "sequence";
+type ClipKind = "video" | "image" | "text" | "solid" | "shape" | "adjustment" | "camera" | "null" | "sequence";
 
-/** A picture to draw: the element (or text drawing) it comes from (none for a solid), and when in its clip. */
+/** A picture to draw: the element it comes from (none for what the compositor draws itself: text, solids, shapes), and when in its clip. */
 interface Picture {
   key: string;
-  source: HTMLVideoElement | HTMLImageElement | TextSlot | null;
+  source: HTMLVideoElement | HTMLImageElement | null;
   shown: Shown;
   /**
    * A time-interpolated video (`Clip.timeInterpolation`): its slot (whose frames are counted),
@@ -148,9 +148,9 @@ type Layer =
  *
  * - Each video track has two <video> elements that double-buffer it: one shows
  *   the clip under the playhead, the other is parked on the next clip's first
- *   frame. Two <img> elements do the same for still images, and text is drawn
- *   into offscreen canvases (redrawn only when the text or its size changes).
- *   The elements are hidden: they're only the compositor's sources.
+ *   frame. Two <img> elements do the same for still images. The elements are
+ *   hidden: they're only the compositor's sources. Text is laid out here and
+ *   drawn by the compositor, like solids and shapes.
  * - What each track shows comes from `shared/scene.ts` (like the export): the
  *   clip under the playhead, placed where its Motion puts it and faded by its
  *   Opacity, read at the current time (so they follow keyframes), or a
@@ -343,7 +343,6 @@ export class PreviewEngine {
         videoIds: [null, null],
         images: [null, null],
         imageIds: [null, null],
-        texts: [null, null],
       };
       this.layers.set(trackId, layer);
     }
@@ -388,6 +387,11 @@ export class PreviewEngine {
    * nested clip's sequence is planned the same way, into a group picture of its own.
    */
   private planLevel(level: Level, status: PlanStatus): Layer[] {
+    // Expressions are told this sequence's frame rate.
+    return atFrameRate(level.view.settings.fps, () => this.planTracks(level, status));
+  }
+
+  private planTracks(level: Level, status: PlanStatus): Layer[] {
     const { view: project, prefix, time, playing, depth } = level;
     const trackMuted = new Map(project.tracks.map((t) => [t.id, t.muted]));
     const kindOf = (clip: Clip): ClipKind => {
@@ -415,9 +419,10 @@ export class PreviewEngine {
       /** The picture showing each clip on screen, by clip id. */
       const pictures = new Map<string, Picture>();
 
-      // Solids are drawn by the compositor itself.
+      // Text, solids and shape layers are drawn by the compositor itself.
       for (const side of shown) {
-        if (kindOf(side.clip) === "solid") pictures.set(side.clip.id, { key: "", source: null, shown: side });
+        const kind = kindOf(side.clip);
+        if (kind === "solid" || kind === "shape" || kind === "text") pictures.set(side.clip.id, { key: "", source: null, shown: side });
       }
 
       // Nested sequences: planned as a level of their own, drawn into a group.
@@ -442,15 +447,6 @@ export class PreviewEngine {
         };
         layer.videoIds = assignSlots(layer.videoIds, ...ids("video"));
         layer.imageIds = assignSlots(layer.imageIds, ...ids("image"));
-
-        shown.forEach((side, i) => {
-          if (kindOf(side.clip) !== "text") return;
-          const slot = (layer.texts[i] ??= new TextSlot(document.createElement("canvas")));
-          const { placement, text } = placeOnCanvas(project, side.clip, undefined, level.canvas, side.time);
-          slot.draw(textStyleAt(side.clip, side.time), text!, textUnit(level.canvas, project.settings.aspectRatio), placement);
-          if (!slot.drawn) status.unsettled = true;
-          pictures.set(side.clip.id, { key: `${slotId}:t${i}`, source: slot, shown: side });
-        });
 
         layer.videos.forEach((slot, i) => {
           if (!slot) return;
@@ -627,6 +623,10 @@ export class PreviewEngine {
    * canvas, or a nested sequence's group), at `dpr` device px per CSS px.
    */
   private drawLayers(compositor: Compositor, project: Project, layers: Layer[], size: Size, dpr: number): { transitions: number } {
+    return atFrameRate(project.settings.fps, () => this.drawLevel(compositor, project, layers, size, dpr));
+  }
+
+  private drawLevel(compositor: Compositor, project: Project, layers: Layer[], size: Size, dpr: number): { transitions: number } {
     const pixels = { width: Math.round(size.width * dpr), height: Math.round(size.height * dpr) };
     const options = { canvas: pixels, fps: project.settings.fps, maxSamples: PREVIEW_SAMPLES };
     /** Where a clip is on the canvas at source time `t` (a solid or an adjustment layer fills it at 100%; a 3D layer seen through the camera). */
@@ -671,7 +671,14 @@ export class PreviewEngine {
       }
       if (picture.source === null) {
         const layer = clipLayer(clip, time, affineAt(clip), options);
-        return layer && { ...layer, key: "", solid: { color: solidColorAt(clip, time), ...pixels } };
+        if (!layer) return null;
+        if (clipKind(clip) === "shape") return { ...layer, key: "", vector: shapeDrawingAt(clip, time, outputSize(project.settings.aspectRatio, "1080p")) };
+        if (clipKind(clip) === "text") {
+          // Laid out here (the tab knows the fonts), drawn by the compositor at the size it's shown.
+          const { text } = placeOnCanvas(project, clip, undefined, size, time);
+          return text && { ...layer, key: "", text: textDrawing(textStyleAt(clip, time), text, textUnit(size, project.settings.aspectRatio)) };
+        }
+        return { ...layer, key: "", solid: { color: solidColorAt(clip, time), ...pixels } };
       }
       if (!this.upload(compositor, picture)) return null;
       const layer = clipLayer(clip, time, affineAt(clip), options);
@@ -761,7 +768,7 @@ export class PreviewEngine {
 
   /**
    * Make sure the compositor has the picture's current contents: a video's
-   * frame is uploaded on every draw, a still or a text only when it changes.
+   * frame is uploaded on every draw, a still only when it changes.
    * False when there's nothing to draw yet (e.g. the media is still loading).
    */
   private upload(compositor: Compositor, { key, source, interp }: Picture): boolean {
@@ -769,21 +776,18 @@ export class PreviewEngine {
     if (interp && source instanceof HTMLVideoElement) this.keepFrame(compositor, key, source, interp.slot);
     let version: string | null;
     let ready: boolean;
-    if (source instanceof TextSlot) {
-      version = source.drawn;
-      ready = !!version;
-    } else if (source instanceof HTMLVideoElement) {
+    if (source instanceof HTMLVideoElement) {
       version = null;
       ready = source.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && source.videoWidth > 0;
     } else {
       version = source.currentSrc;
       ready = source.complete && source.naturalWidth > 0;
     }
-    const src = source instanceof TextSlot ? null : source.currentSrc;
+    const src = source.currentSrc;
     if (!ready) {
       // Not ready yet: keep showing its last picture only if it's of the same media.
       const last = this.uploaded.get(key);
-      if (last !== undefined && src !== null && last === `${src}@video`) return compositor.hasPicture(key);
+      if (last !== undefined && last === `${src}@video`) return compositor.hasPicture(key);
       compositor.deletePicture(key);
       this.uploaded.delete(key);
       return false;
@@ -791,7 +795,7 @@ export class PreviewEngine {
     const tag = version ?? `${src}@video`;
     if (version === null || this.uploaded.get(key) !== tag || !compositor.hasPicture(key)) {
       try {
-        compositor.setPicture(key, source instanceof TextSlot ? source.el : source);
+        compositor.setPicture(key, source);
       } catch (err) {
         console.warn("Couldn't draw a picture", err);
         return false;
@@ -868,25 +872,6 @@ export class PreviewEngine {
 /** The slowest and fastest a media element plays smoothly (browsers mute outside about this range). */
 const MIN_PLAYBACK_RATE = 0.0625;
 const MAX_PLAYBACK_RATE = 16;
-
-/** An offscreen canvas with a text clip drawn on it, redrawn only when what it shows changes. */
-class TextSlot {
-  /** What's drawn (changes whenever the drawing does); "" until drawn. */
-  drawn = "";
-
-  constructor(readonly el: HTMLCanvasElement) {}
-
-  draw(style: TextStyle, layout: TextLayout, unit: number, placement: Placement) {
-    // Sharp on this screen at the clip's current scale.
-    const zoom = Math.max(Math.abs(placement.scaleX), Math.abs(placement.scaleY), 0.05);
-    try {
-      this.drawn = rasterizeText(this.el, style, layout, unit, (window.devicePixelRatio || 1) * zoom, this.drawn).key;
-    } catch {
-      // No 2D context (e.g. too many canvases); the text just doesn't show.
-      this.drawn = "";
-    }
-  }
-}
 
 const withId = (ids: SlotIds, index: 0 | 1, id: string | null): SlotIds =>
   index === 0 ? [id, ids[1]] : [ids[0], id];

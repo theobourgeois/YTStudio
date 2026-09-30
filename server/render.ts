@@ -16,10 +16,11 @@
  *   output. A transition may show a clip past its edges (the media's
  *   handles); where the media ends, its first or last frame is held. A clip
  *   at another speed is decoded at that rate; one played backwards is decoded
- *   (forwards) from its media's reversed copy. Stills (and drawn texts) are decoded once. Frames are decoded at the size the
+ *   (forwards) from its media's reversed copy. Stills are decoded once. Frames are decoded at the size the
  *   clip is shown at, never bigger than its media.
- * - Text clips arrive already drawn (by the browser, in the user's fonts) as
- *   images with their frame size; they're placed like any other still.
+ * - Text clips arrive laid out (by the browser tab, which knows the user's
+ *   fonts); each frame says what to draw from the layout and the text's look
+ *   then (`textDrawing`), and the page's compositor draws it, like the preview.
  * - Every clip with sound on an unmuted track (video or audio) is cut to its
  *   exact sample length, delayed to its timeline start and summed (no
  *   normalisation) on top of silence covering the whole timeline, in a pass of
@@ -35,6 +36,7 @@ import { effectPasses, effectShader } from "../shared/effect-gl.ts";
 import { type Camera3D } from "../shared/camera.ts";
 import {
   VOLUME,
+  atFrameRate,
   clipKind,
   effectDefinition,
   findEffect,
@@ -45,13 +47,16 @@ import {
   motionAt,
   opacityAt,
   solidColorAt,
+  textStyleAt,
   volumeAt,
 } from "../shared/effects.ts";
+import { type TextLayout, textDrawing, textUnit } from "../shared/text-drawing.ts";
 import { easesIn, easesOut, isPlainSegment, segmentProgress } from "../shared/keyframes.ts";
 import { parentAt } from "../shared/parenting.ts";
 import { EXPORT_SAMPLES, canvasAffine, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "../shared/layers.ts";
 import { even } from "../shared/math.ts";
 import { type Shown, sceneAt, transitionWindows } from "../shared/scene.ts";
+import { shapeDrawingAt } from "../shared/shapes.ts";
 import { allClips, getSequence, isNestedClip, nestedSequence, sequenceDuration, sequenceSize, sequenceView } from "../shared/sequences.ts";
 import { mediaTime } from "../shared/time-remap.ts";
 import {
@@ -60,6 +65,7 @@ import {
   clipEnd,
   clipSpeed,
   fileTime,
+  outputSize,
   projectDuration,
   sourceEdge,
   sourceRange,
@@ -70,7 +76,7 @@ import {
 import { type UniformValue, transitionShader, transitionUniforms } from "../shared/transition-gl.ts";
 import type { TransitionWindow } from "../shared/transition-windows.ts";
 import { type Size, frameCorners, placeClip, placementAffine } from "../shared/transform.ts";
-import type { Clip, Keyframe, MediaAsset, Project } from "../shared/types.ts";
+import type { Clip, Keyframe, MediaAsset, Project, TextLayoutAt } from "../shared/types.ts";
 import { FFMPEG_QUIET } from "./ffmpeg.ts";
 import { run } from "./process.ts";
 
@@ -84,14 +90,8 @@ export type RenderAsset = Pick<MediaAsset, "kind" | "hasAudio" | "hasVideo" | "w
   path: string;
   /** Its reversed copy (see `MediaAsset.reversed`), needed when a clip plays it backwards. */
   reversedPath?: string;
-  /** Size at 100% on the output canvas when it isn't the media fitted to it (a drawn text). */
-  frame?: Size;
   /** The video's YCbCr matrix as ffprobe names it (`color_space`), when known. */
   colorSpace?: string | null;
-  /** A drawn text: the PNG itself (`path` is unused). */
-  png?: Buffer;
-  /** A drawn text's drawing is shown from this source time on (the first one: from the start). */
-  from?: number;
 };
 
 export interface RenderOptions {
@@ -107,7 +107,7 @@ export interface RenderSource {
   key: string;
   clipId: string;
   /**
-   * A still (an image or a text) is one RGBA frame drawn all along; a video
+   * A still (an image) is one RGBA frame drawn all along; a video
    * is one YUV 4:2:0 frame (limited range, in its own matrix: `luma`) per output frame.
    */
   still: boolean;
@@ -119,8 +119,6 @@ export interface RenderSource {
   height: number;
   /** A video's YCbCr matrix, as the luma weights of red and blue. */
   luma: [number, number] | null;
-  /** A drawn text's PNG, sent as it is (then `argv` is empty). */
-  png?: Buffer;
   argv: string[];
   /**
    * Time interpolation (`Clip.timeInterpolation`): the media is decoded at its own frame rate
@@ -162,6 +160,8 @@ export interface RenderPlan {
   sources: RenderSource[];
   /** Fragment shader sources by key. */
   shaders: Record<string, string>;
+  /** The CSS fonts its texts are drawn in, for the page to have ready before the first frame. */
+  fonts: string[];
   /** What output frame `f` draws, bottom layer first. */
   frame(f: number): FrameLayer[];
   /**
@@ -192,17 +192,20 @@ export function planRender(
   project: Project,
   assets: Record<string, RenderAsset>,
   opts: RenderOptions,
-  /** Drawn text clips, by clip id: one drawing, or several over time for an animated text (see `RenderAsset.from`). */
-  texts: Record<string, RenderAsset[]> = {},
+  /** Text clips' layouts, by clip id: one, or several over time when the text's words or size change (see `TextLayoutAt.from`). */
+  texts: Record<string, TextLayoutAt[]> = {},
 ): RenderPlan {
   const { width: W, height: H, fps: F } = opts;
   const total = projectDuration(project);
   if (!(total > 0)) throw new Error("Nothing to render: the timeline is empty.");
   const frames = frameAtFps(F)(total);
   const everyClip = allClips(project);
-  for (const clip of everyClip) if (hasPicture(clip)) renderAssetOf(clip, assets, texts);
+  for (const clip of everyClip) {
+    if (hasPicture(clip)) renderAssetOf(clip, assets);
+    if (isTextClip(clip) && !texts[clip.id]?.length) throw new Error(`Missing text layout for clip ${clip.id}.`);
+  }
   const range = (clip: Clip) =>
-    !hasMedia(clip) || isNestedClip(clip) || isRemapped(clip) ? TEXT_SOURCE_RANGE : sourceRange(renderAssetOf(clip, assets, texts));
+    !hasMedia(clip) || isNestedClip(clip) || isRemapped(clip) ? TEXT_SOURCE_RANGE : sourceRange(renderAssetOf(clip, assets));
   // Nested sequences are drawn at the export's scale: their 1080p frame times this.
   const scale = Math.min(W, H) / 1080;
 
@@ -247,13 +250,12 @@ export function planRender(
     return T >= -1e-6 && T < sequenceDuration(seq) - 1e-6 ? Math.max(0, T) : null;
   };
 
-  /** The picture a clip shows at a moment: its media, or its text's drawing then. */
-  const pictureAt = ({ clip, time }: Shown): { id: string; asset: RenderAsset } => {
-    if (!isTextClip(clip)) return { id: clip.id, asset: renderAssetOf(clip, assets, texts) };
-    const drawings = texts[clip.id];
+  /** A text clip's layout at source time `time`. */
+  const layoutAt = (clip: Clip, time: number): TextLayout => {
+    const layouts = texts[clip.id];
     let i = 0;
-    while (i + 1 < drawings.length && (drawings[i + 1].from ?? -Infinity) <= time + 1e-9) i++;
-    return { id: `${clip.id}#${i}`, asset: drawings[i] };
+    while (i + 1 < layouts.length && (layouts[i + 1].from ?? -Infinity) <= time + 1e-9) i++;
+    return layouts[i].layout;
   };
 
   /** A nested clip's sequence as the media it's placed like (its frame at 1080p). */
@@ -270,11 +272,11 @@ export function planRender(
     if (!hasPicture(clip) && !nest) return null;
     const opacity = opacityAt(clip, time);
     if (!(opacity > 0)) return null;
-    const { id, asset } = nest ? { id: clip.id, asset: nest } : pictureAt(shown);
+    const { id, asset } = { id: clip.id, asset: nest ?? renderAssetOf(clip, assets) };
     const { canvas } = level;
     const media = mediaSize(asset, canvas);
     const motion = motionAt(clip, time);
-    const p = placeClip(canvas, media, motion, asset.frame);
+    const p = placeClip(canvas, media, motion);
     if (!(Math.abs(p.scaleX) > 0 && Math.abs(p.scaleY) > 0)) return null;
     // A 3D layer can come into view however it's placed in 2D, and nearer the camera it's shown bigger: all its detail.
     // So can a parented one, carried wherever (and however big) its parents take it.
@@ -300,7 +302,7 @@ export function planRender(
    * on the clip playing the sequence). Everything else is decoded straight at the output rate.
    */
   const isNative = (path: string, clip: Clip, asset: RenderAsset) =>
-    asset.kind === "video" && !asset.png && (path !== "" || isRemapped(clip) || (!!clip.timeInterpolation && (asset.fps ?? 0) > 0));
+    asset.kind === "video" && (path !== "" || isRemapped(clip) || (!!clip.timeInterpolation && (asset.fps ?? 0) > 0));
   /** The media time a clip shows (inside its media). */
   const mediaAt = (shown: Shown, asset: RenderAsset) =>
     Math.min(Math.max(mediaTime(shown.clip, shown.time), 0), Math.max(0, asset.duration - END_GUARD));
@@ -341,17 +343,19 @@ export function planRender(
     if (s.native && s.times.at(-1)?.[0] !== f) s.times.push([f, mediaAt(shown, drawn.asset)]);
   };
   const shaders: Record<string, string> = {};
-  const visit = (f: number, level: Level, path: string, t: number, depth: number) => {
-    for (const shot of shotsAt(level, t)) {
-      if (shot.kind === "clip") see(f, level, path, shot.shown, depth);
-      else {
-        see(f, level, path, shot.from, depth);
-        see(f, level, path, shot.to, depth);
-        const shader = transitionShader(shot.window.def);
-        shaders[shader.key] = shader.source;
+  const visit = (f: number, level: Level, path: string, t: number, depth: number) =>
+    // Expressions are told this sequence's frame rate (here and in `layersOf`).
+    atFrameRate(level.view.settings.fps, () => {
+      for (const shot of shotsAt(level, t)) {
+        if (shot.kind === "clip") see(f, level, path, shot.shown, depth);
+        else {
+          see(f, level, path, shot.from, depth);
+          see(f, level, path, shot.to, depth);
+          const shader = transitionShader(shot.window.def);
+          shaders[shader.key] = shader.source;
+        }
       }
-    }
-  };
+    });
   // Every video effect a visible clip has on, whenever it's shown.
   for (const clip of everyClip) {
     for (const pass of effectPasses(clip, clip.in)) {
@@ -395,13 +399,6 @@ export function planRender(
   };
   for (const [id, { clip, asset, first, end, density, native, times }] of [...seen.entries()].sort(([, a], [, b]) => a.first - b.first)) {
     const base = { clipId: clip.id, first, end };
-    // A drawn text is sent as it is (already at the size it needs), for the page to decode.
-    if (asset.png) {
-      const key = `s${n++}`;
-      keys.set(id, key);
-      sources.push({ ...base, key, still: true, width: asset.width!, height: asset.height!, luma: null, png: asset.png, argv: [] });
-      continue;
-    }
     const still = asset.kind === "image";
     const size = sizeOf(asset, density, still, top.canvas);
     if (still) {
@@ -472,6 +469,7 @@ export function planRender(
     frames,
     sources,
     shaders,
+    fonts: [...new Set(Object.values(texts).flatMap((layouts) => layouts.map((l) => l.layout.font)))],
     needsReversed: [...needsReversed],
     frame(f) {
       return layersOf(top, "", frameTime(f, F), f, 0);
@@ -480,6 +478,10 @@ export function planRender(
 
   /** A level's layers at its time `t` (output frame `f`), bottom first: groups (nested sequences) before what uses them. */
   function layersOf(level: Level, path: string, t: number, f: number, depth: number): FrameLayer[] {
+    return atFrameRate(level.view.settings.fps, () => levelLayers(level, path, t, f, depth));
+  }
+
+  function levelLayers(level: Level, path: string, t: number, f: number, depth: number): FrameLayer[] {
     const { canvas, camera, layerOptions } = level;
     const groups: FrameLayer[] = [];
     const canvasAffineOf = (clip: Clip) => canvasAffine(clip, canvas, camera, parentAt(level.view, clip, canvas));
@@ -490,9 +492,30 @@ export function planRender(
         const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
         return layer && { ...byKey(layer), key: "", solid: { color: solidColorAt(clip, time), width: canvas.width, height: canvas.height } };
       }
+      if (clipKind(clip) === "shape") {
+        // Drawn by the page's 2D canvas, from the same drawing the preview makes.
+        const layer = clipLayer(clip, time, canvasAffineOf(clip), layerOptions);
+        return layer && { ...byKey(layer), key: "", vector: shapeDrawingAt(clip, time, outputSize(level.view.settings.aspectRatio, "1080p")) };
+      }
+      if (clipKind(clip) === "text") {
+        // Laid out by the tab, drawn by the page's 2D canvas at the size it's shown (like the preview).
+        const where = placer(
+          clip,
+          canvas,
+          (s) => {
+            const frame = layoutAt(clip, s);
+            return placeClip(canvas, frame, motionAt(clip, s), frame);
+          },
+          camera,
+          parentAt(level.view, clip, canvas),
+        );
+        const layer = clipLayer(clip, time, where, layerOptions);
+        const unit = textUnit(canvas, level.view.settings.aspectRatio);
+        return layer && { ...byKey(layer), key: "", text: textDrawing(textStyleAt(clip, time), layoutAt(clip, time), unit) };
+      }
       const drawn = draw(level, shown);
       if (!drawn) return null;
-      const where = placer(clip, canvas, (s) => placeClip(canvas, mediaSize(drawn.asset, canvas), motionAt(clip, s), drawn.asset.frame), camera, parentAt(level.view, clip, canvas));
+      const where = placer(clip, canvas, (s) => placeClip(canvas, mediaSize(drawn.asset, canvas), motionAt(clip, s)), camera, parentAt(level.view, clip, canvas));
       if (isNestedClip(clip)) {
         // The sequence it plays, drawn into a picture of its own first.
         const seq = nestedSequence(project, clip);
@@ -573,11 +596,8 @@ export function planRender(
   }
 }
 
-/** Whether a clip's picture comes from a source (its media, or its text's drawing): not a solid or an adjustment layer. */
-const hasPicture = (clip: Clip) => {
-  const kind = clipKind(clip);
-  return (kind === "media" && !isNestedClip(clip)) || kind === "text";
-};
+/** Whether a clip's picture comes from a source (its media): not text, a solid, a shape or an adjustment layer, which the compositor draws. */
+const hasPicture = (clip: Clip) => clipKind(clip) === "media" && !isNestedClip(clip);
 
 /** A layer's shaders named by key (their sources travel separately, in `RenderPlan.shaders`). */
 function byKey(layer: Omit<Placed, "key">): Omit<PlacedRef, "key"> {
@@ -591,11 +611,10 @@ function byKey(layer: Omit<Placed, "key">): Omit<PlacedRef, "key"> {
   };
 }
 
-/** A clip's media, or its (first) text drawing. */
-function renderAssetOf(clip: Clip, assets: Record<string, RenderAsset>, texts: Record<string, RenderAsset[]>): RenderAsset {
-  const text = isTextClip(clip);
-  const asset = text ? texts[clip.id]?.[0] : assets[clip.assetId];
-  if (!asset) throw new Error(text ? `Missing text image for clip ${clip.id}.` : `Missing media for clip ${clip.id}.`);
+/** A clip's media. */
+function renderAssetOf(clip: Clip, assets: Record<string, RenderAsset>): RenderAsset {
+  const asset = assets[clip.assetId];
+  if (!asset) throw new Error(`Missing media for clip ${clip.id}.`);
   return asset;
 }
 
@@ -720,7 +739,6 @@ export function audioArgs(
   project: Project,
   assets: Record<string, RenderAsset>,
   opts: Pick<RenderOptions, "ffmpegPath"> & { outputPath: string },
-  texts: Record<string, RenderAsset[]> = {},
 ): string[] {
   const total = projectDuration(project);
   if (!(total > 0)) throw new Error("Nothing to render: the timeline is empty.");
@@ -763,7 +781,7 @@ export function audioArgs(
         }
         continue;
       }
-      const asset = renderAssetOf(clip, assets, texts);
+      const asset = renderAssetOf(clip, assets);
       if (!asset.hasAudio) continue;
       const samples = sampleAt(clipEnd(clip)) - sampleAt(clip.start);
       if (samples <= 0) continue;
