@@ -71,6 +71,18 @@ so there's nothing to copy. Check it as carefully as dark.
 - The corners: about 150 uses of `rounded-lg`, `-xl` and `-2xl`, 90 of `rounded-md` and 60 of
   `rounded-full` across the components. Shadows: about 20 `shadow-*`, mostly `shadow-xl`.
 
+## Where it is
+
+- **Done (2026-09-30):** steps 1 to 3. The theme system (`src/themes/studio.css`, `THEMES` in
+  `stores/theme.ts`, the theme menu lists themes and light / dark / system), the palette (every text colour
+  passes on every surface: the gallery's first section measures it), the depth utilities (`raised`,
+  `pressed`, `raised-brand`, `pressed-brand`, `sunken`, `floating` in `index.css`), the radius scale (4px), the
+  scrollbars, the Piano roll's grid colours as theme variables (`--piano-*`), and every primitive in
+  `components/ui/`. The light accent is a little darker than before (`#2c67d0`) so it passes as text.
+- **Checking** is the component gallery (`/gallery`, `src/gallery/`, a suite adds its controls in its own
+  `gallery.tsx`) and `scripts/ui-sheet.ts`, which screenshots the gallery and the screens in every theme.
+- **Next:** step 4, the sweep, area by area.
+
 ## The plan
 
 Do it in this order. After each step, look at every screen in both themes (see "Checking" below) before going

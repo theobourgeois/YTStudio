@@ -4,14 +4,16 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useTheme, type Theme } from "@/stores/theme";
+import { THEMES, useTheme, type Appearance, type ThemeId } from "@/stores/theme";
 
-const THEMES: { value: Theme; label: string; icon: IconType }[] = [
+const APPEARANCES: { value: Appearance; label: string; icon: IconType }[] = [
   { value: "light", label: "Light", icon: PiSun },
   { value: "dark", label: "Dark", icon: PiMoon },
   { value: "system", label: "System", icon: PiDesktop },
@@ -19,8 +21,10 @@ const THEMES: { value: Theme; label: string; icon: IconType }[] = [
 
 export function ThemeMenu() {
   const theme = useTheme((s) => s.theme);
+  const appearance = useTheme((s) => s.appearance);
   const setTheme = useTheme((s) => s.setTheme);
-  const Icon = THEMES.find((t) => t.value === theme)?.icon ?? PiMoon;
+  const setAppearance = useTheme((s) => s.setAppearance);
+  const Icon = APPEARANCES.find((t) => t.value === appearance)?.icon ?? PiMoon;
 
   return (
     <DropdownMenu>
@@ -36,8 +40,17 @@ export function ThemeMenu() {
         <TooltipContent side="bottom">Theme</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="w-36">
-        <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>
-          {THEMES.map(({ value, label, icon: ItemIcon }) => (
+        <DropdownMenuLabel>Theme</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as ThemeId)}>
+          {THEMES.map(({ id, name }) => (
+            <DropdownMenuRadioItem key={id} value={id}>
+              {name}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup value={appearance} onValueChange={(v) => setAppearance(v as Appearance)}>
+          {APPEARANCES.map(({ value, label, icon: ItemIcon }) => (
             <DropdownMenuRadioItem key={value} value={value}>
               <ItemIcon />
               {label}

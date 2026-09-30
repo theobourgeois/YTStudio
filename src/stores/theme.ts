@@ -1,39 +1,67 @@
 import { create } from "zustand";
 
-export type Theme = "light" | "dark" | "system";
-const STORAGE_KEY = "editor-theme";
+/**
+ * The app's themes. A theme is a CSS file in `src/themes/` that sets the variables `src/index.css` maps to
+ * Tailwind, under a `theme-<id>` class, with its dark variant under `theme-<id>.dark`. Adding one is that
+ * file, its import in `index.css` and a line here.
+ */
+export const THEMES = [{ id: "studio", name: "Studio" }] as const;
+export type ThemeId = (typeof THEMES)[number]["id"];
+
+/** Which variant of the theme shows: `system` follows the computer's. */
+export type Appearance = "light" | "dark" | "system";
+
+// `index.html` reads these too, to paint the first frame in the right theme.
+const THEME_KEY = "editor-theme-id";
+const APPEARANCE_KEY = "editor-theme";
 
 const media = window.matchMedia("(prefers-color-scheme: dark)");
 
-function resolve(theme: Theme): "light" | "dark" {
-  return theme === "system" ? (media.matches ? "dark" : "light") : theme;
+function resolve(appearance: Appearance): "light" | "dark" {
+  return appearance === "system" ? (media.matches ? "dark" : "light") : appearance;
 }
 
-function applyTheme(theme: Theme) {
-  document.documentElement.classList.toggle("dark", resolve(theme) === "dark");
+const isTheme = (id: string | null): id is ThemeId => THEMES.some((t) => t.id === id);
+
+/** Puts the theme's classes on <html>; `.dark` still means "a dark variant is showing". */
+export function applyTheme(theme: ThemeId, appearance: Appearance, root: Element = document.documentElement) {
+  for (const name of [...root.classList]) if (name.startsWith("theme-") && name !== `theme-${theme}`) root.classList.remove(name);
+  root.classList.add(`theme-${theme}`);
+  root.classList.toggle("dark", resolve(appearance) === "dark");
 }
 
 interface ThemeState {
-  theme: Theme;
+  theme: ThemeId;
+  appearance: Appearance;
   resolved: "light" | "dark";
-  setTheme: (theme: Theme) => void;
+  setTheme: (theme: ThemeId) => void;
+  setAppearance: (appearance: Appearance) => void;
 }
 
-const initial = (localStorage.getItem(STORAGE_KEY) as Theme | null) ?? "dark";
+const savedTheme = localStorage.getItem(THEME_KEY);
+const initialTheme: ThemeId = isTheme(savedTheme) ? savedTheme : THEMES[0].id;
+const initialAppearance = (localStorage.getItem(APPEARANCE_KEY) as Appearance | null) ?? "dark";
+applyTheme(initialTheme, initialAppearance);
 
-export const useTheme = create<ThemeState>((set) => ({
-  theme: initial,
-  resolved: resolve(initial),
+export const useTheme = create<ThemeState>((set, get) => ({
+  theme: initialTheme,
+  appearance: initialAppearance,
+  resolved: resolve(initialAppearance),
   setTheme: (theme) => {
-    localStorage.setItem(STORAGE_KEY, theme);
-    applyTheme(theme);
-    set({ theme, resolved: resolve(theme) });
+    localStorage.setItem(THEME_KEY, theme);
+    applyTheme(theme, get().appearance);
+    set({ theme });
+  },
+  setAppearance: (appearance) => {
+    localStorage.setItem(APPEARANCE_KEY, appearance);
+    applyTheme(get().theme, appearance);
+    set({ appearance, resolved: resolve(appearance) });
   },
 }));
 
 media.addEventListener("change", () => {
-  const { theme } = useTheme.getState();
-  if (theme !== "system") return;
-  applyTheme(theme);
-  useTheme.setState({ resolved: resolve(theme) });
+  const { theme, appearance } = useTheme.getState();
+  if (appearance !== "system") return;
+  applyTheme(theme, appearance);
+  useTheme.setState({ resolved: resolve(appearance) });
 });

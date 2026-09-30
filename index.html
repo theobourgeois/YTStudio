@@ -10,6 +10,7 @@
       (function () {
         var t = localStorage.getItem("editor-theme") || "dark";
         var dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.add("theme-" + (localStorage.getItem("editor-theme-id") || "studio"));
         document.documentElement.classList.toggle("dark", dark);
       })();
     </script>

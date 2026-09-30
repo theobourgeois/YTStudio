@@ -5,8 +5,8 @@
  *
  * The look is FL Studio's: a blue-grey grid whose lines are darker than its cells, pale green notes
  * (red when selected) with a rounded, lit edge and their name on them, and a keyboard drawn as a real
- * one, white keys of their true sizes under the black ones. Its colours are its own, one set for the
- * dark theme and one for the light (`readPalette`), so the grid stands out from the page in both.
+ * one, white keys of their true sizes under the black ones. The grid's colours are the theme's
+ * (`--piano-*`, `readPalette`); the notes' are content, the same in every theme.
  */
 import type { Note } from "@shared/music/types";
 import { BLACK_KEY_WIDTH, type PianoView, gridTicks, isBlackKey, pitchName, pitchToY, tickToX, visibleRange, whiteKeys, xToTick, yToPitch } from "./geometry";
@@ -41,54 +41,56 @@ export interface Palette {
   /** Where play starts (the ruler's marker), and the slice and playback tools' lines. */
   start: string;
   tool: string;
+  /** Behind the keyboard's keys (the gaps between them). */
+  keys: string;
 }
 
 const NOTE: NoteColours = { top: "#c4f1bf", bottom: "#8fd78c", edge: "#3e7d40", text: "#1d4721" };
 const SELECTED: NoteColours = { top: "#ffc2bd", bottom: "#f48b84", edge: "#9b3934", text: "#561712" };
 const MUTED: NoteColours = { top: "#b9c1bb", bottom: "#98a29b", edge: "#5d6660", text: "#39413b" };
 
-const DARK: Palette = {
-  dark: true,
-  foreground: "#e6e8eb",
-  row: "#2c333c",
-  blackRow: "#262c34",
-  line: "#20252c",
-  beatLine: "#1a1e24",
-  barLine: "#12151a",
-  outside: "rgba(8, 10, 13, 0.42)",
-  ruler: "#1d2127",
-  rulerText: "#aeb6c0",
-  note: NOTE,
-  selected: SELECTED,
-  muted: MUTED,
-  ghost: "rgba(190, 205, 222, 0.16)",
-  time: "#ef4d55",
-  start: "#f2a93b",
-  tool: "#6fb6ff",
-};
+/** The palette's colours that come from the theme (`--piano-<name>` in `src/themes/`), by field. */
+const THEMED = {
+  row: "row",
+  blackRow: "black-row",
+  line: "line",
+  beatLine: "beat-line",
+  barLine: "bar-line",
+  outside: "outside",
+  ruler: "ruler",
+  rulerText: "ruler-text",
+  ghost: "ghost",
+  time: "time",
+  start: "start",
+  tool: "tool",
+  keys: "keys",
+} as const;
 
-const LIGHT: Palette = {
-  dark: false,
-  foreground: "#22262c",
-  row: "#eef1f5",
-  blackRow: "#e2e7ed",
-  line: "#d3d9e1",
-  beatLine: "#bcc4ce",
-  barLine: "#949eaa",
-  outside: "rgba(40, 52, 66, 0.1)",
-  ruler: "#e3e7ec",
-  rulerText: "#4b535d",
-  note: NOTE,
-  selected: SELECTED,
-  muted: MUTED,
-  ghost: "rgba(60, 76, 94, 0.14)",
-  time: "#e5484d",
-  start: "#e08a12",
-  tool: "#2f7be5",
-};
+let cached: { key: string; palette: Palette } | null = null;
 
-/** The palette for the theme the element is shown in. */
-export const readPalette = (element: Element): Palette => (element.closest(".dark") ? DARK : LIGHT);
+/**
+ * The palette for the theme the element is shown in: the grid's colours are the theme's (CSS variables,
+ * read again only when the theme changes), the notes' are content and stay.
+ */
+export function readPalette(element: Element): Palette {
+  const dark = element.closest(".dark") !== null;
+  const key = `${document.documentElement.className}|${dark}`;
+  if (cached?.key === key) return cached.palette;
+  const style = getComputedStyle(element);
+  const themed = Object.fromEntries(
+    Object.entries(THEMED).map(([field, name]) => [field, style.getPropertyValue(`--piano-${name}`).trim()]),
+  ) as Record<keyof typeof THEMED, string>;
+  const palette: Palette = {
+    ...themed,
+    dark,
+    foreground: style.getPropertyValue("--foreground").trim(),
+    note: NOTE,
+    selected: SELECTED,
+    muted: MUTED,
+  };
+  cached = { key, palette };
+  return palette;
+}
 
 /** A note fading away after it's deleted (`fades.ts`): how far through (0..1), and how it looked. */
 export interface Vanishing {
@@ -408,7 +410,7 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene, startTick
  * tall enough to read, else only the Cs.
  */
 export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: number, height: number, palette: Palette, held: number | null) {
-  ctx.fillStyle = palette.dark ? "#101215" : "#8b929b";
+  ctx.fillStyle = palette.keys;
   ctx.fillRect(0, 0, width, height);
   const top = yToPitch(view, 0) + 1;
   const bottom = yToPitch(view, height) - 1;

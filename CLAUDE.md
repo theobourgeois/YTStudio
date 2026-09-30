@@ -23,6 +23,7 @@ pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + c
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
 pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + check presets
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
+pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change
 pnpm build:desktop && pnpm test:desktop   # release/mac-<arch>/Vaudio.app, then launch it, export, check
 pnpm engine:build # the music suite's audio engine (C++/JUCE) into engine/build; needs cmake + ninja (brew)
@@ -567,8 +568,14 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 - `cn` comes from the `cn` package (`import { cn } from "cn"`). Icons are `react-icons/pi` (Phosphor). UI primitives
   are in `components/ui` (shadcn, new-york). New shadcn components need their lucide imports swapped for
   `react-icons/pi`.
-- Design: minimal, like T3 Code; a darker One Dark palette; DM Sans. The accent colour is `brand`. Light and dark
-  themes are both supported.
+- Design: FL Studio's idea in a blue-grey family (docs/ui-redesign.md): mid-tone surfaces in clear steps
+  (`surface-0`..`surface-3`, `sunken`), lines darker than what they divide (`line`), a little depth on what can be
+  pressed (the `raised`/`pressed`/`sunken`/`floating` utilities in `index.css`), small corners, dense; DM Sans.
+  The accent is `brand`. It's a theme system: a theme is a CSS file in `src/themes/` (light + `.dark`), listed in
+  `THEMES` (`stores/theme.ts`); use its tokens, never raw colours (canvases read theirs from CSS variables too).
+- The component gallery (`/gallery` in `pnpm dev`, `src/gallery/`) shows every primitive and suite control in
+  each state; `pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]` screenshots it and the app's screens
+  into `ui-sheet/`. Add a section (`GallerySection`) when you add a control.
 - Put pure logic in `shared/` (or a pure module next to the component) and unit-test it. Components stay thin.
 - Tests, from cheapest: pure logic in vitest beside the code (most of them); a service against a stand-in
   program (`fake-engine.mjs`, `e2e/fake-claude.mjs`); the real program where only it can tell (exports in

@@ -2,91 +2,10 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/dm-sans/opsz.css";
 @import "@fontsource-variable/geist-mono";
+/* The theme's values (a class on <html>: `theme-<id>`, plus `dark`); `src/stores/theme.ts` lists the themes. */
+@import "./themes/studio.css";
 
 @custom-variant dark (&:is(.dark *));
-
-/*
- * Palette: cool-tinted neutrals (One Light / One Dark "darker") with a single
- * blue accent. Surfaces step by lightness only; the hue stays put so every
- * panel reads as the same material.
- *
- *   stage < timeline < background < sidebar < card < popover   (dark)
- */
-:root {
-  color-scheme: light;
-  --radius: 0.625rem;
-
-  --background: #fafafb;
-  --foreground: #1e2127;
-  --card: #ffffff;
-  --card-foreground: #1e2127;
-  --popover: #ffffff;
-  --popover-foreground: #1e2127;
-  --primary: #3b7ae8;
-  --primary-foreground: #ffffff;
-  --secondary: #f0f1f4;
-  --secondary-foreground: #1e2127;
-  --muted: #f0f1f4;
-  --muted-foreground: #6b717d;
-  --accent: #ebecf0;
-  --accent-foreground: #1e2127;
-  --destructive: #d8434f;
-  --border: #e4e6ea;
-  --input: #dcdfe4;
-  --ring: #3b7ae8;
-
-  /* Editor-specific tokens */
-  --brand: #3b7ae8;
-  --brand-foreground: #ffffff;
-  --playhead: #e0505b;
-  --clip-video: #5a86d6;
-  --clip-audio: #3b9c7c;
-  --clip-graphic: #9a6fd0;
-  --clip-adjustment: #c86b8c;
-  --clip-solid: #7c8594;
-  --clip-camera: #b8923a;
-  --clip-null: #8f96a3;
-  --timeline: #f4f5f7;
-  --stage: #eceef1;
-  --sidebar: #f4f5f7;
-}
-
-.dark {
-  color-scheme: dark;
-
-  --background: #16191d;
-  --foreground: #d5d9e0;
-  --card: #1b1e23;
-  --card-foreground: #d5d9e0;
-  --popover: #1e2126;
-  --popover-foreground: #d5d9e0;
-  --primary: #6aacf0;
-  --primary-foreground: #0f1216;
-  --secondary: #2a2d33;
-  --secondary-foreground: #d5d9e0;
-  --muted: #1f2227;
-  --muted-foreground: #878d98;
-  --accent: #23262c;
-  --accent-foreground: #e4e7ec;
-  --destructive: #e06c75;
-  --border: #25282e;
-  --input: #30343a;
-  --ring: #6aacf0;
-
-  --brand: #6aacf0;
-  --brand-foreground: #0f1216;
-  --playhead: #e06c75;
-  --clip-video: #4169ac;
-  --clip-audio: #2d7661;
-  --clip-graphic: #6d4fa3;
-  --clip-adjustment: #975069;
-  --clip-solid: #586070;
-  --clip-camera: #8a6b27;
-  --clip-null: #4a505b;
-  --timeline: #131519;
-  --stage: #0f1114;
-  --sidebar: #181b1f;
-}
 
 @theme {
   --font-sans: "DM Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -94,10 +13,22 @@
 }
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: calc(var(--radius) - 1px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 1px);
+  --radius-2xl: calc(var(--radius) + 2px);
+  --radius-3xl: calc(var(--radius) + 4px);
+  --shadow-float: var(--float-shadow);
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand-edge: var(--brand-edge);
+  --color-destructive-solid: var(--destructive-solid);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -165,14 +96,100 @@
   ::selection {
     background: color-mix(in srgb, var(--brand) 30%, transparent);
   }
-  /* Quiet, thin scrollbars that only show their thumb. */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--foreground) 14%, transparent) transparent;
+  /* Scrollbars as the Piano roll's: a sunken track and a raised thumb you can see. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--sunken);
+  }
+  ::-webkit-scrollbar-corner {
+    background: var(--sunken);
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius);
+    background: var(--raised) padding-box;
+    box-shadow: inset 0 0 0 1px var(--bevel-shadow), inset 0 2px 0 -1px var(--bevel-highlight);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--raised-hover) padding-box;
   }
   kbd {
     @apply font-sans;
   }
+}
+
+/*
+ * Depth, the theme's way (its values are the theme's): `raised` for what can be pressed (a lit top edge, a
+ * face, an outline), `pressed` for it pushed in or on, `raised-brand`/`pressed-brand` for the accent's,
+ * `sunken` for fields. They draw on `box-shadow` through Tailwind's inset-shadow slot, so focus rings still
+ * add to them, and on a 1px border (give a control that turns raised on hover `border border-transparent`
+ * so it doesn't move). Cheap on purpose: a gradient and a shadow, no filters, for hundreds of steps.
+ */
+@utility raised {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--bevel-shadow);
+  background-color: var(--surface-3);
+  background-image: var(--raised);
+  --tw-inset-shadow: inset 0 1px 0 var(--bevel-highlight);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
+}
+@utility raised-hover {
+  background-image: var(--raised-hover);
+}
+@utility raised-brand-hover {
+  background-image: var(--raised-brand-hover);
+}
+@utility pressed {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--bevel-shadow);
+  background-color: var(--sunken);
+  background-image: var(--pressed);
+  --tw-inset-shadow: var(--inset);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
+}
+@utility raised-brand {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--brand-edge);
+  background-color: var(--brand);
+  background-image: var(--raised-brand);
+  color: var(--brand-foreground);
+  --tw-inset-shadow: inset 0 1px 0 var(--brand-highlight);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
+}
+@utility pressed-brand {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--brand-edge);
+  background-color: var(--brand);
+  background-image: var(--pressed-brand);
+  color: var(--brand-foreground);
+  --tw-inset-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
+}
+@utility sunken {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--bevel-shadow);
+  background-color: var(--sunken);
+  --tw-inset-shadow: var(--inset);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
+}
+/* A floating surface (menus, popovers, dialogs, windows): a step lighter, outlined, a short dark shadow. */
+@utility floating {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--bevel-shadow);
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+  --tw-inset-shadow: inset 0 1px 0 var(--bevel-highlight);
+  --tw-shadow: var(--float-shadow);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
 }
 
 /*
@@ -196,4 +213,9 @@ html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert
   outline: 2px solid var(--brand);
   outline-offset: 1px;
   border-radius: 6px;
+}
+
+/* A tooltip never takes a click from what's under it (Radix wraps it in a positioned box of its own). */
+[data-radix-popper-content-wrapper]:has(> [data-slot="tooltip-content"]) {
+  pointer-events: none;
 }

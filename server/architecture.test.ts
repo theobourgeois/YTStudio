@@ -28,6 +28,8 @@ const REGISTRIES = [
   "server/suites/index.ts",
   "server/app.ts",
   "src/suites/index.ts",
+  // The component gallery shows every suite's controls.
+  "src/gallery/gallery.tsx",
 ];
 
 /** A trailing slash is a folder. Everything else at the roots is the video editor's. */
@@ -67,6 +69,7 @@ const PLATFORM = [
   "src/hooks/use-now.ts",
   "src/assistant/bridge.ts",
   "src/components/ui/",
+  "src/gallery/",
   "src/components/brand/",
   "src/components/sidebar/",
   "src/components/assistant/",
