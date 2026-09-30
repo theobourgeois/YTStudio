@@ -8,3 +8,7 @@ playwright-report
 samples
 e2e/.data
 transition-sheet.png
+dist-electron
+build/desktop
+release
+desktop-smoke.png

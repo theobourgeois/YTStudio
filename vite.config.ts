@@ -23,7 +23,7 @@ export default defineConfig({
   },
   build: { chunkSizeWarningLimit: 1500 },
   test: {
-    include: ["shared/**/*.test.ts", "src/**/*.test.{ts,tsx}", "server/**/*.test.ts"],
+    include: ["shared/**/*.test.ts", "src/**/*.test.{ts,tsx}", "server/**/*.test.ts", "electron/**/*.test.ts"],
     testTimeout: 60_000,
   },
 });
