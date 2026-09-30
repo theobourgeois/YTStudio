@@ -247,7 +247,9 @@ After the interaction pass on the rack (`src/suites/music/channel-rack.tsx`, `ch
 `knob.tsx`, `window.tsx`). What's listed under "Same" was checked against this document and has tests
 in `e2e/music.spec.ts`; the table is what's left. "With" names the phase that brings it.
 
-**Same as FL Studio now**: left-click turns a step on and right-click off, both painting when dragged;
+**Same as FL Studio now**: the look of the rows (small knobs, a wide button with the name in the middle and the
+instrument's icon at its end, pushed in while its window is open and red when it has nothing to play; the
+thin selector; step keys in grey and red beats, dark when off and pale when on, in the theme's colours); left-click turns a step on and right-click off, both painting when dragged;
 the rack's right edge is dragged to show more steps, and a pattern's length is Auto (the last bar with
 notes) unless its LCD sets one; the mute light, with Solo on its right-click menu, Ctrl/Alt+click, and
 the 1…0 and Ctrl+1…0 keys; knobs (drag, Ctrl for fine, Alt+click or middle-click to reset, a right-click
@@ -277,13 +279,11 @@ Shift+click, which select a range.
 | Waveform | Draggable start/loop handles, zoom, drag the sample out | Shows the prepared sample; click to hear | Later |
 | Envelope | ADSR + LFO for volume, pan, filter, pitch | Volume ADSR only | Later |
 | Cut groups, polyphony, arpeggiator, echo | Misc tab | Cut self only | Later |
-| Step colours | Grey and red beats; lit steps pale and raised | Same idea, our palette | Visual pass |
-| Missing sample | Red button | A warning icon | Visual pass |
+| Mute light, selector | Green | Lit with the app's accent (blue): FL's green isn't ours | Keep |
 | Pattern selector | On the toolbar, with + and a menu | On our toolbar, a popover | Keep; menu items with the playlist |
 | A plugin's window | FL's wrapper around it: ON, PAN, VOL, PITCH, TRACK, presets, its menu | The plugin's own window, bare (pan and volume are on the rack) | With the mixer |
 | Plugin picker | Favourites first, "More plugins…", categories | Every instrument found, with a search | Later |
 | Mixer track selector | Per row and in settings (TRACK) | None | With the mixer |
-| Piano roll preview in the row | Yes | None | With the piano roll |
 | Channel groups (filter), zip, colours | Yes | None | Later |
 | Per-channel swing | Yes | Global only | Later |
 | Hint bar | Yes | Tooltips | Visual pass |

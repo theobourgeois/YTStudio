@@ -8,7 +8,7 @@ import { type Rect, type ResizeEdge, type WindowSnap, edgeSnap, magnetise, resiz
 
 /** How much of a window must stay on the desktop (px), so it can always be grabbed again. */
 const KEEP_IN_VIEW = 80;
-const TITLE_HEIGHT = 32;
+const TITLE_HEIGHT = 28;
 
 interface MusicWindowProps {
   id: WindowId;
@@ -162,15 +162,16 @@ export function MusicWindow({ id, title, initial, onClose, menu, controls, resiz
       data-window={id}
       data-snap={snap ?? undefined}
       className={cn(
-        "absolute flex flex-col overflow-hidden border bg-card shadow-xl shadow-black/20 dark:border-white/10 dark:shadow-black/50",
-        snap ? "rounded-none shadow-none" : "rounded-sm",
+        // A floating surface (the theme's outline and short shadow), its title bar a step darker than its body.
+        "floating absolute flex flex-col overflow-hidden bg-card",
+        snap ? "rounded-none shadow-none" : "rounded-md",
         className,
       )}
       style={{ ...style, zIndex: 10 + (z < 0 ? 0 : z) }}
       onPointerDownCapture={() => useMusicUi.getState().focusWindow(id)}
     >
       <header
-        className="flex h-8 shrink-0 cursor-grab items-center gap-1.5 border-b bg-muted/60 pr-1 pl-1.5 select-none active:cursor-grabbing"
+        className="flex h-7 shrink-0 cursor-grab items-center gap-1.5 border-b border-line bg-surface-1 pr-1 pl-1 select-none active:cursor-grabbing"
         data-window-title
         onPointerDown={dragTitle}
         onDoubleClick={(e) => {
@@ -179,7 +180,7 @@ export function MusicWindow({ id, title, initial, onClose, menu, controls, resiz
         }}
       >
         {menu}
-        <h2 className="truncate text-xs font-medium text-muted-foreground">{title}</h2>
+        <h2 className="truncate text-xs font-medium">{title}</h2>
         <div className="ml-auto flex items-center gap-1.5">
           {controls}
           {resizable && (
@@ -187,7 +188,7 @@ export function MusicWindow({ id, title, initial, onClose, menu, controls, resiz
               type="button"
               aria-label={snap === "full" ? `Restore ${title}` : `Maximise ${title}`}
               title={snap === "full" ? "Restore (double-click the title)" : "Maximise (double-click the title)"}
-              className="grid size-6 place-items-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="grid size-5.5 place-items-center rounded-sm border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground active:pressed"
               onClick={() => useMusicUi.getState().toggleMaximised(id, initial)}
             >
               {snap === "full" ? <PiCornersIn className="size-3.5" /> : <PiCornersOut className="size-3.5" />}
@@ -196,7 +197,7 @@ export function MusicWindow({ id, title, initial, onClose, menu, controls, resiz
           <button
             type="button"
             aria-label={`Close ${title}`}
-            className="grid size-6 place-items-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="grid size-5.5 place-items-center rounded-sm border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground active:pressed"
             onClick={onClose}
           >
             <PiX className="size-3.5" />

@@ -180,6 +180,37 @@
   --tw-inset-shadow: var(--inset);
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
 }
+/*
+ * The channel rack's step keys (FL Studio's): the beats alternate two colours (`-alt` is the second), dark
+ * when off and pale when on, each a small raised key. Colours are the theme's `--step-*`.
+ */
+@utility step-off {
+  border: 1px solid var(--bevel-shadow);
+  background-image: linear-gradient(to bottom, var(--step-off-top), var(--step-off-bottom));
+  box-shadow: inset 0 1px 0 var(--bevel-highlight);
+  &:hover {
+    background-image: linear-gradient(to bottom, var(--step-off-hover), var(--step-off-top));
+  }
+}
+@utility step-off-alt {
+  border: 1px solid var(--bevel-shadow);
+  background-image: linear-gradient(to bottom, var(--step-alt-top), var(--step-alt-bottom));
+  box-shadow: inset 0 1px 0 var(--bevel-highlight);
+  &:hover {
+    background-image: linear-gradient(to bottom, var(--step-alt-hover), var(--step-alt-top));
+  }
+}
+@utility step-on {
+  border: 1px solid var(--step-on-edge);
+  background-image: linear-gradient(to bottom, var(--step-on-top), var(--step-on-bottom));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55);
+}
+@utility step-on-alt {
+  border: 1px solid var(--step-on-alt-edge);
+  background-image: linear-gradient(to bottom, var(--step-on-alt-top), var(--step-on-alt-bottom));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55);
+}
+
 /* A floating surface (menus, popovers, dialogs, windows): a step lighter, outlined, a short dark shadow. */
 @utility floating {
   border-width: 1px;

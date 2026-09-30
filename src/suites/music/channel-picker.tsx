@@ -71,9 +71,9 @@ export function ChannelPicker() {
           type="button"
           aria-label="Add a channel"
           title="Add a channel: choose its instrument"
-          className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="raised grid h-5 w-8 place-items-center rounded-sm text-muted-foreground hover:raised-hover hover:text-foreground active:pressed"
         >
-          <PiPlus className="size-3.5" />
+          <PiPlus className="size-3" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-2" data-testid="channel-picker">

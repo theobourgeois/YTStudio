@@ -63,6 +63,7 @@ export function PianoRoll() {
   const loop = useTransport((s) => `${s.loop.start}:${s.loop.ticks}`);
   const startTick = useTransport((s) => s.startTick);
   const selectedCount = usePiano((s) => s.selected.size);
+  const rowHeight = usePiano((s) => Math.round(s.view.rowHeight));
 
   return (
     <MusicWindow
@@ -86,6 +87,7 @@ export function PianoRoll() {
         data-loop={loop}
         data-start={startTick}
         data-selected={selectedCount}
+        data-row-height={rowHeight}
       >
         {channel ? <PianoBody /> : <p className="p-6 text-sm text-muted-foreground">Add a channel to the rack to write its notes here.</p>}
       </div>
@@ -108,7 +110,7 @@ function PianoControls() {
             aria-label={label}
             aria-pressed={tool === id}
             title={`${label} (${key})`}
-            className={cn("grid size-6 place-items-center rounded-md", tool === id ? "bg-brand/20 text-brand" : "text-muted-foreground hover:bg-accent hover:text-foreground")}
+            className={cn("grid size-5.5 place-items-center rounded-sm", tool === id ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
             onClick={() => usePiano.getState().setTool(id)}
           >
             <Icon className="size-3.5" />
@@ -117,7 +119,7 @@ function PianoControls() {
       </div>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" aria-label="Snap" title="Snap" className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground">
+          <button type="button" aria-label="Snap" title="Snap" className="sunken flex h-5.5 items-center gap-1 rounded-sm px-1.5 text-[11px] text-muted-foreground hover:text-foreground">
             <PiMagnet className="size-3.5" />
             {SNAP_LABELS[snap]}
           </button>
@@ -139,7 +141,7 @@ function PianoControls() {
         aria-label="Ghost notes"
         aria-pressed={ghosts}
         title="Ghost notes: the other channels' notes (Alt+V)"
-        className={cn("grid size-6 place-items-center rounded-md", ghosts ? "text-foreground" : "text-muted-foreground/60", "hover:bg-accent")}
+        className={cn("grid size-5.5 place-items-center rounded-sm", ghosts ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover")}
         onClick={() => usePiano.setState({ ghosts: !ghosts })}
       >
         <PiGhost className="size-3.5" />
@@ -160,7 +162,7 @@ function ChannelMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" aria-label="Target channel" title="The channel whose notes are shown (G / K, H / J)" className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+        <button type="button" aria-label="Target channel" title="The channel whose notes are shown (G / K, H / J)" className="grid size-5.5 place-items-center rounded-sm border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground">
           <PiCaretDownBold className="size-3" />
         </button>
       </DropdownMenuTrigger>
@@ -436,9 +438,9 @@ function HorizontalScrollbar() {
   const thumb = Math.max(24, (width * (width / view.pxPerTick)) / total);
   const left = ((width - thumb) * view.scrollTick) / Math.max(1, total - width / view.pxPerTick);
   return (
-    <div className="relative border-t bg-muted/60" aria-label="Scroll along time">
+    <div className="relative border-t border-line bg-sunken" aria-label="Scroll along time">
       <div
-        className="absolute top-0.5 bottom-0.5 rounded-full bg-foreground/25 hover:bg-foreground/40"
+        className="raised absolute top-0.5 bottom-0.5 rounded-sm hover:raised-hover"
         style={{ left, width: thumb }}
         onPointerDown={(e) => {
           const origin = e.clientX;
@@ -460,13 +462,13 @@ function VerticalScrollbar() {
   const top = ((height - thumb) * (total - view.topPitch)) / Math.max(1, total - rows);
   return (
     <div
-      className="relative border-l bg-muted/60"
+      className="relative border-l border-line bg-sunken"
       aria-label="Scroll up and down the keyboard"
       // Up and down: drag the thumb. Its box, dragged, zooms the rows.
       onDoubleClick={() => usePiano.getState().setView({ ...view, rowHeight: 16 })}
     >
       <div
-        className="absolute right-0.5 left-0.5 rounded-full bg-foreground/25 hover:bg-foreground/40"
+        className="raised absolute right-0.5 left-0.5 rounded-sm hover:raised-hover"
         style={{ top, height: thumb }}
         onPointerDown={(e) => {
           const origin = e.clientY;

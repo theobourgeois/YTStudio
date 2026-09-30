@@ -3,8 +3,8 @@
  * Only what's in view is drawn (the notes by `visibleRange`), so a pattern of thousands of notes draws
  * in about the time of a screenful. The component calls these once per frame when something changed.
  *
- * The look is FL Studio's: a blue-grey grid whose lines are darker than its cells, pale green notes
- * (red when selected) with a rounded, lit edge and their name on them, and a keyboard drawn as a real
+ * The look is FL Studio's: a blue-grey grid whose lines are darker than its cells, pale notes (blue,
+ * Théo's choice: FL's are green; red when selected) with a rounded, lit edge and their name on them, and a keyboard drawn as a real
  * one, white keys of their true sizes under the black ones. The grid's colours are the theme's
  * (`--piano-*`, `readPalette`); the notes' are content, the same in every theme.
  */
@@ -45,7 +45,7 @@ export interface Palette {
   keys: string;
 }
 
-const NOTE: NoteColours = { top: "#c4f1bf", bottom: "#8fd78c", edge: "#3e7d40", text: "#1d4721" };
+const NOTE: NoteColours = { top: "#c2defe", bottom: "#83b6f2", edge: "#2e5e9c", text: "#0f2f57" };
 const SELECTED: NoteColours = { top: "#ffc2bd", bottom: "#f48b84", edge: "#9b3934", text: "#561712" };
 const MUTED: NoteColours = { top: "#b9c1bb", bottom: "#98a29b", edge: "#5d6660", text: "#39413b" };
 

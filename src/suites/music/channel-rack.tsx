@@ -15,6 +15,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { ChannelPicker } from "./channel-picker";
@@ -43,26 +44,28 @@ import { MIN_RACK_STEPS, selectedIn, useMusicUi } from "./ui";
 import { MusicWindow } from "./window";
 
 /** A step's width and the gaps between steps and between beats (px): the lights, rows and graph share them. */
-const STEP_W = 20;
+const STEP_W = 14;
 const STEP_GAP = 2;
-const BEAT_GAP = 5;
+const BEAT_GAP = 4;
 /** Steps to a beat, as the rack groups them. */
 const GROUP = 4;
 /** A row's height and the gap between rows (px): the two columns line up by these. */
-const ROW_H = 28;
-const ROW_GAP = 4;
+const ROW_H = 24;
+const ROW_GAP = 3;
 /** The widest the rack is dragged (past this, the steps scroll). */
 const MAX_DRAGGED_STEPS = 64;
 /** How far the graph editor's note bars reach, in semitones either side of the sample's own pitch. */
 const GRAPH_PITCH_RANGE = 12;
-const GRAPH_HEIGHT = 72;
+const GRAPH_HEIGHT = 64;
+/** The strip of step lights above the rows. */
+const LIGHTS_H = 5;
 
 const stepLeft = (step: number) => step * (STEP_W + STEP_GAP) + Math.floor(step / GROUP) * BEAT_GAP;
 const stepsWidth = (steps: number) => stepLeft(steps - 1) + STEP_W;
 /** FL Studio's rack alternates two colours, beat by beat. */
 const oddBeat = (step: number) => Math.floor(step / GROUP) % 2 === 1;
 /** Width of everything left of the steps in a row. */
-const LEAD = "w-[244px]";
+const LEAD = "w-[190px]";
 const isAudio = (file: File) => file.type.startsWith("audio/") || /\.(wav|aiff?|flac|mp3|ogg|m4a)$/i.test(file.name);
 const audioFiles = (files: FileList | null) => [...(files ?? [])].filter(isAudio);
 
@@ -107,7 +110,7 @@ export function ChannelRack() {
       controls={<RackControls graph={graph} />}
     >
       <div
-        className={cn("relative flex flex-col gap-2 p-3 pr-4", dropping && "rounded-b-lg ring-2 ring-brand/60 ring-inset")}
+        className={cn("relative flex flex-col gap-1.5 px-2.5 pt-1.5 pb-2 pr-3.5", dropping && "ring-2 ring-brand/60 ring-inset")}
         data-testid="channel-rack"
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes("Files")) return;
@@ -124,12 +127,12 @@ export function ChannelRack() {
         }}
       >
         <div className="flex">
-          <div className={cn("flex shrink-0 flex-col", LEAD)} style={{ gap: ROW_GAP, paddingTop: 12 }} role="list" aria-label="Channels">
+          <div className={cn("flex shrink-0 flex-col", LEAD)} style={{ gap: ROW_GAP, paddingTop: LIGHTS_H + ROW_GAP }} role="list" aria-label="Channels">
             {channels.map((channel) => (
               <ChannelLead key={channel.id} channel={channel} selected={selectedIdsNow.includes(channel.id)} />
             ))}
           </div>
-          <div className="ml-2 max-w-[min(62vw,1180px)] overflow-x-auto pb-1" data-testid="rack-steps">
+          <div className="ml-1.5 max-w-[min(62vw,1180px)] overflow-x-auto pb-1" data-testid="rack-steps">
             <div className="flex flex-col" style={{ gap: ROW_GAP, width: stepsWidth(steps) }}>
               <StepLights steps={steps} />
               {channels.map((channel) => (
@@ -170,7 +173,7 @@ function ResizeEdge({ steps }: { steps: number }) {
       aria-orientation="vertical"
       aria-label="Drag to show more steps"
       title="Drag to show more steps"
-      className="absolute inset-y-0 right-0 w-2 cursor-ew-resize touch-none rounded-br-lg hover:bg-brand/30"
+      className="absolute inset-y-0 right-0 w-2 cursor-ew-resize touch-none hover:bg-brand/30"
       onPointerDown={(e) => {
         const origin = e.clientX;
         startPointerDrag(e, {
@@ -192,9 +195,9 @@ function RackMenu({ onAddSamples }: { onAddSamples: () => void }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" aria-label="Channel rack menu" className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
-          <PiCaretRightFill className="size-3" />
-        </button>
+        <Button variant="ghost" size="icon-xs" aria-label="Channel rack menu" className="text-muted-foreground hover:text-foreground">
+          <PiCaretRightFill />
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuItem onSelect={onAddSamples}>Add samples…</DropdownMenuItem>
@@ -237,7 +240,7 @@ function RackControls({ graph }: { graph: boolean }) {
   return (
     <>
       <span className="text-[11px] text-muted-foreground">Swing</span>
-      <SongKnob size={20} label="Swing" value={swing} min={0} max={1} defaultValue={0} format={percent} unit={PERCENT} edit={setSwing} />
+      <SongKnob size={18} label="Swing" value={swing} min={0} max={1} defaultValue={0} format={percent} unit={PERCENT} edit={setSwing} />
       <Lcd
         label={set === null ? "Pattern length: Auto (the last bar with notes)" : "Pattern length in steps"}
         value={length}
@@ -265,7 +268,7 @@ function RackControls({ graph }: { graph: boolean }) {
       />
       <Toggle
         size="sm"
-        className="h-6 min-w-6 px-1"
+        className="h-5.5 min-w-5.5 px-1"
         pressed={graph}
         onPressedChange={(on) => useMusicUi.getState().setGraphOpen(on)}
         aria-label="Graph editor"
@@ -300,11 +303,11 @@ function StepLights({ steps }: { steps: number }) {
   }, [playing, tempo, loop]);
 
   return (
-    <div className="relative h-2 shrink-0" data-playing-step={step ?? undefined} aria-hidden>
+    <div className="relative shrink-0" style={{ height: LIGHTS_H }} data-playing-step={step ?? undefined} aria-hidden>
       {Array.from({ length: steps }, (_, i) => (
         <span
           key={i}
-          className={cn("absolute top-0 h-1 rounded-full", i === step ? "bg-brand" : i >= loop ? "bg-foreground/5" : i % GROUP === 0 ? "bg-foreground/25" : "bg-foreground/10")}
+          className={cn("absolute top-0 h-[3px] rounded-full", i === step ? "bg-brand shadow-[0_0_4px] shadow-brand" : i >= loop ? "bg-foreground/5" : i % GROUP === 0 ? "bg-foreground/30" : "bg-foreground/12")}
           style={{ left: stepLeft(i), width: STEP_W }}
         />
       ))}
@@ -336,7 +339,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
   };
 
   return (
-    <div className="flex items-center gap-1.5" style={{ height: ROW_H }} role="listitem" data-channel={id} data-channel-name={channel.name}>
+    <div className="flex items-center gap-1" style={{ height: ROW_H }} role="listitem" data-channel={id} data-channel-name={channel.name}>
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <button
@@ -344,7 +347,11 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
             aria-label={channel.muted ? `Unmute ${channel.name}` : `Mute ${channel.name}`}
             aria-pressed={!channel.muted}
             title={channel.muted ? "Muted (right-click to solo)" : "Mute (right-click to solo)"}
-            className={cn("size-3 shrink-0 rounded-full border transition-colors", channel.muted ? "border-border bg-muted" : "border-emerald-600/50 bg-emerald-400 shadow-[0_0_6px] shadow-emerald-400/60")}
+            // A light: lit with the accent while the channel plays, dark (sunken) when muted.
+            className={cn(
+              "mr-0.5 size-2.5 shrink-0 rounded-full transition-colors",
+              channel.muted ? "sunken" : "border border-brand-edge bg-brand shadow-[0_0_5px] shadow-brand/70 inset-shadow-[0_1px_0_rgb(255_255_255/0.45)]",
+            )}
             // Ctrl or Alt with the click solos, as in FL Studio.
             onClick={(e) => (e.altKey || e.metaKey || e.ctrlKey ? solo(id) : toggleMute(id))}
           />
@@ -353,8 +360,9 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
           <ContextMenuItem onSelect={() => solo(id)}>Solo</ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
-      <SongKnob label="Pan" value={channel.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateChannel(song, id, { pan })} />
+      <SongKnob size={18} label="Pan" value={channel.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateChannel(song, id, { pan })} />
       <SongKnob
+        size={18}
         label="Volume"
         value={channel.volume}
         min={0}
@@ -370,11 +378,16 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
           <button
             type="button"
             aria-expanded={open}
+            // FL Studio's channel button: wide, the name in the middle, pushed in while its window is open,
+            // red when it has nothing to play.
             className={cn(
-              "flex h-7 min-w-0 flex-1 items-center gap-1 rounded-md border bg-secondary px-2 text-left text-xs font-medium shadow-xs hover:bg-accent dark:border-white/[0.07]",
-              channel.muted && "text-muted-foreground",
-              silent && "italic",
-              open && "border-brand/60",
+              "relative ml-0.5 flex h-[22px] min-w-0 flex-1 items-center justify-center gap-1 rounded-sm px-5 text-[11px] font-medium",
+              silent
+                ? "border border-black/40 bg-destructive-solid text-white inset-shadow-[0_1px_0_rgb(255_255_255/0.25)]"
+                : open
+                  ? "pressed text-brand"
+                  : "raised hover:raised-hover active:pressed",
+              channel.muted && !silent && "text-muted-foreground",
               dropping && "ring-2 ring-brand",
             )}
             title={pluginError ?? `${channel.name}: click for its ${isPlugin ? "window" : "settings"}, Ctrl+click to hear it`}
@@ -401,10 +414,17 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
               if (audio) void useMusic.getState().replaceSample(id, audio);
             }}
           >
-            {isPlugin && <PiPlugs className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
             <span className="truncate">{channel.name}</span>
-            {pluginLoading && <PiSpinnerGap className="ml-auto size-3.5 shrink-0 animate-spin text-muted-foreground" aria-label="Loading the plugin" />}
-            {silent && <PiWarning className="ml-auto size-3.5 shrink-0 text-amber-500" aria-label={isPlugin ? "The plugin couldn't be loaded" : "No sample to play"} />}
+            {/* Its kind at the right end, as FL Studio's instrument icon. */}
+            <span className="absolute right-1.5 flex items-center opacity-70">
+              {pluginLoading ? (
+                <PiSpinnerGap className="size-3 animate-spin" aria-label="Loading the plugin" />
+              ) : silent ? (
+                <PiWarning className="size-3" aria-label={isPlugin ? "The plugin couldn't be loaded" : "No sample to play"} />
+              ) : isPlugin ? (
+                <PiPlugs className="size-3" aria-hidden />
+              ) : null}
+            </span>
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -476,7 +496,11 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
         aria-label={`Select ${channel.name}`}
         aria-pressed={selected}
         title="Select (drag or Shift+click for a range, right-click to add one, double-click for all)"
-        className={cn("h-7 w-2 shrink-0 touch-none rounded-sm", selected ? "bg-emerald-400" : "bg-muted hover:bg-muted-foreground/30")}
+        // FL Studio's selector: a thin light after the button, lit when the channel is selected.
+        className={cn(
+          "ml-0.5 h-[22px] w-1.5 shrink-0 touch-none rounded-[2px]",
+          selected ? "border border-brand-edge bg-brand shadow-[0_0_4px] shadow-brand/60" : "sunken hover:bg-surface-3",
+        )}
         onDoubleClick={() => useMusicUi.getState().setSelection(useMusic.getState().history!.doc.channels.map((c) => c.id))}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
@@ -571,19 +595,15 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
           data-step={step}
           aria-label={`${name} step ${step + 1}`}
           aria-pressed={on.has(step)}
+          // FL Studio's step keys: beats in two alternating colours, dark when off, pale and lit when on
+          // (`step-*` in index.css, coloured by the theme).
           className={cn(
-            "absolute top-0 h-7 rounded-[3px] border border-black/10 outline-none focus-visible:ring-2 focus-visible:ring-ring/60 dark:border-white/5",
-            on.has(step)
-              ? oddBeat(step)
-                ? "bg-rose-400 dark:bg-rose-300"
-                : "bg-foreground/80"
-              : oddBeat(step)
-                ? "bg-rose-500/20 hover:bg-rose-500/30"
-                : "bg-muted-foreground/20 hover:bg-muted-foreground/30",
+            "absolute top-0 rounded-[2px] outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+            on.has(step) ? (oddBeat(step) ? "step-on-alt" : "step-on") : oddBeat(step) ? "step-off-alt" : "step-off",
             // Past the pattern's end: there to be filled (Auto), or unheard (a set length).
             step >= loop && "opacity-45",
           )}
-          style={{ left: stepLeft(step), width: STEP_W }}
+          style={{ left: stepLeft(step), width: STEP_W, height: ROW_H }}
           // The row's pointer handler does the work (so a drag paints); Enter turns a step on, Delete off.
           onKeyDown={(e) => {
             const turnOn = e.key === "Enter";
@@ -619,18 +639,18 @@ function NotesPreview({ channelId, name, notes, steps, loop }: { channelId: stri
       aria-label={`${name}: open its notes in the Piano roll`}
       title="Open in the Piano roll"
       data-notes-preview={channelId}
-      className="relative shrink-0 overflow-hidden rounded-[3px] border border-black/10 bg-muted/60 hover:bg-muted dark:border-white/5"
+      className="sunken relative shrink-0 overflow-hidden rounded-[2px] hover:border-brand/60"
       style={{ width, height: ROW_H }}
       onClick={() => openPianoRoll(channelId)}
     >
       {/* A lighter and a darker block per bar. */}
       {Array.from({ length: Math.ceil(span / (16 * STEP_TICKS)) }, (_, bar) => (
-        <span key={bar} className={cn("absolute inset-y-0", bar % 2 ? "bg-foreground/5" : "")} style={{ left: (bar * 16 * STEP_TICKS * width) / span, width: (16 * STEP_TICKS * width) / span }} />
+        <span key={bar} className={cn("absolute inset-y-0", bar % 2 ? "bg-foreground/6" : "")} style={{ left: (bar * 16 * STEP_TICKS * width) / span, width: (16 * STEP_TICKS * width) / span }} />
       ))}
       {shown.map((note) => (
         <span
           key={note.id}
-          className={cn("absolute h-[2px] rounded-full", note.muted ? "bg-emerald-300/30" : "bg-emerald-300")}
+          className={cn("absolute h-[2px] rounded-full", note.muted ? "bg-brand/30" : "bg-brand")}
           style={{
             left: (note.start * width) / span,
             width: Math.max(2, (note.length * width) / span),
@@ -670,7 +690,7 @@ function GraphEditor({ channel, steps }: { channel: Channel; steps: number }) {
   return (
     <div className="flex flex-col" data-testid="graph-editor" data-channel-name={channel.name}>
       <div
-        className="relative cursor-ns-resize touch-none rounded-t-md bg-muted/50"
+        className="sunken relative cursor-ns-resize touch-none rounded-t-sm"
         style={{ height: GRAPH_HEIGHT }}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
@@ -745,7 +765,7 @@ function GraphEditor({ channel, steps }: { channel: Channel; steps: number }) {
           );
         })}
       </div>
-      <div className="flex items-center gap-0.5 rounded-b-md bg-muted px-1 py-0.5" role="tablist" aria-label="Graph shows">
+      <div className="flex items-center gap-0.5 rounded-b-sm border-x border-b border-line bg-surface-1 px-1 py-0.5" role="tablist" aria-label="Graph shows">
         {GRAPH_TABS.map((tab) => (
           <button
             key={tab.id}

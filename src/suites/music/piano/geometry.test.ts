@@ -23,6 +23,9 @@ import {
   xToTick,
   yToPitch,
   zoomAt,
+  zoomRowsAt,
+  MAX_ROW_HEIGHT,
+  MIN_ROW_HEIGHT,
   zoomToRange,
 } from "./geometry";
 
@@ -174,6 +177,16 @@ describe("zooming", () => {
     expect(xToTick(zoomed, 200)).toBe(xToTick(view, 200));
     expect(zoomAt(view, 0, 1000).pxPerTick).toBe(8);
     expect(zoomAt({ ...view, scrollTick: 0 }, 300, 0.25).scrollTick).toBe(0);
+  });
+
+  it("zooms the keys about the pointer, within limits", () => {
+    const taller = zoomRowsAt(view, 150, view.rowHeight * 2);
+    expect(taller.rowHeight).toBe(view.rowHeight * 2);
+    expect(taller.topPitch - 150 / taller.rowHeight).toBeCloseTo(view.topPitch - 150 / view.rowHeight, 9);
+    expect(zoomRowsAt(view, 0, 1000).rowHeight).toBe(MAX_ROW_HEIGHT);
+    expect(zoomRowsAt(view, 0, 1).rowHeight).toBe(MIN_ROW_HEIGHT);
+    // Never scrolled past the top key.
+    expect(zoomRowsAt({ ...view, topPitch: 128 }, 400, 6).topPitch).toBeLessThanOrEqual(128);
   });
 
   it("fits a range of time in the width", () => {

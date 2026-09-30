@@ -24,7 +24,7 @@ FL Studio's own screenshots are in `docs/fl-studio/img/`. Take the idea from the
   gradient, a darker outline, a pressed state that looks pushed in). Not the heavy, glossy 2005 look: it
   should still read as a modern app. When in doubt, less depth.
 - **The accent stays blue** (`--brand`). Don't bring in FL's green and orange as the app's colours: that's
-  too much copying. (The Piano roll's green notes and orange play marker can stay; they're its content.)
+  too much copying. (The Piano roll's notes, blue since 2026-09-30, and its orange play marker are its content.)
 - **The font stays** (DM Sans, Geist Mono). A font change may come later, as part of a theme.
 - **Everything changes**, the assistant's chat included. No screen keeps the old look.
 

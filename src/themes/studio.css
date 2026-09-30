@@ -74,6 +74,20 @@
   --stage: var(--surface-0);
   --sidebar: var(--surface-1);
 
+  /* The channel rack's steps (`step-*` in index.css): the two beat colours, off and on. */
+  --step-off-top: #e3e7ec;
+  --step-off-bottom: #ccd3db;
+  --step-off-hover: #eef1f4;
+  --step-alt-top: #ecdcdf;
+  --step-alt-bottom: #d9c2c6;
+  --step-alt-hover: #f4e6e8;
+  --step-on-top: #6a7888;
+  --step-on-bottom: #4c5867;
+  --step-on-edge: #36404c;
+  --step-on-alt-top: #e56b77;
+  --step-on-alt-bottom: #c84b58;
+  --step-on-alt-edge: #963440;
+
   /* The Piano roll's canvases (`piano/draw.ts` reads these). */
   --piano-row: #eef1f5;
   --piano-black-row: #e2e7ed;
@@ -135,6 +149,19 @@
   --clip-solid: #586070;
   --clip-camera: #8a6b27;
   --clip-null: #4a505b;
+
+  --step-off-top: #3a4049;
+  --step-off-bottom: #2d3239;
+  --step-off-hover: #454c56;
+  --step-alt-top: #4b353b;
+  --step-alt-bottom: #3a2a2f;
+  --step-alt-hover: #573f45;
+  --step-on-top: #eef2f6;
+  --step-on-bottom: #bcc6d1;
+  --step-on-edge: #0b0d10;
+  --step-on-alt-top: #ffd9dd;
+  --step-on-alt-bottom: #f09aa3;
+  --step-on-alt-edge: #0b0d10;
 
   --piano-row: #2c333c;
   --piano-black-row: #262c34;

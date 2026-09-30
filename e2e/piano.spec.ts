@@ -345,7 +345,8 @@ test("the window fills the desktop, resizes and snaps; the ruler moves a playing
 
   // While it plays, a click on the ruler takes it there at once.
   await page.getByRole("button", { name: "Play", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  // Lit once the engine plays (Stop is always there, as in FL Studio).
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.mouse.click(rx(768), ry);
   await expect(roll).toHaveAttribute("data-start", "768");
   const status = await (await page.request.post("/api/engine/status", { data: {} })).json();
@@ -435,4 +436,30 @@ test("stays quick with thousands of notes: drawing, selecting, dragging and dupl
   await page.waitForTimeout(150);
   expect(await drawMs()).toBeLessThan(40);
   expect(Date.now() - started).toBeLessThan(15_000);
+});
+
+test("Ctrl (⌘) + middle-button drag zooms the keys, as does a middle-button drag on the keyboard", async ({ page }) => {
+  await openPiano(page, "Zoom", [{ start: 0, pitch: 72 }]);
+  const roll = page.getByTestId("piano-roll");
+  await expect(roll).toHaveAttribute("data-row-height", String(ROW));
+  const middleDrag = async (box: { x: number; y: number; width: number; height: number }, dy: number, modifier?: string) => {
+    if (modifier) await page.keyboard.down(modifier);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down({ button: "middle" });
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + dy, { steps: 6 });
+    await page.mouse.up({ button: "middle" });
+    if (modifier) await page.keyboard.up(modifier);
+  };
+  const grid = (await page.getByTestId("piano-grid").boundingBox())!;
+  // Up: taller keys; down: shorter.
+  await middleDrag(grid, -120, "ControlOrMeta");
+  await expect(roll).toHaveAttribute("data-row-height", String(ROW * 2));
+  await middleDrag(grid, 120, "ControlOrMeta");
+  await expect(roll).toHaveAttribute("data-row-height", String(ROW));
+  // Without the key, the middle button pans rather than zooms.
+  await middleDrag(grid, -60);
+  await expect(roll).toHaveAttribute("data-row-height", String(ROW));
+  const keys = (await page.getByRole("img", { name: "Keyboard" }).or(page.locator('canvas[aria-label="Keyboard"]')).first().boundingBox())!;
+  await middleDrag(keys, 120);
+  await expect(roll).toHaveAttribute("data-row-height", String(ROW / 2));
 });

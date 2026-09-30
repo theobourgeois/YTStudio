@@ -85,8 +85,8 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
   const angle = -SWEEP / 2 + fraction * SWEEP;
   const c = size / 2;
   const r = c - 2;
-  const [px, py] = polar(c, c, r - 1.5, angle);
-  const [ix, iy] = polar(c, c, r * 0.35, angle);
+  const [px, py] = polar(c, c, r - Math.max(2.5, size * 0.17), angle);
+  const [ix, iy] = polar(c, c, r * 0.2, angle);
 
   const commitTyped = () => {
     const number = typing === null ? NaN : Number(typing.replace(",", "."));
@@ -147,16 +147,17 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                 e.stopPropagation();
               }}
             >
-              <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
-                <circle cx={c} cy={c} r={r - 1.5} className="fill-muted stroke-border" strokeWidth={1} />
-                <path d={arc(c, c, r, -SWEEP / 2, SWEEP / 2)} className="fill-none stroke-foreground/15" strokeWidth={1.5} strokeLinecap="round" />
+              {/* The cap: a raised button (the theme's bevel) inside the arc. */}
+              <span className="raised pointer-events-none absolute rounded-full" style={{ inset: Math.max(2, size * 0.14) }} aria-hidden />
+              <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="relative" aria-hidden>
+                <path d={arc(c, c, r, -SWEEP / 2, SWEEP / 2)} className="fill-none stroke-line-strong" strokeWidth={1.5} strokeLinecap="round" />
                 {Math.abs(angle - (bipolar ? 0 : -SWEEP / 2)) > 1 && (
                   <path d={arc(c, c, r, bipolar ? 0 : -SWEEP / 2, angle)} className="fill-none stroke-brand" strokeWidth={1.5} strokeLinecap="round" />
                 )}
                 <line x1={ix} y1={iy} x2={px} y2={py} className="stroke-foreground" strokeWidth={1.5} strokeLinecap="round" />
               </svg>
               {dragging && (
-                <span className="pointer-events-none absolute -top-6 left-1/2 z-20 -translate-x-1/2 rounded bg-popover px-1.5 py-0.5 text-[10px] whitespace-nowrap text-popover-foreground tabular-nums shadow-md ring-1 ring-border">
+                <span className="floating pointer-events-none absolute -top-6 left-1/2 z-20 -translate-x-1/2 rounded-sm px-1.5 py-0.5 text-[10px] whitespace-nowrap tabular-nums">
                   {format(value)}
                 </span>
               )}

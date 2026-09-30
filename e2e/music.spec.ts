@@ -127,7 +127,7 @@ test("a pattern is as long as its notes: the rack is dragged wider to reach furt
 
   // Dragging the rack's right edge shows more steps; the pattern is still a bar until one is used.
   const edge = page.getByRole("separator", { name: "Drag to show more steps" });
-  await drag(page, edge, edge, { dx: 370 });
+  await drag(page, edge, edge, { dx: 16 * 17 }); // 16 steps of 17 px (a step, its gap, a quarter of a beat's)
   expect(await drawn(page, "Kick")).toHaveLength(32);
   await expect(length).toHaveAttribute("aria-valuenow", "16");
   await step(page, "Kick", 1).click();
@@ -514,4 +514,31 @@ test("audio settings: the device, and the plugin bench", async ({ page }) => {
 
   await instrument.getByRole("button", { name: "Remove" }).click();
   await expect(keys.first()).toBeDisabled();
+});
+
+test("the toolbar, as FL Studio's: the tempo LCD drags, + makes a pattern, the position slider moves where play starts, the hint bar names what's under the pointer", async ({ page }) => {
+  const id = await openNewSong(page, "Toolbar");
+  const tempo = page.getByRole("textbox", { name: "Tempo" });
+  await expect(tempo).toHaveValue("120");
+  // Dragged up 40 px, 4 px a BPM: one undo step.
+  await drag(page, tempo, tempo, { dy: -40 });
+  await expect(tempo).toHaveValue("130");
+  await expect.poll(async () => (await savedSong(page, id)).settings.tempo).toBe(130);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(tempo).toHaveValue("120");
+
+  await page.getByRole("button", { name: "New pattern" }).click();
+  await expect(page.getByRole("button", { name: "Pattern", exact: true })).toContainText("Pattern 2");
+  await expect.poll(async () => (await savedSong(page, id)).patterns.length).toBe(2);
+
+  // Halfway along a bar's pattern is its 9th step.
+  const position = page.getByLabel("Position", { exact: true });
+  await expect(position).toHaveText("1:01:00");
+  const slider = page.getByRole("slider", { name: "Song position" });
+  const box = (await slider.boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.52, box.y + box.height / 2);
+  await expect(position).toHaveText("1:09:00");
+
+  await page.getByRole("button", { name: "Metronome" }).hover();
+  await expect(page.getByTestId("hint-bar")).toHaveText("Metronome");
 });

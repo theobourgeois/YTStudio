@@ -162,7 +162,8 @@ part of a selection, it sets them all (and the time fields are hidden).
   Down** (centred on the pointer); **Shift+1, 2, 3** are three preset levels, **Shift+4** shows
   everything, **Shift+5** zooms to the time selection. Ctrl+right-drag zooms to a rectangle.
 - **Vertical zoom**: the small box above the vertical scrollbar, dragged up and down; or middle-button
-  drag on the keyboard.
+  drag on the keyboard; or **Ctrl (⌘) + middle-button drag** on the grid, up for taller keys and down for
+  shorter (Théo). Vaudio does the last two, about the key under the pointer.
 - **Shift+0** centres the view on the playhead.
 
 ## With the Channel Rack
@@ -272,7 +273,7 @@ shows a miniature of them in the rack, which opens them.
 | Quantize | Also a dialog (Alt+Q) with strength and swing | Quick quantize only (Ctrl+Q, Shift+Q) |
 | Event editor | Release, fine pitch, Mod X / Y, repeat, automation | Velocity and pan |
 | Zoom tool | Z | Not yet (Ctrl+wheel and the keys zoom) |
-| Look | FL Studio's artwork | Its layout and colours (pale green notes, red selected, a blue-grey grid, real piano keys), drawn our way, in a dark and a light version |
+| Look | FL Studio's artwork | Its layout and colours (pale blue notes, Théo's choice where FL's are green; red selected, a blue-grey grid, real piano keys), drawn our way, in a dark and a light version |
 | Scrollbars | Drag their ends to zoom | Drag to scroll only |
 | Snap | Main, Events, Markers | Not those three |
 | Notes | Colour groups (MIDI channels), slide and portamento | None |

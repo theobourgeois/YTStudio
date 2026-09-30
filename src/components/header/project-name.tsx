@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
+import { cn } from "cn";
 
 /** The project name; click to rename (Enter/blur saves, Escape cancels). */
-export function ProjectName({ name, onRename }: { name: string; onRename: (name: string) => void }) {
+/** `className` resizes it (a denser toolbar); both the button and the field take it. */
+export function ProjectName({ name, onRename, className }: { name: string; onRename: (name: string) => void; className?: string }) {
   const [draft, setDraft] = useState<string | null>(null);
   // Escape unmounts the input, which can still fire a blur; this makes finishing idempotent.
   const finished = useRef(false);
@@ -36,7 +38,7 @@ export function ProjectName({ name, onRename }: { name: string; onRename: (name:
           if (e.key === "Enter") finish(true);
           else if (e.key === "Escape") finish(false);
         }}
-        className="h-7 w-56 rounded-md border border-input bg-background px-2 text-sm font-medium outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+        className={cn("sunken h-7 w-56 rounded-md px-2 text-sm font-medium outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40", className)}
       />
     );
   }
@@ -46,7 +48,7 @@ export function ProjectName({ name, onRename }: { name: string; onRename: (name:
       type="button"
       title="Rename project"
       onClick={startEditing}
-      className="h-7 max-w-64 truncate rounded-md border border-transparent px-2 text-sm font-medium transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      className={cn("h-7 max-w-64 truncate rounded-md border border-transparent px-2 text-sm font-medium transition-colors outline-none hover:raised hover:raised-hover focus-visible:ring-2 focus-visible:ring-ring/60", className)}
     >
       {name}
     </button>

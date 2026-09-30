@@ -272,6 +272,16 @@ export function zoomAt(view: PianoView, x: number, pxPerTick: number): PianoView
   return { ...view, pxPerTick: next, scrollTick: Math.max(0, xToTick(view, x) - x / next) };
 }
 
+/** Zoom the rows (the keys' height) about a point: the pitch under `y` stays under it. */
+export function zoomRowsAt(view: PianoView, y: number, rowHeight: number): PianoView {
+  const next = clamp(rowHeight, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT);
+  const under = view.topPitch - y / view.rowHeight;
+  return { ...view, rowHeight: next, topPitch: Math.min(128, under + y / next) };
+}
+
+/** Pixels of vertical drag that double (up) or halve (down) the rows' height, in a zoom drag. */
+export const ROW_ZOOM_DRAG = 120;
+
 /** The view showing `[from, to)` ticks across `width` pixels, with a little room either side. */
 export function zoomToRange(view: PianoView, from: number, to: number, width: number): PianoView {
   const span = Math.max(STEP_TICKS, to - from);

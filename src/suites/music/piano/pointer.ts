@@ -14,7 +14,7 @@ import { type PianoContext, commitDrag, cancelDrag, deselect, pianoContext, sele
 import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR } from "./cursors";
 import { stretchHandle } from "./draw";
 import { fadeOut } from "./fades";
-import { BLACK_KEY_WIDTH, type PianoView, hitNote, keyAt, paintStarts, snapDelta, snapTick, tickToX, visibleRange, xToTick, yToPitch } from "./geometry";
+import { BLACK_KEY_WIDTH, type PianoView, ROW_ZOOM_DRAG, hitNote, keyAt, paintStarts, snapDelta, snapTick, tickToX, visibleRange, xToTick, yToPitch, zoomRowsAt } from "./geometry";
 import { usePiano } from "./store";
 
 type Press = ReactPointerEvent<HTMLElement>;
@@ -158,7 +158,8 @@ export function gridPointerDown(e: Press) {
   };
   const finish = { onEnd: commitDrag, onClick: commitDrag, onCancel: cancelDrag };
 
-  // The middle button pans, whatever the tool.
+  // The middle button pans, whatever the tool; with Ctrl (⌘) it zooms the keys (Théo).
+  if (e.button === 1 && (e.ctrlKey || e.metaKey)) return zoomRows(e, element);
   if (e.button === 1) {
     e.preventDefault();
     show(element, MOVING_CURSOR);
@@ -482,7 +483,24 @@ export function rulerPointerDown(e: Press) {
 }
 
 /** The keyboard: a key sounds while it's held (sliding to others); Ctrl selects the notes of the keys dragged over. */
+/**
+ * A drag that zooms the keys: up makes them taller, down shorter, about where it was pressed (so the
+ * key under the pointer stays there). The middle button on the keyboard, or with Ctrl (⌘) on the grid.
+ */
+function zoomRows(e: Press, element: HTMLElement) {
+  e.preventDefault();
+  const { view } = usePiano.getState();
+  const y = local(element, e).y;
+  startPointerDrag(e, {
+    button: 1,
+    threshold: 0,
+    cursor: "ns-resize",
+    onMove: (ev) => usePiano.getState().setView(zoomRowsAt(view, y, view.rowHeight * 2 ** ((e.clientY - ev.clientY) / ROW_ZOOM_DRAG))),
+  });
+}
+
 export function keysPointerDown(e: Press) {
+  if (e.button === 1) return zoomRows(e, e.currentTarget);
   const ctx = pianoContext();
   if (!ctx || e.button !== 0) return;
   const element = e.currentTarget;

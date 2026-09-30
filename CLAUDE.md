@@ -172,7 +172,8 @@ src/
                      window and the desktop), channel-rack.tsx, rack-actions.ts (what its menus and keys do),
                      channel-settings.tsx (a sampler's window), channel-picker.tsx (the +: choose an
                      instrument), knob.tsx, lcd.tsx, waveform.ts,
-                     pattern-picker.tsx, transport-bar.tsx, audio-dialog.tsx (device + engine-panel.tsx, the
+                     pattern-picker.tsx, toolbar.tsx (FL's toolbar: transport, tempo and position LCDs, the hint
+                     bar; its maths in position.ts), audio-dialog.tsx (device + engine-panel.tsx, the
                      plugin bench), keys.ts, api.ts, and the assistant's side (tools.ts, tool-edits.ts,
                      context.ts).
   lib/document-history.ts, autosaver.ts   Undo (with gestures) and autosave for any suite's document; music uses
