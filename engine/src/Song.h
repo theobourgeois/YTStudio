@@ -3,6 +3,8 @@
 // (`Sequencer::setSong`), which only reads it: nothing in a Song changes once it's made.
 #pragma once
 
+#include "Host.h"
+
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <map>
 #include <memory>
@@ -15,9 +17,24 @@ struct Sample
     double sampleRate = 44100.0;
 };
 
+/** What's done to a sample before it plays (the document's `Precomputed`): trim, reverse, normalise, fade. */
+struct Precomputed
+{
+    bool normalize = false, reverse = false;
+    /** Fractions: where the sample starts, how much of the rest is kept, and the fades at each end of that. */
+    double start = 0, length = 1, fadeIn = 0, fadeOut = 0;
+
+    bool changesNothing() const { return ! normalize && ! reverse && start <= 0 && length >= 1 && fadeIn <= 0 && fadeOut <= 0; }
+    juce::String key() const;
+    /** `raw` with all of it applied. */
+    std::shared_ptr<const Sample> apply (const Sample& raw) const;
+};
+
 /**
- * The samples loaded so far, by path (message thread). Nothing is ever dropped while the engine runs:
- * a voice still sounding keeps only a bare pointer to its sample, and this is what keeps it alive.
+ * The samples loaded so far (message thread). A file is read once and kept for as long as the engine
+ * runs. A prepared version of one (`Precomputed`) lives only as long as a song uses it: the songs own
+ * those, and this only remembers them so that the next song, usually the same but for one edit, gets
+ * the same one back rather than another copy.
  */
 class SampleCache
 {
@@ -25,10 +42,13 @@ public:
     SampleCache();
     /** The file's sound, reading it the first time; null when it can't be read. */
     std::shared_ptr<const Sample> get (const juce::String& path);
+    /** The file's sound, prepared. */
+    std::shared_ptr<const Sample> get (const juce::String& path, const Precomputed&);
 
 private:
     juce::AudioFormatManager formats;
     std::map<juce::String, std::shared_ptr<const Sample>> loaded;
+    std::map<juce::String, std::weak_ptr<const Sample>> prepared;
 };
 
 struct Song
@@ -42,9 +62,14 @@ struct Song
     {
         juce::String id;
         std::shared_ptr<const Sample> sample;
+        /** A plugin channel's instrument, once it's loaded (the channel is silent until then). */
+        std::shared_ptr<HostedPlugin> plugin;
+        bool isPlugin = false;
         float gainLeft = 1, gainRight = 1;
         /** Semitones added to every note. */
         float pitch = 0;
+        /** A new note silences the channel's notes still sounding. */
+        bool cutSelf = false;
         /** Without one, a note plays its whole sample whatever its length. */
         bool hasEnvelope = false;
         Envelope envelope;
@@ -58,6 +83,9 @@ struct Song
         /** Semitones from the sample's own pitch. */
         float pitch = 0;
         float gain = 1;
+        /** For a plugin: the MIDI note and its velocity, 0..1. */
+        int key = 60;
+        float velocity = 0.78f;
     };
 
     double tempo = 120, ppq = 96;
@@ -70,5 +98,5 @@ struct Song
     int channelIndex (const juce::String& id) const;
 
     /** From the JSON of an `EngineSong`. `unreadable` gets the ids of channels whose sample couldn't be read. */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, juce::StringArray& unreadable);
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, juce::StringArray& unreadable);
 };

@@ -5,9 +5,9 @@
 // `processEffect`, and only while it holds `lock` (which it tries, never waits for).
 #pragma once
 
+#include "EditorWindow.h"
+
 #include <functional>
-#include <juce_audio_processors/juce_audio_processors.h>
-#include <juce_audio_utils/juce_audio_utils.h>
 
 class PluginBench final : private juce::Timer
 {
@@ -15,7 +15,7 @@ public:
     struct Slot
     {
         std::unique_ptr<juce::AudioPluginInstance> plugin;
-        std::unique_ptr<juce::DocumentWindow> window;
+        std::unique_ptr<EditorWindow> window;
         juce::String id;
         juce::var describe() const;
     };
@@ -34,6 +34,9 @@ public:
     juce::var scanning() const;
     juce::var plugins() const;
     int pluginCount() const { return known.getNumTypes(); }
+    /** The plugin formats and the plugins found, which the song's own plugins are loaded from too. */
+    juce::AudioPluginFormatManager& formatManager() { return formats; }
+    juce::KnownPluginList& knownPlugins() { return known; }
 
     /** "instrument" or "effect"; null for anything else. */
     Slot* slot (const juce::String& name);

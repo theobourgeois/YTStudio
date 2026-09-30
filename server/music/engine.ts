@@ -41,6 +41,9 @@ export interface EngineOptions {
   samplePath?: SamplePath;
 }
 
+/** How often the song's plugins' states are written, if they've changed (what's turned in a plugin's window isn't an edit of the song). */
+const SAVE_STATES_MS = 5000;
+
 /** How long the engine has to start, and to answer (loading a big plugin takes a while). */
 const START_TIMEOUT_MS = 20_000;
 const REPLY_TIMEOUT_MS = 60_000;
@@ -79,6 +82,7 @@ export class AudioEngine {
   private readonly listeners = new Set<(event: EngineEvent) => void>();
   /** The song the engine was last given, to give it again if it restarts. */
   private song: Record<string, unknown> | null = null;
+  private stateTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly paths: DataPaths,
@@ -108,9 +112,32 @@ export class AudioEngine {
     const projectId = body.projectId;
     const doc = normalizeMusicProject(body.song, (id) => this.samplePath(projectId, id) !== null);
     const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null);
-    const song = { ...compiled, channels: compiled.channels.map((c) => ({ ...c, sample: c.sample && this.samplePath(projectId, c.sample) })) };
+    // A plugin's state is a file of its own beside the project's document: `plugins/<channel id>.bin`.
+    const states = path.join(this.paths.projectDir(projectId), "plugins");
+    const song = {
+      ...compiled,
+      channels: compiled.channels.map((c) => ({
+        ...c,
+        sample: c.sample && this.samplePath(projectId, c.sample),
+        plugin: c.plugin && { ...c.plugin, state: path.join(states, `${c.id}.bin`) },
+      })),
+    };
     this.song = song;
+    this.keepStates(song.channels.some((c) => c.plugin));
     return (await this.request("song", { song })) as SetSongResponse;
+  }
+
+  /** Write the song's plugins' states now (the tab asks before it goes). */
+  async saveStates(): Promise<void> {
+    if (this.child) await this.request("saveStates", {});
+  }
+
+  /** While the song has plugins, have their states written every few seconds. */
+  private keepStates(hasPlugins: boolean) {
+    if (hasPlugins === (this.stateTimer !== null)) return;
+    if (this.stateTimer) clearInterval(this.stateTimer);
+    this.stateTimer = hasPlugins ? setInterval(() => void this.saveStates().catch(() => {}), SAVE_STATES_MS) : null;
+    this.stateTimer?.unref();
   }
 
   async devices(): Promise<EngineDevices> {
@@ -149,6 +176,7 @@ export class AudioEngine {
 
   shutdown() {
     this.stopping = true;
+    this.keepStates(false);
     this.child?.stdin?.end();
     this.child?.kill();
     this.child = null;
@@ -163,6 +191,10 @@ export class AudioEngine {
         return {};
       case "metronome":
         return { on: body.on === true };
+      case "channelEditor": {
+        if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');
+        return { channel: body.channel, open: body.open === true };
+      }
       case "trigger": {
         if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');
         const velocity = isFiniteNumber(body.velocity) ? clamp(body.velocity, 0, 1) : DEFAULT_VELOCITY;

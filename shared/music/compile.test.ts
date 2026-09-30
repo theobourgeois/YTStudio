@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compileSong, levelGain, panGains, swungTick } from "./compile.ts";
-import { addChannels, addPattern, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
+import { addChannels, addPattern, addPluginChannel, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "./project.ts";
 
 const P = FIRST_PATTERN_ID;
@@ -24,15 +24,44 @@ describe("compileSong", () => {
       [48, 1],
       [192, 0],
     ]);
-    expect(compiled.notes[0]).toEqual({ channel: 0, tick: 0, length: 24, pitch: 0, gain: 1 });
+    expect(compiled.notes[0]).toEqual({ channel: 0, tick: 0, length: 24, pitch: 0, gain: 1, key: 60, velocity: 0.78 });
   });
 
   it("plays the pattern asked for, or the first", () => {
-    let song = addPattern(rack(), { id: "pat_2", steps: 32 });
+    let song = addPattern(rack(), { id: "pat_2" });
     song = setSteps(song, "pat_2", "chan_kick", [20], true);
     expect(compileSong(song, "pat_2")).toMatchObject({ loopTicks: 768, notes: [{ tick: 480 }] });
     expect(compileSong(song, "pat_none").notes).toEqual([]);
     expect(compileSong(song, null).loopTicks).toBe(384);
+  });
+
+  it("loops a pattern over its length: automatic (the bars with notes), or set, leaving later notes unplayed", () => {
+    const song = setSteps(rack(), P, "chan_kick", [0, 20, 40], true);
+    expect(compileSong(song, P)).toMatchObject({ loopTicks: 48 * 24, notes: [{ tick: 0 }, { tick: 480 }, { tick: 960 }] });
+    const short = compileSong(setPatternLength(song, P, 24), P);
+    expect(short.loopTicks).toBe(24 * 24);
+    expect(short.notes.map((n) => n.tick)).toEqual([0, 480]);
+    expect(compileSong(setPatternLength(song, P, 64), P).loopTicks).toBe(64 * 24);
+  });
+
+  it("passes on cut self and what's done to the sample, when anything is", () => {
+    const song = rack();
+    expect(compileSong(song, P).channels[0]).toMatchObject({ cutSelf: false, precomputed: null });
+    const edited = updateChannel(song, "chan_kick", { cutSelf: true, precomputed: { reverse: true, fadeOut: 0.5 } });
+    expect(compileSong(edited, P).channels[0]).toMatchObject({
+      cutSelf: true,
+      precomputed: { normalize: false, reverse: true, start: 0, length: 1, fadeIn: 0, fadeOut: 0.5 },
+    });
+  });
+
+  it("plays a plugin channel's notes as MIDI notes with a velocity", () => {
+    let song = addPluginChannel(rack(), { id: "VST3-Synth-1", name: "Synth", format: "VST3" }, "chan_synth");
+    song = setSteps(song, P, "chan_synth", [4], true);
+    song = setStepNote(song, P, "chan_synth", 4, { pitch: 64, velocity: 0.5 });
+    const compiled = compileSong(song, P);
+    expect(compiled.channels[2]).toMatchObject({ id: "chan_synth", sample: null, plugin: { id: "VST3-Synth-1", state: "" }, gainLeft: 1, gainRight: 1 });
+    expect(compiled.channels[0].plugin).toBeNull();
+    expect(compiled.notes[0]).toMatchObject({ channel: 2, tick: 96, length: 24, key: 64, velocity: 0.5 });
   });
 
   it("turns volume, pan, mute and velocity into gains", () => {

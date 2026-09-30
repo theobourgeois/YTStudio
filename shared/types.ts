@@ -778,6 +778,7 @@ export interface ToolCallProgressRequest {
 //   POST   /api/assistant/calls/:id/progress  body: ToolCallProgressRequest -> 204
 //   GET    /api/engine/plugins         -> EnginePlugin[] (the plugins the audio engine found; shared/music/engine.ts)
 //   POST   /api/engine/song  body: SetSongRequest -> SetSongResponse (the song the engine plays, on every edit)
+//   POST   /api/engine/states           -> 204 (writes the song's plugins' states now)
 //   GET    /api/engine/events           -> text/event-stream of EngineEvent (where the song is, the meter)
 //   GET    /api/engine/devices          -> EngineDevices (the output device and its options)
 //   POST   /api/engine/devices  body: SetDeviceRequest -> EngineDevices

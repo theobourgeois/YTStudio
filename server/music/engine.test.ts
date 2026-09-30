@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { addChannels, setSteps } from "../../shared/music/edits.ts";
+import { addChannels, addPluginChannel, setSteps } from "../../shared/music/edits.ts";
 import type { EngineEvent } from "../../shared/music/engine.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
 import { DataPaths } from "../storage.ts";
@@ -53,7 +53,7 @@ describe("AudioEngine", () => {
     const song = setSteps(addChannels(createMusicProject("Beat"), [{ id: "chan_kick", name: "Kick", sampleId: "media_000000000001" }]), FIRST_PATTERN_ID, "chan_kick", [0], true);
     const events: EngineEvent[] = [];
     const stop = engine.onEvent((event) => events.push(event));
-    expect(await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null })).toEqual({ unreadable: [] });
+    expect(await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null })).toMatchObject({ unreadable: [] });
     expect((await engine.command("play", {})).transport.playing).toBe(true);
     await engine.command("trigger", { channel: "chan_kick" });
     await expect(engine.command("trigger", { channel: "chan_none" })).rejects.toMatchObject({ status: 409 });
@@ -61,6 +61,19 @@ describe("AudioEngine", () => {
     expect((await engine.command("stop", {})).transport).toMatchObject({ playing: false, tick: 0 });
     stop();
     await expect(engine.setSong({ song })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("plays plugin channels: their plugins are loaded, their windows opened, their states kept in the project", async () => {
+    const [synth] = await engine.plugins();
+    let song = addPluginChannel(createMusicProject("Synth"), synth, "chan_synth");
+    song = addPluginChannel(song, { id: "VST3-Not installed-9", name: "Missing", format: "VST3" }, "chan_missing");
+    const answer = await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
+    expect(answer.channels.loaded).toEqual([{ channel: "chan_synth", name: "Fake Synth", editorOpen: false }]);
+    expect(answer.channels.failed).toMatchObject([{ channel: "chan_missing" }]);
+    expect((await engine.command("channelEditor", { channel: "chan_synth", open: true })).channels.loaded[0].editorOpen).toBe(true);
+    await expect(engine.command("channelEditor", { channel: "chan_missing", open: true })).rejects.toMatchObject({ status: 409 });
+    await expect(engine.command("channelEditor", { open: true })).rejects.toMatchObject({ status: 400 });
+    await engine.saveStates();
   });
 
   it("lists the audio devices and changes them", async () => {

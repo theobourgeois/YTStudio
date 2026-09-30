@@ -1,7 +1,7 @@
-import { stepString } from "@shared/music/edits";
+import { lengthOf, stepString } from "@shared/music/edits";
 import type { MusicProject } from "@shared/music/types";
 import type { MediaAsset } from "@shared/types";
-import { describeChannel } from "./tool-edits";
+import { describeChannel, describeLength } from "./tool-edits";
 
 /** The song in a line, for the chat's label and the sidebar. */
 export const songTiming = (song: MusicProject) => `${song.settings.tempo} BPM, ${song.settings.timeSignature.join("/")}`;
@@ -22,8 +22,8 @@ export function describeSong(song: MusicProject, assets: MediaAsset[], patternId
     "",
     "Patterns (x = a step on, - = off; a step is a sixteenth note):",
     ...song.patterns.flatMap((p) => [
-      `- "${p.name}" (id ${p.id}, ${p.steps} steps)${p === shown ? ", shown in the rack: it's the one that plays" : ""}`,
-      ...song.channels.map((c) => `    ${stepString(p, c.id)}  ${c.name}`),
+      `- "${p.name}" (id ${p.id}, ${describeLength(song, p)})${p === shown ? ", shown in the rack: it's the one that plays" : ""}`,
+      ...song.channels.map((c) => `    ${stepString(p, c.id, lengthOf(song, p))}  ${c.name}`),
     ]),
   ];
   const spare = assets.filter((a) => a.hasAudio && !used.has(a.id));

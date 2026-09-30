@@ -14,6 +14,19 @@ let metronome = false;
 let song = null;
 /** When the song started playing (ms), or null. */
 let playingSince = null;
+/** The plugin channels whose window is open. */
+const editors = new Set();
+
+/** The song's plugin channels: all loaded at once, but for a plugin that isn't one of ours. */
+const channels = () => {
+  const hosted = (song?.channels ?? []).filter((c) => c.plugin);
+  const known = (c) => PLUGINS.some((p) => p.id === c.plugin.id);
+  return {
+    loaded: hosted.filter(known).map((c) => ({ channel: c.id, name: PLUGINS.find((p) => p.id === c.plugin.id).name, editorOpen: editors.has(c.id) })),
+    loading: [],
+    failed: hosted.filter((c) => !known(c)).map((c) => ({ channel: c.id, error: "This plugin isn't installed on this computer (or hasn't been scanned)." })),
+  };
+};
 
 const tick = () => {
   if (playingSince === null || !song) return 0;
@@ -30,6 +43,7 @@ const status = () => ({
   tone,
   peak: 0,
   transport: { playing: playingSince !== null, tick: tick(), metronome },
+  channels: channels(),
   scanning: null,
   pluginCount: PLUGINS.length,
   ...slots,
@@ -54,7 +68,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (cmd === "plugins") return send({ id, ok: true, result: PLUGINS });
   if (cmd === "song") {
     song = params.song;
-    return send({ id, ok: true, result: { unreadable: [] } });
+    return send({ id, ok: true, result: { unreadable: [], channels: channels() } });
   }
   if (cmd === "devices") return send({ id, ok: true, result: devices() });
   if (cmd === "setDevice") {
@@ -67,6 +81,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     sendTransport();
   }
   if (cmd === "metronome") metronome = params.on;
+  if (cmd === "channelEditor") {
+    if (!channels().loaded.some((c) => c.channel === params.channel)) return fail("That channel's plugin isn't loaded.");
+    if (params.open) editors.add(params.channel);
+    else editors.delete(params.channel);
+  }
   if (cmd === "trigger" && !song?.channels.some((c) => c.id === params.channel)) return fail("The song playing has no such channel.");
   if (cmd === "tone") tone = params.on;
   if (cmd === "load") {

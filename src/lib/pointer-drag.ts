@@ -8,6 +8,8 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 export interface DragHandlers {
+  /** The mouse button that drags: 0, the primary one (the default), or 2, the secondary (FL Studio's erase). */
+  button?: 0 | 2;
   /** Pointer travel (px) before the drag starts. 0 = start on the first move. */
   threshold: number;
   /** Cursor forced on the whole document while the drag is active. */
@@ -30,9 +32,10 @@ export function cancelActiveDrag() {
   active?.cancel();
 }
 
-/** Start tracking a drag from a primary-button press. Returns false when it can't start. */
+/** Start tracking a drag from a press of its button (the primary one by default). Returns false when it can't start. */
 export function startPointerDrag(e: ReactPointerEvent<Element>, h: DragHandlers): boolean {
-  if (e.button !== 0 || active) return false;
+  const button = h.button ?? 0;
+  if (e.button !== button || active) return false;
   const target = e.currentTarget;
   const pointerId = e.pointerId;
   try {
@@ -74,7 +77,7 @@ export function startPointerDrag(e: ReactPointerEvent<Element>, h: DragHandlers)
   function onMove(ev: PointerEvent) {
     if (ev.pointerId !== pointerId || done) return;
     // A missed pointerup (e.g. released outside the window without capture).
-    if (ev.pointerType === "mouse" && (ev.buttons & 1) === 0) {
+    if (ev.pointerType === "mouse" && (ev.buttons & (button === 2 ? 2 : 1)) === 0) {
       finish("end");
       return;
     }

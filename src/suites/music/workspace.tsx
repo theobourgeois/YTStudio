@@ -11,12 +11,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
 import { canRedo, canUndo } from "@/lib/document-history";
 import { ChannelRack } from "./channel-rack";
+import { ChannelSettingsWindow } from "./channel-settings";
 import { startEngineSync } from "./engine-sync";
-import { isTyping, resolveMusicKey } from "./keys";
-import { Panel } from "./panel";
+import { type MusicKeyAction, isTyping, resolveMusicKey } from "./keys";
+import { cloneSelected, copySteps, cutSteps, deleteSelected, moveSelected, muteAt, pasteSteps, rotate, selectNeighbour } from "./rack-actions";
 import { useMusic, useSong } from "./store";
 import { TransportBar } from "./transport-bar";
 import { useTransport } from "./transport";
+import { useMusicUi } from "./ui";
+import { Desktop } from "./window";
 
 /** The music suite's main column (`clientSuite("music").Workspace`): its header and toolbar, its panels, its assistant. */
 export default function MusicWorkspace() {
@@ -37,11 +40,7 @@ export default function MusicWorkspace() {
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <TransportBar />
-          <section className="min-h-0 flex-1 overflow-auto bg-stage p-4" aria-label="Song">
-            <Panel title="Channel rack">
-              <ChannelRack />
-            </Panel>
-          </section>
+          <Windows />
         </div>
         <AssistantPanel suite="music" />
       </div>
@@ -49,23 +48,78 @@ export default function MusicWorkspace() {
   );
 }
 
-/** Space plays and stops; ⌘Z and ⇧⌘Z undo and redo. (The video editor's shortcuts are off without a video open.) */
+/** The editor's desktop and the windows open on it: the channel rack, and the settings of the channels clicked. */
+function Windows() {
+  const rackOpen = useMusicUi((s) => s.rackOpen);
+  const openIds = useMusicUi((s) => s.openChannelIds);
+  const channels = useSong((song) => song.channels);
+  return (
+    <Desktop>
+      {rackOpen && <ChannelRack />}
+      {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind === "sampler" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
+    </Desktop>
+  );
+}
+
+function runKey(action: MusicKeyAction) {
+  const ui = useMusicUi.getState();
+  switch (action.type) {
+    case "togglePlay":
+      return useTransport.getState().toggle();
+    case "undo":
+      return useMusic.getState().undo();
+    case "redo":
+      return useMusic.getState().redo();
+    case "toggleRack":
+      return ui.setRackOpen(!ui.rackOpen);
+    case "toggleGraph":
+      return ui.setGraphOpen(!ui.graphOpen);
+    case "mute":
+      return muteAt(action.index, false);
+    case "solo":
+      return muteAt(action.index, true);
+    case "select":
+      return selectNeighbour(action.direction, action.extend);
+    case "move":
+      return moveSelected(action.direction);
+    case "rotate":
+      return rotate(action.direction);
+    case "clone":
+      return cloneSelected();
+    case "delete":
+      return deleteSelected();
+    case "copy":
+      return copySteps();
+    case "cut":
+      return cutSteps();
+    case "paste":
+      return pasteSteps();
+  }
+}
+
+/** The music editor's keys (`keys.ts`). (The video editor's shortcuts are off without a video open.) */
 function useMusicKeys(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.isComposing || isTyping(e.target)) return;
+      if (e.isComposing || isTyping(e.target)) return;
       // Dialogs and open menus own the keyboard.
       if (document.querySelector(":is([role=dialog], [role=alertdialog], [role=menu]):not([data-state=closed])")) return;
       const action = resolveMusicKey(e);
       if (!action) return;
+      // Copying text that's selected on the page is still the browser's.
+      if (action.type === "copy" && window.getSelection()?.toString()) return;
+      // A focused knob, number or list keeps its own arrows. (A menu's button doesn't: it opens with Enter.)
+      const own = e.target instanceof HTMLElement && e.target.closest("[role=slider], [role=spinbutton], [role=combobox]");
+      if (own && action.type === "select") return;
       e.preventDefault();
-      if (action === "togglePlay") useTransport.getState().toggle();
-      else if (action === "undo") useMusic.getState().undo();
-      else useMusic.getState().redo();
+      // Ours alone: whatever has the focus (a menu's button opens on Alt+Down, a knob turns) doesn't see it too.
+      e.stopPropagation();
+      runKey(action);
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    // Before the page's own handlers, for the same reason.
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [enabled]);
 }
 

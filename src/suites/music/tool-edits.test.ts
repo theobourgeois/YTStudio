@@ -3,7 +3,18 @@ import { addChannels, stepString } from "@shared/music/edits";
 import { FIRST_PATTERN_ID, createMusicProject } from "@shared/music/project";
 import type { MediaAsset } from "@shared/types";
 import { describeSong, songContext } from "./context";
-import { addPatternTool, editStep, removeChannelTool, removePatternTool, setStepsTool, updateChannelTool, updatePatternTool, updateSong } from "./tool-edits";
+import {
+  addPatternTool,
+  editStep,
+  moveChannelTool,
+  removeChannelTool,
+  removePatternTool,
+  setStepsTool,
+  soloChannelTool,
+  updateChannelTool,
+  updatePatternTool,
+  updateSong,
+} from "./tool-edits";
 
 const env = { patternId: FIRST_PATTERN_ID };
 const rack = () =>
@@ -24,7 +35,7 @@ describe("the assistant's song edits", () => {
 
   it("find a channel by id or by name, and say which exist when it isn't one", () => {
     const byName = setStepsTool(rack(), { channel: "kick", steps: "x--- x---" }, env);
-    expect(stepString(byName.song.patterns[0], "chan_kick")).toBe("x---x---x---x---");
+    expect(stepString(byName.song.patterns[0], "chan_kick", 16)).toBe("x---x---x---x---");
     expect(byName.text).toBe('"Kick" in "Pattern 1": x---x---x---x---');
     expect(() => setStepsTool(rack(), { channel: "snare", steps: "x" }, env)).toThrow(/The channels are: "Kick", "Hat"/);
     expect(() => setStepsTool(rack(), { channel: "chan_kick", steps: "  " }, env)).toThrow(/drawing/);
@@ -46,13 +57,36 @@ describe("the assistant's song edits", () => {
   });
 
   it("add, change and remove patterns", () => {
-    const added = addPatternTool(rack(), { name: "Fill", steps: 8 }, env);
-    expect(added.song.patterns[1]).toMatchObject({ name: "Fill", steps: 8, id: added.showPattern });
-    expect(updatePatternTool(added.song, { pattern: "Fill", steps: 32, name: "Long fill" }, env).text).toBe('The pattern "Long fill" is 32 steps long.');
+    const added = addPatternTool(rack(), { name: "Fill" }, env);
+    expect(added.song.patterns[1]).toMatchObject({ name: "Fill", length: null, id: added.showPattern });
+    expect(updatePatternTool(added.song, { pattern: "Fill", length: 32, name: "Long fill" }, env).text).toBe('The pattern "Long fill" is 32 steps (set).');
     // Without a pattern, the one shown.
-    expect(updatePatternTool(added.song, { steps: 32 }, env).song.patterns[0].steps).toBe(32);
+    const set = updatePatternTool(added.song, { length: 24 }, env).song;
+    expect(set.patterns[0].length).toBe(24);
+    expect(updatePatternTool(set, { length: "auto" }, env).text).toBe('The pattern "Pattern 1" is 16 steps (automatic).');
+    expect(() => updatePatternTool(set, { length: "long" }, env)).toThrow(/"auto" or a whole number/);
     expect(removePatternTool(added.song, { pattern: "Fill" }, env).song.patterns).toHaveLength(1);
     expect(() => removePatternTool(rack(), { pattern: "Pattern 1" }, env)).toThrow(/at least one pattern/);
+  });
+
+  it("draw past the end of an automatic pattern, which grows to hold it", () => {
+    const two = setStepsTool(rack(), { channel: "Kick", steps: "x---------------x---x-----------" }, env);
+    expect(two.text).toBe('"Kick" in "Pattern 1": x---------------x---x-----------');
+    // A short drawing still repeats over what's there.
+    expect(setStepsTool(two.song, { channel: "Hat", steps: "x-" }, env).text).toContain("x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-");
+  });
+
+  it("solo and move channels, and prepare their samples", () => {
+    const solo = soloChannelTool(rack(), { channel: "Hat" }, env);
+    expect(solo.song.channels.map((c) => c.muted)).toEqual([true, false]);
+    expect(solo.text).toBe('"Hat" is soloed (the others are muted).');
+    expect(soloChannelTool(solo.song, { channel: "Hat" }, env).text).toMatch(/every channel is unmuted/);
+    expect(moveChannelTool(rack(), { channel: "Hat", direction: "up" }, env).text).toBe("The rack's order is now: Hat, Kick.");
+    expect(() => moveChannelTool(rack(), { channel: "Hat", direction: "left" }, env)).toThrow(/"up" or "down"/);
+    const edited = updateChannelTool(rack(), { channel: "Kick", cutSelf: true, sample: { reverse: true, normalize: true, start: 0.25, fadeOut: 0.5 } }, env);
+    expect(edited.song.channels[0]).toMatchObject({ cutSelf: true, precomputed: { normalize: true, reverse: true, start: 0.25, length: 1, fadeIn: 0, fadeOut: 0.5 } });
+    expect(edited.text).toContain("cut self, sample normalized, reversed, starts at 25%, fade out 50%");
+    expect(() => updateChannelTool(rack(), { channel: "Kick", sample: { start: 3 } }, env)).toThrow(/"start" must be a number from 0 to 1/);
   });
 
   it("describe the song for the model: channels, every pattern's steps, spare files", () => {
@@ -61,7 +95,7 @@ describe("the assistant's song edits", () => {
     expect(text).toContain('Song: "Beat", 120 BPM, 4/4, swing 0%.');
     expect(text).toContain('- "Kick" (id chan_kick), sample kick.wav, volume 78%');
     expect(text).toContain('- "Hat" (id chan_hat), no sample (silent), volume 78%');
-    expect(text).toContain(`- "Pattern 1" (id ${FIRST_PATTERN_ID}, 16 steps), shown in the rack: it's the one that plays\n    x---x---x---x---  Kick\n    ----------------  Hat`);
+    expect(text).toContain(`- "Pattern 1" (id ${FIRST_PATTERN_ID}, 16 steps (automatic)), shown in the rack: it's the one that plays\n    x---x---x---x---  Kick\n    ----------------  Hat`);
     expect(text).toContain("- snare.wav (mediaId media_snare)");
     expect(text).not.toContain("kick.wav (mediaId");
     expect(songContext(song, FIRST_PATTERN_ID)).toEqual({

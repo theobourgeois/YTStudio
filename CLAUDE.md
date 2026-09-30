@@ -123,8 +123,9 @@ server/
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
 engine/            The music suite's audio engine, a C++/JUCE program (CMake; JUCE is fetched into engine/build).
                      src/Engine.cpp: the device, commands, the real-time `process`. Song.cpp: a compiled song
-                     and its samples. Sequencer.cpp: the transport, the sampler's voices, the metronome.
-                     Plugins.cpp: plugin scanning and the bench's two slots and their windows. Protocol.cpp:
+                     and its samples. Sequencer.cpp: the transport, the sampler's voices, plugin channels'
+                     notes, the metronome. Host.cpp: the song's plugin channels (instances, state files,
+                     windows). Plugins.cpp: plugin scanning and the bench's two slots. Protocol.cpp:
                      the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ is a VST3 synth of our own to test with.
 electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
@@ -137,10 +138,14 @@ src/
   suites/            Each suite in the tab (ClientSuite): open/close its store, its Workspace, sidebar line, the
                      assistant's side (message context, chat texts, tool handlers). index.ts is the registry;
                      video.ts plugs in the video editor; music/ is the music editor: store.ts (the song, undo,
-                     autosave), engine-sync.ts + transport.ts (the engine follows the song; where it's playing),
-                     channel-rack.tsx, knob.tsx, channel-settings.tsx, pattern-picker.tsx, transport-bar.tsx,
-                     audio-dialog.tsx (device + engine-panel.tsx, the plugin bench), panel.tsx (a panel's
-                     frame), keys.ts, api.ts, and the assistant's side (tools.ts, tool-edits.ts, context.ts).
+                     autosave), ui.ts (selection, which windows are open and where), engine-sync.ts +
+                     transport.ts (the engine follows the song; where it's playing), window.tsx (a floating
+                     window and the desktop), channel-rack.tsx, rack-actions.ts (what its menus and keys do),
+                     channel-settings.tsx (a sampler's window), channel-picker.tsx (the +: choose an
+                     instrument), knob.tsx, lcd.tsx, waveform.ts,
+                     pattern-picker.tsx, transport-bar.tsx, audio-dialog.tsx (device + engine-panel.tsx, the
+                     plugin bench), keys.ts, api.ts, and the assistant's side (tools.ts, tool-edits.ts,
+                     context.ts).
   lib/document-history.ts, autosaver.ts   Undo (with gestures) and autosave for any suite's document; music uses
                      them, the video editor still has its own in stores/editor.ts and stores/autosave.ts.
   stores/projects.ts The project list (every suite) and which one is open (`openId`, in the URL); hands it to its suite.
@@ -211,12 +216,25 @@ extension** (Node ESM through tsx).
 ## The music suite
 
 A DAW modelled on **FL Studio**: when in doubt about its UX, do what FL Studio does (as video follows Premiere).
+**What FL Studio does is written down in `docs/fl-studio/`** (from its manual, with its screenshots, and from
+Théo): read the panel's document before touching that panel, don't work from memory, and write the document for
+a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler channels, the step sequencer and its graph editor, patterns, swing), the
 transport and the metronome. Next: the piano roll, plugins as channels, the mixer, the playlist, the browser.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing }, channels,
-  patterns }`. A `Channel` is a sampler playing one of the project's media (`sampleId`); a `Pattern` has
-  `notes[channelId]`, sorted by `start`. **Musical time is whole ticks, `PPQ` (96) to a quarter note**, never
+  patterns }`. A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
+  `precomputed` effects (trim, reverse, normalise, fades); a `Pattern` has `notes[channelId]`, sorted by `start`,
+  and a `length` that's null for FL's Auto: use `lengthOf`/`patternSteps`, never the field. Solo isn't a field:
+  it's a state of the mutes (`soloChannel`).
+- A channel is a sampler or a **plugin channel** (`kind: "plugin"`, `plugin: { id, name, format }`): an instrument
+  plugin (VST3, Audio Unit) the engine hosts for it. The engine keeps one instance per plugin channel across the
+  song's edits (`engine/src/Host.cpp`), loads it in the background (the channel is silent until then;
+  `EngineStatus.channels` says loaded, loading or failed), plays the pattern's notes into it as MIDI, and shows
+  its own window when the channel's button is clicked. **A plugin's settings aren't in the document**: they're
+  a file beside it (`data/projects/<id>/plugins/<channel id>.bin`), written by the engine every few seconds when
+  they've changed, when the channel is removed (so undoing that brings the plugin back as it was) and when the
+  engine quits. So what's turned inside a plugin's window isn't an undo step, as in FL Studio. **Musical time is whole ticks, `PPQ` (96) to a quarter note**, never
   seconds; a step is `STEP_TICKS` (24). A step of the sequencer is simply a note starting on the grid
   (`stepNotes`), so the piano roll will edit the same notes.
 - Edits are pure functions in `shared/music/edits.ts` that return the same instance when nothing changes, exactly
@@ -230,7 +248,16 @@ transport and the metronome. Next: the piano roll, plugins as channels, the mixe
   `POST /api/engine/song`: the server normalises it, compiles it and turns sample ids into paths). The engine
   swaps songs without a gap. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a
   second); the tab fills in between (`tickNow`) and shows it late by the output's latency.
-- Panels (`panel.tsx`) are docked; they're framed as windows so they can float like FL Studio's one day.
+- **Everything is a window** (`window.tsx`: `MusicWindow` on the `Desktop`), as in FL Studio: dragged by its
+  title bar, brought forward when touched, closed and reopened (`ui.ts` keeps which are open and where). A new
+  panel is a new window, not a docked pane. One thing to know: a menu opened from inside a window is drawn
+  elsewhere on the page but its React events still bubble through the window, so a handler on a container must
+  check `currentTarget.contains(target)` before treating a press as its own (the title bar's drag does).
+- **Mouse conventions** (FL's, and the ones to keep in every panel): the left button adds or turns on, the right
+  button removes or turns off, and both paint when dragged (`startPointerDrag` takes `button: 2`). A control's
+  right-click is its menu. Knobs are `Knob`/`SongKnob`, number displays `Lcd`: don't hand-roll either.
+- What a menu item and its shortcut do lives once, in `rack-actions.ts`; keys are resolved in `keys.ts` (pure,
+  tested) and run in `workspace.tsx`.
 - The starter kit (`public/kit/`, made by `scripts/make-kit.ts`) becomes ordinary project media when it's added.
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
   edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested). Channels and patterns can be

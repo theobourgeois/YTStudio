@@ -1,8 +1,9 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import { addChannels, getChannel, updateChannel } from "@shared/music/edits";
-import type { MusicProject, Pattern } from "@shared/music/types";
+import { addChannels, addPluginChannel, getChannel, updateChannel } from "@shared/music/edits";
+import { createId } from "@shared/ids";
+import type { MusicProject, Pattern, PluginRef } from "@shared/music/types";
 import type { MediaAsset } from "@shared/types";
 import { ApiRequestError, api } from "@/lib/api";
 import { createAutosaver } from "@/lib/autosaver";
@@ -11,7 +12,7 @@ import { useProjects } from "@/stores/projects";
 
 /**
  * The open song: its document with undo (`lib/document-history.ts`), the project's media (its
- * samples), and what's selected. Every change to the document is a pure edit from
+ * samples), and the pattern shown. (What's selected and which windows are open is in `ui.ts`.) Every change to the document is a pure edit from
  * `shared/music/edits.ts`, through `commit` (one undo step) or a `songGesture()` (a drag).
  * The audio engine follows the document from `engine-sync.ts`; this store knows nothing of it.
  */
@@ -24,8 +25,6 @@ interface MusicState {
   loadError: string | null;
   /** The pattern the channel rack shows and the engine loops (UI state, not part of the song). */
   patternId: string | null;
-  /** The channel the graph editor shows. */
-  selectedChannelId: string | null;
 
   open: (projectId: string) => Promise<void>;
   close: () => Promise<void>;
@@ -35,9 +34,10 @@ interface MusicState {
   undo: () => void;
   redo: () => void;
   selectPattern: (id: string) => void;
-  selectChannel: (id: string | null) => void;
   /** Bring audio files into the project and add a channel for each. */
   addSamples: (files: File[]) => Promise<void>;
+  /** Add a channel playing an instrument plugin, or an empty sampler. Returns its id. */
+  addChannel: (plugin: PluginRef | null) => string | null;
   /** The starter kit's drums (`public/kit/`), as four channels. */
   addStarterKit: () => Promise<void>;
   /** Give a channel another sample. */
@@ -87,13 +87,12 @@ export const useMusic = create<MusicState>((set, get) => {
     loading: false,
     loadError: null,
     patternId: null,
-    selectedChannelId: null,
 
     async open(projectId) {
       if (get().projectId === projectId && get().history) return;
       await autosaver.flush();
       const token = ++openToken;
-      set({ projectId, history: null, assets: [], loading: true, loadError: null, patternId: null, selectedChannelId: null });
+      set({ projectId, history: null, assets: [], loading: true, loadError: null, patternId: null });
       try {
         const [song, assets] = await Promise.all([api.getDocument("music", projectId), api.listMedia(projectId)]);
         if (token === openToken) set({ history: historyOf(song), assets, loading: false, patternId: song.patterns[0].id });
@@ -105,7 +104,7 @@ export const useMusic = create<MusicState>((set, get) => {
     async close() {
       ++openToken;
       await autosaver.flush();
-      set({ projectId: null, history: null, assets: [], loading: false, loadError: null, patternId: null, selectedChannelId: null });
+      set({ projectId: null, history: null, assets: [], loading: false, loadError: null, patternId: null });
     },
 
     async rename(name) {
@@ -134,11 +133,17 @@ export const useMusic = create<MusicState>((set, get) => {
     },
 
     selectPattern: (patternId) => set({ patternId }),
-    selectChannel: (selectedChannelId) => set({ selectedChannelId }),
 
     async addSamples(files) {
       const assets = await upload(files);
       get().commit((song) => addChannels(song, assets.map((a) => ({ name: channelName(a.name), sampleId: a.id }))));
+    },
+
+    addChannel(plugin) {
+      if (!get().history) return null;
+      const id = createId("chan");
+      get().commit((song) => (plugin ? addPluginChannel(song, plugin, id) : addChannels(song, [{ id, name: "Sampler", sampleId: null }])));
+      return id;
     },
 
     async addStarterKit() {

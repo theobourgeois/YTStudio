@@ -4,32 +4,6 @@
 
 namespace
 {
-/** A plugin's own window: its editor, or a row per parameter for plugins without one. */
-class EditorWindow final : public juce::DocumentWindow
-{
-public:
-    EditorWindow (juce::AudioPluginInstance& plugin, std::function<void()> onCloseButton)
-        : DocumentWindow (plugin.getName(), juce::Colours::black, DocumentWindow::closeButton | DocumentWindow::minimiseButton),
-          onClose (std::move (onCloseButton))
-    {
-        juce::AudioProcessorEditor* editor = plugin.hasEditor() ? plugin.createEditorIfNeeded() : nullptr;
-        if (editor == nullptr)
-            editor = new juce::GenericAudioProcessorEditor (plugin);
-        setUsingNativeTitleBar (true);
-        setContentOwned (editor, true);
-        setResizable (editor->isResizable(), false);
-        centreWithSize (getWidth(), getHeight());
-        setVisible (true);
-    }
-
-    ~EditorWindow() override { clearContentComponent(); }
-
-    void closeButtonPressed() override { onClose(); }
-
-private:
-    std::function<void()> onClose;
-};
-
 int channelsNeeded (const juce::AudioPluginInstance* plugin)
 {
     return plugin == nullptr ? 0 : juce::jmax (plugin->getTotalNumInputChannels(), plugin->getTotalNumOutputChannels());
@@ -136,17 +110,7 @@ PluginBench::Slot* PluginBench::slot (const juce::String& name)
     return name == "instrument" ? &instrument : name == "effect" ? &effect : nullptr;
 }
 
-void PluginBench::configure (juce::AudioPluginInstance& plugin) const
-{
-    // Stereo in and out on the main buses and nothing else (no sidechains, no extra outputs) for now.
-    auto layout = plugin.getBusesLayout();
-    for (auto* buses : { &layout.inputBuses, &layout.outputBuses })
-        for (int i = 0; i < buses->size(); ++i)
-            buses->getReference (i) = i == 0 ? juce::AudioChannelSet::stereo() : juce::AudioChannelSet::disabled();
-    plugin.setBusesLayout (layout);
-    plugin.setRateAndBufferSizeDetails (sampleRate, blockSize);
-    plugin.prepareToPlay (sampleRate, blockSize);
-}
+void PluginBench::configure (juce::AudioPluginInstance& plugin) const { configurePlugin (plugin, sampleRate, blockSize); }
 
 void PluginBench::sizeScratch()
 {
@@ -214,15 +178,13 @@ void PluginBench::showEditor (Slot& target, bool open)
         return;
     }
     if (target.window == nullptr)
-        target.window = std::make_unique<EditorWindow> (*target.plugin, [this, &target] {
+        target.window = std::make_unique<EditorWindow> (*target.plugin, target.plugin->getName(), [this, &target] {
             juce::MessageManager::callAsync ([this, &target] {
                 target.window.reset();
                 changed();
             });
         });
-    // The engine has no Dock icon, so nothing else would bring its windows forward.
-    juce::Process::makeForegroundProcess();
-    target.window->toFront (true);
+    target.window->show();
 }
 
 juce::Result PluginBench::saveState (Slot& target, const juce::File& file)

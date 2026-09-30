@@ -21,7 +21,19 @@ juce::Result fail (const juce::String& message) { return juce::Result::fail (mes
 Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths, bool isOffline, bool onlyPluginPaths)
     : offline (isOffline),
       deviceFile (dataDir.getChildFile ("device.xml")),
-      bench (dataDir, pluginPaths, onlyPluginPaths, [this] { sendStatus(); })
+      bench (dataDir, pluginPaths, onlyPluginPaths, [this] {
+          // A scan has ended (or a bench window closed): a plugin the song was missing may be there now.
+          plugins.forgetFailures();
+          if (! lastSong.isVoid())
+              applySong();
+          sendStatus();
+      }),
+      plugins (bench.formatManager(), bench.knownPlugins(), [this] {
+          // A plugin has loaded (or its window was closed): the song gets it, and the server is told.
+          if (! lastSong.isVoid())
+              applySong();
+          sendStatus();
+      })
 {
     dataDir.createDirectory();
     if (offline)
@@ -48,6 +60,7 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
 Engine::~Engine()
 {
     stopTimer();
+    plugins.saveStates();
     if (! offline)
     {
         devices.removeAudioCallback (this);
@@ -75,6 +88,7 @@ juce::var Engine::status() const
         { "tone", tone.load() },
         { "peak", peak.load() },
         { "transport", transport() },
+        { "channels", plugins.describe() },
         { "scanning", bench.scanning() },
         { "pluginCount", bench.pluginCount() },
         { "instrument", bench.instrument.describe() },
@@ -134,12 +148,22 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
     // The song ---------------------------------------------------------------
     if (command == "song")
     {
-        juce::StringArray unreadable;
-        sequencer.setSong (Song::parse (params["song"], samples, unreadable));
+        lastSong = params["song"];
         juce::Array<juce::var> ids;
-        for (const auto& id : unreadable)
+        for (const auto& id : applySong())
             ids.add (id);
-        return reply (juce::Result::ok(), protocol::object ({ { "unreadable", ids } }));
+        return reply (juce::Result::ok(), protocol::object ({ { "unreadable", ids }, { "channels", plugins.describe() } }));
+    }
+    if (command == "channelEditor")
+    {
+        if (! plugins.showEditor (params["channel"].toString(), (bool) params["open"]))
+            return reply (fail ("That channel's plugin isn't loaded."), {});
+        return ok();
+    }
+    if (command == "saveStates")
+    {
+        plugins.saveStates();
+        return ok();
     }
     if (command == "play" || command == "stop")
     {
@@ -233,6 +257,13 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
     reply (fail ("Unknown command \"" + command + "\"."), {});
 }
 
+juce::StringArray Engine::applySong()
+{
+    juce::StringArray unreadable;
+    sequencer.setSong (Song::parse (lastSong, samples, plugins, unreadable));
+    return unreadable;
+}
+
 void Engine::timerCallback()
 {
     sequencer.collectGarbage();
@@ -263,6 +294,7 @@ void Engine::start (double rate, int block)
     blockSize = block;
     mix.setSize (2, juce::jmax (4096, block * 2), false, false, true);
     sequencer.prepare (rate);
+    plugins.prepare (rate, block);
     bench.prepare (rate, block);
 }
 

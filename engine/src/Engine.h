@@ -51,6 +51,8 @@ private:
     juce::var transport() const;
     juce::var deviceOptions() const;
     juce::Result setDevice (const juce::var& params);
+    /** Hand the song to the sequencer, with whichever of its plugins are loaded by now. */
+    juce::StringArray applySong();
     void sendStatus() const;
 
     const bool offline;
@@ -58,7 +60,11 @@ private:
     juce::AudioDeviceManager devices;
     PluginBench bench;
     SampleCache samples;
+    /** The song's own plugins (its plugin channels). Before the sequencer, which plays them: it must outlive the songs there. */
+    PluginHost plugins;
     Sequencer sequencer;
+    /** The song as it was last given, to build it again when one of its plugins has finished loading. */
+    juce::var lastSong;
 
     /** The song and the tone, before the bench's effect. */
     juce::AudioBuffer<float> mix;

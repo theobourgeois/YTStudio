@@ -8,7 +8,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { addChannels, setPatternSteps, setStepNote, setSteps, setSwing, setTempo, updateChannel } from "../../shared/music/edits.ts";
+import { addChannels, setPatternLength, setStepNote, setSteps, setSwing, setTempo, updateChannel } from "../../shared/music/edits.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE } from "../config.ts";
@@ -110,12 +110,12 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
 
   it("follows the tempo and the pattern's length, even changed while it plays", async () => {
     const song = setSteps(rack(), P, "chan_kick", [0, 4], true);
-    await play(setPatternSteps(setTempo(song, 240), P, 8));
+    await play(setPatternLength(setTempo(song, 240), P, 8));
     await engine.command("play", {});
     // Twice as fast, and half a bar long: a hit every beat, a beat being 12000 samples.
     expect(onsets((await hear(BEAT * 2)).channels[0])).toEqual([0, 12_000, 24_000, 36_000]);
     // Back to 120 BPM without stopping: the loop carries on from where it is, and nothing clicks.
-    await play(setPatternSteps(song, P, 8));
+    await play(setPatternLength(song, P, 8));
     expect(onsets((await hear(BEAT * 2)).channels[0])).toEqual([0, BEAT]);
   });
 
@@ -165,6 +165,79 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
     expect(left[2400]).toBeCloseTo(0.25, 1);
     // ...and is gone a release after the step ends.
     expect(peakOf(left, STEP + 0.06 * RATE)).toBe(0);
+  });
+
+  it("loops a pattern of automatic length over the bars with notes, and a set one over its length", async () => {
+    // A hit on the first step of bar 2: two bars, so a hit every two bars, a bar in.
+    await play(setSteps(rack(), P, "chan_kick", [16], true));
+    await engine.command("play", {});
+    expect(onsets((await hear(BEAT * 16)).channels[0])).toEqual([BEAT * 4, BEAT * 12]);
+
+    await engine.command("stop", {});
+    // Set to half a bar, the hit in bar 2 is never reached.
+    await play(setPatternLength(setSteps(rack(), P, "chan_kick", [0, 16], true), P, 8));
+    await engine.command("play", {});
+    expect(onsets((await hear(BEAT * 8)).channels[0])).toEqual([0, BEAT * 2, BEAT * 4, BEAT * 6]);
+  });
+
+  it("cuts a channel's own notes short with cut self", async () => {
+    const song = setSteps(rack(), P, "chan_pad", [0, 4], true);
+    await play(song);
+    await engine.command("play", {});
+    // Two notes of the long sample overlap: twice the level.
+    expect(peakOf((await hear(BEAT * 2)).channels[0], BEAT * 1.5)).toBeCloseTo(1, 2);
+
+    await engine.command("stop", {});
+    await play(updateChannel(song, "chan_pad", { cutSelf: true }));
+    await engine.command("play", {});
+    const left = (await hear(BEAT * 2)).channels[0];
+    // The second note silences the first as it starts (a fade of a few milliseconds).
+    expect(peakOf(left, BEAT * 0.5, BEAT)).toBeCloseTo(0.5, 2);
+    expect(peakOf(left, BEAT * 1.5)).toBeCloseTo(0.5, 2);
+  });
+
+  it("prepares a sample before playing it: trimmed, reversed, normalised, faded", async () => {
+    // A ramp from silence up to half scale over 10 ms: its shape shows what was done to it.
+    await writeWav(path.join(dir, "ramp.wav"), Float32Array.from({ length: HIT }, (_, i) => (0.5 * i) / HIT), RATE);
+    const ramp = new AudioEngine(new DataPaths(path.join(dir, "ramp")), {
+      offline: true,
+      onlyPluginPaths: true,
+      pluginPaths: [],
+      samplePath: () => path.join(dir, "ramp.wav"),
+    });
+    const heard = async (precomputed: Parameters<typeof updateChannel>[2]["precomputed"]) => {
+      let song = addChannels(createMusicProject("Ramp"), [{ id: "chan_ramp", name: "Ramp", sampleId: "ramp" }]);
+      song = updateChannel(setSteps(song, P, "chan_ramp", [0], true), "chan_ramp", { precomputed });
+      await ramp.command("stop", {});
+      await ramp.setSong({ projectId: PROJECT, song, patternId: P });
+      await ramp.command("play", {});
+      const file = path.join(dir, `ramp-${render++}.wav`);
+      await ramp.render(BEAT, file);
+      return (await readWav(file)).channels[0];
+    };
+    try {
+      const plain = await heard({});
+      expect(plain[10]).toBeLessThan(0.02);
+      expect(plain[HIT - 10]).toBeGreaterThan(0.48);
+      // Backwards: loud first.
+      const reversed = await heard({ reverse: true });
+      expect(reversed[10]).toBeGreaterThan(0.48);
+      expect(reversed[HIT - 10]).toBeLessThan(0.02);
+      // The second half only, which is half as long and starts at a quarter scale.
+      const trimmed = await heard({ start: 0.5 });
+      expect(trimmed[5]).toBeGreaterThan(0.24);
+      expect(peakOf(trimmed, HIT / 2 + 2)).toBe(0);
+      expect(peakOf(await heard({ length: 0.5 }), HIT / 2 + 2)).toBe(0);
+      // Normalised: its loudest point at full scale.
+      expect(peakOf(await heard({ normalize: true }))).toBeCloseTo(1, 2);
+      // Faded out over its second half: the end, which was the loudest, is silent.
+      const faded = await heard({ fadeOut: 0.5 });
+      expect(faded[HIT - 5]).toBeLessThan(0.02);
+      expect(faded[HIT / 2 - 5]).toBeGreaterThan(0.24);
+      expect((await heard({ reverse: true, fadeIn: 0.5 }))[5]).toBeLessThan(0.02);
+    } finally {
+      ramp.shutdown();
+    }
   });
 
   it("stops what's sounding when it stops", async () => {
@@ -217,7 +290,7 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
       ]);
       song = setSteps(song, P, "chan_kick", [0], true);
       song = setSteps(song, P, "chan_hat", [8], true);
-      expect(await drums.setSong({ projectId: PROJECT, song, patternId: P })).toEqual({ unreadable: [] });
+      expect(await drums.setSong({ projectId: PROJECT, song, patternId: P })).toMatchObject({ unreadable: [] });
       await drums.command("play", {});
       const file = path.join(dir, "kit.wav");
       await drums.render(BEAT * 4, file);
@@ -241,7 +314,7 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
     });
     try {
       const song = addChannels(rack(), [{ id: "chan_bad", name: "Bad", sampleId: "broken" }]);
-      expect(await broken.setSong({ projectId: PROJECT, song, patternId: P })).toEqual({ unreadable: ["chan_bad"] });
+      expect(await broken.setSong({ projectId: PROJECT, song, patternId: P })).toMatchObject({ unreadable: ["chan_bad"] });
       await expect(broken.setSong({ projectId: "nope", song, patternId: P })).rejects.toMatchObject({ status: 400 });
     } finally {
       broken.shutdown();

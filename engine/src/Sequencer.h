@@ -57,8 +57,8 @@ private:
         juce::int64 untilRelease = -1;
         enum class Stage { attack, decay, sustain, release } stage = Stage::attack;
         float level = 0, releaseStep = 0;
-        /** Being silenced (stop): samples left of a short fade, or negative. */
-        int fade = -1;
+        /** Being silenced (stop, cut self): samples left of a short fade, or negative; and how long until it starts. */
+        int fade = -1, fadeWait = 0;
         juce::uint32 age = 0;
     };
 
@@ -68,10 +68,19 @@ private:
         float pitch, gain;
     };
 
+    /** Set when the song stops: its plugins are told to end every note, in the next block. */
+    bool silencing = false;
+
     void adopt (Song* next);
     void schedule (int numSamples);
     void scheduleRange (double from, double to, double origin, int offset, int length, double ticksPerSample);
     void startVoice (int channel, float pitch, float gain, double lengthTicks, int delay);
+    /** A note for a channel's plugin: on at `delay` samples into the block, off `lengthSamples` later. */
+    void startNote (HostedPlugin&, int key, float velocity, juce::int64 lengthSamples, int delay);
+    /** Send the note-offs that fall in this block, and count the others down. */
+    void endNotes (HostedPlugin&, int numSamples);
+    void silencePlugins();
+    void renderPlugins (float* left, float* right, int numSamples);
     void render (Voice& voice, float* left, float* right, int numSamples);
     void renderClick (float* left, float* right, int numSamples);
     void silenceVoices();

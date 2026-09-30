@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
+import type { EngineChannels } from "@shared/music/engine";
 import { musicApi } from "./api";
 
 /**
@@ -21,6 +22,8 @@ interface TransportState {
   latencyMs: number;
   /** Channels whose sample the engine couldn't read. */
   unreadable: string[];
+  /** The song's plugin channels as the engine has them: loaded (and whose window is open), loading, failed. */
+  channels: EngineChannels;
   /** Why the engine can't be reached (it isn't built, it won't start), or null. */
   error: string | null;
 
@@ -30,7 +33,11 @@ interface TransportState {
   setMetronome: (on: boolean) => void;
   /** Hear a channel's sample once. */
   audition: (channelId: string, pitch?: number) => void;
+  /** Show or close the window of a plugin channel's plugin. */
+  showPlugin: (channelId: string, open: boolean) => void;
 }
+
+export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: [] };
 
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
@@ -60,6 +67,7 @@ export const useTransport = create<TransportState>((set, get) => {
     metronome: false,
     latencyMs: 0,
     unreadable: [],
+    channels: NO_CHANNELS,
     error: null,
 
     play: () => void run("play", {}),
@@ -71,6 +79,12 @@ export const useTransport = create<TransportState>((set, get) => {
     },
     audition(channelId, pitch = 0) {
       void musicApi.engine("trigger", { channel: channelId, pitch }).catch(() => {});
+    },
+    showPlugin(channelId, open) {
+      musicApi.engine("channelEditor", { channel: channelId, open }).then(
+        (status) => set({ channels: status.channels }),
+        (err) => toast.error("Couldn't open the plugin", { description: errorMessage(err) }),
+      );
     },
   };
 });

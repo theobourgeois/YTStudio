@@ -36,13 +36,22 @@ export const MUSIC_TOOLS = [
     title: "Add a channel",
     kind: "action",
     description:
-      "Add a sampler channel to the channel rack, playing either one of the starter kit's drums (`kit`) or an audio file already in the project " +
-      "(`mediaId`, from get_song's list of files). Without either, the channel is empty (silent) until the user gives it a sample.",
+      "Add a channel to the channel rack. A sampler playing one of the starter kit's drums (`kit`) or an audio file already in the project " +
+      "(`mediaId`, from get_song's list of files); or an instrument plugin installed on this computer (`plugin`, from list_plugins), whose own " +
+      "window the user opens from the rack. With none of them, an empty sampler (silent until the user gives it a sample).",
     inputSchema: obj({
+      plugin: str("An instrument plugin: its name or its id, from list_plugins."),
       kit: oneOf(KIT_SOUNDS, "A starter-kit drum."),
       mediaId: str("An audio file of the project."),
       name: str("The channel's name (default: the sample's)."),
     }),
+  }),
+  tool({
+    name: "list_plugins",
+    title: "List the plugins",
+    kind: "look",
+    description: "The instrument plugins (VST3 and Audio Units) found on this computer, which add_channel can put in the rack.",
+    inputSchema: obj({}),
   }),
   tool({
     name: "update_channel",
@@ -57,6 +66,19 @@ export const MUSIC_TOOLS = [
         pan: num("-1 (left) to 1 (right); 0 is the centre."),
         pitch: num("Semitones added to every note (-48 to 48; fractions are cents)."),
         muted: bool("Whether the channel is muted."),
+        cutSelf: bool("On: each new note silences the channel's notes still sounding (a closed hat cutting an open one)."),
+        sample: obj(
+          {
+            normalize: bool("Raise the sample's level until its loudest point is full scale."),
+            reverse: bool("Play the sample backwards."),
+            start: num("Where the sample starts, 0 to 0.99 of its length (0 is the whole sample)."),
+            length: num("How much of what's left after `start` is kept, 0.01 to 1."),
+            fadeIn: num("A fade in, 0 to 1 of the kept part."),
+            fadeOut: num("A fade out, 0 to 1 of the kept part."),
+          },
+          [],
+          "What's done to the sample before it plays (FL Studio's precomputed effects). Only what's given changes.",
+        ),
         envelope: obj(
           {
             enabled: bool("On: a note sounds for its own length, then fades. Off (the default): every note plays the whole sample."),
@@ -80,6 +102,20 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({ channel }, ["channel"]),
   }),
   tool({
+    name: "solo_channel",
+    title: "Solo a channel",
+    kind: "edit",
+    description: "Solo a channel: every other channel is muted and this one unmuted. Soloing the channel that's already alone unmutes them all.",
+    inputSchema: obj({ channel }, ["channel"]),
+  }),
+  tool({
+    name: "move_channel",
+    title: "Move a channel",
+    kind: "edit",
+    description: "Move a channel one place up or down the rack.",
+    inputSchema: obj({ channel, direction: oneOf(["up", "down"], "Which way.") }, ["channel", "direction"]),
+  }),
+  tool({
     name: "set_steps",
     title: "Set a channel's steps",
     kind: "edit",
@@ -87,7 +123,8 @@ export const MUSIC_TOOLS = [
       'Draw a channel\'s steps in a pattern as text, one character per sixteenth-note step: "x" is a step on, "-" off. ' +
       'Four on the floor in a one-bar pattern is "x---x---x---x---"; offbeat hats are "--x---x---x---x-". Spaces are ignored, so beats can be ' +
       'grouped ("x--- x--- x--- x---"). A drawing shorter than the pattern repeats to fill it ("x-" is every other step); "-" clears the channel. ' +
-      "Steps that stay on keep their velocity and pitch.",
+      "A drawing longer than the pattern is drawn in full, and a pattern of automatic length grows to the last bar with a step in it " +
+      "(32 characters make a two-bar pattern). Steps that stay on keep their velocity and pitch.",
     inputSchema: obj({ channel, steps: str('The drawing, e.g. "x---x---x---x---".'), pattern }, ["channel", "steps"]),
   }),
   tool({
@@ -110,15 +147,18 @@ export const MUSIC_TOOLS = [
     name: "add_pattern",
     title: "Add a pattern",
     kind: "edit",
-    description: "Add an empty pattern and show it in the channel rack (the engine loops the pattern shown). One bar long unless `steps` says otherwise.",
-    inputSchema: obj({ name: str("Its name (default: Pattern N)."), steps: int("Its length in sixteenth-note steps (16 is a bar of 4/4).") }),
+    description:
+      "Add an empty pattern and show it in the channel rack (the engine loops the pattern shown). Its length is automatic: a bar, growing with the steps put in it.",
+    inputSchema: obj({ name: str("Its name (default: Pattern N).") }),
   }),
   tool({
     name: "update_pattern",
     title: "Change a pattern",
     kind: "edit",
-    description: "Rename a pattern or change its length. Notes past a shorter end are removed.",
-    inputSchema: obj({ pattern, name: str("A new name."), steps: int("Its length in sixteenth-note steps (1 to 256).") }),
+    description:
+      'Rename a pattern or set its length. A length is a number of sixteenth-note steps (1 to 512; 16 is a bar of 4/4), or "auto" (the default): ' +
+      "as long as the last bar with a step in it. Steps past a set length stay but aren't played.",
+    inputSchema: obj({ pattern, name: str("A new name."), length: { description: 'A number of steps, or "auto".', anyOf: [{ type: "integer" }, { type: "string", enum: ["auto"] }] } }),
   }),
   tool({
     name: "remove_pattern",

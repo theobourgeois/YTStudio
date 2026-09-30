@@ -6,21 +6,26 @@ import {
   clonePattern,
   drawSteps,
   fillSteps,
-  moveChannel,
+  moveChannels,
   removeChannel,
+  removeChannels,
   removePattern,
   renamePattern,
-  setPatternSteps,
+  rotateSteps,
+  setChannelNotes,
+  setMuted,
+  setPatternLength,
   setStepNote,
+  setStepNotes,
   setSteps,
   setSwing,
   setTempo,
+  soloChannel,
   stepNotes,
   stepString,
-  toggleStep,
   updateChannel,
 } from "./edits.ts";
-import { FIRST_PATTERN_ID, createMusicProject, normalizeMusicProject } from "./project.ts";
+import { DEFAULT_PRECOMPUTED, FIRST_PATTERN_ID, createMusicProject, normalizeMusicProject } from "./project.ts";
 import type { MusicProject } from "./types.ts";
 
 const P = FIRST_PATTERN_ID;
@@ -28,8 +33,11 @@ const rack = (): MusicProject =>
   addChannels(createMusicProject("Beat"), [
     { id: "chan_kick", name: "Kick", sampleId: "media_kick" },
     { id: "chan_hat", name: " Hat ", sampleId: null },
+    { id: "chan_clap", name: "Clap", sampleId: null },
   ]);
-const steps = (song: MusicProject, channel: string, pattern = P) => stepString(song.patterns.find((p) => p.id === pattern)!, channel);
+const steps = (song: MusicProject, channel: string, pattern = P, count = 16) => stepString(song.patterns.find((p) => p.id === pattern)!, channel, count);
+const order = (song: MusicProject) => song.channels.map((c) => c.id.replace("chan_", ""));
+const muted = (song: MusicProject) => song.channels.map((c) => c.muted);
 
 describe("song settings", () => {
   it("clamps the tempo and the swing, and leaves the song alone when nothing changes", () => {
@@ -46,8 +54,8 @@ describe("song settings", () => {
 describe("channels", () => {
   it("are added at the end of the rack, as FL's defaults", () => {
     const song = rack();
-    expect(song.channels.map((c) => c.name)).toEqual(["Kick", "Hat"]);
-    expect(song.channels[0]).toMatchObject({ kind: "sampler", sampleId: "media_kick", volume: 0.78, pan: 0, muted: false });
+    expect(song.channels.map((c) => c.name)).toEqual(["Kick", "Hat", "Clap"]);
+    expect(song.channels[0]).toMatchObject({ kind: "sampler", sampleId: "media_kick", volume: 0.78, pan: 0, muted: false, cutSelf: false });
     expect(addChannels(song, [])).toBe(song);
   });
 
@@ -55,77 +63,133 @@ describe("channels", () => {
     const song = rack();
     expect(updateChannel(song, "chan_kick", { volume: 2, pan: -3, pitch: 100, name: "  808  " }).channels[0]).toMatchObject({ volume: 1, pan: -1, pitch: 48, name: "808" });
     expect(updateChannel(song, "chan_kick", { envelope: { enabled: true, release: 99 } }).channels[0].envelope).toMatchObject({ enabled: true, release: 10, decay: 0.2 });
-    expect(updateChannel(song, "chan_kick", { volume: 0.78, name: "", envelope: { enabled: false } })).toBe(song);
+    expect(updateChannel(song, "chan_kick", { cutSelf: true, precomputed: { reverse: true, start: 2, length: 0, fadeIn: 0.25 } }).channels[0]).toMatchObject({
+      cutSelf: true,
+      precomputed: { ...DEFAULT_PRECOMPUTED, reverse: true, start: 0.99, length: 0.01, fadeIn: 0.25 },
+    });
+    expect(updateChannel(song, "chan_kick", { volume: 0.78, name: "", envelope: { enabled: false }, precomputed: { normalize: false } })).toBe(song);
     expect(updateChannel(song, "chan_none", { volume: 0.1 })).toBe(song);
   });
 
-  it("take their notes with them when removed or cloned, in every pattern", () => {
+  it("take their notes with them when removed, in every pattern", () => {
     let song = addPattern(rack(), { id: "pat_2" });
     song = setSteps(song, P, "chan_kick", [0, 4], true);
     song = setSteps(song, "pat_2", "chan_kick", [2], true);
-    const cloned = cloneChannel(song, "chan_kick", "chan_copy");
-    expect(cloned.channels.map((c) => c.id)).toEqual(["chan_kick", "chan_copy", "chan_hat"]);
-    expect(steps(cloned, "chan_copy")).toBe("x---x-----------");
-    expect(steps(cloned, "chan_copy", "pat_2")).toBe("--x-------------");
-    const removed = removeChannel(cloned, "chan_kick");
+    song = setSteps(song, P, "chan_hat", [1], true);
+    const removed = removeChannels(song, ["chan_kick", "chan_clap", "chan_none"]);
+    expect(order(removed)).toEqual(["hat"]);
     expect(removed.patterns.every((p) => !("chan_kick" in p.notes))).toBe(true);
-    expect(steps(removed, "chan_copy")).toBe("x---x-----------");
+    expect(steps(removed, "chan_hat")).toBe("-x--------------");
     expect(removeChannel(song, "chan_none")).toBe(song);
     expect(normalizeMusicProject(removed)).toEqual(removed);
   });
 
-  it("move within the rack", () => {
+  it("are cloned with their settings but without their notes", () => {
+    const song = updateChannel(setSteps(rack(), P, "chan_kick", [0, 4], true), "chan_kick", { volume: 0.5 });
+    const cloned = cloneChannel(song, "chan_kick", "chan_copy");
+    expect(order(cloned)).toEqual(["kick", "copy", "hat", "clap"]);
+    expect(cloned.channels[1]).toMatchObject({ name: "Kick", volume: 0.5, sampleId: "media_kick" });
+    expect(steps(cloned, "chan_copy")).toBe("----------------");
+  });
+
+  it("move up and down the rack together, stopping at its edges", () => {
     const song = rack();
-    expect(moveChannel(song, "chan_hat", 0).channels.map((c) => c.id)).toEqual(["chan_hat", "chan_kick"]);
-    expect(moveChannel(song, "chan_hat", 9)).toBe(song);
+    expect(order(moveChannels(song, ["chan_clap"], -1))).toEqual(["kick", "clap", "hat"]);
+    expect(order(moveChannels(song, ["chan_hat", "chan_clap"], -1))).toEqual(["hat", "clap", "kick"]);
+    expect(order(moveChannels(song, ["chan_kick", "chan_hat"], 1))).toEqual(["clap", "kick", "hat"]);
+    expect(moveChannels(song, ["chan_kick"], -1)).toBe(song);
+    expect(moveChannels(song, ["chan_hat", "chan_clap"], 1)).toBe(song);
+  });
+
+  it("are muted together, and soloed as FL Studio does it: by muting the others", () => {
+    const song = rack();
+    expect(muted(setMuted(song, ["chan_kick", "chan_clap"], true))).toEqual([true, false, true]);
+    expect(setMuted(song, ["chan_kick"], false)).toBe(song);
+    const solo = soloChannel(song, "chan_hat");
+    expect(muted(solo)).toEqual([true, false, true]);
+    // Soloing another moves the solo; soloing the one that's alone unmutes everything.
+    expect(muted(soloChannel(solo, "chan_kick"))).toEqual([false, true, true]);
+    expect(muted(soloChannel(solo, "chan_hat"))).toEqual([false, false, false]);
+    // A muted channel can be soloed too.
+    expect(muted(soloChannel(setMuted(song, ["chan_hat"], true), "chan_hat"))).toEqual([true, false, true]);
+    expect(soloChannel(song, "chan_none")).toBe(song);
   });
 });
 
 describe("steps", () => {
-  it("toggle on and off, keeping the notes in order", () => {
-    let song = toggleStep(rack(), P, "chan_kick", 8);
-    song = toggleStep(song, P, "chan_kick", 0);
+  it("are switched on and off, keeping the notes in order", () => {
+    let song = setSteps(rack(), P, "chan_kick", [8], true);
+    song = setSteps(song, P, "chan_kick", [0], true);
     expect(steps(song, "chan_kick")).toBe("x-------x-------");
     expect(song.patterns[0].notes.chan_kick.map((n) => n.start)).toEqual([0, 192]);
-    song = toggleStep(song, P, "chan_kick", 8);
-    song = toggleStep(song, P, "chan_kick", 0);
+    song = setSteps(song, P, "chan_kick", [0, 8], false);
     // A channel with no notes isn't in the pattern at all.
     expect(song.patterns[0].notes).toEqual({});
   });
 
-  it("are set several at once, ignoring the ones already that way or outside the pattern", () => {
-    const song = setSteps(rack(), P, "chan_kick", [0, 4, 4, 99, -1, 1.5], true);
+  it("are set several at once, ignoring the ones already that way or that can't be", () => {
+    const song = setSteps(rack(), P, "chan_kick", [0, 4, 4, 9999, -1, 1.5], true);
     expect(steps(song, "chan_kick")).toBe("x---x-----------");
     expect(setSteps(song, P, "chan_kick", [0, 4], true)).toBe(song);
     expect(setSteps(song, P, "chan_kick", [1, 2], false)).toBe(song);
     expect(setSteps(song, P, "chan_none", [1], true)).toBe(song);
     expect(setSteps(song, "pat_none", "chan_kick", [1], true)).toBe(song);
+    // A step past the first bar is fine: the pattern grows to hold it.
+    expect(steps(setSteps(song, P, "chan_kick", [20], true), "chan_kick", P, 32)).toBe("x---x---------------x-----------");
   });
 
-  it("are drawn from text, repeating a short drawing and keeping what stays on", () => {
-    let song = setSteps(rack(), P, "chan_hat", [2], true);
+  it("are drawn from text over a number of steps, repeating a short drawing and keeping what stays on", () => {
+    let song = setSteps(rack(), P, "chan_hat", [2, 20], true);
     song = setStepNote(song, P, "chan_hat", 2, { velocity: 0.3 });
-    song = drawSteps(song, P, "chan_hat", "--x- x---");
+    song = drawSteps(song, P, "chan_hat", "--x- x---", 16);
     expect(steps(song, "chan_hat")).toBe("--x-x-----x-x---");
-    expect(stepNotes(song.patterns[0], "chan_hat")[2]?.velocity).toBe(0.3);
-    expect(drawSteps(song, P, "chan_hat", "--x-x-----x-x---")).toBe(song);
-    expect(steps(fillSteps(song, P, "chan_hat", 4), "chan_hat")).toBe("x---x---x---x---");
-    expect(steps(drawSteps(song, P, "chan_hat", "."), "chan_hat")).toBe("----------------");
+    expect(stepNotes(song.patterns[0], "chan_hat", 16)[2]?.velocity).toBe(0.3);
+    // Past the steps drawn, nothing is touched.
+    expect(steps(song, "chan_hat", P, 32).slice(16)).toBe("----x-----------");
+    expect(drawSteps(song, P, "chan_hat", "--x-x-----x-x---", 16)).toBe(song);
+    expect(steps(fillSteps(song, P, "chan_hat", 4, 16), "chan_hat")).toBe("x---x---x---x---");
+    expect(steps(drawSteps(song, P, "chan_hat", ".", 16), "chan_hat")).toBe("----------------");
   });
 
-  it("have a velocity and a pitch (the graph editor)", () => {
-    const song = setSteps(rack(), P, "chan_kick", [0], true);
+  it("rotate left and right, wrapping round", () => {
+    const song = setSteps(rack(), P, "chan_kick", [0, 5], true);
+    expect(steps(rotateSteps(song, P, "chan_kick", 1, 16), "chan_kick")).toBe("-x----x---------");
+    expect(steps(rotateSteps(song, P, "chan_kick", -1, 16), "chan_kick")).toBe("----x----------x");
+    expect(rotateSteps(song, P, "chan_hat", 1, 16)).toBe(song);
+  });
+
+  it("have a velocity and a pitch (the graph editor), set one or many at a time", () => {
+    const song = setSteps(rack(), P, "chan_kick", [0, 4, 8], true);
     const edited = setStepNote(song, P, "chan_kick", 0, { velocity: 1.4, pitch: 72.4 });
     expect(edited.patterns[0].notes.chan_kick[0]).toMatchObject({ velocity: 1, pitch: 72 });
     expect(setStepNote(song, P, "chan_kick", 0, { velocity: 0.78 })).toBe(song);
     expect(setStepNote(song, P, "chan_kick", 3, { velocity: 0.2 })).toBe(song);
+    const many = setStepNotes(
+      song,
+      P,
+      "chan_kick",
+      new Map([
+        [0, { velocity: 0.1 }],
+        [8, { velocity: 0.9 }],
+        [3, { velocity: 0.5 }],
+      ]),
+    );
+    expect(many.patterns[0].notes.chan_kick.map((n) => n.velocity)).toEqual([0.1, 0.78, 0.9]);
+    expect(setStepNotes(song, P, "chan_kick", new Map())).toBe(song);
+  });
+
+  it("are replaced whole (pasting)", () => {
+    const song = setSteps(rack(), P, "chan_kick", [0, 4], true);
+    const pasted = setChannelNotes(song, P, "chan_hat", () => song.patterns[0].notes.chan_kick);
+    expect(steps(pasted, "chan_hat")).toBe("x---x-----------");
+    expect(setChannelNotes(song, P, "chan_none", () => [])).toBe(song);
   });
 });
 
 describe("patterns", () => {
-  it("are added a bar long, named after their number, cloned and renamed", () => {
+  it("are added empty, named after their number, cloned and renamed", () => {
     let song = addPattern(rack(), { id: "pat_2" });
-    expect(song.patterns[1]).toEqual({ id: "pat_2", name: "Pattern 2", steps: 16, notes: {} });
+    expect(song.patterns[1]).toEqual({ id: "pat_2", name: "Pattern 2", length: null, notes: {} });
     song = setSteps(song, "pat_2", "chan_kick", [0], true);
     song = clonePattern(song, "pat_2", "pat_3");
     expect(song.patterns.map((p) => p.name)).toEqual(["Pattern 1", "Pattern 2", "Pattern 3"]);
@@ -141,14 +205,14 @@ describe("patterns", () => {
     expect(removePattern(one, "pat_2")).toBe(one);
   });
 
-  it("lose the notes past their end when shortened", () => {
-    let song = setSteps(rack(), P, "chan_kick", [0, 12], true);
-    song = setSteps(song, P, "chan_hat", [14], true);
-    const short = setPatternSteps(song, P, 8);
-    expect(short.patterns[0].steps).toBe(8);
-    expect(steps(short, "chan_kick")).toBe("x-------");
-    expect("chan_hat" in short.patterns[0].notes).toBe(false);
-    expect(steps(setPatternSteps(song, P, 32), "chan_kick")).toBe("x-----------x-------------------");
-    expect(setPatternSteps(song, P, 16)).toBe(song);
+  it("have a length that's set, or automatic; a shorter one keeps the notes past its end", () => {
+    const song = setSteps(rack(), P, "chan_kick", [0, 12], true);
+    const short = setPatternLength(song, P, 8);
+    expect(short.patterns[0].length).toBe(8);
+    expect(short.patterns[0].notes.chan_kick).toHaveLength(2);
+    expect(setPatternLength(short, P, 9000).patterns[0].length).toBe(512);
+    expect(setPatternLength(short, P, null).patterns[0].length).toBeNull();
+    expect(setPatternLength(song, P, null)).toBe(song);
+    expect(setPatternLength(short, P, 8)).toBe(short);
   });
 });

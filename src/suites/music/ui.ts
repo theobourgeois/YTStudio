@@ -1,0 +1,109 @@
+import { create } from "zustand";
+import type { MusicProject, Note } from "@shared/music/types";
+import { useMusic } from "./store";
+
+/** A window of the music editor: the channel rack, or a channel's settings. */
+export type WindowId = "rack" | `channel:${string}`;
+export const channelWindow = (channelId: string): WindowId => `channel:${channelId}`;
+
+export interface WindowPlace {
+  x: number;
+  y: number;
+}
+
+/** The fewest steps the rack shows: a bar of 4/4, FL Studio's default. */
+export const MIN_RACK_STEPS = 16;
+
+/**
+ * How the music editor is laid out and what's selected in it: none of it part of the song (nothing
+ * here is undone or saved). Like FL Studio, the editor is windows on a desktop: they're dragged,
+ * closed and brought back, and the one last touched is on top.
+ */
+interface MusicUiState {
+  /** Selected channels (the selector lights), in the order they were picked. */
+  selectedChannelIds: string[];
+  /** The channel a Shift+click's range starts from: the last one clicked on its own. */
+  anchorChannelId: string | null;
+  /** A channel's steps, copied (Ctrl+C) to paste into another channel or pattern. */
+  copiedSteps: Note[] | null;
+  /** How many steps the rack is wide enough to show (it always shows at least the pattern's). */
+  rackSteps: number;
+  graphOpen: boolean;
+  rackOpen: boolean;
+  /** The channels whose settings windows are open. */
+  openChannelIds: string[];
+  /** Where each window has been put. */
+  places: Partial<Record<WindowId, WindowPlace>>;
+  /** Windows from back to front. */
+  order: WindowId[];
+
+  /** Select one channel (or, already the only one selected, none); `add` toggles it among the others. */
+  selectChannel: (id: string, mode?: "only" | "add") => void;
+  setSelection: (ids: string[]) => void;
+  copySteps: (notes: Note[]) => void;
+  setRackSteps: (steps: number) => void;
+  setGraphOpen: (open: boolean) => void;
+  setRackOpen: (open: boolean) => void;
+  /**
+   * Open a channel's settings window (or close it, if it's open). Only one is open at a time, as in
+   * FL Studio, unless `keepOthers` (Alt+click).
+   */
+  toggleChannelWindow: (id: string, keepOthers: boolean) => void;
+  openChannelWindow: (id: string) => void;
+  closeChannelWindow: (id: string) => void;
+  focusWindow: (id: WindowId) => void;
+  placeWindow: (id: WindowId, place: WindowPlace) => void;
+}
+
+const INITIAL = {
+  selectedChannelIds: [] as string[],
+  anchorChannelId: null as string | null,
+  copiedSteps: null as Note[] | null,
+  rackSteps: MIN_RACK_STEPS,
+  graphOpen: false,
+  rackOpen: true,
+  openChannelIds: [] as string[],
+  places: {},
+  order: ["rack"] as WindowId[],
+};
+
+const toFront = (order: WindowId[], id: WindowId) => [...order.filter((w) => w !== id), id];
+
+export const useMusicUi = create<MusicUiState>((set, get) => ({
+  ...INITIAL,
+
+  selectChannel(id, mode = "only") {
+    const selected = get().selectedChannelIds;
+    if (mode === "add") set({ selectedChannelIds: selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id] });
+    else set({ selectedChannelIds: selected.length === 1 && selected[0] === id ? [] : [id], anchorChannelId: id });
+  },
+  setSelection: (selectedChannelIds) => set({ selectedChannelIds }),
+  copySteps: (copiedSteps) => set({ copiedSteps }),
+  setRackSteps: (steps) => set({ rackSteps: Math.max(MIN_RACK_STEPS, Math.round(steps)) }),
+  setGraphOpen: (graphOpen) => set({ graphOpen }),
+  setRackOpen: (rackOpen) => set({ rackOpen, order: rackOpen ? toFront(get().order, "rack") : get().order }),
+
+  toggleChannelWindow(id, keepOthers) {
+    const open = get().openChannelIds;
+    if (open.includes(id)) return get().closeChannelWindow(id);
+    set({ openChannelIds: keepOthers ? [...open, id] : [id], order: toFront(get().order, channelWindow(id)) });
+  },
+  openChannelWindow(id) {
+    const open = get().openChannelIds;
+    set({ openChannelIds: open.includes(id) ? open : [id], order: toFront(get().order, channelWindow(id)) });
+  },
+  closeChannelWindow: (id) => set({ openChannelIds: get().openChannelIds.filter((c) => c !== id) }),
+  focusWindow(id) {
+    const { order } = get();
+    if (order[order.length - 1] !== id) set({ order: toFront(order, id) });
+  },
+  placeWindow: (id, place) => set({ places: { ...get().places, [id]: place } }),
+}));
+
+// Another song: its own selection and windows.
+useMusic.subscribe((state, prev) => {
+  if (state.projectId !== prev.projectId) useMusicUi.setState(INITIAL);
+});
+
+/** The selected channels that are still in the song, in the rack's order. */
+export const selectedIn = (song: MusicProject, ids: readonly string[]) => song.channels.filter((c) => ids.includes(c.id));

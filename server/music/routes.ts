@@ -21,6 +21,10 @@ export function engineRoutes(engine: AudioEngine): Router {
   router.post("/song", json({ limit: "10mb" }), async (req, res) => {
     res.json(await engine.setSong(req.body));
   });
+  router.post("/states", async (_req, res) => {
+    await engine.saveStates();
+    res.sendStatus(204);
+  });
   router.get("/events", (req, res) => {
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
     res.write(": connected\n\n");

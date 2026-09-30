@@ -52,11 +52,22 @@ export interface EngineStatus {
   /** The output's level (0..1+), falling back slowly: a meter. */
   peak: number;
   transport: EngineTransport & { metronome: boolean };
+  channels: EngineChannels;
   /** A plugin scan in progress. */
   scanning: { progress: number; name: string } | null;
   pluginCount: number;
   instrument: LoadedPlugin | null;
   effect: LoadedPlugin | null;
+}
+
+/** The song's plugin channels, as the engine has them. */
+export interface EngineChannels {
+  /** Ready to play. `editorOpen`: the plugin's own window is showing. */
+  loaded: { channel: string; name: string; editorOpen: boolean }[];
+  /** Channel ids whose plugin is still being loaded. */
+  loading: string[];
+  /** Channels whose plugin couldn't be loaded (it isn't installed here, or it failed), and why. */
+  failed: { channel: string; error: string }[];
 }
 
 export interface EngineTransport {
@@ -86,6 +97,7 @@ export interface SetSongRequest {
 export interface SetSongResponse {
   /** Channels whose sample the engine couldn't read (they're silent). */
   unreadable: string[];
+  channels: EngineChannels;
 }
 
 /** The audio device and what it could be instead (`GET` and `POST /api/engine/devices`). */
@@ -121,6 +133,8 @@ export interface EngineCommands {
   metronome: { on: boolean };
   /** Play a channel's sample once, now. `pitch` is semitones from its own pitch, `velocity` 0..1. */
   trigger: { channel: string; pitch?: number; velocity?: number };
+  /** Show or close the window of a plugin channel's plugin. */
+  channelEditor: { channel: string; open: boolean };
   /** Play a test tone (through the effect). */
   tone: { on: boolean };
   /** Look for plugins; the status says how far along it is. `rescan` forgets the known ones first. */

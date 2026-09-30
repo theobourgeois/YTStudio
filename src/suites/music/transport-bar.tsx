@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { PiMetronome, PiPlayFill, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiMetronome, PiPlayFill, PiRows, PiStopFill, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { setTempo } from "@shared/music/edits";
 import { MAX_TEMPO, MIN_TEMPO } from "@shared/music/project";
@@ -10,12 +10,14 @@ import { AudioDialog } from "./audio-dialog";
 import { PatternPicker } from "./pattern-picker";
 import { useMusic, useSong } from "./store";
 import { useTransport } from "./transport";
+import { useMusicUi } from "./ui";
 
 /** The toolbar under the header: play and stop, the tempo, the pattern, the metronome, and the output's meter. */
 export function TransportBar() {
   const playing = useTransport((s) => s.playing);
   const metronome = useTransport((s) => s.metronome);
   const error = useTransport((s) => s.error);
+  const rackOpen = useMusicUi((s) => s.rackOpen);
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-background px-3" role="toolbar" aria-label="Transport">
@@ -39,6 +41,9 @@ export function TransportBar() {
       <PatternPicker />
       <Toggle size="sm" pressed={metronome} onPressedChange={(on) => useTransport.getState().setMetronome(on)} aria-label="Metronome" title="Metronome">
         <PiMetronome />
+      </Toggle>
+      <Toggle size="sm" pressed={rackOpen} onPressedChange={(open) => useMusicUi.getState().setRackOpen(open)} aria-label="Channel rack" title="Channel rack (F6)">
+        <PiRows />
       </Toggle>
 
       <div className="ml-auto flex items-center gap-3">

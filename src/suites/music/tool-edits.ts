@@ -8,11 +8,14 @@ import {
   addPattern,
   drawSteps,
   getPattern,
+  lengthOf,
+  moveChannels,
   removeChannel,
   removePattern,
   renamePattern,
-  setPatternSteps,
+  setPatternLength,
   setStepNote,
+  soloChannel,
   setSwing,
   setTempo,
   setTimeSignature,
@@ -90,6 +93,18 @@ export const updateChannelTool: SongEdit = (song, input) => {
   const pitch = number(input, "pitch", -48, 48);
   if (pitch !== undefined) patch.pitch = pitch;
   if (typeof input.muted === "boolean") patch.muted = input.muted;
+  if (typeof input.cutSelf === "boolean") patch.cutSelf = input.cutSelf;
+  if (input.sample && typeof input.sample === "object") {
+    const sample = input.sample as Input;
+    patch.precomputed = {
+      ...(typeof sample.normalize === "boolean" && { normalize: sample.normalize }),
+      ...(typeof sample.reverse === "boolean" && { reverse: sample.reverse }),
+      ...(["start", "length", "fadeIn", "fadeOut"] as const).reduce<Record<string, number>>((all, key) => {
+        const value = number(sample, key, 0, 1);
+        return value === undefined ? all : { ...all, [key]: value };
+      }, {}),
+    };
+  }
   if (input.envelope && typeof input.envelope === "object") {
     const envelope = input.envelope as Input;
     patch.envelope = {
@@ -111,21 +126,40 @@ export const removeChannelTool: SongEdit = (song, input) => {
   return { song: removeChannel(song, channel.id), text: `Removed the channel "${channel.name}".` };
 };
 
+export const soloChannelTool: SongEdit = (song, input) => {
+  const channel = findChannel(song, input.channel);
+  const next = soloChannel(song, channel.id);
+  const sounding = next.channels.filter((c) => !c.muted).map((c) => c.name);
+  return { song: next, text: sounding.length === 1 ? `"${channel.name}" is soloed (the others are muted).` : `Nothing is soloed now: every channel is unmuted.` };
+};
+
+export const moveChannelTool: SongEdit = (song, input) => {
+  const channel = findChannel(song, input.channel);
+  if (input.direction !== "up" && input.direction !== "down") throw new Error('"direction" must be "up" or "down".');
+  const next = moveChannels(song, [channel.id], input.direction === "up" ? -1 : 1);
+  return { song: next, text: `The rack's order is now: ${next.channels.map((c) => c.name).join(", ")}.` };
+};
+
 export const setStepsTool: SongEdit = (song, input, env) => {
   const channel = findChannel(song, input.channel);
   const pattern = findPattern(song, input.pattern, env);
-  if (typeof input.steps !== "string" || !input.steps.replace(/\s/g, "")) throw new Error('"steps" must be a drawing like "x---x---x---x---" (x = on, - = off).');
-  const next = drawSteps(song, pattern.id, channel.id, input.steps);
-  return { song: next, text: `"${channel.name}" in "${pattern.name}": ${stepString(getPattern(next, pattern.id)!, channel.id)}` };
+  const drawing = typeof input.steps === "string" ? input.steps.replace(/\s/g, "") : "";
+  if (!drawing) throw new Error('"steps" must be a drawing like "x---x---x---x---" (x = on, - = off).');
+  // Over the pattern's length, or further if more is drawn (which makes an Auto pattern longer).
+  const count = Math.max(lengthOf(song, pattern), drawing.length);
+  const next = drawSteps(song, pattern.id, channel.id, drawing, count);
+  const now = getPattern(next, pattern.id)!;
+  return { song: next, text: `"${channel.name}" in "${pattern.name}": ${stepString(now, channel.id, lengthOf(next, now))}` };
 };
 
 export const editStep: SongEdit = (song, input, env) => {
   const channel = findChannel(song, input.channel);
   const pattern = findPattern(song, input.pattern, env);
-  const step = number(input, "step", 1, pattern.steps);
-  if (step === undefined || !Number.isInteger(step)) throw new Error(`"step" must be a whole number from 1 to ${pattern.steps} (the pattern's length).`);
-  if (!stepNotes(pattern, channel.id)[step - 1]) {
-    throw new Error(`Step ${step} of "${channel.name}" is off (its steps are ${stepString(pattern, channel.id)}). Turn it on with set_steps first.`);
+  const length = lengthOf(song, pattern);
+  const step = number(input, "step", 1, length);
+  if (step === undefined || !Number.isInteger(step)) throw new Error(`"step" must be a whole number from 1 to ${length} (the pattern's length).`);
+  if (!stepNotes(pattern, channel.id, length)[step - 1]) {
+    throw new Error(`Step ${step} of "${channel.name}" is off (its steps are ${stepString(pattern, channel.id, length)}). Turn it on with set_steps first.`);
   }
   const velocity = number(input, "velocity", 0, 1);
   const pitch = number(input, "pitch", -48, 48);
@@ -133,25 +167,33 @@ export const editStep: SongEdit = (song, input, env) => {
     ...(velocity !== undefined && { velocity }),
     ...(pitch !== undefined && { pitch: clamp(ROOT_PITCH + Math.round(pitch), 0, 127) }),
   });
-  const note = stepNotes(getPattern(next, pattern.id)!, channel.id)[step - 1]!;
+  const note = stepNotes(getPattern(next, pattern.id)!, channel.id, length)[step - 1]!;
   return { song: next, text: `Step ${step} of "${channel.name}": velocity ${note.velocity.toFixed(2)}, pitch ${note.pitch - ROOT_PITCH} semitones.` };
 };
 
+/** "16 steps (automatic)" or "24 steps (set)". */
+export const describeLength = (song: MusicProject, pattern: Pattern) => `${lengthOf(song, pattern)} steps (${pattern.length === null ? "automatic" : "set"})`;
+
 export const addPatternTool: SongEdit = (song, input) => {
-  const steps = number(input, "steps", 1, MAX_STEPS);
-  const next = addPattern(song, { name: typeof input.name === "string" ? input.name : undefined, steps });
+  const next = addPattern(song, { name: typeof input.name === "string" ? input.name : undefined });
   const made = next.patterns[next.patterns.length - 1];
-  return { song: next, text: `Added the pattern "${made.name}" (id ${made.id}, ${made.steps} steps). It's the one shown now.`, showPattern: made.id };
+  return { song: next, text: `Added the pattern "${made.name}" (id ${made.id}). It's the one shown now.`, showPattern: made.id };
 };
 
 export const updatePatternTool: SongEdit = (song, input, env) => {
   const pattern = findPattern(song, input.pattern, env);
   let next = song;
   if (typeof input.name === "string") next = renamePattern(next, pattern.id, input.name);
-  const steps = number(input, "steps", 1, MAX_STEPS);
-  if (steps !== undefined) next = setPatternSteps(next, pattern.id, steps);
+  if (input.length === "auto") next = setPatternLength(next, pattern.id, null);
+  else if (input.length !== undefined) {
+    const length = input.length;
+    if (!Number.isInteger(length) || (length as number) < 1 || (length as number) > MAX_STEPS) {
+      throw new Error(`"length" must be "auto" or a whole number of steps from 1 to ${MAX_STEPS}.`);
+    }
+    next = setPatternLength(next, pattern.id, length as number);
+  }
   const now = getPattern(next, pattern.id)!;
-  return { song: next, text: `The pattern "${now.name}" is ${now.steps} steps long.` };
+  return { song: next, text: `The pattern "${now.name}" is ${describeLength(next, now)}.` };
 };
 
 export const removePatternTool: SongEdit = (song, input, env) => {
@@ -165,14 +207,29 @@ const percent = (v: number) => `${Math.round(v * 100)}%`;
 export function describeChannel(channel: Channel, sampleName?: string | null): string {
   const parts = [
     `"${channel.name}" (id ${channel.id})`,
-    sampleName === undefined ? null : sampleName ? `sample ${sampleName}` : "no sample (silent)",
+    channel.kind === "plugin" ? `plugin ${channel.plugin?.name} (${channel.plugin?.format})` : sampleName === undefined ? null : sampleName ? `sample ${sampleName}` : "no sample (silent)",
     `volume ${percent(channel.volume)}`,
     channel.pan ? `pan ${percent(Math.abs(channel.pan))} ${channel.pan < 0 ? "left" : "right"}` : null,
     channel.pitch ? `pitch ${channel.pitch > 0 ? "+" : ""}${channel.pitch} st` : null,
     channel.muted ? "muted" : null,
+    channel.cutSelf ? "cut self" : null,
+    describeSample(channel),
     channel.envelope.enabled
       ? `envelope A ${channel.envelope.attack}s D ${channel.envelope.decay}s S ${percent(channel.envelope.sustain)} R ${channel.envelope.release}s`
       : null,
   ];
   return parts.filter(Boolean).join(", ");
+}
+
+/** What's done to the channel's sample before it plays, or null when nothing is. */
+function describeSample({ precomputed: p }: Channel): string | null {
+  const parts = [
+    p.normalize ? "normalized" : null,
+    p.reverse ? "reversed" : null,
+    p.start > 0 ? `starts at ${percent(p.start)}` : null,
+    p.length < 1 ? `length ${percent(p.length)}` : null,
+    p.fadeIn > 0 ? `fade in ${percent(p.fadeIn)}` : null,
+    p.fadeOut > 0 ? `fade out ${percent(p.fadeOut)}` : null,
+  ].filter(Boolean);
+  return parts.length ? `sample ${parts.join(", ")}` : null;
 }

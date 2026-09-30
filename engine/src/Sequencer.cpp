@@ -8,6 +8,8 @@ namespace
 constexpr double fadeSeconds = 0.004;
 constexpr float clickGain = 0.3f;
 constexpr double clickSeconds = 0.025;
+/** How long a channel's plugin sounds when it's heard on its own (a click on its button). */
+constexpr double auditionSeconds = 0.4;
 /**
  * Ticks (a fraction of a millionth of a sample's worth): a note that falls exactly on the edge of a
  * block must land in one block or the other, not in whichever the rounding of the position picks.
@@ -62,13 +64,14 @@ void Sequencer::collectGarbage()
 
 void Sequencer::adopt (Song* next)
 {
-    // Voices follow their channel to its new place in the rack, or end with it.
+    // Voices follow their channel to its new place in the rack, or end with it. They also end if its
+    // sample isn't the one they're playing any more: the old one goes when the old song does.
     for (auto& voice : voices)
     {
         if (! voice.active)
             continue;
         const auto channel = song != nullptr ? next->channelIndex (song->channels[(size_t) voice.channel].id) : -1;
-        if (channel < 0)
+        if (channel < 0 || next->channels[(size_t) channel].sample.get() != voice.sample)
             voice.active = false;
         else
             voice.channel = channel;
@@ -93,9 +96,13 @@ void Sequencer::silenceVoices()
     const auto fade = juce::jmax (1, (int) (fadeSeconds * sampleRate));
     for (auto& voice : voices)
         if (voice.active && voice.fade < 0)
+        {
             voice.fade = fade;
+            voice.fadeWait = 0;
+        }
     click.level = 0;
     click.delay = -1;
+    silencing = true;
 }
 
 void Sequencer::process (float* left, float* right, int numSamples)
@@ -122,11 +129,27 @@ void Sequencer::process (float* left, float* right, int numSamples)
 
     if (song != nullptr)
     {
+        // Each plugin's notes for this block: the ends of the ones sounding first, then the new ones.
+        for (auto& channel : song->channels)
+            if (channel.plugin != nullptr)
+            {
+                channel.plugin->midi.clear();
+                if (silencing)
+                    continue;
+                endNotes (*channel.plugin, numSamples);
+            }
+        if (silencing)
+            silencePlugins();
+        silencing = false;
+
         const auto scope = triggerQueue.read (triggerQueue.getNumReady());
         for (int i = 0; i < scope.blockSize1 + scope.blockSize2; ++i)
         {
             const auto& trigger = triggers[(size_t) (i < scope.blockSize1 ? scope.startIndex1 + i : scope.startIndex2 + i - scope.blockSize1)];
-            startVoice (trigger.channel, trigger.pitch, trigger.gain, -1, 0);
+            if (trigger.channel >= 0 && trigger.channel < (int) song->channels.size() && song->channels[(size_t) trigger.channel].plugin != nullptr)
+                startNote (*song->channels[(size_t) trigger.channel].plugin, juce::jlimit (0, 127, 60 + (int) std::round (trigger.pitch)), 0.78f, (juce::int64) (auditionSeconds * sampleRate), 0);
+            else
+                startVoice (trigger.channel, trigger.pitch, trigger.gain, -1, 0);
         }
 
         if (playing)
@@ -134,6 +157,7 @@ void Sequencer::process (float* left, float* right, int numSamples)
         for (auto& voice : voices)
             if (voice.active)
                 render (voice, left, right, numSamples);
+        renderPlugins (left, right, numSamples);
     }
     renderClick (left, right, numSamples);
 
@@ -173,7 +197,13 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
 
     auto note = std::lower_bound (song->notes.begin(), song->notes.end(), from, [] (const Song::Note& n, double tick) { return n.tick < tick; });
     for (; note != song->notes.end() && note->tick < to; ++note)
-        startVoice (note->channel, note->pitch, note->gain, note->length, at (note->tick));
+    {
+        const auto& channel = song->channels[(size_t) note->channel];
+        if (! channel.isPlugin)
+            startVoice (note->channel, note->pitch, note->gain, note->length, at (note->tick));
+        else if (channel.plugin != nullptr)
+            startNote (*channel.plugin, note->key, note->velocity, (juce::int64) (note->length / ticksPerSample), at (note->tick));
+    }
 
     if (metronome)
         for (auto beat = std::ceil (from / song->beatTicks) * song->beatTicks; beat < to; beat += song->beatTicks)
@@ -190,6 +220,14 @@ void Sequencer::startVoice (int channelIndex, float pitch, float gain, double le
     const auto& channel = song->channels[(size_t) channelIndex];
     if (channel.sample == nullptr || channel.sample->audio.getNumSamples() == 0)
         return;
+
+    if (channel.cutSelf)
+        for (auto& sounding : voices)
+            if (sounding.active && sounding.channel == channelIndex && sounding.fade < 0)
+            {
+                sounding.fade = juce::jmax (1, (int) (fadeSeconds * sampleRate));
+                sounding.fadeWait = delay;
+            }
 
     // A free voice, or the one that's been sounding longest.
     auto* voice = &voices[0];
@@ -286,7 +324,11 @@ void Sequencer::render (Voice& voice, float* left, float* right, int numSamples)
             level = voice.level;
         }
 
-        if (voice.fade >= 0)
+        if (voice.fade >= 0 && voice.fadeWait > 0)
+        {
+            --voice.fadeWait;
+        }
+        else if (voice.fade >= 0)
         {
             if (voice.fade == 0)
             {
@@ -300,6 +342,68 @@ void Sequencer::render (Voice& voice, float* left, float* right, int numSamples)
         left[i] += (sourceLeft[index] + (sourceLeft[index + 1] - sourceLeft[index]) * fraction) * gainLeft * level;
         right[i] += (sourceRight[index] + (sourceRight[index + 1] - sourceRight[index]) * fraction) * gainRight * level;
         voice.position += rate;
+    }
+}
+
+void Sequencer::startNote (HostedPlugin& plugin, int key, float velocity, juce::int64 lengthSamples, int delay)
+{
+    // The same key again: its first note ends where the second starts.
+    for (int i = 0; i < plugin.numPending; ++i)
+        if (plugin.pending[(size_t) i].key == key)
+        {
+            plugin.midi.addEvent (juce::MidiMessage::noteOff (1, key), delay);
+            plugin.pending[(size_t) i] = plugin.pending[(size_t) --plugin.numPending];
+            break;
+        }
+    if (plugin.numPending >= (int) plugin.pending.size())
+        return;
+    plugin.midi.addEvent (juce::MidiMessage::noteOn (1, key, juce::jlimit (0.01f, 1.0f, velocity)), delay);
+    plugin.pending[(size_t) plugin.numPending++] = { key, delay + juce::jmax ((juce::int64) 1, lengthSamples) };
+}
+
+void Sequencer::endNotes (HostedPlugin& plugin, int numSamples)
+{
+    for (int i = 0; i < plugin.numPending;)
+    {
+        auto& note = plugin.pending[(size_t) i];
+        if (note.left < numSamples)
+        {
+            plugin.midi.addEvent (juce::MidiMessage::noteOff (1, note.key), (int) note.left);
+            note = plugin.pending[(size_t) --plugin.numPending];
+        }
+        else
+        {
+            note.left -= numSamples;
+            ++i;
+        }
+    }
+}
+
+void Sequencer::silencePlugins()
+{
+    for (auto& channel : song->channels)
+        if (auto* plugin = channel.plugin.get())
+        {
+            for (int i = 0; i < plugin->numPending; ++i)
+                plugin->midi.addEvent (juce::MidiMessage::noteOff (1, plugin->pending[(size_t) i].key), 0);
+            plugin->numPending = 0;
+            plugin->midi.addEvent (juce::MidiMessage::allNotesOff (1), 0);
+        }
+}
+
+void Sequencer::renderPlugins (float* left, float* right, int numSamples)
+{
+    for (auto& channel : song->channels)
+    {
+        auto* plugin = channel.plugin.get();
+        if (plugin == nullptr || numSamples > plugin->buffer.getNumSamples())
+            continue;
+        juce::AudioBuffer<float> view (plugin->buffer.getArrayOfWritePointers(), plugin->buffer.getNumChannels(), numSamples);
+        view.clear();
+        plugin->instance->processBlock (view, plugin->midi);
+        // A plugin with one output plays on both sides.
+        juce::FloatVectorOperations::addWithMultiply (left, view.getReadPointer (0), channel.gainLeft, numSamples);
+        juce::FloatVectorOperations::addWithMultiply (right, view.getReadPointer (view.getNumChannels() > 1 && plugin->instance->getTotalNumOutputChannels() > 1 ? 1 : 0), channel.gainRight, numSamples);
     }
 }
 

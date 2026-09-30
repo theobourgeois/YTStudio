@@ -3,7 +3,7 @@
  * TypeScript insist every tool has a handler here. Edits are the pure functions of `tool-edits.ts`,
  * applied to the open song as one undo step, or to a song that isn't open by loading and saving it.
  */
-import { addChannels } from "@shared/music/edits";
+import { addChannels, addPluginChannel, updateChannel } from "@shared/music/edits";
 import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
 import type { MusicProject } from "@shared/music/types";
@@ -11,6 +11,7 @@ import { type ToolResult, textResult } from "@shared/tool-spec";
 import type { MediaAsset } from "@shared/types";
 import { api } from "@/lib/api";
 import type { ToolRunContext } from "../types";
+import { musicApi } from "./api";
 import { describeSong } from "./context";
 import { useMusic } from "./store";
 import {
@@ -19,9 +20,11 @@ import {
   addPatternTool,
   editStep,
   findPattern,
+  moveChannelTool,
   removeChannelTool,
   removePatternTool,
   setStepsTool,
+  soloChannelTool,
   updateChannelTool,
   updatePatternTool,
   updateSong,
@@ -81,9 +84,25 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(describeSong(target.song, target.assets, target.patternId));
   },
   update_song: edit(updateSong),
+  async list_plugins() {
+    const instruments = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument);
+    if (!instruments.length) return textResult("No instrument plugins have been found on this computer. The user can scan for them from the rack's + button.");
+    return textResult(["Instrument plugins on this computer:", ...instruments.map((p) => `- ${p.name} (${p.manufacturer}, ${p.format}), id ${p.id}`)].join("\n"));
+  },
   async add_channel(input, ctx) {
     const target = await targetOf(ctx);
     const name = typeof input.name === "string" && input.name.trim() ? input.name.trim() : null;
+    if (input.plugin !== undefined) {
+      const wanted = String(input.plugin).trim().toLowerCase();
+      const instruments = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument);
+      const plugin = instruments.find((p) => p.id.toLowerCase() === wanted) ?? instruments.find((p) => p.name.toLowerCase() === wanted);
+      if (!plugin) throw new Error(`There's no instrument plugin "${String(input.plugin)}" on this computer. The ones found: ${instruments.map((p) => p.name).join(", ") || "none"}.`);
+      await apply(target, (song) => {
+        const next = addPluginChannel(song, { id: plugin.id, name: plugin.name, format: plugin.format });
+        return name ? updateChannel(next, next.channels[next.channels.length - 1].id, { name }) : next;
+      });
+      return textResult(`Added the channel "${name ?? plugin.name}" playing the plugin ${plugin.name}. Its sound is set in the plugin's own window, which the user opens from the rack.`);
+    }
     let sample: MediaAsset | null = null;
     if (input.kit !== undefined) {
       if (!KIT_SOUNDS.includes(input.kit as (typeof KIT_SOUNDS)[number])) throw new Error(`"kit" must be one of: ${KIT_SOUNDS.join(", ")}.`);
@@ -105,6 +124,8 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   },
   update_channel: edit(updateChannelTool),
   remove_channel: edit(removeChannelTool),
+  solo_channel: edit(soloChannelTool),
+  move_channel: edit(moveChannelTool),
   set_steps: edit(setStepsTool),
   edit_step: edit(editStep),
   add_pattern: edit(addPatternTool),

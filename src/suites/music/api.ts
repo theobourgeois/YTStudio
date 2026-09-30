@@ -19,6 +19,8 @@ export const musicApi = {
   listEnginePlugins: () => request<EnginePlugin[]>("/api/engine/plugins"),
   /** The song the engine plays: sent whole on every edit (it keeps playing through the change). */
   setSong: (body: SetSongRequest) => request<SetSongResponse>("/api/engine/song", { method: "POST", body: JSON.stringify(body) }),
+  /** Write the song's plugins' states now (they're written every few seconds anyway). */
+  saveStates: () => request<void>("/api/engine/states", { method: "POST" }),
   devices: () => request<EngineDevices>("/api/engine/devices"),
   setDevice: (body: SetDeviceRequest) => request<EngineDevices>("/api/engine/devices", { method: "POST", body: JSON.stringify(body) }),
   /** What the engine says on its own (where the song is, the meter). Returns how to stop listening. */
