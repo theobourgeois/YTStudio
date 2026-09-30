@@ -23,7 +23,6 @@ import { applyDrag } from "./drag";
 import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepare, readPalette, stretchHandle } from "./draw";
 import { onFade, vanishing } from "./fades";
 import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, wheelZoomFactor, zoomAt } from "./geometry";
-import { NoteProperties } from "./note-properties";
 import { gridCursor, gridPointerDown, keysPointerDown, lanePointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
 import { type PianoTool, usePiano } from "./store";
 
@@ -58,7 +57,6 @@ export function PianoRoll() {
   // Re-read when the chosen channel changes (the selector above reads the store without subscribing).
   usePiano((s) => s.channelId);
   useMusicUi((s) => s.selectedChannelIds);
-  const editing = usePiano((s) => s.editing);
   // What loops and where play starts, on the element too (the tests read them there).
   const loop = useTransport((s) => `${s.loop.start}:${s.loop.ticks}`);
   const startTick = useTransport((s) => s.startTick);
@@ -76,7 +74,7 @@ export function PianoRoll() {
       onClose={() => {
         useMusicUi.getState().setPianoOpen(false);
         // What loops is the time selection only while it can be seen.
-        usePiano.setState({ time: null, drag: null });
+        usePiano.setState({ time: null, drag: null, editing: null });
       }}
       controls={<PianoControls />}
     >
@@ -91,7 +89,6 @@ export function PianoRoll() {
       >
         {channel ? <PianoBody /> : <p className="p-6 text-sm text-muted-foreground">Add a channel to the rack to write its notes here.</p>}
       </div>
-      {editing !== null && <NoteProperties />}
     </MusicWindow>
   );
 }

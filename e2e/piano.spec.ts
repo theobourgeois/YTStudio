@@ -377,8 +377,8 @@ test("the event editor, note properties, ghost notes and the target channel", as
 
   // A double-click on a note: its properties.
   await click(page, 100, 74, { clickCount: 2 });
-  const dialog = page.getByTestId("note-properties");
-  await expect(dialog).toContainText("D6");
+  const dialog = page.locator('[data-window="note"]');
+  await expect(dialog.getByRole("heading")).toContainText("D6");
   await dialog.getByLabel("Start time").fill("2:01:00");
   await dialog.getByLabel("Duration").fill("0:02:00");
   await dialog.getByRole("button", { name: "Accept" }).click();

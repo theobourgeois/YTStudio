@@ -13,6 +13,7 @@ import { useTransport } from "./transport";
 import { resolvePianoKey, type PianoKeyAction } from "./piano/keys";
 import * as piano from "./piano/actions";
 import { openPianoRoll } from "./piano/actions";
+import { NoteProperties } from "./piano/note-properties";
 import { PianoRoll } from "./piano/piano-roll";
 import { usePiano } from "./piano/store";
 import { TransposeWindow } from "./transpose-window";
@@ -50,6 +51,7 @@ function Windows() {
   const rackOpen = useMusicUi((s) => s.rackOpen);
   const pianoOpen = useMusicUi((s) => s.pianoOpen);
   const transposeOpen = useMusicUi((s) => s.transposeOpen);
+  const editingNote = usePiano((s) => s.editing);
   const openIds = useMusicUi((s) => s.openChannelIds);
   const channels = useSong((song) => song.channels);
   return (
@@ -57,6 +59,7 @@ function Windows() {
       {rackOpen && <ChannelRack />}
       {pianoOpen && <PianoRoll />}
       {transposeOpen && <TransposeWindow />}
+      {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind === "sampler" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
     </Desktop>
   );

@@ -143,7 +143,8 @@ arrow keys nudge.
 
 Double-click a note. PAN, VEL, REL, MOD X, MOD Y, PITCH (fine) knobs; slide and portamento switches; its
 colour group; its **start time and duration as bar : step : tick**; Reset and Accept. If the note is
-part of a selection, it sets them all (and the time fields are hidden).
+part of a selection, it sets them all (and the time fields are hidden). It's a small window of its own,
+not a modal: the Piano roll stays usable beside it (Théo).
 
 ## Ghost notes
 
