@@ -36,7 +36,7 @@ export function MusicToolbar() {
       <div className="flex items-center">
         <SidebarLead />
       </div>
-      <div className="flex w-36 min-w-0 shrink-0 flex-col justify-center gap-1">
+      <div className="flex w-36 min-w-20 flex-col justify-center gap-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 h-7 px-1 text-[14px]" />
           <SettledBadge />
