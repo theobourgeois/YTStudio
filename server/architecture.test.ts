@@ -85,6 +85,10 @@ const PLATFORM = [
 const DEBT: string[] = [
   "server/index.ts -> server/ffmpeg.ts",
   "server/projects.ts -> server/media.ts",
+  // shared/types.ts is the platform's API types and the video editor's document at once; its clips' paths
+  // and text layouts are types of the video editor's. Splitting the video document out of it fixes these.
+  "shared/types.ts -> shared/path.ts",
+  "shared/types.ts -> shared/text-drawing.ts",
   "src/App.tsx -> src/components/shortcuts/shortcuts-dialog.tsx",
   "src/App.tsx -> src/hooks/use-prevent-file-navigation.ts",
   "src/App.tsx -> src/hooks/use-shortcuts.ts",

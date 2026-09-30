@@ -3,9 +3,13 @@
  * `ParamSpec`s (effects, transitions) gets a panel for free.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { PiArrowCounterClockwise } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiBezierCurve, PiFunction } from "react-icons/pi";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import type { BezierPath } from "@shared/path";
 import type { ParamValue, ParamValues, Project, Vec2 } from "@shared/types";
-import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type ParamSpec, type Vec2Spec, sameValue } from "@shared/params";
+import { type BooleanSpec, type ChoiceSpec, type NumberSpec, type ParamSpec, type PathSpec, type Vec2Spec, sameValue } from "@shared/params";
+import { sameTarget, usePathEditing } from "@/stores/path-editing";
+import { useLayout } from "@/stores/layout";
 import { ColorControl, FontControl, FontStyleControl, TextControl } from "./text-controls";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
@@ -58,9 +62,13 @@ interface ParamRowProps {
   animation?: ReactNode;
   /** The keyframe navigator, while the property is animated. */
   navigator?: ReactNode;
+  /** The clip's effect these are the values of (a path is edited on the Program monitor through it). */
+  owner?: { clipId: string; effectId: string };
+  /** The property can have an expression: whether it has one, and adding or removing it (its name's menu). */
+  expression?: { on: boolean; toggle: () => void };
 }
 
-export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator }: ParamRowProps) {
+export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator, owner, expression }: ParamRowProps) {
   const value = values[spec.key];
   const label = spec.labelFor?.(values) ?? spec.label;
   const disabled = spec.disabledFor?.(values) ?? false;
@@ -97,6 +105,9 @@ export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator 
         <FontStyleControl spec={spec} value={value as string} label={label} disabled={disabled} edit={edit} values={values} />
       );
       break;
+    case "path":
+      control = <PathControl spec={spec} value={value as BezierPath} label={label} disabled={disabled} edit={edit} owner={owner} />;
+      break;
   }
   const animatable = animation !== undefined;
   return (
@@ -108,9 +119,31 @@ export function ParamRow({ spec, values, specs, ctx, edit, animation, navigator 
       data-param={spec.key}
     >
       {animatable && (animation ?? <span />)}
-      <span className={cn("truncate text-xs", disabled ? "text-muted-foreground/60" : "text-muted-foreground")} title={label}>
-        {label}
-      </span>
+      {expression ? (
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <span
+              className={cn("truncate text-xs", expression.on ? "text-brand" : disabled ? "text-muted-foreground/60" : "text-muted-foreground")}
+              title={expression.on ? `${label} (has an expression)` : label}
+              data-has-expression={expression.on || undefined}
+            >
+              {label}
+            </span>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-52">
+            <ContextMenuItem onSelect={expression.toggle}>
+              <PiFunction /> {expression.on ? "Remove expression" : "Add expression"}
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!changed || disabled} onSelect={edit.reset}>
+              <PiArrowCounterClockwise /> Reset {label}
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      ) : (
+        <span className={cn("truncate text-xs", disabled ? "text-muted-foreground/60" : "text-muted-foreground")} title={label}>
+          {label}
+        </span>
+      )}
       <div className="flex min-w-0 items-center">{control}</div>
       {animatable && (navigator ?? <span />)}
       {changed && !disabled ? <ResetButton label={`Reset ${label}`} onClick={edit.reset} /> : <span />}
@@ -202,6 +235,54 @@ function Vec2Control({ spec, value, label, disabled, ctx, edit }: ControlProps<V
           onEnd={edit.end}
         />
       ))}
+    </div>
+  );
+}
+
+/** A path: how many points it has, and a switch that shows them on the Program monitor to edit. */
+function PathControl({ spec, value, label, disabled, edit, owner }: ControlProps<PathSpec, BezierPath> & { owner?: { clipId: string; effectId: string } }) {
+  const target = owner ? { ...owner, key: spec.key } : null;
+  const editing = usePathEditing((s) => sameTarget(s.target, target));
+  const count = value.vertices.length;
+  return (
+    <div className="ml-1 flex min-w-0 items-center gap-1.5">
+      {target && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Edit ${label}`}
+              aria-pressed={editing}
+              disabled={disabled}
+              onClick={() => {
+                usePathEditing.getState().edit(editing ? null : target);
+                useLayout.getState().setTool("select");
+              }}
+              className={cn(
+                "flex h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-xs transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
+                editing ? "bg-accent text-brand" : "bg-muted text-foreground",
+              )}
+            >
+              <PiBezierCurve className="size-3.5" />
+              {editing ? "Editing" : "Edit"}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Show its points on the monitor: drag them, ⌥-click to smooth, P to add more</TooltipContent>
+        </Tooltip>
+      )}
+      <span className="truncate text-xs text-muted-foreground tabular-nums">
+        {count} {count === 1 ? "point" : "points"}
+        {count > 1 && !value.closed && ", open"}
+      </span>
+      {target && count > 1 && (
+        <button
+          type="button"
+          className="ml-auto cursor-pointer truncate rounded px-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          onClick={() => edit.set({ ...value, closed: !value.closed })}
+        >
+          {value.closed ? "Open it" : "Close it"}
+        </button>
+      )}
     </div>
   );
 }

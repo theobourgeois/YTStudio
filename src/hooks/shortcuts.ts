@@ -34,11 +34,19 @@ export type ShortcutAction =
   | "paste"
   | "copyEffects"
   | "pasteEffects"
+  | "easyEase"
+  | "easyEaseIn"
+  | "easyEaseOut"
+  | "addMarker"
+  | "nextMarker"
+  | "prevMarker"
+  | "deleteMarker"
   | "duplicate"
   | "addTransition"
   | "newAdjustmentLayer"
   | "newSolid"
   | "newCamera"
+  | "nest"
   | "speed"
   | "nudgeLeft"
   | "nudgeRight"
@@ -56,6 +64,9 @@ export type ShortcutAction =
   | "toggleSnapping"
   | "selectTool"
   | "textTool"
+  | "penTool"
+  | "rectangleTool"
+  | "ellipseTool"
   | "toggleSidebar"
   | "toggleAssistant"
   | "showShortcuts";
@@ -83,9 +94,15 @@ const REPEATABLE = new Set<ShortcutAction>([
   "nudgeRightMore",
   "zoomIn",
   "zoomOut",
+  "nextMarker",
+  "prevMarker",
 ]);
 
 export function resolveShortcut(e: KeyLike): ShortcutAction | null {
+  // After Effects' Easy Ease keys, whatever the modifiers mean elsewhere.
+  if (e.key === "F9" && !e.repeat && !e.altKey) {
+    return e.metaKey || e.ctrlKey ? (e.shiftKey ? "easyEaseOut" : null) : e.shiftKey ? "easyEaseIn" : "easyEase";
+  }
   const action = e.metaKey || e.ctrlKey ? resolveMod(e) : e.altKey ? resolveAlt(e) : resolvePlain(e);
   if (!action || (e.repeat && !REPEATABLE.has(action))) return null;
   return action;
@@ -107,8 +124,8 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
   if (key === "z") return e.shiftKey ? "redo" : "undo";
   // Previous / next clip start or end (also keeps ⌘← from going back a page).
   if (key === "arrowleft" || key === "arrowright") return e.shiftKey ? null : key === "arrowleft" ? "prevEdit" : "nextEdit";
-  // Premiere's "Apply Default Transition" is ⌘D, which duplicates here.
-  if (e.shiftKey) return key === "d" ? "addTransition" : null;
+  // Premiere's "Apply Default Transition" is ⌘D, which duplicates here; ⇧⌘M is its Go to Previous Marker.
+  if (e.shiftKey) return key === "d" ? "addTransition" : key === "m" ? "prevMarker" : null;
   switch (key) {
     case "y":
       return "redo";
@@ -143,6 +160,10 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
 function resolveAlt(e: KeyLike): ShortcutAction | null {
   // ⌥ changes `key` on a Mac (⌥X is "≈"), so this goes by the physical key.
   if (e.code === "KeyX" && !e.shiftKey) return "clearMarks";
+  // Final Cut's New Compound Clip (After Effects' Pre-compose, ⇧⌘C, is the browser's Inspect).
+  if (e.code === "KeyG" && !e.shiftKey) return "nest";
+  // Premiere's Clear Selected Marker.
+  if (e.code === "KeyM" && !e.shiftKey) return "deleteMarker";
   switch (e.key) {
     case "ArrowLeft":
       return e.shiftKey ? "nudgeLeftMore" : "nudgeLeft";
@@ -194,6 +215,9 @@ function resolvePlain(e: KeyLike): ShortcutAction | null {
         return "goToIn";
       case "O":
         return "goToOut";
+      // Premiere's Go to Next Marker.
+      case "M":
+        return "nextMarker";
     }
     return null;
   }
@@ -216,6 +240,16 @@ function resolvePlain(e: KeyLike): ShortcutAction | null {
       return "selectTool";
     case "t":
       return "textTool";
+    // Premiere's Pen tool; the shape tools are its neighbours.
+    case "p":
+      return "penTool";
+    case "r":
+      return "rectangleTool";
+    case "e":
+      return "ellipseTool";
+    // Premiere's Add Marker.
+    case "m":
+      return "addMarker";
     // Premiere's Mark In / Mark Out (in the source preview).
     case "i":
       return "markIn";
@@ -271,11 +305,19 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   paste: `${MOD}V`,
   copyEffects: `${ALT}${MOD}C`,
   pasteEffects: `${ALT}${MOD}V`,
+  easyEase: "F9",
+  easyEaseIn: `${SHIFT}F9`,
+  easyEaseOut: `${MOD}${SHIFT}F9`,
+  addMarker: "M",
+  nextMarker: `${SHIFT}M`,
+  prevMarker: `${SHIFT}${MOD}M`,
+  deleteMarker: `${ALT}M`,
   duplicate: `${MOD}D`,
   addTransition: `${SHIFT}${MOD}D`,
   newAdjustmentLayer: `${ALT}${MOD}Y`,
   newSolid: `${ALT}${SHIFT}${MOD}Y`,
   newCamera: `${ALT}${SHIFT}${MOD}C`,
+  nest: `${ALT}G`,
   speed: `${MOD}R`,
   nudgeLeft: `${ALT}←`,
   nudgeRight: `${ALT}→`,
@@ -293,6 +335,9 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   toggleSnapping: "N",
   selectTool: "V",
   textTool: "T",
+  penTool: "P",
+  rectangleTool: "R",
+  ellipseTool: "E",
   toggleSidebar: `${MOD}\\`,
   toggleAssistant: `${MOD}I`,
   showShortcuts: "?",
@@ -343,8 +388,14 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "New adjustment layer (over the selection, or at the playhead)", keys: [`${ALT}${MOD}Y`] },
       { label: "New solid", keys: [`${ALT}${SHIFT}${MOD}Y`] },
       { label: "New camera (for 3D layers)", keys: [`${ALT}${SHIFT}${MOD}C`] },
+      { label: "Nest the selected clips (a sequence of their own)", keys: [`${ALT}G`] },
+      { label: "Open a nested sequence", keys: ["Double-click it"] },
       { label: "Speed / reverse the selected clips", keys: [`${MOD}R`] },
       { label: "Stretch a clip's speed to fit", keys: [`${ALT}Drag an edge`] },
+      { label: "Add a marker (on the selected clip under the playhead, else on the timeline)", keys: ["M"] },
+      { label: "Name or colour a marker", keys: ["Double-click it", "M on it"] },
+      { label: "Next / previous marker", keys: [`${SHIFT}M`, `${SHIFT}${MOD}M`] },
+      { label: "Delete the marker at the playhead", keys: [`${ALT}M`] },
       { label: "Nudge 1 frame", keys: [`${ALT}←`, `${ALT}→`] },
       { label: "Nudge 10 frames", keys: [`${ALT}${SHIFT}←`, `${ALT}${SHIFT}→`] },
       { label: "Move to track above / below", keys: [`${ALT}↑`, `${ALT}↓`] },
@@ -355,6 +406,11 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: "Keyframes",
     items: [
       { label: "Select several", keys: [`${SHIFT}Click`, "Drag on empty space"] },
+      { label: "Copy / paste the selected keyframes (at the playhead, on any clip)", keys: [`${MOD}C`, `${MOD}V`] },
+      { label: "Paste one property's keyframes onto another", keys: ["Right-click its lane"] },
+      { label: "Easy Ease / Ease In / Ease Out", keys: ["F9", `${SHIFT}F9`, `${MOD}${SHIFT}F9`] },
+      { label: "Stretch the selected keyframes", keys: [`${ALT}Drag the first or last`] },
+      { label: "Move a position keyframe, or bend its path", keys: ["Drag its dot on the monitor", `${ALT}Click it`] },
       { label: "Delete the selected keyframes", keys: ["⌫"] },
       { label: "Go to a keyframe", keys: ["Double-click"] },
     ],
@@ -365,6 +421,12 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Selection tool", keys: ["V"] },
       { label: "Type tool (click to add text)", keys: ["T"] },
       { label: "Type into a text", keys: ["Double-click"] },
+      { label: "Pen tool (a mask on the selected clip, else a shape)", keys: ["P"] },
+      { label: "Rectangle / Ellipse tool", keys: ["R", "E"] },
+      { label: "Close the path being drawn / stop drawing", keys: ["Click its first point", "Enter"] },
+      { label: "Corner ↔ smooth point", keys: [`${ALT}Click a point`] },
+      { label: "Move one handle on its own", keys: [`${ALT}Drag a handle`] },
+      { label: "Delete the selected points", keys: ["⌫"] },
       { label: "Stretch while scaling", keys: [`${SHIFT}Drag`] },
       { label: "Scale the selected clip", keys: ["Pinch", `${MOD}Scroll`] },
       { label: "Snap rotation to 15°", keys: [`${SHIFT}Drag`] },

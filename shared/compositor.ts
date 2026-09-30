@@ -187,6 +187,114 @@ export function matteIndex(mode: string): number {
   return Math.max(0, MATTE_MODES.indexOf(mode as (typeof MATTE_MODES)[number]));
 }
 
+/**
+ * A mask on a layer (After Effects'): the layer only shows inside its path (or outside it,
+ * `inverted`), before its effects run. Several combine in order: the first decides what
+ * shows, each later one adds to that, takes away from it or keeps only what they share.
+ */
+export interface MaskShape {
+  /** SVG path data, in fractions of the layer's frame (x right, y down). */
+  d: string;
+  /** 0 add, 1 subtract, 2 intersect (see `MASK_MODES`). */
+  mode: number;
+  inverted?: boolean;
+  /** How much it covers (0..1). */
+  opacity: number;
+  /** How soft its edge is and how far it's grown (shrunk when negative), as fractions of the frame's height. */
+  feather: number;
+  expansion: number;
+}
+
+export const MASK_MODES = ["add", "subtract", "intersect"] as const;
+
+export function maskModeIndex(mode: string): number {
+  return Math.max(0, MASK_MODES.indexOf(mode as (typeof MASK_MODES)[number]));
+}
+
+/** What fills or strokes a vector shape: a CSS colour, or a gradient between two points (in the drawing's px). */
+export type VectorPaint =
+  | string
+  | { type: "linear" | "radial"; from: [number, number]; to: [number, number]; stops: [number, string][] };
+
+/** One shape of a vector drawing: a path, filled and then stroked. */
+export interface VectorOp {
+  /** SVG path data, in the drawing's px. */
+  d: string;
+  /** Where the path goes in the drawing (a repeater's copies): an affine map of its px. */
+  transform?: Affine;
+  fill?: VectorPaint;
+  fillRule?: "nonzero" | "evenodd";
+  stroke?: VectorPaint;
+  /** Stroke width and dashes (dash, gap, ...) in the drawing's px. */
+  strokeWidth?: number;
+  join?: "miter" | "round" | "bevel";
+  cap?: "butt" | "round" | "square";
+  miterLimit?: number;
+  dash?: number[];
+  dashOffset?: number;
+  /** 0..1 over both the fill and the stroke. */
+  opacity?: number;
+}
+
+/**
+ * A vector drawing (a shape layer's picture): shapes in a space of `width` x `height` px,
+ * bottom first, drawn by the browser's 2D canvas at whatever size the layer is shown, so
+ * it's sharp at any scale.
+ */
+export interface VectorDrawing {
+  width: number;
+  height: number;
+  ops: VectorOp[];
+  /**
+   * How far its shapes reach past the frame, as a fraction of its height: the layer is drawn
+   * with that much room on every side, so they aren't cut off at the frame's edges.
+   */
+  bleed?: number;
+}
+
+/** What one text animator does to a text at a moment (see `shared/text-animators.ts`), in the drawing's px. */
+export interface TextAnimatorDrawing {
+  position: [number, number];
+  scale: number;
+  /** Degrees, clockwise. */
+  rotation: number;
+  opacity: number;
+  blur: number;
+  /** Px added after each letter it acts on. */
+  tracking: number;
+  /** A colour to turn the fill into, or null. */
+  fill: string | null;
+  /** For each letter (code point) of each line: the unit it's in (-1: none) and how much the animator acts on it (0..1). */
+  glyphs: { unit: number; amount: number }[][];
+}
+
+/**
+ * A text as it's drawn (a text clip's picture): laid out by the browser tab that knows the
+ * fonts (`src/lib/text-render.ts`), then drawn here with the 2D canvas at whatever size the
+ * layer is shown, in the preview and the export alike. Lengths are px of a `width` x `height`
+ * frame; with `animators`, each letter is drawn on its own.
+ */
+export interface TextDrawing {
+  width: number;
+  height: number;
+  /** CSS `font` shorthand, and the width (`font-stretch`), which the shorthand can't say in a canvas. */
+  font: string;
+  stretch: string;
+  fontPx: number;
+  letterSpacing: number;
+  align: "left" | "center" | "right";
+  /** Each line's text, left edge and baseline. */
+  lines: { text: string; x: number; y: number }[];
+  fill: string;
+  /** The outline: `width` px on each side of the letters' edge (half of it hidden under the fill). */
+  stroke?: { color: string; width: number };
+  /** The box behind the text. */
+  box?: { color: string; x: number; y: number; width: number; height: number; radius: number };
+  /** A drop shadow, `offset` px down and to the right. */
+  shadow?: { color: string; offset: number; blur: number };
+  animators?: TextAnimatorDrawing[];
+}
+
 /** One moment of a motion-blurred layer: where it is and how it looks then. */
 export interface Sample<S = Shader> {
   affine: Placement2D;
@@ -214,6 +322,12 @@ export interface Placed<S = Shader> {
    * unused), `width` x `height` px at 100%, the most detail its effects are drawn with.
    */
   solid?: { color: [number, number, number, number]; width: number; height: number };
+  /** A vector drawing instead of a stored picture (`key` is then unused): a shape layer's shapes. */
+  vector?: VectorDrawing;
+  /** A text instead of a stored picture (`key` is then unused). */
+  text?: TextDrawing;
+  /** Masks cutting the layer out, in order, before its effects (an adjustment layer: where it changes what's below). */
+  masks?: MaskShape[];
   /**
    * Motion blur: the moments across the shutter to average (replacing `affine`,
    * `opacity` and `effects`). Fewer than two draws the layer once.
@@ -231,7 +345,7 @@ export interface Placed<S = Shader> {
 }
 
 /** An adjustment layer: the frame so far, through its effects and placed by its Motion (the canvas at 100%). */
-export type Adjustment<S = Shader> = Omit<Placed<S>, "key" | "solid">;
+export type Adjustment<S = Shader> = Omit<Placed<S>, "key" | "solid" | "vector" | "text">;
 
 export interface Compositor {
   readonly gl: WebGL2RenderingContext;
@@ -252,6 +366,13 @@ export interface Compositor {
   drawPicture(picture: Placed): void;
   /** Run the frame so far through an adjustment layer. */
   drawAdjustment(adjustment: Adjustment): void;
+  /**
+   * Start drawing a group (a nested sequence, After Effects' precomp): a transparent frame of
+   * `width` x `height` px that the draws after it go into, until `endGroup`. Groups nest.
+   */
+  beginGroup(width: number, height: number): void;
+  /** Finish the group: its frame becomes the picture `key` (to place like any other), and drawing goes back to the frame it interrupted. */
+  endGroup(key: string): void;
   /**
    * Start compiling a transition or effect shader in the background (compiling blocks for tens
    * of ms otherwise). True once it can be drawn without waiting; always true without
@@ -392,6 +513,8 @@ uniform float uOpacity;
 uniform bool uReplace;
 uniform sampler2D uMatte;
 uniform int uMatteMode;
+uniform sampler2D uMask;
+uniform bool uMasked;
 float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
 vec3 clipColor(vec3 c) {
   float l = lum(c);
@@ -459,6 +582,8 @@ void main() {
     if (uMatteMode == 2 || uMatteMode == 4) m = 1.0 - m;
     if (!uReplace) S *= m;
   }
+  // An adjustment layer's masks: it only changes what's below inside them.
+  if (uMasked) m *= texture(uMask, vUv).a;
   vec4 top;
   if (uMode >= 26) {
     // Stencil / silhouette: the layer's alpha (or luma) keeps or cuts out what's below.
@@ -473,6 +598,17 @@ void main() {
     top = vec4((1.0 - B.a) * S.rgb + (1.0 - S.a) * B.rgb + S.a * B.a * mixed, S.a + B.a - S.a * B.a);
   }
   fragColor = uReplace ? mix(B, top, uOpacity * m) : top;
+}`;
+
+  // A layer (uSrc, bottom row first) times the coverage of its masks (uMask, top row first).
+  const MASK_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D uSrc;
+uniform sampler2D uMask;
+void main() {
+  fragColor = texture(uSrc, vUv) * texture(uMask, vec2(vUv.x, 1.0 - vUv.y)).a;
 }`;
 
   // Packs 4 bytes of the YUV 4:2:0 planes (Y, then U, then V, as one byte
@@ -713,10 +849,12 @@ void main() {
   // holds a layer about to be blended), and where motion blur's moments add up.
   let frame = target();
   let spare = target();
-  const sides = [target(), target()];
-  const accum = target();
+  let sides = [target(), target()];
+  let accumTarget = target();
   // Where a track matte is drawn before the layer it cuts out.
-  const matteTarget = target();
+  let matteTarget = target();
+  // Where an adjustment layer's masks are placed (made when first needed), by frame size.
+  const maskTargets = new Map<string, Target>();
   // Where `readYuv420` packs the frame (sized on first use).
   const yuv = { ...target(), width: 0, height: 0 };
   let width = 0;
@@ -762,6 +900,8 @@ void main() {
     height: number;
     /** Mipmaps are made the first time the picture is drawn much smaller than it is. */
     mipmapped: boolean;
+    /** Already premultiplied and stored bottom row first, like a frame: a group's (`endGroup`). */
+    layer?: boolean;
   }
   const pictures = new Map<string, Picture>();
 
@@ -842,7 +982,8 @@ void main() {
     const inverse = edges ? invert3(clip) : null;
     if (edges && !inverse) return;
     // Mipmaps keep a big picture drawn small from shimmering (layers are made about the size they're shown).
-    const shrunk = !layer && (pic.width > pu * 1.5 || pic.height > pv * 1.5);
+    // (A group's picture is drawn at its own size, like a stored picture, so it may need them too.)
+    const shrunk = (!layer || !!pic.layer) && (pic.width > pu * 1.5 || pic.height > pv * 1.5);
     const wrap = wrapOf(edges);
     // All three units are bound (an RGBA picture's U and V to nothing): a sampler
     // left on a texture that's being drawn into would make the draw fail.
@@ -908,10 +1049,14 @@ void main() {
   type Source =
     | { kind: "picture"; pic: Picture; next?: { pic: Picture; amount: number; flow: boolean } }
     | { kind: "solid"; color: [number, number, number, number]; width: number; height: number }
+    | { kind: "vector"; drawing: VectorDrawing }
+    | { kind: "text"; drawing: TextDrawing }
     | { kind: "frame" };
 
   const sourceOf = (p: Placed): Source | null => {
     if (p.solid) return { kind: "solid", ...p.solid };
+    if (p.vector) return { kind: "vector", drawing: p.vector };
+    if (p.text) return { kind: "text", drawing: p.text };
     const pic = pictures.get(p.key);
     if (!pic) return null;
     const next = p.interpolate && pictures.get(p.interpolate.key);
@@ -1193,6 +1338,337 @@ void main() {
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // Masks and vector drawings: drawn with the browser's 2D canvas (the export's page has
+  // one too), then uploaded. The last few are kept, so a still shape isn't drawn again.
+  // ---------------------------------------------------------------------------
+  type Ctx2d = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
+  const boards: (Ctx2d | null)[] = [];
+  /** One of a few 2D canvases, cleared at `w` x `h`. */
+  const board = (i: number, w: number, h: number): Ctx2d | null => {
+    if (boards[i] === undefined) {
+      const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, h) : typeof document !== "undefined" ? document.createElement("canvas") : null;
+      boards[i] = canvas ? (canvas.getContext("2d") as Ctx2d | null) : null;
+    }
+    const ctx = boards[i];
+    if (!ctx) return null;
+    // Setting the size clears the canvas and resets its state.
+    ctx.canvas.width = w;
+    ctx.canvas.height = h;
+    return ctx;
+  };
+  const MAX_RASTERS = 16;
+  const rasters = new Map<string, Picture>();
+  /** The picture kept under `id` (most recently used last), or a fresh one drawn by `draw` and uploaded. */
+  const raster = (id: string, w: number, h: number, draw: (ctx: Ctx2d) => void): Picture | null => {
+    const hit = rasters.get(id);
+    if (hit) {
+      rasters.delete(id);
+      rasters.set(id, hit);
+      return hit;
+    }
+    const ctx = board(0, w, h);
+    if (!ctx) return null;
+    draw(ctx);
+    // The least recently used one's texture is filled again.
+    let tex: WebGLTexture | null = null;
+    if (rasters.size >= MAX_RASTERS) {
+      const [old, stale] = rasters.entries().next().value as [string, Picture];
+      rasters.delete(old);
+      tex = stale.textures[0];
+    }
+    tex ??= texture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ctx.canvas as TexImageSource);
+    const pic: Picture = { textures: [tex], yuv: null, width: w, height: h, mipmapped: false };
+    rasters.set(id, pic);
+    return pic;
+  };
+
+  /** Where a layer's frame is inside the layer itself: all of it, unless the layer has room around the frame. */
+  interface FrameBox {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }
+  const boxKey = (f: FrameBox) => `${f.x},${f.y},${f.w}x${f.h}`;
+
+  /** How much of a `w` x `h` layer (its frame at `frame`) its masks leave, as a picture's alpha. */
+  const maskPicture = (masks: MaskShape[], w: number, h: number, frame: FrameBox = { x: 0, y: 0, w, h }): Picture | null =>
+    raster(`m:${w}x${h}:${boxKey(frame)}:${JSON.stringify(masks)}`, w, h, (acc) => {
+      // A first mask that takes away (or keeps what's shared) starts from the whole layer.
+      if (masks[0].mode !== 0) {
+        acc.fillStyle = "#fff";
+        acc.fillRect(0, 0, w, h);
+      }
+      for (const mask of masks) {
+        const sigma = Math.max(0, mask.feather * frame.h) / 2;
+        // Room around the layer, so a soft edge doesn't fade where the mask runs off it.
+        const room = Math.min(512, Math.ceil(sigma * 3));
+        const one = board(1, w + 2 * room, h + 2 * room);
+        if (!one) continue;
+        const shape = new Path2D();
+        shape.addPath(new Path2D(mask.d), new DOMMatrix([frame.w, 0, 0, frame.h, room + frame.x, room + frame.y]));
+        one.fillStyle = "#fff";
+        one.strokeStyle = "#fff";
+        one.lineJoin = "round";
+        one.fill(shape, "nonzero");
+        const grow = mask.expansion * frame.h;
+        if (Math.abs(grow) > 1e-3) {
+          // Grown by a stroke of that width around it; shrunk by rubbing the same stroke out.
+          one.lineWidth = 2 * Math.abs(grow);
+          if (grow < 0) one.globalCompositeOperation = "destination-out";
+          one.stroke(shape);
+          one.globalCompositeOperation = "source-over";
+        }
+        if (mask.inverted) {
+          one.globalCompositeOperation = "xor";
+          one.fillRect(0, 0, w + 2 * room, h + 2 * room);
+          one.globalCompositeOperation = "source-over";
+        }
+        acc.globalAlpha = Math.min(1, Math.max(0, mask.opacity));
+        acc.globalCompositeOperation = mask.mode === 1 ? "destination-out" : mask.mode === 2 ? "destination-in" : "source-over";
+        if (sigma > 0.25 && "filter" in acc) {
+          acc.filter = `blur(${sigma}px)`;
+          acc.drawImage(one.canvas, -room, -room);
+          acc.filter = "none";
+        } else if (sigma > 0.25) {
+          // No canvas filters (Safari): the shape's blurred shadow, the shape itself drawn out of sight.
+          const far = w + 2 * room + 16;
+          acc.shadowColor = "#fff";
+          acc.shadowBlur = sigma * 2;
+          acc.shadowOffsetX = far;
+          acc.drawImage(one.canvas, -room - far, -room);
+          acc.shadowColor = "transparent";
+          acc.shadowOffsetX = 0;
+          acc.shadowBlur = 0;
+        } else {
+          acc.drawImage(one.canvas, -room, -room);
+        }
+      }
+      acc.globalAlpha = 1;
+      acc.globalCompositeOperation = "source-over";
+    });
+
+  /** A vector drawing in a `w` x `h` px layer, its frame at `frame`. */
+  const vectorPicture = (drawing: VectorDrawing, w: number, h: number, frame: FrameBox): Picture | null =>
+    raster(`v:${w}x${h}:${boxKey(frame)}:${JSON.stringify(drawing)}`, w, h, (ctx) => {
+      const sx = frame.w / Math.max(1e-6, drawing.width);
+      const sy = frame.h / Math.max(1e-6, drawing.height);
+      const paint = (p: VectorPaint): string | CanvasGradient => {
+        if (typeof p === "string") return p;
+        const g =
+          p.type === "radial"
+            ? ctx.createRadialGradient(p.from[0], p.from[1], 0, p.from[0], p.from[1], Math.hypot(p.to[0] - p.from[0], p.to[1] - p.from[1]))
+            : ctx.createLinearGradient(p.from[0], p.from[1], p.to[0], p.to[1]);
+        for (const [at, color] of p.stops) g.addColorStop(Math.min(1, Math.max(0, at)), color);
+        return g;
+      };
+      for (const op of drawing.ops) {
+        const t = op.transform ?? IDENTITY_AFFINE;
+        ctx.setTransform(sx * t[0], sy * t[1], sx * t[2], sy * t[3], sx * t[4] + frame.x, sy * t[5] + frame.y);
+        ctx.globalAlpha = Math.min(1, Math.max(0, op.opacity ?? 1));
+        const shape = new Path2D(op.d);
+        if (op.fill !== undefined) {
+          ctx.fillStyle = paint(op.fill);
+          ctx.fill(shape, op.fillRule ?? "nonzero");
+        }
+        if (op.stroke !== undefined && (op.strokeWidth ?? 0) > 0) {
+          ctx.strokeStyle = paint(op.stroke);
+          ctx.lineWidth = op.strokeWidth!;
+          ctx.lineJoin = op.join ?? "miter";
+          ctx.lineCap = op.cap ?? "butt";
+          ctx.miterLimit = op.miterLimit ?? 4;
+          ctx.setLineDash(op.dash ?? []);
+          ctx.lineDashOffset = op.dashOffset ?? 0;
+          ctx.stroke(shape);
+        }
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+    });
+
+  /** A text in a `w` x `h` px layer, its frame at `frame`. */
+  const textPicture = (text: TextDrawing, w: number, h: number, frame: FrameBox): Picture | null =>
+    raster(`t:${w}x${h}:${boxKey(frame)}:${JSON.stringify(text)}`, w, h, (ctx) => {
+      const sx = frame.w / Math.max(1e-6, text.width);
+      const sy = frame.h / Math.max(1e-6, text.height);
+      ctx.setTransform(sx, 0, 0, sy, frame.x, frame.y);
+      ctx.font = text.font;
+      if ("fontStretch" in ctx) ctx.fontStretch = text.stretch as CanvasFontStretch;
+      // Canvas letter spacing isn't in every browser yet: there, each letter is placed by hand.
+      const spaced = "letterSpacing" in (ctx as object);
+      if (spaced) ctx.letterSpacing = `${text.letterSpacing}px`;
+      ctx.textBaseline = "alphabetic";
+      ctx.textAlign = "left";
+
+      // The shadow falls from the first thing drawn: the box, else the stroke, else the letters.
+      // Canvas shadows and filters ignore the transform, hence the scaling by hand.
+      let shadowPending = !!text.shadow;
+      const castShadow = (on: boolean) => {
+        if (on && text.shadow) {
+          ctx.shadowColor = text.shadow.color;
+          ctx.shadowOffsetX = text.shadow.offset * sx;
+          ctx.shadowOffsetY = text.shadow.offset * sy;
+          ctx.shadowBlur = text.shadow.blur * sy;
+        } else {
+          ctx.shadowColor = "transparent";
+        }
+        shadowPending = false;
+      };
+      const eachLine = (paint: (t: string, x: number, y: number) => void) => {
+        for (const line of text.lines) {
+          if (!line.text) continue;
+          if (spaced) {
+            paint(line.text, line.x, line.y);
+            continue;
+          }
+          let cx = line.x;
+          for (const ch of line.text) {
+            paint(ch, cx, line.y);
+            cx += ctx.measureText(ch).width + text.letterSpacing;
+          }
+        }
+      };
+
+      /** One letter of an animated text: where it's drawn, and what its animators do to it. */
+      interface Glyph {
+        text: string;
+        x: number;
+        y: number;
+        opacity: number;
+        blur: number;
+        fill: string;
+        /** One per animator that acts on it, in order: moved by (dx, dy), then turned and scaled around (cx, cy). */
+        transforms: { dx: number; dy: number; cx: number; cy: number; rotation: number; scale: number }[];
+      }
+      const mixColor = (a: string, b: string, f: number): string => {
+        if (f <= 0) return a;
+        const [x, y] = [Number.parseInt(a.slice(1), 16), Number.parseInt(b.slice(1), 16)];
+        const ch = (shift: number) => Math.round(((x >> shift) & 255) + (((y >> shift) & 255) - ((x >> shift) & 255)) * Math.min(1, f));
+        return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
+      };
+      const animators = text.animators ?? [];
+      const glyphsOf = (): Glyph[] => {
+        const em = text.fontPx;
+        const amountAt = (j: number, i: number, k: number) => animators[j].glyphs[i]?.[k] ?? { unit: -1, amount: 0 };
+        // Where each letter sits in its line, from the widths of the text before it (so kerning is kept).
+        const placed = text.lines.map((line, i) => {
+          const chars = [...line.text];
+          const edges = [0];
+          let prefix = "";
+          for (const [k, ch] of chars.entries()) {
+            prefix += ch;
+            edges.push(ctx.measureText(prefix).width + (spaced ? 0 : (k + 1) * text.letterSpacing));
+          }
+          // Tracking from the animators opens the line up after each letter; the line stays aligned as it was.
+          const extra = chars.map((_, k) => animators.reduce((sum, a, j) => sum + amountAt(j, i, k).amount * a.tracking, 0));
+          const total = extra.reduce((a, b) => a + b, 0);
+          let shift = text.align === "left" ? 0 : text.align === "right" ? -total : -total / 2;
+          const xs = chars.map((_, k) => {
+            const x = line.x + edges[k] + shift;
+            shift += extra[k];
+            return x;
+          });
+          return { chars, xs, widths: chars.map((_, k) => edges[k + 1] - edges[k]), y: line.y };
+        });
+        // Each animator's units: the box around their letters, to turn and scale around its middle.
+        const centres = animators.map((_, j) => {
+          const boxes = new Map<number, { left: number; right: number; top: number; bottom: number }>();
+          placed.forEach((line, i) => {
+            line.chars.forEach((_, k) => {
+              const u = amountAt(j, i, k).unit;
+              if (u < 0) return;
+              const box = boxes.get(u) ?? { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+              box.left = Math.min(box.left, line.xs[k]);
+              box.right = Math.max(box.right, line.xs[k] + line.widths[k]);
+              // About the middle of the letters: between the baseline and the capitals' tops.
+              box.top = Math.min(box.top, line.y - em * 0.7);
+              box.bottom = Math.max(box.bottom, line.y);
+              boxes.set(u, box);
+            });
+          });
+          return boxes;
+        });
+        const out: Glyph[] = [];
+        placed.forEach((line, i) => {
+          line.chars.forEach((ch, k) => {
+            if (!ch.trim()) return;
+            const glyph: Glyph = { text: ch, x: line.xs[k], y: line.y, opacity: 1, blur: 0, fill: text.fill, transforms: [] };
+            animators.forEach((a, j) => {
+              const { unit: u, amount } = amountAt(j, i, k);
+              if (!(amount > 0)) return;
+              glyph.opacity *= 1 + amount * (a.opacity - 1);
+              glyph.blur += amount * a.blur;
+              if (a.fill) glyph.fill = mixColor(glyph.fill.startsWith("#") ? glyph.fill : text.fill, a.fill, amount);
+              const box = centres[j].get(u)!;
+              glyph.transforms.push({
+                dx: amount * a.position[0],
+                dy: amount * a.position[1],
+                cx: (box.left + box.right) / 2,
+                cy: (box.top + box.bottom) / 2,
+                rotation: amount * a.rotation,
+                scale: 1 + amount * (a.scale - 1),
+              });
+            });
+            if (glyph.opacity > 0) out.push(glyph);
+          });
+        });
+        return out;
+      };
+      // With animators, each letter is drawn on its own, where and how they put it.
+      const glyphs = animators.length ? glyphsOf() : null;
+      const eachGlyph = (paint: (g: Glyph) => void) => {
+        for (const g of glyphs!) {
+          ctx.save();
+          ctx.globalAlpha = g.opacity;
+          if (g.blur > 0 && "filter" in ctx) ctx.filter = `blur(${g.blur * sy}px)`;
+          for (const t of g.transforms) {
+            ctx.translate(t.dx, t.dy);
+            ctx.translate(t.cx, t.cy);
+            ctx.rotate((t.rotation * Math.PI) / 180);
+            ctx.scale(t.scale, t.scale);
+            ctx.translate(-t.cx, -t.cy);
+          }
+          paint(g);
+          ctx.restore();
+        }
+      };
+
+      if (text.box) {
+        castShadow(shadowPending);
+        ctx.fillStyle = text.box.color;
+        ctx.beginPath();
+        ctx.roundRect(text.box.x, text.box.y, text.box.width, text.box.height, text.box.radius);
+        ctx.fill();
+      }
+      if (text.stroke && text.stroke.width > 0) {
+        castShadow(shadowPending);
+        ctx.strokeStyle = text.stroke.color;
+        // Centred on the outline, half of it hidden under the fill.
+        ctx.lineWidth = 2 * text.stroke.width;
+        ctx.lineJoin = "round";
+        if (glyphs) eachGlyph((g) => ctx.strokeText(g.text, g.x, g.y));
+        else eachLine((t, x, y) => ctx.strokeText(t, x, y));
+      }
+      castShadow(shadowPending);
+      ctx.fillStyle = text.fill;
+      if (glyphs) {
+        eachGlyph((g) => {
+          ctx.fillStyle = g.fill;
+          ctx.fillText(g.text, g.x, g.y);
+        });
+      } else eachLine((t, x, y) => ctx.fillText(t, x, y));
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.shadowColor = "transparent";
+    });
+  let maskProgram: ReturnType<typeof link> | null = null;
+
   let interpProgram: ReturnType<typeof link> | null = null;
   /**
    * The moment `next.amount` of the way from picture `a` to `next.pic`, into one of `set`'s
@@ -1205,7 +1681,7 @@ void main() {
       gl.disable(gl.BLEND);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      drawTextures(pic, IDENTITY_AFFINE, 1, w, h, false);
+      drawTextures(pic, IDENTITY_AFFINE, 1, w, h, !!pic.layer);
     }
     const ab = next.flow ? computeFlow({ tex: set[0].tex }, w, h, set[1].tex, w, h, 0) : null;
     const ba = next.flow ? computeFlow({ tex: set[1].tex }, w, h, set[0].tex, w, h, 1) : null;
@@ -1245,10 +1721,13 @@ void main() {
     effects: EffectPass[] | undefined,
     edges: number,
     aspect?: number,
+    masks?: MaskShape[],
   ): { pic: Picture; layer: boolean; placement?: Placement2D } | null => {
     const passes = effects?.filter((fx) => fx.passes > 0) ?? [];
-    if (!passes.length && source.kind === "picture" && !source.next) return { pic: source.pic, layer: false };
-    if (!passes.length && source.kind === "solid") {
+    // An adjustment layer's masks say where it changes the frame (see `blendInto`), not what its effects see.
+    const masked = source.kind !== "frame" && !!masks?.length;
+    if (!passes.length && !masked && source.kind === "picture" && !source.next) return { pic: source.pic, layer: !!source.pic.layer };
+    if (!passes.length && !masked && source.kind === "solid") {
       const [r, g, b, a] = source.color;
       gl.bindTexture(gl.TEXTURE_2D, solidTex);
       const bytes = new Uint8Array([r, g, b, a].map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255)));
@@ -1266,10 +1745,48 @@ void main() {
       h = height;
     } else {
       // Rounded up to 32 px so a picture that's scaling doesn't need new layers every frame.
-      const own = source.kind === "picture" ? source.pic : source;
+      // (A vector drawing or a text has as much detail as it's asked for.)
+      const own = source.kind === "picture" ? source.pic : source.kind === "solid" ? source : { width: maxLayer, height: maxLayer };
       const side = (shown: number, max: number) => Math.max(1, Math.min(max, maxLayer, Math.ceil(shown / 32) * 32));
       w = side(pu, own.width);
       h = side(pv, own.height);
+    }
+    let ratio = source.kind === "frame" ? width / height : (aspect ?? pu / pv);
+    // Where the frame is in the layer: all of it, until the layer is given room around it.
+    let frameRect = [0, 0, 1, 1];
+    let box: FrameBox = { x: 0, y: 0, w, h };
+    /** Give the layer `room` (a fraction of the frame's height) on every side; it's placed so the frame stays where it was. */
+    const makeRoom = (room: number) => {
+      const m = Math.round(Math.min(room, 4) * h);
+      const W = Math.min(maxLayer, w + 2 * m);
+      const H = Math.min(maxLayer, h + 2 * m);
+      const [mx, my] = [(W - w) / 2, (H - h) / 2];
+      ratio = (ratio * h + 2 * mx) / (h + 2 * my);
+      frameRect = [mx / W, my / H, 1 - mx / W, 1 - my / H];
+      box = { x: mx, y: my, w, h };
+      const m3 = matrixOf(placement);
+      const [fx0, fy0] = [mx / W, my / H];
+      const [sx, sy] = [1 / (1 - 2 * fx0), 1 / (1 - 2 * fy0)];
+      const grown = [
+        m3[0] * sx, m3[1] * sy, m3[2] - (m3[0] * fx0 * sx + m3[1] * fy0 * sy),
+        m3[3] * sx, m3[4] * sy, m3[5] - (m3[3] * fx0 * sx + m3[4] * fy0 * sy),
+        m3[6] * sx, m3[7] * sy, m3[8] - (m3[6] * fx0 * sx + m3[7] * fy0 * sy),
+      ];
+      placed = placement.length === 9 ? (grown as Projective) : ([grown[0], grown[3], grown[1], grown[4], grown[2], grown[5]] as Affine);
+      w = W;
+      h = H;
+    };
+    // Room past the frame that effects ask for (Grow Bounds).
+    const grow = source.kind === "frame" ? 0 : Math.max(0, ...passes.map((fx) => fx.grow ?? 0));
+    // A vector drawing or a text is drawn by the 2D canvas at that size, straight into a layer with
+    // the room its shapes (and its effects) need; with nothing else to do to it, that's the layer.
+    let drawn: Picture | null = null;
+    if (source.kind === "vector" || source.kind === "text") {
+      const room = Math.max(grow, source.kind === "vector" ? (source.drawing.bleed ?? 0) : 0);
+      if (room > 0) makeRoom(room);
+      drawn = source.kind === "vector" ? vectorPicture(source.drawing, w, h, box) : textPicture(source.drawing, w, h, box);
+      if (!drawn) return null;
+      if (!passes.length && !masked) return { pic: drawn, layer: false, placement: placed };
     }
     let set = scratchSet(w, h);
     const wrap = wrapOf(edges);
@@ -1285,47 +1802,55 @@ void main() {
       gl.clear(gl.COLOR_BUFFER_BIT);
     } else if (source.kind === "frame") {
       copy(frame.tex);
+    } else if (source.kind === "vector" || source.kind === "text") {
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      drawTextures(drawn!, IDENTITY_AFFINE, 1, w, h, false);
     } else if (source.next) {
       input = interpolateInto(set, source.pic, source.next, w, h);
     } else {
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      drawTextures(source.pic, IDENTITY_AFFINE, 1, w, h, false);
+      drawTextures(source.pic, IDENTITY_AFFINE, 1, w, h, !!source.pic.layer);
     }
-    let ratio = source.kind === "frame" ? width / height : (aspect ?? pu / pv);
+    // Masks cut the picture out before any effect sees it.
+    const coverage = masked ? maskPicture(masks!, w, h, box) : null;
+    if (coverage) {
+      maskProgram ??= link(QUAD_VS, MASK_FS);
+      const dst = input === 0 ? 1 : 0;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, set[dst].fbo);
+      gl.viewport(0, 0, w, h);
+      gl.disable(gl.BLEND);
+      gl.useProgram(maskProgram.program);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, coverage.textures[0]);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, set[input].tex);
+      gl.uniform1i(maskProgram.loc("uSrc"), 0);
+      gl.uniform1i(maskProgram.loc("uMask"), 1);
+      gl.uniform1i(maskProgram.loc("uFlipY"), 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.activeTexture(gl.TEXTURE0);
+      input = dst;
+    }
     // Room past the frame (Grow Bounds): the picture so far goes in the middle of a bigger layer.
-    let frameRect = [0, 0, 1, 1];
-    const grow = source.kind === "frame" ? 0 : Math.max(0, ...passes.map((fx) => fx.grow ?? 0));
-    if (grow > 0) {
-      const m = Math.round(Math.min(grow, 4) * h);
-      const W = Math.min(maxLayer, w + 2 * m);
-      const H = Math.min(maxLayer, h + 2 * m);
-      const [mx, my] = [(W - w) / 2, (H - h) / 2];
-      const big = scratchSet(W, H);
+    // (What the 2D canvas drew already has its room.)
+    if (grow > 0 && !drawn) {
+      const [w0, h0] = [w, h];
+      makeRoom(grow);
+      const big = scratchSet(w, h);
       for (const t of big) setWrap(t.tex, gl.CLAMP_TO_EDGE);
       gl.bindFramebuffer(gl.FRAMEBUFFER, big[0].fbo);
-      gl.viewport(0, 0, W, H);
+      gl.viewport(0, 0, w, h);
       gl.disable(gl.BLEND);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      const inner: Affine = [w / W, 0, 0, h / H, mx / W, my / H];
-      drawTextures({ textures: [set[input].tex], yuv: null, width: w, height: h, mipmapped: false }, inner, 1, W, H, true);
-      ratio = (ratio * h + 2 * mx) / (h + 2 * my);
-      frameRect = [mx / W, my / H, 1 - mx / W, 1 - my / H];
-      // The bigger layer goes where the picture went, grown by the same room.
-      const m3 = matrixOf(placement);
-      const [fx0, fy0] = [mx / W, my / H];
-      const [sx, sy] = [1 / (1 - 2 * fx0), 1 / (1 - 2 * fy0)];
-      const grown = [
-        m3[0] * sx, m3[1] * sy, m3[2] - (m3[0] * fx0 * sx + m3[1] * fy0 * sy),
-        m3[3] * sx, m3[4] * sy, m3[5] - (m3[3] * fx0 * sx + m3[4] * fy0 * sy),
-        m3[6] * sx, m3[7] * sy, m3[8] - (m3[6] * fx0 * sx + m3[7] * fy0 * sy),
-      ];
-      placed = placement.length === 9 ? (grown as Projective) : ([grown[0], grown[3], grown[1], grown[4], grown[2], grown[5]] as Affine);
+      const inner: Affine = [w0 / w, 0, 0, h0 / h, box.x / w, box.y / h];
+      drawTextures({ textures: [set[input].tex], yuv: null, width: w0, height: h0, mipmapped: false }, inner, 1, w, h, true);
       set = big;
       input = 0;
-      w = W;
-      h = H;
     }
     for (const fx of passes) {
       if (fx.particles) {
@@ -1437,7 +1962,7 @@ void main() {
     const samples = p.samples && p.samples.length > 1 ? p.samples : null;
     if (!samples) {
       if (!(p.opacity > 0)) return;
-      const prepared = prepare(source, p.affine, p.effects, edges, p.aspect);
+      const prepared = prepare(source, p.affine, p.effects, edges, p.aspect, p.masks);
       if (!prepared) return;
       bind(t);
       blendOver();
@@ -1445,13 +1970,13 @@ void main() {
       gl.disable(gl.BLEND);
       return;
     }
-    clearTarget(accum);
+    clearTarget(accumTarget);
     const n = samples.length;
     for (const sample of samples) {
       if (!(sample.opacity > 0)) continue;
-      const prepared = prepare(source, sample.affine, sample.effects ?? p.effects, edges, p.aspect);
+      const prepared = prepare(source, sample.affine, sample.effects ?? p.effects, edges, p.aspect, p.masks);
       if (!prepared) continue;
-      bind(accum);
+      bind(accumTarget);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE);
       // Each moment adds its share; the float buffer keeps the sum smooth.
@@ -1459,7 +1984,7 @@ void main() {
     }
     bind(t);
     blendOver();
-    copy(accum.tex);
+    copy(accumTarget.tex);
     gl.disable(gl.BLEND);
   };
 
@@ -1476,7 +2001,7 @@ void main() {
    * Mix canvas-sized `layer` into the frame by blend mode `mode` (see BLEND_FS), through the
    * track matte in `matteTarget` (by `matteMode`), swapping the frame with its spare.
    */
-  const blendInto = (layer: Target, mode: number, opacity: number, replace: boolean, matteMode = 0) => {
+  const blendInto = (layer: Target, mode: number, opacity: number, replace: boolean, matteMode = 0, mask: Target | null = null) => {
     blendProgram ??= link(QUAD_VS, BLEND_FS);
     const { program, loc } = blendProgram;
     bind(spare);
@@ -1490,6 +2015,10 @@ void main() {
     gl.bindTexture(gl.TEXTURE_2D, matteTarget.tex);
     gl.uniform1i(loc("uBase"), 0);
     gl.uniform1i(loc("uLayer"), 1);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, mask ? mask.tex : null);
+    gl.uniform1i(loc("uMask"), 3);
+    gl.uniform1i(loc("uMasked"), mask ? 1 : 0);
     gl.uniform1i(loc("uMatte"), 2);
     gl.uniform1i(loc("uMatteMode"), matteMode);
     gl.uniform1i(loc("uFlipY"), 0);
@@ -1497,12 +2026,36 @@ void main() {
     gl.uniform1f(loc("uOpacity"), Math.min(1, Math.max(0, opacity)));
     gl.uniform1i(loc("uReplace"), replace ? 1 : 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE0);
     [frame, spare] = [spare, frame];
+  };
+
+  /**
+   * An adjustment layer's masks, placed where the layer is, in a frame-sized target (its
+   * alpha is where the layer changes the frame); null without masks.
+   */
+  const placeMasks = (adjustment: Adjustment): Target | null => {
+    if (!adjustment.masks?.length) return null;
+    const coverage = maskPicture(adjustment.masks, width, height);
+    if (!coverage) return null;
+    const id = `${width}x${height}`;
+    let t = maskTargets.get(id);
+    if (!t) {
+      t = target();
+      allocate(t, width, height);
+      maskTargets.set(id, t);
+    }
+    clearTarget(t);
+    blendOver();
+    drawTextures(coverage, adjustment.affine, 1, width, height, false);
+    gl.disable(gl.BLEND);
+    return t;
   };
 
   const deletePicture = (key: string) => {
@@ -1555,6 +2108,26 @@ void main() {
     channel.port2.postMessage(null);
   };
 
+  // Groups (`beginGroup`): each level of nesting draws into its own set of frame-sized
+  // targets (kept by level and size), and the level above it is set aside meanwhile.
+  interface FrameSet {
+    frame: Target;
+    spare: Target;
+    sides: Target[];
+    accum: Target;
+    matte: Target;
+    width: number;
+    height: number;
+  }
+  const groupSets = new Map<string, FrameSet>();
+  const outer: FrameSet[] = [];
+  const currentSet = (): FrameSet => ({ frame, spare, sides, accum: accumTarget, matte: matteTarget, width, height });
+  const useSet = (set: FrameSet) => {
+    ({ frame, spare, sides, width, height } = set);
+    accumTarget = set.accum;
+    matteTarget = set.matte;
+  };
+
   return {
     gl,
 
@@ -1567,7 +2140,7 @@ void main() {
       gl.canvas.width = w;
       gl.canvas.height = h;
       for (const t of [frame, spare, ...sides, matteTarget]) allocate(t, w, h);
-      allocate(accum, w, h, floatTargets);
+      allocate(accumTarget, w, h, floatTargets);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
 
@@ -1662,9 +2235,51 @@ void main() {
       const whole = { ...adjustment, opacity: 1, samples: adjustment.samples?.map((s) => ({ ...s, opacity: 1 })) };
       if (!(adjustment.opacity > 0)) return;
       const matteMode = drawMatte(adjustment.matte);
+      const mask = placeMasks(adjustment);
       clearTarget(sides[0]);
       drawLayer(sides[0], { kind: "frame" }, whole);
-      blendInto(sides[0], adjustment.blend ?? 0, adjustment.opacity, true, matteMode);
+      blendInto(sides[0], adjustment.blend ?? 0, adjustment.opacity, true, matteMode, mask);
+    },
+
+    beginGroup(w, h) {
+      w = Math.max(1, Math.min(maxLayer, Math.round(w)));
+      h = Math.max(1, Math.min(maxLayer, Math.round(h)));
+      const id = `${outer.length}:${w}x${h}`;
+      let set = groupSets.get(id);
+      if (!set) {
+        set = { frame: target(), spare: target(), sides: [target(), target()], accum: target(), matte: target(), width: w, height: h };
+        for (const t of [set.frame, set.spare, ...set.sides, set.matte]) allocate(t, w, h);
+        allocate(set.accum, w, h, floatTargets);
+        groupSets.set(id, set);
+      }
+      outer.push(currentSet());
+      useSet(set);
+      bind(frame);
+      gl.disable(gl.BLEND);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    },
+
+    endGroup(key) {
+      const parent = outer.pop();
+      if (!parent) return;
+      // The group's frame becomes the picture (swapping textures, so nothing is copied); the frame gets a fresh one.
+      let pic = pictures.get(key);
+      if (pic && (pic.yuv || pic.textures.length !== 1)) {
+        deletePicture(key);
+        pic = undefined;
+      }
+      if (!pic) {
+        pic = { textures: [texture()], yuv: null, width, height, mipmapped: false, layer: true };
+        pictures.set(key, pic);
+      }
+      const spareTex = pic.textures[0];
+      pic.textures[0] = frame.tex;
+      frame.tex = spareTex;
+      allocate(frame, width, height);
+      Object.assign(pic, { width, height, mipmapped: false, layer: true });
+      useSet(parent);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
 
     prepareShader(shader) {
@@ -1796,11 +2411,26 @@ void main() {
       gl.deleteProgram(pictureProgram.program);
       gl.deleteProgram(copyProgram.program);
       for (const key of [...pictures.keys()]) deletePicture(key);
-      for (const { tex, fbo } of [frame, spare, ...sides, accum, matteTarget, yuv]) {
+      for (const set of groupSets.values()) {
+        for (const { tex, fbo } of [set.frame, set.spare, ...set.sides, set.accum, set.matte]) {
+          gl.deleteTexture(tex);
+          gl.deleteFramebuffer(fbo);
+        }
+      }
+      groupSets.clear();
+      for (const { tex, fbo } of [frame, spare, ...sides, accumTarget, matteTarget, yuv]) {
         gl.deleteTexture(tex);
         gl.deleteFramebuffer(fbo);
       }
       gl.deleteTexture(solidTex);
+      for (const pic of rasters.values()) gl.deleteTexture(pic.textures[0]);
+      rasters.clear();
+      for (const { tex, fbo } of maskTargets.values()) {
+        gl.deleteTexture(tex);
+        gl.deleteFramebuffer(fbo);
+      }
+      maskTargets.clear();
+      if (maskProgram) gl.deleteProgram(maskProgram.program);
       for (const h of histories.values()) deleteHistory(h);
       histories.clear();
       for (const t of flowTargets.values()) {

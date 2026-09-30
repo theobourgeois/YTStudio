@@ -176,9 +176,9 @@ onto the primitives. Do it area by area and look at each:
 
 ## Things to watch
 
-- **Other branches are restyling-sensitive.** PR #22 (`t3code/tier-one-editor-foundations`, with #24
-  merged into it: masks, shape layers, nested sequences, time remapping, graph editing) adds a lot of video
-  editor UI that isn't on main yet. Start from main after it lands, or expect to restyle its screens too.
+- **The newest video editor screens count too.** PR #22 (with #24 in it) is on main since 2026-09-30:
+  masks, shape layers, text animators, expressions, parenting, nested sequences, time remapping, beat sync
+  and the graph editor. Their panels and on-canvas handles need the same sweep as everything else.
 - Don't change what things *do*. This is a look, not a redesign of layouts or interactions: FL-style windows
   in the music editor and Premiere-style panels in the video editor stay as they are.
 - Content colours stay content: clip colours, caption styles, notes, waveforms, video frames. Only the

@@ -1,52 +1,20 @@
 /**
- * Lays out and draws a text clip with the browser's own text engine, so any
- * installed font works. The preview draws it on a <canvas> each time it
- * changes, the export sends the same drawing at the output size, and the
- * on-canvas text editor lines a <textarea> up with the layout, so all three
- * agree.
+ * Lays out a text clip with the browser's own text engine, so any installed font works.
+ * The layout is what the preview, the export and the on-canvas text editor (which lines a
+ * <textarea> up with it) share; the drawing itself is the compositor's (`TextDrawing`, made
+ * from a layout by `shared/text-drawing.ts`), so the preview and the export's page draw the
+ * same text.
  *
- * Text is "point text" like Photoshop's: lines only break where the text has
- * a line break. The frame (what Motion places, scales and rotates) is the
- * text block plus a margin that fits the background box, the stroke, the
- * shadow and any glyphs that reach outside their line; the margin is the same
- * on both sides, so the text stays centred on the frame whatever it grows.
- * All lengths are canvas px; `unit` is canvas px per reference px (the style's
- * sizes are px of the canvas at 1080p).
+ * All lengths are canvas px; `unit` is canvas px per reference px (the style's sizes are px
+ * of the canvas at 1080p).
  */
 import { type TextStyle, applyTextCase } from "@shared/effects";
-import { outputSize } from "@shared/timeline";
-import type { AspectRatio, FontStyleInfo } from "@shared/types";
+import { type TextLayout, textUnit } from "@shared/text-drawing";
+import type { FontStyleInfo } from "@shared/types";
 import { resolveFace } from "@/stores/fonts";
 
-export interface TextLine {
-  text: string;
-  /** Left edge of the line, from the left of the text block. */
-  x: number;
-  width: number;
-}
-
-export interface TextLayout {
-  /** The frame at 100%. */
-  width: number;
-  height: number;
-  /** Top-left of the text block in the frame (the margin on each side). */
-  x: number;
-  y: number;
-  blockWidth: number;
-  blockHeight: number;
-  lines: TextLine[];
-  lineHeight: number;
-  /** First baseline, from the top of the block. */
-  baseline: number;
-  /** How far the background box reaches past the block. */
-  padX: number;
-  padY: number;
-  /** CSS `font` shorthand, plus the width (not part of the shorthand in canvas). */
-  font: string;
-  stretch: string;
-  fontPx: number;
-  letterSpacing: number;
-}
+export { textUnit };
+export type { TextLayout, TextLine } from "@shared/text-drawing";
 
 /** CSS `font` for a style at `px`. */
 export function fontCss(face: FontStyleInfo, family: string, px: number): string {
@@ -78,7 +46,9 @@ const CACHE_SIZE = 200;
 
 export function layoutText(style: TextStyle, unit: number): TextLayout {
   const face = resolveFace(style.font, style.fontStyle);
-  const key = JSON.stringify([style, unit, face]);
+  // What the animators do at this moment changes the drawing, never the layout.
+  const { animators: _, ...laidOut } = style;
+  const key = JSON.stringify([laidOut, unit, face]);
   const hit = cache.get(key);
   if (hit) return hit;
   const layout = measure(style, unit, face);
@@ -137,8 +107,10 @@ function measure(style: TextStyle, unit: number, face: FontStyleInfo): TextLayou
   const padY = fontPx * 0.12;
   const stroke = style.strokeWidth * unit;
   const shadow = style.shadow > 0 ? (style.shadowDistance + style.shadowBlur) * unit : 0;
-  const x = Math.max(padX, overX + stroke) + shadow;
-  const y = Math.max(padY, overY + stroke) + shadow;
+  // Room for letters its animators move, grow or blur.
+  const reach = (style.reach ?? 0) * unit;
+  const x = Math.max(padX, overX + stroke) + shadow + reach;
+  const y = Math.max(padY, overY + stroke) + shadow + reach;
   return {
     ...base,
     width: blockWidth + 2 * x,
@@ -170,121 +142,6 @@ function cssBaseline(font: string, stretch: string, lineHeight: number): number 
   const y = marker.getBoundingClientRect().top - line.getBoundingClientRect().top;
   line.remove();
   return Number.isFinite(y) ? y : null;
-}
-
-function rgba(hex: string, alpha: number): string {
-  const n = Number.parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
-}
-
-/**
- * Draw the text into `ctx` (cleared first) at `scale` device px per canvas
- * px; the drawing covers `layout.width * scale` x `layout.height * scale`.
- */
-export function drawText(ctx: Ctx, style: TextStyle, layout: TextLayout, unit: number, scale: number) {
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  const spacingByHand = !setFont(ctx, layout);
-  ctx.textBaseline = "alphabetic";
-  ctx.textAlign = "left";
-
-  // The shadow falls from the first thing drawn: the box, else the stroke, else the letters.
-  // Canvas shadows ignore the transform, hence the manual scaling.
-  let shadowPending = style.shadow > 0;
-  const castShadow = (on: boolean) => {
-    if (on) {
-      const d = style.shadowDistance * unit * scale * Math.SQRT1_2;
-      ctx.shadowColor = rgba(style.shadowColor, style.shadow);
-      ctx.shadowOffsetX = d;
-      ctx.shadowOffsetY = d;
-      ctx.shadowBlur = style.shadowBlur * unit * scale;
-    } else {
-      ctx.shadowColor = "transparent";
-    }
-    shadowPending = false;
-  };
-
-  const eachLine = (paint: (text: string, x: number, y: number) => void) =>
-    layout.lines.forEach((line, i) => {
-      if (!line.text) return;
-      const x = layout.x + line.x;
-      const y = layout.y + i * layout.lineHeight + layout.baseline;
-      if (!spacingByHand) return paint(line.text, x, y);
-      let cx = x;
-      for (const ch of line.text) {
-        paint(ch, cx, y);
-        cx += ctx.measureText(ch).width + layout.letterSpacing;
-      }
-    });
-
-  if (style.background > 0) {
-    castShadow(shadowPending);
-    ctx.fillStyle = rgba(style.backgroundColor, style.background);
-    ctx.beginPath();
-    ctx.roundRect(
-      layout.x - layout.padX,
-      layout.y - layout.padY,
-      layout.blockWidth + 2 * layout.padX,
-      layout.blockHeight + 2 * layout.padY,
-      layout.fontPx * 0.15,
-    );
-    ctx.fill();
-  }
-  if (style.strokeWidth > 0) {
-    castShadow(shadowPending);
-    ctx.strokeStyle = style.strokeColor;
-    // Centred on the outline, half of it hidden under the fill.
-    ctx.lineWidth = 2 * style.strokeWidth * unit;
-    ctx.lineJoin = "round";
-    eachLine((text, x, y) => ctx.strokeText(text, x, y));
-  }
-  castShadow(shadowPending);
-  ctx.fillStyle = style.fill;
-  eachLine((text, x, y) => ctx.fillText(text, x, y));
-}
-
-/** Largest side, in device px, a drawn text may have (browsers cap canvases). */
-const MAX_SIDE = 8192;
-
-/**
- * Device px per canvas px to draw a text at: `density` (e.g. the screen's
- * pixel ratio times the clip's scale), capped so the drawing stays a sane size.
- */
-export function drawingScale(layout: TextLayout, density: number): number {
-  const side = Math.max(layout.width, layout.height, 1);
-  return Math.max(Math.min(density, MAX_SIDE / side), 1e-3);
-}
-
-/**
- * Size `canvas` for the text drawn `density` times sharper than canvas px (see
- * `drawingScale`) and draw it. Returns false when it already showed exactly
- * that drawing (`previous` is what the last call returned as `key`).
- */
-export function rasterizeText(
-  canvas: HTMLCanvasElement,
-  style: TextStyle,
-  layout: TextLayout,
-  unit: number,
-  density: number,
-  previous?: string,
-): { drawn: boolean; key: string } {
-  const scale = drawingScale(layout, density);
-  const width = Math.max(1, Math.ceil(layout.width * scale));
-  const height = Math.max(1, Math.ceil(layout.height * scale));
-  const key = JSON.stringify([style, layout.font, layout.stretch, unit, width, height]);
-  if (key === previous) return { drawn: false, key };
-  if (canvas.width !== width) canvas.width = width;
-  if (canvas.height !== height) canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Couldn't get a 2D context to draw text.");
-  drawText(ctx, style, layout, unit, scale);
-  return { drawn: true, key };
-}
-
-/** Canvas px per reference px (the canvas at 1080p, which text sizes are given in). */
-export function textUnit(canvas: { width: number }, aspect: AspectRatio): number {
-  return canvas.width / outputSize(aspect, "1080p").width;
 }
 
 /** The CSS font a style is drawn in at `unit` (to load it before laying the text out). */

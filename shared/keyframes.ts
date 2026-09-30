@@ -13,10 +13,11 @@
  * snaps across in between, the curve every "smooth" edit transition uses.
  */
 import { isFiniteNumber, tidy } from "./math.ts";
-import { type ParamSpec, isAnimatable, sameValue, sanitizeValue } from "./params.ts";
-import type { Easing, Keyframe, ParamValue } from "./types.ts";
+import { type ParamSpec, isAnimatable, isPath, sameValue, sanitizeValue } from "./params.ts";
+import { type ArcLengthTable, arcLengthTable, lerpPath, pointAtLength } from "./path.ts";
+import type { Easing, Keyframe, ParamValue, Vec2 } from "./types.ts";
 
-export const EASINGS: readonly Easing[] = ["linear", "ease-in", "ease-out", "ease", "hold"];
+export const EASINGS: readonly Easing[] = ["linear", "ease-in", "ease-out", "ease", "hold", "overshoot", "spring", "bounce"];
 
 /** Keyframes closer than this (seconds) are the same keyframe. */
 export const SAME_KEYFRAME = 1e-3;
@@ -27,6 +28,38 @@ export const MIN_INFLUENCE = 0.01;
 
 /** A keyframe's influence (see `Keyframe.influence`). */
 export const influenceOf = (k: Pick<Keyframe, "influence">) => k.influence ?? DEFAULT_INFLUENCE;
+
+/** The keyframe is arrived at with a movement of its own, which no single Bézier curve makes (see `dynamicProgress`). */
+export const isDynamic = (e: Easing) => e === "overshoot" || e === "spring" || e === "bounce";
+
+/**
+ * How far (0 at the keyframe before, 1 on arrival, beyond 1 while it's past its keyframe)
+ * the value has gone at fraction `f` of the time, arriving by a dynamic easing. `influence`
+ * (the keyframe's, 0.01..1) is how much of it: how far an overshoot goes past (10% at the
+ * usual third), how many times a spring swings. Every one starts at 0 and ends on 1 exactly.
+ */
+export function dynamicProgress(easing: Easing, f: number, influence = DEFAULT_INFLUENCE): number {
+  if (f <= 0) return 0;
+  if (f >= 1) return 1;
+  if (easing === "overshoot") {
+    // Penner's "back out": fast off the mark, past the value, then back onto it.
+    const s = 1.70158 * (influence / DEFAULT_INFLUENCE);
+    const g = f - 1;
+    return 1 + (s + 1) * g * g * g + s * g * g;
+  }
+  if (easing === "spring") {
+    // A damped swing around the value, timed to be on it (and nearly still) at the end.
+    const swings = Math.min(9, Math.max(1, Math.round(influence * 9)));
+    return 1 - Math.exp(-6 * f) * Math.cos((swings + 0.5) * Math.PI * f);
+  }
+  // Penner's "bounce out": it lands, and bounces lower each time.
+  const n = 7.5625;
+  const d = 2.75;
+  if (f < 1 / d) return n * f * f;
+  if (f < 2 / d) return n * (f - 1.5 / d) ** 2 + 0.75;
+  if (f < 2.5 / d) return n * (f - 2.25 / d) ** 2 + 0.9375;
+  return n * (f - 2.625 / d) ** 2 + 0.984375;
+}
 
 /** The keyframe is reached slowly. */
 export const easesIn = (e: Easing) => e === "ease-in" || e === "ease";
@@ -46,9 +79,48 @@ export function sanitizeKeyframes(spec: ParamSpec, raw: unknown): Keyframe[] {
     if (isFiniteNumber(k.influence) && Math.abs(k.influence - DEFAULT_INFLUENCE) > 1e-6) {
       key.influence = tidy(Math.min(1, Math.max(MIN_INFLUENCE, k.influence)));
     }
+    const handleIn = sanitizeHandle(k.handleIn, "in");
+    const handleOut = sanitizeHandle(k.handleOut, "out");
+    if (handleIn) key.handleIn = handleIn;
+    if (handleOut) key.handleOut = handleOut;
+    if (spec.kind === "vec2") {
+      const spatialIn = sanitizeSpatial(k.spatialIn);
+      const spatialOut = sanitizeSpatial(k.spatialOut);
+      if (spatialIn) key.spatialIn = spatialIn;
+      if (spatialOut) key.spatialOut = spatialOut;
+    }
     byTime.set(time, key);
   }
   return [...byTime.values()].sort((a, b) => a.time - b.time);
+}
+
+/** How far a handle's value may overshoot its segment (fractions of the change in value). */
+export const MAX_OVERSHOOT = 10;
+
+/**
+ * A Bézier handle kept inside its segment's unit square in time (so the curve never turns
+ * back in time) and within `MAX_OVERSHOOT` in value. `side` says which end it belongs to:
+ * an out handle can't sit on its own keyframe's time, nor an in handle on its own.
+ */
+export function clampHandle([x, y]: Vec2, side: "in" | "out"): Vec2 {
+  const cx = side === "out" ? Math.min(1, Math.max(MIN_INFLUENCE, x)) : Math.min(1 - MIN_INFLUENCE, Math.max(0, x));
+  return [tidy(cx), tidy(Math.min(MAX_OVERSHOOT, Math.max(-MAX_OVERSHOOT, y)))];
+}
+
+/** How far a spatial handle may reach (in the value's units: many canvases). */
+const MAX_SPATIAL = 20;
+
+/** A spatial handle from storage (none when it's missing, invalid, or no handle at all: [0, 0]). */
+export function sanitizeSpatial(raw: unknown): Vec2 | undefined {
+  if (!Array.isArray(raw) || raw.length !== 2 || !isFiniteNumber(raw[0]) || !isFiniteNumber(raw[1])) return undefined;
+  const at = (v: number) => tidy(Math.min(MAX_SPATIAL, Math.max(-MAX_SPATIAL, v)));
+  const handle: Vec2 = [at(raw[0]), at(raw[1])];
+  return handle[0] === 0 && handle[1] === 0 ? undefined : handle;
+}
+
+function sanitizeHandle(raw: unknown, side: "in" | "out"): Vec2 | undefined {
+  if (!Array.isArray(raw) || raw.length !== 2 || !isFiniteNumber(raw[0]) || !isFiniteNumber(raw[1])) return undefined;
+  return clampHandle([raw[0], raw[1]], side);
 }
 
 /** The keyframe at `time` (within `SAME_KEYFRAME`), if any. */
@@ -63,18 +135,68 @@ export function keyframeAt(keys: readonly Keyframe[], time: number): Keyframe | 
 export function setKeyframe(keys: Keyframe[], time: number, value: ParamValue): Keyframe[] {
   const at = keyframeAt(keys, time);
   if (at && sameValue(at.value, value)) return keys;
-  const added: Keyframe = { time: at?.time ?? tidy(time), value, easing: at?.easing ?? "linear" };
-  if (at?.influence !== undefined) added.influence = at.influence;
+  const added: Keyframe = at ? { ...at, value } : { time: tidy(time), value, easing: "linear" };
   return [...keys.filter((k) => k !== at), added].sort((a, b) => a.time - b.time);
 }
 
 /**
+ * How far the value has gone from `a` to `b` (0..1, more when it overshoots) at fraction
+ * `f` of the time between them: a cubic Bézier from (0, 0) to (1, 1) with control points
+ * (x1, y1) and (x2, y2), x being time. Where x is just `f` (the handles at a third and two
+ * thirds of the time) no solving is needed; otherwise x is solved for `f` first.
+ */
+export function bezierProgress(f: number, x1: number, y1: number, x2: number, y2: number): number {
+  const bezier = (s: number, p1: number, p2: number) => {
+    const g = 1 - s;
+    return 3 * g * g * s * p1 + 3 * g * s * s * p2 + s * s * s;
+  };
+  return bezier(solveBezierX(f, x1, x2), y1, y2);
+}
+
+/** The curve parameter where a unit Bézier's x (control points at `x1`, `x2`) is `f`. */
+function solveBezierX(f: number, x1: number, x2: number): number {
+  if (Math.abs(x1 - 1 / 3) <= 1e-9 && Math.abs(x2 - 2 / 3) <= 1e-9) return f;
+  if (f <= 0) return 0;
+  if (f >= 1) return 1;
+  // x(s) rises monotonically (handles stay inside 0..1): Newton, falling back to bisection.
+  let s = f;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 32; i++) {
+    const g = 1 - s;
+    const x = 3 * g * g * s * x1 + 3 * g * s * s * x2 + s * s * s - f;
+    if (Math.abs(x) < 1e-9) break;
+    if (x > 0) hi = s;
+    else lo = s;
+    const dx = 3 * g * g * x1 + 6 * g * s * (x2 - x1) + 3 * s * s * (1 - x2);
+    const next = dx > 1e-6 ? s - x / dx : (lo + hi) / 2;
+    s = next > lo && next < hi ? next : (lo + hi) / 2;
+  }
+  return s;
+}
+
+/**
+ * The slope of a unit Bézier (dy/dx: progress per fraction of the time) at fraction `f`
+ * of the time: the graph editor's speed, once scaled by the segment's change per second.
+ */
+export function bezierSlope(f: number, x1: number, y1: number, x2: number, y2: number): number {
+  const s = solveBezierX(Math.min(1, Math.max(0, f)), x1, x2);
+  const g = 1 - s;
+  const d = (p1: number, p2: number) => 3 * g * g * p1 + 6 * g * s * (p2 - p1) + 3 * s * s * (1 - p2);
+  const dx = d(x1, x2);
+  const dy = d(y1, y2);
+  if (Math.abs(dx) > 1e-9) return dy / dx;
+  // The ends of a handle of zero length: the slope along the handle itself.
+  if (s < 0.5) return x1 > 1e-9 ? y1 / x1 : 0;
+  return 1 - x2 > 1e-9 ? (1 - y2) / (1 - x2) : 0;
+}
+
+/**
  * How far (0..1) the value has gone from `a` to `b` at fraction `f` of the
- * time between them: a cubic Bezier from (0, 0) to (1, 1), flat on an eased
- * side, whose handles reach `outInfluence` (leaving `a`) and `inInfluence`
- * (reaching `b`) of the way across. A linear side's handle points straight
- * along the line at a third. At 33% influence x is just `f`, so no solving is
- * needed; otherwise the curve's x is solved for `f` first.
+ * time between them, for keyframes eased or not (see `bezierProgress`): an
+ * eased side is flat and its handle reaches `outInfluence` (leaving `a`) or
+ * `inInfluence` (reaching `b`) of the way across; a linear side's handle
+ * points straight along the line at a third.
  */
 export function easedProgress(
   f: number,
@@ -83,44 +205,107 @@ export function easedProgress(
   outInfluence = DEFAULT_INFLUENCE,
   inInfluence = DEFAULT_INFLUENCE,
 ): number {
-  const x1 = easeOut ? outInfluence : 1 / 3;
-  const y1 = easeOut ? 0 : 1 / 3;
-  const x2 = easeIn ? 1 - inInfluence : 2 / 3;
-  const y2 = easeIn ? 1 : 2 / 3;
-  const bezier = (s: number, p1: number, p2: number) => {
-    const g = 1 - s;
-    return 3 * g * g * s * p1 + 3 * g * s * s * p2 + s * s * s;
-  };
-  let s = f;
-  if (Math.abs(x1 - 1 / 3) > 1e-9 || Math.abs(x2 - 2 / 3) > 1e-9) {
-    if (f <= 0) return 0;
-    if (f >= 1) return 1;
-    // x(s) rises monotonically (handles stay inside 0..1): Newton, falling back to bisection.
-    let lo = 0;
-    let hi = 1;
-    for (let i = 0; i < 24; i++) {
-      const x = bezier(s, x1, x2) - f;
-      if (Math.abs(x) < 1e-7) break;
-      if (x > 0) hi = s;
-      else lo = s;
-      const g = 1 - s;
-      const dx = 3 * g * g * x1 + 6 * g * s * (x2 - x1) + 3 * s * s * (1 - x2);
-      const next = dx > 1e-6 ? s - x / dx : (lo + hi) / 2;
-      s = next > lo && next < hi ? next : (lo + hi) / 2;
-    }
-  }
-  return bezier(s, y1, y2);
+  const [x1, y1] = easeOut ? [outInfluence, 0] : [1 / 3, 1 / 3];
+  const [x2, y2] = easeIn ? [1 - inInfluence, 1] : [2 / 3, 2 / 3];
+  return bezierProgress(f, x1, y1, x2, y2);
 }
 
-/** How far (0..1) the value has gone from keyframe `a` to `b` at fraction `f` of the time between them. */
+/**
+ * The control points of the curve from keyframe `a` to `b` in their unit square: the
+ * graph editor's handles where they're set, else what the easing says.
+ */
+export function segmentHandles(a: Keyframe, b: Keyframe): { out: Vec2; in: Vec2 } {
+  const out: Vec2 = a.handleOut ?? (easesOut(a.easing) ? [influenceOf(a), 0] : [1 / 3, 1 / 3]);
+  const into: Vec2 = b.handleIn ?? (easesIn(b.easing) ? [1 - influenceOf(b), 1] : [2 / 3, 2 / 3]);
+  return { out, in: into };
+}
+
+/** A segment follows the plain eased (or linear) curve at 33% influence, a cubic in time. */
+export const isPlainSegment = (a: Keyframe, b: Keyframe) =>
+  a.influence === undefined && b.influence === undefined && !a.handleOut && !b.handleIn && !isDynamic(b.easing);
+
+/** Whether the stretch from `a` to `b` is shaped by how `b` is arrived at (a graph editor handle on either end takes over). */
+export const isDynamicSegment = (a: Keyframe, b: Keyframe) => isDynamic(b.easing) && !a.handleOut && !b.handleIn;
+
+/** How far (0..1, more when it overshoots) the value has gone from keyframe `a` to `b` at fraction `f` of the time between them. */
 export function segmentProgress(a: Keyframe, b: Keyframe, f: number): number {
-  return easedProgress(f, easesOut(a.easing), easesIn(b.easing), influenceOf(a), influenceOf(b));
+  if (isDynamicSegment(a, b)) return dynamicProgress(b.easing, f, influenceOf(b));
+  const h = segmentHandles(a, b);
+  return bezierProgress(f, h.out[0], h.out[1], h.in[0], h.in[1]);
+}
+
+/** Spatial curves' lengths, measured once per pair of keyframes (keyframes are never changed in place). */
+const curves = new WeakMap<Keyframe, { to: Keyframe; table: ArcLengthTable }>();
+
+/**
+ * The curve a point travels from keyframe `a` to `b` when either has a spatial handle on
+ * that side (see `Keyframe.spatialIn`), measured by length; null when it's the straight line.
+ */
+export function spatialCurve(a: Keyframe, b: Keyframe): ArcLengthTable | null {
+  if ((!a.spatialOut && !b.spatialIn) || !Array.isArray(a.value) || !Array.isArray(b.value)) return null;
+  const kept = curves.get(a);
+  if (kept?.to === b) return kept.table;
+  const table = arcLengthTable(
+    {
+      vertices: [
+        { point: a.value, in: [0, 0], out: a.spatialOut ?? [0, 0] },
+        { point: b.value, in: b.spatialIn ?? [0, 0], out: [0, 0] },
+      ],
+      closed: false,
+    },
+    // Values are fractions of the canvas: far finer than a pixel.
+    1e-5,
+  );
+  curves.set(a, { to: b, table });
+  return table;
+}
+
+/** Where a point is `progress` of the way (by length; it may overshoot) along a spatial curve. */
+function alongCurve(table: ArcLengthTable, progress: number): Vec2 {
+  const at = pointAtLength(table, Math.min(1, Math.max(0, progress)) * table.total)!;
+  if (progress >= 0 && progress <= 1) return at.point;
+  // Past an end (an overshooting ease): straight on along the curve's direction there.
+  const over = (progress > 1 ? progress - 1 : progress) * table.total;
+  return [at.point[0] + at.tangent[0] * over, at.point[1] + at.tangent[1] * over];
 }
 
 function mix(a: ParamValue, b: ParamValue, f: number): ParamValue {
   if (isFiniteNumber(a) && isFiniteNumber(b)) return a + (b - a) * f;
   if (Array.isArray(a) && Array.isArray(b)) return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+  // A path morphs, vertex by vertex.
+  if (isPath(a) && isPath(b)) return f <= 0 ? a : f >= 1 ? b : lerpPath(a, b, f);
   return f < 1 ? a : b;
+}
+
+/**
+ * How fast sorted keyframes' value changes at `time` (per second; for a point, the speed
+ * along its path), the graph editor's speed graph. Zero outside them and on a hold.
+ */
+export function keyframeSpeed(keyframes: readonly Keyframe[], time: number): number {
+  const next = keyframes.findIndex((k) => k.time > time);
+  if (next <= 0) return 0;
+  const a = keyframes[next - 1];
+  const b = keyframes[next];
+  if (a.easing === "hold") return 0;
+  const dt = b.time - a.time;
+  const curve = spatialCurve(a, b);
+  const change = curve
+    ? curve.total
+    : isFiniteNumber(a.value) && isFiniteNumber(b.value)
+      ? b.value - a.value
+      : Array.isArray(a.value) && Array.isArray(b.value)
+        ? Math.hypot(b.value[0] - a.value[0], b.value[1] - a.value[1])
+        : 0;
+  if (!(dt > 0)) return 0;
+  const f = (time - a.time) / dt;
+  if (isDynamicSegment(a, b)) {
+    // No closed form worth having: the slope between two near moments.
+    const e = 1e-4;
+    const [lo, hi] = [Math.max(0, f - e), Math.min(1, f + e)];
+    return (change / dt) * ((segmentProgress(a, b, hi) - segmentProgress(a, b, lo)) / (hi - lo));
+  }
+  const h = segmentHandles(a, b);
+  return (change / dt) * bezierSlope(f, h.out[0], h.out[1], h.in[0], h.in[1]);
 }
 
 /** The value of sorted keyframes at `time`: held before the first and after the last. */
@@ -132,5 +317,16 @@ export function keyframeValue(keyframes: Keyframe[], time: number): ParamValue {
   const b = keyframes[next];
   if (a.easing === "hold") return a.value;
   const f = (time - a.time) / (b.time - a.time);
+  const curve = spatialCurve(a, b);
+  if (curve) return alongCurve(curve, segmentProgress(a, b, f));
   return mix(a.value, b.value, segmentProgress(a, b, f));
+}
+
+/** How far a point travels from keyframe `a` to `b`: along its spatial curve, or straight (0 for anything but numbers and points). */
+export function keyframeDistance(a: Keyframe, b: Keyframe): number {
+  const curve = spatialCurve(a, b);
+  if (curve) return curve.total;
+  if (isFiniteNumber(a.value) && isFiniteNumber(b.value)) return Math.abs(b.value - a.value);
+  if (Array.isArray(a.value) && Array.isArray(b.value)) return Math.hypot(b.value[0] - a.value[0], b.value[1] - a.value[1]);
+  return 0;
 }

@@ -10,7 +10,9 @@ import { type EffectPass, type Placed, type Placement2D, type Sample, blendIndex
 import { effectPass, effectPasses, effectsChange } from "./effect-gl.ts";
 import { effectDefinition, lookAt, motionAt, opacityAt } from "./effects.ts";
 import { sourceDelta, timelineTime } from "./timeline.ts";
-import { type Placement, type Size, placeClip, placementAffine } from "./transform.ts";
+import { masksAt } from "./masks.ts";
+import { carryAffine, carryPlacement } from "./parenting.ts";
+import { type Matrix, type Placement, type Size, placeClip, placementAffine } from "./transform.ts";
 import type { Clip, Project } from "./types.ts";
 
 /**
@@ -34,14 +36,26 @@ const whereOf = (w: Placement2D | Where | null): Where | null => (w === null ? n
 /**
  * Where a clip lands at each of its source times: `placementAt`'s 2D placement as an affine
  * map, or for a 3D layer (Motion's 3D Layer switch) that placement in space, seen through the
- * camera at the clip's timeline time then (`camera`).
+ * camera at the clip's timeline time then (`camera`). A parented clip is carried by what its
+ * parents do at that timeline time (`parent`, see `parenting.ts`).
  */
-export function placer(clip: Clip, canvas: Size, placementAt: (time: number) => Placement | null, camera: (t: number) => Camera3D): (time: number) => Where | null {
+export function placer(
+  clip: Clip,
+  canvas: Size,
+  placementAt: (time: number) => Placement | null,
+  camera: (t: number) => Camera3D,
+  parent?: (t: number) => Matrix | null,
+): (time: number) => Where | null {
   return (time) => {
-    const p = placementAt(time);
+    let p = placementAt(time);
     if (!p) return null;
     const motion = motionAt(clip, time);
-    if (!motion.threeD) return { affine: placementAffine(p, canvas) };
+    const delta = parent?.(timelineTime(clip, time)) ?? null;
+    if (!motion.threeD) {
+      const affine = placementAffine(p, canvas);
+      return { affine: delta ? carryAffine(delta, affine, canvas) : affine };
+    }
+    if (delta) p = carryPlacement(p, delta);
     const cam = camera(timelineTime(clip, time));
     const { matrix, depth } = projectLayer(p, motion, canvas, cam);
     const aspect = (p.width * Math.abs(p.scaleX)) / Math.max(1e-9, p.height * Math.abs(p.scaleY));
@@ -128,8 +142,8 @@ export function withTrackMattes<L extends { trackId: string }>(
  * Where a clip whose frame is the canvas at 100% (a solid, an adjustment layer) is at each
  * source time; a 3D solid through `camera` (default: the default camera).
  */
-export function canvasAffine(clip: Clip, canvas: Size, camera?: (t: number) => Camera3D): AffineAt {
-  return placer(clip, canvas, (t) => placeClip(canvas, canvas, motionAt(clip, t)), camera ?? (() => cameraAt(null, 0, canvas)));
+export function canvasAffine(clip: Clip, canvas: Size, camera?: (t: number) => Camera3D, parent?: (t: number) => Matrix | null): AffineAt {
+  return placer(clip, canvas, (t) => placeClip(canvas, canvas, motionAt(clip, t)), camera ?? (() => cameraAt(null, 0, canvas)), parent);
 }
 
 /** Most motion blur moments in the preview and in the export. */
@@ -176,10 +190,12 @@ export function clipLayer(clip: Clip, time: number, placeAt: AffineAt, opts: Lay
   const { affine } = where;
   const look = lookAt(clip, time);
   const effects = [...effectPasses(clip, time, opts.fps), ...defocusPasses(where, time, opts)];
+  const masks = masksAt(clip, time);
   const layer: Omit<Placed, "key"> & { depth?: number } = {
     affine,
     opacity: look.opacity,
     ...(effects.length && { effects }),
+    ...(masks.length && { masks }),
     ...(look.blendMode !== "normal" && { blend: blendIndex(look.blendMode) }),
     ...(look.edges !== "none" && { edges: edgeIndex(look.edges) }),
     ...(where.aspect !== undefined && { aspect: where.aspect }),

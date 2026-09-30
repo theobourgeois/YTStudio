@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { PiFileArrowUp, PiUploadSimple } from "react-icons/pi";
 import { useShallow } from "zustand/react/shallow";
+import { isSequenceId } from "@shared/sequences";
 import { subclipsByAsset } from "@shared/subclips";
 import type { MediaAsset, Subclip } from "@shared/types";
 import { NameDialog } from "@/components/library/library-dialogs";
@@ -62,6 +63,9 @@ export function MediaBin() {
   const requestDelete = (ids: string[], ask = false) => {
     const subclipIds = ids.filter((id) => useEditor.getState().getSubclip(id));
     if (subclipIds.length) useEditor.getState().deleteSubclips(subclipIds);
+    // A nested sequence is part of the video, not a file: deleting it (and its clips) is an edit, undone like one.
+    for (const id of ids) if (isSequenceId(id)) useEditor.getState().deleteSequence(id);
+    ids = ids.filter((id) => !isSequenceId(id));
     const doomed = new Set(ids);
     const chosen = assets.filter((a) => doomed.has(a.id));
     const count = chosen.reduce((n, a) => n + (uses.get(a.id) ?? 0), 0);
@@ -126,13 +130,20 @@ export function MediaBin() {
                             selected={grid.isSelected(id)}
                             count={grid.targets(id).length}
                             onClick={(e) => {
-                              if (!grid.click(e, id) || !(asset.duration > 0)) return;
+                              if (!grid.click(e, id)) return;
+                              // A nested sequence opens in the timeline (it has no file to preview).
+                              if (asset.sequence) return useEditor.getState().openSequence(asset.id);
+                              if (!(asset.duration > 0)) return;
                               if (subclip) useSourcePreview.getState().openSubclip(subclip.id, asset.id);
                               else useSourcePreview.getState().open(asset.id);
                             }}
                             onGrab={() => grid.grab(id)}
                             onAdd={() => useEditor.getState().addAssetsToTimeline(grid.targets(id))}
-                            onAddToLibrary={(folderId) => void useLibrary.getState().addAssets(grid.targets(id), folderId)}
+                            onAddToLibrary={
+                              asset.sequence
+                                ? undefined
+                                : (folderId) => void useLibrary.getState().addAssets(grid.targets(id).filter((x) => !isSequenceId(x)), folderId)
+                            }
                             onDelete={() => requestDelete(grid.targets(id))}
                             onRename={subclip && (() => setRenaming(subclip))}
                           />

@@ -12,8 +12,10 @@ import { ApiRequestError, api } from "@/lib/api";
 /** What autosave needs from the editor store. */
 interface Saveable {
   projectId: string | null;
-  project: Project;
+  /** The whole video (every sequence), which is what's saved. */
+  document: Project;
   gestureBase: Project | null;
+  gestureDocument: Project | null;
 }
 
 const DEBOUNCE_MS = 400;
@@ -103,15 +105,15 @@ export function startAutosave(store: StoreApi<Saveable>) {
     // Opening/closing a project swaps the document; that isn't an edit.
     if (!state.projectId || state.projectId !== prev.projectId) return;
     const gestureEnded = prev.gestureBase !== null && state.gestureBase === null;
-    if (state.gestureBase || (state.project === prev.project && !gestureEnded)) return;
-    pendingSaves.set(state.projectId, state.project);
+    if (state.gestureBase || (state.document === prev.document && !gestureEnded)) return;
+    pendingSaves.set(state.projectId, state.document);
     if (!saving) scheduleSave(DEBOUNCE_MS);
   });
 
   window.addEventListener("pagehide", () => {
-    const { projectId, project, gestureBase } = store.getState();
+    const { projectId, document, gestureDocument } = store.getState();
     // Keep a gesture's current state (e.g. text being typed) rather than lose it.
-    if (projectId && gestureBase && project !== gestureBase) pendingSaves.set(projectId, project);
+    if (projectId && gestureDocument && document !== gestureDocument) pendingSaves.set(projectId, document);
     if (inFlight && !pendingSaves.has(inFlight.id)) pendingSaves.set(inFlight.id, inFlight.project);
     // Keepalive requests are capped (64 KiB in Chromium); bigger ones may not make it.
     for (const [id, p] of pendingSaves) void api.saveProject(id, p, true).catch(() => {});

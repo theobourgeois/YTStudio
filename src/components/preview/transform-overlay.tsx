@@ -5,13 +5,15 @@
  * the anchor point to move it without moving the picture. Every drag is one
  * undo step. With the Type tool, a click adds a text there; double-clicking
  * a text types into it. Pinching on a trackpad (or ⌃/⌘-scrolling) over the
- * monitor scales the selected clip, or the one under the pointer.
+ * monitor scales the selected clip, or the one under the pointer. Paths (masks, drawn
+ * shapes) are edited here too: see `path-overlay.tsx`.
  */
 import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import type { Clip, ParamValue, ParamValues, Vec2 } from "@shared/types";
-import { keyframeTime } from "@shared/animation";
+import type { Clip, Keyframe, ParamValue, ParamValues, Project, Vec2 } from "@shared/types";
+import { type KeyframeRef, keyframeTime, sameRef, setKeyframeSpatial, setKeyframeValue, smoothMotionPath } from "@shared/animation";
 import { keyframeValue } from "@shared/keyframes";
 import { MOTION, findEffect, isTextClip, setParams, textStyleAt } from "@shared/effects";
+import { uncarryMotion } from "@shared/parenting";
 import {
   type Placement,
   type Size,
@@ -33,7 +35,10 @@ import { useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
 import { createText, editText, finishTextEditing, typeText, useTextEditing } from "@/stores/text-editing";
 import { DRAG_THRESHOLD_PX } from "@/components/timeline/constants";
-import { type OnCanvas, clipAtPoint, clipsOnCanvas, snapMove } from "./placement";
+import { usePathEditing } from "@/stores/path-editing";
+import { useKeyframeSelection } from "@/components/properties/keyframe-selection";
+import { PathLayer, pressPath } from "./path-overlay";
+import { type OnCanvas, boxCorners, boxPoint, clipAtPoint, clipsOnCanvas, snapMove } from "./placement";
 
 type Mode =
   | { kind: "move" }
@@ -64,9 +69,9 @@ const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
 
 const RESIZE_CURSORS = ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"];
 
-/** The resize cursor pointing from the frame's centre towards a handle. */
-function resizeCursor(p: Placement, handle: Vec2): string {
-  const [cx, cy] = toCanvas(p, [p.width / 2, p.height / 2]);
+/** The resize cursor pointing from the box's centre (fractions of the frame; the frame's own by default) towards a handle. */
+function resizeCursor(p: Placement, handle: Vec2, centre: Vec2 = [0.5, 0.5]): string {
+  const [cx, cy] = toCanvas(p, [centre[0] * p.width, centre[1] * p.height]);
   const [hx, hy] = toCanvas(p, [handle[0] * p.width, handle[1] * p.height]);
   const angle = ((Math.atan2(hy - cy, hx - cx) * 180) / Math.PI + 180) % 180;
   return RESIZE_CURSORS[Math.round(angle / 45) % 4];
@@ -98,6 +103,27 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
   );
   const selected = onCanvas.find((c) => c.clip.id === selectedId);
   const editing = onCanvas.find((c) => c.clip.id === editingId);
+  // A path of the selected clip showing its points: its vertices are dragged, not the clip.
+  const pathClipId = usePathEditing((s) => s.target?.clipId ?? null);
+  const drawingPath = usePathEditing((s) => s.drawing);
+  const editingPath = !!selected && pathClipId === selected.clip.id;
+  // The path goes with its clip's selection, and the pen stops drawing when another tool is picked.
+  useEffect(() => {
+    if (pathClipId && pathClipId !== selectedId) usePathEditing.getState().edit(null);
+  }, [pathClipId, selectedId]);
+  useEffect(() => {
+    if (tool !== "pen") usePathEditing.getState().finishDrawing();
+  }, [tool]);
+  useEffect(() => {
+    if (!drawingPath) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      usePathEditing.getState().finishDrawing();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawingPath]);
 
   // Stop typing once the text is no longer on the canvas (the playhead moved off it, it was deleted...).
   const editingGone = !!editingId && !editing;
@@ -145,7 +171,7 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
           let delta: Vec2 = [pt[0] - start[0], pt[1] - start[1]];
           if (ev.shiftKey) delta = Math.abs(delta[0]) > Math.abs(delta[1]) ? [delta[0], 0] : [0, delta[1]];
           if (useEditor.getState().snapping && !ev.altKey) {
-            const snapped = snapMove(p0, delta, canvas, SNAP_PX);
+            const snapped = snapMove(boxCorners(target), delta, canvas, SNAP_PX);
             // Shift keeps the constrained axis where it is.
             delta = ev.shiftKey ? [delta[0] && snapped.delta[0], delta[1] && snapped.delta[1]] : snapped.delta;
             nextGuides = {
@@ -160,7 +186,7 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
           // Shift flips the clip's Uniform Scale for this drag: a uniform clip
           // stretches freely (turning Uniform Scale off), a stretched one keeps its proportions.
           const proportional = uniform !== ev.shiftKey;
-          const s = scaleFromHandle(p0, mode.handle, pt, proportional);
+          const s = scaleFromHandle(p0, boxPoint(target, mode.handle), pt, proportional);
           patch = uniform && proportional
             ? { uniformScale: true, scale: s.scaleY }
             : { uniformScale: false, scale: s.scaleY, scaleWidth: s.scaleX };
@@ -181,6 +207,8 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
           break;
         }
       }
+      // Dragged where its parents carry it: the clip's own values are what's left once they're taken off.
+      if (target.parent) patch = uncarryMotion(patch, target.parent, canvas);
       gesture.apply((p) => setParams(p, clip.id, MOTION.type, patch, editTime));
       setGuides(nextGuides);
     };
@@ -218,6 +246,8 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
     if (useEditor.getState().gestureBase) return;
     e.stopPropagation();
     const pt = pointAt(e);
+    // A path's points, or a path tool (a 3D layer's paths aren't edited on the canvas).
+    if (tool !== "text" && pressPath(e, { pointAt, canvas, tool, selected: selected && !selected.corners3d ? selected : undefined })) return;
     const inSelected = selected && clipAtPoint([selected], pt, true);
     const target = inSelected ?? clipAtPoint(onCanvas, pt);
     if (tool === "text") {
@@ -322,15 +352,18 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
   // A 3D layer only moves on the canvas (its other values are in Properties): its outline as the camera sees it.
   const flat = selected && !selected.corners3d;
   const p = flat ? selected.placement : undefined;
-  const corners = p ? frameCorners(p) : null;
-  // No handles while typing: the text box is being edited, not transformed.
-  const handles = selected && selected !== editing;
+  // A shape layer's handles go around its shapes (its frame is the whole canvas).
+  const corners = p ? boxCorners(selected!) : null;
+  // No handles while typing (the text box is being edited, not transformed), while a path
+  // shows its points, or with another tool in hand (its presses are the canvas's, even over the selected clip).
+  const handles = selected && selected !== editing && !editingPath && tool === "select";
 
   return (
     <div
       ref={rootRef}
       data-slot="transform-overlay"
-      className={cn("absolute inset-0 z-10", tool === "text" && "cursor-text")}
+      data-tool={tool}
+      className={cn("absolute inset-0 z-10", tool === "text" && "cursor-text", (tool === "pen" || tool === "rectangle" || tool === "ellipse") && "cursor-crosshair")}
       onPointerDown={onCanvasPointerDown}
       onDoubleClick={onDoubleClick}
       onDragOver={onDragOver}
@@ -347,7 +380,9 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
         {guides.y !== null && (
           <line y1={guides.y} y2={guides.y} x1={0} x2={canvas.width} className="stroke-playhead" strokeWidth={1} />
         )}
-        {selected && !editing && <MotionPath clip={selected.clip} canvas={canvas} />}
+        {flat && !editing && <PathLayer shown={selected} />}
+        {onCanvas.map((c) => c.clip.nullObject && <NullBox key={c.clip.id} target={c} />)}
+        {selected?.clip.parent && <ParentLink child={selected} parent={onCanvas.find((c) => c.clip.id === selected.clip.parent!.id)} />}
         {effectDrop && (
           <polygon
             points={frameCorners(effectDrop.placement).map((c) => c.join(",")).join(" ")}
@@ -399,8 +434,9 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
             />
             <polygon points={corners.map((c) => c.join(",")).join(" ")} className="fill-none stroke-brand" strokeWidth={1.5} />
             {HANDLES.map((h) => {
-              const [x, y] = toCanvas(p, [h[0] * p.width, h[1] * p.height]);
-              const cursor = resizeCursor(p, h);
+              const at = boxPoint(selected, h);
+              const [x, y] = toCanvas(p, [at[0] * p.width, at[1] * p.height]);
+              const cursor = resizeCursor(p, at, boxPoint(selected, [0.5, 0.5]));
               return (
                 <rect
                   key={h.join()}
@@ -416,7 +452,8 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
                 />
               );
             })}
-            <g
+            {/* A null object has no picture to pivot on: its anchor is its centre. */}
+            {!selected.clip.nullObject && <g
               className="pointer-events-auto cursor-crosshair"
               data-handle="anchor"
               onPointerDown={(e) => e.button === 0 && startDrag(e, selected, { kind: "anchor" }, "crosshair")}
@@ -425,9 +462,11 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
               <circle cx={p.x} cy={p.y} r={5} className="fill-none stroke-black/50" strokeWidth={3} />
               <circle cx={p.x} cy={p.y} r={5} className="fill-none stroke-white" strokeWidth={1.5} />
               <path d={`M${p.x - 8} ${p.y}h16M${p.x} ${p.y - 8}v16`} className="stroke-white" strokeWidth={1} />
-            </g>
+            </g>}
           </>
         )}
+        {/* Over the handles, so its keyframes can be grabbed inside the frame. */}
+        {selected && !editing && !editingPath && !selected.parent && <MotionPath clip={selected.clip} canvas={canvas} pointAt={pointAt} />}
       </svg>
     </div>
   );
@@ -495,27 +534,142 @@ function TextEditor({ target }: { target: OnCanvas }) {
   );
 }
 
+/** A null object on the canvas: an outline and a cross where its anchor is (it draws nothing in the video). */
+function NullBox({ target }: { target: OnCanvas }) {
+  const corners = frameCorners(target.placement);
+  const { x, y } = target.placement;
+  return (
+    <g data-null-box={target.clip.id} className="stroke-white/80" style={{ filter: "drop-shadow(0 0 1px rgb(0 0 0 / 0.8))" }}>
+      <polygon points={corners.map((c) => c.join(",")).join(" ")} className="fill-none" strokeWidth={1} strokeDasharray="3 2" />
+      <path d={`M${x - 6} ${y}h12M${x} ${y - 6}v12`} strokeWidth={1} />
+    </g>
+  );
+}
+
+/** A dashed line from a parented clip's anchor to its parent's, like After Effects' parent link. */
+function ParentLink({ child, parent }: { child: OnCanvas; parent: OnCanvas | undefined }) {
+  if (!parent) return null;
+  const [a, b] = [child.placement, parent.placement];
+  return <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="stroke-brand/70" strokeWidth={1} strokeDasharray="2 3" data-parent-link />;
+}
+
 /** Samples drawn per stretch between two position keyframes. */
 const PATH_SAMPLES = 24;
 
-/** Where an animated clip travels (its anchor point), with a dot at each position keyframe, like Premiere's motion path. */
-function MotionPath({ clip, canvas }: { clip: Clip; canvas: Size }) {
+/**
+ * Where an animated clip travels (its anchor point), like After Effects' motion path: a dot
+ * at each position keyframe, which drags to move that keyframe; a selected one shows its
+ * spatial handles, which bend the path (⌥ moves one on its own); ⌥-clicking a dot makes the
+ * path pass smoothly through it, or straight again.
+ */
+function MotionPath({ clip, canvas, pointAt }: { clip: Clip; canvas: Size; pointAt: (e: { clientX: number; clientY: number }) => Vec2 }) {
+  const selection = useKeyframeSelection((s) => (s.clipId === clip.id ? s.refs : null));
   const motion = findEffect(clip, MOTION.type);
   const keys = motion?.enabled ? motion.keyframes?.position : undefined;
   if (!keys || keys.length < 2) return null;
   const toPx = (v: ParamValue): Vec2 => [(v as Vec2)[0] * canvas.width, (v as Vec2)[1] * canvas.height];
+  const refOf = (k: Keyframe): KeyframeRef => ({ effectId: MOTION.type, key: "position", time: k.time });
+  const isSelected = (k: Keyframe) => !!selection?.some((r) => sameRef(r, refOf(k)));
   const points: Vec2[] = [];
   for (let i = 0; i < keys.length - 1; i++) {
     const [a, b] = [keys[i].time, keys[i + 1].time];
     for (let n = 0; n < PATH_SAMPLES; n++) points.push(toPx(keyframeValue(keys, a + ((b - a) * n) / PATH_SAMPLES)));
   }
   points.push(toPx(keys[keys.length - 1].value));
+
+  /** Drag something of a keyframe: every move is worked out from how things were at the press. */
+  const drag = (e: ReactPointerEvent, change: (delta: Vec2, ev: PointerEvent) => (p: Project) => Project, onClick?: () => void) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    usePlayback.getState().pause();
+    const start = pointAt(e);
+    const gesture = new EditGesture();
+    startPointerDrag(e, {
+      threshold: DRAG_THRESHOLD_PX,
+      cursor: "default",
+      onStart: () => gesture.begin(),
+      onMove(ev) {
+        if (!gesture.active) return cancelActiveDrag();
+        const pt = pointAt(ev);
+        const edit = change([(pt[0] - start[0]) / canvas.width, (pt[1] - start[1]) / canvas.height], ev);
+        gesture.apply((p) => edit(useEditor.getState().gestureBase ?? p));
+      },
+      onEnd: () => gesture.end(),
+      onCancel: () => gesture.cancel(),
+      onClick,
+    });
+  };
+
+  const pressDot = (e: ReactPointerEvent, k: Keyframe) => {
+    const ref = refOf(k);
+    if (e.altKey) {
+      e.stopPropagation();
+      useEditor.getState().commit((p) => smoothMotionPath(p, clip.id, [ref], !(k.spatialIn || k.spatialOut)));
+      useKeyframeSelection.getState().select(clip.id, [ref]);
+      return;
+    }
+    useKeyframeSelection.getState().select(clip.id, [ref], e.shiftKey ? "add" : "replace");
+    const from = k.value as Vec2;
+    drag(e, (d) => (p) => setKeyframeValue(p, clip.id, ref, [from[0] + d[0], from[1] + d[1]]));
+  };
+
+  const pressHandle = (e: ReactPointerEvent, k: Keyframe, side: "in" | "out") => {
+    const ref = refOf(k);
+    const from = (side === "in" ? k.spatialIn : k.spatialOut)!;
+    const other = side === "in" ? k.spatialOut : k.spatialIn;
+    drag(e, (d, ev) => (p) => {
+      const handle: Vec2 = [from[0] + d[0], from[1] + d[1]];
+      // The other handle stays opposite (a smooth pass) unless ⌥ is held.
+      const length = Math.hypot(handle[0], handle[1]);
+      const reach = other ? Math.hypot(other[0], other[1]) : 0;
+      const opposite: Vec2 | undefined = !ev.altKey && other && length > 0 ? [(-handle[0] / length) * reach, (-handle[1] / length) * reach] : undefined;
+      return setKeyframeSpatial(p, clip.id, ref, side === "in" ? { in: handle, ...(opposite && { out: opposite }) } : { out: handle, ...(opposite && { in: opposite }) });
+    });
+  };
+
   return (
     <g data-motion-path>
-      <polyline points={points.map((p) => p.join(",")).join(" ")} className="fill-none stroke-white/70" strokeWidth={1} strokeDasharray="3 3" />
+      <polyline points={points.map((p) => p.join(",")).join(" ")} className="fill-none stroke-black/40" strokeWidth={3} />
+      <polyline points={points.map((p) => p.join(",")).join(" ")} className="fill-none stroke-white/80" strokeWidth={1} strokeDasharray="3 3" />
+      {keys.map((k) => {
+        if (!isSelected(k)) return null;
+        const [x, y] = toPx(k.value);
+        return (["in", "out"] as const).map((side) => {
+          const h = side === "in" ? k.spatialIn : k.spatialOut;
+          if (!h) return null;
+          const [hx, hy] = [x + h[0] * canvas.width, y + h[1] * canvas.height];
+          return (
+            <g key={`${k.time}${side}`}>
+              <line x1={x} y1={y} x2={hx} y2={hy} className="stroke-brand" strokeWidth={1} />
+              <circle
+                data-motion-handle={side}
+                cx={hx}
+                cy={hy}
+                r={4}
+                className="pointer-events-auto cursor-pointer fill-white stroke-brand"
+                strokeWidth={1.5}
+                onPointerDown={(e) => pressHandle(e, k, side)}
+              />
+            </g>
+          );
+        });
+      })}
       {keys.map((k) => {
         const [x, y] = toPx(k.value);
-        return <circle key={k.time} cx={x} cy={y} r={3} className="fill-white stroke-brand" strokeWidth={1.5} />;
+        return (
+          <circle
+            key={k.time}
+            data-motion-keyframe={k.time}
+            data-selected={isSelected(k) || undefined}
+            cx={x}
+            cy={y}
+            r={isSelected(k) ? 4.5 : 3.5}
+            className={cn("pointer-events-auto cursor-pointer stroke-brand", isSelected(k) ? "fill-brand" : "fill-white")}
+            strokeWidth={1.5}
+            onPointerDown={(e) => pressDot(e, k)}
+          />
+        );
       })}
     </g>
   );
