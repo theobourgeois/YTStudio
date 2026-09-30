@@ -65,7 +65,7 @@ const stepsWidth = (steps: number) => stepLeft(steps - 1) + STEP_W;
 /** FL Studio's rack alternates two colours, beat by beat. */
 const oddBeat = (step: number) => Math.floor(step / GROUP) % 2 === 1;
 /** Width of everything left of the steps in a row. */
-const LEAD = "w-[190px]";
+const LEAD = "w-[204px]";
 const isAudio = (file: File) => file.type.startsWith("audio/") || /\.(wav|aiff?|flac|mp3|ogg|m4a)$/i.test(file.name);
 const audioFiles = (files: FileList | null) => [...(files ?? [])].filter(isAudio);
 
@@ -368,9 +368,9 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
           <ContextMenuItem onSelect={() => solo(id)}>Solo</ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
-      <SongKnob size={18} label="Pan" value={channel.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateChannel(song, id, { pan })} />
+      <SongKnob size={21} label="Pan" value={channel.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateChannel(song, id, { pan })} />
       <SongKnob
-        size={18}
+        size={21}
         label="Volume"
         value={channel.volume}
         min={0}
