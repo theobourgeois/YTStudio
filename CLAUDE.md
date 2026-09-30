@@ -67,6 +67,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   scene.ts           What each video track shows at time t (clip + source time, or transition + sides).
   transition-gl.ts   Transition shader prelude, fragmentSource, uniforms.
   transform.ts       Where a clip lands on the canvas (fit → scale/rotate around the anchor).
+  path.ts            Bézier paths (AE-style relative handles) for masks, shapes, text on a path, motion paths: shapes,
+                     lengths, bounds, flattening, strokes, hit tests, edits, morphing, triangulation, SVG in/out.
   captions.ts        Auto captions: presets, words → caption cues (fitting the canvas), transcripts → timeline,
                      edits to every caption at once (style, animation, merge).
   library.ts         The shared Library: folder tree, saved clips (ClipTemplate: normalize, placeTemplate), search.
