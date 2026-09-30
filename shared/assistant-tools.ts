@@ -481,8 +481,11 @@ export const ASSISTANT_TOOLS = [
       "animation. An empty list stops animating it (it keeps `value`, or the value it had at the first " +
       "keyframe). Easing: linear, ease-in, ease-out, ease, hold. `influence` (0.01..1, default 0.33) is how far " +
       "an eased keyframe's handle reaches, like After Effects' keyframe velocity: 0.75-0.9 on both ends of a move " +
-      "gives the snappy, lingering-then-whipping motion of edit-style zooms and spins. Turn on motion blur " +
-      "(set_properties motion motionBlur) for fast moves.",
+      "gives the snappy, lingering-then-whipping motion of edit-style zooms and spins. For full control (the graph " +
+      "editor), `handleOut`/`handleIn` are Bézier handles [x, y] in the unit square of the segment leaving/arriving " +
+      "at the keyframe: x = fraction of the time to the neighbouring keyframe, y = fraction of the change in value " +
+      "(y beyond 0..1 overshoots, e.g. handleOut [0.2, 0.9] shoots off fast; handleIn [0.6, 1.3] overshoots then " +
+      "settles). A handle overrides easing on its side. Turn on motion blur (set_properties motion motionBlur) for fast moves.",
     inputSchema: obj(
       {
         clipId: str("Clip id."),
@@ -495,6 +498,8 @@ export const ASSISTANT_TOOLS = [
               value: { description: "Number, or [x, y] for points." },
               easing: oneOf(["linear", "ease-in", "ease-out", "ease", "hold"], "How it's passed (default linear)."),
               influence: num("How far its ease reaches, 0.01..1 (default 0.33).", { minimum: 0.01, maximum: 1 }),
+              handleIn: arr(num("x, then y."), "Bézier handle arriving at it: [x 0..0.99, y] in the previous segment's unit square."),
+              handleOut: arr(num("x, then y."), "Bézier handle leaving it: [x 0.01..1, y] in the next segment's unit square."),
             },
             ["time", "value"],
           ),

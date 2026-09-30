@@ -45,7 +45,7 @@ import {
   textStyleAt,
 } from "@shared/effects";
 import { formatDuration, formatSpeed } from "@shared/format";
-import { isAnimatable, sameValue } from "@shared/params";
+import { type NumberSpec, type Vec2Spec, isAnimatable, sameValue } from "@shared/params";
 import { canRetime, clipDuration, clipName, clipSpeed, getClip, getTrack, isOnVideoTrack, outputSize, sourceTime } from "@shared/timeline";
 import { refKey } from "@shared/transition-windows";
 import {
@@ -61,10 +61,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { layoutText } from "@/lib/text-render";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
-import { useLayout } from "@/stores/layout";
+import { graphId, useLayout } from "@/stores/layout";
 import { usePlayback } from "@/stores/playback";
 import { KeyframeNavigator, Stopwatch } from "./animation-controls";
 import type { DisplayContext } from "./display";
+import { GraphControls, GraphToggle, ParamGraph } from "./graph-editor";
 import { EffectLane, KeyframeRuler, KeyframesRoot, ParamLane } from "./keyframe-lanes";
 import { ParamRow, ResetButton, useParamEditors } from "./param-rows";
 import { TransitionProperties } from "./transition-properties";
@@ -316,6 +317,7 @@ export function EffectSection({
 }) {
   const clipId = clip.id;
   const [open, setOpen] = useState(() => toggled.has(collapseKey) !== defaultOpen);
+  const openGraphs = useLayout((s) => s.graphs);
   const values = storedValuesAt(def, effect, time);
   const commit = useEditor((s) => s.commit);
   const to: EffectTarget = target ?? {
@@ -390,23 +392,42 @@ export function EffectSection({
             const animated = !!effect.keyframes?.[spec.key]?.length;
             const label = spec.labelFor?.(values) ?? spec.label;
             const param = { clipId, effectId: effect.id, paramKey: spec.key, label };
+            const graphable = lanes && animatable && animated && (spec.kind === "number" || spec.kind === "vec2");
+            const graph = graphable ? graphId(effect.type, spec.key) : null;
             return (
-              <PanelRow
-                key={spec.key}
-                lanes={lanes}
-                lane={animatable ? <ParamLane clip={clip} effectId={effect.id} paramKey={spec.key} label={label} /> : null}
-              >
-                <ParamRow
-                  spec={spec}
-                  values={values}
-                  specs={params}
-                  ctx={ctx}
-                  edit={editor(spec.key)}
-                  // Edits that go elsewhere (all captions) can't animate this clip: no stopwatch column at all.
-                  animation={target ? undefined : animatable ? <Stopwatch {...param} animated={animated} /> : null}
-                  navigator={animatable && animated ? <KeyframeNavigator {...param} /> : null}
-                />
-              </PanelRow>
+              <Fragment key={spec.key}>
+                <PanelRow
+                  lanes={lanes}
+                  lane={
+                    animatable ? (
+                      <>
+                        <ParamLane clip={clip} effectId={effect.id} paramKey={spec.key} label={label} />
+                        {graph && <GraphToggle id={graph} spec={spec as NumberSpec | Vec2Spec} label={label} />}
+                      </>
+                    ) : null
+                  }
+                >
+                  <ParamRow
+                    spec={spec}
+                    values={values}
+                    specs={params}
+                    ctx={ctx}
+                    edit={editor(spec.key)}
+                    // Edits that go elsewhere (all captions) can't animate this clip: no stopwatch column at all.
+                    animation={target ? undefined : animatable ? <Stopwatch {...param} animated={animated} /> : null}
+                    navigator={animatable && animated ? <KeyframeNavigator {...param} /> : null}
+                  />
+                </PanelRow>
+                {graph && openGraphs[graph] && (
+                  <PanelRow
+                    lanes={lanes}
+                    className="border-y bg-muted/20"
+                    lane={<ParamGraph clip={clip} effectId={effect.id} spec={spec as NumberSpec | Vec2Spec} mode={openGraphs[graph]} />}
+                  >
+                    <GraphControls id={graph} spec={spec as NumberSpec | Vec2Spec} label={label} />
+                  </PanelRow>
+                )}
+              </Fragment>
             );
           })}
           <PanelRow lanes={lanes}>

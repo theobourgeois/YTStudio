@@ -72,11 +72,24 @@ interface LayoutState {
   /** The Properties tab shows keyframe lanes next to the values (Premiere's Effect Controls timeline). */
   keyframesOpen: boolean;
   toggleKeyframes: () => void;
+  /**
+   * Properties whose graph editor is open under their keyframe lane (by `graphId`), and
+   * which graph each shows: the value, or the speed (After Effects' Value and Speed Graphs).
+   */
+  graphs: Record<string, GraphMode>;
+  /** Open a property's graph (in `mode`) or, with null, close it. */
+  setGraph: (id: string, mode: GraphMode | null) => void;
   /** The left panel's widths in px, as dragged (the panel keeps them inside the window). */
   panelWidths: Record<PanelWidthMode, number>;
   /** Set one of them (clamped); `save` remembers it for next time (at the end of a drag). */
   setPanelWidth: (mode: PanelWidthMode, width: number, save?: boolean) => void;
 }
+
+/** What a property's graph editor shows. */
+export type GraphMode = "value" | "speed";
+
+/** A property's graph editor, by effect type (so it stays open from clip to clip) and parameter. */
+export const graphId = (effectType: string, key: string) => `${effectType}:${key}`;
 
 export const useLayout = create<LayoutState>((set, get) => ({
   sidebarOpen: localStorage.getItem(SIDEBAR_KEY) !== "false",
@@ -114,6 +127,11 @@ export const useLayout = create<LayoutState>((set, get) => ({
     const keyframesOpen = !get().keyframesOpen;
     localStorage.setItem(KEYFRAMES_KEY, String(keyframesOpen));
     set({ keyframesOpen });
+  },
+  graphs: {},
+  setGraph(id, mode) {
+    const { [id]: _, ...rest } = get().graphs;
+    set({ graphs: mode ? { ...rest, [id]: mode } : rest });
   },
   panelWidths: storedPanelWidths(),
   setPanelWidth(mode, width, save = false) {

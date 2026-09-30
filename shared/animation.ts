@@ -9,11 +9,11 @@
  * from the timeline. Edits return the same project when nothing changes.
  */
 import { effectDefinition, paramSpec, storedValuesAt, updateEffect } from "./effects.ts";
-import { DEFAULT_INFLUENCE, MIN_INFLUENCE, SAME_KEYFRAME, keyframeAt, keyframeValue, setKeyframe } from "./keyframes.ts";
+import { DEFAULT_INFLUENCE, MIN_INFLUENCE, SAME_KEYFRAME, clampHandle, keyframeAt, keyframeValue, setKeyframe } from "./keyframes.ts";
 import { tidy } from "./math.ts";
 import { isAnimatable } from "./params.ts";
 import { clipEnd, sourceTime, timelineTime } from "./timeline.ts";
-import type { Clip, Easing, Effect, Keyframe, Project } from "./types.ts";
+import type { Clip, Easing, Effect, Keyframe, Project, Vec2 } from "./types.ts";
 
 /** One keyframe of one of a clip's parameters. */
 export interface KeyframeRef {
@@ -189,8 +189,8 @@ export function setKeyframeEasing(project: Project, clipId: string, refs: readon
   let p = project;
   for (const { effectId, key, times } of byParam(refs).values()) {
     p = updateKeys(p, clipId, effectId, key, (keys) => {
-      if (!keys.some((k) => isAny(times)(k) && k.easing !== easing)) return null;
-      return { keys: keys.map((k) => (isAny(times)(k) ? { ...k, easing } : k)) };
+      if (!keys.some((k) => isAny(times)(k) && (k.easing !== easing || k.handleIn || k.handleOut))) return null;
+      return { keys: keys.map((k) => (isAny(times)(k) ? { ...withoutHandles(k), easing } : k)) };
     });
   }
   return p;
@@ -206,17 +206,63 @@ export function setKeyframeInfluence(project: Project, clipId: string, refs: rea
   let p = project;
   for (const { effectId, key, times } of byParam(refs).values()) {
     p = updateKeys(p, clipId, effectId, key, (keys) => {
-      if (!keys.some((k) => isAny(times)(k) && !same(k))) return null;
+      if (!keys.some((k) => isAny(times)(k) && (!same(k) || k.handleIn || k.handleOut))) return null;
       return {
         keys: keys.map((k) => {
           if (!isAny(times)(k)) return k;
-          const { influence: _, ...rest } = k;
+          const { influence: _, ...rest } = withoutHandles(k);
           return Math.abs(value - DEFAULT_INFLUENCE) < 1e-6 ? rest : { ...rest, influence: value };
         }),
       };
     });
   }
   return p;
+}
+
+/** A keyframe without the graph editor's handles (back to what its easing says). */
+function withoutHandles(k: Keyframe): Keyframe {
+  if (!k.handleIn && !k.handleOut) return k;
+  const { handleIn: _i, handleOut: _o, ...rest } = k;
+  return rest;
+}
+
+/**
+ * The graph editor: set (or with null, clear) one keyframe's Bézier handles (see
+ * `Keyframe.handleIn`), each clamped into its segment. Absent sides are left alone.
+ */
+export function setKeyframeHandles(
+  project: Project,
+  clipId: string,
+  ref: KeyframeRef,
+  handles: { in?: Vec2 | null; out?: Vec2 | null },
+): Project {
+  return updateKeys(project, clipId, ref.effectId, ref.key, (keys) => {
+    const at = keyframeAt(keys, ref.time);
+    if (!at) return null;
+    const next: Keyframe = { ...at };
+    for (const side of ["in", "out"] as const) {
+      const h = handles[side];
+      if (h === undefined) continue;
+      const field = side === "in" ? "handleIn" : "handleOut";
+      if (h === null) delete next[field];
+      else next[field] = clampHandle(h, side);
+    }
+    const same = (a?: Vec2, b?: Vec2) => (!a && !b) || (!!a && !!b && a[0] === b[0] && a[1] === b[1]);
+    if (same(next.handleIn, at.handleIn) && same(next.handleOut, at.handleOut)) return null;
+    return { keys: keys.map((k) => (k === at ? next : k)) };
+  });
+}
+
+/**
+ * Set one keyframe's value (the graph editor's vertical drag). Values are sanitised
+ * like any stored value by the caller's spec (numbers here).
+ */
+export function setKeyframeValue(project: Project, clipId: string, ref: KeyframeRef, value: Keyframe["value"]): Project {
+  return updateKeys(project, clipId, ref.effectId, ref.key, (keys) => {
+    const at = keyframeAt(keys, ref.time);
+    if (!at || at.value === value) return null;
+    return { keys: keys.map((k) => (k === at ? { ...k, value } : k)) };
+  });
 }
 
 /** Every keyframe of a clip (optionally only those at source time `time`, or of one effect). */

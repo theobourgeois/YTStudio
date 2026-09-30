@@ -39,7 +39,7 @@ import {
   textEffects,
   updateEffect,
 } from "@shared/effects";
-import { DEFAULT_INFLUENCE, EASINGS, MIN_INFLUENCE } from "@shared/keyframes";
+import { DEFAULT_INFLUENCE, EASINGS, MIN_INFLUENCE, clampHandle } from "@shared/keyframes";
 import { addPresetLayer, applyPresetToClips, presetDefinition } from "@shared/presets";
 import { addSubclips, canSubclip, cleanSubclipName, getSubclip, removeSubclips, subclipRange, updateSubclip } from "@shared/subclips";
 import { EPS, roundTime, tidy } from "@shared/math";
@@ -620,7 +620,16 @@ const setKeyframes: EditHandler = (project, input) => {
     const easing: Easing = oneOf(kf, "easing", EASINGS) ?? "linear";
     const influence = optNumber(kf, "influence", { min: MIN_INFLUENCE, max: 1 });
     const time = toSource(clip, t);
-    keys.set(time, { time, value: v, easing, ...(influence !== undefined && Math.abs(influence - DEFAULT_INFLUENCE) > 1e-6 && { influence: tidy(influence) }) });
+    const handleIn = optVec2(kf, "handleIn");
+    const handleOut = optVec2(kf, "handleOut");
+    keys.set(time, {
+      time,
+      value: v,
+      easing,
+      ...(influence !== undefined && Math.abs(influence - DEFAULT_INFLUENCE) > 1e-6 && { influence: tidy(influence) }),
+      ...(handleIn && { handleIn: clampHandle(handleIn, "in") }),
+      ...(handleOut && { handleOut: clampHandle(handleOut, "out") }),
+    });
   }
   const sorted = [...keys.values()].sort((a, b) => a.time - b.time);
   const p = updateEffect(project, clip.id, effect.id, (e) => ({ ...e, keyframes: { ...e.keyframes, [key]: sorted } }));

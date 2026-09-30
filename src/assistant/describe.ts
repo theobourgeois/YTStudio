@@ -186,6 +186,8 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
                 value: round(kf.value),
                 easing: kf.easing,
                 ...(kf.influence !== undefined && { influence: kf.influence }),
+                ...(kf.handleIn && { handleIn: kf.handleIn }),
+                ...(kf.handleOut && { handleOut: kf.handleOut }),
               })),
             ]),
           ),

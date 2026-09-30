@@ -33,7 +33,7 @@
 import { type Adjustment, type Affine, type EffectPass, type Placed, matteIndex } from "../shared/compositor.ts";
 import { effectPasses, effectShader } from "../shared/effect-gl.ts";
 import { VOLUME, clipKind, effectDefinition, findEffect, hasMedia, isTextClip, lookAt, motionAt, opacityAt, solidColorAt, volumeAt } from "../shared/effects.ts";
-import { easesIn, easesOut, segmentProgress } from "../shared/keyframes.ts";
+import { easesIn, easesOut, isPlainSegment, segmentProgress } from "../shared/keyframes.ts";
 import { EXPORT_SAMPLES, canvasAffine, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "../shared/layers.ts";
 import { type Shown, handleTime, sceneAt, transitionWindows } from "../shared/scene.ts";
 import {
@@ -600,7 +600,7 @@ export function keyframeExpression(keys: readonly Keyframe[], offset: number, ti
     if (a.easing !== "hold" && b.value !== a.value) {
       const f = `((${time}-${at(a)})/${n(b.time - a.time)})`;
       const change = n((b.value as number) - (a.value as number));
-      if (a.influence === undefined && b.influence === undefined) {
+      if (isPlainSegment(a, b)) {
         // easedProgress at 33% influence: 3(1-f)²f·y1 + 3(1-f)f²·y2 + f³.
         const g = `(1-${f})`;
         const y1 = easesOut(a.easing) ? 0 : 1 / 3;
@@ -608,7 +608,7 @@ export function keyframeExpression(keys: readonly Keyframe[], offset: number, ti
         const curve = `(${n(3 * y1)}*${g}*${g}*${f}+${n(3 * y2)}*${g}*${f}*${f}+${f}*${f}*${f})`;
         piece = `${value(a)}+${change}*${curve}`;
       } else {
-        // Other influences need the curve solved for time: follow it in short straight pieces.
+        // Other influences and the graph editor's handles need the curve solved for time: follow it in short straight pieces.
         const PIECES = 48;
         let curve = "1";
         for (let j = PIECES - 1; j >= 0; j--) {

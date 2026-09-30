@@ -190,6 +190,18 @@ describe("assistant edits", () => {
     expect(JSON.parse(describeClips(snappy, assets, [a.id]))[0].effects[0].keyframes.scale[0]).toMatchObject({ influence: 0.9 });
   });
 
+  it("sets the graph editor's Bézier handles", () => {
+    const p = withTwoClips();
+    const a = main(p)[0];
+    const out = run(p, [
+      "set_keyframes",
+      { clipId: a.id, effect: "motion", param: "scale", keyframes: [{ time: 0, value: 1, handleOut: [0.2, 0.9] }, { time: 2, value: 2, handleIn: [2, 1.3] }] },
+    ]);
+    const keys = findEffect(getClip(out, a.id)!, "motion")!.keyframes!.scale;
+    expect(keys.map((k) => [k.handleOut, k.handleIn])).toEqual([[[0.2, 0.9], undefined], [undefined, [0.99, 1.3]]]);
+    expect(JSON.parse(describeClips(out, assets, [a.id]))[0].effects[0].keyframes.scale[0]).toMatchObject({ handleOut: [0.2, 0.9] });
+  });
+
   it("keyframes at timeline times (stored in source time)", () => {
     const p = withTwoClips();
     const b = main(p)[1]; // starts at 10, source from 1

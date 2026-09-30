@@ -37,6 +37,8 @@ export interface NumberSpec extends SpecBase<"number", number> {
   decimals: number;
   /** Also show a slider (short, bounded ranges). */
   slider?: boolean;
+  /** How the graph editor's Speed Graph shows its speed (default: display units per second). */
+  speed?: { scale: number; unit: string };
 }
 
 export interface Vec2Spec extends SpecBase<"vec2", Vec2> {

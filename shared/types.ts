@@ -218,6 +218,15 @@ export interface Keyframe {
    * the move in between. Absent means 1/3 (Premiere's Ease In/Out).
    */
   influence?: number;
+  /**
+   * The graph editor's Bézier handles (After Effects' temporal handles), each a point in its
+   * segment's unit square: x is the fraction of the time between the two keyframes, y the
+   * fraction of the change in value (it may overshoot, below 0 or above 1). `handleOut`
+   * leaves this keyframe (in the segment after it), `handleIn` arrives at it (in the segment
+   * before it, so its x is near 1). A side with a handle ignores `easing` and `influence`.
+   */
+  handleIn?: Vec2;
+  handleOut?: Vec2;
 }
 
 /** One effect on a clip (Premiere's "Effect Controls" entries). */
