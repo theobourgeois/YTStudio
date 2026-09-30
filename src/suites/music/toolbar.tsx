@@ -32,11 +32,11 @@ export function MusicToolbar() {
   const error = useTransport((s) => s.error);
 
   return (
-    <header data-titlebar="header" className="flex h-[74px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-2.5">
+    <header data-titlebar="header" className="flex h-[76px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-2">
       <div className="flex items-center">
         <SidebarLead />
       </div>
-      <div className="flex w-40 min-w-0 shrink-0 flex-col justify-center gap-1">
+      <div className="flex w-36 min-w-0 shrink-0 flex-col justify-center gap-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 h-7 px-1 text-[14px]" />
           <SettledBadge />
@@ -52,7 +52,7 @@ export function MusicToolbar() {
       </div>
       <Groove />
 
-      <div className="flex w-[212px] shrink-0 flex-col justify-between">
+      <div className="flex w-[212px] shrink-0 flex-col justify-center gap-1">
         <div className="flex items-center gap-1.5">
           <MetronomeToggle />
           <WindowToggles />
@@ -301,7 +301,7 @@ function PositionSlider() {
 function MetronomeToggle() {
   const metronome = useTransport((s) => s.metronome);
   return (
-    <Toggle size="sm" className="h-[26px] min-w-[26px] px-1 [&_svg:not([class*=size-])]:size-4" pressed={metronome} onPressedChange={(on) => useTransport.getState().setMetronome(on)} aria-label="Metronome" title="Metronome">
+    <Toggle size="sm" className="size-7 min-w-7 px-0 [&_svg:not([class*=size-])]:size-[18px]" pressed={metronome} onPressedChange={(on) => useTransport.getState().setMetronome(on)} aria-label="Metronome" title="Metronome">
       <PiMetronome />
     </Toggle>
   );
@@ -313,12 +313,12 @@ function WindowToggles() {
   const pianoOpen = useMusicUi((s) => s.pianoOpen);
   return (
     <>
-      <Toggle size="sm" className="h-[26px] min-w-[26px] px-1 [&_svg:not([class*=size-])]:size-4" pressed={rackOpen} onPressedChange={(open) => useMusicUi.getState().setRackOpen(open)} aria-label="Channel rack" title="Channel rack (F6)">
+      <Toggle size="sm" className="size-7 min-w-7 px-0 [&_svg:not([class*=size-])]:size-[18px]" pressed={rackOpen} onPressedChange={(open) => useMusicUi.getState().setRackOpen(open)} aria-label="Channel rack" title="Channel rack (F6)">
         <PiRows />
       </Toggle>
       <Toggle
         size="sm"
-        className="h-[26px] min-w-[26px] px-1 [&_svg:not([class*=size-])]:size-4"
+        className="size-7 min-w-7 px-0 [&_svg:not([class*=size-])]:size-[18px]"
         pressed={pianoOpen}
         onPressedChange={(open) => (open ? openPianoRoll() : useMusicUi.getState().setPianoOpen(false))}
         aria-label="Piano roll"
@@ -345,7 +345,7 @@ function Monitor() {
   const level = Math.max(0, Math.min(1, (db + 48) / 48));
   return (
     <div
-      className="sunken flex h-10 w-28 shrink-0 flex-col justify-center gap-1.5 rounded-sm px-2"
+      className="sunken flex h-10 w-24 shrink-0 flex-col justify-center gap-1.5 rounded-sm px-2"
       title={`Output ${Number.isFinite(db) ? `${db.toFixed(1)} dB` : "silent"} · engine ${cpu}%`}
     >
       <div className="flex items-baseline justify-between text-[10px] leading-none text-muted-foreground">

@@ -36,7 +36,7 @@ export function PatternPicker() {
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="sunken flex h-[26px] min-w-0 flex-1 items-center justify-between gap-1 rounded-sm pr-1.5 pl-2 text-left text-[13px] outline-none hover:border-brand/60 focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="sunken flex h-7 min-w-0 flex-1 items-center justify-between gap-1 rounded-sm pr-1.5 pl-2 text-left text-[13px] outline-none hover:border-brand/60 focus-visible:ring-2 focus-visible:ring-ring/60"
             aria-label="Pattern"
             title="Pattern: which one the rack shows and play loops"
           >
@@ -93,7 +93,7 @@ export function PatternPicker() {
           </div>
         </PopoverContent>
       </Popover>
-      <Button variant="outline" size="icon-xs" className="size-[26px] [&_svg:not([class*=size-])]:size-3.5" aria-label="New pattern" title="New pattern" onClick={() => make((id) => (song) => addPattern(song, { id }))}>
+      <Button variant="outline" size="icon-xs" className="size-7 [&_svg:not([class*=size-])]:size-4" aria-label="New pattern" title="New pattern" onClick={() => make((id) => (song) => addPattern(song, { id }))}>
         <PiPlus />
       </Button>
     </div>

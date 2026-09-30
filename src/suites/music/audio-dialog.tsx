@@ -16,7 +16,7 @@ export function AudioDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-foreground" aria-label="Audio settings" title="Audio settings">
+        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground [&_svg:not([class*=size-])]:size-5" aria-label="Audio settings" title="Audio settings">
           <PiSpeakerHigh />
         </Button>
       </DialogTrigger>
