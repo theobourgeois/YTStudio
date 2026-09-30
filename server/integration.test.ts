@@ -6,6 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addEffect, defaultEffects, setEffectEnabled, setParams, solidEffects, textEffects } from "../shared/effects.ts";
+import { addFreezeFrame, addReverseSection } from "../shared/time-remap.ts";
+import { nestClips } from "../shared/sequences.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import type {
   Clip,
@@ -781,6 +783,29 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     };
     expect(rms(0.3)).toBeGreaterThan(0.2);
     expect(rms(1.4)).toBeLessThan(0.01);
+    expect((await api(`/api/media/${ramp.id}`, { method: "DELETE" })).status).toBe(204);
+  });
+
+  it("exports a nested sequence remapped with a freeze and a reversed section", async () => {
+    const res = await upload(fixtures["ramp.mp4"]);
+    const ramp = (await res.json()) as MediaAsset;
+    await until(async () => ((await json<MediaAsset>(`/api/media/${ramp.id}`)).status === "processing" ? undefined : true));
+    const inner: Clip = { ...clip("landscape", "main", 0, 0, 4), assetId: ramp.id };
+    const nested = nestClips(projectWith([inner]), [inner.id])!;
+    // Outer 0-1 plays 0-1, holds 1 until 2, plays on (1-4 over 2-5); then 3-4 (showing 2-3) plays back and forwards again.
+    let project = addFreezeFrame(nested.project, nested.clipId, 1, 1);
+    project = addReverseSection(project, nested.clipId, 3, 4);
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    expect(job.duration).toBe(7);
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    // Output frame k shows source time `src` (frame 30 × src, whose Y is twice that, in limited range).
+    for (const [k, src] of [[15, 0.5], [45, 1], [135, 2.5], [165, 2.5], [195, 3.5]]) {
+      const expected = Math.max(0, Math.min(255, ((2 * Math.round(src * 30) - 16) * 255) / 219));
+      const [r, g, b] = pixelAt(output, (k + 0.5) / 30, 360, 640);
+      expect(Math.abs((r + g + b) / 3 - expected), `frame ${k}`).toBeLessThanOrEqual(8);
+    }
     expect((await api(`/api/media/${ramp.id}`, { method: "DELETE" })).status).toBe(204);
   });
 

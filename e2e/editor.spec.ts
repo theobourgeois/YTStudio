@@ -72,6 +72,8 @@ type SavedClip = {
   in: number;
   out: number;
   effects: { type: string; enabled: boolean; params: Record<string, unknown> }[];
+  nullObject?: true;
+  parent?: { id: string };
 };
 
 /** A saved clip's parameters for one of its effects. */
@@ -1411,4 +1413,62 @@ test("selects several media cards to drag them together and delete them at once"
   await confirm.getByRole("button", { name: "Remove" }).click();
   await expect(cards).toHaveCount(0);
   await expect.poll(async () => (await savedProject(page)).clips.length).toBe(0);
+});
+
+test("parents to a null, nests clips, opens the nest in a tab, and remaps its time with a graph", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "New video" }).first().click();
+  await page.getByRole("tab", { name: /^This video/ }).click();
+  await page.locator("input[type=file]").first().setInputFiles([FILES[0], FILES[2]]);
+  const card = (name: string) => page.locator("[data-grid-item]").filter({ hasText: name }).first();
+  await card("vertical-1080x1920").dblclick();
+  await card("square-1080").dblclick();
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(2);
+
+  // A null object, and the first clip parented to it from Properties.
+  await page.getByRole("button", { name: "New layer" }).click();
+  await page.getByRole("menuitem", { name: "Null object" }).click();
+  await expect.poll(async () => (await savedProject(page)).clips.filter((c: SavedClip) => c.nullObject).length).toBe(1);
+  const video = (await timelineClips(page)).find((c) => c.text.includes("vertical"))!;
+  await page.locator(`[data-clip-id="${video.id}"]`).click();
+  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("combobox", { name: "Parent" }).click();
+  await page.getByRole("option", { name: "Null" }).click();
+  await expect.poll(async () => (await savedProject(page)).clips.find((c: SavedClip) => c.id === video.id)?.parent?.id).toBeTruthy();
+  await expect(page.locator("[data-clip-parented]")).toHaveCount(1);
+
+  // Nest everything (⌥G): one clip plays the new sequence.
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Alt+g");
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+  await expect(page.locator("[data-clip-id]").first()).toContainText("Nested Sequence 1");
+  await expect.poll(async () => (await savedProject(page)).sequences?.[0]?.clips.length).toBe(3);
+
+  // Double-click opens it in a tab; the main sequence is a tab away.
+  await page.locator("[data-clip-id]").first().dblclick();
+  await expect(page.getByRole("tab", { name: /Nested Sequence 1/ })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(3);
+  await page.getByRole("tab", { name: "Main" }).click();
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(1);
+
+  // Time Remapping on the nest, then a freeze frame at the start: a second longer.
+  const nest = (await timelineClips(page))[0];
+  await page.locator(`[data-clip-id="${nest.id}"]`).click();
+  await page.getByRole("tab", { name: "Properties" }).click();
+  const before = (await savedProject(page)).clips[0];
+  await page.getByRole("switch", { name: "Time Remapping" }).click();
+  await page.getByRole("button", { name: "Freeze frame" }).click();
+  await expect.poll(async () => {
+    const c = (await savedProject(page)).clips[0];
+    return Math.round((c.out - c.in - (before.out - before.in)) * 100) / 100;
+  }).toBe(1);
+  await expect(page.locator("[data-remap-segment]")).toHaveCount(2);
+
+  // The Source Time's Speed Graph in the keyframe lanes.
+  await page.getByRole("button", { name: "Show keyframes" }).click();
+  await page.getByRole("button", { name: "Show Source Time graph" }).click();
+  await expect(page.locator("[data-graph=value]")).toBeVisible();
+  await page.getByRole("radio", { name: "Speed" }).click();
+  await expect(page.locator("[data-graph=speed]")).toBeVisible();
+  await page.getByRole("button", { name: "Hide keyframes" }).click();
 });
