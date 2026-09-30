@@ -39,6 +39,7 @@ export type ShortcutAction =
   | "newAdjustmentLayer"
   | "newSolid"
   | "newCamera"
+  | "nest"
   | "speed"
   | "nudgeLeft"
   | "nudgeRight"
@@ -143,6 +144,8 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
 function resolveAlt(e: KeyLike): ShortcutAction | null {
   // ⌥ changes `key` on a Mac (⌥X is "≈"), so this goes by the physical key.
   if (e.code === "KeyX" && !e.shiftKey) return "clearMarks";
+  // Final Cut's New Compound Clip (After Effects' Pre-compose, ⇧⌘C, is the browser's Inspect).
+  if (e.code === "KeyG" && !e.shiftKey) return "nest";
   switch (e.key) {
     case "ArrowLeft":
       return e.shiftKey ? "nudgeLeftMore" : "nudgeLeft";
@@ -276,6 +279,7 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   newAdjustmentLayer: `${ALT}${MOD}Y`,
   newSolid: `${ALT}${SHIFT}${MOD}Y`,
   newCamera: `${ALT}${SHIFT}${MOD}C`,
+  nest: `${ALT}G`,
   speed: `${MOD}R`,
   nudgeLeft: `${ALT}←`,
   nudgeRight: `${ALT}→`,
@@ -343,6 +347,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "New adjustment layer (over the selection, or at the playhead)", keys: [`${ALT}${MOD}Y`] },
       { label: "New solid", keys: [`${ALT}${SHIFT}${MOD}Y`] },
       { label: "New camera (for 3D layers)", keys: [`${ALT}${SHIFT}${MOD}C`] },
+      { label: "Nest the selected clips (a sequence of their own)", keys: [`${ALT}G`] },
+      { label: "Open a nested sequence", keys: ["Double-click it"] },
       { label: "Speed / reverse the selected clips", keys: [`${MOD}R`] },
       { label: "Stretch a clip's speed to fit", keys: [`${ALT}Drag an edge`] },
       { label: "Nudge 1 frame", keys: [`${ALT}←`, `${ALT}→`] },

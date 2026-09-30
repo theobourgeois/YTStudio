@@ -13,6 +13,7 @@ import {
   PiSpinnerGap,
   PiTrash,
   PiWarning,
+  PiStack,
 } from "react-icons/pi";
 import type { MediaAsset, Subclip } from "@shared/types";
 import { formatDuration, formatTime } from "@shared/format";
@@ -25,6 +26,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { setAssetDragData } from "@/lib/dnd";
 import { cn } from "cn";
 import { assetMarkedRange, useSourceMarks } from "@/stores/source-marks";
+import { useEditor } from "@/stores/editor";
 import { useSourcePreview } from "@/stores/source-preview";
 import { HoverScrub, filmstripFrameAt, useHoverX } from "./hover-scrub";
 import { decorativePeaks } from "./media-utils";
@@ -43,7 +45,8 @@ interface AssetCardProps {
   onGrab: () => string[];
   /** These act on `count` files. */
   onAdd: () => void;
-  onAddToLibrary: (folderId: string | null) => void;
+  /** Absent for a nested sequence (the Library takes files). */
+  onAddToLibrary?: (folderId: string | null) => void;
   onDelete: () => void;
   /** Subclips only: ask for a new name. */
   onRename?: () => void;
@@ -263,7 +266,7 @@ function AssetMenuItems({
   subclip?: Subclip;
   count: number;
   onAdd: () => void;
-  onAddToLibrary: (folderId: string | null) => void;
+  onAddToLibrary?: (folderId: string | null) => void;
   onDelete: () => void;
   onRename?: () => void;
 }) {
@@ -273,7 +276,13 @@ function AssetMenuItems({
   const usable = many || asset.duration > 0;
   return (
     <>
-      {!many && (
+      {!many && asset.sequence && (
+        <Item onSelect={() => useEditor.getState().openSequence(asset.id)}>
+          <PiStack />
+          Open sequence
+        </Item>
+      )}
+      {!many && !asset.sequence && (
         <Item
           disabled={!usable}
           onSelect={() =>
@@ -294,15 +303,17 @@ function AssetMenuItems({
         <PiPlus />
         {many ? `Add ${count} to timeline` : "Add to timeline"}
       </Item>
-      <Sub>
-        <SubTrigger disabled={!usable}>
-          <PiBooks />
-          {many ? `Add ${count} to Library` : "Add to Library"}
-        </SubTrigger>
-        <SubContent className="max-h-72 w-52 overflow-y-auto">
-          <FolderMenuItems kit={kit} onSelect={onAddToLibrary} />
-        </SubContent>
-      </Sub>
+      {onAddToLibrary && (
+        <Sub>
+          <SubTrigger disabled={!usable}>
+            <PiBooks />
+            {many ? `Add ${count} to Library` : "Add to Library"}
+          </SubTrigger>
+          <SubContent className="max-h-72 w-52 overflow-y-auto">
+            <FolderMenuItems kit={kit} onSelect={onAddToLibrary} />
+          </SubContent>
+        </Sub>
+      )}
       <Separator />
       <Item variant="destructive" onSelect={onDelete}>
         <PiTrash />
@@ -332,7 +343,7 @@ function Thumbnail({ asset, at }: { asset: MediaAsset; at?: number }) {
   if (asset.hasVideo) {
     return (
       <div className="grid size-full place-items-center text-muted-foreground">
-        <PiFilmStrip className="size-5" />
+        {asset.sequence ? <PiStack className="size-5" /> : <PiFilmStrip className="size-5" />}
       </div>
     );
   }

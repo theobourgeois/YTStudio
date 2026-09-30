@@ -39,7 +39,7 @@ export function ExportForm({
   starting,
   onSubmit,
 }: ExportFormProps) {
-  const project = useEditor((s) => s.project);
+  const project = useEditor((s) => s.document);
   const hasAudioTracks = project.clips.some((c) => !isOnVideoTrack(project, c));
   const hasVideo = project.clips.some((c) => isOnVideoTrack(project, c));
   const exclude = hasAudioTracks && hasVideo && excludeAudioTracks;

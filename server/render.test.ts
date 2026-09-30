@@ -539,7 +539,7 @@ describe("lumaWeights", () => {
     const c = clip("vid", "main", 0, 0, 2);
     const p = addFreezeFrame(project([c]), c.id, 1, 1);
     const plan = planRender(p, assets, opts);
-    const index = (f: number) => pictures(plan.frame(f))[0].interpolate!.index;
+    const index = (f: number) => pictures(plan.frame(f))[0].interpolate!.index!;
     expect(index(31)).toBe(index(50));
     expect(index(80)).toBeGreaterThan(index(50));
   });

@@ -3,6 +3,7 @@
  * generated on the server until they're ready, ask for the reversed copies
  * that clips played backwards need, and follow downloads from the Online tab.
  */
+import { allClips } from "@shared/sequences";
 import type { StoreApi } from "zustand";
 import type { MediaAsset, Project } from "@shared/types";
 import type { Upload } from "./editor";
@@ -77,13 +78,14 @@ const reversing = new WeakSet<object>();
  * reversed copy (once per asset: a failed one is only tried again by the
  * export), then poll until it's made. Idempotent per store.
  */
-export function requestReversedCopies(store: StoreApi<{ project: Project; assets: MediaAsset[] }>) {
+export function requestReversedCopies(store: StoreApi<{ document: Project; assets: MediaAsset[] }>) {
   if (reversing.has(store)) return;
   reversing.add(store);
   const asked = new Set<string>();
   const check = () => {
-    const { project, assets } = store.getState();
-    const wanted = new Set(project.clips.filter((c) => c.reversed).map((c) => c.assetId));
+    const { document, assets } = store.getState();
+    // In any sequence (a nest plays its clips as they are).
+    const wanted = new Set(allClips(document).filter((c) => c.reversed).map((c) => c.assetId));
     for (const asset of assets) {
       if (!wanted.has(asset.id) || asset.reversed || asked.has(asset.id)) continue;
       asked.add(asset.id);
@@ -97,7 +99,7 @@ export function requestReversedCopies(store: StoreApi<{ project: Project; assets
     }
   };
   store.subscribe((s, prev) => {
-    if (s.project.clips !== prev.project.clips || s.assets !== prev.assets) check();
+    if (s.document !== prev.document || s.assets !== prev.assets) check();
   });
   check();
 }

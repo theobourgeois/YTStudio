@@ -1,6 +1,7 @@
 import type { Clip, ExportResolution, Project, TextRaster } from "@shared/types";
 import { APPEARANCE, MOTION, TEXT, type TextStyle, findEffect, isTextClip, textStyleAt } from "@shared/effects";
 import { keyframeTimes } from "@shared/animation";
+import { sequenceView } from "@shared/sequences";
 import { isOnVideoTrack, outputSize } from "@shared/timeline";
 import { layoutText, rasterizeText, textFont, textUnit } from "@/lib/text-render";
 import { fontsSettled } from "@/stores/fonts";
@@ -16,17 +17,19 @@ const MAX_DRAWINGS = 1500;
  * A text scaled up is drawn bigger so it stays sharp.
  */
 export async function drawTexts(project: Project, resolution: ExportResolution): Promise<Record<string, TextRaster[]>> {
-  const clips = project.clips.filter((c) => isTextClip(c) && isOnVideoTrack(project, c));
+  // The main sequence's texts and every nested sequence's (drawn at the size the export draws that sequence).
+  const views = [project, ...(project.sequences ?? []).map((s) => sequenceView(project, s.id))];
+  const clips = views.flatMap((view) => view.clips.filter((c) => isTextClip(c) && isOnVideoTrack(view, c)).map((clip) => ({ clip, view })));
   if (clips.length === 0) return {};
   await fontsSettled();
-  const aspect = project.settings.aspectRatio;
-  const unit = textUnit(outputSize(aspect, resolution), aspect);
   const out: Record<string, TextRaster[]> = {};
-  for (const clip of clips) {
+  for (const { clip, view } of clips) {
+    const aspect = view.settings.aspectRatio;
+    const unit = textUnit(outputSize(aspect, resolution), aspect);
     const scale = Math.max(1, maxScale(clip));
     const rasters: TextRaster[] = [];
     let last = "";
-    for (const time of lookTimes(clip, project.settings.fps)) {
+    for (const time of lookTimes(clip, view.settings.fps)) {
       const style = textStyleAt(clip, time);
       const key = JSON.stringify(style);
       if (key === last) continue;

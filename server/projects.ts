@@ -3,6 +3,7 @@ import path from "node:path";
 import { DEFAULT_PROJECT_NAME, createDefaultProject, createId, isOnVideoTrack, projectDuration } from "../shared/timeline.ts";
 import { hasMedia } from "../shared/effects.ts";
 import type { Project, ProjectStatus, ProjectSummary, UpdateProjectRequest } from "../shared/types.ts";
+import { nestedSequence, sequenceView } from "../shared/sequences.ts";
 import { normalizeProject } from "../shared/normalize.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
@@ -67,12 +68,18 @@ function statsOf(doc: Project): DocStats {
   };
 }
 
-/** The earliest media clip on any video track (the bottom-most track wins a tie). */
-function firstVideoClip(doc: Project) {
+/**
+ * The earliest media clip on any video track (the bottom-most track wins a tie); for a nested
+ * sequence there, the earliest in that sequence, and so on.
+ */
+function firstVideoClip(doc: Project, depth = 0): Project["clips"][number] | undefined {
   const layer = (trackId: string) => doc.tracks.findIndex((t) => t.id === trackId);
-  return doc.clips
+  const first = doc.clips
     .filter((c) => isOnVideoTrack(doc, c) && hasMedia(c))
     .sort((a, b) => a.start - b.start || layer(b.trackId) - layer(a.trackId))[0];
+  const seq = first && nestedSequence(doc, first);
+  if (!seq || depth > 8) return first;
+  return firstVideoClip(sequenceView(doc, seq.id), depth + 1);
 }
 
 /**
@@ -153,8 +160,10 @@ export class ProjectStore {
       const copied = <T extends { assetId: string }>(x: T): T => (assetIds.has(x.assetId) ? { ...x, assetId: assetIds.get(x.assetId)! } : x);
       const clips = source.clips.map(copied);
       const subclips = source.subclips?.map(copied);
+      // Nested sequences' clips play the copies too (a clip of a sequence keeps its sequence's id).
+      const sequences = source.sequences?.map((seq) => ({ ...seq, clips: seq.clips.map(copied) }));
       const name = `${source.name.slice(0, MAX_NAME_LENGTH - COPY_SUFFIX.length)}${COPY_SUFFIX}`;
-      return await this.add(copyId, { ...source, name, clips, ...(subclips && { subclips }) }, this.now());
+      return await this.add(copyId, { ...source, name, clips, ...(subclips && { subclips }), ...(sequences && { sequences }) }, this.now());
     } catch (err) {
       await this.library.removeProject(copyId);
       // Deleted while its media was being copied.

@@ -1,6 +1,8 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
 import { PiArrowCounterClockwise, PiCircleHalfTilt, PiCrosshairSimple, PiIntersectSquare, PiSpiral, PiSquare, PiSubtitles, PiTextT, PiVideoCamera, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
+import { isNestedClip } from "@shared/sequences";
+import { useEditor } from "@/stores/editor";
 import { type ClipKind, OPACITY, SOLID, clipKind, findEffect, videoEffects } from "@shared/effects";
 import { keyframeTimes, timelineTime } from "@shared/animation";
 import { clipDuration, clipName, clipSpeed, sourceDelta, sourceEdge } from "@shared/timeline";
@@ -61,7 +63,11 @@ export const TimelineClip = memo(function TimelineClip({
       )}
       style={{ left, top: lane.top + CLIP_INSET_Y, width, height }}
       onPointerDown={(e) => startClipMove(e, clip.id, ctx)}
-      onDoubleClick={() => useLayout.getState().setLeftPanel("properties")}
+      onDoubleClick={() => {
+        // A nested sequence opens in its own tab (Premiere); anything else shows its properties.
+        if (isNestedClip(clip)) useEditor.getState().openSequence(clip.assetId);
+        else useLayout.getState().setLeftPanel("properties");
+      }}
     >
       <div
         className={cn(

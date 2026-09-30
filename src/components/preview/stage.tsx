@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { PiCloudSlash, PiFilmSlate, PiWarning } from "react-icons/pi";
-import { videoTracks } from "@shared/timeline";
+import { previewSlots } from "@shared/sequences";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
 import { fitRect } from "./canvas";
@@ -12,11 +12,10 @@ import { TransformOverlay } from "./transform-overlay";
 export function Stage() {
   const aspectRatio = useEditor((s) => s.project.settings.aspectRatio);
   const isEmpty = useEditor((s) => s.project.clips.length === 0);
-  const audioTrackIds = useEditor(
-    useShallow((s) => s.project.tracks.filter((t) => t.kind === "audio").map((t) => t.id).sort()),
-  );
-  // Stable DOM order (moving a media element in the DOM can pause it); the engine draws them in layer order.
-  const videoTrackIds = useEditor(useShallow((s) => videoTracks(s.project).map((t) => t.id).sort()));
+  // A slot per track, and per track of each sequence nested on it (see `previewSlots`), in a stable DOM
+  // order (moving a media element in the DOM can pause it); the engine draws them in layer order.
+  const audioTrackIds = useEditor(useShallow((s) => previewSlots(s.project).audio));
+  const videoTrackIds = useEditor(useShallow((s) => previewSlots(s.project).video));
 
   const [status, setStatus] = useState({ offline: false, noWebGl: false });
   const [engine] = useState(() => new PreviewEngine(setStatus));

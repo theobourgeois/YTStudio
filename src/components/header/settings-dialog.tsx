@@ -1,6 +1,7 @@
 import { PiSlidersHorizontal } from "react-icons/pi";
 import { aspectParts } from "@shared/timeline";
-import type { AspectRatio } from "@shared/types";
+import { getSequence, sequenceDuration } from "@shared/sequences";
+import type { AspectRatio, Sequence } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -36,6 +38,8 @@ const optionClass =
 /** Header button showing the video's format; opens the (live-applying) settings dialog. */
 export function SettingsDialog() {
   const settings = useEditor((s) => s.project.settings);
+  // With a nested sequence open, these are that sequence's settings (its own size, frame rate and length).
+  const sequence = useEditor((s) => (s.sequenceId ? (getSequence(s.document, s.sequenceId) ?? null) : null));
   const { updateSettings } = useEditor.getState();
   // Keep an unusual rate (e.g. from an older project) selectable.
   const frameRates = FRAME_RATES.some((r) => r.value === settings.fps)
@@ -63,8 +67,12 @@ export function SettingsDialog() {
 
       <DialogContent className="gap-5 sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Video settings</DialogTitle>
-          <DialogDescription>Applies to the preview and to exports.</DialogDescription>
+          <DialogTitle>{sequence ? `${sequence.name} settings` : "Video settings"}</DialogTitle>
+          <DialogDescription>
+            {sequence
+              ? "A nested sequence's own frame and frame rate. The clips that play it show it at this size and rate."
+              : "Applies to the preview and to exports."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-2">
@@ -106,6 +114,8 @@ export function SettingsDialog() {
           </ToggleGroup>
         </div>
 
+        {sequence && <SequenceLength sequence={sequence} />}
+
         <DialogFooter>
           <DialogClose asChild>
             <Button>Done</Button>
@@ -113,6 +123,48 @@ export function SettingsDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A nested sequence's length: as long as its clips, or a set length (After Effects' composition duration). */
+function SequenceLength({ sequence }: { sequence: Sequence }) {
+  const fixed = sequence.duration !== undefined;
+  const length = sequenceDuration(sequence);
+  const set = (value: number | null) => useEditor.getState().setSequenceDuration(sequence.id, value);
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor="sequence-length">Length</Label>
+      <div className="flex items-center gap-3">
+        <ToggleGroup
+          type="single"
+          spacing={2}
+          value={fixed ? "fixed" : "auto"}
+          onValueChange={(v) => v && set(v === "auto" ? null : Math.max(length, 1))}
+          className="grid grid-cols-2"
+          aria-label="Length"
+        >
+          <ToggleGroupItem value="auto" className={optionClass}>
+            <span className="px-3 text-xs">Its clips'</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem value="fixed" className={optionClass}>
+            <span className="px-3 text-xs">Set</span>
+          </ToggleGroupItem>
+        </ToggleGroup>
+        <Input
+          id="sequence-length"
+          type="number"
+          min={0.1}
+          step={0.1}
+          disabled={!fixed}
+          key={`${sequence.id}:${length}`}
+          defaultValue={length.toFixed(2)}
+          onBlur={(e) => fixed && Number(e.currentTarget.value) > 0 && set(Number(e.currentTarget.value))}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          className="h-8 w-24 text-sm tabular-nums"
+        />
+        <span className="text-xs text-muted-foreground">seconds</span>
+      </div>
+    </div>
   );
 }
 

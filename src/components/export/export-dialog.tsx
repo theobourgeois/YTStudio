@@ -24,7 +24,8 @@ export function ExportDialog() {
   const [open, setOpen] = useState(false);
   const [resolution, setResolution] = useState<ExportResolution>("1080p");
   const [excludeAudioTracks, setExcludeAudioTracks] = useState(false);
-  const empty = useEditor((s) => s.project.clips.length === 0);
+  // The whole video is exported (its main sequence), whichever sequence the timeline shows.
+  const empty = useEditor((s) => s.document.clips.length === 0);
   const ffmpeg = useFfmpegStatus(open);
   const { phase, start, reset } = useExportJob();
   const lastRun = useRef({ fileName: "", excludeAudioTracks: false });
@@ -38,7 +39,7 @@ export function ExportDialog() {
 
   const run = (fileName: string, excludeAudioTracks: boolean) => {
     lastRun.current = { fileName, excludeAudioTracks };
-    const project = useEditor.getState().project;
+    const project = useEditor.getState().document;
     void start(drawTexts(project, resolution).then((texts) => ({ project, resolution, fileName, excludeAudioTracks, texts })));
   };
 

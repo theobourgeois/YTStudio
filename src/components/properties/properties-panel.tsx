@@ -22,6 +22,7 @@ import {
   PiSlidersHorizontal,
   PiSparkle,
   PiSquare,
+  PiStack,
   PiSubtitles,
   PiVideoCamera,
   PiTextT,
@@ -36,6 +37,8 @@ import {
   effectDefinition,
   clipKind,
   hasKeyframes,
+  TIME_REMAP,
+  isRemapped,
   isVideoEffect,
   moveEffect,
   removeEffect,
@@ -47,7 +50,7 @@ import {
 } from "@shared/effects";
 import { formatDuration, formatSpeed } from "@shared/format";
 import { type NumberSpec, type Vec2Spec, isAnimatable, sameValue } from "@shared/params";
-import { canRetime, clipDuration, clipName, clipSpeed, getClip, getTrack, isOnVideoTrack, outputSize, sourceTime } from "@shared/timeline";
+import { canTimeRemap, clipDuration, clipName, clipSpeed, getClip, getTrack, isOnVideoTrack, outputSize, sourceTime } from "@shared/timeline";
 import { refKey } from "@shared/transition-windows";
 import {
   DropdownMenu,
@@ -70,6 +73,7 @@ import { GraphControls, GraphToggle, ParamGraph } from "./graph-editor";
 import { EffectLane, KeyframeRuler, KeyframesRoot, ParamLane } from "./keyframe-lanes";
 import { ParamRow, ResetButton, useParamEditors } from "./param-rows";
 import { ParentRow } from "./parent-row";
+import { RemapControls, TimeRemapSwitch } from "./time-remap-controls";
 import { TransitionProperties } from "./transition-properties";
 
 export function PropertiesPanel() {
@@ -104,8 +108,12 @@ export function PropertiesPanel() {
     const def = effectDefinition(effect.type);
     return def && def.appliesTo(traits) ? [{ effect, def }] : [];
   });
-  const retimable = canRetime(clip, asset);
-  const firstVideoEffect = ((i) => (i === -1 ? sections.length : i))(sections.findIndex((s) => isVideoEffect(s.effect)));
+  // Speed and Time Remapping: clips that play media (a nested sequence's too).
+  const retimable = canTimeRemap(clip, asset);
+  // Speed goes before Time Remapping and the video effects.
+  const firstVideoEffect = ((i) => (i === -1 ? sections.length : i))(
+    sections.findIndex((s) => isVideoEffect(s.effect) || s.effect.type === TIME_REMAP.type),
+  );
 
   const body = (
     <>
@@ -263,6 +271,8 @@ function ClipHeader({
             ? PiVideoCamera
             : kind === "null"
             ? PiCrosshairSimple
+            : asset?.sequence
+            ? PiStack
             : asset?.kind === "image"
             ? PiImage
             : asset?.kind === "audio"
@@ -460,7 +470,9 @@ export function EffectSection({
 function SpeedSection({ clip, lanes }: { clip: Clip; lanes: boolean }) {
   const [open, setOpen] = useState(() => !toggled.has("speed"));
   // Every selected clip that can be retimed changes together, as in the timeline.
-  const ids = useRetimableSelection();
+  const selection = useRetimableSelection();
+  const remapped = isRemapped(clip);
+  const ids = !remapped && selection.includes(clip.id) ? selection : [clip.id];
   const retimed = clipSpeed(clip) !== 1 || clip.reversed === true || clip.keepPitch === false;
   const toggle = () => {
     if (open) toggled.add("speed");
@@ -479,6 +491,7 @@ function SpeedSection({ clip, lanes }: { clip: Clip; lanes: boolean }) {
           >
             <PiCaretRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
             <span className="truncate">Speed</span>
+            {!open && remapped && <span className="text-xs font-normal text-muted-foreground">Time Remapping</span>}
             {!open && retimed && (
               <span className="text-xs font-normal text-muted-foreground tabular-nums">
                 {formatSpeed(clipSpeed(clip))}
@@ -487,14 +500,16 @@ function SpeedSection({ clip, lanes }: { clip: Clip; lanes: boolean }) {
             )}
           </button>
           {retimed && (
-            <ResetButton label="Reset speed" onClick={() => commitSpeed(ids.includes(clip.id) ? ids : [clip.id], { speed: 1, reversed: false, keepPitch: true })} />
+            <ResetButton label="Reset speed" onClick={() => commitSpeed(ids, { speed: 1, reversed: false, keepPitch: true })} />
           )}
         </div>
       </PanelRow>
       {open && (
         <PanelRow lanes={lanes}>
-          <div className="px-3 pt-1 pb-3">
-            <SpeedControl clipIds={ids.includes(clip.id) ? ids : [clip.id]} clip={clip} />
+          <div className="grid gap-3 px-3 pt-1 pb-3">
+            {!remapped && <SpeedControl clipIds={ids} clip={clip} />}
+            <TimeRemapSwitch clipIds={ids} clip={clip} />
+            {remapped && <RemapControls clip={clip} />}
           </div>
         </PanelRow>
       )}

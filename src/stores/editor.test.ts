@@ -28,9 +28,14 @@ const store = () => useEditor.getState();
 const mainIds = () => trackClips(store().project, MAIN_TRACK_ID).map((c) => c.assetId);
 
 beforeEach(() => {
+  const document = createDefaultProject();
   useEditor.setState({
     projectId: "p1",
-    project: createDefaultProject(),
+    project: document,
+    document,
+    sequenceId: null,
+    openSequences: [],
+    gestureDocument: null,
     assets: [asset("a", 2), asset("b", 3), asset("c", 1), asset("song", 20, "audio")],
     past: [],
     future: [],
@@ -242,5 +247,31 @@ describe("editor store", () => {
       [1.5, 0, 3],
     ]);
     expect(usePlayback.getState().time).toBe(0);
+  });
+
+  it("nests clips, edits inside the nested sequence, and undoes it all on the whole video", () => {
+    const [a, b] = store().addAssetsToTimeline(["a", "b"]); // 0-2, 2-5
+    store().setSelection([a, b]);
+    const seqId = store().nestSelected("Intro")!;
+    const nest = store().selectedClipIds[0];
+    expect(getClip(store().project, nest)).toMatchObject({ assetId: seqId, start: 0, out: 5 });
+    // The sequence stands in for media, so the nest trims and retimes like a video.
+    expect(store().assets.find((x) => x.id === seqId)).toMatchObject({ sequence: true, duration: 5 });
+    store().openSequence(seqId);
+    expect(store().sequenceId).toBe(seqId);
+    expect(mainIds()).toEqual(["a", "b"]);
+    // An edit inside it changes the sequence, and the main one still plays it.
+    store().select(b);
+    store().deleteSelected(false);
+    expect(mainIds()).toEqual(["a"]);
+    expect(store().document.sequences![0].clips).toHaveLength(1);
+    expect(store().document.clips.map((c) => c.assetId)).toEqual([seqId]);
+    store().undo();
+    expect(mainIds()).toEqual(["a", "b"]);
+    // Undoing the nest itself leaves the sequence it was showing: back to the main one.
+    store().undo();
+    expect(store().sequenceId).toBeNull();
+    expect(mainIds()).toEqual(["a", "b"]);
+    expect(store().openSequences).toEqual([]);
   });
 });

@@ -337,3 +337,38 @@ export function deleteSequence(project: Project, id: string): Project {
     return clips.length === v.clips.length ? v : { ...v, clips: pruneParents(clips) };
   });
 }
+
+const slotCache = new WeakMap<readonly Clip[], { sequences: Project["sequences"]; tracks: Track[]; slots: { video: string[]; audio: string[] } }>();
+
+/**
+ * The preview's media element slots for a sequence: one per track, and one per track of each
+ * sequence nested on a track (`<track>/<sequence>/<inner track>`, and so on down), so a
+ * nest's clips play from elements of their own. Video slots decode pictures (and their
+ * clips' sound), audio slots sound. Cached per clip list (it's read on every store update).
+ */
+export function previewSlots(view: Project): { video: string[]; audio: string[] } {
+  const cached = slotCache.get(view.clips);
+  if (cached && cached.sequences === view.sequences && cached.tracks === view.tracks) return cached.slots;
+  const video: string[] = [];
+  const audio: string[] = [];
+  const walk = (tracks: readonly Track[], clips: readonly Clip[], prefix: string, depth: number) => {
+    for (const track of tracks) {
+      const id = prefix + track.id;
+      (track.kind === "video" ? video : audio).push(id);
+      if (depth >= 8) continue;
+      const nested = new Set<string>();
+      for (const c of clips) if (c.trackId === track.id && isSequenceId(c.assetId)) nested.add(c.assetId);
+      for (const seqId of nested) {
+        const seq = getSequence(view, seqId);
+        if (!seq) continue;
+        // A nest on an audio track only plays its sequence's sound.
+        const inner = track.kind === "video" ? seq.tracks : seq.tracks.filter((t) => t.kind === "audio");
+        walk(inner, seq.clips, `${id}/${seqId}/`, depth + 1);
+      }
+    }
+  };
+  walk(view.tracks, view.clips, "", 0);
+  const slots = { video: video.sort(), audio: audio.sort() };
+  slotCache.set(view.clips, { sequences: view.sequences, tracks: view.tracks, slots });
+  return slots;
+}

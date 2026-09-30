@@ -8,7 +8,8 @@
  * Keyframes live in source time (`keyframes.ts`); helpers here convert to and
  * from the timeline. Edits return the same project when nothing changes.
  */
-import { effectDefinition, paramSpec, storedValuesAt, updateEffect } from "./effects.ts";
+import { TIME_REMAP, effectDefinition, paramSpec, storedValuesAt, updateEffect } from "./effects.ts";
+import { setTimeRemap } from "./time-remap.ts";
 import { DEFAULT_INFLUENCE, MIN_INFLUENCE, SAME_KEYFRAME, clampHandle, keyframeAt, keyframeValue, setKeyframe } from "./keyframes.ts";
 import { tidy } from "./math.ts";
 import { isAnimatable } from "./params.ts";
@@ -115,6 +116,8 @@ function valueAt(effect: Effect, key: string, time: number) {
  * showing at `time`.
  */
 export function setAnimated(project: Project, clipId: string, effectId: string, key: string, time: number, on: boolean): Project {
+  // Time Remapping's stopwatch turns remapping itself on or off (see `time-remap.ts`).
+  if (effectId === TIME_REMAP.type) return setTimeRemap(project, [clipId], on, {});
   return updateKeys(project, clipId, effectId, key, (keys, effect) => {
     if (on === keys.length > 0) return null;
     if (!on) return { keys: [], staticValue: valueAt(effect, key, time) };

@@ -112,6 +112,7 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut(key("y", { ctrlKey: true, altKey: true, code: "KeyY" }))).toBe("newAdjustmentLayer");
     expect(resolveShortcut(key("y", { metaKey: true, code: "KeyY" }))).toBe("redo");
     expect(resolveShortcut(key("Ç", { metaKey: true, altKey: true, shiftKey: true, code: "KeyC" }))).toBe("newCamera");
+    expect(resolveShortcut(key("©", { altKey: true, code: "KeyG" }))).toBe("nest");
   });
 
   it("ignores combos that aren't ours", () => {

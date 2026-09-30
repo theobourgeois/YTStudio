@@ -6,6 +6,8 @@ import { useState, type MouseEvent, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   PiArrowDown,
+  PiSquaresFour,
+  PiStack,
   PiArrowUp,
   PiArrowsIn,
   PiArrowsOut,
@@ -30,7 +32,9 @@ import {
   PiArrowCounterClockwise,
   PiGauge,
 } from "react-icons/pi";
+import { isNestedClip } from "@shared/sequences";
 import type { Track, TransitionAlignment } from "@shared/types";
+import { toast } from "sonner";
 import { MOTION, clipKind, effectDefinition, findEffect, isVideoEffect, setParams } from "@shared/effects";
 import { type TransitionRef, findWindow, parseRefKey, setTransitionParams } from "@shared/transition-windows";
 import {
@@ -178,9 +182,14 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
   const hasSound = useEditor((s) =>
     s.selectedClipIds.some((id) => {
       const clip = getClip(s.project, id);
-      return !!clip && !clip.caption && !!s.assets.find((a) => a.id === clip.assetId)?.hasAudio;
+      // (A nested sequence has no file to transcribe: its clips inside do.)
+      return !!clip && !clip.caption && !isNestedClip(clip) && !!s.assets.find((a) => a.id === clip.assetId)?.hasAudio;
     }),
   );
+  const nested = useEditor((s) => {
+    const clip = getClip(s.project, target.clipId);
+    return clip && isNestedClip(clip) ? clip.assetId : null;
+  });
 
   const setFit = (value: string) => {
     const s = editor();
@@ -197,6 +206,26 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
       <ContextMenuItem onSelect={() => useLayout.getState().setLeftPanel("properties")}>
         <PiSlidersHorizontal /> Properties
       </ContextMenuItem>
+      {nested && (
+        <ContextMenuItem onSelect={() => editor().openSequence(nested)}>
+          <PiStack /> Open nested sequence
+        </ContextMenuItem>
+      )}
+      <ContextMenuItem onSelect={() => editor().nestSelected()}>
+        <PiStack /> Nest{plural}
+        <ContextMenuShortcut>{SHORTCUT_KEYS.nest}</ContextMenuShortcut>
+      </ContextMenuItem>
+      {nested && (
+        <ContextMenuItem
+          onSelect={() => {
+            if (!editor().breakApartSelected()) {
+              toast.error("Couldn't break it apart", { description: "Only a nest playing at normal speed, forwards and not remapped can be put back as it plays." });
+            }
+          }}
+        >
+          <PiSquaresFour /> Break apart
+        </ContextMenuItem>
+      )}
       {hasSound && (
         <ContextMenuItem onSelect={() => useCaptions.getState().openDialog(editor().selectedClipIds)}>
           <PiSubtitles /> Auto captions…

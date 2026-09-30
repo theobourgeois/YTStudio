@@ -1,5 +1,6 @@
 import type { Clip, MediaAsset, Project } from "@shared/types";
-import { type TextStyle, clipKind, isRemapped, lookAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
+import { type TextStyle, clipKind, isRemapped, lookAt, motionAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
+import { nestedSequence, sequenceDuration, sequenceSize, sequenceView } from "@shared/sequences";
 import { mediaTime, remapSpeed } from "@shared/time-remap";
 import { type Compositor, type Placed, createCompositor, matteIndex } from "@shared/compositor";
 import { PREVIEW_SAMPLES, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "@shared/layers";
@@ -8,7 +9,7 @@ import { type Shown, type TransitionPlan, planTrack, planTransition } from "@sha
 import { clipEnd, clipSourceRange, clipSpeed, fileTime, sourceTime, videoTracks } from "@shared/timeline";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
-import type { Placement, Size } from "@shared/transform";
+import { type Placement, type Size, fittedSize } from "@shared/transform";
 import { type TextLayout, rasterizeText, textUnit } from "@/lib/text-render";
 import { useEditor } from "@/stores/editor";
 import { useFonts } from "@/stores/fonts";
@@ -36,7 +37,7 @@ interface AudioLayer {
   ids: SlotIds;
 }
 
-type ClipKind = "video" | "image" | "text" | "solid" | "adjustment" | "camera" | "null";
+type ClipKind = "video" | "image" | "text" | "solid" | "adjustment" | "camera" | "null" | "sequence";
 
 /** A picture to draw: the element (or text drawing) it comes from (none for a solid), and when in its clip. */
 interface Picture {
@@ -49,6 +50,35 @@ interface Picture {
    * frame before is kept (under `${key}~`) and the moment wanted is between the two.
    */
   interp?: { slot: MediaSlot; target: number; flow: boolean };
+  /** A nested sequence: its level and layers, drawn into a group picture (`key`) before it's placed. */
+  nest?: { level: Level; layers: Layer[] };
+}
+
+/**
+ * One sequence being shown: the main one, or one a nested clip plays. Its tracks' media
+ * elements are the engine's under `prefix` + track id; it plays at `rate` times its clips'
+ * own speeds, `gain` times their volumes, on a canvas of `canvas` CSS px.
+ */
+interface Level {
+  view: Project;
+  prefix: string;
+  time: number;
+  playing: boolean;
+  rate: number;
+  muted: boolean;
+  gain: number;
+  canvas: Size;
+  depth: number;
+}
+
+/** Nested sequences deeper than this aren't drawn (a guard; loops are never saved). */
+const MAX_NESTING = 8;
+
+/** A clip's own playback rate times its level's, or null when it can't play (see `mediaOf`). */
+function scaledRate(rate: number | null, levelRate: number): number | null {
+  if (rate === null) return null;
+  const r = rate * levelRate;
+  return r >= MIN_PLAYBACK_RATE && r <= MAX_PLAYBACK_RATE ? r : null;
 }
 
 /** What the engine shows and when: the editor's video and playhead, or (for the assistant) another video at a time. */
@@ -290,36 +320,49 @@ export class PreviewEngine {
     if (!this.unsubscribe) return;
     const { project, assets, time, playing } = this.source.get();
     this.indexAssets(assets);
+    if (project !== this.windowsOf) {
+      this.windowsOf = project;
+      this.windows.clear();
+    }
+    const status = { offline: false };
+    const layers = this.planLevel({ view: project, prefix: "", time, playing, rate: 1, muted: false, gain: 1, canvas: this.size, depth: 0 }, status);
+    this.draw(project, layers);
+    if (status.offline !== this.offline) {
+      this.offline = status.offline;
+      this.reportStatus();
+    }
+  };
+
+  /**
+   * What one sequence shows at its time (the main one, or one nested in a clip, see `Level`),
+   * bottom track first, keeping its tracks' media elements playing (or parked) in step. A
+   * nested clip's sequence is planned the same way, into a group picture of its own.
+   */
+  private planLevel(level: Level, status: { offline: boolean }): Layer[] {
+    const { view: project, prefix, time, playing, depth } = level;
     const trackMuted = new Map(project.tracks.map((t) => [t.id, t.muted]));
     const kindOf = (clip: Clip): ClipKind => {
       const kind = clipKind(clip);
       if (kind !== "media") return kind;
-      return this.assetById.get(clip.assetId)?.kind === "image" ? "image" : "video";
+      const asset = this.assetById.get(clip.assetId);
+      return asset?.sequence ? "sequence" : asset?.kind === "image" ? "image" : "video";
     };
-    let offline = false;
     const drawn: Layer[] = [];
 
     // Video tracks, bottom first: an A/B pair of elements for video clips, another for stills, canvases for text.
     for (const track of [...videoTracks(project)].reverse()) {
       const trackId = track.id;
-      const layer = this.layers.get(trackId);
-      if (!layer) continue;
-      const muted = trackMuted.get(trackId) ?? false;
+      const slotId = prefix + trackId;
+      const layer = this.layers.get(slotId);
+      const muted = level.muted || (trackMuted.get(trackId) ?? false);
       const { current, next } = planTrack(project, trackId, time);
-      const transition = this.planTransitionOf(project, trackId, time);
+      const transition = this.planTransitionOf(project, slotId, trackId, time);
       // What's on screen: both sides of a transition, or the clip under the playhead.
       const shown: Shown[] = transition
         ? [transition.from, transition.to].filter((s): s is Shown => !!s)
         : current
           ? [current]
           : [];
-      const ids = (want: ClipKind) => {
-        const on = shown.filter((s) => kindOf(s.clip) === want).map((s) => s.clip.id);
-        const upcoming = next && kindOf(next) === want && !shown.some((s) => s.clip.id === next.id) ? next.id : null;
-        return [on[0] ?? null, on[1] ?? upcoming] as const;
-      };
-      layer.videoIds = assignSlots(layer.videoIds, ...ids("video"));
-      layer.imageIds = assignSlots(layer.imageIds, ...ids("image"));
       /** The picture showing each clip on screen, by clip id. */
       const pictures = new Map<string, Picture>();
 
@@ -328,40 +371,123 @@ export class PreviewEngine {
         if (kindOf(side.clip) === "solid") pictures.set(side.clip.id, { key: "", source: null, shown: side });
       }
 
+      // Nested sequences: planned as a level of their own, drawn into a group.
       shown.forEach((side, i) => {
-        if (kindOf(side.clip) !== "text") return;
-        const slot = (layer.texts[i] ??= new TextSlot(document.createElement("canvas")));
-        const { placement, text } = placeOnCanvas(project, side.clip, undefined, this.size, side.time);
-        slot.draw(textStyleAt(side.clip, side.time), text!, textUnit(this.size, project.settings.aspectRatio), placement);
-        pictures.set(side.clip.id, { key: `${trackId}:t${i}`, source: slot, shown: side });
+        if (kindOf(side.clip) !== "sequence") return;
+        const nest = this.nestLevel(level, trackId, side, muted);
+        if (!nest) return;
+        const layers = depth < MAX_NESTING ? this.planLevel(nest, status) : [];
+        pictures.set(side.clip.id, { key: `nest:${slotId}:${i}`, source: null, shown: side, nest: { layers, level: nest } });
       });
 
-      layer.videos.forEach((slot, i) => {
+      if (layer) {
+        const ids = (want: ClipKind) => {
+          const on = shown.filter((s) => kindOf(s.clip) === want).map((s) => s.clip.id);
+          const upcoming = next && kindOf(next) === want && !shown.some((s) => s.clip.id === next.id) ? next.id : null;
+          return [on[0] ?? null, on[1] ?? upcoming] as const;
+        };
+        layer.videoIds = assignSlots(layer.videoIds, ...ids("video"));
+        layer.imageIds = assignSlots(layer.imageIds, ...ids("image"));
+
+        shown.forEach((side, i) => {
+          if (kindOf(side.clip) !== "text") return;
+          const slot = (layer.texts[i] ??= new TextSlot(document.createElement("canvas")));
+          const { placement, text } = placeOnCanvas(project, side.clip, undefined, level.canvas, side.time);
+          slot.draw(textStyleAt(side.clip, side.time), text!, textUnit(level.canvas, project.settings.aspectRatio), placement);
+          pictures.set(side.clip.id, { key: `${slotId}:t${i}`, source: slot, shown: side });
+        });
+
+        layer.videos.forEach((slot, i) => {
+          if (!slot) return;
+          const id = layer.videoIds[i];
+          const el = slot.el as HTMLVideoElement;
+          const on = shown.find((s) => s.clip.id === id && kindOf(s.clip) === "video");
+          setShown(el, !!on);
+          if (on) {
+            const media = this.mediaOf(on.clip);
+            slot.setSrc(media.src);
+            // A transition may show a clip past its edges; it's only heard inside them.
+            const audible = time >= on.clip.start - 1e-6 && time < clipEnd(on.clip) - 1e-6;
+            const rate = scaledRate(media.rate(on.time), level.rate);
+            slot.setAudio(
+              volumeAt(on.clip, on.time) * level.gain,
+              muted || (!!transition && !audible) || !media.plays || rate === null,
+              on.clip.keepPitch !== false,
+            );
+            // Time interpolation plays a frame ahead, keeping the one before: the moment wanted is between them.
+            const fps = this.assetById.get(on.clip.assetId)?.fps ?? 0;
+            const interp = on.clip.timeInterpolation && fps > 0 && media.plays ? on.clip.timeInterpolation : undefined;
+            const lead = interp && playing ? 1 / fps : 0;
+            if (playing && media.plays && rate !== null) slot.follow(media.at(on.time) + lead, rate);
+            else slot.hold(media.at(on.time));
+            pictures.set(on.clip.id, {
+              key: `${slotId}:v${i}`,
+              source: el,
+              shown: on,
+              ...(interp && { interp: { slot, target: media.at(on.time), flow: interp === "flow" } }),
+            });
+            status.offline ||= media.src === null || slot.failed;
+            return;
+          }
+          slot.setAudio(1, true);
+          if (next && id === next.id) {
+            const media = this.mediaOf(next);
+            slot.setSrc(media.src);
+            slot.hold(media.at(sourceTime(next, next.start)));
+          } else {
+            slot.pause();
+          }
+        });
+
+        layer.images.forEach((slot, i) => {
+          if (!slot) return;
+          const id = layer.imageIds[i];
+          const on = shown.find((s) => s.clip.id === id && kindOf(s.clip) === "image");
+          setShown(slot.el, !!on);
+          if (on) {
+            const src = this.srcOf(on.clip);
+            slot.setSrc(src);
+            pictures.set(on.clip.id, { key: `${slotId}:i${i}`, source: slot.el, shown: on });
+            status.offline ||= src === null || slot.failed;
+            return;
+          }
+          // Loading the next still ahead of time makes the cut instant.
+          if (next && id === next.id) slot.setSrc(this.srcOf(next));
+        });
+      }
+
+      const pictureOf = (side: Shown | null) => (side && pictures.get(side.clip.id)) ?? null;
+      if (transition) {
+        drawn.push({ kind: "transition", trackId, plan: transition, from: pictureOf(transition.from), to: pictureOf(transition.to) });
+      } else if (current && kindOf(current.clip) === "adjustment") drawn.push({ kind: "adjustment", trackId, shown: current });
+      else if (current && pictures.has(current.clip.id)) drawn.push({ kind: "picture", trackId, picture: pictures.get(current.clip.id)! });
+    }
+
+    // Audio tracks: the pair plays the clip under the playhead and parks the next one on its in-point.
+    for (const track of project.tracks) {
+      if (track.kind !== "audio") continue;
+      const { current, next } = planTrack(project, track.id, time);
+      const muted = level.muted || track.muted;
+      // A nested sequence of sound only: its own audio tracks play (a level with no picture).
+      if (current && kindOf(current.clip) === "sequence") {
+        const nest = this.nestLevel(level, track.id, current, muted);
+        if (nest && depth < MAX_NESTING) this.planLevel(nest, status);
+      }
+      const layer = this.audio.get(prefix + track.id);
+      if (!layer) continue;
+      const playable = (c: Clip | null) => (c && kindOf(c) !== "sequence" ? c : null);
+      layer.ids = assignSlots(layer.ids, playable(current?.clip ?? null)?.id ?? null, playable(next)?.id ?? null);
+      layer.slots.forEach((slot, i) => {
         if (!slot) return;
-        const id = layer.videoIds[i];
-        const el = slot.el as HTMLVideoElement;
-        const on = shown.find((s) => s.clip.id === id && kindOf(s.clip) === "video");
-        setShown(el, !!on);
-        if (on) {
-          const media = this.mediaOf(on.clip);
+        const id = layer.ids[i];
+        if (current && id === current.clip.id) {
+          const media = this.mediaOf(current.clip);
           slot.setSrc(media.src);
-          // A transition may show a clip past its edges; it's only heard inside them.
-          const audible = time >= on.clip.start - 1e-6 && time < clipEnd(on.clip) - 1e-6;
-          const rate = media.rate(on.time);
-          slot.setAudio(volumeAt(on.clip, on.time), muted || (!!transition && !audible) || !media.plays || rate === null, on.clip.keepPitch !== false);
-          // Time interpolation plays a frame ahead, keeping the one before: the moment wanted is between them.
-          const fps = this.assetById.get(on.clip.assetId)?.fps ?? 0;
-          const interp = on.clip.timeInterpolation && fps > 0 && media.plays ? on.clip.timeInterpolation : undefined;
-          const lead = interp && playing ? 1 / fps : 0;
-          if (playing && media.plays && rate !== null) slot.follow(media.at(on.time) + lead, rate);
-          else slot.hold(media.at(on.time));
-          pictures.set(on.clip.id, {
-            key: `${trackId}:v${i}`,
-            source: el,
-            shown: on,
-            ...(interp && { interp: { slot, target: media.at(on.time), flow: interp === "flow" } }),
-          });
-          offline ||= media.src === null || slot.failed;
+          const rate = scaledRate(media.rate(current.time), level.rate);
+          slot.setAudio(volumeAt(current.clip, current.time) * level.gain, muted || !media.plays || rate === null, current.clip.keepPitch !== false);
+          if (playing && media.plays && rate !== null) slot.follow(media.at(current.time), rate);
+          else slot.hold(media.at(current.time));
+          status.offline ||= media.src === null || slot.failed;
           return;
         }
         slot.setAudio(1, true);
@@ -373,33 +499,11 @@ export class PreviewEngine {
           slot.pause();
         }
       });
-
-      layer.images.forEach((slot, i) => {
-        if (!slot) return;
-        const id = layer.imageIds[i];
-        const on = shown.find((s) => s.clip.id === id && kindOf(s.clip) === "image");
-        setShown(slot.el, !!on);
-        if (on) {
-          const src = this.srcOf(on.clip);
-          slot.setSrc(src);
-          pictures.set(on.clip.id, { key: `${trackId}:i${i}`, source: slot.el, shown: on });
-          offline ||= src === null || slot.failed;
-          return;
-        }
-        // Loading the next still ahead of time makes the cut instant.
-        if (next && id === next.id) slot.setSrc(this.srcOf(next));
-      });
-
-      const pictureOf = (side: Shown | null) => (side && pictures.get(side.clip.id)) ?? null;
-      if (transition) {
-        drawn.push({ kind: "transition", trackId, plan: transition, from: pictureOf(transition.from), to: pictureOf(transition.to) });
-      } else if (current && kindOf(current.clip) === "adjustment") drawn.push({ kind: "adjustment", trackId, shown: current });
-      else if (current && pictures.has(current.clip.id)) drawn.push({ kind: "picture", trackId, picture: pictures.get(current.clip.id)! });
     }
 
     // Track mattes: a clip that uses one is drawn through the picture on the track above, which isn't drawn itself.
     const trackIds = videoTracks(project).map((t) => t.id);
-    const matted = withTrackMattes(
+    return withTrackMattes(
       drawn,
       (id) => trackIds[trackIds.indexOf(id) - 1],
       (l) => {
@@ -409,43 +513,34 @@ export class PreviewEngine {
       (l) => l.kind === "picture",
       (l, m, mode) => (l.kind === "transition" || m.kind !== "picture" ? l : { ...l, matte: { mode, picture: m.picture } }),
     );
-    this.draw(project, matted);
+  }
 
-    // Audio tracks: the pair plays the clip under the playhead and parks the next one on its in-point.
-    for (const track of project.tracks) {
-      const layer = track.kind === "audio" ? this.audio.get(track.id) : undefined;
-      if (!layer) continue;
-      const { current, next } = planTrack(project, track.id, time);
-      layer.ids = assignSlots(layer.ids, current?.clip.id ?? null, next?.id ?? null);
-      layer.slots.forEach((slot, i) => {
-        if (!slot) return;
-        const id = layer.ids[i];
-        if (current && id === current.clip.id) {
-          const media = this.mediaOf(current.clip);
-          slot.setSrc(media.src);
-          const rate = media.rate(current.time);
-          slot.setAudio(volumeAt(current.clip, current.time), track.muted || !media.plays || rate === null, current.clip.keepPitch !== false);
-          if (playing && media.plays && rate !== null) slot.follow(media.at(current.time), rate);
-          else slot.hold(media.at(current.time));
-          offline ||= media.src === null || slot.failed;
-          return;
-        }
-        slot.setAudio(1, true);
-        if (next && id === next.id) {
-          const media = this.mediaOf(next);
-          slot.setSrc(media.src);
-          slot.hold(media.at(sourceTime(next, next.start)));
-        } else {
-          slot.pause();
-        }
-      });
-    }
-
-    if (offline !== this.offline) {
-      this.offline = offline;
-      this.reportStatus();
-    }
-  };
+  /**
+   * The level a nested clip shows (on its track `trackId` of `outer`): its sequence at the
+   * time the clip shows of it, playing at the clip's rate times the outer one's, as loud as
+   * its volume times the outer level's. Null when it shows nothing then.
+   */
+  private nestLevel(outer: Level, trackId: string, { clip, time }: Shown, muted: boolean): Level | null {
+    const seq = nestedSequence(outer.view, clip);
+    if (!seq) return null;
+    const t = mediaTime(clip, time);
+    if (!(t >= -1e-6 && t < sequenceDuration(seq) - 1e-6)) return null;
+    const media = this.mediaOf(clip);
+    const rate = scaledRate(media.rate(time), outer.rate);
+    // Where the nest's frame is at 100%: its sequence fitted to the canvas it's on.
+    const canvas = fittedSize(outer.canvas, sequenceSize(seq), motionAt(clip, time).fit);
+    return {
+      view: sequenceView(outer.view, seq.id),
+      prefix: `${outer.prefix}${trackId}/${seq.id}/`,
+      time: Math.max(0, t),
+      playing: outer.playing && rate !== null,
+      rate: rate ?? 1,
+      muted: muted || rate === null,
+      gain: outer.gain * volumeAt(clip, time),
+      canvas,
+      depth: outer.depth + 1,
+    };
+  }
 
   private reportStatus() {
     this.onStatusChange({ offline: this.offline, noWebGl: !!this.canvas && !this.compositor });
@@ -459,21 +554,44 @@ export class PreviewEngine {
     if (compositor.gl.isContextLost()) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     compositor.resize(this.size.width * dpr, this.size.height * dpr);
-    const pixels = { width: Math.round(this.size.width * dpr), height: Math.round(this.size.height * dpr) };
+    compositor.clear();
+    const count = this.drawLayers(compositor, project, layers, this.size, dpr);
+    compositor.present();
+    const state = count.transitions ? "transition" : layers.length ? "clips" : "empty";
+    if (canvas.dataset.drawn !== state) canvas.dataset.drawn = state;
+  }
+
+  /**
+   * Draw one level's layers over the frame being built: a canvas of `size` CSS px (the main
+   * canvas, or a nested sequence's group), at `dpr` device px per CSS px.
+   */
+  private drawLayers(compositor: Compositor, project: Project, layers: Layer[], size: Size, dpr: number): { transitions: number } {
+    const pixels = { width: Math.round(size.width * dpr), height: Math.round(size.height * dpr) };
     const options = { canvas: pixels, fps: project.settings.fps, maxSamples: PREVIEW_SAMPLES };
     /** Where a clip is on the canvas at source time `t` (a solid or an adjustment layer fills it at 100%; a 3D layer seen through the camera). */
-    const camera = projectCamera(project, this.size);
+    const camera = projectCamera(project, size);
     const affineAt = (clip: Clip) =>
       placer(
         clip,
-        this.size,
-        (t) => placeOnCanvas(project, clip, this.assetById.get(clip.assetId), this.size, t).placement,
+        size,
+        (t) => placeOnCanvas(project, clip, this.assetById.get(clip.assetId), size, t).placement,
         camera,
-        parentAt(project, clip, this.size),
+        parentAt(project, clip, size),
       );
     const placed = (picture: Picture | null): Placed | null => {
       if (!picture) return null;
       const { clip, time } = picture.shown;
+      if (picture.nest) {
+        // The nested sequence first, into a group picture of its own at about the size it's shown.
+        const { level, layers: inner } = picture.nest;
+        const zoom = Math.min(4, Math.max(1, Math.abs(motionAt(clip, time).scaleY)));
+        const groupDpr = Math.min(4096 / Math.max(level.canvas.width, level.canvas.height, 1), dpr * zoom);
+        compositor.beginGroup(level.canvas.width * groupDpr, level.canvas.height * groupDpr);
+        this.drawLayers(compositor, level.view, inner, level.canvas, groupDpr);
+        compositor.endGroup(picture.key);
+        const layer = clipLayer(clip, time, affineAt(clip), options);
+        return layer && { ...layer, key: picture.key };
+      }
       if (picture.source === null) {
         const layer = clipLayer(clip, time, affineAt(clip), options);
         return layer && { ...layer, key: "", solid: { color: solidColorAt(clip, time), ...pixels } };
@@ -494,7 +612,6 @@ export class PreviewEngine {
       }
       return { ...layer, key: picture.key };
     };
-    compositor.clear();
     let transitions = 0;
     const matteOf = (matte: LayerMatte | undefined) => {
       const picture = matte && placed(matte.picture);
@@ -544,9 +661,7 @@ export class PreviewEngine {
         console.error(`Transition "${def.label}" failed to draw`, err);
       }
     }
-    compositor.present();
-    const state = transitions ? "transition" : layers.length ? "clips" : "empty";
-    if (canvas.dataset.drawn !== state) canvas.dataset.drawn = state;
+    return { transitions };
   }
 
   /**
@@ -605,16 +720,12 @@ export class PreviewEngine {
     this.frames.set(key, { count: slot.presentedFrames, src: video.currentSrc, time, before: same ? last!.time : Number.NaN });
   }
 
-  /** The transition playing on a track at `time` (windows are cached per project). */
-  private planTransitionOf(project: Project, trackId: string, time: number): TransitionPlan | null {
-    if (project !== this.windowsOf) {
-      this.windowsOf = project;
-      this.windows.clear();
-    }
-    let windows = this.windows.get(trackId);
+  /** The transition playing on a track at `time` (windows are cached per shown project, by the track's slot id). */
+  private planTransitionOf(project: Project, slotId: string, trackId: string, time: number): TransitionPlan | null {
+    let windows = this.windows.get(slotId);
     if (!windows) {
       windows = trackTransitions(project, trackId);
-      this.windows.set(trackId, windows);
+      this.windows.set(slotId, windows);
     }
     if (windows.length === 0) return null;
     return planTransition(project, windows, time, (clip) => clipSourceRange(clip, this.assetById.get(clip.assetId)));

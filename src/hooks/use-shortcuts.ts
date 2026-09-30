@@ -32,6 +32,7 @@ const EDITS = new Set<ShortcutAction>([
   "newAdjustmentLayer",
   "newSolid",
   "newCamera",
+  "nest",
   "nudgeLeft",
   "nudgeRight",
   "nudgeLeftMore",
@@ -209,6 +210,10 @@ function run(action: ShortcutAction): boolean {
     case "newCamera":
       editor.addLayer("camera");
       useLayout.getState().setLeftPanel("properties");
+      return true;
+    case "nest":
+      if (!editor.selectedClipIds.length) return false;
+      editor.nestSelected();
       return true;
     case "speed":
       // Consumed either way, so ⌘R never reloads the editor.
