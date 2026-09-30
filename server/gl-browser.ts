@@ -87,7 +87,7 @@ export function setGlPageOpener(opener: GlPageOpener) {
 /** What the page script exposes (see `pageScript`). */
 interface PageApi {
   /** Draw frames until told to stop, exchanging them with `/exchange` (see `GlSession.composite`). */
-  composite(job: { width: number; height: number; lanes: number }): Promise<void>;
+  composite(job: { width: number; height: number; lanes: number; fonts: string[] }): Promise<void>;
   sheet(job: SheetJob): string;
   check(job: CheckJob): CheckResult[];
   effects(job: EffectJob): { sheet: string; results: EffectResult[] };
@@ -98,11 +98,10 @@ interface PageApi {
 export interface FramePacket {
   frame: number;
   /**
-   * Pictures to store (replacing any under the same key): raw RGBA, YUV
-   * 4:2:0 with its matrix's luma weights of red and blue (see `YuvFrame`),
-   * or a PNG (a drawn text) for the page to decode.
+   * Pictures to store (replacing any under the same key): raw RGBA, or YUV
+   * 4:2:0 with its matrix's luma weights of red and blue (see `YuvFrame`).
    */
-  pictures: { key: string; width: number; height: number; luma: [number, number] | null; png?: boolean; data: Buffer }[];
+  pictures: { key: string; width: number; height: number; luma: [number, number] | null; data: Buffer }[];
   /** Pictures no longer needed. */
   release: string[];
   /** Shaders used from now on, by key. */
@@ -114,7 +113,7 @@ export interface FramePacket {
 interface PacketHead {
   /** Which output frame this is; null when there are no more. */
   frame: number | null;
-  pictures: { key: string; width: number; height: number; luma: [number, number] | null; png?: boolean; length: number }[];
+  pictures: { key: string; width: number; height: number; luma: [number, number] | null; length: number }[];
   release: string[];
   shaders: Record<string, string>;
   layers: FrameLayer[];
@@ -226,6 +225,8 @@ function pageScript(): string {
     const api: PageApi = {
       async composite(job) {
         compositor.resize(job.width, job.height);
+        // Texts are drawn here, in the user's fonts: have them ready before the first frame.
+        await Promise.all(job.fonts.map((font) => document.fonts.load(font).catch(() => [])));
         const shaders: Record<string, string> = {};
         // Frames are drawn strictly in order: a lane whose packet arrives early waits for its turn.
         let turn = 0;
@@ -237,26 +238,17 @@ function pageScript(): string {
           waiting.get(turn)?.();
           waiting.delete(turn);
         };
-        /** Draw a frame and start reading it back. */
-        /** The packet's pictures, PNGs decoded (as they are: straight alpha, no colour conversion). */
+        /** The packet's pictures. */
         const unpack = (head: PacketHead, buf: Uint8Array, offset: number) =>
-          Promise.all(
-            head.pictures.map(async (p) => {
-              const bytes = buf.subarray(offset, (offset += p.length));
-              const { width, height, luma } = p;
-              if (p.png) {
-                const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "image/png" });
-                return { key: p.key, source: await createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "none" }) };
-              }
-              return { key: p.key, source: luma ? { yuv: bytes, width, height, kr: luma[0], kb: luma[1] } : { data: bytes, width, height } };
-            }),
-          );
-        const draw = (head: PacketHead, pictures: Awaited<ReturnType<typeof unpack>>) => {
+          head.pictures.map((p) => {
+            const bytes = buf.subarray(offset, (offset += p.length));
+            const { width, height, luma } = p;
+            return { key: p.key, source: luma ? { yuv: bytes, width, height, kr: luma[0], kb: luma[1] } : { data: bytes, width, height } };
+          });
+        /** Draw a frame and start reading it back. */
+        const draw = (head: PacketHead, pictures: ReturnType<typeof unpack>) => {
           Object.assign(shaders, head.shaders);
-          for (const { key, source } of pictures) {
-            compositor.setPicture(key, source);
-            if (source instanceof ImageBitmap) source.close();
-          }
+          for (const { key, source } of pictures) compositor.setPicture(key, source);
           for (const key of head.release) compositor.deletePicture(key);
           compositor.clear();
           const shader = (key: string): Shader => ({
@@ -309,7 +301,7 @@ function pageScript(): string {
             const headLength = new DataView(buf.buffer, buf.byteOffset).getUint32(0, true);
             const head = JSON.parse(new TextDecoder().decode(buf.subarray(4, 4 + headLength))) as PacketHead;
             if (head.frame === null) return;
-            const pictures = await unpack(head, buf, 4 + headLength);
+            const pictures = unpack(head, buf, 4 + headLength);
             await myTurn(head.frame);
             let read: Promise<Uint8Array<ArrayBuffer>>;
             try {
@@ -550,11 +542,11 @@ export class GlSession {
    * says there are no more. They're drawn in order, but finished frames may
    * come back out of order.
    */
-  async composite(size: { width: number; height: number }, exchange: FrameExchange): Promise<void> {
+  async composite(size: { width: number; height: number }, exchange: FrameExchange, fonts: string[] = []): Promise<void> {
     this.exchange = exchange;
     this.failure = null;
     try {
-      const job = { ...size, lanes: LANES };
+      const job = { ...size, lanes: LANES, fonts };
       await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.composite(j), job);
     } catch (err) {
       throw this.failure ?? err;

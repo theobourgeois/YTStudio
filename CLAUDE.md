@@ -96,6 +96,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      `VectorDrawing` (`shapeDrawingAt`), plus its bounds and hit test for the canvas.
   text-animators.ts  Text animators: units (characters/words/lines), `selectionAmount` (the range and its shape),
                      `glyphSelections`, the ready-made ones (ANIMATOR_PRESETS, addAnimator).
+  text-drawing.ts    Text: `TextLayout` (measured by the tab), `textDrawing` (layout + style at a moment -> what the
+                     compositor draws), `textUnit`, and validating layouts from an export request.
   expressions.ts     The expression language: its own tokenizer, parser and interpreter (never `eval`), the AE
                      helpers (wiggle, loopOut, linear...), `expressionValue`. Effects run it in `effectValuesAt`.
   markers.ts         Sequence markers (`Project.markers`, timeline time) and clip markers (`Clip.markers`, source
@@ -148,7 +150,8 @@ src/
   stores/playback.ts The playback clock (rAF). layout.ts = panel/tool UI state.
   stores/library.ts  The Library (folders, items, their media) and how its tab is browsed.
   lib/api.ts         Typed client for every endpoint. lib/edit-gesture.ts, lib/pointer-drag.ts (see below).
-  lib/text-render.ts Text layout + drawing (browser text engine); used by preview, export and canvas editor.
+  lib/text-render.ts Text layout (the browser's text engine measures it in any installed font); used by the preview,
+                     the export (`export/layout-texts.ts` sends layouts) and the canvas text editor.
   components/preview/engine.ts   Imperative preview: drives hidden <video>/<img> and draws with the compositor.
   components/preview/sync.ts, placement.ts   Its pure planners (tested). The engine plans each sequence as a `Level`
                      (a nested one draws into a compositor group), with media elements per `previewSlots` id.
@@ -224,11 +227,14 @@ extension** (Node ESM through tsx).
   the export). Source time `s` is at `fileTime(clip, s, duration)` in it. Media elements only play forwards, so the
   preview never plays a reversed clip any other way.
 - Text clip: `assetId: ""` plus the Text and Appearance effects (`isTextClip`). The browser draws text in any installed
-  font. The export receives PNGs drawn by the browser (`ExportRequest.texts`). Don't switch to ffmpeg `drawtext`.
+  font: the tab lays it out (`TextLayout`, only it can measure the user's fonts), `shared/text-drawing.ts` turns
+  a layout and the style at a moment into a `TextDrawing`, and the compositor draws that with the 2D canvas at the
+  size it's shown, in the preview and in the export's page alike. The export request carries the layouts
+  (`ExportRequest.texts`), never pictures. Don't switch to ffmpeg `drawtext`.
 - Clip kinds (`clipKind`): media, text, solid (`assetId: ""` + the Solid effect: a colour filling the canvas, drawn by
   the compositor; generator effects go on it), shape layer (`assetId: ""` + one or more Shape effects, type
   `vector-shape`, and shape operators between them, applied in order: `shared/shapes.ts`; its frame is the canvas,
-  the canvas overlay's handles go around what it draws) and adjustment layer (`assetId: ""` + `adjustment: true`: its effects,
+  the canvas overlay's handles go around what it draws; shapes past the frame are drawn too: `VectorDrawing.bleed`) and adjustment layer (`assetId: ""` + `adjustment: true`: its effects,
   Motion and Opacity apply to everything below it; no transitions, and neighbours can't transition into it). Use
   `hasMedia` where code needs a media file. Solids and adjustment layers fill the canvas at 100%.
 - Opacity has a `blendMode` and a `trackMatte` (the clip on the video track right above is its matte and isn't drawn);
@@ -258,11 +264,13 @@ extension** (Node ESM through tsx).
 - Masks (`mask` effects) cut a clip's picture out before its video effects; on an adjustment layer they say where it
   changes what's below. `clipLayer` puts them on the layer (`masksAt`), so the preview and the export get them alike.
 - Text animators (`text-animator` effects on text) reach the drawing through `textStyleAt` (`TextStyle.animators`, and
-  `reach`: room the text's frame keeps for them, the same at every moment). `text-render.ts` then draws letter by
-  letter. The export draws the text again at every frame they (or an expression) change it (`draw-texts.ts`).
+  `reach`: room the text's frame keeps for them, the same at every moment); `textDrawing` works out each letter's
+  share and the compositor draws letter by letter, per frame, in the export too.
 - Expressions (`Effect.expressions`, by parameter key; numbers and points only, never Volume): anything that draws
   must read values with `effectValuesAt(def, effect, time, clip)` (or `valuesAt`/`motionAt`..., which do), never
   `storedValuesAt`, which is the plain value the panel edits. `time` in an expression is the clip's source time.
+  Its `fps` is the sequence's: whatever draws a sequence wraps the work in `atFrameRate(fps, ...)` (the preview's
+  and the export's levels, the canvas overlay); a new place that draws clips must too.
 - A point's keyframes can carry spatial handles (`Keyframe.spatialIn/Out`, the motion path): `keyframeValue` then
   travels the curve at an even pace by length (`spatialCurve`).
 - Markers: `Project.markers` / `Sequence.markers` (timeline time; a sequence view's `markers` are that sequence's) and
@@ -442,14 +450,15 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 
 - `createCompositor` and `drawSampleScene` are serialised with `toString()` and injected into the headless
   export page. They must not reference anything at module level. (Masks and shape layers are drawn there with the
-  page's own 2D canvas: `Path2D`, `OffscreenCanvas`, which the preview has too.)
+  page's own 2D canvas: `Path2D`, `OffscreenCanvas`, which the preview has too; text as well, in the fonts installed
+  on this computer, which the page loads before the first frame: `RenderPlan.fonts`.)
 - Store selectors must return the same value for the same state: `project.markers ?? []` makes a new array on every
   call and loops React for ever. Use a shared empty constant (`sequenceMarkers` does).
 - The export draws every frame in headless Chromium with `shared/compositor.ts`; ffmpeg only decodes (video as YUV
   4:2:0 at the size it's shown; the compositor converts with the source's matrix), mixes audio and encodes (BT.709).
   Everything animates exactly: Motion/Opacity per frame in `planRender`, volume as an ffmpeg expression of the same
-  curve (`keyframeExpression`), and an animated text's look as one browser drawing per changed frame
-  (`export/draw-texts.ts`, `TextRaster.from`), decoded by the page.
+  curve (`keyframeExpression`), and text drawn by the page itself at every frame (only its layout comes from the
+  tab: one per change of its words, size or font, `TextLayoutAt.from`).
 - After changing the compositor or the export, run the integration tests (`server/integration.test.ts` checks
   positions, transitions and colours of real exports).
 - `data/` (or `EDITOR_DATA_DIR`) holds the projects, media, exports (never cleaned up yet) and `tmp`, which is wiped

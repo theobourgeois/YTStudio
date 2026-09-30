@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { PiFunction, PiSpiral, PiX } from "react-icons/pi";
-import { type EffectDefinition, canExpress, effectDefinition, effectValuesAt, expressionProblem, paramSpec, setExpression } from "@shared/effects";
+import { type EffectDefinition, atFrameRate, canExpress, effectDefinition, effectValuesAt, expressionProblem, paramSpec, setExpression } from "@shared/effects";
 import type { NumberSpec, ParamSpec } from "@shared/params";
 import { getClip } from "@shared/timeline";
 import type { Clip, Effect } from "@shared/types";
@@ -91,8 +91,9 @@ export function ExpressionRow({ clip, effect, def, spec, time }: { clip: Clip; e
     el?.focus();
   };
 
-  const problem = expressionProblem(def, effect, spec.key, time, clip);
-  const result = problem ? "" : shown(effectValuesAt(def, effect, time, clip)[spec.key]);
+  const fps = useEditor((s) => s.project.settings.fps);
+  const problem = atFrameRate(fps, () => expressionProblem(def, effect, spec.key, time, clip));
+  const result = problem ? "" : shown(atFrameRate(fps, () => effectValuesAt(def, effect, time, clip))[spec.key]);
   const label = `${spec.label} expression`;
   return (
     <div className="mb-1 ml-7 mr-2 rounded-md border bg-muted/30" data-expression={spec.key}>

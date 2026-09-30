@@ -1,6 +1,6 @@
 /** Pure helpers for the on-canvas transform handles (what's where on the canvas right now). */
 import type { Clip, MediaAsset, Project, Vec2 } from "@shared/types";
-import { isCameraClip, isShapeClip, isTextClip, motionAt, opacityAt, textStyleAt } from "@shared/effects";
+import { atFrameRate, isCameraClip, isShapeClip, isTextClip, motionAt, opacityAt, textStyleAt } from "@shared/effects";
 import type { Rect } from "@shared/path";
 import { shapeBounds, shapeContains } from "@shared/shapes";
 import { cameraAt, projectLayer } from "@shared/camera";
@@ -80,6 +80,10 @@ export function projectedCorners(project: Project, clip: Clip, placement: Placem
 
 /** The clip each video track shows at timeline time `t`, placed on the canvas, top layer first. Cameras draw nothing, so they aren't here. */
 export function clipsOnCanvas(project: Project, assets: MediaAsset[], canvas: Size, t: number): OnCanvas[] {
+  return atFrameRate(project.settings.fps, () => onCanvasAt(project, assets, canvas, t));
+}
+
+function onCanvasAt(project: Project, assets: MediaAsset[], canvas: Size, t: number): OnCanvas[] {
   const byId = new Map(assets.map((a) => [a.id, a]));
   const out: OnCanvas[] = [];
   for (const track of videoTracks(project)) {

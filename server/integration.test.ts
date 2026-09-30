@@ -7,6 +7,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addEffect, defaultEffects, setEffectEnabled, setParams, shapeEffects, solidEffects, textEffects } from "../shared/effects.ts";
 import { addMask } from "../shared/masks.ts";
+import { addAnimator } from "../shared/text-animators.ts";
 import { ellipsePath, polygonPath, rectPath } from "../shared/path.ts";
 import { addFreezeFrame, addReverseSection } from "../shared/time-remap.ts";
 import { nestClips } from "../shared/sequences.ts";
@@ -686,9 +687,12 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
         red(3, "under"),
         { id: "adjust", assetId: "", trackId: "fx", start: 3, in: 0, out: 1, effects: defaultEffects(), adjustment: true },
         shape(4, { size: [200, 200] }),
+        shape(5, { size: [2000, 200] }),
       ]),
       tracks,
     };
+    // Wider than the canvas, at half size: its ends show (they're past its frame).
+    project = setParams(project, "shape_5", "motion", { scale: 0.5 });
     // The red picture is 720 x 360 in the middle of the 720 x 1280 frame.
     project = addMask(project, "left", { path: polygonPath([[0, 0], [0.5, 0], [0.5, 1], [0, 1]], true) }).project;
     project = addMask(project, "hole", { path: rectPath(0, 0, 1, 1) }).project;
@@ -721,6 +725,39 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
     near(pixelAt(output, 4.5, 360, 640), [255, 255, 255], "first copy");
     near(pixelAt(output, 4.5, 560, 640), [255, 255, 255], "second copy");
     near(pixelAt(output, 4.5, 460, 640), [0, 0, 0], "between the copies");
+    near(pixelAt(output, 5.5, 60, 640), [255, 255, 255], "past the shape layer's frame");
+    near(pixelAt(output, 5.5, 360, 560), [0, 0, 0], "above the wide shape");
+  });
+
+  it("exports text drawn by the export's page from its layout: its colour, and its animators", async () => {
+    const text = (id: string, start: number): Clip => ({ id, assetId: "", trackId: "main", start, in: 0, out: 1, effects: textEffects({ text: "███" }) });
+    // What the tab would send: a 600 x 300 frame with one line of full blocks, 200 px tall.
+    const layout = {
+      width: 600, height: 300, x: 50, y: 50, blockWidth: 500, blockHeight: 200, lines: [{ text: "███", x: 0, width: 500 }],
+      lineHeight: 200, baseline: 160, padX: 20, padY: 10, font: "700 200px Helvetica, Arial, sans-serif", stretch: "normal", fontPx: 200, letterSpacing: 0,
+    };
+    let project = projectWith([text("green", 0), text("hidden", 1), text("boxed", 2)]);
+    project = setParams(project, "green", "appearance", { fill: "#00ff00" });
+    // An animator hiding every letter.
+    project = addAnimator(project, "hidden", undefined, { opacity: 0 }).project;
+    // Every letter hidden again, but the box behind the text stays.
+    project = setParams(addAnimator(project, "boxed", undefined, { opacity: 0 }).project, "boxed", "appearance", { background: 1, backgroundColor: "#0000ff" });
+    const texts = { green: [{ layout }], hidden: [{ layout }], boxed: [{ layout }] };
+
+    const missing = await sendJson("POST", "/api/exports", { project, resolution: "720p" });
+    expect(missing.status).toBe(400);
+    expect(await errorOf(missing)).toMatch(/missing its layout/);
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p", texts })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    const near = (actual: number[], expected: number[], at: string) =>
+      actual.forEach((v, i) => expect(Math.abs(v - expected[i]), `${actual} vs ${expected} ${at}`).toBeLessThan(40));
+    // The frame is centred on the 720 x 1280 canvas: the blocks cover its middle.
+    near(pixelAt(output, 0.5, 360, 630), [0, 255, 0], "the text's fill");
+    near(pixelAt(output, 0.5, 360, 300), [0, 0, 0], "above the text");
+    near(pixelAt(output, 1.5, 360, 630), [0, 0, 0], "letters an animator hides");
+    near(pixelAt(output, 2.5, 360, 630), [0, 0, 255], "the box behind hidden letters");
   });
 
   it("exports slow motion with new frames in between (optical flow), or repeats frames (frame sampling)", async () => {

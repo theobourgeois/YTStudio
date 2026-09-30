@@ -245,6 +245,54 @@ export interface VectorDrawing {
   width: number;
   height: number;
   ops: VectorOp[];
+  /**
+   * How far its shapes reach past the frame, as a fraction of its height: the layer is drawn
+   * with that much room on every side, so they aren't cut off at the frame's edges.
+   */
+  bleed?: number;
+}
+
+/** What one text animator does to a text at a moment (see `shared/text-animators.ts`), in the drawing's px. */
+export interface TextAnimatorDrawing {
+  position: [number, number];
+  scale: number;
+  /** Degrees, clockwise. */
+  rotation: number;
+  opacity: number;
+  blur: number;
+  /** Px added after each letter it acts on. */
+  tracking: number;
+  /** A colour to turn the fill into, or null. */
+  fill: string | null;
+  /** For each letter (code point) of each line: the unit it's in (-1: none) and how much the animator acts on it (0..1). */
+  glyphs: { unit: number; amount: number }[][];
+}
+
+/**
+ * A text as it's drawn (a text clip's picture): laid out by the browser tab that knows the
+ * fonts (`src/lib/text-render.ts`), then drawn here with the 2D canvas at whatever size the
+ * layer is shown, in the preview and the export alike. Lengths are px of a `width` x `height`
+ * frame; with `animators`, each letter is drawn on its own.
+ */
+export interface TextDrawing {
+  width: number;
+  height: number;
+  /** CSS `font` shorthand, and the width (`font-stretch`), which the shorthand can't say in a canvas. */
+  font: string;
+  stretch: string;
+  fontPx: number;
+  letterSpacing: number;
+  align: "left" | "center" | "right";
+  /** Each line's text, left edge and baseline. */
+  lines: { text: string; x: number; y: number }[];
+  fill: string;
+  /** The outline: `width` px on each side of the letters' edge (half of it hidden under the fill). */
+  stroke?: { color: string; width: number };
+  /** The box behind the text. */
+  box?: { color: string; x: number; y: number; width: number; height: number; radius: number };
+  /** A drop shadow, `offset` px down and to the right. */
+  shadow?: { color: string; offset: number; blur: number };
+  animators?: TextAnimatorDrawing[];
 }
 
 /** One moment of a motion-blurred layer: where it is and how it looks then. */
@@ -276,6 +324,8 @@ export interface Placed<S = Shader> {
   solid?: { color: [number, number, number, number]; width: number; height: number };
   /** A vector drawing instead of a stored picture (`key` is then unused): a shape layer's shapes. */
   vector?: VectorDrawing;
+  /** A text instead of a stored picture (`key` is then unused). */
+  text?: TextDrawing;
   /** Masks cutting the layer out, in order, before its effects (an adjustment layer: where it changes what's below). */
   masks?: MaskShape[];
   /**
@@ -295,7 +345,7 @@ export interface Placed<S = Shader> {
 }
 
 /** An adjustment layer: the frame so far, through its effects and placed by its Motion (the canvas at 100%). */
-export type Adjustment<S = Shader> = Omit<Placed<S>, "key" | "solid" | "vector">;
+export type Adjustment<S = Shader> = Omit<Placed<S>, "key" | "solid" | "vector" | "text">;
 
 export interface Compositor {
   readonly gl: WebGL2RenderingContext;
@@ -1000,11 +1050,13 @@ void main() {
     | { kind: "picture"; pic: Picture; next?: { pic: Picture; amount: number; flow: boolean } }
     | { kind: "solid"; color: [number, number, number, number]; width: number; height: number }
     | { kind: "vector"; drawing: VectorDrawing }
+    | { kind: "text"; drawing: TextDrawing }
     | { kind: "frame" };
 
   const sourceOf = (p: Placed): Source | null => {
     if (p.solid) return { kind: "solid", ...p.solid };
     if (p.vector) return { kind: "vector", drawing: p.vector };
+    if (p.text) return { kind: "text", drawing: p.text };
     const pic = pictures.get(p.key);
     if (!pic) return null;
     const next = p.interpolate && pictures.get(p.interpolate.key);
@@ -1337,27 +1389,36 @@ void main() {
     return pic;
   };
 
-  /** How much of a `w` x `h` layer its masks leave, as a picture's alpha. */
-  const maskPicture = (masks: MaskShape[], w: number, h: number): Picture | null =>
-    raster(`m:${w}x${h}:${JSON.stringify(masks)}`, w, h, (acc) => {
+  /** Where a layer's frame is inside the layer itself: all of it, unless the layer has room around the frame. */
+  interface FrameBox {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }
+  const boxKey = (f: FrameBox) => `${f.x},${f.y},${f.w}x${f.h}`;
+
+  /** How much of a `w` x `h` layer (its frame at `frame`) its masks leave, as a picture's alpha. */
+  const maskPicture = (masks: MaskShape[], w: number, h: number, frame: FrameBox = { x: 0, y: 0, w, h }): Picture | null =>
+    raster(`m:${w}x${h}:${boxKey(frame)}:${JSON.stringify(masks)}`, w, h, (acc) => {
       // A first mask that takes away (or keeps what's shared) starts from the whole layer.
       if (masks[0].mode !== 0) {
         acc.fillStyle = "#fff";
         acc.fillRect(0, 0, w, h);
       }
       for (const mask of masks) {
-        const sigma = Math.max(0, mask.feather * h) / 2;
+        const sigma = Math.max(0, mask.feather * frame.h) / 2;
         // Room around the layer, so a soft edge doesn't fade where the mask runs off it.
         const room = Math.min(512, Math.ceil(sigma * 3));
         const one = board(1, w + 2 * room, h + 2 * room);
         if (!one) continue;
         const shape = new Path2D();
-        shape.addPath(new Path2D(mask.d), new DOMMatrix([w, 0, 0, h, room, room]));
+        shape.addPath(new Path2D(mask.d), new DOMMatrix([frame.w, 0, 0, frame.h, room + frame.x, room + frame.y]));
         one.fillStyle = "#fff";
         one.strokeStyle = "#fff";
         one.lineJoin = "round";
         one.fill(shape, "nonzero");
-        const grow = mask.expansion * h;
+        const grow = mask.expansion * frame.h;
         if (Math.abs(grow) > 1e-3) {
           // Grown by a stroke of that width around it; shrunk by rubbing the same stroke out.
           one.lineWidth = 2 * Math.abs(grow);
@@ -1394,11 +1455,11 @@ void main() {
       acc.globalCompositeOperation = "source-over";
     });
 
-  /** A vector drawing at `w` x `h` px. */
-  const vectorPicture = (drawing: VectorDrawing, w: number, h: number): Picture | null =>
-    raster(`v:${w}x${h}:${JSON.stringify(drawing)}`, w, h, (ctx) => {
-      const sx = w / Math.max(1e-6, drawing.width);
-      const sy = h / Math.max(1e-6, drawing.height);
+  /** A vector drawing in a `w` x `h` px layer, its frame at `frame`. */
+  const vectorPicture = (drawing: VectorDrawing, w: number, h: number, frame: FrameBox): Picture | null =>
+    raster(`v:${w}x${h}:${boxKey(frame)}:${JSON.stringify(drawing)}`, w, h, (ctx) => {
+      const sx = frame.w / Math.max(1e-6, drawing.width);
+      const sy = frame.h / Math.max(1e-6, drawing.height);
       const paint = (p: VectorPaint): string | CanvasGradient => {
         if (typeof p === "string") return p;
         const g =
@@ -1410,7 +1471,7 @@ void main() {
       };
       for (const op of drawing.ops) {
         const t = op.transform ?? IDENTITY_AFFINE;
-        ctx.setTransform(sx * t[0], sy * t[1], sx * t[2], sy * t[3], sx * t[4], sy * t[5]);
+        ctx.setTransform(sx * t[0], sy * t[1], sx * t[2], sy * t[3], sx * t[4] + frame.x, sy * t[5] + frame.y);
         ctx.globalAlpha = Math.min(1, Math.max(0, op.opacity ?? 1));
         const shape = new Path2D(op.d);
         if (op.fill !== undefined) {
@@ -1430,6 +1491,181 @@ void main() {
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = 1;
+    });
+
+  /** A text in a `w` x `h` px layer, its frame at `frame`. */
+  const textPicture = (text: TextDrawing, w: number, h: number, frame: FrameBox): Picture | null =>
+    raster(`t:${w}x${h}:${boxKey(frame)}:${JSON.stringify(text)}`, w, h, (ctx) => {
+      const sx = frame.w / Math.max(1e-6, text.width);
+      const sy = frame.h / Math.max(1e-6, text.height);
+      ctx.setTransform(sx, 0, 0, sy, frame.x, frame.y);
+      ctx.font = text.font;
+      if ("fontStretch" in ctx) ctx.fontStretch = text.stretch as CanvasFontStretch;
+      // Canvas letter spacing isn't in every browser yet: there, each letter is placed by hand.
+      const spaced = "letterSpacing" in (ctx as object);
+      if (spaced) ctx.letterSpacing = `${text.letterSpacing}px`;
+      ctx.textBaseline = "alphabetic";
+      ctx.textAlign = "left";
+
+      // The shadow falls from the first thing drawn: the box, else the stroke, else the letters.
+      // Canvas shadows and filters ignore the transform, hence the scaling by hand.
+      let shadowPending = !!text.shadow;
+      const castShadow = (on: boolean) => {
+        if (on && text.shadow) {
+          ctx.shadowColor = text.shadow.color;
+          ctx.shadowOffsetX = text.shadow.offset * sx;
+          ctx.shadowOffsetY = text.shadow.offset * sy;
+          ctx.shadowBlur = text.shadow.blur * sy;
+        } else {
+          ctx.shadowColor = "transparent";
+        }
+        shadowPending = false;
+      };
+      const eachLine = (paint: (t: string, x: number, y: number) => void) => {
+        for (const line of text.lines) {
+          if (!line.text) continue;
+          if (spaced) {
+            paint(line.text, line.x, line.y);
+            continue;
+          }
+          let cx = line.x;
+          for (const ch of line.text) {
+            paint(ch, cx, line.y);
+            cx += ctx.measureText(ch).width + text.letterSpacing;
+          }
+        }
+      };
+
+      /** One letter of an animated text: where it's drawn, and what its animators do to it. */
+      interface Glyph {
+        text: string;
+        x: number;
+        y: number;
+        opacity: number;
+        blur: number;
+        fill: string;
+        /** One per animator that acts on it, in order: moved by (dx, dy), then turned and scaled around (cx, cy). */
+        transforms: { dx: number; dy: number; cx: number; cy: number; rotation: number; scale: number }[];
+      }
+      const mixColor = (a: string, b: string, f: number): string => {
+        if (f <= 0) return a;
+        const [x, y] = [Number.parseInt(a.slice(1), 16), Number.parseInt(b.slice(1), 16)];
+        const ch = (shift: number) => Math.round(((x >> shift) & 255) + (((y >> shift) & 255) - ((x >> shift) & 255)) * Math.min(1, f));
+        return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
+      };
+      const animators = text.animators ?? [];
+      const glyphsOf = (): Glyph[] => {
+        const em = text.fontPx;
+        const amountAt = (j: number, i: number, k: number) => animators[j].glyphs[i]?.[k] ?? { unit: -1, amount: 0 };
+        // Where each letter sits in its line, from the widths of the text before it (so kerning is kept).
+        const placed = text.lines.map((line, i) => {
+          const chars = [...line.text];
+          const edges = [0];
+          let prefix = "";
+          for (const [k, ch] of chars.entries()) {
+            prefix += ch;
+            edges.push(ctx.measureText(prefix).width + (spaced ? 0 : (k + 1) * text.letterSpacing));
+          }
+          // Tracking from the animators opens the line up after each letter; the line stays aligned as it was.
+          const extra = chars.map((_, k) => animators.reduce((sum, a, j) => sum + amountAt(j, i, k).amount * a.tracking, 0));
+          const total = extra.reduce((a, b) => a + b, 0);
+          let shift = text.align === "left" ? 0 : text.align === "right" ? -total : -total / 2;
+          const xs = chars.map((_, k) => {
+            const x = line.x + edges[k] + shift;
+            shift += extra[k];
+            return x;
+          });
+          return { chars, xs, widths: chars.map((_, k) => edges[k + 1] - edges[k]), y: line.y };
+        });
+        // Each animator's units: the box around their letters, to turn and scale around its middle.
+        const centres = animators.map((_, j) => {
+          const boxes = new Map<number, { left: number; right: number; top: number; bottom: number }>();
+          placed.forEach((line, i) => {
+            line.chars.forEach((_, k) => {
+              const u = amountAt(j, i, k).unit;
+              if (u < 0) return;
+              const box = boxes.get(u) ?? { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+              box.left = Math.min(box.left, line.xs[k]);
+              box.right = Math.max(box.right, line.xs[k] + line.widths[k]);
+              // About the middle of the letters: between the baseline and the capitals' tops.
+              box.top = Math.min(box.top, line.y - em * 0.7);
+              box.bottom = Math.max(box.bottom, line.y);
+              boxes.set(u, box);
+            });
+          });
+          return boxes;
+        });
+        const out: Glyph[] = [];
+        placed.forEach((line, i) => {
+          line.chars.forEach((ch, k) => {
+            if (!ch.trim()) return;
+            const glyph: Glyph = { text: ch, x: line.xs[k], y: line.y, opacity: 1, blur: 0, fill: text.fill, transforms: [] };
+            animators.forEach((a, j) => {
+              const { unit: u, amount } = amountAt(j, i, k);
+              if (!(amount > 0)) return;
+              glyph.opacity *= 1 + amount * (a.opacity - 1);
+              glyph.blur += amount * a.blur;
+              if (a.fill) glyph.fill = mixColor(glyph.fill.startsWith("#") ? glyph.fill : text.fill, a.fill, amount);
+              const box = centres[j].get(u)!;
+              glyph.transforms.push({
+                dx: amount * a.position[0],
+                dy: amount * a.position[1],
+                cx: (box.left + box.right) / 2,
+                cy: (box.top + box.bottom) / 2,
+                rotation: amount * a.rotation,
+                scale: 1 + amount * (a.scale - 1),
+              });
+            });
+            if (glyph.opacity > 0) out.push(glyph);
+          });
+        });
+        return out;
+      };
+      // With animators, each letter is drawn on its own, where and how they put it.
+      const glyphs = animators.length ? glyphsOf() : null;
+      const eachGlyph = (paint: (g: Glyph) => void) => {
+        for (const g of glyphs!) {
+          ctx.save();
+          ctx.globalAlpha = g.opacity;
+          if (g.blur > 0 && "filter" in ctx) ctx.filter = `blur(${g.blur * sy}px)`;
+          for (const t of g.transforms) {
+            ctx.translate(t.dx, t.dy);
+            ctx.translate(t.cx, t.cy);
+            ctx.rotate((t.rotation * Math.PI) / 180);
+            ctx.scale(t.scale, t.scale);
+            ctx.translate(-t.cx, -t.cy);
+          }
+          paint(g);
+          ctx.restore();
+        }
+      };
+
+      if (text.box) {
+        castShadow(shadowPending);
+        ctx.fillStyle = text.box.color;
+        ctx.beginPath();
+        ctx.roundRect(text.box.x, text.box.y, text.box.width, text.box.height, text.box.radius);
+        ctx.fill();
+      }
+      if (text.stroke && text.stroke.width > 0) {
+        castShadow(shadowPending);
+        ctx.strokeStyle = text.stroke.color;
+        // Centred on the outline, half of it hidden under the fill.
+        ctx.lineWidth = 2 * text.stroke.width;
+        ctx.lineJoin = "round";
+        if (glyphs) eachGlyph((g) => ctx.strokeText(g.text, g.x, g.y));
+        else eachLine((t, x, y) => ctx.strokeText(t, x, y));
+      }
+      castShadow(shadowPending);
+      ctx.fillStyle = text.fill;
+      if (glyphs) {
+        eachGlyph((g) => {
+          ctx.fillStyle = g.fill;
+          ctx.fillText(g.text, g.x, g.y);
+        });
+      } else eachLine((t, x, y) => ctx.fillText(t, x, y));
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.shadowColor = "transparent";
     });
   let maskProgram: ReturnType<typeof link> | null = null;
 
@@ -1509,16 +1745,49 @@ void main() {
       h = height;
     } else {
       // Rounded up to 32 px so a picture that's scaling doesn't need new layers every frame.
-      // (A vector drawing has as much detail as it's asked for.)
-      const own = source.kind === "picture" ? source.pic : source.kind === "vector" ? { width: maxLayer, height: maxLayer } : source;
+      // (A vector drawing or a text has as much detail as it's asked for.)
+      const own = source.kind === "picture" ? source.pic : source.kind === "solid" ? source : { width: maxLayer, height: maxLayer };
       const side = (shown: number, max: number) => Math.max(1, Math.min(max, maxLayer, Math.ceil(shown / 32) * 32));
       w = side(pu, own.width);
       h = side(pv, own.height);
     }
-    // A vector drawing is drawn at that size; with nothing else to do to it, that's the layer.
-    const drawn = source.kind === "vector" ? vectorPicture(source.drawing, w, h) : null;
-    if (source.kind === "vector" && !drawn) return null;
-    if (drawn && !passes.length && !masked) return { pic: drawn, layer: false };
+    let ratio = source.kind === "frame" ? width / height : (aspect ?? pu / pv);
+    // Where the frame is in the layer: all of it, until the layer is given room around it.
+    let frameRect = [0, 0, 1, 1];
+    let box: FrameBox = { x: 0, y: 0, w, h };
+    /** Give the layer `room` (a fraction of the frame's height) on every side; it's placed so the frame stays where it was. */
+    const makeRoom = (room: number) => {
+      const m = Math.round(Math.min(room, 4) * h);
+      const W = Math.min(maxLayer, w + 2 * m);
+      const H = Math.min(maxLayer, h + 2 * m);
+      const [mx, my] = [(W - w) / 2, (H - h) / 2];
+      ratio = (ratio * h + 2 * mx) / (h + 2 * my);
+      frameRect = [mx / W, my / H, 1 - mx / W, 1 - my / H];
+      box = { x: mx, y: my, w, h };
+      const m3 = matrixOf(placement);
+      const [fx0, fy0] = [mx / W, my / H];
+      const [sx, sy] = [1 / (1 - 2 * fx0), 1 / (1 - 2 * fy0)];
+      const grown = [
+        m3[0] * sx, m3[1] * sy, m3[2] - (m3[0] * fx0 * sx + m3[1] * fy0 * sy),
+        m3[3] * sx, m3[4] * sy, m3[5] - (m3[3] * fx0 * sx + m3[4] * fy0 * sy),
+        m3[6] * sx, m3[7] * sy, m3[8] - (m3[6] * fx0 * sx + m3[7] * fy0 * sy),
+      ];
+      placed = placement.length === 9 ? (grown as Projective) : ([grown[0], grown[3], grown[1], grown[4], grown[2], grown[5]] as Affine);
+      w = W;
+      h = H;
+    };
+    // Room past the frame that effects ask for (Grow Bounds).
+    const grow = source.kind === "frame" ? 0 : Math.max(0, ...passes.map((fx) => fx.grow ?? 0));
+    // A vector drawing or a text is drawn by the 2D canvas at that size, straight into a layer with
+    // the room its shapes (and its effects) need; with nothing else to do to it, that's the layer.
+    let drawn: Picture | null = null;
+    if (source.kind === "vector" || source.kind === "text") {
+      const room = Math.max(grow, source.kind === "vector" ? (source.drawing.bleed ?? 0) : 0);
+      if (room > 0) makeRoom(room);
+      drawn = source.kind === "vector" ? vectorPicture(source.drawing, w, h, box) : textPicture(source.drawing, w, h, box);
+      if (!drawn) return null;
+      if (!passes.length && !masked) return { pic: drawn, layer: false, placement: placed };
+    }
     let set = scratchSet(w, h);
     const wrap = wrapOf(edges);
     for (const t of set) setWrap(t.tex, wrap);
@@ -1533,7 +1802,7 @@ void main() {
       gl.clear(gl.COLOR_BUFFER_BIT);
     } else if (source.kind === "frame") {
       copy(frame.tex);
-    } else if (source.kind === "vector") {
+    } else if (source.kind === "vector" || source.kind === "text") {
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       drawTextures(drawn!, IDENTITY_AFFINE, 1, w, h, false);
@@ -1545,7 +1814,7 @@ void main() {
       drawTextures(source.pic, IDENTITY_AFFINE, 1, w, h, !!source.pic.layer);
     }
     // Masks cut the picture out before any effect sees it.
-    const coverage = masked ? maskPicture(masks!, w, h) : null;
+    const coverage = masked ? maskPicture(masks!, w, h, box) : null;
     if (coverage) {
       maskProgram ??= link(QUAD_VS, MASK_FS);
       const dst = input === 0 ? 1 : 0;
@@ -1566,40 +1835,22 @@ void main() {
       gl.activeTexture(gl.TEXTURE0);
       input = dst;
     }
-    let ratio = source.kind === "frame" ? width / height : (aspect ?? pu / pv);
     // Room past the frame (Grow Bounds): the picture so far goes in the middle of a bigger layer.
-    let frameRect = [0, 0, 1, 1];
-    const grow = source.kind === "frame" ? 0 : Math.max(0, ...passes.map((fx) => fx.grow ?? 0));
-    if (grow > 0) {
-      const m = Math.round(Math.min(grow, 4) * h);
-      const W = Math.min(maxLayer, w + 2 * m);
-      const H = Math.min(maxLayer, h + 2 * m);
-      const [mx, my] = [(W - w) / 2, (H - h) / 2];
-      const big = scratchSet(W, H);
+    // (What the 2D canvas drew already has its room.)
+    if (grow > 0 && !drawn) {
+      const [w0, h0] = [w, h];
+      makeRoom(grow);
+      const big = scratchSet(w, h);
       for (const t of big) setWrap(t.tex, gl.CLAMP_TO_EDGE);
       gl.bindFramebuffer(gl.FRAMEBUFFER, big[0].fbo);
-      gl.viewport(0, 0, W, H);
+      gl.viewport(0, 0, w, h);
       gl.disable(gl.BLEND);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      const inner: Affine = [w / W, 0, 0, h / H, mx / W, my / H];
-      drawTextures({ textures: [set[input].tex], yuv: null, width: w, height: h, mipmapped: false }, inner, 1, W, H, true);
-      ratio = (ratio * h + 2 * mx) / (h + 2 * my);
-      frameRect = [mx / W, my / H, 1 - mx / W, 1 - my / H];
-      // The bigger layer goes where the picture went, grown by the same room.
-      const m3 = matrixOf(placement);
-      const [fx0, fy0] = [mx / W, my / H];
-      const [sx, sy] = [1 / (1 - 2 * fx0), 1 / (1 - 2 * fy0)];
-      const grown = [
-        m3[0] * sx, m3[1] * sy, m3[2] - (m3[0] * fx0 * sx + m3[1] * fy0 * sy),
-        m3[3] * sx, m3[4] * sy, m3[5] - (m3[3] * fx0 * sx + m3[4] * fy0 * sy),
-        m3[6] * sx, m3[7] * sy, m3[8] - (m3[6] * fx0 * sx + m3[7] * fy0 * sy),
-      ];
-      placed = placement.length === 9 ? (grown as Projective) : ([grown[0], grown[3], grown[1], grown[4], grown[2], grown[5]] as Affine);
+      const inner: Affine = [w0 / w, 0, 0, h0 / h, box.x / w, box.y / h];
+      drawTextures({ textures: [set[input].tex], yuv: null, width: w0, height: h0, mipmapped: false }, inner, 1, w, h, true);
       set = big;
       input = 0;
-      w = W;
-      h = H;
     }
     for (const fx of passes) {
       if (fx.particles) {

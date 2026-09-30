@@ -9,6 +9,7 @@ import {
   VIDEO_EFFECTS,
   VOLUME,
   addEffect,
+  atFrameRate,
   defaultEffects,
   expressionProblem,
   setExpression,
@@ -459,6 +460,17 @@ describe("expressions", () => {
     // Rotation: scale (the plain rotation 0 + 2) × 10. Scale: rotation (the plain scale 1 × 10) + 2.
     expect(motionAt(clipOf(knot), 0).rotation).toBe(20);
     expect(motionAt(clipOf(knot), 0).scaleY).toBe(12);
+  });
+
+  it("are told the frame rate of the sequence being drawn", () => {
+    const told = setExpression(p, "c", "motion", "rotation", "fps");
+    expect(motionAt(clipOf(told), 0).rotation).toBe(30);
+    expect(atFrameRate(60, () => motionAt(clipOf(told), 0).rotation)).toBe(60);
+    // Only for that call, nested ones included.
+    expect(atFrameRate(24, () => [atFrameRate(50, () => motionAt(clipOf(told), 0).rotation), motionAt(clipOf(told), 0).rotation])).toEqual([50, 24]);
+    expect(motionAt(clipOf(told), 0).rotation).toBe(30);
+    expect(() => atFrameRate(60, () => { throw new Error("x"); })).toThrow();
+    expect(motionAt(clipOf(told), 0).rotation).toBe(30);
   });
 
   it("leave the value alone when they fail, and say what's wrong", () => {

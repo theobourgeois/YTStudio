@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEditor } from "@/stores/editor";
-import { drawTexts } from "./draw-texts";
+import { layoutTexts } from "./layout-texts";
 import { ExportForm, brandButton } from "./export-form";
 import { ExportDone, ExportError, ExportProgress, formatElapsed } from "./export-status";
 import { useExportJob, type ExportPhase } from "./use-export-job";
@@ -40,7 +40,7 @@ export function ExportDialog() {
   const run = (fileName: string, excludeAudioTracks: boolean) => {
     lastRun.current = { fileName, excludeAudioTracks };
     const project = useEditor.getState().document;
-    void start(drawTexts(project, resolution).then((texts) => ({ project, resolution, fileName, excludeAudioTracks, texts })));
+    void start(layoutTexts(project, resolution).then((texts) => ({ project, resolution, fileName, excludeAudioTracks, texts })));
   };
 
   const trigger = (

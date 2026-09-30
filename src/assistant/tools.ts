@@ -17,7 +17,7 @@ import { getSubclip } from "@shared/subclips";
 import { placeTemplate } from "@shared/library";
 import { clipEnd, getClip, projectDuration, timelineTime } from "@shared/timeline";
 import type { Clip, ExportJob, ExportResolution, Library, MediaAsset, Project, TranscriptionEngineId, TranscriptionJob } from "@shared/types";
-import { drawTexts } from "@/components/export/draw-texts";
+import { layoutTexts } from "@/components/export/layout-texts";
 import { api } from "@/lib/api";
 import { useAssistant } from "@/stores/assistant";
 import { type CaptionOptions, captionsFor, useCaptions } from "@/stores/captions";
@@ -583,7 +583,7 @@ const TOOLS: Record<VideoToolName, Handler> = {
     if (project.clips.length === 0) throw new ToolError("The timeline is empty: there's nothing to export.");
     const resolution: ExportResolution = oneOf(input, "resolution", ["720p", "1080p", "4k"] as const) ?? "1080p";
     ctx.progress(null, "Preparing");
-    const texts = await drawTexts(project, resolution);
+    const texts = await layoutTexts(project, resolution);
     let job: ExportJob = await api.startExport({
       project,
       resolution,

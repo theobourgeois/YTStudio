@@ -253,7 +253,7 @@ export function effectPasses(clip: Clip, time: number, fps = DEFAULT_FPS, record
   for (const effect of clip.effects) {
     const def = effect.enabled ? effectDefinition(effect.type) : undefined;
     const clipTime = timelineTime(clip, time) - clip.start;
-    const pass = def?.shader ? effectPass(def, effectValuesAt(def, effect, time, clip, fps), time, fps, `${clip.id}/${effect.id}`, record, clipTime) : null;
+    const pass = def?.shader ? effectPass(def, effectValuesAt(def, effect, time, clip), time, fps, `${clip.id}/${effect.id}`, record, clipTime) : null;
     if (pass) passes.push(pass);
   }
   return passes;

@@ -164,7 +164,9 @@ export function selectionAmount(a: Pick<TextAnimation, "start" | "end" | "offset
 export function glyphSelections(lines: readonly string[], a: TextAnimation): { unit: number; amount: number }[][] {
   const { count, of } = textUnits(lines, a.basedOn);
   const order = a.randomOrder ? shuffledOrder(count) : null;
-  return of.map((line) => line.map((unit) => ({ unit, amount: unit < 0 ? 0 : tidy(selectionAmount(a, order ? order[unit] : unit, count)) })));
+  // (Stored fractions like a third are rounded: a hair's breadth in or out of the range is in or out.)
+  const snap = (amount: number) => (amount < 1e-6 ? 0 : amount > 1 - 1e-6 ? 1 : tidy(amount));
+  return of.map((line) => line.map((unit) => ({ unit, amount: unit < 0 ? 0 : snap(selectionAmount(a, order ? order[unit] : unit, count)) })));
 }
 
 // ---------------------------------------------------------------------------

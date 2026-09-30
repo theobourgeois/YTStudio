@@ -55,6 +55,7 @@ import {
   effectDefinition,
   isTextClip,
   MAX_EXPRESSION,
+  atFrameRate,
   canExpress,
   effectValuesAt,
   expressionProblem,
@@ -1149,9 +1150,10 @@ const setExpressionTool: EditHandler = (project, input) => {
     const after = clipOf(next, id);
     const written = after.effects.find((e) => e.id === effect.id)!;
     // Run it where the clip starts and a little later: what's wrong, or what it gives.
-    const problem = expressionProblem(def, written, key, clip.in, after);
+    const fps = p.settings.fps;
+    const problem = atFrameRate(fps, () => expressionProblem(def, written, key, clip.in, after));
     if (problem) throw new ToolError(`The expression doesn't run: ${problem}. See get_catalog "expressions" for what it can use.`);
-    const at = (t: number) => value(effectValuesAt(def, written, t, after)[key]);
+    const at = (t: number) => value(atFrameRate(fps, () => effectValuesAt(def, written, t, after))[key]);
     results.push(`${id}: ${at(clip.in)} at its start, ${at(clip.in + Math.min(1, (clip.out - clip.in) / 2))} ${secs(Math.min(1, (clip.out - clip.in) / 2))}s in`);
     p = next;
   }

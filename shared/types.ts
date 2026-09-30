@@ -4,6 +4,7 @@
  */
 import type { AssistantModelInfo, AssistantProvider } from "./assistant.ts";
 import type { BezierPath } from "./path.ts";
+import type { TextLayout } from "./text-drawing.ts";
 import type { SuiteId } from "./suites.ts";
 import type { ToolResult } from "./tool-spec.ts";
 
@@ -534,21 +535,18 @@ export interface ExportRequest {
   /** Render without the audio tracks (e.g. to add the song in-app when posting). */
   excludeAudioTracks?: boolean;
   /**
-   * Every text clip drawn by the browser at the export's size (the server has
-   * no way to lay out text in the user's fonts), by clip id: one drawing, or
-   * one per change of an animated text's look.
+   * Every text clip laid out by the browser at the export's size (the server has
+   * no way to measure text in the user's fonts), by clip id: one layout, or
+   * one per change when its words, size or font are animated. The export's page
+   * draws the text itself from these.
    */
-  texts?: Record<string, TextRaster[]>;
+  texts?: Record<string, TextLayoutAt[]>;
 }
 
-/** A text clip drawn to an image for the export. */
-export interface TextRaster {
-  /** Base64 PNG. It may be drawn larger than `width` x `height` so a scaled-up text stays sharp. */
-  png: string;
-  /** The text's frame at 100% scale, in output px (what its Motion places). */
-  width: number;
-  height: number;
-  /** Source time this drawing is shown from, until the next one's (the first is shown from the start). */
+/** A text clip's layout for the export, in output px (see `shared/text-drawing.ts`). */
+export interface TextLayoutAt {
+  layout: TextLayout;
+  /** Source time this layout holds from, until the next one's (the first holds from the start). */
   from?: number;
 }
 

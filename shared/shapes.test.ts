@@ -95,6 +95,16 @@ describe("shape layers", () => {
     expect(shapeDrawingAt({ ...only(wiggly), effects: [...only(wiggly).effects] }, 0.5, FRAME)).toEqual(shapeDrawingAt(only(wiggly), 0.5, FRAME));
   });
 
+  it("ask for room when their shapes reach past the frame, so they aren't cut off there", () => {
+    expect(shapeDrawingAt(only(make({ size: [200, 200] })), 0, FRAME)).not.toHaveProperty("bleed");
+    // 460 px past each side of a 1080-wide frame: about a quarter of its 1920 px height.
+    expect(shapeDrawingAt(only(make({ size: [2000, 200] })), 0, FRAME).bleed).toBe(0.25);
+    // A repeater's copies count, and so does a stroke.
+    const copies = addEffect(make({ size: [200, 200] }), ["s"], "repeater", { copies: 5, position: [300, 0] }).project;
+    expect(shapeDrawingAt(only(copies), 0, FRAME).bleed).toBeGreaterThan(0.3);
+    expect(shapeDrawingAt(only(make({ size: [1080, 200], strokeWidth: 40, lineJoin: "round" })), 0, FRAME).bleed).toBe(0.05);
+  });
+
   it("are hit by what they draw, not by their frame", () => {
     const clip = only(make({ size: [200, 200] }));
     expect(shapeContains(clip, 0, FRAME, [540, 960])).toBe(true);

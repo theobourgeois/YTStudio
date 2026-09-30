@@ -638,6 +638,25 @@ export function storedValuesAt(def: EffectDefinition, effect: Effect, time: numb
 /** Frame rate expressions are told when nobody says (they only use it for stepped time and `random`). */
 const EXPRESSION_FPS = 30;
 
+let frameRate = EXPRESSION_FPS;
+
+/**
+ * Work out values with expressions told a sequence's frame rate (their `fps`, and how often
+ * `random()` changes): whatever draws a sequence wraps its work in this (the preview's and the
+ * export's levels, the canvas overlay), so they all give an expression the same answer.
+ * Values are read in too many places to hand the rate to each; it's only ever set for the
+ * length of one synchronous call.
+ */
+export function atFrameRate<T>(fps: number, work: () => T): T {
+  const before = frameRate;
+  if (fps > 0 && Number.isFinite(fps)) frameRate = fps;
+  try {
+    return work();
+  } finally {
+    frameRate = before;
+  }
+}
+
 /** A number for each property, so their wiggles and random numbers differ but are the same on every draw. */
 function seedOf(text: string): number {
   let h = 2166136261;
@@ -684,7 +703,7 @@ function expressionScope(def: EffectDefinition, effect: Effect, key: string, tim
  * with its expressions run over them. `clip` is the clip it's on, for expressions that read
  * its other properties. An expression that fails leaves its property as it is without it.
  */
-export function effectValuesAt(def: EffectDefinition, effect: Effect, time: number, clip?: Pick<Clip, "id" | "effects">, fps = EXPRESSION_FPS): ParamValues {
+export function effectValuesAt(def: EffectDefinition, effect: Effect, time: number, clip?: Pick<Clip, "id" | "effects">, fps = frameRate): ParamValues {
   const values = storedValuesAt(def, effect, time);
   if (!effect.expressions) return values;
   for (const [key, source] of Object.entries(effect.expressions)) {
@@ -716,7 +735,7 @@ export function expressionProblem(def: EffectDefinition, effect: Effect, key: st
   const parse = expressionError(source);
   if (parse) return parse;
   try {
-    const result = evaluateExpression(parseExpression(source), expressionScope(def, effect, key, time, clip, EXPRESSION_FPS));
+    const result = evaluateExpression(parseExpression(source), expressionScope(def, effect, key, time, clip, frameRate));
     const point = spec.kind === "vec2";
     if (typeof result === "string" || (point && typeof result === "boolean")) return point ? "The result must be a point, like [x, y]" : "The result must be a number";
     if (Array.isArray(result) && result.length < (point ? 2 : 1)) return point ? "The result must be a point, like [x, y]" : "The result must be a number";

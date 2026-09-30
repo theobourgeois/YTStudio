@@ -253,7 +253,8 @@ const drawings = new WeakMap<object, { key: string; drawing: VectorDrawing }>();
 
 function drawShapes(clip: Clip, time: number, frame: Size): VectorDrawing {
   const ops: VectorOp[] = [];
-  for (const item of itemsAt(clip, time, frame)) {
+  const items = itemsAt(clip, time, frame);
+  for (const item of items) {
     const paths = item.paths.filter((p) => p.vertices.length > 1);
     if (!paths.length || (!item.paint.fill && !item.paint.stroke)) continue;
     const d = toSvgPathData(paths);
@@ -277,7 +278,33 @@ function drawShapes(clip: Clip, time: number, frame: Size): VectorDrawing {
       });
     }
   }
-  return { width: frame.width, height: frame.height, ops };
+  // Shapes that reach past the frame (a wide box, a repeater's copies, a layer scaled down):
+  // the layer is drawn with that much room around it (in steps, so it isn't resized at every frame).
+  const box = itemsBounds(items);
+  const past = box ? Math.max(0, -box.x, -box.y, box.x + box.width - frame.width, box.y + box.height - frame.height) : 0;
+  const bleed = Math.min(4, Math.ceil((past / frame.height) * 20) / 20);
+  return { width: frame.width, height: frame.height, ops, ...(bleed > 0 && { bleed }) };
+}
+
+/** The box around everything some shapes draw: their copies, and their strokes (a mitred corner pokes out further than the line is wide). */
+function itemsBounds(items: readonly Item[]): Rect | undefined {
+  let box: Rect | undefined;
+  for (const item of items) {
+    if (!item.paint.fill && !item.paint.stroke) continue;
+    const b = boundsOf(baked(item));
+    if (!b) continue;
+    const stroke = item.paint.stroke;
+    const pad = stroke ? stroke.width * (stroke.join === "miter" ? 2 : 0.5) : 0;
+    const grown = { x: b.x - pad, y: b.y - pad, width: b.width + 2 * pad, height: b.height + 2 * pad };
+    if (!box) {
+      box = grown;
+      continue;
+    }
+    const x = Math.min(box.x, grown.x);
+    const y = Math.min(box.y, grown.y);
+    box = { x, y, width: Math.max(box.x + box.width, grown.x + grown.width) - x, height: Math.max(box.y + box.height, grown.y + grown.height) - y };
+  }
+  return box;
 }
 
 /** Whether a shape layer draws differently at source times `a` and `b` (something in it is animated, or wiggles). */
