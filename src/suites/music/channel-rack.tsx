@@ -350,14 +350,19 @@ const ChannelLead = memo(function ChannelLead({ channel, selected }: { channel: 
             aria-label={channel.muted ? `Unmute ${channel.name}` : `Mute ${channel.name}`}
             aria-pressed={!channel.muted}
             title={channel.muted ? "Muted (right-click to solo)" : "Mute (right-click to solo)"}
-            // A light: lit with the accent while the channel plays, dark (sunken) when muted.
-            className={cn(
-              "mr-0.5 size-2.5 shrink-0 rounded-full transition-colors",
-              channel.muted ? "sunken" : "border border-brand-edge bg-brand shadow-[0_0_5px] shadow-brand/70 inset-shadow-[0_1px_0_rgb(255_255_255/0.45)]",
-            )}
+            // A small light in a larger target, so it's easy to hit.
+            className="group grid size-5 shrink-0 place-items-center rounded-full"
             // Ctrl or Alt with the click solos, as in FL Studio.
             onClick={(e) => (e.altKey || e.metaKey || e.ctrlKey ? solo(id) : toggleMute(id))}
-          />
+          >
+            {/* Lit with the accent while the channel plays, dark (sunken) when muted. */}
+            <span
+              className={cn(
+                "size-2.5 rounded-full transition-[colors,filter] group-hover:brightness-125",
+                channel.muted ? "sunken" : "border border-brand-edge bg-brand shadow-[0_0_5px] shadow-brand/70 inset-shadow-[0_1px_0_rgb(255_255_255/0.45)]",
+              )}
+            />
+          </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => solo(id)}>Solo</ContextMenuItem>
