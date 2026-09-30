@@ -315,7 +315,7 @@ function PositionSlider() {
       aria-valuemax={patternTicks}
       aria-valuenow={now}
       title="Song position: drag to move where play is"
-      className="relative ml-1 h-6 max-w-[520px] min-w-24 flex-1 cursor-pointer touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      className="relative ml-1 h-6 max-w-[280px] min-w-24 flex-1 cursor-pointer touch-none outline-none"
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.preventDefault();
