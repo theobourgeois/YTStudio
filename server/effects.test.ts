@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { VIDEO_EFFECTS } from "../shared/effects.ts";
-import { effectRows } from "./effect-rows.ts";
+import { effectRows, timeEffectRows } from "./effect-rows.ts";
 import { GlSession } from "./gl-browser.ts";
 
 let session: GlSession | null = null;
@@ -28,6 +28,15 @@ describe.skipIf(!session)("video effect shaders", () => {
         expect(r.error, r.label).toBeUndefined();
         expect({ label: r.label, changed: r.max >= 16 }).toEqual({ label: r.label, changed: true });
       }
+    }
+  });
+
+  it("compile and change a moving picture over earlier frames (time effects)", async () => {
+    const { results } = await session!.layers({ rows: timeEffectRows(VIDEO_EFFECTS), cell: { width: 90, height: 160 } });
+    expect(results.length).toBeGreaterThan(0);
+    for (const r of results) {
+      expect(r.error, r.label).toBeUndefined();
+      expect({ label: r.label, changed: r.end >= 16 }).toEqual({ label: r.label, changed: true });
     }
   });
 });

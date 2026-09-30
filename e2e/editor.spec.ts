@@ -744,6 +744,72 @@ test("adds video effects from the Effects tab, edits, reorders and removes them"
   await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(Math.round(before));
 });
 
+test("adds adjustment layers and solids, and presets: a transition across a cut and a move on a clip", async ({ page }) => {
+  await page.goto("/");
+  const videoLane = await laneY(page, "Video 1");
+  const video = (await timelineClips(page)).find((c) => Math.abs(c.y + c.h / 2 - videoLane) < 10)!;
+  type LayerClip = Omit<SavedClip, "effects"> & {
+    adjustment?: true;
+    effects: { type: string; enabled: boolean; params: Record<string, unknown>; keyframes?: Record<string, unknown[]> }[];
+  };
+  const saved = async () => (await savedProject(page)).clips as LayerClip[];
+  const layers = async () => (await saved()).filter((c) => c.adjustment);
+
+  // An adjustment layer over the selected clip, on a track above it.
+  await page.mouse.click(video.x + video.w / 2, video.y + video.h / 2);
+  await page.getByRole("button", { name: "New layer" }).click();
+  await page.getByRole("menuitem", { name: /Adjustment layer/ }).click();
+  await expect.poll(async () => (await layers()).length).toBe(1);
+  const [layer] = await layers();
+  const clip = (await saved()).find((c) => c.id === video.id)!;
+  expect(layer.start).toBeCloseTo(clip.start, 3);
+  expect(layer.trackId).not.toBe(clip.trackId);
+  await expect(page.locator("[data-adjustment-note]")).toBeVisible();
+  await expect(page.locator(`[data-clip-id="${layer.id}"]`)).toContainText("Adjustment Layer");
+  // Its blend mode, from the menu of modes.
+  await page.getByRole("combobox", { name: "Blend Mode" }).click();
+  await page.getByRole("option", { name: "Screen" }).click();
+  await expect.poll(async () => effectParams({ clips: await saved() }, layer.id, "opacity")?.blendMode).toBe("screen");
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await layers()).length).toBe(0);
+
+  // A solid.
+  await page.getByRole("button", { name: "New layer" }).click();
+  await page.getByRole("menuitem", { name: /Solid/ }).click();
+  await expect.poll(async () => (await saved()).some((c) => c.effects.some((e) => e.type === "solid"))).toBe(true);
+  await page.keyboard.press("ControlOrMeta+z");
+
+  // Presets: a spin across the cut nearest the playhead, drawn over what's below.
+  await page.getByRole("tab", { name: "Effects" }).click();
+  await page.getByRole("tab", { name: "Presets" }).click();
+  await page.getByRole("searchbox", { name: "Search presets" }).fill("spin");
+  const card = (name: string) => page.locator("[data-preset-type]").filter({ hasText: name }).first();
+  await card("Spin Zoom").hover();
+  await card("Spin Zoom").getByRole("button", { name: "Add Spin Zoom" }).click();
+  await expect.poll(async () => (await layers()).length).toBe(1);
+  const [spin] = await layers();
+  expect(Object.keys(spin.effects.find((e) => e.type === "motion")!.keyframes!)).toEqual(expect.arrayContaining(["rotation", "scale"]));
+  await expect(page.locator("canvas[data-drawn]").first()).not.toHaveAttribute("data-drawn", "empty");
+
+  // A move dragged onto the clip goes on the clip itself.
+  await page.getByRole("searchbox", { name: "Search presets" }).fill("punch");
+  const src = (await card("Punch In").boundingBox())!;
+  // The layer's new track on top moved the clip down.
+  const target = (await page.locator(`[data-clip-id="${video.id}"]`).boundingBox())!;
+  await page.mouse.move(src.x + src.width / 2, src.y + src.height / 3);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 5 });
+  await page.mouse.move(target.x + target.width / 2 + 4, target.y + target.height / 2, { steps: 2 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => Object.keys((await saved()).find((c) => c.id === video.id)!.effects.find((e) => e.type === "motion")!.keyframes ?? {}))
+    .toContain("scale");
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await layers()).length).toBe(0);
+});
+
 test("adds text with the Type tool, types into it on the canvas, styles it and exports it", async ({ page }) => {
   await page.goto("/");
   const before = new Set(((await savedProject(page)).clips as SavedClip[]).map((c) => c.id));

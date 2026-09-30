@@ -105,7 +105,7 @@ export interface Track {
 
 export interface Clip {
   id: string;
-  /** The media it shows or plays; "" for a text clip (see `isTextClip`). */
+  /** The media it shows or plays; "" for a clip without media: text, a solid or an adjustment layer (see `clipKind`). */
   assetId: string;
   trackId: string;
   /** Position on the timeline. */
@@ -131,6 +131,14 @@ export interface Clip {
    */
   keepPitch?: false;
   /**
+   * How the frames between its media's own are made when it's slowed down (or sped up, or at
+   * another frame rate), Premiere's Time Interpolation: absent is Frame Sampling (the nearest
+   * frame is shown), `blend` cross-fades the two frames either side, `flow` warps both along
+   * the optical flow between them to where things are in between (smooth slow motion, like
+   * Twixtor). Only clips of videos.
+   */
+  timeInterpolation?: "blend" | "flow";
+  /**
    * Everything else about the clip (framing, position, scale, opacity, volume...),
    * as effects in the order they apply. See `shared/effects.ts`.
    */
@@ -148,6 +156,12 @@ export interface Clip {
    * every caption at once (see `shared/captions.ts`).
    */
   caption?: true;
+  /**
+   * An adjustment layer (Premiere's and After Effects'): it draws nothing of its
+   * own; its video effects, Motion and Opacity apply to everything drawn below
+   * it. Only on clips without media, on a video track.
+   */
+  adjustment?: true;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +211,13 @@ export interface Keyframe {
   time: number;
   value: ParamValue;
   easing: Easing;
+  /**
+   * How far (0..1 of the time to the neighbouring keyframe) an eased side's
+   * handle reaches, like After Effects' keyframe velocity influence: the
+   * higher, the longer the value lingers near the keyframe and the snappier
+   * the move in between. Absent means 1/3 (Premiere's Ease In/Out).
+   */
+  influence?: number;
 }
 
 /** One effect on a clip (Premiere's "Effect Controls" entries). */

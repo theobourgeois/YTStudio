@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { addEffect, defaultEffects, setEffectEnabled, textEffects } from "../shared/effects.ts";
+import { addEffect, defaultEffects, setEffectEnabled, setParams, solidEffects, textEffects } from "../shared/effects.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import type {
   Clip,
@@ -584,6 +584,115 @@ describe.skipIf(!ffmpegAvailable)("server (integration)", () => {
       actual.forEach((v, i) => expect(Math.abs(v - expected[i]), `${actual} vs ${expected}`).toBeLessThan(40));
     near(pixelAt(output, 0.5, 360, 640), [0, 255, 255]);
     near(pixelAt(output, 1.5, 360, 640), [0, 0, 255]);
+  });
+
+  it("exports solids, blend modes, adjustment layers, edges and motion blur", async () => {
+    const tracks = [
+      { id: "fx", kind: "video" as const, name: "Video 3", muted: false },
+      { id: "top", kind: "video" as const, name: "Video 2", muted: false },
+      ...createDefaultProject().tracks,
+    ];
+    const solid = (start: number, color: string): Clip => ({
+      id: `solid_${start}`, assetId: "", trackId: "top", start, in: 0, out: 1, effects: solidEffects({ color }),
+    });
+    const adjustment = (start: number): Clip => ({
+      id: `adjust_${start}`, assetId: "", trackId: "fx", start, in: 0, out: 1, effects: defaultEffects(), adjustment: true,
+    });
+    const key = (time: number, value: [number, number]) => ({ time, value, easing: "linear" as const });
+    // A quarter-size red box flying across the canvas (1440 px in a second), with or without motion blur.
+    const flying = (start: number, blur: boolean): Clip => {
+      const c = clip("red", "main", start, 0, 1);
+      c.effects = c.effects.map((e) =>
+        e.type === "motion"
+          ? { ...e, params: { ...e.params, scale: 0.25, motionBlur: blur }, keyframes: { position: [key(0, [-0.5, 0.5]), key(1, [1.5, 0.5])] } }
+          : e,
+      );
+      return c;
+    };
+    let project: Project = {
+      ...projectWith([
+        clip("red", "main", 0, 0, 1),
+        adjustment(0),
+        clip("red", "main", 1, 0, 1),
+        solid(1, "#0000ff"),
+        clip("red", "main", 2, 0, 1),
+        solid(2, "#808080"),
+        clip("red", "main", 3, 0, 1),
+        flying(4, true),
+        flying(5, false),
+        clip("red", "main", 6, 0, 1),
+        adjustment(6),
+      ]),
+      tracks,
+    };
+    project = addEffect(project, ["adjust_0", "adjust_6"], "invert").project;
+    project = setParams(project, "solid_1", "opacity", { blendMode: "add" });
+    project = setParams(project, "solid_2", "opacity", { blendMode: "multiply" });
+    project = setParams(project, "adjust_6", "opacity", { opacity: 0.5 });
+    const mirrored = project.clips.find((c) => c.start === 3)!.id;
+    project = setParams(project, mirrored, "motion", { scale: 0.5, edges: "mirror" });
+
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    const near = (actual: number[], expected: number[], at: string) =>
+      actual.forEach((v, i) => expect(Math.abs(v - expected[i]), `${actual} vs ${expected} ${at}`).toBeLessThan(40));
+
+    // The adjustment layer inverts the red below it.
+    near(pixelAt(output, 0.5, 360, 640), [0, 255, 255], "adjustment");
+    // A blue solid added over red, and grey multiplied with it.
+    near(pixelAt(output, 1.5, 360, 640), [255, 0, 255], "add");
+    near(pixelAt(output, 2.5, 360, 640), [128, 0, 0], "multiply");
+    // Half size, mirrored past its edges: red reaches the corners.
+    near(pixelAt(output, 3.5, 20, 20), [255, 0, 0], "mirror edges");
+    // Half an inverted adjustment: halfway from red to cyan.
+    near(pixelAt(output, 6.5, 360, 640), [128, 128, 128], "adjustment opacity");
+
+    // Motion blur smears the flying box's edges over ~24 px; without it they stay sharp.
+    const row = (time: number) => {
+      const out = execFileSync(FFMPEG, [
+        "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", String(time), "-i", output,
+        "-frames:v", "1", "-vf", "format=rgb24,crop=720:1:0:640", "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+      ]);
+      let partial = 0;
+      for (let x = 0; x < 720; x++) if (out[x * 3] > 50 && out[x * 3] < 205) partial++;
+      return partial;
+    };
+    const blurred = row(4.5);
+    const sharp = row(5.5);
+    expect(blurred, `blurred ${blurred} vs sharp ${sharp}`).toBeGreaterThan(sharp + 20);
+  });
+
+  it("exports slow motion with new frames in between (optical flow), or repeats frames (frame sampling)", async () => {
+    // A quarter speed: each source frame lasts four output frames.
+    const slow = (start: number, timeInterpolation?: "flow" | "blend"): Clip => ({
+      ...clip("landscape", "main", start, 0, 1),
+      speed: 0.25,
+      ...(timeInterpolation && { timeInterpolation }),
+    });
+    const project = projectWith([slow(0, "flow"), slow(4), slow(8, "blend")]);
+    const queued = (await (await sendJson("POST", "/api/exports", { project, resolution: "720p" })).json()) as ExportJob;
+    const job = await waitForExport(queued.id);
+    expect(job.error).toBeUndefined();
+    const output = path.join(dataDir, "exports", `${job.id}.mp4`);
+    // How different two output frames are (mean channel difference over a row through the moving pattern).
+    const row = (time: number) =>
+      execFileSync(FFMPEG, [
+        "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", String(time), "-i", output,
+        "-frames:v", "1", "-vf", "format=rgb24,crop=720:1:0:640", "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+      ]);
+    const change = (a: number, b: number) => {
+      const [x, y] = [row(a), row(b)];
+      let sum = 0;
+      for (let i = 0; i < x.length; i++) sum += Math.abs(x[i] - y[i]);
+      return sum / x.length;
+    };
+    // Frames 31 and 32 (1.033 s, 1.067 s): the same source frame when sampled, a step apart when interpolated.
+    const [f1, f2] = [31.5 / 30, 32.5 / 30];
+    expect(change(4 + f1, 4 + f2)).toBeLessThan(1);
+    expect(change(f1, f2)).toBeGreaterThan(1);
+    expect(change(8 + f1, 8 + f2)).toBeGreaterThan(1);
   });
 
   it("exports video in its true colours, whatever matrix it's stored in", async () => {

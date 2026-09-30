@@ -14,13 +14,16 @@ import {
   VIDEO_EFFECTS,
   VOLUME,
   effectDefinition,
-  isTextClip,
+  clipKind,
+  CAMERA,
+  SOLID,
 } from "@shared/effects";
 import { folderPath, folderSubtree, libraryItemDuration, libraryItemKind, searchItems } from "@shared/library";
 import { type ParamSpec, sameValue } from "@shared/params";
 import { subclipsByAsset } from "@shared/subclips";
 import { clipEnd, clipName, clipSpeed, getTrack, outputSize, projectDuration, timelineTime, trackClips } from "@shared/timeline";
 import { type TransitionWindow, trackTransitions } from "@shared/transition-windows";
+import { PRESETS, type PresetDefinition } from "@shared/presets";
 import { TRANSITIONS } from "@shared/transitions";
 import type { Clip, Effect, FontFamily, Library, MediaAsset, MusicAnalysis, ParamValue, Project, Transcript } from "@shared/types";
 import { range, secs, value } from "./input";
@@ -60,9 +63,16 @@ function effectSummary(def: EffectDefinition, effect: Effect, skip: readonly str
 function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): string {
   const asset = assets[clip.assetId];
   const parts: string[] = [];
-  if (isTextClip(clip)) {
+  const kind = clipKind(clip);
+  if (kind === "text") {
     const text = String(clip.effects.find((e) => e.type === TEXT.type)?.params.text ?? "");
     parts.push(`${isCaptionClip(clip) ? "caption" : "text"} ${quote(text.replace(/\n/g, "\\n"))}`);
+  } else if (kind === "adjustment") {
+    parts.push("adjustment layer (changes the tracks below it)");
+  } else if (kind === "solid") {
+    parts.push("solid");
+  } else if (kind === "camera") {
+    parts.push("camera (3D layers are seen through it)");
   } else {
     const kind = asset ? asset.kind : "offline media";
     parts.push(`${quote(clipName(clip, asset), 48)} (${kind}${asset ? `, ${asset.id}` : ""})`);
@@ -71,6 +81,7 @@ function clipLine(clip: Clip, assets: Assets, windows: TransitionWindow[]): stri
       ...(clipSpeed(clip) !== 1 ? [`speed ${clipSpeed(clip)}×`] : []),
       ...(clip.reversed ? ["reversed"] : []),
       ...(clip.keepPitch === false ? ["pitch follows speed"] : []),
+      ...(clip.timeInterpolation ? [clip.timeInterpolation === "flow" ? "optical flow" : "frame blending"] : []),
     ];
     if (timing.length) parts.push(timing.join(", "));
   }
@@ -148,15 +159,18 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
       track: track && { id: track.id, name: track.name, kind: track.kind },
       start: round(clip.start),
       end: round(clipEnd(clip)),
-      ...(isTextClip(clip)
+      ...(clipKind(clip) === "text"
         ? { kind: clip.caption ? "caption" : "text" }
-        : {
+        : clipKind(clip) !== "media"
+          ? { kind: clipKind(clip) === "adjustment" ? "adjustment layer" : clipKind(clip) }
+          : {
             kind: asset?.kind ?? "offline",
             media: asset && { id: asset.id, name: asset.name, duration: round(asset.duration) },
             source: { in: round(clip.in), out: round(clip.out) },
             speed: clipSpeed(clip),
             reversed: clip.reversed === true,
             keepPitch: clip.keepPitch !== false,
+            timeInterpolation: clip.timeInterpolation ?? "frames",
           }),
       effects: clip.effects.map((e) => ({
         id: e.id,
@@ -167,7 +181,12 @@ export function describeClips(project: Project, assets: Assets, ids: readonly st
           keyframes: Object.fromEntries(
             Object.entries(e.keyframes).map(([k, keys]) => [
               k,
-              keys.map((kf) => ({ time: round(timelineTime(clip, kf.time)), value: round(kf.value), easing: kf.easing })),
+              keys.map((kf) => ({
+                time: round(timelineTime(clip, kf.time)),
+                value: round(kf.value),
+                easing: kf.easing,
+                ...(kf.influence !== undefined && { influence: kf.influence }),
+              })),
             ]),
           ),
         }),
@@ -241,7 +260,7 @@ function specLine(spec: ParamSpec): string {
 const matches = (query: string | undefined, ...fields: string[]) =>
   !query || fields.some((f) => f.toLowerCase().includes(query.toLowerCase()));
 
-export type CatalogKind = "video_effects" | "transitions" | "clip_properties" | "caption_styles" | "fonts";
+export type CatalogKind = "video_effects" | "presets" | "transitions" | "clip_properties" | "caption_styles" | "fonts";
 
 /** What exists to use (see `get_catalog`). Fonts are passed in (they come from the server). */
 export function describeCatalog(kind: CatalogKind, query?: string, fonts: readonly FontFamily[] = []): string {
@@ -255,6 +274,20 @@ export function describeCatalog(kind: CatalogKind, query?: string, fonts: readon
         ...found.map((d) => `${d.type}  "${d.label}" [${(d.shader?.tags ?? []).map((t) => EFFECT_TAG_LABELS[t]).join(", ")}]\n${params(d.params)}`),
       ].join("\n");
     }
+    case "presets": {
+      const found = PRESETS.filter((d) => matches(query, d.type, d.label, d.kind, ...d.tags));
+      if (!found.length) return `No preset matches "${query}".`;
+      const what = (d: PresetDefinition) =>
+        d.effects.map((fx) => `${fx.type}${fx.keys ? ` (animates ${Object.keys(fx.keys).join(", ")})` : ""}`).join(", ");
+      return [
+        "Presets (apply_preset). Transitions: an adjustment layer centred on a cut. Effects: on clips, " +
+          "from their start (in), to their end (out), or over all of them (stretch).",
+        ...found.map(
+          (d) =>
+            `${d.type}  "${d.label}" ${d.kind}${d.kind === "effect" ? ` (${d.anchor ?? "start"})` : ""} [${d.tags.join(", ")}] ${d.duration}s: ${what(d)}`,
+        ),
+      ].join("\n");
+    }
     case "transitions": {
       const found = TRANSITIONS.filter((d) => matches(query, d.type, d.label, ...d.tags));
       if (!found.length) return `No transition matches "${query}".`;
@@ -266,8 +299,17 @@ export function describeCatalog(kind: CatalogKind, query?: string, fonts: readon
     case "clip_properties":
       return [
         "Built-in effects (set_properties / set_keyframes with these effect ids):",
-        ...[MOTION, OPACITY, VOLUME, TEXT, APPEARANCE].map((d) => {
-          const where = d === VOLUME ? "clips with sound" : d === TEXT || d === APPEARANCE ? "text clips" : "clips with a picture";
+        ...[MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, SOLID, CAMERA].map((d) => {
+          const where =
+            d === VOLUME
+              ? "clips with sound"
+              : d === TEXT || d === APPEARANCE
+                ? "text clips"
+                : d === SOLID
+                  ? "solids"
+                  : d === CAMERA
+                    ? "camera clips (add_layer kind camera)"
+                    : "clips with a picture, and adjustment layers";
           return `${d.type}  "${d.label}" (${where})\n${params(d.params)}`;
         }),
       ].join("\n");

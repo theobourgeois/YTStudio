@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { captionClips } from "@shared/captions";
-import { findEffect, textEffects } from "@shared/effects";
+import { clipKind, findEffect, isVideoEffect, textEffects } from "@shared/effects";
 import { MAIN_TRACK_ID, clipEnd, createDefaultProject, getClip, trackClips } from "@shared/timeline";
 import type { Clip, MediaAsset, Project } from "@shared/types";
-import { describeClips, describeMusic, describeTimeline, describeTranscript } from "./describe";
+import { describeCatalog, describeClips, describeMusic, describeTimeline, describeTranscript } from "./describe";
 import { EDITS, type EditEnv, clipChanges } from "./edits";
 
 function asset(id: string, duration: number, kind: MediaAsset["kind"] = "video"): MediaAsset {
@@ -125,6 +125,69 @@ describe("assistant edits", () => {
     const closed = run(gapped, ["close_gaps", { trackId: MAIN_TRACK_ID }]);
     expect(main(closed).map((c) => c.start)).toEqual([0, 10]);
     expect(p.clips).toHaveLength(1);
+  });
+
+  it("adds adjustment layers with effects over what's there, and solids", () => {
+    const p = withTwoClips();
+    const out = EDITS.add_layer(p, { kind: "adjustment", start: 8, duration: 4, effects: [{ type: "gaussian-blur", params: { blurriness: 0.02 } }, { type: "invert" }] }, env);
+    const layer = out.project.clips.find((c) => c.adjustment)!;
+    expect(layer).toMatchObject({ start: 8, in: 0, out: 4, assetId: "" });
+    // On a new track on top: the main track is taken there.
+    expect(out.project.tracks[0].id).toBe(layer.trackId);
+    expect(layer.effects.filter(isVideoEffect).map((e) => e.id)).toEqual(["gaussian-blur", "invert"]);
+    expect(out.text).toMatch(/adjustment layer .* with gaussian-blur, invert/);
+    expect(describeTimeline(out.project, assets, { playhead: 0, selectedClipIds: [] })).toContain("adjustment layer (changes the tracks below it)");
+
+    const solid = run(p, ["add_layer", { kind: "solid", start: 0, duration: 2, color: "#FF0000" }]).clips.find((c) => clipKind(c) === "solid")!;
+    expect(findEffect(solid, "solid")!.params).toMatchObject({ color: "#ff0000", fill: 1 });
+    expect(() => EDITS.add_layer(p, { kind: "adjustment", start: 0, color: "#ff0000" }, env)).toThrow(/only for solids/);
+    expect(() => EDITS.add_layer(p, { kind: "solid", start: 0, trackId: "audio_1" }, env)).toThrow(/video track/);
+    expect(() => EDITS.add_layer(p, { kind: "adjustment", start: 0, effects: [{ type: "motion" }] }, env)).toThrow(/isn't a video effect/);
+  });
+
+  it("applies presets: transitions as an adjustment layer on the cut, moves on clips", () => {
+    const p = withTwoClips();
+    const [a, b] = main(p);
+    const out = EDITS.apply_preset(p, { type: "spin", at: b.start }, env);
+    const layer = out.project.clips.find((c) => c.adjustment)!;
+    expect(layer.start + clipEnd(layer)).toBeCloseTo(2 * b.start);
+    expect(out.text).toMatch(/Spin: adjustment layer .* centred on 10/);
+    const moved = run(p, ["apply_preset", { type: "punch-in", clipIds: [a.id] }]);
+    expect(findEffect(getClip(moved, a.id)!, "motion")!.keyframes!.scale).toHaveLength(2);
+    expect(() => EDITS.apply_preset(p, { type: "spin" }, env)).toThrow(/`at`/);
+    expect(() => EDITS.apply_preset(p, { type: "warp-speed", at: 1 }, env)).toThrow(/get_catalog/);
+    expect(describeCatalog("presets", "spin")).toContain('spin  "Spin" transition');
+  });
+
+  it("adds cameras for 3D layers, track mattes and optical-flow slow motion", () => {
+    const p = withTwoClips();
+    const [a, b] = main(p);
+    const out = EDITS.add_layer(p, { kind: "camera", start: 0, duration: 4, camera: { orbitY: 30, distance: 0.8 } }, env);
+    const cam = out.project.clips.find((c) => clipKind(c) === "camera")!;
+    expect(findEffect(cam, "camera")!.params).toMatchObject({ orbitY: 30, distance: 0.8 });
+    expect(out.text).toMatch(/3D layers/);
+    expect(() => EDITS.add_layer(p, { kind: "camera", start: 0, effects: [{ type: "invert" }] }, env)).toThrow(/no effects/);
+    const threeD = run(p, ["set_properties", { clipIds: [a.id], effect: "motion", params: { threeD: true, rotationY: 40, positionZ: 300 } }]);
+    expect(findEffect(getClip(threeD, a.id)!, "motion")!.params).toMatchObject({ threeD: true, rotationY: 40, positionZ: 300 });
+    const matted = run(p, ["set_properties", { clipIds: [a.id], effect: "opacity", params: { trackMatte: "luma" } }]);
+    expect(findEffect(getClip(matted, a.id)!, "opacity")!.params.trackMatte).toBe("luma");
+    const slow = run(p, ["set_speed", { clipIds: [b.id], speed: 0.5, interpolation: "flow" }]);
+    expect(getClip(slow, b.id)).toMatchObject({ speed: 0.5, timeInterpolation: "flow" });
+    expect(describeTimeline(slow, assets, { playhead: 0, selectedClipIds: [] })).toContain("optical flow");
+  });
+
+  it("sets blend modes, motion blur and snappy keyframes", () => {
+    const p = withTwoClips();
+    const [a] = main(p);
+    const blended = run(p, ["set_properties", { clipIds: [a.id], effect: "opacity", params: { blendMode: "screen" } }]);
+    expect(findEffect(getClip(blended, a.id)!, "opacity")!.params.blendMode).toBe("screen");
+    expect(() => EDITS.set_properties(p, { clipIds: [a.id], effect: "opacity", params: { blendMode: "glow" } }, env)).toThrow(/"screen"/);
+    const snappy = run(p, [
+      "set_keyframes",
+      { clipId: a.id, effect: "motion", param: "scale", keyframes: [{ time: 1, value: 1, easing: "ease", influence: 0.9 }, { time: 2, value: 3, easing: "ease", influence: 0.9 }] },
+    ]);
+    expect(findEffect(getClip(snappy, a.id)!, "motion")!.keyframes!.scale.map((k) => k.influence)).toEqual([0.9, 0.9]);
+    expect(JSON.parse(describeClips(snappy, assets, [a.id]))[0].effects[0].keyframes.scale[0]).toMatchObject({ influence: 0.9 });
   });
 
   it("keyframes at timeline times (stored in source time)", () => {

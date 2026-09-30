@@ -11,7 +11,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { type Browser, type Page, chromium } from "playwright-core";
-import { type EffectPass, IDENTITY, type Placed, type Shader, createCompositor } from "../shared/compositor.ts";
+import { type Adjustment, type EffectPass, IDENTITY, type Placed, type Shader, createCompositor } from "../shared/compositor.ts";
 import { errorMessage } from "../shared/errors.ts";
 import type { UniformValue } from "../shared/transition-gl.ts";
 import { drawSampleScene } from "../shared/transition-samples.ts";
@@ -49,6 +49,7 @@ interface PageApi {
   sheet(job: SheetJob): string;
   check(job: CheckJob): CheckResult[];
   effects(job: EffectJob): { sheet: string; results: EffectResult[] };
+  layers(job: LayersJob): { sheet: string; results: LayersResult[] };
 }
 
 /** What the page needs for its next frame. */
@@ -104,6 +105,27 @@ export interface SheetJob {
 export interface EffectJob {
   rows: { label: string; passes: EffectPass[] }[];
   cell: { width: number; height: number };
+}
+
+/** One thing drawn on a frame of a `LayersJob`: a sample picture ("a", "b", or "plain", the sunset without its letter) placed like a clip, or an adjustment layer. */
+export type DrawOp = { kind: "picture"; picture: Placed } | { kind: "adjustment"; adjustment: Adjustment };
+
+/**
+ * Draw stacks of layers over the sample scenes, one row per item, one column per
+ * frame (e.g. a preset over time). Each row's first and last frames are compared
+ * with `first` and `last` when given.
+ */
+export interface LayersJob {
+  rows: { label: string; frames: DrawOp[][]; first?: DrawOp[]; last?: DrawOp[] }[];
+  cell: { width: number; height: number };
+}
+
+export interface LayersResult {
+  label: string;
+  /** Largest channel difference (0..255) of the first frame from `first`, and of the last from `last` (0 when not given). */
+  start: number;
+  end: number;
+  error?: string;
 }
 
 export interface EffectResult {
@@ -195,12 +217,31 @@ function pageScript(): string {
           }
           for (const key of head.release) compositor.deletePicture(key);
           compositor.clear();
-          const shader = (key: string): Shader => ({ key, source: shaders[key] });
+          const shader = (key: string): Shader => ({
+            key,
+            source: shaders[key],
+            ...(shaders[`${key}#vs`] && { vertex: shaders[`${key}#vs`] }),
+            ...(shaders[`${key}#base`] && { base: shaders[`${key}#base`] }),
+          });
           // Effects name their shaders by key; the sources came in earlier packets.
-          const placed = (p: PlacedRef | null): Placed | null =>
-            p && { ...p, effects: p.effects?.map((fx) => ({ ...fx, shader: shader(fx.shader) })) };
+          const passes = (effects: EffectPass<string>[] | undefined) => effects?.map((fx) => ({ ...fx, shader: shader(fx.shader) }));
+          const samples = (list: PlacedRef["samples"]) => list?.map((sample) => ({ ...sample, effects: passes(sample.effects) }));
+          const toPlaced = (p: PlacedRef): Placed => ({
+            ...p,
+            effects: passes(p.effects),
+            samples: samples(p.samples),
+            matte: p.matte && { mode: p.matte.mode, layer: toPlaced(p.matte.layer) },
+          });
+          const toAdjustment = (a: Adjustment<string>): Adjustment => ({
+            ...a,
+            effects: passes(a.effects),
+            samples: samples(a.samples),
+            matte: a.matte && { mode: a.matte.mode, layer: toPlaced(a.matte.layer) },
+          });
+          const placed = (p: PlacedRef | null): Placed | null => p && toPlaced(p);
           for (const layer of head.layers) {
             if (layer.kind === "picture") compositor.drawPicture(placed(layer.picture)!);
+            else if (layer.kind === "adjustment") compositor.drawAdjustment(toAdjustment(layer.adjustment));
             else compositor.drawTransition(shader(layer.shader), layer.uniforms, layer.progress, placed(layer.from), placed(layer.to));
           }
           return compositor.readYuv420Async();
@@ -335,6 +376,57 @@ function pageScript(): string {
         });
         return { sheet: sheet.toDataURL("image/png"), results };
       },
+      layers(job) {
+        const { width: cw, height: ch } = job.cell;
+        scenes(cw, ch);
+        plain(cw, ch);
+        const label = 150;
+        const columns = Math.max(1, ...job.rows.map((r) => r.frames.length));
+        const sheet = document.createElement("canvas");
+        sheet.width = label + columns * (cw + 4);
+        sheet.height = job.rows.length * (ch + 4);
+        const out = sheet.getContext("2d")!;
+        out.fillStyle = "#16191d";
+        out.fillRect(0, 0, sheet.width, sheet.height);
+        const draw = (ops: DrawOp[]) => {
+          compositor.clear();
+          for (const op of ops) {
+            if (op.kind === "picture") compositor.drawPicture(op.picture);
+            else compositor.drawAdjustment(op.adjustment);
+          }
+        };
+        const pixels = (ops: DrawOp[]) => {
+          draw(ops);
+          compositor.present({ flipY: true });
+          return compositor.read();
+        };
+        const diff = (a: Uint8Array, b: Uint8Array) => {
+          let max = 0;
+          for (let i = 0; i < a.length; i++) max = Math.max(max, Math.abs(a[i] - b[i]));
+          return max;
+        };
+        const results = job.rows.map((row, r) => {
+          const y = r * (ch + 4);
+          out.fillStyle = "#abb2bf";
+          out.font = "13px system-ui, sans-serif";
+          out.fillText(row.label, 8, y + ch / 2);
+          try {
+            row.frames.forEach((ops, i) => {
+              draw(ops);
+              compositor.present();
+              out.drawImage(canvas, label + i * (cw + 4), y);
+            });
+            const start = row.first && row.frames.length ? diff(pixels(row.frames[0]), pixels(row.first)) : 0;
+            const end = row.last && row.frames.length ? diff(pixels(row.frames[row.frames.length - 1]), pixels(row.last)) : 0;
+            return { label: row.label, start, end };
+          } catch (err) {
+            out.fillStyle = "#e06c75";
+            out.fillText(String(err).slice(0, 160), label + 8, y + ch / 2);
+            return { label: row.label, start: 255, end: 255, error: String(err) };
+          }
+        });
+        return { sheet: sheet.toDataURL("image/png"), results };
+      },
     };
     (globalThis as unknown as PageGlobals).compositor = api;
   };
@@ -462,6 +554,12 @@ export class GlSession {
 
   async check(job: CheckJob): Promise<CheckResult[]> {
     return this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.check(j), job);
+  }
+
+  /** Draw stacks of layers over the sample scenes (see `LayersJob`): a PNG contact sheet, and the first/last frame checks. */
+  async layers(job: LayersJob): Promise<{ sheet: Buffer; results: LayersResult[] }> {
+    const { sheet, results } = await this.page.evaluate((j) => (globalThis as unknown as PageGlobals).compositor.layers(j), job);
+    return { sheet: Buffer.from(sheet.slice(sheet.indexOf(",") + 1), "base64"), results };
   }
 
   /** Run effects over the plain sample picture: a PNG contact sheet, and how much each changed it. */

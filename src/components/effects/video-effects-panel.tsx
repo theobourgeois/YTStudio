@@ -45,7 +45,7 @@ export function VideoEffectsPanel() {
             label={def.label}
             data={{ "data-effect-type": def.type }}
             play={(canvas, elapsed) => {
-              if (def.shader?.animated) void drawThumbnail(thumb, thumb.posterAt + elapsed / 1000, canvas);
+              if (def.shader?.animated || def.shader?.history) void drawThumbnail(thumb, thumb.posterAt + elapsed / 1000, canvas);
               else void drawThumbnail(thumb, thumb.posterAt, canvas, 0.5 - 0.5 * Math.cos((elapsed / COMPARE_MS) * 2 * Math.PI));
             }}
             onApply={() => useEditor.getState().applyEffect(def.type)}

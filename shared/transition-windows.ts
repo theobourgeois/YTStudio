@@ -13,6 +13,7 @@
  * the first or last frame when there isn't any, like Premiere. Windows are
  * shortened to fit their clips and never overlap on a track.
  */
+import { drawsNothing } from "./effects.ts";
 import { defaultParams } from "./params.ts";
 import { clipDuration, clipEnd, getClip, getTrack, trackClips, videoTracks } from "./timeline.ts";
 import { type TransitionDefinition, createTransition, patchTransition, replaceTransitionType, transitionDefinition } from "./transitions.ts";
@@ -64,6 +65,8 @@ export function storedTransition(clip: Clip, edge: ClipEdge): Transition | undef
 }
 
 const touches = (a: Clip, b: Clip) => Math.abs(clipEnd(a) - b.start) < TOUCH;
+/** Two clips a transition can go between: touching, and neither without a picture of its own (an adjustment layer, a camera). */
+const joined = (a: Clip, b: Clip) => touches(a, b) && !drawsNothing(a) && !drawsNothing(b);
 
 /** How much of a cut transition comes after the cut. */
 const afterCut = (t: Transition) => (t.alignment === "start" ? 1 : t.alignment === "end" ? 0 : 0.5);
@@ -102,8 +105,9 @@ export function trackTransitions(project: Project, trackId: string): TransitionW
   };
 
   clips.forEach((clip, i) => {
-    const prev = i > 0 && touches(clips[i - 1], clip) ? clips[i - 1] : null;
-    const next = i + 1 < clips.length && touches(clip, clips[i + 1]) ? clips[i + 1] : null;
+    if (drawsNothing(clip)) return;
+    const prev = i > 0 && joined(clips[i - 1], clip) ? clips[i - 1] : null;
+    const next = i + 1 < clips.length && joined(clip, clips[i + 1]) ? clips[i + 1] : null;
     if (clip.transitionIn && !prev?.transitionOut) add({ clipId: clip.id, edge: "in" }, clip.transitionIn, prev, clip);
     if (clip.transitionOut) add({ clipId: clip.id, edge: "out" }, clip.transitionOut, clip, next);
   });
@@ -154,6 +158,7 @@ export function transitionTargetAt(project: Project, trackId: string, time: numb
   const clips = trackClips(project, trackId);
   let best: { ref: TransitionRef; distance: number } | null = null;
   for (const clip of clips) {
+    if (drawsNothing(clip)) continue;
     const inside = time >= clip.start - reach && time <= clipEnd(clip) + reach;
     if (!inside) continue;
     const toIn = Math.abs(time - clip.start);
@@ -170,7 +175,7 @@ export function canonicalRef(project: Project, ref: TransitionRef): TransitionRe
   if (ref.edge === "out") return ref;
   const clip = getClip(project, ref.clipId);
   if (!clip) return ref;
-  const prev = trackClips(project, clip.trackId).find((c) => c.id !== clip.id && touches(c, clip));
+  const prev = trackClips(project, clip.trackId).find((c) => c.id !== clip.id && joined(c, clip));
   return prev ? { clipId: prev.id, edge: "out" } : ref;
 }
 
@@ -184,6 +189,7 @@ export function nearestEdge(project: Project, time: number, trackIds?: string[])
   for (const trackId of tracks) {
     if (getTrack(project, trackId)?.kind !== "video") continue;
     for (const clip of trackClips(project, trackId)) {
+      if (drawsNothing(clip)) continue;
       for (const [edge, t] of [["in", clip.start], ["out", clipEnd(clip)]] as const) {
         const distance = Math.abs(t - time);
         if (!best || distance < best.distance - EPS) best = { ref: { clipId: clip.id, edge }, distance };
@@ -227,7 +233,7 @@ function withTransition(clip: Clip, edge: ClipEdge, transition: Transition | und
 export function addTransition(project: Project, ref: TransitionRef, type: string): { project: Project; ref: TransitionRef | null } {
   const target = canonicalRef(project, ref);
   const clip = getClip(project, target.clipId);
-  if (!clip || !transitionDefinition(type) || getTrack(project, clip.trackId)?.kind !== "video") {
+  if (!clip || drawsNothing(clip) || !transitionDefinition(type) || getTrack(project, clip.trackId)?.kind !== "video") {
     return { project, ref: null };
   }
   // Whatever plays at this edge now (possibly the incoming clip's in-transition).
@@ -249,7 +255,7 @@ function incomingWindow(project: Project, clip: Clip): TransitionWindow | null {
 
 /** The clip that starts where `clip` ends, on its track. */
 function cutPartner(project: Project, clip: Clip): Clip | undefined {
-  return trackClips(project, clip.trackId).find((c) => c.id !== clip.id && touches(clip, c));
+  return trackClips(project, clip.trackId).find((c) => c.id !== clip.id && joined(clip, c));
 }
 
 export function removeTransition(project: Project, ref: TransitionRef): Project {

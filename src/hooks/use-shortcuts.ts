@@ -29,6 +29,9 @@ const EDITS = new Set<ShortcutAction>([
   "copyEffects",
   "pasteEffects",
   "duplicate",
+  "newAdjustmentLayer",
+  "newSolid",
+  "newCamera",
   "nudgeLeft",
   "nudgeRight",
   "nudgeLeftMore",
@@ -194,6 +197,18 @@ function run(action: ShortcutAction): boolean {
       return true;
     case "addTransition":
       editor.applyTransition(DEFAULT_TRANSITION);
+      return true;
+    case "newAdjustmentLayer":
+      editor.addLayer("adjustment");
+      useLayout.getState().setLeftPanel("properties");
+      return true;
+    case "newSolid":
+      editor.addLayer("solid");
+      useLayout.getState().setLeftPanel("properties");
+      return true;
+    case "newCamera":
+      editor.addLayer("camera");
+      useLayout.getState().setLeftPanel("properties");
       return true;
     case "speed":
       // Consumed either way, so ⌘R never reloads the editor.

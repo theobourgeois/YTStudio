@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RESERVED_EFFECT_UNIFORMS, effectFragmentSource, effectPasses } from "./effect-gl.ts";
 import {
+  type ClipKind,
   EFFECTS,
   EFFECT_TAGS,
   MOTION,
@@ -52,18 +53,22 @@ describe("effect definitions", () => {
     expect(clip.effects.map((e) => e.id)).toEqual(["motion", "opacity", "volume"]);
     expect(motionAt(clip, 0)).toEqual({
       fit: "contain", position: [0.5, 0.5], scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5],
+      threeD: false, z: 0, rotationX: 0, rotationY: 0,
     });
     expect(opacityAt(clip, 0)).toBe(1);
     expect(volumeAt(clip, 0)).toBe(1);
   });
 
-  it("show Motion and Opacity for pictures, Volume for sound, Text and Appearance for text", () => {
-    const shown = (visual: boolean, audible: boolean, text = false) =>
-      EFFECTS.filter((d) => !d.shader && d.appliesTo({ visual, audible, text })).map((d) => d.type);
+  it("show Motion and Opacity for pictures, Volume for sound, Text and Appearance for text, Solid for solids", () => {
+    const shown = (visual: boolean, audible: boolean, kind: ClipKind = "media") =>
+      EFFECTS.filter((d) => !d.shader && d.appliesTo({ visual, audible, kind })).map((d) => d.type);
     expect(shown(true, true)).toEqual(["motion", "opacity", "volume"]);
     expect(shown(true, false)).toEqual(["motion", "opacity"]);
     expect(shown(false, true)).toEqual(["volume"]);
-    expect(shown(true, false, true)).toEqual(["motion", "opacity", "text", "appearance"]);
+    expect(shown(true, false, "text")).toEqual(["motion", "opacity", "text", "appearance"]);
+    expect(shown(true, false, "solid")).toEqual(["motion", "opacity", "solid"]);
+    expect(shown(true, false, "adjustment")).toEqual(["motion", "opacity"]);
+    expect(shown(true, false, "camera")).toEqual(["camera"]);
   });
 });
 
@@ -151,6 +156,48 @@ describe("keyframes", () => {
     expect((1 - easedProgress(1 - d, false, true)) / d).toBeLessThan(0.01); // arrives slowly
   });
 
+  it("reach further with a higher influence, hanging near the keyframes and snapping across", () => {
+    // Both sides eased at 33% is the plain smoothstep; at 90% it's flatter at the ends and steeper in the middle.
+    const snappy = (f: number) => easedProgress(f, true, true, 0.9, 0.9);
+    expect(snappy(0.5)).toBeCloseTo(0.5);
+    expect(snappy(0.15)).toBeLessThan(easedProgress(0.15, true, true));
+    expect(snappy(0.85)).toBeGreaterThan(easedProgress(0.85, true, true));
+    expect(snappy(0.55) - snappy(0.45)).toBeGreaterThan(easedProgress(0.55, true, true) - easedProgress(0.45, true, true));
+    // It always rises, and at 100% (both handles all the way across) too.
+    for (const influence of [0.01, 0.5, 0.9, 1]) {
+      let last = 0;
+      for (let f = 0; f <= 1.0001; f += 0.01) {
+        const v = easedProgress(f, true, true, influence, influence);
+        expect(v).toBeGreaterThanOrEqual(last - 1e-9);
+        last = v;
+      }
+      expect(easedProgress(1, true, true, influence, influence)).toBeCloseTo(1);
+    }
+    // A linear side ignores it.
+    expect(easedProgress(0.3, false, false, 0.9, 0.9)).toBeCloseTo(0.3);
+    const keys: Keyframe[] = [
+      { time: 0, value: 0, easing: "ease", influence: 0.9 },
+      { time: 1, value: 10, easing: "ease", influence: 0.9 },
+    ];
+    expect(keyframeValue(keys, 0.2)).toBeCloseTo(10 * snappy(0.2));
+  });
+
+  it("keep a valid influence from storage, and drop the default", () => {
+    const [a, b, c] = normalizeEffects([
+      {
+        type: "motion",
+        keyframes: {
+          rotation: [
+            { time: 0, value: 0, easing: "ease", influence: 0.9 },
+            { time: 1, value: 1, easing: "ease", influence: 1 / 3 },
+            { time: 2, value: 2, easing: "ease", influence: 7 },
+          ],
+        },
+      },
+    ])[0].keyframes!.rotation;
+    expect([a.influence, b.influence, c.influence]).toEqual([0.9, undefined, 1]);
+  });
+
   it("interpolate points component-wise", () => {
     const points: Keyframe[] = [
       { time: 0, value: [0, 1], easing: "linear" },
@@ -170,7 +217,7 @@ describe("evaluation", () => {
   it("uses defaults while an effect is off", () => {
     const p = setEffectEnabled(setParams(projectWith(clipWith()), "c", "opacity", { opacity: 0.2 }), "c", "opacity", false);
     expect(opacityAt(p.clips[0], 0)).toBe(1);
-    expect(valuesAt(OPACITY, undefined, 0)).toEqual({ opacity: 1 });
+    expect(valuesAt(OPACITY, undefined, 0)).toEqual({ opacity: 1, blendMode: "normal", trackMatte: "none" });
   });
 
   it("stretches only when uniform scale is off", () => {
@@ -261,6 +308,8 @@ describe("video effects", () => {
         expect(["number", "boolean", "choice", "vec2", "color"], `${def.type}.${p.key}`).toContain(p.kind);
         expect(RESERVED_EFFECT_UNIFORMS, `${def.type}.${p.key}`).not.toContain(p.key);
       }
+      // A particle effect places particles (`particle(id)`); every other one shades pixels.
+      if (def.shader!.particles) expect(def.shader!.particles.glsl).toContain("Particle particle(int id)");
       expect(effectFragmentSource({ params: def.params, glsl: def.shader!.glsl })).toContain("vec4 effect(vec2 uv)");
     }
   });

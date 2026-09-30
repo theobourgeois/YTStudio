@@ -56,6 +56,8 @@ const ICONS: Record<string, IconType> = {
   search_online: PiGlobe,
   add_clips: PiPlus,
   add_text: PiTextT,
+  add_layer: PiStack,
+  apply_preset: PiMagicWand,
   move_clips: PiArrowsLeftRight,
   trim_clip: PiArrowsOutLineHorizontal,
   set_speed: PiGauge,

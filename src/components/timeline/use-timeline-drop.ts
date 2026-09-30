@@ -1,7 +1,8 @@
 /**
  * HTML5 drop target for the whole timeline: media-bin asset drags, Library
  * items, OS files, transitions (dropped on the nearest clip edge) and video
- * effects (dropped on a clip).
+ * effects (dropped on a clip, or on empty space: an adjustment layer with the
+ * effect, like CapCut's effects track).
  * An enter/leave depth counter (reset on drop/dragend) keeps the highlight
  * from flickering between child elements or sticking after the drag ends.
  */
@@ -10,7 +11,15 @@ import { toast } from "sonner";
 import { clipsAtTime, isOnVideoTrack, snapPoints, snapTime } from "@shared/timeline";
 import { type TransitionRef, addTransition, findWindow, transitionTargetAt } from "@shared/transition-windows";
 import { DEFAULT_TRANSITION } from "@shared/transitions";
-import { dragKind, getAssetDragData, getEffectDragData, getLibraryDragData, getTransitionDragData, mediaFiles } from "@/lib/dnd";
+import {
+  dragKind,
+  getAssetDragData,
+  getEffectDragData,
+  getLibraryDragData,
+  getPresetDragData,
+  getTransitionDragData,
+  mediaFiles,
+} from "@/lib/dnd";
 import { useEditor } from "@/stores/editor";
 import { useLibrary } from "@/stores/library";
 import { usePlayback } from "@/stores/playback";
@@ -81,7 +90,11 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
 
   const show = (e: DragEvent) => {
     if (dragKind(e.dataTransfer) === "effect") {
-      setView({ effectDrop: effectTarget(e) });
+      const clipId = effectTarget(e);
+      setView({ effectDrop: clipId });
+      // Off every clip, it makes an adjustment layer there.
+      const next = clipId ? null : targetAt(e);
+      if (!sameTarget(useTimelineView.getState().drop, next)) setView({ drop: next });
       return;
     }
     if (dragKind(e.dataTransfer) === "transition") {
@@ -110,7 +123,7 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
       show(e);
       const kind = dragKind(e.dataTransfer);
       const view = useTimelineView.getState();
-      const nowhere = (kind === "transition" && !view.transitionDrop) || (kind === "effect" && !view.effectDrop);
+      const nowhere = (kind === "transition" && !view.transitionDrop) || (kind === "effect" && !view.effectDrop && !view.drop);
       e.dataTransfer.dropEffect = nowhere ? "none" : "copy";
     },
     onDragLeave(e: DragEvent) {
@@ -124,10 +137,44 @@ export function useTimelineDrop(ctx: TimelineContextValue) {
       e.preventDefault();
       depth.current = 0;
       setView({ drop: null, transitionDrop: null, effectDrop: null });
+      const preset = getPresetDragData(e.dataTransfer);
+      if (preset && kind === "transition") {
+        // On the cut nearest the pointer, over everything below it.
+        const edge = transitionTarget(e);
+        if (edge) useEditor.getState().addPresetAt(preset, { edge });
+        return;
+      }
+      if (preset && kind === "effect") {
+        const clipId = effectTarget(e);
+        const editor = useEditor.getState();
+        if (clipId) {
+          const selected = editor.selectedClipIds;
+          editor.addPresetAt(preset, { clipIds: selected.includes(clipId) ? selected : [clipId] });
+          return;
+        }
+        const target = targetAt(e);
+        if (!target) return;
+        const onVideo = target.trackId && editor.project.tracks.find((t) => t.id === target.trackId)?.kind === "video";
+        editor.addPresetAt(preset, { at: target.time, trackId: onVideo && !target.newTrack ? target.trackId! : undefined });
+        return;
+      }
       if (kind === "effect") {
         const type = getEffectDragData(e.dataTransfer);
         const clipId = effectTarget(e);
-        if (!type || !clipId) return;
+        if (!type) return;
+        if (!clipId) {
+          // On empty space: an adjustment layer with the effect, over everything below it.
+          const target = targetAt(e);
+          if (!target) return;
+          const { project } = useEditor.getState();
+          const onVideo = target.trackId && project.tracks.find((t) => t.id === target.trackId)?.kind === "video";
+          useEditor.getState().addLayer("adjustment", {
+            trackId: onVideo && !target.newTrack ? target.trackId! : undefined,
+            at: target.time,
+            effects: [type],
+          });
+          return;
+        }
         // Dropped on one of the selected clips: it goes on all of them, like Premiere.
         const selected = useEditor.getState().selectedClipIds;
         useEditor.getState().addEffectTo(selected.includes(clipId) ? selected : [clipId], type);

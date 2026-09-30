@@ -11,6 +11,8 @@ import {
   PiArrowDown,
   PiArrowUp,
   PiCaretRight,
+  PiCircleHalfTilt,
+  PiClockCounterClockwise,
   PiDiamondsFour,
   PiDotsThree,
   PiFilmStrip,
@@ -18,18 +20,21 @@ import {
   PiMusicNotes,
   PiSlidersHorizontal,
   PiSparkle,
+  PiSquare,
   PiSubtitles,
+  PiVideoCamera,
   PiTextT,
   PiTrash,
 } from "react-icons/pi";
 import { keyframeTime } from "@shared/animation";
 import type { Clip, Effect, MediaAsset, ParamValues, Project } from "@shared/types";
 import {
+  type ClipKind,
   type ClipTraits,
   type EffectDefinition,
   effectDefinition,
+  clipKind,
   hasKeyframes,
-  isTextClip,
   isVideoEffect,
   moveEffect,
   removeEffect,
@@ -85,8 +90,9 @@ export function PropertiesPanel() {
   // Values show at the playhead; edits keyframe the frame there (or a keyframe right next to it).
   const time = sourceTime(clip, playhead);
   const editTime = keyframeTime(clip, playhead, fps);
-  const text = isTextClip(clip);
-  const traits: ClipTraits = { visual, audible: !!asset?.hasAudio, text };
+  const kind = clipKind(clip);
+  const text = kind === "text";
+  const traits: ClipTraits = { visual, audible: kind === "media" && !!asset?.hasAudio, kind };
   const canvas = outputSize(aspectRatio, "1080p");
   // Points on the clip's own frame are px of its media, or of the text's box at 1080p.
   const frame = text ? layoutText(textStyleAt(clip, time), 1) : asset?.width && asset.height ? asset : canvas;
@@ -103,7 +109,7 @@ export function PropertiesPanel() {
       <PanelRow lanes={lanes} lane={<KeyframeRuler clip={clip} />} className="sticky top-0 z-[5] border-b bg-background">
         <ClipHeader
           asset={asset}
-          text={text}
+          kind={kind}
           name={clipName(clip, asset)}
           detail={[
             trackName,
@@ -115,6 +121,22 @@ export function PropertiesPanel() {
       {clip.caption && (
         <PanelRow lanes={lanes} className="border-b">
           <CaptionNote />
+        </PanelRow>
+      )}
+      {kind === "adjustment" && (
+        <PanelRow lanes={lanes} className="border-b">
+          <p className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground" data-adjustment-note>
+            <PiCircleHalfTilt className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">Its effects, Motion and Opacity change everything on the tracks below it.</span>
+          </p>
+        </PanelRow>
+      )}
+      {kind === "camera" && (
+        <PanelRow lanes={lanes} className="border-b">
+          <p className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground" data-camera-note>
+            <PiVideoCamera className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">3D layers (Motion → 3D Layer) are seen through it while it lasts.</span>
+          </p>
         </PanelRow>
       )}
       {selectedCount > 1 && (
@@ -139,7 +161,7 @@ export function PropertiesPanel() {
         </Fragment>
       ))}
       {retimable && firstVideoEffect === sections.length && <SpeedSection clip={clip} lanes={lanes} />}
-      {visual && (
+      {visual && kind !== "camera" && (
         <PanelRow lanes={lanes}>
           <AddEffectRow />
         </PanelRow>
@@ -205,16 +227,29 @@ function KeyframesToggle() {
 
 function ClipHeader({
   asset,
-  text,
+  kind,
   name,
   detail,
 }: {
   asset: MediaAsset | undefined;
-  text: boolean;
+  kind: ClipKind;
   name: string;
   detail: (string | undefined)[];
 }) {
-  const Icon = text ? PiTextT : asset?.kind === "image" ? PiImage : asset?.kind === "audio" ? PiMusicNotes : PiFilmStrip;
+  const Icon =
+    kind === "text"
+      ? PiTextT
+      : kind === "adjustment"
+        ? PiCircleHalfTilt
+        : kind === "solid"
+          ? PiSquare
+          : kind === "camera"
+            ? PiVideoCamera
+            : asset?.kind === "image"
+            ? PiImage
+            : asset?.kind === "audio"
+              ? PiMusicNotes
+              : PiFilmStrip;
   return (
     <div className="flex items-center gap-2.5 px-3 py-2.5">
       <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-md bg-muted text-muted-foreground ring-1 ring-border ring-inset">
@@ -342,6 +377,14 @@ export function EffectSection({
       </PanelRow>
       {open && (
         <div className={cn(!effect.enabled && "[&_[data-param]]:opacity-60")}>
+          {def.shader?.history && (
+            <PanelRow lanes={lanes}>
+              <p className="flex items-center gap-2 px-3 pb-1.5 text-[11px] leading-snug text-muted-foreground" data-time-effect-note>
+                <PiClockCounterClockwise className="size-3.5 shrink-0" />
+                Uses the frames before this one: it shows while playing and in the export.
+              </p>
+            </PanelRow>
+          )}
           {params.map((spec) => {
             const animatable = isAnimatable(spec) && !target;
             const animated = !!effect.keyframes?.[spec.key]?.length;

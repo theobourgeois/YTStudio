@@ -1,11 +1,12 @@
 import { useEffect, useRef, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { PiBooks, PiFileArrowUp, PiFilmStrip, PiGlobe, PiIntersect, PiSparkle } from "react-icons/pi";
+import { PiBooks, PiFileArrowUp, PiFilmStrip, PiGlobe, PiIntersect, PiMagicWand, PiSparkle } from "react-icons/pi";
 import { CaptionsPanel } from "@/components/captions/captions-panel";
 import { LibraryPanel } from "@/components/library/library-panel";
 import { MediaBin } from "@/components/media/media-bin";
 import { importMedia } from "@/components/media/import-media";
 import { OnlinePanel } from "@/components/media/online-panel";
 import { PropertiesPanel } from "@/components/properties/properties-panel";
+import { PresetsPanel } from "@/components/effects/presets-panel";
 import { TransitionsPanel } from "@/components/effects/transitions-panel";
 import { VideoEffectsPanel } from "@/components/effects/video-effects-panel";
 import { useFileDrop } from "@/hooks/use-file-drop";
@@ -47,6 +48,7 @@ const SOURCES: { id: MediaSource; label: string; icon: ReactNode; badge?: () => 
 /** The Effects tab's kinds, switched at its top (hidden while there's only one). */
 const KINDS: { id: EffectKind; label: string; icon: ReactNode }[] = [
   { id: "video", label: "Video effects", icon: <PiSparkle /> },
+  { id: "presets", label: "Presets", icon: <PiMagicWand /> },
   { id: "transitions", label: "Transitions", icon: <PiIntersect /> },
 ];
 
@@ -130,6 +132,7 @@ export function LeftPanel() {
         </SegmentedSwitch>
       )}
       {tab === "effects" && kind === "video" && <VideoEffectsPanel />}
+      {tab === "effects" && kind === "presets" && <PresetsPanel />}
       {tab === "effects" && kind === "transitions" && <TransitionsPanel />}
       {tab === "captions" && <CaptionsPanel />}
       {tab === "properties" && <PropertiesPanel />}

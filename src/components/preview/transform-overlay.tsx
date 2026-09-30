@@ -23,7 +23,7 @@ import {
   toCanvas,
   wrapDegrees,
 } from "@shared/transform";
-import { dragKind, getEffectDragData } from "@/lib/dnd";
+import { dragKind, getEffectDragData, getPresetDragData } from "@/lib/dnd";
 import { EditGesture } from "@/lib/edit-gesture";
 import { cancelActiveDrag, startPointerDrag } from "@/lib/pointer-drag";
 import { cn } from "cn";
@@ -218,7 +218,7 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
     if (useEditor.getState().gestureBase) return;
     e.stopPropagation();
     const pt = pointAt(e);
-    const inSelected = selected && clipAtPoint([selected], pt);
+    const inSelected = selected && clipAtPoint([selected], pt, true);
     const target = inSelected ?? clipAtPoint(onCanvas, pt);
     if (tool === "text") {
       if (target && isTextClip(target.clip)) editText(target.clip.id);
@@ -305,18 +305,23 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
   };
   const onDrop = (e: DragEvent) => {
     setEffectDropId(null);
-    const type = getEffectDragData(e.dataTransfer);
+    const preset = getPresetDragData(e.dataTransfer);
+    const type = preset ?? getEffectDragData(e.dataTransfer);
     const target = type && clipAtPoint(onCanvas, pointAt(e));
     if (!type || !target) return;
     e.preventDefault();
     const selectedIds = useEditor.getState().selectedClipIds;
     const id = target.clip.id;
-    useEditor.getState().addEffectTo(selectedIds.includes(id) ? selectedIds : [id], type);
+    const ids = selectedIds.includes(id) ? selectedIds : [id];
+    if (preset) useEditor.getState().addPresetAt(preset, { clipIds: ids });
+    else useEditor.getState().addEffectTo(ids, type);
   };
   const effectDrop = effectDropId ? onCanvas.find((c) => c.clip.id === effectDropId) : undefined;
 
   if (!(canvas.width > 0 && canvas.height > 0)) return null;
-  const p = selected?.placement;
+  // A 3D layer only moves on the canvas (its other values are in Properties): its outline as the camera sees it.
+  const flat = selected && !selected.corners3d;
+  const p = flat ? selected.placement : undefined;
   const corners = p ? frameCorners(p) : null;
   // No handles while typing: the text box is being edited, not transformed.
   const handles = selected && selected !== editing;
@@ -357,6 +362,18 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
             strokeWidth={1}
             strokeDasharray="4 3"
           />
+        )}
+        {handles && selected.corners3d && (
+          <>
+            <polygon
+              data-handle="move-3d"
+              points={selected.corners3d.map((c) => c.join(",")).join(" ")}
+              className="pointer-events-auto cursor-move fill-transparent stroke-black/40"
+              strokeWidth={3}
+              onPointerDown={(e) => e.button === 0 && startDrag(e, selected, { kind: "move" }, "move")}
+            />
+            <polygon points={selected.corners3d.map((c) => c.join(",")).join(" ")} className="fill-none stroke-brand" strokeWidth={1.5} strokeDasharray="6 3" />
+          </>
         )}
         {handles && p && corners && (
           <>

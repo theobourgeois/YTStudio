@@ -1,7 +1,7 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
-import { PiArrowCounterClockwise, PiSubtitles, PiTextT, PiWarning } from "react-icons/pi";
+import { PiArrowCounterClockwise, PiCircleHalfTilt, PiIntersectSquare, PiSquare, PiSubtitles, PiTextT, PiVideoCamera, PiWarning } from "react-icons/pi";
 import type { Clip, MediaAsset } from "@shared/types";
-import { isTextClip, videoEffects } from "@shared/effects";
+import { type ClipKind, OPACITY, SOLID, clipKind, findEffect, videoEffects } from "@shared/effects";
 import { keyframeTimes, timelineTime } from "@shared/animation";
 import { clipDuration, clipName, clipSpeed, sourceDelta, sourceEdge } from "@shared/timeline";
 import { formatSpeed } from "@shared/format";
@@ -42,8 +42,8 @@ export const TimelineClip = memo(function TimelineClip({
   const left = clip.start * zoom;
   const width = Math.max(2, clipDuration(clip) * zoom);
   const height = lane.height - CLIP_INSET_Y * 2;
-  const text = isTextClip(clip);
-  const offline = !asset && !text;
+  const kind = clipKind(clip);
+  const offline = !asset && kind === "media";
   const audioLane = lane.kind === "audio";
   const effectDrop = useTimelineView((s) => s.effectDrop === clip.id);
   // Just changed by the assistant.
@@ -68,7 +68,20 @@ export const TimelineClip = memo(function TimelineClip({
           "absolute inset-0 overflow-hidden rounded-md border",
           offline
             ? "border-dashed border-muted-foreground/40 bg-[repeating-linear-gradient(135deg,var(--color-muted)_0_6px,var(--color-accent)_6px_12px)]"
-            : cn("border-black/20 dark:border-white/10", text ? "bg-clip-graphic" : audioLane ? "bg-clip-audio" : "bg-clip-video"),
+            : cn(
+                "border-black/20 dark:border-white/10",
+                kind === "text"
+                  ? "bg-clip-graphic"
+                  : kind === "adjustment"
+                    ? "bg-clip-adjustment"
+                    : kind === "solid"
+                      ? "bg-clip-solid"
+                      : kind === "camera"
+                        ? "bg-clip-camera"
+                        : audioLane
+                        ? "bg-clip-audio"
+                        : "bg-clip-video",
+              ),
           muted && !offline && "opacity-55 saturate-50",
           placeholder && "opacity-30",
         )}
@@ -76,10 +89,12 @@ export const TimelineClip = memo(function TimelineClip({
         {!offline && (
           <ClipContent asset={asset} clip={clip} audioLane={audioLane} left={left} width={width} height={height} zoom={zoom} />
         )}
+        {kind === "solid" && <SolidSwatch color={findEffect(clip, SOLID.type)?.params.color as string} />}
         {width >= 26 && (
           <ClipLabel
             offline={offline}
-            text={text}
+            kind={kind}
+            matte={(findEffect(clip, OPACITY.type)?.params.trackMatte ?? "none") !== "none"}
             caption={clip.caption === true}
             name={clipName(clip, asset)}
             effects={effects.map((e) => e.type)}
@@ -177,6 +192,11 @@ function ClipContent({
   return asset.poster ? <PosterStrip poster={asset.poster} /> : null;
 }
 
+/** A solid's colour, as a band along the bottom of its clip. */
+function SolidSwatch({ color }: { color: string }) {
+  return <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1.5" style={{ background: color }} data-solid-color={color} />;
+}
+
 /** A mark at each of the clip's keyframes (any property), along its bottom edge. */
 function ClipKeyframes({ clip, zoom }: { clip: Clip; zoom: number }) {
   const times = keyframeTimes(clip)
@@ -198,7 +218,8 @@ function ClipKeyframes({ clip, zoom }: { clip: Clip; zoom: number }) {
 
 function ClipLabel({
   offline,
-  text,
+  kind,
+  matte,
   caption,
   name,
   effects,
@@ -207,7 +228,9 @@ function ClipLabel({
   reversed,
 }: {
   offline: boolean;
-  text: boolean;
+  kind: ClipKind;
+  /** Drawn through a track matte (the clip on the track above). */
+  matte: boolean;
   caption: boolean;
   name: string;
   /** Its video effects' types. */
@@ -225,7 +248,11 @@ function ClipLabel({
       )}
     >
       {offline && <PiWarning className="size-3 shrink-0" />}
-      {text && (caption ? <PiSubtitles className="size-3 shrink-0" /> : <PiTextT className="size-3 shrink-0" />)}
+      {kind === "text" && (caption ? <PiSubtitles className="size-3 shrink-0" /> : <PiTextT className="size-3 shrink-0" />)}
+      {kind === "adjustment" && <PiCircleHalfTilt className="size-3 shrink-0" />}
+      {kind === "solid" && <PiSquare className="size-3 shrink-0" />}
+      {kind === "camera" && <PiVideoCamera className="size-3 shrink-0" />}
+      {matte && <PiIntersectSquare className="size-3 shrink-0 text-sky-300" aria-label="Track matte" data-clip-matte />}
       <span className="truncate">{name}</span>
       {(speed !== 1 || reversed) && (
         // Premiere puts the speed after the name ("clip.mp4 [200%]"); a reversed clip's is negative.

@@ -1,6 +1,8 @@
 /** Pure helpers for the on-canvas transform handles (what's where on the canvas right now). */
 import type { Clip, MediaAsset, Project, Vec2 } from "@shared/types";
-import { isTextClip, motionAt, opacityAt, textStyleAt } from "@shared/effects";
+import { isCameraClip, isTextClip, motionAt, opacityAt, textStyleAt } from "@shared/effects";
+import { cameraAt, projectLayer } from "@shared/camera";
+import { placePoint } from "@shared/compositor";
 import { type Placement, type Size, containsPoint, frameCorners, placeClip } from "@shared/transform";
 import { videoTracks } from "@shared/timeline";
 import { type TextLayout, layoutText, textUnit } from "@/lib/text-render";
@@ -13,6 +15,8 @@ export interface OnCanvas {
   placement: Placement;
   /** How a text clip is laid out (null for media). */
   text: TextLayout | null;
+  /** A 3D layer's corners on the canvas as the camera sees it (null: 2D, or not all in front of the camera). */
+  corners3d?: Vec2[] | null;
 }
 
 /** Where a clip is on the canvas at source time `time` (and its text layout, for text). */
@@ -32,22 +36,55 @@ export function placeOnCanvas(
   return { placement: placeClip(canvas, media, motion), text: null };
 }
 
-/** The clip each video track shows at timeline time `t`, placed on the canvas, top layer first. */
+/** A 3D layer's corners on the canvas (px), as the camera at timeline time `t` sees them; null for a 2D layer. */
+export function projectedCorners(project: Project, clip: Clip, placement: Placement, canvas: Size, time: number, t: number): Vec2[] | null {
+  const motion = motionAt(clip, time);
+  if (!motion.threeD) return null;
+  const { matrix } = projectLayer(placement, motion, canvas, cameraAt(project, t, canvas));
+  const corners = ([[0, 0], [1, 0], [1, 1], [0, 1]] as const).map(([u, v]) => placePoint(matrix, u, v));
+  return corners.every(Boolean) ? corners.map((c) => [c![0] * canvas.width, c![1] * canvas.height] as Vec2) : null;
+}
+
+/** The clip each video track shows at timeline time `t`, placed on the canvas, top layer first. Cameras draw nothing, so they aren't here. */
 export function clipsOnCanvas(project: Project, assets: MediaAsset[], canvas: Size, t: number): OnCanvas[] {
   const byId = new Map(assets.map((a) => [a.id, a]));
   const out: OnCanvas[] = [];
   for (const track of videoTracks(project)) {
     const { current } = planTrack(project, track.id, t);
-    if (!current) continue;
+    if (!current || isCameraClip(current.clip)) continue;
     const asset = byId.get(current.clip.assetId);
-    out.push({ ...current, ...placeOnCanvas(project, current.clip, asset, canvas, current.time) });
+    const placed = placeOnCanvas(project, current.clip, asset, canvas, current.time);
+    out.push({ ...current, ...placed, corners3d: projectedCorners(project, current.clip, placed.placement, canvas, current.time, t) });
   }
   return out;
 }
 
-/** The topmost visible clip under a canvas point. */
-export function clipAtPoint(clips: OnCanvas[], point: Vec2): OnCanvas | undefined {
-  return clips.find((c) => opacityAt(c.clip, c.time) > 0 && containsPoint(c.placement, point));
+/** Whether a point is inside a convex polygon (either winding). */
+function insidePolygon(corners: Vec2[], [x, y]: Vec2): boolean {
+  let sign = 0;
+  for (let i = 0; i < corners.length; i++) {
+    const [ax, ay] = corners[i];
+    const [bx, by] = corners[(i + 1) % corners.length];
+    const cross = (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+    if (Math.abs(cross) < 1e-9) continue;
+    if (sign === 0) sign = Math.sign(cross);
+    else if (Math.sign(cross) !== sign) return false;
+  }
+  return true;
+}
+
+/**
+ * The topmost visible clip under a canvas point. Adjustment layers (which cover the
+ * whole canvas but show nothing of their own) are only found when `adjustments` says so,
+ * e.g. to drag the selected one; otherwise clicks go through to what's below.
+ */
+export function clipAtPoint(clips: OnCanvas[], point: Vec2, adjustments = false): OnCanvas | undefined {
+  return clips.find(
+    (c) =>
+      (adjustments || !c.clip.adjustment) &&
+      opacityAt(c.clip, c.time) > 0 &&
+      (c.corners3d ? insidePolygon(c.corners3d, point) : containsPoint(c.placement, point)),
+  );
 }
 
 /**

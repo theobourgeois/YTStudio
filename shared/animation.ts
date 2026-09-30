@@ -9,7 +9,7 @@
  * from the timeline. Edits return the same project when nothing changes.
  */
 import { effectDefinition, paramSpec, storedValuesAt, updateEffect } from "./effects.ts";
-import { SAME_KEYFRAME, keyframeAt, keyframeValue, setKeyframe } from "./keyframes.ts";
+import { DEFAULT_INFLUENCE, MIN_INFLUENCE, SAME_KEYFRAME, keyframeAt, keyframeValue, setKeyframe } from "./keyframes.ts";
 import { tidy } from "./math.ts";
 import { isAnimatable } from "./params.ts";
 import { clipEnd, sourceTime, timelineTime } from "./timeline.ts";
@@ -191,6 +191,29 @@ export function setKeyframeEasing(project: Project, clipId: string, refs: readon
     p = updateKeys(p, clipId, effectId, key, (keys) => {
       if (!keys.some((k) => isAny(times)(k) && k.easing !== easing)) return null;
       return { keys: keys.map((k) => (isAny(times)(k) ? { ...k, easing } : k)) };
+    });
+  }
+  return p;
+}
+
+/**
+ * Set how far keyframes' eased handles reach (After Effects' keyframe velocity
+ * influence, 0.01..1; 1/3 is Premiere's ease). Linear sides ignore it.
+ */
+export function setKeyframeInfluence(project: Project, clipId: string, refs: readonly KeyframeRef[], influence: number): Project {
+  const value = tidy(Math.min(1, Math.max(MIN_INFLUENCE, influence)));
+  const same = (k: Keyframe) => Math.abs((k.influence ?? DEFAULT_INFLUENCE) - value) < 1e-6;
+  let p = project;
+  for (const { effectId, key, times } of byParam(refs).values()) {
+    p = updateKeys(p, clipId, effectId, key, (keys) => {
+      if (!keys.some((k) => isAny(times)(k) && !same(k))) return null;
+      return {
+        keys: keys.map((k) => {
+          if (!isAny(times)(k)) return k;
+          const { influence: _, ...rest } = k;
+          return Math.abs(value - DEFAULT_INFLUENCE) < 1e-6 ? rest : { ...rest, influence: value };
+        }),
+      };
     });
   }
   return p;

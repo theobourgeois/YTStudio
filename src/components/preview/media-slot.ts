@@ -20,6 +20,9 @@ export class MediaSlot {
   private seekLead = 0;
   failed = false;
   private frameCallback: number | null = null;
+  /** The media time of the frame on screen (from the browser, exact), and a count of frames shown. */
+  presentedTime = NaN;
+  presentedFrames = 0;
 
   constructor(
     readonly el: HTMLMediaElement,
@@ -36,7 +39,9 @@ export class MediaSlot {
 
   private watchFrames = () => {
     const video = this.el as HTMLVideoElement;
-    this.frameCallback = video.requestVideoFrameCallback(() => {
+    this.frameCallback = video.requestVideoFrameCallback((_now, metadata) => {
+      this.presentedTime = metadata.mediaTime;
+      this.presentedFrames++;
       this.onFrame?.();
       this.watchFrames();
     });

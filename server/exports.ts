@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { EXPORT_RESOLUTIONS, createId, outputSize, projectDuration, withoutAudioTracks } from "../shared/timeline.ts";
-import { isTextClip } from "../shared/effects.ts";
+import { hasMedia, isTextClip } from "../shared/effects.ts";
 import type { ExportJob, ExportRequest, ExportResolution, Project } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
 import { normalizeProject } from "../shared/normalize.ts";
@@ -99,7 +99,7 @@ export class ExportManager {
     const assets = this.library.byId();
     let project: Project;
     try {
-      if (normalizeProject(req.project).clips.some((c) => !isTextClip(c) && !assets[c.assetId])) {
+      if (normalizeProject(req.project).clips.some((c) => hasMedia(c) && !assets[c.assetId])) {
         throw new HttpError(400, "The timeline uses media that's no longer in the library.");
       }
       project = normalizeProject(req.project, assets);
@@ -188,6 +188,8 @@ export class ExportManager {
           }));
           continue;
         }
+        // Solids and adjustment layers are drawn by the compositor itself.
+        if (!hasMedia(clip)) continue;
         const asset = library[clip.assetId];
         if (!asset) throw new Error("Some media was deleted before the export started.");
         if (assets[asset.id]) continue;

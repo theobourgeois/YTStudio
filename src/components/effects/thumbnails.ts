@@ -9,7 +9,9 @@
  * a few per frame and kept, so reopening the tab only copies pixels.
  */
 import { type Compositor, IDENTITY, type Shader, createCompositor } from "@shared/compositor";
-import { effectPass } from "@shared/effect-gl";
+import { effectPass, effectPasses } from "@shared/effect-gl";
+import { canvasAffine, clipLayer } from "@shared/layers";
+import { type PresetDefinition, presetClip } from "@shared/presets";
 import type { EffectDefinition } from "@shared/effects";
 import { defaultParams } from "@shared/params";
 import { transitionShader, transitionUniforms } from "@shared/transition-gl";
@@ -57,10 +59,11 @@ function getThumbnailer(): Promise<Thumbnailer | null> {
   return thumbnailer;
 }
 
-/** What a card shows: a shader, drawn at a moment (a transition's progress, or an effect's time in seconds). */
+/** What a card shows: shaders, drawn at a moment (a transition's progress, or an effect's time in seconds). */
 export interface Thumb {
   key: string;
-  shader: Shader;
+  /** Compiled before it's drawn. */
+  shaders: Shader[];
   /** The moment its poster shows. */
   posterAt: number;
   render(compositor: Compositor, at: number): void;
@@ -79,7 +82,7 @@ export function transitionThumb(def: TransitionDefinition): Thumb {
     const scene = (key: string) => ({ key, affine: IDENTITY, opacity: 1 });
     thumb = {
       key: `transition:${def.type}`,
-      shader,
+      shaders: [shader],
       posterAt: POSTER_PROGRESS,
       render: (compositor, progress) => compositor.drawTransition(shader, uniforms, progress, scene("0"), scene("1")),
     };
@@ -97,9 +100,51 @@ export function effectThumb(def: EffectDefinition): Thumb {
     if (!first) throw new Error(`${def.label} isn't a video effect.`);
     thumb = {
       key: `effect:${def.type}`,
-      shader: first.shader,
+      shaders: [first.shader],
       posterAt: 0.6,
-      render: (compositor, time) => compositor.drawPicture({ key: "plain", affine: IDENTITY, opacity: 1, effects: [pass(time)!] }),
+      render: def.shader?.history
+        ? // A time effect needs a moving picture and the frames before: the sunset drifting, a third of a second of them.
+          (compositor, time) => {
+            for (let k = 10; k >= 0; k--) {
+              const t = time - k / 30;
+              if (k > 0) compositor.clear([0, 0, 0, 0]);
+              const drift = Math.sin(t * 3) * 0.12;
+              compositor.drawPicture({ key: "plain", affine: [1, 0, 0, 1, drift, 0], opacity: 1 });
+              const time_ = effectPass(def, values, t, 30, `thumb/${def.type}`);
+              if (time_) compositor.drawAdjustment({ affine: IDENTITY, opacity: 1, effects: [time_] });
+            }
+          }
+        : (compositor, time) => compositor.drawPicture({ key: "plain", affine: IDENTITY, opacity: 1, effects: [pass(time)!] }),
+    };
+    thumbs.set(def, thumb);
+  }
+  return thumb;
+}
+
+/**
+ * A preset's card, drawn at a time (seconds into it): a transition's adjustment layer over
+ * the cut from one sample scene to the other, an effect preset on the plain sunset.
+ */
+export function presetThumb(def: PresetDefinition): Thumb {
+  let thumb = thumbs.get(def);
+  if (!thumb) {
+    const clip = presetClip(def);
+    const shaders = [...new Map(effectPasses(clip, 0).map((p) => [p.shader.key, p.shader])).values()];
+    thumb = {
+      key: `preset:${def.type}`,
+      shaders,
+      posterAt: def.duration * (def.kind === "transition" ? 0.42 : 0.6),
+      render: (compositor, time) => {
+        const canvas = { width: compositor.gl.canvas.width, height: compositor.gl.canvas.height };
+        const t = Math.min(def.duration - 1e-4, Math.max(0, time));
+        const layer = clipLayer(clip, t, canvasAffine(clip, canvas), { canvas, fps: 30, maxSamples: 12 });
+        if (def.kind === "transition") {
+          compositor.drawPicture({ key: t < def.duration / 2 ? "0" : "1", affine: IDENTITY, opacity: 1 });
+          if (layer) compositor.drawAdjustment(layer);
+        } else if (layer) {
+          compositor.drawPicture({ ...layer, key: "plain" });
+        }
+      },
     };
     thumbs.set(def, thumb);
   }
@@ -142,7 +187,7 @@ async function drawPosters() {
   const started = performance.now();
   for (const [key, { thumb, targets }] of waiting) {
     if (performance.now() - started > POSTER_BUDGET_MS) break;
-    if (!t.compositor.prepareShader(thumb.shader)) continue;
+    if (!thumb.shaders.every((shader) => t.compositor.prepareShader(shader))) continue;
     waiting.delete(key);
     if (!render(t, thumb, thumb.posterAt)) continue;
     const poster = document.createElement("canvas");
@@ -159,7 +204,7 @@ async function drawPosters() {
  */
 export async function drawThumbnail(thumb: Thumb, at: number, target: HTMLCanvasElement, before?: number): Promise<void> {
   const t = await getThumbnailer();
-  if (!t || !t.compositor.prepareShader(thumb.shader)) return;
+  if (!t || !thumb.shaders.every((shader) => t.compositor.prepareShader(shader))) return;
   if (!render(t, thumb, at)) return;
   copyInto(t.canvas, target);
   if (before === undefined) return;

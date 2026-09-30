@@ -79,6 +79,12 @@ class Decoder {
   private still: Buffer | null;
   /** A still has been sent to the page (which keeps it until it's released). */
   sent = false;
+  /** A time-interpolated source's frames read so far (the last two), and which were last sent. */
+  private native: { read: number; frames: [Buffer | null, Buffer | null]; sentIndex: number } = {
+    read: 0,
+    frames: [null, null],
+    sentIndex: -1,
+  };
 
   constructor(
     readonly source: RenderSource,
@@ -101,6 +107,30 @@ class Decoder {
     }
     this.next = f + 1;
     return this.read();
+  }
+
+  /**
+   * A time-interpolated source's frames `index` and `index + 1` (read in order as they're
+   * needed; the media's last frame stands in past its end), or null when they were sent already.
+   */
+  async nativePair(index: number): Promise<{ a: Buffer; b: Buffer } | null> {
+    const n = this.native;
+    if (index === n.sentIndex) return null;
+    // Read on to the frame after `index` (or the end of the media); output frames only move forwards.
+    while (n.read < index + 2) {
+      const frame = (await this.reader?.read()) ?? null;
+      if (!frame) break;
+      n.frames = [n.frames[1], frame];
+      n.read++;
+    }
+    const last = n.read - 1;
+    if (last < 0 || !n.frames[1]) {
+      await this.process?.done;
+      throw new Error("A clip's media ended before its last frame.");
+    }
+    const frame = (i: number) => (i >= last ? n.frames[1]! : (n.frames[0] ?? n.frames[1]!));
+    n.sentIndex = index;
+    return { a: frame(index), b: frame(index + 1) };
   }
 
   close() {
@@ -172,13 +202,23 @@ export async function renderVideo(
         decoder.close();
         running.delete(key);
         release.push(key);
+        if (decoder.source.native) release.push(`${key}+`);
       }
 
       const layers = plan.frame(f);
       const pictures: FramePacket["pictures"] = [];
-      const send = async (key: string | undefined) => {
+      const send = async (key: string | undefined, interpolate?: { key: string; index?: number }) => {
         const decoder = key === undefined ? undefined : running.get(key);
         if (!decoder || pictures.some((p) => p.key === key)) return;
+        if (decoder.source.native) {
+          // A time-interpolated clip: the two frames either side of this moment, when they change.
+          const pair = await decoder.nativePair(interpolate?.index ?? 0);
+          if (!pair) return;
+          const { width, height, luma } = decoder.source;
+          pictures.push({ key: key!, width, height, luma, data: pair.a });
+          if (interpolate) pictures.push({ key: interpolate.key, width, height, luma, data: pair.b });
+          return;
+        }
         // The page keeps a still until it's released.
         if (decoder.source.still && decoder.sent) return;
         decoder.sent = true;
@@ -186,10 +226,14 @@ export async function renderVideo(
         pictures.push({ key: key!, width, height, luma, png: !!png, data: await decoder.frameAt(f) });
       };
       for (const layer of layers) {
-        if (layer.kind === "picture") await send(layer.picture.key);
-        else {
-          await send(layer.from?.key);
-          await send(layer.to?.key);
+        if (layer.kind === "picture") {
+          await send(layer.picture.key, layer.picture.interpolate);
+          await send(layer.picture.matte?.layer.key, layer.picture.matte?.layer.interpolate);
+        } else if (layer.kind === "adjustment") {
+          await send(layer.adjustment.matte?.layer.key, layer.adjustment.matte?.layer.interpolate);
+        } else if (layer.kind === "transition") {
+          await send(layer.from?.key, layer.from?.interpolate);
+          await send(layer.to?.key, layer.to?.interpolate);
         }
       }
       const packet = { frame: f, pictures, release, shaders: shaders ?? {}, layers };

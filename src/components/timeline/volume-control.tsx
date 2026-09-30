@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PiSpeakerHigh, PiSpeakerLow, PiSpeakerSlash } from "react-icons/pi";
 import { keyframeTime } from "@shared/animation";
-import { VOLUME, hasKeyframes, isTextClip, setParams, volumeAt } from "@shared/effects";
+import { VOLUME, hasKeyframes, hasMedia, setParams, volumeAt } from "@shared/effects";
 import { getClip, sourceTime } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -14,8 +14,8 @@ import { usePlayback } from "@/stores/playback";
 /** Toolbar button: the selected clip's volume, in a popover. Needs exactly one selected clip. */
 export function ClipVolumeButton() {
   const selected = useEditor((s) => (s.selectedClipIds.length === 1 ? getClip(s.project, s.selectedClipIds[0]) : undefined));
-  // Text has no sound.
-  const clip = selected && !isTextClip(selected) ? selected : undefined;
+  // Text, solids and adjustment layers have no sound.
+  const clip = selected && hasMedia(selected) ? selected : undefined;
   // Source time the level is read and set at; it only matters (and follows the playhead) once it's keyframed.
   const time = usePlayback((s) => (clip && hasKeyframes(clip) ? sourceTime(clip, s.time) : (clip?.in ?? 0)));
   const volume = clip ? volumeAt(clip, time) : 1;
