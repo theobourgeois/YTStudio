@@ -10,7 +10,7 @@ import { once } from "node:events";
 import type { Readable } from "node:stream";
 import { type FramePacket, GlSession } from "./gl-browser.ts";
 import { spawnStreaming } from "./process.ts";
-import { type RenderPlan, type RenderSource, frameBytes, sourceFrameBytes } from "./render.ts";
+import { type FrameLayer, type RenderPlan, type RenderSource, frameBytes, sourceFrameBytes } from "./render.ts";
 
 type Spawned = ReturnType<typeof spawnStreaming>;
 
@@ -186,6 +186,7 @@ export async function renderVideo(
     const lookahead = Math.ceil(plan.fps / 2);
     const pending = [...plan.sources].sort((a, b) => a.first - b.first);
     const running = new Map<string, Decoder>();
+    let lastGroups = new Set<string>();
     let shaders: Record<string, string> | null = plan.shaders;
 
     /** Frame f's packet; called for every frame in order (decoders are read in order). */
@@ -225,17 +226,27 @@ export async function renderVideo(
         const { width, height, luma, png } = decoder.source;
         pictures.push({ key: key!, width, height, luma, png: !!png, data: await decoder.frameAt(f) });
       };
-      for (const layer of layers) {
-        if (layer.kind === "picture") {
-          await send(layer.picture.key, layer.picture.interpolate);
-          await send(layer.picture.matte?.layer.key, layer.picture.matte?.layer.interpolate);
-        } else if (layer.kind === "adjustment") {
-          await send(layer.adjustment.matte?.layer.key, layer.adjustment.matte?.layer.interpolate);
-        } else if (layer.kind === "transition") {
-          await send(layer.from?.key, layer.from?.interpolate);
-          await send(layer.to?.key, layer.to?.interpolate);
+      const groups = new Set<string>();
+      const sendAll = async (list: FrameLayer[]) => {
+        for (const layer of list) {
+          if (layer.kind === "picture") {
+            await send(layer.picture.key, layer.picture.interpolate);
+            await send(layer.picture.matte?.layer.key, layer.picture.matte?.layer.interpolate);
+          } else if (layer.kind === "adjustment") {
+            await send(layer.adjustment.matte?.layer.key, layer.adjustment.matte?.layer.interpolate);
+          } else if (layer.kind === "transition") {
+            await send(layer.from?.key, layer.from?.interpolate);
+            await send(layer.to?.key, layer.to?.interpolate);
+          } else {
+            groups.add(layer.key);
+            await sendAll(layer.layers);
+          }
         }
-      }
+      };
+      await sendAll(layers);
+      // A nested sequence's picture is let go once no frame draws it.
+      for (const key of lastGroups) if (!groups.has(key)) release.push(key);
+      lastGroups = groups;
       const packet = { frame: f, pictures, release, shaders: shaders ?? {}, layers };
       shaders = null;
       return packet;

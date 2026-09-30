@@ -8,6 +8,9 @@ import { createTransition } from "../shared/transitions.ts";
 import { normalizeProject } from "../shared/normalize.ts";
 import { keyframeValue } from "../shared/keyframes.ts";
 import { setParent } from "../shared/parenting.ts";
+import { addReverseSection, addFreezeFrame } from "../shared/time-remap.ts";
+import { nestClips, getSequence } from "../shared/sequences.ts";
+import { soundPieces } from "./render.ts";
 import {
   type FrameLayer,
   type RenderAsset,
@@ -508,5 +511,78 @@ describe("lumaWeights", () => {
     const [picture] = pictures(layers);
     // The 9:16 clip fills the canvas, moved right by a quarter of it.
     expect(picture.affine.map((v) => Math.round(v * 1e4) / 1e4)).toEqual([1, 0, 0, 1, 0.25, 0]);
+  });
+
+  it("decodes a remapped clip at its media's rate, backwards stretches from the reversed copy", () => {
+    const c = clip("back", "main", 0, 0, 4);
+    let p = project([c]);
+    p = addReverseSection(p, c.id, 1, 2); // forwards 0-2, back 2-3, forwards 3-6
+    const plan = planRender(p, assets, opts);
+    expect(plan.needsReversed).toEqual([]);
+    const natives = plan.sources.filter((s) => s.native);
+    // (Frame 60 is a hair past the turn, still on its way forwards.)
+    expect(natives.map((s) => [s.first, s.end])).toEqual([[0, 61], [61, 91], [91, 180]]);
+    // The backwards run reads the reversed copy.
+    expect(inputsOf(natives[1].argv)).toEqual(["/media/back-reversed.mp4"]);
+    expect(inputsOf(natives[0].argv)).toEqual(["/media/back.mp4"]);
+    // Frame 75 (2.5 s) shows media 1.5 s, frame 45 of the reversed copy's decode (at 30 fps).
+    const [picture] = pictures(plan.frame(75));
+    expect(picture.key).toBe(natives[1].key);
+    const reversedFile = 10 - 0.001 - 1.5;
+    expect(picture.interpolate?.index).toBe(Math.round((reversedFile - natives[1].native!.start) * 30));
+    // Without a reversed copy, the plan asks for one.
+    const noCopy = { ...assets, back: { ...assets.back, reversedPath: undefined } };
+    expect(planRender(p, noCopy, opts).needsReversed).toEqual(["back"]);
+  });
+
+  it("holds a frozen frame without decoding anything new", () => {
+    const c = clip("vid", "main", 0, 0, 2);
+    const p = addFreezeFrame(project([c]), c.id, 1, 1);
+    const plan = planRender(p, assets, opts);
+    const index = (f: number) => pictures(plan.frame(f))[0].interpolate!.index;
+    expect(index(31)).toBe(index(50));
+    expect(index(80)).toBeGreaterThan(index(50));
+  });
+
+  it("draws a nested sequence into a group placed like a clip", () => {
+    const a = clip("vid", "main", 0, 0, 2, { motion: { scale: 0.5 } });
+    const t = clip("photo", "top", 0, 0, 2);
+    const nested = nestClips(project([a, t], withTop), [a.id, t.id])!;
+    let p = setParams(nested.project, nested.clipId, "motion", { position: [0.25, 0.5] });
+    p = normalizeProject(p, library);
+    const plan = planRender(p, assets, opts);
+    const layers = plan.frame(10);
+    expect(layers.map((l) => l.kind)).toEqual(["group", "picture"]);
+    const group = layers[0] as Extract<FrameLayer, { kind: "group" }>;
+    // At the export's size (the sequence is 9:16 too), holding the nested clips bottom first.
+    expect([group.width, group.height]).toEqual([1080, 1920]);
+    expect(group.layers.map((l) => l.kind)).toEqual(["picture", "picture"]);
+    const placed = (layers[1] as Extract<FrameLayer, { kind: "picture" }>).picture;
+    expect(placed.key).toBe(group.key);
+    expect(placed.affine.map((v) => Math.round(v * 1e4) / 1e4 + 0)).toEqual([1, 0, 0, 1, -0.25, 0]);
+    // Clips inside are decoded frame by frame (their timing depends on the nest's).
+    expect(plan.sources.find((s) => s.clipId === a.id)?.native).toBeDefined();
+    expect(getSequence(p, nested.sequenceId)!.clips).toHaveLength(2);
+  });
+
+  it("plays a nested sequence's sound, and a remapped clip's in steady pieces", () => {
+    const song = clip("song", "audio_1", 1, 10, 14);
+    const nested = nestClips(project([song]), [song.id])!;
+    const p = normalizeProject(nested.project, library);
+    const nest = p.clips.find((c) => c.id === nested.clipId)!;
+    const pieces = soundPieces(p, assets, nest);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0]).toMatchObject({ file: "/media/song.mp3", backwards: false, speed: 1, gain: 1 });
+    expect(pieces[0].at).toBeCloseTo(1, 2);
+    expect(pieces[0].from).toBeCloseTo(10, 2);
+    expect(pieces[0].duration).toBeCloseTo(4, 1);
+    const args = audioArgs(p, assets, { outputPath: "/tmp/out.flac" });
+    expect(inputsOf(args)).toEqual(["/media/song.mp3"]);
+
+    const v = clip("vid", "main", 0, 0, 4);
+    const back = addReverseSection(project([v]), v.id, 1, 2);
+    const vPieces = soundPieces(back, assets, back.clips[0]);
+    expect(vPieces.map((x) => x.backwards)).toEqual([false, true, false]);
+    expect(vPieces[1].speed).toBeCloseTo(1, 1);
   });
 });

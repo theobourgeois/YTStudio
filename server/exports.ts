@@ -4,6 +4,7 @@ import { hasMedia, isTextClip } from "../shared/effects.ts";
 import type { ExportJob, ExportRequest, ExportResolution, Project } from "../shared/types.ts";
 import { errorMessage } from "../shared/errors.ts";
 import { normalizeProject } from "../shared/normalize.ts";
+import { allClips, isNestedClip } from "../shared/sequences.ts";
 import { FFMPEG } from "./config.ts";
 import { ffmpegVersion } from "./ffmpeg.ts";
 import type { MediaLibrary } from "./media.ts";
@@ -99,7 +100,7 @@ export class ExportManager {
     const assets = this.library.byId();
     let project: Project;
     try {
-      if (normalizeProject(req.project).clips.some((c) => hasMedia(c) && !assets[c.assetId])) {
+      if (allClips(normalizeProject(req.project)).some((c) => hasMedia(c) && !isNestedClip(c) && !assets[c.assetId])) {
         throw new HttpError(400, "The timeline uses media that's no longer in the library.");
       }
       project = normalizeProject(req.project, assets);
@@ -115,7 +116,8 @@ export class ExportManager {
     }
 
     const texts = new Map<string, DrawnText[]>();
-    for (const clip of project.clips) {
+    // Texts in nested sequences too: every clip that could be drawn.
+    for (const clip of allClips(project)) {
       if (!isTextClip(clip)) continue;
       const drawn = parseDrawings(req.texts?.[clip.id]);
       if (!drawn) throw new HttpError(400, "A text clip is missing its image. Try exporting again.");
@@ -180,7 +182,7 @@ export class ExportManager {
       const library = this.library.byId();
       const assets: Record<string, RenderAsset> = {};
       const drawn: Record<string, RenderAsset[]> = {};
-      for (const clip of project.clips) {
+      for (const clip of allClips(project)) {
         const text = texts.get(clip.id);
         if (text) {
           drawn[clip.id] = text.map((d) => ({
@@ -188,8 +190,8 @@ export class ExportManager {
           }));
           continue;
         }
-        // Solids and adjustment layers are drawn by the compositor itself.
-        if (!hasMedia(clip)) continue;
+        // Solids and adjustment layers are drawn by the compositor itself, and a nested sequence from its clips.
+        if (!hasMedia(clip) || isNestedClip(clip)) continue;
         const asset = library[clip.assetId];
         if (!asset) throw new Error("Some media was deleted before the export started.");
         if (assets[asset.id]) continue;
@@ -204,7 +206,15 @@ export class ExportManager {
         if (signal.aborted) return;
       }
       const opts = { width: job.width, height: job.height, fps: project.settings.fps, ffmpegPath: FFMPEG };
-      const plan = planRender(project, assets, opts, drawn);
+      let plan = planRender(project, assets, opts, drawn);
+      // Media shown backwards elsewhere (a remapped clip running back, a reversed nest) needs its reversed copy too.
+      if (plan.needsReversed.length) {
+        for (const id of plan.needsReversed) {
+          assets[id].reversedPath = await this.library.reversedPath(id);
+          if (signal.aborted) return;
+        }
+        plan = planRender(project, assets, opts, drawn);
+      }
 
       // The sound first (quick), then every frame, drawn and encoded with it.
       const audioShare = 0.03;

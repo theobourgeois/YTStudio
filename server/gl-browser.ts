@@ -281,11 +281,19 @@ function pageScript(): string {
             matte: a.matte && { mode: a.matte.mode, layer: toPlaced(a.matte.layer) },
           });
           const placed = (p: PlacedRef | null): Placed | null => p && toPlaced(p);
-          for (const layer of head.layers) {
-            if (layer.kind === "picture") compositor.drawPicture(placed(layer.picture)!);
-            else if (layer.kind === "adjustment") compositor.drawAdjustment(toAdjustment(layer.adjustment));
-            else compositor.drawTransition(shader(layer.shader), layer.uniforms, layer.progress, placed(layer.from), placed(layer.to));
-          }
+          const drawLayers = (layers: FrameLayer[]) => {
+            for (const layer of layers) {
+              if (layer.kind === "picture") compositor.drawPicture(placed(layer.picture)!);
+              else if (layer.kind === "adjustment") compositor.drawAdjustment(toAdjustment(layer.adjustment));
+              else if (layer.kind === "group") {
+                // A nested sequence: its layers into a picture of its own, placed by a later layer.
+                compositor.beginGroup(layer.width, layer.height);
+                drawLayers(layer.layers);
+                compositor.endGroup(layer.key);
+              } else compositor.drawTransition(shader(layer.shader), layer.uniforms, layer.progress, placed(layer.from), placed(layer.to));
+            }
+          };
+          drawLayers(head.layers);
           return compositor.readYuv420Async();
         };
         const lane = async () => {
