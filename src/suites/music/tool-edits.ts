@@ -21,6 +21,7 @@ import {
   setTimeSignature,
   stepNotes,
   stepString,
+  transposeChannels,
   updateChannel,
 } from "@shared/music/edits";
 import { addNotes, editNotes } from "@shared/music/notes";
@@ -140,6 +141,18 @@ export const moveChannelTool: SongEdit = (song, input) => {
   if (input.direction !== "up" && input.direction !== "down") throw new Error('"direction" must be "up" or "down".');
   const next = moveChannels(song, [channel.id], input.direction === "up" ? -1 : 1);
   return { song: next, text: `The rack's order is now: ${next.channels.map((c) => c.name).join(", ")}.` };
+};
+
+export const transposeChannelsTool: SongEdit = (song, input, env) => {
+  if (!Array.isArray(input.channels) || !input.channels.length) throw new Error('"channels" must be a list of channels (ids or names from get_song).');
+  const channels = input.channels.map((ref) => findChannel(song, ref));
+  const semitones = number(input, "semitones", -127, 127);
+  if (semitones === undefined || !Number.isInteger(semitones)) throw new Error('"semitones" must be a whole number from -127 to 127 (12 is an octave up).');
+  const pattern = findPattern(song, input.pattern, env);
+  const next = transposeChannels(song, pattern.id, channels.map((c) => c.id), semitones);
+  const list = channels.map((c) => `"${c.name}"`).join(", ");
+  if (next === song) return { song, text: `Nothing moved: ${list} ${semitones === 0 ? "stay where they are" : `have no notes to move in "${pattern.name}"`}.` };
+  return { song: next, text: `Moved the notes of ${list} in "${pattern.name}" ${Math.abs(semitones)} semitone${Math.abs(semitones) === 1 ? "" : "s"} ${semitones > 0 ? "up" : "down"}.` };
 };
 
 export const setStepsTool: SongEdit = (song, input, env) => {

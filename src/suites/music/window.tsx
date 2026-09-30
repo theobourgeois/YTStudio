@@ -235,6 +235,16 @@ const EDGE_CURSOR: Record<ResizeEdge, string> = {
   se: "nwse-resize",
 };
 
+/**
+ * Where a small window of this size opens: the middle of the desktop, a little above it (it's read
+ * when the window first shows; after that, where it's been put).
+ */
+export function centredOnDesktop(width: number, height: number): WindowPlace {
+  const desk = document.querySelector("[data-desktop]")?.getBoundingClientRect();
+  if (!desk) return { x: 200, y: 120 };
+  return { x: Math.max(0, Math.round((desk.width - width) / 2)), y: Math.max(0, Math.round((desk.height - height) / 3)) };
+}
+
 /** Where the music editor's windows float. */
 export function Desktop({ children }: { children: ReactNode }) {
   return (

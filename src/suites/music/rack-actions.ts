@@ -13,6 +13,7 @@ import {
   setChannelNotes,
   setMuted,
   soloChannel,
+  transposeChannels,
   updateChannel,
 } from "@shared/music/edits";
 import type { MusicProject } from "@shared/music/types";
@@ -108,3 +109,6 @@ export function rotate(direction: -1 | 1, channelId = target()) {
   if (!channelId) return;
   commit((doc) => rotateSteps(doc, patternId(), channelId, direction, lengthOf(doc, currentPattern(doc, useMusic.getState().patternId))));
 }
+
+/** Move every note of the selected channels in the pattern shown up or down by semitones. */
+export const transposeSelected = (semitones: number) => commit((doc) => transposeChannels(doc, patternId(), selectedIds(), semitones));

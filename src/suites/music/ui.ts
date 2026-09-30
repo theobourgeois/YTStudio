@@ -3,8 +3,11 @@ import type { MusicProject, Note } from "@shared/music/types";
 import { useMusic } from "./store";
 import type { WindowSnap } from "./window-geometry";
 
-/** A window of the music editor: the channel rack, or a channel's settings. */
-export type WindowId = "rack" | "piano" | `channel:${string}`;
+/**
+ * A window of the music editor: the channel rack, the Piano roll, a channel's settings, or one of the
+ * small ones a command opens (Transpose selected, a note's properties).
+ */
+export type WindowId = "rack" | "piano" | "transpose" | "note" | `channel:${string}`;
 export const channelWindow = (channelId: string): WindowId => `channel:${channelId}`;
 
 export interface WindowPlace {
@@ -37,6 +40,8 @@ interface MusicUiState {
   graphOpen: boolean;
   rackOpen: boolean;
   pianoOpen: boolean;
+  /** The rack's Transpose selected window. */
+  transposeOpen: boolean;
   /** The channels whose settings windows are open. */
   openChannelIds: string[];
   /** Where each window has been put. */
@@ -56,6 +61,7 @@ interface MusicUiState {
   setGraphOpen: (open: boolean) => void;
   setRackOpen: (open: boolean) => void;
   setPianoOpen: (open: boolean) => void;
+  setTransposeOpen: (open: boolean) => void;
   /**
    * Open a channel's settings window (or close it, if it's open). Only one is open at a time, as in
    * FL Studio, unless `keepOthers` (Alt+click).
@@ -83,6 +89,7 @@ const INITIAL = {
   graphOpen: false,
   rackOpen: true,
   pianoOpen: false,
+  transposeOpen: false,
   openChannelIds: [] as string[],
   places: {},
   order: ["rack"] as WindowId[],
@@ -107,6 +114,8 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   setRackOpen: (rackOpen) => set({ rackOpen, order: rackOpen ? toFront(get().order, "rack") : get().order }),
 
   setPianoOpen: (pianoOpen) => set({ pianoOpen, order: pianoOpen ? toFront(get().order, "piano") : get().order.filter((w) => w !== "piano") }),
+
+  setTransposeOpen: (transposeOpen) => set({ transposeOpen, order: transposeOpen ? toFront(get().order, "transpose") : get().order }),
 
   toggleChannelWindow(id, keepOthers) {
     const open = get().openChannelIds;

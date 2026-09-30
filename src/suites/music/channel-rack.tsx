@@ -215,6 +215,9 @@ function RackMenu({ onAddSamples }: { onAddSamples: () => void }) {
         <DropdownMenuItem disabled={none} onSelect={() => moveSelected(1)}>
           Move selected down <DropdownMenuShortcut>⌥↓</DropdownMenuShortcut>
         </DropdownMenuItem>
+        <DropdownMenuItem disabled={none} onSelect={() => useMusicUi.getState().setTransposeOpen(true)}>
+          Transpose selected…
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={none} onSelect={() => muteSelected(true)}>
           Mute selected

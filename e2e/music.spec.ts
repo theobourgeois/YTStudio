@@ -372,6 +372,29 @@ test("knobs work as in FL Studio, and a channel opens its settings window", asyn
   await expect(page.getByTestId("channel-rack")).toBeVisible();
 });
 
+test("Transpose selected moves the selected channels' notes by the semitones typed, in a small window", async ({ page }) => {
+  const id = await openNewSong(page, "Transpose");
+  await addStarterKit(page);
+  await expect(page.getByRole("listitem")).toHaveCount(4);
+  await step(page, "Kick", 1).click();
+  await step(page, "Hat", 3).click();
+  await step(page, "Snare", 5).click();
+  await page.getByRole("button", { name: "Select Kick" }).click();
+  await page.getByRole("button", { name: "Select Hat" }).click({ button: "right" });
+  await page.getByRole("button", { name: "Channel rack menu" }).click();
+  await page.getByRole("menuitem", { name: "Transpose selected…" }).click();
+  const transpose = page.locator('[data-window="transpose"]');
+  await expect(transpose).toBeVisible();
+  await transpose.getByLabel("Semitones").fill("-5");
+  await transpose.getByLabel("Semitones").press("Enter");
+  await expect(transpose).toHaveCount(0);
+  const pitches = async () => {
+    const song = await savedSong(page, id);
+    return song.channels.map((c: { id: string }) => (song.patterns[0].notes[c.id] ?? []).map((n: { pitch: number }) => n.pitch));
+  };
+  await expect.poll(pitches).toEqual([[55], [], [55], [60]]);
+});
+
 test("the graph editor draws, scales, ramps and resets the selected channel's steps", async ({ page }) => {
   const id = await openNewSong(page, "Graph");
   await addStarterKit(page);

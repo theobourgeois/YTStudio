@@ -24,6 +24,7 @@ import {
   soloChannel,
   stepNotes,
   stepString,
+  transposeChannels,
   updateChannel,
 } from "./edits.ts";
 import { DEFAULT_PRECOMPUTED, FIRST_PATTERN_ID, createMusicProject, normalizeMusicProject } from "./project.ts";
@@ -190,6 +191,19 @@ describe("steps", () => {
     );
     expect(many.patterns[0].notes.chan_kick.map((n) => n.velocity)).toEqual([0.1, 0.78, 0.9]);
     expect(setStepNotes(song, P, "chan_kick", new Map())).toBe(song);
+  });
+
+  it("are transposed by semitones, channel by channel, stopping at the ends of the MIDI range", () => {
+    let song = setSteps(rack(), P, "chan_kick", [0, 4], true);
+    song = setSteps(song, P, "chan_hat", [2], true);
+    song = setStepNote(song, P, "chan_kick", 4, { pitch: 125 });
+    const up = transposeChannels(song, P, ["chan_kick", "chan_hat", "chan_clap"], 5);
+    expect(up.patterns[0].notes.chan_kick.map((n) => n.pitch)).toEqual([65, 127]);
+    expect(up.patterns[0].notes.chan_hat.map((n) => n.pitch)).toEqual([65]);
+    expect(transposeChannels(song, P, ["chan_hat"], -12).patterns[0].notes.chan_hat[0].pitch).toBe(48);
+    expect(transposeChannels(song, P, ["chan_kick"], 0)).toBe(song);
+    expect(transposeChannels(song, P, ["chan_clap"], 3)).toBe(song);
+    expect(transposeChannels(up, P, ["chan_kick"], 200).patterns[0].notes.chan_kick.map((n) => n.pitch)).toEqual([127, 127]);
   });
 
   it("are replaced whole (pasting)", () => {

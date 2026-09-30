@@ -167,6 +167,15 @@ export const MUSIC_TOOLS = [
     ),
   }),
   tool({
+    name: "transpose_channels",
+    title: "Transpose channels",
+    kind: "edit",
+    description:
+      "Move every note of one or more channels in a pattern up or down by a number of semitones (12 is an octave; negative is down): " +
+      "the channel rack's Transpose selected. Notes stop at the ends of the MIDI range.",
+    inputSchema: obj({ channels: arr(channel, "The channels."), semitones: int("Semitones: positive up, negative down."), pattern }, ["channels", "semitones"]),
+  }),
+  tool({
     name: "edit_step",
     title: "Change a step",
     kind: "edit",

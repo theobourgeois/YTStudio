@@ -24,6 +24,7 @@ import {
   removeChannelTool,
   removePatternTool,
   setStepsTool,
+  transposeChannelsTool,
   setNotesTool,
   describeNotes,
   soloChannelTool,
@@ -129,6 +130,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   solo_channel: edit(soloChannelTool),
   move_channel: edit(moveChannelTool),
   set_steps: edit(setStepsTool),
+  transpose_channels: edit(transposeChannelsTool),
   async get_notes(input, ctx) {
     const target = await targetOf(ctx);
     return textResult(describeNotes(target.song, input, { patternId: target.patternId }));

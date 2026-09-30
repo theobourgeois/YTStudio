@@ -14,6 +14,8 @@ import { resolvePianoKey, type PianoKeyAction } from "./piano/keys";
 import * as piano from "./piano/actions";
 import { openPianoRoll } from "./piano/actions";
 import { PianoRoll } from "./piano/piano-roll";
+import { usePiano } from "./piano/store";
+import { TransposeWindow } from "./transpose-window";
 import { type WindowId, useMusicUi } from "./ui";
 import { Desktop } from "./window";
 
@@ -47,12 +49,14 @@ export default function MusicWorkspace() {
 function Windows() {
   const rackOpen = useMusicUi((s) => s.rackOpen);
   const pianoOpen = useMusicUi((s) => s.pianoOpen);
+  const transposeOpen = useMusicUi((s) => s.transposeOpen);
   const openIds = useMusicUi((s) => s.openChannelIds);
   const channels = useSong((song) => song.channels);
   return (
     <Desktop>
       {rackOpen && <ChannelRack />}
       {pianoOpen && <PianoRoll />}
+      {transposeOpen && <TransposeWindow />}
       {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind === "sampler" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
     </Desktop>
   );
@@ -61,7 +65,12 @@ function Windows() {
 /** The window in front: the last one touched of those open. */
 function frontWindow(): WindowId | null {
   const ui = useMusicUi.getState();
-  const open = (id: WindowId) => (id === "rack" ? ui.rackOpen : id === "piano" ? ui.pianoOpen : ui.openChannelIds.includes(id.slice("channel:".length)));
+  const open = (id: WindowId) =>
+    id === "rack" ? ui.rackOpen
+    : id === "piano" ? ui.pianoOpen
+    : id === "transpose" ? ui.transposeOpen
+    : id === "note" ? usePiano.getState().editing !== null
+    : ui.openChannelIds.includes(id.slice("channel:".length));
   return [...ui.order].reverse().find(open) ?? null;
 }
 

@@ -355,6 +355,29 @@ export function rotateSteps(song: MusicProject, patternId: string, channelId: st
   });
 }
 
+/**
+ * Move every note of some channels in a pattern up (positive) or down by semitones (the rack's
+ * "Transpose selected"); notes stop at the ends of the MIDI range.
+ */
+export function transposeChannels(song: MusicProject, patternId: string, channelIds: readonly string[], semitones: number): MusicProject {
+  const by = Math.round(semitones);
+  if (!Number.isFinite(by) || by === 0) return song;
+  return channelIds.reduce(
+    (next, channelId) =>
+      setChannelNotes(next, patternId, channelId, (notes) => {
+        let any = false;
+        const moved = notes.map((note) => {
+          const pitch = clamp(note.pitch + by, 0, 127);
+          if (pitch === note.pitch) return note;
+          any = true;
+          return { ...note, pitch };
+        });
+        return any ? moved.sort(byStart) : notes;
+      }),
+    song,
+  );
+}
+
 export type StepPatch = Partial<Pick<Note, "velocity" | "pitch">>;
 
 /** Change the notes on several steps at once (the graph editor): their velocity (0..1) or pitch (a MIDI note). */

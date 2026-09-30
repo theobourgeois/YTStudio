@@ -11,6 +11,7 @@ import {
   removePatternTool,
   setStepsTool,
   soloChannelTool,
+  transposeChannelsTool,
   setNotesTool,
   describeNotes,
   updateChannelTool,
@@ -89,6 +90,16 @@ describe("the assistant's song edits", () => {
     expect(edited.song.channels[0]).toMatchObject({ cutSelf: true, precomputed: { normalize: true, reverse: true, start: 0.25, length: 1, fadeIn: 0, fadeOut: 0.5 } });
     expect(edited.text).toContain("cut self, sample normalized, reversed, starts at 25%, fade out 50%");
     expect(() => updateChannelTool(rack(), { channel: "Kick", sample: { start: 3 } }, env)).toThrow(/"start" must be a number from 0 to 1/);
+  });
+
+  it("transpose channels' notes by semitones", () => {
+    const drawn = setStepsTool(rack(), { channel: "Kick", steps: "x---" }, env).song;
+    const up = transposeChannelsTool(drawn, { channels: ["Kick", "chan_hat"], semitones: 12 }, env);
+    expect(up.song.patterns[0].notes.chan_kick.every((n) => n.pitch === 72)).toBe(true);
+    expect(up.text).toBe('Moved the notes of "Kick", "Hat" in "Pattern 1" 12 semitones up.');
+    expect(transposeChannelsTool(drawn, { channels: ["Hat"], semitones: -1 }, env).text).toMatch(/Nothing moved/);
+    expect(() => transposeChannelsTool(drawn, { channels: ["Kick"], semitones: 1.5 }, env)).toThrow(/whole number/);
+    expect(() => transposeChannelsTool(drawn, { channels: [], semitones: 1 }, env)).toThrow(/list of channels/);
   });
 
   it("write and read a channel's notes: pitches by name, times in steps", () => {
