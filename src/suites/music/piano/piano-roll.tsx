@@ -22,7 +22,7 @@ import { pianoChannel, pianoContext } from "./actions";
 import { applyDrag } from "./drag";
 import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepare, readPalette, stretchHandle } from "./draw";
 import { onFade, vanishing } from "./fades";
-import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, zoomAt } from "./geometry";
+import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, wheelZoomFactor, zoomAt } from "./geometry";
 import { NoteProperties } from "./note-properties";
 import { gridCursor, gridPointerDown, keysPointerDown, lanePointerDown, rulerPointerDown } from "./pointer";
 import { type PianoTool, usePiano } from "./store";
@@ -344,7 +344,7 @@ function PianoBody() {
       const piano = usePiano.getState();
       const { view } = piano;
       const x = e.clientX - box.getBoundingClientRect().left;
-      if (e.ctrlKey || e.metaKey) return piano.setView(zoomAt(view, x, view.pxPerTick * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      if (e.ctrlKey || e.metaKey) return piano.setView(zoomAt(view, x, view.pxPerTick * wheelZoomFactor(e.deltaY, e.deltaMode)));
       if (e.altKey) return wheelVelocity(e, box);
       const sideways = e.shiftKey ? e.deltaY : e.deltaX;
       const down = e.shiftKey ? 0 : e.deltaY;
