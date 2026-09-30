@@ -425,8 +425,8 @@ export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: 
   shaded.addColorStop(0.12, "#d9dce1");
   shaded.addColorStop(1, "#d0d4da");
   const pressed = ctx.createLinearGradient(0, 0, width, 0);
-  pressed.addColorStop(0, "#7fbf82");
-  pressed.addColorStop(1, "#b9ecb6");
+  pressed.addColorStop(0, "#79a5e4");
+  pressed.addColorStop(1, "#bcd5f7");
   const names = view.rowHeight >= 12;
   ctx.font = `600 ${Math.min(10, Math.max(8, view.rowHeight - 5))}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textBaseline = "middle";
@@ -451,12 +451,12 @@ export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: 
     // Its shadow on the white keys, its body, then its lit front face.
     ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
     ctx.fillRect(blackWidth, y + 1, 3, h);
-    ctx.fillStyle = pitch === held ? "#2f6b33" : "#16181c";
+    ctx.fillStyle = pitch === held ? "#2a4d82" : "#16181c";
     ctx.fillRect(0, y, blackWidth, h);
     if (h >= 6) {
       const face = ctx.createLinearGradient(0, 0, blackWidth, 0);
-      face.addColorStop(0, pitch === held ? "#3f8a44" : "#24272c");
-      face.addColorStop(1, pitch === held ? "#5fb364" : "#454951");
+      face.addColorStop(0, pitch === held ? "#3a66a6" : "#24272c");
+      face.addColorStop(1, pitch === held ? "#5d90d8" : "#454951");
       ctx.fillStyle = face;
       ctx.fillRect(1, y + 1, blackWidth - 6, h - 3);
       ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
