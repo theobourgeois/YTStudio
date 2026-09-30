@@ -218,11 +218,18 @@ function BooleanControl({ value, label, disabled, edit }: ControlProps<BooleanSp
   );
 }
 
-/** Choices with more options than this are a menu rather than a row of buttons. */
-const MAX_BUTTONS = 4;
+/** Room for a row of choice buttons (px), and roughly how wide a label's letters are at text-xs. */
+const BUTTONS_WIDTH = 160;
+const LETTER_PX = 6.4;
+
+/** Whether a choice's options fit side by side as buttons; otherwise it's a menu. */
+export function fitsAsButtons(options: readonly { label: string }[]): boolean {
+  const each = BUTTONS_WIDTH / options.length;
+  return options.length <= 4 && options.every((o) => o.label.length * LETTER_PX + 10 <= each);
+}
 
 function ChoiceControl({ spec, value, label, disabled, edit }: ControlProps<ChoiceSpec, string>) {
-  if (spec.options.length > MAX_BUTTONS) {
+  if (!fitsAsButtons(spec.options)) {
     return (
       <Select value={value} onValueChange={(v) => edit.set(v)} disabled={disabled}>
         <SelectTrigger size="sm" aria-label={label} className="ml-1 h-7! w-full max-w-40 min-w-0 rounded px-2 text-xs shadow-none">
