@@ -61,7 +61,8 @@ describe("effect definitions", () => {
 
   it("show Motion and Opacity for pictures, Volume for sound, Text and Appearance for text, Solid for solids", () => {
     const shown = (visual: boolean, audible: boolean, kind: ClipKind = "media") =>
-      EFFECTS.filter((d) => !d.shader && d.appliesTo({ visual, audible, kind })).map((d) => d.type);
+      // Time Remapping only shows on clips it's been turned on for.
+      EFFECTS.filter((d) => !d.shader && d.type !== "time-remap" && d.appliesTo({ visual, audible, kind })).map((d) => d.type);
     expect(shown(true, true)).toEqual(["motion", "opacity", "volume"]);
     expect(shown(true, false)).toEqual(["motion", "opacity"]);
     expect(shown(false, true)).toEqual(["volume"]);

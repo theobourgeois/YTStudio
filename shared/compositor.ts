@@ -253,6 +253,13 @@ export interface Compositor {
   /** Run the frame so far through an adjustment layer. */
   drawAdjustment(adjustment: Adjustment): void;
   /**
+   * Start drawing a group (a nested sequence, After Effects' precomp): a transparent frame of
+   * `width` x `height` px that the draws after it go into, until `endGroup`. Groups nest.
+   */
+  beginGroup(width: number, height: number): void;
+  /** Finish the group: its frame becomes the picture `key` (to place like any other), and drawing goes back to the frame it interrupted. */
+  endGroup(key: string): void;
+  /**
    * Start compiling a transition or effect shader in the background (compiling blocks for tens
    * of ms otherwise). True once it can be drawn without waiting; always true without
    * KHR_parallel_shader_compile, after compiling it now.
@@ -713,10 +720,10 @@ void main() {
   // holds a layer about to be blended), and where motion blur's moments add up.
   let frame = target();
   let spare = target();
-  const sides = [target(), target()];
-  const accum = target();
+  let sides = [target(), target()];
+  let accumTarget = target();
   // Where a track matte is drawn before the layer it cuts out.
-  const matteTarget = target();
+  let matteTarget = target();
   // Where `readYuv420` packs the frame (sized on first use).
   const yuv = { ...target(), width: 0, height: 0 };
   let width = 0;
@@ -762,6 +769,8 @@ void main() {
     height: number;
     /** Mipmaps are made the first time the picture is drawn much smaller than it is. */
     mipmapped: boolean;
+    /** Already premultiplied and stored bottom row first, like a frame: a group's (`endGroup`). */
+    layer?: boolean;
   }
   const pictures = new Map<string, Picture>();
 
@@ -842,7 +851,8 @@ void main() {
     const inverse = edges ? invert3(clip) : null;
     if (edges && !inverse) return;
     // Mipmaps keep a big picture drawn small from shimmering (layers are made about the size they're shown).
-    const shrunk = !layer && (pic.width > pu * 1.5 || pic.height > pv * 1.5);
+    // (A group's picture is drawn at its own size, like a stored picture, so it may need them too.)
+    const shrunk = (!layer || !!pic.layer) && (pic.width > pu * 1.5 || pic.height > pv * 1.5);
     const wrap = wrapOf(edges);
     // All three units are bound (an RGBA picture's U and V to nothing): a sampler
     // left on a texture that's being drawn into would make the draw fail.
@@ -1205,7 +1215,7 @@ void main() {
       gl.disable(gl.BLEND);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      drawTextures(pic, IDENTITY_AFFINE, 1, w, h, false);
+      drawTextures(pic, IDENTITY_AFFINE, 1, w, h, !!pic.layer);
     }
     const ab = next.flow ? computeFlow({ tex: set[0].tex }, w, h, set[1].tex, w, h, 0) : null;
     const ba = next.flow ? computeFlow({ tex: set[1].tex }, w, h, set[0].tex, w, h, 1) : null;
@@ -1247,7 +1257,7 @@ void main() {
     aspect?: number,
   ): { pic: Picture; layer: boolean; placement?: Placement2D } | null => {
     const passes = effects?.filter((fx) => fx.passes > 0) ?? [];
-    if (!passes.length && source.kind === "picture" && !source.next) return { pic: source.pic, layer: false };
+    if (!passes.length && source.kind === "picture" && !source.next) return { pic: source.pic, layer: !!source.pic.layer };
     if (!passes.length && source.kind === "solid") {
       const [r, g, b, a] = source.color;
       gl.bindTexture(gl.TEXTURE_2D, solidTex);
@@ -1290,7 +1300,7 @@ void main() {
     } else {
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      drawTextures(source.pic, IDENTITY_AFFINE, 1, w, h, false);
+      drawTextures(source.pic, IDENTITY_AFFINE, 1, w, h, !!source.pic.layer);
     }
     let ratio = source.kind === "frame" ? width / height : (aspect ?? pu / pv);
     // Room past the frame (Grow Bounds): the picture so far goes in the middle of a bigger layer.
@@ -1445,13 +1455,13 @@ void main() {
       gl.disable(gl.BLEND);
       return;
     }
-    clearTarget(accum);
+    clearTarget(accumTarget);
     const n = samples.length;
     for (const sample of samples) {
       if (!(sample.opacity > 0)) continue;
       const prepared = prepare(source, sample.affine, sample.effects ?? p.effects, edges, p.aspect);
       if (!prepared) continue;
-      bind(accum);
+      bind(accumTarget);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE);
       // Each moment adds its share; the float buffer keeps the sum smooth.
@@ -1459,7 +1469,7 @@ void main() {
     }
     bind(t);
     blendOver();
-    copy(accum.tex);
+    copy(accumTarget.tex);
     gl.disable(gl.BLEND);
   };
 
@@ -1555,6 +1565,26 @@ void main() {
     channel.port2.postMessage(null);
   };
 
+  // Groups (`beginGroup`): each level of nesting draws into its own set of frame-sized
+  // targets (kept by level and size), and the level above it is set aside meanwhile.
+  interface FrameSet {
+    frame: Target;
+    spare: Target;
+    sides: Target[];
+    accum: Target;
+    matte: Target;
+    width: number;
+    height: number;
+  }
+  const groupSets = new Map<string, FrameSet>();
+  const outer: FrameSet[] = [];
+  const currentSet = (): FrameSet => ({ frame, spare, sides, accum: accumTarget, matte: matteTarget, width, height });
+  const useSet = (set: FrameSet) => {
+    ({ frame, spare, sides, width, height } = set);
+    accumTarget = set.accum;
+    matteTarget = set.matte;
+  };
+
   return {
     gl,
 
@@ -1567,7 +1597,7 @@ void main() {
       gl.canvas.width = w;
       gl.canvas.height = h;
       for (const t of [frame, spare, ...sides, matteTarget]) allocate(t, w, h);
-      allocate(accum, w, h, floatTargets);
+      allocate(accumTarget, w, h, floatTargets);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
 
@@ -1665,6 +1695,47 @@ void main() {
       clearTarget(sides[0]);
       drawLayer(sides[0], { kind: "frame" }, whole);
       blendInto(sides[0], adjustment.blend ?? 0, adjustment.opacity, true, matteMode);
+    },
+
+    beginGroup(w, h) {
+      w = Math.max(1, Math.min(maxLayer, Math.round(w)));
+      h = Math.max(1, Math.min(maxLayer, Math.round(h)));
+      const id = `${outer.length}:${w}x${h}`;
+      let set = groupSets.get(id);
+      if (!set) {
+        set = { frame: target(), spare: target(), sides: [target(), target()], accum: target(), matte: target(), width: w, height: h };
+        for (const t of [set.frame, set.spare, ...set.sides, set.matte]) allocate(t, w, h);
+        allocate(set.accum, w, h, floatTargets);
+        groupSets.set(id, set);
+      }
+      outer.push(currentSet());
+      useSet(set);
+      bind(frame);
+      gl.disable(gl.BLEND);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    },
+
+    endGroup(key) {
+      const parent = outer.pop();
+      if (!parent) return;
+      // The group's frame becomes the picture (swapping textures, so nothing is copied); the frame gets a fresh one.
+      let pic = pictures.get(key);
+      if (pic && (pic.yuv || pic.textures.length !== 1)) {
+        deletePicture(key);
+        pic = undefined;
+      }
+      if (!pic) {
+        pic = { textures: [texture()], yuv: null, width, height, mipmapped: false, layer: true };
+        pictures.set(key, pic);
+      }
+      const spareTex = pic.textures[0];
+      pic.textures[0] = frame.tex;
+      frame.tex = spareTex;
+      allocate(frame, width, height);
+      Object.assign(pic, { width, height, mipmapped: false, layer: true });
+      useSet(parent);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     },
 
     prepareShader(shader) {
@@ -1796,7 +1867,14 @@ void main() {
       gl.deleteProgram(pictureProgram.program);
       gl.deleteProgram(copyProgram.program);
       for (const key of [...pictures.keys()]) deletePicture(key);
-      for (const { tex, fbo } of [frame, spare, ...sides, accum, matteTarget, yuv]) {
+      for (const set of groupSets.values()) {
+        for (const { tex, fbo } of [set.frame, set.spare, ...set.sides, set.accum, set.matte]) {
+          gl.deleteTexture(tex);
+          gl.deleteFramebuffer(fbo);
+        }
+      }
+      groupSets.clear();
+      for (const { tex, fbo } of [frame, spare, ...sides, accumTarget, matteTarget, yuv]) {
         gl.deleteTexture(tex);
         gl.deleteFramebuffer(fbo);
       }

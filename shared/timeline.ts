@@ -3,7 +3,7 @@
  * returns a new one (or the same instance when nothing changed), so they are
  * trivially undoable and unit-testable. See the rules documented on `Project`.
  */
-import { cameraEffects, clipKind, defaultEffects, hasMedia, solidEffects, textStyleAt } from "./effects.ts";
+import { cameraEffects, clipKind, defaultEffects, hasMedia, isRemapped, solidEffects, textStyleAt } from "./effects.ts";
 import { EPS, clamp, even, roundTime, tidy } from "./math.ts";
 import { pruneParents } from "./parenting.ts";
 import type {
@@ -179,7 +179,8 @@ export function clipSourceRange(
   clip: Clip,
   asset: Pick<MediaAsset, "kind" | "duration"> | undefined,
 ): { min: number; max: number } {
-  if (!hasMedia(clip)) return TEXT_SOURCE_RANGE;
+  // A remapped clip's in and out are in its own clock, which runs as long as it's stretched (it holds its last frame).
+  if (!hasMedia(clip) || isRemapped(clip)) return TEXT_SOURCE_RANGE;
   return asset ? sourceRange(asset) : { min: clip.in, max: clip.out };
 }
 
@@ -236,6 +237,11 @@ export function fileTime(clip: Pick<Clip, "reversed">, s: number, duration: numb
 
 /** Can play at another speed or backwards: clips of videos and sounds (not stills, text or other layers). */
 export function canRetime(clip: Clip, asset: Pick<MediaAsset, "kind"> | undefined): boolean {
+  return canTimeRemap(clip, asset) && !isRemapped(clip);
+}
+
+/** Can have its time remapped (keyframed speed, freezes, reversing within it): clips of videos and sounds. */
+export function canTimeRemap(clip: Clip, asset: Pick<MediaAsset, "kind"> | undefined): boolean {
   return hasMedia(clip) && !!asset && asset.kind !== "image";
 }
 
@@ -401,7 +407,7 @@ function withClips(project: Project, clips: Clip[]): Project {
   return { ...project, clips };
 }
 
-function replaceClips(project: Project, updated: Map<string, Clip>): Project {
+export function replaceClips(project: Project, updated: Map<string, Clip>): Project {
   if (updated.size === 0) return project;
   return withClips(project, project.clips.map((c) => updated.get(c.id) ?? c));
 }

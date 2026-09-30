@@ -414,6 +414,36 @@ export const APPEARANCE: EffectDefinition = {
 };
 
 /** The video effects, in the order the Effects tab shows them. */
+/**
+ * Time Remapping (After Effects'; Premiere's speed keyframes): with keyframes on `time`, the
+ * clip shows the source time they say at each moment of its own clock, so its speed can
+ * ramp, freeze or run backwards within the clip (see `shared/time-remap.ts`). The clip's
+ * other keyframes, and its in and out points, are then in that clock (which runs at 1×),
+ * not in its media's time. Only clips that play media, added when remapping is turned on.
+ */
+export const TIME_REMAP: EffectDefinition = {
+  type: "time-remap",
+  label: "Time Remapping",
+  builtIn: false,
+  alwaysOn: true,
+  appliesTo: (c) => c.kind === "media",
+  params: [
+    {
+      kind: "number",
+      key: "time",
+      label: "Source Time",
+      default: 0,
+      min: 0,
+      max: 1_000_000,
+      unit: "s",
+      step: 0.03,
+      decimals: 2,
+      // The Speed Graph: source seconds per second, as a percentage (100% plays at normal speed).
+      speed: { scale: 100, unit: "%" },
+    },
+  ],
+};
+
 export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
   ...COLOR_EFFECTS,
   ...BLUR_EFFECTS,
@@ -430,7 +460,7 @@ export const VIDEO_EFFECTS: readonly EffectDefinition[] = [
 ];
 
 /** Every effect definition; built-in ones in the order they're listed (and applied). */
-export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, SOLID, CAMERA, ...VIDEO_EFFECTS];
+export const EFFECTS: readonly EffectDefinition[] = [MOTION, OPACITY, VOLUME, TEXT, APPEARANCE, SOLID, CAMERA, TIME_REMAP, ...VIDEO_EFFECTS];
 
 const byType = new Map(EFFECTS.map((d) => [d.type, d]));
 
@@ -515,7 +545,7 @@ export function normalizeEffects(raw: unknown, legacy?: { volume?: unknown; fit?
     if ((def === SOLID || def === CAMERA) && isText) continue;
     if (def === CAMERA && stored.some((x) => x.type === SOLID.type)) continue;
     // Like built-ins, these are addressed by their type (`setParams(p, clipId, TEXT.type, ...)`).
-    if (def === TEXT || def === APPEARANCE || def === SOLID || def === CAMERA) {
+    if (def === TEXT || def === APPEARANCE || def === SOLID || def === CAMERA || def === TIME_REMAP) {
       if (once.has(def.type)) continue;
       once.add(def.type);
       ids.add(def.type);
@@ -527,6 +557,9 @@ export function normalizeEffects(raw: unknown, legacy?: { volume?: unknown; fit?
     ids.add(id);
     extras.push(sanitizeEffect(def, e, id));
   }
+  // Time Remapping comes right after the built-in effects (where the panel shows it), before any video effect.
+  const remap = extras.findIndex((e) => e.type === TIME_REMAP.type);
+  if (remap > 0) extras.unshift(...extras.splice(remap, 1));
   return [...builtIns, ...extras];
 }
 
@@ -596,6 +629,17 @@ export function motionAt(clip: Clip, time: number): Motion {
 /** A clip's opacity (0..1) at source time `time`. */
 export function opacityAt(clip: Clip, time: number): number {
   return valuesAt(OPACITY, findEffect(clip, OPACITY.type), time).opacity as number;
+}
+
+/** Whether a clip's time is remapped: it has Time Remapping keyframes (see `TIME_REMAP`). */
+export function isRemapped(clip: Pick<Clip, "effects">): boolean {
+  return !!remapKeys(clip);
+}
+
+/** A remapped clip's Time Remapping keyframes (clip clock -> source time), else undefined. */
+export function remapKeys(clip: Pick<Clip, "effects">): Keyframe[] | undefined {
+  const keys = clip.effects.find((e) => e.type === TIME_REMAP.type)?.keyframes?.time;
+  return keys?.length ? keys : undefined;
 }
 
 /** Whether a clip is text (drawn from its Text effect) rather than media. */

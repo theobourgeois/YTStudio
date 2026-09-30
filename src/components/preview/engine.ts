@@ -1,5 +1,6 @@
 import type { Clip, MediaAsset, Project } from "@shared/types";
-import { type TextStyle, clipKind, lookAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
+import { type TextStyle, clipKind, isRemapped, lookAt, solidColorAt, textStyleAt, volumeAt } from "@shared/effects";
+import { mediaTime, remapSpeed } from "@shared/time-remap";
 import { type Compositor, type Placed, createCompositor, matteIndex } from "@shared/compositor";
 import { PREVIEW_SAMPLES, clipLayer, placer, projectCamera, sortByDepth, withTrackMattes } from "@shared/layers";
 import { parentAt } from "@shared/parenting";
@@ -346,12 +347,13 @@ export class PreviewEngine {
           slot.setSrc(media.src);
           // A transition may show a clip past its edges; it's only heard inside them.
           const audible = time >= on.clip.start - 1e-6 && time < clipEnd(on.clip) - 1e-6;
-          slot.setAudio(volumeAt(on.clip, on.time), muted || (!!transition && !audible) || !media.plays, on.clip.keepPitch !== false);
+          const rate = media.rate(on.time);
+          slot.setAudio(volumeAt(on.clip, on.time), muted || (!!transition && !audible) || !media.plays || rate === null, on.clip.keepPitch !== false);
           // Time interpolation plays a frame ahead, keeping the one before: the moment wanted is between them.
           const fps = this.assetById.get(on.clip.assetId)?.fps ?? 0;
           const interp = on.clip.timeInterpolation && fps > 0 && media.plays ? on.clip.timeInterpolation : undefined;
           const lead = interp && playing ? 1 / fps : 0;
-          if (playing && media.plays) slot.follow(media.at(on.time) + lead, clipSpeed(on.clip));
+          if (playing && media.plays && rate !== null) slot.follow(media.at(on.time) + lead, rate);
           else slot.hold(media.at(on.time));
           pictures.set(on.clip.id, {
             key: `${trackId}:v${i}`,
@@ -421,8 +423,9 @@ export class PreviewEngine {
         if (current && id === current.clip.id) {
           const media = this.mediaOf(current.clip);
           slot.setSrc(media.src);
-          slot.setAudio(volumeAt(current.clip, current.time), track.muted || !media.plays, current.clip.keepPitch !== false);
-          if (playing && media.plays) slot.follow(media.at(current.time), clipSpeed(current.clip));
+          const rate = media.rate(current.time);
+          slot.setAudio(volumeAt(current.clip, current.time), track.muted || !media.plays || rate === null, current.clip.keepPitch !== false);
+          if (playing && media.plays && rate !== null) slot.follow(media.at(current.time), rate);
           else slot.hold(media.at(current.time));
           offline ||= media.src === null || slot.failed;
           return;
@@ -635,14 +638,28 @@ export class PreviewEngine {
    * made, the media itself is shown frame by frame (seeking, silent):
    * `plays` is false.
    */
-  private mediaOf(clip: Clip): { src: string | null; plays: boolean; at: (s: number) => number } {
+  private mediaOf(clip: Clip): { src: string | null; plays: boolean; at: (s: number) => number; rate: (s: number) => number | null } {
     const asset = this.assetById.get(clip.assetId);
-    if (!clip.reversed || !asset) return { src: asset?.src ?? null, plays: true, at: (s) => s };
+    const speed = () => clipSpeed(clip);
+    if (isRemapped(clip)) {
+      // The remap curve says where to be; the element plays at its slope, which it can only do
+      // forwards and not too slowly or fast: elsewhere (a freeze, backwards) it's shown frame by frame.
+      const rate = (s: number) => {
+        const v = remapSpeed(clip, s);
+        return v >= MIN_PLAYBACK_RATE && v <= MAX_PLAYBACK_RATE ? v : null;
+      };
+      return { src: asset?.src ?? null, plays: true, at: (s) => mediaTime(clip, s), rate };
+    }
+    if (!clip.reversed || !asset) return { src: asset?.src ?? null, plays: true, at: (s) => s, rate: speed };
     const reversed = asset.reversed?.status === "ready" ? asset.reversed.src : null;
-    if (!reversed) return { src: asset.src, plays: false, at: (s) => s };
-    return { src: reversed, plays: true, at: (s) => fileTime(clip, s, asset.duration) };
+    if (!reversed) return { src: asset.src, plays: false, at: (s) => s, rate: speed };
+    return { src: reversed, plays: true, at: (s) => fileTime(clip, s, asset.duration), rate: speed };
   }
 }
+
+/** The slowest and fastest a media element plays smoothly (browsers mute outside about this range). */
+const MIN_PLAYBACK_RATE = 0.0625;
+const MAX_PLAYBACK_RATE = 16;
 
 /** An offscreen canvas with a text clip drawn on it, redrawn only when what it shows changes. */
 class TextSlot {

@@ -66,6 +66,11 @@ export interface MediaAsset {
    * project media it was added to the Library from. Used to avoid copying twice.
    */
   origin?: string;
+  /**
+   * Not a file: a nested sequence of the project, standing in for media so its clips can be
+   * trimmed, retimed and placed like a video's (see `sequenceAsset`). Never sent to the server.
+   */
+  sequence?: true;
 }
 
 /**
@@ -278,6 +283,27 @@ export interface Project {
   clips: Clip[];
   /** Parts of media files kept as media of their own (see `Subclip`), in the order they were made. */
   subclips?: Subclip[];
+  /**
+   * Nested sequences (Premiere's nests, After Effects' precomps), in the order they were made.
+   * The project's own tracks and clips are its main sequence. A clip plays a sequence by
+   * having the sequence's id as its `assetId` (see `shared/sequences.ts`).
+   */
+  sequences?: Sequence[];
+}
+
+/**
+ * A sequence nested in a video: a timeline of its own, with its own size, frame rate and
+ * (optionally) length, played by clips like a video file is. Its tracks and clips follow
+ * the same rules as the project's.
+ */
+export interface Sequence {
+  id: string;
+  name: string;
+  settings: ProjectSettings;
+  tracks: Track[];
+  clips: Clip[];
+  /** Seconds. Absent: as long as its clips (they end where its last clip ends). */
+  duration?: number;
 }
 
 /**
