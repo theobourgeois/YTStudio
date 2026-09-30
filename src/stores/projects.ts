@@ -1,31 +1,39 @@
 import { create } from "zustand";
 import { toast } from "sonner";
+import { DEFAULT_SUITE, SUITE_IDS, type SuiteId, suiteNoun } from "@shared/suites";
 import type { ProjectStatus, ProjectSummary } from "@shared/types";
 import { errorMessage } from "@shared/errors";
 import { api } from "@/lib/api";
 import { projectIdFromUrl, setUrlProject } from "@/lib/route";
-import { discardPendingSave, flushAutosave, onProjectSaved, useEditor } from "./editor";
+import { clientSuite } from "@/suites";
+import { onProjectSaved } from "./autosave";
 
 /**
- * The workspace: every video is a project that is either `active` (being worked
- * on) or `settled` (done and put away). Opening a project loads it into the
- * editor store; the URL tracks which one is open.
+ * The workspace: every project (a video, a song... see `shared/suites.ts`) is either `active` (being
+ * worked on) or `settled` (done and put away). This store says which one is open (the URL tracks
+ * it) and hands it to its suite (`src/suites/`), which loads it into its own store.
  */
 interface ProjectsState {
   projects: ProjectSummary[];
   loaded: boolean;
   loadError: string | null;
+  /** The open project, of any suite (its suite may still be loading it). */
+  openId: string | null;
 
   /** Load the list and open the project from the URL (or the most recent active one). */
   init: () => Promise<void>;
-  open: (projectId: string) => void;
-  /** Create a new project, open it, and optionally import files into it. */
-  create: (files?: File[]) => Promise<void>;
+  open: (projectId: string) => Promise<void>;
+  /** Create a new project of a suite (video by default), open it, and optionally import files into it. */
+  create: (options?: { suite?: SuiteId; files?: File[] }) => Promise<void>;
   settle: (projectId: string) => Promise<void>;
   unsettle: (projectId: string) => Promise<void>;
   /** Copy a project (and its media) into a new active one. */
   duplicate: (projectId: string) => Promise<void>;
   remove: (projectId: string) => Promise<void>;
+  /** A project's summary changed (e.g. a suite renamed it). */
+  setSummary: (summary: ProjectSummary) => void;
+  /** Save every suite's unsaved changes now (before the app quits). */
+  flush: () => Promise<void>;
 }
 
 const byRecent = (a: ProjectSummary, b: ProjectSummary) => b.updatedAt - a.updatedAt;
@@ -39,20 +47,45 @@ export function settledProjects(projects: ProjectSummary[]) {
   return projects.filter((p) => p.status === "settled").sort(bySettled);
 }
 
-let initStarted = false;
+/** A project's suite, if it's in the list. */
+export function projectSuite(projectId: string | null): SuiteId | undefined {
+  return projectId ? useProjects.getState().projects.find((p) => p.id === projectId)?.suite : undefined;
+}
 
+let initStarted = false;
+/** Bumped by every open/close, so a switch that's been overtaken stops. */
+let openToken = 0;
+/** The suite holding a project (the open one's, or one still loading or closing). */
+let loadedSuite: SuiteId | null = null;
 
 export const useProjects = create<ProjectsState>((set, get) => {
   const upsert = (summary: ProjectSummary) =>
     set({ projects: [summary, ...get().projects.filter((p) => p.id !== summary.id)] });
+  const noun = (projectId: string) => suiteNoun(get().projects.find((p) => p.id === projectId)?.suite ?? DEFAULT_SUITE);
+
+  /** Show `projectId` (null: nothing), closing the suite that had the last one if it's another. */
+  const show = async (projectId: string | null) => {
+    const token = ++openToken;
+    const suite = projectId ? projectSuite(projectId) : undefined;
+    set({ openId: projectId });
+    if (loadedSuite && loadedSuite !== suite) {
+      const closing = loadedSuite;
+      loadedSuite = null;
+      await clientSuite(closing).close();
+      if (token !== openToken) return;
+    }
+    if (!projectId || !suite) return;
+    loadedSuite = suite;
+    await clientSuite(suite).open(projectId);
+  };
 
   /** Open the most recent active project other than `exceptId`, or show the empty state. */
   const openNext = async (exceptId: string) => {
     const next = activeProjects(get().projects).find((p) => p.id !== exceptId);
-    if (next) get().open(next.id);
+    if (next) await get().open(next.id);
     else {
       setUrlProject(null);
-      await useEditor.getState().closeProject();
+      await show(null);
     }
   };
 
@@ -60,7 +93,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
     try {
       upsert(await api.updateProject(projectId, { status }));
     } catch (err) {
-      toast.error(status === "settled" ? "Couldn't settle video" : "Couldn't unsettle video", {
+      toast.error(`Couldn't ${status === "settled" ? "settle" : "unsettle"} ${noun(projectId)}`, {
         description: errorMessage(err),
       });
       return false;
@@ -72,6 +105,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
     projects: [],
     loaded: false,
     loadError: null,
+    openId: null,
 
     async init() {
       if (initStarted) return;
@@ -87,8 +121,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
       onProjectSaved(upsert);
       window.addEventListener("popstate", () => {
         const id = projectIdFromUrl();
-        if (id && get().projects.some((p) => p.id === id)) void useEditor.getState().openProject(id);
-        else void useEditor.getState().closeProject();
+        void show(id && get().projects.some((p) => p.id === id) ? id : null);
       });
 
       const fromUrl = projectIdFromUrl();
@@ -96,41 +129,38 @@ export const useProjects = create<ProjectsState>((set, get) => {
         ? fromUrl
         : (activeProjects(get().projects)[0]?.id ?? null);
       setUrlProject(initial, { replace: true });
-      if (initial) await useEditor.getState().openProject(initial);
+      await show(initial);
     },
 
-    open(projectId) {
+    async open(projectId) {
       setUrlProject(projectId);
-      void useEditor.getState().openProject(projectId);
+      await show(projectId);
     },
 
-    async create(files) {
+    async create({ suite = DEFAULT_SUITE, files } = {}) {
       let summary: ProjectSummary;
       try {
-        summary = await api.createProject();
+        summary = await api.createProject({ suite });
       } catch (err) {
-        toast.error("Couldn't create a new video", { description: errorMessage(err) });
+        toast.error(`Couldn't create a new ${suiteNoun(suite)}`, { description: errorMessage(err) });
         return;
       }
       upsert(summary);
-      setUrlProject(summary.id);
-      await useEditor.getState().openProject(summary.id);
-      if (files?.length && useEditor.getState().projectId === summary.id) {
-        const assets = await useEditor.getState().importFiles(files);
-        useEditor.getState().addAssetsToTimeline(assets.map((a) => a.id));
-      }
+      await get().open(summary.id);
+      const { importFiles } = clientSuite(suite);
+      if (files?.length && importFiles && get().openId === summary.id) await importFiles(files);
     },
 
     async settle(projectId) {
       if (!(await setStatus(projectId, "settled"))) return;
-      const wasOpen = useEditor.getState().projectId === projectId;
-      const name = get().projects.find((p) => p.id === projectId)?.name ?? "Video";
+      const wasOpen = get().openId === projectId;
+      const name = get().projects.find((p) => p.id === projectId)?.name ?? "Project";
       toast.success(`Settled “${name}”`, {
         action: {
           label: "Undo",
           onClick: () => {
             void get().unsettle(projectId);
-            if (wasOpen) get().open(projectId);
+            if (wasOpen) void get().open(projectId);
           },
         },
       });
@@ -145,28 +175,37 @@ export const useProjects = create<ProjectsState>((set, get) => {
       let summary: ProjectSummary;
       try {
         // Copy the latest edits, not the last autosave.
-        if (useEditor.getState().projectId === projectId) await flushAutosave();
+        const suite = projectSuite(projectId);
+        if (suite && get().openId === projectId) await clientSuite(suite).flush();
         summary = await api.duplicateProject(projectId);
       } catch (err) {
-        toast.error("Couldn't duplicate video", { description: errorMessage(err) });
+        toast.error(`Couldn't duplicate ${noun(projectId)}`, { description: errorMessage(err) });
         return;
       }
       upsert(summary);
       toast.success(`Duplicated as “${summary.name}”`, {
-        action: { label: "Open", onClick: () => get().open(summary.id) },
+        action: { label: "Open", onClick: () => void get().open(summary.id) },
       });
     },
 
     async remove(projectId) {
+      const suite = projectSuite(projectId);
       try {
         await api.deleteProject(projectId);
       } catch (err) {
-        toast.error("Couldn't delete video", { description: errorMessage(err) });
+        toast.error(`Couldn't delete ${noun(projectId)}`, { description: errorMessage(err) });
         return;
       }
-      discardPendingSave(projectId);
+      if (suite) clientSuite(suite).discard(projectId);
+      const wasOpen = get().openId === projectId;
       set({ projects: get().projects.filter((p) => p.id !== projectId) });
-      if (useEditor.getState().projectId === projectId) await openNext(projectId);
+      if (wasOpen) await openNext(projectId);
+    },
+
+    setSummary: upsert,
+
+    async flush() {
+      await Promise.all(SUITE_IDS.map((suite) => clientSuite(suite).flush()));
     },
   };
 });

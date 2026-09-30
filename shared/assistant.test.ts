@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type ChatEvent, type ChatState, DEFAULT_MODELS, type ToolPart, applyChatEvent, chatModel, describeToolCall, emptyChat, transcript } from "./assistant.ts";
-import { ASSISTANT_TOOLS, bareToolName, toolSpec } from "./assistant-tools.ts";
+import { SUITE_TOOLS, suiteToolSpec, toolSpec, toolSuite } from "./suite-tools.ts";
+import { bareToolName } from "./tool-spec.ts";
 
 const fold = (events: ChatEvent[], start: ChatState = emptyChat()) => events.reduce(applyChatEvent, start);
 
@@ -100,16 +101,24 @@ describe("describeToolCall", () => {
   });
 
   it("has a description for every tool", () => {
-    for (const t of ASSISTANT_TOOLS) expect(describeToolCall(t.name, {})).not.toBe(t.name.replace(/_/g, " "));
+    for (const t of Object.values(SUITE_TOOLS).flat()) expect(describeToolCall(t.name, {})).not.toBe(t.name.replace(/_/g, " "));
   });
 });
 
 describe("tools", () => {
-  it("have unique names and object schemas", () => {
-    const names = ASSISTANT_TOOLS.map((t) => t.name);
+  it("have names unique across every suite, and object schemas", () => {
+    const tools = Object.values(SUITE_TOOLS).flat();
+    const names = tools.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
-    for (const t of ASSISTANT_TOOLS) expect(t.inputSchema.type).toBe("object");
+    for (const t of tools) expect(t.inputSchema.type).toBe("object");
     expect(toolSpec("batch")?.kind).toBe("edit");
+  });
+
+  it("belong to one suite", () => {
+    expect(toolSuite("split_clips")).toBe("video");
+    expect(toolSuite("get_song")).toBe("music");
+    expect(suiteToolSpec("music", "split_clips")).toBeUndefined();
+    expect(suiteToolSpec("video", "split_clips")?.kind).toBe("edit");
     expect(bareToolName("mcp__editor__batch")).toBe("batch");
   });
 });

@@ -34,7 +34,7 @@ import {
   PiWaveform,
 } from "react-icons/pi";
 import { type ToolPart, describeToolCall } from "@shared/assistant";
-import { toolSpec } from "@shared/assistant-tools";
+import { toolSpec } from "@shared/suite-tools";
 import { getClip } from "@shared/timeline";
 import { cn } from "cn";
 import { Progress } from "@/components/ui/progress";

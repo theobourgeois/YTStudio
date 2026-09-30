@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { PiSpinnerGap } from "react-icons/pi";
 import { ShortcutsDialog } from "@/components/shortcuts/shortcuts-dialog";
+import { NewProjectDialog } from "@/components/sidebar/new-project-dialog";
 import { Sidebar } from "@/components/sidebar/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -41,6 +42,7 @@ export default function App() {
         </div>
       )}
       <ShortcutsDialog />
+      <NewProjectDialog />
       <Toaster position="bottom-right" />
     </TooltipProvider>
   );

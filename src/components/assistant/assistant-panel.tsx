@@ -1,9 +1,9 @@
 /**
  * The assistant's side panel (right of the editor, full height): a chat about
- * the open video with Claude (Claude Code) or Codex, picked in the composer.
- * The agent does the work with the editor's tools (see
- * `shared/assistant-tools.ts`); every step shows here as it runs, and what it
- * changes flashes on the timeline.
+ * the open project, of any suite, with Claude (Claude Code) or Codex, picked in
+ * the composer. The agent does the work with its suite's tools (see
+ * `shared/suite-tools.ts`); every step shows here as it runs, and what it
+ * changes flashes in the editor. Each suite's workspace puts it where it fits.
  */
 import { type KeyboardEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -18,17 +18,16 @@ import {
   PiX,
 } from "react-icons/pi";
 import { type AssistantProvider, providerInfo } from "@shared/assistant";
+import { type SuiteId, suiteNoun } from "@shared/suites";
 import { cn } from "cn";
-import { messageContext } from "@/assistant/context";
 import { TAB_ID } from "@/assistant/bridge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { DEFAULT_ASSISTANT_WIDTH, providerStatus, useAssistant } from "@/stores/assistant";
-import { useEditor } from "@/stores/editor";
-import { usePlayback } from "@/stores/playback";
-import { useProjects } from "@/stores/projects";
+import { projectSuite, useProjects } from "@/stores/projects";
+import { clientSuite } from "@/suites";
 import { ChatMessages } from "./chat-messages";
 import { EffortPicker, ModelPicker } from "./model-picker";
 import { ProviderIcon } from "./provider-icon";
@@ -41,10 +40,11 @@ const useProblem = (): string | null => {
   return useAssistant((s) => providerStatus(s.status, provider)?.problem ?? null);
 };
 
-export function AssistantPanel() {
+/** `suite`: the open project's (each suite's workspace renders the panel). */
+export function AssistantPanel({ suite }: { suite: SuiteId }) {
   const open = useAssistant((s) => s.open);
   const width = useAssistant((s) => s.width);
-  const projectId = useEditor((s) => s.projectId);
+  const projectId = useProjects((s) => s.openId);
 
   useEffect(() => {
     if (open) void useAssistant.getState().loadStatus();
@@ -63,9 +63,9 @@ export function AssistantPanel() {
     >
       <ResizeHandle />
       <PanelHeader />
-      <ChatBody projectId={projectId} />
+      <ChatBody projectId={projectId} suite={suite} />
       <Confirmations />
-      <Composer projectId={projectId} />
+      <Composer projectId={projectId} suite={suite} />
     </aside>
   );
 }
@@ -126,7 +126,7 @@ function PanelHeader() {
 }
 
 /** The messages, kept scrolled to the newest while it's there (unless scrolled up). */
-function ChatBody({ projectId }: { projectId: string }) {
+function ChatBody({ projectId, suite }: { projectId: string; suite: SuiteId }) {
   const chat = useAssistant((s) => (s.chatProjectId === projectId ? s.chat : null));
   const chatError = useAssistant((s) => s.chatError);
   const scroller = useRef<HTMLDivElement>(null);
@@ -163,7 +163,7 @@ function ChatBody({ projectId }: { projectId: string }) {
             </div>
           )
         ) : chat.messages.length === 0 ? (
-          <EmptyChat />
+          <EmptyChat suite={suite} />
         ) : (
           <ChatMessages messages={chat.messages} />
         )}
@@ -211,22 +211,13 @@ function Notice({ tone, title, children, action }: { tone: "error" | "info"; tit
 }
 
 /** Before the first message: what it can do, and whether its provider's CLI is ready. */
-function EmptyChat() {
+function EmptyChat({ suite }: { suite: SuiteId }) {
   const provider = useProvider();
   const problem = useProblem();
   const { label, app } = providerInfo(provider);
-  const hasClips = useEditor((s) => s.project.clips.length > 0);
-  const hasMedia = useEditor((s) => s.assets.length > 0);
-  const selected = useEditor((s) => s.selectedClipIds.length);
-  const suggestions = !hasClips
-    ? [hasMedia ? "Put my media on the timeline in the best order" : "What can you do?", "Organise my Library into folders"]
-    : [
-        ...(selected ? [`Add a slow zoom-in to the selected clip${selected === 1 ? "" : "s"}`] : []),
-        "Cut out the silences and filler words",
-        "Add captions",
-        "Make the first 3 seconds grab attention",
-        "Add a cross dissolve between every clip",
-      ];
+  const { chat } = clientSuite(suite);
+  const suggestions = chat.useSuggestions();
+  const noun = suiteNoun(suite);
 
   return (
     <div className="flex min-h-full flex-col justify-center gap-6 pb-6">
@@ -237,8 +228,8 @@ function EmptyChat() {
         <div className="grid gap-1">
           <h2 className="text-base font-semibold">Edit with {label}</h2>
           <p className="text-[13px] leading-relaxed text-balance text-muted-foreground">
-            {label} can watch your footage, read what's said, and cut, arrange, caption and style your video. You'll see
-            every change as it happens, and can undo any of it. It keeps going if you switch to another video.
+            {label} {chat.pitch} You'll see every change as it happens, and can undo any of it. It keeps going if you
+            switch to another {noun}.
           </p>
         </div>
       </div>
@@ -283,24 +274,17 @@ function FormattedProblem({ text }: { text: string }) {
   );
 }
 
-/** Send a message with what the editor shows right now. */
+/** Send a message with what the editor shows right now (its suite says what that is). */
 function sendMessage(text: string): Promise<boolean> {
-  const editor = useEditor.getState();
-  const { context, label } = messageContext({
-    project: editor.project,
-    assets: editor.assets,
-    playhead: usePlayback.getState().time,
-    selectedClipIds: editor.selectedClipIds,
-    selectedTransition: editor.selectedTransition,
-    selectedGap: editor.selectedGap,
-  });
+  const suite = projectSuite(useProjects.getState().openId);
+  const { context, label } = (suite && clientSuite(suite).messageContext()) || { context: "", label: "" };
   return useAssistant.getState().send(text, context, label, TAB_ID);
 }
 
 /** Things the assistant wants to do that can't be undone, waiting for a yes (naming the video when it's another one). */
 function Confirmations() {
   const confirmations = useAssistant((s) => s.confirmations);
-  const openId = useEditor((s) => s.projectId);
+  const openId = useProjects((s) => s.openId);
   const projects = useProjects((s) => s.projects);
   if (confirmations.length === 0) return null;
   return (
@@ -309,7 +293,7 @@ function Confirmations() {
         <div key={c.id} className="grid gap-2 rounded-xl border border-destructive/30 bg-background p-3" role="alertdialog" aria-label={c.title}>
           <div className="grid gap-0.5">
             {c.projectId && c.projectId !== openId && (
-              <span className="text-xs text-muted-foreground">In “{projects.find((p) => p.id === c.projectId)?.name ?? "another video"}”</span>
+              <span className="text-xs text-muted-foreground">In “{projects.find((p) => p.id === c.projectId)?.name ?? "another project"}”</span>
             )}
             <span className="text-sm font-medium">{c.title}</span>
             <span className="text-[13px] text-muted-foreground">{c.detail}</span>
@@ -328,7 +312,7 @@ function Confirmations() {
   );
 }
 
-function Composer({ projectId }: { projectId: string }) {
+function Composer({ projectId, suite }: { projectId: string; suite: SuiteId }) {
   const draft = useAssistant((s) => s.drafts[projectId] ?? "");
   const working = useAssistant((s) => s.chat?.status === "working");
   const sending = useAssistant((s) => s.sending);
@@ -381,7 +365,7 @@ function Composer({ projectId }: { projectId: string }) {
           value={draft}
           rows={1}
           disabled={!!problem}
-          placeholder={problem ? `Set up ${app} to start` : working ? `${label} is working…` : `Ask ${label} to edit your video…`}
+          placeholder={problem ? `Set up ${app} to start` : working ? `${label} is working…` : `Ask ${label} to ${clientSuite(suite).chat.ask}…`}
           onChange={(e) => useAssistant.getState().setDraft(projectId, e.target.value)}
           onKeyDown={onKeyDown}
           aria-label="Message the assistant"
@@ -391,7 +375,7 @@ function Composer({ projectId }: { projectId: string }) {
           <ModelPicker />
           <EffortPicker />
           <div className="ml-auto flex min-w-0 items-center gap-1">
-            <ContextLabel />
+            <ContextLabel suite={suite} />
             {working ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -419,31 +403,18 @@ function Composer({ projectId }: { projectId: string }) {
   );
 }
 
-/** What gets sent along: the selection and playhead, live (its own component: it changes during playback). */
-function ContextLabel() {
-  const label = useContextLabel();
+/** What gets sent along (e.g. the selection and playhead), live (its own component: it can change during playback). */
+function ContextLabel({ suite }: { suite: SuiteId }) {
+  const { chat } = clientSuite(suite);
+  const label = chat.useContextLabel();
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span className="min-w-0 truncate rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground tabular-nums">{label}</span>
       </TooltipTrigger>
-      <TooltipContent side="top">Sent with your message, so “this clip” and “here” make sense</TooltipContent>
+      <TooltipContent side="top">{chat.contextHint}</TooltipContent>
     </Tooltip>
   );
-}
-
-function useContextLabel(): string {
-  const selected = useEditor((s) => s.selectedClipIds.length);
-  const first = useEditor((s) => {
-    const clip = s.project.clips.find((c) => c.id === s.selectedClipIds[0]);
-    return clip ? (s.assets.find((a) => a.id === clip.assetId)?.name ?? "Text") : null;
-  });
-  // Rounded to tenths so it doesn't re-render every frame during playback.
-  const tenth = usePlayback((s) => Math.round(s.time * 10));
-  const t = tenth / 10;
-  const time = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}.${Math.round((t % 1) * 10)}`;
-  if (selected === 0) return `Playhead ${time}`;
-  return `${selected === 1 ? `“${first}”` : `${selected} clips`} · ${time}`;
 }
 
 /** The panel's left edge: drag to resize, double-click for the usual width. */

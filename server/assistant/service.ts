@@ -1,5 +1,5 @@
 /**
- * The in-app assistant: one chat per video, answered by the user's own Claude
+ * The in-app assistant: one chat per project (of any suite), answered by the user's own Claude
  * Code or Codex (their install and subscription; the chat picks which, and
  * can switch) using the editor's MCP tools, which run in an editor tab
  * (`bridge.ts`). Chats are saved in the data dir (`assistant/chats/<projectId>.json`,
@@ -32,7 +32,9 @@ import {
   providerInfo,
   transcript,
 } from "../../shared/assistant.ts";
-import { type ToolResult, bareToolName, errorResult, toolSpec } from "../../shared/assistant-tools.ts";
+import { DEFAULT_SUITE, type SuiteId, isSuiteId, suiteNoun } from "../../shared/suites.ts";
+import { suiteToolSpec, toolSuite } from "../../shared/suite-tools.ts";
+import { type ToolResult, bareToolName, errorResult } from "../../shared/tool-spec.ts";
 import { errorMessage } from "../../shared/errors.ts";
 import type { AssistantProviderStatus, AssistantStatus, SendChatMessageRequest } from "../../shared/types.ts";
 import { createId } from "../../shared/timeline.ts";
@@ -44,7 +46,8 @@ import type { Bridge } from "./bridge.ts";
 import { ClaudeAgent } from "./claude.ts";
 import { CodexAgent, type CodexInfo, codexInfo, userMcpServers } from "./codex.ts";
 import type { McpCall } from "./mcp.ts";
-import { SYSTEM_PROMPT } from "./prompt.ts";
+import { suiteBackend } from "../suites/index.ts";
+import { systemPrompt } from "./prompt.ts";
 
 /** A chat's agent quits after this long without a message (the conversation carries on). */
 const IDLE_MS = 15 * 60_000;
@@ -109,6 +112,8 @@ export interface AssistantOptions {
   commands?: Partial<Record<AssistantProvider, string>>;
   /** Where the server is reached, for the MCP URL given to the agents. */
   port: () => number;
+  /** The suite of a project (null if there's none), which decides its chat's prompt and tools. */
+  suiteOf: (projectId: string) => SuiteId | null;
 }
 
 const agentKey = (turn: Pick<Turn, "provider" | "model" | "effort">) => `${turn.provider}:${turn.model}:${turn.effort ?? ""}`;
@@ -471,7 +476,7 @@ export class AssistantService {
       command,
       cwd: this.workDir,
       mcpUrl: `http://127.0.0.1:${this.opts.port()}/mcp?chat=${chat.projectId}`,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: this.promptFor(chat.projectId),
       model,
       effort,
       resume: chat.sessions[provider]?.id ?? null,
@@ -561,9 +566,24 @@ export class AssistantService {
   // Tool calls (from the MCP server)
   // -------------------------------------------------------------------------
 
+  /** The suite an MCP request is for: its chat's project's, else the one asked for (`?suite=`), else video. */
+  suiteFor(query: Record<string, string>): SuiteId {
+    const chatSuite = query.chat ? this.opts.suiteOf(query.chat) : null;
+    return chatSuite ?? (isSuiteId(query.suite) ? query.suite : DEFAULT_SUITE);
+  }
+
+  private promptFor(projectId: string): string {
+    const suite = this.opts.suiteOf(projectId) ?? DEFAULT_SUITE;
+    return systemPrompt(suite, suiteBackend(suite).assistant);
+  }
+
   async callTool(call: McpCall, query: Record<string, string>): Promise<ToolResult> {
-    const spec = toolSpec(call.name);
-    if (!spec) return errorResult(`Unknown tool: ${call.name}`);
+    const suite = this.suiteFor(query);
+    const spec = suiteToolSpec(suite, call.name);
+    if (!spec) {
+      const other = toolSuite(call.name);
+      return errorResult(other ? `${call.name} is a tool for ${suiteNoun(other, 2)}, and this is a ${suiteNoun(suite)}.` : `Unknown tool: ${call.name}`);
+    }
     const chatId = query.chat && isValidId(query.chat) ? query.chat : null;
     const chat = chatId ? await this.chat(chatId) : null;
     const tab = this.bridge.tabFor(chatId, chat?.tabId);
@@ -571,7 +591,7 @@ export class AssistantService {
       return errorResult(
         chatId
           ? "The editor isn't open in the browser any more, so its tools can't run. Ask the user to open it again."
-          : "No video is open in the editor. Ask the user to open the editor in their browser and open a video.",
+          : "Nothing is open in the editor. Ask the user to open the editor in their browser and open a project.",
       );
     }
     const partId = chat && call.toolUseId ? call.toolUseId : null;

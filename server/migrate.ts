@@ -36,7 +36,7 @@ export async function migrateLegacyData(
   // Tag the media first so the new project's summary sees its clips' assets.
   const id = createId("project");
   await library.assign(unowned.map((a) => a.id), id);
-  await projects.add(id, doc, legacy ? Math.round(legacy.mtimeMs) : Date.now());
+  await projects.add(id, "video", doc, legacy ? Math.round(legacy.mtimeMs) : Date.now());
   if (legacy) {
     // Keep any earlier backup rather than overwriting it.
     const backup = `${paths.legacyProject}.migrated`;

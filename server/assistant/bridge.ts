@@ -6,7 +6,7 @@
  */
 import type { Request, Response } from "express";
 import type { ChatActivity, ChatEvent, TabEvent } from "../../shared/assistant.ts";
-import type { ToolChanges, ToolContent, ToolResult } from "../../shared/assistant-tools.ts";
+import type { ToolChanges, ToolContent, ToolResult } from "../../shared/tool-spec.ts";
 import { createId } from "../../shared/timeline.ts";
 import { HttpError, isObject } from "../storage.ts";
 

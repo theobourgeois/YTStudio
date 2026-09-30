@@ -74,10 +74,14 @@ export function useShortcuts() {
   }, []);
 }
 
+/** Actions for the whole app; the others are the video editor's, and need a video open. */
+const APP_ACTIONS = new Set<ShortcutAction>(["toggleSidebar", "toggleAssistant", "showShortcuts"]);
+
 /** Performs the action; returns false when it didn't apply (so the event is left alone). */
 function run(action: ShortcutAction): boolean {
   if (runSourcePreview(action)) return true;
   const editor = useEditor.getState();
+  if (!editor.projectId && !APP_ACTIONS.has(action)) return false;
   // During a drag the timeline owns the keyboard (e.g. Escape cancels the gesture).
   if (editor.gestureBase && EDITS.has(action)) return false;
   const playback = usePlayback.getState();

@@ -1,47 +1,67 @@
 /**
  * This tab's end of the assistant bridge (`server/assistant/bridge.ts`): an
  * event stream from the server carrying tool calls to run here (from the
- * in-app chats, or any MCP client), the open video's chat updates, and what
- * every chat is doing. Calls on one video run one at a time, in order, so its
- * edits never interleave; calls on different videos (chats working on
- * several at once) run side by side.
+ * in-app chats, or any MCP client), the open project's chat updates, and what
+ * every chat is doing. Each call is run by its project's suite (`src/suites/`).
+ * Calls on one project run one at a time, in order, so its edits never
+ * interleave; calls on different projects (chats working on several at once)
+ * run side by side.
  */
 import { toast } from "sonner";
 import { type TabEvent, describeToolCall } from "@shared/assistant";
-import type { ToolResult } from "@shared/assistant-tools";
+import { errorMessage } from "@shared/errors";
+import { DEFAULT_SUITE, suiteNoun } from "@shared/suites";
+import { suiteToolSpec, toolSuite } from "@shared/suite-tools";
+import { type ToolResult, errorResult } from "@shared/tool-spec";
 import { api } from "@/lib/api";
 import { useAssistant } from "@/stores/assistant";
-import { useEditor } from "@/stores/editor";
-import { runTool } from "./tools";
+import { projectSuite, useProjects } from "@/stores/projects";
+import { type ToolRunContext, clientSuite } from "@/suites";
 
 const RETRY_MS = 2000;
 
-/** This tab's id (the server sends it the calls for the videos it shows). */
+/** This tab's id (the server sends it the calls for the projects it shows). */
 export const TAB_ID = crypto.randomUUID();
 
-/** Each video's calls, in order (keyed by video id, or "" when there's none). */
+/** Each project's calls, in order (keyed by project id, or "" when there's none). */
 const queues = new Map<string, Promise<void>>();
 /**
- * Calls waiting or running here: which video, whether it has started, and `cancelled` when the
+ * Calls waiting or running here: which project, whether it has started, and `cancelled` when the
  * server has already given up on it.
  */
 const running = new Map<string, { controller: AbortController; cancelled: boolean; target: string; started: boolean }>();
 
-/** The video a call acts on: its chat's, or the open one. */
-const targetOf = (call: Extract<TabEvent, { type: "call" }>) => call.chat ?? useEditor.getState().projectId ?? "";
+/** The project a call acts on: its chat's, or the open one. */
+const targetOf = (call: Extract<TabEvent, { type: "call" }>) => call.chat ?? useProjects.getState().openId ?? "";
+
+/** Run a call with the suite of the project it acts on (a tool of another suite is refused). */
+async function runTool(target: string, name: string, input: Record<string, unknown>, ctx: ToolRunContext): Promise<ToolResult> {
+  const suite = projectSuite(target) ?? DEFAULT_SUITE;
+  if (!suiteToolSpec(suite, name)) {
+    const other = toolSuite(name);
+    if (!other) return errorResult(`Unknown tool: ${name}`);
+    return errorResult(`${name} is a tool for ${suiteNoun(other, 2)}, but the open project is a ${suiteNoun(suite)}. Ask the user to open a ${suiteNoun(other)}.`);
+  }
+  try {
+    return await clientSuite(suite).runTool(name, input, ctx);
+  } catch (err) {
+    console.error(`[assistant] ${name} failed`, err);
+    return errorResult(errorMessage(err));
+  }
+}
 
 async function execute(call: Extract<TabEvent, { type: "call" }>) {
   const entry = running.get(call.id)!;
   entry.started = true;
   const { controller } = entry;
   const assistant = useAssistant.getState();
-  // The pill over the Program monitor shows what's happening to the video on screen.
-  const onScreen = entry.target === useEditor.getState().projectId;
+  // The editor shows what's happening to the project on screen (e.g. the pill over the Program monitor).
+  const onScreen = entry.target === useProjects.getState().openId;
   if (onScreen) assistant.setActivity({ callId: call.id, name: call.name, input: call.input, chat: call.chat, startedAt: Date.now() });
   // An agent outside the app: say what it's doing (the chat shows its own).
   if (!call.chat) toast(`Agent: ${describeToolCall(call.name, call.input)}`, { id: "external-agent", duration: 2500 });
   let lastProgress = 0;
-  const result: ToolResult = await runTool(call.name, call.input, {
+  const result: ToolResult = await runTool(entry.target, call.name, call.input, {
     chat: call.chat,
     turn: call.turn ?? null,
     signal: controller.signal,
@@ -87,12 +107,12 @@ function onEvent(event: TabEvent) {
 }
 
 /**
- * Keep this tab connected while the app runs: reconnects when the open video
+ * Keep this tab connected while the app runs: reconnects when the open project
  * changes (the server routes by it) and after the connection drops. Returns the cleanup.
  */
 export function startAssistantBridge(): () => void {
   let source: EventSource | null = null;
-  let projectId = useEditor.getState().projectId;
+  let projectId = useProjects.getState().openId;
   let retry: ReturnType<typeof setTimeout> | undefined;
 
   const connect = () => {
@@ -117,11 +137,14 @@ export function startAssistantBridge(): () => void {
     };
   };
 
-  const offEditor = useEditor.subscribe((s) => {
-    if (s.projectId === projectId) return;
+  const offProjects = useProjects.subscribe((s) => {
+    if (s.openId === projectId) return;
     const left = projectId;
-    projectId = s.projectId;
-    // Calls already acting on the video that was open can't finish (they report so; the next ones run on it in the background).
+    projectId = s.openId;
+    // Leaving a project: its chat has been seen, and so has the one opened.
+    if (left) useAssistant.getState().markSeen(left);
+    if (projectId) useAssistant.getState().markSeen(projectId);
+    // Calls already acting on the project that was open can't finish (they report so; the next ones run on it in the background).
     for (const entry of running.values()) if (entry.started && entry.target === left) entry.controller.abort();
     connect();
   });
@@ -132,7 +155,7 @@ export function startAssistantBridge(): () => void {
   return () => {
     clearTimeout(retry);
     source?.close();
-    offEditor();
+    offProjects();
     window.removeEventListener("focus", onFocus);
   };
 }

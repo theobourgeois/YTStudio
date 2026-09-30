@@ -3,7 +3,8 @@
  * All times are in seconds (floating point) unless the name says otherwise.
  */
 import type { AssistantModelInfo, AssistantProvider } from "./assistant.ts";
-import type { ToolResult } from "./assistant-tools.ts";
+import type { SuiteId } from "./suites.ts";
+import type { ToolResult } from "./tool-spec.ts";
 
 // ---------------------------------------------------------------------------
 // Media library
@@ -322,15 +323,16 @@ export interface Subclip {
 }
 
 // ---------------------------------------------------------------------------
-// Project list (the "workspace"): each video is a project that is either
-// being worked on (`active`) or finished and put away (`settled`).
+// Project list (the "workspace"): every project (a video, a song... see
+// `shared/suites.ts`) is either being worked on (`active`) or finished and put
+// away (`settled`).
 // ---------------------------------------------------------------------------
 
 export type ProjectStatus = "active" | "settled";
 
-export interface ProjectSummary {
+interface ProjectSummaryBase {
   id: string;
-  /** Mirrors `Project.name`. */
+  /** Mirrors the document's `name`. */
   name: string;
   status: ProjectStatus;
   /** Epoch milliseconds. */
@@ -339,16 +341,34 @@ export interface ProjectSummary {
   updatedAt: number;
   /** When it was last settled (epoch ms), null while active. */
   settledAt: number | null;
-  aspectRatio: AspectRatio;
-  /** Timeline length in seconds. */
+  /** Length in seconds (0 when empty). */
   duration: number;
-  clipCount: number;
-  /** Poster URL of the earliest video clip, if any. */
+  /** A picture for the sidebar, if it has one. */
   thumbnail: string | null;
 }
 
+/** What the sidebar knows of each suite's projects without opening them (see `server/suites/`). */
+export interface SuiteSummaries {
+  video: {
+    aspectRatio: AspectRatio;
+    clipCount: number;
+  };
+  music: {
+    tempo: number;
+  };
+}
+
+/** A project in the list: the common fields, plus its suite's (`suite` tells which). */
+export type ProjectSummary = {
+  [S in SuiteId]: ProjectSummaryBase & { suite: S } & SuiteSummaries[S];
+}[SuiteId];
+
+export type SuiteProjectSummary<S extends SuiteId> = Extract<ProjectSummary, { suite: S }>;
+
 export interface CreateProjectRequest {
   name?: string;
+  /** Which app it's for (default: video). */
+  suite?: SuiteId;
 }
 
 export interface UpdateProjectRequest {
@@ -747,10 +767,10 @@ export interface ToolCallProgressRequest {
 //
 //   GET    /api/health                  -> HealthResponse
 //
-//   GET    /api/projects                -> ProjectSummary[] (most recently updated first)
+//   GET    /api/projects                -> ProjectSummary[] (most recently updated first; every suite)
 //   POST   /api/projects  body: CreateProjectRequest -> ProjectSummary (201), status active
-//   GET    /api/projects/:id            -> Project (normalized against its media)
-//   PUT    /api/projects/:id  body: Project -> ProjectSummary (bumps updatedAt)
+//   GET    /api/projects/:id            -> SuiteDocument (its suite's; a video's normalized against its media)
+//   PUT    /api/projects/:id  body: SuiteDocument -> ProjectSummary (bumps updatedAt)
 //   PATCH  /api/projects/:id  body: UpdateProjectRequest -> ProjectSummary
 //                                        (rename; settle/unsettle sets/clears settledAt)
 //   POST   /api/projects/:id/duplicate  -> ProjectSummary (201): a copy with its own copy of the media,
@@ -808,7 +828,8 @@ export interface ToolCallProgressRequest {
 //   POST   /api/assistant/tabs/:tab/focus  -> 204 (outside MCP clients act in the tab used last)
 //   POST   /api/assistant/calls/:id/result  body: ToolCallResultRequest -> 204
 //   POST   /api/assistant/calls/:id/progress  body: ToolCallProgressRequest -> 204
-//   POST   /mcp                         MCP (Streamable HTTP, JSON responses): the editor's tools for any agent
+//   POST   /mcp?chat=<projectId>|suite=<suite>  MCP (Streamable HTTP, JSON responses): a suite's tools for any agent
+//                                        (the chat's project's suite, else `suite`, else video)
 //   GET    /files/...                   -> static files from the data dir (range requests)
 // ---------------------------------------------------------------------------
 
