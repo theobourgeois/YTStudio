@@ -360,29 +360,27 @@ function MetronomeToggle() {
 
 /**
  * Buttons that bring up the windows, as FL Studio's toolbar has for each of its own: a press opens the
- * window, or brings it to the front if it's open (lit while it is). F6 and F7 are the toggles.
+ * window, or brings it to the front if it's open. F6 and F7 are the toggles.
  */
 function WindowToggles() {
-  const rackOpen = useMusicUi((s) => s.rackOpen);
-  const pianoOpen = useMusicUi((s) => s.pianoOpen);
   return (
     <>
-      <WindowButton open={pianoOpen} onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (F7)">
+      <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (F7)">
         <PiPianoKeys />
       </WindowButton>
-      <WindowButton open={rackOpen} onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (F6)">
+      <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (F6)">
         <PiRows />
       </WindowButton>
     </>
   );
 }
 
-function WindowButton({ open, onOpen, label, title, children }: { open: boolean; onOpen: () => void; label: string; title: string; children: ReactNode }) {
+function WindowButton({ onOpen, label, title, children }: { onOpen: () => void; label: string; title: string; children: ReactNode }) {
+  // A plain button (it opens, it doesn't toggle): lit only while hovered.
   return (
     <button
       type="button"
-      data-state={open ? "on" : "off"}
-      className={cn(toggleVariants({ size: "sm" }), "size-7 min-w-7 px-0 [&_svg:not([class*=size-])]:size-[18px]")}
+      className={cn(toggleVariants({ size: "sm" }), "size-7 min-w-7 px-0 hover:text-brand [&_svg:not([class*=size-])]:size-[18px]")}
       onClick={onOpen}
       aria-label={label}
       title={title}
