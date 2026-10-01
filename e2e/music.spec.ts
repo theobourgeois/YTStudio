@@ -1270,6 +1270,10 @@ test("song mode plays the playlist: PAT / SONG, the ruler sets where it plays fr
   await expect(page.getByRole("radio", { name: "Song mode" })).toHaveAttribute("aria-checked", "true");
   const playlist = page.getByTestId("playlist");
   await expect(playlist).toHaveAttribute("data-loop", `0:${4 * BAR_TICKS}`);
+  // (Stopped first: the stand-in engine is shared, and a test before may have left it playing.)
+  const transport = page.getByRole("toolbar", { name: "Transport" });
+  await transport.getByRole("button", { name: "Stop" }).click();
+  await expect(transport.getByRole("button", { name: "Play" })).toHaveAttribute("aria-pressed", "false");
   await page.keyboard.press("Space");
   const playhead = page.getByTestId("playlist-playhead");
   await expect(playhead).toHaveCSS("opacity", "1");
@@ -1410,6 +1414,9 @@ test("the assistant arranges the song with the playlist's tools", async ({ page 
   expect(song.playlist.tracks[1]).toMatchObject({ name: "Hats", muted: true });
   // It plays the song, from bar 2.
   await expect(page.getByRole("radio", { name: "Song mode" })).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("toolbar", { name: "Transport" }).getByRole("button", { name: "Play" })).toHaveAttribute("aria-pressed", "true");
-  await page.keyboard.press("Space");
+  const transport = page.getByRole("toolbar", { name: "Transport" });
+  await expect(transport.getByRole("button", { name: "Play" })).toHaveAttribute("aria-pressed", "true");
+  // Stopped by the button (the chat's box has the keys), so the next tests find the engine quiet.
+  await transport.getByRole("button", { name: "Stop" }).click();
+  await expect(transport.getByRole("button", { name: "Play" })).toHaveAttribute("aria-pressed", "false");
 });
