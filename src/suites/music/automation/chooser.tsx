@@ -45,8 +45,8 @@ export function AutomationChooser() {
   const touchedOwner = touched && owners.find((o) => o.owner === touched.owner && o.id === touched.id);
 
   return (
-    <MusicWindow id="automate" title="Automate" initial={centredOnDesktop(W, H)} onClose={close} resizable={{ minWidth: 300, minHeight: 240 }}>
-      <div className="flex min-h-0 flex-1 flex-col" style={{ width: "100%", height: "100%" }} data-testid="automate-window">
+    <MusicWindow id="automate" title="Automate" initial={{ ...centredOnDesktop(W, H), width: W, height: H }} onClose={close} resizable={{ minWidth: 300, minHeight: 240 }}>
+      <div className="flex min-h-0 flex-1 flex-col" data-testid="automate-window">
         <label className="flex items-center gap-1.5 border-b border-line px-2 py-1.5">
           <PiMagnifyingGlass className="size-3.5 shrink-0 text-muted-foreground" />
           <Input
