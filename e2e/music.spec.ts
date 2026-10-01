@@ -732,6 +732,17 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   await compensation.getByRole("button", { name: "Reset" }).click();
   await expect.poll(async () => (await savedSong(page, id)).mixer.tracks[0].latencyOffset).toBe(0);
 
+  // An empty slot is chosen by a click anywhere on it.
+  await inspector.locator('[data-slot="4"]').click();
+  await page.getByRole("menuitem", { name: /Fake Delay/ }).click();
+  await expect.poll(async () => (await slots()).slice(0, 6)).toEqual([null, "Fake Delay", null, null, "Fake Delay", null]);
+  // Dragged onto slot 7 it swaps places with what's there; its right-click menu deletes it.
+  await drag(page, inspector.locator('[data-slot="4"]'), inspector.locator('[data-slot="6"]'));
+  await expect.poll(async () => (await slots()).slice(4, 7)).toEqual([null, null, "Fake Delay"]);
+  await inspector.locator('[data-slot="6"]').click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await expect.poll(async () => (await slots())[6]).toBeNull();
+
   // Its light bypasses it (and with it, its delay); its menu moves it up, and deletes it.
   await inspector.getByRole("button", { name: "Bypass Fake Delay" }).click();
   await expect.poll(async () => (await slots())[1]).toBe("Fake Delay (off)");

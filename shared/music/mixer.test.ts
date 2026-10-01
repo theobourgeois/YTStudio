@@ -6,6 +6,7 @@ import {
   channelsOn,
   isFreeTrack,
   moveEffect,
+  moveEffectTo,
   moveMixerTracks,
   pasteTrackState,
   removeMixerTracks,
@@ -210,6 +211,11 @@ describe("effect slots", () => {
     expect(slots(song)).toEqual([null, null, "fx_echo"]);
     expect(setEffect(song, "insert_1", 0, null)).toBe(song);
     expect(setEffect(song, "insert_1", 10, PRO_Q)).toBe(song);
+    // Dragged onto another slot, it swaps with what's there.
+    const dragged = moveEffectTo(setEffect(song, "insert_1", 5, PRO_Q, "fx_eq2"), "insert_1", 5, 2);
+    expect(slots(dragged)).toEqual([null, null, "fx_eq2"]);
+    expect(dragged.mixer.tracks[1].effects[5]?.id).toBe("fx_echo");
+    expect(moveEffectTo(song, "insert_1", 0, 4)).toBe(song);
   });
 });
 

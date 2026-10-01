@@ -1,21 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PiCaretRightFill, PiClock, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { errorMessage } from "@shared/errors";
 import type { EnginePlugin } from "@shared/music/engine";
-import { moveEffect, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
+import { moveEffect, moveEffectTo, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
+import { EFFECT_SLOTS } from "@shared/music/project";
 import type { MixerEffect } from "@shared/music/types";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { startPointerDrag } from "@/lib/pointer-drag";
 import { musicApi } from "../api";
 import { PERCENT, SongKnob, percent } from "../knob";
 import { useMusic, useSong } from "../store";
@@ -65,84 +58,158 @@ export function Inspector({ trackId }: { trackId: string }) {
 }
 
 function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect: MixerEffect | null }) {
-  const [open, setOpen] = useState(false);
-  const { plugins, error } = useEffectPlugins(open);
+  const [choosing, setChoosing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [dropping, setDropping] = useState<number | null>(null);
+  const dragged = useRef(false);
   const commit = useMusic.getState().commit;
   const choose = (plugin: EnginePlugin) => commit((song) => setEffect(song, trackId, slot, { id: plugin.id, name: plugin.name, format: plugin.format }));
-  const list = (
+  // After a menu has closed (it gives the focus back first), or the picker would close at once.
+  const openPicker = () => setTimeout(() => setChoosing(true), 0);
+  /** The arrow: a loaded slot's menu, or an empty slot's plugins; closing closes either. */
+  const openArrow = (open: boolean) => {
+    if (open && effect) setMenuOpen(true);
+    else if (open) setChoosing(true);
+    else {
+      setMenuOpen(false);
+      setChoosing(false);
+    }
+  };
+
+  /** A loaded effect dragged onto another slot swaps places with what's there. */
+  const dragSlot = (e: React.PointerEvent<HTMLLIElement>) => {
+    if (!effect || !e.currentTarget.contains(e.target as Node) || (e.target as HTMLElement).closest('[role="slider"]')) return;
+    const list = e.currentTarget.closest("ol");
+    // The drag holds the pointer from the press, so the click lands on the slot, not on the button pressed
+    // (its name, its light): a press that doesn't become a drag is that button's click.
+    const pressed = (e.target as HTMLElement).closest("button");
+    let target: number | null = null;
+    startPointerDrag(e, {
+      threshold: 4,
+      cursor: "grabbing",
+      onClick: () => pressed?.click(),
+      onStart: () => (dragged.current = true),
+      onMove(ev) {
+        const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-slot]");
+        target = over && list?.contains(over) ? Number(over.dataset.slot) : null;
+        setDropping(target);
+      },
+      onEnd() {
+        setDropping(null);
+        if (target !== null && target !== slot) commit((song) => moveEffectTo(song, trackId, slot, target!));
+      },
+      onCancel: () => setDropping(null),
+    });
+  };
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <li
+          className={cn("relative flex h-6 items-center gap-1 rounded-sm pr-1", effect ? "bg-surface-2" : "cursor-pointer bg-surface-0 hover:bg-surface-1")}
+          data-slot={slot}
+          onPointerDown={dragSlot}
+          // An empty slot is chosen by a click anywhere on it; a drag that's just ended isn't a click.
+          onClickCapture={(e) => {
+            if (!dragged.current) return;
+            dragged.current = false;
+            e.stopPropagation();
+            e.preventDefault();
+          }}
+          // (A menu opened from the slot is drawn elsewhere, but its clicks still bubble through here: they aren't the slot's.)
+          onClick={(e) => !effect && e.currentTarget.contains(e.target as Node) && setChoosing(true)}
+          onWheel={(e) => {
+            if (!effect || e.deltaY === 0) return;
+            commit((song) => moveEffect(song, trackId, slot, e.deltaY > 0 ? 1 : -1));
+          }}
+        >
+          {/* Its arrow: the slot's menu (an empty slot's is the plugins); the list to choose from opens from the same place. */}
+          <DropdownMenu open={choosing || menuOpen} onOpenChange={openArrow}>
+            <DropdownMenuTrigger asChild>
+              <button type="button" aria-label={`Slot ${slot + 1} menu`} className="grid h-full w-5 place-items-center text-muted-foreground hover:text-foreground" onClick={(e) => e.stopPropagation()}>
+                <PiCaretRightFill className="size-2.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-52">
+              {choosing ? <PluginList open={choosing} onChoose={choose} /> : <SlotMenuItems menu={DROPDOWN} trackId={trackId} slot={slot} effect={effect} openPicker={openPicker} />}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {effect ? <EffectName effect={effect} /> : <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70 italic">{`Slot ${slot + 1}`}</span>}
+          {effect && (
+            <>
+              <SongKnob size={18} label={`${effect.plugin.name} mix`} value={effect.mix} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, mix) => updateEffect(song, trackId, slot, { mix })} />
+              <button
+                type="button"
+                aria-label={effect.enabled ? `Bypass ${effect.plugin.name}` : `Enable ${effect.plugin.name}`}
+                aria-pressed={effect.enabled}
+                className="group grid size-4 place-items-center rounded-full"
+                onClick={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}
+              >
+                <span className={cn("size-2 rounded-full", effect.enabled ? "border border-brand-edge bg-brand shadow-[0_0_4px] shadow-brand/70" : "sunken")} />
+              </button>
+            </>
+          )}
+          {dropping !== null && dropping !== slot && <DropMark />}
+        </li>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="min-w-48">
+        <SlotMenuItems menu={CONTEXT} trackId={trackId} slot={slot} effect={effect} openPicker={openPicker} />
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+/** The menu components a slot's menu is made of: the arrow's (a dropdown) or the right-click's. */
+const DROPDOWN = { Item: DropdownMenuItem, Separator: DropdownMenuSeparator };
+const CONTEXT = { Item: ContextMenuItem, Separator: ContextMenuSeparator };
+
+/** A slot's menu, the same from its arrow and from a right-click (FL Studio's effect slot menu). */
+function SlotMenuItems({ menu, trackId, slot, effect, openPicker }: { menu: typeof DROPDOWN | typeof CONTEXT; trackId: string; slot: number; effect: MixerEffect | null; openPicker: () => void }) {
+  const { Item, Separator } = menu;
+  const commit = useMusic.getState().commit;
+  if (!effect) return <Item onSelect={openPicker}>Choose a plugin…</Item>;
+  return (
+    <>
+      <Item onSelect={() => useTransport.getState().showEffect(effect.id, true)}>Open its window</Item>
+      <Item onSelect={openPicker}>Replace…</Item>
+      <Item onSelect={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}>{effect.enabled ? "Bypass" : "Enable"}</Item>
+      <Separator />
+      <Item disabled={slot === 0} onSelect={() => commit((song) => moveEffect(song, trackId, slot, -1))}>
+        Move up
+      </Item>
+      <Item disabled={slot === EFFECT_SLOTS - 1} onSelect={() => commit((song) => moveEffect(song, trackId, slot, 1))}>
+        Move down
+      </Item>
+      <Separator />
+      <Item variant="destructive" onSelect={() => commit((song) => setEffect(song, trackId, slot, null))}>
+        Delete
+      </Item>
+    </>
+  );
+}
+
+/** Where a dragged effect would land: this slot, outlined. */
+function DropMark() {
+  return <span className="pointer-events-none absolute inset-0 rounded-sm ring-2 ring-brand ring-inset" aria-hidden />;
+}
+
+/** The effect plugins to choose from (to be the big picker). */
+function PluginList({ open, onChoose }: { open: boolean; onChoose: (plugin: EnginePlugin) => void }) {
+  const { plugins, error } = useEffectPlugins(open);
+  return (
     <>
       {error && <DropdownMenuLabel className="text-destructive">{error}</DropdownMenuLabel>}
       {plugins === null && !error && <DropdownMenuLabel className="text-muted-foreground">Looking for plugins…</DropdownMenuLabel>}
       {plugins?.length === 0 && <DropdownMenuLabel className="text-muted-foreground">No effect plugins found</DropdownMenuLabel>}
       <div className="max-h-72 overflow-y-auto">
         {plugins?.map((plugin) => (
-          <DropdownMenuItem key={plugin.id} onSelect={() => choose(plugin)}>
+          <DropdownMenuItem key={plugin.id} onSelect={() => onChoose(plugin)}>
             {plugin.name}
             <span className="ml-auto pl-3 text-[10px] text-muted-foreground">{plugin.format === "AudioUnit" ? "AU" : plugin.format}</span>
           </DropdownMenuItem>
         ))}
       </div>
     </>
-  );
-
-  return (
-    <li
-      className={cn("flex h-6 items-center gap-1 rounded-sm pr-1", effect ? "bg-surface-2" : "bg-surface-0")}
-      data-slot={slot}
-      onWheel={(e) => {
-        if (!effect || e.deltaY === 0) return;
-        commit((song) => moveEffect(song, trackId, slot, e.deltaY > 0 ? 1 : -1));
-      }}
-    >
-      <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger asChild>
-          <button type="button" aria-label={`Slot ${slot + 1} menu`} className="grid h-full w-5 place-items-center text-muted-foreground hover:text-foreground">
-            <PiCaretRightFill className="size-2.5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="min-w-52">
-          {effect ? (
-            <>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>Replace</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-52">{list}</DropdownMenuSubContent>
-              </DropdownMenuSub>
-              <DropdownMenuItem variant="destructive" onSelect={() => commit((song) => setEffect(song, trackId, slot, null))}>
-                Delete
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled={slot === 0} onSelect={() => commit((song) => moveEffect(song, trackId, slot, -1))}>
-                Move up
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={slot === 9} onSelect={() => commit((song) => moveEffect(song, trackId, slot, 1))}>
-                Move down
-              </DropdownMenuItem>
-            </>
-          ) : (
-            list
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {effect ? (
-        <EffectName effect={effect} />
-      ) : (
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70 italic">{`Slot ${slot + 1}`}</span>
-      )}
-      {effect && (
-        <>
-          <SongKnob size={18} label={`${effect.plugin.name} mix`} value={effect.mix} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, mix) => updateEffect(song, trackId, slot, { mix })} />
-          <button
-            type="button"
-            aria-label={effect.enabled ? `Bypass ${effect.plugin.name}` : `Enable ${effect.plugin.name}`}
-            aria-pressed={effect.enabled}
-            className="group grid size-4 place-items-center rounded-full"
-            onClick={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}
-          >
-            <span className={cn("size-2 rounded-full", effect.enabled ? "border border-brand-edge bg-brand shadow-[0_0_4px] shadow-brand/70" : "sunken")} />
-          </button>
-        </>
-      )}
-    </li>
   );
 }
 

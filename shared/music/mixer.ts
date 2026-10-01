@@ -312,6 +312,17 @@ export function updateEffect(song: MusicProject, trackId: string, slot: number, 
   });
 }
 
+/** Move an effect to another slot, swapping with what's there (a slot dragged onto another). */
+export function moveEffectTo(song: MusicProject, trackId: string, from: number, to: number): MusicProject {
+  if (!isSlot(from) || !isSlot(to) || from === to) return song;
+  return updateSlots(song, trackId, (effects) => {
+    if (!effects[from]) return null;
+    const next = [...effects];
+    [next[from], next[to]] = [next[to], next[from]];
+    return next;
+  });
+}
+
 /** Move an effect one slot up (-1) or down (1), swapping with what's there (FL's mouse wheel over a slot). */
 export function moveEffect(song: MusicProject, trackId: string, slot: number, direction: -1 | 1): MusicProject {
   const to = slot + direction;
