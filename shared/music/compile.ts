@@ -1,11 +1,16 @@
 /**
- * A song as the audio engine plays it (`EngineSong`): one pattern, looped, with everything musical
- * already decided here, in tested TypeScript: swing, mutes, what volume, pan and velocity mean as
- * gains, and the mixer's routing as an order to run its tracks in. The engine (`engine/src/Song.cpp`)
- * only has to play samples at the right moments and add up tracks as it's told.
+ * A song as the audio engine plays it (`EngineSong`): one pattern looped (pattern mode), or the playlist
+ * (song mode), with everything musical already decided here, in tested TypeScript: swing, mutes, what
+ * volume, pan and velocity mean as gains, the arrangement flattened into notes on the song's time, and
+ * the mixer's routing as an order to run its tracks in. The engine (`engine/src/Song.cpp`) only has to
+ * play samples and audio clips at the right moments and add up tracks as it's told.
  */
+import { clipContext, clipLength, songTicks, trackAt } from "./playlist.ts";
 import { DEFAULT_FADER, DEFAULT_PRECOMPUTED, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps } from "./project.ts";
 import { type Channel, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+
+/** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
+export type PlayMode = "pattern" | "song";
 
 export interface EngineChannel {
   id: string;
@@ -13,6 +18,11 @@ export interface EngineChannel {
   name: string;
   /** The sample to play: a media id here, which the server turns into the file's path. Null is silence. */
   sample: string | null;
+  /**
+   * An audio clip's channel: its file is streamed from disk as its clips play (`EngineSong.audioClips`),
+   * never read whole into memory, and it plays no notes.
+   */
+  stream: boolean;
   /** Linear gains of each side (volume, pan and mute together). */
   gainLeft: number;
   gainRight: number;
@@ -84,6 +94,18 @@ export interface EngineNote {
   pan: number;
 }
 
+/** An audio clip on the playlist, as the engine plays it: its channel's file, from `seconds` in, at `tick`. */
+export interface EngineAudioClip {
+  /** Index into `channels` (an audio clip's channel, `stream`). */
+  channel: number;
+  /** Ticks from the loop's start; negative for a clip that began before the loop does (it's heard from there). */
+  tick: number;
+  /** Ticks. */
+  length: number;
+  /** Where in its file the clip is at `tick`, in seconds. */
+  seconds: number;
+}
+
 /** A part of the pattern to play on its own, in ticks: the Piano roll's time selection. */
 export interface LoopRange {
   start: number;
@@ -104,6 +126,8 @@ export interface EngineSong {
   channels: EngineChannel[];
   /** In order of `tick`. */
   notes: EngineNote[];
+  /** The playlist's audio clips (song mode), in order of `tick`. */
+  audioClips: EngineAudioClip[];
   /**
    * The mixer's tracks in the order to run them: every track after all those sending to it, and the
    * master last (what it puts out is what's heard).
@@ -220,65 +244,138 @@ function engineChannel(channel: Channel, track: number): EngineChannel {
   const [left, right] = panGains(channel.pan);
   const { enabled, ...envelope } = channel.envelope;
   const untouched = (Object.keys(DEFAULT_PRECOMPUTED) as (keyof Precomputed)[]).every((key) => channel.precomputed[key] === DEFAULT_PRECOMPUTED[key]);
+  const stream = channel.kind === "audio";
   return {
     id: channel.id,
     name: channel.name,
     sample: channel.sampleId,
+    stream,
     gainLeft: gain * left,
     gainRight: gain * right,
     pitch: channel.pitch,
-    envelope: enabled ? envelope : null,
+    envelope: enabled && !stream ? envelope : null,
     cutSelf: channel.cutSelf,
-    precomputed: untouched ? null : channel.precomputed,
+    precomputed: untouched || stream ? null : channel.precomputed,
     plugin: channel.kind === "plugin" && channel.plugin ? { id: channel.plugin.id, state: "" } : null,
     track,
   };
 }
 
 /**
- * The song playing `patternId` on a loop (or its first pattern): the whole pattern, or only `loop`,
- * a part of it (notes that start in it play; one already sounding when it starts doesn't).
+ * The song as the engine should play it. In pattern mode, `patternId` (or the first pattern) on a loop: the
+ * whole pattern, or only `loop`, a part of it. In song mode, the playlist: to the end of its last clip's bar
+ * and round again, or only `loop`, a part of the song. Notes that start in the part played are heard; one
+ * already sounding when it starts isn't.
  */
-export function compileSong(song: MusicProject, patternId: string | null, loop: LoopRange | null = null): EngineSong {
+export function compileSong(song: MusicProject, patternId: string | null, loop: LoopRange | null = null, mode: PlayMode = "pattern"): EngineSong {
   const pattern = song.patterns.find((p) => p.id === patternId) ?? song.patterns[0];
   const [beats, unit] = song.settings.timeSignature;
   const beatTicks = (PPQ * 4) / unit;
-  const patternTicks = patternSteps(pattern, song.settings.timeSignature) * STEP_TICKS;
+  const length = mode === "song" ? songTicks(song) : patternSteps(pattern, song.settings.timeSignature) * STEP_TICKS;
   const from = loop && loop.end > loop.start ? Math.max(0, loop.start) : 0;
-  const to = loop && loop.end > loop.start ? loop.end : patternTicks;
-  const loopTicks = to - from;
-  const notes: EngineNote[] = [];
-  song.channels.forEach((channel, index) => {
-    for (const note of pattern.notes[channel.id] ?? []) {
-      // Past the end (of the loop, or of a set length): kept in the song, not played.
-      if (note.start >= to) break;
-      if (note.start < from || note.muted) continue;
-      notes.push({
-        channel: index,
-        tick: swungTick(note.start, song.settings.swing) - from,
-        length: note.length,
-        pitch: note.pitch - ROOT_PITCH,
-        gain: levelGain(note.velocity, DEFAULT_VELOCITY),
-        key: note.pitch,
-        velocity: note.velocity,
-        pan: note.pan,
-      });
-    }
-  });
+  const to = loop && loop.end > loop.start ? loop.end : length;
+  const notes = mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to);
   notes.sort((a, b) => a.tick - b.tick || a.channel - b.channel);
   const { tracks, index } = engineTracks(song);
   const master = index.get(MASTER_TRACK_ID)!;
   return {
     tempo: song.settings.tempo,
     ppq: PPQ,
-    loopTicks,
+    loopTicks: to - from,
     offsetTicks: from,
     beatTicks,
     barTicks: beatTicks * beats,
     channels: song.channels.map((channel) => engineChannel(channel, index.get(channel.mixerTrack) ?? master)),
     notes,
+    audioClips: mode === "song" ? audioClips(song, from, to) : [],
     tracks,
   };
+}
+
+/** A note as the engine plays it, `tick` ticks into the loop, `length` long. */
+function engineNote(channel: number, note: Pattern["notes"][string][number], tick: number, length: number): EngineNote {
+  return {
+    channel,
+    tick,
+    length,
+    pitch: note.pitch - ROOT_PITCH,
+    gain: levelGain(note.velocity, DEFAULT_VELOCITY),
+    key: note.pitch,
+    velocity: note.velocity,
+    pan: note.pan,
+  };
+}
+
+/** The channels that play notes, by id, with their index in the rack (an audio clip's channel plays none). */
+const noteChannels = (song: MusicProject) => new Map(song.channels.flatMap((c, i) => (c.kind === "audio" ? [] : [[c.id, i] as const])));
+
+/** Pattern mode: the pattern's notes that start in `[from, to)`, counted from `from`. */
+function patternNotes(song: MusicProject, pattern: Pattern, from: number, to: number): EngineNote[] {
+  const notes: EngineNote[] = [];
+  for (const [channelId, index] of noteChannels(song)) {
+    for (const note of pattern.notes[channelId] ?? []) {
+      // Past the end (of the loop, or of a set length): kept in the song, not played.
+      if (note.start >= to) break;
+      if (note.start < from || note.muted) continue;
+      notes.push(engineNote(index, note, swungTick(note.start, song.settings.swing) - from, note.length));
+    }
+  }
+  return notes;
+}
+
+/**
+ * Song mode: every pattern clip's notes on the song's time, in `[from, to)` and counted from `from`. A clip
+ * plays its pattern from its offset to its end or the pattern's, whichever's first (stretched past its
+ * pattern, it plays nothing more, Théo); a note it cuts off at its end stops there, and one that began
+ * before its window (a clip sliced through it) plays from the window's start: FL's "play truncated
+ * notes in clips". Muted clips, and clips on muted tracks, are silent.
+ */
+function songNotes(song: MusicProject, from: number, to: number): EngineNote[] {
+  const ctx = clipContext(song);
+  const channels = noteChannels(song);
+  const patterns = new Map(song.patterns.map((p) => [p.id, p]));
+  const notes: EngineNote[] = [];
+  for (const clip of song.playlist.clips) {
+    if (clip.start >= to) break;
+    if (clip.kind !== "pattern" || clip.muted || trackAt(song, clip.track).muted) continue;
+    const pattern = patterns.get(clip.ref);
+    const length = clipLength(clip, ctx);
+    if (!pattern || clip.start + length <= from) continue;
+    const windowStart = clip.offset;
+    const windowEnd = clip.offset + length;
+    const contentEnd = Math.min(windowEnd, ctx.patternTicks(clip.ref));
+    for (const [channelId, list] of Object.entries(pattern.notes)) {
+      const index = channels.get(channelId);
+      if (index === undefined) continue;
+      for (const note of list) {
+        if (note.start >= contentEnd) break;
+        if (note.muted || note.start + note.length <= windowStart) continue;
+        const truncated = note.start < windowStart;
+        const at = truncated ? windowStart : swungTick(note.start, song.settings.swing);
+        const tick = clip.start + at - clip.offset;
+        if (tick < from || tick >= to) continue;
+        const end = Math.min(note.start + note.length, windowEnd);
+        notes.push(engineNote(index, note, tick - from, Math.max(1, end - (truncated ? windowStart : note.start))));
+      }
+    }
+  }
+  return notes;
+}
+
+/** Song mode: the audio clips that play in `[from, to)`, counted from `from`. */
+function audioClips(song: MusicProject, from: number, to: number): EngineAudioClip[] {
+  const ctx = clipContext(song);
+  const channels = new Map(song.channels.flatMap((c, i) => (c.kind === "audio" && c.sampleId ? [[c.id, i] as const] : [])));
+  const clips: EngineAudioClip[] = [];
+  for (const clip of song.playlist.clips) {
+    if (clip.start >= to) break;
+    if (clip.kind !== "audio" || clip.muted || trackAt(song, clip.track).muted) continue;
+    const channel = channels.get(clip.ref);
+    const length = clipLength(clip, ctx);
+    if (channel === undefined || clip.start + length <= from) continue;
+    clips.push({ channel, tick: clip.start - from, length, seconds: clip.offset });
+  }
+  return clips;
 }
 
 /**

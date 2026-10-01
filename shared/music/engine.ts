@@ -7,6 +7,7 @@
  * The server and the engine exchange one JSON object per line: `{ id, cmd, ...params }` in, and
  * `{ id, ok: true, result }` or `{ id, ok: false, error }` out, plus events on its own (`EngineEvent`).
  */
+import type { PlayMode } from "./compile.ts";
 import type { MusicProject } from "./types.ts";
 
 /** A plugin found on this computer. */
@@ -163,8 +164,10 @@ export interface SetSongRequest {
   song: MusicProject;
   /** The pattern to loop (default: the first). */
   patternId: string | null;
-  /** Only this part of it, in ticks (the Piano roll's time selection). */
+  /** Only this part of it, in ticks (the Piano roll's time selection, or in song mode the Playlist's). */
   loop?: { start: number; end: number } | null;
+  /** The pattern, looped (the default), or the playlist (the toolbar's PAT / SONG). */
+  mode?: PlayMode;
 }
 
 export interface SetSongResponse {
@@ -172,7 +175,7 @@ export interface SetSongResponse {
   unreadable: string[];
   channels: EngineChannels;
   effects: EngineEffects;
-  /** What plays, in the pattern's ticks: from `start`, `ticks` long, round and round. The engine's ticks count from `start`. */
+  /** What plays, in the pattern's ticks (the song's, in song mode): from `start`, `ticks` long, round and round. The engine's ticks count from `start`. */
   loop: { start: number; ticks: number };
 }
 

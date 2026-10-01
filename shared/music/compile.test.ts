@@ -3,6 +3,7 @@ import { compileSong, faderGain, levelGain, mixerPanGains, panGains, soundingCha
 import { addChannels, addPattern, addPluginChannel, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
 import { editNotes, setNoteProps } from "./notes.ts";
 import { addMixerTracks, routeChannels, sendOnly, setEffect, setSend, updateEffect, updateMixerTrack } from "./mixer.ts";
+import { type NewClip, addAudioClips, addClips, editClips, sliceClips, soloTrack } from "./playlist.ts";
 import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "./project.ts";
 
 const P = FIRST_PATTERN_ID;
@@ -219,5 +220,117 @@ describe("soundingChannels", () => {
     expect(at(30, swung)).toEqual([]);
     expect(at(50, swung)).toEqual(["chan_hat"]);
     expect(at(0, updateChannel(song, "chan_kick", { muted: true }))).toEqual([]);
+  });
+});
+
+describe("compileSong in song mode", () => {
+  const BAR = 384;
+  /** The kick on every beat of a one-bar pattern, the hat on the off-beats of a second. */
+  const beat = () => {
+    let song = addPattern(rack(), { id: "pat_hat", name: "Hats" });
+    song = setSteps(song, P, "chan_kick", [0, 4, 8, 12], true);
+    song = setSteps(song, "pat_hat", "chan_hat", [2, 6, 10, 14], true);
+    return song;
+  };
+  const place = (song: ReturnType<typeof beat>, clips: NewClip[]) => editClips(song, (list) => addClips(list, clips).clips);
+  const ticks = (compiled: ReturnType<typeof compileSong>) => compiled.notes.map((n) => [n.tick, n.channel]);
+
+  it("plays the playlist: each clip's pattern where it is, to the end of the last clip's bar", () => {
+    const song = place(beat(), [
+      { kind: "pattern", ref: P, track: 0, start: 0 },
+      { kind: "pattern", ref: "pat_hat", track: 1, start: BAR },
+    ]);
+    const compiled = compileSong(song, P, null, "song");
+    expect(compiled).toMatchObject({ loopTicks: 2 * BAR, offsetTicks: 0, audioClips: [] });
+    expect(ticks(compiled)).toEqual([
+      [0, 0],
+      [96, 0],
+      [192, 0],
+      [288, 0],
+      [BAR + 48, 1],
+      [BAR + 144, 1],
+      [BAR + 240, 1],
+      [BAR + 336, 1],
+    ]);
+    // An empty playlist is a silent bar.
+    expect(compileSong(beat(), P, null, "song")).toMatchObject({ loopTicks: BAR, notes: [] });
+  });
+
+  it("plays a clip's window of its pattern, and nothing past the pattern's end (Théo)", () => {
+    // From the second beat, two bars long: three kicks, then a bar and a quarter of nothing.
+    const song = place(beat(), [{ kind: "pattern", ref: P, track: 0, start: BAR, offset: 96, length: 2 * BAR }]);
+    const compiled = compileSong(song, P, null, "song");
+    expect(compiled.loopTicks).toBe(3 * BAR);
+    expect(ticks(compiled)).toEqual([
+      [BAR, 0],
+      [BAR + 96, 0],
+      [BAR + 192, 0],
+    ]);
+  });
+
+  it("cuts notes off at a clip's end, and plays one a slice went through from the slice", () => {
+    let song = rack();
+    song = editNotes(song, P, "chan_kick", () => [{ id: 1, start: 0, length: 300, pitch: 60, velocity: 0.78, pan: 0, muted: false }]);
+    song = place(song, [
+      { kind: "pattern", ref: P, track: 0, start: 0, length: 96 },
+      { kind: "pattern", ref: P, track: 1, start: BAR, offset: 100, length: 284 },
+    ]);
+    expect(compileSong(song, P, null, "song").notes.map((n) => [n.tick, n.length])).toEqual([
+      [0, 96],
+      [BAR, 200],
+    ]);
+  });
+
+  it("leaves out muted clips and the clips of muted tracks (solo is a state of those)", () => {
+    let song = place(beat(), [
+      { kind: "pattern", ref: P, track: 0, start: 0 },
+      { kind: "pattern", ref: "pat_hat", track: 1, start: 0, muted: true },
+      { kind: "pattern", ref: "pat_hat", track: 2, start: 0 },
+    ]);
+    expect(compileSong(song, P, null, "song").notes.filter((n) => n.channel === 1)).toHaveLength(4);
+    song = soloTrack(song, 0);
+    expect(compileSong(song, P, null, "song").notes.map((n) => n.channel)).toEqual([0, 0, 0, 0]);
+  });
+
+  it("swings each pattern's own off-steps, wherever its clip is", () => {
+    const hats = setSteps(beat(), "pat_hat", "chan_hat", [1], true);
+    const song = setSwing(place(hats, [{ kind: "pattern", ref: "pat_hat", track: 0, start: 24 }]), 1);
+    // The hat's second step (an off-step) is half a step late, the third (on the beat's half) isn't.
+    expect(compileSong(song, P, null, "song").notes.slice(0, 2).map((n) => n.tick)).toEqual([24 + 24 + 12, 24 + 48]);
+  });
+
+  it("plays only the time selection, counting from its start", () => {
+    const song = place(beat(), [
+      { kind: "pattern", ref: P, track: 0, start: 0 },
+      { kind: "pattern", ref: P, track: 0, start: BAR },
+    ]);
+    const part = compileSong(song, P, { start: 288, end: BAR + 192 }, "song");
+    expect(part).toMatchObject({ loopTicks: 288, offsetTicks: 288 });
+    expect(part.notes.map((n) => n.tick)).toEqual([0, 96, 192]);
+  });
+
+  it("plays audio clips from their channel's file, streamed, at their offset", () => {
+    const { song } = addAudioClips(rack(), [{ name: "Vocal", sampleId: "media_vox", seconds: 4, channelId: "chan_vox" }], { start: BAR, track: 2 });
+    const sliced = editClips(song, (clips, ctx) => sliceClips(clips, 2 * BAR, 0, 5, ctx).clips);
+    const compiled = compileSong(sliced, P, null, "song");
+    expect(compiled.channels[2]).toMatchObject({ id: "chan_vox", sample: "media_vox", stream: true, precomputed: null, envelope: null });
+    expect(compiled.channels[0].stream).toBe(false);
+    expect(compiled.audioClips).toEqual([
+      { channel: 2, tick: BAR, length: BAR, seconds: 0 },
+      { channel: 2, tick: 2 * BAR, length: BAR, seconds: 2 },
+    ]);
+    // A loop starting inside a clip: the clip began before it (its tick is negative).
+    expect(compileSong(sliced, P, { start: BAR + 96, end: 3 * BAR }, "song").audioClips[0]).toEqual({ channel: 2, tick: -96, length: BAR, seconds: 0 });
+    // Pattern mode plays none.
+    expect(compileSong(sliced, P).audioClips).toEqual([]);
+  });
+
+  it("flattens a long arrangement quickly", () => {
+    let song = setSteps(rack(), P, "chan_hat", Array.from({ length: 16 }, (_, i) => i), true);
+    song = place(song, Array.from({ length: 1000 }, (_, i) => ({ kind: "pattern" as const, ref: P, track: i % 10, start: Math.floor(i / 10) * BAR })));
+    const started = performance.now();
+    const compiled = compileSong(song, P, null, "song");
+    expect(compiled.notes).toHaveLength(16_000);
+    expect(performance.now() - started).toBeLessThan(400);
   });
 });
