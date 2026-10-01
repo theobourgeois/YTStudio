@@ -5,6 +5,7 @@
 // the song reaches it lock-free, and the bench is skipped for a block if it's busy being changed.
 #pragma once
 
+#include "Export.h"
 #include "FilePreview.h"
 #include "Plugins.h"
 #include "Sequencer.h"
@@ -48,6 +49,15 @@ private:
     void render (int frames, const juce::File& file, Reply reply);
     /** A device, or the offline engine, (re)starts at this rate and block size. */
     void start (double rate, int block);
+    /**
+     * Export the song in `params` (`EngineExportRequest`), once its plugins have loaded (`attempt`: how
+     * many times it's waited). Playback stops while it runs: the device is let go of, the plugins are
+     * prepared for the export's blocks and told it's offline. Songs sent meanwhile wait for it to end.
+     */
+    void startExport (const juce::var& params, Reply reply, int attempt);
+    /** The export has ended (done, failed or aborted): playback comes back, with the latest song. */
+    void finishExport (const juce::String& id, juce::var result, const juce::StringArray& missing);
+    double rate() const;
 
     juce::var transport() const;
     juce::var deviceOptions() const;
@@ -92,6 +102,19 @@ private:
     bool saidPlaying = false;
     bool saidQuiet = true;
     bool saidPreviewing = false;
+
+    /** Says how far the export is, while it runs. */
+    struct Ticker final : juce::Timer
+    {
+        std::function<void()> tick;
+        void timerCallback() override { tick(); }
+    };
+    Ticker exportTicker;
+    juce::String exportId;
+    /** So an export that ends after the engine has gone does nothing. */
+    std::shared_ptr<bool> alive = std::make_shared<bool> (true);
+    /** Last: it plays the song's plugins, so it goes before them. */
+    std::unique_ptr<SongExport> exportJob;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Engine)
 };

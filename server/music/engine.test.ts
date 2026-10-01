@@ -24,6 +24,30 @@ describe("AudioEngine", () => {
     await fs.rm(dir, { recursive: true, force: true });
   });
 
+  it("exports through the engine: a song played once, its progress heard, the files it wrote; and rejects when the engine dies mid-way", async () => {
+    const song = setSteps(addChannels(createMusicProject("Export", 120), [{ id: "chan_kick", name: "Kick", sampleId: null }]), FIRST_PATTERN_ID, "chan_kick", [0], true);
+    const request = { id: "exp_1", projectId: "proj_0123456789ab", song, patternId: FIRST_PATTERN_ID, mode: "pattern" as const, loop: null, resampling: "sinc" as const, folder: path.join(dir, "out"), mix: true, stems: false, tail: "cut" as const };
+    const progress: number[] = [];
+    const result = await engine.renderExport(request, (done) => progress.push(done));
+    // A bar at 120 BPM: two seconds.
+    expect(result).toMatchObject({ state: "done", frames: 96_000, files: [{ id: "mix" }] });
+    expect(progress.length).toBeGreaterThan(5);
+    expect((await fs.stat(path.join(dir, "out", "mix.wav"))).size).toBe(44 + 96_000 * 8);
+
+    // Meanwhile nothing plays.
+    const second = engine.renderExport({ ...request, id: "exp_2" });
+    await expect(engine.command("play", {})).rejects.toThrow(/exported/);
+    await engine.abortExport("exp_2");
+    expect(await second).toMatchObject({ state: "aborted" });
+
+    // A plugin taking the engine down mid-export: it says so, rather than waiting for ever.
+    const third = engine.renderExport({ ...request, id: "exp_3" });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const raw = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
+    await raw("crash", {}).catch(() => {});
+    await expect(third).rejects.toMatchObject({ status: 503 });
+  });
+
   it("starts the engine on the first command and answers with its status", async () => {
     const status = await engine.command("tone", { on: true });
     expect(status).toMatchObject({ device: "Fake Output", tone: true, instrument: null });

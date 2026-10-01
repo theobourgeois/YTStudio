@@ -1,5 +1,5 @@
 import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiFolders, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFolders, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { lengthOf, setMainVolume, setTempo } from "@shared/music/edits";
@@ -35,6 +35,7 @@ import { openPianoRoll } from "./piano/actions";
 import { positionNow } from "./playhead";
 import { openPlaylist } from "./playlist/actions";
 import { positionAt, positionText, splitTail, tempoText, timeText } from "./position";
+import { useSongExport } from "./export/store";
 import { useMusicPreferences } from "./preferences";
 import { currentPattern, songGesture, useMusic, useSong } from "./store";
 import { switchMode, useTransport } from "./transport";
@@ -108,6 +109,7 @@ export function MusicToolbar() {
         <Groove className="mr-1.5 h-6 self-center" />
         <HistoryButtons />
         <Groove className="mx-1.5 h-6 self-center" />
+        <ExportButton />
         <SettingsButton />
         <div className="ml-1.5 flex items-center">
           <SettleButton />
@@ -712,5 +714,22 @@ function Tip({ text, children }: { text: string; children: ReactNode }) {
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side="bottom">{text}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** FL's File → Export: the save dialog (the desktop app), then the export window. Lit while one runs. */
+function ExportButton() {
+  const exporting = useTransport((s) => s.exporting);
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className={cn("text-muted-foreground hover:text-foreground", exporting && "text-brand")}
+      aria-label="Export"
+      title="Export (⌘R, ⌘⇧R for an MP3)"
+      onClick={() => void useSongExport.getState().begin()}
+    >
+      <PiExport />
+    </Button>
   );
 }

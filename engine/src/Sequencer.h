@@ -10,6 +10,7 @@
 
 #include "ClipPlayer.h"
 #include "Song.h"
+#include "Workers.h"
 
 #include <array>
 #include <atomic>
@@ -61,6 +62,16 @@ public:
      * faders is added together and measured as one more meter, "@selection". Message thread.
      */
     void setMeteredTracks (const juce::StringArray& trackIds);
+
+    /**
+     * Run the song's plugins on these threads at once (the export's own sequencer; null: one after the
+     * other, as playback does). Only while `process` isn't running.
+     */
+    void setWorkers (Workers* pool) { workers = pool; }
+    /** A sequencer of the export's own: notes left sounding in the song's plugins end at its first block. */
+    void silenceFirst() { silencing = true; }
+    /** The song playing (only on the thread that calls `process`, after it has once). */
+    const Song* current() const { return song; }
 
     bool isPlaying() const { return playingNow; }
     /** Where the loop is, in ticks. */
@@ -122,6 +133,21 @@ private:
     void runEffect (HostedPlugin&, float mix, float* left, float* right, int numSamples);
     /** Run the mixer's tracks in order and add the master's sound to `left` and `right`. */
     void mixTracks (float* left, float* right, int numSamples);
+    /** A track's effects, fader and meter (`mixTracks`): its own buffers alone, so a stage's run at once. */
+    void runTrack (size_t t, bool glide, int numSamples);
+    /**
+     * Run `job (i)` for `i` in `[0, count)`: on the workers if there are some (the export), else in turn
+     * (playback: nothing is made, so nothing is allocated on the audio thread).
+     */
+    template <typename Job>
+    void each (int count, Job&& job)
+    {
+        if (workers != nullptr && count > 1)
+            workers->run (count, std::function<void (int)> (job));
+        else
+            for (int i = 0; i < count; ++i)
+                job (i);
+    }
     /** A channel's track's two buffers, or nulls if it has none. */
     std::pair<float*, float*> trackAudio (int channel);
     void renderClick (float* left, float* right, int numSamples);
@@ -188,6 +214,7 @@ private:
     void markMetered (const juce::StringArray& ids, juce::uint64 serial);
 
     std::array<Voice, maxVoices> voices;
+    Workers* workers = nullptr;
     juce::uint32 voiceCount = 0;
 
     /** The metronome's click: a short decaying sound, made here (`renderClick`). */

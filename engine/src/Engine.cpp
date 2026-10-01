@@ -16,6 +16,10 @@ constexpr int transportIntervalMs = 40;
 constexpr float meterFall = 0.85f;
 /** Quieter than this is silence, to a meter (-66 dB). */
 constexpr float meterFloor = 0.0005f;
+/** What the export asks of the plugins at a time: big blocks cost less per sample than a device's. */
+constexpr int exportBlockSize = 2048;
+/** How long an export waits for the song's plugins to load, in tenths of a second. */
+constexpr int exportWaits = 600;
 
 juce::Result fail (const juce::String& message) { return juce::Result::fail (message); }
 }
@@ -37,6 +41,8 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
       preview (isOffline)
 {
     dataDir.createDirectory();
+    // The sinc's table, made now rather than by the audio thread the first time it's needed.
+    resampling::Kernel::get();
     if (offline)
     {
         start (offlineSampleRate, offlineBlockSize);
@@ -60,6 +66,9 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
 
 Engine::~Engine()
 {
+    *alive = false;
+    exportTicker.stopTimer();
+    exportJob.reset();
     stopTimer();
     plugins.saveStates();
     effects.saveStates();
@@ -94,6 +103,7 @@ juce::var Engine::status() const
         { "tone", tone.load() },
         { "peak", peak.load() },
         { "transport", transport() },
+        { "exporting", exportJob != nullptr ? protocol::object ({ { "id", exportId }, { "done", exportJob->written() }, { "frames", exportJob->length() } }) : juce::var() },
         { "channels", plugins.describe() },
         { "effects", effects.describe() },
         { "scanning", bench.scanning() },
@@ -151,6 +161,19 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
 
     if (command == "status" || command == "ping")
         return ok();
+
+    // While the song is exported, its plugins are the export's: nothing else may play them.
+    static const juce::StringArray busy { "play", "preview", "trigger", "previewFile", "render", "setDevice", "tone", "note", "load", "unload", "editor" };
+    if (exportJob != nullptr && (busy.contains (command) || ((command == "channelEditor" || command == "effectEditor") && (bool) params["open"])))
+        return reply (fail ("The song is being exported: wait for it to finish."), {});
+    if (command == "export")
+        return startExport (params, std::move (reply), 0);
+    if (command == "abortExport")
+    {
+        if (exportJob != nullptr && params["exportId"].toString() == exportId)
+            exportJob->abort();
+        return ok();
+    }
 
     // The song ---------------------------------------------------------------
     if (command == "song")
@@ -318,6 +341,9 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
 juce::StringArray Engine::applySong()
 {
     juce::StringArray unreadable;
+    // During an export the song waits: it's made when the export ends (its plugins are busy).
+    if (exportJob != nullptr)
+        return unreadable;
     auto song = Song::parse (lastSong, samples, plugins, effects, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
     latencies = plugins.latencySignature() * 7 + effects.latencySignature();
     const auto latency = song->latency;
@@ -333,7 +359,7 @@ juce::StringArray Engine::applySong()
 
 void Engine::checkLatencies()
 {
-    if (! lastSong.isVoid() && plugins.latencySignature() * 7 + effects.latencySignature() != latencies)
+    if (exportJob == nullptr && ! lastSong.isVoid() && plugins.latencySignature() * 7 + effects.latencySignature() != latencies)
         applySong();
 }
 
@@ -493,4 +519,106 @@ void Engine::process (float* const* output, int numOutputs, int numSamples)
             loudest = juce::jmax (loudest, mix.getMagnitude (ch, 0, numSamples));
         }
     peak = loudest;
+}
+
+double Engine::rate() const { return sampleRate > 0 ? sampleRate : offlineSampleRate; }
+
+void Engine::startExport (const juce::var& params, Reply reply, int attempt)
+{
+    if (exportJob != nullptr)
+        return reply (fail ("A song is being exported already."), {});
+    // (`id` is the command's own, for its reply.)
+    const auto id = params["exportId"].toString();
+    const auto path = params["folder"].toString();
+    if (id.isEmpty() || ! juce::File::isAbsolutePath (path))
+        return reply (fail ("An export needs an \"exportId\" and an absolute \"folder\"."), {});
+
+    // Its plugins are the song's own instances. One still loading is waited for, or it'd be missing.
+    juce::StringArray unreadable;
+    auto song = Song::parse (params["song"], samples, plugins, effects, unreadable, exportBlockSize, rate(), false);
+    if ((plugins.anyLoading() || effects.anyLoading()) && attempt < exportWaits)
+    {
+        juce::Timer::callAfterDelay (100, [this, stillAlive = alive, params, reply, attempt] {
+            if (*stillAlive)
+                startExport (params, reply, attempt + 1);
+        });
+        return;
+    }
+    // What won't be heard: channels whose plugin or sample couldn't be had, and effects likewise.
+    juce::StringArray missing (unreadable);
+    for (const auto& channel : song->channels)
+        if (channel.isPlugin && channel.plugin == nullptr)
+            missing.add (channel.id);
+    for (const auto& track : song->tracks)
+        for (const auto& effect : track.effects)
+            if (effect.plugin == nullptr)
+                missing.add (effect.id);
+
+    // Playback stops and lets go of the plugins; they're prepared for the export.
+    sequencer.stop();
+    preview.stop();
+    tone = false;
+    if (! offline)
+        devices.removeAudioCallback (this);
+    for (auto* host : { &plugins, &effects })
+    {
+        host->setExporting (true);
+        host->prepare (rate(), exportBlockSize);
+        host->reset();
+    }
+
+    SongExport::Settings settings;
+    settings.folder = juce::File (path);
+    settings.mix = ! params.hasProperty ("mix") || (bool) params["mix"];
+    settings.stems = (bool) params["stems"];
+    settings.ringOut = params["tail"].toString() == "ring";
+    if (params.hasProperty ("maxTail"))
+        settings.maxTailSeconds = juce::jlimit (0.0, 120.0, (double) params["maxTail"]);
+    settings.sampleRate = rate();
+    settings.blockSize = exportBlockSize;
+    // Every core by default; `threads` asks for fewer (the benchmark compares).
+    const auto cores = juce::jmax (1, juce::SystemStats::getNumCpus());
+    settings.threads = params.hasProperty ("threads") ? juce::jlimit (1, cores, (int) params["threads"]) : cores;
+    exportId = id;
+    exportJob = std::make_unique<SongExport> (std::move (song), settings, [this, stillAlive = alive, id, missing] (const juce::var& result) {
+        if (*stillAlive)
+            finishExport (id, result, missing);
+    });
+    exportTicker.tick = [this] {
+        if (exportJob != nullptr)
+            protocol::send (protocol::object ({ { "event", "export" }, { "id", exportId }, { "state", "rendering" }, { "done", exportJob->written() }, { "frames", exportJob->length() } }));
+    };
+    exportTicker.startTimer (100);
+    exportJob->start();
+    reply (juce::Result::ok(), status());
+}
+
+void Engine::finishExport (const juce::String& id, juce::var result, const juce::StringArray& missing)
+{
+    exportTicker.stopTimer();
+    exportJob.reset();
+    exportId = {};
+    // The plugins are playback's again, as they were, and the song sent meanwhile is played.
+    for (auto* host : { &plugins, &effects })
+    {
+        host->setExporting (false);
+        host->prepare (rate(), blockSize);
+        host->reset();
+    }
+    if (! offline)
+        devices.addAudioCallback (this);
+    if (! lastSong.isVoid())
+        applySong();
+
+    if (auto* object = result.getDynamicObject())
+    {
+        object->setProperty ("event", "export");
+        object->setProperty ("id", id);
+        juce::Array<juce::var> ids;
+        for (const auto& each : missing)
+            ids.add (each);
+        object->setProperty ("missing", ids);
+    }
+    protocol::send (result);
+    sendStatus();
 }

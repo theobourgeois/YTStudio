@@ -21,6 +21,7 @@ import type {
   SetBrowserFavouriteRequest,
   UseBrowserFileRequest,
 } from "@shared/music/browser";
+import type { ExportSongRequest, MusicExportJob } from "@shared/music/export";
 import type { MediaAsset } from "@shared/types";
 import { request } from "@/lib/api";
 
@@ -57,6 +58,13 @@ export const musicApi = {
   previewSample: (body: PreviewSampleRequest) => request<EngineStatus>("/api/engine/previewSample", { method: "POST", body: JSON.stringify(body) }),
   /** Where a Browser file is served (its waveform, and its bytes when it's added to the project). */
   browserFileUrl: (path: string) => `/api/browser/file?${pathQuery(path)}`,
+  /** Export the song (`ExportSongRequest`): it renders on after the answer, which is the job. */
+  startExport: (body: ExportSongRequest) => request<MusicExportJob>("/api/music/exports", { method: "POST", body: JSON.stringify(body) }),
+  exportJob: (id: string) => request<MusicExportJob>(`/api/music/exports/${encodeURIComponent(id)}`),
+  abortExport: (id: string) => request<MusicExportJob>(`/api/music/exports/${encodeURIComponent(id)}/abort`, { method: "POST" }),
+  revealExport: (id: string) => request<void>(`/api/music/exports/${encodeURIComponent(id)}/reveal`, { method: "POST" }),
+  /** Where a file an export kept on the server is downloaded from (a browser's export). */
+  exportFileUrl: (id: string, name: string) => `/api/music/exports/${encodeURIComponent(id)}/files/${encodeURIComponent(name)}`,
   /** What the engine says on its own (where the song is, the meter). Returns how to stop listening. */
   onEngineEvent(listener: (event: EngineEvent) => void): () => void {
     const source = new EventSource("/api/engine/events");

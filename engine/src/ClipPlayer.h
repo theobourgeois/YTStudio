@@ -92,6 +92,10 @@ private:
     // The message thread's.
     std::vector<Clip> clips;
     double loopTicks = 1, secondsPerTick = 0.005;
+    /** How the song's streams read their files (`Song::resampling`). */
+    Resampling quality = Resampling::hermite;
+    /** It goes round again (else clips are only entered once). */
+    bool loops = true;
     std::vector<Stream*> live;
     std::map<juce::String, double> durations;
 
@@ -114,8 +118,8 @@ private:
 struct ClipPlayer::Stream final : AudioStream
 {
     Stream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 samples, juce::uint64 clipKey, double tick,
-            juce::uint32 playGeneration, juce::uint32 playPass, bool fadeIn, double speed)
-        : AudioStream (std::move (source), outputRate, startSeconds, samples, 2.0, speed),
+            juce::uint32 playGeneration, juce::uint32 playPass, bool fadeIn, double speed, Resampling resampling)
+        : AudioStream (std::move (source), outputRate, startSeconds, samples, 2.0, speed, resampling),
           key (clipKey),
           startTick (tick),
           generation (playGeneration),

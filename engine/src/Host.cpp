@@ -93,6 +93,7 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& ownerId, cons
                                            hosted->ownerName = ownerName;
                                            hosted->stateFile = stateFile;
                                            hosted->instance = std::move (created);
+                                           hosted->instance->setNonRealtime (exporting);
                                            configurePlugin (*hosted->instance, sampleRate, blockSize);
                                            juce::MemoryBlock state;
                                            if (stateFile.existsAsFile() && stateFile.loadFileAsData (state) && state.getSize() > 0)
@@ -211,8 +212,37 @@ void PluginHost::setHost (const juce::var& host)
 
 void PluginHost::timerCallback() { placeWindows(); }
 
+void PluginHost::setExporting (bool on)
+{
+    exporting = on;
+    for (auto& [id, hosted] : loaded)
+    {
+        hosted->instance->setNonRealtime (on);
+        if (hosted->window != nullptr)
+            hosted->window->setVisible (! on);
+    }
+    placeWindows();
+}
+
+void PluginHost::reset()
+{
+    for (auto& [id, hosted] : loaded)
+    {
+        hosted->instance->reset();
+        hosted->numPending = 0;
+        hosted->midi.clear();
+    }
+}
+
 void PluginHost::placeWindows()
 {
+    if (exporting)
+    {
+        for (auto& [id, hosted] : loaded)
+            if (hosted->window != nullptr && hosted->window->isVisible())
+                hosted->window->setVisible (false);
+        return;
+    }
     if (! hostKnown)
         return;
     const auto now = juce::Time::getMillisecondCounter();

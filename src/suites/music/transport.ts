@@ -12,6 +12,11 @@ import { musicApi } from "./api";
  */
 interface TransportState {
   playing: boolean;
+  /**
+   * A song is being exported: the engine plays nothing else meanwhile (its plugins are the export's), so
+   * play does nothing. Edits go on; the engine plays the latest once it's done.
+   */
+  exporting: boolean;
   /** Where the loop was (ticks) at `at` (`performance.now()`): the position now is worked out from these. */
   tick: number;
   at: number;
@@ -106,6 +111,7 @@ export const useTransport = create<TransportState>((set, get) => {
 
   return {
     playing: false,
+    exporting: false,
     tick: 0,
     at: 0,
     peak: 0,
@@ -127,6 +133,7 @@ export const useTransport = create<TransportState>((set, get) => {
 
     // From where the ruler was clicked, if that's inside what loops; the engine counts from the loop's start.
     play() {
+      if (get().exporting) return void toast.info("Exporting", { description: "Playback comes back as soon as the export is done.", id: "exporting" });
       const { loop, pausedAt } = get();
       const from = (pausedAt ?? get().startOf()) - loop.start;
       set({ pausedAt: null });
@@ -207,6 +214,11 @@ export function playWhenSent() {
 
 /** Called by `engine-sync.ts` once the engine has the song for the mode: a switch made while playing carries on. */
 export function afterSongSent() {
+  // Nothing plays while a song is exported (the engine refuses).
+  if (useTransport.getState().exporting) {
+    pendingPreview = pendingRestart = false;
+    return;
+  }
   if (pendingPreview) {
     pendingPreview = false;
     void musicApi.engine("play", { from: 0 }).then(

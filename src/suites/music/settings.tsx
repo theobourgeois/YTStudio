@@ -5,6 +5,8 @@ import { SettingsGroup, SettingsRow } from "@/components/settings/settings-ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { musicApi } from "./api";
 import { EnginePanel } from "./engine-panel";
+import { useMusicPreferences } from "./preferences";
+import { ResamplingSelect } from "./resampling-select";
 import { useTransport } from "./transport";
 
 /**
@@ -15,10 +17,31 @@ export default function MusicSettings() {
   return (
     <>
       <DeviceSettings />
+      <QualitySettings />
       <SettingsGroup title="Engine and plugins" description="The audio engine's state, a test tone, and your plugins on a test bench." bare>
         <EnginePanel />
       </SettingsGroup>
     </>
+  );
+}
+
+/** FL's two Resampling settings: how samples are read when pitched or at another rate, playing and exporting. */
+function QualitySettings() {
+  const resampling = useMusicPreferences((s) => s.resampling);
+  const exportResampling = useMusicPreferences((s) => s.exportResampling);
+  const set = useMusicPreferences((s) => s.setResampling);
+  return (
+    <SettingsGroup
+      title="Quality"
+      description="How samplers and audio clips are read when they're pitched or at another rate than the song. Better methods sound cleaner (no faint whistles on bright sounds) and cost more. Plugins aren't affected."
+    >
+      <SettingsRow title="Resampling while playing" description="Hermite is clean and cheap. Sinc is the cleanest, but costly with many voices at once.">
+        <ResamplingSelect value={resampling} onChange={(value) => set({ resampling: value })} label="Resampling while playing" />
+      </SettingsRow>
+      <SettingsRow title="Resampling in exports" description="Exports aren't played live, so the cleanest costs only a little time.">
+        <ResamplingSelect value={exportResampling} onChange={(value) => set({ exportResampling: value })} label="Resampling in exports" />
+      </SettingsRow>
+    </SettingsGroup>
   );
 }
 

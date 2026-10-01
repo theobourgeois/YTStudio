@@ -359,6 +359,15 @@ void Sequencer::schedule (int numSamples)
 {
     const auto ticksPerSample = song->tempo * song->ppq / (60.0 * sampleRate);
     const auto loop = song->loopTicks;
+    if (! song->loops)
+    {
+        // Once through (an export): what starts before the end plays, then nothing more does.
+        const auto to = position_ + numSamples * ticksPerSample;
+        if (position_ < loop)
+            scheduleRange (position_, juce::jmin (to, loop), position_, 0, numSamples, ticksPerSample);
+        position_ = to;
+        return;
+    }
     for (int offset = 0; offset < numSamples;)
     {
         // Up to the loop's end, then again from its start.
@@ -482,86 +491,62 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
             meter.store (0.0f, std::memory_order_relaxed);
         meterSerial = song->serial;
     }
-    for (size_t t = 0; t < song->tracks.size(); ++t)
+    // Stage by stage: its tracks' effects and faders (at once, for the export), then what each sends on, in turn.
+    for (const auto& stage : song->stages)
     {
-        const auto& track = song->tracks[t];
-        if (track.buffer < 0)
-            continue;
-        auto* l = song->audio.getWritePointer (track.buffer * 2);
-        auto* r = song->audio.getWritePointer (track.buffer * 2 + 1);
-
-        for (const auto& effect : track.effects)
-            if (effect.enabled && effect.plugin != nullptr)
-                runEffect (*effect.plugin, effect.mix, l, r, numSamples);
-
-        // The fader, pan and mute: each side out from both sides in.
-        const auto& to = track.gains;
-        const auto& from = glide ? track.from : track.gains;
-        const auto step = 1.0f / (float) numSamples;
-        for (int i = 0; i < numSamples; ++i)
+        each ((int) stage.size(), [&] (int i) { runTrack ((size_t) stage[(size_t) i], glide, numSamples); });
+        for (const auto index : stage)
         {
-            const auto k = glide ? (float) (i + 1) * step : 1.0f;
-            const auto ll = from[0] + (to[0] - from[0]) * k, rl = from[1] + (to[1] - from[1]) * k;
-            const auto lr = from[2] + (to[2] - from[2]) * k, rr = from[3] + (to[3] - from[3]) * k;
-            const auto inLeft = l[i], inRight = r[i];
-            l[i] = ll * inLeft + rl * inRight;
-            r[i] = lr * inLeft + rr * inRight;
-        }
-        if (t < (size_t) maxMeters)
-        {
-            const auto raise = [] (std::atomic<float>& meter, juce::Range<float> range) {
-                const auto loudest = juce::jmax (-range.getStart(), range.getEnd());
-                if (loudest > meter.load (std::memory_order_relaxed))
-                    meter.store (loudest, std::memory_order_relaxed);
-            };
-            raise (meters[t * 2], juce::FloatVectorOperations::findMinAndMax (l, numSamples));
-            raise (meters[t * 2 + 1], juce::FloatVectorOperations::findMinAndMax (r, numSamples));
-            if (summing && metered[t].load (std::memory_order_relaxed))
+            const auto t = (size_t) index;
+            const auto& track = song->tracks[t];
+            auto* l = song->audio.getWritePointer (track.buffer * 2);
+            auto* r = song->audio.getWritePointer (track.buffer * 2 + 1);
+            if (summing && t < (size_t) maxMeters && metered[t].load (std::memory_order_relaxed))
             {
                 juce::FloatVectorOperations::add (selectedLeft, l, numSamples);
                 juce::FloatVectorOperations::add (selectedRight, r, numSamples);
             }
-        }
-
-        if (t == master)
-        {
-            juce::FloatVectorOperations::add (left, l, numSamples);
-            juce::FloatVectorOperations::add (right, r, numSamples);
-            continue;
-        }
-        for (const auto& send : track.sends)
-        {
-            const auto& target = song->tracks[(size_t) send.track];
-            if (target.buffer < 0)
-                continue;
-            auto* toLeft = song->audio.getWritePointer (target.buffer * 2);
-            auto* toRight = song->audio.getWritePointer (target.buffer * 2 + 1);
-            // A send that waits for the track's later inputs goes in through its delay line.
-            auto* line = send.delayLine.get();
-            if (line != nullptr)
+            if (t == master)
             {
-                line->clearInput (numSamples);
-                toLeft = line->inputLeft();
-                toRight = line->inputRight();
+                juce::FloatVectorOperations::add (left, l, numSamples);
+                juce::FloatVectorOperations::add (right, r, numSamples);
+                continue;
             }
-            const auto flush = [&] {
+            const auto step = 1.0f / (float) numSamples;
+            for (const auto& send : track.sends)
+            {
+                const auto& target = song->tracks[(size_t) send.track];
+                if (target.buffer < 0)
+                    continue;
+                auto* toLeft = song->audio.getWritePointer (target.buffer * 2);
+                auto* toRight = song->audio.getWritePointer (target.buffer * 2 + 1);
+                // A send that waits for the track's later inputs goes in through its delay line.
+                auto* line = send.delayLine.get();
                 if (line != nullptr)
-                    line->flushInto (song->audio.getWritePointer (target.buffer * 2), song->audio.getWritePointer (target.buffer * 2 + 1), numSamples);
-            };
-            if (! glide || juce::exactlyEqual (send.from, send.gain))
-            {
-                juce::FloatVectorOperations::addWithMultiply (toLeft, l, send.gain, numSamples);
-                juce::FloatVectorOperations::addWithMultiply (toRight, r, send.gain, numSamples);
+                {
+                    line->clearInput (numSamples);
+                    toLeft = line->inputLeft();
+                    toRight = line->inputRight();
+                }
+                const auto flush = [&] {
+                    if (line != nullptr)
+                        line->flushInto (song->audio.getWritePointer (target.buffer * 2), song->audio.getWritePointer (target.buffer * 2 + 1), numSamples);
+                };
+                if (! glide || juce::exactlyEqual (send.from, send.gain))
+                {
+                    juce::FloatVectorOperations::addWithMultiply (toLeft, l, send.gain, numSamples);
+                    juce::FloatVectorOperations::addWithMultiply (toRight, r, send.gain, numSamples);
+                    flush();
+                    continue;
+                }
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    const auto gain = send.from + (send.gain - send.from) * (float) (i + 1) * step;
+                    toLeft[i] += l[i] * gain;
+                    toRight[i] += r[i] * gain;
+                }
                 flush();
-                continue;
             }
-            for (int i = 0; i < numSamples; ++i)
-            {
-                const auto gain = send.from + (send.gain - send.from) * (float) (i + 1) * step;
-                toLeft[i] += l[i] * gain;
-                toRight[i] += r[i] * gain;
-            }
-            flush();
         }
     }
 
@@ -574,6 +559,41 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
         };
         raise (selectionMeter[0], juce::FloatVectorOperations::findMinAndMax (selectedLeft, numSamples));
         raise (selectionMeter[1], juce::FloatVectorOperations::findMinAndMax (selectedRight, numSamples));
+    }
+}
+
+void Sequencer::runTrack (size_t t, bool glide, int numSamples)
+{
+    const auto& track = song->tracks[t];
+    auto* l = song->audio.getWritePointer (track.buffer * 2);
+    auto* r = song->audio.getWritePointer (track.buffer * 2 + 1);
+
+    for (const auto& effect : track.effects)
+        if (effect.enabled && effect.plugin != nullptr)
+            runEffect (*effect.plugin, effect.mix, l, r, numSamples);
+
+    // The fader, pan and mute: each side out from both sides in.
+    const auto& to = track.gains;
+    const auto& from = glide ? track.from : track.gains;
+    const auto step = 1.0f / (float) numSamples;
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const auto k = glide ? (float) (i + 1) * step : 1.0f;
+        const auto ll = from[0] + (to[0] - from[0]) * k, rl = from[1] + (to[1] - from[1]) * k;
+        const auto lr = from[2] + (to[2] - from[2]) * k, rr = from[3] + (to[3] - from[3]) * k;
+        const auto inLeft = l[i], inRight = r[i];
+        l[i] = ll * inLeft + rl * inRight;
+        r[i] = lr * inLeft + rr * inRight;
+    }
+    if (t < (size_t) maxMeters)
+    {
+        const auto raise = [] (std::atomic<float>& meter, juce::Range<float> range) {
+            const auto loudest = juce::jmax (-range.getStart(), range.getEnd());
+            if (loudest > meter.load (std::memory_order_relaxed))
+                meter.store (loudest, std::memory_order_relaxed);
+        };
+        raise (meters[t * 2], juce::FloatVectorOperations::findMinAndMax (l, numSamples));
+        raise (meters[t * 2 + 1], juce::FloatVectorOperations::findMinAndMax (r, numSamples));
     }
 }
 
@@ -612,7 +632,9 @@ void Sequencer::render (Voice& voice, int numSamples)
     const auto& audio = voice.sample->audio;
     const auto* sourceLeft = audio.getReadPointer (0);
     const auto* sourceRight = audio.getReadPointer (audio.getNumChannels() > 1 ? 1 : 0);
-    const auto last = audio.getNumSamples() - 1;
+    const auto length = audio.getNumSamples();
+    const auto last = length - 1;
+    const auto quality = song->resampling;
     const auto rate = voice.baseRate * std::pow (2.0, (double) (voice.pitch + channel.pitch) / 12.0);
     const auto gainLeft = voice.gain * channel.gainLeft * voice.panLeft, gainRight = voice.gain * channel.gainRight * voice.panRight;
     const auto& envelope = channel.envelope;
@@ -688,9 +710,8 @@ void Sequencer::render (Voice& voice, int numSamples)
             level *= (float) voice.fade-- / fadeLength;
         }
 
-        const auto fraction = (float) (voice.position - index);
-        left[i] += (sourceLeft[index] + (sourceLeft[index + 1] - sourceLeft[index]) * fraction) * gainLeft * level;
-        right[i] += (sourceRight[index] + (sourceRight[index + 1] - sourceRight[index]) * fraction) * gainRight * level;
+        left[i] += resampling::read (sourceLeft, length, voice.position, rate, quality) * gainLeft * level;
+        right[i] += resampling::read (sourceRight, length, voice.position, rate, quality) * gainRight * level;
         voice.position += rate;
     }
 }
@@ -743,21 +764,29 @@ void Sequencer::silencePlugins()
 
 void Sequencer::renderPlugins (int numSamples)
 {
+    // Each plugin into its own buffer (at once, for the export), then each added to its track in turn.
+    auto& playingPlugins = song->playingPlugins;
+    playingPlugins.clear();
     for (size_t c = 0; c < song->channels.size(); ++c)
     {
-        auto& channel = song->channels[c];
-        auto* plugin = channel.plugin.get();
-        if (plugin == nullptr || numSamples > plugin->buffer.getNumSamples())
-            continue;
-        const auto [left, right] = trackAudio ((int) c);
-        if (left == nullptr)
-            continue;
-        juce::AudioBuffer<float> view (plugin->buffer.getArrayOfWritePointers(), plugin->buffer.getNumChannels(), numSamples);
+        auto* plugin = song->channels[c].plugin.get();
+        if (plugin != nullptr && numSamples <= plugin->buffer.getNumSamples() && trackAudio ((int) c).first != nullptr)
+            playingPlugins.push_back ((int) c);
+    }
+    each ((int) playingPlugins.size(), [&] (int i) {
+        auto& plugin = *song->channels[(size_t) playingPlugins[(size_t) i]].plugin;
+        juce::AudioBuffer<float> view (plugin.buffer.getArrayOfWritePointers(), plugin.buffer.getNumChannels(), numSamples);
         view.clear();
-        plugin->instance->processBlock (view, plugin->midi);
+        plugin.instance->processBlock (view, plugin.midi);
+    });
+    for (const auto c : playingPlugins)
+    {
+        const auto& channel = song->channels[(size_t) c];
+        const auto& plugin = *channel.plugin;
+        const auto [left, right] = trackAudio (c);
         // A plugin with one output plays on both sides.
-        juce::FloatVectorOperations::addWithMultiply (left, view.getReadPointer (0), channel.gainLeft, numSamples);
-        juce::FloatVectorOperations::addWithMultiply (right, view.getReadPointer (view.getNumChannels() > 1 && plugin->instance->getTotalNumOutputChannels() > 1 ? 1 : 0), channel.gainRight, numSamples);
+        juce::FloatVectorOperations::addWithMultiply (left, plugin.buffer.getReadPointer (0), channel.gainLeft, numSamples);
+        juce::FloatVectorOperations::addWithMultiply (right, plugin.buffer.getReadPointer (plugin.buffer.getNumChannels() > 1 && plugin.instance->getTotalNumOutputChannels() > 1 ? 1 : 0), channel.gainRight, numSamples);
     }
 }
 

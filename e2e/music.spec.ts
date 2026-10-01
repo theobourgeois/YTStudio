@@ -593,6 +593,17 @@ test("settings: ⌘, opens on the music tab, with the device and the plugin benc
   await expect(device).toContainText("2.7 ms of buffer");
   await expect(dialog.getByTestId("engine-device")).toContainText("128 samples");
 
+  // Resampling: Hermite while playing and sinc in exports, until changed; the engine gets the song again with it.
+  const playing = dialog.getByRole("combobox", { name: "Resampling while playing" });
+  await expect(playing).toHaveText("Hermite (4-point)");
+  await expect(dialog.getByRole("combobox", { name: "Resampling in exports" })).toHaveText("Sinc (32-point)");
+  const sent = page.waitForRequest((r) => r.url().endsWith("/api/engine/song") && r.postDataJSON().resampling === "sinc");
+  await playing.click();
+  await page.getByRole("option", { name: "Sinc (32-point)" }).click();
+  await sent;
+  await playing.click();
+  await page.getByRole("option", { name: "Hermite (4-point)" }).click();
+
   // No instrument yet: nothing to play.
   const keys = dialog.getByRole("group", { name: "Keys" }).getByRole("button");
   await expect(keys.first()).toBeDisabled();
@@ -1585,4 +1596,73 @@ test("the assistant arranges the song with the playlist's tools", async ({ page 
   // Stopped by the button (the chat's box has the keys), so the next tests find the engine quiet.
   await transport.getByRole("button", { name: "Stop" }).click();
   await expect(transport.getByRole("button", { name: "Play" })).toHaveAttribute("aria-pressed", "false");
+});
+
+test("exports the song as FL Studio does: ⌘R opens the export window, it renders while the song is edited, the files download", async ({ page }) => {
+  const id = await openNewSong(page, "Export me");
+  await addStarterKit(page);
+  for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
+
+  // ⌘R: the export window, with WAV ticked (a browser has no save dialog: the files are downloaded).
+  await page.keyboard.press("ControlOrMeta+r");
+  const win = page.getByRole("region", { name: "Export" });
+  await expect(win).toBeVisible();
+  const formats = win.getByRole("toolbar", { name: "Formats" });
+  await expect(formats.getByRole("button", { name: "WAV" })).toHaveAttribute("aria-pressed", "true");
+  await win.getByRole("radiogroup", { name: "Mode" }).getByRole("radio", { name: "Pattern" }).click();
+  // One bar at 140 BPM.
+  await expect(win.getByTestId("export-estimate")).toContainText("1 bar");
+  await expect(win.getByTestId("export-estimate")).toContainText("0:01");
+
+  // Start: it renders (the stand-in takes a second and a half), playing waits, editing doesn't.
+  const downloaded = page.waitForEvent("download");
+  await win.getByRole("button", { name: "Start" }).click();
+  await expect(win.getByTestId("export-progress")).toContainText(/Rendering|Encoding/);
+  await page.keyboard.press("Escape");
+  await expect(win).toBeVisible();
+  await page.getByTestId("channel-rack").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("Space");
+  await expect(page.getByText("Playback comes back as soon as the export is done.")).toBeVisible();
+  await step(page, "Kick", 3).click();
+  const kicks = async () => {
+    const song = await savedSong(page, id);
+    return song.patterns[0].notes[song.channels.find((c: { name: string }) => c.name === "Kick")?.id]?.length ?? 0;
+  };
+  await expect.poll(kicks).toBe(5);
+
+  // Done: the one file downloads by itself, named after the song.
+  expect((await downloaded).suggestedFilename()).toBe("Export me.wav");
+  await expect(win.getByTestId("export-progress")).toContainText("Exported");
+  await expect(win.getByRole("list", { name: "Exported files" })).toContainText("Export me.wav");
+
+  // Again, as an MP3 and the notes: several files, each downloaded from the list.
+  await win.getByRole("button", { name: "Export again" }).click();
+  for (const name of ["WAV", "MP3", "MIDI"]) await formats.getByRole("button", { name }).click();
+  await expect(win.getByRole("combobox", { name: "MP3 bitrate" })).toHaveText("320 kb/s");
+  await win.getByRole("button", { name: "Start" }).click();
+  const files = win.getByRole("list", { name: "Exported files" });
+  await expect(files).toContainText("Export me.mp3");
+  await expect(files).toContainText("Export me.mid");
+  const mp3 = page.waitForEvent("download");
+  await win.getByRole("button", { name: "Download Export me.mp3" }).click();
+  expect((await mp3).suggestedFilename()).toBe("Export me.mp3");
+  await win.getByRole("button", { name: "Done" }).click();
+  await expect(win).toBeHidden();
+
+  // The settings are remembered for the next export.
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Export" }).getByRole("combobox", { name: "MP3 bitrate" })).toBeVisible();
+});
+
+test("the assistant exports the song: the export window opens and lists what it made", async ({ page }) => {
+  await openNewSong(page, "Assisted export");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(['call add_channel {"kit": "kick"}', 'call set_steps {"channel": "Kick", "steps": "x---x---x---x---"}', 'call export_song {"formats": ["mp3", "mid"], "mode": "pattern", "mp3Bitrate": 192}', 'call export_song {"formats": ["aiff"]}'].join("\n"));
+  await composer.press("Enter");
+  await expect(panel).toContainText("export_song: ok, export_song: failed", { timeout: 30_000 });
+  const files = page.getByRole("region", { name: "Export" }).getByRole("list", { name: "Exported files" });
+  await expect(files).toContainText("Assisted export.mp3");
+  await expect(files).toContainText("Assisted export.mid");
 });

@@ -6,7 +6,11 @@ import { useProjects } from "@/stores/projects";
 
 declare global {
   interface Window {
-    editorDesktopInfo?: { platform: string; pathForFile?: (file: File) => string };
+    editorDesktopInfo?: {
+      platform: string;
+      pathForFile?: (file: File) => string;
+      saveFile?: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
+    };
     editorDesktop?: { flush(): Promise<void> };
   }
 }
@@ -17,6 +21,14 @@ export const isDesktop = typeof window !== "undefined" && window.editorDesktopIn
 /** Where a file dropped from Finder is on disk: only the desktop app can say (empty when it can't). */
 export function droppedPath(file: File): string {
   return window.editorDesktopInfo?.pathForFile?.(file) ?? "";
+}
+
+/**
+ * Where to save a file, from the system's save dialog (the desktop app only): its full path, or null if
+ * it was cancelled. Undefined where there's no save dialog (a browser), which downloads instead.
+ */
+export function chooseSaveFile(options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> | undefined {
+  return window.editorDesktopInfo?.saveFile?.(options);
 }
 
 export function exposeDesktopHooks() {

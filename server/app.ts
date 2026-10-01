@@ -14,7 +14,8 @@ import { MediaLibrary } from "./media.ts";
 import { migrateLegacyData } from "./migrate.ts";
 import { AudioEngine, type EngineOptions } from "./music/engine.ts";
 import { SampleBrowser } from "./music/browser.ts";
-import { browserRoutes, engineRoutes } from "./music/routes.ts";
+import { type MusicExportOptions, MusicExports } from "./music/exports.ts";
+import { browserRoutes, engineRoutes, musicExportRoutes } from "./music/routes.ts";
 import { ProjectStore } from "./projects.ts";
 import { assistantRoutes } from "./routes/assistant.ts";
 import { exportRoutes } from "./routes/exports.ts";
@@ -42,6 +43,8 @@ export interface AppOptions {
   codexCommand?: string;
   /** The music suite's audio engine (default: the one built in `engine/`). */
   engine?: EngineOptions;
+  /** Song exports: how a file is shown in Finder (tests). */
+  musicExports?: Partial<MusicExportOptions>;
 }
 
 export interface EditorApp {
@@ -74,6 +77,7 @@ export async function createApp({
   claudeCommand,
   codexCommand,
   engine: engineOptions,
+  musicExports: musicExportOptions,
 }: AppOptions): Promise<EditorApp> {
   const paths = new DataPaths(dataDir);
   await paths.init();
@@ -99,13 +103,12 @@ export async function createApp({
     suiteOf: (id) => projects.suiteOf(id),
   });
   await assistant.init();
-  const engine = new AudioEngine(paths, {
-    samplePath(projectId, mediaId) {
-      const asset = library.find(mediaId);
-      return asset && asset.projectId === projectId && asset.hasAudio ? library.sourcePath(asset) : null;
-    },
-    ...engineOptions,
-  });
+  const samplePath = (projectId: string, mediaId: string) => {
+    const asset = library.find(mediaId);
+    return asset && asset.projectId === projectId && asset.hasAudio ? library.sourcePath(asset) : null;
+  };
+  const engine = new AudioEngine(paths, { samplePath, ...engineOptions });
+  const musicExports = new MusicExports(paths, engine, { samplePath: engineOptions?.samplePath ?? samplePath, ...musicExportOptions });
 
   const browser = new SampleBrowser(paths);
   await browser.load();
@@ -132,6 +135,7 @@ export async function createApp({
   app.use("/api/transcription", transcriptionRoutes(transcription));
   app.use("/api/assistant", assistantRoutes(assistant, bridge));
   app.use("/api/engine", engineRoutes(engine));
+  app.use("/api/music/exports", musicExportRoutes(musicExports));
   app.use("/api/browser", browserRoutes(browser, engine, {
       hasProject: (id) => projects.has(id),
       find: (projectId, origin) => library.list(projectId).find((a) => a.origin === origin),
@@ -191,6 +195,7 @@ export async function createApp({
       transcription.shutdown();
       assistant.shutdown();
       bridge.shutdown();
+      musicExports.shutdown();
       engine.shutdown();
       browser.close();
     },

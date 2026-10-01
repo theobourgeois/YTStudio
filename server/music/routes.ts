@@ -1,6 +1,7 @@
 import { Router, json } from "express";
 import type { BrowserMedia, SampleBrowser } from "./browser.ts";
 import type { AudioEngine } from "./engine.ts";
+import type { MusicExports } from "./exports.ts";
 
 /** `/api/engine`: the music suite's audio engine (the plugins it found, and commands to it). */
 export function engineRoutes(engine: AudioEngine): Router {
@@ -91,6 +92,33 @@ export function browserRoutes(browser: SampleBrowser, engine: AudioEngine, media
   // The file itself: its waveform in the Browser, and its bytes when it's added to a project.
   router.get("/file", async (req, res) => {
     res.sendFile(await browser.audioFile(req.query.path), { dotfiles: "allow" });
+  });
+  return router;
+}
+
+/** `/api/music/exports`: songs rendered to files (`shared/music/export.ts`). */
+export function musicExportRoutes(exports: MusicExports): Router {
+  const router = Router();
+  router.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
+  // The whole document, as it is when Start is pressed.
+  router.post("/", json({ limit: "10mb" }), async (req, res) => {
+    res.json(await exports.start(req.body));
+  });
+  router.get("/:id", (req, res) => {
+    res.json(exports.get(req.params.id));
+  });
+  router.post("/:id/abort", async (req, res) => {
+    res.json(await exports.abort(req.params.id));
+  });
+  router.post("/:id/reveal", async (req, res) => {
+    await exports.reveal(req.params.id);
+    res.sendStatus(204);
+  });
+  router.get("/:id/files/:name", (req, res) => {
+    res.download(exports.file(req.params.id, req.params.name), req.params.name);
   });
   return router;
 }

@@ -7,7 +7,7 @@
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, shell } from "electron";
+import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, shell } from "electron";
 import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
 import { loadWindowState, trackWindowState } from "./window-state.ts";
@@ -78,6 +78,7 @@ async function start() {
     return;
   }
   Menu.setApplicationMenu(buildMenu());
+  answerSaveDialogs();
   // A packaged app has its icon in its bundle; in development the Dock would show Electron's.
   if (!app.isPackaged) app.dock?.setIcon(path.join(import.meta.dirname, "..", "resources", "icon.png"));
   createWindow();
@@ -120,6 +121,22 @@ function createWindow() {
   keepLinksOutside(win);
   followByPluginWindows(win);
   void win.loadURL(appUrl);
+}
+
+/**
+ * The page asks where to save a file (a song's export: `editorDesktopInfo.saveFile` in the preload),
+ * as FL Studio does before it renders: the Mac's own save dialog, over the window. Null if cancelled.
+ */
+function answerSaveDialogs() {
+  ipcMain.handle("save-file", async (event, options: { defaultPath?: unknown; filters?: unknown }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const filters = Array.isArray(options?.filters)
+      ? options.filters.filter((f): f is { name: string; extensions: string[] } => typeof f?.name === "string" && Array.isArray(f?.extensions))
+      : [];
+    const settings = { defaultPath: typeof options?.defaultPath === "string" ? options.defaultPath : undefined, filters };
+    const result = win ? await dialog.showSaveDialog(win, settings) : await dialog.showSaveDialog(settings);
+    return result.canceled || !result.filePath ? null : result.filePath;
+  });
 }
 
 /**

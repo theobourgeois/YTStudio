@@ -96,7 +96,8 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate)
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate,
+                                  bool keepOnly)
 {
     auto song = std::make_unique<Song>();
     song->tempo = number (json["tempo"], 120, 1, 2000);
@@ -104,6 +105,8 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     song->loopTicks = number (json["loopTicks"], song->ppq * 4, 1, 1e9);
     song->beatTicks = number (json["beatTicks"], song->ppq, 1, 1e9);
     song->barTicks = number (json["barTicks"], song->beatTicks * 4, 1, 1e9);
+    song->resampling = resampling::parse (json["resampling"].toString(), Resampling::hermite);
+    song->loops = ! json.hasProperty ("loops") || (bool) json["loops"];
 
     if (const auto* list = json["channels"].getArray())
         for (const auto& item : *list)
@@ -223,7 +226,8 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         continue;
                     const auto state = plugin["state"].toString();
                     effectIds.add (id);
-                    track.effects.push_back ({ effects.get (id, plugin["id"].toString(), state.isEmpty() ? juce::File() : juce::File (state), item["name"].toString()),
+                    track.effects.push_back ({ id,
+                                              effects.get (id, plugin["id"].toString(), state.isEmpty() ? juce::File() : juce::File (state), item["name"].toString()),
                                               (bool) slot["enabled"],
                                               (float) number (slot["mix"], 1, 0, 1) });
                 }
@@ -270,7 +274,21 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             for (const auto& send : song->tracks[t].sends)
                 reached[(size_t) send.track] = true;
         }
+    // Each reached track a stage after the latest of those sending to it.
+    {
+        std::vector<int> stage (song->tracks.size(), 0);
+        for (size_t t = 0; t < song->tracks.size(); ++t)
+            if (song->tracks[t].buffer >= 0)
+            {
+                for (const auto& send : song->tracks[t].sends)
+                    stage[(size_t) send.track] = juce::jmax (stage[(size_t) send.track], stage[t] + 1);
+                if ((int) song->stages.size() <= stage[t])
+                    song->stages.resize ((size_t) stage[t] + 1);
+                song->stages[(size_t) stage[t]].push_back ((int) t);
+            }
+    }
     song->capacity = juce::jmax (0, capacity);
+    song->playingPlugins.reserve (song->channels.size());
     // And one more pair: the selected tracks' sound added up, for the mixer's selection meter.
     song->selectionBuffer = buffers;
     song->audio.setSize (buffers * 2 + 2, song->capacity);
@@ -281,8 +299,11 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     juce::StringArray channelIds;
     for (const auto& channel : song->channels)
         channelIds.add (channel.id);
-    plugins.keepOnly (channelIds);
-    effects.keepOnly (effectIds);
+    if (keepOnly)
+    {
+        plugins.keepOnly (channelIds);
+        effects.keepOnly (effectIds);
+    }
 
     std::stable_sort (song->notes.begin(), song->notes.end(), [] (const Note& a, const Note& b) { return a.tick < b.tick; });
     return song;
@@ -310,6 +331,7 @@ void Song::compensate (double sampleRate)
             if (effect.enabled && effect.plugin != nullptr)
                 delay += effect.plugin->instance->getLatencySamples();
         out[t] = arrival[t] + delay;
+        tracks[t].latency = out[t];
         for (const auto& send : track.sends)
             arrival[(size_t) send.track] = juce::jmax (arrival[(size_t) send.track], out[t]);
     }

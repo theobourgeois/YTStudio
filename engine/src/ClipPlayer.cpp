@@ -79,6 +79,8 @@ void ClipPlayer::setSong (const Song& song)
         clips.push_back ({ clip.key, clip.path, clip.tick, clip.length, clip.seconds, clip.speed, clip.sample });
     loopTicks = juce::jmax (1.0, song.loopTicks);
     secondsPerTick = 60.0 / (song.tempo * song.ppq);
+    quality = song.resampling;
+    loops = song.loops;
 }
 
 bool ClipPlayer::has (juce::uint64 key, juce::uint32 playGeneration, juce::uint32 pass) const
@@ -105,6 +107,8 @@ void ClipPlayer::prepare (double position, juce::uint32 playGeneration, juce::ui
         // Where it's next entered: its start, in this pass or the next one round the loop.
         const auto entry = juce::jmax (start, 0.0);
         const auto later = entry > position;
+        if (! later && ! loops)
+            continue;
         const auto ahead = later ? entry - position : entry + loopTicks - position;
         const auto entryPass = later ? pass : pass + 1;
         if (ahead <= lookahead && ! has (clip.key, playGeneration, entryPass))
@@ -137,7 +141,7 @@ ClipPlayer::Stream* ClipPlayer::make (const Clip& clip, double startTick, juce::
     const auto samples = (juce::int64) std::llround ((end - startTick) * secondsPerTick * sampleRate);
     if (samples <= 0)
         return nullptr;
-    auto* stream = new Stream (std::move (source), sampleRate, seconds, samples, clip.key, startTick, playGeneration, pass, seconds > 1e-6, clip.speed);
+    auto* stream = new Stream (std::move (source), sampleRate, seconds, samples, clip.key, startTick, playGeneration, pass, seconds > 1e-6, clip.speed, quality);
     // Due now: some of it is decoded here, so it sounds at the next block; the reader does the rest.
     if (immediate || offline)
         stream->fill (offline ? -1 : (int) (immediateSeconds * sampleRate));

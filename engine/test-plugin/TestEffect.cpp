@@ -2,6 +2,8 @@
 // delay, as a look-ahead plugin does (Latency, in samples; 0 by default), with the generic editor. Enough
 // to check that the engine runs an effect on a mixer track, bypasses it, mixes it, keeps its state and
 // compensates for its delay. Its latency starts at VAUDIO_TEST_EFFECT_LATENCY (tests set it for the engine).
+// With VAUDIO_TEST_EFFECT_OFFLINE=full, it leaves the sound as it is while the host renders offline (as a
+// plugin with a better offline mode sounds different then), so a test can tell it was told.
 #include <juce_audio_utils/juce_audio_utils.h>
 
 class TestEffect final : public juce::AudioProcessor
@@ -15,6 +17,7 @@ public:
         const auto startLatency = juce::SystemStats::getEnvironmentVariable ("VAUDIO_TEST_EFFECT_LATENCY", "0").getIntValue();
         addParameter (latency = new juce::AudioParameterInt (juce::ParameterID { "latency", 1 }, "Latency", 0, maxLatency, juce::jlimit (0, maxLatency, startLatency)));
         setLatencySamples (latency->get());
+        fullOffline = juce::SystemStats::getEnvironmentVariable ("VAUDIO_TEST_EFFECT_OFFLINE", "") == "full";
     }
 
     const juce::String getName() const override { return "Vaudio Test Effect"; }
@@ -40,7 +43,7 @@ public:
 
     void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        buffer.applyGain (gain->get());
+        buffer.applyGain (fullOffline && isNonRealtime() ? 1.0f : gain->get());
         const auto delay = latency->get();
         if (delay != getLatencySamples())
             setLatencySamples (delay);
@@ -86,6 +89,7 @@ private:
     static constexpr int maxLatency = 48000;
     juce::AudioParameterFloat* gain = nullptr;
     juce::AudioParameterInt* latency = nullptr;
+    bool fullOffline = false;
     juce::AudioBuffer<float> ring;
     int write = 0;
 };

@@ -2,9 +2,10 @@ import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 // The e2e suite runs its own server + web app on separate ports with a
-// throwaway data dir, so it never touches your real ./data.
-const WEB_PORT = 5320;
-const SERVER_PORT = 5321;
+// throwaway data dir, so it never touches your real ./data. E2E_WEB_PORT and
+// E2E_SERVER_PORT move it, so two checkouts can run their suites at once.
+const WEB_PORT = Number(process.env.E2E_WEB_PORT) || 5320;
+const SERVER_PORT = Number(process.env.E2E_SERVER_PORT) || 5321;
 const DATA_DIR = "e2e/.data";
 
 export default defineConfig({

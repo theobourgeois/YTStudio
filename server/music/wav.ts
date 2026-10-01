@@ -27,15 +27,20 @@ export interface WavData {
   channels: Float32Array[];
 }
 
-/** Read PCM of 16 or 24 bits (what the engine's `render` writes). */
+/** Read PCM of 16 or 24 bits (what the engine's `render` writes), or 32-bit float (its exports). */
 export async function readWav(file: string): Promise<WavData> {
   const bytes = await fs.readFile(file);
-  let format: { channels: number; sampleRate: number; bits: number } | null = null;
+  let format: { channels: number; sampleRate: number; bits: number; float: boolean } | null = null;
   for (let at = 12; at + 8 <= bytes.length; ) {
     const id = bytes.toString("ascii", at, at + 4);
     const size = bytes.readUInt32LE(at + 4);
     const body = at + 8;
-    if (id === "fmt ") format = { channels: bytes.readUInt16LE(body + 2), sampleRate: bytes.readUInt32LE(body + 4), bits: bytes.readUInt16LE(body + 14) };
+    if (id === "fmt ") {
+      // IEEE float (3), or WAVE_FORMAT_EXTENSIBLE naming it in its sub-format.
+      const tag = bytes.readUInt16LE(body);
+      const float = tag === 3 || (tag === 0xfffe && size >= 26 && bytes.readUInt16LE(body + 24) === 3);
+      format = { channels: bytes.readUInt16LE(body + 2), sampleRate: bytes.readUInt32LE(body + 4), bits: bytes.readUInt16LE(body + 14), float };
+    }
     if (id === "data" && format) {
       const width = format.bits / 8;
       const frames = Math.floor(Math.min(size, bytes.length - body) / (width * format.channels));
@@ -43,7 +48,7 @@ export async function readWav(file: string): Promise<WavData> {
       for (let frame = 0; frame < frames; frame++) {
         for (let ch = 0; ch < format.channels; ch++) {
           const offset = body + (frame * format.channels + ch) * width;
-          channels[ch][frame] = width === 3 ? bytes.readIntLE(offset, 3) / 0x800000 : bytes.readInt16LE(offset) / 0x8000;
+          channels[ch][frame] = format.float ? bytes.readFloatLE(offset) : width === 3 ? bytes.readIntLE(offset, 3) / 0x800000 : bytes.readInt16LE(offset) / 0x8000;
         }
       }
       return { sampleRate: format.sampleRate, channels };

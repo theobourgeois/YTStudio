@@ -26,6 +26,8 @@ import { NoteProperties } from "./piano/note-properties";
 import { PianoRoll } from "./piano/piano-roll";
 import { usePiano } from "./piano/store";
 import { TransposeWindow } from "./transpose-window";
+import { ExportWindow } from "./export/export-window";
+import { useSongExport } from "./export/store";
 import * as mixer from "./mixer/actions";
 import { type MixerKeyAction, resolveMixerKey } from "./mixer/keys";
 import { MixerWindow } from "./mixer/mixer-window";
@@ -67,6 +69,7 @@ function Windows() {
   const playlistOpen = useMusicUi((s) => s.playlistOpen);
   const mixerOpen = useMusicUi((s) => s.mixerOpen);
   const transposeOpen = useMusicUi((s) => s.transposeOpen);
+  const exportOpen = useMusicUi((s) => s.exportOpen);
   const editingNote = usePiano((s) => s.editing);
   const chopping = usePiano((s) => s.chopping);
   const openIds = useMusicUi((s) => s.openChannelIds);
@@ -88,6 +91,7 @@ function Windows() {
       {pianoOpen && <PianoRoll />}
       {mixerOpen && <MixerWindow />}
       {transposeOpen && <TransposeWindow />}
+      {exportOpen && <ExportWindow />}
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {pianoOpen && chopping && <Chopper />}
       {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind !== "plugin" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
@@ -104,6 +108,7 @@ function frontWindow(): WindowId | null {
     : id === "playlist" ? ui.playlistOpen
     : id === "mixer" ? ui.mixerOpen
     : id === "transpose" ? ui.transposeOpen
+    : id === "export" ? ui.exportOpen
     : id === "note" ? usePiano.getState().editing !== null
     : id === "chopper" ? usePiano.getState().chopping
     : ui.openChannelIds.includes(id.slice("channel:".length));
@@ -263,6 +268,10 @@ function runKey(action: MusicKeyAction) {
       return useMusic.getState().undo();
     case "redo":
       return useMusic.getState().redo();
+    case "exportWav":
+      return void useSongExport.getState().begin("wav");
+    case "exportMp3":
+      return void useSongExport.getState().begin("mp3");
     case "toggleRack":
       return ui.setRackOpen(!ui.rackOpen);
     case "togglePiano":

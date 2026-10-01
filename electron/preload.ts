@@ -3,12 +3,15 @@
  * room for the window buttons and drag by its header) and tells it where dropped files are; the page talks
  * to the server over HTTP as usual.
  */
-import { contextBridge, webFrame, webUtils } from "electron";
+import { contextBridge, ipcRenderer, webFrame, webUtils } from "electron";
 
 contextBridge.exposeInMainWorld("editorDesktopInfo", {
   platform: process.platform,
   // Where a file or folder dropped from Finder is (the music Browser adds folders that way); a page can't know.
   pathForFile: (file: File) => webUtils.getPathForFile(file),
+  // Where to save a file (a song's export), from the Mac's save dialog; null if it's cancelled.
+  saveFile: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) =>
+    ipcRenderer.invoke("save-file", options) as Promise<string | null>,
 });
 
 /**

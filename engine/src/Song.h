@@ -6,6 +6,7 @@
 
 #include "Delay.h"
 #include "Host.h"
+#include "Resampling.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <array>
@@ -118,6 +119,8 @@ struct Song
         /** An effect in one of its slots. */
         struct Effect
         {
+            /** The slot's effect (`MixerEffect.id`). */
+            juce::String id;
             /** Once it's loaded (the effect is skipped until then). */
             std::shared_ptr<HostedPlugin> plugin;
             /** Off: bypassed, not run. */
@@ -138,6 +141,8 @@ struct Song
         int previous = -1;
         /** Its manual delay compensation (`MixerTrack.latencyOffset`), in ms. */
         double latencyOffsetMs = 0;
+        /** Samples its sound comes out late by, after its effects (`compensate`): a stem is held back by what the master's is later. */
+        int latency = 0;
     };
 
     struct Note
@@ -171,8 +176,12 @@ struct Song
     };
 
     double tempo = 120, ppq = 96;
+    /** How samplers and audio clips are read when pitched or at another rate (playback's choice, or the export's). */
+    Resampling resampling = Resampling::hermite;
     /** The loop's length, and a beat's and a bar's (the metronome), in ticks. */
     double loopTicks = 384, beatTicks = 96, barTicks = 384;
+    /** Round and round (playing); or, exported, it plays once and then nothing more is started. */
+    bool loops = true;
     std::vector<Channel> channels;
     /** In order of `tick`. */
     std::vector<Note> notes;
@@ -180,8 +189,15 @@ struct Song
     std::vector<AudioClip> audioClips;
     /** In the order they're run: each after every track sending to it. The master is the last. */
     std::vector<Track> tracks;
+    /**
+     * The tracks something reaches, in stages: none in a stage sends to another in it, and each stage's
+     * senders are all in earlier ones. So a stage's tracks can be run at once (the export does).
+     */
+    std::vector<std::vector<int>> stages;
     /** Two channels for each track that can be reached, `capacity` samples long: the mixer's scratch. */
     juce::AudioBuffer<float> audio;
+    /** Scratch too: the plugin channels a block plays (room for all of them is made when it's parsed). */
+    std::vector<int> playingPlugins;
     /** The channel pair in `audio` where the selected tracks' sound is added up (`Sequencer::setMeteredTracks`). */
     int selectionBuffer = 0;
     /** The longest block the song can play (a longer one plays silence). */
@@ -198,9 +214,11 @@ struct Song
 
     /**
      * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the
-     * mixer's; `unreadable` gets the ids of channels whose sample couldn't be read.
+     * mixer's; `unreadable` gets the ids of channels whose sample couldn't be read. Unless `keepOnly` is
+     * false (a copy for the export), the hosts let go of the plugins the song doesn't have.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate);
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate,
+                                        bool keepOnly = true);
 
     /**
      * Plugin delay compensation (FL Studio's automatic PDC): every path into a track waits until the

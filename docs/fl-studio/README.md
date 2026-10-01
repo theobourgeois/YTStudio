@@ -24,7 +24,7 @@ about to touch before changing it, and correct it when you learn it's wrong.
   selection, the Picker panel, song mode, split by channel and its keys. Ends with what we'll leave out,
   where Vaudio differs, what was decided, and how it's built.
 - [export.md](export.md): exporting (rendering) a song: the export dialog's settings, the tail, stems,
-  quality. Ends with what to decide with Théo and how we'd build it (fast).
+  quality. Ends with what was decided with Théo, how it's built (fast: every core) and where Vaudio differs.
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).
 

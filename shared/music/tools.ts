@@ -4,6 +4,7 @@
  */
 import { type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { CHOP_PATTERNS } from "./chop.ts";
+import { EXPORT_FORMATS } from "./export.ts";
 
 const channel = str('A channel: its id (from get_song) or its name ("Kick").');
 const pattern = str("A pattern: its id or its name. Default: the pattern shown in the channel rack.");
@@ -650,6 +651,25 @@ export const MUSIC_TOOLS = [
       "Start playing or stop, so the user hears it (you can't hear it yourself). `mode` chooses what plays, as the toolbar's PAT / SONG does: " +
       "the pattern shown, looped (\"pattern\"), or the playlist (\"song\", from `bar`, going round at its end). Default: as the editor is.",
     inputSchema: obj({ action: oneOf(["play", "stop"], "What to do."), mode: oneOf(["pattern", "song"], "What plays."), bar: num("In song mode, the bar to play from (1 is the start).") }, ["action"]),
+  }),
+  tool({
+    name: "export_song",
+    title: "Export the song",
+    kind: "action",
+    description:
+      "Render the open song to files, as the export window does (⌘R): the playlist (\"song\") or the pattern shown (\"pattern\"), in any of " +
+      "WAV, MP3, FLAC, OGG, M4A and MIDI (the notes), with `stems` a file per mixer track too, all from one render (seconds, much faster than real time). " +
+      "If the user has a time selection on the Playlist (song) or the Piano roll (pattern), only that part is exported. The export window opens and lists " +
+      "the files for the user to download or show in Finder. Settings left out are the user's last ones. Playback stops while it renders; editing can go " +
+      "on. Answers with the files, their sizes, how long it took and anything that couldn't be heard (a plugin not installed).",
+    inputSchema: obj({
+      formats: arr(oneOf(EXPORT_FORMATS, "A format."), "The formats to write (default: the user's last ones, at first WAV)."),
+      mode: oneOf(["song", "pattern"], "The playlist, or the pattern shown."),
+      tail: oneOf(["cut", "ring"], "Stop on the song's last sample, or let reverbs and long notes ring out until it's quiet."),
+      stems: bool("A file for each mixer track that has sound, besides the mix."),
+      wavBits: int("WAV bit depth: 16, 24 or 32 (floating point)."),
+      mp3Bitrate: int("MP3 kilobits a second, 64 to 320."),
+    }),
   }),
 ] as const satisfies readonly ToolSpec[];
 

@@ -53,8 +53,9 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   music/             The music suite: its document (types.ts), create/normalise (project.ts), its pure edits
                      (edits.ts; the playlist's in playlist.ts), the song as the engine plays it (compile.ts:
                      swing, gains, mutes, song mode's arrangement flattened), its tools
-                     (tools.ts), the audio engine's commands, status and events (engine.ts), and the
-                     Browser's types and search (browser.ts: pure, ranked, typo-tolerant).
+                     (tools.ts), the audio engine's commands, status and events (engine.ts), the
+                     Browser's types and search (browser.ts: pure, ranked, typo-tolerant), and the
+                     export's settings, file names and ffmpeg arguments (export.ts) and MIDI file (midi.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -141,6 +142,7 @@ server/
                      the e2e suite). wav.ts reads and writes WAVs for the tests of what it plays.
                      browser.ts: the Browser's sample folders (global, `data/browser.json`), favourites,
                      listing and the watched search index; `/api/browser` reads nothing outside them.
+                     exports.ts: song exports (`/api/music/exports`): the engine renders, ffmpeg encodes.
   architecture.test.ts  The layering between the platform and the suites, checked on every import (see Suites).
   assistant/         The assistant. mcp.ts: the MCP server (POST /mcp, stateless JSON-RPC). bridge.ts: relays tool calls
                      to an editor tab over its event stream and back, and every chat's activity to every tab.
@@ -161,7 +163,9 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      windows). Plugins.cpp: plugin scanning and the bench's two slots. FilePreview.cpp:
                      the Browser's preview, a file streamed from disk; AudioStream.cpp is that stream (a reader
                      thread, a lock-free ring), and ClipPlayer.cpp plays the playlist's audio clips with it,
-                     each started on its sample. Protocol.cpp:
+                     each started on its sample. Export.cpp: the export, rendered on a thread of its own
+                     (Workers.h runs its plugins on every core). Resampling.h: reading between samples
+                     (linear, Hermite, sinc), centred so nothing is delayed. Protocol.cpp:
                      the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
@@ -295,7 +299,8 @@ A DAW modelled on **FL Studio**: when in doubt about its UX, do what FL Studio d
 Théo): read the panel's document before touching that panel, don't work from memory, and write the document for
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
-swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser. Where it is and every step still to come, in order:
+swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
+the export. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
@@ -413,6 +418,20 @@ swing), the Piano roll, the Playlist and song mode, the transport and the metron
   (`BROWSER_DRAG_TYPE`), and every drop target goes through `browser/drops.ts`, which takes Finder's files
   too. Previews are the engine's `FilePreview` (streamed), not the song's.
 - The starter kit (`public/kit/`, made by `scripts/make-kit.ts`) becomes ordinary project media when it's added.
+- **Exporting** (`docs/fl-studio/export.md`, ⌘R / ⌘⇧R; `src/suites/music/export/`): the save dialog
+  (`chooseSaveFile`, the desktop app's; a browser downloads instead), then the window, then
+  `/api/music/exports` (`server/music/exports.ts`): the engine renders 32-bit float WAVs (the mix, and a
+  stem per track) and ffmpeg encodes each format; MIDI is written from `compileSong`. The engine renders
+  in the running engine (its plugins are loaded): it lets go of the device, plays a copy of the song once
+  (`Song::loops` false) with a sequencer of its own, plugins prepared for blocks of 2048, told they're
+  offline and run on every core (`Sequencer::setWorkers`; the mixer in `Song::stages`), then gives the
+  device back. Meanwhile the tab edits on (`useTransport.exporting` stops play), and songs sent wait for
+  the end. The song's plugin delay is trimmed and stems held back to the master's lateness: they add up
+  to the mix, sample for sample (tested). Parallel and one-thread renders are identical (tested); keep
+  it so: a stage's tracks touch only their own buffers, sends are added in order after.
+- **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
+  samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
+  export's (sinc) with the export. Every method is centred: a hit is never late (tested).
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
   edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); the mixer's in
   `mixer/tool-edits.ts` (`findTrack`: by id, number, "master" or name; `describeMixer` is `get_mixer`). Channels
