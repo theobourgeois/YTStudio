@@ -149,7 +149,7 @@ function PatternItems({ patterns }: { patterns: readonly Pattern[] }) {
             chosen={source.kind === "pattern" && source.ref === ref}
             title={`${pattern.name}: click to draw it, drag it onto a track, double-click to show it in the rack; ⌘-click or Shift+click to select several`}
             onClick={(e) => clickPattern(ref, pickMode(e))}
-            carries={picked.includes(ref) ? picked : [ref]}
+            carries={(picked.includes(ref) ? picked : [ref]).map((id) => carried(patterns.find((p) => p.id === id)!))}
             draw={(c, w, h, colour) => drawPatternPreview(c, pattern, ctx.patternTicks(ref), w, h, colour)}
             drawKey={pattern.notes}
           />
@@ -202,7 +202,7 @@ function AudioItems({ audio }: { audio: readonly Channel[] }) {
             chosen={source.kind === "audio" && source.ref === channel.id}
             title={`${channel.name}: click to draw it, drag it onto a track; ⌘-click or Shift+click to select several`}
             onClick={(e) => clickAudio(channel.id, pickMode(e))}
-            carries={picked.includes(channel.id) ? picked : [channel.id]}
+            carries={(picked.includes(channel.id) ? picked : [channel.id]).map((id) => carried(audio.find((c) => c.id === id)!))}
             draw={(c, w, h, colour) => {
               const peaks = url ? clipPeaks(url, channel.precomputed) : null;
               if (peaks) drawWaveformPreview(c, peaks, w, h, colour);
@@ -224,6 +224,50 @@ function AudioItems({ audio }: { audio: readonly Channel[] }) {
   });
 }
 
+/** An item a drag takes: its name and colour are on the badge under the pointer. */
+interface Carried {
+  id: string;
+  name: string;
+  color: string | null;
+}
+const carried = (item: Pattern | Channel): Carried => ({ id: item.id, name: item.name, color: item.color });
+
+/**
+ * What's under the pointer while items are dragged from the Picker: a small tag with the first one's
+ * name, on a stack of cards when there are more (with how many), so it doesn't look like the clips
+ * themselves, which the Playlist shows where they'd land.
+ */
+function dragBadge(transfer: DataTransfer, kind: "pattern" | "audio", items: readonly Carried[]) {
+  const colours = (item: Carried) => (item.color ? clipColours(item.color) : kind === "audio" ? AUDIO : PATTERN);
+  const badge = document.createElement("div");
+  badge.style.cssText = "position:fixed;top:-200px;left:0;padding:0 8px 8px 0;font:600 11px/1 var(--font-sans);pointer-events:none";
+  const behind = items.slice(1, 3);
+  behind.forEach((item, i) => {
+    const card = document.createElement("div");
+    const offset = (behind.length - i) * 3;
+    card.style.cssText = `position:absolute;left:${offset}px;top:${offset}px;right:${8 - offset}px;bottom:${8 - offset}px;border-radius:3px;outline:1px solid rgb(0 0 0 / 0.35);background:${colours(item).title}`;
+    badge.append(card);
+  });
+  const front = document.createElement("div");
+  const first = colours(items[0]);
+  front.style.cssText = `position:relative;display:flex;align-items:center;gap:6px;max-width:180px;height:18px;padding:0 6px;border-radius:3px;outline:1px solid rgb(0 0 0 / 0.35);box-shadow:0 2px 6px rgb(0 0 0 / 0.3);background:${first.title};color:${first.text}`;
+  const name = document.createElement("span");
+  name.textContent = items[0].name;
+  name.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+  front.append(name);
+  if (items.length > 1) {
+    const count = document.createElement("span");
+    count.textContent = `+${items.length - 1}`;
+    count.style.cssText = "flex-shrink:0;padding:2px 4px;border-radius:999px;background:rgb(0 0 0 / 0.3)";
+    front.append(count);
+  }
+  badge.append(front);
+  document.body.append(badge);
+  transfer.setDragImage(badge, 10, 9);
+  // The browser takes its picture as the drag starts.
+  setTimeout(() => badge.remove());
+}
+
 interface PickerItemProps extends Omit<React.ComponentProps<"button">, "onClick" | "color"> {
   kind: "pattern" | "audio";
   id: string;
@@ -234,7 +278,7 @@ interface PickerItemProps extends Omit<React.ComponentProps<"button">, "onClick"
   chosen: boolean;
   onClick: (e: React.MouseEvent) => void;
   /** What a drag from it takes: itself, or every item selected with it (in the list's order). */
-  carries: readonly string[];
+  carries: readonly Carried[];
   /** Draw its preview on a canvas `w` by `h` CSS pixels, in its content colour. */
   draw: (ctx: CanvasRenderingContext2D, w: number, h: number, colour: string) => void;
   /** When this changes, the preview is drawn again. */
@@ -274,8 +318,9 @@ function PickerItem({ kind, id, name, color, selected, chosen, onClick, carries,
       onClick={onClick}
       onDoubleClick={(e) => pickMode(e) === "only" && showInRack(kind, id)}
       onDragStart={(e) => {
-        const sources = carries.map((ref) => ({ kind, ref }));
+        const sources = carries.map((c) => ({ kind, ref: c.id }));
         e.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify(sources));
+        dragBadge(e.dataTransfer, kind, carries);
         e.dataTransfer.effectAllowed = "copy";
         usePlaylist.setState({ carried: sources });
       }}
