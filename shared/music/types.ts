@@ -1,7 +1,7 @@
 /**
  * The music suite's document (a DAW project), modelled on FL Studio: the channel rack's channels
- * (instruments), patterns (notes for any of the channels) and the mixer (where the channels' sound goes).
- * The playlist comes next.
+ * (instruments), patterns (notes for any of the channels), the playlist (the song's arrangement: clips
+ * of patterns and audio on tracks) and the mixer (where the channels' sound goes).
  * Validated by `normalizeMusicProject`; edited by the pure functions in `edits.ts`.
  *
  * Musical time is in ticks, whole numbers, `PPQ` to a quarter note: never seconds, so nothing moves
@@ -65,12 +65,14 @@ export interface PluginRef {
 /**
  * A row of the channel rack: an instrument, FL Studio's "generator". A sampler plays one sample; a
  * plugin channel plays an instrument plugin (its own settings are the plugin's, kept by the engine
- * beside the project: `server/music/engine.ts`).
+ * beside the project: `server/music/engine.ts`). An audio clip channel (`audio`, FL's "Audio clip")
+ * is a file the playlist's audio clips play, streamed from disk: it has no notes, and the rack keeps it
+ * in its Audio group.
  */
 export interface Channel {
   id: string;
   name: string;
-  kind: "sampler" | "plugin";
+  kind: ChannelKind;
   /** A plugin channel's instrument; null for a sampler. */
   plugin: PluginRef | null;
   /** The project media a sampler plays (an audio file), or null: silent until it's given one. */
@@ -89,6 +91,8 @@ export interface Channel {
   /** The mixer track it plays into (a `MixerTrack` id): the master unless routed elsewhere. */
   mixerTrack: string;
 }
+
+export type ChannelKind = "sampler" | "plugin" | "audio";
 
 export interface Note {
   /** Tells it from the channel's other notes in the pattern (a small whole number): what's selected is a set of these. */
@@ -202,6 +206,58 @@ export interface Mixer {
   groups: MixerGroup[];
 }
 
+/**
+ * A track of the playlist (FL Studio's): bound to nothing, so any clip goes on any track. Tracks are
+ * numbered (`PlaylistClip.track` is the index); one that's never been touched has no entry
+ * (`Playlist.tracks` is only as long as the last one that has been), and is `DEFAULT_PLAYLIST_TRACK`.
+ */
+export interface PlaylistTrack {
+  /** Null until it's renamed: it's then called by its number ("Track 3"), as in FL Studio. */
+  name: string | null;
+  /** "#rrggbb", or null for the playlist's own colour. */
+  color: string | null;
+  /** Its height, as a share of the tracks' height (FL's track Size): 1 is the usual. */
+  size: number;
+  /** Every clip on it is silent (a clip's own mute is separate). Solo is a state of these, as for channels. */
+  muted: boolean;
+}
+
+export type PlaylistClipKind = "pattern" | "audio";
+
+/**
+ * A clip on the playlist: a window onto a pattern or an audio file, placed at `start` on a track. Its
+ * content starts `offset` before its window (a clip resized from the left, sliced or slip-edited shows a
+ * later part of it); what's outside the window is still there, and comes back when it's widened.
+ */
+export interface PlaylistClip {
+  /** Tells it from the other clips (a small whole number, as notes have): what's selected is a set of these. */
+  id: number;
+  kind: PlaylistClipKind;
+  /** The pattern's id, or the audio clip channel's id. */
+  ref: string;
+  /** The track's number (0 is the first). */
+  track: number;
+  /** Ticks, in the song. */
+  start: number;
+  /**
+   * Ticks. Null for a pattern clip that's as long as its pattern (from `offset` to its end), as FL
+   * Studio's are until they're resized: it follows the pattern as it grows and shrinks.
+   */
+  length: number | null;
+  /** How far into its content the window starts: ticks of the pattern, or seconds of the audio file. */
+  offset: number;
+  /** Kept, but not played (the playlist's mute tool). */
+  muted: boolean;
+}
+
+/** The song's arrangement: what plays in song mode. */
+export interface Playlist {
+  /** By number; past the end of the list, tracks are as new. */
+  tracks: PlaylistTrack[];
+  /** In order of `start` (then track, then id). */
+  clips: PlaylistClip[];
+}
+
 export interface MusicProject {
   version: 1;
   name: string;
@@ -210,5 +266,6 @@ export interface MusicProject {
   channels: Channel[];
   /** Always at least one. */
   patterns: Pattern[];
+  playlist: Playlist;
   mixer: Mixer;
 }
