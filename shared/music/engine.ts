@@ -8,6 +8,7 @@
  * `{ id, ok: true, result }` or `{ id, ok: false, error }` out, plus events on its own (`EngineEvent`).
  */
 import type { PlayMode } from "./compile.ts";
+import type { MediaAsset } from "../types.ts";
 import type { MusicProject } from "./types.ts";
 
 /** A plugin found on this computer. */
@@ -49,6 +50,14 @@ export interface EngineStatus {
   bufferSize: number;
   /** From a note reaching the engine to its sound leaving the device, at worst (the song's own delay included). */
   outputLatencyMs: number;
+  /** The input device's name (recording), or null when none is open. */
+  input: string | null;
+  /** How many of its input channels are open (all of them, when there's one). */
+  inputChannels: number;
+  /** From a sound reaching the input device to the engine, as the device reports it. */
+  inputLatencyMs: number;
+  /** A recording in progress (the `record` command), or null. */
+  recording: { id: string } | null;
   /** Samples the song's sound comes out late by: its plugins' delays, compensated so everything lines up (`Song::compensate`). */
   songLatency: number;
   tone: boolean;
@@ -185,6 +194,7 @@ export type EngineEvent =
   | ({ event: "key" } & EngineKey)
   | ({ event: "touch" | "automate" } & PluginParameter)
   | EngineExportEvent
+  | EngineTakeEvent
   | { event: "ready" }
   /** The engine's process ended without being asked to (a plugin crashed it): the next command starts it again. */
   | { event: "stopped" };
@@ -247,6 +257,8 @@ export const isResampling = (v: unknown): v is Resampling => RESAMPLING.includes
 export interface SetSongRequest {
   projectId: string;
   song: MusicProject;
+  /** The mixer tracks armed to record (the tab's state, not the song's): their inputs are heard and recorded as their monitoring says. */
+  armed?: string[];
   /** The pattern to loop (default: the first). */
   patternId: string | null;
   /** Only this part of it, in ticks (the Piano roll's time selection, or in song mode the Playlist's). */
@@ -285,6 +297,11 @@ export interface CopyStatesRequest {
 export interface EngineDevices {
   outputs: string[];
   output: string | null;
+  /** The input devices (recording), and the one open, or null for none. */
+  inputs: string[];
+  input: string | null;
+  /** The open input device's channels' names, by number ("In 1", or the interface's own names). */
+  inputChannels: string[];
   bufferSizes: number[];
   sampleRates: number[];
   status: EngineStatus;
@@ -292,8 +309,50 @@ export interface EngineDevices {
 
 export interface SetDeviceRequest {
   output?: string;
+  /** The input device to open (all its channels), or "" to close it. Opening one asks for the microphone. */
+  input?: string;
   bufferSize?: number;
   sampleRate?: number;
+}
+
+/**
+ * Record (`POST /api/engine/record`): play from `from` (ticks into the loop, as `play`) and record each
+ * mixer track armed in the song last sent, dry, a file per track (and per pass round the loop, with
+ * `loop`), after `countIn` ticks of the metronome's clicks. Without `loop`, play goes on past the end
+ * of the loop until it's stopped. `names`: what to call each track's takes (the track's name).
+ */
+export interface RecordRequest {
+  projectId: string;
+  from: number;
+  countIn: number;
+  loop: boolean;
+  names: Record<string, string>;
+}
+
+export interface RecordResponse {
+  recordingId: string;
+  status: EngineStatus;
+}
+
+/**
+ * A take recorded (one armed track's file, for one pass round the loop with Loop record), made the
+ * project's media. Sample `skip` of the file is at `startTick` (the engine's ticks: into the loop): what
+ * came before it is the device's and the song's latency, to leave out. `final`: the last of its
+ * recording (play stopped). `media` is null if it couldn't be kept (`error` says why).
+ */
+export interface EngineTakeEvent {
+  event: "take";
+  recordingId: string;
+  projectId: string;
+  track: string;
+  media: MediaAsset | null;
+  error?: string;
+  startTick: number;
+  skip: number;
+  frames: number;
+  sampleRate: number;
+  pass: number;
+  final: boolean;
 }
 
 /** What an offline engine computed: `frames` samples, measured over both channels. */

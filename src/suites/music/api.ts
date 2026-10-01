@@ -10,6 +10,8 @@ import type {
   EngineStatus,
   PreviewFileRequest,
   PreviewSampleRequest,
+  RecordRequest,
+  RecordResponse,
   SetDeviceRequest,
   SetSongRequest,
   SetSongResponse,
@@ -32,6 +34,8 @@ export const musicApi = {
   /** A command to the audio engine (starting it if needed); every one answers with its status. */
   engine: <C extends EngineCommand>(command: C, body: EngineCommands[C]) =>
     request<EngineStatus>(`/api/engine/${command}`, { method: "POST", body: JSON.stringify(body) }),
+  /** Play and record the armed tracks (`stop` ends it); the takes come later as `take` events. */
+  record: (body: RecordRequest) => request<RecordResponse>("/api/engine/record", { method: "POST", body: JSON.stringify(body) }),
   listEnginePlugins: () => request<EnginePlugin[]>("/api/engine/plugins"),
   /** A song's plugin's parameters that can be automated (a plugin channel's or a mixer effect's, by its id). */
   pluginParameters: (owner: "channel" | "effect", id: string) =>

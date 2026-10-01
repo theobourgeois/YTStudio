@@ -1,5 +1,5 @@
 import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFolders, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFolders, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRecordFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { lengthOf, setMainVolume, setTempo } from "@shared/music/edits";
@@ -14,6 +14,7 @@ import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuLabel,
@@ -37,7 +38,8 @@ import { positionNow } from "./playhead";
 import { openPlaylist } from "./playlist/actions";
 import { positionAt, positionText, splitTail, tempoText, timeText } from "./position";
 import { useSongExport } from "./export/store";
-import { useMusicPreferences } from "./preferences";
+import { COUNT_IN_BARS, useMusicPreferences } from "./preferences";
+import { useRecording } from "./recording";
 import { currentPattern, songGesture, useMusic, useSong } from "./store";
 import { switchMode, useTransport } from "./transport";
 import { useMusicUi } from "./ui";
@@ -81,6 +83,7 @@ export function MusicToolbar() {
               <div className="flex">
                 <PlayButtons />
               </div>
+              <RecordButton />
               <MetronomeToggle />
             </div>
             <TempoLcd />
@@ -223,6 +226,62 @@ function PlayButtons() {
         <PiStopFill className="size-[14px]" />
       </TransportButton>
     </>
+  );
+}
+
+/**
+ * FL Studio's Record (R): while it's on (lit red), Play records the armed mixer tracks, after the
+ * count-in. It glows while recording. Its right-click menu has FL's recording options: the count-in,
+ * Loop record (a take each pass round the loop), Blend (hear earlier passes) and Disarm on stop.
+ */
+function RecordButton() {
+  const on = useRecording((s) => s.on);
+  const recording = useRecording((s) => s.active !== null);
+  const options = useMusicPreferences((s) => s.recording);
+  const set = useMusicPreferences((s) => s.setRecording);
+  const title = recording ? "Recording (Space stops)" : on ? "Record is on: Play records the armed tracks (R)" : "Record (R): then Play records the mixer tracks armed. Right-click for its options";
+  const button = (
+    <button
+      type="button"
+      aria-label="Record"
+      aria-pressed={on}
+      data-recording={recording || undefined}
+      className={cn(
+        "raised hover:raised-hover active:pressed grid h-7 w-8 place-items-center rounded-[4px] transition-colors",
+        on ? "text-destructive" : "text-foreground/80 hover:text-foreground",
+        recording && "animate-pulse",
+      )}
+      onClick={() => useRecording.getState().setOn(!on)}
+    >
+      <PiRecordFill className="size-[15px]" />
+    </button>
+  );
+  return (
+    <ContextMenu>
+      <Tip text={title}>
+        <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
+      </Tip>
+      <ContextMenuContent>
+        <ContextMenuLabel className="text-[11px] font-normal text-muted-foreground">Count-in</ContextMenuLabel>
+        <ContextMenuRadioGroup value={String(options.countIn)} onValueChange={(value) => set({ countIn: Number(value) })}>
+          {COUNT_IN_BARS.map((bars) => (
+            <ContextMenuRadioItem key={bars} value={String(bars)}>
+              {bars === 0 ? "None" : bars === 1 ? "1 bar" : `${bars} bars`}
+            </ContextMenuRadioItem>
+          ))}
+        </ContextMenuRadioGroup>
+        <ContextMenuSeparator />
+        <ContextMenuCheckboxItem checked={options.loop} onCheckedChange={(loop) => set({ loop })}>
+          Loop record
+        </ContextMenuCheckboxItem>
+        <ContextMenuCheckboxItem checked={options.blend} onCheckedChange={(blend) => set({ blend })} disabled={!options.loop}>
+          Blend (hear earlier takes)
+        </ContextMenuCheckboxItem>
+        <ContextMenuCheckboxItem checked={options.disarmOnStop} onCheckedChange={(disarmOnStop) => set({ disarmOnStop })}>
+          Disarm on stop
+        </ContextMenuCheckboxItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

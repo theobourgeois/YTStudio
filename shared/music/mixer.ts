@@ -5,7 +5,7 @@
  */
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
-import { EFFECT_SLOTS, MASTER_TRACK_ID, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, reaches } from "./project.ts";
+import { EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_OFFSET, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, normalizeInput, reaches, trimTracks } from "./project.ts";
 import type { Channel, MixerEffect, MixerGroup, MixerSend, MixerTrack, MusicProject, PluginRef } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -107,7 +107,11 @@ export function removeMixerTracks(song: MusicProject, ids: readonly string[]): M
   const channels = song.channels.some((c) => gone.has(c.mixerTrack))
     ? song.channels.map((c) => (gone.has(c.mixerTrack) ? { ...c, mixerTrack: MASTER_TRACK_ID } : c))
     : song.channels;
-  const removed = { ...withTracks(song, tracks), channels };
+  // A playlist track linked to one of them is an ordinary track again.
+  const playlist = song.playlist.tracks.some((t) => t.mixerTrack && gone.has(t.mixerTrack))
+    ? { ...song.playlist, tracks: trimTracks(song.playlist.tracks.map((t) => (t.mixerTrack && gone.has(t.mixerTrack) ? { ...t, mixerTrack: null } : t))) }
+    : song.playlist;
+  const removed = { ...withTracks(song, tracks), channels, playlist };
   return withGroups(removed, keptGroups(removed));
 }
 
@@ -130,7 +134,9 @@ export function moveMixerTracks(song: MusicProject, ids: readonly string[], dire
   return any ? withTracks(song, tracks) : song;
 }
 
-export type MixerTrackPatch = Partial<Pick<MixerTrack, "name" | "color" | "dock" | "separator" | "volume" | "pan" | "muted" | "invert" | "swap" | "stereo" | "latencyOffset">>;
+export type MixerTrackPatch = Partial<
+  Pick<MixerTrack, "name" | "color" | "dock" | "separator" | "volume" | "pan" | "muted" | "invert" | "swap" | "stereo" | "latencyOffset" | "input" | "monitor" | "inputOffset">
+>;
 
 function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
   // An empty name goes back to the track's number.
@@ -152,9 +158,19 @@ function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
       patch.latencyOffset === undefined || !Number.isFinite(patch.latencyOffset)
         ? track.latencyOffset
         : Math.round(clamp(patch.latencyOffset, -MAX_LATENCY_OFFSET, MAX_LATENCY_OFFSET) * 100) / 100,
+    input: patch.input === undefined || track.id === MASTER_TRACK_ID ? track.input : sameInput(track.input, normalizeInput(patch.input)),
+    monitor: patch.monitor !== undefined && INPUT_MONITORS.includes(patch.monitor) ? patch.monitor : track.monitor,
+    inputOffset:
+      patch.inputOffset === undefined || !Number.isFinite(patch.inputOffset)
+        ? track.inputOffset
+        : Math.round(clamp(patch.inputOffset, -MAX_INPUT_OFFSET, MAX_INPUT_OFFSET) * 100) / 100,
   };
   return (Object.keys(next) as (keyof MixerTrack)[]).every((key) => next[key] === track[key]) ? track : next;
 }
+
+/** `next`, or `was` itself when they're the same input (so an edit that changes nothing is no edit). */
+const sameInput = (was: MixerTrack["input"], next: MixerTrack["input"]) =>
+  was && next && was.channel === next.channel && was.stereo === next.stereo ? was : next;
 
 export const updateMixerTrack = (song: MusicProject, id: string, patch: MixerTrackPatch) => updateTracks(song, [id], (t) => patchedTrack(t, patch));
 

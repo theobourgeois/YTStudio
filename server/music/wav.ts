@@ -3,18 +3,26 @@ import fs from "node:fs/promises";
 
 /** Write mono 16-bit PCM. `samples` are -1..1. */
 export async function writeWav(file: string, samples: ArrayLike<number>, sampleRate: number): Promise<void> {
-  const data = Buffer.alloc(samples.length * 2);
-  for (let i = 0; i < samples.length; i++) data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, samples[i])) * 32767), i * 2);
+  await writeWavChannels(file, [samples], sampleRate);
+}
+
+/** Write 16-bit PCM with a channel per array (all as long as the first). Samples are -1..1. */
+export async function writeWavChannels(file: string, channels: ArrayLike<number>[], sampleRate: number): Promise<void> {
+  const frames = channels[0].length;
+  const count = channels.length;
+  const data = Buffer.alloc(frames * count * 2);
+  for (let i = 0; i < frames; i++)
+    for (let ch = 0; ch < count; ch++) data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, channels[ch][i])) * 32767), (i * count + ch) * 2);
   const header = Buffer.alloc(44);
   header.write("RIFF", 0);
   header.writeUInt32LE(36 + data.length, 4);
   header.write("WAVEfmt ", 8);
   header.writeUInt32LE(16, 16);
   header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(1, 22);
+  header.writeUInt16LE(count, 22);
   header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(sampleRate * 2, 28);
-  header.writeUInt16LE(2, 32);
+  header.writeUInt32LE(sampleRate * 2 * count, 28);
+  header.writeUInt16LE(2 * count, 32);
   header.writeUInt16LE(16, 34);
   header.write("data", 36);
   header.writeUInt32LE(data.length, 40);

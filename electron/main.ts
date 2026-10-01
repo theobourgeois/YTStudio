@@ -7,7 +7,7 @@
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, shell } from "electron";
+import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcMain, shell, systemPreferences } from "electron";
 import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
 import { loadWindowState, trackWindowState } from "./window-state.ts";
@@ -79,6 +79,7 @@ async function start() {
   }
   Menu.setApplicationMenu(buildMenu());
   answerSaveDialogs();
+  answerMicrophone();
   // A packaged app has its icon in its bundle; in development the Dock would show Electron's.
   if (!app.isPackaged) app.dock?.setIcon(path.join(import.meta.dirname, "..", "resources", "icon.png"));
   createWindow();
@@ -136,6 +137,21 @@ function answerSaveDialogs() {
     const settings = { defaultPath: typeof options?.defaultPath === "string" ? options.defaultPath : undefined, filters };
     const result = win ? await dialog.showSaveDialog(win, settings) : await dialog.showSaveDialog(settings);
     return result.canceled || !result.filePath ? null : result.filePath;
+  });
+}
+
+/**
+ * Recording reads an input through the engine, which macOS lets through only once Vaudio (the app
+ * responsible for it) may use the microphone. The page asks for it before the engine opens an input,
+ * so the question comes from Vaudio, when the user has just chosen one; and says so when it's refused.
+ */
+function answerMicrophone() {
+  const status = () => (process.platform === "darwin" || process.platform === "win32" ? systemPreferences.getMediaAccessStatus("microphone") : "granted");
+  ipcMain.handle("microphone-status", () => status());
+  ipcMain.handle("microphone-ask", async () => {
+    if (process.platform !== "darwin") return status();
+    await systemPreferences.askForMediaAccess("microphone");
+    return status();
   });
 }
 

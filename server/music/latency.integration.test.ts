@@ -17,6 +17,8 @@ import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
+import type { EngineTakeEvent } from "../../shared/music/engine.ts";
+import type { MediaAsset } from "../../shared/types.ts";
 import { type WavData, onsets, peakOf, readWav, writeWav } from "./wav.ts";
 
 /** A new song at 120 BPM, which these tests' timings are worked out at (new songs start at 140). */
@@ -48,6 +50,7 @@ describe.skipIf(!built)("plugin delay compensation, offline", () => {
       samplePath: (_project, id) => (id === "hit" ? path.join(dir, "hit.wav") : null),
       // Every test effect in this engine delays its sound (and says so); it also halves it.
       env: { VAUDIO_TEST_EFFECT_LATENCY: String(DELAY) },
+      adoptTake: async (_project, file, name) => ({ id: name, name, src: file }) as MediaAsset,
     });
     await engine.command("scan", {});
     while ((await engine.command("status", {})).scanning) await new Promise((resolve) => setTimeout(resolve, 50));
@@ -120,5 +123,34 @@ describe.skipIf(!built)("plugin delay compensation, offline", () => {
     expect(await hear(updateMixerTrack(drums(), "insert_1", { latencyOffset: 20 }))).toMatchObject({ kick: [0], clap: [DELAY] });
     // −20 ms: it's earlier than they say, so it waits for the clap.
     expect(await hear(updateMixerTrack(drums(), "insert_1", { latencyOffset: -20 }))).toMatchObject({ kick: [DELAY], clap: [0] });
+  });
+
+  it("leaves the song's delay out of a recording: a take's first samples, and each loop pass switching that much later", async () => {
+    // Insert 1 takes the input (unheard); the song is DELAY late, for the effect on insert 2.
+    const song = updateMixerTrack(setEffect(drums(), "insert_2", 0, late, "fx_late"), "insert_1", { input: { channel: 0, stereo: false }, monitor: "off" });
+    await engine.command("stop", {});
+    await expect.poll(async () => (await engine.setSong({ projectId: PROJECT, song, patternId: null, armed: ["insert_1"] })).effects.loaded.length).toBe(1);
+    const BAR = 4 * BEAT;
+    const ramp = Array.from({ length: 3 * BAR }, (_, i) => ((i % 1000) - 500) / 1000);
+    const input = path.join(dir, "ramp.wav");
+    await writeWav(input, ramp, RATE);
+    const recorded = (await readWav(input)).channels[0];
+    const takes: EngineTakeEvent[] = [];
+    const stop = engine.onEvent((event) => event.event === "take" && takes.push(event));
+    await engine.record({ projectId: PROJECT, from: 0, countIn: 0, loop: true, names: {} });
+    await engine.render(BAR + BEAT, undefined, input);
+    await engine.command("stop", {});
+    await engine.render(512);
+    await expect.poll(() => takes.length).toBe(2);
+    stop();
+    expect(takes.map((t) => [t.pass, t.skip, t.frames])).toEqual([
+      [0, DELAY, BAR + DELAY],
+      [1, 0, BEAT - DELAY],
+    ]);
+    const first = (await readWav(takes[0].media!.src)).channels[0];
+    const second = (await readWav(takes[1].media!.src)).channels[0];
+    expect(Array.from(first.subarray(0, 100))).toEqual(Array.from(recorded.subarray(0, 100)));
+    expect(Array.from(second.subarray(0, 100))).toEqual(Array.from(recorded.subarray(BAR + DELAY, BAR + DELAY + 100)));
+    await engine.render(0, undefined, "none");
   });
 });

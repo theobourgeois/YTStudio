@@ -1,9 +1,16 @@
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { trackAt, trackName, updateTrack } from "@shared/music/playlist";
-import { MAX_TRACK_SIZE, MIN_TRACK_SIZE, TRACK_COLORS } from "@shared/music/project";
+import { MASTER_TRACK_ID, MAX_TRACK_SIZE, MIN_TRACK_SIZE, TRACK_COLORS } from "@shared/music/project";
+import { linkAudioTracks } from "@shared/music/recording";
+import { trackName as mixerTrackName } from "@shared/music/mixer";
+import { useShallow } from "zustand/react/shallow";
+import { ArmButton } from "../mixer/arm-button";
+import { inputLabel, useInputs } from "../inputs";
+import { useMusicUi } from "../ui";
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
@@ -34,7 +41,8 @@ import { usePlaylist } from "./store";
  * The tracks' headers, down the Playlist's left (FL Studio's): each track's name (double-click to rename),
  * its colour, its mute light (a right-click or Ctrl+click solos; a click anywhere else on the header that
  * isn't its name mutes too, a bigger target), the divider under it that drags its height, and its menu.
- * A muted track's header is dimmed, as a muted mixer track is. Only those in view are made.
+ * A muted track's header is dimmed, as a muted mixer track is. An audio track (linked to a mixer track,
+ * FL's) shows that track's arm switch and input. Only those in view are made.
  */
 export function TrackHeaders() {
   const playlist = useMusic((s) => s.history!.doc.playlist);
@@ -112,6 +120,7 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
               {name}
             </button>
           )}
+          {track.mixerTrack && <AudioTrackControls mixerTrack={track.mixerTrack} tall={height >= 40} />}
           <button
             type="button"
             aria-label={track.muted ? `Unmute ${name}` : `Mute ${name}`}
@@ -158,6 +167,7 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
             ))}
           </ContextMenuSubContent>
         </ContextMenuSub>
+        <TrackModeMenu index={index} linked={track.mixerTrack} />
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => selectTrackClips(index)}>Select its clips</ContextMenuItem>
         <ContextMenuItem onSelect={() => muteTrackClips(index, true)}>Mute all clips</ContextMenuItem>
@@ -174,6 +184,57 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/**
+ * An audio track's own controls (FL's on-track controls): its mixer track's arm switch, and (with room)
+ * which insert and input it records. A click on them selects the mixer track, whose inspector sets them.
+ */
+function AudioTrackControls({ mixerTrack, tall }: { mixerTrack: string; tall: boolean }) {
+  const name = useMusic((s) => mixerTrackName(s.history!.doc, mixerTrack));
+  const input = useMusic((s) => s.history!.doc.mixer.tracks.find((t) => t.id === mixerTrack)?.input ?? null);
+  const channels = useInputs((s) => s.channels);
+  return (
+    <>
+      {tall && (
+        <button
+          type="button"
+          className="absolute bottom-1 left-1.5 max-w-[calc(100%-1rem)] truncate text-left text-[10px] text-muted-foreground hover:text-foreground"
+          title={`Records on ${name} (its input, monitoring and arm: the Mixer's inspector)`}
+          onClick={() => {
+            useMusicUi.getState().selectTrack(mixerTrack);
+            useMusicUi.getState().setMixerOpen(true);
+          }}
+        >
+          {name} · {input ? inputLabel(input, channels) : "no input"}
+        </button>
+      )}
+      <ArmButton trackId={mixerTrack} name={name} size={10} className="mt-[3px]" />
+    </>
+  );
+}
+
+/** FL's Track mode → Audio track: link the track to a mixer insert (or none: an ordinary track). */
+function TrackModeMenu({ index, linked }: { index: number; linked: string | null }) {
+  const inserts = useMusic(useShallow((s) => s.history!.doc.mixer.tracks.filter((t) => t.id !== MASTER_TRACK_ID).map((t) => t.id)));
+  const names = useMusic(useShallow((s) => inserts.map((id) => mixerTrackName(s.history!.doc, id))));
+  const link = (id: string | null) => useMusic.getState().commit((song) => linkAudioTracks(song, [index], id));
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>Audio track</ContextMenuSubTrigger>
+      <ContextMenuSubContent className="max-h-80 overflow-y-auto">
+        <ContextMenuCheckboxItem checked={linked === null} onSelect={() => link(null)}>
+          None (an ordinary track)
+        </ContextMenuCheckboxItem>
+        <ContextMenuSeparator />
+        {inserts.map((id, i) => (
+          <ContextMenuCheckboxItem key={id} checked={linked === id} onSelect={() => link(id)}>
+            {names[i]}
+          </ContextMenuCheckboxItem>
+        ))}
+      </ContextMenuSubContent>
+    </ContextMenuSub>
   );
 }
 

@@ -7,6 +7,8 @@ import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusicPreferences } from "./preferences";
 import { clipPreview } from "./playlist/preview";
 import { usePlaylist } from "./playlist/store";
+import { armedIn, useRecording } from "./recording";
+import { useInputs } from "./inputs";
 import { useMusic } from "./store";
 import { NO_CHANNELS, NO_EFFECTS, NO_METERS, afterSongSent, useTransport } from "./transport";
 import { currentTrackId, useMusicUi } from "./ui";
@@ -45,8 +47,10 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         const { resampling } = useMusicPreferences.getState();
         // Controls the hand holds: their automation is left out until they're let go (song mode's alone has any).
         const held = playMode === "song" ? [...useAutomationUi.getState().held] : [];
+        // The tracks armed to record: their inputs are heard (monitored while armed) and recorded.
+        const armed = armedIn(song, useRecording.getState().armed);
         const { unreadable, channels, effects, loop: playing } = await musicApi.setSong(
-          preview ? { projectId, patternId, resampling, ...preview } : { projectId, song, patternId, loop, mode: playMode, resampling, held },
+          preview ? { projectId, patternId, resampling, ...preview } : { projectId, song, patternId, loop, mode: playMode, resampling, held, armed },
         );
         useTransport.setState({ unreadable, channels, effects: effects ?? NO_EFFECTS, loop: playing, error: null });
         if (!dirty) afterSongSent();
@@ -71,6 +75,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   });
   const unsubscribeQuality = useMusicPreferences.subscribe((state, prev) => {
     if (state.resampling !== prev.resampling) void send();
+  });
+  const unsubscribeArmed = useRecording.subscribe((state, prev) => {
+    if (state.armed !== prev.armed) void send();
   });
   const unsubscribeHeld = useAutomationUi.subscribe((state, prev) => {
     if (state.held !== prev.held && useTransport.getState().mode === "song") void send();
@@ -99,8 +106,12 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     if (state.selectedTrackIds !== prev.selectedTrackIds) meterSelection();
   });
   meterSelection(true);
+  // The input device's channels, for the Input menus and audio tracks' headers.
+  void useInputs.getState().load();
   const stopListening = musicApi.onEngineEvent((event) => {
     if (event.event === "transport") {
+      // Play stopped (by the engine, or another tab): a recording is over.
+      useRecording.getState().transportSaid(event.playing);
       useTransport.setState({
         playing: event.playing,
         tick: event.tick,
@@ -110,6 +121,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         cpu: event.cpu,
         filePreview: event.preview ?? null,
       });
+    } else if (event.event === "take") {
+      useRecording.getState().take(event);
     } else if (event.event === "touch") {
       // A parameter touched in a plugin's window: what Automate offers first.
       const { event: _, ...parameter } = event;
@@ -131,8 +144,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         channels: event.status.channels,
         effects: event.status.effects ?? NO_EFFECTS,
       });
-    } else {
+    } else if (event.event === "ready" || event.event === "stopped") {
       // A restarted engine: the server gives it the song back, but it isn't playing any more.
+      useRecording.getState().stopped();
       useTransport.setState({ playing: false, tick: 0 });
       meterSelection(true);
     }
@@ -161,6 +175,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     unsubscribePlaylist();
     unsubscribeMode();
     unsubscribeQuality();
+    unsubscribeArmed();
     unsubscribeHeld();
     unsubscribeSelection();
     stopListening();

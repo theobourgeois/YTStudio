@@ -13,6 +13,7 @@ import { type MusicKeyAction, isGlobalKey, isTyping, resolveMusicKey, resolvePlu
 import { assignFreeTracks, cloneSelected, copySteps, cutSteps, deleteSelected, moveSelected, muteAt, pasteSteps, rotate, selectNeighbour } from "./rack-actions";
 import { useMusic, useSong } from "./store";
 import { MusicToolbar } from "./toolbar";
+import { useRecording } from "./recording";
 import { switchMode, useTransport } from "./transport";
 import * as playlist from "./playlist/actions";
 import { type PlaylistKeyAction, resolvePlaylistKey } from "./playlist/keys";
@@ -290,6 +291,8 @@ function runKey(action: MusicKeyAction) {
       return ui.setPlaylistOpen(!ui.playlistOpen);
     case "toggleMode":
       return switchMode(useTransport.getState().mode === "song" ? "pattern" : "song");
+    case "toggleRecord":
+      return useRecording.getState().setOn(!useRecording.getState().on);
     case "toggleMixer":
       return ui.setMixerOpen(!ui.mixerOpen);
     case "toggleBrowser":

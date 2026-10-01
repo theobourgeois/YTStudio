@@ -10,6 +10,7 @@ declare global {
       platform: string;
       pathForFile?: (file: File) => string;
       saveFile?: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
+      microphone?: { status(): Promise<string>; ask(): Promise<string> };
     };
     editorDesktop?: { flush(): Promise<void> };
   }
@@ -29,6 +30,23 @@ export function droppedPath(file: File): string {
  */
 export function chooseSaveFile(options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> | undefined {
   return window.editorDesktopInfo?.saveFile?.(options);
+}
+
+/**
+ * Whether this app may hear the microphone (macOS's answer: "granted", "denied", "restricted" or
+ * "not-determined"). Undefined outside the desktop app: there the engine's own process is asked, by
+ * whoever started the server (a terminal, in development).
+ */
+export function microphoneAccess(): Promise<string> | undefined {
+  return window.editorDesktopInfo?.microphone?.status();
+}
+
+/**
+ * Ask for the microphone (recording an input), before the engine opens one, so macOS asks on Vaudio's
+ * behalf at that moment. Resolves with the answer; undefined outside the desktop app.
+ */
+export function askMicrophone(): Promise<string> | undefined {
+  return window.editorDesktopInfo?.microphone?.ask();
 }
 
 export function exposeDesktopHooks() {

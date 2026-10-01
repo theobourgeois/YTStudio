@@ -188,6 +188,8 @@ async function pack(targets: "dir" | "installers") {
       mac: {
         category: "public.app-category.video",
         identity: null,
+        // The engine it starts records from inputs (a mixer track armed): macOS asks the app responsible.
+        extendInfo: { NSMicrophoneUsageDescription: "Vaudio records your microphone or audio interface when you arm a mixer track." },
         target: targets === "dir" ? ["dir"] : ["dmg", "zip"],
       },
       linux: { target: targets === "dir" ? ["dir"] : ["AppImage"] },

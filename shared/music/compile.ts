@@ -80,6 +80,18 @@ export interface EngineTrack {
   sends: { track: number; gain: number }[];
   /** Milliseconds added to its plugins' reported delay (`MixerTrack.latencyOffset`); the engine compensates for both. */
   latencyOffset: number;
+  /**
+   * Its input on the audio device, or null: the device's input channels (one is heard on both sides),
+   * whether it's heard (`monitor`: added in before its effects, so it's heard through them) and
+   * whether it's armed (recorded, dry, when a recording starts).
+   */
+  input: EngineInput | null;
+}
+
+export interface EngineInput {
+  channels: number[];
+  monitor: boolean;
+  armed: boolean;
 }
 
 export interface EngineNote {
@@ -250,6 +262,16 @@ export function trackOrder(tracks: readonly MixerTrack[]): MixerTrack[] {
   return order;
 }
 
+/**
+ * A track's input as the engine takes it: heard always, never, or while it's armed (FL's Monitor
+ * external input), and recorded when it's armed. Null without one.
+ */
+export function engineInput(track: MixerTrack, armed: boolean): EngineInput | null {
+  if (!track.input || track.id === MASTER_TRACK_ID) return null;
+  const { channel, stereo } = track.input;
+  return { channels: stereo ? [channel, channel + 1] : [channel], monitor: track.monitor === "on" || (track.monitor === "armed" && armed), armed };
+}
+
 /** A mixer track's gain matrix from its fader, pan and stereo separation (and the main volume, for the master). */
 function trackGains(track: Pick<MixerTrack, "invert" | "swap" | "stereo" | "pan" | "volume" | "muted">, main: number): EngineTrack["gains"] {
   const gain = track.muted ? 0 : faderGain(track.volume) * main;
@@ -263,7 +285,7 @@ function channelGains(channel: Pick<Channel, "muted" | "volume" | "pan">): [numb
   return [gain * left, gain * right];
 }
 
-function engineTracks(song: MusicProject): { tracks: EngineTrack[]; index: Map<string, number> } {
+function engineTracks(song: MusicProject, armed: ReadonlySet<string>): { tracks: EngineTrack[]; index: Map<string, number> } {
   const ordered = trackOrder(song.mixer.tracks);
   const index = new Map(ordered.map((t, i) => [t.id, i]));
   const numbers = new Map(song.mixer.tracks.map((t, i) => [t.id, i]));
@@ -277,6 +299,7 @@ function engineTracks(song: MusicProject): { tracks: EngineTrack[]; index: Map<s
       effects: track.effects.flatMap((e) => (e ? [{ id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix }] : [])),
       gains: trackGains(track, main),
       latencyOffset: track.latencyOffset,
+      input: engineInput(track, armed.has(track.id)),
       sends: track.sends.flatMap((send) => {
         const to = index.get(send.to);
         return to !== undefined && to > index.get(track.id)! ? [{ track: to, gain: levelGain(send.level, 1) }] : [];
@@ -318,9 +341,16 @@ function engineChannel(channel: Channel, track: number): Omit<EngineChannel, "pl
  * The song as the engine should play it. In pattern mode, `patternId` (or the first pattern) on a loop: the
  * whole pattern, or only `loop`, a part of it. In song mode, the playlist: to the end of its last clip's bar
  * and round again, or only `loop`, a part of the song. Notes that start in the part played are heard; one
- * already sounding when it starts isn't.
+ * already sounding when it starts isn't. `armed`: the mixer tracks armed to record (the tab's, not the song's).
  */
-export function compileSong(song: MusicProject, patternId: string | null, loop: LoopRange | null = null, mode: PlayMode = "pattern", held: ReadonlySet<string> = NONE_HELD): EngineSong {
+export function compileSong(
+  song: MusicProject,
+  patternId: string | null,
+  loop: LoopRange | null = null,
+  mode: PlayMode = "pattern",
+  held: ReadonlySet<string> = NONE_HELD,
+  armed: ReadonlySet<string> = new Set(),
+): EngineSong {
   const pattern = song.patterns.find((p) => p.id === patternId) ?? song.patterns[0];
   const [beats, unit] = song.settings.timeSignature;
   const beatTicks = (PPQ * 4) / unit;
@@ -330,7 +360,7 @@ export function compileSong(song: MusicProject, patternId: string | null, loop: 
   const notes = mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to);
   notes.sort((a, b) => a.tick - b.tick || a.channel - b.channel);
   const played = new Set(notes.map((n) => n.channel));
-  const { tracks, index } = engineTracks(song);
+  const { tracks, index } = engineTracks(song, armed);
   const master = index.get(MASTER_TRACK_ID)!;
   return {
     tempo: song.settings.tempo,

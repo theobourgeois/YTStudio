@@ -1097,6 +1097,131 @@ test("the assistant mixes with the mixer's tools: routes, levels, sends, effects
   expect(mixer[3].effects[0]!.id).not.toBe(verb.effects[0]!.id);
 });
 
+test("records as FL Studio does: an input device, a track's input arms it, Record and Play record, the takes land on the Playlist", async ({ page }) => {
+  const id = await openNewSong(page, "Recording");
+  type Saved = { channels: { id: string; kind: string; name: string; mixerTrack: string }[]; playlist: { tracks: { name: string | null; mixerTrack: string | null }[]; clips: { kind: string; ref: string; track: number; start: number; offset: number; muted: boolean }[] } };
+  const saved = async (): Promise<Saved> => savedSong(page, id);
+
+  // Settings: the input device (the stand-in engine's interface has two inputs).
+  await page.keyboard.press("ControlOrMeta+Comma");
+  const settings = page.getByRole("region", { name: "Settings" });
+  const device = settings.getByTestId("device-settings");
+  await device.getByRole("combobox", { name: "Input device" }).click();
+  await page.getByRole("option", { name: "Fake Interface" }).click();
+  await expect(device).toContainText("2 inputs");
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+
+  // F9: insert 1's inspector takes In 1, which arms it (its light lit, its fader orange); the engine gets it armed.
+  await page.keyboard.press("F9");
+  const mixer = page.getByTestId("mixer");
+  const strip = mixer.locator('[data-track-name="Insert 1"]');
+  await strip.locator("canvas").click();
+  const input = page.getByTestId("track-input");
+  const armedSent = page.waitForRequest((r) => r.url().endsWith("/api/engine/song") && (r.postDataJSON().armed ?? []).includes("insert_1"));
+  await input.getByRole("combobox", { name: "Input", exact: true }).click();
+  await expect(page.getByRole("option", { name: "In 1 - In 2" })).toBeVisible();
+  await page.getByRole("option", { name: "In 1", exact: true }).click();
+  await armedSent;
+  await expect(strip.getByRole("button", { name: "Disarm Insert 1" })).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => (await savedSong(page, id)).mixer.tracks[1].input).toEqual({ channel: 0, stereo: false });
+  // Its light disarms it, and arms it again.
+  await strip.getByRole("button", { name: "Disarm Insert 1" }).click();
+  await strip.getByRole("button", { name: "Arm Insert 1 to record" }).click();
+
+  // Record (R), no count-in; Space records (the song's: song mode), the button glows; Space again stops.
+  const record = page.getByRole("button", { name: "Record", exact: true });
+  await record.click({ button: "right" });
+  await page.getByRole("menuitemradio", { name: "None" }).click();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("r");
+  await expect(record).toHaveAttribute("aria-pressed", "true");
+  // (Nothing focused: Space on a focused button would press it.)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const started = page.waitForRequest((r) => r.url().endsWith("/api/engine/record"));
+  await page.keyboard.press("Space");
+  expect((await started).postDataJSON()).toMatchObject({ projectId: id, countIn: 0, loop: false, names: { insert_1: "Insert 1" } });
+  await expect(record).toHaveAttribute("data-recording", "true");
+  await page.waitForTimeout(800);
+  await page.keyboard.press("Space");
+  await expect(record).not.toHaveAttribute("data-recording");
+
+  // The take: an audio clip where it began, on the first free track, on a channel of its own routed back
+  // into the track that recorded it; its first 10 ms (the stand-in's latency) left out.
+  await expect.poll(async () => (await saved()).playlist.clips.length).toBe(1);
+  let song = await saved();
+  const take = song.channels.find((c) => c.kind === "audio")!;
+  expect(take).toMatchObject({ name: "Insert 1", mixerTrack: "insert_1" });
+  expect(song.playlist.clips[0]).toMatchObject({ kind: "audio", ref: take.id, track: 0, start: 0, offset: 0.01, muted: false });
+  // One undo step takes it away.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await saved()).playlist.clips.length).toBe(0);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(async () => (await saved()).playlist.clips.length).toBe(1);
+
+  // Assign to new audio track: a Playlist track for insert 1, named after it, below what's in use.
+  await strip.locator("canvas").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Assign to new audio track" }).click();
+  await expect.poll(async () => (await saved()).playlist.tracks[1]).toMatchObject({ name: "Insert 1", mixerTrack: "insert_1" });
+  await page.keyboard.press("F5");
+  const header = page.getByTestId("track-headers").locator('[data-track="1"]');
+  await expect(header.getByRole("button", { name: "Disarm Insert 1" })).toBeVisible();
+
+  // Loop record: a take each pass round the song (a bar), on the audio track and below it, all but the last muted.
+  await record.click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "Loop record" }).click();
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("Space");
+  // At 140 BPM a bar is 1.7 s: two passes and part of a third.
+  await page.waitForTimeout(4200);
+  await page.keyboard.press("Space");
+  await expect.poll(async () => (await saved()).playlist.clips.length, { timeout: 10_000 }).toBe(4);
+  song = await saved();
+  const takes = song.playlist.clips.filter((c) => c.track > 0).sort((a, b) => a.track - b.track);
+  expect(takes.map((c) => [c.track, c.start, c.muted])).toEqual([
+    [1, 0, true],
+    [2, 0, true],
+    [3, 0, false],
+  ]);
+  expect(song.channels.filter((c) => c.kind === "audio").map((c) => c.name)).toEqual(["Insert 1", "Insert 1", "Insert 1 take 2", "Insert 1 take 3"]);
+  await record.click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "Loop record" }).click();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("r");
+});
+
+test("the assistant records: an input given and armed, a take recorded and placed", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted recording");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      "call list_audio_inputs",
+      'call update_mixer_track {"track": 2, "name": "Vox", "input": "2", "monitor": "on", "inputOffset": 5}',
+      'call update_playlist_track {"track": 2, "audioTrack": "Vox"}',
+      'call arm_tracks {"tracks": ["Vox"]}',
+      'call arm_tracks {"tracks": [3]}',
+      'call record_audio {"action": "start", "countIn": 0}',
+      "call get_mixer",
+      'call record_audio {"action": "stop"}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("record_audio: ok, get_mixer: ok, record_audio: ok", { timeout: 30_000 });
+  // Insert 3 has no input: it can't be armed.
+  await expect(panel).toContainText("arm_tracks: failed");
+  const song = await expect
+    .poll(async () => (await savedSong(page, id)).playlist.clips.length)
+    .toBe(1)
+    .then(() => savedSong(page, id));
+  expect(song.mixer.tracks[2]).toMatchObject({ name: "Vox", input: { channel: 1, stereo: false }, monitor: "on", inputOffset: 5 });
+  // On the audio track, its offset the latency and the input offset (10 + 5 ms).
+  expect(song.playlist.clips[0]).toMatchObject({ kind: "audio", track: 1, start: 0 });
+  expect(song.playlist.clips[0].offset).toBeCloseTo(0.015, 5);
+});
+
 test("the Browser: a folder added once for every song, opened, previewed, searched, starred, by mouse and by FL's keys", async ({ page }) => {
   // A sample folder of the user's: a kit with two kicks and a snare, and a loop.
   const folder = path.resolve("e2e/.data/My Samples");

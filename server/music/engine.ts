@@ -20,6 +20,7 @@ import {
   type EngineRender,
   type EngineSlot,
   type EngineStatus,
+  type EngineTakeEvent,
   type HostWindow,
   type LoadedPlugin,
   METRONOME_SOUNDS,
@@ -30,6 +31,8 @@ import {
 } from "../../shared/music/engine.ts";
 import { DEFAULT_VELOCITY, normalizeMusicProject } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
+import type { MediaAsset } from "../../shared/types.ts";
+import { createId } from "../../shared/ids.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
 import { spawnStreaming } from "../process.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
@@ -57,6 +60,12 @@ export interface RenderExportRequest {
 /** Where a project's sample is on disk, or null if it has no such audio file. */
 export type SamplePath = (projectId: string, mediaId: string) => string | null;
 
+/**
+ * Make a recorded file a project's media, moving it (the app wires it to the projects' media library:
+ * this suite doesn't import the video editor's). `origin` says where it came from.
+ */
+export type AdoptTake = (projectId: string, file: string, name: string, origin: string) => Promise<MediaAsset>;
+
 export interface EngineOptions {
   /** The engine's argv before its options (default: the built engine). Tests pass a fake. */
   command?: string[];
@@ -69,6 +78,30 @@ export interface EngineOptions {
   samplePath?: SamplePath;
   /** More environment for the engine's process (tests: the test plugins' settings). */
   env?: Record<string, string>;
+  /** Makes a recorded take the project's media (default: it can't, and takes are reported without it). */
+  adoptTake?: AdoptTake;
+}
+
+/** A recording in progress: whose it is and what its takes are called. */
+interface Recording {
+  projectId: string;
+  names: Record<string, string>;
+  /** When it started, for its files' names. */
+  started: Date;
+}
+
+/** The engine's own word that a take's file is finished (`Recorder::Take`). */
+interface RawTake {
+  recordingId: string;
+  track: string;
+  file: string;
+  startTick: number;
+  skip: number;
+  frames: number;
+  sampleRate: number;
+  pass: number;
+  final: boolean;
+  dropped: boolean;
 }
 
 /** How often the song's plugins' states are written, if they've changed (what's turned in a plugin's window isn't an edit of the song). */
@@ -91,6 +124,12 @@ type RawDevices = Omit<EngineDevices, "status"> & { status: RawStatus };
 type SavedStates = Partial<Record<EngineSlot, string>>;
 
 const isSlot = (v: unknown): v is EngineSlot => ENGINE_SLOTS.includes(v as EngineSlot);
+
+/** When a recording started, for its takes' names: "2026-10-01 14-03-22", as FL Studio names them. */
+function takeTime(date: Date): string {
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())} ${two(date.getHours())}-${two(date.getMinutes())}-${two(date.getSeconds())}`;
+}
 
 function slotOf(body: Record<string, unknown>): EngineSlot {
   if (!isSlot(body.slot)) throw new HttpError(400, `"slot" must be one of: ${ENGINE_SLOTS.join(", ")}.`);
@@ -116,6 +155,11 @@ export class AudioEngine {
   private stateTimer: NodeJS.Timeout | null = null;
   /** The desktop app's window, to tell a restarted engine too. */
   private host: HostWindow | null = null;
+  private readonly adoptTake: AdoptTake | null;
+  /** Recordings by id, while their takes may still come. */
+  private readonly recordings = new Map<string, Recording>();
+  /** Takes are made media one after another, so they reach the tab in the order they were recorded. */
+  private takes: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly paths: DataPaths,
@@ -125,6 +169,7 @@ export class AudioEngine {
     this.pluginPaths = options.pluginPaths ?? ENGINE_PLUGIN_PATHS;
     this.samplePath = options.samplePath ?? (() => null);
     this.env = options.env;
+    this.adoptTake = options.adoptTake ?? null;
     this.flags = [...(options.offline ? ["--offline"] : []), ...(options.onlyPluginPaths ? ["--only-plugin-paths"] : [])];
   }
 
@@ -189,7 +234,8 @@ export class AudioEngine {
     const doc = normalizeMusicProject(body.song, (id) => this.samplePath(projectId, id) !== null);
     const loop = isObject(body.loop) && isFiniteNumber(body.loop.start) && isFiniteNumber(body.loop.end) ? { start: body.loop.start, end: body.loop.end } : null;
     const held = new Set(Array.isArray(body.held) ? body.held.filter((k): k is string => typeof k === "string").slice(0, 64) : []);
-    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, body.mode === "song" ? "song" : "pattern", held);
+    const armed = new Set(Array.isArray(body.armed) ? body.armed.filter((id): id is string => typeof id === "string") : []);
+    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, body.mode === "song" ? "song" : "pattern", held, armed);
     // A plugin's state is a file of its own beside the project's document: `plugins/<channel id>.bin`, or the effect's id.
     const states = path.join(this.paths.projectDir(projectId), "plugins");
     const song = {
@@ -281,9 +327,11 @@ export class AudioEngine {
     const input = isObject(body) ? body : {};
     const params: Record<string, unknown> = {};
     if (typeof input.output === "string" && input.output) params.output = input.output;
+    // "" closes the input device.
+    if (typeof input.input === "string") params.input = input.input;
     if (isFiniteNumber(input.bufferSize) && input.bufferSize > 0) params.bufferSize = Math.round(input.bufferSize);
     if (isFiniteNumber(input.sampleRate) && input.sampleRate > 0) params.sampleRate = input.sampleRate;
-    if (!Object.keys(params).length) throw new HttpError(400, 'Give an "output", a "bufferSize" or a "sampleRate".');
+    if (!Object.keys(params).length) throw new HttpError(400, 'Give an "output", an "input", a "bufferSize" or a "sampleRate".');
     return this.withSavedIn((await this.request("setDevice", params)) as RawDevices);
   }
 
@@ -310,8 +358,71 @@ export class AudioEngine {
    * Offline engines only: compute the next `frames` samples of what's loaded and playing, and measure
    * them; with `file`, they're written there as a WAV too.
    */
-  async render(frames: number, file?: string): Promise<EngineRender> {
-    return (await this.request("render", { frames, file })) as EngineRender;
+  async render(frames: number, file?: string, input?: string): Promise<EngineRender> {
+    return (await this.request("render", { frames, file, input })) as EngineRender;
+  }
+
+  /**
+   * Record (`RecordRequest`): the engine plays and records the armed tracks of the song it was last
+   * sent into the project's `recordings` folder; each take, once finished, becomes the project's media
+   * and is told as an `EngineTakeEvent`. Stopped by `stop`, like play.
+   */
+  async record(body: unknown): Promise<{ recordingId: string; status: EngineStatus }> {
+    if (!isObject(body) || !isValidId(body.projectId)) throw new HttpError(400, '"projectId" must be the song\'s project id.');
+    const names: Record<string, string> = {};
+    if (isObject(body.names))
+      for (const [track, name] of Object.entries(body.names)) if (typeof name === "string" && /^[\w-]{1,64}$/.test(track)) names[track] = name.trim().slice(0, 80);
+    const recordingId = createId("rec");
+    const folder = path.join(this.paths.projectDir(body.projectId), "recordings");
+    await fs.mkdir(folder, { recursive: true });
+    this.recordings.set(recordingId, { projectId: body.projectId, names, started: new Date() });
+    try {
+      const status = (await this.request("record", {
+        recordingId,
+        folder,
+        from: isFiniteNumber(body.from) ? Math.max(0, body.from) : 0,
+        countIn: isFiniteNumber(body.countIn) ? clamp(body.countIn, 0, 96 * 4 * 16) : 0,
+        loop: body.loop === true,
+      })) as RawStatus;
+      return { recordingId, status: await this.withSaved(status) };
+    } catch (err) {
+      this.recordings.delete(recordingId);
+      throw err;
+    }
+  }
+
+  /** A take's file is done: made the project's media (in turn), then told to the tab. */
+  private take(raw: RawTake) {
+    this.takes = this.takes.then(async () => {
+      const recording = this.recordings.get(raw.recordingId);
+      if (!recording) return;
+      if (raw.final) this.recordings.delete(raw.recordingId);
+      const name = `${recording.names[raw.track] || "Recording"} ${takeTime(recording.started)}${raw.pass > 0 ? ` take ${raw.pass + 1}` : ""}`;
+      let media: MediaAsset | null = null;
+      let error: string | undefined;
+      try {
+        if (!this.adoptTake) throw new Error("Recordings can't be kept here.");
+        media = await this.adoptTake(recording.projectId, raw.file, name, `recording:${raw.recordingId}:${raw.track}:${raw.pass}`);
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
+      if (raw.dropped && !error) error = "The disk didn't keep up: some of this take is missing.";
+      const event: EngineTakeEvent = {
+        event: "take",
+        recordingId: raw.recordingId,
+        projectId: recording.projectId,
+        track: raw.track,
+        media,
+        ...(error ? { error } : {}),
+        startTick: raw.startTick,
+        skip: raw.skip,
+        frames: raw.frames,
+        sampleRate: raw.sampleRate,
+        pass: raw.pass,
+        final: raw.final,
+      };
+      this.emit(event);
+    });
   }
 
   shutdown() {
@@ -477,6 +588,8 @@ export class AudioEngine {
           if (this.host) void this.request("host", { ...this.host }).catch(() => {});
           resolve();
           this.emit({ event: "ready" });
+        } else if (message.event === "take") {
+          this.take(message as unknown as RawTake);
         } else if (message.event === "transport" || message.event === "key" || message.event === "export" || message.event === "touch" || message.event === "automate") {
           this.emit(message as unknown as EngineEvent);
         } else if (message.event === "status" && isObject(message.status)) {

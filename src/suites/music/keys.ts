@@ -15,6 +15,8 @@ export type MusicKeyAction =
         | "toggleMixer"
         | "toggleBrowser"
         | "toggleMode"
+        /** FL's R: Record on or off (Play then records the armed tracks). */
+        | "toggleRecord"
         | "toggleGraph"
         | "toggleTrackSelectors"
         | "assignFreeTracks"
@@ -43,7 +45,7 @@ type KeyLike = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shi
 
 export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   const command = e.metaKey || e.ctrlKey;
-  const only = (type: "togglePlay" | "toggleRack" | "togglePiano" | "togglePlaylist" | "toggleMixer" | "toggleMode") => (!command && !e.shiftKey && !e.altKey ? { type } : null);
+  const only = (type: "togglePlay" | "toggleRack" | "togglePiano" | "togglePlaylist" | "toggleMixer" | "toggleMode" | "toggleRecord") => (!command && !e.shiftKey && !e.altKey ? { type } : null);
   // By position, so Alt (which types other characters on a Mac) doesn't hide the key.
   const letter = /^Key([A-Z])$/.exec(e.code)?.[1] ?? "";
   const digit = /^Digit(\d)$/.exec(e.code)?.[1];
@@ -75,6 +77,7 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
 
   // FL's L: pattern or song mode.
   if (letter === "L" && !command && !e.shiftKey && !e.altKey) return only("toggleMode");
+  if (letter === "R" && !command && !e.shiftKey && !e.altKey) return only("toggleRecord");
   if (e.altKey && !command && !e.shiftKey) {
     if (letter === "C") return { type: "clone" };
     if (letter === "M") return { type: "toggleTrackSelectors" };
@@ -96,7 +99,7 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
 }
 
 /** Keys for the whole editor, whichever window is in front (the Piano roll and the mixer leave only these to the rack). */
-const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set(["togglePlay", "undo", "redo", "toggleRack", "togglePiano", "togglePlaylist", "toggleMixer", "toggleBrowser", "toggleMode", "exportWav", "exportMp3"]);
+const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set(["togglePlay", "undo", "redo", "toggleRack", "togglePiano", "togglePlaylist", "toggleMixer", "toggleBrowser", "toggleMode", "toggleRecord", "exportWav", "exportMp3"]);
 
 export const isGlobalKey = (action: MusicKeyAction) => GLOBAL_KEYS.has(action.type);
 

@@ -151,6 +151,9 @@ struct Song
         double latencyOffsetMs = 0;
         /** Samples its sound comes out late by, after its effects (`compensate`): a stem is held back by what the master's is later. */
         int latency = 0;
+        /** Its input on the device (`EngineInput`): the channels (one is heard on both sides), whether it's heard, and armed. */
+        std::vector<int> input;
+        bool monitor = false, armed = false;
         /** Automated: its gains glide from `from` to `gains` across each block. */
         bool automated = false;
     };

@@ -56,7 +56,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      swing, gains, mutes, song mode's arrangement flattened, automation as lanes), its tools
                      (tools.ts), the audio engine's commands, status and events (engine.ts), the
                      Browser's types and search (browser.ts: pure, ranked, typo-tolerant), and the
-                     export's settings, file names and ffmpeg arguments (export.ts) and MIDI file (midi.ts).
+                     export's settings, file names and ffmpeg arguments (export.ts) and MIDI file (midi.ts),
+                     and recorded takes into the song (recording.ts: where they land, the latency left out).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -162,7 +163,8 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      and its samples. Sequencer.cpp: the transport, the sampler's voices, plugin channels'
                      notes, the metronome. Host.cpp: the song's plugin channels (instances, state files,
                      windows). Plugins.cpp: plugin scanning and the bench's two slots. FilePreview.cpp:
-                     the Browser's preview, a file streamed from disk; AudioStream.cpp is that stream (a reader
+                     the Browser's preview, a file streamed from disk; Recorder.cpp: recording (armed tracks'
+                     inputs to WAVs, through FIFOs a writer thread empties); AudioStream.cpp is that stream (a reader
                      thread, a lock-free ring), and ClipPlayer.cpp plays the playlist's audio clips with it,
                      each started on its sample. Export.cpp: the export, rendered on a thread of its own
                      (Workers.h runs its plugins on every core). Resampling.h: reading between samples
@@ -187,7 +189,8 @@ src/
                      instrument), knob.tsx, lcd.tsx, waveform.ts, browser/ (the Browser, Alt+F8: a panel
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
                      pattern-picker.tsx, toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
-                     tempo and position LCDs, the hint bar; its maths in position.ts), playlist/ (the
+                     tempo and position LCDs, the hint bar; its maths in position.ts), recording.ts (armed
+                     tracks, Record, takes into the song) and inputs.ts (the input device's channels), playlist/ (the
                      Playlist, F5: see "The music suite"), automation/ (automation clips: see "The music
                      suite"), playhead.ts (where the song and the shown pattern
                      are now), settings.tsx (its section of Settings: the device, and
@@ -302,7 +305,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation. Where it is and every step still to come, in order:
+the export, automation, recording. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
@@ -447,6 +450,21 @@ the export, automation. Where it is and every step still to come, in order:
   starts and given back when it stops. A knob or fader that can be automated takes a `target`
   (`SongKnob`'s), which gives it Create automation clip and has it follow the curve in song mode. Its curve
   is edited on its clips in the Playlist (`curve-pointer.ts`, a `curve` drag committed once).
+- **Recording** (`docs/fl-studio/recording.md`, FL's through mixer tracks): a track's `input` (a device
+  channel or a pair), `monitor` and `inputOffset` are the song's; **which tracks are armed, Record (R) and a
+  recording in progress are the tab's** (`recording.ts`), sent with the song (`SetSongRequest.armed`). Settings
+  opens an input device (and the desktop app asks for the microphone first: the engine opens no input until
+  one is chosen). The engine adds a monitored input into its track before the effects, and `Recorder`
+  writes each armed track's dry input: files opened ahead on the message thread, written through a
+  `ThreadedWriter`'s FIFO, switched to a spare on the sample a loop goes round (plus the latency), never
+  opened or closed on the audio thread; keep it so. Play with a count-in holds the transport while it
+  clicks; without Loop record the song doesn't wrap while recording (`through`). Finished takes come as
+  `take` events; the server makes them the project's media (`adoptTake`), and `addTakes`
+  (`shared/music/recording.ts`) places them, the latency left out (`takeWindow`), a recording's takes one
+  undo step. A Playlist track can be an insert's audio track (`PlaylistTrack.mixerTrack`): its takes land
+  on it. The transport doesn't import the recording store (a cycle through the song's store): recording
+  registers itself with it (`setRecorder`). Offline tests feed a WAV as the device's inputs (`render`'s
+  `input`).
 - **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).

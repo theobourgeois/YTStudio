@@ -32,6 +32,8 @@ interface TransportState {
   sampleRate: number;
   /** What the engine loops, in the pattern's ticks: the whole pattern, or the Piano roll's time selection. */
   loop: { start: number; ticks: number };
+  /** Playing on past the loop's end (a recording without Loop record): the position doesn't go round. */
+  through: boolean;
   /** Where in the pattern play starts (a click on the Piano roll's ruler), in ticks. */
   startTick: number;
   /** Where in the song play starts in song mode (a click on the Playlist's ruler), in ticks. */
@@ -85,6 +87,21 @@ interface TransportState {
   setMode: (mode: PlayMode) => void;
 }
 
+/**
+ * Recording's part in the transport (`recording.ts` gives it, so the transport needn't import the song's
+ * store): whether Play records, starting a recording, being told play stopped, and whether one is going.
+ */
+export interface Recorder {
+  recordsOnPlay: () => boolean;
+  record: () => void;
+  stopped: () => void;
+  recording: () => boolean;
+}
+let recorder: Recorder | null = null;
+export const setRecorder = (hook: Recorder) => {
+  recorder = hook;
+};
+
 export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: [] };
 export const NO_METERS: EngineMeters = {};
 export const NO_EFFECTS: EngineEffects = { loaded: [], loading: [], failed: [] };
@@ -121,6 +138,7 @@ export const useTransport = create<TransportState>((set, get) => {
     latencyMs: 0,
     sampleRate: 48000,
     loop: { start: 0, ticks: 0 },
+    through: false,
     startTick: 0,
     songStartTick: 0,
     pausedAt: null,
@@ -132,7 +150,9 @@ export const useTransport = create<TransportState>((set, get) => {
     error: null,
 
     // From where the ruler was clicked, if that's inside what loops; the engine counts from the loop's start.
+    // While Record is on, Play records.
     play() {
+      if (recorder?.recordsOnPlay()) return recorder.record();
       if (get().exporting) return void toast.info("Exporting", { description: "Playback comes back as soon as the export is done.", id: "exporting" });
       const { loop, pausedAt } = get();
       const from = (pausedAt ?? get().startOf()) - loop.start;
@@ -141,10 +161,12 @@ export const useTransport = create<TransportState>((set, get) => {
     },
     stop() {
       set({ pausedAt: null });
+      recorder?.stopped();
       void run("stop", {});
     },
     pause(tick) {
       set({ pausedAt: Math.max(0, Math.round(tick)) });
+      recorder?.stopped();
       void run("stop", {});
     },
     toggle: () => (get().playing ? get().stop() : get().play()),
@@ -162,12 +184,15 @@ export const useTransport = create<TransportState>((set, get) => {
     setStartTick: (tick) => set({ startTick: Math.max(0, Math.round(tick)), pausedAt: null }),
     jumpTo(tick) {
       get().setStartTick(tick);
+      // (Not while recording: play goes on, the next one starts there.)
+      if (recorder?.recording()) return;
       if (get().mode !== "pattern") return switchMode("pattern");
       if (get().playing) get().play();
     },
     setSongStartTick: (tick) => set({ songStartTick: Math.max(0, Math.round(tick)), pausedAt: null }),
     jumpSongTo(tick) {
       get().setSongStartTick(tick);
+      if (recorder?.recording()) return;
       if (get().mode !== "song") return switchMode("song");
       if (get().playing) get().play();
     },
@@ -264,15 +289,16 @@ export const cancelPlayWhenSent = () => (pendingPreview = false);
  * Where a playing loop is now, in ticks: the engine's last word, moved on by the time since and held
  * back by the output's latency. Null when it isn't playing (or nothing of it has been heard yet).
  */
-export function tickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs">, now: number, tempo: number, ppq: number, loopTicks: number): number | null {
+export function tickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs"> & { through?: boolean }, now: number, tempo: number, ppq: number, loopTicks: number): number | null {
   if (!state.playing || loopTicks <= 0) return null;
   const tick = state.tick + ((now - state.at - state.latencyMs) / 60_000) * tempo * ppq;
   if (tick < 0) return null;
-  return tick % loopTicks;
+  // Recording past the loop's end, it doesn't go round.
+  return state.through ? tick : tick % loopTicks;
 }
 
 /** Where it's playing now in the pattern's own ticks, or the song's in song mode (the loop may be only a part of it), or null. */
-export function patternTickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs" | "loop">, now: number, tempo: number, ppq: number): number | null {
+export function patternTickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs" | "loop"> & { through?: boolean }, now: number, tempo: number, ppq: number): number | null {
   const tick = tickNow(state, now, tempo, ppq, state.loop.ticks);
   return tick === null ? null : state.loop.start + tick;
 }

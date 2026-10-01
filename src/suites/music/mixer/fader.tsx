@@ -24,6 +24,8 @@ interface FaderProps {
   label: string;
   /** Lit with the accent: its track is selected (FL Studio's green fader). */
   selected?: boolean;
+  /** Its track is armed to record: FL Studio's orange fader (over the selected look). */
+  armed?: boolean;
   className?: string;
   onBegin: () => void;
   onDrag: (value: number) => void;
@@ -45,7 +47,8 @@ interface FaderProps {
  * groove to bring the handle there and drag on; Alt+click or a middle click puts it back at 0 dB; a
  * right-click opens its menu (Reset, Type in value, in dB). It shows its level in dB while it moves.
  */
-export function Fader({ value, label, selected, className, onBegin, onDrag, onEnd, onCancel, onSet, automated, own = value, menu }: FaderProps) {
+export function Fader({ value, label, selected, className, onBegin, onDrag, onEnd, onCancel, onSet, automated, armed, own = value, menu }: FaderProps) {
+  const look: CapLook = armed ? "armed" : selected ? "selected" : "plain";
   const [dragging, setDragging] = useState(false);
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
@@ -134,7 +137,7 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
               {/* The darker slot the fader runs in (FL's), then its groove. */}
               <span className="pointer-events-none absolute inset-y-0 left-1/2 w-[30px] -translate-x-1/2 rounded-[4px]" style={{ background: "var(--fader-slot)" }} aria-hidden />
               <span className="pointer-events-none absolute inset-y-1 left-1/2 w-[3px] -translate-x-1/2 rounded-full" style={{ background: "var(--fader-groove)", boxShadow: "inset 0 1px 1px rgb(0 0 0 / 0.5)" }} aria-hidden />
-              {selected && (
+              {selected && !armed && (
                 <span
                   className="pointer-events-none absolute bottom-1 left-1/2 w-px -translate-x-1/2"
                   style={{ top: `calc(${handleTop(value)} + ${HANDLE_H}px)`, background: "var(--fader-cap-on)" }}
@@ -154,8 +157,8 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
                 style={{
                   top: handleTop(value),
                   height: HANDLE_H,
-                  background: capFace(selected ?? false),
-                  boxShadow: `0 0 0 1px ${selected ? "var(--fader-cap-on-edge)" : "var(--fader-cap-edge)"}, 0 3px 4px rgb(0 0 0 / 0.5)`,
+                  background: capFace(look),
+                  boxShadow: `0 0 0 1px ${CAP_EDGES[look]}, 0 3px 4px rgb(0 0 0 / 0.5)`,
                 }}
                 aria-hidden
               />
@@ -212,15 +215,27 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
   );
 }
 
+type CapLook = "plain" | "selected" | "armed";
+
+const CAP_FACES: Record<CapLook, [string, string, string]> = {
+  plain: ["var(--fader-cap-light)", "var(--fader-cap)", "var(--fader-cap-dark)"],
+  selected: ["var(--fader-cap-on-light)", "var(--fader-cap-on)", "var(--fader-cap-on-dark)"],
+  armed: ["color-mix(in oklab, var(--mixer-armed) 55%, #fff)", "var(--mixer-armed)", "color-mix(in oklab, var(--mixer-armed) 70%, #000)"],
+};
+const CAP_EDGES: Record<CapLook, string> = {
+  plain: "var(--fader-cap-edge)",
+  selected: "var(--fader-cap-on-edge)",
+  armed: "color-mix(in oklab, var(--mixer-armed) 55%, #000)",
+};
+
 /**
  * FL Studio's fader cap, as its picture: a cylinder (darker at its sides), a light curved top face, a dark
  * line across its middle, a shadow band under it, and a light lip at the foot. From the theme's tokens: the
- * metal (`--fader-cap-*`) or, on the selected track, the accent (`--fader-cap-on-*`).
+ * metal (`--fader-cap-*`), on the selected track the accent (`--fader-cap-on-*`), and on an armed one
+ * FL's orange (`--mixer-armed`).
  */
-function capFace(selected: boolean): string {
-  const [light, mid, dark] = selected
-    ? ["var(--fader-cap-on-light)", "var(--fader-cap-on)", "var(--fader-cap-on-dark)"]
-    : ["var(--fader-cap-light)", "var(--fader-cap)", "var(--fader-cap-dark)"];
+function capFace(look: CapLook): string {
+  const [light, mid, dark] = CAP_FACES[look];
   const sides = "linear-gradient(to right, rgb(0 0 0 / 0.3), rgb(0 0 0 / 0) 24%, rgb(255 255 255 / 0.08) 50%, rgb(0 0 0 / 0) 76%, rgb(0 0 0 / 0.3))";
   const bands = [
     `${light} 0%`,

@@ -10,6 +10,7 @@ import type { GallerySection } from "@/gallery/types";
 import { CENTS, Knob, PERCENT, cents, panText, percent } from "./knob";
 import { Lcd } from "./lcd";
 import { Fader } from "./mixer/fader";
+import { Led } from "./mixer/led";
 import { ModeLights } from "./mode-switch";
 
 /** A knob with a value of its own (nothing in the song). */
@@ -40,12 +41,21 @@ function LooseLcd({ initial, derived }: { initial: number; derived?: boolean }) 
 }
 
 /** A fader with a value of its own. */
-function LooseFader({ initial, selected, automated }: { initial: number; selected?: boolean; automated?: boolean }) {
+function LooseFader({ initial, selected, automated, armed }: { initial: number; selected?: boolean; automated?: boolean; armed?: boolean }) {
   const [value, setValue] = useState(initial);
   const noop = () => {};
-  return <Fader className="h-28" label="Volume" value={value} selected={selected} automated={automated} onBegin={noop} onDrag={setValue} onEnd={noop} onCancel={noop} onSet={setValue} />;
+  return <Fader className="h-28" label="Volume" value={value} selected={selected} automated={automated} armed={armed} onBegin={noop} onDrag={setValue} onEnd={noop} onCancel={noop} onSet={setValue} />;
 }
 
+/** A mixer track's arm light (`mixer/arm-button.tsx`, which is the song's): red, lit while armed. */
+function LooseArm() {
+  const [armed, setArmed] = useState(true);
+  return (
+    <button type="button" aria-pressed={armed} className="group grid place-items-center" style={{ "--mixer-led": "var(--mixer-arm)" } as React.CSSProperties} onClick={() => setArmed(!armed)}>
+      <Led on={armed} size={13} />
+    </button>
+  );
+}
 /** One curve type between two points (low to high, then high to low), as an automation clip draws it. */
 function CurveCard({ curve, tension }: { curve: CurveType; tension: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -125,6 +135,11 @@ function Controls() {
         <LooseFader initial={0.4} selected />
         <LooseFader initial={1} />
         <LooseFader initial={0.6} automated />
+        <LooseFader initial={0.7} armed />
+      </div>
+      <div className="flex items-center gap-4">
+        <span className="w-28 text-xs text-muted-foreground">arm (recording)</span>
+        <LooseArm />
       </div>
     </div>
   );
@@ -132,6 +147,6 @@ function Controls() {
 
 /** The music suite's controls, for the component gallery (`src/gallery/`). */
 export const MUSIC_SECTIONS: GallerySection[] = [
-  { id: "music-controls", title: "Music: knobs, LCDs, PAT / SONG and faders", source: "suites/music/knob.tsx, lcd.tsx, mode-switch.tsx, mixer/fader.tsx", render: () => <Controls /> },
+  { id: "music-controls", title: "Music: knobs, LCDs, PAT / SONG, faders and the arm light", source: "suites/music/knob.tsx, lcd.tsx, mode-switch.tsx, mixer/fader.tsx, mixer/arm-button.tsx", render: () => <Controls /> },
   { id: "music-curves", title: "Music: automation curve types (FL's), with points and tension handles", source: "suites/music/automation/draw-curve.ts", render: () => <Curves /> },
 ];

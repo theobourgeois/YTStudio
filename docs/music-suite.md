@@ -14,7 +14,8 @@ put together and how we use its manual).
   devices needed are the sampler and an EQ.
 - **His workflow**, which the order of work serves: a melody first (Serum 2 in the piano roll), then drums
   (the rack), then the playlist, split by track, to arrange the song; mixing after that.
-- **Later, but designed for now**: recording audio (vocals over a song) and a MIDI keyboard.
+- **Recording audio** (vocals over a song): built (step 6). **Later, but designed for now**: a MIDI
+  keyboard.
 - **The look** is FL's too (decided after the Piano roll): 3D-ish but modern, the accent blue, in dark and
   light. The whole app is being restyled that way: `docs/ui-redesign.md`.
 - **How to build each panel**: talk the phase through with Théo first; write its FL Studio reference in
@@ -41,6 +42,7 @@ put together and how we use its manual).
 | Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song`; the Browser's: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`, `star_sample`; the Playlist's: `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`, `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` in song mode | `shared/music/tools.ts` |
 | Automation | FL's automation clips, in one pass: a knob's or fader's Create automation clip (channels' volume and pan, mixer faders, pans, stereo separation, sends, effects' mixes, the main volume), a plugin's parameters (Automate "…" in its window's title bar, or the Picker's Automate… window listing every control), the curve shaped on its clips in the Playlist (points, tension handles, FL's eleven curve types, Alt+click deletes), its window (Min / Max, the LFO, the Tools), shared curves and Make unique, an audio clip's Automate volume / pan. Song mode only; a control is its own value before its first clip and holds the last value after one; the hand wins while it's held. In the engine, slices of 256 samples from where play started: the same live and exported. `get_automation`, `list_controls`, `add_automation`, `update_automation` | `docs/fl-studio/automation.md` |
 | Export | ⌘R / ⌘⇧R: the save dialog, then FL's export window. Song or pattern, cut or ring out, WAV / MP3 / FLAC / OGG / M4A / MIDI from one render, stems in time with the mix, the plugin delay trimmed, plugins in their offline mode, every core (45× real time with 24 Serums). The song can be edited while it renders. Resampling (linear, Hermite, sinc) chosen in Settings. `export_song` for the assistant | `docs/fl-studio/export.md` |
+| Recording | FL's: an input device (an interface, or the Mac's mic), a mixer track's input (choosing it arms the track), monitoring through the track's effects, Record (R) and its count-in, a take per armed track placed where it was recorded (on the track's audio track, or the first free one), Loop record (a take each pass, the earlier muted unless Blend), latency left out; `list_audio_inputs`, `arm_tracks`, `record_audio` for the assistant | `docs/fl-studio/recording.md` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
 
 ### How it's built, in one screen
@@ -233,10 +235,10 @@ alongside, in its own branch.**
 
 ### 6. Audio recording
 
-- An input device (Settings already picks the output), monitoring, arming a mixer insert (FL records
-  through an insert), record to a WAV on disk (on a writer thread, never the audio thread), the take
-  becoming an audio clip in the playlist. Latency compensation from the device's reported latency. The
-  streaming playback it needs is built (`engine/src/ClipPlayer.cpp`, `AudioStream.cpp`).
+**Built** (2026-10-01, in one pass, while automation was built on another branch). The reference,
+Théo's decisions, how it's built and where it differs are in `docs/fl-studio/recording.md`. Still to
+come for it: punch in/out, recording in pattern mode, repairing a take's file if the engine dies
+mid-recording, an input meter for an armed track that isn't monitored.
 
 ### Also on the list, when they fit
 

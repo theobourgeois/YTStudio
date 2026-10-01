@@ -27,6 +27,9 @@ about to touch before changing it, and correct it when you learn it's wrong.
   settings and LFO, what an automated control does. Ends with what was decided, where Vaudio differs and how it's built.
 - [export.md](export.md): exporting (rendering) a song: the export dialog's settings, the tail, stems,
   quality. Ends with what was decided with Théo, how it's built (fast: every core) and where Vaudio differs.
+- [recording.md](recording.md): recording audio: a mixer track's input and arm, monitoring, the Record
+  button and count-in, loop recording and takes, audio tracks, latency. Ends with what was decided with
+  Théo, how it's built and where Vaudio differs.
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).
 
@@ -38,7 +41,8 @@ Where the music suite is and the order of what's next: [../music-suite.md](../mu
    `basics_interface`, `basics_shortcuts`, `basics_workflow`, `toolbar_panels`, `envsettings_general`,
    `songsettings_settings`, `pianoroll`, `playlist`, `mixer`, `mixer_trackprops`, `mixer_mixermenu`,
    `mixer_levelsandmixing`, `browser`, `playlist_patterns`, `playlist_audioclip`,
-   `playlist_automationclip`, `menu_patterns`, `fformats_save_export`, `menu_file`, `plugins/wrapper`. It describes the current version
+   `playlist_automationclip`, `menu_patterns`, `fformats_save_export`, `menu_file`, `plugins/wrapper`,
+   `recording_audio`, `recording`, `mixer_iorouting`, `mixer_mixermenu`, `envsettings_audio`. It describes the current version
    (FL Studio 2025), which is what we follow.
 2. **Théo**, who has used FL Studio for years: where he says it works a certain way, that wins, and the
    text says "(Théo)". His own screenshots go in `img/user/`.

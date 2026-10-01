@@ -311,7 +311,7 @@ describe("playlist tracks", () => {
     const song = makeSong();
     expect(trackName(song, 4)).toBe("Track 5");
     const named = updateTrack(song, 2, { name: " Drums ", color: "#AA0000", size: 9 });
-    expect(named.playlist.tracks).toEqual([DEFAULT_PLAYLIST_TRACK, DEFAULT_PLAYLIST_TRACK, { name: "Drums", color: "#aa0000", size: 4, muted: false }]);
+    expect(named.playlist.tracks).toEqual([DEFAULT_PLAYLIST_TRACK, DEFAULT_PLAYLIST_TRACK, { name: "Drums", color: "#aa0000", size: 4, muted: false, mixerTrack: null }]);
     expect(trackName(named, 2)).toBe("Drums");
     expect(updateTrack(named, 2, { name: "", color: null, size: 1 }).playlist.tracks).toEqual([]);
     expect(updateTrack(song, 0, { muted: false })).toBe(song);

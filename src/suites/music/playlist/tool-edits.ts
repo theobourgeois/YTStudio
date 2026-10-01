@@ -28,7 +28,10 @@ import {
   insertTrack,
   moveTrack,
 } from "@shared/music/playlist";
-import { MAX_PLAYLIST_TRACKS } from "@shared/music/project";
+import { MASTER_TRACK_ID, MAX_PLAYLIST_TRACKS } from "@shared/music/project";
+import { trackName as mixerTrackName } from "@shared/music/mixer";
+import { linkAudioTracks } from "@shared/music/recording";
+import { findTrack } from "../mixer/tool-edits";
 import { type Channel, type MusicProject, PPQ, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import { type EditEnv, type EditResult, findPattern } from "../tool-edits";
 import { findAutomation } from "../automation/tool-edits";
@@ -94,7 +97,7 @@ export function describePlaylist(song: MusicProject, mode: "pattern" | "song" | 
   const tracks = new Map<number, PlaylistClip[]>();
   for (const clip of clips) tracks.set(clip.track, [...(tracks.get(clip.track) ?? []), clip]);
   // The tracks with clips, and those that have been named, coloured, muted or resized.
-  const changed = song.playlist.tracks.flatMap((t, i) => (t.name || t.color || t.muted || t.size !== 1 ? [i] : []));
+  const changed = song.playlist.tracks.flatMap((t, i) => (t.name || t.color || t.muted || t.size !== 1 || t.mixerTrack ? [i] : []));
   const numbers = [...new Set([...tracks.keys(), ...changed])].sort((a, b) => a - b);
   const lines = [
     `Playlist: ${clips.length} clip${clips.length === 1 ? "" : "s"}; the song is ${barsOf(songTicks(song), ctx)} bars long (it goes round at the end of the last clip's bar).` +
@@ -103,7 +106,12 @@ export function describePlaylist(song: MusicProject, mode: "pattern" | "song" | 
   if (!numbers.length) lines.push("Nothing is on it yet: place_clips puts patterns on it, add_audio_clip audio files.");
   for (const index of numbers) {
     const track = trackAt(song, index);
-    const notes = [track.muted ? "muted" : null, track.color ? `colour ${track.color}` : null, track.size !== 1 ? `height ${track.size}×` : null].filter(Boolean);
+    const notes = [
+      track.muted ? "muted" : null,
+      track.color ? `colour ${track.color}` : null,
+      track.size !== 1 ? `height ${track.size}×` : null,
+      track.mixerTrack ? `audio track of ${mixerTrackName(song, track.mixerTrack)}: its takes land here` : null,
+    ].filter(Boolean);
     lines.push("", `Track ${index + 1}${track.name ? ` "${track.name}"` : ""}${notes.length ? ` (${notes.join(", ")})` : ""}:`);
     const on = tracks.get(index) ?? [];
     if (!on.length) lines.push("- (empty)");
@@ -308,6 +316,12 @@ export function updatePlaylistTrackTool(song: MusicProject, input: Input): EditR
     next = updateTrack(next, index, { size: input.size });
   }
   if (input.solo === true) next = soloTrack(next, index);
+  if (input.audioTrack !== undefined) {
+    const none = typeof input.audioTrack === "string" && input.audioTrack.trim().toLowerCase() === "none";
+    const insert = none ? null : findTrack(next, input.audioTrack);
+    if (insert?.id === MASTER_TRACK_ID) throw new Error("The master can't record: make it an audio track of an insert.");
+    next = linkAudioTracks(next, [index], insert?.id ?? null);
+  }
   let where = index;
   if (input.insert === true) next = insertTrack(next, index);
   if (input.move === "up" || input.move === "down") {
@@ -322,6 +336,6 @@ export function updatePlaylistTrackTool(song: MusicProject, input: Input): EditR
   const track = trackAt(next, where);
   return {
     song: next,
-    text: `Track ${where + 1} is "${trackName(next, where)}"${track.muted ? ", muted" : ""}${track.color ? `, colour ${track.color}` : ""}${track.size !== 1 ? `, height ${track.size}×` : ""}.`,
+    text: `Track ${where + 1} is "${trackName(next, where)}"${track.muted ? ", muted" : ""}${track.color ? `, colour ${track.color}` : ""}${track.size !== 1 ? `, height ${track.size}×` : ""}${track.mixerTrack ? `, the audio track of ${mixerTrackName(next, track.mixerTrack)}` : ""}.`,
   };
 }

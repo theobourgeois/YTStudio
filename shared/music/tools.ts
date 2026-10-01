@@ -342,7 +342,9 @@ export const MUSIC_TOOLS = [
     title: "Change a mixer track",
     kind: "edit",
     description:
-      "Set a mixer track's name, colour, fader level, pan, mute, phase, sides, stereo separation, delay offset, dock or divider. Only what's given changes. " +
+      "Set a mixer track's name, colour, fader level, pan, mute, phase, sides, stereo separation, delay offset, dock or divider, or what it " +
+      "records: its input on the audio device (FL's Input: an insert records the input it takes when it's armed, see arm_tracks and " +
+      "record_audio), when that input is heard through it, and its input offset. Only what's given changes. " +
       "Its level is after its effects; the master's is the whole song's.",
     inputSchema: obj(
       {
@@ -358,8 +360,52 @@ export const MUSIC_TOOLS = [
         latencyOffset: num("Milliseconds (-1000 to 1000) added to the delay its plugins report, for one that reports it wrong: positive if its sound is late against the others."),
         dock: oneOf(["left", "middle", "right"], "Which of the mixer's docks it's shown in: the left and right ones stay put while the middle scrolls (the master is always left)."),
         separator: bool("A divider before it, to set tracks apart."),
+        input: str(
+          'The device input it records (list_audio_inputs has them): "1" for input 1 alone (mono, heard on both sides), "1-2" for inputs 1 and 2 as a stereo pair, or "none". Never on the master.',
+        ),
+        monitor: oneOf(["off", "armed", "on"], "When its input is heard, through its effects: never, while it's armed (the default), or always."),
+        inputOffset: num("Milliseconds (-1000 to 1000) its takes are moved earlier (negative: later), for latency the device doesn't report."),
       },
       ["track"],
+    ),
+  }),
+  tool({
+    name: "list_audio_inputs",
+    title: "List the audio inputs",
+    kind: "look",
+    description:
+      "The audio device's inputs that mixer tracks can record (the input device is chosen in Settings), which tracks take which, " +
+      "and which are armed. Recording (FL's): give an insert an input (update_mixer_track), arm it (arm_tracks), then record_audio.",
+    inputSchema: obj({}),
+  }),
+  tool({
+    name: "arm_tracks",
+    title: "Arm tracks to record",
+    kind: "action",
+    description:
+      "Arm mixer tracks to record, or disarm them (the editor's state, not the song's). Only a track with an input can be armed; an armed " +
+      "track's input is heard while it's armed (unless its monitoring is off) and recorded by record_audio.",
+    inputSchema: obj({ tracks: arr(mixerTrack("A track to arm"), "The tracks."), armed: bool("Arm (true, the default) or disarm.") }, ["tracks"]),
+  }),
+  tool({
+    name: "record_audio",
+    title: "Record",
+    kind: "action",
+    description:
+      "Start or stop recording the armed mixer tracks (the user plays or sings: you can't hear it). It records the song (song mode) from " +
+      "`bar`, after a count-in of the metronome's clicks; with `loop` it goes round the Playlist's time selection (or the song), a take each " +
+      "pass, until stopped. Stopping puts each take on the Playlist as an audio clip where it was recorded (on the track's audio track if it " +
+      "has one, else the first track it fits on), on a channel of its own routed back into the track that recorded it; with `loop` all but the " +
+      "last pass are muted unless `blend`. Answers, on stop, with the clips made.",
+    inputSchema: obj(
+      {
+        action: oneOf(["start", "stop"], "What to do."),
+        bar: num("Where to start, a bar (1 is the start; default: where play starts)."),
+        countIn: int("Bars of count-in: 0, 1, 2 or 4 (default: the user's choice, at first 1)."),
+        loop: bool("Loop record: a take each pass round the loop (default: the user's choice)."),
+        blend: bool("With loop: hear (and keep unmuted) the earlier passes (default: the user's choice)."),
+      },
+      ["action"],
     ),
   }),
   tool({
@@ -651,6 +697,7 @@ export const MUSIC_TOOLS = [
         insert: bool("Insert an empty track before it (it and those below move down)."),
         delete: bool("Delete it and its clips (those below move up)."),
         move: oneOf(["up", "down"], "Move it a place up or down, with its clips."),
+        audioTrack: mixerTrack('Make it an audio track (FL\'s) of this mixer track: its takes land on it and its header shows the track\'s arm. "none" makes it an ordinary track again'),
       },
       ["track"],
     ),

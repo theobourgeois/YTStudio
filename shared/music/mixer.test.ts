@@ -30,6 +30,7 @@ import {
   updateMixerTrack,
   updateMixerTracks,
 } from "./mixer.ts";
+import { updateTrack } from "./playlist.ts";
 import { MASTER_TRACK_ID, MAX_INSERTS, createMusicProject } from "./project.ts";
 import type { MusicProject } from "./types.ts";
 
@@ -107,6 +108,29 @@ describe("mixer tracks", () => {
     const named = updateMixerTracks(song, ["insert_1", "insert_3"], { name: "Drums", color: "#e8833a" });
     expect([1, 2, 3].map((n) => [named.mixer.tracks[n].name, named.mixer.tracks[n].color])).toEqual([["Drums", "#e8833a"], [null, null], ["Drums", "#e8833a"]]);
     expect(updateMixerTracks(named, ["insert_1"], { name: "Drums" })).toBe(named);
+  });
+});
+
+describe("inputs", () => {
+  it("are chosen, monitored and offset per insert; the master takes none; the same input again changes nothing", () => {
+    const song = createMusicProject();
+    const vox = updateMixerTrack(song, "insert_1", { input: { channel: 0, stereo: false }, monitor: "on", inputOffset: 4.567 });
+    expect(vox.mixer.tracks[1]).toMatchObject({ input: { channel: 0, stereo: false }, monitor: "on", inputOffset: 4.57 });
+    expect(updateMixerTrack(vox, "insert_1", { input: { channel: 0, stereo: false } })).toBe(vox);
+    expect(updateMixerTrack(vox, "insert_1", { input: null }).mixer.tracks[1].input).toBeNull();
+    expect(updateMixerTrack(vox, "insert_1", { input: { channel: 63, stereo: true } }).mixer.tracks[1].input).toBeNull();
+    expect(updateMixerTrack(song, M, { input: { channel: 0, stereo: false } })).toBe(song);
+    expect(updateMixerTrack(vox, "insert_1", { monitor: "never" as never })).toBe(vox);
+  });
+
+  it("go with their track: a playlist track linked to a removed insert is an ordinary one again", () => {
+    const linked = updateTrack(createMusicProject(), 2, { mixerTrack: "insert_4", name: "Vox" });
+    expect(linked.playlist.tracks[2]).toMatchObject({ name: "Vox", mixerTrack: "insert_4" });
+    expect(updateTrack(linked, 3, { mixerTrack: M }).playlist.tracks[3]).toBeUndefined();
+    expect(updateTrack(linked, 3, { mixerTrack: "insert_gone" })).toBe(linked);
+    const removed = removeMixerTracks(linked, ["insert_4"]);
+    expect(removed.playlist.tracks[2]).toMatchObject({ name: "Vox", mixerTrack: null });
+    expect(removeMixerTracks(updateTrack(createMusicProject(), 2, { mixerTrack: "insert_4" }), ["insert_4"]).playlist.tracks).toEqual([]);
   });
 });
 

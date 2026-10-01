@@ -17,7 +17,9 @@ import {
   type Envelope,
   type Mixer,
   type MixerEffect,
+  type InputMonitor,
   type MixerGroup,
+  type MixerInput,
   type MixerSend,
   type MixerTrack,
   type MusicProject,
@@ -73,6 +75,21 @@ const isColor = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f
 
 /** How far a track's manual delay compensation reaches either way, in ms. */
 export const MAX_LATENCY_OFFSET = 1000;
+/** How far a track's input offset (`MixerTrack.inputOffset`) moves its takes either way, in ms. */
+export const MAX_INPUT_OFFSET = 1000;
+/** The audio device's inputs a track can take, by number: more than any interface has. */
+export const MAX_INPUT_CHANNELS = 64;
+export const INPUT_MONITORS = ["off", "armed", "on"] as const;
+
+/** A mixer track's input, checked: a channel the device could have, or null. */
+export function normalizeInput(raw: unknown): MixerInput | null {
+  if (!isObject(raw) || !Number.isInteger(raw.channel)) return null;
+  const channel = raw.channel as number;
+  const stereo = raw.stereo === true;
+  if (channel < 0 || channel + (stereo ? 1 : 0) >= MAX_INPUT_CHANNELS) return null;
+  return { channel, stereo };
+}
+
 /** Where a mixer track's fader leaves its sound as it is (0 dB). */
 export const DEFAULT_FADER = 0.8;
 
@@ -88,7 +105,7 @@ export const MAX_AUDIO_OFFSET = 86_400;
 export const MIN_TRACK_SIZE = 0.25;
 export const MAX_TRACK_SIZE = 4;
 /** A track as new: unnamed, the playlist's colour, the usual height, playing. */
-export const DEFAULT_PLAYLIST_TRACK: PlaylistTrack = { name: null, color: null, size: 1, muted: false };
+export const DEFAULT_PLAYLIST_TRACK: PlaylistTrack = { name: null, color: null, size: 1, muted: false, mixerTrack: null };
 
 /** The most automation clips a song has, and points one curve has. */
 export const MAX_AUTOMATIONS = 2000;
@@ -191,6 +208,9 @@ export function createMixerTrack(id = createId("insert")): MixerTrack {
     swap: false,
     stereo: 0,
     latencyOffset: 0,
+    input: null,
+    monitor: "armed",
+    inputOffset: 0,
     effects: emptySlots(),
     sends: [{ to: MASTER_TRACK_ID, level: 1 }],
   };
@@ -415,6 +435,9 @@ function normalizeMixer(input: unknown): Mixer {
       swap: raw.swap === true,
       stereo: number(raw.stereo, -1, 1, 0),
       latencyOffset: Math.round(number(raw.latencyOffset, -MAX_LATENCY_OFFSET, MAX_LATENCY_OFFSET, 0) * 100) / 100,
+      input: id === MASTER_TRACK_ID ? null : normalizeInput(raw.input),
+      monitor: INPUT_MONITORS.includes(raw.monitor as InputMonitor) ? (raw.monitor as InputMonitor) : "armed",
+      inputOffset: Math.round(number(raw.inputOffset, -MAX_INPUT_OFFSET, MAX_INPUT_OFFSET, 0) * 100) / 100,
       effects: Array.from({ length: EFFECT_SLOTS }, (_, slot) => normalizeEffect(effects[slot], effectIds)),
       sends: [],
     };
@@ -436,7 +459,7 @@ function normalizeMixer(input: unknown): Mixer {
   return { tracks, groups: groups.filter((g) => tracks.some((t) => t.group === g.id)) };
 }
 
-const sameTrack = (a: PlaylistTrack, b: PlaylistTrack) => a.name === b.name && a.color === b.color && a.size === b.size && a.muted === b.muted;
+const sameTrack = (a: PlaylistTrack, b: PlaylistTrack) => a.name === b.name && a.color === b.color && a.size === b.size && a.muted === b.muted && a.mixerTrack === b.mixerTrack;
 
 /** The tracks' list without the tracks at its end that are as new (the list is only as long as it needs to be). */
 export function trimTracks(tracks: PlaylistTrack[]): PlaylistTrack[] {
@@ -448,13 +471,15 @@ export function trimTracks(tracks: PlaylistTrack[]): PlaylistTrack[] {
 /** The order clips are kept in: by start, then track, then id (so it's the same every time). */
 export const byClipStart = (a: PlaylistClip, b: PlaylistClip) => a.start - b.start || a.track - b.track || a.id - b.id;
 
-function normalizeTrack(raw: unknown): PlaylistTrack {
+function normalizeTrack(raw: unknown, isInsert: (id: string) => boolean): PlaylistTrack {
   if (!isObject(raw)) return DEFAULT_PLAYLIST_TRACK;
   const track: PlaylistTrack = {
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, MAX_NAME) : null,
     color: isColor(raw.color) ? raw.color.toLowerCase() : null,
     size: Math.round(number(raw.size, MIN_TRACK_SIZE, MAX_TRACK_SIZE, 1) * 100) / 100,
     muted: raw.muted === true,
+    // An audio track's insert, if it's still there (never the master).
+    mixerTrack: typeof raw.mixerTrack === "string" && isInsert(raw.mixerTrack) ? raw.mixerTrack : null,
   };
   return sameTrack(track, DEFAULT_PLAYLIST_TRACK) ? DEFAULT_PLAYLIST_TRACK : track;
 }
@@ -553,9 +578,10 @@ function normalizeAutomations(input: unknown): Automation[] {
  * on tracks that exist, inside the song's reach. Clips get ids of their own if they lack one. Songs
  * from before the playlist get an empty one.
  */
-function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channel[], automations: Automation[]): Playlist {
+function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channel[], automations: Automation[], mixer: Mixer): Playlist {
   if (!isObject(input)) return emptyPlaylist();
-  const tracks = trimTracks((Array.isArray(input.tracks) ? input.tracks : []).slice(0, MAX_PLAYLIST_TRACKS).map(normalizeTrack));
+  const inserts = new Set(mixer.tracks.filter((t) => t.id !== MASTER_TRACK_ID).map((t) => t.id));
+  const tracks = trimTracks((Array.isArray(input.tracks) ? input.tracks : []).slice(0, MAX_PLAYLIST_TRACKS).map((raw) => normalizeTrack(raw, (id) => inserts.has(id))));
   const refs = {
     pattern: new Set(patterns.map((p) => p.id)),
     audio: new Set(channels.filter((c) => c.kind === "audio").map((c) => c.id)),
@@ -615,7 +641,7 @@ export function normalizeMusicProject(input: unknown, isSample: (id: string) => 
     settings: { tempo, timeSignature, swing: number(settings.swing, 0, 1, 0), volume: number(settings.volume, 0, 1, DEFAULT_VOLUME) },
     channels,
     patterns,
-    playlist: normalizePlaylist(input.playlist, patterns, channels, automations),
+    playlist: normalizePlaylist(input.playlist, patterns, channels, automations, mixer),
     mixer,
     automations,
   };

@@ -891,6 +891,7 @@ export interface ToolCallProgressRequest {
 //   POST   /api/assistant/calls/:id/progress  body: ToolCallProgressRequest -> 204
 //   GET    /api/engine/plugins         -> EnginePlugin[] (the plugins the audio engine found; shared/music/engine.ts)
 //   POST   /api/engine/song  body: SetSongRequest -> SetSongResponse (the song the engine plays, on every edit)
+//   POST   /api/engine/record  body: RecordRequest -> RecordResponse (play and record the armed tracks; takes come as EngineTakeEvent)
 //   POST   /api/engine/states           -> 204 (writes the song's plugins' states now)
 //   POST   /api/engine/states/copy  body: CopyStatesRequest -> { copied } (a plugin's settings file to another's id)
 //   GET    /api/engine/events           -> text/event-stream of EngineEvent (where the song is, the meter)
@@ -905,7 +906,7 @@ export interface ToolCallProgressRequest {
 //   POST   /api/browser/use  body: UseBrowserFileRequest -> MediaAsset (the project's copy of the file, made once)
 //   POST   /api/browser/reveal  body: { path } -> 204 (shows it in Finder)
 //   POST   /api/browser/preview  body: PreviewFileRequest -> EngineStatus (hear it; POST /api/engine/stopPreview stops it)
-//   GET    /api/engine/devices          -> EngineDevices (the output device and its options)
+//   GET    /api/engine/devices          -> EngineDevices (the output and input devices and their options)
 //   POST   /api/engine/devices  body: SetDeviceRequest -> EngineDevices
 //   POST   /api/engine/:command  body: EngineCommands[command] -> EngineStatus (starts the engine if needed)
 //   POST   /mcp?chat=<projectId>|suite=<suite>  MCP (Streamable HTTP, JSON responses): a suite's tools for any agent

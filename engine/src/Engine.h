@@ -43,10 +43,18 @@ private:
     /** Tells the server where the song is while it plays, and tidies up after the audio thread. */
     void timerCallback() override;
 
-    /** One block of the engine's output: the whole real-time path, whoever asks for it. */
-    void process (float* const* output, int numOutputs, int numSamples);
-    /** Offline: compute `frames` samples now and measure them (and write them to `file`, a WAV, if given). */
-    void render (int frames, const juce::File& file, Reply reply);
+    /** One block of the engine's output: the whole real-time path, whoever asks for it. `inputs`: the device's input channels by number (null: not open). */
+    void process (float* const* output, int numOutputs, int numSamples, const float* const* inputs = nullptr, int numInputs = 0);
+    /**
+     * Offline: compute `frames` samples now and measure them (and write them to `file`, a WAV, if
+     * given). `input`, a WAV, stands in for the device's inputs from now on (its channels are inputs
+     * 0, 1...), going on where the last render left it; "none" takes it away.
+     */
+    void render (int frames, const juce::File& file, const juce::String& input, Reply reply);
+    /** Start recording (`RecordRequest`, the server's folder and id added): the armed tracks of the song playing. */
+    juce::Result record (const juce::var& params);
+    /** Tell the server of the takes finished since last time. */
+    void reportTakes();
     /** A device, or the offline engine, (re)starts at this rate and block size. */
     void start (double rate, int block);
     /**
@@ -86,6 +94,14 @@ private:
     FilePreview preview;
     /** The song as it was last given, to build it again when one of its plugins has finished loading. */
     juce::var lastSong;
+    /** Its armed tracks with an input: what a recording records. */
+    std::vector<Recorder::Source> armed;
+    /** The device's input channels each of the callback's inputs is (the open ones, in order). */
+    std::vector<int> inputMap;
+    static constexpr int maxInputs = 64;
+    /** Offline: what stands in for the device's inputs, and how far into it the renders are. */
+    juce::AudioBuffer<float> testInput;
+    int testInputPosition = 0;
 
     /** The song and the tone, before the bench's effect. */
     juce::AudioBuffer<float> mix;

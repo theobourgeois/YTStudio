@@ -43,7 +43,7 @@ export interface ToolSpec {
   timeout?: number;
 }
 
-export const tool = <N extends string, K extends ToolKind>(spec: ToolSpec & { name: N; kind: K }) => spec;
+export const tool = <const N extends string, const K extends ToolKind>(spec: ToolSpec & { name: N; kind: K }) => spec;
 
 /** The MCP server's name: Claude Code calls its tools `mcp__editor__<tool>`. */
 export const MCP_SERVER_NAME = "editor";
