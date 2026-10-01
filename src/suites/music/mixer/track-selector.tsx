@@ -5,8 +5,7 @@ import type { Channel } from "@shared/music/types";
 import { ContextMenuItem } from "@/components/ui/context-menu";
 import { Lcd } from "../lcd";
 import { songGesture, useMusic, useSong } from "../store";
-import { useMusicUi } from "../ui";
-import { routeChannel, routeToFreeTrack, showChannelTrack } from "./actions";
+import { routeChannel, routeToFreeTrack, showChannelTrack, showInMixer } from "./actions";
 import { parseTrackNumber } from "./track-number";
 
 /**
@@ -44,15 +43,7 @@ export function TrackSelector({ channel, className }: { channel: Channel; classN
       menu={
         <>
           <ContextMenuItem onSelect={() => routeToFreeTrack(id)}>Route to a free track</ContextMenuItem>
-          <ContextMenuItem
-            onSelect={() => {
-              const ui = useMusicUi.getState();
-              ui.setTrackSelection([channel.mixerTrack]);
-              ui.setMixerOpen(true);
-            }}
-          >
-            Show in the mixer
-          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => showInMixer(id)}>Show in the mixer</ContextMenuItem>
         </>
       }
     />

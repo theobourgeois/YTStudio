@@ -74,10 +74,16 @@ export function routeChannel(channelId: string, trackId: string) {
   showChannelTrack(channelId);
 }
 
-/** A channel to the first free track, named after it (a click on TRACK); the mixer selects it. */
+/** A channel to the first free track, named after it (a click on TRACK); the Mixer opens on it, selected and scrolled to. */
 export function routeToFreeTrack(channelId: string) {
   commit((doc) => routeToFreeTracks(doc, [channelId]));
+  showInMixer(channelId);
+}
+
+/** The Mixer, in front, with the channel's track selected and scrolled into view (the track selector's Show in the mixer). */
+export function showInMixer(channelId: string) {
   showChannelTrack(channelId);
+  useMusicUi.getState().setMixerOpen(true);
 }
 
 /** Select, in the rack, the channels routed to a track (Alt+L). */
