@@ -229,7 +229,11 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
     }
     if (command == "metronome")
     {
+        if (params.hasProperty ("sound"))
+            sequencer.setMetronomeSound (params["sound"].toString());
         sequencer.setMetronome ((bool) params["on"]);
+        if ((bool) params["audition"])
+            sequencer.auditionClick();
         return ok();
     }
     if (command == "trigger")
