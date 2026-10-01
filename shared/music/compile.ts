@@ -23,6 +23,11 @@ export interface EngineChannel {
    * never read whole into memory, and it plays no notes.
    */
   stream: boolean;
+  /**
+   * Whether any note of the song plays it. An audio clip's channel can be played from notes too (as FL's
+   * can): then the engine has its file in memory, as a sampler's, as well as streaming it for its clips.
+   */
+  playsNotes: boolean;
   /** Linear gains of each side (volume, pan and mute together). */
   gainLeft: number;
   gainRight: number;
@@ -244,7 +249,7 @@ const MAX_SWING = STEP_TICKS / 2;
 /** Where a note plays with swing: every second step (the off sixteenths) is late. */
 export const swungTick = (start: number, swing: number) => (start % (2 * STEP_TICKS) === STEP_TICKS ? start + swing * MAX_SWING : start);
 
-function engineChannel(channel: Channel, track: number): EngineChannel {
+function engineChannel(channel: Channel, track: number): Omit<EngineChannel, "playsNotes"> {
   const gain = channel.muted ? 0 : levelGain(channel.volume, DEFAULT_VOLUME);
   const [left, right] = panGains(channel.pan);
   const { enabled, ...envelope } = channel.envelope;
@@ -282,6 +287,7 @@ export function compileSong(song: MusicProject, patternId: string | null, loop: 
   const to = loop && loop.end > loop.start ? loop.end : length;
   const notes = mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to);
   notes.sort((a, b) => a.tick - b.tick || a.channel - b.channel);
+  const played = new Set(notes.map((n) => n.channel));
   const { tracks, index } = engineTracks(song);
   const master = index.get(MASTER_TRACK_ID)!;
   return {
@@ -291,7 +297,7 @@ export function compileSong(song: MusicProject, patternId: string | null, loop: 
     offsetTicks: from,
     beatTicks,
     barTicks: beatTicks * beats,
-    channels: song.channels.map((channel) => engineChannel(channel, index.get(channel.mixerTrack) ?? master)),
+    channels: song.channels.map((channel, i) => ({ ...engineChannel(channel, index.get(channel.mixerTrack) ?? master), playsNotes: played.has(i) })),
     notes,
     audioClips: mode === "song" ? audioClips(song, from, to) : [],
     tracks,
@@ -312,8 +318,8 @@ function engineNote(channel: number, note: Pattern["notes"][string][number], tic
   };
 }
 
-/** The channels that play notes, by id, with their index in the rack (an audio clip's channel plays none). */
-const noteChannels = (song: MusicProject) => new Map(song.channels.flatMap((c, i) => (c.kind === "audio" ? [] : [[c.id, i] as const])));
+/** The channels that play notes, by id, with their index in the rack: every one (an audio clip's too, as in FL Studio). */
+const noteChannels = (song: MusicProject) => new Map(song.channels.map((c, i) => [c.id, i] as const));
 
 /** Pattern mode: the pattern's notes that start in `[from, to)`, counted from `from`. */
 function patternNotes(song: MusicProject, pattern: Pattern, from: number, to: number): EngineNote[] {

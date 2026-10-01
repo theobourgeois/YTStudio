@@ -208,8 +208,7 @@ function ToolsMenu() {
  * those with notes in this pattern first, then the rest.
  */
 function ChannelMenu({ name }: { name: string }) {
-  const allChannels = useMusic((s) => s.history!.doc.channels);
-  const channels = allChannels.filter((c) => c.kind !== "audio");
+  const channels = useMusic((s) => s.history!.doc.channels);
   const patternNotes = useMusic((s) => s.history!.doc.patterns.find((p) => p.id === s.patternId)?.notes ?? s.history!.doc.patterns[0].notes);
   const current = pianoContext()?.channel.id ?? "";
   usePiano((s) => s.channelId);

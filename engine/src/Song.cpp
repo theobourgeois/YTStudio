@@ -148,7 +148,8 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                     channel.path = path.toString();
                     if (! juce::File (channel.path).existsAsFile())
                         unreadable.add (channel.id);
-                    else if (! precomputed.changesNothing())
+                    // Played from notes too (as a sampler), or prepared by precomputed effects: in memory.
+                    else if (! precomputed.changesNothing() || (bool) item["playsNotes"])
                     {
                         channel.sample = samples.get (channel.path, precomputed);
                         channel.prepared = precomputed.key();

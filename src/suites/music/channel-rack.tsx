@@ -1,5 +1,5 @@
 import { type RefObject, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { PiCaretDownBold, PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning, PiWaveform } from "react-icons/pi";
+import { PiCaretDownBold, PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
@@ -60,7 +60,6 @@ import { currentPattern, songGesture, useCurrentPattern, useMusic, useSong } fro
 import { patternPositionNow } from "./playhead";
 import { useTransport } from "./transport";
 import { MIN_RACK_STEPS, type RackGroup, inRackGroup, selectedIn, useMusicUi, useMusicWindows } from "./ui";
-import { chooseSource, openPlaylist } from "./playlist/actions";
 import { usePlaylist } from "./playlist/store";
 import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow } from "./window";
@@ -235,14 +234,11 @@ export function ChannelRack() {
           <div ref={scroller} className="ml-1.5 overflow-x-auto pb-1" style={{ maxWidth: `min(62vw, ${room}px)` }} data-testid="rack-steps">
             <div className="flex flex-col" style={{ gap: ROW_GAP, width: stepsWidth(steps) }}>
               <StepLights steps={steps} />
-              {channels.map((channel) =>
-                channel.kind === "audio" ? (
-                  <AudioRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
-                ) : (
-                  <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
-                ),
-              )}
-              {graph && (selected[0] ?? channels[0]) && (selected[0] ?? channels[0]).kind !== "audio" && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
+              {/* An audio clip's channel too, as in FL Studio: its file can be played from steps and notes as well as from the playlist. */}
+              {channels.map((channel) => (
+                <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
+              ))}
+              {graph && (selected[0] ?? channels[0]) && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
             </div>
           </div>
         </div>
@@ -335,27 +331,6 @@ function GroupMenu({ group }: { group: RackGroup }) {
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-/** An audio clip's channel in the rack: no steps (it plays from the playlist), a strip that shows its clips there. */
-function AudioRow({ channelId, name, steps }: { channelId: string; name: string; steps: number }) {
-  return (
-    <button
-      type="button"
-      aria-label={`${name}: an audio clip, played from the playlist`}
-      title="An audio clip: it plays from the playlist. Click to draw it there"
-      data-audio-row={channelId}
-      className="sunken flex shrink-0 items-center gap-1.5 rounded-[2px] px-2 text-[11px] text-muted-foreground hover:text-foreground"
-      style={{ width: stepsWidth(steps), height: ROW_H }}
-      onClick={() => {
-        chooseSource({ kind: "audio", ref: channelId });
-        openPlaylist();
-      }}
-    >
-      <PiWaveform className="size-3.5 shrink-0" />
-      <span className="truncate">Audio clip: plays from the playlist</span>
-    </button>
   );
 }
 
@@ -627,10 +602,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
             onClick={(e) => {
               if (e.metaKey || e.ctrlKey) useTransport.getState().audition(id);
               else if (isPlugin) useTransport.getState().showPlugin(id, !pluginOpen);
-              else if (channel.kind === "audio") {
-                chooseSource({ kind: "audio", ref: id });
-                openPlaylist();
-              } else useMusicUi.getState().toggleChannelWindow(id, e.altKey);
+              else useMusicUi.getState().toggleChannelWindow(id, e.altKey);
             }}
             onWheel={(e) => e.shiftKey && e.deltaY !== 0 && moveChannel(id, e.deltaY < 0 ? -1 : 1)}
             // A file dropped on the button replaces this channel's sample.
@@ -805,7 +777,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
         // outlined when the channel is selected and lit while it makes a sound.
         className="group flex h-[24px] w-4 shrink-0 touch-none justify-center"
         // Théo's, not FL's (which selects every channel): straight into its notes.
-        onDoubleClick={() => channel.kind !== "audio" && openPianoRoll(id)}
+        onDoubleClick={() => openPianoRoll(id)}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           const rack = e.currentTarget.closest("[data-window]") ?? document.body;

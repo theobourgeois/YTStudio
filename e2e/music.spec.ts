@@ -1494,6 +1494,9 @@ test("tracks are named, coloured, muted and soloed; audio files dropped on the p
   await page.getByRole("menuitemradio", { name: "Audio" }).click();
   await expect(rack.locator('[role=listitem][data-channel-name="Break"]')).toHaveCount(1);
   await expect(rack.locator('[role=listitem][data-channel-name="Sampler"]')).toHaveCount(0);
+  // It has steps, as FL's audio clip channels do: one put on plays its file from the pattern.
+  await step(page, "Break", 1).click();
+  await expect.poll(async () => Object.values((await savedSong(page, id)).patterns[0].notes as Record<string, unknown[]>).map((n) => n.length)).toEqual([1]);
   await page.getByRole("button", { name: "Channel group" }).click();
   await page.getByRole("menuitemradio", { name: "All" }).click();
   await expect(rack.locator("[role=listitem][data-channel]")).toHaveCount(2);

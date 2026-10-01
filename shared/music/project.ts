@@ -326,8 +326,8 @@ export const byStart = (a: Note, b: Note) => a.start - b.start || a.pitch - b.pi
 export const nextNoteId = (notes: readonly Note[]) => notes.reduce((max, note) => Math.max(max, note.id), 0) + 1;
 
 function normalizePatterns(input: unknown, channels: Channel[]): Pattern[] {
-  // An audio clip's channel plays from the playlist, never from notes.
-  const channelIds = new Set(channels.filter((c) => c.kind !== "audio").map((c) => c.id));
+  // Any channel can have notes: an audio clip's channel plays its file from them too, as in FL Studio.
+  const channelIds = new Set(channels.map((c) => c.id));
   const seen = new Set<string>();
   const patterns: Pattern[] = [];
   for (const raw of Array.isArray(input) ? input : []) {

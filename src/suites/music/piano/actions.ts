@@ -55,12 +55,11 @@ export interface PianoContext {
 }
 
 /**
- * The channel the Piano roll shows: the one chosen, else the rack's selected one, else the first. Never an
- * audio clip's channel: it plays from the playlist, not from notes.
+ * The channel the Piano roll shows: the one chosen, else the rack's selected one, else the first. An audio
+ * clip's channel too, as in FL Studio: its file plays from notes as a sampler's does.
  */
 export function pianoChannel(song: MusicProject, channelId: string | null, rackSelection: readonly string[]): Channel | null {
-  const playable = (c: Channel) => c.kind !== "audio";
-  return song.channels.find((c) => c.id === channelId && playable(c)) ?? song.channels.find((c) => rackSelection.includes(c.id) && playable(c)) ?? song.channels.find(playable) ?? null;
+  return song.channels.find((c) => c.id === channelId) ?? song.channels.find((c) => rackSelection.includes(c.id)) ?? song.channels[0] ?? null;
 }
 
 /** Everything a command needs, as things are now; null with no song or no channel. */
@@ -317,7 +316,6 @@ export function stepChannel(direction: -1 | 1, withNotes: boolean) {
   if (!ctx) return;
   const { channels } = ctx.song;
   for (let i = channels.indexOf(ctx.channel) + direction; i >= 0 && i < channels.length; i += direction) {
-    if (channels[i].kind === "audio") continue;
     if (!withNotes || ctx.pattern.notes[channels[i].id]?.length) return usePiano.getState().setChannel(channels[i].id);
   }
 }
