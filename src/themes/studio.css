@@ -127,6 +127,24 @@
   --fader-cap-on: #5cc23c;
   --fader-cap-on-dark: #2f8d22;
   --fader-cap-on-edge: #236a19;
+
+  /* The mixer's look (`mixer/mixer-window.tsx`), FL Studio's: mid-tone strips, darker at the top. */
+  --mixer-bg: #9da5b0;
+  --mixer-strip: #c6ccd4;
+  --mixer-strip-top: #b5bcc6;
+  --mixer-strip-selected: #d6dbe2;
+  --mixer-strip-selected-top: #c4cad3;
+  --mixer-line: #949ca8;
+  --mixer-header: #8b929d;
+  --mixer-header-text: #f4f6f8;
+  --mixer-name: #3d444e;
+  /* A coloured track's name: its colour mixed with this. */
+  --mixer-name-tint: #14171c;
+  --mixer-well: #2c3038;
+  --mixer-led: #5fd23c;
+  --mixer-led-edge: #2d8a1e;
+  --mixer-on: #3fae25;
+  --mixer-delay: #d98a1c;
   --piano-time: #e5484d;
   --piano-start: #e08a12;
   --piano-tool: #2f7be5;
@@ -231,4 +249,20 @@
   --fader-cap-on: #52b934;
   --fader-cap-on-dark: #2d8520;
   --fader-cap-on-edge: #1d5a14;
+
+  --mixer-bg: #23262d;
+  --mixer-strip: #3a3e48;
+  --mixer-strip-top: #2c2f37;
+  --mixer-strip-selected: #454a55;
+  --mixer-strip-selected-top: #353943;
+  --mixer-line: #262930;
+  --mixer-header: #5e636e;
+  --mixer-header-text: #e2e5ea;
+  --mixer-name: #c3c7cf;
+  --mixer-name-tint: #ffffff;
+  --mixer-well: #1f2228;
+  --mixer-led: #7bd84f;
+  --mixer-led-edge: #3b7f22;
+  --mixer-on: #74d046;
+  --mixer-delay: #f2a43a;
 }

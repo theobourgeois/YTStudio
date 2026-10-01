@@ -791,7 +791,7 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await strip("Insert 1").locator("span").first().click({ button: "right" });
   await page.getByRole("menuitem", { name: "Colour" }).click();
   await page.getByRole("menuitem", { name: "Blue" }).click();
-  await expect.poll(async () => (await track(1)).color).toBe("#4a89dc");
+  await expect.poll(async () => (await track(1)).color).toBe("#3f5ea8");
 
   // Dragging across the strips' meters moves the selection along, one at a time; with Cmd, each one passed joins it.
   const selectedNames = () => mixer.locator('[data-track][aria-selected="true"]').evaluateAll((strips) => strips.map((s) => s.getAttribute("data-track-name")));
@@ -809,7 +809,7 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await expect(strip("Insert 5")).toHaveAttribute("aria-selected", "true");
   await page.getByRole("menuitem", { name: "Colour" }).click();
   await page.getByRole("menuitem", { name: "Green", exact: true }).click();
-  await expect.poll(async () => [(await track(5)).color, (await track(6)).color]).toEqual(["#3fb27f", "#3fb27f"]);
+  await expect.poll(async () => [(await track(5)).color, (await track(6)).color]).toEqual(["#3f8a4c", "#3f8a4c"]);
   await strip("Insert 6").locator("span").first().click({ button: "right" });
   await page.getByRole("menuitem", { name: /Rename/ }).click();
   await page.getByRole("textbox", { name: "Track name" }).fill("Pads");
@@ -890,7 +890,7 @@ test("the assistant mixes with the mixer's tools: routes, levels, sends, effects
     .then(() => savedSong(page, id))).mixer.tracks as { id: string; name: string | null; color: string | null; volume: number; stereo: number; effects: ({ id: string; mix: number } | null)[]; sends: { to: string; level: number }[] }[];
   const song = await savedSong(page, id);
   expect(song.channels.slice(0, 4).map((c: { mixerTrack: string }) => c.mixerTrack)).toEqual(["insert_1", "master", "master", "insert_2"]);
-  expect(mixer[1]).toMatchObject({ name: "Kick", color: "#d9534f", stereo: 1 });
+  expect(mixer[1]).toMatchObject({ name: "Kick", color: "#a8403c", stereo: 1 });
   expect(mixer[1].volume).toBeCloseTo(0.635, 2);
   const verb = mixer.find((t) => t.name === "Verb")!;
   expect(mixer[2].sends).toEqual([{ to: "master", level: 1 }, { to: verb.id, level: 0.3 }]);

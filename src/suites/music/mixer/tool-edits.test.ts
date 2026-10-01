@@ -51,7 +51,7 @@ describe("the assistant's mixer edits", () => {
 
   it("change a track: level in dB, colour by name, its switches, refusing what can't be", () => {
     const { song, text } = updateMixerTrackTool(rack(), { track: 1, level: -6, pan: -0.5, color: "Blue", invert: true, stereo: 1, name: "Bass" }, env);
-    expect(track(song, 1)).toMatchObject({ name: "Bass", color: "#4a89dc", pan: -0.5, invert: true, stereo: 1 });
+    expect(track(song, 1)).toMatchObject({ name: "Bass", color: "#3f5ea8", pan: -0.5, invert: true, stereo: 1 });
     expect(text).toBe('Changed insert 1 ("Bass") (id insert_1): level −6.0 dB, pan 50% left, phase inverted, stereo 100% narrower, colour blue.');
     expect(updateMixerTrackTool(rack(), { track: 1, level: -90 }, env).song.mixer.tracks[1].volume).toBe(0);
     expect(updateMixerTrackTool(rack(), { track: 1, color: "none" }, env).text).toMatch(/already like that/);

@@ -103,7 +103,8 @@ export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement |
         <path
           key={cable.key}
           d={cablePath(cable.from, cable.to, bottom, cableSwing(now - (born.current.get(cable.key) ?? -Infinity)))}
-          className="fill-none stroke-brand"
+          className="fill-none"
+          stroke="var(--mixer-on)"
           strokeWidth={1.75}
           strokeOpacity={cable.faint ? 0.35 : 0.9}
           strokeLinecap="round"

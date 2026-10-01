@@ -54,8 +54,8 @@ export const DEFAULT_INSERTS = 16;
 export const MAX_INSERTS = 500;
 /** Effect slots on each mixer track, as in FL Studio. */
 export const EFFECT_SLOTS = 10;
-/** The colours a mixer track can be given from its menu (content colours, the same in every theme). */
-export const TRACK_COLORS = ["#d9534f", "#e8833a", "#e5c449", "#8cc152", "#3fb27f", "#3bafda", "#4a89dc", "#7b68d9", "#c25fc9", "#e0679f", "#a0806a", "#8a96a3"] as const;
+/** The colours a mixer track can be given from its menu (content colours, the same in every theme): FL Studio's muted tones. */
+export const TRACK_COLORS = ["#a8403c", "#b8662f", "#a8913a", "#71913a", "#3f8a4c", "#38868c", "#3f5ea8", "#5d4ca8", "#8a4a9e", "#a8456f", "#7d5c44", "#646973"] as const;
 const isColor = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
 
 /** How far a track's manual delay compensation reaches either way, in ms. */

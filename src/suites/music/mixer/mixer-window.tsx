@@ -191,9 +191,11 @@ export function MixerWindow() {
       }
     >
       <div className="flex min-h-0 flex-1" data-testid="mixer">
-        <div ref={area} className="relative flex min-w-0 flex-1 overflow-hidden bg-surface-0" role="list" aria-label="Mixer tracks">
+        <div ref={area} className="relative flex min-w-0 flex-1 overflow-hidden" style={{ background: "var(--mixer-bg)" }} role="list" aria-label="Mixer tracks">
           <SelectionMeter meterRef={meterRef(SELECTION_METER)} />
-          <div className="flex shrink-0 border-r-2 border-line">{strip(master, 0)}</div>
+          <div className="flex shrink-0 border-r-2" style={{ borderColor: "var(--mixer-line)" }}>
+            {strip(master, 0)}
+          </div>
           <div ref={scroller} className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
             {/* Only the strips in view (and a few either side) are drawn: a mixer can have hundreds. */}
             <div className="flex shrink-0" style={{ paddingLeft: first * stripWidth, paddingRight: Math.max(0, inserts.length - last) * stripWidth }}>
@@ -297,12 +299,8 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       aria-selected={selected}
       data-track={id}
       data-track-name={name}
-      className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r border-line pb-1", selected ? "bg-surface-2" : "bg-surface-1", current && "shadow-[inset_0_2px_0] shadow-brand", dropTarget && "ring-2 ring-brand ring-inset")}
-      style={{
-        width: STRIP_WIDTHS[view],
-        // A coloured track is coloured all the way down (FL's colourful mixer), over the theme's own strip colour.
-        ...(track.color && { background: `color-mix(in oklab, ${track.color} ${selected ? 42 : 26}%, var(--${selected ? "surface-2" : "surface-1"}))` }),
-      }}
+      className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r pb-1", dropTarget && "ring-2 ring-inset")}
+      style={{ width: STRIP_WIDTHS[view], ...stripLook(track.color, selected), borderColor: "var(--mixer-line)", ...(dropTarget && { "--tw-ring-color": "var(--mixer-on)" }) }}
       onPointerDownCapture={(e) => {
         // The send switch acts for the selected track: pressing it doesn't select this one.
         if ((e.target as HTMLElement).closest("[data-send]")) return;
@@ -320,8 +318,12 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         <ContextMenuTrigger asChild>
           <div className="flex min-h-28 w-full flex-1 flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)} onPointerDown={(e) => dragSelection(e)}>
             <div
-              className={cn("relative w-full py-0.5 text-center font-mono text-[11px] tabular-nums", track.color ? "font-semibold text-white" : current ? "text-brand" : "text-muted-foreground")}
-              style={track.color ? { background: track.color, textShadow: "0 1px 1px rgb(0 0 0 / 0.35)" } : undefined}
+              className="relative w-full py-0.5 text-center font-mono text-[11px] font-semibold tabular-nums"
+              style={{
+                background: track.color ?? "var(--mixer-header)",
+                color: track.color ? "#fff" : current ? "var(--mixer-on)" : "var(--mixer-header-text)",
+                textShadow: "0 1px 1px rgb(0 0 0 / 0.4)",
+              }}
             >
               {isMaster ? "M" : number}
               <DelayMark track={track} />
@@ -331,11 +333,22 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
               {renaming ? (
                 <RenameField track={track} name={name} />
               ) : (
-                <span className="truncate text-[11px] leading-none [writing-mode:vertical-rl] rotate-180" title={`${name} (double-click to rename)`}>
+                <span
+                  className="truncate text-[11px] leading-none [writing-mode:vertical-rl] rotate-180"
+                  style={{ color: track.color ? `color-mix(in oklab, ${track.color} 45%, var(--mixer-name-tint))` : "var(--mixer-name)" }}
+                  title={`${name} (double-click to rename)`}
+                >
                   {name}
                 </span>
               )}
-              <canvas ref={meterRef} className="sunken h-full w-[11px] rounded-[2px]" role="img" aria-label={`${name} level`} />
+              {/* The meter in its dark well; the selected track's outlined, as FL's. */}
+              <canvas
+                ref={meterRef}
+                className="h-full w-[11px] rounded-[2px]"
+                style={{ background: "var(--mixer-well)", boxShadow: selected ? "0 0 0 1px var(--mixer-on)" : "inset 0 1px 2px rgb(0 0 0 / 0.5)" }}
+                role="img"
+                aria-label={`${name} level`}
+              />
             </div>
           </div>
         </ContextMenuTrigger>
@@ -358,13 +371,13 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         <span
           className={cn(
             "size-2.5 rounded-full transition-[colors,filter] group-hover:brightness-125",
-            track.muted ? "sunken" : "border border-brand-edge bg-brand shadow-[0_0_5px] shadow-brand/70 inset-shadow-[0_1px_0_rgb(255_255_255/0.45)]",
+            track.muted ? "sunken" : "border border-[var(--mixer-led-edge)] bg-[var(--mixer-led)] shadow-[0_0_5px] shadow-[var(--mixer-led)] inset-shadow-[0_1px_0_rgb(255_255_255/0.5)]",
           )}
         />
       </button>
       <SongKnob size={30} label={`${name} pan`} value={track.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateMixerTrack(song, id, { pan })} />
       <TrackFader track={track} name={name} selected={selected} />
-      <div className="text-[9px] tabular-nums text-muted-foreground" title="Level">
+      <div className="text-[9px] tabular-nums" style={{ color: "var(--mixer-name)" }} title="Level">
         {faderDb(track.volume).replace(" dB", "")}
       </div>
       <div className="flex gap-0.5">
@@ -543,7 +556,7 @@ function TrackMenu({ id, isMaster, color }: { id: string; isMaster: boolean; col
 function SendSwitch({ to, name, state }: { to: string; name: string; state: SendState }) {
   if (state.kind === "source") {
     return (
-      <div className="grid h-14 place-items-center pb-3 text-brand" title="The selected track: its sends are shown">
+      <div className="grid h-14 place-items-center pb-3" style={{ color: "var(--mixer-on)" }} title="The selected track: its sends are shown">
         <PiArrowFatDownFill className="size-4" data-send-point />
       </div>
     );
@@ -555,7 +568,8 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
       aria-pressed={on}
       disabled={state.kind === "unavailable"}
       title={state.kind === "unavailable" ? "Its sound reaches the selected track already" : on ? "Stop sending here" : "Send the selected track here"}
-      className={cn("grid h-4 w-6 place-items-center rounded-sm", on ? "text-brand" : "text-muted-foreground hover:text-foreground", state.kind === "unavailable" && "opacity-30")}
+      className={cn("grid h-4 w-6 place-items-center rounded-sm hover:brightness-150", state.kind === "unavailable" && "opacity-30")}
+      style={{ color: on ? "var(--mixer-on)" : "var(--mixer-name)" }}
       onClick={() => toggleSend(to)}
     >
       <PiCaretUpBold className="size-3" />
@@ -591,7 +605,7 @@ function DelayMark({ track }: { track: MixerTrack }) {
   if (delay === 0 && track.latencyOffset === 0) return null;
   const parts = [delay > 0 ? `its plugins delay it ${delayText(delay, sampleRate)}` : "", track.latencyOffset !== 0 ? `offset ${offsetText(track.latencyOffset)}` : ""].filter(Boolean);
   return (
-    <span className={cn("absolute top-1/2 right-0.5 -translate-y-1/2", track.color ? "text-white" : "text-brand")} title={`Delay compensated: ${parts.join("; ")}`} data-testid="delay-mark">
+    <span className="absolute top-1/2 right-0.5 -translate-y-1/2" style={{ color: track.color ? "#fff" : "var(--mixer-delay)" }} title={`Delay compensated: ${parts.join("; ")}`} data-testid="delay-mark">
       <PiClock className="size-2.5" />
     </span>
   );
@@ -610,7 +624,8 @@ function StripToggle({ label, on, onChange, children }: { label: string; on: boo
       aria-label={label}
       aria-pressed={on}
       title={label}
-      className={cn("grid size-4.5 place-items-center rounded-sm text-[11px]", on ? "text-brand" : "text-muted-foreground hover:text-foreground")}
+      className="grid size-4.5 place-items-center rounded-sm text-[11px] hover:brightness-150"
+      style={{ color: on ? "var(--mixer-delay)" : "var(--mixer-name)" }}
       onClick={() => onChange(!on)}
     >
       {children}
@@ -645,9 +660,9 @@ function dragSelection(e: React.PointerEvent<HTMLElement>) {
 function SelectionMeter({ meterRef }: { meterRef: (canvas: HTMLCanvasElement | null) => void }) {
   const count = useMusicUi((s) => s.selectedTrackIds.length);
   return (
-    <div className="flex w-6 shrink-0 flex-col items-center gap-1 border-r border-line bg-surface-1 py-1.5" title={count > 1 ? `The ${count} selected tracks' output, together` : "The selected track's output"}>
-      <span className="font-mono text-[9px] text-muted-foreground">SEL</span>
-      <canvas ref={meterRef} className="sunken min-h-0 w-[13px] flex-1 rounded-[2px]" role="img" aria-label="Selected tracks' level" data-testid="selection-meter" />
+    <div className="flex w-6 shrink-0 flex-col items-center gap-1 border-r py-1.5" style={{ ...stripLook(null, false), borderColor: "var(--mixer-line)" }} title={count > 1 ? `The ${count} selected tracks' output, together` : "The selected track's output"}>
+      <span className="font-mono text-[9px]" style={{ color: "var(--mixer-name)" }}>SEL</span>
+      <canvas ref={meterRef} className="min-h-0 w-[13px] flex-1 rounded-[2px]" style={{ background: "var(--mixer-well)", boxShadow: "inset 0 1px 2px rgb(0 0 0 / 0.5)" }} role="img" aria-label="Selected tracks' level" data-testid="selection-meter" />
     </div>
   );
 }
@@ -723,7 +738,8 @@ function StripEffects({ track }: { track: MixerTrack }) {
         <li key={effect.id}>
           <button
             type="button"
-            className={cn("w-full truncate rounded-[2px] bg-surface-0/70 px-1 text-left text-[10px] leading-4 hover:text-brand", !effect.enabled && "text-muted-foreground line-through")}
+            className={cn("w-full truncate rounded-[2px] px-1 text-left text-[10px] leading-4 hover:brightness-150", !effect.enabled && "line-through opacity-60")}
+            style={{ background: "var(--mixer-well)", color: "var(--mixer-name)" }}
             title={`Slot ${slot + 1}: ${effect.plugin.name} (click for its window)`}
             onClick={() => useTransport.getState().showEffect(effect.id, true)}
           >
@@ -733,4 +749,15 @@ function StripEffects({ track }: { track: MixerTrack }) {
       ))}
     </ol>
   );
+}
+
+/**
+ * A strip's colours, FL Studio's mixer: the theme's mid-tone strip (darker towards the top), or for a
+ * coloured track, its colour mixed in all the way down, more when it's selected.
+ */
+function stripLook(color: string | null, selected: boolean): React.CSSProperties {
+  const top = selected ? "var(--mixer-strip-selected-top)" : "var(--mixer-strip-top)";
+  const body = selected ? "var(--mixer-strip-selected)" : "var(--mixer-strip)";
+  const tint = (base: string) => (color ? `color-mix(in oklab, ${color} ${selected ? 40 : 30}%, ${base})` : base);
+  return { background: `linear-gradient(to bottom, ${tint(top)}, ${tint(top)} 18%, ${tint(body)} 42%)` };
 }
