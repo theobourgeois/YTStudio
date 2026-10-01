@@ -24,10 +24,10 @@ interface ClipColours {
   text: string;
 }
 
-/** Content colours (the same in every theme): FL's pattern clips are blue-grey, audio clips greener. */
-const PATTERN: ClipColours = { body: "#8fa6c4", title: "#647da0", content: "#1d2c42", text: "#f4f7fb" };
-const AUDIO: ClipColours = { body: "#8fb8a2", title: "#5f9077", content: "#173326", text: "#f2f8f4" };
-const SELECTED: ClipColours = { body: "#f0a19b", title: "#d0625b", content: "#4d1410", text: "#fff5f4" };
+/** Content colours (the same in every theme): FL's pattern clips are blue-grey, audio clips greener; deep, not pastel (Théo). */
+const PATTERN: ClipColours = { body: "#6a809e", title: "#4d6587", content: "#111c30", text: "#eef2f8" };
+const AUDIO: ClipColours = { body: "#64927b", title: "#46755e", content: "#0c2418", text: "#eef6f1" };
+const SELECTED: ClipColours = { body: "#cf7c75", title: "#ad4a43", content: "#3a0d0a", text: "#fff3f2" };
 
 /** How opaque a clip's body is (its title strip and content are solid): the grid shows through, as in FL. */
 const BODY_ALPHA = { light: 0.5, dark: 0.6 };
@@ -42,7 +42,7 @@ function onMutedTrack(c: ClipColours): ClipColours {
 
 /** A clip on a coloured track takes the track's colour. */
 function colouredBy(color: string): ClipColours {
-  return { body: mix(color, "#ffffff", 0.45), title: color, content: mix(color, "#000000", 0.6), text: "#ffffff" };
+  return { body: mix(color, "#ffffff", 0.2), title: color, content: mix(color, "#000000", 0.65), text: "#ffffff" };
 }
 
 /** Two "#rrggbb" colours mixed, `amount` of the second. */
