@@ -352,7 +352,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         width: STRIP_WIDTHS[view],
         ...stripLook(track.color, selected),
         // Muted, the whole strip is faded and greyed: off at a glance.
-        ...(track.muted && { opacity: "var(--mixer-muted-opacity)", filter: "saturate(0.35)" }),
+        ...(track.muted && { opacity: "var(--mixer-muted-opacity)", filter: "saturate(0.6)" }),
         borderColor: "var(--mixer-line)",
         // A divider: a gap of the mixer's background down its left edge (its width stays the same, so the strips scroll as they did).
         ...(separator && { borderLeft: "5px solid var(--mixer-bg)" }),

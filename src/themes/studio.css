@@ -138,7 +138,7 @@
   --mixer-strip: var(--surface-1);
   --mixer-strip-selected: var(--surface-2);
   --mixer-upper-shade: rgb(30 40 52 / 0.045);
-  --mixer-muted-opacity: 0.5;
+  --mixer-muted-opacity: 0.7;
   --mixer-line: var(--line);
   --mixer-header: var(--surface-0);
   --mixer-header-text: var(--muted-foreground);
@@ -264,7 +264,7 @@
   --fader-cap-on-edge: var(--brand-edge);
 
   --mixer-upper-shade: rgb(0 0 0 / 0.1);
-  --mixer-muted-opacity: 0.45;
+  --mixer-muted-opacity: 0.65;
   --mixer-tint-base: #16181c;
   --mixer-name-tint: #ffffff;
   --fader-slot: rgb(0 0 0 / 0.12);
