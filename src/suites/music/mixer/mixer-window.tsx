@@ -389,7 +389,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
               <DelayMark track={track} />
             </div>
             {/* The meter and the fader share the strip's height: a taller mixer has longer ones. */}
-            <div className="flex min-h-0 w-full flex-1 justify-center gap-1 px-1">
+            <div className="flex min-h-0 w-full flex-1 justify-center gap-1 px-1 pt-2">
               {renaming ? (
                 <RenameField track={track} name={name} />
               ) : (
@@ -737,7 +737,7 @@ function dragSelection(e: React.PointerEvent<HTMLElement>) {
 function SelectionMeter({ meterRef }: { meterRef: (canvas: HTMLCanvasElement | null) => void }) {
   const count = useMusicUi((s) => s.selectedTrackIds.length);
   return (
-    <div className="flex w-6 shrink-0 flex-col items-center gap-1 border-r py-1.5" style={{ ...stripLook(null, false), borderColor: "var(--mixer-line)" }} title={count > 1 ? `The ${count} selected tracks' output, together` : "The selected track's output"}>
+    <div className="flex w-6 shrink-0 flex-col items-center gap-[9px] border-r py-1.5" style={{ ...stripLook(null, false), borderColor: "var(--mixer-line)" }} title={count > 1 ? `The ${count} selected tracks' output, together` : "The selected track's output"}>
       <span className="font-mono text-[9px]" style={{ color: "var(--mixer-name)" }}>SEL</span>
       <canvas ref={meterRef} className="min-h-0 w-[13px] flex-1 rounded-[2px]" style={{ background: "var(--mixer-well)", boxShadow: "inset 0 1px 2px rgb(0 0 0 / 0.5)" }} role="img" aria-label="Selected tracks' level" data-testid="selection-meter" />
     </div>
