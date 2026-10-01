@@ -26,15 +26,21 @@ interface ClipColours {
 }
 
 /**
- * Content colours (the same in every theme): FL's pattern clips are blue-grey, audio clips greener; deep,
- * not pastel, and what's drawn in them (notes, a waveform) light on them, as FL draws it (Théo).
+ * A clip's colours, FL Studio's way, all from one colour: its title strip that colour, its body a dark
+ * shade of it (the grid faint behind), and what's drawn in it (notes, a waveform) a light tint of it, so
+ * each clip reads as one hue (Théo). The same in every theme.
  */
-const PATTERN: ClipColours = { body: "#55709a", title: "#3d5880", content: "#dfe8f6", text: "#eef2f8" };
-const AUDIO: ClipColours = { body: "#4c8566", title: "#356b4f", content: "#dcf1e5", text: "#eef6f1" };
-const SELECTED: ClipColours = { body: "#c4625b", title: "#a03c35", content: "#ffe6e3", text: "#fff3f2" };
+function clipColours(color: string): ClipColours {
+  return { title: color, body: mix(color, "#101318", 0.55), content: mix(color, "#ffffff", 0.62), text: mix(color, "#ffffff", 0.88) };
+}
 
-/** How opaque a clip's body is (its title strip and content are solid): the grid shows through, as in FL. */
-const BODY_ALPHA = { light: 0.55, dark: 0.7 };
+/** FL's own: pattern clips blue-grey, audio clips green; a selected clip red. */
+const PATTERN = clipColours("#5a78a6");
+const AUDIO = clipColours("#4f946c");
+const SELECTED = clipColours("#cc5a50");
+
+/** How opaque a clip's body is (its title strip and content are solid): the grid shows faintly through, as in FL. */
+const BODY_ALPHA = { light: 0.82, dark: 0.85 };
 /** A clip on a muted track: its colours greyed towards this, and fainter. */
 const MUTED_GREY = "#4a525c";
 const MUTED_TRACK_ALPHA = 0.6;
@@ -42,11 +48,6 @@ const MUTED_TRACK_ALPHA = 0.6;
 /** A clip's colours on a muted track: greyed and darker, so it reads as off. */
 function onMutedTrack(c: ClipColours): ClipColours {
   return { body: mix(c.body, MUTED_GREY, 0.6), title: mix(c.title, MUTED_GREY, 0.6), content: mix(c.content, MUTED_GREY, 0.55), text: mix(c.text, MUTED_GREY, 0.35) };
-}
-
-/** A clip of a coloured source, or on a coloured track, takes that colour. */
-function colouredBy(color: string): ClipColours {
-  return { body: mix(color, "#ffffff", 0.2), title: color, content: mix(color, "#ffffff", 0.8), text: "#ffffff" };
 }
 
 /** Two "#rrggbb" colours mixed, `amount` of the second. */
@@ -377,7 +378,7 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   const track = scene.tracks[clip.track];
   // Its source's colour, else its track's, else the usual for its kind (FL's order).
   const color = scene.colors.get(clip.ref) ?? track?.color;
-  const own = isSelected ? SELECTED : color ? colouredBy(color) : clip.kind === "audio" ? AUDIO : PATTERN;
+  const own = isSelected ? SELECTED : color ? clipColours(color) : clip.kind === "audio" ? AUDIO : PATTERN;
   const colours = track?.muted ? onMutedTrack(own) : own;
   const fade = (clip.muted ? 0.5 : 1) * (track?.muted ? MUTED_TRACK_ALPHA : 1) * alpha;
   ctx.globalAlpha = bodyAlpha * fade * (clip.muted ? 0.8 : 1);
