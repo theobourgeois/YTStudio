@@ -5,7 +5,7 @@ import type { EnginePlugin } from "@shared/music/engine";
 import { moveEffect, moveEffectTo, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
 import { EFFECT_SLOTS, MASTER_TRACK_ID } from "@shared/music/project";
 import type { InputMonitor, MixerEffect } from "@shared/music/types";
-import { Select, SelectContent, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSettings } from "@/stores/settings";
 import { askMicrophone } from "@/lib/desktop";
 import { inputChoices, inputKey, inputLabel, useInputs } from "../inputs";
@@ -323,18 +323,21 @@ function TrackInput({ trackId, name }: { trackId: string; name: string }) {
           <SelectContent>
             <SelectItem value="none">(no input)</SelectItem>
             {choices.length > 0 && <SelectSeparator />}
-            {choices.some((c) => c.input.stereo) && <SelectLabel className="text-[10px]">Stereo</SelectLabel>}
-            {choices.filter((c) => c.input.stereo).map((c) => (
-              <SelectItem key={inputKey(c.input)} value={inputKey(c.input)}>
-                {c.label}
-              </SelectItem>
-            ))}
-            {choices.length > 0 && <SelectLabel className="text-[10px]">Mono</SelectLabel>}
-            {choices.filter((c) => !c.input.stereo).map((c) => (
-              <SelectItem key={inputKey(c.input)} value={inputKey(c.input)}>
-                {c.label}
-              </SelectItem>
-            ))}
+            {(["Stereo", "Mono"] as const).map((group) => {
+              const items = choices.filter((c) => c.input.stereo === (group === "Stereo"));
+              return (
+                items.length > 0 && (
+                  <SelectGroup key={group}>
+                    <SelectLabel className="text-[10px]">{group}</SelectLabel>
+                    {items.map((c) => (
+                      <SelectItem key={inputKey(c.input)} value={inputKey(c.input)}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )
+              );
+            })}
             {/* The track's input on a device that doesn't have it: kept, and named by number. */}
             {track.input && !choices.some((c) => inputKey(c.input) === current) && <SelectItem value={current}>{inputLabel(track.input, channels)}</SelectItem>}
             <SelectSeparator />
