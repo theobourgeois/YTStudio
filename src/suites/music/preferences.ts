@@ -7,6 +7,38 @@ const METRONOME_SOUND_KEY = "music-metronome-sound";
 const TIME_FORMAT_KEY = "music-time-format";
 const RESAMPLING_KEY = "music-resampling";
 const EXPORT_RESAMPLING_KEY = "music-export-resampling";
+const RECORDING_KEY = "music-recording";
+
+/** The count-ins Record's menu offers, in bars (0: none). */
+export const COUNT_IN_BARS = [0, 1, 2, 4] as const;
+
+/** Record's options (its right-click menu), FL Studio's: kept in this browser, the same for every song. */
+export interface RecordingOptions {
+  /** Bars of the metronome's clicks before recording starts (FL's Count-in, Ctrl+P). */
+  countIn: number;
+  /** Go round the time selection (or the song), a take each pass, until stopped (FL's Loop record). */
+  loop: boolean;
+  /** Hear earlier passes of a loop recording while recording the next (FL's Blend); off, they're muted. */
+  blend: boolean;
+  /** Record turns itself off when play stops (FL's Disarm on stop). */
+  disarmOnStop: boolean;
+}
+
+const DEFAULT_RECORDING: RecordingOptions = { countIn: 1, loop: false, blend: false, disarmOnStop: false };
+
+function storedRecording(): RecordingOptions {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECORDING_KEY) ?? "{}") as Partial<RecordingOptions>;
+    return {
+      countIn: COUNT_IN_BARS.includes(raw.countIn as (typeof COUNT_IN_BARS)[number]) ? (raw.countIn as number) : DEFAULT_RECORDING.countIn,
+      loop: raw.loop === true,
+      blend: raw.blend === true,
+      disarmOnStop: raw.disarmOnStop === true,
+    };
+  } catch {
+    return DEFAULT_RECORDING;
+  }
+}
 
 /** How the toolbar's position reads: bars:steps:ticks, or minutes:seconds:centiseconds (a click switches, as in FL Studio). */
 export type TimeFormat = "bst" | "mscs";
@@ -41,11 +73,19 @@ interface MusicPreferencesState {
   /** In exports, where time matters less than in playback. */
   exportResampling: Resampling;
   setResampling: (patch: Partial<Pick<MusicPreferencesState, "resampling" | "exportResampling">>) => void;
+  recording: RecordingOptions;
+  setRecording: (patch: Partial<RecordingOptions>) => void;
 }
 
 const storedSound = localStorage.getItem(METRONOME_SOUND_KEY);
 
-export const useMusicPreferences = create<MusicPreferencesState>((set) => ({
+export const useMusicPreferences = create<MusicPreferencesState>((set, get) => ({
+  recording: storedRecording(),
+  setRecording(patch) {
+    const recording = { ...get().recording, ...patch };
+    localStorage.setItem(RECORDING_KEY, JSON.stringify(recording));
+    set({ recording });
+  },
   defaultTempo: validTempo(localStorage.getItem(DEFAULT_TEMPO_KEY)),
   setDefaultTempo(tempo) {
     const defaultTempo = tempo === null ? null : validTempo(tempo);

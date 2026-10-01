@@ -7,6 +7,7 @@ import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusicPreferences } from "./preferences";
 import { clipPreview } from "./playlist/preview";
 import { usePlaylist } from "./playlist/store";
+import { armedIn, useRecording } from "./recording";
 import { useMusic } from "./store";
 import { NO_CHANNELS, NO_EFFECTS, NO_METERS, afterSongSent, useTransport } from "./transport";
 import { currentTrackId, useMusicUi } from "./ui";
@@ -41,8 +42,10 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         // A clip previewed from its menu: the song is only that clip, its time the loop.
         const preview = clipPreview(song);
         const { resampling } = useMusicPreferences.getState();
+        // The tracks armed to record: their inputs are heard (monitored while armed) and recorded.
+        const armed = armedIn(song, useRecording.getState().armed);
         const { unreadable, channels, effects, loop: playing } = await musicApi.setSong(
-          preview ? { projectId, patternId, resampling, ...preview } : { projectId, song, patternId, loop, mode: playMode, resampling },
+          preview ? { projectId, patternId, resampling, ...preview } : { projectId, song, patternId, loop, mode: playMode, resampling, armed },
         );
         useTransport.setState({ unreadable, channels, effects: effects ?? NO_EFFECTS, loop: playing, error: null });
         if (!dirty) afterSongSent();
@@ -67,6 +70,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   });
   const unsubscribeQuality = useMusicPreferences.subscribe((state, prev) => {
     if (state.resampling !== prev.resampling) void send();
+  });
+  const unsubscribeArmed = useRecording.subscribe((state, prev) => {
+    if (state.armed !== prev.armed) void send();
   });
   const unsubscribePlaylist = usePlaylist.subscribe((state, prev) => {
     if ((state.time !== prev.time && useTransport.getState().mode === "song") || state.previewing !== prev.previewing) void send();
@@ -94,6 +100,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   meterSelection(true);
   const stopListening = musicApi.onEngineEvent((event) => {
     if (event.event === "transport") {
+      // Play stopped (by the engine, or another tab): a recording is over.
+      useRecording.getState().transportSaid(event.playing);
       useTransport.setState({
         playing: event.playing,
         tick: event.tick,
@@ -103,6 +111,10 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         cpu: event.cpu,
         filePreview: event.preview ?? null,
       });
+    } else if (event.event === "take") {
+      useRecording.getState().take(event);
+    } else if (event.event === "export") {
+      // (The export window follows its own job.)
     } else if (event.event === "key") {
       // Pressed in a plugin's window, which the plugin didn't use: the editor's shortcut runs.
       const { event: _, ...key } = event;
@@ -116,8 +128,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         channels: event.status.channels,
         effects: event.status.effects ?? NO_EFFECTS,
       });
-    } else {
+    } else if (event.event === "ready" || event.event === "stopped") {
       // A restarted engine: the server gives it the song back, but it isn't playing any more.
+      useRecording.getState().stopped();
       useTransport.setState({ playing: false, tick: 0 });
       meterSelection(true);
     }
@@ -146,6 +159,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     unsubscribePlaylist();
     unsubscribeMode();
     unsubscribeQuality();
+    unsubscribeArmed();
     unsubscribeSelection();
     stopListening();
     if (useTransport.getState().playing) void musicApi.engine("stop", {}).catch(() => {});

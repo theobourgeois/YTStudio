@@ -8,6 +8,7 @@ describe("music keys", () => {
   it("shows the Playlist with F5 and switches pattern and song mode with L, from any window", () => {
     expect(press("F5", "F5")).toEqual({ type: "togglePlaylist" });
     expect(press("l", "KeyL")).toEqual({ type: "toggleMode" });
+    expect(press("r", "KeyR")).toEqual({ type: "toggleRecord" });
     expect(press("l", "KeyL", { metaKey: true })).toEqual({ type: "assignFreeTracks" });
     expect(press("l", "KeyL", { shiftKey: true })).toBeNull();
     expect(resolvePluginWindowKey({ key: "l", code: "KeyL", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false })).toEqual({ type: "toggleMode" });
