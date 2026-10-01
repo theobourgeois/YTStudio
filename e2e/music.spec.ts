@@ -679,8 +679,12 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await page.getByRole("textbox", { name: "Track name" }).fill("Verb");
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await mixerOf())[3].name).toBe("Verb");
-  await mixer.page().getByRole("button", { name: "Add a mixer track" }).click();
+  await mixer.page().getByRole("button", { name: "Add a mixer track", exact: true }).click();
   await expect(mixer.locator("[data-track]")).toHaveCount(18);
+  // The + after the last track adds one at the end, selected.
+  await mixer.getByRole("button", { name: "Add a mixer track at the end" }).click();
+  await expect(mixer.locator("[data-track]")).toHaveCount(19);
+  await expect(strip("Insert 18")).toHaveAttribute("aria-selected", "true");
   expect((await mixerOf())[4].name).toBeNull();
 
   // Playing, the meters move (the stand-in engine reports the master's level).

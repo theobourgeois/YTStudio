@@ -37,6 +37,7 @@ import { currentTrackId, useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import {
   addTrackAfterCurrent,
+  addTrackAtEnd,
   colourTrack,
   copyTrackState,
   deleteTracks,
@@ -198,6 +199,16 @@ export function MixerWindow() {
             <div className="flex shrink-0" style={{ paddingLeft: first * stripWidth, paddingRight: Math.max(0, inserts.length - last) * stripWidth }}>
               {inserts.slice(first, last).map((track, i) => strip(track, first + i + 1))}
             </div>
+            {/* After the last track, as FL's: a + to add one at the end. */}
+            <button
+              type="button"
+              aria-label="Add a mixer track at the end"
+              title="Add a mixer track at the end"
+              className="grid w-9 shrink-0 place-items-center text-muted-foreground/60 hover:bg-surface-1 hover:text-foreground"
+              onClick={addTrackAtEnd}
+            >
+              <PiPlus className="size-5" />
+            </button>
           </div>
           <Cables area={area} mixer={mixer} current={current} />
         </div>

@@ -112,6 +112,16 @@ export function addTrackAfterCurrent() {
   }
 }
 
+/** A new insert track after the last one (the + at the end of the strips), selected and scrolled to. */
+export function addTrackAtEnd() {
+  const id = createId("insert");
+  commit((doc) => addMixerTracks(doc, null, 1, [id]));
+  if (song()?.mixer.tracks.some((t) => t.id === id)) {
+    useMusicUi.getState().setTrackSelection([id]);
+    useMixerView.getState().reveal(id);
+  }
+}
+
 /** Delete tracks (never the master); the selection goes to the track before the first. */
 export function deleteTracks(ids: string[]) {
   const doc = song();
