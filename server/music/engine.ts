@@ -49,6 +49,8 @@ export interface RenderExportRequest {
   /** Stop on the song's last sample, or ring out until it's quiet (at most `maxTail` seconds). */
   tail: "cut" | "ring";
   maxTail?: number;
+  /** How many threads run the plugins (default: every core). */
+  threads?: number;
 }
 
 /** Where a project's sample is on disk, or null if it has no such audio file. */
@@ -166,7 +168,7 @@ export class AudioEngine {
         if (event.state === "failed") reject(new HttpError(409, event.error));
         else resolve(event);
       });
-      const params = { exportId: request.id, song: { ...song, loops: false }, folder: request.folder, mix: request.mix, stems: request.stems, tail: request.tail, maxTail: request.maxTail };
+      const params = { exportId: request.id, song: { ...song, loops: false }, folder: request.folder, mix: request.mix, stems: request.stems, tail: request.tail, maxTail: request.maxTail, threads: request.threads };
       this.request("export", params).catch((err: Error) => {
         stop();
         reject(err);

@@ -235,7 +235,15 @@ light one: real patches with unison and effects cost several times more) and two
 | 24 × Serum 2 through AUReverb2 | 4.3× | 42 s |
 
 The plugins are nearly all of it, and each instance only depends on its own input: that's what running
-them in parallel speeds up. Plugins' offline-quality modes (always on, decided) can make a render slower
+them in parallel speeds up. **With the export built** (blocks of 2048, plugins in their offline mode, then
+on every core), the same songs, 60 seconds of each:
+
+| Song | Played (one thread, blocks of 512) | Exported, one thread | Exported, every core | A 3-minute song |
+| --- | --- | --- | --- | --- |
+| 6 × Serum 2 through AUReverb2 | 17.5× real time | 30× | 108× | 1.7 s |
+| 24 × Serum 2 through AUReverb2 | 4.3× | 7.4× | 45× | 4 s |
+
+The parallel export is the same, sample for sample, as the one-thread one (tested). Plugins' offline-quality modes (always on, decided) can make a render slower
 than playing it live. That's the price of FL's better-than-live render.
 
 ## Where Vaudio differs

@@ -6,14 +6,16 @@
  * Starts an offline engine (no device, nothing heard) with the plugins this computer's engine already
  * knows (`data/engine/plugins.xml`), plays a pattern of chords on `--channels` instances of `--synth`,
  * each on its own mixer track through `--fx` (none with `--fx none`), with two sampler drums, and
- * renders `--seconds` of it in 10-second requests, timing each. Prints how many times faster than real
- * time it went. `--synth "Vaudio Test Synth"` measures the engine with plugins that cost almost nothing.
+ * renders `--seconds` of it as playback would (10-second requests, one thread), then exports it (the
+ * pattern arranged on the playlist) on one thread and on every core. Prints how many times faster than
+ * real time each went. `--synth "Vaudio Test Synth"` measures the engine with plugins that cost almost nothing.
  */
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { addChannels, addPluginChannel, setChannelNotes, setPatternLength, setSteps } from "../shared/music/edits.ts";
+import { addClips, editClips } from "../shared/music/playlist.ts";
 import { addMixerTracks, routeChannels, setEffect } from "../shared/music/mixer.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../shared/music/project.ts";
 import type { MusicProject, Note } from "../shared/music/types.ts";
@@ -108,22 +110,49 @@ try {
   }
   const loadMs = performance.now() - loadStart;
 
+  // Played as playback would (the `render` command: one thread, the device's blocks of 512), in 10-second pieces.
   await engine.command("play", {});
   const times: number[] = [];
-  let peak = 0;
   for (let done = 0; done < seconds; done += CHUNK_SECONDS) {
-    const length = Math.min(CHUNK_SECONDS, seconds - done);
     const start = performance.now();
-    const result = await engine.render(Math.round(length * RATE));
+    await engine.render(Math.round(Math.min(CHUNK_SECONDS, seconds - done) * RATE));
     times.push(performance.now() - start);
-    peak = Math.max(peak, result.peak);
   }
-  const total = times.reduce((a, b) => a + b, 0) / 1000;
+  await engine.command("stop", {});
+  const live = times.reduce((a, b) => a + b, 0) / 1000;
+
+  // Exported: the pattern placed on the playlist again and again for `seconds`, rendered once, on one thread and on every core.
+  const bars = Math.ceil(seconds / 2);
+  const arranged = editClips(song, (clips) => addClips(clips, Array.from({ length: Math.ceil(bars / 4) }, (_, i) => ({ kind: "pattern" as const, ref: P, start: i * 4 * BAR, track: 0 }))).clips);
+  const exportOnce = async (threads?: number) => {
+    const start = performance.now();
+    const result = await engine.renderExport({
+      id: `exp_${threads ?? "all"}`,
+      projectId: PROJECT,
+      song: arranged,
+      patternId: P,
+      mode: "song",
+      loop: { start: 0, end: bars * BAR },
+      resampling: "sinc",
+      folder: path.join(dir, `export-${threads ?? "all"}`),
+      mix: true,
+      stems: false,
+      tail: "cut",
+      threads,
+    });
+    if (result.state !== "done") throw new Error("The export didn't finish.");
+    return { wall: (performance.now() - start) / 1000, frames: result.frames };
+  };
+  const one = await exportOnce(1);
+  const all = await exportOnce();
+
   const cores = os.cpus().length;
+  const pace = (secs: number) => `${secs.toFixed(2)} s, ${(seconds / secs).toFixed(1)}× real time`;
   console.log(`${channels} × ${synthName}${fx ? ` through ${fxName}` : ""}, 2 sampler drums, ${seconds} s of song at ${RATE} Hz (${os.cpus()[0].model}, ${cores} cores)`);
   console.log(`  plugins loaded in ${(loadMs / 1000).toFixed(2)} s`);
-  console.log(`  rendered in ${total.toFixed(2)} s: ${(seconds / total).toFixed(1)}× real time (one thread, blocks of 512)`);
-  console.log(`  slowest 10 s: ${(Math.max(...times) / 1000).toFixed(2)} s, fastest: ${(Math.min(...times) / 1000).toFixed(2)} s; peak ${peak.toFixed(2)}`);
+  console.log(`  played (one thread, blocks of 512):   ${pace(live)}`);
+  console.log(`  exported on one thread (blocks of 2048): ${pace(one.wall)}`);
+  console.log(`  exported on every core:               ${pace(all.wall)}`);
 } finally {
   engine.shutdown();
   await fs.rm(dir, { recursive: true, force: true });

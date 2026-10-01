@@ -10,8 +10,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { addChannels, addPluginChannel, setSteps, updateChannel } from "../../shared/music/edits.ts";
-import { routeChannels, setEffect } from "../../shared/music/mixer.ts";
+import { addChannels, addPluginChannel, setChannelNotes, setSteps, updateChannel } from "../../shared/music/edits.ts";
+import { routeChannels, setEffect, setSend } from "../../shared/music/mixer.ts";
 import { addAudioClips, addClips, editClips } from "../../shared/music/playlist.ts";
 import { FIRST_PATTERN_ID, createMusicProject as newSong } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
@@ -137,6 +137,27 @@ describe.skipIf(!built)("the export, offline", () => {
     for (let ch = 0; ch < 2; ch++)
       for (let i = 0; i < BAR; i++) worst = Math.max(worst, Math.abs(files.insert_1.channels[ch][i] + files.insert_2.channels[ch][i] - files.mix.channels[ch][i]));
     expect(worst).toBeLessThan(1e-6);
+  });
+
+  it("runs the plugins on every core and sounds the same, sample for sample, as on one", async () => {
+    // Four test synths, each on its own track through the test effect, two of them sending on to a third track.
+    const synth = (await engine.plugins()).find((p) => p.name === "Vaudio Test Synth")!;
+    let song = kicks([0, 8]);
+    for (let i = 0; i < 4; i++) {
+      song = addPluginChannel(song, { id: synth.id, name: synth.name, format: synth.format }, `chan_synth_${i}`);
+      song = setChannelNotes(song, P, `chan_synth_${i}`, () => [{ id: 1, start: i * 24, length: 200, pitch: 60 + i * 4, velocity: 0.8, pan: 0, muted: false }]);
+      song = routeChannels(song, [`chan_synth_${i}`], `insert_${i + 1}`);
+      song = setEffect(song, `insert_${i + 1}`, 0, { id: effectId, name: "Vaudio Test Effect", format: "VST3" }, `fx_${i}`);
+    }
+    song = setSend(setSend(song, "insert_1", "insert_5", 0.5), "insert_2", "insert_5", 0.5);
+    await expect.poll(async () => (await engine.setSong({ projectId: PROJECT, song, patternId: P })).channels.loaded.length).toBe(4);
+    await loaded(song);
+    const one = await exportSong(song, { threads: 1, stems: true, tail: "ring" });
+    const all = await exportSong(song, { stems: true, tail: "ring" });
+    expect(Object.keys(all.files).sort()).toEqual(Object.keys(one.files).sort());
+    for (const id of Object.keys(one.files))
+      for (let ch = 0; ch < 2; ch++) expect(Buffer.from(all.files[id].channels[ch].buffer).equals(Buffer.from(one.files[id].channels[ch].buffer)), `${id} ${ch}`).toBe(true);
+    expect(peakOf(one.files.mix.channels[0])).toBeGreaterThan(0.1);
   });
 
   it("exports the playlist in song mode, to the end of its last clip's bar, or only its time selection", async () => {

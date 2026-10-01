@@ -31,6 +31,8 @@ public:
         double maxTailSeconds = 30;
         double sampleRate = 48000;
         int blockSize = 2048;
+        /** How many threads run the song's plugins (1: one after the other). */
+        int threads = 1;
     };
 
     /** `finished` is called on the message thread with the result (`EngineExportEvent`'s fields), once. */

@@ -189,8 +189,15 @@ struct Song
     std::vector<AudioClip> audioClips;
     /** In the order they're run: each after every track sending to it. The master is the last. */
     std::vector<Track> tracks;
+    /**
+     * The tracks something reaches, in stages: none in a stage sends to another in it, and each stage's
+     * senders are all in earlier ones. So a stage's tracks can be run at once (the export does).
+     */
+    std::vector<std::vector<int>> stages;
     /** Two channels for each track that can be reached, `capacity` samples long: the mixer's scratch. */
     juce::AudioBuffer<float> audio;
+    /** Scratch too: the plugin channels a block plays (room for all of them is made when it's parsed). */
+    std::vector<int> playingPlugins;
     /** The channel pair in `audio` where the selected tracks' sound is added up (`Sequencer::setMeteredTracks`). */
     int selectionBuffer = 0;
     /** The longest block the song can play (a longer one plays silence). */

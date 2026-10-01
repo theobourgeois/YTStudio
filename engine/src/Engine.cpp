@@ -576,6 +576,9 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
         settings.maxTailSeconds = juce::jlimit (0.0, 120.0, (double) params["maxTail"]);
     settings.sampleRate = rate();
     settings.blockSize = exportBlockSize;
+    // Every core by default; `threads` asks for fewer (the benchmark compares).
+    const auto cores = juce::jmax (1, juce::SystemStats::getNumCpus());
+    settings.threads = params.hasProperty ("threads") ? juce::jlimit (1, cores, (int) params["threads"]) : cores;
     exportId = id;
     exportJob = std::make_unique<SongExport> (std::move (song), settings, [this, stillAlive = alive, id, missing] (const juce::var& result) {
         if (*stillAlive)

@@ -144,8 +144,16 @@ juce::var SongExport::render()
         }
     };
 
+    // Denormals are slow, and the flag that turns them off is each thread's own (the workers set theirs).
+    juce::ScopedNoDenormals noDenormals;
     Sequencer sequencer (true);
     sequencer.prepare (rate);
+    std::unique_ptr<Workers> workers;
+    if (settings.threads > 1)
+    {
+        workers = std::make_unique<Workers> (settings.threads);
+        sequencer.setWorkers (workers.get());
+    }
     sequencer.setSong (std::move (song));
     // Notes the live song left sounding in the plugins end before the first one is played.
     sequencer.silenceFirst();
