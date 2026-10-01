@@ -97,7 +97,8 @@ function edit(update: (clips: PlaylistClip[], ctx: ClipContext) => PlaylistClip[
 }
 
 /** Finish the drag in progress: its edit is made (one undo step), or its rectangle becomes the selection. */
-export function commitDrag() {
+/** End the drag in progress as an edit. `selectAdded`: clips it adds are selected (dropped from the Picker). */
+export function commitDrag(selectAdded = false) {
   const playlist = usePlaylist.getState();
   const { drag } = playlist;
   const p = playlistContext();
@@ -110,6 +111,8 @@ export function commitDrag() {
   edit(() => result.clips);
   // Copies take the selection with them. (What's drawn isn't selected, as in the Piano roll: the next click draws again.)
   if (drag.kind === "move" && drag.clone) playlist.select(result.created);
+  // What's dropped in from the Picker is what's worked on next.
+  if (drag.kind === "add" && selectAdded) playlist.select(result.created);
   if (drag.kind === "erase") playlist.select([...p.selected].filter((id) => !drag.ids.has(id)));
 }
 

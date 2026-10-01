@@ -516,7 +516,8 @@ function PlaylistBody() {
           if (!at || !carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
-          void dropAsAudioClips(e.dataTransfer, { ...at, after: e.shiftKey });
+          // Selected once they're in, as clips from the Picker are.
+          void dropAsAudioClips(e.dataTransfer, { ...at, after: e.shiftKey }).then((ids) => ids.length && usePlaylist.getState().select(ids));
         }}
       >
         <canvas
@@ -780,7 +781,7 @@ function dropClip(data: string, box: Element, ev: { clientX: number; clientY: nu
   usePlaylist.setState({ source, carried: null });
   if (source.kind === "pattern") useMusic.getState().selectPattern(source.ref);
   showCarried(sources, box, ev);
-  commitDrag();
+  commitDrag(true);
 }
 
 function HorizontalScrollbar() {
