@@ -8,6 +8,7 @@ import { useMusicPreferences } from "./preferences";
 import { clipPreview } from "./playlist/preview";
 import { usePlaylist } from "./playlist/store";
 import { armedIn, useRecording } from "./recording";
+import { useInputs } from "./inputs";
 import { useMusic } from "./store";
 import { NO_CHANNELS, NO_EFFECTS, NO_METERS, afterSongSent, useTransport } from "./transport";
 import { currentTrackId, useMusicUi } from "./ui";
@@ -98,6 +99,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     if (state.selectedTrackIds !== prev.selectedTrackIds) meterSelection();
   });
   meterSelection(true);
+  // The input device's channels, for the Input menus and audio tracks' headers.
+  void useInputs.getState().load();
   const stopListening = musicApi.onEngineEvent((event) => {
     if (event.event === "transport") {
       // Play stopped (by the engine, or another tab): a recording is over.

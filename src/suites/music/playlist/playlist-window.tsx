@@ -27,6 +27,7 @@ import { type Palette, prepare, readPalette } from "../piano/draw";
 import { SNAPS, SNAP_LABELS, type Snap, snapTick, wheelZoomFactor } from "../piano/geometry";
 import { DeleteIcon, DrawIcon, MuteIcon, PaintIcon, PlaybackIcon, SelectIcon, SliceIcon } from "../piano/tool-icons";
 import { positionNow } from "../playhead";
+import { useRecording } from "../recording";
 import { useMusic } from "../store";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
@@ -291,6 +292,7 @@ function PlaylistBody() {
   const grid = useRef<HTMLCanvasElement>(null);
   const ruler = useRef<HTMLCanvasElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
+  const recorded = useRef<HTMLDivElement>(null);
   const gridBox = useRef<HTMLDivElement>(null);
 
   // Drawing: once a frame, when anything it shows has changed.
@@ -421,15 +423,27 @@ function PlaylistBody() {
   }, []);
 
   // The playhead, moved every frame while the song plays (song mode only: in pattern mode it's the pattern that plays).
+  // Recording, it's red, and what's been recorded so far is shaded red behind it (from where it began, or
+  // the loop's start once it's gone round).
   useEffect(() => {
     let frame = 0;
     const move = () => {
       const line = playhead.current;
       if (line) {
         const tick = useTransport.getState().mode === "song" ? positionNow() : null;
-        const x = tick === null ? -10 : tickToX(usePlaylist.getState().view, tick);
+        const view = usePlaylist.getState().view;
+        const x = tick === null ? -10 : tickToX(view, tick);
         line.style.transform = `translateX(${x}px)`;
         line.style.opacity = tick === null ? "0" : "1";
+        const active = useRecording.getState().active;
+        const recording = active !== null && tick !== null && performance.now() >= active.movesAt;
+        line.style.background = recording ? "var(--destructive)" : "";
+        const band = recorded.current;
+        if (band) {
+          const from = recording ? tickToX(view, tick >= active.startTick ? active.startTick : useTransport.getState().loop.start) : 0;
+          band.style.transform = `translateX(${from}px)`;
+          band.style.width = `${recording ? Math.max(0, x - from) : 0}px`;
+        }
       }
       frame = requestAnimationFrame(move);
     };
@@ -533,6 +547,7 @@ function PlaylistBody() {
           onPointerLeave={(e) => trackSliceHover(e.currentTarget, null)}
           onPointerUp={(e) => (e.currentTarget.style.cursor = gridCursor(e.currentTarget, e))}
         />
+        <div ref={recorded} className="pointer-events-none absolute inset-y-0 left-0 w-0 bg-destructive/12" data-testid="playlist-recorded" />
         <div ref={playhead} className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground opacity-0" data-testid="playlist-playhead" />
         <ClipMenu />
         <SourceEditor />

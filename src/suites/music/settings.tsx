@@ -6,6 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { musicApi } from "./api";
 import { EnginePanel } from "./engine-panel";
 import { useMusicPreferences } from "./preferences";
+import { askMicrophone, microphoneAccess } from "@/lib/desktop";
+import { useInputs } from "./inputs";
 import { ResamplingSelect } from "./resampling-select";
 import { useTransport } from "./transport";
 
@@ -48,15 +50,27 @@ function QualitySettings() {
 function DeviceSettings() {
   const [devices, setDevices] = useState<EngineDevices | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** macOS's answer for the microphone (the desktop app), or null where it can't be asked. */
+  const [microphone, setMicrophone] = useState<string | null>(null);
 
   useEffect(() => {
-    musicApi.devices().then(setDevices, (err) => setError(errorMessage(err)));
+    musicApi.devices().then((next) => {
+      setDevices(next);
+      useInputs.getState().take(next);
+    }, (err) => setError(errorMessage(err)));
+    void microphoneAccess()?.then(setMicrophone);
   }, []);
 
   const change = async (body: SetDeviceRequest) => {
     try {
+      // Opening an input: Vaudio asks for the microphone first (macOS asks the app, not the engine).
+      if (body.input) {
+        const answer = await askMicrophone();
+        if (answer !== undefined) setMicrophone(answer);
+      }
       const next = await musicApi.setDevice(body);
       setDevices(next);
+      useInputs.getState().take(next);
       setError(null);
       useTransport.setState({ latencyMs: next.status.outputLatencyMs });
     } catch (err) {
@@ -76,7 +90,7 @@ function DeviceSettings() {
   const bufferSizes = devices.bufferSizes.filter((size) => (size & (size - 1)) === 0 || size === status.bufferSize);
   const bufferMs = status.sampleRate > 0 ? (status.bufferSize / status.sampleRate) * 1000 : 0;
   return (
-    <SettingsGroup title="Audio" description="Where the sound goes. The engine plays through this device whichever song is open." data-testid="device-settings">
+    <SettingsGroup title="Audio" description="Where the sound goes, and what's recorded. The engine plays through these devices whichever song is open." data-testid="device-settings">
       <SettingsRow title="Output device">
         <Select value={devices.output ?? ""} onValueChange={(output) => void change({ output })}>
           <SelectTrigger size="sm" className="w-64" aria-label="Output device">
@@ -84,6 +98,32 @@ function DeviceSettings() {
           </SelectTrigger>
           <SelectContent>
             {devices.outputs.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </SettingsRow>
+      <SettingsRow
+        title="Input device"
+        description={
+          microphone === "denied" || microphone === "restricted" ? (
+            <span className="text-destructive">Vaudio can't hear your microphone: allow it in System Settings → Privacy &amp; Security → Microphone, then choose the input again.</span>
+          ) : devices.input ? (
+            `What mixer tracks record (their Input, in the Mixer): ${status.inputChannels} input${status.inputChannels === 1 ? "" : "s"}, ${status.inputLatencyMs.toFixed(0)} ms late as the device reports it.`
+          ) : (
+            "To record: an audio interface, or the Mac's microphone (with headphones, so the song isn't recorded too)."
+          )
+        }
+      >
+        <Select value={devices.input ?? "none"} onValueChange={(input) => void change({ input: input === "none" ? "" : input })}>
+          <SelectTrigger size="sm" className="w-64" aria-label="Input device">
+            <SelectValue placeholder="No input" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">No input</SelectItem>
+            {devices.inputs.map((name) => (
               <SelectItem key={name} value={name}>
                 {name}
               </SelectItem>
