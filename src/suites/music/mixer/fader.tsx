@@ -36,6 +36,7 @@ interface FaderProps {
 export function Fader({ value, label, selected, className, onBegin, onDrag, onEnd, onCancel, onSet }: FaderProps) {
   const [dragging, setDragging] = useState(false);
   const [typing, setTyping] = useState<string | null>(null);
+  const typingNext = useRef(false);
   const groove = useRef<HTMLDivElement>(null);
   const handleTop = (v: number) => `calc((1 - ${v}) * (100% - ${HANDLE_H}px))`;
 
@@ -133,11 +134,23 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
             </div>
           </PopoverPrimitive.Anchor>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        {/* Choosing Type in value: the menu mustn't give the focus back to the control as it closes, or the field loses it and closes. */}
+        <ContextMenuContent
+          onCloseAutoFocus={(e) => {
+            if (!typingNext.current) return;
+            e.preventDefault();
+            typingNext.current = false;
+          }}
+        >
           <ContextMenuItem onSelect={() => onSet(DEFAULT_FADER)}>Reset</ContextMenuItem>
           <ContextMenuSeparator />
           {/* After the menu has closed and given the focus back, or the field would lose it at once. */}
-          <ContextMenuItem onSelect={() => setTimeout(() => setTyping(faderDb(value).replace(" dB", "").replace("−", "-").replace("∞", "inf")), 0)}>
+          <ContextMenuItem
+            onSelect={() => {
+              typingNext.current = true;
+              setTimeout(() => setTyping(faderDb(value).replace(" dB", "").replace("−", "-").replace("∞", "inf")), 0);
+            }}
+          >
             Type in value…
           </ContextMenuItem>
         </ContextMenuContent>

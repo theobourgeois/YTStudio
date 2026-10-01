@@ -624,6 +624,14 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await expect.poll(async () => (await mixerOf())[1].volume).toBeLessThan(0.7);
   await fader.click({ modifiers: ["Alt"] });
   await expect.poll(async () => (await mixerOf())[1].volume).toBe(0.8);
+  // Its menu's Type in value takes a level in dB (the field stays open while it's typed in).
+  await fader.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Type in value…" }).click();
+  await page.waitForTimeout(500);
+  await page.getByRole("textbox", { name: "Kick volume in dB" }).fill("-6");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await mixerOf())[1].volume).toBeCloseTo(0.635, 2);
+  await fader.click({ modifiers: ["Alt"] });
 
   // With Kick selected, insert 3's arrow sends Kick there too; then insert 3 can't send back (a loop).
   await strip("Kick").locator("canvas").click();

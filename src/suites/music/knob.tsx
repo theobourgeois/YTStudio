@@ -80,6 +80,7 @@ function arc(cx: number, cy: number, r: number, from: number, to: number): strin
 export function Knob({ value, min, max, defaultValue, label, format, unit, bipolar, size = 22, className, onBegin, onDrag, onEnd, onCancel, onSet }: KnobProps) {
   const [dragging, setDragging] = useState(false);
   const [typing, setTyping] = useState<string | null>(null);
+  const typingNext = useRef(false);
   const copied = useCopiedValue((s) => s.fraction);
   const fraction = (value - min) / (max - min);
   const angle = -SWEEP / 2 + fraction * SWEEP;
@@ -164,7 +165,14 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
             </div>
           </PopoverPrimitive.Anchor>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        {/* Choosing Type in value: the menu mustn't give the focus back to the control as it closes, or the field loses it and closes. */}
+        <ContextMenuContent
+          onCloseAutoFocus={(e) => {
+            if (!typingNext.current) return;
+            e.preventDefault();
+            typingNext.current = false;
+          }}
+        >
           <ContextMenuItem onSelect={() => onSet(defaultValue)}>Reset</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => useCopiedValue.setState({ fraction })}>Copy value</ContextMenuItem>
@@ -172,7 +180,14 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
             Paste value
           </ContextMenuItem>
           {/* After the menu has closed and given the focus back, or the field would lose it at once. */}
-          <ContextMenuItem onSelect={() => setTimeout(() => setTyping(typed(value, unit)), 0)}>Type in value…</ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => {
+              typingNext.current = true;
+              setTimeout(() => setTyping(typed(value, unit)), 0);
+            }}
+          >
+            Type in value…
+          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
       <PopoverContent className="w-36 p-2" onOpenAutoFocus={(e) => e.preventDefault()}>
