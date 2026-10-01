@@ -59,10 +59,13 @@ import {
   soloTrack,
   toggleSend,
   toggleTrackMute,
+  assignAudioTracksTo,
 } from "./actions";
 import { Cables } from "./cables";
 import { Fader } from "./fader";
 import { Led } from "./led";
+import { ArmButton } from "./arm-button";
+import { useRecording } from "../recording";
 import { faderDb, meterScale } from "./meter";
 import { useMeters } from "./meters";
 import { Inspector } from "./inspector";
@@ -436,6 +439,8 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       <div className="text-[9px] tabular-nums" style={{ color: "var(--mixer-name)" }} title="Level">
         {faderDb(track.volume).replace(" dB", "")}
       </div>
+      {/* FL's arm switch, under the fader: the master never records. */}
+      {isMaster ? <span className="size-[11px]" aria-hidden /> : <ArmButton trackId={id} name={name} />}
       <div className="flex gap-0.5">
         <StripToggle label={`Invert ${name}'s phase`} on={track.invert} onChange={(invert) => commitTrack(id, { invert })}>
           <PiArrowsDownUp />
@@ -454,6 +459,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
 /** A strip's fader: one undo step a drag, moving every selected track's fader by as much when it's one of them. */
 function TrackFader({ track, name, selected }: { track: MixerTrack; name: string; selected: boolean }) {
   const gesture = useRef(songGesture()).current;
+  const armed = useRecording((s) => s.armed.includes(track.id));
   const start = useRef<Map<string, number>>(new Map());
   const id = track.id;
   return (
@@ -462,6 +468,7 @@ function TrackFader({ track, name, selected }: { track: MixerTrack; name: string
       label={`${name} volume`}
       value={track.volume}
       selected={selected}
+      armed={armed}
       onBegin={() => {
         const song = useMusic.getState().history!.doc;
         const group = selected ? selectedTracks() : [id];
@@ -575,6 +582,11 @@ function TrackMenu({ id, isMaster, color, separator, grouped }: { id: string; is
       <ContextMenuItem onSelect={() => selectChannelsOn(id)}>
         Select channels routed here <ContextMenuShortcut>⌥L</ContextMenuShortcut>
       </ContextMenuItem>
+      {!isMaster && (
+        <ContextMenuItem onSelect={() => assignAudioTracksTo(id)} title="A Playlist track for it (FL's audio track): its input and arm on the track's header, and its takes land there">
+          Assign to new audio track
+        </ContextMenuItem>
+      )}
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => soloTrack(id)}>
         Solo <ContextMenuShortcut>S</ContextMenuShortcut>

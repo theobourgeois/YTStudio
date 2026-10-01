@@ -162,6 +162,9 @@
   --mixer-led-edge: var(--brand-edge);
   --mixer-on: var(--brand);
   --mixer-delay: var(--brand);
+  /* A track armed to record: its fader's cap (FL's orange) and its arm light (red). */
+  --mixer-armed: #e2802f;
+  --mixer-arm: #d8343f;
   --fader-slot: rgb(30 40 52 / 0.05);
   /* The mixer's lights (`mixer/led.tsx`): their bezel, and their lens when off. */
   --led-bezel-light: #a9b0b9;

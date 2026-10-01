@@ -1,10 +1,15 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PiCaretRightFill, PiClock, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import type { EnginePlugin } from "@shared/music/engine";
 import { moveEffect, moveEffectTo, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
-import { EFFECT_SLOTS } from "@shared/music/project";
-import type { MixerEffect } from "@shared/music/types";
+import { EFFECT_SLOTS, MASTER_TRACK_ID } from "@shared/music/project";
+import type { InputMonitor, MixerEffect } from "@shared/music/types";
+import { Select, SelectContent, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useSettings } from "@/stores/settings";
+import { inputChoices, inputKey, inputLabel, useInputs } from "../inputs";
+import { setTrackInput } from "../recording";
+import { ArmButton } from "./arm-button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover as PopoverPrimitive } from "radix-ui";
@@ -32,6 +37,7 @@ export function Inspector({ trackId }: { trackId: string }) {
   return (
     <aside className="flex w-56 shrink-0 flex-col border-l border-line bg-surface-1" aria-label={`${name}: effects`} data-testid="mixer-inspector">
       <div className="truncate border-b border-line px-2 py-1 text-xs font-medium">{name}</div>
+      {trackId !== MASTER_TRACK_ID && <TrackInput trackId={trackId} name={name} />}
       <ol className="flex flex-col gap-px p-1">
         {effects.map((effect, slot) => (
           <Slot key={slot} trackId={trackId} slot={slot} effect={effect} />
@@ -268,6 +274,109 @@ function DelayCompensation({ trackId }: { trackId: string }) {
         >
           Reset
         </button>
+      </label>
+    </section>
+  );
+}
+
+const MONITOR_NAMES: Record<InputMonitor, string> = { off: "Off", armed: "When armed", on: "On" };
+
+/**
+ * The track's input, FL Studio's (at the top of its inspector): which of the device's inputs it takes
+ * (choosing one arms it), its arm switch, when the input is heard (through the track's effects), and
+ * the input offset that moves its takes earlier or later.
+ */
+function TrackInput({ trackId, name }: { trackId: string; name: string }) {
+  const track = useSong((song) => song.mixer.tracks.find((t) => t.id === trackId));
+  const channels = useInputs((s) => s.channels);
+  const loaded = useInputs((s) => s.loaded);
+  const [typing, setTyping] = useState<string | null>(null);
+  useEffect(() => {
+    if (!useInputs.getState().loaded) void useInputs.getState().load();
+  }, []);
+  const choices = useMemo(() => inputChoices(channels), [channels]);
+  if (!track) return null;
+  const current = inputKey(track.input);
+  const commitOffset = () => {
+    const ms = Number((typing ?? "").replace(",", ".").replace("−", "-"));
+    if (typing !== null && Number.isFinite(ms)) useMusic.getState().commit((song) => updateMixerTrack(song, trackId, { inputOffset: ms }));
+    setTyping(null);
+  };
+  return (
+    <section className="flex flex-col gap-1 border-b border-line px-2 py-1.5 text-[11px]" aria-label="Input" data-testid="track-input">
+      <div className="flex items-center gap-1.5">
+        <ArmButton trackId={trackId} name={name} size={13} />
+        <Select
+          value={current}
+          onValueChange={(value) => {
+            if (value === "settings") return useSettings.getState().show("music");
+            const choice = choices.find((c) => inputKey(c.input) === value);
+            void setTrackInput(trackId, choice?.input ?? null);
+          }}
+        >
+          <SelectTrigger size="sm" className="h-6 min-w-0 flex-1 text-[11px]" aria-label="Input">
+            <SelectValue placeholder="Input">{track.input ? inputLabel(track.input, channels) : "(no input)"}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">(no input)</SelectItem>
+            {choices.length > 0 && <SelectSeparator />}
+            {choices.some((c) => c.input.stereo) && <SelectLabel className="text-[10px]">Stereo</SelectLabel>}
+            {choices.filter((c) => c.input.stereo).map((c) => (
+              <SelectItem key={inputKey(c.input)} value={inputKey(c.input)}>
+                {c.label}
+              </SelectItem>
+            ))}
+            {choices.length > 0 && <SelectLabel className="text-[10px]">Mono</SelectLabel>}
+            {choices.filter((c) => !c.input.stereo).map((c) => (
+              <SelectItem key={inputKey(c.input)} value={inputKey(c.input)}>
+                {c.label}
+              </SelectItem>
+            ))}
+            {/* The track's input on a device that doesn't have it: kept, and named by number. */}
+            {track.input && !choices.some((c) => inputKey(c.input) === current) && <SelectItem value={current}>{inputLabel(track.input, channels)}</SelectItem>}
+            <SelectSeparator />
+            <SelectItem value="settings">{loaded && !channels.length ? "Choose an input device in Settings…" : "Input device settings…"}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <label className="flex items-center gap-1.5 text-muted-foreground">
+        <span>Monitor</span>
+        <Select value={track.monitor} onValueChange={(monitor) => useMusic.getState().commit((song) => updateMixerTrack(song, trackId, { monitor: monitor as InputMonitor }))}>
+          <SelectTrigger size="sm" className="ml-auto h-6 w-28 text-[11px]" aria-label="Monitor input">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(MONITOR_NAMES) as InputMonitor[]).map((m) => (
+              <SelectItem key={m} value={m}>
+                {MONITOR_NAMES[m]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </label>
+      <label className="flex items-center gap-1.5 text-muted-foreground" title="Moves this track's takes earlier (positive) or later, for the latency the device doesn't report: record the metronome through the mic and line its clicks up with the beat">
+        <span>Input offset</span>
+        <Input
+          aria-label="Input offset in ms"
+          inputMode="decimal"
+          className="ml-auto h-6 w-16 text-right text-[11px] tabular-nums"
+          value={typing ?? String(track.inputOffset)}
+          onFocus={(e) => {
+            setTyping(String(track.inputOffset));
+            e.currentTarget.select();
+          }}
+          onChange={(e) => setTyping(e.target.value)}
+          onBlur={commitOffset}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") {
+              setTyping(null);
+              e.currentTarget.blur();
+            }
+          }}
+        />
+        ms
       </label>
     </section>
   );

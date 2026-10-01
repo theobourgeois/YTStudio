@@ -26,6 +26,7 @@ import {
   updateMixerTracks,
 } from "@shared/music/mixer";
 import { MASTER_TRACK_ID } from "@shared/music/project";
+import { assignAudioTracks } from "@shared/music/recording";
 import type { MixerDock, MusicProject } from "@shared/music/types";
 import { musicApi } from "../api";
 import { selectedIds as selectedChannelIds } from "../rack-actions";
@@ -220,4 +221,14 @@ export async function pasteTrackStateOnto(id = currentTrack()) {
     }
   }
   if (useMusic.getState().projectId === projectId) commit((doc) => pasteTrackState(doc, id, copied.state, ids));
+}
+
+/**
+ * FL's Assign to new audio track(s): a Playlist track for each of the selected mixer tracks (or `id`'s
+ * alone, if it isn't one of them) that hasn't one, below what's in use, named after it.
+ */
+export function assignAudioTracksTo(id: string) {
+  const selected = selectedTracks();
+  const ids = selected.includes(id) ? selected : [id];
+  useMusic.getState().commit((song) => assignAudioTracks(song, ids));
 }
