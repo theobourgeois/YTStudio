@@ -33,7 +33,7 @@ Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/
 | Layout: groups of two rows each | Ours (Théo): the title and hint at the left; in the middle two rows, the transport, tempo, position and monitors above, the window buttons, pattern selector and a wide song position slider below |
 | Menus | None yet. The project's name (click to rename) is in their place, as the title |
 | Hint bar | Yes: the name of what's under the pointer (its title) |
-| PAT / SONG | Yes (L): two lights, the lit one is what plays. Not saved: a song with clips on its playlist opens in song mode |
+| PAT / SONG | Yes (L): two lights, the lit one is what plays (Théo's colours: PAT in the accent, SONG in FL's orange; the lit play and metronome icons are the accent too, without FL's glow). Not saved: a song with clips on its playlist opens in song mode |
 | Play / Pause, Stop | Yes, joined as FL's: playing, Play shows Pause (lit); pressed it stops where it is and the next play goes on from there. Stop (and a jump, or the other mode) forgets where it paused. Space plays and stops |
 | Record, countdown, typing keyboard | Not yet (recording) |
 | Tempo LCD | Yes, FL's look ("140.000", the decimals smaller, light digits on a dark display in every theme): drag it up and down (the pointer is locked, so it goes on past the screen's edge), or click it to type. Its menu has Tap tempo… (tap along to a song; any key taps too), Make it the default (new songs start at it; 140 BPM until it's set, kept in the browser) and Reset the default; no presets yet |
