@@ -5,7 +5,7 @@
  * the mixer's routing as an order to run its tracks in. The engine (`engine/src/Song.cpp`) only has to
  * play samples and audio clips at the right moments and add up tracks as it's told.
  */
-import { automationIndex, controlAt, controlBreaks, controlOf, targetKey } from "./automation.ts";
+import { automationIndex, clipAtTick, controlBreaks, controlOf, placedValue, targetKey } from "./automation.ts";
 import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { type AutomationTarget, type Channel, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
@@ -464,8 +464,7 @@ export function soundingChannels(song: MusicProject, pattern: Pattern, tick: num
 
 /** How far a lane may be from the control it draws (in its own units: a gain, a plugin's 0..1), between its points. */
 const LANE_TOLERANCE = 1e-3;
-/** A lane is looked at every this many ticks at least, then closer where it bends, down to `LANE_FINEST`. */
-const LANE_STEP = 8;
+/** A lane is looked at every `step` ticks at least (a beat, or closer for an LFO), then closer where it bends, down to `LANE_FINEST`. */
 const LANE_FINEST = 1 / 8;
 /** Just before a tick: the value a control arrives at, before it jumps. */
 const JUST_BEFORE = 1e-6;
@@ -480,16 +479,19 @@ const JUST_BEFORE = 1e-6;
 function automationLanes(song: MusicProject, trackIndex: Map<string, number>, from: number, to: number, held: ReadonlySet<string>): EngineLane[] {
   const index = automationIndex(song);
   if (!index.size || to <= from) return [];
+  const { barTicks } = clipContext(song);
   const automated = (target: AutomationTarget) => {
     const key = targetKey(target);
     return !held.has(key) && index.has(key) ? key : null;
   };
   /** A control's value at a tick, as its own (a pan's -1..1), or its own value where no clip says. */
   const valueOf = (target: AutomationTarget, own: number) => {
+    const placed = index.get(targetKey(target));
     const info = controlOf(song, target);
+    if (!placed) return () => own;
     return (tick: number) => {
-      const fraction = controlAt(song, target, tick);
-      return fraction === null ? own : info.toControl(fraction);
+      const found = clipAtTick(placed, tick);
+      return found ? info.toControl(placedValue(found.placed, tick, barTicks)) : own;
     };
   };
   const breaksOf = (keys: (string | null)[]) => {
@@ -497,10 +499,17 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
     for (const key of keys) if (key) for (const tick of controlBreaks(index.get(key)!, from, to)) all.add(tick);
     return [...all].sort((a, b) => a - b);
   };
+  /** How often a lane must be looked at to see its clips' LFOs (a quarter of the fastest one's cycle), else a beat. */
+  const stepOf = (keys: (string | null)[]) => {
+    let step = PPQ;
+    for (const key of keys)
+      if (key) for (const p of index.get(key)!) if (p.automation.lfo.enabled && p.automation.lfo.level) step = Math.min(step, barTicks / p.automation.lfo.speed / 4);
+    return Math.max(LANE_FINEST * 4, step);
+  };
   const lanes: EngineLane[] = [];
   const add = (target: EngineLaneTarget, keys: (string | null)[], value: (tick: number) => number[]) => {
     if (!keys.some(Boolean)) return;
-    lanes.push({ target, ...sampleLane(value, breaksOf(keys), from, to) });
+    lanes.push({ target, ...sampleLane(value, breaksOf(keys), from, to, stepOf(keys)) });
   };
 
   song.channels.forEach((channel, i) => {
@@ -553,18 +562,22 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
     const key = automated(target);
     if (!key || pluginKeys.has(key) || !controlOf(song, target).exists) continue;
     pluginKeys.add(key);
-    add({ kind: "param", owner: target.owner, id: target.id, param: target.param, index: target.index }, [key], (tick) => [controlAt(song, target, tick) ?? -1]);
+    const placed = index.get(key)!;
+    add({ kind: "param", owner: target.owner, id: target.id, param: target.param, index: target.index }, [key], (tick) => {
+      const found = clipAtTick(placed, tick);
+      return [found ? placedValue(found.placed, tick, barTicks) : -1];
+    });
   }
   return lanes;
 }
 
 /**
  * A function of the song's ticks drawn as straight lines between points, from `from` to `to`, counted from
- * `from`: looked at every `LANE_STEP` ticks and more closely where a straight line would be further than
+ * `from`: looked at every `step` ticks and more closely where a straight line would be further than
  * `LANE_TOLERANCE` from it, then thinned where the lines are straight. At each of `breaks` (where it may
  * jump) it has two points on the tick: what it arrives at, and what it jumps to.
  */
-export function sampleLane(value: (tick: number) => number[], breaks: readonly number[], from: number, to: number): { ticks: number[]; values: number[] } {
+export function sampleLane(value: (tick: number) => number[], breaks: readonly number[], from: number, to: number, step = PPQ): { ticks: number[]; values: number[] } {
   const edges = [from, ...breaks.filter((b) => b > from && b < to), to];
   const ticks: number[] = [];
   const values: number[] = [];
@@ -573,7 +586,7 @@ export function sampleLane(value: (tick: number) => number[], breaks: readonly n
     const b = edges[e + 1];
     // One run of points without jumps: sampled, refined, thinned.
     const run: { tick: number; value: number[] }[] = [];
-    const steps = Math.max(1, Math.ceil((b - a) / LANE_STEP));
+    const steps = Math.max(1, Math.ceil((b - a) / step));
     let previous = { tick: a, value: value(a) };
     run.push(previous);
     // Looked at in quarters, not only the middle: an S (a smooth or double curve, half a wave) crosses its
@@ -596,12 +609,14 @@ export function sampleLane(value: (tick: number) => number[], breaks: readonly n
       previous = next;
     }
     for (const point of thin(run)) {
-      const tick = point.tick - from;
-      const n = point.value.length;
+      // Rounded (what's sent to the engine on every edit is smaller): far finer than a sample, or a gain heard.
+      const tick = Math.round((point.tick - from) * 1e4) / 1e4;
+      const rounded = point.value.map((v) => Math.round(v * 1e6) / 1e6);
+      const n = rounded.length;
       // Where the last run ended on the value this one starts at, there's no jump: one point does.
-      if (ticks.length && ticks[ticks.length - 1] === tick && point.value.every((v, c) => v === values[values.length - n + c])) continue;
+      if (ticks.length && ticks[ticks.length - 1] === tick && rounded.every((v, c) => v === values[values.length - n + c])) continue;
       ticks.push(tick);
-      values.push(...point.value);
+      values.push(...rounded);
     }
   }
   return { ticks, values };
