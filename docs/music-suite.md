@@ -37,7 +37,7 @@ put together and how we use its manual). As of 2026-09-30, all of it is on the b
 | Piano roll | Every tool (draw, paint, delete, mute, slice, select, playback), selecting, the time selection that loops, Ctrl+B, quantize, glue, chop, legato, the event editor (velocity, pan), note properties, ghost notes, the target channel, FL's keys; FL's look; tested with 20 000 notes | `docs/fl-studio/piano-roll.md` |
 | Windows | Every panel is a floating window on a desktop: dragged, stuck to edges and other windows, resized, maximised (double-click the title), snapped to fill the desktop or half | CLAUDE.md |
 | Transport | Play and stop the current pattern, tempo, the metronome, where play starts (the Piano roll's ruler, which also moves a playing song) | |
-| Assistant | Tools at parity for all of the above: `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song` | `shared/music/tools.ts` |
+| Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song` | `shared/music/tools.ts` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
 
 ### How it's built, in one screen
@@ -109,7 +109,10 @@ sends and chains of tracks, with a manual offset per track; the inspector shows 
 and the strip a clock; tested to the sample offline (`server/music/latency.integration.test.ts`).
 The strips' finishing touches: invert phase, swap sides and stereo separation, track colours, routing
 cables, copying a track's state (effects with their settings) to another, and only the strips in view
-drawn (500 tracks open as fast as 16). Next: the assistant's tools, then Théo's feedback pass. **The track EQ is put off** (Théo, 2026-09-30): he EQs
+drawn (500 tracks open as fast as 16). The assistant's mixer tools (`get_mixer`, `route_channels`,
+`update_mixer_track`, `set_send`, `solo_mixer_track`, `add_`/`remove_`/`move_mixer_track`,
+`add_`/`update_`/`remove_mixer_effect`, `copy_track_state`; `list_plugins` lists effects too; `get_song`
+sums up the routing). Next: Théo's feedback pass, then the playlist. **The track EQ is put off** (Théo, 2026-09-30): he EQs
 with Pro-Q in a slot; a stock EQ can come later if the assistant or shared songs need one.
 
 What Théo needs: his effect plugins (Pro-Q, Pro-R, EchoBoy) on channels and on the master, levels, and a

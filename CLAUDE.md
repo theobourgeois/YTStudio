@@ -341,8 +341,9 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   tested) and run in `workspace.tsx`.
 - The starter kit (`public/kit/`, made by `scripts/make-kit.ts`) becomes ordinary project media when it's added.
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
-  edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested). Channels and patterns can be
-  named by id or by name. `describeSong` (`context.ts`) is what `get_song` returns.
+  edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); the mixer's in
+  `mixer/tool-edits.ts` (`findTrack`: by id, number, "master" or name; `describeMixer` is `get_mixer`). Channels
+  and patterns can be named by id or by name. `describeSong` (`context.ts`) is what `get_song` returns.
 
 ### The audio engine
 

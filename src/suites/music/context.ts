@@ -1,6 +1,9 @@
 import { lengthOf, stepString } from "@shared/music/edits";
+import { getMixerTrack } from "@shared/music/mixer";
+import { MASTER_TRACK_ID } from "@shared/music/project";
 import type { MusicProject } from "@shared/music/types";
 import type { MediaAsset } from "@shared/types";
+import { trackLabel } from "./mixer/tool-edits";
 import { describeChannel, describeLength } from "./tool-edits";
 
 /** The song in a line, for the chat's label and the sidebar. */
@@ -26,6 +29,16 @@ export function describeSong(song: MusicProject, assets: MediaAsset[], patternId
       ...song.channels.map((c) => `    ${stepString(p, c.id, lengthOf(song, p))}  ${c.name}`),
     ]),
   ];
+  // Where each channel's sound goes, in short (get_mixer has the rest).
+  const routed = song.channels.filter((c) => c.mixerTrack !== MASTER_TRACK_ID);
+  const effects = song.mixer.tracks.reduce((n, t) => n + t.effects.filter(Boolean).length, 0);
+  lines.push(
+    "",
+    routed.length
+      ? `Mixer: ${routed.map((c) => `"${c.name}" → ${trackLabel(song, getMixerTrack(song, c.mixerTrack)!)}`).join(", ")}; the other channels play into the master.`
+      : "Mixer: every channel plays into the master.",
+    `${effects ? `${effects} effect${effects === 1 ? "" : "s"} in the mixer. ` : ""}get_mixer has every track's level, effects and sends.`,
+  );
   const spare = assets.filter((a) => a.hasAudio && !used.has(a.id));
   if (spare.length) lines.push("", "Audio files in the project that no channel uses:", ...spare.map((a) => `- ${a.name} (mediaId ${a.id})`));
   return lines.join("\n");

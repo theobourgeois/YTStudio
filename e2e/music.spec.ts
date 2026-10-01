@@ -748,3 +748,44 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   expect(two).toMatchObject({ invert: true, swap: true, stereo: one.stereo, color: null, sends: [{ to: "master", level: 1 }] });
   expect(two.effects[0].id).not.toBe(one.effects[0].id);
 });
+
+test("the assistant mixes with the mixer's tools: routes, levels, sends, effects, a track's state copied", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted mix");
+  await addStarterKit(page);
+  await expect(page.getByRole("listitem")).toHaveCount(4);
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call route_channels {"channels": ["Kick", "Snare"], "track": "free"}',
+      'call update_mixer_track {"track": "Kick", "level": -6, "color": "red", "stereo": 1}',
+      'call add_mixer_track {"name": "Verb"}',
+      'call set_send {"from": "Snare", "to": "Verb", "level": 0.3}',
+      'call set_send {"from": "Verb", "to": "Snare"}',
+      'call list_plugins {"kind": "effect"}',
+      'call add_mixer_effect {"track": "Verb", "plugin": "Fake Delay"}',
+      'call update_mixer_effect {"track": "Verb", "slot": 1, "mix": 0.5}',
+      'call copy_track_state {"from": "Verb", "to": 3}',
+      "call get_mixer",
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("copy_track_state: ok, get_mixer: ok", { timeout: 30_000 });
+  // The send back from the reverb to the snare would loop: refused, saying why.
+  await expect(panel).toContainText("set_send: failed");
+  const mixer = (await expect
+    .poll(async () => (await savedSong(page, id)).mixer.tracks[3]?.effects[0]?.plugin.name)
+    .toBe("Fake Delay")
+    .then(() => savedSong(page, id))).mixer.tracks as { id: string; name: string | null; color: string | null; volume: number; stereo: number; effects: ({ id: string; mix: number } | null)[]; sends: { to: string; level: number }[] }[];
+  const song = await savedSong(page, id);
+  expect(song.channels.slice(0, 4).map((c: { mixerTrack: string }) => c.mixerTrack)).toEqual(["insert_1", "master", "master", "insert_2"]);
+  expect(mixer[1]).toMatchObject({ name: "Kick", color: "#d9534f", stereo: 1 });
+  expect(mixer[1].volume).toBeCloseTo(0.635, 2);
+  const verb = mixer.find((t) => t.name === "Verb")!;
+  expect(mixer[2].sends).toEqual([{ to: "master", level: 1 }, { to: verb.id, level: 0.3 }]);
+  expect(verb.effects[0]).toMatchObject({ mix: 0.5 });
+  // Insert 3 got a copy of the reverb's effect (an id of its own).
+  expect(mixer[3].effects[0]).toMatchObject({ mix: 0.5 });
+  expect(mixer[3].effects[0]!.id).not.toBe(verb.effects[0]!.id);
+});

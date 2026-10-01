@@ -3,7 +3,9 @@
  * TypeScript insist every tool has a handler here. Edits are the pure functions of `tool-edits.ts`,
  * applied to the open song as one undo step, or to a song that isn't open by loading and saving it.
  */
+import { createId } from "@shared/ids";
 import { addChannels, addPluginChannel, updateChannel } from "@shared/music/edits";
+import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
 import type { MusicProject } from "@shared/music/types";
@@ -33,6 +35,21 @@ import {
   updateSong,
 } from "./tool-edits";
 import { useTransport } from "./transport";
+import {
+  addMixerTrackTool,
+  describeMixer,
+  findTrack,
+  moveMixerTrackTool,
+  removeMixerEffectTool,
+  removeMixerTrackTool,
+  routeChannelsTool,
+  setSendTool,
+  slotForEffect,
+  soloMixerTrackTool,
+  trackLabel,
+  updateMixerEffectTool,
+  updateMixerTrackTool,
+} from "./mixer/tool-edits";
 
 type Input = Record<string, unknown>;
 
@@ -87,10 +104,11 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(describeSong(target.song, target.assets, target.patternId));
   },
   update_song: edit(updateSong),
-  async list_plugins() {
-    const instruments = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument);
-    if (!instruments.length) return textResult("No instrument plugins have been found on this computer. The user can scan for them from the rack's + button.");
-    return textResult(["Instrument plugins on this computer:", ...instruments.map((p) => `- ${p.name} (${p.manufacturer}, ${p.format}), id ${p.id}`)].join("\n"));
+  async list_plugins(input) {
+    const effects = input.kind === "effect";
+    const plugins = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument !== effects);
+    if (!plugins.length) return textResult(`No ${effects ? "effect" : "instrument"} plugins have been found on this computer. The user can scan for them from the audio settings (or the rack's + button).`);
+    return textResult([`${effects ? "Effect" : "Instrument"} plugins on this computer:`, ...plugins.map((p) => `- ${p.name} (${p.manufacturer}, ${p.format}), id ${p.id}`)].join("\n"));
   },
   async add_channel(input, ctx) {
     const target = await targetOf(ctx);
@@ -140,6 +158,45 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   add_pattern: edit(addPatternTool),
   update_pattern: edit(updatePatternTool),
   remove_pattern: edit(removePatternTool),
+  async get_mixer(_input, ctx) {
+    const target = await targetOf(ctx);
+    return textResult(describeMixer(target.song, target.open ? useTransport.getState().effects : null));
+  },
+  route_channels: edit(routeChannelsTool),
+  update_mixer_track: edit(updateMixerTrackTool),
+  set_send: edit(setSendTool),
+  solo_mixer_track: edit(soloMixerTrackTool),
+  add_mixer_track: edit(addMixerTrackTool),
+  remove_mixer_track: edit(removeMixerTrackTool),
+  move_mixer_track: edit(moveMixerTrackTool),
+  async add_mixer_effect(input, ctx) {
+    const target = await targetOf(ctx);
+    const track = findTrack(target.song, input.track);
+    const slot = slotForEffect(target.song, track, input);
+    const wanted = String(input.plugin ?? "").trim().toLowerCase();
+    const effects = (await musicApi.listEnginePlugins()).filter((p) => !p.isInstrument);
+    const plugin = effects.find((p) => p.id.toLowerCase() === wanted) ?? effects.find((p) => p.name.toLowerCase() === wanted);
+    if (!plugin) throw new Error(`There's no effect plugin "${String(input.plugin)}" on this computer. The ones found: ${effects.map((p) => p.name).join(", ") || "none"}.`);
+    const replaced = track.effects[slot];
+    await apply(target, (song) => setEffect(song, track.id, slot, { id: plugin.id, name: plugin.name, format: plugin.format }));
+    return textResult(
+      `Put ${plugin.name} in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. Its settings are in its own window, which the user opens from the mixer.`,
+    );
+  },
+  update_mixer_effect: edit(updateMixerEffectTool),
+  remove_mixer_effect: edit(removeMixerEffectTool),
+  async copy_track_state(input, ctx) {
+    const target = await targetOf(ctx);
+    const from = findTrack(target.song, input.from);
+    const to = findTrack(target.song, input.to);
+    if (from.id === to.id) throw new Error('"from" and "to" are the same track.');
+    const state = trackState(target.song, from.id)!;
+    const ids = new Map(state.effects.flatMap((effect) => (effect ? [[effect.id, createId("fx")] as const] : [])));
+    // The effects' settings files first, so the copies start as the originals are.
+    if (ids.size) await musicApi.copyStates({ projectId: target.projectId, copies: [...ids].map(([source, copy]) => ({ from: source, to: copy })) });
+    await apply(target, (song) => pasteTrackState(song, to.id, state, ids));
+    return textResult(`Copied ${trackLabel(target.song, from)}'s effects (${ids.size}) and controls onto ${trackLabel(target.song, to)}.`);
+  },
   async show_pattern(input, ctx) {
     const target = await targetOf(ctx);
     requireOpen(target, "Showing a pattern");
