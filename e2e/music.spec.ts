@@ -855,6 +855,25 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(1);
   await strip("Insert 3").getByRole("button", { name: "Send to Insert 3" }).click();
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(2);
+  // Scrolled (Wide, so the strips overflow), a cable's end is on its track's send knob as soon as the scroll is (it doesn't lag a frame behind the strips).
+  await page.getByRole("button", { name: "Mixer view: Compact" }).click();
+  const offBy = () =>
+    page.evaluate(() => {
+      const scroller = document.querySelector('[data-testid="mixer-strips"]') as HTMLElement;
+      const before = scroller.scrollLeft;
+      scroller.scrollLeft += 37;
+      if (scroller.scrollLeft === before) return "didn't scroll";
+      scroller.dispatchEvent(new Event("scroll"));
+      const area = document.querySelector('[data-testid="mixer"] [role="list"]')!.getBoundingClientRect();
+      const d = document.querySelector('[data-cable="insert_3"]')!.getAttribute("d")!;
+      const [x] = d.trim().split(/[ ,]+/).slice(-2).map(Number);
+      const knob = document.querySelector('[data-track="insert_3"] [data-send-point]')!.getBoundingClientRect();
+      return Math.abs(x - (knob.left + knob.width / 2 - area.left));
+    });
+  expect(await offBy()).toBeLessThan(1);
+  expect(await offBy()).toBeLessThan(1);
+  await page.getByRole("button", { name: "Mixer view: Wide" }).click();
+  await page.getByRole("button", { name: "Mixer view: Extra large" }).click();
 
   // Its state (an effect, its controls) copied onto insert 2: a copy of the effect, with an id of its own; not its colour or sends.
   await page.getByTestId("mixer-inspector").getByRole("button", { name: "Slot 1 menu" }).click();

@@ -230,7 +230,7 @@ export function MixerWindow() {
           <div className="flex shrink-0 border-r-2" style={{ borderColor: "var(--mixer-line)" }} data-dock="left">
             {docked.left.map((track) => strip(track))}
           </div>
-          <div ref={scroller} className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+          <div ref={scroller} className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden" data-testid="mixer-strips">
             {/* Only the strips in view (and a few either side) are drawn: a mixer can have hundreds. */}
             <div className="flex shrink-0" style={{ paddingLeft: first * stripWidth, paddingRight: Math.max(0, inserts.length - last) * stripWidth }}>
               {inserts.slice(first, last).map((track) => strip(track))}

@@ -1,10 +1,9 @@
-import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 import type { Mixer } from "@shared/music/types";
 
 interface Cable {
+  /** The track it goes to. */
   key: string;
-  from: { x: number; y: number };
-  to: { x: number; y: number };
   /** A send at 0: only a sidechain (FL draws it faint). */
   faint: boolean;
 }
@@ -25,20 +24,22 @@ const SETTLE_MS = 900;
 
 /**
  * FL Studio's routing cables: from the selected track's send switch to each track it sends to, drawn
- * over the strips (`area`, which clips them at its bottom) and measured from them, so they follow the
- * strips as they scroll. A cable just plugged in swings a moment before it settles.
+ * over the strips (`area`, which clips them at its bottom). Which cables there are is React's; where they
+ * are is measured from the strips and written straight into the paths, on every scroll, resize and frame
+ * of a swing, so they never lag behind the strips. A cable just plugged in swings a moment before it settles.
  */
 export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement | null>; mixer: Mixer; current: string }) {
-  const [cables, setCables] = useState<Cable[]>([]);
-  const [bottom, setBottom] = useState(0);
-  const [tick, setTick] = useState(0);
-  // When each cable was plugged in (a send made from the track shown), for its wobble; and the time now, while one wobbles.
+  const paths = useRef(new Map<string, SVGPathElement>());
+  // When each cable was plugged in (a send made from the track shown), for its swing.
   const born = useRef(new Map<string, number>());
-  // Null until the first measure: the cables there when the mixer opens don't swing either.
+  // Null until the first: the cables there when the mixer opens (or another track is shown) don't swing.
   const shownFor = useRef<string | null>(null);
-  const [now, setNow] = useState(() => performance.now());
+  const sends = mixer.tracks.find((t) => t.id === current)?.sends ?? [];
+  const cables: Cable[] = sends.map((send) => ({ key: send.to, faint: send.level === 0 }));
 
-  useLayoutEffect(() => {
+  /** Measure the strips and put every cable where it is now. */
+  const place = useRef(() => {});
+  place.current = () => {
     const root = area.current;
     if (!root) return;
     const box = root.getBoundingClientRect();
@@ -48,51 +49,53 @@ export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement |
       const r = cell.getBoundingClientRect();
       return { x: r.left + r.width / 2 - box.left, y: r.bottom - box.top };
     };
-    setBottom(box.height);
     const from = point(current);
-    const track = mixer.tracks.find((t) => t.id === current);
-    // Another track shown: its cables are already there, they don't swing.
+    const now = performance.now();
+    for (const [key, path] of paths.current) {
+      const to = point(key);
+      // An end that isn't drawn (scrolled far off): no cable for now.
+      if (!from || !to) {
+        path.setAttribute("d", "");
+        continue;
+      }
+      path.setAttribute("d", cablePath(from, to, box.height, cableSwing(now - (born.current.get(key) ?? -Infinity))));
+    }
+  };
+
+  // The cables of the track shown: new ones plugged in swing.
+  useLayoutEffect(() => {
     const sameTrack = shownFor.current === current;
     shownFor.current = current;
-    const sends = track?.sends ?? [];
     const time = performance.now();
     for (const key of [...born.current.keys()]) if (!sends.some((s) => s.to === key)) born.current.delete(key);
     for (const send of sends) if (!born.current.has(send.to)) born.current.set(send.to, sameTrack ? time : -Infinity);
-    if (!from || !track) return setCables([]);
-    setCables(
-      sends.flatMap((send) => {
-        const to = point(send.to);
-        return to ? [{ key: send.to, from, to, faint: send.level === 0 }] : [];
-      }),
-    );
-  }, [area, mixer, current, tick]);
-
-  // While a cable wobbles, a frame at a time.
-  const wobbling = [...born.current.values()].some((t) => now - t < SETTLE_MS);
-  useEffect(() => {
-    if (!wobbling && ![...born.current.values()].some((t) => performance.now() - t < SETTLE_MS)) return;
-    let frame = requestAnimationFrame(function step(time) {
-      setNow(time);
-      if ([...born.current.values()].some((t) => time - t < SETTLE_MS)) frame = requestAnimationFrame(step);
-    });
+    place.current();
+    // While one swings, a frame at a time.
+    let frame = 0;
+    const swing = (now: number) => {
+      place.current();
+      if ([...born.current.values()].some((t) => now - t < SETTLE_MS)) frame = requestAnimationFrame(swing);
+    };
+    if ([...born.current.values()].some((t) => time - t < SETTLE_MS)) frame = requestAnimationFrame(swing);
     return () => cancelAnimationFrame(frame);
-  }, [cables, wobbling]);
+  });
 
-  // Again when the strips scroll or the window resizes.
+  // As the strips scroll (at once, and again once strips scrolled into view are drawn) and as the window resizes.
   useEffect(() => {
     const root = area.current;
     if (!root) return;
     let frame = 0;
     const again = () => {
+      place.current();
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => setTick((t) => t + 1));
+      frame = requestAnimationFrame(() => place.current());
     };
-    root.addEventListener("scroll", again, true);
+    root.addEventListener("scroll", again, { capture: true, passive: true });
     const resize = new ResizeObserver(again);
     resize.observe(root);
     return () => {
       cancelAnimationFrame(frame);
-      root.removeEventListener("scroll", again, true);
+      root.removeEventListener("scroll", again, { capture: true });
       resize.disconnect();
     };
   }, [area]);
@@ -102,7 +105,10 @@ export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement |
       {cables.map((cable) => (
         <path
           key={cable.key}
-          d={cablePath(cable.from, cable.to, bottom, cableSwing(now - (born.current.get(cable.key) ?? -Infinity)))}
+          ref={(path) => {
+            if (path) paths.current.set(cable.key, path);
+            else paths.current.delete(cable.key);
+          }}
           className="fill-none"
           stroke="var(--mixer-on)"
           strokeWidth={1.75}
