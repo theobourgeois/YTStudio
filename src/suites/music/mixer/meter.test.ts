@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SILENT_METER, faderAt, faderDb, isClipping, meterFraction, stepMeter } from "./meter";
+import { SILENT_METER, detent, faderAt, faderDb, isClipping, meterFraction, stepMeter } from "./meter";
 
 describe("meters", () => {
   it("put 0 dB near the top, and silence at the bottom", () => {
@@ -39,5 +39,18 @@ describe("a fader's level", () => {
     expect(faderAt(-18.06)).toBeCloseTo(0.4, 3);
     expect(faderAt(40)).toBe(1);
     expect(faderAt(-Infinity)).toBe(0);
+  });
+});
+
+describe("a fader's hold at 0 dB", () => {
+  it("keeps it at 0 dB a little way either side, then carries on smoothly to both ends", () => {
+    expect(detent(0.8, 0.8, 0.03)).toBe(0.8);
+    expect(detent(0.82, 0.8, 0.03)).toBe(0.8);
+    expect(detent(0.775, 0.8, 0.03)).toBe(0.8);
+    // Just past the hold, just past 0 dB: no jump.
+    expect(detent(0.831, 0.8, 0.03)).toBeCloseTo(0.8, 2);
+    expect(detent(1, 0.8, 0.03)).toBeCloseTo(1, 6);
+    expect(detent(0, 0.8, 0.03)).toBeCloseTo(0, 6);
+    expect(detent(0.9, 0.8, 0)).toBe(0.9);
   });
 });

@@ -7,10 +7,12 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { faderAt, faderDb } from "./meter";
+import { detent, faderAt, faderDb } from "./meter";
 
 /** The handle's height, and how far a drag with Ctrl moves it for the same distance (fine changes). */
 const HANDLE_H = 26;
+/** How far (px) the pointer moves while the fader hangs at 0 dB. */
+const HOLD_PX = 7;
 /** Levels marked across the fader (FL's faint lines), in dB. */
 const TICKS_DB = [0, -6, -12, -24];
 const FINE = 10;
@@ -31,7 +33,8 @@ interface FaderProps {
 }
 
 /**
- * A mixer track's level fader, FL Studio's: drag its handle (Ctrl for fine changes), or press its
+ * A mixer track's level fader, FL Studio's: drag its handle (Ctrl for fine changes; it hangs at 0 dB on
+ * the way past, unless Shift is held), or press its
  * groove to bring the handle there and drag on; Alt+click or a middle click puts it back at 0 dB; a
  * right-click opens its menu (Reset, Type in value, in dB). It shows its level in dB while it moves.
  */
@@ -94,7 +97,11 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
                   threshold: onHandle ? 2 : 0,
                   cursor: "ns-resize",
                   onStart: begin,
-                  onMove: (ev) => onDrag(clamp(start + (origin - ev.clientY) / (travel * (ev.ctrlKey || ev.metaKey ? FINE : 1)), 0, 1)),
+                  onMove(ev) {
+                    const raw = clamp(start + (origin - ev.clientY) / (travel * (ev.ctrlKey || ev.metaKey ? FINE : 1)), 0, 1);
+                    // It hangs at 0 dB for a few pixels on the way past (Shift: it doesn't).
+                    onDrag(ev.shiftKey ? raw : detent(raw, DEFAULT_FADER, HOLD_PX / (travel * (ev.ctrlKey || ev.metaKey ? FINE : 1))));
+                  },
                   onEnd() {
                     setDragging(false);
                     if (began) onEnd();

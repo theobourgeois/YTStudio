@@ -56,3 +56,14 @@ export function faderAt(db: number): number {
   if (!Number.isFinite(db)) return 0;
   return Math.min(1, Math.max(0, DEFAULT_FADER * (10 ** (db / 20)) ** (1 / 3)));
 }
+
+/**
+ * A fader's travel with a hold at `at` (0 dB), FL Studio's: within `width` of it either way the fader stays
+ * at `at`; past that it carries on from there, the rest of the travel stretched so both ends are still
+ * reached and nothing jumps. Values are 0..1.
+ */
+export function detent(raw: number, at: number, width: number): number {
+  if (width <= 0 || Math.abs(raw - at) <= width) return width <= 0 ? raw : at;
+  if (raw > at) return at + ((raw - at - width) * (1 - at)) / (1 - at - width);
+  return at - ((at - width - raw) * at) / (at - width);
+}
