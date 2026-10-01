@@ -84,7 +84,13 @@ export interface ClipHit {
   clip: PlaylistClip;
   /** The pointer is on an edge: a drag resizes from there. */
   edge: "start" | "end" | null;
+  /** The pointer is on the clip's menu arrow, at the start of its title (FL's clip menu). */
+  menu: boolean;
 }
+
+/** Where a clip's menu arrow is in its title: this many px from its left edge, past the edge's zone. */
+export const MENU_FROM = EDGE_ZONE;
+export const MENU_TO = EDGE_ZONE + 11;
 
 /**
  * The clip under a point, if any (a selected one where several overlap, else the one on top), and whether
@@ -98,7 +104,10 @@ export function hitClip(clips: readonly PlaylistClip[], ctx: ClipContext, layout
   const left = tickToX(view, clip.start);
   const right = tickToX(view, clipEnd(clip, ctx));
   const zone = Math.min(EDGE_ZONE, (right - left) / 3);
-  return { clip, edge: x - left <= zone ? "start" : right - x <= zone ? "end" : null };
+  const edge = x - left <= zone ? "start" : right - x <= zone ? "end" : null;
+  const inTitle = y - trackTop(layout, view, clip.track) < TITLE_HEIGHT;
+  const menu = !edge && inTitle && right - left > MENU_TO + 4 && x - left >= MENU_FROM && x - left < MENU_TO;
+  return { clip, edge, menu };
 }
 
 /** Zoom along time about a point: the tick under `x` stays under it. */

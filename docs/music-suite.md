@@ -71,8 +71,8 @@ The detailed lists are at the end of each reference doc. The main ones:
 
 - **The mixer has no track EQ yet**, and the assistant can't use the mixer yet. No effect plugins on channels (the bench in the
   audio settings can load one, for testing only).
-- **The playlist has no automation clips** yet (step 4), no clip menu on the clips (make unique is the
-  assistant's), and audio clips have no fades, gain, pitch or stretch of their own.
+- **The playlist has no automation clips** yet (step 4), its clip menu lacks preview, chop, rename and
+  recolour, and audio clips have no fades, gain, pitch or stretch of their own.
 - **No automation**, and **no export** of the song (the engine can render offline; nothing uses it for
   that yet).
 - Per-note pan is heard on samplers but not sent to plugins. Channels have no colours. Knob menus lack
@@ -147,8 +147,8 @@ stock EQ.
 
 **Built** (2026-10-01). The reference is `docs/fl-studio/playlist.md`, which ends with how it's built and
 where it differs; Théo's answers to what the manual left open are in its "Decided" section. Next:
-Théo's feedback pass. Still to come for it: automation clips (step 4), a clip menu (chop, rename,
-recolour), audio clips' fades and gain, the Zoom tool, more rack groups.
+Théo's feedback pass. Still to come for it: automation clips (step 4), the rest of the clip menu (chop,
+rename, recolour, preview), audio clips' fades and gain, the Zoom tool, more rack groups.
 
 What Théo needed: split the song by track and compose the arrangement. What follows was the plan.
 

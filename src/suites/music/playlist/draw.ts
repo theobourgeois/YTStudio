@@ -12,7 +12,7 @@ import type { Pattern, PlaylistClip, PlaylistTrack } from "@shared/music/types";
 import type { WaveformData } from "@shared/types";
 import { gridTicks } from "../piano/geometry";
 import type { Palette } from "../piano/draw";
-import { TITLE_HEIGHT, type TrackLayout, tickToX, trackTop, visibleTracks, xToTick } from "./geometry";
+import { MENU_FROM, MENU_TO, TITLE_HEIGHT, type TrackLayout, tickToX, trackTop, visibleTracks, xToTick } from "./geometry";
 import type { PlaylistDrag, PlaylistView, TimeRange } from "./store";
 
 /** A clip's colours: its body, its title strip, what's drawn in it (notes, the waveform) and its name. */
@@ -311,10 +311,22 @@ function drawClips(ctx: CanvasRenderingContext2D, scene: PlaylistScene, firstTra
       if (data) drawWaveform(ctx, scene, clip, data, x, bodyY, w, bodyH, colours.content);
     }
     ctx.restore();
-    // Its name, kept in view as the playlist scrolls (FL's "Keep labels on screen").
+    // Its menu's arrow (FL's clip menu), then its name, kept in view as the playlist scrolls (FL's "Keep labels on screen").
+    const arrow = w > MENU_TO + 4 && title >= 9;
+    if (arrow) {
+      const ax = x + MENU_FROM + 2;
+      const ay = y + title / 2;
+      ctx.fillStyle = colours.text;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay - 2.5);
+      ctx.lineTo(ax + 6, ay - 2.5);
+      ctx.lineTo(ax + 3, ay + 2);
+      ctx.closePath();
+      ctx.fill();
+    }
     if (w > 16 && title >= 9) {
       ctx.fillStyle = colours.text;
-      const textX = Math.max(x, 0) + 4;
+      const textX = Math.max(x + (arrow ? MENU_TO : 0), 0) + 4;
       ctx.fillText(scene.names.get(clip.ref) ?? "", textX, y + title / 2 + 0.5, Math.max(0, right - textX - 3));
     }
     ctx.globalAlpha = 1;

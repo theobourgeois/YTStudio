@@ -1332,6 +1332,34 @@ test("split by channel turns a beat into a pattern per channel, each on its own 
   expect((await savedClips(page, id)).length).toBe(1);
 });
 
+test("a clip's menu, from the arrow at the start of its title: make unique, mute, delete", async ({ page }) => {
+  const id = await openNewSong(page, "Clip menu");
+  await addStarterKit(page);
+  for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
+  await page.keyboard.press("F5");
+  for (const bar of [0, 1]) {
+    const at = await playlistPoint(page, bar * BAR_TICKS, 0);
+    await page.mouse.click(at.x + 4, at.y);
+  }
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(2);
+  const box = (await page.getByTestId("playlist-grid").boundingBox())!;
+  const arrow = { x: box.x + BAR_TICKS * 0.15 + 10, y: box.y + 6 };
+  const menu = page.getByTestId("clip-menu");
+  // Make unique: the second clip plays a copy of the pattern of its own.
+  await page.mouse.click(arrow.x, arrow.y);
+  await menu.getByRole("menuitem", { name: "Make unique" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name)).toEqual(["Pattern 1", "Pattern 1 #2"]);
+  const [first, second] = await savedClips(page, id);
+  expect(first.ref).not.toBe(second.ref);
+  // Mute, then delete.
+  await page.mouse.click(arrow.x, arrow.y);
+  await menu.getByRole("menuitem", { name: "Mute" }).click();
+  await expect.poll(async () => (await savedClips(page, id))[1].muted).toBe(true);
+  await page.mouse.click(arrow.x, arrow.y);
+  await menu.getByRole("menuitem", { name: "Delete" }).click();
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(1);
+});
+
 test("tracks are named, coloured, muted and soloed; audio files dropped on the playlist are audio clips, in the rack's Audio group", async ({ page }) => {
   const id = await openNewSong(page, "Tracks and audio", { browser: true });
   await page.keyboard.press("F5");

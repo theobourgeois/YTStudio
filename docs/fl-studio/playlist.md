@@ -369,7 +369,7 @@ track headers (double-click renames, the mute light, a right-click or Ctrl+click
 drags a track's height, Alt+click puts it back; the menu: rename, colour, size, select its clips, mute and
 unmute all its clips, solo, insert one, move up / down, delete); the Picker panel (click to choose, drag
 onto a track, the pattern menu: rename, clone, split by channel, delete); the clip source menu in the
-title; PAT / SONG (L); split by channel; make unique (the assistant's, for now); audio clips as channels,
+title; the clip menu (its arrow); PAT / SONG (L); split by channel; make unique; audio clips as channels,
 dropped from the Browser or the Finder (Shift: one after another on the track), streamed from disk.
 
 | What | FL Studio | Vaudio now |
@@ -378,7 +378,7 @@ dropped from the Browser or the Finder (Shift: one after another on the track), 
 | Clip kinds | Pattern, audio, automation | Pattern and audio; automation clips with automation (step 4) |
 | Clip colours | The pattern's (or its notes' or channel's) | Blue-grey for patterns, green for audio, the track's colour if it has one; red selected |
 | Zoom tool | Z | Not yet (Ctrl+wheel, Page Up / Down and Shift+1…5 zoom) |
-| Clip menu | On each clip's corner | Not yet: make unique is the assistant's (`make_clip_unique`); chop, rename and recolour aren't there |
+| Clip menu | On each clip's corner: preview, source, rename, colour, make unique, chop, select similar, delete… | The arrow at the start of its title: edit pattern (or show an audio clip's channel), make unique, split by channel, select all similar, mute, delete. No preview, chop, rename or recolour yet |
 | Audio clips | Fades, gain, pitch, reverse, stretch, crossfades, zero-crossing slices | Their file at its own speed; a 64-sample fade where a clip cuts its file off or starts inside it (FL's declicking) |
 | Audio clip in the rack | Its channel, playable from steps | Its channel in the Audio group, with no steps: a click on it draws it on the playlist |
 | Double-click an audio clip | Its properties | Selects its channel in the rack (Audio group) |

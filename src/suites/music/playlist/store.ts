@@ -75,6 +75,8 @@ interface PlaylistState {
   renaming: number | null;
   /** Where the slice tool would cut if pressed now (Shift held over the grid). */
   sliceHover: { tick: number; track: number } | null;
+  /** A clip's menu, open (its arrow was clicked): which clip, and where in the grid. */
+  clipMenu: { clipId: number; x: number; y: number } | null;
 
   setTool: (tool: PlaylistTool) => void;
   setView: (view: PlaylistView) => void;
@@ -98,6 +100,7 @@ const INITIAL = {
   pickerOpen: true,
   renaming: null as number | null,
   sliceHover: null as { tick: number; track: number } | null,
+  clipMenu: null as { clipId: number; x: number; y: number } | null,
 };
 
 export const usePlaylist = create<PlaylistState>((set) => ({

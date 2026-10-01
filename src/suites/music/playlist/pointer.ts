@@ -161,6 +161,11 @@ export function gridPointerDown(e: Press) {
   }
   if (e.button !== 0) return;
 
+  // Its menu's arrow: the clip's menu (FL's), whatever the tool.
+  if (hit?.menu) {
+    usePlaylist.setState({ clipMenu: { clipId: hit.clip.id, x: q0.x, y: q0.y } });
+    return;
+  }
   // A double-click on a clip opens what it plays.
   if (hit && isDouble(e)) return openClip(hit.clip);
 
@@ -348,6 +353,7 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   if (tool === "playback") return CURSORS.speaker;
   const q = local(element, ev);
   const hit = hitClip(p.clips, p.ctx, p.layout, view, q.x, q.y, p.selected);
+  if (hit?.menu) return "pointer";
   if (tool === "slip") return hit ? RESIZE_CURSOR : "default";
   if (tool === "select") return hit ? "pointer" : "default";
   if (hit) return hit.edge ? RESIZE_CURSOR : MOVE_CURSOR;

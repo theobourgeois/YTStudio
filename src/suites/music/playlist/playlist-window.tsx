@@ -26,7 +26,22 @@ import { useMusic } from "../store";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
-import { clipSource, commitDrag, deleteSelected, duplicate, newClip, playlistContext, quantize, selectAll, setMuted, splitPattern } from "./actions";
+import {
+  clipSource,
+  commitDrag,
+  deleteSelected,
+  duplicate,
+  makeClipUnique,
+  newClip,
+  openClip,
+  playlistContext,
+  quantize,
+  selectAll,
+  selectSimilar,
+  setMuted,
+  splitPattern,
+} from "./actions";
+import { editClips, removeClips, setClipProps } from "@shared/music/playlist";
 import { type PlaylistScene, drawRuler, drawTracks, onWaveform, waveformAt } from "./draw";
 import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, scrollViewBy, tickToX, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
 import { CLIP_DRAG_TYPE, Picker } from "./picker";
@@ -479,6 +494,7 @@ function PlaylistBody() {
           onPointerUp={(e) => (e.currentTarget.style.cursor = gridCursor(e.currentTarget, e))}
         />
         <div ref={playhead} className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground opacity-0" data-testid="playlist-playhead" />
+        <ClipMenu />
       </div>
       <VerticalScrollbar />
 
@@ -486,6 +502,48 @@ function PlaylistBody() {
       <HorizontalScrollbar />
       <div className="border-t bg-muted" />
     </div>
+  );
+}
+
+/**
+ * A clip's menu (FL's, from the arrow at the start of its title): open what it plays, make it unique,
+ * split its pattern by channel, select the clips like it, mute it, delete it.
+ */
+function ClipMenu() {
+  const menu = usePlaylist((s) => s.clipMenu);
+  const clip = useMusic((s) => (menu ? s.history!.doc.playlist.clips.find((c) => c.id === menu.clipId) : undefined));
+  if (!menu || !clip) return null;
+  const close = () => usePlaylist.setState({ clipMenu: null });
+  const only = new Set([clip.id]);
+  const commit = (update: Parameters<typeof editClips>[1]) => useMusic.getState().commit((song) => editClips(song, update));
+  return (
+    <DropdownMenu open onOpenChange={(open) => !open && close()}>
+      <DropdownMenuTrigger asChild>
+        <span aria-hidden className="pointer-events-none absolute size-px" style={{ left: menu.x, top: menu.y }} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" data-testid="clip-menu">
+        <DropdownMenuItem onSelect={() => openClip(clip)}>{clip.kind === "pattern" ? "Edit pattern" : "Show its channel"}</DropdownMenuItem>
+        {clip.kind === "pattern" && (
+          <>
+            <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => splitPattern(clip.ref)}>Split by channel</DropdownMenuItem>
+          </>
+        )}
+        <DropdownMenuItem
+          onSelect={() => {
+            usePlaylist.getState().select([clip.id]);
+            selectSimilar();
+          }}
+        >
+          Select all similar clips <DropdownMenuShortcut>⇧C</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => commit((clips) => setClipProps(clips, only, { muted: !clip.muted }))}>{clip.muted ? "Unmute" : "Mute"}</DropdownMenuItem>
+        <DropdownMenuItem variant="destructive" onSelect={() => commit((clips) => removeClips(clips, only))}>
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
