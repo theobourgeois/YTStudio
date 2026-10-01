@@ -4,7 +4,6 @@ import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
 import { clipContext, songTicks } from "@shared/music/playlist";
 import type { PlaylistClip } from "@shared/music/types";
-import type { WaveformData } from "@shared/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,7 +44,8 @@ import {
 } from "./actions";
 import { editClips, removeClips, setClipProps } from "@shared/music/playlist";
 import { fadeOutClips, onClipFade, vanishingClips } from "./fades";
-import { type PlaylistScene, drawRuler, drawTracks, onWaveform, waveformAt } from "./draw";
+import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
+import { type WavePeaks, clipPeaks, onWaveform } from "./waveforms";
 import { MAX_PX_PER_TICK, scrollViewBy, tickToX, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
 import { CLIP_DRAG_TYPE, Picker } from "./picker";
 import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
@@ -304,11 +304,11 @@ function PlaylistBody() {
         selectionCache = { clips: p.clips, drag, selected: playlist.selected, result: shownSelection(p.clips, drag, p.selected, p.ctx) };
       }
       const assets = useMusic.getState().assets;
-      const waveforms = new Map<string, WaveformData>();
+      const waveforms = new Map<string, WavePeaks>();
       for (const channel of song.channels) {
         if (channel.kind !== "audio") continue;
-        const url = assets.find((a) => a.id === channel.sampleId)?.waveform;
-        const data = url ? waveformAt(url) : null;
+        const url = assets.find((a) => a.id === channel.sampleId)?.src;
+        const data = url ? clipPeaks(url) : null;
         if (data) waveforms.set(channel.id, data);
       }
       const palette: Palette = readPalette(box);
@@ -372,17 +372,6 @@ function PlaylistBody() {
       theme.disconnect();
       resize.disconnect();
     };
-  }, []);
-
-  // Audio clips' waveforms are made after their file is added: ask for the media again until they're there.
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const { history, assets, projectId } = useMusic.getState();
-      if (!history || !projectId) return;
-      const missing = history.doc.channels.some((c) => c.kind === "audio" && assets.find((a) => a.id === c.sampleId)?.waveform === null);
-      if (missing) void useMusic.getState().refreshAssets();
-    }, 2000);
-    return () => clearInterval(timer);
   }, []);
 
   // The pointer over the tracks changes with the tool, and with Ctrl (selecting), without moving.

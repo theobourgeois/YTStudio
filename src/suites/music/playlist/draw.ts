@@ -10,11 +10,11 @@
  */
 import { type ClipContext, clipEnd, clipLength, visibleClips } from "@shared/music/playlist";
 import type { Pattern, PlaylistClip, PlaylistTrack } from "@shared/music/types";
-import type { WaveformData } from "@shared/types";
 import { gridTicks } from "../piano/geometry";
 import { type Palette, rulerMarks } from "../piano/draw";
 import { MENU_FROM, MENU_TO, TITLE_HEIGHT, type TrackLayout, tickToX, trackTop, visibleTracks, xToTick } from "./geometry";
 import type { VanishingClip } from "./fades";
+import { type WavePeaks, peakRange } from "./waveforms";
 import type { PlaylistDrag, PlaylistView, TimeRange } from "./store";
 
 /** A clip's colours: its body, its title strip, what's drawn in it (notes, the waveform) and its name. */
@@ -69,7 +69,7 @@ export interface PlaylistScene {
   /** Clips just deleted, fading out (`fades.ts`). */
   vanishing: readonly VanishingClip[];
   /** An audio clip's waveform, by its channel's id, once it's loaded. */
-  waveforms: ReadonlyMap<string, WaveformData>;
+  waveforms: ReadonlyMap<string, WavePeaks>;
   barTicks: number;
   beatTicks: number;
   /** Where the song ends (and goes round). */
@@ -178,27 +178,44 @@ function drawNotes(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pl
   }
 }
 
-/** An audio clip's waveform, mirrored about its middle, from its file's peaks. */
-function drawWaveform(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: PlaylistClip, data: WaveformData, x: number, y: number, w: number, h: number, colour: string) {
-  if (h < 4 || !data.peaks.length) return;
+/**
+ * An audio clip's waveform, as FL Studio draws it: one filled shape along the highest sample under each
+ * column and back along the lowest, from where the clip's window starts in its file.
+ */
+function drawWaveform(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: PlaylistClip, peaks: WavePeaks, x: number, y: number, w: number, h: number, colour: string) {
+  if (h < 4) return;
   const { view } = scene;
   const mid = y + h / 2;
-  const half = h / 2 - 1;
+  const half = h / 2 - 1.5;
   const from = Math.max(0, Math.floor(x));
   const to = Math.min(scene.width, Math.ceil(x + w));
-  ctx.fillStyle = colour;
-  for (let px = from; px < to; px++) {
-    // The file's seconds under this column, and the loudest peak among them.
-    const a = clip.offset + (xToTick(view, px) - clip.start) * scene.ctx.secondsPerTick;
-    const b = clip.offset + (xToTick(view, px + 1) - clip.start) * scene.ctx.secondsPerTick;
-    const first = Math.floor(a * data.peaksPerSecond);
-    const last = Math.max(first + 1, Math.ceil(b * data.peaksPerSecond));
-    let peak = 0;
-    for (let i = Math.max(0, first); i < Math.min(data.peaks.length, last); i++) peak = Math.max(peak, data.peaks[i]);
-    if (peak <= 0) continue;
-    const size = Math.max(0.5, peak * half);
-    ctx.fillRect(px, mid - size, 1, size * 2);
+  const count = to - from;
+  if (count <= 0) return;
+  // Where the file runs out, nothing more is drawn.
+  const fileEnd = peaks.samples.length;
+  const sampleAt = (px: number) => (clip.offset + (xToTick(view, px) - clip.start) * scene.ctx.secondsPerTick) * peaks.rate;
+  const tops = new Float32Array(count);
+  const bottoms = new Float32Array(count);
+  let last = count;
+  for (let i = 0; i < count; i++) {
+    const a = sampleAt(from + i);
+    if (a >= fileEnd) {
+      last = i;
+      break;
+    }
+    const [low, high] = peakRange(peaks, a, Math.max(a + 1, sampleAt(from + i + 1)));
+    // Never thinner than a hairline, so quiet parts still draw.
+    tops[i] = mid - Math.max(0.5, Math.min(1, high) * half);
+    bottoms[i] = mid - Math.min(-0.5, Math.max(-1, low) * half);
   }
+  if (!last) return;
+  ctx.fillStyle = colour;
+  ctx.beginPath();
+  ctx.moveTo(from, tops[0]);
+  for (let i = 0; i < last; i++) ctx.lineTo(from + i + 0.5, tops[i]);
+  for (let i = last - 1; i >= 0; i--) ctx.lineTo(from + i + 0.5, bottoms[i]);
+  ctx.closePath();
+  ctx.fill();
 }
 
 export function drawTracks(ctx: CanvasRenderingContext2D, scene: PlaylistScene) {
@@ -418,33 +435,4 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: PlaylistScene, s
   ctx.lineTo(start, 12);
   ctx.closePath();
   ctx.fill();
-}
-
-/** Each audio file's waveform peaks, fetched once (media never changes), and who's waiting for them. */
-const peaks = new Map<string, WaveformData | "loading" | "failed">();
-const waiting = new Set<() => void>();
-
-/** The waveform at `url` if it's loaded; otherwise it starts loading, and `onLoad` listeners hear when it's there. */
-export function waveformAt(url: string): WaveformData | null {
-  const known = peaks.get(url);
-  if (known && known !== "loading" && known !== "failed") return known;
-  if (!known) {
-    peaks.set(url, "loading");
-    fetch(url)
-      .then((r) => (r.ok ? (r.json() as Promise<WaveformData>) : Promise.reject(new Error(String(r.status)))))
-      .then(
-        (data) => peaks.set(url, data),
-        () => peaks.set(url, "failed"),
-      )
-      .finally(() => {
-        for (const listener of waiting) listener();
-      });
-  }
-  return null;
-}
-
-/** Be told when a waveform has loaded (to draw again). Returns how to stop. */
-export function onWaveform(listener: () => void): () => void {
-  waiting.add(listener);
-  return () => waiting.delete(listener);
 }
