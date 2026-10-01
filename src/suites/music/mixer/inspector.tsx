@@ -29,10 +29,8 @@ export function Inspector({ trackId }: { trackId: string }) {
   const name = useSong((song) => trackName(song, trackId));
   if (!effects) return null;
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-l" style={{ background: "var(--mixer-strip-top)", borderColor: "var(--mixer-line)", color: "var(--mixer-name)" }} aria-label={`${name}: effects`} data-testid="mixer-inspector">
-      <div className="truncate border-b px-2 py-1 text-xs font-medium" style={{ borderColor: "var(--mixer-line)", background: "var(--mixer-header)", color: "var(--mixer-header-text)" }}>
-        {name}
-      </div>
+    <aside className="flex w-56 shrink-0 flex-col border-l border-line bg-surface-1" aria-label={`${name}: effects`} data-testid="mixer-inspector">
+      <div className="truncate border-b border-line px-2 py-1 text-xs font-medium">{name}</div>
       <ol className="flex flex-col gap-px p-1">
         {effects.map((effect, slot) => (
           <Slot key={slot} trackId={trackId} slot={slot} effect={effect} />
@@ -90,8 +88,7 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
         <ContextMenuTrigger asChild>
           <PopoverPrimitive.Anchor asChild>
             <li
-              className={cn("relative flex h-6 items-center gap-1 rounded-sm pr-1", !effect && "cursor-pointer hover:brightness-125")}
-              style={{ background: effect ? "var(--mixer-strip-selected)" : "var(--mixer-strip)" }}
+              className={cn("relative flex h-6 items-center gap-1 rounded-sm pr-1", effect ? "bg-surface-2" : "cursor-pointer bg-surface-0 hover:bg-surface-2")}
               data-slot={slot}
               onPointerDown={dragSlot}
               // An empty slot is chosen by a click anywhere on it; a drag that's just ended isn't a click.
@@ -231,7 +228,7 @@ function DelayCompensation({ trackId }: { trackId: string }) {
     setTyping(null);
   };
   return (
-    <section className="mt-auto border-t px-2 py-1.5 text-[11px]" style={{ borderColor: "var(--mixer-line)" }} aria-label="Delay compensation" data-testid="delay-compensation">
+    <section className="mt-auto border-t border-line px-2 py-1.5 text-[11px]" aria-label="Delay compensation" data-testid="delay-compensation">
       <div className="flex items-center gap-1.5 text-muted-foreground">
         <PiClock className={cn("size-3.5", (delay > 0 || track.latencyOffset !== 0) && "text-brand")} aria-hidden />
         <span>Plugin delay</span>

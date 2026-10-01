@@ -122,6 +122,8 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
               }}
             >
               {/* FL Studio's fader: a thin dark groove (lit below the cap of a selected track), faint lines across at 0, -6, -12 and -24 dB, and a chunky metal cap. */}
+              {/* The darker slot the fader runs in (FL's), then its groove. */}
+              <span className="pointer-events-none absolute inset-y-0 left-1/2 w-[14px] -translate-x-1/2 rounded-[3px]" style={{ background: "var(--fader-slot)" }} aria-hidden />
               <span className="pointer-events-none absolute inset-y-1 left-1/2 w-[3px] -translate-x-1/2 rounded-full" style={{ background: "var(--fader-groove)", boxShadow: "inset 0 1px 1px rgb(0 0 0 / 0.5)" }} aria-hidden />
               {selected && (
                 <span

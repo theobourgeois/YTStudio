@@ -368,6 +368,8 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       }}
     >
       {banded && <GroupBand track={track} groupName={groupName} />}
+      {/* FL's shading: from the top down to the knob, the strip is darker. */}
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1.5 pb-1.5" style={{ background: "var(--mixer-upper-shade)" }}>
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="flex min-h-28 w-full flex-1 flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)} onPointerDown={(e) => dragSelection(e)}>
@@ -430,6 +432,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         />
       </button>
       <SongKnob size={30} label={`${name} pan`} value={track.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateMixerTrack(song, id, { pan })} />
+      </div>
       <TrackFader track={track} name={name} selected={selected} />
       <div className="text-[9px] tabular-nums" style={{ color: "var(--mixer-name)" }} title="Level">
         {faderDb(track.volume).replace(" dB", "")}
@@ -827,14 +830,12 @@ function StripEffects({ track }: { track: MixerTrack }) {
 }
 
 /**
- * A strip's colours, FL Studio's mixer: the theme's mid-tone strip (darker towards the top), or for a
- * coloured track, its colour mixed in all the way down, more when it's selected.
+ * A strip's colours: the theme's strip, or for a coloured track, a rich tint of its colour (FL Studio's
+ * colourful mixer), stronger when it's selected.
  */
 function stripLook(color: string | null, selected: boolean): React.CSSProperties {
-  const top = selected ? "var(--mixer-strip-selected-top)" : "var(--mixer-strip-top)";
-  const body = selected ? "var(--mixer-strip-selected)" : "var(--mixer-strip)";
-  const tint = (base: string) => (color ? `color-mix(in oklab, ${color} ${selected ? 40 : 30}%, ${base})` : base);
-  return { background: `linear-gradient(to bottom, ${tint(top)}, ${tint(top)} 18%, ${tint(body)} 42%)` };
+  if (!color) return { background: selected ? "var(--mixer-strip-selected)" : "var(--mixer-strip)" };
+  return { background: `color-mix(in oklab, ${color} ${selected ? 46 : 34}%, var(--mixer-tint-base))` };
 }
 
 /**
