@@ -35,10 +35,11 @@ put together and how we use its manual). As of 2026-09-30, all of it is on the b
 | Channel settings | A sampler's window: its waveform, volume, pan, pitch, the ADSR envelope, cut self, normalize, reverse, sample start and length, fades | same |
 | Plugin channels | One plugin instance per channel, loaded in the background, played from the pattern's notes as MIDI; its own window from the channel's button; its state kept beside the project and restored | CLAUDE.md |
 | Piano roll | Every tool (draw, paint, delete, mute, slice, select, playback), selecting, the time selection that loops, Ctrl+B, quantize, glue, chop, legato, the event editor (velocity, pan), note properties, ghost notes, the target channel, FL's keys; FL's look; tested with 20 000 notes | `docs/fl-studio/piano-roll.md` |
+| Playlist | The song's arrangement: tracks bound to nothing, pattern clips (following their pattern's length until resized, playing nothing past it) and audio clips (channels of their own, streamed from disk, started on their sample), FL's tools and keys, the Picker panel, track headers, the time selection, split by channel, song mode (PAT / SONG, L) | `docs/fl-studio/playlist.md` |
 | Browser | The user's sample folders for every song (dropped from Finder): the tree, favourites, a search that forgives typos, previews streamed from disk with a waveform, files dragged onto the rack, a channel or the Piano roll, sent to the selected channel (Enter, Shift+Up/Down to try them in the beat) | `docs/fl-studio/browser.md` |
 | Windows | Every panel is a floating window on a desktop: dragged, stuck to edges and other windows, resized, maximised (double-click the title), snapped to fill the desktop or half | CLAUDE.md |
-| Transport | Play and stop the current pattern, tempo, the metronome, where play starts (the Piano roll's ruler, which also moves a playing song) | |
-| Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song`; the Browser's: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`, `star_sample` | `shared/music/tools.ts` |
+| Transport | Play and stop the current pattern or the song (PAT / SONG), tempo, the metronome, where play starts (the Piano roll's ruler in pattern mode, the Playlist's in song mode, both also moving a playing song) | |
+| Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song`; the Browser's: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`, `star_sample`; the Playlist's: `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`, `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` in song mode | `shared/music/tools.ts` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
 
 ### How it's built, in one screen
@@ -53,7 +54,7 @@ The tab (src/suites/music/)                 The server (server/music/)          
   transport.ts: where it's playing                                                  Protocol.cpp: JSON lines
 ```
 
-- **The document** (`shared/music/types.ts`): `MusicProject = { settings, channels, patterns }`. Times are
+- **The document** (`shared/music/types.ts`): `MusicProject = { settings, channels, patterns, playlist, mixer }`. Times are
   whole ticks (`PPQ` 96 to a quarter note; a step is 24). Edits are pure functions (`edits.ts` for the
   song, `notes.ts` for a note list) that return the same object when nothing changes.
 - **What things sound like is decided in TypeScript**: `compile.ts` turns the song into an `EngineSong`
@@ -70,8 +71,8 @@ The detailed lists are at the end of each reference doc. The main ones:
 
 - **The mixer has no track EQ yet**, and the assistant can't use the mixer yet. No effect plugins on channels (the bench in the
   audio settings can load one, for testing only).
-- **No playlist**: only the current pattern plays, looped (FL's pattern mode). No song mode, no
-  arrangement, no audio clips.
+- **The playlist has no automation clips** yet (step 4), no clip menu on the clips (make unique is the
+  assistant's), and audio clips have no fades, gain, pitch or stretch of their own.
 - **No automation**, and **no export** of the song (the engine can render offline; nothing uses it for
   that yet).
 - Per-note pan is heard on samplers but not sent to plugins. Channels have no colours. Knob menus lack
@@ -144,7 +145,12 @@ stock EQ.
 
 ### 2. The playlist
 
-What Théo needs: split the song by track and compose the arrangement.
+**Built** (2026-10-01). The reference is `docs/fl-studio/playlist.md`, which ends with how it's built and
+where it differs; Théo's answers to what the manual left open are in its "Decided" section. Next:
+Théo's feedback pass. Still to come for it: automation clips (step 4), a clip menu (chop, rename,
+recolour), audio clips' fades and gain, the Zoom tool, more rack groups.
+
+What Théo needed: split the song by track and compose the arrangement. What follows was the plan.
 
 - **FL's model**: tracks that aren't bound to anything; pattern clips, audio clips and automation clips placed
   on them; song mode (the transport's PAT / SONG switch) plays the playlist. Read the manual's `playlist`
@@ -217,8 +223,8 @@ speed/key/sync, dropping onto the playlist once there is one).
 
 - An input device (Settings already picks the output), monitoring, arming a mixer insert (FL records
   through an insert), record to a WAV on disk (on a writer thread, never the audio thread), the take
-  becoming an audio clip in the playlist. Latency compensation from the device's reported latency. This
-  needs the streaming playback from step 2.
+  becoming an audio clip in the playlist. Latency compensation from the device's reported latency. The
+  streaming playback it needs is built (`engine/src/ClipPlayer.cpp`, `AudioStream.cpp`).
 
 ### Also on the list, when they fit
 

@@ -22,7 +22,7 @@ about to touch before changing it, and correct it when you learn it's wrong.
   where Vaudio differs (one Settings page for the app, a section per suite).
 - [playlist.md](playlist.md): the Playlist: tracks, pattern and audio clips, the tools, the time
   selection, the Picker panel, song mode, split by channel and its keys. Ends with what we'll leave out,
-  where Vaudio will differ, what's still to decide, and how it will be built.
+  where Vaudio differs, what was decided, and how it's built.
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).
 

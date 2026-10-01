@@ -4,6 +4,7 @@ import type { GallerySection } from "@/gallery/types";
 import { Knob, PERCENT, SEMITONES, panText, percent, semitones } from "./knob";
 import { Lcd } from "./lcd";
 import { Fader } from "./mixer/fader";
+import { ModeLights } from "./mode-switch";
 
 /** A knob with a value of its own (nothing in the song). */
 function LooseKnob(props: Omit<React.ComponentProps<typeof Knob>, "value" | "onBegin" | "onDrag" | "onEnd" | "onCancel" | "onSet"> & { initial: number }) {
@@ -39,6 +40,11 @@ function LooseFader({ initial, selected }: { initial: number; selected?: boolean
   return <Fader className="h-28" label="Volume" value={value} selected={selected} onBegin={noop} onDrag={setValue} onEnd={noop} onCancel={noop} onSet={setValue} />;
 }
 
+function LooseModeLights() {
+  const [mode, setMode] = useState<"pattern" | "song">("song");
+  return <ModeLights mode={mode} onChange={setMode} />;
+}
+
 function Controls() {
   return (
     <div className="flex flex-col gap-4">
@@ -55,6 +61,10 @@ function Controls() {
         <LooseLcd initial={4} derived />
       </div>
       <div className="flex items-center gap-4">
+        <span className="w-28 text-xs text-muted-foreground">PAT / SONG</span>
+        <LooseModeLights />
+      </div>
+      <div className="flex items-center gap-4">
         <span className="w-28 text-xs text-muted-foreground">mixer faders</span>
         <LooseFader initial={0.8} />
         <LooseFader initial={0.4} selected />
@@ -66,5 +76,5 @@ function Controls() {
 
 /** The music suite's controls, for the component gallery (`src/gallery/`). */
 export const MUSIC_SECTIONS: GallerySection[] = [
-  { id: "music-controls", title: "Music: knobs, LCDs and faders", source: "suites/music/knob.tsx, lcd.tsx, mixer/fader.tsx", render: () => <Controls /> },
+  { id: "music-controls", title: "Music: knobs, LCDs, PAT / SONG and faders", source: "suites/music/knob.tsx, lcd.tsx, mode-switch.tsx, mixer/fader.tsx", render: () => <Controls /> },
 ];

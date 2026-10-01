@@ -9,7 +9,7 @@ button does and the right button undoes). Where neither the manual nor Théo say
 
 The last sections are ours: [what we'll leave out](#what-well-leave-out),
 [where Vaudio differs](#where-vaudio-differs), [what was decided](#decided-with-théo-2026-10-01) and
-[how it will be built](#how-vaudio-will-build-it).
+[how it's built](#how-its-built).
 
 ## What it is
 
@@ -346,21 +346,51 @@ From the first version (most of it for good):
 
 ## Where Vaudio differs
 
-Not built yet: this is what's planned for the first version (`docs/music-suite.md`, step 2). To be
-rewritten as what's built, as the other docs are.
+Built on 2026-10-01 from this document (`src/suites/music/playlist/`, `shared/music/playlist.ts`, song mode
+in `shared/music/compile.ts`, audio clips in `engine/src/ClipPlayer.cpp`). Every behaviour below has a test:
+the edits in `shared/music/playlist.test.ts`, song mode in `compile.test.ts` and, with the real engine,
+`server/music/playlist.integration.test.ts`; the window in `e2e/music.spec.ts`.
 
-| What | FL Studio | Vaudio, first version |
+**Same as FL Studio**: F5 and the toolbar's button (it opens filling the desktop); tracks bound to nothing,
+clips of patterns and audio on any track, overlapping; FL's tools and keys, Draw (P), Paint (B), Delete
+(D), Mute (T), Slip (S), Slice (C), Select (E), Playback (Y), each with its pointer; the left button adds,
+the right one deletes (sweeping), Ctrl selects (Ctrl+Shift adds); a click on a clip makes it the clip
+source and its pattern the one shown; moving (to other tracks too), Shift+drag to clone, either edge to
+resize (Théo), a resized or sliced clip a window onto its content (widened again, it comes back), Alt to
+bypass snap; the slice line, straight down at the grid line nearest the pointer (Shift shows it before a
+press); slip; a double-click opens a pattern clip in the Piano roll (or the rack, if it's only steps);
+the snap menu; Ctrl+A / D, Shift+I, Shift+C, Ctrl+C / X / V (pasted at the first bar in view), Ctrl+B
+(with the time selection), Delete (everything, when nothing's selected), Shift+arrows, Alt+M /
+Alt+Shift+M, Ctrl+Q, Ctrl+Ins / Ctrl+Alt+Ins / Ctrl+Del, Ctrl+Enter, Ctrl+← / →, Page Up / Down,
+Shift+1…5, Shift+0, Home, Alt+P, Esc; the ruler (a click sets where the song plays from, and moves a
+playing song; Ctrl+drag or a double-click and drag selects time, which loops; a right-click or a
+double-click clears it); the wheel (tracks), Shift+wheel (time), Ctrl+wheel (zoom), middle-drag (pan);
+track headers (double-click renames, the mute light, a right-click or Ctrl+click on it solos, the divider
+drags a track's height, Alt+click puts it back; the menu: rename, colour, size, select its clips, mute and
+unmute all its clips, solo, insert one, move up / down, delete); the Picker panel (click to choose, drag
+onto a track, the pattern menu: rename, clone, split by channel, delete); the clip source menu in the
+title; PAT / SONG (L); split by channel; make unique (the assistant's, for now); audio clips as channels,
+dropped from the Browser or the Finder (Shift: one after another on the track), streamed from disk.
+
+| What | FL Studio | Vaudio now |
 | --- | --- | --- |
-| Window | F5, floating or maximised | The same: F5 and a toolbar button, opening maximised as the Piano roll does |
-| Tracks | 500 always there | As many as are in use plus a few empty ones below, growing as clips are put lower (FL's look: you never "add" a track). Name, colour, height, mute, solo |
-| Clip kinds | Pattern, audio, automation | Pattern and audio; automation in step 4 |
-| Tools | Draw, Paint, Delete, Mute, Slip, Slice, Select, Zoom, Playback | All but Zoom (as in our Piano roll), with the same keys and pointers |
-| Clip source | Title bar menu, Picker panel, clip focus | The Picker panel and the title bar's menu |
-| Picker panel | Patterns, audio and automation clips, sorting, groups | Patterns and audio clips; click to choose, drag onto the tracks; its pattern menu (rename, clone, delete, split by channel) |
-| Audio clips | Audio clip channels in the rack | The same: a channel of a new kind, routed to a mixer track like any channel, streamed from disk by the engine |
-| Song mode | PAT / SONG, L | The same, on the toolbar |
-| Time selection, Ctrl+B, Ctrl+Ins / Del, Ctrl+Enter, Ctrl+← / → | Yes | Yes, as in our Piano roll |
-| Look | FL's artwork | Its layout in our look (`docs/ui-redesign.md`), with colours of its own for each theme like the Piano roll's |
+| Tracks | 500, always there | As many as are used or changed, plus eight spare and enough to fill the view, up to 500 |
+| Clip kinds | Pattern, audio, automation | Pattern and audio; automation clips with automation (step 4) |
+| Clip colours | The pattern's (or its notes' or channel's) | Blue-grey for patterns, green for audio, the track's colour if it has one; red selected |
+| Zoom tool | Z | Not yet (Ctrl+wheel, Page Up / Down and Shift+1…5 zoom) |
+| Clip menu | On each clip's corner | Not yet: make unique is the assistant's (`make_clip_unique`); chop, rename and recolour aren't there |
+| Audio clips | Fades, gain, pitch, reverse, stretch, crossfades, zero-crossing slices | Their file at its own speed; a 64-sample fade where a clip cuts its file off or starts inside it (FL's declicking) |
+| Audio clip in the rack | Its channel, playable from steps | Its channel in the Audio group, with no steps: a click on it draws it on the playlist |
+| Double-click an audio clip | Its properties | Selects its channel in the rack (Audio group) |
+| Picker | Sorting, unused, groups, render | Patterns then audio clips, in the song's order |
+| Merge, group, consolidate, lock to content, track mode, arrangements, markers, performance mode | Yes | No (see what we'll leave out) |
+| The Piano roll's ruler in song mode | Moves the song | Switches to pattern mode, from there |
+| The playhead | In every window | The Playlist's in song mode; the rack's lights and the Piano roll's follow the pattern shown inside the song |
+| Look | FL's artwork | Its layout in our look; the grid in the Piano roll's theme colours (`--piano-*`) |
+
+Performance, measured in the browser: with 6 000 clips (60 tracks, 100 bars), a frame takes 1 to 5 ms
+while scrolling and about 30 ms with every clip in view at once (Shift+4); a drag edits nothing until
+it's let go.
 
 ## Decided with Théo (2026-10-01)
 
@@ -377,101 +407,36 @@ rewritten as what's built, as the other docs are.
 8. **Double-click a pattern clip**: the Piano roll if it has notes off the step grid, the rack if it's only
    steps.
 9. **Audio clips are channels** in the rack, in an Audio group: the rack's group filter shows Unsorted (the
-   default: every other channel), Audio, or All. In the rack they show a waveform where steps would be.
+   default: every other channel), Audio, or All. In the rack, a strip where steps would be says it plays from
+   the playlist (a click draws it there); not a waveform yet.
 10. **The order of work**: the document, song mode in `compileSong`, the engine (audio clips streamed),
     the transport, the window, split by channel, the assistant, e2e. A commit after each step.
 
-## How Vaudio will build it
+## How it's built
 
-What the research above and the code as it is today mean for building it.
-
-### The document (`shared/music/types.ts`)
-
-```ts
-interface PlaylistTrack { id: string; name: string | null; color: string | null; height: number; muted: boolean }
-interface PlaylistClip {
-  id: number;            // small and unique in the list, as notes' ids: what's selected is a set of them
-  track: string;         // a PlaylistTrack id
-  start: number;         // ticks, song time
-  length: number;        // ticks
-  offset: number;        // ticks into its content where the clip's window starts (slip, slice, left resize)
-  muted: boolean;
-  kind: "pattern" | "audio";   // "automation" later
-  ref: string;           // the pattern's id, or the audio clip channel's id
-}
-interface Playlist { tracks: PlaylistTrack[]; clips: PlaylistClip[] }   // clips sorted by start
-```
-
-- `MusicProject.playlist`, empty in a new song; `normalizeMusicProject` fills it in for old songs and
-  drops clips whose pattern or channel is gone. Deleting a pattern or a channel removes its clips (in the
-  same edit, one undo step).
-- An audio clip channel is `Channel.kind: "audio"`: a sample and a mixer track, the sampler's level and
-  pan; no envelope or step notes.
-- Pure clip edits in `shared/music/playlist.ts` on a clip list, like `notes.ts` is for notes: add, move
-  (time and track), resize, slip, slice, delete, mute, duplicate (Ctrl+B with the time selection), insert
-  and delete space, quantize, make unique, split by channel. Each returns the same list when nothing
-  changes. Tested, and with thousands of clips.
-
-### Playing it (`shared/music/compile.ts`)
-
-- Song mode makes the same `EngineSong` the engine already plays: its notes are the arrangement
-  **flattened** into song ticks. Each pattern clip contributes its pattern's notes inside its window
-  (`offset` to `offset + length`, nothing past the pattern's end), each note cut at the clip's end, and notes that
-  started before the window's start played from it ("play truncated notes"). Swing as today, per pattern
-  tick. Muted clips, muted tracks and soloed tracks decide what's left out.
-- `loopTicks` is the song's length (to the end of the last clip's bar), or the time selection. The
-  engine already loops whatever it's given, and plays notes by binary search, so a long song costs no
-  more per block than a pattern does. The flattening runs on the server, where the song is compiled.
-- **Audio clips** become a new list in `EngineSong`: `{ channel, tick, lengthTicks, offsetSeconds, file }`,
-  and the engine plays each one from its file at the moment it's due, into its channel's mixer track
-  (with its channel's gains, so the mixer, its meters and delay compensation all work as for a sampler).
-
-### The engine (`engine/src/`)
-
-- Audio clips can't be read whole into memory (a vocal take, a whole song): they're **streamed**, the way
-  `FilePreview` streams the Browser's preview, with a reader thread decoding into a lock-free ring per clip.
-- The difference from the preview: a clip must **start on its sample**, so its stream is opened and
-  filled *before* it's due. The message thread prepares the streams of clips about to play (a second or
-  two ahead of the playhead, and wherever play starts or the loop goes back to), and the audio thread
-  only takes from rings that are ready. Starting play in the middle of a clip seeks into its file.
-- Tested offline as everything else is (`sequencer.integration.test.ts`): a clip starts on its sample,
-  starts mid-way when play starts inside it, loops, and goes through its mixer track.
-- The stand-in engine (`fake-engine.mjs`) accepts the new fields.
-
-### The transport and the toolbar
-
-- PAT / SONG (L) on the toolbar. In song mode, `SetSongRequest` asks for the song (`mode: "song"`) and
-  the loop is the Playlist's time selection; the position LCD and slider follow the song; the Playlist's
-  ruler sets where play starts (as the Piano roll's does in pattern mode).
-- The Piano roll, the rack and the Playlist each show the playhead in their own time: the Playlist in
-  song ticks, the Piano roll in the pattern of the clip being played (unverified for FL; nice to have).
-
-### The window (`src/suites/music/playlist/`)
-
-Built like the Piano roll (`src/suites/music/piano/`), which already solved the same problems:
-
-- **One canvas** for the clips, drawn once a frame when something changed, only what's in view
-  (`visibleRange`), in colours of its own per theme (`readPalette`). Pattern clips draw a miniature of
-  their notes (cached per pattern and size, since a pattern is drawn in every one of its clips).
-  Audio clips draw their waveform (the Browser's waveform peaks, `waveform.ts`).
-- **A drag doesn't edit the song while it lasts**: a `PlaylistDrag` in the Playlist's store, which the
-  canvas draws the clips through (`applyDrag`, the same function that commits it), committed as one edit
-  when it's let go.
-- Its maths in `geometry.ts`, its mouse in `pointer.ts`, its keys in `keys.ts`, its commands in
-  `actions.ts`, each tested; the Picker panel and the track headers as plain React beside the canvas.
-- Drops from the Browser and the Finder go through `browser/drops.ts`, as every drop target does.
-
-### The assistant
-
-Tools at parity: read the arrangement (`get_playlist`; `get_song` sums it up), place, move, resize, mute
-and remove clips, make one unique, split a pattern by channel, name, colour and mute tracks, add an audio
-clip from a file, switch to song mode and play from a bar. Edits as pure `(song, input) => { song, text }`
-in `tool-edits.ts`, tested.
-
-### Performance
-
-The song is sent to the engine on every change today. With a playlist, the tab still sends the document
-(small: clips are a few numbers each) and the server flattens it; a song of 500 clips of 100 notes is
-50 000 engine notes, which the compile, the JSON and the engine's parse must take in a few
-milliseconds. Measure it, and if it's too slow, send only what changed later. In the window, as in the
-Piano roll: nothing per clip in React, a frame only when something changed.
+- **The document** (`shared/music/types.ts`): `MusicProject.playlist = { tracks, clips }`. Tracks are by
+  number (`PlaylistTrack`: name, colour, size, muted; the list only as long as the last changed one).
+  A clip is `{ id, kind: "pattern" | "audio", ref, track, start, length, offset, muted }`: `length` null for
+  a pattern clip that follows its pattern; `offset` in ticks of a pattern, or seconds of an audio file, so
+  a sliced vocal stays where it was in its file whatever the tempo. An audio clip's channel is
+  `Channel.kind: "audio"` (no notes). Validated in `normalizeMusicProject`; deleting a pattern or a channel
+  takes its clips with it.
+- **The edits** (`shared/music/playlist.ts`): pure functions of a clip list, the same list back when
+  nothing changes; a `ClipContext` (patterns' lengths, the tempo) gives clips their lengths.
+- **Song mode** (`compileSong(song, patternId, loop, "song")`): the arrangement flattened into the
+  engine's notes, and `EngineSong.audioClips` for the audio clips; their channels are `stream`.
+- **The engine** (`engine/src/ClipPlayer.cpp`, `AudioStream.cpp`): each audio clip about to play gets a
+  stream, decoded ahead on a reader thread into a lock-free ring, made by the message thread 1.5 s ahead
+  of the playhead (and at once where play starts). A stream knows the play (`generation`) and the pass
+  round the loop it's for, and the sequencer starts it on its sample; one that's late skips what it
+  missed. A stream carries on through an edit that leaves its clip as it is (`AudioClip.key`).
+- **The transport**: the mode is `useTransport.mode` (`switchMode`), with a start tick for each mode;
+  `engine-sync.ts` sends the mode and its loop (the Piano roll's or the Playlist's time selection).
+  `playhead.ts` says where the song is, and where the shown pattern is inside it.
+- **The window** (`src/suites/music/playlist/`): like the Piano roll, canvases drawn once a frame when
+  something changed (`draw.ts`), a `PlaylistDrag` drawn through `applyDrag` and committed once
+  (`drag.ts`), maths in `geometry.ts`, the mouse in `pointer.ts`, keys in `keys.ts`, commands in
+  `actions.ts`, the Picker and the track headers as React beside the canvas.
+- **The assistant**: `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`,
+  `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` with a
+  mode (`src/suites/music/playlist/tool-edits.ts`).
