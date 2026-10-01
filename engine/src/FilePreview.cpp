@@ -13,13 +13,22 @@ constexpr int fadeSamples = 256;
 // A file being previewed: the stream, and what the tab calls it.
 struct FilePreview::Stream final : AudioStream
 {
-    Stream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, const juce::String& previewId)
-        : AudioStream (std::move (source), outputRate, startSeconds, -1, ringSeconds), id (previewId), start (startSeconds)
+    Stream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, const juce::String& previewId, float left, float right,
+            double playSpeed, bool atVolume)
+        : AudioStream (std::move (source), outputRate, startSeconds, -1, ringSeconds, playSpeed),
+          id (previewId),
+          start (startSeconds),
+          speed (juce::jlimit (0.0625, 16.0, playSpeed)),
+          gainLeft (left),
+          gainRight (right),
+          browserVolume (atVolume)
     {
     }
 
     const juce::String id;
-    const double start;
+    const double start, speed;
+    const float gainLeft, gainRight;
+    const bool browserVolume;
 };
 
 FilePreview::FilePreview (bool isOffline) : offline (isOffline)
@@ -42,12 +51,12 @@ void FilePreview::prepare (double rate) { sampleRate = rate > 0 ? rate : 48000.0
 
 // Message thread -----------------------------------------------------------------------------------
 
-juce::Result FilePreview::play (const juce::File& file, double startSeconds, const juce::String& id)
+juce::Result FilePreview::play (const juce::File& file, double startSeconds, const juce::String& id, float gainLeft, float gainRight, double speed, bool browserVolume)
 {
     std::unique_ptr<juce::AudioFormatReader> source (formats.createReaderFor (file));
     if (source == nullptr || source->sampleRate <= 0 || source->lengthInSamples <= 0)
         return juce::Result::fail ("\"" + file.getFileName() + "\" can't be read as audio.");
-    auto* stream = new Stream (std::move (source), sampleRate, juce::jmax (0.0, startSeconds), id);
+    auto* stream = new Stream (std::move (source), sampleRate, juce::jmax (0.0, startSeconds), id, gainLeft, gainRight, speed, browserVolume);
     // Its start is decoded here, so it sounds at the next block rather than when the reader gets to it.
     stream->fill();
     if (! offline)
@@ -89,7 +98,7 @@ juce::var FilePreview::describe() const
     if (! isPlaying())
         return {};
     return protocol::object ({ { "id", latest->id },
-                               { "seconds", latest->start + (double) latest->played.load() / latest->outRate },
+                               { "seconds", latest->start + (double) latest->played.load() / latest->outRate * latest->speed },
                                { "duration", latest->duration } });
 }
 
@@ -133,7 +142,8 @@ void FilePreview::process (float* left, float* right, int numSamples)
     }
 }
 
-int FilePreview::pull (Stream& stream, float* left, float* right, int numSamples, float gain, bool fadeOut)
+int FilePreview::pull (Stream& stream, float* left, float* right, int numSamples, float volume, bool fadeOut)
 {
-    return stream.pull (left, right, 0, numSamples, gain, gain, fadeSamples, fadeOut ? fadeSamples : 0);
+    const auto gain = stream.browserVolume ? volume : 1.0f;
+    return stream.pull (left, right, 0, numSamples, gain * stream.gainLeft, gain * stream.gainRight, fadeSamples, fadeOut ? fadeSamples : 0);
 }
