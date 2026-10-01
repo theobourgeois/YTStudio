@@ -127,8 +127,13 @@ describe("routing", () => {
     expect(routeChannels(song, ["chan_kick"], "insert_404")).toBe(song);
   });
 
-  it("routes channels to a track and the next ones, one each, adding tracks past the end (Ctrl+Shift+L)", () => {
-    expect(routing(routeChannelsFrom(rack(), ["chan_kick", "chan_hat", "chan_clap"], "insert_7"))).toEqual(["insert_7", "insert_8", "insert_9"]);
+  it("routes channels to a track and the next ones, one each, named after them unless named already, adding tracks past the end (Ctrl+Shift+L)", () => {
+    const named = updateMixerTrack(rack(), "insert_8", { name: "Bus" });
+    const routed = routeChannelsFrom(named, ["chan_kick", "chan_hat", "chan_clap"], "insert_7");
+    expect(routing(routed)).toEqual(["insert_7", "insert_8", "insert_9"]);
+    expect(["insert_7", "insert_8", "insert_9"].map((id) => trackName(routed, id))).toEqual(["Kick", "Bus", "Clap"]);
+    // To one track (Ctrl+L), nothing is renamed.
+    expect(trackName(routeChannels(rack(), ["chan_kick"], "insert_4"), "insert_4")).toBe("Insert 4");
     const song = routeChannelsFrom(rack(), ["chan_kick", "chan_hat", "chan_clap"], "insert_15", ["insert_17"]);
     expect(routing(song)).toEqual(["insert_15", "insert_16", "insert_17"]);
   });

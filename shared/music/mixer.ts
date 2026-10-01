@@ -194,7 +194,8 @@ export function routeChannels(song: MusicProject, channelIds: readonly string[],
 
 /**
  * Route channels to a track and the ones after it, one each, in the rack's order (FL's Ctrl+Shift+L).
- * Tracks are added at the end when there aren't enough (`newIds` names them).
+ * Each track that has no name yet takes its channel's (one already named keeps its own). Tracks are
+ * added at the end when there aren't enough (`newIds` names them).
  */
 export function routeChannelsFrom(song: MusicProject, channelIds: readonly string[], trackId: string, newIds: readonly string[] = []): MusicProject {
   const start = trackNumber(song, trackId);
@@ -205,7 +206,11 @@ export function routeChannelsFrom(song: MusicProject, channelIds: readonly strin
   const missing = start + channels.length - song.mixer.tracks.length;
   let next = missing > 0 ? addMixerTracks(song, null, missing, newIds) : song;
   const count = Math.min(channels.length, next.mixer.tracks.length - start);
-  for (let i = 0; i < count; i++) next = routeChannels(next, [channels[i].id], next.mixer.tracks[start + i].id);
+  for (let i = 0; i < count; i++) {
+    const track = next.mixer.tracks[start + i];
+    next = routeChannels(next, [channels[i].id], track.id);
+    if (track.name === null && track.id !== MASTER_TRACK_ID) next = updateMixerTrack(next, track.id, { name: channels[i].name });
+  }
   return next;
 }
 
