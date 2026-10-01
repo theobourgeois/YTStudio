@@ -62,6 +62,7 @@ import {
 } from "./actions";
 import { Cables } from "./cables";
 import { Fader } from "./fader";
+import { Led } from "./led";
 import { faderDb } from "./meter";
 import { useMeters } from "./meters";
 import { Inspector } from "./inspector";
@@ -424,12 +425,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
           soloTrack(id);
         }}
       >
-        <span
-          className={cn(
-            "size-2.5 rounded-full transition-[colors,filter] group-hover:brightness-125",
-            track.muted ? "sunken" : "border border-[var(--mixer-led-edge)] bg-[var(--mixer-led)] shadow-[0_0_5px] shadow-[var(--mixer-led)] inset-shadow-[0_1px_0_rgb(255_255_255/0.5)]",
-          )}
-        />
+        <Led on={!track.muted} />
       </button>
       <SongKnob size={30} label={`${name} pan`} value={track.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateMixerTrack(song, id, { pan })} />
       </div>

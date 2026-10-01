@@ -86,10 +86,13 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
   const angle = -SWEEP / 2 + fraction * SWEEP;
   const c = size / 2;
   const gradient = useId().replace(/:/g, "");
-  // The arc runs in the well round the cap; the notch is a short line at the cap's edge.
-  const arcWidth = Math.max(2, size * 0.1);
-  const arcRadius = c - arcWidth / 2 - 0.5;
-  const capRadius = c - arcWidth - 1.5;
+  // FL Studio's: the value an arc on the outside, then a darker ring (the well), then the cap. Big knobs have
+  // no pointer (their arc says it all, as the mixer's do in FL); small ones keep a notch, to be read at a glance.
+  const arcWidth = Math.max(2, size * 0.11);
+  const arcRadius = c - arcWidth / 2;
+  const wellRadius = c - arcWidth - 0.5;
+  const capRadius = wellRadius - Math.max(1.5, size * 0.07);
+  const notched = size < 26;
   const [px, py] = polar(c, c, capRadius - 1, angle);
   const [ix, iy] = polar(c, c, capRadius * 0.45, angle);
 
@@ -159,19 +162,21 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
               */}
               <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="relative overflow-visible" aria-hidden>
                 <defs>
-                  <radialGradient id={`${gradient}-cap`} cx="50%" cy="28%" r="78%">
+                  <linearGradient id={`${gradient}-cap`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="var(--knob-cap-light)" />
-                    <stop offset="55%" stopColor="var(--knob-cap)" />
+                    <stop offset="45%" stopColor="var(--knob-cap)" />
                     <stop offset="100%" stopColor="var(--knob-cap-dark)" />
-                  </radialGradient>
+                  </linearGradient>
                 </defs>
-                <circle cx={c} cy={c} r={c - 0.5} fill="var(--knob-well)" stroke="var(--knob-well-edge)" strokeWidth={1} />
                 {Math.abs(angle - (bipolar ? 0 : -SWEEP / 2)) > 1 && (
-                  <path d={arc(c, c, arcRadius, bipolar ? 0 : -SWEEP / 2, angle)} fill="none" stroke="var(--knob-arc)" strokeWidth={arcWidth} strokeLinecap="round" />
+                  <path d={arc(c, c, arcRadius, bipolar ? 0 : -SWEEP / 2, angle)} fill="none" stroke="var(--knob-arc)" strokeWidth={arcWidth} strokeLinecap="butt" />
                 )}
-                <circle cx={c} cy={c + 0.6} r={capRadius} fill="rgb(0 0 0 / 0.45)" />
-                <circle cx={c} cy={c} r={capRadius} fill={`url(#${gradient}-cap)`} stroke="var(--knob-cap-edge)" strokeWidth={0.75} />
-                <line x1={ix} y1={iy} x2={px} y2={py} stroke="var(--knob-notch)" strokeWidth={Math.max(1.25, size * 0.06)} strokeLinecap="round" />
+                <circle cx={c} cy={c} r={wellRadius} fill="var(--knob-well)" stroke="var(--knob-well-edge)" strokeWidth={0.75} />
+                <circle cx={c} cy={c} r={capRadius} fill={`url(#${gradient}-cap)`} />
+                {/* Its rim: lit along the top, dark along the bottom. */}
+                <path d={arc(c, c, capRadius - 0.4, -70, 70)} fill="none" stroke="rgb(255 255 255 / 0.16)" strokeWidth={0.8} />
+                <path d={arc(c, c, capRadius - 0.4, 110, 250)} fill="none" stroke="rgb(0 0 0 / 0.35)" strokeWidth={0.8} />
+                {notched && <line x1={ix} y1={iy} x2={px} y2={py} stroke="var(--knob-notch)" strokeWidth={Math.max(1.25, size * 0.06)} strokeLinecap="round" />}
               </svg>
               {dragging && (
                 <span className="floating pointer-events-none absolute -top-6 left-1/2 z-20 -translate-x-1/2 rounded-sm px-1.5 py-0.5 text-[10px] whitespace-nowrap tabular-nums">

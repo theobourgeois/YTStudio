@@ -14,6 +14,7 @@ import { PERCENT, SongKnob, percent } from "../knob";
 import { useMusic, useSong } from "../store";
 import { useTransport } from "../transport";
 import { pickerItem } from "../plugin-groups";
+import { Led } from "./led";
 import { PluginPicker, usePluginList } from "../plugin-picker";
 import { Input } from "@/components/ui/input";
 import { delayText, pluginDelay } from "./latency";
@@ -127,7 +128,7 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
                     className="group grid size-4 place-items-center rounded-full"
                     onClick={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}
                   >
-                    <span className={cn("size-2 rounded-full", effect.enabled ? "border border-[var(--mixer-led-edge)] bg-[var(--mixer-led)] shadow-[0_0_4px] shadow-[var(--mixer-led)]" : "sunken")} />
+                    <Led on={effect.enabled} size={10} />
                   </button>
                 </>
               )}

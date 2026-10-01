@@ -10,7 +10,7 @@ import { startPointerDrag } from "@/lib/pointer-drag";
 import { detent, faderAt, faderDb } from "./meter";
 
 /** The handle's height, and how far a drag with Ctrl moves it for the same distance (fine changes). */
-const HANDLE_H = 26;
+const HANDLE_H = 30;
 /** How far (px) the pointer moves while the fader hangs at 0 dB. */
 const HOLD_PX = 7;
 /** Levels marked across the fader (FL's faint lines), in dB. */
@@ -141,22 +141,15 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
                 />
               ))}
               <span
-                className="pointer-events-none absolute inset-x-0 overflow-hidden rounded-[3px] border"
+                className="pointer-events-none absolute inset-x-0 rounded-[4px]"
                 style={{
                   top: handleTop(value),
                   height: HANDLE_H,
-                  borderColor: selected ? "var(--fader-cap-on-edge)" : "var(--fader-cap-edge)",
-                  background: selected
-                    ? "linear-gradient(to bottom, var(--fader-cap-on-light), var(--fader-cap-on) 48%, var(--fader-cap-on-dark))"
-                    : "linear-gradient(to bottom, var(--fader-cap-light), var(--fader-cap) 48%, var(--fader-cap-dark))",
-                  boxShadow: "inset 0 1px 0 rgb(255 255 255 / 0.55), 0 2px 3px rgb(0 0 0 / 0.45)",
+                  background: capFace(selected ?? false),
+                  boxShadow: `0 0 0 1px ${selected ? "var(--fader-cap-on-edge)" : "var(--fader-cap-edge)"}, 0 3px 4px rgb(0 0 0 / 0.5)`,
                 }}
                 aria-hidden
-              >
-                {/* The groove across it, with its lit lower edge. */}
-                <span className="absolute inset-x-0.5 top-[46%] h-[2px] bg-black/45" />
-                <span className="absolute inset-x-0.5 top-[calc(46%+2px)] h-px bg-white/35" />
-              </span>
+              />
               {dragging && (
                 <span className="floating pointer-events-none absolute -top-6 left-1/2 z-20 -translate-x-1/2 rounded-sm px-1.5 py-0.5 text-[10px] whitespace-nowrap tabular-nums">
                   {faderDb(value)}
@@ -206,4 +199,33 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
       </PopoverContent>
     </PopoverPrimitive.Root>
   );
+}
+
+/**
+ * FL Studio's fader cap, as its picture: a cylinder (darker at its sides), a light curved top face, a dark
+ * line across its middle, a shadow band under it, and a light lip at the foot. From the theme's tokens: the
+ * metal (`--fader-cap-*`) or, on the selected track, the accent (`--fader-cap-on-*`).
+ */
+function capFace(selected: boolean): string {
+  const [light, mid, dark] = selected
+    ? ["var(--fader-cap-on-light)", "var(--fader-cap-on)", "var(--fader-cap-on-dark)"]
+    : ["var(--fader-cap-light)", "var(--fader-cap)", "var(--fader-cap-dark)"];
+  const sides = "linear-gradient(to right, rgb(0 0 0 / 0.3), rgb(0 0 0 / 0) 24%, rgb(255 255 255 / 0.08) 50%, rgb(0 0 0 / 0) 76%, rgb(0 0 0 / 0.3))";
+  const bands = [
+    `${light} 0%`,
+    `${light} 7%`,
+    `${mid} 30%`,
+    `${light} 33%`,
+    `${mid} 45%`,
+    `rgb(20 22 28) 45%`,
+    `rgb(20 22 28) 50%`,
+    `${mid} 50%`,
+    `${mid} 58%`,
+    `${dark} 64%`,
+    `color-mix(in oklab, ${dark} 70%, #000) 72%`,
+    `${dark} 82%`,
+    `${light} 94%`,
+    `${mid} 100%`,
+  ];
+  return `${sides}, linear-gradient(to bottom, ${bands.join(", ")})`;
 }

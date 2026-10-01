@@ -150,6 +150,11 @@
   --mixer-on: var(--brand);
   --mixer-delay: var(--brand);
   --fader-slot: rgb(30 40 52 / 0.08);
+  /* The mixer's lights (`mixer/led.tsx`): their bezel, and their lens when off. */
+  --led-bezel-light: #a9b0b9;
+  --led-bezel-dark: #6f7680;
+  --led-off-light: #6a717b;
+  --led-off-dark: #3a4048;
   --piano-time: #e5484d;
   --piano-start: #e08a12;
   --piano-tool: #2f7be5;
@@ -234,11 +239,11 @@
   --meter-high: #ef4d55;
   --meter-off: #353b45;
 
-  --knob-well: #1d2027;
-  --knob-well-edge: #15171c;
-  --knob-cap-light: #5f6470;
-  --knob-cap: #40444e;
-  --knob-cap-dark: #2a2d35;
+  --knob-well: #17191d;
+  --knob-well-edge: #3a3d45;
+  --knob-cap-light: #4d515b;
+  --knob-cap: #3b3e47;
+  --knob-cap-dark: #2b2d34;
   --knob-cap-edge: #17191e;
   --knob-notch: #d9dee6;
   --knob-arc: var(--brand);
@@ -246,9 +251,9 @@
   --fader-groove: #15171b;
   --fader-tick: rgb(255 255 255 / 0.05);
   --fader-tick-strong: rgb(255 255 255 / 0.13);
-  --fader-cap-light: #f1f2f5;
-  --fader-cap: #c9ccd3;
-  --fader-cap-dark: #8b8f99;
+  --fader-cap-light: #d4d5dc;
+  --fader-cap: #aaacb5;
+  --fader-cap-dark: #61636d;
   --fader-cap-edge: #3c4048;
   --fader-cap-on-light: color-mix(in oklab, var(--brand) 55%, #fff);
   --fader-cap-on: var(--brand);
@@ -259,4 +264,8 @@
   --mixer-tint-base: #16181c;
   --mixer-name-tint: #ffffff;
   --fader-slot: rgb(0 0 0 / 0.22);
+  --led-bezel-light: #8b8f97;
+  --led-bezel-dark: #4c5058;
+  --led-off-light: #3d424b;
+  --led-off-dark: #22262c;
 }
