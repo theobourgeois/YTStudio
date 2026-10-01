@@ -1,15 +1,17 @@
 import { useEffect } from "react";
 import { PiSpinnerGap } from "react-icons/pi";
-import { SettingsPage, useSettingsShortcut } from "@/components/settings/settings-page";
+import { SettingsWindow, useSettingsShortcut } from "@/components/settings/settings-window";
 import { ShortcutsDialog } from "@/components/shortcuts/shortcuts-dialog";
 import { NewProjectDialog } from "@/components/sidebar/new-project-dialog";
 import { Sidebar, SidebarToggle } from "@/components/sidebar/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Desktop } from "@/components/windows/floating-window";
 import { Workspace } from "@/components/workspace/workspace";
 import { usePreventFileNavigation } from "@/hooks/use-prevent-file-navigation";
 import { useShortcuts } from "@/hooks/use-shortcuts";
 import { startAssistantBridge } from "@/assistant/bridge";
+import { useAppWindows } from "@/stores/app-windows";
 import { useProjects } from "@/stores/projects";
 import { useSettings } from "@/stores/settings";
 
@@ -30,8 +32,7 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={400}>
       {loaded ? (
-        // Settings covers the app; what's under it stays as it was (a song keeps playing), out of reach.
-        <div className="flex h-full" inert={settingsOpen}>
+        <div className="flex h-full">
           <Sidebar />
           <main className="flex min-w-0 flex-1 flex-col">
             <Workspace />
@@ -49,7 +50,12 @@ export default function App() {
           )}
         </div>
       )}
-      <SettingsPage />
+      {/* The app's own windows float over everything (but menus and dialogs, which are drawn after it). */}
+      {settingsOpen && (
+        <Desktop windows={useAppWindows} name="app" label="Windows" className="pointer-events-none fixed inset-0 z-50 [&>[data-window]]:pointer-events-auto">
+          <SettingsWindow />
+        </Desktop>
+      )}
       <ShortcutsDialog />
       <NewProjectDialog />
       <Toaster position="bottom-right" />

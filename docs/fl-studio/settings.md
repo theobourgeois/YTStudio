@@ -36,9 +36,11 @@ highlight colours) are set here and saved as a theme file.
 
 ## Where Vaudio differs
 
-Vaudio has one Settings page for the whole app (⌘, or the gear in each suite's header,
-`src/components/settings/`), with a section per suite; the music editor's is FL's Audio tab. ⌘, opens it
-on the section of the app you're in.
+Vaudio's Settings is FL's: one window for the whole app (⌘, or the gear in each suite's header,
+`src/components/settings/`), with a tab per subject: General, then one per suite; the music editor's is
+FL's Audio tab. ⌘, opens it on the tab of the app you're in. Like FL's, it floats over the app without
+stopping it (a song keeps playing, the timeline can be clicked), is dragged, resized and maximised as any
+window (`docs/windows.md`), and keys pressed in it are its own (Space doesn't play).
 
 - **Audio** is what the engine can change: the output device, the buffer length and the sample rate,
   with the latency the device reports. No input device, auto close, ASIO panel or the underrun options
@@ -48,4 +50,6 @@ on the section of the app you're in.
 - Themes and the interface's fonts are the app's (General), not the music editor's: the same themes
   dress both suites. FL's hue/saturation sliders aren't there: a theme is a set of chosen values
   (`src/themes/`), each one light or dark, with System following the computer.
+- Our tabs are General, Video editor and Music, not FL's MIDI, Audio, General, File...: each suite's
+  settings are one tab.
 - No F10 yet: ⌘, opens it.

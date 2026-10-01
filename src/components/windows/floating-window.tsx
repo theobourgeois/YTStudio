@@ -188,7 +188,7 @@ export function FloatingWindow({ id, title, initial, onClose, menu, heading, con
       data-keeps-keys={keepsKeys || undefined}
       className={cn(
         // A floating surface (the theme's outline and short shadow), its title bar a step darker than its body.
-        "floating pointer-events-auto absolute flex flex-col overflow-hidden bg-card",
+        "floating absolute flex flex-col overflow-hidden bg-card",
         snap ? "rounded-none shadow-none" : "rounded-md",
         className,
       )}

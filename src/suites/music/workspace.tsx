@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { EngineKey } from "@shared/music/engine";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
+import { keptByWindow } from "@/components/windows/floating-window";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
 import { BrowserPanel } from "./browser/browser-panel";
 import { carriesSamples, dropAsChannels } from "./browser/drops";
@@ -252,7 +253,7 @@ function useMusicKeys(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.isComposing || isTyping(e.target) || dialogOpen()) return;
+      if (e.isComposing || isTyping(e.target) || keptByWindow(e.target) || dialogOpen()) return;
       // The Browser's list has keys of its own (`browser/keys.ts`): only the editor-wide ones pass it.
       const inBrowser = e.target instanceof HTMLElement && e.target.closest("[data-browser]") !== null;
       // The Piano roll's own keys, while it's the window in front.

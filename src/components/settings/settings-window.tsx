@@ -1,9 +1,10 @@
-import { Suspense, useEffect, useRef } from "react";
-import { PiArrowLeft, PiGearSix, PiPushPin, PiSpinnerGap } from "react-icons/pi";
+import { type KeyboardEvent as ReactKeyboardEvent, Suspense, useEffect, useRef, useState } from "react";
+import { PiGearSix, PiPushPin, PiSpinnerGap } from "react-icons/pi";
 import { cn } from "cn";
 import { SUITE_IDS, SUITES, type SuiteId, suiteNoun } from "@shared/suites";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { FloatingWindow } from "@/components/windows/floating-window";
+import type { WindowPlace } from "@/components/windows/store";
 import { clientSuite } from "@/suites";
 import { projectSuite, useProjects } from "@/stores/projects";
 import { type SettingsSection, useSettings } from "@/stores/settings";
@@ -14,7 +15,7 @@ const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator
 /** Settings' shortcut, as menus and tooltips show it. */
 export const SETTINGS_KEYS = `${MOD},`;
 
-/** A section's name, the line under it, and its icon. */
+/** A tab's name, the line at the top of it, and its icon. */
 function sectionInfo(section: SettingsSection) {
   if (section === "general") return { title: "General", description: "How the whole app looks: its theme and its fonts.", icon: PiGearSix, tint: "bg-surface-3 text-muted-foreground" };
   const suite = clientSuite(section);
@@ -44,33 +45,46 @@ export function useSettingsShortcut() {
   }, []);
 }
 
-/** Settings, a page of its own over the whole window (`useSettings`): its sections on the left. */
-export function SettingsPage() {
-  const open = useSettings((s) => s.open);
-  return open ? <SettingsWindow /> : null;
+/** Where Settings first opens: the middle of the window, a little above it, as big as there's room for. */
+function firstPlace(): WindowPlace {
+  const width = Math.min(860, window.innerWidth - 64);
+  const height = Math.min(640, window.innerHeight - 96);
+  return { x: Math.max(0, Math.round((window.innerWidth - width) / 2)), y: Math.max(48, Math.round((window.innerHeight - height) / 3)), width, height };
 }
 
-function SettingsWindow() {
+/**
+ * Settings, a window over the whole app (`useSettings`) as FL Studio's is: a tab for the app (General)
+ * and one per suite. It doesn't stop the app under it being used (a song keeps playing, a click on the
+ * timeline works), but keys pressed in it are its own: Esc closes it, and the editors' shortcuts leave
+ * them alone (`keepsKeys`).
+ */
+export function SettingsWindow() {
   const section = useSettings((s) => s.section);
+  const [initial] = useState(firstPlace);
   const rootRef = useRef<HTMLDivElement>(null);
-  const mainRef = useRef<HTMLElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const info = sectionInfo(section);
 
-  // Focus moves in (to the page, so Tab goes on to its sections) and goes back where it was when Settings closes.
+  // Focus moves in (to the tab shown), and goes back where it was when Settings closes, unless it's been
+  // taken elsewhere since (a click on the app under it).
   useEffect(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    rootRef.current?.focus();
-    return () => before?.focus();
+    const root = rootRef.current;
+    root?.querySelector<HTMLElement>("[role=tab][aria-selected=true]")?.focus();
+    return () => {
+      const now = document.activeElement;
+      if (!now || now === document.body || root?.contains(now)) before?.focus();
+    };
   }, []);
   useEffect(() => {
-    mainRef.current?.scrollTo({ top: 0 });
+    panelRef.current?.scrollTo({ top: 0 });
   }, [section]);
 
-  // Esc goes back, wherever the focus is (a field that's just been left gives it to the page).
+  // Esc closes it, from anywhere in it (an open menu or list closes first; one only fading out doesn't count).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
-      // An open menu or list closes first (one that's only fading out doesn't count).
+      if (!(e.target instanceof Node) || !rootRef.current?.closest("[data-window]")?.contains(e.target)) return;
       if (document.querySelector("[data-radix-popper-content-wrapper] [data-state=open]")) return;
       e.preventDefault();
       useSettings.getState().close();
@@ -79,64 +93,64 @@ function SettingsWindow() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  return (
-    <div ref={rootRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Settings" data-settings className="fixed inset-0 z-50 flex bg-background text-foreground outline-none">
-      <nav aria-label="Settings sections" className="flex w-60 shrink-0 flex-col border-r border-line bg-sidebar">
-        <div data-titlebar="settings" className="settings-titlebar flex h-13 shrink-0 items-center px-2.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={() => useSettings.getState().close()}>
-                <PiArrowLeft />
-                Back
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              Back to the app
-              <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">Esc</kbd>
-            </TooltipContent>
-          </Tooltip>
-        </div>
-        <div className="flex flex-col gap-0.5 px-2.5 pt-1">
-          <p className="px-2.5 pb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Settings</p>
-          {SECTIONS.map((id) => (
-            <SectionButton key={id} section={id} selected={id === section} />
-          ))}
-        </div>
-        <p className="mt-auto px-5 py-4 text-xs leading-5 text-muted-foreground">
-          <kbd className="font-sans">{SETTINGS_KEYS}</kbd> opens these on the app you're in.
-        </p>
-      </nav>
+  // The arrows go from tab to tab (and Home, End to the first and last), as in any list of tabs.
+  const onTabKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const at = SECTIONS.indexOf(section);
+    const to =
+      e.key === "ArrowRight" ? (at + 1) % SECTIONS.length
+      : e.key === "ArrowLeft" ? (at - 1 + SECTIONS.length) % SECTIONS.length
+      : e.key === "Home" ? 0
+      : e.key === "End" ? SECTIONS.length - 1
+      : null;
+    if (to === null) return;
+    e.preventDefault();
+    useSettings.getState().setSection(SECTIONS[to]);
+    e.currentTarget.querySelector<HTMLElement>(`[data-settings-section="${SECTIONS[to]}"]`)?.focus();
+  };
 
-      <main ref={mainRef} className="min-w-0 flex-1 overflow-y-auto" aria-labelledby="settings-title">
-        <header data-titlebar="settings" className="sticky top-0 z-10 flex h-13 items-center border-b border-line bg-background/95 px-10 backdrop-blur-sm">
-          <h1 id="settings-title" className="text-[15px] font-semibold">
-            {info.title}
-          </h1>
-        </header>
-        <div className="mx-auto flex max-w-3xl flex-col gap-8 px-10 pt-6 pb-16">
-          <p className="-mb-2 px-1 text-[13px] text-muted-foreground">{info.description}</p>
-          {section === "general" ? <GeneralSettings /> : <SuiteSection suite={section} />}
+  return (
+    <FloatingWindow id="settings" title="Settings" initial={initial} resizable={{ minWidth: 520, minHeight: 360 }} keepsKeys onClose={() => useSettings.getState().close()}>
+      <div ref={rootRef} data-settings className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
+        <div className="flex shrink-0 items-center gap-1 border-b border-line bg-surface-1 px-2 py-1.5">
+          <div role="tablist" aria-label="Settings sections" className="flex min-w-0 items-center gap-1" onKeyDown={onTabKey}>
+            {SECTIONS.map((id) => (
+              <SectionTab key={id} section={id} selected={id === section} />
+            ))}
+          </div>
+          <span className="ml-auto shrink-0 truncate pl-3 text-[11px] text-muted-foreground">
+            <kbd className="font-sans">{SETTINGS_KEYS}</kbd> opens it on the app you're in
+          </span>
         </div>
-      </main>
-    </div>
+        <div ref={panelRef} role="tabpanel" id="settings-panel" aria-labelledby={`settings-tab-${section}`} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex max-w-3xl flex-col gap-8 px-8 pt-5 pb-12">
+            <p className="-mb-2 px-1 text-[13px] text-muted-foreground">{info.description}</p>
+            {section === "general" ? <GeneralSettings /> : <SuiteSection suite={section} />}
+          </div>
+        </div>
+      </div>
+    </FloatingWindow>
   );
 }
 
-function SectionButton({ section, selected }: { section: SettingsSection; selected: boolean }) {
+function SectionTab({ section, selected }: { section: SettingsSection; selected: boolean }) {
   const { title, icon: Icon, tint } = sectionInfo(section);
   return (
     <button
       type="button"
-      aria-current={selected ? "page" : undefined}
+      role="tab"
+      id={`settings-tab-${section}`}
+      aria-selected={selected}
+      aria-controls="settings-panel"
+      tabIndex={selected ? 0 : -1}
       data-settings-section={section}
       onClick={() => useSettings.getState().setSection(section)}
       className={cn(
-        "flex h-9 items-center gap-2.5 rounded-md px-2 text-left text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+        "flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-[13px] whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
         selected ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
       )}
     >
-      <span className={cn("grid size-6 shrink-0 place-items-center rounded-sm", tint)}>
-        <Icon className="size-3.5" />
+      <span className={cn("grid size-5 shrink-0 place-items-center rounded-sm", tint)}>
+        <Icon className="size-3" />
       </span>
       {title}
     </button>

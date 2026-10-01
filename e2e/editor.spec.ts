@@ -945,17 +945,19 @@ test("auto captions: makes captions from the speech, edits one's words and style
   await expect.poll(async () => (await captions()).length).toBe(made.length);
 });
 
-test("settings: ⌘, opens on the video editor's section; themes and fonts change the whole app and last", async ({ page }) => {
+test("settings: a window; ⌘, opens it on the video editor's tab; themes and fonts change the whole app and last", async ({ page }) => {
   await page.goto("/");
   // Nothing picked yet: the theme follows the computer's (this browser's) light or dark.
   await expect(page.locator("html")).toHaveClass(/\btheme-light\b/);
   await newVideo(page);
   await expect(page).toHaveURL(/\/p\/[\w-]+$/);
   await page.keyboard.press("ControlOrMeta+Comma");
-  const settings = page.getByRole("dialog", { name: "Settings" });
-  await expect(settings.getByRole("heading", { level: 1 })).toHaveText("Video editor");
-  // The editor's shortcuts are off underneath: Space doesn't play.
+  const settings = page.getByRole("region", { name: "Settings" });
+  await expect(settings.getByRole("tab", { selected: true })).toHaveText("Video editor");
+  await expect(settings.getByRole("tab")).toHaveText(["General", "Video editor", "Music"]);
+  // Keys pressed in it are its own: Space doesn't play the video under it.
   await page.keyboard.press("Space");
+  await expect(page.locator("[data-settings]")).toHaveCount(1);
 
   // The timeline's own toggle, here too.
   const ripple = settings.getByRole("switch", { name: "Auto ripple" });
@@ -967,8 +969,32 @@ test("settings: ⌘, opens on the video editor's section; themes and fonts chang
   await length.fill("3");
   await length.press("Enter");
 
-  await settings.getByRole("button", { name: "General" }).click();
-  await expect(settings.getByRole("heading", { level: 1 })).toHaveText("General");
+  // It's a window: dragged by its title bar, out of the way of the app under it, which still works.
+  const title = settings.locator("[data-window-title]");
+  const at = (await title.boundingBox())!;
+  await page.mouse.move(at.x + 200, at.y + at.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(at.x + 500, at.y + 200, { steps: 6 });
+  await page.mouse.move(at.x + 760, at.y + 300, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await settings.boundingBox())!.x).toBeGreaterThan(at.x + 500);
+  await page.getByRole("button", { name: "Auto ripple", exact: true }).click();
+  await expect(ripple).not.toBeChecked();
+  await page.getByRole("button", { name: "Auto ripple", exact: true }).click();
+  await expect(ripple).toBeChecked();
+  // A double-click on its title fills the window with it, and another puts it back.
+  await title.dblclick({ position: { x: 100, y: 10 } });
+  await expect(settings).toHaveAttribute("data-snap", "full");
+  await title.dblclick({ position: { x: 100, y: 10 } });
+  await expect(settings).not.toHaveAttribute("data-snap", "full");
+
+  // The arrows go from tab to tab.
+  await settings.getByRole("tab", { name: "Video editor" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(settings.getByRole("tab", { selected: true })).toHaveText("Music");
+  await expect(settings.getByRole("tab", { name: "Music" })).toBeFocused();
+  await settings.getByRole("tab", { name: "General" }).click();
+  await expect(settings.getByRole("tab", { selected: true })).toHaveText("General");
   await expect(settings.getByRole("radio", { name: "System" })).toHaveAttribute("aria-checked", "true");
   await settings.getByRole("radio", { name: "Ultraviolet" }).click();
   await expect(settings.getByRole("radio", { name: "Ultraviolet" })).toHaveAttribute("aria-checked", "true");
@@ -1004,7 +1030,10 @@ test("settings: ⌘, opens on the video editor's section; themes and fonts chang
   await page.keyboard.press("ControlOrMeta+Comma");
   await expect(settings).toBeHidden();
   await page.locator("header").getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(settings.getByRole("heading", { level: 1 })).toHaveText("Video editor");
+  await expect(settings.getByRole("tab", { selected: true })).toHaveText("Video editor");
+  // Its × closes it.
+  await settings.getByRole("button", { name: "Close Settings" }).click();
+  await expect(settings).toBeHidden();
 
   // The tests after this one expect only the videos they made.
   const id = new URL(page.url()).pathname.split("/").pop();

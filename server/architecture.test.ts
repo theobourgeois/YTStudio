@@ -61,6 +61,7 @@ const PLATFORM = [
   "src/stores/theme.ts",
   "src/themes/",
   "src/stores/settings.ts",
+  "src/stores/app-windows.ts",
   "src/stores/layout.ts",
   "src/lib/api.ts",
   "src/lib/route.ts",

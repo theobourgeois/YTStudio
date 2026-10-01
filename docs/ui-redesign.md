@@ -170,7 +170,7 @@ onto the primitives. Do it area by area and look at each:
   (`components/timeline/`): toolbar, track headers, ruler (like the Piano roll's), clips (beveled like the
   Piano roll's notes: a lit top edge, a darker outline, small corners), transition markers, the playhead.
 - **The music editor** (`src/suites/music/`): the transport bar, the pattern picker, windows' title bars
-  (`window.tsx`), the channel rack (step buttons raised, lit when on; the channel buttons; the mute lights),
+  (`components/windows/floating-window.tsx`), the channel rack (step buttons raised, lit when on; the channel buttons; the mute lights),
   knobs (`knob.tsx`), LCDs (`lcd.tsx`), the channel settings and picker, the audio dialog. The Piano roll
   only needs its chrome (its toolbar, lane header, scrollbars) to match.
 

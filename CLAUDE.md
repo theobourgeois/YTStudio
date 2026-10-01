@@ -173,8 +173,8 @@ src/
                      assistant's side (message context, chat texts, tool handlers). index.ts is the registry;
                      video.ts plugs in the video editor; music/ is the music editor: store.ts (the song, undo,
                      autosave), ui.ts (selection, which windows are open and where), engine-sync.ts +
-                     transport.ts (the engine follows the song; where it's playing), window.tsx (a floating
-                     window and the desktop), channel-rack.tsx, rack-actions.ts (what its menus and keys do),
+                     transport.ts (the engine follows the song; where it's playing), window.tsx (`MusicWindow`
+                     and `MusicDesktop` on the platform's windows), channel-rack.tsx, rack-actions.ts (what its menus and keys do),
                      channel-settings.tsx (a sampler's window), channel-picker.tsx (the +: choose an
                      instrument), knob.tsx, lcd.tsx, waveform.ts, browser/ (the Browser, Alt+F8: a panel
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
@@ -212,10 +212,16 @@ src/
   components/workspace/workspace.tsx   The main column: the open project's suite's Workspace, or the empty state.
   components/workspace/video-workspace.tsx   The video editor's (header, left panel, preview, timeline, assistant).
   components/sidebar/new-project-dialog.tsx  The New project picker (a suite per row, ⌘1, ⌘2…).
-  components/settings/  Settings (⌘,, `stores/settings.ts`): a page over the whole window, General (the theme and
-                     fonts: `stores/theme.ts`) then a section per suite (`ClientSuite.settings`; video's is
-                     `src/suites/video-settings.tsx`, music's `src/suites/music/settings.tsx`), each ending with
-                     where its new projects start. ⌘, opens it on the open project's suite. Built from
+  components/windows/  Floating windows, FL Studio's way, for every suite (docs/windows.md): `FloatingWindow` on a
+                     `Desktop`, a store per desktop (`createWindows`: places, stacking, snaps), the maths in
+                     geometry.ts. The music editor's desktop is one; the app's (`stores/app-windows.ts`, drawn by
+                     App.tsx over everything) holds Settings.
+  components/settings/  Settings (⌘,, `stores/settings.ts`): a window on the app's desktop, as FL's, with a tab for
+                     General (the theme and fonts: `stores/theme.ts`) then one per suite (`ClientSuite.settings`;
+                     video's is `src/suites/video-settings.tsx`, music's `src/suites/music/settings.tsx`), each
+                     ending with where its new projects start. ⌘, opens it on the open project's suite. It doesn't
+                     block the app under it, but keeps its keys (`keepsKeys`: the editors' shortcuts check
+                     `keptByWindow`). Built from
                      `settings-ui.tsx` (`SettingsGroup`, `SettingsRow`). A preference goes here, kept where
                      what it changes lives (`stores/video-preferences.ts` for the video editor's own).
   components/workspace/left-panel.tsx   Left panel tabs: Media | Effects | Captions | Properties.
@@ -342,12 +348,13 @@ swing), the Piano roll, the transport and the metronome, the mixer, the Browser.
   `POST /api/engine/song`: the server normalises it, compiles it and turns sample ids into paths). The engine
   swaps songs without a gap. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a
   second); the tab fills in between (`tickNow`) and shows it late by the output's latency.
-- **Everything is a window** (`window.tsx`: `MusicWindow` on the `Desktop`), as in FL Studio: dragged by its
-  title bar, its edges sticking to the desktop's and other windows' (Alt: not), brought forward when touched,
-  closed and reopened (`ui.ts` keeps which are open and where). A `resizable` one also resizes by its edges and
+- **Everything is a window** (`window.tsx`: `MusicWindow` on the `MusicDesktop`, the platform's
+  `components/windows/`), as in FL Studio: dragged by its title bar, its edges sticking to the desktop's and
+  other windows' (Alt: not), brought forward when touched, closed and reopened (`ui.ts` keeps which are open,
+  `useMusicWindows` where they are and which is in front). A `resizable` one also resizes by its edges and
   fills the desktop (double-click its title, or drag it to the top) or half of it (drag it to a side); one that
   doesn't resize (the rack) goes to the corner and back on that double-click (`toggleCorner`); the Piano
-  roll opens that way. The maths is `window-geometry.ts`. A new panel is a new window, not a docked pane. One thing to know: a menu opened from inside a window is drawn
+  roll opens that way. The maths is `components/windows/geometry.ts`. A new panel is a new window, not a docked pane. One thing to know: a menu opened from inside a window is drawn
   elsewhere on the page but its React events still bubble through the window, so a handler on a container must
   check `currentTarget.contains(target)` before treating a press as its own (the title bar's drag does).
 - **Mouse conventions** (FL's, and the ones to keep in every panel): the left button adds or turns on, the right
