@@ -1481,7 +1481,8 @@ test("tracks are named, coloured, muted and soloed; audio files dropped on the p
   await expect(rack.locator("[role=listitem][data-channel]")).toHaveCount(2);
   // A double-click on the clip opens its channel's settings: pitch, but no envelope.
   await page.getByRole("button", { name: "Close Channel rack" }).click();
-  await grid.dblclick({ position: { x: BAR_TICKS * 0.15 + 12, y: 2 * 48 + 30 } });
+  // (Break.wav is a tenth of a second: a clip three pixels wide.)
+  await grid.dblclick({ position: { x: BAR_TICKS * 0.15 + 1.5, y: 2 * 48 + 30 } });
   const settings = page.locator('[data-testid="channel-settings"][data-channel-name="Break"]');
   await expect(settings).toBeVisible();
   await expect(settings.getByRole("slider", { name: "Pitch" })).toBeVisible();
