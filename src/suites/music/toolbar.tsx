@@ -13,7 +13,7 @@ import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Popover, PopoverContent } from "@/components/ui/popover";
-import { Toggle, toggleVariants } from "@/components/ui/toggle";
+import { toggleVariants } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { canRedo, canUndo } from "@/lib/document-history";
 import { startPointerDrag } from "@/lib/pointer-drag";
@@ -59,9 +59,12 @@ export function MusicToolbar() {
       <div className="flex min-w-0 flex-1 flex-col justify-between">
         <div className="flex h-10 min-w-0 items-center gap-2">
           <div className="flex items-center gap-2" role="toolbar" aria-label="Transport">
-            <ModeSwitch />
-            <PlayButtons />
-            <MetronomeToggle />
+            {/* FL Studio's transport: PAT / SONG, play, stop and the metronome together in one dark panel. */}
+            <div className="sunken flex h-10 items-center gap-0.5 rounded-md pr-0.5 pl-1">
+              <ModeSwitch />
+              <PlayButtons />
+              <MetronomeToggle />
+            </div>
             <TempoLcd />
             <PositionLcd />
           </div>
@@ -144,29 +147,38 @@ function ModeSwitch() {
   return <ModeLights mode={mode} onChange={(next) => switchMode(next)} />;
 }
 
+/** A button of the transport panel: flat, lit (FL's orange) while it's on. */
+function TransportButton({ label, title, on, onClick, children }: { label: string; title: string; on?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <Tip text={title}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={on}
+        className={cn(
+          "grid size-8 place-items-center rounded-[4px] transition-colors",
+          on ? "text-[var(--piano-start)] [filter:drop-shadow(0_0_4px_color-mix(in_srgb,var(--piano-start)_60%,transparent))]" : "text-muted-foreground hover:bg-surface-2 hover:text-foreground",
+        )}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    </Tip>
+  );
+}
+
 /** Play (lit while playing; pressed again it stops, there's no pause yet) and Stop. */
 function PlayButtons() {
   const playing = useTransport((s) => s.playing);
   return (
-    <div className="flex items-center gap-1">
-      <Tip text="Play (Space)">
-        <Button
-          size="icon"
-          variant={playing ? "default" : "outline"}
-          className="size-10"
-          aria-label="Play"
-          aria-pressed={playing}
-          onClick={() => useTransport.getState().toggle()}
-        >
-          <PiPlayFill className="size-[18px]" />
-        </Button>
-      </Tip>
-      <Tip text="Stop (Space)">
-        <Button size="icon" variant="outline" className="size-10" aria-label="Stop" onClick={() => useTransport.getState().stop()}>
-          <PiStopFill className="size-[18px]" />
-        </Button>
-      </Tip>
-    </div>
+    <>
+      <TransportButton label="Play" title="Play (Space)" on={playing} onClick={() => useTransport.getState().toggle()}>
+        <PiPlayFill className="size-[17px]" />
+      </TransportButton>
+      <TransportButton label="Stop" title="Stop (Space)" onClick={() => useTransport.getState().stop()}>
+        <PiStopFill className="size-[15px]" />
+      </TransportButton>
+    </>
   );
 }
 
@@ -490,9 +502,9 @@ function PositionSlider() {
 function MetronomeToggle() {
   const metronome = useTransport((s) => s.metronome);
   return (
-    <Toggle className="size-10 min-w-10 px-0 [&_svg:not([class*=size-])]:size-5" pressed={metronome} onPressedChange={(on) => useTransport.getState().setMetronome(on)} aria-label="Metronome" title="Metronome">
-      <PiMetronome />
-    </Toggle>
+    <TransportButton label="Metronome" title="Metronome" on={metronome} onClick={() => useTransport.getState().setMetronome(!metronome)}>
+      <PiMetronome className="size-[18px]" />
+    </TransportButton>
   );
 }
 
