@@ -22,12 +22,12 @@ export function describeSong(song: MusicProject, assets: MediaAsset[], patternId
     `Song: "${song.name}", ${songTiming(song)}, swing ${Math.round(song.settings.swing * 100)}%.`,
     "",
     song.channels.length ? "Channels (in the rack's order):" : "No channels yet (add_channel makes one).",
-    ...song.channels.map((c) => `- ${describeChannel(c, sampleName(c.sampleId))}${c.kind === "audio" ? " (an audio clip: it plays from the playlist)" : ""}`),
+    ...song.channels.map((c) => `- ${describeChannel(c, sampleName(c.sampleId))}${c.kind === "audio" ? " (an audio clip's channel: its clips play on the playlist, and it can have steps and notes too)" : ""}`),
     "",
     "Patterns (x = a step on, - = off; a step is a sixteenth note):",
     ...song.patterns.flatMap((p) => [
       `- "${p.name}" (id ${p.id}, ${describeLength(song, p)})${p === shown ? ", shown in the rack: it's the one that plays" : ""}`,
-      ...song.channels.filter((c) => c.kind !== "audio").map((c) => `    ${stepString(p, c.id, lengthOf(song, p))}  ${c.name}`),
+      ...song.channels.map((c) => `    ${stepString(p, c.id, lengthOf(song, p))}  ${c.name}`),
     ]),
   ];
   // Where each channel's sound goes, in short (get_mixer has the rest).

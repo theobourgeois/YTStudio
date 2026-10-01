@@ -23,6 +23,8 @@ about to touch before changing it, and correct it when you learn it's wrong.
 - [playlist.md](playlist.md): the Playlist: tracks, pattern and audio clips, the tools, the time
   selection, the Picker panel, song mode, split by channel and its keys. Ends with what we'll leave out,
   where Vaudio differs, what was decided, and how it's built.
+- [export.md](export.md): exporting (rendering) a song: the export dialog's settings, the tail, stems,
+  quality. Ends with what to decide with Théo and how we'd build it (fast).
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).
 
@@ -34,7 +36,7 @@ Where the music suite is and the order of what's next: [../music-suite.md](../mu
    `basics_interface`, `basics_shortcuts`, `basics_workflow`, `toolbar_panels`, `envsettings_general`,
    `songsettings_settings`, `pianoroll`, `playlist`, `mixer`, `mixer_trackprops`, `mixer_mixermenu`,
    `mixer_levelsandmixing`, `browser`, `playlist_patterns`, `playlist_audioclip`,
-   `playlist_automationclip`, `menu_patterns`. It describes the current version
+   `playlist_automationclip`, `menu_patterns`, `fformats_save_export`, `menu_file`, `plugins/wrapper`. It describes the current version
    (FL Studio 2025), which is what we follow.
 2. **Théo**, who has used FL Studio for years: where he says it works a certain way, that wins, and the
    text says "(Théo)". His own screenshots go in `img/user/`.

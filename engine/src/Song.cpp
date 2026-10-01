@@ -141,12 +141,19 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             channel.stream = (bool) item["stream"];
             if (const auto path = item["sample"]; path.isString() && path.toString().isNotEmpty())
             {
-                // An audio clip's file is streamed when it plays: here it only has to be there.
+                // An audio clip's file is streamed when it plays: here it only has to be there. With
+                // precomputed effects it's prepared now, in memory, as a sampler's is.
                 if (channel.stream)
                 {
                     channel.path = path.toString();
                     if (! juce::File (channel.path).existsAsFile())
                         unreadable.add (channel.id);
+                    // Played from notes too (as a sampler), or prepared by precomputed effects: in memory.
+                    else if (! precomputed.changesNothing() || (bool) item["playsNotes"])
+                    {
+                        channel.sample = samples.get (channel.path, precomputed);
+                        channel.prepared = precomputed.key();
+                    }
                 }
                 else
                 {
@@ -184,6 +191,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             if (clip.channel < 0 || clip.channel >= (int) song->channels.size() || ! song->channels[(size_t) clip.channel].stream)
                 continue;
             clip.path = song->channels[(size_t) clip.channel].path;
+            clip.sample = song->channels[(size_t) clip.channel].sample;
             clip.tick = number (item["tick"], 0, -1e9, 1e9);
             clip.length = number (item["length"], 0, 0, 1e9);
             clip.seconds = number (item["seconds"], 0, 0, 1e7);
@@ -191,7 +199,8 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             if (clip.path.isEmpty() || clip.length <= 0 || clip.tick >= song->loopTicks || clip.tick + clip.length <= 0)
                 continue;
             clip.key = (juce::uint64) (song->channels[(size_t) clip.channel].id + "|" + clip.path + "|" + juce::String (clip.tick, 6) + "|" + juce::String (clip.length, 6) + "|"
-                        + juce::String (clip.seconds, 9) + "|" + juce::String (clip.speed, 9) + "|" + juce::String (song->tempo, 6) + "|" + juce::String (song->ppq))
+                        + juce::String (clip.seconds, 9) + "|" + juce::String (clip.speed, 9) + "|" + juce::String (song->tempo, 6) + "|" + juce::String (song->ppq) + "|"
+                        + song->channels[(size_t) clip.channel].prepared)
                                            .hashCode64();
             song->audioClips.push_back (std::move (clip));
         }

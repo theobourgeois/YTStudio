@@ -303,10 +303,10 @@ describe("the playlist", () => {
     expect(normalizeMusicProject(old).playlist).toEqual({ tracks: [], clips: [] });
   });
 
-  it("drops the notes of an audio clip's channel: it plays from the playlist", () => {
+  it("keeps the notes of an audio clip's channel: it plays from patterns too, as in FL Studio", () => {
     const audio = createAudioChannel("Vocal", "media_vox", "chan_vox");
     const withNotes = normalizeMusicProject({ ...song, channels: [...song.channels, audio], patterns: [{ id: "pat_a", notes: { chan_vox: [{ start: 0 }] } }] });
-    expect(withNotes.patterns[0].notes).toEqual({});
+    expect(Object.keys(withNotes.patterns[0].notes)).toEqual(["chan_vox"]);
     expect(withNotes.channels[2]).toMatchObject({ kind: "audio", sampleId: "media_vox" });
   });
 });

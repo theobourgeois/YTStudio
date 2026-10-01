@@ -73,6 +73,8 @@ private:
         juce::uint64 key = 0;
         juce::String path;
         double tick = 0, length = 0, seconds = 0, speed = 1;
+        /** Prepared by its channel's precomputed effects: played from memory instead of the file. */
+        std::shared_ptr<const Sample> sample;
     };
 
     Stream* make (const Clip& clip, double startTick, juce::uint32 generation, juce::uint32 pass, bool immediate);

@@ -51,6 +51,9 @@ export const DEFAULT_PRECOMPUTED: Precomputed = { normalize: false, reverse: fal
 export const MAX_SAMPLE_START = 0.99;
 export const MIN_SAMPLE_LENGTH = 0.01;
 
+/** Whether a sample's precomputed effects change nothing (it plays as its file is). */
+export const precomputedUntouched = (p: Precomputed) => (Object.keys(DEFAULT_PRECOMPUTED) as (keyof Precomputed)[]).every((key) => p[key] === DEFAULT_PRECOMPUTED[key]);
+
 /** The master's id, the same in every song. */
 export const MASTER_TRACK_ID = "master";
 /** How many insert tracks a new song has (FL Studio's templates' 16), and the most it can have (FL's 500). */
@@ -323,8 +326,8 @@ export const byStart = (a: Note, b: Note) => a.start - b.start || a.pitch - b.pi
 export const nextNoteId = (notes: readonly Note[]) => notes.reduce((max, note) => Math.max(max, note.id), 0) + 1;
 
 function normalizePatterns(input: unknown, channels: Channel[]): Pattern[] {
-  // An audio clip's channel plays from the playlist, never from notes.
-  const channelIds = new Set(channels.filter((c) => c.kind !== "audio").map((c) => c.id));
+  // Any channel can have notes: an audio clip's channel plays its file from them too, as in FL Studio.
+  const channelIds = new Set(channels.map((c) => c.id));
   const seen = new Set<string>();
   const patterns: Pattern[] = [];
   for (const raw of Array.isArray(input) ? input : []) {

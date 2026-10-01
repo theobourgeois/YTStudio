@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PRECOMPUTED } from "@shared/music/project";
-import { waveformColumns } from "./waveform";
+import { precomputeSamples, waveformColumns } from "./waveform";
 
 /** A ramp up from -0.5 to just under 0.5 over 8 samples. */
 const ramp = Float32Array.from([-0.5, -0.375, -0.25, -0.125, 0, 0.125, 0.25, 0.375]);
@@ -32,5 +32,17 @@ describe("waveformColumns", () => {
     expect(draw(flat, { fadeOut: 0.5 }, 8).max).toEqual([1, 1, 1, 1, 1, 0.75, 0.5, 0.25]);
     // Reversed first, then faded: the fade is at the start of what plays.
     expect(draw(ramp, { reverse: true, fadeIn: 1 }, 8).max[0]).toBeCloseTo(0);
+  });
+});
+
+describe("precomputeSamples", () => {
+  const ramp = Float32Array.from([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1].map((v) => v / 2));
+  it("trims, reverses, normalises and fades as the engine does, in that order", () => {
+    expect(precomputeSamples(ramp, DEFAULT_PRECOMPUTED)).toBe(ramp);
+    const out = precomputeSamples(ramp, { ...DEFAULT_PRECOMPUTED, start: 0.5, reverse: true, normalize: true });
+    expect([...out].map((v) => Math.round(v * 100) / 100)).toEqual([1, 0.9, 0.8, 0.7, 0.6]);
+    const faded = precomputeSamples(ramp, { ...DEFAULT_PRECOMPUTED, fadeIn: 0.2 });
+    expect(faded[0]).toBe(0);
+    expect(faded[5]).toBeCloseTo(0.3);
   });
 });
