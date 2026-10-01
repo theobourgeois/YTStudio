@@ -39,8 +39,8 @@ interface MusicState {
   selectPattern: (id: string) => void;
   /** Show the pattern a step up or down the selector (past the last one, a draft). */
   stepPattern: (direction: 1 | -1) => void;
-  /** Bring audio files into the project and add a channel for each. */
-  addSamples: (files: File[]) => Promise<void>;
+  /** Bring audio files into the project and add a channel for each, at the end of the rack or before channel `at`. */
+  addSamples: (files: File[], at?: number) => Promise<void>;
   /** Add a channel playing an instrument plugin, or an empty sampler. Returns its id. */
   addChannel: (plugin: PluginRef | null) => string | null;
   /** The starter kit's drums (`public/kit/`), as four channels. */
@@ -146,9 +146,9 @@ export const useMusic = create<MusicState>((set, get) => {
       set({ patternId: next.patternId, draftPattern: next.draft });
     },
 
-    async addSamples(files) {
+    async addSamples(files, at) {
       const assets = await upload(files);
-      get().commit((song) => addChannels(song, assets.map((a) => ({ name: channelName(a.name), sampleId: a.id }))));
+      get().commit((song) => addChannels(song, assets.map((a) => ({ name: channelName(a.name), sampleId: a.id })), at));
     },
 
     addChannel(plugin) {

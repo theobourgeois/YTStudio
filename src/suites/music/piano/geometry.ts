@@ -132,12 +132,13 @@ export const SNAP_LABELS: Record<Snap, string> = {
 const MIN_LINE_GAP = 9;
 
 /**
- * The finest division of the bar whose lines are far enough apart to draw at this zoom: a quarter
- * step, half a step, a step, half a beat, a beat, a bar, then bars in twos, fours... This is the grid
- * shown, and what "Line" and "Cell" snap to.
+ * The finest division of the bar whose lines are far enough apart to draw at this zoom: a step (never
+ * finer, however far in: four to a beat is fine enough to work in, Théo), half a beat, a beat, a bar,
+ * then bars in twos, fours... This is the grid shown, and what "Line" and "Cell" snap to; the finer
+ * snaps are in the magnet's menu.
  */
 export function gridTicks(pxPerTick: number, barTicks: number, beatTicks = PPQ): number {
-  const levels = [STEP_TICKS / 4, STEP_TICKS / 2, STEP_TICKS, beatTicks / 2, beatTicks, barTicks];
+  const levels = [STEP_TICKS, beatTicks / 2, beatTicks, barTicks];
   for (const level of levels) if (level * pxPerTick >= MIN_LINE_GAP) return level;
   let bars = barTicks * 2;
   while (bars * pxPerTick < MIN_LINE_GAP) bars *= 2;

@@ -167,6 +167,17 @@ What Théo needs: split the song by track and compose the arrangement.
 
 ### 3. The browser
 
+**In progress** (moved before the playlist, 2026-10-01). The reference is `docs/fl-studio/browser.md`:
+only Théo's own folders (no plugins, presets or kits), global, with a good search, previews, favourites
+and FL's keys. The plan: (0) the reference doc, done; (1) the server, done: `server/music/browser.ts`
+keeps the folders and favourites (`data/browser.json`), lists folders, indexes every folder and audio file
+under them (watched, so new files show up) and serves the files, refusing any path outside them; the
+search is pure (`shared/music/browser.ts`: words in any order, typos, ranked); `/api/browser`. Next:
+(2) a preview voice in the engine that streams from disk; (3) the Browser window (kept on the left, its
+width resizable, the tree, search results as a list, the waveform, favourites, keys); (4) getting files
+into the song (drags onto the rack, a channel, the Piano roll; several files at once; send to selected
+channel, Shift+Up/Down, Enter); (5) the assistant's tools; (6) the e2e test and docs.
+
 - **FL's model** (manual page `browser`): a tree of folders (the user's sample folders, the project's
   files, plugins, presets), clicking a sample to hear it, dragging it onto the rack (a new channel), a
   channel (replace its sample), the playlist (an audio clip) or the Piano roll.

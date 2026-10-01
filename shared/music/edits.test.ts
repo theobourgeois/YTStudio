@@ -61,6 +61,14 @@ describe("channels", () => {
     expect(addChannels(song, [])).toBe(song);
   });
 
+  it("are added between two channels, where a file is dropped", () => {
+    const song = rack();
+    const sample = (id: string) => ({ id: `chan_${id}`, name: id, sampleId: null });
+    expect(order(addChannels(song, [sample("snare"), sample("rim")], 1))).toEqual(["kick", "snare", "rim", "hat", "clap"]);
+    expect(order(addChannels(song, [sample("snare")], 0))).toEqual(["snare", "kick", "hat", "clap"]);
+    expect(order(addChannels(song, [sample("snare")], 99))).toEqual(["kick", "hat", "clap", "snare"]);
+  });
+
   it("are changed within their limits, and not at all by a patch that changes nothing", () => {
     const song = rack();
     expect(updateChannel(song, "chan_kick", { volume: 2, pan: -3, pitch: 100, name: "  808  " }).channels[0]).toMatchObject({ volume: 1, pan: -1, pitch: 48, name: "808" });

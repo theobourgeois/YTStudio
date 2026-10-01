@@ -13,7 +13,8 @@ import { LibraryStore } from "./library.ts";
 import { MediaLibrary } from "./media.ts";
 import { migrateLegacyData } from "./migrate.ts";
 import { AudioEngine, type EngineOptions } from "./music/engine.ts";
-import { engineRoutes } from "./music/routes.ts";
+import { SampleBrowser } from "./music/browser.ts";
+import { browserRoutes, engineRoutes } from "./music/routes.ts";
 import { ProjectStore } from "./projects.ts";
 import { assistantRoutes } from "./routes/assistant.ts";
 import { exportRoutes } from "./routes/exports.ts";
@@ -106,6 +107,9 @@ export async function createApp({
     ...engineOptions,
   });
 
+  const browser = new SampleBrowser(paths);
+  await browser.load();
+
   const app = express();
   app.disable("x-powered-by");
 
@@ -128,6 +132,7 @@ export async function createApp({
   app.use("/api/transcription", transcriptionRoutes(transcription));
   app.use("/api/assistant", assistantRoutes(assistant, bridge));
   app.use("/api/engine", engineRoutes(engine));
+  app.use("/api/browser", browserRoutes(browser));
   app.all(
     "/mcp",
     express.json({ limit: "4mb" }),
@@ -183,6 +188,7 @@ export async function createApp({
       assistant.shutdown();
       bridge.shutdown();
       engine.shutdown();
+      browser.close();
     },
   };
 }

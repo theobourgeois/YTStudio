@@ -19,6 +19,7 @@ import type {
   MediaAsset,
   Project,
   ProjectSummary,
+  ProjectTemplates,
   SaveClipsToLibraryRequest,
   SaveMediaToLibraryRequest,
   MusicAnalysis,
@@ -104,6 +105,10 @@ export const api = {
   duplicateProject: (id: string) =>
     request<ProjectSummary>(`/api/projects/${id}/duplicate`, { method: "POST" }),
   deleteProject: (id: string) => request<void>(`/api/projects/${id}`, { method: "DELETE" }),
+  /** Each suite's starting point (what new projects start as). */
+  getTemplates: () => request<ProjectTemplates>("/api/projects/templates"),
+  saveTemplate: (id: string) => request<ProjectTemplates>(`/api/projects/${id}/template`, { method: "POST" }),
+  clearTemplate: (suite: SuiteId) => request<ProjectTemplates>(`/api/projects/templates/${suite}`, { method: "DELETE" }),
 
   listMedia: (projectId: string) =>
     request<MediaAsset[]>(`/api/media?projectId=${encodeURIComponent(projectId)}`),

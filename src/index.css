@@ -96,6 +96,11 @@
   ::selection {
     background: color-mix(in srgb, var(--brand) 30%, transparent);
   }
+  /* What can be clicked shows a hand (Tailwind's reset leaves buttons with the arrow). Utilities win, so a
+     control with a cursor of its own (a knob's, a canvas tool's) keeps it. */
+  :is(button, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [role="combobox"], select, summary, a[href], input:is([type="checkbox"], [type="radio"], [type="color"], [type="file"])):not(:disabled, [aria-disabled="true"], [data-disabled]) {
+    cursor: pointer;
+  }
   /* Scrollbars as the Piano roll's: a sunken track and a raised thumb you can see. */
   ::-webkit-scrollbar {
     width: 10px;
@@ -235,9 +240,25 @@ html.desktop [data-titlebar] {
 html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [role="button"], [role="slider"], [role="spinbutton"], [contenteditable], [data-no-drag]) {
   -webkit-app-region: no-drag;
 }
-html.desktop-darwin:not(.fullscreen) [data-titlebar="sidebar"],
+/*
+ * The sidebar's toggle (sidebar.tsx) is pinned to the window's top-left corner, after a Mac's window buttons
+ * in the desktop app; while the sidebar is hidden, the header starts after it.
+ */
+.sidebar-toggle {
+  left: 12px;
+  -webkit-app-region: no-drag;
+}
+html.desktop-darwin:not(.fullscreen) .sidebar-toggle {
+  left: 80px;
+}
+[data-titlebar="header"] {
+  transition: padding-left 200ms ease-out;
+}
+body:has(aside[aria-label="Projects"][inert]) [data-titlebar="header"] {
+  padding-left: 48px;
+}
 html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert]) [data-titlebar="header"] {
-  padding-left: 84px;
+  padding-left: 116px;
 }
 
 /* The clip under the pick-whip while parenting (properties/parent-row.tsx). */

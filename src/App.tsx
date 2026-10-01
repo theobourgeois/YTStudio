@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { PiSpinnerGap } from "react-icons/pi";
 import { ShortcutsDialog } from "@/components/shortcuts/shortcuts-dialog";
 import { NewProjectDialog } from "@/components/sidebar/new-project-dialog";
-import { Sidebar } from "@/components/sidebar/sidebar";
+import { Sidebar, SidebarToggle } from "@/components/sidebar/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Workspace } from "@/components/workspace/workspace";
@@ -28,6 +28,7 @@ export default function App() {
       {loaded ? (
         <div className="flex h-full">
           <Sidebar />
+          <SidebarToggle />
           <main className="flex min-w-0 flex-1 flex-col">
             <Workspace />
           </main>

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { songGesture, useMusic } from "./store";
+import { useWheelValue } from "./wheel";
 
 /** Pixels of drag for the knob's whole range (ten times that with Ctrl, for fine changes). */
 const DRAG_RANGE = 150;
@@ -73,7 +74,7 @@ function arc(cx: number, cy: number, r: number, from: number, to: number): strin
 }
 
 /**
- * A knob that works like FL Studio's (`docs/fl-studio/README.md`): drag up and down, Ctrl for fine
+ * A knob that works like FL Studio's (`docs/fl-studio/README.md`): drag up and down or scroll, Ctrl for fine
  * changes; Alt+click or a middle click resets it; a right-click opens its menu (Reset, Copy value,
  * Paste value, Type in value).
  */
@@ -81,7 +82,9 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
   const [dragging, setDragging] = useState(false);
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
+  const element = useRef<HTMLDivElement>(null);
   const copied = useCopiedValue((s) => s.fraction);
+  useWheelValue(element, { value: () => value, min, max, step: (fine) => (max - min) / (fine ? 200 : 40), onBegin, onDrag, onEnd });
   const fraction = (value - min) / (max - min);
   const angle = -SWEEP / 2 + fraction * SWEEP;
   const c = size / 2;
@@ -108,6 +111,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
         <ContextMenuTrigger asChild>
           <PopoverPrimitive.Anchor asChild>
             <div
+              ref={element}
               role="slider"
               tabIndex={0}
               aria-label={label}

@@ -49,8 +49,9 @@ interface PianoState {
   /** The grid's size (measured; the zoom commands need it). */
   gridWidth: number;
   gridHeight: number;
-  /** The event editor's height (0: hidden), and the property it shows. */
+  /** The event editor's height (0: hidden), its height when it's shown (dragged by its top edge), and the property it shows. */
   laneHeight: number;
+  laneSize: number;
   lane: LaneProperty;
   ghosts: boolean;
   /** Selected notes, by id (of the channel shown, in the pattern shown). */
@@ -79,6 +80,9 @@ interface PianoState {
 }
 
 export const DEFAULT_LANE_HEIGHT = 96;
+/** The event editor's least height, and the least the notes keep above it when it's dragged taller. */
+export const MIN_LANE_HEIGHT = 40;
+export const MIN_NOTES_HEIGHT = 80;
 
 const INITIAL = {
   channelId: null,
@@ -89,6 +93,7 @@ const INITIAL = {
   gridWidth: 800,
   gridHeight: 360,
   laneHeight: DEFAULT_LANE_HEIGHT,
+  laneSize: DEFAULT_LANE_HEIGHT,
   lane: "velocity" as LaneProperty,
   ghosts: true,
   selected: new Set<number>(),
@@ -115,6 +120,9 @@ export const usePiano = create<PianoState>((set, get) => ({
 
 // Another song, or another pattern: the selection and the time selection were the old one's.
 useMusic.subscribe((state, prev) => {
-  if (state.projectId !== prev.projectId) usePiano.setState({ ...INITIAL, copied: usePiano.getState().copied });
+  if (state.projectId !== prev.projectId) {
+    const { copied, laneHeight, laneSize } = usePiano.getState();
+    usePiano.setState({ ...INITIAL, copied, laneHeight, laneSize });
+  }
   else if (state.patternId !== prev.patternId) usePiano.setState({ selected: new Set(), time: null, drag: null, editing: null });
 });

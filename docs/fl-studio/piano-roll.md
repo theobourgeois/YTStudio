@@ -115,7 +115,7 @@ The magnet's menu. It decides where notes land when added, moved, resized and sl
 arrow keys nudge.
 
 - **Main**: follow the toolbar's global snap.
-- **Line**: snap to the nearest grid line; the grid gets finer as you zoom in. The default.
+- **Line**: snap to the nearest grid line; the grid gets finer as you zoom in. The default. (Ours stops at a step, four to a beat, however far in: the finer snaps are in the menu.)
 - **Cell**: snap to the start of the cell the pointer is in.
 - **(none)**: only limited by the tick resolution (PPQ).
 - **1/6, 1/4, 1/3, 1/2 step; step**: fixed fractions of a step (a sixteenth note).

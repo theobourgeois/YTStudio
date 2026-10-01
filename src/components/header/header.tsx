@@ -3,13 +3,11 @@ import { PiArrowCounterClockwise, PiArrowUUpLeft, PiArrowUUpRight, PiCheckCircle
 import { DEFAULT_SUITE, suiteNoun } from "@shared/suites";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { ExportDialog } from "@/components/export/export-dialog";
-import { SidebarToggle } from "@/components/sidebar/sidebar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { useEditor } from "@/stores/editor";
-import { useLayout } from "@/stores/layout";
 import { useProjects } from "@/stores/projects";
 import { ProjectName } from "./project-name";
 import { SettingsDialog } from "./settings-dialog";
@@ -21,7 +19,6 @@ export function Header() {
 
   return (
     <header data-titlebar="header" className="flex h-13 shrink-0 items-center gap-2 border-b bg-background px-3">
-      <SidebarLead />
       <VideoName />
       <SettledBadge />
       <SettingsDialog />
@@ -52,13 +49,6 @@ export function Header() {
       </div>
     </header>
   );
-}
-
-/** When the sidebar is hidden, its toggle (the logo) moves into the header. */
-export function SidebarLead() {
-  const sidebarOpen = useLayout((s) => s.sidebarOpen);
-  if (sidebarOpen) return null;
-  return <SidebarToggle />;
 }
 
 function VideoName() {

@@ -413,7 +413,19 @@ export interface CreateProjectRequest {
   name?: string;
   /** Which app it's for (default: video). */
   suite?: SuiteId;
+  /** Start from nothing, even if the suite has a starting point. */
+  blank?: boolean;
 }
+
+/**
+ * A suite's starting point: a copy of a project (its document, media and plugin settings) that every
+ * new project of that suite starts as. `name` is the project it was saved from.
+ */
+export interface ProjectTemplate {
+  name: string;
+  savedAt: number;
+}
+export type ProjectTemplates = Partial<Record<SuiteId, ProjectTemplate>>;
 
 export interface UpdateProjectRequest {
   name?: string;
@@ -817,6 +829,11 @@ export interface ToolCallProgressRequest {
 //   POST   /api/projects/:id/duplicate  -> ProjectSummary (201): a copy with its own copy of the media,
 //                                        named "<name> copy", status active
 //   DELETE /api/projects/:id            -> 204 (also deletes the project's media)
+//   GET    /api/projects/templates      -> ProjectTemplates (each suite's starting point, if it has one)
+//   POST   /api/projects/:id/template   -> ProjectTemplates: a copy of the project (document, media and the
+//                                        files beside it) becomes its suite's starting point, replacing any
+//                                        other; POST /api/projects then starts from it unless `blank`
+//   DELETE /api/projects/templates/:suite -> ProjectTemplates: new projects of that suite start blank again
 //
 //   GET    /api/media?projectId=<id>    -> MediaAsset[]   (that project's media, newest first)
 //   POST   /api/media?projectId=<id>&name=<file name>  body: raw file bytes -> MediaAsset (201)
@@ -874,6 +891,14 @@ export interface ToolCallProgressRequest {
 //   POST   /api/engine/states           -> 204 (writes the song's plugins' states now)
 //   POST   /api/engine/states/copy  body: CopyStatesRequest -> { copied } (a plugin's settings file to another's id)
 //   GET    /api/engine/events           -> text/event-stream of EngineEvent (where the song is, the meter)
+//   GET    /api/browser                 -> BrowserState (the music Browser's folders and favourites; shared/music/browser.ts)
+//   POST   /api/browser/roots  body: AddBrowserRootRequest -> BrowserState (a folder dropped from Finder)
+//   DELETE /api/browser/roots?path=     -> BrowserState
+//   POST   /api/browser/favourites  body: SetBrowserFavouriteRequest -> BrowserState
+//   POST   /api/browser/rescan          -> BrowserState (reads every folder again)
+//   GET    /api/browser/list?path=      -> BrowserItem[] (a folder's subfolders and audio files)
+//   GET    /api/browser/search?q=&limit= -> BrowserSearchResult
+//   GET    /api/browser/file?path=      -> the audio file (only inside the Browser's folders)
 //   GET    /api/engine/devices          -> EngineDevices (the output device and its options)
 //   POST   /api/engine/devices  body: SetDeviceRequest -> EngineDevices
 //   POST   /api/engine/:command  body: EngineCommands[command] -> EngineStatus (starts the engine if needed)

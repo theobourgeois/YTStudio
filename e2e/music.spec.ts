@@ -254,21 +254,33 @@ test("mutes and solos, selects, reorders, clones and deletes channels, by mouse 
   await expect.poll(async () => (await savedSong(page, id)).channels.map((c: { name: string }) => c.name)).toEqual(["Kick", "Hat", "Snare", "Clap"]);
 
   // A file dropped on a channel's button replaces its sample; dropped elsewhere on the rack, it's a new channel.
-  const drop = async (target: Locator, name: string) => {
+  /** A file dropped on `target`, at the height `y` (the page's) if it's given. */
+  const drop = async (target: Locator, name: string, y?: number) => {
     const data = await page.evaluateHandle(async (fileName) => {
       const transfer = new DataTransfer();
       transfer.items.add(new File([await (await fetch("/kit/hat.wav")).blob()], fileName, { type: "audio/wav" }));
       return transfer;
     }, name);
-    await target.dispatchEvent("dragover", { dataTransfer: data });
-    await target.dispatchEvent("drop", { dataTransfer: data });
+    await target.dispatchEvent("dragover", { dataTransfer: data, ...(y !== undefined && { clientY: y }) });
+    await target.dispatchEvent("drop", { dataTransfer: data, ...(y !== undefined && { clientY: y }) });
   };
   await drop(channelButton(page, "Snare"), "Rim shot.wav");
   await expect(row(page, "Rim shot")).toBeVisible();
   expect(await rackOrder(page)).toEqual(["Kick", "Hat", "Rim shot", "Clap"]);
-  await drop(page.getByTestId("channel-rack"), "Shaker.wav");
+  // Dropped on the rack, a file goes between the channels it's dropped between: here, below the last.
+  const last = (await row(page, "Clap").boundingBox())!;
+  await drop(page.getByTestId("channel-rack"), "Shaker.wav", last.y + last.height + 2);
   await expect(page.getByRole("listitem")).toHaveCount(5);
   expect((await rackOrder(page))[4]).toBe("Shaker");
+  // And between Kick and Hat.
+  const hat = (await row(page, "Hat").boundingBox())!;
+  await drop(page.getByTestId("channel-rack"), "Tom.wav", hat.y + 2);
+  await expect(page.getByRole("listitem")).toHaveCount(6);
+  expect(await rackOrder(page)).toEqual(["Kick", "Tom", "Hat", "Rim shot", "Clap", "Shaker"]);
+  // A right-click on a channel's button selects it (its menu acts on it).
+  await channelButton(page, "Clap").click({ button: "right" });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Select Clap" })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("the rack's + adds an instrument: a plugin of this computer's, or a sampler", async ({ page }) => {

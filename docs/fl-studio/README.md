@@ -16,7 +16,9 @@ about to touch before changing it, and correct it when you learn it's wrong.
 - [mixer.md](mixer.md): the Mixer: tracks, what a track does to its sound, effect slots, the track
   inspector and its EQ, mute and solo, routing channels and tracks, delay compensation. Ends with where
   Vaudio differs and what's still to decide.
-- Playlist, browser: not written yet. Write each one before its phase is built.
+- [browser.md](browser.md): the Browser: folders, previewing, using a file, favourites, search and its
+  keys. Ends with where Vaudio differs (only the user's own folders) and what's still to decide.
+- Playlist: not written yet. Write it before its phase is built.
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).
 

@@ -2,14 +2,17 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createId } from "../shared/ids.ts";
 import { DEFAULT_PROJECT_NAME, DEFAULT_SUITE, type SuiteDocument, type SuiteId, isSuiteId, suiteNoun } from "../shared/suites.ts";
-import type { ProjectStatus, ProjectSummary, UpdateProjectRequest } from "../shared/types.ts";
+import type { ProjectStatus, ProjectSummary, ProjectTemplates, UpdateProjectRequest } from "../shared/types.ts";
 import type { MediaLibrary } from "./media.ts";
 import { createLimiter } from "./queue.ts";
 import { type DataPaths, HttpError, MAX_NAME_LENGTH, isObject, isValidId, parseName, readJson, writeJson } from "./storage.ts";
 import { type DocStats, suiteBackend } from "./suites/index.ts";
 
-/** `data/projects/<id>/meta.json`. Written after `project.json`, so it marks a committed project. */
-type ProjectMeta = Pick<ProjectSummary, "id" | "suite" | "status" | "createdAt" | "updatedAt" | "settledAt">;
+/**
+ * `data/projects/<id>/meta.json`. Written after `project.json`, so it marks a committed project.
+ * `template`: it's its suite's starting point, a hidden copy that's never listed.
+ */
+type ProjectMeta = Pick<ProjectSummary, "id" | "suite" | "status" | "createdAt" | "updatedAt" | "settledAt"> & { template?: true };
 
 interface Entry {
   meta: ProjectMeta;
@@ -37,6 +40,7 @@ function parseMeta(v: unknown, id: string): ProjectMeta | null {
     createdAt: v.createdAt as number,
     updatedAt: v.updatedAt as number,
     settledAt: v.settledAt as number | null,
+    ...(v.template === true && { template: true as const }),
   };
 }
 
@@ -89,9 +93,10 @@ export class ProjectStore {
     return isValidId(id) && this.entries.has(id);
   }
 
-  /** Most recently updated first. */
+  /** Most recently updated first (starting points aren't projects to work on: they're left out). */
   list(): ProjectSummary[] {
     return [...this.entries.values()]
+      .filter((e) => !e.meta.template)
       .sort((a, b) => b.meta.updatedAt - a.meta.updatedAt)
       .map((e) => this.toSummary(e));
   }
@@ -116,12 +121,14 @@ export class ProjectStore {
     const name = input.name === undefined ? DEFAULT_PROJECT_NAME : parseName(input.name);
     if (input.suite !== undefined && !isSuiteId(input.suite)) throw new HttpError(400, "Unknown suite: use video or music.");
     const suite = (input.suite as SuiteId | undefined) ?? DEFAULT_SUITE;
+    const template = input.blank === true ? null : this.templateId(suite);
+    if (template) return this.copy(template, { name });
     return this.add(createId("project"), suite, suiteBackend(suite).create(name), this.now());
   }
 
   /** Commit a new project with the given document and timestamps (`updatedAt` = `createdAt`). */
-  async add<S extends SuiteId>(id: string, suite: S, doc: SuiteDocument<S>, createdAt: number): Promise<ProjectSummary> {
-    const meta: ProjectMeta = { id, suite, status: "active", createdAt, updatedAt: createdAt, settledAt: null };
+  async add<S extends SuiteId>(id: string, suite: S, doc: SuiteDocument<S>, createdAt: number, template = false): Promise<ProjectSummary> {
+    const meta: ProjectMeta = { id, suite, status: "active", createdAt, updatedAt: createdAt, settledAt: null, ...(template && { template: true as const }) };
     await this.writes(async () => {
       await fs.mkdir(this.paths.projectDir(id), { recursive: true });
       await writeJson(this.docFile(id), doc);
@@ -133,16 +140,60 @@ export class ProjectStore {
 
   /** Copy a project and its media into a new active project named "<name> copy". */
   async duplicate(id: string): Promise<ProjectSummary> {
+    const name = (await this.get(id)).name;
+    return this.copy(id, { name: `${name.slice(0, MAX_NAME_LENGTH - COPY_SUFFIX.length)}${COPY_SUFFIX}` });
+  }
+
+  /** Each suite's starting point, if it has one. */
+  templates(): ProjectTemplates {
+    const templates: ProjectTemplates = {};
+    for (const { meta, stats } of this.entries.values()) if (meta.template) templates[meta.suite] = { name: stats.name, savedAt: meta.createdAt };
+    return templates;
+  }
+
+  /** Make a copy of the project, as it's saved now, its suite's starting point (replacing the last one). */
+  async saveTemplate(id: string): Promise<ProjectTemplates> {
+    const { meta } = this.entry(id);
+    if (meta.template) throw new HttpError(400, "That's a starting point already.");
+    const old = this.templateId(meta.suite);
+    await this.copy(id, { name: (await this.get(id)).name, template: true });
+    if (old) await this.remove(old);
+    return this.templates();
+  }
+
+  /** New projects of the suite start blank again. */
+  async clearTemplate(suite: unknown): Promise<ProjectTemplates> {
+    if (!isSuiteId(suite)) throw new HttpError(400, "Unknown suite: use video or music.");
+    const old = this.templateId(suite);
+    if (old) await this.remove(old);
+    return this.templates();
+  }
+
+  private templateId(suite: SuiteId): string | null {
+    for (const { meta } of this.entries.values()) if (meta.template && meta.suite === suite) return meta.id;
+    return null;
+  }
+
+  /**
+   * A new project copied from another: its document (its media remapped to their copies), its media and
+   * the files beside its document (a music project's plugin settings, by channel id, which the copy keeps).
+   */
+  private async copy(id: string, { name, template = false }: { name: string; template?: boolean }): Promise<ProjectSummary> {
     const { suite } = this.entry(id).meta;
     const source = await this.readDoc(id, suite);
     const copyId = createId("project");
     try {
       const assetIds = await this.library.copyProject(id, copyId);
-      const name = `${source.name.slice(0, MAX_NAME_LENGTH - COPY_SUFFIX.length)}${COPY_SUFFIX}`;
       const copy = suiteBackend(suite).remapMedia(source as never, assetIds);
-      return await this.add(copyId, suite, { ...copy, name }, this.now());
+      await fs.mkdir(this.paths.projectDir(copyId), { recursive: true });
+      for (const file of await fs.readdir(this.paths.projectDir(id))) {
+        if (file === "project.json" || file === "meta.json") continue;
+        await fs.cp(path.join(this.paths.projectDir(id), file), path.join(this.paths.projectDir(copyId), file), { recursive: true });
+      }
+      return await this.add(copyId, suite, { ...copy, name }, this.now(), template);
     } catch (err) {
       await this.library.removeProject(copyId);
+      await fs.rm(this.paths.projectDir(copyId), { recursive: true, force: true, maxRetries: 5 });
       // Deleted while its media was being copied.
       if (!this.has(id)) throw new HttpError(404, "Project not found");
       throw err;
@@ -212,8 +263,9 @@ export class ProjectStore {
 
   private toSummary({ meta, stats: { coverAssetId, ...stats } }: Entry): ProjectSummary {
     const thumbnail = coverAssetId ? (this.library.find(coverAssetId)?.poster ?? null) : null;
+    const { template: _, ...shown } = meta;
     // Each suite's stats go with its own meta.
-    return { ...meta, ...stats, thumbnail } as ProjectSummary;
+    return { ...shown, ...stats, thumbnail } as ProjectSummary;
   }
 
   private statsOf(suite: SuiteId, doc: SuiteDocument): DocStats<SuiteId> {

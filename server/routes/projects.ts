@@ -13,6 +13,16 @@ export function projectRoutes(projects: ProjectStore, onRemove?: (id: string) =>
   router.post("/", async (req, res) => {
     res.status(201).json(await projects.create(req.body));
   });
+  router.get("/templates", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(projects.templates());
+  });
+  router.delete("/templates/:suite", async (req, res) => {
+    res.json(await projects.clearTemplate(req.params.suite));
+  });
+  router.post("/:id/template", async (req, res) => {
+    res.json(await projects.saveTemplate(req.params.id));
+  });
   router.get("/:id", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.json(await projects.get(req.params.id));

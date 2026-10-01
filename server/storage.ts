@@ -63,6 +63,10 @@ export class DataPaths {
   get libraryFile() {
     return path.join(this.library, "library.json");
   }
+  /** The music suite's Browser: the sample folders added to it and their favourites, for every project. */
+  get browserFile() {
+    return path.join(this.root, "browser.json");
+  }
   /** The audio engine's own files: the plugins it has found, and plugin states. */
   get engine() {
     return path.join(this.root, "engine");

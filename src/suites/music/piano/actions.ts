@@ -32,7 +32,7 @@ import { useMusicUi } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
 import { fadeOut } from "./fades";
 import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, snapTicks, zoomAt, zoomToRange } from "./geometry";
-import { DEFAULT_LANE_HEIGHT, type PianoTool, usePiano } from "./store";
+import { type PianoTool, usePiano } from "./store";
 
 const EMPTY: Note[] = [];
 
@@ -304,6 +304,6 @@ export function centreOnPlayhead() {
   setView({ ...view, scrollTick: Math.max(0, tick - gridWidth / view.pxPerTick / 2) });
 }
 
-export const toggleLane = () => usePiano.setState({ laneHeight: usePiano.getState().laneHeight ? 0 : DEFAULT_LANE_HEIGHT });
+export const toggleLane = () => usePiano.setState({ laneHeight: usePiano.getState().laneHeight ? 0 : usePiano.getState().laneSize });
 export const toggleGhosts = () => usePiano.setState({ ghosts: !usePiano.getState().ghosts });
 export const nextLane = () => usePiano.setState({ lane: usePiano.getState().lane === "velocity" ? "pan" : "velocity" });

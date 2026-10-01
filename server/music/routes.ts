@@ -1,4 +1,5 @@
 import { Router, json } from "express";
+import type { SampleBrowser } from "./browser.ts";
 import type { AudioEngine } from "./engine.ts";
 
 /** `/api/engine`: the music suite's audio engine (the plugins it found, and commands to it). */
@@ -36,6 +37,41 @@ export function engineRoutes(engine: AudioEngine): Router {
   });
   router.post("/:command", json(), async (req, res) => {
     res.json(await engine.command(req.params.command, req.body));
+  });
+  return router;
+}
+
+/** `/api/browser`: the Browser's sample folders (the same for every project), what's in them, and the search. */
+export function browserRoutes(browser: SampleBrowser): Router {
+  const router = Router();
+  router.use((_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
+  router.get("/", (_req, res) => {
+    res.json(browser.state());
+  });
+  router.post("/roots", json(), async (req, res) => {
+    res.json(await browser.addRoot(req.body?.path));
+  });
+  router.delete("/roots", async (req, res) => {
+    res.json(await browser.removeRoot(req.query.path));
+  });
+  router.post("/favourites", json(), async (req, res) => {
+    res.json(await browser.setFavourite(req.body?.path, req.body?.favourite));
+  });
+  router.post("/rescan", async (_req, res) => {
+    res.json(await browser.rescan());
+  });
+  router.get("/list", async (req, res) => {
+    res.json(await browser.list(req.query.path));
+  });
+  router.get("/search", (req, res) => {
+    res.json(browser.search(req.query.q, req.query.limit));
+  });
+  // The file itself: its waveform in the Browser, and its bytes when it's added to a project.
+  router.get("/file", async (req, res) => {
+    res.sendFile(await browser.audioFile(req.query.path), { dotfiles: "allow" });
   });
   return router;
 }

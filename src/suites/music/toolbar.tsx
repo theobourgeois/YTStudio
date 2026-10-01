@@ -5,7 +5,7 @@ import { lengthOf, setTempo } from "@shared/music/edits";
 import { MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
 import { PPQ, STEP_TICKS } from "@shared/music/types";
 import { AssistantButton } from "@/components/assistant/assistant-button";
-import { SettleButton, SettledBadge, SidebarLead } from "@/components/header/header";
+import { SettleButton, SettledBadge } from "@/components/header/header";
 import { ProjectName } from "@/components/header/project-name";
 import { ThemeMenu } from "@/components/header/theme-menu";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { positionAt, positionText } from "./position";
 import { songGesture, useCurrentPattern, useMusic, useSong } from "./store";
 import { patternTickNow, useTransport } from "./transport";
 import { useMusicUi } from "./ui";
+import { useWheelValue } from "./wheel";
 
 /**
  * The music editor's toolbar, FL Studio's (`docs/fl-studio/toolbar.md`), with only what Vaudio does: the
@@ -35,10 +36,8 @@ export function MusicToolbar() {
 
   return (
     <header data-titlebar="header" className="flex h-[98px] shrink-0 items-stretch gap-3 border-b border-line bg-surface-1 px-3 py-2 select-none">
-      <div className="flex items-center">
-        <SidebarLead />
-      </div>
-      <div className="flex w-36 min-w-20 flex-col justify-center gap-1">
+      {/* At the top, level with the sidebar's toggle and the window's buttons. */}
+      <div className="flex w-36 min-w-20 flex-col gap-1 pt-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <ProjectName name={name} onRename={(next) => void useMusic.getState().rename(next)} className="-ml-1 h-7 px-1 text-[14px]" />
           <SettledBadge />
@@ -165,10 +164,26 @@ function TempoLcd() {
   const [draft, setDraft] = useState<string | null>(null);
   const gesture = useRef(songGesture()).current;
   const set = (value: number) => useMusic.getState().commit((song) => setTempo(song, value));
+  const input = useRef<HTMLInputElement>(null);
+  // Scrolled over (not while it's being typed in): a beat per minute a notch, a tenth with Ctrl.
+  useWheelValue(
+    input,
+    {
+      value: () => tempo,
+      min: MIN_TEMPO,
+      max: MAX_TEMPO,
+      step: (fine) => (fine ? 0.1 : 1),
+      onBegin: () => gesture.begin(),
+      onDrag: (value) => gesture.apply((song) => setTempo(song, value)),
+      onEnd: () => gesture.end(),
+    },
+    draft === null,
+  );
 
   return (
     <Lcd label="BPM" className="w-[76px]">
       <input
+        ref={input}
         aria-label="Tempo"
         title="Tempo: drag up and down, or click to type it"
         inputMode="decimal"

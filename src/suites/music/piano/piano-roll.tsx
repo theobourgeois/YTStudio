@@ -24,7 +24,8 @@ import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepar
 import { onFade, vanishing } from "./fades";
 import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, wheelZoomFactor, zoomAt } from "./geometry";
 import { gridCursor, gridPointerDown, keysPointerDown, lanePointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
-import { type PianoTool, usePiano } from "./store";
+import { CURSORS } from "./cursors";
+import { DEFAULT_LANE_HEIGHT, MIN_LANE_HEIGHT, MIN_NOTES_HEIGHT, type PianoTool, usePiano } from "./store";
 import { DeleteIcon, DrawIcon, MuteIcon, PaintIcon, PlaybackIcon, SelectIcon, SliceIcon } from "./tool-icons";
 
 const KEYS_W = 72;
@@ -197,6 +198,8 @@ function PianoBody() {
   const gridBox = useRef<HTMLDivElement>(null);
   const laneHeight = usePiano((s) => s.laneHeight);
   const laneProperty = usePiano((s) => s.lane);
+  // The event editor draws with the tool in hand: the pencil's, or else the brush (it paints values).
+  const laneCursor = usePiano((s) => (s.tool === "draw" ? CURSORS.pencil : CURSORS.brush));
 
   // Drawing: once a frame, when anything it shows has changed.
   useEffect(() => {
@@ -408,15 +411,45 @@ function PianoBody() {
             {laneProperty === "velocity" ? "Velocity" : "Pan"}
           </button>
           <div className="relative min-w-0 border-t">
-            <canvas ref={lane} className="absolute inset-0 size-full cursor-ns-resize" aria-label="Event editor" onPointerDown={lanePointerDown} />
+            <canvas ref={lane} className="absolute inset-0 size-full" style={{ cursor: laneCursor }} aria-label="Event editor" onPointerDown={lanePointerDown} />
           </div>
           <div className="border-t" />
+          <LaneResizer />
         </>
       )}
       <div className="border-t bg-muted" />
       <HorizontalScrollbar />
       <div className="border-t bg-muted" />
     </div>
+  );
+}
+
+/** The event editor's top edge: dragged to make it taller or shorter, double-clicked for its first height. */
+function LaneResizer() {
+  return (
+    <div
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize the lane below the notes"
+      title="Drag to resize the event editor"
+      data-testid="lane-resizer"
+      className="z-10 -mt-[3px] h-1.5 cursor-row-resize self-start hover:bg-brand/40"
+      style={{ gridColumn: "1 / -1", gridRow: 3 }}
+      onDoubleClick={() => usePiano.setState({ laneHeight: DEFAULT_LANE_HEIGHT, laneSize: DEFAULT_LANE_HEIGHT })}
+      onPointerDown={(e) => {
+        const start = e.clientY;
+        const { laneHeight, gridHeight } = usePiano.getState();
+        const max = Math.max(MIN_LANE_HEIGHT, laneHeight + gridHeight - MIN_NOTES_HEIGHT);
+        startPointerDrag(e, {
+          threshold: 0,
+          onMove(ev) {
+            const height = Math.round(clamp(laneHeight + start - ev.clientY, MIN_LANE_HEIGHT, max));
+            usePiano.setState({ laneHeight: height, laneSize: height });
+          },
+          onCancel: () => usePiano.setState({ laneHeight, laneSize: laneHeight }),
+        });
+      }}
+    />
   );
 }
 

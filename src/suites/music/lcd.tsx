@@ -6,6 +6,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { useWheelValue } from "./wheel";
 
 /** Pixels of drag per step of the value. */
 const DRAG_STEP = 6;
@@ -35,11 +36,13 @@ interface LcdProps {
 
 /**
  * A number display, FL Studio's "LCD" (the pattern length; later, mixer track numbers): drag up and
- * down on it to change the number, right-click for its menu.
+ * down on it (or scroll over it) to change the number, right-click for its menu.
  */
 export function Lcd({ value, min, max, label, text, derived, menu, typeIn, className, onBegin, onChange, onEnd, onCancel }: LcdProps) {
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
+  const element = useRef<HTMLDivElement>(null);
+  useWheelValue(element, { value: () => value, min, max, step: () => 1, onBegin, onDrag: onChange, onEnd });
   const commitTyped = () => {
     if (typing !== null && typing.trim()) typeIn?.onType(typing.trim());
     setTyping(null);
@@ -50,6 +53,7 @@ export function Lcd({ value, min, max, label, text, derived, menu, typeIn, class
         <ContextMenuTrigger asChild>
           <PopoverPrimitive.Anchor asChild>
             <div
+              ref={element}
               role="spinbutton"
               tabIndex={0}
               aria-label={label}

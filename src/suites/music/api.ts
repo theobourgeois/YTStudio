@@ -11,7 +11,16 @@ import type {
   SetSongRequest,
   SetSongResponse,
 } from "@shared/music/engine";
+import type {
+  AddBrowserRootRequest,
+  BrowserItem,
+  BrowserSearchResult,
+  BrowserState,
+  SetBrowserFavouriteRequest,
+} from "@shared/music/browser";
 import { request } from "@/lib/api";
+
+const pathQuery = (path: string) => `path=${encodeURIComponent(path)}`;
 
 export const musicApi = {
   /** A command to the audio engine (starting it if needed); every one answers with its status. */
@@ -25,6 +34,18 @@ export const musicApi = {
   copyStates: (body: CopyStatesRequest) => request<{ copied: number }>("/api/engine/states/copy", { method: "POST", body: JSON.stringify(body) }),
   devices: () => request<EngineDevices>("/api/engine/devices"),
   setDevice: (body: SetDeviceRequest) => request<EngineDevices>("/api/engine/devices", { method: "POST", body: JSON.stringify(body) }),
+  /** The Browser's folders and favourites (the same in every project). */
+  browser: () => request<BrowserState>("/api/browser"),
+  addBrowserRoot: (body: AddBrowserRootRequest) => request<BrowserState>("/api/browser/roots", { method: "POST", body: JSON.stringify(body) }),
+  removeBrowserRoot: (path: string) => request<BrowserState>(`/api/browser/roots?${pathQuery(path)}`, { method: "DELETE" }),
+  setBrowserFavourite: (body: SetBrowserFavouriteRequest) =>
+    request<BrowserState>("/api/browser/favourites", { method: "POST", body: JSON.stringify(body) }),
+  rescanBrowser: () => request<BrowserState>("/api/browser/rescan", { method: "POST" }),
+  listBrowserFolder: (path: string) => request<BrowserItem[]>(`/api/browser/list?${pathQuery(path)}`),
+  searchBrowser: (q: string, limit?: number) =>
+    request<BrowserSearchResult>(`/api/browser/search?q=${encodeURIComponent(q)}${limit ? `&limit=${limit}` : ""}`),
+  /** Where a Browser file is served (its waveform, and its bytes when it's added to the project). */
+  browserFileUrl: (path: string) => `/api/browser/file?${pathQuery(path)}`,
   /** What the engine says on its own (where the song is, the meter). Returns how to stop listening. */
   onEngineEvent(listener: (event: EngineEvent) => void): () => void {
     const source = new EventSource("/api/engine/events");

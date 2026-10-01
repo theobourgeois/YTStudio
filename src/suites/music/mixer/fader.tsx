@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { detent, faderAt, faderDb } from "./meter";
+import { useWheelValue } from "../wheel";
 
 /** The handle's height, and how far a drag with Ctrl moves it for the same distance (fine changes). */
 const HANDLE_H = 38;
@@ -43,6 +44,7 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
   const groove = useRef<HTMLDivElement>(null);
+  useWheelValue(groove, { value: () => value, min: 0, max: 1, step: (fine) => (fine ? 0.005 : 0.025), onBegin, onDrag, onEnd });
   const handleTop = (v: number) => `calc((1 - ${v}) * (100% - ${HANDLE_H}px))`;
 
   const commitTyped = () => {

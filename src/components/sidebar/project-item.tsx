@@ -6,6 +6,7 @@ import {
   PiCopy,
   PiDotsThree,
   PiHandPalm,
+  PiPushPin,
   PiTrash,
   PiWarningCircle,
 } from "react-icons/pi";
@@ -63,6 +64,7 @@ export const ProjectItem = memo(function ProjectItem({ project, selected, now }:
     settled,
     onToggleSettled: toggleSettled,
     onDuplicate: () => void useProjects.getState().duplicate(project.id),
+    onSaveTemplate: () => void useProjects.getState().saveTemplate(project.id),
     onDelete: () => setConfirmDelete(true),
   };
 
@@ -116,7 +118,7 @@ export const ProjectItem = memo(function ProjectItem({ project, selected, now }:
 
             <div
               className={cn(
-                "absolute top-2 right-2 flex items-center gap-0.5 opacity-0 transition-opacity",
+                "absolute top-2 right-2 flex items-center gap-1.5 opacity-0 transition-opacity",
                 "group-hover/item:opacity-100 group-focus-within/item:opacity-100",
                 menuOpen && "opacity-100",
               )}
@@ -138,14 +140,14 @@ export const ProjectItem = memo(function ProjectItem({ project, selected, now }:
                   </button>
                 </DropdownMenuTrigger>
                 {/* Portalled, but React still bubbles its events to the context-menu trigger. */}
-                <DropdownMenuContent align="start" className="w-40" onContextMenu={(e) => e.stopPropagation()}>
+                <DropdownMenuContent align="start" className="w-48" onContextMenu={(e) => e.stopPropagation()}>
                   <ProjectMenuItems Item={DropdownMenuItem} Separator={DropdownMenuSeparator} {...menuActions} />
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-40">
+        <ContextMenuContent className="w-48">
           <ProjectMenuItems Item={ContextMenuItem} Separator={ContextMenuSeparator} {...menuActions} />
         </ContextMenuContent>
       </ContextMenu>
@@ -166,10 +168,11 @@ interface ProjectMenuItemsProps {
   settled: boolean;
   onToggleSettled: () => void;
   onDuplicate: () => void;
+  onSaveTemplate: () => void;
   onDelete: () => void;
 }
 
-function ProjectMenuItems({ Item, Separator, settled, onToggleSettled, onDuplicate, onDelete }: ProjectMenuItemsProps) {
+function ProjectMenuItems({ Item, Separator, settled, onToggleSettled, onDuplicate, onSaveTemplate, onDelete }: ProjectMenuItemsProps) {
   return (
     <>
       <Item onSelect={onToggleSettled}>
@@ -179,6 +182,10 @@ function ProjectMenuItems({ Item, Separator, settled, onToggleSettled, onDuplica
       <Item onSelect={onDuplicate}>
         <PiCopy />
         Duplicate
+      </Item>
+      <Item onSelect={onSaveTemplate}>
+        <PiPushPin />
+        Use as starting point
       </Item>
       <Separator />
       <Item variant="destructive" onSelect={onDelete}>

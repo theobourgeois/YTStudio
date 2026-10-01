@@ -107,9 +107,13 @@ function channelsBefore(song: MusicProject): Channel[] {
 }
 
 /** Add sampler channels at the end of the rack, one per sample. */
-export function addChannels(song: MusicProject, samples: { id?: string; name: string; sampleId: string | null }[]): MusicProject {
+export function addChannels(song: MusicProject, samples: { id?: string; name: string; sampleId: string | null }[], at?: number): MusicProject {
   if (!samples.length) return song;
-  return { ...song, channels: [...channelsBefore(song), ...samples.map((s) => createChannel(s.name.trim().slice(0, MAX_NAME) || "Channel", s.sampleId, s.id))] };
+  const before = channelsBefore(song);
+  // Where in the rack they go (a file dropped between two channels); at the end by default.
+  const index = at === undefined ? before.length : clamp(Math.round(at), 0, before.length);
+  const added = samples.map((s) => createChannel(s.name.trim().slice(0, MAX_NAME) || "Channel", s.sampleId, s.id));
+  return { ...song, channels: [...before.slice(0, index), ...added, ...before.slice(index)] };
 }
 
 /** Add a channel playing an instrument plugin, at the end of the rack. */

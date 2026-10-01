@@ -88,6 +88,25 @@ function under(root: Element, x: number, y: number, key: string): HTMLElement | 
   const hit = document.elementFromPoint(x, y)?.closest<HTMLElement>(`[data-${key}]`);
   return hit && root.contains(hit) ? hit : null;
 }
+/**
+ * Where a file dragged over the rack would go: the index of the channel it goes before (the end past the
+ * last) and the line to draw there, in the rack's coordinates. Null over a channel's button, which takes
+ * the file itself (it replaces that channel's sample).
+ */
+function dropPlace(rack: HTMLElement, target: EventTarget, y: number): { index: number; top: number } | null {
+  if ((target as Element).closest?.("[data-channel-button]")) return null;
+  const rows = [...rack.querySelectorAll<HTMLElement>("[data-channel]")];
+  const origin = rack.getBoundingClientRect().top;
+  let index = rows.findIndex((row) => {
+    const box = row.getBoundingClientRect();
+    return y < box.top + box.height / 2;
+  });
+  if (index < 0) index = rows.length;
+  if (!rows.length) return { index, top: LIGHTS_H };
+  const edge = index < rows.length ? rows[index].getBoundingClientRect().top - ROW_GAP / 2 : rows[rows.length - 1].getBoundingClientRect().bottom + ROW_GAP / 2;
+  return { index, top: edge - origin };
+}
+
 const stepAt = (root: Element, x: number, y: number) => {
   const hit = under(root, x, y, "step");
   return hit ? Number(hit.dataset.step) : null;
@@ -145,7 +164,7 @@ export function ChannelRack() {
   const lead = useMusicUi((s) => s.trackSelectorsShown) ? LEAD_WITH_TRACK : LEAD;
   const selected = selectedIn({ channels } as MusicProject, selectedIdsNow);
   const file = useRef<HTMLInputElement>(null);
-  const [dropping, setDropping] = useState(false);
+  const [drop, setDrop] = useState<{ index: number; top: number } | null>(null);
 
   return (
     <MusicWindow
@@ -157,22 +176,38 @@ export function ChannelRack() {
       controls={<RackControls graph={graph} />}
     >
       <div
-        className={cn("relative flex flex-col gap-1.5 px-2.5 pt-1.5 pb-2 pr-3.5", dropping && "ring-2 ring-brand/60 ring-inset")}
+        className="relative flex flex-col gap-1.5 px-2.5 pt-1.5 pb-2 pr-3.5"
         data-testid="channel-rack"
-        onDragOver={(e) => {
+        // Seen before a channel's button takes it, so the line goes away over one.
+        onDragOverCapture={(e) => {
           if (!e.dataTransfer.types.includes("Files")) return;
-          e.preventDefault();
-          setDropping(true);
+          const next = dropPlace(e.currentTarget, e.target, e.clientY);
+          if (next?.index !== drop?.index || next?.top !== drop?.top) setDrop(next);
         }}
-        onDragLeave={() => setDropping(false)}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDrop(null);
+        }}
         onDrop={(e) => {
-          // A file dropped on the rack (but not on a channel's button, which takes it) is a new channel.
+          // A file dropped on the rack (but not on a channel's button, which takes it) is a new channel,
+          // between the channels it was dropped between.
           e.preventDefault();
-          setDropping(false);
+          const at = dropPlace(e.currentTarget, e.target, e.clientY)?.index;
+          setDrop(null);
           const audio = audioFiles(e.dataTransfer.files);
-          if (audio.length) void useMusic.getState().addSamples(audio);
+          if (audio.length) void useMusic.getState().addSamples(audio, at);
         }}
       >
+        {drop && (
+          <div
+            aria-hidden
+            data-testid="rack-drop-line"
+            className="pointer-events-none absolute inset-x-2 z-10 h-0.5 -translate-y-1/2 rounded-full bg-brand shadow-[0_0_4px] shadow-brand"
+            style={{ top: drop.top }}
+          />
+        )}
         <div className="flex">
           <div className={cn("flex shrink-0 flex-col", lead)} style={{ gap: ROW_GAP, paddingTop: LIGHTS_H + ROW_GAP }} role="list" aria-label="Channels">
             {channels.map((channel) => (
@@ -247,7 +282,8 @@ function RackMenu({ onAddSamples }: { onAddSamples: () => void }) {
           <PiCaretRightFill />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      {/* A window it opened (Transpose selected) keeps the focus its field took. */}
+      <DropdownMenuContent align="start" onCloseAutoFocus={(e) => useMusicUi.getState().transposeOpen && e.preventDefault()}>
         <DropdownMenuItem onSelect={onAddSamples}>Add samples…</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => void useMusic.getState().addStarterKit()}>Add starter kit</DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -455,7 +491,12 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               channel.muted && !silent && "text-muted-foreground",
               dropping && "ring-2 ring-brand",
             )}
+            data-channel-button={id}
             title={pluginError ?? `${channel.name}: click for its ${isPlugin ? "window" : "settings"}, Ctrl+click to hear it`}
+            // Its menu acts on the channel, so a right-click selects it (keeping a selection it's part of).
+            onContextMenu={() => {
+              if (!useMusicUi.getState().selectedChannelIds.includes(id)) useMusicUi.getState().selectChannel(id);
+            }}
             onClick={(e) => {
               if (e.metaKey || e.ctrlKey) useTransport.getState().audition(id);
               else if (isPlugin) useTransport.getState().showPlugin(id, !pluginOpen);
@@ -768,8 +809,34 @@ function NotesPreview({ channelId, name, notes, steps, loop }: { channelId: stri
           }}
         />
       ))}
+      <PreviewPlayhead width={width} span={span} />
     </button>
   );
+}
+
+/** A line across a notes preview where the pattern is playing; moved a frame at a time without rendering. */
+function PreviewPlayhead({ width, span }: { width: number; span: number }) {
+  const tempo = useSong((song) => song.settings.tempo);
+  const playing = useTransport((s) => s.playing);
+  const line = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!playing) return;
+    let frame = 0;
+    const draw = () => {
+      frame = requestAnimationFrame(draw);
+      const el = line.current;
+      if (!el) return;
+      const tick = patternTickNow(useTransport.getState(), performance.now(), tempo, PPQ);
+      el.style.display = tick === null ? "none" : "";
+      if (tick !== null) el.style.transform = `translateX(${((tick % span) * width) / span}px)`;
+    };
+    frame = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(frame);
+  }, [playing, tempo, width, span]);
+
+  if (!playing) return null;
+  return <span ref={line} aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-px bg-brand shadow-[0_0_4px] shadow-brand" style={{ display: "none" }} />;
 }
 
 type GraphProperty = "note" | "velocity";

@@ -1,8 +1,10 @@
 /** Panel controls for text parameters: the text itself, colours, and the installed fonts. */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PiCaretDown, PiCheck, PiMagnifyingGlass, PiWarning } from "react-icons/pi";
 import type { FontStyleInfo, ParamValues } from "@shared/types";
 import type { ColorSpec, FontSpec, FontStyleSpec, TextSpec } from "@shared/params";
+import { ColorSwatchPicker } from "@/components/color-picker";
+import { normalizeHex } from "@/lib/color";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "cn";
@@ -37,25 +39,9 @@ export function TextControl({ value, label, disabled, edit }: ControlProps<TextS
   );
 }
 
-/** How long a colour picker must be still before its changes count as one step. */
-const COLOR_SETTLE_MS = 500;
-
-/** A swatch opening the system colour picker, and the hex value to type into. */
+/** A swatch opening the colour picker, and the hex value to type into. */
 export function ColorControl({ value, label, disabled, edit }: ControlProps<ColorSpec, string>) {
   const [draft, setDraft] = useState<string | null>(null);
-  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => clearTimeout(settle.current ?? undefined), []);
-
-  // The picker reports every colour passed over; group them into one undo step.
-  const pick = (hex: string) => {
-    if (settle.current === null) edit.begin();
-    else clearTimeout(settle.current);
-    edit.set(hex);
-    settle.current = setTimeout(() => {
-      settle.current = null;
-      edit.end();
-    }, COLOR_SETTLE_MS);
-  };
   const commitDraft = () => {
     if (draft === null) return;
     const hex = normalizeHex(draft);
@@ -65,22 +51,7 @@ export function ColorControl({ value, label, disabled, edit }: ControlProps<Colo
 
   return (
     <div className="ml-1 flex min-w-0 items-center gap-1.5">
-      <label
-        className={cn(
-          "relative size-6 shrink-0 cursor-pointer overflow-hidden rounded border shadow-xs focus-within:ring-2 focus-within:ring-ring/50",
-          disabled && "cursor-not-allowed opacity-50",
-        )}
-        style={{ background: value }}
-      >
-        <input
-          type="color"
-          aria-label={label}
-          value={value}
-          disabled={disabled}
-          onChange={(e) => pick(e.target.value)}
-          className="absolute inset-0 size-full cursor-[inherit] opacity-0"
-        />
-      </label>
+      <ColorSwatchPicker value={value} label={label} disabled={disabled} edit={edit} />
       <input
         aria-label={`${label} hex`}
         value={draft ?? value.toUpperCase()}
@@ -99,13 +70,6 @@ export function ColorControl({ value, label, disabled, edit }: ControlProps<Colo
       />
     </div>
   );
-}
-
-/** "#abc", "abc", "#aabbcc" -> "#aabbcc"; null when it isn't a colour. */
-export function normalizeHex(text: string): string | null {
-  const hex = text.trim().replace(/^#/, "").toLowerCase();
-  if (/^[0-9a-f]{3}$/.test(hex)) return `#${[...hex].map((c) => c + c).join("")}`;
-  return /^[0-9a-f]{6}$/.test(hex) ? `#${hex}` : null;
 }
 
 /** CSS for showing text in a font's style (for previews in the menus). */

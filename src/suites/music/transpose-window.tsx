@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { transposeSelected } from "./rack-actions";
@@ -23,6 +23,16 @@ export function TransposeWindow() {
   const selectedIds = useMusicUi((s) => s.selectedChannelIds);
   const selected = selectedIn({ channels } as Parameters<typeof selectedIn>[0], selectedIds);
   const [text, setText] = useState("0");
+  const field = useRef<HTMLInputElement>(null);
+  // Ready to type in. `autoFocus` isn't enough: the menu it's opened from gives the focus back to its
+  // button as it closes, a moment after this mounts, so the field takes it after that.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      field.current?.focus();
+      field.current?.select();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
   const semitones = parseSemitones(text);
   const close = () => useMusicUi.getState().setTransposeOpen(false);
   const accept = () => {
@@ -56,6 +66,7 @@ export function TransposeWindow() {
             −
           </Button>
           <Input
+            ref={field}
             id="transpose-semitones"
             autoFocus
             className="h-7 shrink-0 px-1 text-center font-mono"

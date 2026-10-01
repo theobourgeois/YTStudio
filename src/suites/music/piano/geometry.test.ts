@@ -93,9 +93,9 @@ describe("where things are", () => {
 });
 
 describe("the grid and snapping", () => {
-  it("shows the finest division whose lines aren't too close, coarser as it zooms out", () => {
-    expect(gridTicks(2, BAR)).toBe(6);
-    expect(gridTicks(1, BAR)).toBe(12);
+  it("shows the finest division whose lines aren't too close (never finer than a step), coarser as it zooms out", () => {
+    expect(gridTicks(2, BAR)).toBe(24);
+    expect(gridTicks(1, BAR)).toBe(24);
     expect(gridTicks(0.5, BAR)).toBe(24);
     expect(gridTicks(0.2, BAR)).toBe(48);
     expect(gridTicks(0.1, BAR)).toBe(96);

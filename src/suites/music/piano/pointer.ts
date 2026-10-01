@@ -633,20 +633,30 @@ export function lanePointerDown(e: Press) {
   const first = local(element, e);
   const fixed = e.altKey ? reset : e.shiftKey ? valueAt(first.y) : null;
   const values = new Map<number, NotePatch>();
-  // A note is reached if its start is within a few pixels of the pointer's path.
+  // A note is reached if its start is within a few pixels of the pointer's path; a press between notes
+  // takes the nearest one, a little further off, so a click doesn't have to land on a stem.
   const reach = 4 / view.pxPerTick;
-  let last = xToTick(view, first.x);
+  const pressReach = 12 / view.pxPerTick;
+  let last = { tick: xToTick(view, first.x), y: first.y };
+  /** The pointer's height where its path from the last move crossed `tick`: a fast sweep draws a slope, not a step. */
+  const yAt = (tick: number, to: { tick: number; y: number }) =>
+    to.tick === last.tick ? to.y : last.y + ((to.y - last.y) * clamp((tick - last.tick) / (to.tick - last.tick), 0, 1));
   const sweep = (x: number, y: number) => {
-    const tick = xToTick(view, x);
-    const from = Math.min(last, tick) - reach;
-    const to = Math.max(last, tick) + reach;
+    const to = { tick: xToTick(view, x), y };
+    const from = Math.min(last.tick, to.tick) - reach;
+    const end = Math.max(last.tick, to.tick) + reach;
     for (const note of editable) {
-      if (note.start >= to) break;
-      if (note.start >= from) values.set(note.id, fixed ?? valueAt(y));
+      if (note.start >= end) break;
+      if (note.start >= from) values.set(note.id, fixed ?? valueAt(yAt(note.start, to)));
     }
-    last = tick;
+    // The note taken by the press follows the pointer up and down while it stays near.
+    for (const note of held) if (Math.abs(note.start - to.tick) <= pressReach) values.set(note.id, fixed ?? valueAt(y));
+    last = to;
     usePiano.getState().setDrag({ kind: "values", values: new Map(values) });
   };
+  const nearest = editable.reduce<Note | null>((best, n) => (Math.abs(n.start - last.tick) < Math.abs((best?.start ?? Infinity) - last.tick) ? n : best), null);
+  // Every note starting at that tick (a chord) goes together.
+  const held = nearest && Math.abs(nearest.start - last.tick) <= pressReach ? editable.filter((n) => n.start === nearest.start) : [];
   sweep(first.x, first.y);
   startPointerDrag(e, {
     threshold: 0,

@@ -52,7 +52,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   ids.ts             createId, for everything the app makes.
   music/             The music suite: its document (types.ts), create/normalise (project.ts), its pure edits
                      (edits.ts), the song as the engine plays it (compile.ts: swing, gains, mutes), its tools
-                     (tools.ts), and the audio engine's commands, status and events (engine.ts).
+                     (tools.ts), the audio engine's commands, status and events (engine.ts), and the
+                     Browser's types and search (browser.ts: pure, ranked, typo-tolerant).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -137,6 +138,8 @@ server/
                      lines over its stdin/stdout, restarts it when it dies (and gives it its song back), compiles
                      the song it's sent. routes.ts: `/api/engine`. fake-engine.mjs stands in for it in tests (and
                      the e2e suite). wav.ts reads and writes WAVs for the tests of what it plays.
+                     browser.ts: the Browser's sample folders (global, `data/browser.json`), favourites,
+                     listing and the watched search index; `/api/browser` reads nothing outside them.
   architecture.test.ts  The layering between the platform and the suites, checked on every import (see Suites).
   assistant/         The assistant. mcp.ts: the MCP server (POST /mcp, stateless JSON-RPC). bridge.ts: relays tool calls
                      to an editor tab over its event stream and back, and every chat's activity to every tab.
