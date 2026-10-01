@@ -276,13 +276,26 @@ export interface EngineRender {
   transport: EngineTransport & { metronome: boolean };
 }
 
+/** The metronome's sounds (its right-click menu), each made by the engine; the bar's first beat is higher or louder. */
+export const METRONOME_SOUNDS = [
+  { id: "beep", name: "Beep" },
+  { id: "tick", name: "Tick" },
+  { id: "tap", name: "Tap" },
+  { id: "hihat", name: "Hi-hat" },
+  { id: "cowbell", name: "Cowbell" },
+] as const;
+export type MetronomeSound = (typeof METRONOME_SOUNDS)[number]["id"];
+export const DEFAULT_METRONOME_SOUND: MetronomeSound = "beep";
+export const isMetronomeSound = (value: unknown): value is MetronomeSound => METRONOME_SOUNDS.some((s) => s.id === value);
+
 /** What `POST /api/engine/<command>` takes. Every command answers with the `EngineStatus`. */
 export interface EngineCommands {
   status: Record<string, never>;
   /** Play the song from `from` ticks into its loop, or its start (nothing happens if it's playing); or stop and go back to the start. */
   play: { from?: number };
   stop: Record<string, never>;
-  metronome: { on: boolean };
+  /** The metronome on or off, in `sound` (default: the one it has). `audition`: one click of it now (a bar's), playing or not. */
+  metronome: { on: boolean; sound?: MetronomeSound; audition?: boolean };
   /** Stop the Browser's preview (it's started by `POST /api/browser/preview`, which checks the file). */
   stopPreview: Record<string, never>;
   /** The Browser's preview volume, 0..1, at once. */

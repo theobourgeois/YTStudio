@@ -19,7 +19,7 @@ export function ModeLights({ mode, onChange }: { mode: PlayMode; onChange: (mode
             "h-[15px] w-11 rounded-[3px] text-[10px] leading-none font-bold tracking-wide",
             mode === id
               ? "bg-[var(--piano-start)] text-black/75 shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_0_6px_color-mix(in_srgb,var(--piano-start)_45%,transparent)]"
-              : "text-muted-foreground/70 hover:text-foreground",
+              : "text-muted-foreground/80 shadow-[inset_0_0_0_1px_var(--line)] hover:text-foreground",
           )}
           onClick={() => onChange(id)}
         >

@@ -35,6 +35,10 @@ public:
     void stop();
     void setMetronome (bool on) { metronome = on; }
     bool metronomeOn() const { return metronome; }
+    /** The metronome's sound, by name ("beep", "tick", "tap", "hihat", "cowbell"); an unknown one is the beep. */
+    void setMetronomeSound (const juce::String& name);
+    /** One click of the metronome's sound (a bar's) now, playing or not: hearing a sound as it's chosen. */
+    void auditionClick() { ++clickAuditions; }
     /** Play a channel's sample once, now (hearing a channel, outside the pattern). False: no such channel. */
     bool trigger (const juce::String& channelId, float pitch, float gain);
     /**
@@ -155,6 +159,10 @@ private:
     std::atomic<double> playFrom { 0.0 };
     int playsSeen = 0, stopsSeen = 0;
     std::atomic<bool> metronome { false };
+    enum class ClickSound { beep, tick, tap, hihat, cowbell };
+    std::atomic<ClickSound> clickSound { ClickSound::beep };
+    std::atomic<int> clickAuditions { 0 };
+    int clickAuditionsSeen = 0;
 
     /** The audio clips: their streams, made ahead on the message thread. */
     ClipPlayer clips;
@@ -187,13 +195,21 @@ private:
     std::array<Voice, maxVoices> voices;
     juce::uint32 voiceCount = 0;
 
-    /** The metronome's click: a short decaying beep. */
+    /** The metronome's click: a short decaying sound, made here (`renderClick`). */
     struct
     {
         int delay = -1;
-        double phase = 0, frequency = 1000;
-        float level = 0;
+        /** Starting on a bar: higher, or louder. Set with `delay`. */
+        bool bar = false;
+        ClickSound sound = ClickSound::beep;
+        double phase = 0, phase2 = 0, frequency = 1000;
+        float level = 0, gain = 0, decay = 0;
+        /** The hi-hat's noise and its high-pass filter. */
+        juce::uint32 noise = 0x9e3779b9u;
+        float highPass = 0, lastNoise = 0;
     } click;
+    /** Start the click due this block, from `click.delay` and `click.bar`. */
+    void startClick();
 
     JUCE_DECLARE_NON_COPYABLE (Sequencer)
 };

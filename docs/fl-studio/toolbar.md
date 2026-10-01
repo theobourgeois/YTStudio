@@ -34,13 +34,14 @@ Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/
 | Menus | None yet. The project's name (click to rename) is in their place, as the title |
 | Hint bar | Yes: the name of what's under the pointer (its title) |
 | PAT / SONG | Yes (L): two lights, the lit one is what plays. Not saved: a song with clips on its playlist opens in song mode |
-| Play / Pause, Stop | Play (lit while playing; pressed again it stops, since there's no pause yet), Stop |
+| Play / Pause, Stop | Yes, joined as FL's: playing, Play shows Pause (lit); pressed it stops where it is and the next play goes on from there. Stop (and a jump, or the other mode) forgets where it paused. Space plays and stops |
 | Record, countdown, typing keyboard | Not yet (recording) |
-| Tempo LCD | Yes: drag it up and down (the pointer is locked, so it goes on past the screen's edge), or click it to type. Its menu has Tap tempo… (tap along to a song; any key taps too), Make it the default (new songs start at it; 140 BPM until it's set, kept in the browser) and Reset the default; no presets yet |
-| Position LCD | Yes, in B:S:T (where the pattern or the song is, or where play starts) |
+| Tempo LCD | Yes, FL's look ("140.000", the decimals smaller, light digits on a dark display in every theme): drag it up and down (the pointer is locked, so it goes on past the screen's edge), or click it to type. Its menu has Tap tempo… (tap along to a song; any key taps too), Make it the default (new songs start at it; 140 BPM until it's set, kept in the browser) and Reset the default; no presets yet |
+| Position LCD | Yes (where the pattern or the song is, where it paused, or where play starts), in B:S:T or M:S:CS: a click switches (kept in the browser). Its last part is drawn smaller, as FL's |
+| Main volume knob | Yes, beside the position: everything the song puts out, after the master track (the song's, `settings.volume`; 78% leaves it as it is) |
 | Window buttons | Playlist (F5), Piano roll (F7), Channel rack (F6), Mixer (F9), Browser (Alt+F8): a press opens the window or brings it forward (the keys toggle). Ours (Théo): Alt+1…5 toggle them too, in the F keys' order (Playlist, Channel rack, Piano roll, Mixer, Browser), since a Mac's F keys need Fn |
 | Snap | The Piano roll has its own; no global snap yet |
-| Metronome | Yes, beside the tempo rather than with the recording buttons |
+| Metronome | Yes, beside the tempo rather than with the recording buttons. Its right-click menu picks its sound (Beep, Tick, Tap, Hi-hat, Cowbell, made by the engine; heard once as it's chosen; kept in the browser): FL has one sound you can replace with a sample |
 | Pattern selector with + | Yes: the arrow opens the list (rename, clone, delete); the name is scrolled or dragged up and down through the patterns, and past the last to the next one, empty, which joins the song only once something's put in it (Théo); + asks for a name and shows the new pattern |
 | Song position slider | Yes, along the pattern (or the song, in song mode): drag it to move where play is |
 | CPU, output meter, oscilloscope | The output's level over the last few seconds (mirrored, like a waveform's outline) beside the time, and the engine's load now and over the last half minute, (the audio settings are in Settings, the gear at the toolbar's right end). Not a true oscilloscope: the engine sends levels, not samples |

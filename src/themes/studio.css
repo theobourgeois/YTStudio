@@ -117,6 +117,16 @@
   --knob-arc: var(--brand);
   --knob-track: rgb(30 40 52 / 0.16);
 
+  /*
+   * The toolbar's number displays (the `lcd` utility): FL Studio's, dark in every theme, with light digits
+   * and their small parts and labels dimmer.
+   */
+  --lcd-top: #262c34;
+  --lcd-bottom: #313842;
+  --lcd-edge: #1b2026;
+  --lcd-text: #e6ebf0;
+  --lcd-dim: #97a2ae;
+
   /* The mixer's faders (`mixer/fader.tsx`), FL Studio's metal caps; the accent on the selected track. */
   --fader-groove: #8e96a2;
   --fader-tick: rgb(40 50 62 / 0.12);
@@ -251,6 +261,12 @@
   --knob-notch: #d9dee6;
   --knob-arc: var(--brand);
   --knob-track: rgb(255 255 255 / 0.09);
+
+  --lcd-top: #111317;
+  --lcd-bottom: #181b20;
+  --lcd-edge: #0a0b0e;
+  --lcd-text: #d9dfe6;
+  --lcd-dim: #828d99;
 
   --fader-groove: #15171b;
   --fader-tick: rgb(255 255 255 / 0.05);

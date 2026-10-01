@@ -11,6 +11,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, setPatternLength, setStepNote, setSteps, setSwing, setTempo, updateChannel } from "../../shared/music/edits.ts";
 import { routeChannels, sendOnly, setMixerMuted, setSend, updateMixerTrack } from "../../shared/music/mixer.ts";
 import { editNotes, setNoteProps } from "../../shared/music/notes.ts";
+import { METRONOME_SOUNDS } from "../../shared/music/engine.ts";
 import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject as newSong } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE } from "../config.ts";
@@ -314,6 +315,29 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
     };
     // 20 ms of 1760 Hz against 1175 Hz.
     expect(crossings(0)).toBeGreaterThan(crossings(BEAT) * 1.3);
+  });
+
+  it("clicks in each of the metronome's sounds, short, and once on its own when one is chosen", async () => {
+    await play(rack());
+    for (const { id } of METRONOME_SOUNDS) {
+      await engine.command("stop", {});
+      await hear(RATE / 10);
+      await engine.command("metronome", { on: true, sound: id });
+      await engine.command("play", {});
+      const left = (await hear(BEAT * 4)).channels[0];
+      // On each beat (a sine rises from 0 over its first few samples).
+      expect(onsets(left, 0.02, 2000).map((at) => Math.round(at / 100) * 100), id).toEqual([0, BEAT, 2 * BEAT, 3 * BEAT]);
+      expect(peakOf(left, 0, RATE * 0.05), id).toBeGreaterThan(0.1);
+      expect(peakOf(left, 0, RATE * 0.05), id).toBeLessThan(0.6);
+      // Over well before the next beat.
+      expect(peakOf(left, RATE * 0.4, BEAT), id).toBeLessThan(0.001);
+    }
+    await engine.command("stop", {});
+    await engine.command("metronome", { on: false, sound: "tap", audition: true });
+    const once = (await hear(BEAT * 2)).channels[0];
+    expect(onsets(once, 0.02, 2000)).toHaveLength(1);
+    expect(onsets(once, 0.02, 2000)[0]).toBeLessThan(100);
+    await expect(engine.command("metronome", { on: false, sound: "gong" as never })).rejects.toMatchObject({ status: 400 });
   });
 
   it("plays a channel on its own when asked, without the song playing", async () => {

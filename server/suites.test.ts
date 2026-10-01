@@ -56,7 +56,7 @@ describe("suites", () => {
     // Saved through its own normalisation (not a video's).
     const saved = await send<ProjectSummary>("PUT", `/api/projects/${id}`, { version: 1, name: "Demo", settings: { tempo: 5000, timeSignature: [6, 8] } });
     expect(saved.body).toMatchObject({ suite: "music", tempo: 999 });
-    expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body.settings).toEqual({ tempo: 999, timeSignature: [6, 8], swing: 0 });
+    expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body.settings).toEqual({ tempo: 999, timeSignature: [6, 8], swing: 0, volume: 0.78 });
 
     await send("PATCH", `/api/projects/${id}`, { name: "Anthem" });
     expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body.name).toBe("Anthem");

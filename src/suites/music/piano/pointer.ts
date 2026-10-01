@@ -14,7 +14,7 @@ import { type PianoContext, commitDrag, cancelDrag, deselect, pianoContext, sele
 import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR } from "./cursors";
 import { stretchHandle } from "./draw";
 import { fadeOut } from "./fades";
-import { BLACK_KEY_WIDTH, LANE_PAD, type PianoView, ROW_ZOOM_DRAG, hitNote, keyAt, edgeSpeed, laneTailAt, paintStarts, scrollViewBy, snapDelta, snapTick, tickToX, visibleRange, xToTick, yToPitch, zoomRowsAt } from "./geometry";
+import { BLACK_KEY_WIDTH, LANE_PAD, type PianoView, RESIZE_REACH, ROW_ZOOM_DRAG, hitNote, keyAt, edgeSpeed, laneTailAt, paintStarts, scrollViewBy, snapDelta, snapTick, tickToX, visibleRange, xToTick, yToPitch, zoomRowsAt } from "./geometry";
 import { usePiano } from "./store";
 
 type Press = ReactPointerEvent<HTMLElement>;
@@ -353,21 +353,22 @@ export function gridPointerDown(e: Press) {
 
   const keys = holdKey(ctx.channel.id, true);
 
-  // Draw and Paint, on a note: move it (Shift: a copy of it) or, by its right edge, resize it. The
-  // selection goes along if the note is in it.
-  if (hit) {
-    const ids = ctx.selected.has(hit.note.id) ? ctx.selected : new Set([hit.note.id]);
-    usePiano.setState({ noteLength: hit.note.length });
-    if (hit.edge) {
-      const end = hit.note.start + hit.note.length;
+  // Draw and Paint, on a note: move it (Shift: a copy of it) or, by its right edge (or just past it), resize
+  // it. The selection goes along if the note is in it.
+  const grab = hit ?? hitNote(ctx.notes, view, p.x, p.y, ctx.selected, RESIZE_REACH);
+  if (grab) {
+    const ids = ctx.selected.has(grab.note.id) ? ctx.selected : new Set([grab.note.id]);
+    usePiano.setState({ noteLength: grab.note.length });
+    if (grab.edge) {
+      const end = grab.note.start + grab.note.length;
       show(element, RESIZE_CURSOR);
       startGridDrag(e, element, {
         threshold: 2,
         cursor: "ew-resize",
         onMove(ev) {
           const newEnd = snapTick(end + (at(ev).tick - tick0), gridOf(ev), "line");
-          const ticks = Math.max(newEnd, hit.note.start + 1) - end;
-          usePiano.setState({ noteLength: hit.note.length + ticks });
+          const ticks = Math.max(newEnd, grab.note.start + 1) - end;
+          usePiano.setState({ noteLength: grab.note.length + ticks });
           usePiano.getState().setDrag({ kind: "resize", ids, ticks });
         },
         ...finish,
@@ -376,7 +377,7 @@ export function gridPointerDown(e: Press) {
     }
     const clone = e.shiftKey;
     show(element, MOVING_CURSOR);
-    keys.to(hit.note.pitch);
+    keys.to(grab.note.pitch);
     startGridDrag(e, element, {
       threshold: 2,
       onMove(ev) {
@@ -384,7 +385,7 @@ export function gridPointerDown(e: Press) {
         // Once it's moving, Shift keeps the pitch and Ctrl keeps the time.
         const ticks = ev.ctrlKey || ev.metaKey ? 0 : snapDelta(q.tick - tick0, gridOf(ev));
         const semitones = ev.shiftKey && !clone ? 0 : q.pitch - pitch0;
-        keys.to(hit.note.pitch + semitones);
+        keys.to(grab.note.pitch + semitones);
         usePiano.getState().setDrag({ kind: "move", ids, ticks, semitones, clone });
       },
       onEnd() {
@@ -495,8 +496,8 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
     const handle = stretchHandle(view, bounds);
     if (p.x >= handle.x - 2 && p.x <= handle.x + handle.size + 2 && p.y >= handle.y - 2 && p.y <= handle.y + handle.size + 2) return RESIZE_CURSOR;
   }
-  const hit = hitNote(ctx.notes, view, p.x, p.y, ctx.selected);
-  if (tool === "select") return hit ? "pointer" : "default";
+  if (tool === "select") return hitNote(ctx.notes, view, p.x, p.y, ctx.selected) ? "pointer" : "default";
+  const hit = hitNote(ctx.notes, view, p.x, p.y, ctx.selected, RESIZE_REACH);
   if (hit) return hit.edge ? RESIZE_CURSOR : MOVE_CURSOR;
   return tool === "paint" ? CURSORS.brush : CURSORS.pencil;
 }

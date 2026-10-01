@@ -1,29 +1,40 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiFolders, PiListDashes, PiMetronome, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiFolders, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
-import { lengthOf, setTempo } from "@shared/music/edits";
+import { lengthOf, setMainVolume, setTempo } from "@shared/music/edits";
+import { METRONOME_SOUNDS, type MetronomeSound } from "@shared/music/engine";
 import { songTicks } from "@shared/music/playlist";
-import { DEFAULT_TEMPO, MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
+import { DEFAULT_TEMPO, DEFAULT_VOLUME, MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
 import { STEP_TICKS } from "@shared/music/types";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { SettleButton, SettledBadge } from "@/components/header/header";
 import { ProjectName } from "@/components/header/project-name";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import { toggleVariants } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { canRedo, canUndo } from "@/lib/document-history";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { PERCENT, SongKnob, percent } from "./knob";
 import { ModeLights } from "./mode-switch";
 import { CpuGraph, OutputGraph } from "./monitors";
 import { PatternPicker } from "./pattern-picker";
 import { openPianoRoll } from "./piano/actions";
 import { positionNow } from "./playhead";
 import { openPlaylist } from "./playlist/actions";
-import { positionAt, positionText } from "./position";
+import { positionAt, positionText, splitTail, tempoText, timeText } from "./position";
 import { useMusicPreferences } from "./preferences";
 import { currentPattern, songGesture, useMusic, useSong } from "./store";
 import { switchMode, useTransport } from "./transport";
@@ -59,18 +70,21 @@ export function MusicToolbar() {
       <div className="flex min-w-0 flex-1 flex-col justify-between">
         <div className="flex h-10 min-w-0 items-center gap-2">
           <div className="flex items-center gap-2" role="toolbar" aria-label="Transport">
-            {/* FL Studio's transport: PAT / SONG, play, stop and the metronome together in one dark panel. */}
-            <div className="sunken flex h-10 items-center gap-0.5 rounded-md pr-0.5 pl-1">
+            {/* FL Studio's transport: PAT / SONG, play and stop joined, and the metronome, together in one panel. */}
+            <div className="sunken flex h-10 items-center gap-1.5 rounded-md px-1.5">
               <ModeSwitch />
-              <PlayButtons />
+              <div className="flex">
+                <PlayButtons />
+              </div>
               <MetronomeToggle />
             </div>
             <TempoLcd />
             <PositionLcd />
+            <MainVolume />
           </div>
-          <OutputGraph className="w-32 shrink-0" />
+          <OutputGraph className="w-32 min-w-14 shrink" />
           <Groove className="mx-1 h-8 self-center" />
-          <CpuGraph className="w-32 shrink-0" />
+          <CpuGraph className="w-32 min-w-14 shrink" />
           {error && (
             <span className="flex max-w-60 min-w-0 items-center gap-1.5 text-xs text-destructive" role="alert" title={error}>
               <PiWarning className="shrink-0" />
@@ -147,36 +161,60 @@ function ModeSwitch() {
   return <ModeLights mode={mode} onChange={(next) => switchMode(next)} />;
 }
 
-/** A button of the transport panel: flat, lit (FL's orange) while it's on. */
-function TransportButton({ label, title, on, onClick, children }: { label: string; title: string; on?: boolean; onClick: () => void; children: ReactNode }) {
+/**
+ * A button of the transport panel, FL Studio's: a raised face (play and stop are joined, `className` rounds
+ * the outer corners), its icon lit (FL's orange) while it's on. `menu`: its right-click menu.
+ */
+function TransportButton({ label, title, on, onClick, className, menu, children }: { label: string; title: string; on?: boolean; onClick: () => void; className?: string; menu?: ReactNode; children: ReactNode }) {
+  const button = (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={on}
+      className={cn(
+        "raised hover:raised-hover active:pressed grid h-7 w-8 place-items-center rounded-[4px] transition-colors",
+        on ? "text-[var(--piano-start)] [filter:drop-shadow(0_0_4px_color-mix(in_srgb,var(--piano-start)_55%,transparent))]" : "text-foreground/80 hover:text-foreground",
+        className,
+      )}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+  if (!menu) return <Tip text={title}>{button}</Tip>;
   return (
-    <Tip text={title}>
-      <button
-        type="button"
-        aria-label={label}
-        aria-pressed={on}
-        className={cn(
-          "grid size-8 place-items-center rounded-[4px] transition-colors",
-          on ? "text-[var(--piano-start)] [filter:drop-shadow(0_0_4px_color-mix(in_srgb,var(--piano-start)_60%,transparent))]" : "text-muted-foreground hover:bg-surface-2 hover:text-foreground",
-        )}
-        onClick={onClick}
-      >
-        {children}
-      </button>
-    </Tip>
+    <ContextMenu>
+      <Tip text={title}>
+        <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
+      </Tip>
+      <ContextMenuContent>{menu}</ContextMenuContent>
+    </ContextMenu>
   );
 }
 
-/** Play (lit while playing; pressed again it stops, there's no pause yet) and Stop. */
+/**
+ * Play and Stop, joined, as FL Studio's. Playing, Play is Pause: it stops where it is, and the next
+ * play goes on from there (Space still plays and stops). Stop goes back to where play starts.
+ */
 function PlayButtons() {
   const playing = useTransport((s) => s.playing);
   return (
     <>
-      <TransportButton label="Play" title="Play (Space)" on={playing} onClick={() => useTransport.getState().toggle()}>
-        <PiPlayFill className="size-[17px]" />
+      <TransportButton
+        label="Play"
+        title={playing ? "Pause (Space stops)" : "Play (Space)"}
+        on={playing}
+        className="rounded-r-none"
+        onClick={() => {
+          const transport = useTransport.getState();
+          if (transport.playing) transport.pause(positionNow() ?? transport.startOf());
+          else transport.play();
+        }}
+      >
+        {playing ? <PiPauseFill className="size-[16px]" /> : <PiPlayFill className="size-[16px]" />}
       </TransportButton>
-      <TransportButton label="Stop" title="Stop (Space)" onClick={() => useTransport.getState().stop()}>
-        <PiStopFill className="size-[15px]" />
+      <TransportButton label="Stop" title="Stop (Space)" className="-ml-px rounded-l-none" onClick={() => useTransport.getState().stop()}>
+        <PiStopFill className="size-[14px]" />
       </TransportButton>
     </>
   );
@@ -215,14 +253,16 @@ function TempoLcd() {
     draft === null,
   );
 
+  const [whole, decimals] = splitTail(tempoText(tempo), ".");
+  // The field covers the display and only shows while it's typed in; otherwise the digits under it do, FL's way.
   const lcd = (
-    <Lcd label="BPM" className="w-[76px]">
+    <Lcd label="BPM" className="w-[92px]">
       <input
         ref={input}
         aria-label="Tempo"
         title="Tempo: drag up and down, or click to type it"
         inputMode="decimal"
-        className="w-full cursor-ns-resize bg-transparent text-right font-mono text-[18px] leading-none tabular-nums outline-none focus:cursor-text"
+        className="peer absolute inset-0 w-full cursor-ns-resize rounded-[5px] bg-transparent px-2 pt-3 pb-[5px] text-right font-sans text-[22px] leading-none font-medium text-transparent tabular-nums caret-transparent outline-none selection:bg-brand/40 focus:cursor-text focus:text-[var(--lcd-text)] focus:caret-[var(--lcd-text)]"
         value={draft ?? String(tempo)}
         onPointerDown={(e) => {
           const input = e.currentTarget;
@@ -264,6 +304,7 @@ function TempoLcd() {
           }
         }}
       />
+      <LcdDigits main={whole} tail={decimals} className="peer-focus:invisible" />
     </Lcd>
   );
 
@@ -358,21 +399,36 @@ function TapTempo({ onSet, onDone }: { onSet: (tempo: number) => void; onDone: (
   );
 }
 
-/** A recessed number display with its small label in the corner, as FL Studio's toolbar has. */
+/** A number display with its small label in the corner, FL Studio's: dark, recessed, light digits (`lcd`). */
 function Lcd({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <div className={cn("sunken relative flex h-10 items-end rounded-sm px-2 pt-3 pb-2", className)}>
-      <span className="pointer-events-none absolute top-0.5 right-1.5 text-[8px] leading-none font-semibold tracking-wide text-muted-foreground">{label}</span>
+    <div className={cn("lcd relative flex h-10 shrink-0 items-end justify-end rounded-[5px] px-2 pb-[5px]", className)}>
+      <span className="pointer-events-none absolute top-[3px] right-2 text-[8px] leading-none font-semibold tracking-[0.08em] text-[var(--lcd-dim)]">{label}</span>
       {children}
     </div>
   );
 }
 
+/** An LCD's digits: the number, then its last part smaller, as FL Studio draws "140.000" and "1:01:00". */
+function LcdDigits({ main, tail, className, mainRef, tailRef }: { main?: string; tail?: string; className?: string; mainRef?: Ref<HTMLSpanElement>; tailRef?: Ref<HTMLSpanElement> }) {
+  return (
+    <span className={cn("pointer-events-none flex items-baseline font-sans leading-none font-medium tabular-nums", className)}>
+      <span ref={mainRef} className="text-[22px] tracking-[-0.01em]">
+        {main}
+      </span>
+      <span ref={tailRef} className="text-[13px] opacity-80">
+        {tail}
+      </span>
+    </span>
+  );
+}
+
 /** Where play is now (or starts) in the mode playing, frame by frame while it plays, written straight into the display. */
-function usePlayTick(onTick: (tick: number) => void) {
+function usePlayTick(onTick: (tick: number) => void, deps: unknown[] = []) {
   const playing = useTransport((s) => s.playing);
   const mode = useTransport((s) => s.mode);
-  const startTick = useTransport((s) => (mode === "song" ? s.songStartTick : s.startTick));
+  // Paused, where it paused.
+  const startTick = useTransport((s) => s.pausedAt ?? (mode === "song" ? s.songStartTick : s.startTick));
   const tempo = useSong((song) => song.settings.tempo);
   const latest = useRef(onTick);
   latest.current = onTick;
@@ -388,23 +444,52 @@ function usePlayTick(onTick: (tick: number) => void) {
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [playing, startTick, tempo, mode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, startTick, tempo, mode, ...deps]);
 }
 
-/** FL Studio's position display, in bars:steps:ticks. */
+/**
+ * FL Studio's position display: where the pattern (or the song) is playing, or where play starts, in
+ * bars:steps:ticks or minutes:seconds:centiseconds; a click switches (kept in the browser).
+ */
 function PositionLcd() {
   const barSteps = useSong((song) => stepsPerBar(song.settings.timeSignature));
-  const text = useRef<HTMLSpanElement>(null);
-  usePlayTick((tick) => {
-    if (text.current) text.current.textContent = positionText(tick, barSteps);
-  });
-  return (
-    <Lcd label="B:S:T" className="w-[96px] justify-end">
-      <span ref={text} className="font-mono text-[18px] leading-none tabular-nums" title="Where the pattern (or the song) is playing, or where play starts (bar:step:tick)" aria-label="Position">
-        1:01:00
-      </span>
-    </Lcd>
+  const tempo = useSong((song) => song.settings.tempo);
+  const format = useMusicPreferences((s) => s.timeFormat);
+  const main = useRef<HTMLSpanElement>(null);
+  const tail = useRef<HTMLSpanElement>(null);
+  usePlayTick(
+    (tick) => {
+      const [a, b] = splitTail(format === "mscs" ? timeText(tick, tempo) : positionText(tick, barSteps), ":");
+      if (main.current) main.current.textContent = a;
+      if (tail.current) tail.current.textContent = b;
+    },
+    [format, barSteps],
   );
+  const title =
+    format === "mscs"
+      ? "Where the pattern (or the song) is playing, or where play starts (minutes:seconds:hundredths). Click for bars:steps:ticks"
+      : "Where the pattern (or the song) is playing, or where play starts (bar:step:tick). Click for minutes:seconds";
+  return (
+    <button
+      type="button"
+      className="rounded-[5px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      title={title}
+      onClick={() => useMusicPreferences.getState().setTimeFormat(format === "mscs" ? "bst" : "mscs")}
+    >
+      <Lcd label={format === "mscs" ? "M:S:CS" : "B:S:T"} className="w-[104px]">
+        <span aria-label="Position" data-format={format}>
+          <LcdDigits mainRef={main} tailRef={tail} />
+        </span>
+      </Lcd>
+    </button>
+  );
+}
+
+/** FL Studio's main volume knob: everything the song puts out (the song's, `settings.volume`). */
+function MainVolume() {
+  const volume = useSong((song) => song.settings.volume);
+  return <SongKnob value={volume} min={0} max={1} defaultValue={DEFAULT_VOLUME} label="Main volume" format={percent} unit={PERCENT} size={30} edit={setMainVolume} className="mx-0.5" />;
 }
 
 /** The song position slider's thumb, in px. */
@@ -499,11 +584,36 @@ function PositionSlider() {
   );
 }
 
+/** The metronome, on or off; its right-click menu picks its sound (heard once as it's chosen). */
 function MetronomeToggle() {
   const metronome = useTransport((s) => s.metronome);
+  const sound = useMusicPreferences((s) => s.metronomeSound);
   return (
-    <TransportButton label="Metronome" title="Metronome" on={metronome} onClick={() => useTransport.getState().setMetronome(!metronome)}>
-      <PiMetronome className="size-[18px]" />
+    <TransportButton
+      label="Metronome"
+      title="Metronome (right-click for its sound)"
+      on={metronome}
+      onClick={() => useTransport.getState().setMetronome(!metronome, sound)}
+      menu={
+        <>
+          <ContextMenuLabel className="text-[11px] font-normal text-muted-foreground">Metronome sound</ContextMenuLabel>
+          <ContextMenuRadioGroup
+            value={sound}
+            onValueChange={(value) => {
+              useMusicPreferences.getState().setMetronomeSound(value as MetronomeSound);
+              useTransport.getState().setMetronomeSound(value as MetronomeSound);
+            }}
+          >
+            {METRONOME_SOUNDS.map((s) => (
+              <ContextMenuRadioItem key={s.id} value={s.id}>
+                {s.name}
+              </ContextMenuRadioItem>
+            ))}
+          </ContextMenuRadioGroup>
+        </>
+      }
+    >
+      <PiMetronome className="size-[17px]" />
     </TransportButton>
   );
 }

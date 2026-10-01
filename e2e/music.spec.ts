@@ -683,6 +683,40 @@ test("the toolbar, as FL Studio's: the tempo LCD drags, + makes a pattern, the p
 
   await page.getByRole("button", { name: "Metronome" }).hover();
   await expect(page.getByTestId("hint-bar")).toHaveText("Metronome");
+
+  // A click on the position switches it to minutes:seconds:hundredths (8 steps at 128 BPM) and back.
+  await position.click();
+  await expect(position).toHaveText("0:00:93");
+  await position.click();
+  await expect(position).toHaveText("1:09:00");
+
+  // Playing, Play is Pause: it stops where it is, and Stop goes back to where play starts.
+  const transport = page.getByRole("toolbar", { name: "Transport" });
+  await transport.getByRole("button", { name: "Play" }).click();
+  await expect(transport.getByRole("button", { name: "Play" })).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => position.textContent()).not.toBe("1:09:00");
+  await transport.getByRole("button", { name: "Play" }).click();
+  await expect(transport.getByRole("button", { name: "Play" })).toHaveAttribute("aria-pressed", "false");
+  const paused = await position.textContent();
+  expect(paused).not.toBe("1:09:00");
+  await page.waitForTimeout(200);
+  await expect(position).toHaveText(paused!);
+  await transport.getByRole("button", { name: "Stop" }).click();
+  await expect(position).toHaveText("1:09:00");
+
+  // The metronome's menu picks its sound, kept in the browser.
+  await page.getByRole("button", { name: "Metronome" }).click({ button: "right" });
+  await expect(page.getByRole("menuitemradio", { name: "Beep" })).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("menuitemradio", { name: "Hi-hat" }).click();
+  expect(await page.evaluate(() => localStorage.getItem("music-metronome-sound"))).toBe("hihat");
+
+  // The main volume knob is the song's.
+  const volume = page.getByRole("slider", { name: "Main volume" });
+  await expect(volume).toHaveAttribute("aria-valuetext", "78%");
+  await drag(page, volume, volume, { dy: 40 });
+  await expect.poll(async () => (await savedSong(page, id)).settings.volume).toBeLessThan(0.6);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(volume).toHaveAttribute("aria-valuetext", "78%");
 });
 
 test("a double-click on the rack's title sends it to the desktop's corner, and another brings it back", async ({ page }) => {

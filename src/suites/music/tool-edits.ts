@@ -18,6 +18,7 @@ import {
   setPatternLength,
   setStepNote,
   soloChannel,
+  setMainVolume,
   setSwing,
   setTempo,
   setTimeSignature,
@@ -78,6 +79,8 @@ export const updateSong: SongEdit = (song, input) => {
   if (tempo !== undefined) next = setTempo(next, tempo);
   const swing = number(input, "swing", 0, 1);
   if (swing !== undefined) next = setSwing(next, swing);
+  const volume = number(input, "volume", 0, 1);
+  if (volume !== undefined) next = setMainVolume(next, volume);
   if (input.timeSignature !== undefined) {
     const [beats, unit] = Array.isArray(input.timeSignature) ? input.timeSignature : [];
     if (!Number.isInteger(beats) || beats < 1 || beats > 32 || !BEAT_UNITS.includes(unit)) {
@@ -85,8 +88,8 @@ export const updateSong: SongEdit = (song, input) => {
     }
     next = setTimeSignature(next, [beats, unit]);
   }
-  const { tempo: bpm, swing: sw, timeSignature } = next.settings;
-  return { song: next, text: `The song is at ${bpm} BPM in ${timeSignature.join("/")}, swing ${Math.round(sw * 100)}%.` };
+  const { tempo: bpm, swing: sw, timeSignature, volume: main } = next.settings;
+  return { song: next, text: `The song is at ${bpm} BPM in ${timeSignature.join("/")}, swing ${Math.round(sw * 100)}%, main volume ${Math.round(main * 100)}%.` };
 };
 
 /** A colour as a tool gives it: "#rrggbb", or "none" (or null) for the usual. */

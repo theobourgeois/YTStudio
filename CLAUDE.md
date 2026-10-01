@@ -298,8 +298,8 @@ Built so far: the channel rack (sampler and plugin channels, the step sequencer 
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
-- The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing }, channels,
-  patterns, mixer }`. A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
+- The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
+  patterns, mixer }` (`volume` is the toolbar's main volume, folded into the master's gain by `compileSong`). A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
   `precomputed` effects (trim, reverse, normalise, fades); a `Pattern` has `notes[channelId]`, sorted by `start`,
   and a `length` that's null for FL's Auto: use `lengthOf`/`patternSteps`, never the field. Solo isn't a field:
   it's a state of the mutes (`soloChannel`).

@@ -7,8 +7,6 @@ namespace
 {
 /** How long a voice takes to fade when it's silenced, so stopping doesn't click. */
 constexpr double fadeSeconds = 0.004;
-constexpr float clickGain = 0.3f;
-constexpr double clickSeconds = 0.025;
 /** How long a channel's plugin sounds when it's heard on its own (a click on its button). */
 constexpr double auditionSeconds = 0.4;
 /** The longest a held key sounds if it's never let go (the tab went away mid-press). */
@@ -413,7 +411,7 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
         for (auto beat = std::ceil (from / song->beatTicks) * song->beatTicks; beat < to; beat += song->beatTicks)
         {
             click.delay = at (beat);
-            click.frequency = std::fmod (beat, song->barTicks) < 0.5 ? 1760.0 : 1175.0;
+            click.bar = std::fmod (beat, song->barTicks) < 0.5;
         }
 }
 
@@ -773,25 +771,90 @@ void Sequencer::renderPlugins (int numSamples)
     }
 }
 
+void Sequencer::setMetronomeSound (const juce::String& name)
+{
+    clickSound = name == "tick"      ? ClickSound::tick
+                 : name == "tap"     ? ClickSound::tap
+                 : name == "hihat"   ? ClickSound::hihat
+                 : name == "cowbell" ? ClickSound::cowbell
+                                     : ClickSound::beep;
+}
+
+void Sequencer::startClick()
+{
+    // Each sound's pitch on a bar and on a beat, how loud it is and how long it rings (seconds to fall by e).
+    struct Shape { double bar, beat; float gain; double seconds; };
+    static constexpr Shape shapes[] = {
+        { 1760.0, 1175.0, 0.30f, 0.025 },  // beep: a sine
+        { 3520.0, 2637.0, 0.45f, 0.005 },  // tick: a short high sine
+        { 1245.0, 932.0, 0.42f, 0.018 },   // tap: a wood block's two partials
+        { 0.0, 0.0, 0.32f, 0.030 },        // hi-hat: high-passed noise, louder on the bar
+        { 800.0, 587.0, 0.16f, 0.060 },    // cowbell: two square waves
+    };
+    click.sound = clickSound.load();
+    const auto& shape = shapes[(int) click.sound];
+    click.frequency = click.bar ? shape.bar : shape.beat;
+    click.gain = click.sound == ClickSound::hihat && ! click.bar ? shape.gain * 0.55f : shape.gain;
+    const auto seconds = click.sound == ClickSound::hihat && click.bar ? shape.seconds * 1.6 : shape.seconds;
+    click.decay = (float) std::exp (-1.0 / (seconds * sampleRate));
+    click.level = 1.0f;
+    click.phase = click.phase2 = 0;
+    click.highPass = click.lastNoise = 0;
+}
+
 void Sequencer::renderClick (float* left, float* right, int numSamples)
 {
+    if (const auto auditions = clickAuditions.load(); auditions != clickAuditionsSeen)
+    {
+        clickAuditionsSeen = auditions;
+        click.delay = 0;
+        click.bar = true;
+    }
     auto start = 0;
     if (click.delay >= 0)
     {
         start = juce::jmin (click.delay, numSamples);
         click.delay = -1;
-        click.level = 1.0f;
-        click.phase = 0;
+        startClick();
     }
     if (click.level <= 0.0001f)
         return;
-    const auto decay = (float) std::exp (-1.0 / (clickSeconds * sampleRate));
+    const auto twoPi = juce::MathConstants<double>::twoPi;
+    const auto step = click.frequency / sampleRate;
     for (int i = start; i < numSamples; ++i)
     {
-        const auto sample = clickGain * click.level * (float) std::sin (click.phase * juce::MathConstants<double>::twoPi);
+        float value = 0;
+        switch (click.sound)
+        {
+            case ClickSound::beep:
+            case ClickSound::tick:
+                value = (float) std::sin (click.phase * twoPi);
+                break;
+            case ClickSound::tap:
+                value = 0.75f * (float) std::sin (click.phase * twoPi) + 0.25f * (float) std::sin (click.phase2 * twoPi);
+                click.phase2 += step * 2.76;
+                break;
+            case ClickSound::hihat:
+            {
+                // A white noise (xorshift), its lows taken out.
+                click.noise ^= click.noise << 13;
+                click.noise ^= click.noise >> 17;
+                click.noise ^= click.noise << 5;
+                const auto noise = (float) click.noise / 2147483648.0f - 1.0f;
+                click.highPass = 0.6f * (click.highPass + noise - click.lastNoise);
+                click.lastNoise = noise;
+                value = click.highPass;
+                break;
+            }
+            case ClickSound::cowbell:
+                value = 0.5f * ((std::fmod (click.phase, 1.0) < 0.5 ? 1.0f : -1.0f) + (std::fmod (click.phase2, 1.0) < 0.5 ? 1.0f : -1.0f));
+                click.phase2 += step * 1.48;
+                break;
+        }
+        const auto sample = click.gain * click.level * value;
         left[i] += sample;
         right[i] += sample;
-        click.phase += click.frequency / sampleRate;
-        click.level *= decay;
+        click.phase += step;
+        click.level *= click.decay;
     }
 }

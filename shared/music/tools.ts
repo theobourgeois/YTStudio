@@ -30,8 +30,9 @@ export const MUSIC_TOOLS = [
     name: "update_song",
     title: "Change the song's settings",
     kind: "edit",
-    description: "Set the tempo, the swing or the time signature. Only what's given changes.",
+    description: "Set the tempo, the swing, the time signature or the main volume (the toolbar's knob). Only what's given changes.",
     inputSchema: obj({
+      volume: num("0 to 1: the main volume, everything the song puts out (after the master track). 0.78 leaves it as it is; 1 is about +4 dB."),
       tempo: num("Beats per minute (20 to 999)."),
       swing: num("0 to 1: how late every second sixteenth step plays. 0 is straight; about 0.66 is a triplet feel."),
       timeSignature: arr(int("A number"), "[beats per bar, the note that gets the beat]: [4, 4], [3, 4], [6, 8].", { minItems: 2, maxItems: 2 }),
