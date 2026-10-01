@@ -279,6 +279,13 @@ test("the rack's + adds an instrument: a plugin of this computer's, or a sampler
   await rack.getByRole("button", { name: "Add a channel" }).click();
   const picker = page.getByTestId("channel-picker");
   await expect(picker.getByRole("option")).toHaveText([/Sampler/, /Fake Synth/]);
+  // The arrows move the highlight (right: the next group) and Enter would choose it.
+  await expect(picker.getByRole("textbox")).toBeFocused();
+  await expect(picker.getByRole("option", { name: "Sampler" })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("ArrowRight");
+  await expect(picker.getByRole("option", { name: "Fake Synth" })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("ArrowLeft");
+  await expect(picker.getByRole("option", { name: "Sampler" })).toHaveAttribute("aria-selected", "true");
   await picker.getByRole("textbox").fill("synth");
   await expect(picker.getByRole("option")).toHaveCount(1);
   await picker.getByRole("option", { name: /Fake Synth/ }).click();
@@ -711,8 +718,14 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
 
   // A slot's menu lists the effect plugins (not the instruments).
   await inspector.getByRole("button", { name: "Slot 2 menu" }).click();
-  await expect(page.getByRole("menuitem", { name: /Fake Synth/ })).toHaveCount(0);
-  await page.getByRole("menuitem", { name: /Fake Delay/ }).click();
+  const effectPicker = page.getByTestId("effect-picker");
+  await expect(effectPicker.getByRole("option", { name: /Fake Synth/ })).toHaveCount(0);
+  // A pin puts it in a Pinned column first (it stays in its own too); Enter chooses the one highlighted.
+  await effectPicker.getByRole("option", { name: /Fake Delay/ }).hover();
+  await effectPicker.getByRole("button", { name: "Pin Fake Delay" }).click();
+  await expect(effectPicker.getByRole("region", { name: "Pinned" }).getByRole("option")).toHaveCount(1);
+  await expect(effectPicker.getByRole("textbox", { name: "Find an effect" })).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect.poll(async () => (await slots()).slice(0, 3)).toEqual([null, "Fake Delay", null]);
 
   // Its name opens its window (the engine's), and closes it again.
@@ -734,7 +747,7 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
 
   // An empty slot is chosen by a click anywhere on it.
   await inspector.locator('[data-slot="4"]').click();
-  await page.getByRole("menuitem", { name: /Fake Delay/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Fake Delay/ }).first().click();
   await expect.poll(async () => (await slots()).slice(0, 6)).toEqual([null, "Fake Delay", null, null, "Fake Delay", null]);
   // Dragged onto slot 7 it swaps places with what's there; its right-click menu deletes it.
   await drag(page, inspector.locator('[data-slot="4"]'), inspector.locator('[data-slot="6"]'));
@@ -807,7 +820,7 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
 
   // Its state (an effect, its controls) copied onto insert 2: a copy of the effect, with an id of its own; not its colour or sends.
   await page.getByTestId("mixer-inspector").getByRole("button", { name: "Slot 1 menu" }).click();
-  await page.getByRole("menuitem", { name: /Fake Delay/ }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Fake Delay/ }).first().click();
   await expect.poll(async () => (await track(1)).effects[0]?.plugin.name).toBe("Fake Delay");
   await strip("Insert 1").locator("span").first().click({ button: "right" });
   await page.getByRole("menuitem", { name: "Copy track state" }).click();

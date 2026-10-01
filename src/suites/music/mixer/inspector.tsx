@@ -1,39 +1,23 @@
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PiCaretRightFill, PiClock, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
-import { errorMessage } from "@shared/errors";
 import type { EnginePlugin } from "@shared/music/engine";
 import { moveEffect, moveEffectTo, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
 import { EFFECT_SLOTS } from "@shared/music/project";
 import type { MixerEffect } from "@shared/music/types";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover as PopoverPrimitive } from "radix-ui";
+import { Popover, PopoverContent } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { musicApi } from "../api";
 import { PERCENT, SongKnob, percent } from "../knob";
 import { useMusic, useSong } from "../store";
 import { useTransport } from "../transport";
+import { pickerItem } from "../plugin-groups";
+import { PluginPicker, usePluginList } from "../plugin-picker";
 import { Input } from "@/components/ui/input";
 import { delayText, pluginDelay } from "./latency";
 
-/** The effect plugins found on this computer, read once and kept between openings of a slot's menu. */
-let found: EnginePlugin[] | null = null;
-
-function useEffectPlugins(open: boolean): { plugins: EnginePlugin[] | null; error: string | null } {
-  const [plugins, setPlugins] = useState(found);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!open || found) return;
-    musicApi.listEnginePlugins().then(
-      (list) => {
-        found = list.filter((p) => !p.isInstrument).sort((a, b) => a.name.localeCompare(b.name));
-        setPlugins(found);
-      },
-      (err) => setError(errorMessage(err)),
-    );
-  }, [open]);
-  return { plugins, error };
-}
 
 /**
  * The selected track's inspector, on the mixer's right as in FL Studio: its name and its ten effect
@@ -66,14 +50,10 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
   const choose = (plugin: EnginePlugin) => commit((song) => setEffect(song, trackId, slot, { id: plugin.id, name: plugin.name, format: plugin.format }));
   // After a menu has closed (it gives the focus back first), or the picker would close at once.
   const openPicker = () => setTimeout(() => setChoosing(true), 0);
-  /** The arrow: a loaded slot's menu, or an empty slot's plugins; closing closes either. */
+  /** The arrow: a loaded slot's menu, or an empty slot's plugins. */
   const openArrow = (open: boolean) => {
-    if (open && effect) setMenuOpen(true);
-    else if (open) setChoosing(true);
-    else {
-      setMenuOpen(false);
-      setChoosing(false);
-    }
+    if (open && !effect) setChoosing(true);
+    else setMenuOpen(open);
   };
 
   /** A loaded effect dragged onto another slot swaps places with what's there. */
@@ -103,59 +83,71 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
   };
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <li
-          className={cn("relative flex h-6 items-center gap-1 rounded-sm pr-1", effect ? "bg-surface-2" : "cursor-pointer bg-surface-0 hover:bg-surface-1")}
-          data-slot={slot}
-          onPointerDown={dragSlot}
-          // An empty slot is chosen by a click anywhere on it; a drag that's just ended isn't a click.
-          onClickCapture={(e) => {
-            if (!dragged.current) return;
-            dragged.current = false;
-            e.stopPropagation();
-            e.preventDefault();
+    <Popover open={choosing} onOpenChange={setChoosing}>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <PopoverPrimitive.Anchor asChild>
+            <li
+              className={cn("relative flex h-6 items-center gap-1 rounded-sm pr-1", effect ? "bg-surface-2" : "cursor-pointer bg-surface-0 hover:bg-surface-1")}
+              data-slot={slot}
+              onPointerDown={dragSlot}
+              // An empty slot is chosen by a click anywhere on it; a drag that's just ended isn't a click.
+              onClickCapture={(e) => {
+                if (!dragged.current) return;
+                dragged.current = false;
+                e.stopPropagation();
+                e.preventDefault();
+              }}
+              // (A menu opened from the slot is drawn elsewhere, but its clicks still bubble through here: they aren't the slot's.)
+              onClick={(e) => !effect && e.currentTarget.contains(e.target as Node) && setChoosing(true)}
+              onWheel={(e) => {
+                if (!effect || e.deltaY === 0) return;
+                commit((song) => moveEffect(song, trackId, slot, e.deltaY > 0 ? 1 : -1));
+              }}
+            >
+              {/* Its arrow: the slot's menu (an empty slot's is the plugins); the list to choose from opens from the same place. */}
+              <DropdownMenu open={menuOpen} onOpenChange={openArrow}>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" aria-label={`Slot ${slot + 1} menu`} className="grid h-full w-5 place-items-center text-muted-foreground hover:text-foreground" onClick={(e) => e.stopPropagation()}>
+                    <PiCaretRightFill className="size-2.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-52">
+                  <SlotMenuItems menu={DROPDOWN} trackId={trackId} slot={slot} effect={effect} openPicker={openPicker} />
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {effect ? <EffectName effect={effect} /> : <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70 italic">{`Slot ${slot + 1}`}</span>}
+              {effect && (
+                <>
+                  <SongKnob size={18} label={`${effect.plugin.name} mix`} value={effect.mix} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, mix) => updateEffect(song, trackId, slot, { mix })} />
+                  <button
+                    type="button"
+                    aria-label={effect.enabled ? `Bypass ${effect.plugin.name}` : `Enable ${effect.plugin.name}`}
+                    aria-pressed={effect.enabled}
+                    className="group grid size-4 place-items-center rounded-full"
+                    onClick={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}
+                  >
+                    <span className={cn("size-2 rounded-full", effect.enabled ? "border border-brand-edge bg-brand shadow-[0_0_4px] shadow-brand/70" : "sunken")} />
+                  </button>
+                </>
+              )}
+              {dropping !== null && dropping !== slot && <DropMark />}
+            </li>
+          </PopoverPrimitive.Anchor>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="min-w-48">
+          <SlotMenuItems menu={CONTEXT} trackId={trackId} slot={slot} effect={effect} openPicker={openPicker} />
+        </ContextMenuContent>
+      </ContextMenu>
+      <PopoverContent side="left" align="start" className="w-auto p-2" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <EffectPicker
+          onChoose={(plugin) => {
+            setChoosing(false);
+            choose(plugin);
           }}
-          // (A menu opened from the slot is drawn elsewhere, but its clicks still bubble through here: they aren't the slot's.)
-          onClick={(e) => !effect && e.currentTarget.contains(e.target as Node) && setChoosing(true)}
-          onWheel={(e) => {
-            if (!effect || e.deltaY === 0) return;
-            commit((song) => moveEffect(song, trackId, slot, e.deltaY > 0 ? 1 : -1));
-          }}
-        >
-          {/* Its arrow: the slot's menu (an empty slot's is the plugins); the list to choose from opens from the same place. */}
-          <DropdownMenu open={choosing || menuOpen} onOpenChange={openArrow}>
-            <DropdownMenuTrigger asChild>
-              <button type="button" aria-label={`Slot ${slot + 1} menu`} className="grid h-full w-5 place-items-center text-muted-foreground hover:text-foreground" onClick={(e) => e.stopPropagation()}>
-                <PiCaretRightFill className="size-2.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-52">
-              {choosing ? <PluginList open={choosing} onChoose={choose} /> : <SlotMenuItems menu={DROPDOWN} trackId={trackId} slot={slot} effect={effect} openPicker={openPicker} />}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {effect ? <EffectName effect={effect} /> : <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70 italic">{`Slot ${slot + 1}`}</span>}
-          {effect && (
-            <>
-              <SongKnob size={18} label={`${effect.plugin.name} mix`} value={effect.mix} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, mix) => updateEffect(song, trackId, slot, { mix })} />
-              <button
-                type="button"
-                aria-label={effect.enabled ? `Bypass ${effect.plugin.name}` : `Enable ${effect.plugin.name}`}
-                aria-pressed={effect.enabled}
-                className="group grid size-4 place-items-center rounded-full"
-                onClick={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}
-              >
-                <span className={cn("size-2 rounded-full", effect.enabled ? "border border-brand-edge bg-brand shadow-[0_0_4px] shadow-brand/70" : "sunken")} />
-              </button>
-            </>
-          )}
-          {dropping !== null && dropping !== slot && <DropMark />}
-        </li>
-      </ContextMenuTrigger>
-      <ContextMenuContent className="min-w-48">
-        <SlotMenuItems menu={CONTEXT} trackId={trackId} slot={slot} effect={effect} openPicker={openPicker} />
-      </ContextMenuContent>
-    </ContextMenu>
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -193,25 +185,6 @@ function DropMark() {
   return <span className="pointer-events-none absolute inset-0 rounded-sm ring-2 ring-brand ring-inset" aria-hidden />;
 }
 
-/** The effect plugins to choose from (to be the big picker). */
-function PluginList({ open, onChoose }: { open: boolean; onChoose: (plugin: EnginePlugin) => void }) {
-  const { plugins, error } = useEffectPlugins(open);
-  return (
-    <>
-      {error && <DropdownMenuLabel className="text-destructive">{error}</DropdownMenuLabel>}
-      {plugins === null && !error && <DropdownMenuLabel className="text-muted-foreground">Looking for plugins…</DropdownMenuLabel>}
-      {plugins?.length === 0 && <DropdownMenuLabel className="text-muted-foreground">No effect plugins found</DropdownMenuLabel>}
-      <div className="max-h-72 overflow-y-auto">
-        {plugins?.map((plugin) => (
-          <DropdownMenuItem key={plugin.id} onSelect={() => onChoose(plugin)}>
-            {plugin.name}
-            <span className="ml-auto pl-3 text-[10px] text-muted-foreground">{plugin.format === "AudioUnit" ? "AU" : plugin.format}</span>
-          </DropdownMenuItem>
-        ))}
-      </div>
-    </>
-  );
-}
 
 /**
  * A loaded effect's name: a click opens its window (or closes it), as in FL Studio; while it loads, a
@@ -297,4 +270,11 @@ function DelayCompensation({ trackId }: { trackId: string }) {
       </label>
     </section>
   );
+}
+
+/** The effect plugins to choose from: the big picker, by kind. */
+function EffectPicker({ onChoose }: { onChoose: (plugin: EnginePlugin) => void }) {
+  const { plugins, error } = usePluginList("effect", true);
+  const items = useMemo(() => (plugins ?? []).map(pickerItem), [plugins]);
+  return <PluginPicker noun="effect" items={items} loading={plugins === null} error={error} onChoose={(item) => item.plugin && onChoose(item.plugin)} />;
 }
