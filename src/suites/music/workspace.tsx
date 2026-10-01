@@ -25,8 +25,8 @@ import * as mixer from "./mixer/actions";
 import { type MixerKeyAction, resolveMixerKey } from "./mixer/keys";
 import { MixerWindow } from "./mixer/mixer-window";
 import { useMixerView } from "./mixer/view";
-import { type WindowId, useMusicUi } from "./ui";
-import { Desktop } from "./window";
+import { type WindowId, useMusicUi, useMusicWindows } from "./ui";
+import { MusicDesktop } from "./window";
 
 /** The music suite's main column (`clientSuite("music").Workspace`): its toolbar, its windows, its assistant. */
 export default function MusicWorkspace() {
@@ -66,7 +66,7 @@ function Windows() {
   const openIds = useMusicUi((s) => s.openChannelIds);
   const channels = useSong((song) => song.channels);
   return (
-    <Desktop
+    <MusicDesktop
       // Samples dropped on the desktop itself (not on a window) become channels, as in FL Studio.
       onDragOver={(e) => {
         if (carriesSamples(e.dataTransfer) && !(e.target as HTMLElement).closest("[data-window]")) e.preventDefault();
@@ -84,7 +84,7 @@ function Windows() {
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {pianoOpen && chopping && <Chopper />}
       {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind === "sampler" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
-    </Desktop>
+    </MusicDesktop>
   );
 }
 
@@ -99,7 +99,7 @@ function frontWindow(): WindowId | null {
     : id === "note" ? usePiano.getState().editing !== null
     : id === "chopper" ? usePiano.getState().chopping
     : ui.openChannelIds.includes(id.slice("channel:".length));
-  return [...ui.order].reverse().find(open) ?? null;
+  return [...useMusicWindows.getState().order].reverse().find(open) ?? null;
 }
 
 function runPianoKey(action: PianoKeyAction) {

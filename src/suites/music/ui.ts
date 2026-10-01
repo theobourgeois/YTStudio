@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import type { TrackState } from "@shared/music/mixer";
 import type { MusicProject, Note } from "@shared/music/types";
+import { createWindows } from "@/components/windows/store";
 import { useMusic } from "./store";
-import type { WindowSnap } from "./window-geometry";
 
 /**
  * A window of the music editor: the channel rack, the Piano roll, the mixer, a channel's settings, or one of the
@@ -11,23 +11,16 @@ import type { WindowSnap } from "./window-geometry";
 export type WindowId = "rack" | "piano" | "mixer" | "transpose" | "note" | "chopper" | `channel:${string}`;
 export const channelWindow = (channelId: string): WindowId => `channel:${channelId}`;
 
-export interface WindowPlace {
-  x: number;
-  y: number;
-  /** A resizable window's size (the others fit what's in them). */
-  width?: number;
-  height?: number;
-  /** Filling the desktop or half of it; `x`… `height` are then where it goes back to. */
-  snap?: WindowSnap | null;
-}
+/** Where the music editor's windows are on its desktop, and which is in front (the rack, at first). */
+export const useMusicWindows = createWindows<WindowId>(["rack"]);
 
 /** The fewest steps the rack shows: a bar of 4/4, FL Studio's default. */
 export const MIN_RACK_STEPS = 16;
 
 /**
- * How the music editor is laid out and what's selected in it: none of it part of the song (nothing
- * here is undone or saved). Like FL Studio, the editor is windows on a desktop: they're dragged,
- * closed and brought back, and the one last touched is on top.
+ * Which of the music editor's windows are open and what's selected in it: none of it part of the song
+ * (nothing here is undone or saved). Like FL Studio, the editor is windows on a desktop: they're
+ * dragged, closed and brought back, and the one last touched is on top (`useMusicWindows`).
  */
 interface MusicUiState {
   /** Selected channels (the selector lights), in the order they were picked. */
@@ -52,14 +45,6 @@ interface MusicUiState {
   transposeOpen: boolean;
   /** The channels whose settings windows are open. */
   openChannelIds: string[];
-  /** Where each window has been put. */
-  places: Partial<Record<WindowId, WindowPlace>>;
-  /** Windows from back to front. */
-  order: WindowId[];
-  /** Where a window sent to the corner came from, to go back there. */
-  cornerFrom: Partial<Record<WindowId, WindowPlace>>;
-  /** Where the window being dragged would snap to if it were let go now (drawn on the desktop). */
-  snapPreview: WindowSnap | null;
 
   /** Select one channel (or, already the only one selected, none); `add` toggles it among the others. */
   selectChannel: (id: string, mode?: "only" | "add") => void;
@@ -85,16 +70,6 @@ interface MusicUiState {
   toggleChannelWindow: (id: string, keepOthers: boolean) => void;
   openChannelWindow: (id: string) => void;
   closeChannelWindow: (id: string) => void;
-  focusWindow: (id: WindowId) => void;
-  placeWindow: (id: WindowId, place: WindowPlace) => void;
-  /** Fill the desktop with a window, or put it back as it was (a double-click on its title). */
-  toggleMaximised: (id: WindowId, initial: WindowPlace) => void;
-  /**
-   * Send a window to the desktop's top-left corner, or back from it to where it was (a double-click on
-   * the title of a window that doesn't resize, like the channel rack).
-   */
-  toggleCorner: (id: WindowId, initial: WindowPlace) => void;
-  setSnapPreview: (snap: WindowSnap | null) => void;
 }
 
 const INITIAL = {
@@ -111,13 +86,9 @@ const INITIAL = {
   copiedTrack: null as { projectId: string; state: TrackState } | null,
   transposeOpen: false,
   openChannelIds: [] as string[],
-  places: {},
-  order: ["rack"] as WindowId[],
-  cornerFrom: {} as Partial<Record<WindowId, WindowPlace>>,
-  snapPreview: null as WindowSnap | null,
 };
 
-const toFront = (order: WindowId[], id: WindowId) => [...order.filter((w) => w !== id), id];
+const windows = () => useMusicWindows.getState();
 
 export const useMusicUi = create<MusicUiState>((set, get) => ({
   ...INITIAL,
@@ -131,11 +102,21 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   copySteps: (copiedSteps) => set({ copiedSteps }),
   setRackSteps: (steps) => set({ rackSteps: Math.max(MIN_RACK_STEPS, Math.round(steps)) }),
   setGraphOpen: (graphOpen) => set({ graphOpen }),
-  setRackOpen: (rackOpen) => set({ rackOpen, order: rackOpen ? toFront(get().order, "rack") : get().order }),
+  setRackOpen(rackOpen) {
+    if (rackOpen) windows().focus("rack");
+    set({ rackOpen });
+  },
 
-  setPianoOpen: (pianoOpen) => set({ pianoOpen, order: pianoOpen ? toFront(get().order, "piano") : get().order.filter((w) => w !== "piano") }),
+  setPianoOpen(pianoOpen) {
+    if (pianoOpen) windows().focus("piano");
+    else windows().remove("piano");
+    set({ pianoOpen });
+  },
 
-  setMixerOpen: (mixerOpen) => set({ mixerOpen, order: mixerOpen ? toFront(get().order, "mixer") : get().order }),
+  setMixerOpen(mixerOpen) {
+    if (mixerOpen) windows().focus("mixer");
+    set({ mixerOpen });
+  },
   selectTrack(id, mode = "only") {
     const selected = get().selectedTrackIds;
     if (mode === "only") return set({ selectedTrackIds: [id] });
@@ -152,45 +133,31 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   setTrackSelectorsShown: (trackSelectorsShown) => set({ trackSelectorsShown }),
   copyTrack: (copiedTrack) => set({ copiedTrack }),
 
-  setTransposeOpen: (transposeOpen) => set({ transposeOpen, order: transposeOpen ? toFront(get().order, "transpose") : get().order }),
+  setTransposeOpen(transposeOpen) {
+    if (transposeOpen) windows().focus("transpose");
+    set({ transposeOpen });
+  },
 
   toggleChannelWindow(id, keepOthers) {
     const open = get().openChannelIds;
     if (open.includes(id)) return get().closeChannelWindow(id);
-    set({ openChannelIds: keepOthers ? [...open, id] : [id], order: toFront(get().order, channelWindow(id)) });
+    windows().focus(channelWindow(id));
+    set({ openChannelIds: keepOthers ? [...open, id] : [id] });
   },
   openChannelWindow(id) {
     const open = get().openChannelIds;
-    set({ openChannelIds: open.includes(id) ? open : [id], order: toFront(get().order, channelWindow(id)) });
+    windows().focus(channelWindow(id));
+    set({ openChannelIds: open.includes(id) ? open : [id] });
   },
   closeChannelWindow: (id) => set({ openChannelIds: get().openChannelIds.filter((c) => c !== id) }),
-  focusWindow(id) {
-    const { order } = get();
-    if (order[order.length - 1] !== id) set({ order: toFront(order, id) });
-  },
-  placeWindow: (id, place) => set({ places: { ...get().places, [id]: place } }),
-  toggleMaximised(id, initial) {
-    const place = get().places[id] ?? initial;
-    get().placeWindow(id, { ...place, snap: place.snap === "full" ? null : "full" });
-  },
-  toggleCorner(id, initial) {
-    const place = get().places[id] ?? initial;
-    const from = get().cornerFrom[id];
-    const inCorner = place.x === 0 && place.y === 0;
-    if (inCorner && from) {
-      set({ cornerFrom: { ...get().cornerFrom, [id]: undefined } });
-      get().placeWindow(id, from);
-    } else if (!inCorner) {
-      set({ cornerFrom: { ...get().cornerFrom, [id]: place } });
-      get().placeWindow(id, { ...place, x: 0, y: 0 });
-    }
-  },
-  setSnapPreview: (snapPreview) => get().snapPreview !== snapPreview && set({ snapPreview }),
 }));
 
 // Another song: its own selection and windows.
 useMusic.subscribe((state, prev) => {
-  if (state.projectId !== prev.projectId) useMusicUi.setState(INITIAL);
+  if (state.projectId !== prev.projectId) {
+    useMusicUi.setState(INITIAL);
+    useMusicWindows.getState().reset();
+  }
 });
 
 /**

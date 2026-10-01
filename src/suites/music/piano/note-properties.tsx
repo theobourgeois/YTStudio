@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Knob, PERCENT, panText, percent } from "../knob";
 import { useMusic } from "../store";
-import { useMusicUi } from "../ui";
+import { useMusicWindows } from "../ui";
 import { MusicWindow, centredOnDesktop } from "../window";
 import { pianoContext } from "./actions";
 import { formatLength, formatPosition, parseTime, pitchName } from "./geometry";
@@ -29,7 +29,7 @@ export function NoteProperties() {
   const [length, setLength] = useState(note && ctx ? formatLength(note.length, ctx.barTicks) : "");
   const close = () => usePiano.setState({ editing: null });
   // In front of the Piano roll whenever it opens on a note.
-  useEffect(() => useMusicUi.getState().focusWindow("note"), []);
+  useEffect(() => useMusicWindows.getState().focus("note"), []);
   if (!ctx || !note) return null;
   const startTicks = parseTime(start, ctx.barTicks, true);
   const lengthTicks = parseTime(length, ctx.barTicks, false);

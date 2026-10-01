@@ -29,7 +29,7 @@ import { stepsPerBar } from "@shared/music/project";
 import { type Channel, type MusicProject, type Note, PPQ, type Pattern, STEP_TICKS } from "@shared/music/types";
 import { currentPattern, useMusic } from "../store";
 import { patternTickNow, useTransport } from "../transport";
-import { useMusicUi } from "../ui";
+import { useMusicUi, useMusicWindows } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
 import { fadeOut } from "./fades";
 import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, snapTicks, zoomAt, zoomToRange } from "./geometry";
@@ -259,7 +259,7 @@ export function withChopPreview(song: MusicProject): MusicProject {
 /** Alt+U: the Chopper's window, in front. The Piano roll shows the notes chopped while it's open. */
 export function openChopper() {
   usePiano.setState({ chopping: true });
-  useMusicUi.getState().focusWindow("chopper");
+  useMusicWindows.getState().focus("chopper");
 }
 
 /** The Chopper's Accept: its chop becomes an edit (one undo step), and the pieces are selected. */

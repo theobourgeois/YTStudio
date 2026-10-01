@@ -620,7 +620,7 @@ test("the toolbar, as FL Studio's: the tempo LCD drags, + makes a pattern, the p
 test("a double-click on the rack's title sends it to the desktop's corner, and another brings it back", async ({ page }) => {
   await openNewSong(page, "Corner");
   const rack = page.locator('[data-window="rack"]');
-  const desktop = (await page.locator("[data-desktop]").boundingBox())!;
+  const desktop = (await page.locator("[data-desktop=music]").boundingBox())!;
   const before = (await rack.boundingBox())!;
   expect(before.x - desktop.x).toBeGreaterThan(0);
   await rack.locator("[data-window-title]").dblclick({ position: { x: 150, y: 10 } });
@@ -1103,7 +1103,7 @@ test("the Browser's files go into the song: dragged onto the rack or a channel, 
   await expect.poll(names).toEqual(["Kick 1", "Break", "Kick 1", "Break"]);
 
   // Dropped on the desktop, away from the windows: a new channel, as in FL Studio.
-  const desktop = page.locator("[data-desktop]");
+  const desktop = page.locator("[data-desktop=music]");
   const box = (await desktop.boundingBox())!;
   await item("Kick 2.wav").dragTo(desktop, { targetPosition: { x: box.width - 40, y: box.height - 40 } });
   await expect.poll(names).toEqual(["Kick 1", "Break", "Kick 1", "Break", "Kick 2"]);

@@ -79,6 +79,7 @@ const PLATFORM = [
   "src/components/header/header.tsx",
   "src/components/header/project-name.tsx",
   "src/components/settings/",
+  "src/components/windows/",
   "src/components/workspace/workspace.tsx",
   "src/components/workspace/plain-workspace.tsx",
   "src/components/workspace/empty-state.tsx",
