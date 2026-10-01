@@ -381,21 +381,22 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   const own = isSelected ? SELECTED : color ? clipColours(color) : clip.kind === "audio" ? AUDIO : PATTERN;
   const colours = track?.muted ? onMutedTrack(own) : own;
   const fade = (clip.muted ? 0.5 : 1) * (track?.muted ? MUTED_TRACK_ALPHA : 1) * alpha;
+  // On whole pixels, edge to edge: clips one after another meet at their outlines, with no gap between.
+  const left = Math.round(x);
+  const across = Math.max(2, Math.round(right) - left);
   ctx.globalAlpha = bodyAlpha * fade * (clip.muted ? 0.8 : 1);
   ctx.fillStyle = colours.body;
-  ctx.beginPath();
-  ctx.roundRect(Math.round(x) + 0.5, y + 0.5, Math.round(w) - 1, h - 1, 2);
-  ctx.fill();
+  ctx.fillRect(left, y, across, h);
   ctx.globalAlpha = fade;
   const title = Math.min(TITLE_HEIGHT, h);
   ctx.fillStyle = colours.title;
-  ctx.fillRect(Math.round(x) + 1, y + 1, Math.round(w) - 2, title - 1);
+  ctx.fillRect(left, y, across, title);
   // Its content, under the title.
   const bodyY = y + title;
   const bodyH = h - title - 1;
   ctx.save();
   ctx.beginPath();
-  ctx.rect(Math.round(x) + 1, bodyY, Math.round(w) - 2, bodyH);
+  ctx.rect(left + 1, bodyY, across - 2, bodyH);
   ctx.clip();
   if (clip.kind === "pattern") {
     const pattern = scene.patterns.get(clip.ref);
@@ -433,7 +434,7 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   }
   ctx.globalAlpha = alpha;
   ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
-  ctx.strokeRect(Math.round(x) + 0.5, y + 0.5, Math.round(w) - 1, h - 1);
+  ctx.strokeRect(left + 0.5, y + 0.5, across - 1, h - 1);
   ctx.globalAlpha = 1;
 }
 
