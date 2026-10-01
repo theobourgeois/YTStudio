@@ -6,6 +6,7 @@
 import { createId } from "@shared/ids";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
+import { EXPORT_FORMATS, type ExportFormat, type ExportSettings } from "@shared/music/export";
 import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
 import type { MusicProject } from "@shared/music/types";
@@ -15,6 +16,8 @@ import { api } from "@/lib/api";
 import type { ToolRunContext } from "../types";
 import { musicApi } from "./api";
 import { describeSong } from "./context";
+import { useSongExport } from "./export/store";
+import { useMusicUi } from "./ui";
 import { useMusic } from "./store";
 import {
   type EditResult,
@@ -331,6 +334,51 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     if (transport.playing && mode === transport.mode) transport.play();
     else switchMode(mode, true);
     return textResult(mode === "song" ? `Playing the song (the playlist)${input.bar !== undefined ? ` from bar ${input.bar}` : ""}, round and round.` : "Playing the pattern shown, on a loop.");
+  },
+  async export_song(input, ctx) {
+    const target = await targetOf(ctx);
+    // The engine has the open song's plugins: only it can be exported.
+    requireOpen(target, "Exporting");
+    const patch: Partial<ExportSettings> = {};
+    if (input.formats !== undefined) {
+      const formats = Array.isArray(input.formats) ? input.formats.filter((f): f is ExportFormat => EXPORT_FORMATS.includes(f as ExportFormat)) : [];
+      if (!formats.length || formats.length !== (input.formats as unknown[]).length) throw new Error(`"formats" must be a list of: ${EXPORT_FORMATS.join(", ")}.`);
+      patch.formats = formats;
+    }
+    if (input.mode !== undefined) {
+      if (input.mode !== "song" && input.mode !== "pattern") throw new Error('"mode" must be "song" or "pattern".');
+      patch.mode = input.mode;
+    }
+    if (input.tail !== undefined) {
+      if (input.tail !== "cut" && input.tail !== "ring") throw new Error('"tail" must be "cut" or "ring".');
+      patch.tail = input.tail;
+    }
+    if (input.stems !== undefined) patch.stems = input.stems === true;
+    if (input.wavBits !== undefined) {
+      if (![16, 24, 32].includes(input.wavBits as number)) throw new Error('"wavBits" must be 16, 24 or 32.');
+      patch.wavBits = input.wavBits as ExportSettings["wavBits"];
+    }
+    if (input.mp3Bitrate !== undefined) {
+      if (typeof input.mp3Bitrate !== "number" || input.mp3Bitrate < 64 || input.mp3Bitrate > 320) throw new Error('"mp3Bitrate" must be 64 to 320 (kilobits a second).');
+      patch.mp3Bitrate = input.mp3Bitrate;
+    }
+    const exporter = useSongExport.getState();
+    exporter.setSettings(patch);
+    // Kept on the server: the window lists them, to download or show.
+    useSongExport.setState({ destination: null });
+    exporter.reset();
+    useMusicUi.getState().setExportOpen(true);
+    const job = await exporter.run();
+    if (job.state === "failed") throw new Error(`The export failed: ${job.error ?? "no reason given"}.`);
+    if (job.state === "aborted") return textResult("The export was stopped before it finished.");
+    const size = (bytes: number) => (bytes < 1e6 ? `${Math.max(1, Math.round(bytes / 1e3))} KB` : `${(bytes / 1e6).toFixed(1)} MB`);
+    const lines = [
+      `Exported ${job.files.length} file${job.files.length === 1 ? "" : "s"}${job.length !== null ? ` of ${job.length.toFixed(1)} s of song` : ""} in ${(job.seconds ?? 0).toFixed(1)} s:`,
+      ...job.files.map((f) => `- ${f.name} (${size(f.bytes)})`),
+      "They're listed in the export window for the user to download or show in Finder.",
+    ];
+    if (job.missing.length) lines.push(`Not heard (their plugin or sample couldn't be loaded): ${job.missing.join(", ")}.`);
+    return textResult(lines.join("\n"));
   },
   async get_playlist(_input, ctx) {
     const target = await targetOf(ctx);

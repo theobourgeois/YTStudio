@@ -51,6 +51,9 @@ as new channels or as a sampler channel's sample. Prefer their samples to the st
 Start with get_song. To make a beat: add_channel for each sound (the starter kit has kick, clap, hat and \
 snare), then set_steps to draw each channel's steps as text ("x---x---x---x---"). update_song sets the tempo \
 and swing; edit_step changes one step's velocity or pitch; add_pattern makes another pattern. You can't hear \
-the song: play_song starts it for the user, so ask them how it sounds rather than claiming it sounds good.`,
+the song: play_song starts it for the user, so ask them how it sounds rather than claiming it sounds good.
+
+export_song renders the song to files (WAV, MP3, FLAC, OGG, M4A, MIDI; stems: a file per mixer track) in \
+seconds; the export window lists them for the user to download or show in Finder.`,
   },
 };

@@ -1653,3 +1653,16 @@ test("exports the song as FL Studio does: ⌘R opens the export window, it rende
   await page.getByRole("button", { name: "Export", exact: true }).click();
   await expect(page.getByRole("region", { name: "Export" }).getByRole("combobox", { name: "MP3 bitrate" })).toBeVisible();
 });
+
+test("the assistant exports the song: the export window opens and lists what it made", async ({ page }) => {
+  await openNewSong(page, "Assisted export");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(['call add_channel {"kit": "kick"}', 'call set_steps {"channel": "Kick", "steps": "x---x---x---x---"}', 'call export_song {"formats": ["mp3", "mid"], "mode": "pattern", "mp3Bitrate": 192}', 'call export_song {"formats": ["aiff"]}'].join("\n"));
+  await composer.press("Enter");
+  await expect(panel).toContainText("export_song: ok, export_song: failed", { timeout: 30_000 });
+  const files = page.getByRole("region", { name: "Export" }).getByRole("list", { name: "Exported files" });
+  await expect(files).toContainText("Assisted export.mp3");
+  await expect(files).toContainText("Assisted export.mid");
+});

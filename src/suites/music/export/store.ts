@@ -44,6 +44,8 @@ interface SongExportState {
   /** The window's Change…: the save dialog again. */
   chooseDestination: () => Promise<boolean>;
   start: () => Promise<void>;
+  /** Start it (as Start does) and resolve when it has ended, however it ended; throws if it couldn't start. */
+  run: () => Promise<MusicExportJob>;
   abort: () => Promise<void>;
   /** Back to the settings, after an export (the window's Export again). */
   reset: () => void;
@@ -107,6 +109,27 @@ export const useSongExport = create<SongExportState>((set, get) => {
     }, POLL_MS);
   }
 
+  /** Send the song to be exported, as it is now; the job, or an error if it couldn't start. */
+  async function launch(): Promise<MusicExportJob> {
+    const { history, projectId, patternId } = useMusic.getState();
+    if (!history || !projectId) throw new Error("No song is open.");
+    if (get().starting || busy(get().job)) throw new Error("A song is being exported already.");
+    const settings = { ...get().settings, resampling: useMusicPreferences.getState().exportResampling };
+    const selection = settings.mode === "song" ? usePlaylist.getState().time : usePiano.getState().time;
+    set({ starting: true });
+    try {
+      const job = await musicApi.startExport({ projectId, song: history.doc, patternId, selection, settings, destination: get().destination });
+      // The engine stops playing; the transport follows.
+      useTransport.setState({ exporting: true, playing: false, pausedAt: null });
+      set({ job, starting: false });
+      follow(job.id);
+      return job;
+    } catch (err) {
+      set({ starting: false });
+      throw err;
+    }
+  }
+
   function finished(job: MusicExportJob) {
     if (job.state === "failed") toast.error("The export failed", { description: job.error ?? undefined });
     if (job.state !== "done") return;
@@ -144,21 +167,21 @@ export const useSongExport = create<SongExportState>((set, get) => {
     },
 
     async start() {
-      const { history, projectId, patternId } = useMusic.getState();
-      if (!history || !projectId || get().starting || busy(get().job)) return;
-      const settings = { ...get().settings, resampling: useMusicPreferences.getState().exportResampling };
-      const selection = settings.mode === "song" ? usePlaylist.getState().time : usePiano.getState().time;
-      set({ starting: true });
-      try {
-        const job = await musicApi.startExport({ projectId, song: history.doc, patternId, selection, settings, destination: get().destination });
-        // The engine stops playing; the transport follows.
-        useTransport.setState({ exporting: true, playing: false, pausedAt: null });
-        set({ job, starting: false });
-        follow(job.id);
-      } catch (err) {
-        set({ starting: false });
-        toast.error("Couldn't export", { description: errorMessage(err) });
-      }
+      await launch().catch((err) => toast.error("Couldn't export", { description: errorMessage(err) }));
+    },
+
+    async run() {
+      const job = await launch();
+      return new Promise<MusicExportJob>((resolve) => {
+        const check = (state: SongExportState) => {
+          if (state.job?.id === job.id && !busy(state.job)) {
+            stop();
+            resolve(state.job);
+          }
+        };
+        const stop = useSongExport.subscribe(check);
+        check(get());
+      });
     },
 
     async abort() {
