@@ -263,6 +263,28 @@ from the selected track to where it sends (faint for a sidechain); Copy / Paste 
 track's effects (their plugins' settings copied too) and its controls to another. Only the strips in
 view are drawn, so 500 tracks open as fast as 16.
 
+Théo's first pass (2026-09-30), all built:
+
+- Changing a channel's insert number (drag, type, TRACK) selects that track in the mixer; selecting
+  the channel alone doesn't.
+- Naming: Ctrl+Shift+L and the free-track routes name an unnamed insert after its channel; routing
+  several channels to one insert (Ctrl+L) names nothing; an insert already named keeps its name.
+- With several tracks selected, a right-click keeps the selection, and Colour and Rename apply to them
+  all (the same name, no numbering).
+- A drag across the strips moves the selection one track at a time; Cmd+drag adds each one passed.
+- The mixer opens filling the desktop; the meters share the strip's height with the faders, in FL's
+  colours (green, amber, red: the theme's `--meter-*`); a selection meter ("SEL", at the left) is the
+  selected tracks' sound added up, measured by the engine.
+- A coloured track is coloured all the way down. Cables hang below the strips (only their ends show)
+  and swing when plugged in.
+- Effect slots: a click anywhere on an empty one opens the plugins; a loaded one's name opens its
+  window; the arrow and a right-click give its menu; drag to reorder (it swaps with what's there).
+- Copy track state can be dragged from the menu onto another track. Track state is FL's: effects and
+  controls, not routing.
+- The plugin picker (the slots and the rack's +): a big popover, a focused search, groups by the
+  category the plugin reports, pins (this computer's) in a Pinned group and their own, arrow keys.
+- Views: Compact, Wide, Extra large (effects listed under each strip).
+
 Not yet, or different: docks, icons, the Current track, the track EQ (put off), "Compensate automations"
 (no automation yet), recording, the slot's presets and Patcher, the
 "glide" when the groove is clicked (the handle goes there at once). Choices made, to check with Théo:

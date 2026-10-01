@@ -300,6 +300,8 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   the engine knows nothing of them. Copying a track's state copies its plugins' settings files on the server
   (`POST /api/engine/states/copy`) before the pasted effects (new ids) reach the engine. The Mixer window
   draws only the strips in view (`useVisibleStrips`): don't rely on off-screen strips being in the DOM.
+  Plugins are chosen in one picker (`plugin-picker.tsx`, its model in `plugin-groups.ts`: groups from the
+  plugin's reported category, pins in localStorage) for the rack's + and the effect slots.
   The Mixer window is `src/suites/music/mixer/` (F9): `mixer-window.tsx` (strips, the send row, menus),
   `inspector.tsx` (effect slots), `fader.tsx`, `meters.ts` (one animation loop draws every strip's meter from
   `useTransport().meters`; the falling in `meter.ts`, tested), `actions.ts` (what menus and keys do), `keys.ts`
