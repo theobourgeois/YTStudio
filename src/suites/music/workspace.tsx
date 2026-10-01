@@ -164,6 +164,8 @@ function runMixerKey(action: MixerKeyAction) {
       return mixer.selectAllTracks();
     case "rename":
       return useMixerView.getState().rename(mixer.currentTrack());
+    case "delete":
+      return mixer.deleteTracks(mixer.selectedTracks());
   }
 }
 

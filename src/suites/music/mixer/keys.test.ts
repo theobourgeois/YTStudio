@@ -13,6 +13,9 @@ describe("the mixer's keys", () => {
     expect(key("KeyL", { altKey: true }, "¬")).toEqual({ type: "selectChannels" });
     expect(key("KeyA", { metaKey: true })).toEqual({ type: "selectAll" });
     expect(key("F2", {}, "F2")).toEqual({ type: "rename" });
+    expect(key("Delete", { altKey: true }, "Delete")).toEqual({ type: "delete" });
+    expect(key("Backspace", { altKey: true }, "Backspace")).toEqual({ type: "delete" });
+    expect(key("Backspace", {}, "Backspace")).toBeNull();
   });
 
   it("select tracks with the arrows, and move them with Alt", () => {

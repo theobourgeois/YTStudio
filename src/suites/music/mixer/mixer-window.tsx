@@ -271,7 +271,9 @@ function MixerMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuItem onSelect={addTrackAfterCurrent}>Add a track</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => deleteTracks(selectedTracks())}>Delete selected tracks</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => deleteTracks(selectedTracks())}>
+          Delete selected tracks <DropdownMenuShortcut>⌥⌫</DropdownMenuShortcut>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => routeSelectedChannels()}>
           Route selected channels to this track <DropdownMenuShortcut>⌘L</DropdownMenuShortcut>
@@ -614,7 +616,7 @@ function TrackMenu({ id, isMaster, color, separator, grouped }: { id: string; is
       <ContextMenuItem onSelect={addTrackAfterCurrent}>Insert a track after</ContextMenuItem>
       {!isMaster && (
         <ContextMenuItem variant="destructive" onSelect={() => deleteTracks(selectedTracks().includes(id) ? selectedTracks() : [id])}>
-          Delete
+          Delete <ContextMenuShortcut>⌥⌫</ContextMenuShortcut>
         </ContextMenuItem>
       )}
     </ContextMenuContent>

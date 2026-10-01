@@ -685,6 +685,9 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await mixer.getByRole("button", { name: "Add a mixer track at the end" }).click();
   await expect(mixer.locator("[data-track]")).toHaveCount(19);
   await expect(strip("Insert 18")).toHaveAttribute("aria-selected", "true");
+  // Alt+Delete deletes the selected track.
+  await page.keyboard.press("Alt+Backspace");
+  await expect(mixer.locator("[data-track]")).toHaveCount(18);
   expect((await mixerOf())[4].name).toBeNull();
 
   // Playing, the meters move (the stand-in engine reports the master's level).
