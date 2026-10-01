@@ -217,6 +217,15 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             Track track;
             track.id = item["id"].toString();
             track.latencyOffsetMs = number (item["latencyOffset"], 0, -1000, 1000);
+            if (const auto input = item["input"]; input.isObject())
+            {
+                if (const auto* channels = input["channels"].getArray())
+                    for (const auto& channel : *channels)
+                        if (track.input.size() < 2)
+                            track.input.push_back ((int) number (channel, -1, -1, 1023));
+                track.monitor = (bool) input["monitor"];
+                track.armed = (bool) input["armed"];
+            }
             if (const auto* slots = item["effects"].getArray())
                 for (const auto& slot : *slots)
                 {
@@ -266,6 +275,10 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     reached[(size_t) master] = true;
     for (const auto& channel : song->channels)
         reached[(size_t) channel.track] = true;
+    // And each track whose input is heard.
+    for (size_t t = 0; t < song->tracks.size(); ++t)
+        if (song->tracks[t].monitor && ! song->tracks[t].input.empty())
+            reached[t] = true;
     int buffers = 0;
     for (size_t t = 0; t < song->tracks.size(); ++t)
         if (reached[t])

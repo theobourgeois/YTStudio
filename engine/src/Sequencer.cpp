@@ -18,7 +18,7 @@ constexpr double heldSeconds = 30.0;
 constexpr double tickSlack = 1e-6;
 }
 
-Sequencer::Sequencer (bool offline) : clips (offline) {}
+Sequencer::Sequencer (bool offline) : clips (offline), recording (offline) {}
 
 Sequencer::~Sequencer()
 {
@@ -104,6 +104,21 @@ void Sequencer::play (double fromTick)
     // The clips where play starts are decoded before it does, so they sound from its first block.
     clips.prepare (std::fmod (from, loopTicks), next, 0, 0.0);
     playFrom = from;
+    playCountIn = 0.0;
+    playRecords = false;
+    playThrough = false;
+    ++playRequests;
+}
+
+void Sequencer::record (double fromTick, double countInTicks, bool loop)
+{
+    const auto from = juce::jmax (0.0, fromTick);
+    const auto next = nextGeneration();
+    clips.prepare (std::fmod (from, loopTicks), next, 0, 0.0);
+    playFrom = from;
+    playCountIn = juce::jmax (0.0, countInTicks);
+    playRecords = true;
+    playThrough = ! loop;
     ++playRequests;
 }
 
@@ -199,7 +214,8 @@ void Sequencer::adopt (Song* next)
         else
             voice.channel = channel;
     }
-    if (position_ >= next->loopTicks)
+    // (Playing on past the loop's end, recording, it stays where it is.)
+    if (position_ >= next->loopTicks && ! through)
         position_ = std::fmod (position_, next->loopTicks);
 
     // Each track (and send) starts where the last song left it, and its first block glides to where
@@ -248,7 +264,7 @@ void Sequencer::silenceVoices()
     silencing = true;
 }
 
-void Sequencer::process (float* left, float* right, int numSamples)
+void Sequencer::process (float* left, float* right, int numSamples, const float* const* inputs, int numInputs)
 {
     if (auto* next = pending.exchange (nullptr))
         adopt (next);
@@ -261,18 +277,28 @@ void Sequencer::process (float* left, float* right, int numSamples)
         silenceVoices();
         generation = requestedGeneration.load();
         clips.stopAll();
+        // A recording's files are done.
+        recording.end();
+        countInLeft = 0;
+        recordWaiting = through = false;
     }
     if (const auto plays = playRequests.load(); plays != playsSeen)
     {
         playsSeen = plays;
-        // Played while playing (the ruler clicked): it goes there, the notes sounding cut short.
+        // Played while playing (the ruler clicked): it goes there, the notes sounding cut short; a
+        // recording in progress ends there.
         if (playing)
             silenceVoices();
+        recording.end();
         playing = true;
         position_ = song != nullptr ? std::fmod (playFrom.load(), song->loopTicks) : 0;
         generation = requestedGeneration.load();
         pass = 0;
         clips.setGeneration (generation);
+        through = playThrough.load();
+        recordWaiting = playRecords.load();
+        countInDone = 0;
+        countInLeft = song != nullptr ? (juce::int64) std::llround (playCountIn.load() * 60.0 * sampleRate / (song->tempo * song->ppq)) : 0;
     }
 
     if (song != nullptr)
@@ -318,8 +344,19 @@ void Sequencer::process (float* left, float* right, int numSamples)
         clips.receive (*song);
         if (playing)
         {
-            clips.startLate (position_, pass, song->loopTicks, song->tempo * song->ppq / (60.0 * sampleRate));
-            schedule (numSamples);
+            // The count-in's clicks first (the transport holds); the recording begins as it moves.
+            const auto counting = countInLeft > 0;
+            const auto start = countIn (numSamples);
+            if (recordWaiting && countInLeft == 0)
+            {
+                recordWaiting = false;
+                recording.begin (start, position_);
+            }
+            // Clips already under the playhead start in the block after the count-in ends (in time: they skip what they missed).
+            if (! counting)
+                clips.startLate (position_, pass, song->loopTicks, song->tempo * song->ppq / (60.0 * sampleRate));
+            if (start < numSamples)
+                schedule (start, numSamples);
         }
         // A block longer than the song's buffers (the device just changed): silence until the engine
         // gives it the song again with longer ones.
@@ -334,6 +371,21 @@ void Sequencer::process (float* left, float* right, int numSamples)
             for (auto& channel : song->channels)
                 if (channel.delayLine != nullptr)
                     channel.delayLine->clearInput (numSamples);
+            // The inputs heard (monitored): into their tracks before the effects, as they come (no delay
+            // compensation: it's live). A mono input on both sides.
+            if (inputs != nullptr)
+                for (const auto& track : song->tracks)
+                    if (track.monitor && track.buffer >= 0 && ! track.input.empty())
+                    {
+                        const auto source = [&] (size_t side) {
+                            const auto channel = track.input[juce::jmin (side, track.input.size() - 1)];
+                            return channel >= 0 && channel < numInputs ? inputs[channel] : nullptr;
+                        };
+                        if (const auto* in = source (0))
+                            juce::FloatVectorOperations::add (song->audio.getWritePointer (track.buffer * 2), in, numSamples);
+                        if (const auto* in = source (1))
+                            juce::FloatVectorOperations::add (song->audio.getWritePointer (track.buffer * 2 + 1), in, numSamples);
+                    }
             for (auto& voice : voices)
                 if (voice.active)
                     render (voice, numSamples);
@@ -348,6 +400,7 @@ void Sequencer::process (float* left, float* right, int numSamples)
         }
     }
     renderClick (left, right, numSamples);
+    recording.write (inputs, inputs != nullptr ? numInputs : 0, numSamples);
 
     playingNow = playing;
     positionNow = position_;
@@ -355,20 +408,46 @@ void Sequencer::process (float* left, float* right, int numSamples)
     passNow = pass;
 }
 
-void Sequencer::schedule (int numSamples)
+int Sequencer::countIn (int numSamples)
+{
+    if (countInLeft <= 0)
+        return 0;
+    const auto samplesPerTick = 60.0 * sampleRate / (song->tempo * song->ppq);
+    const auto length = juce::jmin ((juce::int64) numSamples, countInLeft);
+    // A click on each of its beats, higher on its bars, counted from its start; heard whether the
+    // metronome is on or not.
+    for (auto beat = std::ceil ((double) countInDone / samplesPerTick / song->beatTicks - tickSlack);; ++beat)
+    {
+        const auto tick = beat * song->beatTicks;
+        const auto at = (juce::int64) std::llround (tick * samplesPerTick) - countInDone;
+        if (at >= length)
+            break;
+        if (at >= 0)
+        {
+            click.delay = (int) at;
+            click.bar = std::fmod (tick, song->barTicks) < 0.5;
+        }
+    }
+    countInDone += length;
+    countInLeft -= length;
+    return (int) length;
+}
+
+void Sequencer::schedule (int start, int numSamples)
 {
     const auto ticksPerSample = song->tempo * song->ppq / (60.0 * sampleRate);
     const auto loop = song->loopTicks;
-    if (! song->loops)
+    if (! song->loops || through)
     {
-        // Once through (an export): what starts before the end plays, then nothing more does.
-        const auto to = position_ + numSamples * ticksPerSample;
+        // Once through (an export, or a recording without Loop record): what starts before the end
+        // plays, then nothing more does, and the playhead goes on.
+        const auto to = position_ + (numSamples - start) * ticksPerSample;
         if (position_ < loop)
-            scheduleRange (position_, juce::jmin (to, loop), position_, 0, numSamples, ticksPerSample);
+            scheduleRange (position_, juce::jmin (to, loop), position_, start, numSamples - start, ticksPerSample);
         position_ = to;
         return;
     }
-    for (int offset = 0; offset < numSamples;)
+    for (int offset = start; offset < numSamples;)
     {
         // Up to the loop's end, then again from its start.
         const auto untilEnd = juce::jmax (1, (int) std::ceil ((loop - position_) / ticksPerSample));
@@ -379,8 +458,10 @@ void Sequencer::schedule (int numSamples)
         if (to >= loop)
         {
             to -= loop;
-            // Round again: a new pass, whose clips' streams start now.
+            // Round again: a new pass, whose clips' streams start now, and a recording's next takes (on
+            // the sample the loop's first notes play on).
             ++pass;
+            recording.wrap (offset + juce::jlimit (0, length, (int) std::floor ((loop - from + tickSlack) / ticksPerSample)));
             scheduleRange (0, to, from - loop, offset, length, ticksPerSample);
         }
         position_ = to;

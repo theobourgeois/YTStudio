@@ -218,6 +218,27 @@ describe("the mixer, compiled", () => {
   });
 });
 
+describe("inputs, compiled", () => {
+  it("give an insert's device channels, heard while armed (FL's default), always or never, and armed only when the tab says", () => {
+    let song = updateMixerTrack(rack(), "insert_1", { input: { channel: 0, stereo: false } });
+    song = updateMixerTrack(song, "insert_2", { input: { channel: 2, stereo: true }, monitor: "on" });
+    song = updateMixerTrack(song, "insert_3", { input: { channel: 1, stereo: false }, monitor: "off" });
+    const inputs = (armed: string[]) => Object.fromEntries(compileSong(song, P, null, "pattern", new Set(armed)).tracks.map((t) => [t.id, t.input]));
+    expect(inputs([])).toMatchObject({
+      insert_1: { channels: [0], monitor: false, armed: false },
+      insert_2: { channels: [2, 3], monitor: true, armed: false },
+      insert_3: { channels: [1], monitor: false, armed: false },
+      insert_4: null,
+      [MASTER_TRACK_ID]: null,
+    });
+    expect(inputs(["insert_1", "insert_3", MASTER_TRACK_ID])).toMatchObject({
+      insert_1: { channels: [0], monitor: true, armed: true },
+      insert_3: { channels: [1], monitor: false, armed: true },
+      [MASTER_TRACK_ID]: null,
+    });
+  });
+});
+
 describe("soundingChannels", () => {
   it("are the unmuted channels with a note sounding at a tick, at least a step long, swung", () => {
     let song = setSteps(rack(), P, "chan_kick", [0, 4], true);

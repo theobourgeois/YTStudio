@@ -1,6 +1,7 @@
 // Plays a Song: the transport (a position in ticks, looping), the sampler's voices, the playlist's audio
-// clips (`ClipPlayer`), the mixer's tracks (channels play into theirs, which add up into the master) and
-// the metronome.
+// clips (`ClipPlayer`), the mixer's tracks (channels play into theirs, which add up into the master;
+// a track's input is heard in it while it's monitored), the metronome, and recording (`Recorder`: the
+// armed tracks' inputs written as play goes, after a count-in).
 //
 // Two threads meet here and neither waits for the other. The message thread hands over songs and
 // requests (`setSong`, `play`, `stop`, `trigger`) through atomics and lock-free queues; the audio
@@ -9,6 +10,7 @@
 #pragma once
 
 #include "ClipPlayer.h"
+#include "Recorder.h"
 #include "Song.h"
 #include "Workers.h"
 
@@ -30,8 +32,17 @@ public:
 
     // Message thread ---------------------------------------------------------
     void setSong (std::unique_ptr<Song> song);
-    /** From `fromTick` into the loop; if it's already playing, it goes there (what sounds is cut short). */
+    /** From `fromTick` into the loop; if it's already playing, it goes there (what sounds is cut short). A recording in progress ends. */
     void play (double fromTick = 0);
+    /**
+     * Record (`recorder()` has been `start`ed): play from `fromTick` after `countInTicks` of the
+     * metronome's clicks, the transport held meanwhile, and record from the moment it moves. Without
+     * `loop`, play doesn't go round the loop: it goes on past its end until it's stopped.
+     */
+    void record (double fromTick, double countInTicks, bool loop);
+    /** What records the armed tracks' inputs. */
+    Recorder& recorder() { return recording; }
+    const Recorder& recorder() const { return recording; }
     /** Stop, silence what's sounding and go back to the start. */
     void stop();
     void setMetronome (bool on) { metronome = on; }
@@ -78,8 +89,12 @@ public:
     double position() const { return positionNow; }
 
     // Audio thread -----------------------------------------------------------
-    /** Add the next `numSamples` of the song (the master's output, and the metronome) to `left` and `right`. */
-    void process (float* left, float* right, int numSamples);
+    /**
+     * Add the next `numSamples` of the song (the master's output, and the metronome) to `left` and
+     * `right`. `inputs`: the device's input channels by number (null: not open), heard in the tracks
+     * that monitor them and recorded on the armed ones.
+     */
+    void process (float* left, float* right, int numSamples, const float* const* inputs = nullptr, int numInputs = 0);
 
 private:
     struct Voice
@@ -117,7 +132,10 @@ private:
     bool silencing = false;
 
     void adopt (Song* next);
-    void schedule (int numSamples);
+    /** The transport from sample `start` of the block to its end. */
+    void schedule (int start, int numSamples);
+    /** The count-in's part of the block (its clicks), in samples: the transport moves after it. */
+    int countIn (int numSamples);
     void scheduleRange (double from, double to, double origin, int offset, int length, double ticksPerSample);
     /** Make a new play (or stop): its number, published for the audio thread to pick up with the request. */
     juce::uint32 nextGeneration();
@@ -178,6 +196,9 @@ private:
 
     std::atomic<int> playRequests { 0 }, stopRequests { 0 };
     std::atomic<double> playFrom { 0.0 };
+    /** What the last play request asks for besides: a count-in first (ticks), to record, and not to go round the loop. */
+    std::atomic<double> playCountIn { 0.0 };
+    std::atomic<bool> playRecords { false }, playThrough { false };
     int playsSeen = 0, stopsSeen = 0;
     std::atomic<bool> metronome { false };
     enum class ClickSound { beep, tick, tap, hihat, cowbell };
@@ -195,6 +216,10 @@ private:
 
     bool playing = false;
     double position_ = 0;
+    /** The audio thread's count-in: samples of it left and done; a recording waiting for it to end; play not going round the loop. */
+    juce::int64 countInLeft = 0, countInDone = 0;
+    bool recordWaiting = false, through = false;
+    Recorder recording;
     /** The audio thread's play generation, and how many times round the loop it's been since play started. */
     juce::uint32 generation = 0, pass = 0;
     std::atomic<bool> playingNow { false };

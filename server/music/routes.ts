@@ -23,6 +23,10 @@ export function engineRoutes(engine: AudioEngine): Router {
   router.post("/song", json({ limit: "10mb" }), async (req, res) => {
     res.json(await engine.setSong(req.body));
   });
+  // Play and record the armed tracks (`RecordRequest`); `stop` ends it.
+  router.post("/record", json(), async (req, res) => {
+    res.json(await engine.record(req.body));
+  });
   router.post("/states", async (_req, res) => {
     await engine.saveStates();
     res.sendStatus(204);

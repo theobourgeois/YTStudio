@@ -49,7 +49,8 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
         return;
     }
 
-    // Output only for now: opening inputs asks for the microphone, which recording will need.
+    // Outputs only, unless an input was chosen (recording): opening one asks for the microphone, so
+    // it's only opened once someone has chosen it (`setDevice`), and again at start from what's saved.
     const auto saved = juce::parseXML (deviceFile);
     const auto error = devices.initialise (0, 2, saved.get(), true);
     if (error.isNotEmpty())
@@ -99,6 +100,10 @@ juce::var Engine::status() const
         { "cpu", devices.getCpuUsage() },
         { "dropouts", juce::jmax (0, devices.getXRunCount()) },
         { "outputLatencyMs", rate > 0 ? 1000.0 * ((device != nullptr ? device->getOutputLatencyInSamples() + device->getCurrentBufferSizeSamples() : 0) + songLatency) / rate : 0.0 },
+        { "input", device != nullptr && devices.getAudioDeviceSetup().inputDeviceName.isNotEmpty() ? juce::var (devices.getAudioDeviceSetup().inputDeviceName) : juce::var() },
+        { "inputChannels", device != nullptr ? device->getActiveInputChannels().countNumberOfSetBits() : (offline ? testInput.getNumChannels() : 0) },
+        { "inputLatencyMs", device != nullptr && rate > 0 ? 1000.0 * device->getInputLatencyInSamples() / rate : 0.0 },
+        { "recording", sequencer.recorder().recording().isNotEmpty() ? protocol::object ({ { "id", sequencer.recorder().recording() } }) : juce::var() },
         { "songLatency", songLatency },
         { "tone", tone.load() },
         { "peak", peak.load() },
@@ -117,20 +122,31 @@ void Engine::sendStatus() const { protocol::send (protocol::object ({ { "event",
 
 juce::var Engine::deviceOptions() const
 {
-    juce::Array<juce::var> outputs, bufferSizes, sampleRates;
+    juce::Array<juce::var> outputs, inputs, inputChannels, bufferSizes, sampleRates;
     if (auto* type = devices.getCurrentDeviceTypeObject())
+    {
         for (const auto& name : type->getDeviceNames (false))
             outputs.add (name);
+        for (const auto& name : type->getDeviceNames (true))
+            inputs.add (name);
+    }
     auto* device = devices.getCurrentAudioDevice();
+    const auto input = devices.getAudioDeviceSetup().inputDeviceName;
     if (device != nullptr)
     {
         for (const auto size : device->getAvailableBufferSizes())
             bufferSizes.add (size);
         for (const auto rate : device->getAvailableSampleRates())
             sampleRates.add (rate);
+        if (input.isNotEmpty())
+            for (const auto& name : device->getInputChannelNames())
+                inputChannels.add (name);
     }
     return protocol::object ({ { "outputs", outputs },
-                               { "output", device != nullptr ? juce::var (device->getName()) : juce::var() },
+                               { "output", device != nullptr ? juce::var (devices.getAudioDeviceSetup().outputDeviceName) : juce::var() },
+                               { "inputs", inputs },
+                               { "input", input.isNotEmpty() ? juce::var (input) : juce::var() },
+                               { "inputChannels", inputChannels },
                                { "bufferSizes", bufferSizes },
                                { "sampleRates", sampleRates },
                                { "status", status() } });
@@ -143,6 +159,15 @@ juce::Result Engine::setDevice (const juce::var& params)
     auto setup = devices.getAudioDeviceSetup();
     if (params["output"].isString())
         setup.outputDeviceName = params["output"].toString();
+    if (params["input"].isString())
+    {
+        // All its channels (the device opens those it has): a track picks which it takes.
+        setup.inputDeviceName = params["input"].toString();
+        setup.useDefaultInputChannels = false;
+        setup.inputChannels.clear();
+        if (setup.inputDeviceName.isNotEmpty())
+            setup.inputChannels.setRange (0, maxInputs, true);
+    }
     if (const auto size = (int) params["bufferSize"]; size > 0)
         setup.bufferSize = size;
     if (const auto rate = (double) params["sampleRate"]; rate > 0)
@@ -163,7 +188,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         return ok();
 
     // While the song is exported, its plugins are the export's: nothing else may play them.
-    static const juce::StringArray busy { "play", "preview", "trigger", "previewFile", "render", "setDevice", "tone", "note", "load", "unload", "editor" };
+    static const juce::StringArray busy { "play", "record", "preview", "trigger", "previewFile", "render", "setDevice", "tone", "note", "load", "unload", "editor" };
     if (exportJob != nullptr && (busy.contains (command) || ((command == "channelEditor" || command == "effectEditor") && (bool) params["open"])))
         return reply (fail ("The song is being exported: wait for it to finish."), {});
     if (command == "export")
@@ -222,8 +247,17 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         if (command == "play")
             sequencer.play ((double) params["from"]);
         else
+        {
+            // A recording still in its count-in never began.
+            sequencer.recorder().cancel();
             sequencer.stop();
+        }
         return ok();
+    }
+    if (command == "record")
+    {
+        const auto result = record (params);
+        return result.wasOk() ? ok() : reply (result, {});
     }
     if (command == "preview")
     {
@@ -279,7 +313,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         if (! offline)
             return reply (fail ("Only an offline engine renders."), {});
         const auto file = params["file"].toString();
-        return render ((int) params["frames"], file.isEmpty() ? juce::File() : juce::File (file), std::move (reply));
+        return render ((int) params["frames"], file.isEmpty() ? juce::File() : juce::File (file), params["input"].toString(), std::move (reply));
     }
 
     // The plugin bench -------------------------------------------------------
@@ -346,6 +380,10 @@ juce::StringArray Engine::applySong()
         return unreadable;
     auto song = Song::parse (lastSong, samples, plugins, effects, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
     latencies = plugins.latencySignature() * 7 + effects.latencySignature();
+    armed.clear();
+    for (const auto& track : song->tracks)
+        if (track.armed && ! track.input.empty())
+            armed.push_back ({ track.id, track.input });
     const auto latency = song->latency;
     sequencer.setSong (std::move (song));
     // The playhead is shown late by the output's latency, which this is part of.
@@ -355,6 +393,45 @@ juce::StringArray Engine::applySong()
         sendStatus();
     }
     return unreadable;
+}
+
+juce::Result Engine::record (const juce::var& params)
+{
+    const auto id = params["recordingId"].toString();
+    const auto folder = params["folder"].toString();
+    if (id.isEmpty() || ! juce::File::isAbsolutePath (folder))
+        return fail ("A recording needs a \"recordingId\" and an absolute \"folder\".");
+    if (sequencer.recorder().recording().isNotEmpty())
+        return fail ("It's recording already: stop it first.");
+    if (armed.empty())
+        return fail ("No mixer track is armed with an input: choose a track's input in the Mixer, which arms it.");
+    // What's heard comes out late by the output's latency and the song's plugin delay, and what's
+    // played along to it reaches the engine late by the input's: the recording leaves that out.
+    auto* device = devices.getCurrentAudioDevice();
+    const auto latency = (juce::int64) songLatency + (device != nullptr ? device->getInputLatencyInSamples() + device->getOutputLatencyInSamples() : 0);
+    const auto loop = (bool) params["loop"];
+    const auto result = sequencer.recorder().start (id, juce::File (folder), armed, rate(), latency, loop);
+    if (result.failed())
+        return result;
+    sequencer.record ((double) params["from"], juce::jmax (0.0, (double) params["countIn"]), loop);
+    return juce::Result::ok();
+}
+
+void Engine::reportTakes()
+{
+    sequencer.recorder().service ([] (const Recorder::Take& take) {
+        protocol::send (protocol::object ({ { "event", "take" },
+                                            { "recordingId", take.recording },
+                                            { "track", take.track },
+                                            { "file", take.file.getFullPathName() },
+                                            { "startTick", take.startTick },
+                                            { "skip", (double) take.skip },
+                                            { "frames", (double) take.frames },
+                                            { "sampleRate", take.sampleRate },
+                                            { "pass", take.pass },
+                                            { "final", take.final },
+                                            { "dropped", take.dropped } }));
+    });
 }
 
 void Engine::checkLatencies()
@@ -376,6 +453,7 @@ void Engine::timerCallback()
     sequencer.collectGarbage();
     sequencer.prepareClips();
     preview.collectGarbage();
+    reportTakes();
     checkLatencies();
     // Where the song is, while it plays, previews or anything sounds, and once more when that ends.
     const auto playing = sequencer.isPlaying();
@@ -399,6 +477,12 @@ void Engine::timerCallback()
 
 void Engine::audioDeviceAboutToStart (juce::AudioIODevice* device)
 {
+    // The callback's inputs are the open ones, in order: which of the device's channels each is.
+    inputMap.clear();
+    const auto open = device->getActiveInputChannels();
+    for (int channel = 0; channel <= open.getHighestBit() && channel < maxInputs; ++channel)
+        if (open[channel])
+            inputMap.push_back (channel);
     start (device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
 }
 
@@ -420,21 +504,45 @@ void Engine::start (double rate, int block)
         juce::MessageManager::callAsync ([this] { applySong(); });
 }
 
-void Engine::render (int frames, const juce::File& file, Reply reply)
+void Engine::render (int frames, const juce::File& file, const juce::String& input, Reply reply)
 {
     frames = juce::jlimit (0, (int) offlineSampleRate * 600, frames);
+    if (input == "none")
+        testInput.setSize (0, 0);
+    else if (input.isNotEmpty())
+    {
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (juce::File (input)));
+        if (reader == nullptr)
+            return reply (fail ("Couldn't read the input " + input), {});
+        testInput.setSize ((int) reader->numChannels, (int) reader->lengthInSamples);
+        reader->read (&testInput, 0, (int) reader->lengthInSamples, 0, true, true);
+        testInputPosition = 0;
+    }
     checkLatencies();
     juce::AudioBuffer<float> rendered (2, frames);
     for (int done = 0; done < frames; done += blockSize)
     {
-        // What the timer does live: the audio clips about to play are made ready (decoded here, offline).
+        // What the timer does live: the audio clips about to play are made ready (decoded here, offline),
+        // and a recording's next files.
         sequencer.prepareClips();
         sequencer.collectGarbage();
+        reportTakes();
+        const auto block = juce::jmin (blockSize, frames - done);
         float* channels[] = { rendered.getWritePointer (0, done), rendered.getWritePointer (1, done) };
-        process (channels, 2, juce::jmin (blockSize, frames - done));
+        // The stand-in input, while it lasts (silence after).
+        std::array<const float*, maxInputs> inputs {};
+        const auto left = testInput.getNumSamples() - testInputPosition;
+        if (testInput.getNumChannels() > 0 && left >= block)
+            for (int ch = 0; ch < juce::jmin (maxInputs, testInput.getNumChannels()); ++ch)
+                inputs[(size_t) ch] = testInput.getReadPointer (ch, testInputPosition);
+        testInputPosition += block;
+        process (channels, 2, block, inputs.data(), testInput.getNumChannels() > 0 && left >= block ? testInput.getNumChannels() : 0);
     }
     sequencer.collectGarbage();
     preview.collectGarbage();
+    reportTakes();
 
     if (file != juce::File())
     {
@@ -454,13 +562,21 @@ void Engine::render (int frames, const juce::File& file, Reply reply)
                                { "transport", transport() } }));
 }
 
-void Engine::audioDeviceIOCallbackWithContext (const float* const*, int, float* const* output, int numOutputs, int numSamples,
+void Engine::audioDeviceIOCallbackWithContext (const float* const* input, int numInputs, float* const* output, int numOutputs, int numSamples,
                                                const juce::AudioIODeviceCallbackContext&)
 {
-    process (output, numOutputs, numSamples);
+    // The open inputs, by the device's channel numbers.
+    std::array<const float*, maxInputs> inputs {};
+    auto count = 0;
+    for (int i = 0; i < numInputs && i < (int) inputMap.size(); ++i)
+    {
+        inputs[(size_t) inputMap[(size_t) i]] = input[i];
+        count = inputMap[(size_t) i] + 1;
+    }
+    process (output, numOutputs, numSamples, inputs.data(), count);
 }
 
-void Engine::process (float* const* output, int numOutputs, int numSamples)
+void Engine::process (float* const* output, int numOutputs, int numSamples, const float* const* inputs, int numInputs)
 {
     juce::ScopedNoDenormals noDenormals;
     for (int ch = 0; ch < numOutputs; ++ch)
@@ -473,7 +589,7 @@ void Engine::process (float* const* output, int numOutputs, int numSamples)
     mix.clear (0, numSamples);
     auto* left = mix.getWritePointer (0);
     auto* right = mix.getWritePointer (1);
-    sequencer.process (left, right, numSamples);
+    sequencer.process (left, right, numSamples, inputs, numInputs);
     preview.process (left, right, numSamples);
     if (tone.load())
     {
