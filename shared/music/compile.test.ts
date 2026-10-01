@@ -40,7 +40,8 @@ describe("compileSong", () => {
 
   it("loops a pattern over its length: automatic (the bars with notes), or set, but never leaving notes out", () => {
     const song = setSteps(rack(), P, "chan_kick", [0, 20, 40], true);
-    expect(compileSong(song, P)).toMatchObject({ loopTicks: 48 * 24, notes: [{ tick: 0 }, { tick: 480 }, { tick: 960 }] });
+    // Three bars of notes loop over four (Auto rounds up to two bars); a set length only to their bar.
+    expect(compileSong(song, P)).toMatchObject({ loopTicks: 64 * 24, notes: [{ tick: 0 }, { tick: 480 }, { tick: 960 }] });
     const short = compileSong(setPatternLength(song, P, 24), P);
     expect(short.loopTicks).toBe(48 * 24);
     expect(short.notes.map((n) => n.tick)).toEqual([0, 480, 960]);

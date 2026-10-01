@@ -239,11 +239,13 @@ describe("a pattern's length", () => {
   const empty = { ...createMusicProject(), channels: [createChannel("Kick", null, "chan_kick")] };
   const steps = (s: MusicProject) => patternSteps(s.patterns[0], s.settings.timeSignature);
 
-  it("is automatic by default: up to the end of the last bar with a note, and a bar at least", () => {
+  it("is automatic by default: a bar, or up to the end of the two bars the last note is in", () => {
     expect(steps(empty)).toBe(16);
     expect(steps(setSteps(empty, FIRST_PATTERN_ID, "chan_kick", [15], true))).toBe(16);
     expect(steps(setSteps(empty, FIRST_PATTERN_ID, "chan_kick", [16], true))).toBe(32);
-    expect(steps(setSteps(empty, FIRST_PATTERN_ID, "chan_kick", [0, 40], true))).toBe(48);
+    // Three bars of notes make four, five make six.
+    expect(steps(setSteps(empty, FIRST_PATTERN_ID, "chan_kick", [0, 40], true))).toBe(64);
+    expect(steps(setSteps(empty, FIRST_PATTERN_ID, "chan_kick", [0, 72], true))).toBe(96);
     // A bar of 3/4 is 12 steps.
     const waltz = { ...empty, settings: { ...empty.settings, timeSignature: [3, 4] as [number, number] } };
     expect(steps(setSteps(waltz, FIRST_PATTERN_ID, "chan_kick", [12], true))).toBe(24);

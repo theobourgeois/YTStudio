@@ -123,8 +123,8 @@ export interface Pattern {
   id: string;
   name: string;
   /**
-   * Its length in steps (sixteenth notes), or null for FL Studio's Auto: up to the end of the last bar
-   * a note sounds in (`patternSteps`). A set length is the least it is: notes past it take the pattern to
+   * Its length in steps (sixteenth notes), or null for FL Studio's Auto: a bar, or up to the end of
+   * the two bars the last note sounds in (`patternSteps`). A set length is the least it is: notes past it take the pattern to
    * the end of their bar, as in FL Studio.
    */
   length: number | null;

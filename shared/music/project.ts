@@ -113,15 +113,16 @@ export function patternEnd(pattern: Pattern): number {
 }
 
 /**
- * How long a pattern is, in steps: up to the end of the last bar with a note in it, and a bar at least
- * (Auto), or its set length if that's longer. As in FL Studio, a note is never left out: one written
- * past the set length (in the Piano roll) makes the pattern reach the end of its bar.
+ * How long a pattern is, in steps. Auto: a bar while its notes fit in one, else up to the end of the
+ * two bars its last note is in (phrases come in twos: three bars of notes make a four-bar pattern, as
+ * Théo wants). Set: its length, or longer if that's too short. As in FL Studio, a note is never left out:
+ * one written past the set length (in the Piano roll) makes the pattern reach the end of its bar.
  */
 export function patternSteps(pattern: Pattern, timeSignature: MusicSettings["timeSignature"]): number {
   const bar = stepsPerBar(timeSignature) * STEP_TICKS;
-  const auto = (Math.max(1, Math.ceil(Math.min(patternEnd(pattern), MAX_PATTERN_TICKS) / bar)) * bar) / STEP_TICKS;
-  if (pattern.length === null) return auto;
-  return patternEnd(pattern) > pattern.length * STEP_TICKS ? Math.max(pattern.length, auto) : pattern.length;
+  const bars = Math.max(1, Math.ceil(Math.min(patternEnd(pattern), MAX_PATTERN_TICKS) / bar));
+  if (pattern.length === null) return ((bars === 1 ? 1 : Math.min(Math.ceil(bars / 2) * 2, Math.ceil(MAX_PATTERN_TICKS / bar))) * bar) / STEP_TICKS;
+  return patternEnd(pattern) > pattern.length * STEP_TICKS ? Math.max(pattern.length, (bars * bar) / STEP_TICKS) : pattern.length;
 }
 
 export function createChannel(name: string, sampleId: string | null, id = createId("chan")): Channel {

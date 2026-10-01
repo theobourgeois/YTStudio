@@ -271,6 +271,7 @@ Shift+click, which select a range.
 | --- | --- | --- | --- |
 | Steps past what fits | A scrollbar; the rack can be any width | The rack grows to the pattern's length, scrolling past 64 steps' worth of width | Fine for now |
 | Pattern length LCD | Click its top or bottom edge to step by one | Drag, arrow keys, and the menu | Later |
+| Auto length | To the end of the last bar with notes | A bar, else rounded up to two bars (three bars of notes make four) | On purpose (Théo) |
 | "Mute removed steps" | A step turned off keeps its note, muted | The note is removed | With the piano roll (muted notes) |
 | Solo | "Restore previous state after solo" is a setting | Un-soloing always unmutes everything | Later |
 | Knob menu | Also Edit events, Create automation clip, Link to controller | Reset, Copy, Paste, Type in value | With automation |
