@@ -22,6 +22,11 @@ export interface MusicSettings {
   timeSignature: [number, number];
   /** 0..1: how late every second step plays (the channel rack's swing knob). */
   swing: number;
+  /**
+   * 0..1: the main volume, FL Studio's knob in the toolbar: everything the song puts out, after the
+   * master track (`DEFAULT_VOLUME` leaves it as it is).
+   */
+  volume: number;
 }
 
 /** A sampler's volume envelope. Off, a note plays its whole sample whatever its length. */

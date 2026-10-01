@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { compileSong, faderGain, levelGain, mixerPanGains, panGains, soundingChannels, stereoGains, swungTick, trackOrder } from "./compile.ts";
-import { addChannels, addPattern, addPluginChannel, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
+import { addChannels, addPattern, addPluginChannel, setMainVolume, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
 import { editNotes, setNoteProps } from "./notes.ts";
 import { addMixerTracks, routeChannels, sendOnly, setEffect, setSend, updateEffect, updateMixerTrack } from "./mixer.ts";
 import { type NewClip, addAudioClips, addClips, editClips, sliceClips, soloTrack } from "./playlist.ts";
-import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "./project.ts";
+import { DEFAULT_VOLUME, FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "./project.ts";
 
 const P = FIRST_PATTERN_ID;
 const rack = () =>
@@ -142,6 +142,17 @@ describe("the mixer, compiled", () => {
     const ordered = trackOrder(song.mixer.tracks);
     expect(performance.now() - started).toBeLessThan(100);
     expect(ordered.map((t) => t.id)).toEqual([...tracks.slice(1).reverse().map((t) => t.id), MASTER_TRACK_ID]);
+  });
+
+  it("turns the main volume (the toolbar's knob) into the master's gain, after its fader", () => {
+    const master = (song: ReturnType<typeof rack>) => compileSong(song, P).tracks.at(-1)!.gains;
+    expect(master(rack())).toEqual([1, 0, 0, 1]);
+    const quieter = master(setMainVolume(rack(), DEFAULT_VOLUME / 2));
+    expect(quieter[0]).toBeCloseTo(0.25, 6);
+    expect(quieter[3]).toBeCloseTo(0.25, 6);
+    expect(master(setMainVolume(rack(), 0))[0]).toBe(0);
+    // Only the master's: the other tracks are as they were.
+    expect(compileSong(setMainVolume(rack(), 0), P).tracks[0].gains).toEqual([1, 0, 0, 1]);
   });
 
   it("sends each channel into its track", () => {

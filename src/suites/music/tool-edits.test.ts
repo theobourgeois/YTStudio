@@ -32,9 +32,10 @@ const asset = (id: string, name: string) => ({ id, name, hasAudio: true }) as Me
 
 describe("the assistant's song edits", () => {
   it("set the song's settings, refusing what can't be", () => {
-    const { song, text } = updateSong(rack(), { tempo: 140, swing: 0.5, timeSignature: [6, 8] }, env);
-    expect(song.settings).toEqual({ tempo: 140, swing: 0.5, timeSignature: [6, 8] });
-    expect(text).toBe("The song is at 140 BPM in 6/8, swing 50%.");
+    const { song, text } = updateSong(rack(), { tempo: 140, swing: 0.5, timeSignature: [6, 8], volume: 0.5 }, env);
+    expect(song.settings).toEqual({ tempo: 140, swing: 0.5, timeSignature: [6, 8], volume: 0.5 });
+    expect(text).toBe("The song is at 140 BPM in 6/8, swing 50%, main volume 50%.");
+    expect(() => updateSong(rack(), { volume: 2 }, env)).toThrow(/from 0 to 1/);
     expect(() => updateSong(rack(), { tempo: 5 }, env)).toThrow(/from 20 to 999/);
     expect(() => updateSong(rack(), { timeSignature: [4, 5] }, env)).toThrow(/unit of 1, 2, 4/);
   });
@@ -181,7 +182,7 @@ describe("the assistant's song edits", () => {
   it("describe the song for the model: channels, every pattern's steps, spare files", () => {
     const song = setStepsTool(addPatternTool(rack(), { name: "Fill" }, env).song, { channel: "Kick", steps: "x---" }, env).song;
     const text = describeSong(song, [asset("media_kick", "kick.wav"), asset("media_snare", "snare.wav")], FIRST_PATTERN_ID);
-    expect(text).toContain('Song: "Beat", 120 BPM, 4/4, swing 0%.');
+    expect(text).toContain('Song: "Beat", 120 BPM, 4/4, swing 0%, main volume 78%.');
     expect(text).toContain('- "Kick" (id chan_kick), sample kick.wav, volume 78%');
     expect(text).toContain('- "Hat" (id chan_hat), no sample (silent), volume 78%');
     expect(text).toContain(`- "Pattern 1" (id ${FIRST_PATTERN_ID}, 16 steps (automatic)), shown in the rack: it's the one that plays\n    x---x---x---x---  Kick\n    ----------------  Hat`);
