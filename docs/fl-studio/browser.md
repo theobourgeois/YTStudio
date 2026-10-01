@@ -144,9 +144,9 @@ plain browser (`pnpm dev`) needn't add folders.
 | Preview | Click: 5 s; Alt+click: all | **Click, or arrowing onto it (Théo: yes): the whole file**, cut off by the next one; Space or Esc stops it. A waveform of the selected file with its playhead; clicking in it plays from there |
 | Preview player | Volume, speed, loop, key, Sync | Volume to start with. Sync, key and loop later |
 | Long files | Played from disk | Played **from disk** by the engine (a preview voice, not `SampleCache`), so hearing a whole song costs no memory. The playlist's audio clips will play the same way |
-| Shift+Up/Down | Next file, sent to the channel | The same: audition samples in the playing beat |
-| Enter, middle-click | Replace the selected channel | The same |
-| Using a file | Drag onto many places | Drag onto the rack (a new channel, where it's dropped), a channel's button (replace its sample) or the Piano roll (on its target channel). The playlist when there is one. The file is copied into the project's media then, as today |
+| Shift+Up/Down | Next file, sent to the channel | The same: audition samples in the playing beat (stopped, the file is previewed too). All the files tried are one undo step: undo brings back the sample from before |
+| Enter, middle-click | Replace the selected channel | The same, to the first selected sampler; with none (or a plugin channel) selected, a new channel, selected so the next file goes there. Clicking a file only plays it |
+| Using a file | Drag onto many places | Drag onto the rack (a new channel, where it's dropped; several files, a channel each), a channel's button or settings window (replace its sample), the Piano roll (its channel's sample; a plugin channel's: a new channel) or the desktop (a new channel). The playlist when there is one. The file is copied into the project's media then, once: trying it again reuses the copy |
 | File menu | Many editors and channel types | Send to selected channel, Open in new channel, Favourite, Show in Finder |
 | Favourites | Files, in the Starred tab | Files and folders, at the top of the tree. A favourite folder is a **shortcut**: it jumps to the folder where it is in the tree (Théo) |
 | Tags | Free tags, filtered in the search | Not yet. Favourites only |

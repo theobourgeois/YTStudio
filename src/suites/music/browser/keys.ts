@@ -3,14 +3,14 @@
  * Pure, so they're tested; the panel runs them. "Ctrl" is Ctrl or ⌘, but for Ctrl+R (⌘R reloads the page).
  */
 export type BrowserKeyAction =
-  /** The row above or below: selected, and played if it's a file. */
-  | { type: "move"; direction: -1 | 1 }
+  /** The row above or below: selected, and played if it's a file; `send`: also sent to the selected channel (Shift, FL's). */
+  | { type: "move"; direction: -1 | 1; send: boolean }
   /** → opens a folder or goes into it, ← closes it or goes out. */
   | { type: "arrow"; direction: -1 | 1 }
   /** The first or last row. */
   | { type: "edge"; direction: -1 | 1 }
   | { type: "page"; direction: -1 | 1 }
-  /** Enter: open a folder, play a file. */
+  /** Enter: open a folder, or send a file to the selected channel (FL's "replace the channel"). */
   | { type: "enter" }
   /** Stop the preview, or clear the search. */
   | { type: "escape" }
@@ -28,7 +28,9 @@ export function resolveBrowserKey(e: KeyLike): BrowserKeyAction | null {
   const letter = /^Key([A-Z])$/.exec(e.code)?.[1] ?? "";
 
   if (vertical !== null) {
-    if (plain) return { type: "move", direction: vertical };
+    if (plain) return { type: "move", direction: vertical, send: false };
+    // FL's Shift+Up/Down: the next sample, straight onto the selected channel (try them in the beat).
+    if (e.shiftKey && !command && !e.altKey) return { type: "move", direction: vertical, send: true };
     // Ctrl+Up: FL's "Collapse structure".
     if (command && !e.altKey && !e.shiftKey && vertical < 0) return { type: "collapseAll" };
     return null;

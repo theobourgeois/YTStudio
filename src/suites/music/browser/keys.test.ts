@@ -12,8 +12,10 @@ const key = (key: string, mods: { meta?: boolean; ctrl?: boolean; shift?: boolea
 
 describe("resolveBrowserKey", () => {
   it("moves with the arrows, FL's way", () => {
-    expect(resolveBrowserKey(key("ArrowDown"))).toEqual({ type: "move", direction: 1 });
-    expect(resolveBrowserKey(key("ArrowUp"))).toEqual({ type: "move", direction: -1 });
+    expect(resolveBrowserKey(key("ArrowDown"))).toEqual({ type: "move", direction: 1, send: false });
+    expect(resolveBrowserKey(key("ArrowUp"))).toEqual({ type: "move", direction: -1, send: false });
+    expect(resolveBrowserKey(key("ArrowDown", { shift: true }))).toEqual({ type: "move", direction: 1, send: true });
+    expect(resolveBrowserKey(key("ArrowUp", { shift: true }))).toEqual({ type: "move", direction: -1, send: true });
     expect(resolveBrowserKey(key("ArrowRight"))).toEqual({ type: "arrow", direction: 1 });
     expect(resolveBrowserKey(key("ArrowLeft"))).toEqual({ type: "arrow", direction: -1 });
     expect(resolveBrowserKey(key("ArrowUp", { ctrl: true }))).toEqual({ type: "collapseAll" });

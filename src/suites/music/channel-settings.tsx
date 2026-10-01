@@ -10,6 +10,7 @@ import { solo, toggleMute } from "./rack-actions";
 import { useMusic } from "./store";
 import { useTransport } from "./transport";
 import { channelWindow, useMusicUi } from "./ui";
+import { carriesSamples, dropOnChannel } from "./browser/drops";
 import { loadSamples, waveformColumns } from "./waveform";
 import { routeToFreeTrack } from "./mixer/actions";
 import { TrackSelector } from "./mixer/track-selector";
@@ -39,7 +40,22 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
       onClose={() => useMusicUi.getState().closeChannelWindow(id)}
       className="w-[440px]"
     >
-      <div data-testid="channel-settings" data-channel-name={channel.name}>
+      <div
+        data-testid="channel-settings"
+        data-channel-name={channel.name}
+        // A sample dropped anywhere on its window becomes the channel's.
+        onDragOver={(e) => {
+          if (!carriesSamples(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e) => {
+          if (!carriesSamples(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          dropOnChannel(e.dataTransfer, id);
+        }}
+      >
         <div className="flex items-end gap-3 border-b px-3 pt-2 pb-2">
           <div className="flex gap-1" role="tablist" aria-label="Settings">
             <TabButton label="Sample" selected={tab === "sample"} onSelect={() => setTab("sample")}>

@@ -9,6 +9,7 @@ import { ApiRequestError, api } from "@/lib/api";
 import { createAutosaver } from "@/lib/autosaver";
 import { DocumentGesture, type DocumentHistory, commit, historyOf, redo, rewrite, undo } from "@/lib/document-history";
 import { useProjects } from "@/stores/projects";
+import { musicApi } from "./api";
 import { type DraftPattern, draftAsPattern, editWithDraft, stepPattern } from "./patterns";
 
 /**
@@ -47,6 +48,13 @@ interface MusicState {
   addStarterKit: () => Promise<void>;
   /** Give a channel another sample. */
   replaceSample: (channelId: string, file: File) => Promise<void>;
+  /** The Browser's files (by path) as new channels, at the end of the rack or before channel `at`. Returns their ids. */
+  addBrowserSamples: (paths: string[], at?: number) => Promise<string[]>;
+  /**
+   * Give a channel one of the Browser's files. `swap`: trying samples one after another (Shift+Up/Down),
+   * each replacing the last as one undo step, so undo goes back to the sample from before.
+   */
+  replaceSampleFromBrowser: (channelId: string, path: string, options?: { swap?: boolean }) => Promise<void>;
 }
 
 /** The starter kit, in the order FL Studio's default rack has them. */
@@ -60,6 +68,8 @@ const autosaver = createAutosaver<MusicProject, Awaited<ReturnType<typeof api.sa
 
 /** Bumped by every open/close, so a load that's been overtaken is dropped. */
 let openToken = 0;
+/** The song as the last sample swap left it (`replaceSampleFromBrowser`), to replace that undo step with the next swap's. */
+let lastSwap: { channelId: string; doc: MusicProject } | null = null;
 
 const channelName = (fileName: string) => fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Sample";
 
@@ -83,6 +93,27 @@ export const useMusic = create<MusicState>((set, get) => {
     }
     if (get().projectId === projectId) set({ assets: [...get().assets, ...added] });
     return get().projectId === projectId ? added : [];
+  }
+
+  /** The Browser's files as the open project's media (copied the first time); the ones that fail are reported and left out. */
+  async function fromBrowser(paths: string[]): Promise<MediaAsset[]> {
+    const { projectId } = get();
+    if (!projectId) return [];
+    const got: MediaAsset[] = [];
+    for (const path of paths) {
+      try {
+        const asset = await musicApi.useBrowserFile({ projectId, path });
+        if (!asset.hasAudio) throw new Error("it has no sound");
+        got.push(asset);
+      } catch (err) {
+        toast.error(`Couldn't add ${path.slice(path.lastIndexOf("/") + 1)}`, { description: errorMessage(err) });
+      }
+    }
+    if (get().projectId !== projectId) return [];
+    const known = new Set(get().assets.map((a) => a.id));
+    const added = got.filter((a, i) => !known.has(a.id) && got.findIndex((b) => b.id === a.id) === i);
+    if (added.length) set({ assets: [...get().assets, ...added] });
+    return got;
   }
 
   return {
@@ -171,6 +202,27 @@ export const useMusic = create<MusicState>((set, get) => {
       } catch (err) {
         toast.error("Couldn't add the starter kit", { description: errorMessage(err) });
       }
+    },
+
+    async addBrowserSamples(paths, at) {
+      const assets = await fromBrowser(paths);
+      if (!assets.length) return [];
+      const added = assets.map((a) => ({ id: createId("chan"), name: channelName(a.name), sampleId: a.id }));
+      get().commit((song) => addChannels(song, added, at));
+      return added.map((c) => c.id);
+    },
+
+    async replaceSampleFromBrowser(channelId, path, { swap = false } = {}) {
+      const [asset] = await fromBrowser([path]);
+      const { history } = get();
+      if (!asset || !history) return;
+      const edit = (song: MusicProject) => (getChannel(song, channelId) ? updateChannel(song, channelId, { sampleId: asset.id, name: channelName(asset.name) }) : song);
+      // The swap before this one is taken back and this one made instead: one undo step for the lot.
+      const replacing = swap && lastSwap?.channelId === channelId && lastSwap.doc === history.doc && history.gestureBase === null;
+      const next = commit(replacing ? undo(history) : history, draftEdit(edit));
+      if (next === history) return;
+      set({ history: next });
+      lastSwap = swap ? { channelId, doc: next.doc } : null;
     },
 
     async replaceSample(channelId, file) {

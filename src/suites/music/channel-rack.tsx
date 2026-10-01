@@ -29,6 +29,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { audioFiles, carriesSamples, dropAsChannels, dropOnChannel } from "./browser/drops";
 import { ChannelPicker } from "./channel-picker";
 import { openPianoRoll } from "./piano/actions";
 import { PERCENT, SongKnob, panText, percent } from "./knob";
@@ -80,8 +81,6 @@ const oddBeat = (step: number) => Math.floor(step / GROUP) % 2 === 1;
 /** Width of everything left of the steps in a row, with the mixer track selectors (Alt+M) and without. */
 const LEAD = "w-[212px]";
 const LEAD_WITH_TRACK = "w-[246px]";
-const isAudio = (file: File) => file.type.startsWith("audio/") || /\.(wav|aiff?|flac|mp3|ogg|m4a)$/i.test(file.name);
-const audioFiles = (files: FileList | null) => [...(files ?? [])].filter(isAudio);
 
 /** The element with `[data-<key>]` under a point, if it's inside `root`. */
 function under(root: Element, x: number, y: number, key: string): HTMLElement | null {
@@ -180,24 +179,25 @@ export function ChannelRack() {
         data-testid="channel-rack"
         // Seen before a channel's button takes it, so the line goes away over one.
         onDragOverCapture={(e) => {
-          if (!e.dataTransfer.types.includes("Files")) return;
+          if (!carriesSamples(e.dataTransfer)) return;
           const next = dropPlace(e.currentTarget, e.target, e.clientY);
           if (next?.index !== drop?.index || next?.top !== drop?.top) setDrop(next);
         }}
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+          if (carriesSamples(e.dataTransfer)) e.preventDefault();
         }}
         onDragLeave={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDrop(null);
         }}
         onDrop={(e) => {
           // A file dropped on the rack (but not on a channel's button, which takes it) is a new channel,
-          // between the channels it was dropped between.
+          // between the channels it was dropped between; several files, a channel each.
+          if (!carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
+          e.stopPropagation();
           const at = dropPlace(e.currentTarget, e.target, e.clientY)?.index;
           setDrop(null);
-          const audio = audioFiles(e.dataTransfer.files);
-          if (audio.length) void useMusic.getState().addSamples(audio, at);
+          void dropAsChannels(e.dataTransfer, at);
         }}
       >
         {drop && (
@@ -505,7 +505,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
             onWheel={(e) => e.shiftKey && e.deltaY !== 0 && moveChannel(id, e.deltaY < 0 ? -1 : 1)}
             // A file dropped on the button replaces this channel's sample.
             onDragOver={(e) => {
-              if (isPlugin || !e.dataTransfer.types.includes("Files")) return;
+              if (isPlugin || !carriesSamples(e.dataTransfer)) return;
               e.preventDefault();
               e.stopPropagation();
               setDropping(true);
@@ -516,8 +516,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               e.preventDefault();
               e.stopPropagation();
               setDropping(false);
-              const [audio] = audioFiles(e.dataTransfer.files);
-              if (audio) void useMusic.getState().replaceSample(id, audio);
+              dropOnChannel(e.dataTransfer, id);
             }}
           >
             <span className="truncate">{channel.name}</span>

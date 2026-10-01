@@ -1046,3 +1046,66 @@ test("the Browser: a folder added once for every song, opened, previewed, search
   await page.keyboard.press("Alt+F8");
   await expect(browser).toBeVisible();
 });
+
+test("the Browser's files go into the song: dragged onto the rack or a channel, sent to the selected channel, tried one after another", async ({ page }) => {
+  // The folder the last test added is still in the Browser: it's the same in every song.
+  const id = await openNewSong(page, "From the Browser", { browser: true });
+  const browser = page.getByRole("complementary", { name: "Browser" });
+  const list = browser.getByTestId("browser-list");
+  const item = (name: string) => list.getByRole("treeitem", { name, exact: true }).last();
+  const rack = page.getByTestId("channel-rack");
+  const names = async () => (await savedSong(page, id)).channels.map((c: { name: string }) => c.name);
+  const sampleOf = async (index: number) => {
+    const song = await savedSong(page, id);
+    const media = await (await page.request.get(`/api/media?projectId=${id}`)).json();
+    return media.find((m: { id: string }) => m.id === song.channels[index].sampleId)?.name;
+  };
+  for (const folder of ["My Samples", "808 Kit", "Loops"]) await item(folder).click();
+  await expect(item("Kick 1.wav")).toBeVisible();
+
+  // Dragged onto the rack: a new channel (the new song's empty sampler makes way for it).
+  await item("Kick 1.wav").dragTo(rack);
+  await expect.poll(names).toEqual(["Kick 1"]);
+  // Several selected, dragged together: a channel each.
+  await item("Kick 2.wav").click();
+  await item("Snare.wav").click({ modifiers: ["ControlOrMeta"] });
+  await item("Snare.wav").dragTo(rack);
+  await expect.poll(names).toEqual(["Kick 1", "Kick 2", "Snare"]);
+  // Onto a channel's button: that channel's sample.
+  await item("Break.wav").dragTo(channelButton(page, "Kick 2"));
+  await expect.poll(names).toEqual(["Kick 1", "Break", "Snare"]);
+  await expect.poll(() => sampleOf(1)).toBe("Break.wav");
+
+  // Enter sends the file to the selected channel; Shift+↓ tries the next ones in it, one undo step for them all.
+  await page.getByRole("button", { name: "Select Snare" }).click();
+  await item("Kick 1.wav").click();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => sampleOf(2)).toBe("Kick 1.wav");
+  await page.keyboard.press("Shift+ArrowDown");
+  await expect.poll(() => sampleOf(2)).toBe("Kick 2.wav");
+  await page.keyboard.press("Shift+ArrowDown");
+  await expect.poll(() => sampleOf(2)).toBe("Snare.wav");
+  await expect(item("Snare.wav")).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => sampleOf(2)).toBe("Kick 1.wav");
+  // Trying the same file again doesn't copy it again.
+  const media = await (await page.request.get(`/api/media?projectId=${id}`)).json();
+  expect(media.map((m: { name: string }) => m.name).sort()).toEqual(["Break.wav", "Kick 1.wav", "Kick 2.wav", "Snare.wav"]);
+
+  // The menu: Open in new channel.
+  await item("Break.wav").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Open in new channel" }).click();
+  await expect.poll(names).toEqual(["Kick 1", "Break", "Kick 1", "Break"]);
+
+  // Dropped on the desktop, away from the windows: a new channel, as in FL Studio.
+  const desktop = page.locator("[data-desktop]");
+  const box = (await desktop.boundingBox())!;
+  await item("Kick 2.wav").dragTo(desktop, { targetPosition: { x: box.width - 40, y: box.height - 40 } });
+  await expect.poll(names).toEqual(["Kick 1", "Break", "Kick 1", "Break", "Kick 2"]);
+  // On the Piano roll: the sample of the channel it shows.
+  await page.getByRole("button", { name: "Select Kick 2" }).click();
+  await page.keyboard.press("F7");
+  await expect(page.getByTestId("piano-roll")).toHaveAttribute("data-channel-name", "Kick 2");
+  await item("Snare.wav").dragTo(page.getByTestId("piano-roll"));
+  await expect.poll(() => sampleOf(4)).toBe("Snare.wav");
+});

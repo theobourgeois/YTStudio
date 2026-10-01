@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DataPaths, HttpError } from "../storage.ts";
 import { SampleBrowser } from "./browser.ts";
+import { writeWav } from "./wav.ts";
 
 let dir: string;
 let samples: string;
@@ -171,6 +172,20 @@ describe("/api/browser/preview", () => {
       expect((await res.json()).transport.preview).toMatchObject({ id: "snare" });
       const stopped = await (await post("/engine/stopPreview", {})).json();
       expect(stopped.transport.preview).toBeNull();
+
+      // A file into a song: copied into the project's media once, again only once it's changed.
+      const kick = path.join(samples, "Drums", "Kick.wav");
+      await writeWav(kick, Array.from({ length: 4800 }, (_, i) => Math.sin(i / 10) * 0.5), 48000);
+      const { id: projectId } = await (await post("/projects", { suite: "music", name: "Use" })).json();
+      const first = await (await post("/browser/use", { projectId, path: kick })).json();
+      expect(first).toMatchObject({ name: "Kick.wav", projectId, hasAudio: true, origin: expect.stringContaining(`file:${kick}:`) });
+      const again = await (await post("/browser/use", { projectId, path: kick })).json();
+      expect(again.id).toBe(first.id);
+      await writeWav(kick, Array.from({ length: 9600 }, (_, i) => Math.sin(i / 10) * 0.5), 48000);
+      const changed = await (await post("/browser/use", { projectId, path: kick })).json();
+      expect(changed.id).not.toBe(first.id);
+      expect((await post("/browser/use", { projectId, path: path.join(samples, "Loops", "Break 120.mp3") })).status).toBe(403);
+      expect((await post("/browser/use", { projectId: "proj_000000000000", path: kick })).status).toBe(404);
     } finally {
       server.close();
       shutdown();

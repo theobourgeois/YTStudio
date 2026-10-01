@@ -183,9 +183,16 @@ on top (a favourite folder is a shortcut into the tree), search as you type with
 a click or the arrows play a file, its waveform with the preview's playhead (click to play from there),
 the preview's volume, stars, a row's menu, FL's keys (`browser/keys.ts`), several rows selected
 (⌘/Shift+click) and dragged as `BROWSER_DRAG_TYPE`. Folders are dropped from Finder in the desktop app
-(the preload's `pathForFile`), or added by path from the menu. Next: (4) getting files
-into the song (drags onto the rack, a channel, the Piano roll; several files at once; send to selected
-channel, Shift+Up/Down, Enter); (5) the assistant's tools; (6) the e2e test and docs.
+(the preload's `pathForFile`), or added by path from the menu.
+(4) Into the song, done: a file becomes the project's media through `POST /api/browser/use` (copied
+once: the copy's `origin` is the file's path, size and date, so trying it again reuses it). Dropped
+(`browser/drops.ts`, Finder's files too) on the rack it's a new channel where it lands, several a
+channel each; on a channel's button or settings window, that channel's sample; on the Piano roll, its
+channel's (a plugin channel's: a new channel, shown there); on the desktop itself, a new channel.
+Enter, the middle button and the menu send a file to the selected sampler (none: a new channel,
+selected); Shift+Up/Down tries the next files in it, all of them one undo step
+(`replaceSampleFromBrowser`'s `swap`); the menu also opens files in new channels and shows them in
+Finder. Next: (5) the assistant's tools; (6) the e2e test and docs.
 
 - **FL's model** (manual page `browser`): a tree of folders (the user's sample folders, the project's
   files, plugins, presets), clicking a sample to hear it, dragging it onto the rack (a new channel), a

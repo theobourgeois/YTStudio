@@ -1,5 +1,5 @@
 import { Router, json } from "express";
-import type { SampleBrowser } from "./browser.ts";
+import type { BrowserMedia, SampleBrowser } from "./browser.ts";
 import type { AudioEngine } from "./engine.ts";
 
 /** `/api/engine`: the music suite's audio engine (the plugins it found, and commands to it). */
@@ -42,7 +42,7 @@ export function engineRoutes(engine: AudioEngine): Router {
 }
 
 /** `/api/browser`: the Browser's sample folders (the same for every project), what's in them, and the search. */
-export function browserRoutes(browser: SampleBrowser, engine: AudioEngine): Router {
+export function browserRoutes(browser: SampleBrowser, engine: AudioEngine, media: BrowserMedia): Router {
   const router = Router();
   router.use((_req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
@@ -75,6 +75,14 @@ export function browserRoutes(browser: SampleBrowser, engine: AudioEngine): Rout
     const start = Number(req.body?.start);
     const id = typeof req.body?.id === "string" ? req.body.id.slice(0, 200) : "";
     res.json(await engine.previewFile(file, Number.isFinite(start) && start > 0 ? start : 0, id));
+  });
+  // A file into a song: the project's copy of it (`UseBrowserFileRequest`), made once.
+  router.post("/use", json(), async (req, res) => {
+    res.json(await browser.use(req.body?.projectId, req.body?.path, media));
+  });
+  router.post("/reveal", json(), async (req, res) => {
+    await browser.reveal(req.body?.path);
+    res.sendStatus(204);
   });
   // The file itself: its waveform in the Browser, and its bytes when it's added to a project.
   router.get("/file", async (req, res) => {

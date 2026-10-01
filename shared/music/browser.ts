@@ -48,6 +48,11 @@ export interface BrowserSearchResult {
 export interface AddBrowserRootRequest {
   path: string;
 }
+/** One of the Browser's files into a song (`POST /api/browser/use`): answered with the project's media copy of it. */
+export interface UseBrowserFileRequest {
+  projectId: string;
+  path: string;
+}
 export interface SetBrowserFavouriteRequest {
   path: string;
   favourite: boolean;

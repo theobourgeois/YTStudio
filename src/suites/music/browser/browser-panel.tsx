@@ -32,16 +32,13 @@ import { Slider } from "@/components/ui/slider";
 import { droppedPath, isDesktop } from "@/lib/desktop";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useTransport } from "../transport";
+import { openInNewChannels, samplerToSendTo, sendToSelectedChannel, showInFinder } from "./actions";
+import { BROWSER_DRAG_TYPE, type BrowserDrag } from "./drops";
 import { resolveBrowserKey } from "./keys";
 import { useBrowser } from "./store";
 import { type ItemRow, type Row, arrowAction, isItem, resultRows, rowRange, step, treeRows } from "./tree";
 import { type Peaks, PEAK_COLUMNS, loadPeaks } from "./waveform";
 
-/** What a drag of the Browser's files carries: their paths, as JSON (`BrowserDrag`). The rack and the Piano roll take it. */
-export const BROWSER_DRAG_TYPE = "application/x-vaudio-browser";
-export interface BrowserDrag {
-  paths: string[];
-}
 
 const ROW_HEIGHT = 22;
 const INDENT = 12;
@@ -326,7 +323,10 @@ function RowList({ listRef, searchRef, onAddFolder }: { listRef: React.RefObject
       case "edge": {
         const by = action.type === "move" ? action.direction : action.type === "page" ? action.direction * Math.max(1, Math.floor(height / ROW_HEIGHT) - 1) : action.direction * rows.length;
         const next = step(rows, store.cursor, store.cursor ? by : action.direction);
-        if (next) choose(next, action.type === "move");
+        if (!next) return;
+        const send = action.type === "move" && action.send && next.item.kind === "file";
+        choose(next, action.type === "move" && !send);
+        if (send) void sendToSelectedChannel(next.item.path, { swap: true });
         return;
       }
       case "arrow": {
@@ -339,7 +339,7 @@ function RowList({ listRef, searchRef, onAddFolder }: { listRef: React.RefObject
       }
       case "enter":
         if (!isItem(current)) return;
-        if (current.item.kind === "file") store.preview(current.item.path);
+        if (current.item.kind === "file") void sendToSelectedChannel(current.item.path);
         else if (current.section === "tree") store.toggleFolder(current.item.path);
         else store.reveal(current.item.path, true);
         return;
@@ -479,6 +479,14 @@ const RowView = memo(function RowView({ row, top, rows, onMenu }: { row: Row; to
       draggable={!folder}
       onDragStart={onDragStart}
       onClick={onClick}
+      // The middle button sends a file to the selected channel, as FL's does.
+      onAuxClick={(e) => {
+        if (e.button !== 1 || folder) return;
+        e.preventDefault();
+        useBrowser.getState().select([row.key], row.key);
+        void sendToSelectedChannel(item.path);
+      }}
+      onMouseDown={(e) => e.button === 1 && e.preventDefault()}
       onContextMenu={() => {
         const store = useBrowser.getState();
         if (!store.selected.includes(row.key)) store.select([row.key], row.key);
@@ -542,8 +550,14 @@ function RowMenu({ row }: { row: ItemRow }) {
   const store = useBrowser.getState();
   const { item } = row;
   const folder = item.kind === "folder";
+  // The files selected (the row right-clicked is one of them).
+  const files = visibleRows()
+    .filter(isItem)
+    .filter((r) => store.selected.includes(r.key) && r.item.kind === "file")
+    .map((r) => r.item.path);
+  const target = samplerToSendTo();
   return (
-    <ContextMenuContent className="min-w-52">
+    <ContextMenuContent className="min-w-56">
       {folder ? (
         row.section === "tree" ? (
           <ContextMenuItem onSelect={() => store.toggleFolder(item.path)}>{row.expanded ? "Close" : "Open"}</ContextMenuItem>
@@ -552,12 +566,17 @@ function RowMenu({ row }: { row: ItemRow }) {
         )
       ) : (
         <>
-          <ContextMenuItem onSelect={() => store.preview(item.path)}>
-            Play <ContextMenuShortcut>↵</ContextMenuShortcut>
+          <ContextMenuItem onSelect={() => void sendToSelectedChannel(item.path)}>
+            {target ? `Send to ${target.name}` : "Send to selected channel"} <ContextMenuShortcut>↵</ContextMenuShortcut>
           </ContextMenuItem>
+          <ContextMenuItem onSelect={() => void openInNewChannels(files.length ? files : [item.path])}>
+            {files.length > 1 ? `Open ${files.length} files in new channels` : "Open in new channel"}
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => store.preview(item.path)}>Play</ContextMenuItem>
           {row.section !== "tree" && <ContextMenuItem onSelect={() => store.reveal(item.path, false)}>Show in its folder</ContextMenuItem>}
         </>
       )}
+      <ContextMenuItem onSelect={() => showInFinder(item.path)}>Show in Finder</ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => void store.setFavourite(item.path, !row.favourite)}>{row.favourite ? "Remove from favourites" : "Add to favourites"}</ContextMenuItem>
       {row.root && (

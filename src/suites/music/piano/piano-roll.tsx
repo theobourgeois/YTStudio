@@ -25,6 +25,7 @@ import { onFade, vanishing } from "./fades";
 import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, wheelZoomFactor, zoomAt } from "./geometry";
 import { gridCursor, gridPointerDown, keysPointerDown, lanePointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
 import { CURSORS } from "./cursors";
+import { carriesSamples, dropAsChannels, dropOnChannel } from "../browser/drops";
 import { DEFAULT_LANE_HEIGHT, MIN_LANE_HEIGHT, MIN_NOTES_HEIGHT, type PianoTool, usePiano } from "./store";
 import { DeleteIcon, DrawIcon, MuteIcon, PaintIcon, PlaybackIcon, SelectIcon, SliceIcon } from "./tool-icons";
 
@@ -88,6 +89,20 @@ export function PianoRoll() {
         data-start={startTick}
         data-selected={selectedCount}
         data-row-height={rowHeight}
+        // A sample dropped on it is the sample of the channel it shows; a plugin channel can't take one,
+        // so it becomes a channel of its own, shown here instead.
+        onDragOver={(e) => {
+          if (!carriesSamples(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e) => {
+          if (!carriesSamples(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (channel?.kind === "sampler") return dropOnChannel(e.dataTransfer, channel.id);
+          void dropAsChannels(e.dataTransfer).then(([added]) => added && usePiano.getState().setChannel(added));
+        }}
       >
         {channel ? <PianoBody /> : <p className="p-6 text-sm text-muted-foreground">Add a channel to the rack to write its notes here.</p>}
       </div>

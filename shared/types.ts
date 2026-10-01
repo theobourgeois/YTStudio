@@ -66,7 +66,8 @@ export interface MediaAsset {
   reversed?: ReversedMedia;
   /**
    * The asset this one is a copy of: the Library media it came from, or the
-   * project media it was added to the Library from. Used to avoid copying twice.
+   * project media it was added to the Library from; or for a file of the music
+   * Browser's, `file:<path>:<size>:<modified>`. Used to avoid copying twice.
    */
   origin?: string;
   /**
@@ -899,6 +900,8 @@ export interface ToolCallProgressRequest {
 //   GET    /api/browser/list?path=      -> BrowserItem[] (a folder's subfolders and audio files)
 //   GET    /api/browser/search?q=&limit= -> BrowserSearchResult
 //   GET    /api/browser/file?path=      -> the audio file (only inside the Browser's folders)
+//   POST   /api/browser/use  body: UseBrowserFileRequest -> MediaAsset (the project's copy of the file, made once)
+//   POST   /api/browser/reveal  body: { path } -> 204 (shows it in Finder)
 //   POST   /api/browser/preview  body: PreviewFileRequest -> EngineStatus (hear it; POST /api/engine/stopPreview stops it)
 //   GET    /api/engine/devices          -> EngineDevices (the output device and its options)
 //   POST   /api/engine/devices  body: SetDeviceRequest -> EngineDevices

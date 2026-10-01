@@ -1,4 +1,4 @@
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { CSSProperties, DragEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { PiCornersIn, PiCornersOut, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
@@ -246,10 +246,10 @@ export function centredOnDesktop(width: number, height: number): WindowPlace {
 }
 
 /** Where the music editor's windows float. */
-export function Desktop({ children }: { children: ReactNode }) {
+export function Desktop({ children, onDragOver, onDrop }: { children: ReactNode; onDragOver?: (e: DragEvent<HTMLDivElement>) => void; onDrop?: (e: DragEvent<HTMLDivElement>) => void }) {
   return (
     // Nothing on it is text to copy: a drag or a double-click never selects the names on buttons.
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-stage select-none" data-desktop aria-label="Song">
+    <div className="relative min-h-0 flex-1 overflow-hidden bg-stage select-none" data-desktop aria-label="Song" onDragOver={onDragOver} onDrop={onDrop}>
       {children}
       <SnapPreview />
     </div>

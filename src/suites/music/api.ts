@@ -18,7 +18,9 @@ import type {
   BrowserSearchResult,
   BrowserState,
   SetBrowserFavouriteRequest,
+  UseBrowserFileRequest,
 } from "@shared/music/browser";
+import type { MediaAsset } from "@shared/types";
 import { request } from "@/lib/api";
 
 const pathQuery = (path: string) => `path=${encodeURIComponent(path)}`;
@@ -45,6 +47,9 @@ export const musicApi = {
   listBrowserFolder: (path: string) => request<BrowserItem[]>(`/api/browser/list?${pathQuery(path)}`),
   searchBrowser: (q: string, limit?: number) =>
     request<BrowserSearchResult>(`/api/browser/search?q=${encodeURIComponent(q)}${limit ? `&limit=${limit}` : ""}`),
+  /** One of the Browser's files as the project's media (copied the first time). */
+  useBrowserFile: (body: UseBrowserFileRequest) => request<MediaAsset>("/api/browser/use", { method: "POST", body: JSON.stringify(body) }),
+  revealBrowserFile: (path: string) => request<void>("/api/browser/reveal", { method: "POST", body: JSON.stringify({ path }) }),
   /** Hear one of the Browser's files (cutting off the last); `engine("stopPreview", {})` stops it. */
   previewFile: (body: PreviewFileRequest) => request<EngineStatus>("/api/browser/preview", { method: "POST", body: JSON.stringify(body) }),
   /** Where a Browser file is served (its waveform, and its bytes when it's added to the project). */

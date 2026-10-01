@@ -20,7 +20,9 @@ import {
   searchEntry,
   sortItems,
 } from "../../shared/music/browser.ts";
-import { type DataPaths, HttpError, isObject, readJson, writeJson } from "../storage.ts";
+import type { MediaAsset } from "../../shared/types.ts";
+import { run } from "../process.ts";
+import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
 
 /** What's saved: only the user's choices. The index is made again at startup. */
 interface SavedBrowser {
@@ -45,6 +47,19 @@ interface IndexedRoot {
   generation: number;
   scanning: boolean;
   missing: boolean;
+}
+
+/**
+ * A project's media, as the Browser needs it (the app wires it to the projects' media library: this
+ * suite doesn't import the video editor's).
+ */
+export interface BrowserMedia {
+  /** Whether the project exists. */
+  hasProject(projectId: string): boolean;
+  /** The project's media copied from this origin, if it has one. */
+  find(projectId: string, origin: string): MediaAsset | undefined;
+  /** Copy a file into the project's media, remembering where it came from. */
+  importFile(file: string, projectId: string, origin: string): Promise<MediaAsset>;
 }
 
 export interface SampleBrowserOptions {
@@ -185,6 +200,26 @@ export class SampleBrowser {
     const stat = await fs.stat(file).catch(() => null);
     if (!stat?.isFile()) throw new HttpError(404, `"${path.basename(file)}" isn't there any more.`);
     return file;
+  }
+
+  /**
+   * One of the Browser's audio files as a project's media: the copy made last time if the file hasn't
+   * changed since (so trying samples one after another doesn't copy one twice), else a new copy.
+   */
+  async use(projectId: unknown, rawPath: unknown, media: BrowserMedia): Promise<MediaAsset> {
+    if (!isValidId(projectId) || !media.hasProject(projectId)) throw new HttpError(404, "Project not found");
+    const file = await this.audioFile(rawPath);
+    const stat = await fs.stat(file);
+    const origin = `file:${file}:${stat.size}:${Math.round(stat.mtimeMs)}`;
+    return media.find(projectId, origin) ?? (await media.importFile(file, projectId, origin));
+  }
+
+  /** Show a file or folder of the Browser's in Finder (Explorer, or the file manager), selected. */
+  async reveal(rawPath: unknown): Promise<void> {
+    const target = this.inRoots(rawPath);
+    if (process.platform === "darwin") await run("open", ["-R", target]);
+    else if (process.platform === "win32") await run("explorer", [`/select,${target}`]).catch(() => {});
+    else await run("xdg-open", [path.dirname(target)]);
   }
 
   // --- Inside ----------------------------------------------------------------------------------------

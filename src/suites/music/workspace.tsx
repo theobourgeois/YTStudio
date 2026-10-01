@@ -3,6 +3,7 @@ import type { EngineKey } from "@shared/music/engine";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
 import { BrowserPanel } from "./browser/browser-panel";
+import { carriesSamples, dropAsChannels } from "./browser/drops";
 import { useBrowser } from "./browser/store";
 import { ChannelRack } from "./channel-rack";
 import { ChannelSettingsWindow } from "./channel-settings";
@@ -63,7 +64,17 @@ function Windows() {
   const openIds = useMusicUi((s) => s.openChannelIds);
   const channels = useSong((song) => song.channels);
   return (
-    <Desktop>
+    <Desktop
+      // Samples dropped on the desktop itself (not on a window) become channels, as in FL Studio.
+      onDragOver={(e) => {
+        if (carriesSamples(e.dataTransfer) && !(e.target as HTMLElement).closest("[data-window]")) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        if (!carriesSamples(e.dataTransfer) || (e.target as HTMLElement).closest("[data-window]")) return;
+        e.preventDefault();
+        void dropAsChannels(e.dataTransfer);
+      }}
+    >
       {rackOpen && <ChannelRack />}
       {pianoOpen && <PianoRoll />}
       {mixerOpen && <MixerWindow />}

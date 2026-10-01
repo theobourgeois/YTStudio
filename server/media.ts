@@ -146,10 +146,11 @@ export class MediaLibrary {
   }
 
   /**
-   * Import a file from anywhere on this computer (the assistant's `import_media`) into
-   * `projectId`'s media. The file is copied; the original stays where it is.
+   * Import a file from anywhere on this computer (the assistant's `import_media`, the music Browser) into
+   * `projectId`'s media. The file is copied; the original stays where it is. `origin` is kept on the
+   * asset, to find the copy again rather than copy twice.
    */
-  async importFile(rawPath: unknown, projectId: string, projectExists: () => boolean): Promise<MediaAsset> {
+  async importFile(rawPath: unknown, projectId: string, projectExists: () => boolean, origin?: string): Promise<MediaAsset> {
     if (typeof rawPath !== "string" || !rawPath.trim()) throw new HttpError(400, "Expected { projectId, path }.");
     const expanded = rawPath.trim().replace(/^~(?=$|\/)/, os.homedir());
     if (!path.isAbsolute(expanded)) throw new HttpError(400, "The path must be absolute.");
@@ -158,7 +159,7 @@ export class MediaLibrary {
     const tmp = this.paths.tmpFile(path.extname(expanded));
     try {
       await fs.copyFile(expanded, tmp, fsConstants.COPYFILE_FICLONE);
-      return await this.add(tmp, path.basename(expanded), projectId, projectExists);
+      return await this.add(tmp, path.basename(expanded), projectId, projectExists, origin);
     } finally {
       await fs.rm(tmp, { force: true });
     }
@@ -173,6 +174,7 @@ export class MediaLibrary {
     rawName: string,
     projectId: string | null,
     projectExists: () => boolean,
+    origin?: string,
   ): Promise<MediaAsset> {
     if (!projectExists()) throw new HttpError(404, "Project not found");
     if (!(await ffmpegVersion())) {
@@ -181,12 +183,12 @@ export class MediaLibrary {
     const { size } = await fs.stat(file);
     if (size === 0) throw new HttpError(400, "The file is empty.");
     const probe = await probeMedia(file);
-    return await this.commit(file, { name: displayName(rawName), projectId, size, probe }, projectExists);
+    return await this.commit(file, { name: displayName(rawName), projectId, size, probe, origin }, projectExists);
   }
 
   private async commit(
     tmp: string,
-    { name, projectId, size, probe }: { name: string; projectId: string | null; size: number; probe: ProbeResult },
+    { name, projectId, size, probe, origin }: { name: string; projectId: string | null; size: number; probe: ProbeResult; origin?: string },
     projectExists: () => boolean,
   ): Promise<MediaAsset> {
     const id = createId("media");
@@ -232,6 +234,7 @@ export class MediaLibrary {
         poster,
         filmstrip: null,
         waveform: null,
+        ...(origin ? { origin } : {}),
       };
       await writeJson(this.metaFile(id), asset);
       // No await between this check and `set`: a concurrent project deletion either
