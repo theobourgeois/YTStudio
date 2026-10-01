@@ -105,7 +105,7 @@
   --meter-high: #d6403c;
   --meter-off: #c5ccd5;
 
-  /* Knobs (`knob.tsx`), FL Studio's: a cap in a well, the value an arc round it. */
+  /* Knobs (`knob.tsx`), FL Studio's: a cap in a well, the value an arc round it (the accent, for now: its own setting). */
   --knob-well: #c8ced6;
   --knob-well-edge: #b3bac4;
   --knob-cap-light: #7a808b;
@@ -113,9 +113,9 @@
   --knob-cap-dark: #343841;
   --knob-cap-edge: #2a2d34;
   --knob-notch: #e9edf2;
-  --knob-arc: #f08a2c;
+  --knob-arc: var(--brand);
 
-  /* The mixer's faders (`mixer/fader.tsx`), FL Studio's metal caps; green on the selected track. */
+  /* The mixer's faders (`mixer/fader.tsx`), FL Studio's metal caps; the accent on the selected track. */
   --fader-groove: #8e96a2;
   --fader-tick: rgb(40 50 62 / 0.12);
   --fader-tick-strong: rgb(40 50 62 / 0.3);
@@ -123,10 +123,10 @@
   --fader-cap: #d6d9df;
   --fader-cap-dark: #9da2ab;
   --fader-cap-edge: #6a707b;
-  --fader-cap-on-light: #b6f08e;
-  --fader-cap-on: #5cc23c;
-  --fader-cap-on-dark: #2f8d22;
-  --fader-cap-on-edge: #236a19;
+  --fader-cap-on-light: color-mix(in oklab, var(--brand) 55%, #fff);
+  --fader-cap-on: var(--brand);
+  --fader-cap-on-dark: color-mix(in oklab, var(--brand) 70%, #000);
+  --fader-cap-on-edge: var(--brand-edge);
 
   /* The mixer's look (`mixer/mixer-window.tsx`), FL Studio's: mid-tone strips, darker at the top. */
   --mixer-bg: #9da5b0;
@@ -141,10 +141,10 @@
   /* A coloured track's name: its colour mixed with this. */
   --mixer-name-tint: #14171c;
   --mixer-well: #2c3038;
-  --mixer-led: #5fd23c;
-  --mixer-led-edge: #2d8a1e;
-  --mixer-on: #3fae25;
-  --mixer-delay: #d98a1c;
+  --mixer-led: var(--brand);
+  --mixer-led-edge: var(--brand-edge);
+  --mixer-on: var(--brand);
+  --mixer-delay: var(--brand);
   --piano-time: #e5484d;
   --piano-start: #e08a12;
   --piano-tool: #2f7be5;
@@ -236,7 +236,7 @@
   --knob-cap-dark: #2a2d35;
   --knob-cap-edge: #17191e;
   --knob-notch: #d9dee6;
-  --knob-arc: #f2902e;
+  --knob-arc: var(--brand);
 
   --fader-groove: #15171b;
   --fader-tick: rgb(255 255 255 / 0.05);
@@ -245,10 +245,10 @@
   --fader-cap: #c9ccd3;
   --fader-cap-dark: #8b8f99;
   --fader-cap-edge: #3c4048;
-  --fader-cap-on-light: #a6ec7c;
-  --fader-cap-on: #52b934;
-  --fader-cap-on-dark: #2d8520;
-  --fader-cap-on-edge: #1d5a14;
+  --fader-cap-on-light: color-mix(in oklab, var(--brand) 55%, #fff);
+  --fader-cap-on: var(--brand);
+  --fader-cap-on-dark: color-mix(in oklab, var(--brand) 70%, #000);
+  --fader-cap-on-edge: var(--brand-edge);
 
   --mixer-bg: #23262d;
   --mixer-strip: #3a3e48;
@@ -261,8 +261,8 @@
   --mixer-name: #c3c7cf;
   --mixer-name-tint: #ffffff;
   --mixer-well: #1f2228;
-  --mixer-led: #7bd84f;
-  --mixer-led-edge: #3b7f22;
-  --mixer-on: #74d046;
-  --mixer-delay: #f2a43a;
+  --mixer-led: var(--brand);
+  --mixer-led-edge: var(--brand-edge);
+  --mixer-on: var(--brand);
+  --mixer-delay: var(--brand);
 }
