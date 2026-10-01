@@ -4,7 +4,7 @@
  */
 
 export type MusicKeyAction =
-  | { type: "togglePlay" | "undo" | "redo" | "toggleRack" | "togglePiano" | "toggleMixer" | "toggleGraph" | "toggleTrackSelectors" | "assignFreeTracks" | "clone" | "delete" | "copy" | "cut" | "paste" }
+  | { type: "togglePlay" | "undo" | "redo" | "toggleRack" | "togglePiano" | "toggleMixer" | "toggleBrowser" | "toggleGraph" | "toggleTrackSelectors" | "assignFreeTracks" | "clone" | "delete" | "copy" | "cut" | "paste" }
   /** Mute or solo the nth channel of the rack (0 is the first). */
   | { type: "mute" | "solo"; index: number }
   /** Select the channel above (-1) or below (1); `extend` keeps what's selected. */
@@ -29,6 +29,8 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   if (e.key === "F6") return only("toggleRack");
   if (e.key === "F7") return only("togglePiano");
   if (e.key === "F9") return only("toggleMixer");
+  // FL's Alt+F8. (F8 alone is FL's plugin picker.)
+  if (e.key === "F8" && e.altKey && !command && !e.shiftKey) return { type: "toggleBrowser" };
 
   if (digit !== undefined && !e.shiftKey && !e.altKey) {
     // 1…9 then 0: the first ten channels.
@@ -60,7 +62,7 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
 }
 
 /** Keys for the whole editor, whichever window is in front (the Piano roll and the mixer leave only these to the rack). */
-const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set(["togglePlay", "undo", "redo", "toggleRack", "togglePiano", "toggleMixer"]);
+const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set(["togglePlay", "undo", "redo", "toggleRack", "togglePiano", "toggleMixer", "toggleBrowser"]);
 
 export const isGlobalKey = (action: MusicKeyAction) => GLOBAL_KEYS.has(action.type);
 

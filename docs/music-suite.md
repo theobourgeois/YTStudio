@@ -176,8 +176,14 @@ search is pure (`shared/music/browser.ts`: words in any order, typos, ranked); `
 (2) The engine's preview, done: `engine/src/FilePreview.cpp` streams a file from disk outside the song
 (decoded and resampled ahead on a reader thread into a lock-free ring), cut off by the next with a short
 fade; `POST /api/browser/preview`, `stopPreview`, `previewVolume`, and where it is in the transport
-event (`EnginePreview`); tested offline in `server/music/preview.integration.test.ts`. Next: (3) the Browser window (kept on the left, its
-width resizable, the tree, search results as a list, the waveform, favourites, keys); (4) getting files
+event (`EnginePreview`); tested offline in `server/music/preview.integration.test.ts`.
+(3) The Browser window, done: `src/suites/music/browser/` (a panel in the look of the windows, kept on
+the desktop's left, its width dragged; Alt+F8 and the toolbar's folder button): the tree with Favourites
+on top (a favourite folder is a shortcut into the tree), search as you type with the results as a list,
+a click or the arrows play a file, its waveform with the preview's playhead (click to play from there),
+the preview's volume, stars, a row's menu, FL's keys (`browser/keys.ts`), several rows selected
+(⌘/Shift+click) and dragged as `BROWSER_DRAG_TYPE`. Folders are dropped from Finder in the desktop app
+(the preload's `pathForFile`), or added by path from the menu. Next: (4) getting files
 into the song (drags onto the rack, a channel, the Piano roll; several files at once; send to selected
 channel, Shift+Up/Down, Enter); (5) the assistant's tools; (6) the e2e test and docs.
 

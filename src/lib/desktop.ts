@@ -6,13 +6,18 @@ import { useProjects } from "@/stores/projects";
 
 declare global {
   interface Window {
-    editorDesktopInfo?: { platform: string };
+    editorDesktopInfo?: { platform: string; pathForFile?: (file: File) => string };
     editorDesktop?: { flush(): Promise<void> };
   }
 }
 
 /** Whether the editor runs in the desktop app rather than a browser tab. */
 export const isDesktop = typeof window !== "undefined" && window.editorDesktopInfo !== undefined;
+
+/** Where a file dropped from Finder is on disk: only the desktop app can say (empty when it can't). */
+export function droppedPath(file: File): string {
+  return window.editorDesktopInfo?.pathForFile?.(file) ?? "";
+}
 
 export function exposeDesktopHooks() {
   if (isDesktop) window.editorDesktop = { flush: () => useProjects.getState().flush() };

@@ -4,12 +4,21 @@
  * server. The audio engine is a stand-in (`server/music/fake-engine.mjs`): nothing is heard, but it
  * keeps time, so what plays can be watched.
  */
+import fs from "node:fs/promises";
+import path from "node:path";
 import { type Locator, type Page, expect, test } from "@playwright/test";
+import { writeWav } from "../server/music/wav.ts";
 
 test.describe.configure({ mode: "serial" });
 
-/** A new song, open in the page. */
-async function openNewSong(page: Page, name: string): Promise<string> {
+/** A new song, open in the page. The Browser starts closed (it takes room from the desktop) unless `browser`. */
+async function openNewSong(page: Page, name: string, { browser = false } = {}): Promise<string> {
+  await page.addInitScript((open) => {
+    if (!sessionStorage.getItem("e2e-browser-set")) {
+      localStorage.setItem("vaudio.music.browser", JSON.stringify({ open, width: 280, volume: 0.8, expanded: [] }));
+      sessionStorage.setItem("e2e-browser-set", "1");
+    }
+  }, browser);
   const response = await page.request.post("/api/projects", { data: { suite: "music", name } });
   expect(response.ok()).toBe(true);
   const { id } = await response.json();
@@ -953,4 +962,87 @@ test("the assistant mixes with the mixer's tools: routes, levels, sends, effects
   // Insert 3 got a copy of the reverb's effect (an id of its own).
   expect(mixer[3].effects[0]).toMatchObject({ mix: 0.5 });
   expect(mixer[3].effects[0]!.id).not.toBe(verb.effects[0]!.id);
+});
+
+test("the Browser: a folder added once for every song, opened, previewed, searched, starred, by mouse and by FL's keys", async ({ page }) => {
+  // A sample folder of the user's: a kit with two kicks and a snare, and a loop.
+  const folder = path.resolve("e2e/.data/My Samples");
+  const tone = Array.from({ length: 4800 }, (_, i) => Math.sin(i / 8) * 0.5);
+  await fs.mkdir(path.join(folder, "808 Kit"), { recursive: true });
+  await fs.mkdir(path.join(folder, "Loops"), { recursive: true });
+  for (const name of ["808 Kit/Kick 1.wav", "808 Kit/Kick 2.wav", "808 Kit/Snare.wav", "Loops/Break.wav"]) await writeWav(path.join(folder, name), tone, 48000);
+  await fs.writeFile(path.join(folder, "808 Kit/readme.txt"), "not audio");
+
+  await openNewSong(page, "Browsing", { browser: true });
+  const browser = page.getByRole("complementary", { name: "Browser" });
+  const list = browser.getByTestId("browser-list");
+  const item = (name: string) => list.getByRole("treeitem", { name, exact: true });
+  await expect(browser).toBeVisible();
+
+  // Added by its path from the menu (in the desktop app, dropped from Finder): it opens, folders first, audio only.
+  await browser.getByRole("button", { name: "Browser menu" }).click();
+  await page.getByRole("menuitem", { name: "Add a folder by its path…" }).click();
+  await page.getByRole("textbox", { name: "Folder path" }).fill(folder);
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(item("My Samples")).toHaveAttribute("aria-expanded", "true");
+  await expect(list.getByRole("treeitem")).toHaveText(["My Samples", "808 Kit", "Loops"]);
+
+  // A click opens a folder; a click on a file plays it (the engine says how far along), and shows its waveform.
+  await item("808 Kit").click();
+  await expect(list.getByRole("treeitem")).toHaveText(["My Samples", "808 Kit", "Kick 1.wav", "Kick 2.wav", "Snare.wav", "Loops"]);
+  await item("Kick 1.wav").click();
+  await expect(item("Kick 1.wav")).toHaveAttribute("data-playing", "true");
+  await expect(browser.getByTestId("browser-waveform")).toHaveAttribute("data-loaded", "true");
+  await expect(browser.getByTestId("browser-preview")).toContainText("Kick 1.wav");
+  // The stand-in engine's previews last 2 s.
+  await expect(item("Kick 1.wav")).not.toHaveAttribute("data-playing", "true", { timeout: 5000 });
+
+  // FL's keys: the arrows go from file to file, playing each; ← goes out to the folder and closes it.
+  await list.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(item("Kick 2.wav")).toHaveAttribute("aria-selected", "true");
+  await expect(item("Kick 2.wav")).toHaveAttribute("data-playing", "true");
+  await page.keyboard.press("Escape");
+  await expect(item("Kick 2.wav")).not.toHaveAttribute("data-playing", "true");
+  await page.keyboard.press("ArrowLeft");
+  await expect(item("808 Kit")).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("ArrowLeft");
+  await expect(item("808 Kit")).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("ArrowRight");
+  await expect(item("808 Kit")).toHaveAttribute("aria-expanded", "true");
+  // Space is still play, from the Browser too.
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await page.keyboard.press("Space");
+
+  // Stars: a file, and a folder, which becomes a shortcut to it at the top.
+  await item("Snare.wav").hover();
+  await item("Snare.wav").getByRole("button", { name: "Star Snare.wav" }).click();
+  await item("Loops").getByRole("button", { name: "Star Loops" }).click();
+  await expect(list.getByRole("treeitem").first()).toHaveText("Snare.wav");
+  await item("My Samples").click();
+  await expect(list.getByRole("treeitem")).toHaveText(["Snare.wav", "Loops", "My Samples"]);
+  await list.getByRole("treeitem", { name: "Loops" }).first().click();
+  // (808 Kit was left open inside: it shows open again.)
+  await expect(list.getByRole("treeitem")).toHaveText(["Snare.wav", "Loops", "My Samples", "808 Kit", "Kick 1.wav", "Kick 2.wav", "Snare.wav", "Loops", "Break.wav"]);
+  await expect(list.getByRole("treeitem", { name: "Loops" }).last()).toHaveAttribute("aria-selected", "true");
+
+  // Typing searches every folder, typos and all; the results are a list with each file's folder.
+  await list.focus();
+  await page.keyboard.type("snre");
+  await expect(browser.getByRole("searchbox", { name: "Search the Browser" })).toHaveValue("snre");
+  await expect(list.getByRole("treeitem")).toHaveText(["Snare.wavMy Samples/808 Kit"]);
+  await page.keyboard.press("Enter");
+  await expect(list.getByRole("treeitem", { name: "Snare.wav" })).toHaveAttribute("data-playing", "true");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(browser.getByRole("searchbox", { name: "Search the Browser" })).toHaveValue("");
+
+  // It's the same in every song, and Alt+F8 shows and hides it.
+  await openNewSong(page, "Browsing again");
+  await expect(item("Loops").first()).toBeVisible();
+  await page.keyboard.press("Alt+F8");
+  await expect(browser).toBeHidden();
+  await page.keyboard.press("Alt+F8");
+  await expect(browser).toBeVisible();
 });

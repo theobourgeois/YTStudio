@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiMetronome, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiFolders, PiMetronome, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { lengthOf, setTempo } from "@shared/music/edits";
 import { MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
@@ -21,6 +21,7 @@ import { positionAt, positionText } from "./position";
 import { songGesture, useCurrentPattern, useMusic, useSong } from "./store";
 import { patternTickNow, useTransport } from "./transport";
 import { useMusicUi } from "./ui";
+import { useBrowser } from "./browser/store";
 import { useWheelValue } from "./wheel";
 
 /**
@@ -394,6 +395,9 @@ function WindowToggles() {
       </WindowButton>
       <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} label="Mixer" title="Mixer (F9)">
         <PiSlidersHorizontal className="rotate-90" />
+      </WindowButton>
+      <WindowButton onOpen={() => useBrowser.getState().setOpen(!useBrowser.getState().open)} label="Browser" title="Browser: your sample folders (Alt+F8)">
+        <PiFolders />
       </WindowButton>
     </>
   );

@@ -22,8 +22,9 @@ interface SavedNote {
   muted: boolean;
 }
 
-/** A song with one plugin channel ("Fake Synth"), open, with the Piano roll showing it. */
+/** A song with one plugin channel ("Fake Synth"), open, with the Piano roll showing it (and the Browser closed: it takes room from the desktop). */
 async function openPiano(page: Page, name: string, notes: Partial<SavedNote>[] = []): Promise<string> {
+  await page.addInitScript(() => localStorage.setItem("vaudio.music.browser", JSON.stringify({ open: false, width: 280, volume: 0.8, expanded: [] })));
   const created = await (await page.request.post("/api/projects", { data: { suite: "music", name } })).json();
   const song = await (await page.request.get(`/api/projects/${created.id}`)).json();
   const channel = { id: "chan_synth", name: "Fake Synth", kind: "plugin", plugin: { id: "VST3-Fake Synth-1", name: "Fake Synth", format: "VST3" } };

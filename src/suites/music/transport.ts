@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineChannels, EngineEffects, EngineMeters } from "@shared/music/engine";
+import type { EngineChannels, EngineEffects, EngineMeters, EnginePreview } from "@shared/music/engine";
 import { musicApi } from "./api";
 
 /**
@@ -34,6 +34,8 @@ interface TransportState {
   channels: EngineChannels;
   /** The mixer's effects as the engine has them: loaded (and whose window is open), loading, failed. */
   effects: EngineEffects;
+  /** The Browser's preview as the engine last said (at `at`), or null. */
+  filePreview: EnginePreview | null;
   /** Why the engine can't be reached (it isn't built, it won't start), or null. */
   error: string | null;
 
@@ -93,6 +95,7 @@ export const useTransport = create<TransportState>((set, get) => {
     unreadable: [],
     channels: NO_CHANNELS,
     effects: NO_EFFECTS,
+    filePreview: null,
     error: null,
 
     // From where the ruler was clicked, if that's inside what loops; the engine counts from the loop's start.

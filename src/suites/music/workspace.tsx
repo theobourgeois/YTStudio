@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import type { EngineKey } from "@shared/music/engine";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "@/components/workspace/plain-workspace";
+import { BrowserPanel } from "./browser/browser-panel";
+import { useBrowser } from "./browser/store";
 import { ChannelRack } from "./channel-rack";
 import { ChannelSettingsWindow } from "./channel-settings";
 import { startEngineSync } from "./engine-sync";
@@ -41,6 +43,7 @@ export default function MusicWorkspace() {
     <div key={projectId} className="flex min-h-0 flex-1 flex-col" data-suite="music">
       <MusicToolbar />
       <div className="flex min-h-0 flex-1">
+        <BrowserPanel />
         <div className="flex min-w-0 flex-1 flex-col">
           <Windows />
         </div>
@@ -184,6 +187,8 @@ function runKey(action: MusicKeyAction) {
       return ui.pianoOpen ? ui.setPianoOpen(false) : openPianoRoll();
     case "toggleMixer":
       return ui.setMixerOpen(!ui.mixerOpen);
+    case "toggleBrowser":
+      return useBrowser.getState().setOpen(!useBrowser.getState().open);
     case "toggleTrackSelectors":
       return ui.setTrackSelectorsShown(!ui.trackSelectorsShown);
     case "assignFreeTracks":
@@ -231,6 +236,8 @@ function useMusicKeys(enabled: boolean) {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || isTyping(e.target) || dialogOpen()) return;
+      // The Browser's list has keys of its own (`browser/keys.ts`): only the editor-wide ones pass it.
+      const inBrowser = e.target instanceof HTMLElement && e.target.closest("[data-browser]") !== null;
       // The Piano roll's own keys, while it's the window in front.
       if (frontWindow() === "piano") {
         const piano = resolvePianoKey(e);
@@ -251,6 +258,7 @@ function useMusicKeys(enabled: boolean) {
       }
       const action = resolveMusicKey(e);
       if (!action) return;
+      if (inBrowser && !isGlobalKey(action)) return;
       // With the Piano roll or the mixer in front, only the keys for everything (play, undo, the windows) are the rack's.
       if ((frontWindow() === "piano" || frontWindow() === "mixer") && !isGlobalKey(action)) return;
       // Copying text that's selected on the page is still the browser's.

@@ -15,6 +15,12 @@ describe("music keys", () => {
     expect(press("k", "KeyK", { ctrlKey: true })).toEqual({ type: "toggleGraph" });
   });
 
+  it("shows the Browser with Alt+F8, from anywhere", () => {
+    expect(press("F8", "F8", { altKey: true })).toEqual({ type: "toggleBrowser" });
+    expect(press("F8", "F8")).toBeNull();
+    expect(resolvePluginWindowKey({ key: "F8", code: "F8", metaKey: false, ctrlKey: false, shiftKey: false, altKey: true })).toEqual({ type: "toggleBrowser" });
+  });
+
   it("shows the mixer with F9 (from any window, a plugin's too), and works its routing from the rack", () => {
     expect(press("F9", "F9")).toEqual({ type: "toggleMixer" });
     expect(resolvePluginWindowKey({ key: "F9", code: "F9", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false })).toEqual({ type: "toggleMixer" });

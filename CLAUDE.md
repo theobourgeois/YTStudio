@@ -176,7 +176,8 @@ src/
                      transport.ts (the engine follows the song; where it's playing), window.tsx (a floating
                      window and the desktop), channel-rack.tsx, rack-actions.ts (what its menus and keys do),
                      channel-settings.tsx (a sampler's window), channel-picker.tsx (the +: choose an
-                     instrument), knob.tsx, lcd.tsx, waveform.ts,
+                     instrument), knob.tsx, lcd.tsx, waveform.ts, browser/ (the Browser, Alt+F8: a panel
+                     kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
                      pattern-picker.tsx, toolbar.tsx (FL's toolbar: transport, tempo and position LCDs, the hint
                      bar; its maths in position.ts), audio-dialog.tsx (device + engine-panel.tsx, the
                      plugin bench), keys.ts, api.ts, and the assistant's side (tools.ts, tool-edits.ts,

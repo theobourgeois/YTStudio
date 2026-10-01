@@ -69,7 +69,15 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   meterSelection(true);
   const stopListening = musicApi.onEngineEvent((event) => {
     if (event.event === "transport") {
-      useTransport.setState({ playing: event.playing, tick: event.tick, at: performance.now(), peak: event.peak, meters: event.meters ?? NO_METERS, cpu: event.cpu });
+      useTransport.setState({
+        playing: event.playing,
+        tick: event.tick,
+        at: performance.now(),
+        peak: event.peak,
+        meters: event.meters ?? NO_METERS,
+        cpu: event.cpu,
+        filePreview: event.preview ?? null,
+      });
     } else if (event.event === "key") {
       // Pressed in a plugin's window, which the plugin didn't use: the editor's shortcut runs.
       const { event: _, ...key } = event;
