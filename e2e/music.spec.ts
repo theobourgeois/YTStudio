@@ -612,6 +612,18 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await expect(row(page, "Kick").getByRole("spinbutton")).toHaveText("1");
   await expect.poll(async () => (await savedSong(page, id)).channels[0].mixerTrack).toBe("insert_1");
 
+  // The insert number's menu types one in: a number, or M for the master.
+  const typeTrack = async (value: string) => {
+    await row(page, "Hat").getByRole("spinbutton").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Type in value…" }).click();
+    await page.getByRole("textbox", { name: /Hat's mixer track.*type a value/ }).fill(value);
+    await page.keyboard.press("Enter");
+  };
+  await typeTrack("5");
+  await expect(row(page, "Hat").getByRole("spinbutton")).toHaveText("5");
+  await typeTrack("M");
+  await expect(row(page, "Hat").getByRole("spinbutton")).toHaveText("---");
+
   // F9 shows the mixer: the master, then 16 inserts, the first now called Kick.
   await page.keyboard.press("F9");
   await expect(mixer).toBeVisible();

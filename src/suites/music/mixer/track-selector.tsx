@@ -4,9 +4,10 @@ import { MASTER_TRACK_ID } from "@shared/music/project";
 import type { Channel } from "@shared/music/types";
 import { ContextMenuItem } from "@/components/ui/context-menu";
 import { Lcd } from "../lcd";
-import { songGesture, useSong } from "../store";
+import { songGesture, useMusic, useSong } from "../store";
 import { useMusicUi } from "../ui";
-import { routeToFreeTrack } from "./actions";
+import { routeChannel, routeToFreeTrack } from "./actions";
+import { parseTrackNumber } from "./track-number";
 
 /**
  * Which mixer track a channel plays into, FL Studio's track selector (on the rack, Alt+M, and TRACK in
@@ -30,6 +31,13 @@ export function TrackSelector({ channel, className }: { channel: Channel; classN
       onChange={(n) => gesture.apply((song) => routeChannels(song, [id], song.mixer.tracks[n]?.id ?? MASTER_TRACK_ID))}
       onEnd={() => gesture.end()}
       onCancel={() => gesture.cancel()}
+      typeIn={{
+        initial: number === 0 ? "M" : String(number),
+        onType(typed) {
+          const track = parseTrackNumber(typed, count);
+          if (track !== null) routeChannel(id, useMusic.getState().history!.doc.mixer.tracks[track].id);
+        },
+      }}
       menu={
         <>
           <ContextMenuItem onSelect={() => routeToFreeTrack(id)}>Route to a free track</ContextMenuItem>
@@ -47,3 +55,4 @@ export function TrackSelector({ channel, className }: { channel: Channel; classN
     />
   );
 }
+
