@@ -29,12 +29,12 @@ interface ClipColours {
  * Content colours (the same in every theme): FL's pattern clips are blue-grey, audio clips greener; deep,
  * not pastel, and what's drawn in them (notes, a waveform) light on them, as FL draws it (Théo).
  */
-const PATTERN: ClipColours = { body: "#6a809e", title: "#4d6587", content: "#dfe8f6", text: "#eef2f8" };
-const AUDIO: ClipColours = { body: "#64927b", title: "#46755e", content: "#dcf1e5", text: "#eef6f1" };
-const SELECTED: ClipColours = { body: "#cf7c75", title: "#ad4a43", content: "#ffe6e3", text: "#fff3f2" };
+const PATTERN: ClipColours = { body: "#55709a", title: "#3d5880", content: "#dfe8f6", text: "#eef2f8" };
+const AUDIO: ClipColours = { body: "#4c8566", title: "#356b4f", content: "#dcf1e5", text: "#eef6f1" };
+const SELECTED: ClipColours = { body: "#c4625b", title: "#a03c35", content: "#ffe6e3", text: "#fff3f2" };
 
 /** How opaque a clip's body is (its title strip and content are solid): the grid shows through, as in FL. */
-const BODY_ALPHA = { light: 0.5, dark: 0.6 };
+const BODY_ALPHA = { light: 0.55, dark: 0.7 };
 /** A clip on a muted track: its colours greyed towards this, and fainter. */
 const MUTED_GREY = "#4a525c";
 const MUTED_TRACK_ALPHA = 0.6;
