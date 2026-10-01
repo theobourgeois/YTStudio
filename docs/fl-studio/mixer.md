@@ -216,6 +216,7 @@ The row at the foot of the Mixer shows the **selected** track's routing:
 | Ctrl+Shift+L | Route them to this track and the next ones, one each |
 | Alt+L | Select the channels routed to the selected track |
 | Alt+← / → | Move the selected track(s) |
+| Alt+Delete | Delete the selected track(s) (ours) |
 | Ctrl+A | Select every track |
 | Ctrl+Shift+click | Select several tracks |
 | Ctrl+Enter | Show / hide the track inspector |
@@ -293,6 +294,16 @@ the top, tracks tinted all the way down under a header of their colour, green li
 muted track colours), all `--knob-*`, `--fader-*` and `--mixer-*` theme tokens, in light and dark;
 docks (left, middle, right; the master always left); Separator before, and named groups (a band across
 their tops, dividers at their edges).
+
+Théo's third pass (2026-10-01), all built: FL's layout and shading but **our colours**: the accent (not
+FL's green or orange) for lights, the selected fader, cables and knob arcs (`--knob-arc`, configurable),
+theme surfaces for the strips, and only the track colours made richer (a tint all the way down). The strip
+is shaded as FL's, softly: darker from its top to the pan knob, a wider dark slot behind the fader. The
+controls drawn closer to FL's pictures: narrow, tall metal fader caps; knobs with an unlit ring round the
+whole sweep (so one at zero still has its outline), bigger in the mixer; lights as a lens in a bezel,
+unlit a dark tint of the accent. The fader hangs at 0 dB for a few pixels on the way past (Shift: not).
+Alt+Delete deletes the selected tracks. No focus outlines on the music editor's controls. Cables follow
+the strips as they scroll, however fast. The plugin picker is only as big as its plugins need.
 
 Not yet, or different: icons, the Current track, the track EQ (put off), "Compensate automations"
 (no automation yet), recording, the slot's presets and Patcher, the
