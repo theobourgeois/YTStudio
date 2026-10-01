@@ -4,7 +4,7 @@
  * acts on the selected clips, or on all of them when none are selected.
  */
 import { clamp } from "@shared/math";
-import { clonePattern, movePatterns, removePattern, renamePattern, setPatternColor, updateChannel } from "@shared/music/edits";
+import { clonePattern, movePatterns, removeChannels, removePatterns, renamePattern, setPatternColor, updateChannel } from "@shared/music/edits";
 import {
   type ClipContext,
   type NewClip,
@@ -322,7 +322,7 @@ function fadeClipsOf(patternIds: string[]) {
 /** Delete a pattern from the Picker: it and its clips (a song keeps one pattern). */
 export function deletePattern(patternId: string) {
   fadeClipsOf([patternId]);
-  useMusic.getState().commit((song) => removePattern(song, patternId));
+  useMusic.getState().commit((song) => removePatterns(song, [patternId]));
 }
 
 // ---------------------------------------------------------------------------
@@ -396,13 +396,55 @@ export function clonePickedPatterns() {
   if (song) useMusic.getState().commit((s) => pickedPatterns(song).reduce((next, id) => clonePattern(next, id), s));
 }
 
-/** Delete the selected patterns and their clips (one undo step; a song keeps one pattern). */
+/** Delete the selected patterns and their clips (one undo step). All of them leave an empty Pattern 1. */
 export function deletePickedPatterns() {
   const song = useMusic.getState().history?.doc;
   if (!song) return;
-  fadeClipsOf(pickedPatterns(song));
-  useMusic.getState().commit((s) => pickedPatterns(song).reduce((next, id) => removePattern(next, id), s));
-  usePlaylist.setState({ patternSelection: new Set() });
+  const ids = pickedPatterns(song);
+  fadeClipsOf(ids);
+  useMusic.getState().commit((s) => removePatterns(s, ids));
+  usePlaylist.setState({ patternSelection: new Set(), source: null });
+}
+
+// ---------------------------------------------------------------------------
+// The Picker's audio clips
+// ---------------------------------------------------------------------------
+
+/** The audio clips (channel ids) selected in the Picker that are still there; with none, the clip source's. */
+export function pickedAudio(song: MusicProject): string[] {
+  const { audioSelection } = usePlaylist.getState();
+  const audio = song.channels.filter((c) => c.kind === "audio");
+  const picked = audio.filter((c) => audioSelection.has(c.id)).map((c) => c.id);
+  if (picked.length) return picked;
+  const source = clipSource(song);
+  return source.kind === "audio" ? [source.ref] : [];
+}
+
+/** A click on an audio clip in the Picker: alone it's the clip source too; ⌘ toggles it, Shift takes a range. */
+export function clickAudio(channelId: string, mode: PickMode) {
+  const song = useMusic.getState().history?.doc;
+  if (!song) return;
+  const order = song.channels.filter((c) => c.kind === "audio").map((c) => c.id);
+  const pick = pickPattern(order, new Set(pickedAudio(song)), usePlaylist.getState().audioAnchor, channelId, mode);
+  usePlaylist.setState({ audioSelection: pick.selection, audioAnchor: pick.anchor });
+  if (mode === "only") chooseSource({ kind: "audio", ref: channelId });
+}
+
+/** A right-click on an audio clip that isn't selected: it alone is, for its menu. */
+export function pickAudioForMenu(channelId: string) {
+  const song = useMusic.getState().history?.doc;
+  if (song && !pickedAudio(song).includes(channelId)) usePlaylist.setState({ audioSelection: new Set([channelId]), audioAnchor: channelId });
+}
+
+/** Delete the selected audio clips: their channels and every clip of them (one undo step). */
+export function deletePickedAudio() {
+  const song = useMusic.getState().history?.doc;
+  if (!song) return;
+  const ids = new Set(pickedAudio(song));
+  const p = playlistContext();
+  if (p) fadeOutClips(p.clips.filter((c) => c.kind === "audio" && ids.has(c.ref)), p.selected);
+  useMusic.getState().commit((s) => removeChannels(s, [...ids]));
+  usePlaylist.setState({ audioSelection: new Set(), source: null });
 }
 
 // ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ import { type WavePeaks, peakRange } from "./waveforms";
 import type { PlaylistDrag, PlaylistView, TimeRange } from "./store";
 
 /** A clip's colours: its body, its title strip, what's drawn in it (notes, the waveform) and its name. */
-interface ClipColours {
+export interface ClipColours {
   body: string;
   title: string;
   content: string;
@@ -30,13 +30,13 @@ interface ClipColours {
  * shade of it (the grid faint behind), and what's drawn in it (notes, a waveform) a light tint of it, so
  * each clip reads as one hue (Théo). The same in every theme.
  */
-function clipColours(color: string): ClipColours {
+export function clipColours(color: string): ClipColours {
   return { title: color, body: mix(color, "#101318", 0.55), content: mix(color, "#ffffff", 0.62), text: mix(color, "#ffffff", 0.88) };
 }
 
 /** FL's own: pattern clips blue-grey, audio clips green; a selected clip red. */
-const PATTERN = clipColours("#5a78a6");
-const AUDIO = clipColours("#4f946c");
+export const PATTERN = clipColours("#5a78a6");
+export const AUDIO = clipColours("#4f946c");
 const SELECTED = clipColours("#cc5a50");
 
 /** How opaque a clip's body is (its title strip and content are solid): the grid shows faintly through, as in FL. */
@@ -470,6 +470,47 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: PlaylistScene, s
   ctx.lineTo(start + 9, 0);
   ctx.lineTo(start + 9, 5);
   ctx.lineTo(start, 12);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * The Picker's preview of a pattern (FL's): all its notes, every channel's, across the item, as its clips
+ * show them. `width` and `height` in CSS pixels; `ticks` is the pattern's length.
+ */
+export function drawPatternPreview(ctx: CanvasRenderingContext2D, pattern: Pattern, ticks: number, width: number, height: number, colour: string) {
+  ctx.clearRect(0, 0, width, height);
+  const s = summary(pattern);
+  if (!s.starts.length || ticks <= 0) return;
+  const range = Math.max(12, s.high - s.low + 1);
+  const rowH = Math.max(1, Math.min(2, (height - 4) / range));
+  const top = 2 + (height - 4 - rowH * range) / 2 + (range - (s.high - s.low + 1)) * rowH * 0.5;
+  const scale = width / ticks;
+  ctx.fillStyle = colour;
+  for (let i = 0; i < s.starts.length && s.starts[i] < ticks; i++) {
+    const x = s.starts[i] * scale;
+    ctx.fillRect(x, top + (s.high - s.pitches[i]) * rowH, Math.max(1, Math.min(s.ends[i], ticks) * scale - x - 0.5), rowH);
+  }
+}
+
+/** The Picker's preview of an audio clip: its whole file's waveform across the item, as its clips draw it. */
+export function drawWaveformPreview(ctx: CanvasRenderingContext2D, peaks: WavePeaks, width: number, height: number, colour: string) {
+  ctx.clearRect(0, 0, width, height);
+  const columns = Math.max(1, Math.floor(width));
+  const per = peaks.samples.length / columns;
+  const mid = height / 2;
+  const half = height / 2 - 1;
+  ctx.fillStyle = colour;
+  ctx.beginPath();
+  const bottoms: number[] = [];
+  for (let x = 0; x < columns; x++) {
+    const [low, high] = peakRange(peaks, x * per, (x + 1) * per);
+    const y = mid - Math.max(0.5, Math.min(1, high) * half);
+    if (x) ctx.lineTo(x + 0.5, y);
+    else ctx.moveTo(0, y);
+    bottoms.push(mid - Math.min(-0.5, Math.max(-1, low) * half));
+  }
+  for (let x = columns - 1; x >= 0; x--) ctx.lineTo(x + 0.5, bottoms[x]);
   ctx.closePath();
   ctx.fill();
 }

@@ -265,7 +265,7 @@ export const MUSIC_TOOLS = [
     name: "remove_pattern",
     title: "Remove a pattern",
     kind: "edit",
-    description: "Remove a pattern (a song keeps at least one). The user can undo it.",
+    description: "Remove a pattern and its clips on the playlist. Removing the last one leaves an empty \"Pattern 1\", as a new song has. The user can undo it.",
     inputSchema: obj({ pattern: str("The pattern: its id or its name.") }, ["pattern"]),
   }),
   tool({
