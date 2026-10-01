@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { NewNote, NotePatch } from "@shared/music/notes";
 import type { Note } from "@shared/music/types";
 import { useMusic } from "../store";
+import { selectInRack } from "../ui";
 import type { PianoView, Snap } from "./geometry";
 
 export const PIANO_TOOLS = ["draw", "paint", "delete", "mute", "slice", "select", "playback"] as const;
@@ -131,7 +132,10 @@ const INITIAL = {
 export const usePiano = create<PianoState>((set, get) => ({
   ...INITIAL,
   // Another channel's notes are other notes: nothing of this one's stays selected.
-  setChannel: (channelId) => channelId !== get().channelId && set({ channelId, selected: new Set(), drag: null, editing: null }),
+  setChannel(channelId) {
+    if (channelId !== get().channelId) set({ channelId, selected: new Set(), drag: null, editing: null });
+    if (channelId) selectInRack(channelId);
+  },
   setTool: (tool) => set({ tool, sliceHover: null }),
   setSnap: (snap) => set({ snap }),
   setView: (view) => set({ view }),

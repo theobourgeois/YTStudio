@@ -199,5 +199,14 @@ export function currentTrackId(song: MusicProject, selected: readonly string[]):
 /** Whether the rack's group filter shows a channel. */
 export const inRackGroup = (channel: Pick<Channel, "kind">, group: RackGroup) => group === "all" || (group === "audio") === (channel.kind === "audio");
 
+/**
+ * Select a channel in the rack unless it's already selected (with others, it keeps them): what the
+ * Piano roll shows and a channel whose window is opened are the rack's selected channel, as in FL Studio.
+ */
+export function selectInRack(channelId: string) {
+  const ui = useMusicUi.getState();
+  if (!ui.selectedChannelIds.includes(channelId)) useMusicUi.setState({ selectedChannelIds: [channelId], anchorChannelId: channelId });
+}
+
 /** The selected channels that are still in the song, in the rack's order. */
 export const selectedIn = (song: MusicProject, ids: readonly string[]) => song.channels.filter((c) => ids.includes(c.id));

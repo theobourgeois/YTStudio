@@ -658,11 +658,11 @@ function WindowToggles() {
       <WindowButton onOpen={() => openPlaylist()} label="Playlist" title="Playlist: the song's arrangement (F5, ⌥1)">
         <PiListDashes />
       </WindowButton>
-      <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (F7, ⌥3)">
-        <PiPianoKeys />
-      </WindowButton>
       <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (F6, ⌥2)">
         <PiRows />
+      </WindowButton>
+      <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (F7, ⌥3)">
+        <PiPianoKeys />
       </WindowButton>
       <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} label="Mixer" title="Mixer (F9, ⌥4)">
         <PiSlidersHorizontal className="rotate-90" />

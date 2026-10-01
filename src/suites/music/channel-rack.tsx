@@ -59,7 +59,7 @@ import {
 import { currentPattern, songGesture, useCurrentPattern, useMusic, useSong } from "./store";
 import { patternPositionNow } from "./playhead";
 import { useTransport } from "./transport";
-import { MIN_RACK_STEPS, type RackGroup, inRackGroup, selectedIn, useMusicUi, useMusicWindows } from "./ui";
+import { MIN_RACK_STEPS, type RackGroup, inRackGroup, selectInRack, selectedIn, useMusicUi, useMusicWindows } from "./ui";
 import { usePlaylist } from "./playlist/store";
 import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow } from "./window";
@@ -619,8 +619,10 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               if (!useMusicUi.getState().selectedChannelIds.includes(id)) useMusicUi.getState().selectChannel(id);
             }}
             onClick={(e) => {
-              if (e.metaKey || e.ctrlKey) useTransport.getState().audition(id);
-              else if (isPlugin) useTransport.getState().showPlugin(id, !pluginOpen);
+              if (e.metaKey || e.ctrlKey) return useTransport.getState().audition(id);
+              // The channel whose window is opened is the one selected, as in FL Studio.
+              selectInRack(id);
+              if (isPlugin) useTransport.getState().showPlugin(id, !pluginOpen);
               else useMusicUi.getState().toggleChannelWindow(id, e.altKey);
             }}
             onWheel={(e) => e.shiftKey && e.deltaY !== 0 && moveChannel(id, e.deltaY < 0 ? -1 : 1)}

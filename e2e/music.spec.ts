@@ -327,12 +327,14 @@ test("the rack's + adds an instrument: a plugin of this computer's, or a sampler
   await expect(row(page, "Fake Synth")).toBeVisible();
   await expect.poll(async () => (await savedSong(page, id)).channels[0]).toMatchObject({ kind: "plugin", name: "Fake Synth", plugin: { name: "Fake Synth", format: "VST3" } });
 
-  // Its button shows and hides the plugin's own window (the engine's, not ours); its steps are notes.
+  // Added, its plugin's own window (the engine's, not ours) opens once it's loaded; its button hides and shows it; its steps are notes.
   const synth = channelButton(page, "Fake Synth");
+  await expect(synth).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("channel-settings")).toHaveCount(0);
+  await synth.click();
   await expect(synth).toHaveAttribute("aria-expanded", "false");
   await synth.click();
   await expect(synth).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByTestId("channel-settings")).toHaveCount(0);
   await synth.click();
   await expect(synth).toHaveAttribute("aria-expanded", "false");
   await step(page, "Fake Synth", 1).click();
@@ -1225,6 +1227,12 @@ test("the Browser's files go into the song: dragged onto the rack or a channel, 
   await expect(page.getByTestId("piano-roll")).toHaveAttribute("data-channel-name", "Kick 2");
   await item("Snare.wav").dragTo(page.getByTestId("piano-roll"));
   await expect.poll(() => sampleOf(4)).toBe("Snare.wav");
+  // Another channel selected, the toolbar's Piano roll button goes to it.
+  await page.keyboard.press("F7");
+  await expect(page.getByTestId("piano-roll")).toHaveCount(0);
+  await page.getByRole("button", { name: "Select Break" }).first().click();
+  await page.getByRole("button", { name: "Piano roll", exact: true }).click();
+  await expect(page.getByTestId("piano-roll")).toHaveAttribute("data-channel-name", "Break");
 });
 
 test("the assistant finds the user's samples, plays one to them and puts them in the song", async ({ page }) => {

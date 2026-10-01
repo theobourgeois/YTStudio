@@ -30,7 +30,7 @@ import { type Channel, type MusicProject, type Note, PPQ, type Pattern, STEP_TIC
 import { currentPattern, useMusic } from "../store";
 import { patternPositionNow } from "../playhead";
 import { useTransport } from "../transport";
-import { useMusicUi, useMusicWindows } from "../ui";
+import { selectedIn, useMusicUi, useMusicWindows } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
 import { fadeOut } from "./fades";
 import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, snapTicks, zoomAt, zoomToRange } from "./geometry";
@@ -302,9 +302,15 @@ export function setMuted(muted: boolean) {
 
 export const setTool = (tool: PianoTool) => usePiano.getState().setTool(tool);
 
-/** Open the Piano roll on a channel (the rack's button, its menu, F7). */
+/**
+ * Open the Piano roll on a channel (the rack's button, its menu), or without one (the toolbar's button,
+ * F7) on the rack's selected channel, if one is: what was picked last is what's shown.
+ */
 export function openPianoRoll(channelId?: string) {
-  if (channelId) usePiano.getState().setChannel(channelId);
+  const song = useMusic.getState().history?.doc;
+  const selected = song && selectedIn(song, useMusicUi.getState().selectedChannelIds)[0];
+  const id = channelId ?? selected?.id;
+  if (id) usePiano.getState().setChannel(id);
   useMusicUi.getState().setPianoOpen(true);
 }
 
