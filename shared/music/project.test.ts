@@ -39,8 +39,8 @@ const song: MusicProject = {
     },
   ],
   patterns: [
-    { id: "pat_a", name: "Verse", length: 14, notes: { chan_kick: [{ id: 3, start: 0, length: 24, pitch: 60, velocity: 0.78, pan: -0.5, muted: true }] } },
-    { id: "pat_b", name: "Chorus", length: null, notes: {} },
+    { id: "pat_a", name: "Verse", length: 14, notes: { chan_kick: [{ id: 3, start: 0, length: 24, pitch: 60, velocity: 0.78, pan: -0.5, muted: true }] }, color: null },
+    { id: "pat_b", name: "Chorus", length: null, notes: {}, color: null },
   ],
   playlist: {
     tracks: [DEFAULT_PLAYLIST_TRACK, { name: "Drums", color: "#4a89dc", size: 1.5, muted: true }],
@@ -81,7 +81,7 @@ describe("music projects", () => {
       name: "Demo",
       settings: { tempo: 140, timeSignature: [4, 4], swing: 0 },
       channels: [expect.objectContaining({ id: FIRST_CHANNEL_ID, name: "Sampler", kind: "sampler", sampleId: null })],
-      patterns: [{ id: FIRST_PATTERN_ID, name: "Pattern 1", length: null, notes: {} }],
+      patterns: [{ id: FIRST_PATTERN_ID, name: "Pattern 1", length: null, notes: {}, color: null }],
       playlist: { tracks: [], clips: [] },
       mixer: createMixer(),
     });
@@ -167,6 +167,7 @@ describe("music projects", () => {
             { id: 1, start: 48, length: 24, pitch: 60, velocity: 1, pan: 0, muted: false },
           ],
         },
+        color: null,
       },
     ]);
   });

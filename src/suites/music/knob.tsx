@@ -31,7 +31,8 @@ export interface ValueUnit {
 }
 
 export const PERCENT: ValueUnit = { scale: 100, unit: "%" };
-export const SEMITONES: ValueUnit = { scale: 1, unit: "st", digits: 2 };
+/** Pitch, kept in semitones, shown and typed in cents (100 to a semitone), as FL Studio does. */
+export const CENTS: ValueUnit = { scale: 100, unit: "cents" };
 export const MILLISECONDS: ValueUnit = { scale: 1000, unit: "ms" };
 
 const round = (value: number, digits = 0) => Math.round(value * 10 ** digits) / 10 ** digits;
@@ -261,5 +262,5 @@ export function SongKnob({ edit, ...knob }: SongKnobProps) {
 
 export const percent = (v: number) => `${Math.round(v * 100)}%`;
 export const panText = (v: number) => (Math.abs(v) < 0.005 ? "Centre" : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? "left" : "right"}`);
-export const semitones = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100) / 100} st`;
+export const cents = (semitones: number) => `${semitones > 0 ? "+" : ""}${Math.round(semitones * 100)} cents`;
 export const seconds = (v: number) => (v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`);

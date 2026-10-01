@@ -8,6 +8,7 @@ import {
   type ClipContext,
   type NewClip,
   addClips,
+  chopClips,
   clipContext,
   clipLength,
   editClips,
@@ -28,7 +29,7 @@ import {
   moveTrack,
 } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS } from "@shared/music/project";
-import type { Channel, MusicProject, PlaylistClip } from "@shared/music/types";
+import { type Channel, type MusicProject, PPQ, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import { type EditEnv, type EditResult, findPattern } from "../tool-edits";
 
 type Input = Record<string, unknown>;
@@ -143,7 +144,7 @@ export function placeClipsTool(song: MusicProject, input: Input, env: EditEnv): 
       } else {
         const channel = findAudio(song, clip.audio);
         const like = song.playlist.clips.find((c) => c.kind === "audio" && c.ref === channel.id);
-        const offset = clip.offset === undefined ? (like?.offset ?? 0) : barsTicks(clip.offset, ctx, "offset") * ctx.secondsPerTick;
+        const offset = clip.offset === undefined ? (like?.offset ?? 0) : barsTicks(clip.offset, ctx, "offset") * ctx.fileSecondsPerTick(channel.id);
         const length = clip.length === undefined ? (like ? clipLength(like, ctx) : ctx.barTicks) : barsTicks(clip.length, ctx, "length", 1 / 64);
         for (let n = 0; n < repeat; n++) placed.push({ kind: "audio", ref: channel.id, track, start: start + n * length, length, offset, muted });
       }
@@ -188,7 +189,7 @@ export function updateClipsTool(song: MusicProject, input: Input): EditResult {
     next = editClips(next, (clips) =>
       clips.map((clip) => {
         if (!ids.has(clip.id)) return clip;
-        const value = clip.kind === "audio" ? offset * ctx.secondsPerTick : offset;
+        const value = clip.kind === "audio" ? offset * ctx.fileSecondsPerTick(clip.ref) : offset;
         // Its length stays where it ends now.
         return value === clip.offset ? clip : { ...clip, offset: value, length: clipLength(clip, ctx) };
       }),
@@ -236,6 +237,19 @@ export function sliceClipsTool(song: MusicProject, input: Input): EditResult {
   }
   if (!made) return { song, text: `No clip crosses bar ${barOf(at, ctx)}${tracks ? " on those tracks" : ""}: nothing was cut.` };
   return { song: { ...song, playlist: { ...song.playlist, clips } }, text: `Cut ${made} clip${made === 1 ? "" : "s"} at bar ${barOf(at, ctx)}.` };
+}
+
+export function chopClipsTool(song: MusicProject, input: Input): EditResult {
+  const ctx = clipContext(song);
+  const ids = findClips(song, input.ids);
+  const every = input.every === "bar" ? ctx.barTicks : input.every === "beat" ? (PPQ * 4) / song.settings.timeSignature[1] : input.every === "step" ? STEP_TICKS : null;
+  if (every === null) throw new Error('"every" must be "bar", "beat" or "step".');
+  const result = chopClips(song.playlist.clips, ids, every, ctx);
+  if (!result.created.length) return { song, text: `No ${input.every} line falls inside those clips: nothing was cut.` };
+  return {
+    song: { ...song, playlist: { ...song.playlist, clips: result.clips } },
+    text: `Chopped ${ids.size} clip${ids.size === 1 ? "" : "s"} into ${ids.size + result.created.length} pieces; the new ones are ${result.created.join(", ")}.`,
+  };
 }
 
 export function splitByChannelTool(song: MusicProject, input: Input, env: EditEnv): EditResult {

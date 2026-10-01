@@ -30,6 +30,8 @@ import {
   setClipProps,
   sliceAll,
   sliceClips,
+  chopClips,
+  pitchSpeed,
   slipClips,
   soloTrack,
   songTicks,
@@ -48,8 +50,8 @@ function makeSong(): MusicProject {
     ...createMusicProject("Song"),
     channels: [createChannel("Kick", "m_kick", "chan_kick"), createChannel("Hat", "m_hat", "chan_hat"), createChannel("Snare", "m_snare", "chan_snare")],
     patterns: [
-      { id: "pat_beat", name: "Beat", length: null, notes: {} },
-      { id: "pat_long", name: "Long", length: 32, notes: {} },
+      { id: "pat_beat", name: "Beat", length: null, notes: {}, color: null },
+      { id: "pat_long", name: "Long", length: 32, notes: {}, color: null },
     ],
   };
   song = setSteps(song, "pat_beat", "chan_kick", [0, 8], true);
@@ -152,6 +154,35 @@ describe("a playlist's clips", () => {
     ]);
     // At an edge, or across nothing: whole.
     expect(sliceClips(song.playlist.clips, BAR, 0, 2, ctx).clips).toBe(song.playlist.clips);
+  });
+
+  it("go through their file at their channel's speed when it's pitched (FL's Resample)", () => {
+    // Two bars of a four-second file at 120 BPM, its channel an octave up: twice as fast through the file.
+    let song = withClips([{ kind: "audio", ref: "chan_kick", track: 0, start: 0, length: 2 * BAR, offset: 0 }]);
+    song = { ...song, channels: song.channels.map((c) => (c.id === "chan_kick" ? { ...c, kind: "audio" as const, pitch: 12 } : c)) };
+    const ctx = clipContext(song);
+    expect(ctx.fileSecondsPerTick("chan_kick")).toBeCloseTo(2 * ctx.secondsPerTick);
+    const { clips } = sliceClips(song.playlist.clips, BAR, 0, 0, ctx);
+    expect(clips.map((c) => c.offset)).toEqual([0, 4]);
+    expect(pitchSpeed(-12)).toBe(0.5);
+  });
+
+  it("chop into bars or beats of the song, each piece carrying on through the content", () => {
+    // A two-bar pattern clip starting half a bar in, and an audio clip of four seconds (two bars).
+    const song = withClips([clip({ ref: "pat_long", start: BAR / 2 }), { kind: "audio", ref: "chan_kick", track: 1, start: 0, length: 2 * BAR, offset: 1 }]);
+    const ctx = clipContext(song);
+    const { clips, created } = chopClips(song.playlist.clips, ids(1), BAR, ctx);
+    expect(clips.filter((c) => c.track === 0).map((c) => [c.start, clipLength(c, ctx), c.offset])).toEqual([
+      [BAR / 2, BAR / 2, 0],
+      [BAR, BAR, BAR / 2],
+      [2 * BAR, BAR / 2, BAR * 1.5],
+    ]);
+    expect(created).toHaveLength(2);
+    // Audio clips go on through their file in seconds: two at 120 BPM a bar.
+    const beats = chopClips(song.playlist.clips, ids(2), BAR / 4, ctx).clips.filter((c) => c.track === 1);
+    expect(beats.map((c) => [c.start, c.offset])).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((n) => [(n * BAR) / 4, 1 + n * 0.5]));
+    // Nothing inside to cut: the same clips back.
+    expect(chopClips(song.playlist.clips, ids(1), 4 * BAR, ctx).clips).toBe(song.playlist.clips);
   });
 
   it("slice every track at once (Shift with the slice tool)", () => {

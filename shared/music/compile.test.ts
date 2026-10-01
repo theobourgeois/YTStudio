@@ -317,11 +317,14 @@ describe("compileSong in song mode", () => {
     expect(compiled.channels[2]).toMatchObject({ id: "chan_vox", sample: "media_vox", stream: true, precomputed: null, envelope: null });
     expect(compiled.channels[0].stream).toBe(false);
     expect(compiled.audioClips).toEqual([
-      { channel: 2, tick: BAR, length: BAR, seconds: 0 },
-      { channel: 2, tick: 2 * BAR, length: BAR, seconds: 2 },
+      { channel: 2, tick: BAR, length: BAR, seconds: 0, speed: 1 },
+      { channel: 2, tick: 2 * BAR, length: BAR, seconds: 2, speed: 1 },
     ]);
     // A loop starting inside a clip: the clip began before it (its tick is negative).
-    expect(compileSong(sliced, P, { start: BAR + 96, end: 3 * BAR }, "song").audioClips[0]).toEqual({ channel: 2, tick: -96, length: BAR, seconds: 0 });
+    expect(compileSong(sliced, P, { start: BAR + 96, end: 3 * BAR }, "song").audioClips[0]).toEqual({ channel: 2, tick: -96, length: BAR, seconds: 0, speed: 1 });
+    // Pitched an octave up, the channel plays its file twice as fast (FL's Resample).
+    const up = compileSong(updateChannel(sliced, "chan_vox", { pitch: 12 }), P, null, "song");
+    expect(up.audioClips.map((c) => c.speed)).toEqual([2, 2]);
     // Pattern mode plays none.
     expect(compileSong(sliced, P).audioClips).toEqual([]);
   });

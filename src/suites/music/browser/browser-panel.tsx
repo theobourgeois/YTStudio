@@ -33,7 +33,7 @@ import { droppedPath, isDesktop } from "@/lib/desktop";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useTransport } from "../transport";
 import { openInNewChannels, samplerToSendTo, sendToSelectedChannel, showInFinder } from "./actions";
-import { BROWSER_DRAG_TYPE, type BrowserDrag } from "./drops";
+import { BROWSER_DRAG_TYPE, type BrowserDrag, setCarriedPaths } from "./drops";
 import { resolveBrowserKey } from "./keys";
 import { useBrowser } from "./store";
 import { type ItemRow, type Row, arrowAction, isItem, resultRows, rowRange, step, treeRows } from "./tree";
@@ -463,6 +463,7 @@ const RowView = memo(function RowView({ row, top, rows, onMenu }: { row: Row; to
     if (!paths.length) return e.preventDefault();
     e.dataTransfer.setData(BROWSER_DRAG_TYPE, JSON.stringify({ paths } satisfies BrowserDrag));
     e.dataTransfer.effectAllowed = "copy";
+    setCarriedPaths(paths);
   };
 
   return (
@@ -478,6 +479,7 @@ const RowView = memo(function RowView({ row, top, rows, onMenu }: { row: Row; to
       title={row.folder ? `${row.folder}/${item.name}` : item.path}
       draggable={!folder}
       onDragStart={onDragStart}
+      onDragEnd={() => setCarriedPaths(null)}
       onClick={onClick}
       // The middle button sends a file to the selected channel, as FL's does.
       onAuxClick={(e) => {

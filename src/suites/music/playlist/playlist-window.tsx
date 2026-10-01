@@ -2,9 +2,9 @@ import { type ReactNode, useEffect, useRef } from "react";
 import { PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
-import { clipContext, songTicks } from "@shared/music/playlist";
-import type { PlaylistClip } from "@shared/music/types";
-import type { WaveformData } from "@shared/types";
+import { type ClipContext, clipContext, songTicks } from "@shared/music/playlist";
+import { TRACK_COLORS } from "@shared/music/project";
+import { type MusicProject, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,10 +14,15 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { carriesSamples, dropAsAudioClips } from "../browser/drops";
+import { carriedPaths, carriesSamples, dropAsAudioClips } from "../browser/drops";
 import { type Palette, prepare, readPalette } from "../piano/draw";
 import { SNAPS, SNAP_LABELS, type Snap, snapTick, wheelZoomFactor } from "../piano/geometry";
 import { DeleteIcon, DrawIcon, MuteIcon, PaintIcon, PlaybackIcon, SelectIcon, SliceIcon } from "../piano/tool-icons";
@@ -28,6 +33,7 @@ import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import {
   cancelDrag,
+  chopClip,
   clipSource,
   commitDrag,
   deleteSelected,
@@ -37,6 +43,8 @@ import {
   openClip,
   playlistContext,
   quantize,
+  recolorSource,
+  renameSource,
   selectAll,
   selectSimilar,
   setMuted,
@@ -44,9 +52,13 @@ import {
   zoomFloor,
 } from "./actions";
 import { editClips, removeClips, setClipProps } from "@shared/music/playlist";
-import { type PlaylistScene, drawRuler, drawTracks, onWaveform, waveformAt } from "./draw";
+import { fadeOutClips, onClipFade, vanishingClips } from "./fades";
+import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
+import { type WavePeaks, clipPeaks, onWaveform } from "./waveforms";
 import { MAX_PX_PER_TICK, scrollViewBy, tickToX, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
 import { CLIP_DRAG_TYPE, Picker } from "./picker";
+import { clearIncoming, showIncoming } from "./incoming";
+import { holdClipPreview } from "./preview";
 import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
 import { TrackHeaders } from "./track-headers";
@@ -303,14 +315,16 @@ function PlaylistBody() {
         selectionCache = { clips: p.clips, drag, selected: playlist.selected, result: shownSelection(p.clips, drag, p.selected, p.ctx) };
       }
       const assets = useMusic.getState().assets;
-      const waveforms = new Map<string, WaveformData>();
+      const waveforms = new Map<string, WavePeaks>();
       for (const channel of song.channels) {
         if (channel.kind !== "audio") continue;
-        const url = assets.find((a) => a.id === channel.sampleId)?.waveform;
-        const data = url ? waveformAt(url) : null;
+        const url = assets.find((a) => a.id === channel.sampleId)?.src;
+        const data = url ? clipPeaks(url) : null;
         if (data) waveforms.set(channel.id, data);
       }
       const palette: Palette = readPalette(box);
+      const incoming = incomingClips(playlist.incoming, p.ctx);
+      const fading = vanishingClips(performance.now());
       const scene: PlaylistScene = {
         view,
         width,
@@ -321,8 +335,15 @@ function PlaylistBody() {
         tracks: song.playlist.tracks,
         layout: p.layout,
         patterns: new Map(song.patterns.map((pattern) => [pattern.id, pattern])),
-        names: new Map([...song.patterns.map((pattern) => [pattern.id, pattern.name] as const), ...song.channels.map((c) => [c.id, c.name] as const)]),
+        names: new Map([
+          ...song.patterns.map((pattern) => [pattern.id, pattern.name] as const),
+          ...song.channels.map((c) => [c.id, c.name] as const),
+          ...(playlist.incoming?.files.map((f, i) => [incoming[i].ref, f.name] as const) ?? []),
+        ]),
+        incoming,
+        colors: new Map([...song.patterns, ...song.channels].flatMap((source) => (source.color ? [[source.id, source.color] as const] : []))),
         waveforms,
+        vanishing: fading,
         barTicks: p.barTicks,
         beatTicks: p.beatTicks,
         songTicks: songTicks(song),
@@ -341,6 +362,8 @@ function PlaylistBody() {
       const r = prepare(ruler.current, width, RULER_H);
       if (r) drawRuler(r, { ...scene, height: RULER_H }, useTransport.getState().songStartTick);
       box.dataset.drawMs = (performance.now() - started).toFixed(2);
+      // Deleted clips still fading: another frame.
+      if (fading.length) schedule();
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(draw);
@@ -350,6 +373,7 @@ function PlaylistBody() {
       usePlaylist.subscribe(schedule),
       useTransport.subscribe((s, p) => s.songStartTick !== p.songStartTick && schedule()),
       onWaveform(schedule),
+      onClipFade(schedule),
     ];
     const theme = new MutationObserver(schedule);
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme"] });
@@ -366,17 +390,6 @@ function PlaylistBody() {
       theme.disconnect();
       resize.disconnect();
     };
-  }, []);
-
-  // Audio clips' waveforms are made after their file is added: ask for the media again until they're there.
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const { history, assets, projectId } = useMusic.getState();
-      if (!history || !projectId) return;
-      const missing = history.doc.channels.some((c) => c.kind === "audio" && assets.find((a) => a.id === c.sampleId)?.waveform === null);
-      if (missing) void useMusic.getState().refreshAssets();
-    }, 2000);
-    return () => clearInterval(timer);
   }, []);
 
   // The pointer over the tracks changes with the tool, and with Ctrl (selecting), without moving.
@@ -479,10 +492,15 @@ function PlaylistBody() {
           if (carriesSamples(e.dataTransfer)) {
             e.preventDefault();
             e.stopPropagation();
+            // Shown where they'd land, as a pattern from the Picker is.
+            const at = dropPoint(e.currentTarget, e);
+            if (at) showIncoming(carriedPaths(), e.dataTransfer.items.length, at.start, at.track, e.shiftKey);
           }
         }}
         onDragLeave={(e) => {
-          if (usePlaylist.getState().drag?.kind === "add" && !e.currentTarget.contains(e.relatedTarget as Node | null)) cancelDrag();
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+          if (usePlaylist.getState().drag?.kind === "add") cancelDrag();
+          clearIncoming();
         }}
         onDrop={(e) => {
           const p = playlistContext();
@@ -493,14 +511,12 @@ function PlaylistBody() {
             dropClip(e.dataTransfer.getData(CLIP_DRAG_TYPE), e.currentTarget, e);
             return;
           }
-          const rect = e.currentTarget.getBoundingClientRect();
-          const { view } = usePlaylist.getState();
-          const start = snapTick(xToTick(view, e.clientX - rect.left), e.altKey ? 1 : p.grid, "cell");
-          const track = Math.min(yToTrack(p.layout, view, e.clientY - rect.top), p.trackCount - 1);
-          if (!carriesSamples(e.dataTransfer)) return;
+          clearIncoming();
+          const at = dropPoint(e.currentTarget, e);
+          if (!at || !carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
-          void dropAsAudioClips(e.dataTransfer, { start, track, after: e.shiftKey });
+          void dropAsAudioClips(e.dataTransfer, { ...at, after: e.shiftKey });
         }}
       >
         <canvas
@@ -518,6 +534,7 @@ function PlaylistBody() {
         />
         <div ref={playhead} className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground opacity-0" data-testid="playlist-playhead" />
         <ClipMenu />
+        <SourceEditor />
       </div>
       <VerticalScrollbar />
 
@@ -529,8 +546,9 @@ function PlaylistBody() {
 }
 
 /**
- * A clip's menu (FL's, from the arrow at the start of its title): open what it plays, make it unique,
- * split its pattern by channel, select the clips like it, mute it, delete it.
+ * A clip's menu (FL's, from the arrow at the start of its title): hear it on its own (held), open what
+ * it plays, rename and recolour its source, make it unique, split its pattern by channel, chop it, select
+ * the clips like it, mute it, delete it.
  */
 function ClipMenu() {
   const menu = usePlaylist((s) => s.clipMenu);
@@ -539,19 +557,59 @@ function ClipMenu() {
   const close = () => usePlaylist.setState({ clipMenu: null });
   const only = new Set([clip.id]);
   const commit = (update: Parameters<typeof editClips>[1]) => useMusic.getState().commit((song) => editClips(song, update));
+  const source = { kind: clip.kind, ref: clip.ref };
+  const color = useMusic.getState().history?.doc && sourceColor(useMusic.getState().history!.doc, source);
+  const p = playlistContext();
+  const chops = p
+    ? [
+        { label: "Every bar", ticks: p.barTicks },
+        { label: "Every beat", ticks: p.beatTicks },
+        { label: "Every step", ticks: STEP_TICKS },
+        ...(p.grid > 1 && ![p.barTicks, p.beatTicks, STEP_TICKS].includes(p.grid) ? [{ label: "At the snap", ticks: p.grid }] : []),
+      ]
+    : [];
   return (
     <DropdownMenu open onOpenChange={(open) => !open && close()}>
       <DropdownMenuTrigger asChild>
         <span aria-hidden className="pointer-events-none absolute size-px" style={{ left: menu.x, top: menu.y }} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" data-testid="clip-menu">
-        <DropdownMenuItem onSelect={() => openClip(clip)}>{clip.kind === "pattern" ? "Edit pattern" : "Show its channel"}</DropdownMenuItem>
+      {/* Its trigger is only a point on the grid: focus stays where it goes next (the Rename and color box). */}
+      <DropdownMenuContent align="start" data-testid="clip-menu" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <DropdownMenuItem
+          title="Hold to hear the clip on its own"
+          // Held, as in FL Studio: it plays while the button's down, and the menu stays.
+          onPointerDown={(e) => e.button === 0 && holdClipPreview(clip.id)}
+          onSelect={(e) => e.preventDefault()}
+        >
+          Preview <DropdownMenuShortcut>hold</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => openClip(clip)}>{clip.kind === "pattern" ? "Edit pattern" : "Channel settings"}</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {/* Opened once the menu has gone, so its closing doesn't close the box too. */}
+        <DropdownMenuItem onSelect={() => setTimeout(() => usePlaylist.setState({ recoloring: { source, x: menu.x, y: menu.y } }))}>Rename and color…</DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Change color</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-auto">
+            <ColorSwatches value={color ?? null} onPick={(picked) => recolorSource(source, picked)} />
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSeparator />
         {clip.kind === "pattern" && (
           <>
             <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => splitPattern(clip.ref)}>Split by channel</DropdownMenuItem>
           </>
         )}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Chop</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {chops.map(({ label, ticks }) => (
+              <DropdownMenuItem key={label} onSelect={() => chopClip(clip.id, ticks)}>
+                {label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         <DropdownMenuItem
           onSelect={() => {
             usePlaylist.getState().select([clip.id]);
@@ -562,12 +620,116 @@ function ClipMenu() {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => commit((clips) => setClipProps(clips, only, { muted: !clip.muted }))}>{clip.muted ? "Unmute" : "Mute"}</DropdownMenuItem>
-        <DropdownMenuItem variant="destructive" onSelect={() => commit((clips) => removeClips(clips, only))}>
+        <DropdownMenuItem
+          variant="destructive"
+          onSelect={() => {
+            fadeOutClips([clip], usePlaylist.getState().selected);
+            commit((clips) => removeClips(clips, only));
+          }}
+        >
           Delete
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/** The colour a clip's source has been given, if any. */
+function sourceColor(song: MusicProject, source: ClipSource): string | null {
+  return (source.kind === "pattern" ? song.patterns.find((p) => p.id === source.ref)?.color : song.channels.find((c) => c.id === source.ref)?.color) ?? null;
+}
+
+/** The colours a clip's source can be given (the tracks' too), and the usual. */
+function ColorSwatches({ value, onPick }: { value: string | null; onPick: (color: string | null) => void }) {
+  return (
+    <div className="grid grid-cols-7 gap-1 p-1" role="radiogroup" aria-label="Color">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={value === null}
+        aria-label="The usual color"
+        title="The usual color"
+        className={cn("grid size-5 place-items-center rounded-sm border border-line bg-surface-2 text-[10px] text-muted-foreground", value === null && "ring-2 ring-brand")}
+        onClick={() => onPick(null)}
+      >
+        ∅
+      </button>
+      {TRACK_COLORS.map((c) => (
+        <button
+          key={c}
+          type="button"
+          role="radio"
+          aria-checked={value === c}
+          aria-label={c}
+          className={cn("size-5 rounded-sm border border-black/30", value === c && "ring-2 ring-brand")}
+          style={{ background: c }}
+          onClick={() => onPick(c)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The clip menu's Rename and color (FL's dialog): the name of what the clip plays (its pattern, or its
+ * audio clip's channel) and its colour, which every clip of it shows. Enter or a click away keeps the name;
+ * Esc leaves it.
+ */
+function SourceEditor() {
+  const editing = usePlaylist((s) => s.recoloring);
+  const song = useMusic((s) => s.history?.doc);
+  if (!editing || !song) return null;
+  const { source } = editing;
+  const name = (source.kind === "pattern" ? song.patterns.find((p) => p.id === source.ref)?.name : song.channels.find((c) => c.id === source.ref)?.name) ?? "";
+  const close = () => usePlaylist.setState({ recoloring: null });
+  return (
+    <Popover open onOpenChange={(open) => !open && close()}>
+      <PopoverTrigger asChild>
+        <span aria-hidden className="pointer-events-none absolute size-px" style={{ left: editing.x, top: editing.y }} />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-2" data-testid="rename-and-color" onFocusOutside={(e) => e.preventDefault()}>
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const value = new FormData(e.currentTarget).get("name");
+            if (typeof value === "string") renameSource(source, value);
+            close();
+          }}
+        >
+          <Input
+            name="name"
+            aria-label={source.kind === "pattern" ? "Pattern name" : "Audio clip name"}
+            className="h-7 text-xs"
+            defaultValue={name}
+            autoFocus
+            onFocus={(e) => e.currentTarget.select()}
+            onBlur={(e) => renameSource(source, e.currentTarget.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") {
+                e.currentTarget.value = name;
+                close();
+              }
+            }}
+          />
+          <ColorSwatches value={sourceColor(song, source)} onPick={(picked) => recolorSource(source, picked)} />
+        </form>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** The files dragged over the tracks as clips, where they'd land: one per track down, or one after another (Shift). */
+function incomingClips(incoming: ReturnType<typeof usePlaylist.getState>["incoming"], ctx: ClipContext): PlaylistClip[] {
+  if (!incoming) return [];
+  let start = incoming.start;
+  return incoming.files.map((file, i) => {
+    const length = file.seconds === null ? ctx.barTicks : Math.max(1, Math.round(file.seconds / ctx.secondsPerTick));
+    const clip: PlaylistClip = { id: -1 - i, kind: "audio", ref: `incoming:${i}`, track: incoming.after ? incoming.track : incoming.track + i, start, length, offset: 0, muted: false };
+    if (incoming.after) start += length;
+    return clip;
+  });
 }
 
 /** Where a clip dragged over the tracks would land: the cell under the pointer (Alt: no snap), on its track. */

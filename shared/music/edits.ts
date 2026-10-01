@@ -122,10 +122,13 @@ export const addPluginChannel = (song: MusicProject, plugin: PluginRef, id?: str
   channels: [...channelsBefore(song), createPluginChannel(plugin, id)],
 });
 
-export type ChannelPatch = Partial<Pick<Channel, "name" | "sampleId" | "volume" | "pan" | "pitch" | "muted" | "cutSelf">> & {
+export type ChannelPatch = Partial<Pick<Channel, "name" | "sampleId" | "volume" | "pan" | "pitch" | "muted" | "cutSelf" | "color">> & {
   envelope?: Partial<Envelope>;
   precomputed?: Partial<Precomputed>;
 };
+
+/** A colour as the document keeps it ("#rrggbb", lower case), or null for anything else. */
+const validColor = (color: string | null | undefined): string | null => (typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : null);
 
 /** `next` if it differs from `current` in any field, else `current` itself. */
 function changed<T extends object>(current: T, next: T): T {
@@ -157,6 +160,7 @@ function patched(channel: Channel, patch: ChannelPatch): Channel {
     pitch: clamp(patch.pitch ?? channel.pitch, -MAX_PITCH, MAX_PITCH),
     muted: patch.muted ?? channel.muted,
     cutSelf: patch.cutSelf ?? channel.cutSelf,
+    color: patch.color === undefined ? channel.color : validColor(patch.color),
     envelope,
     precomputed,
   });
@@ -359,6 +363,13 @@ export const renamePattern = (song: MusicProject, id: string, name: string) =>
   updatePattern(song, id, (p) => {
     const trimmed = name.trim().slice(0, MAX_NAME);
     return !trimmed || trimmed === p.name ? p : { ...p, name: trimmed };
+  });
+
+/** A pattern's colour ("#rrggbb"), or null for the usual: its clips in the Playlist take it. */
+export const setPatternColor = (song: MusicProject, id: string, color: string | null) =>
+  updatePattern(song, id, (p) => {
+    const next = validColor(color);
+    return next === p.color ? p : { ...p, color: next };
   });
 
 /** Set a pattern's length in steps, or null for Auto. Notes past a set length stay, unheard. */

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ContextMenuItem } from "@/components/ui/context-menu";
 import type { GallerySection } from "@/gallery/types";
-import { Knob, PERCENT, SEMITONES, panText, percent, semitones } from "./knob";
+import { CENTS, Knob, PERCENT, cents, panText, percent } from "./knob";
 import { Lcd } from "./lcd";
 import { Fader } from "./mixer/fader";
 import { ModeLights } from "./mode-switch";
@@ -52,7 +52,7 @@ function Controls() {
         <span className="w-28 text-xs text-muted-foreground">knobs</span>
         <LooseKnob initial={0.78} min={0} max={1} defaultValue={0.78} label="Volume" format={percent} unit={PERCENT} />
         <LooseKnob initial={-0.4} min={-1} max={1} defaultValue={0} label="Pan" format={panText} unit={PERCENT} bipolar />
-        <LooseKnob initial={0} min={-24} max={24} defaultValue={0} label="Pitch" format={semitones} unit={SEMITONES} bipolar />
+        <LooseKnob initial={0} min={-24} max={24} defaultValue={0} label="Pitch" format={cents} unit={CENTS} bipolar />
         <LooseKnob initial={0.3} min={0} max={1} defaultValue={0} label="Big" format={percent} unit={PERCENT} size={36} />
       </div>
       <div className="flex items-center gap-4">

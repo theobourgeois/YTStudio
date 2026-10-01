@@ -4,13 +4,14 @@
  * acts on the selected clips, or on all of them when none are selected.
  */
 import { clamp } from "@shared/math";
-import { clonePattern, movePatterns, removePattern } from "@shared/music/edits";
+import { clonePattern, movePatterns, removePattern, renamePattern, setPatternColor, updateChannel } from "@shared/music/edits";
 import {
   type ClipContext,
   type NewClip,
   clipBounds,
   clipContext,
   clipLength,
+  chopClips,
   clipsInTime,
   copyClips,
   deleteSpace,
@@ -41,6 +42,7 @@ import { currentPattern, useMusic } from "../store";
 import { switchMode, useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
+import { fadeOutClips } from "./fades";
 import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, type TrackLayout, minPxPerTick, shownTracks, trackLayout, zoomAt, zoomToRange } from "./geometry";
 import { type PickMode, pickPattern } from "./picks";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
@@ -138,7 +140,7 @@ export function newClip(song: MusicProject, source: ClipSource, start: number, t
   const ctx = clipContext(song);
   const like = song.playlist.clips.find((c) => c.kind === "audio" && c.ref === source.ref);
   const asset = useMusic.getState().assets.find((a) => a.id === song.channels.find((c) => c.id === source.ref)?.sampleId);
-  const length = like ? clipLength(like, ctx) : Math.max(STEP_TICKS, Math.round((asset?.duration ?? 2) / ctx.secondsPerTick));
+  const length = like ? clipLength(like, ctx) : Math.max(STEP_TICKS, Math.round((asset?.duration ?? 2) / ctx.fileSecondsPerTick(source.ref)));
   return { kind: "audio", ref: source.ref, track, start, length, offset: like?.offset ?? 0 };
 }
 
@@ -203,7 +205,9 @@ export function selectSimilar() {
 export function deleteSelected() {
   const p = playlistContext();
   if (!p?.clips.length) return;
-  edit((clips) => removeClips(clips, orAllClips(clips, p.selected)));
+  const gone = orAllClips(p.clips, p.selected);
+  fadeOutClips(p.clips.filter((c) => gone.has(c.id)), p.selected);
+  edit((clips) => removeClips(clips, gone));
   usePlaylist.getState().select([]);
 }
 
@@ -276,6 +280,26 @@ export function makeClipUnique(clipId: number) {
   useMusic.getState().commit((song) => makeUnique(song, clipId));
 }
 
+/** The clip menu's Chop: the clip cut at every `every` ticks of the song (a bar, a beat...); the pieces are selected. */
+export function chopClip(clipId: number, every: number) {
+  const p = playlistContext();
+  if (!p) return;
+  const result = chopClips(p.clips, new Set([clipId]), every, p.ctx);
+  if (!result.created.length) return;
+  edit(() => result.clips);
+  usePlaylist.getState().select([clipId, ...result.created]);
+}
+
+/** Rename a clip's source (its pattern, or its audio clip's channel): every clip of it shows the name. */
+export function renameSource(source: ClipSource, name: string) {
+  useMusic.getState().commit((song) => (source.kind === "pattern" ? renamePattern(song, source.ref, name) : updateChannel(song, source.ref, { name })));
+}
+
+/** Colour a clip's source ("#rrggbb", or null for the usual): every clip of it takes the colour. */
+export function recolorSource(source: ClipSource, color: string | null) {
+  useMusic.getState().commit((song) => (source.kind === "pattern" ? setPatternColor(song, source.ref, color) : updateChannel(song, source.ref, { color })));
+}
+
 /** Split by channel (the pattern's menu, the Picker's): one pattern per channel, its clips with it. One undo step. */
 export function splitPattern(patternId: string) {
   const before = useMusic.getState().history?.doc;
@@ -288,8 +312,16 @@ export function splitPattern(patternId: string) {
   usePlaylist.setState({ source: null, selected: new Set() });
 }
 
+/** The clips of these patterns fade out (the patterns are going, and their clips with them). */
+function fadeClipsOf(patternIds: string[]) {
+  const p = playlistContext();
+  const ids = new Set(patternIds);
+  if (p) fadeOutClips(p.clips.filter((c) => c.kind === "pattern" && ids.has(c.ref)), p.selected);
+}
+
 /** Delete a pattern from the Picker: it and its clips (a song keeps one pattern). */
 export function deletePattern(patternId: string) {
+  fadeClipsOf([patternId]);
   useMusic.getState().commit((song) => removePattern(song, patternId));
 }
 
@@ -318,6 +350,23 @@ export function clickPattern(patternId: string, mode: PickMode) {
   const pick = pickPattern(order, new Set(pickedPatterns(song)), patternAnchor, patternId, mode);
   usePlaylist.setState({ patternSelection: pick.selection, patternAnchor: pick.anchor });
   if (mode === "only") chooseSource({ kind: "pattern", ref: patternId });
+}
+
+/**
+ * A double-click in the Picker: the Channel rack, in front, showing the pattern (it's the pattern shown,
+ * as a click made it), or an audio clip's channel selected in the rack's Audio group.
+ */
+export function showInRack(kind: ClipSource["kind"], ref: string) {
+  const ui = useMusicUi.getState();
+  if (kind === "pattern") {
+    useMusic.getState().selectPattern(ref);
+    // Its channels, not the audio clips'.
+    if (ui.rackGroup === "audio") ui.setRackGroup("unsorted");
+  } else {
+    ui.setSelection([ref]);
+    ui.setRackGroup("audio");
+  }
+  ui.setRackOpen(true);
 }
 
 /** A right-click on a pattern that isn't selected: it alone is, for its menu (as lists do). */
@@ -351,6 +400,7 @@ export function clonePickedPatterns() {
 export function deletePickedPatterns() {
   const song = useMusic.getState().history?.doc;
   if (!song) return;
+  fadeClipsOf(pickedPatterns(song));
   useMusic.getState().commit((s) => pickedPatterns(song).reduce((next, id) => removePattern(next, id), s));
   usePlaylist.setState({ patternSelection: new Set() });
 }
@@ -370,7 +420,11 @@ export function toggleTrackMute(index: number) {
 
 export const soloPlaylistTrack = (index: number) => useMusic.getState().commit((song) => soloTrack(song, index));
 export const insertPlaylistTrack = (index: number) => useMusic.getState().commit((song) => insertTrack(song, index));
-export const deletePlaylistTrack = (index: number) => useMusic.getState().commit((song) => deleteTrack(song, index));
+export function deletePlaylistTrack(index: number) {
+  const p = playlistContext();
+  if (p) fadeOutClips(p.clips.filter((c) => c.track === index), p.selected);
+  useMusic.getState().commit((song) => deleteTrack(song, index));
+}
 export const movePlaylistTrack = (index: number, direction: -1 | 1) => useMusic.getState().commit((song) => moveTrack(song, index, direction));
 
 /** Mute or unmute every clip on a track (its menu's Mute all clips / Unmute all clips). */
@@ -401,11 +455,8 @@ export function openPlaylist() {
 export function openClip(clip: PlaylistClip) {
   const song = useMusic.getState().history?.doc;
   if (!song) return;
-  if (clip.kind === "audio") {
-    useMusicUi.getState().setSelection([clip.ref]);
-    useMusicUi.getState().setRackGroup("audio");
-    return useMusicUi.getState().setRackOpen(true);
-  }
+  // An audio clip: its channel's settings (FL's double-click on one).
+  if (clip.kind === "audio") return useMusicUi.getState().openChannelWindow(clip.ref);
   const pattern = song.patterns.find((p) => p.id === clip.ref);
   if (!pattern) return;
   useMusic.getState().selectPattern(pattern.id);

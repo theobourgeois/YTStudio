@@ -10,10 +10,11 @@
  */
 import { type ClipContext, clipEnd, clipLength, visibleClips } from "@shared/music/playlist";
 import type { Pattern, PlaylistClip, PlaylistTrack } from "@shared/music/types";
-import type { WaveformData } from "@shared/types";
 import { gridTicks } from "../piano/geometry";
-import type { Palette } from "../piano/draw";
+import { type Palette, rulerMarks } from "../piano/draw";
 import { MENU_FROM, MENU_TO, TITLE_HEIGHT, type TrackLayout, tickToX, trackTop, visibleTracks, xToTick } from "./geometry";
+import type { VanishingClip } from "./fades";
+import { type WavePeaks, peakRange } from "./waveforms";
 import type { PlaylistDrag, PlaylistView, TimeRange } from "./store";
 
 /** A clip's colours: its body, its title strip, what's drawn in it (notes, the waveform) and its name. */
@@ -24,25 +25,29 @@ interface ClipColours {
   text: string;
 }
 
-/** Content colours (the same in every theme): FL's pattern clips are blue-grey, audio clips greener. */
-const PATTERN: ClipColours = { body: "#8fa6c4", title: "#647da0", content: "#1d2c42", text: "#f4f7fb" };
-const AUDIO: ClipColours = { body: "#8fb8a2", title: "#5f9077", content: "#173326", text: "#f2f8f4" };
-const SELECTED: ClipColours = { body: "#f0a19b", title: "#d0625b", content: "#4d1410", text: "#fff5f4" };
+/**
+ * A clip's colours, FL Studio's way, all from one colour: its title strip that colour, its body a dark
+ * shade of it (the grid faint behind), and what's drawn in it (notes, a waveform) a light tint of it, so
+ * each clip reads as one hue (Théo). The same in every theme.
+ */
+function clipColours(color: string): ClipColours {
+  return { title: color, body: mix(color, "#101318", 0.55), content: mix(color, "#ffffff", 0.62), text: mix(color, "#ffffff", 0.88) };
+}
 
-/** How opaque a clip's body is (its title strip and content are solid): the grid shows through, as in FL. */
-const BODY_ALPHA = { light: 0.5, dark: 0.6 };
+/** FL's own: pattern clips blue-grey, audio clips green; a selected clip red. */
+const PATTERN = clipColours("#5a78a6");
+const AUDIO = clipColours("#4f946c");
+const SELECTED = clipColours("#cc5a50");
+
+/** How opaque a clip's body is (its title strip and content are solid): the grid shows faintly through, as in FL. */
+const BODY_ALPHA = { light: 0.82, dark: 0.85 };
 /** A clip on a muted track: its colours greyed towards this, and fainter. */
 const MUTED_GREY = "#4a525c";
 const MUTED_TRACK_ALPHA = 0.6;
 
 /** A clip's colours on a muted track: greyed and darker, so it reads as off. */
 function onMutedTrack(c: ClipColours): ClipColours {
-  return { body: mix(c.body, MUTED_GREY, 0.6), title: mix(c.title, MUTED_GREY, 0.6), content: mix(c.content, MUTED_GREY, 0.3), text: mix(c.text, MUTED_GREY, 0.35) };
-}
-
-/** A clip on a coloured track takes the track's colour. */
-function colouredBy(color: string): ClipColours {
-  return { body: mix(color, "#ffffff", 0.45), title: color, content: mix(color, "#000000", 0.6), text: "#ffffff" };
+  return { body: mix(c.body, MUTED_GREY, 0.6), title: mix(c.title, MUTED_GREY, 0.6), content: mix(c.content, MUTED_GREY, 0.55), text: mix(c.text, MUTED_GREY, 0.35) };
 }
 
 /** Two "#rrggbb" colours mixed, `amount` of the second. */
@@ -65,8 +70,14 @@ export interface PlaylistScene {
   patterns: ReadonlyMap<string, Pattern>;
   /** Clip titles: a pattern's or an audio clip channel's name, by ref. */
   names: ReadonlyMap<string, string>;
+  /** The colours patterns and audio clip channels have been given, by ref (their clips take them). */
+  colors: ReadonlyMap<string, string>;
+  /** Audio files dragged over the tracks, drawn where they'd land (`incoming.ts`); their names are in `names`. */
+  incoming: readonly PlaylistClip[];
+  /** Clips just deleted, fading out (`fades.ts`). */
+  vanishing: readonly VanishingClip[];
   /** An audio clip's waveform, by its channel's id, once it's loaded. */
-  waveforms: ReadonlyMap<string, WaveformData>;
+  waveforms: ReadonlyMap<string, WavePeaks>;
   barTicks: number;
   beatTicks: number;
   /** Where the song ends (and goes round). */
@@ -175,27 +186,44 @@ function drawNotes(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pl
   }
 }
 
-/** An audio clip's waveform, mirrored about its middle, from its file's peaks. */
-function drawWaveform(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: PlaylistClip, data: WaveformData, x: number, y: number, w: number, h: number, colour: string) {
-  if (h < 4 || !data.peaks.length) return;
+/**
+ * An audio clip's waveform, as FL Studio draws it: one filled shape along the highest sample under each
+ * column and back along the lowest, from where the clip's window starts in its file.
+ */
+function drawWaveform(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: PlaylistClip, peaks: WavePeaks, x: number, y: number, w: number, h: number, colour: string) {
+  if (h < 4) return;
   const { view } = scene;
   const mid = y + h / 2;
-  const half = h / 2 - 1;
+  const half = h / 2 - 1.5;
   const from = Math.max(0, Math.floor(x));
   const to = Math.min(scene.width, Math.ceil(x + w));
-  ctx.fillStyle = colour;
-  for (let px = from; px < to; px++) {
-    // The file's seconds under this column, and the loudest peak among them.
-    const a = clip.offset + (xToTick(view, px) - clip.start) * scene.ctx.secondsPerTick;
-    const b = clip.offset + (xToTick(view, px + 1) - clip.start) * scene.ctx.secondsPerTick;
-    const first = Math.floor(a * data.peaksPerSecond);
-    const last = Math.max(first + 1, Math.ceil(b * data.peaksPerSecond));
-    let peak = 0;
-    for (let i = Math.max(0, first); i < Math.min(data.peaks.length, last); i++) peak = Math.max(peak, data.peaks[i]);
-    if (peak <= 0) continue;
-    const size = Math.max(0.5, peak * half);
-    ctx.fillRect(px, mid - size, 1, size * 2);
+  const count = to - from;
+  if (count <= 0) return;
+  // Where the file runs out, nothing more is drawn.
+  const fileEnd = peaks.samples.length;
+  const sampleAt = (px: number) => (clip.offset + (xToTick(view, px) - clip.start) * scene.ctx.fileSecondsPerTick(clip.ref)) * peaks.rate;
+  const tops = new Float32Array(count);
+  const bottoms = new Float32Array(count);
+  let last = count;
+  for (let i = 0; i < count; i++) {
+    const a = sampleAt(from + i);
+    if (a >= fileEnd) {
+      last = i;
+      break;
+    }
+    const [low, high] = peakRange(peaks, a, Math.max(a + 1, sampleAt(from + i + 1)));
+    // Never thinner than a hairline, so quiet parts still draw.
+    tops[i] = mid - Math.max(0.5, Math.min(1, high) * half);
+    bottoms[i] = mid - Math.min(-0.5, Math.max(-1, low) * half);
   }
+  if (!last) return;
+  ctx.fillStyle = colour;
+  ctx.beginPath();
+  ctx.moveTo(from, tops[0]);
+  for (let i = 0; i < last; i++) ctx.lineTo(from + i + 0.5, tops[i]);
+  for (let i = last - 1; i >= 0; i--) ctx.lineTo(from + i + 0.5, bottoms[i]);
+  ctx.closePath();
+  ctx.fill();
 }
 
 export function drawTracks(ctx: CanvasRenderingContext2D, scene: PlaylistScene) {
@@ -283,78 +311,129 @@ export function drawTracks(ctx: CanvasRenderingContext2D, scene: PlaylistScene) 
 }
 
 function drawClips(ctx: CanvasRenderingContext2D, scene: PlaylistScene, firstTrack: number, lastTrack: number) {
-  const { view, width, clips, selected, layout, palette } = scene;
-  const bodyAlpha = palette.dark ? BODY_ALPHA.dark : BODY_ALPHA.light;
+  const { view, width, clips, selected } = scene;
   const [from, to] = visibleClips(clips, xToTick(view, 0), xToTick(view, width), scene.ctx);
   ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
   ctx.textBaseline = "middle";
   for (let i = from; i < to; i++) {
     const clip = clips[i];
     if (clip.track < firstTrack || clip.track > lastTrack) continue;
-    const x = tickToX(view, clip.start);
-    const right = tickToX(view, clipEnd(clip, scene.ctx));
-    if (right < 0 || x > width) continue;
-    const y = Math.round(trackTop(layout, view, clip.track));
-    const h = Math.round(trackTop(layout, view, clip.track + 1)) - y - 1;
-    const w = Math.max(2, right - x);
-    const track = scene.tracks[clip.track];
-    const own = selected.has(clip.id) ? SELECTED : track?.color ? colouredBy(track.color) : clip.kind === "audio" ? AUDIO : PATTERN;
-    const colours = track?.muted ? onMutedTrack(own) : own;
-    const fade = (clip.muted ? 0.5 : 1) * (track?.muted ? MUTED_TRACK_ALPHA : 1);
-    ctx.globalAlpha = bodyAlpha * fade * (clip.muted ? 0.8 : 1);
-    ctx.fillStyle = colours.body;
-    ctx.beginPath();
-    ctx.roundRect(Math.round(x) + 0.5, y + 0.5, Math.round(w) - 1, h - 1, 2);
-    ctx.fill();
-    ctx.globalAlpha = fade;
-    const title = Math.min(TITLE_HEIGHT, h);
-    ctx.fillStyle = colours.title;
-    ctx.fillRect(Math.round(x) + 1, y + 1, Math.round(w) - 2, title - 1);
-    // Its content, under the title.
-    const bodyY = y + title;
-    const bodyH = h - title - 1;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(Math.round(x) + 1, bodyY, Math.round(w) - 2, bodyH);
-    ctx.clip();
-    if (clip.kind === "pattern") {
-      const pattern = scene.patterns.get(clip.ref);
-      if (pattern) {
-        // Past the pattern's end, the clip plays nothing: drawn hollow there.
-        const contentEnd = tickToX(view, clip.start + scene.ctx.patternTicks(pattern.id) - clip.offset);
-        if (contentEnd < right) {
-          ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
-          ctx.fillRect(Math.max(x, contentEnd), bodyY, right - Math.max(x, contentEnd), bodyH);
-        }
-        drawNotes(ctx, scene, clip, pattern, x, bodyY, w, bodyH, colours.content);
-      }
-    } else {
-      const data = scene.waveforms.get(clip.ref);
-      if (data) drawWaveform(ctx, scene, clip, data, x, bodyY, w, bodyH, colours.content);
-    }
-    ctx.restore();
-    // Its menu's arrow (FL's clip menu), then its name, kept in view as the playlist scrolls (FL's "Keep labels on screen").
-    const arrow = w > MENU_TO + 4 && title >= 9;
-    if (arrow) {
-      const ax = x + MENU_FROM + 2;
-      const ay = y + title / 2;
-      ctx.fillStyle = colours.text;
-      ctx.beginPath();
-      ctx.moveTo(ax, ay - 2.5);
-      ctx.lineTo(ax + 6, ay - 2.5);
-      ctx.lineTo(ax + 3, ay + 2);
-      ctx.closePath();
-      ctx.fill();
-    }
-    if (w > 16 && title >= 9) {
-      ctx.fillStyle = colours.text;
-      const textX = Math.max(x + (arrow ? MENU_TO : 0), 0) + 4;
-      ctx.fillText(scene.names.get(clip.ref) ?? "", textX, y + title / 2 + 0.5, Math.max(0, right - textX - 3));
-    }
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
-    ctx.strokeRect(Math.round(x) + 0.5, y + 0.5, Math.round(w) - 1, h - 1);
+    drawClip(ctx, scene, clip, selected.has(clip.id), 1);
   }
+  // Files being dragged in, see-through where they'd land.
+  for (const clip of scene.incoming) drawClip(ctx, scene, clip, false, 0.7);
+  // Clips just deleted, shrinking and fading where they were.
+  for (const { clip, selected: was, progress } of scene.vanishing) {
+    if (clip.track < firstTrack || clip.track > lastTrack) continue;
+    const eased = 1 - (1 - progress) ** 2;
+    const x = tickToX(view, clip.start);
+    const w = clipEnd(clip, scene.ctx) * view.pxPerTick - clip.start * view.pxPerTick;
+    const y = trackTop(scene.layout, view, clip.track);
+    const h = trackTop(scene.layout, view, clip.track + 1) - y;
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.scale(1 - 0.15 * eased, 1 - 0.5 * eased);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+    drawClip(ctx, scene, clip, was, 1 - eased);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** Text widths in the clips' font, measured once each. */
+const widths = new Map<string, number>();
+const measure = (ctx: CanvasRenderingContext2D, text: string) => {
+  let width = widths.get(text);
+  if (width === undefined) {
+    if (widths.size > 5000) widths.clear();
+    widths.set(text, (width = ctx.measureText(text).width));
+  }
+  return width;
+};
+
+/** `text` cut to fit `width` with "…" at its end (never squeezed narrower), or nothing if not even a letter fits. */
+function ellipsize(ctx: CanvasRenderingContext2D, text: string, width: number): string {
+  if (width <= 0) return "";
+  if (measure(ctx, text) <= width) return text;
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = (low + high + 1) >> 1;
+    if (measure(ctx, `${text.slice(0, mid).trimEnd()}…`) <= width) low = mid;
+    else high = mid - 1;
+  }
+  return low ? `${text.slice(0, low).trimEnd()}…` : "";
+}
+
+/** One clip: its body, title strip and content (`alpha`: how much of it shows, for one fading out). */
+function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: PlaylistClip, isSelected: boolean, alpha: number) {
+  const { view, width, layout, palette } = scene;
+  const bodyAlpha = palette.dark ? BODY_ALPHA.dark : BODY_ALPHA.light;
+  const x = tickToX(view, clip.start);
+  const right = tickToX(view, clipEnd(clip, scene.ctx));
+  if (right < 0 || x > width) return;
+  const y = Math.round(trackTop(layout, view, clip.track));
+  const h = Math.round(trackTop(layout, view, clip.track + 1)) - y - 1;
+  const w = Math.max(2, right - x);
+  const track = scene.tracks[clip.track];
+  // Its source's colour, else its track's, else the usual for its kind (FL's order).
+  const color = scene.colors.get(clip.ref) ?? track?.color;
+  const own = isSelected ? SELECTED : color ? clipColours(color) : clip.kind === "audio" ? AUDIO : PATTERN;
+  const colours = track?.muted ? onMutedTrack(own) : own;
+  const fade = (clip.muted ? 0.5 : 1) * (track?.muted ? MUTED_TRACK_ALPHA : 1) * alpha;
+  ctx.globalAlpha = bodyAlpha * fade * (clip.muted ? 0.8 : 1);
+  ctx.fillStyle = colours.body;
+  ctx.beginPath();
+  ctx.roundRect(Math.round(x) + 0.5, y + 0.5, Math.round(w) - 1, h - 1, 2);
+  ctx.fill();
+  ctx.globalAlpha = fade;
+  const title = Math.min(TITLE_HEIGHT, h);
+  ctx.fillStyle = colours.title;
+  ctx.fillRect(Math.round(x) + 1, y + 1, Math.round(w) - 2, title - 1);
+  // Its content, under the title.
+  const bodyY = y + title;
+  const bodyH = h - title - 1;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(Math.round(x) + 1, bodyY, Math.round(w) - 2, bodyH);
+  ctx.clip();
+  if (clip.kind === "pattern") {
+    const pattern = scene.patterns.get(clip.ref);
+    if (pattern) {
+      // Past the pattern's end, the clip plays nothing: drawn hollow there.
+      const contentEnd = tickToX(view, clip.start + scene.ctx.patternTicks(pattern.id) - clip.offset);
+      if (contentEnd < right) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+        ctx.fillRect(Math.max(x, contentEnd), bodyY, right - Math.max(x, contentEnd), bodyH);
+      }
+      drawNotes(ctx, scene, clip, pattern, x, bodyY, w, bodyH, colours.content);
+    }
+  } else {
+    const data = scene.waveforms.get(clip.ref);
+    if (data) drawWaveform(ctx, scene, clip, data, x, bodyY, w, bodyH, colours.content);
+  }
+  ctx.restore();
+  // Its menu's arrow (FL's clip menu), then its name, kept in view as the playlist scrolls (FL's "Keep labels on screen").
+  const arrow = w > MENU_TO + 4 && title >= 9;
+  if (arrow) {
+    const ax = x + MENU_FROM + 2;
+    const ay = y + title / 2;
+    ctx.fillStyle = colours.text;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay - 2.5);
+    ctx.lineTo(ax + 6, ay - 2.5);
+    ctx.lineTo(ax + 3, ay + 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  if (w > 16 && title >= 9) {
+    ctx.fillStyle = colours.text;
+    const textX = Math.max(x + (arrow ? MENU_TO : 0), 0) + 4;
+    ctx.fillText(ellipsize(ctx, scene.names.get(clip.ref) ?? "", right - textX - 3), textX, y + title / 2 + 0.5);
+  }
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
+  ctx.strokeRect(Math.round(x) + 0.5, y + 0.5, Math.round(w) - 1, h - 1);
   ctx.globalAlpha = 1;
 }
 
@@ -377,25 +456,12 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: PlaylistScene, s
     ctx.globalAlpha = 1;
     ctx.fillRect(x, height - 6, w, 6);
   }
-  const barPx = barTicks * view.pxPerTick;
-  const every = Math.max(1, 2 ** Math.ceil(Math.log2(Math.max(1, 28 / barPx))));
-  ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
-  ctx.textBaseline = "top";
-  for (const [tick, weight] of gridLines(view, width, barTicks, beatTicks)) {
-    const x = Math.round(tickToX(view, tick));
-    const bar = tick / barTicks;
-    ctx.fillStyle = palette.rulerText;
-    ctx.globalAlpha = weight === 2 ? 0.8 : weight === 1 ? 0.5 : 0.28;
-    const tall = weight === 2 ? height : weight === 1 ? 7 : 4;
-    ctx.fillRect(x, height - tall, 1, tall);
-    if (weight === 2 && bar % every === 0) {
-      ctx.globalAlpha = 1;
-      ctx.fillText(String(bar + 1), x + 4, 4);
-    }
-  }
-  ctx.globalAlpha = 1;
+  rulerMarks(ctx, palette, height, barTicks, beatTicks, view.pxPerTick, (tick) => tickToX(view, tick), xToTick(view, 0), xToTick(view, width));
+  // Where the song ends (and goes round).
   ctx.fillStyle = palette.tool;
-  ctx.fillRect(Math.round(end) - 1, 0, 2, height);
+  ctx.globalAlpha = 0.7;
+  ctx.fillRect(Math.round(end) - 1, 0, 1, height);
+  ctx.globalAlpha = 1;
   // Where play starts: FL Studio's marker.
   const start = Math.round(tickToX(view, startTick));
   ctx.fillStyle = palette.start;
@@ -406,34 +472,4 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: PlaylistScene, s
   ctx.lineTo(start, 12);
   ctx.closePath();
   ctx.fill();
-  ctx.fillRect(start, 0, 1.5, height);
-}
-
-/** Each audio file's waveform peaks, fetched once (media never changes), and who's waiting for them. */
-const peaks = new Map<string, WaveformData | "loading" | "failed">();
-const waiting = new Set<() => void>();
-
-/** The waveform at `url` if it's loaded; otherwise it starts loading, and `onLoad` listeners hear when it's there. */
-export function waveformAt(url: string): WaveformData | null {
-  const known = peaks.get(url);
-  if (known && known !== "loading" && known !== "failed") return known;
-  if (!known) {
-    peaks.set(url, "loading");
-    fetch(url)
-      .then((r) => (r.ok ? (r.json() as Promise<WaveformData>) : Promise.reject(new Error(String(r.status)))))
-      .then(
-        (data) => peaks.set(url, data),
-        () => peaks.set(url, "failed"),
-      )
-      .finally(() => {
-        for (const listener of waiting) listener();
-      });
-  }
-  return null;
-}
-
-/** Be told when a waveform has loaded (to draw again). Returns how to stop. */
-export function onWaveform(listener: () => void): () => void {
-  waiting.add(listener);
-  return () => waiting.delete(listener);
 }

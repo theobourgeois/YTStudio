@@ -40,7 +40,7 @@ void ClipPlayer::setSong (const Song& song)
 {
     clips.clear();
     for (const auto& clip : song.audioClips)
-        clips.push_back ({ clip.key, clip.path, clip.tick, clip.length, clip.seconds });
+        clips.push_back ({ clip.key, clip.path, clip.tick, clip.length, clip.seconds, clip.speed });
     loopTicks = juce::jmax (1.0, song.loopTicks);
     secondsPerTick = 60.0 / (song.tempo * song.ppq);
 }
@@ -81,7 +81,8 @@ ClipPlayer::Stream* ClipPlayer::make (const Clip& clip, double startTick, juce::
     if (incomingQueue.getFreeSpace() < 1 || (int) live.size() >= maxStreams * 2)
         return nullptr;
     const juce::File file (clip.path);
-    const auto seconds = clip.seconds + (startTick - clip.tick) * secondsPerTick;
+    // Where in the file: a pitched clip goes through it `speed` times as fast.
+    const auto seconds = clip.seconds + (startTick - clip.tick) * secondsPerTick * clip.speed;
     // Past the file's end, the clip plays nothing more.
     const auto known = durations.find (clip.path);
     if (known != durations.end() && seconds >= known->second)
@@ -98,7 +99,7 @@ ClipPlayer::Stream* ClipPlayer::make (const Clip& clip, double startTick, juce::
     const auto samples = (juce::int64) std::llround ((end - startTick) * secondsPerTick * sampleRate);
     if (samples <= 0)
         return nullptr;
-    auto* stream = new Stream (std::move (source), sampleRate, seconds, samples, clip.key, startTick, playGeneration, pass, seconds > 1e-6);
+    auto* stream = new Stream (std::move (source), sampleRate, seconds, samples, clip.key, startTick, playGeneration, pass, seconds > 1e-6, clip.speed);
     // Due now: some of it is decoded here, so it sounds at the next block; the reader does the rest.
     if (immediate || offline)
         stream->fill (offline ? -1 : (int) (immediateSeconds * sampleRate));

@@ -25,6 +25,7 @@ import {
   selectTime,
 } from "./actions";
 import { paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack } from "./geometry";
+import { fadeOutClips } from "./fades";
 import { usePlaylist } from "./store";
 
 type Press = ReactPointerEvent<HTMLElement>;
@@ -98,6 +99,7 @@ function erase(e: Press, element: HTMLElement, p: PlaylistContext, hit: Playlist
   const take = (clip: PlaylistClip | null) => {
     if (!clip || erased.has(clip.id)) return;
     erased.add(clip.id);
+    fadeOutClips([clip], p.selected);
     usePlaylist.getState().setDrag({ kind: "erase", ids: new Set(erased) });
   };
   show(element, CURSORS.eraser);

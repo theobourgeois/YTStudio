@@ -29,6 +29,10 @@ export function engineRoutes(engine: AudioEngine): Router {
   router.post("/states/copy", json(), async (req, res) => {
     res.json(await engine.copyStates(req.body));
   });
+  // A song's own media file, heard on its own (`PreviewSampleRequest`): an audio clip's channel.
+  router.post("/previewSample", json(), async (req, res) => {
+    res.json(await engine.previewSample(req.body));
+  });
   router.get("/events", (req, res) => {
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
     res.write(": connected\n\n");

@@ -13,6 +13,7 @@ import {
   deletePickedPatterns,
   movePickedPatterns,
   pickForMenu,
+  showInRack,
   splitPattern,
   transposePickedPatterns,
 } from "./actions";
@@ -24,7 +25,8 @@ export const CLIP_DRAG_TYPE = "application/x-vaudio-clip";
 
 /**
  * FL Studio's Picker panel (Alt+P): every pattern and audio clip of the song. A click makes one the clip
- * source (what Draw and Paint add), a drag puts it on a track (drawn there while it's dragged). Patterns
+ * source (what Draw and Paint add), a double-click shows it in the Channel rack, a drag puts it on a track
+ * (drawn there while it's dragged). Patterns
  * select as a list does (⌘-click toggles one, Shift+click takes a range) for their menu (a right-click:
  * transpose, rename, clone, split by channel, move, delete) and Alt+↑ / ↓, which reorders them.
  */
@@ -43,7 +45,7 @@ export function Picker() {
   if (!picked.length && source.kind === "pattern") picked.push(source.ref);
   const count = picked.length;
 
-  const item = (kind: "pattern" | "audio", ref: string, name: string) => {
+  const item = (kind: "pattern" | "audio", ref: string, name: string, color: string | null) => {
     const chosen = source.kind === kind && source.ref === ref;
     const selected = kind === "pattern" ? picked.includes(ref) : chosen;
     if (renaming === ref) {
@@ -83,12 +85,15 @@ export function Picker() {
               selected ? "pressed" : "raised hover:raised-hover",
               chosen && "text-brand",
             )}
+            // Its colour (the clip menu's Rename and color), as a strip down its left edge.
+            style={color ? { boxShadow: `inset 3px 0 ${color}` } : undefined}
             onClick={(e) => {
               if (kind === "pattern") return clickPattern(ref, pickMode(e));
               usePlaylist.setState({ patternSelection: new Set() });
               chooseSource({ kind, ref });
             }}
-            onDoubleClick={(e) => kind === "pattern" && pickMode(e) === "only" && setRenaming(ref)}
+            // A double-click shows it in the Channel rack (an audio clip: its channel, in the rack's Audio group).
+            onDoubleClick={(e) => pickMode(e) === "only" && showInRack(kind, ref)}
             onDragStart={(e) => {
               e.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify({ kind, ref }));
               e.dataTransfer.effectAllowed = "copy";
@@ -137,9 +142,9 @@ export function Picker() {
   return (
     <div className="flex w-40 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-surface-1 p-1" data-testid="picker" aria-label="Picker panel">
       <div className="px-1 pt-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Patterns</div>
-      {patterns.map((p) => item("pattern", p.id, p.name))}
+      {patterns.map((p) => item("pattern", p.id, p.name, p.color))}
       {audio.length > 0 && <div className="px-1 pt-1.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Audio clips</div>}
-      {audio.map((c) => item("audio", c.id, c.name))}
+      {audio.map((c) => item("audio", c.id, c.name, c.color))}
     </div>
   );
 }

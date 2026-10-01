@@ -5,8 +5,9 @@ import { updateChannel } from "@shared/music/edits";
 import { DEFAULT_ENVELOPE, DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH } from "@shared/music/project";
 import type { Channel, Envelope, Precomputed } from "@shared/music/types";
 import { Input } from "@/components/ui/input";
-import { MILLISECONDS, PERCENT, SEMITONES, SongKnob, type ValueUnit, panText, percent, seconds, semitones } from "./knob";
+import { CENTS, MILLISECONDS, PERCENT, SongKnob, type ValueUnit, cents, panText, percent, seconds } from "./knob";
 import { solo, toggleMute } from "./rack-actions";
+import { musicApi } from "./api";
 import { useMusic } from "./store";
 import { useTransport } from "./transport";
 import { channelWindow, useMusicUi } from "./ui";
@@ -26,11 +27,15 @@ type Tab = "sample" | "envelope";
 /**
  * A sampler channel's settings, FL Studio's Channel Settings window (`docs/fl-studio/channel-rack.md`):
  * along the top its tabs and the channel's own ON, PAN, VOL and PITCH; under them the sample tab
- * (the file, the precomputed effects, the waveform) or the envelope tab.
+ * (the file, the precomputed effects, the waveform) or the envelope tab. An audio clip's channel has a
+ * cut-down one (a double-click on one of its clips opens it).
  */
 export function ChannelSettingsWindow({ channel, index }: { channel: Channel; index: number }) {
   const [tab, setTab] = useState<Tab>("sample");
   const id = channel.id;
+  // An audio clip's channel (FL's cut-down sampler): its file streams from the Playlist, so it has no
+  // envelope; its pitch plays the file faster or slower (FL's Resample).
+  const audio = channel.kind === "audio";
 
   return (
     <MusicWindow
@@ -61,9 +66,11 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
             <TabButton label="Sample" selected={tab === "sample"} onSelect={() => setTab("sample")}>
               <PiWaveform />
             </TabButton>
-            <TabButton label="Envelope" selected={tab === "envelope"} onSelect={() => setTab("envelope")}>
-              <PiWaveSine />
-            </TabButton>
+            {!audio && (
+              <TabButton label="Envelope" selected={tab === "envelope"} onSelect={() => setTab("envelope")}>
+                <PiWaveSine />
+              </TabButton>
+            )}
           </div>
           <div className="ml-auto flex items-end gap-3">
             <Labelled label="ON">
@@ -100,9 +107,9 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
                 max={PITCH_RANGE}
                 defaultValue={0}
                 bipolar
-                format={semitones}
-                unit={SEMITONES}
-                // Whole semitones as it turns; cents are typed in.
+                format={cents}
+                unit={CENTS}
+                // Whole semitones as it turns; cents are typed in. An audio clip plays faster pitched up (FL's Resample).
                 edit={(song, pitch) => updateChannel(song, id, { pitch: Number.isInteger(pitch * 100) && !Number.isInteger(pitch) ? pitch : Math.round(pitch) })}
               />
             </Labelled>
@@ -116,7 +123,7 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
           </div>
         </div>
 
-        {tab === "sample" ? <SampleTab channel={channel} /> : <EnvelopeTab channel={channel} />}
+        {tab === "sample" || audio ? <SampleTab channel={channel} /> : <EnvelopeTab channel={channel} />}
       </div>
     </MusicWindow>
   );
@@ -225,31 +232,33 @@ function SampleTab({ channel }: { channel: Channel }) {
         </div>
       </Section>
 
-      <Section title="Precomputed effects">
-        <div className="flex gap-6">
-          <Light label="Normalize" on={channel.precomputed.normalize} onChange={(normalize) => set({ normalize })} />
-          <Light label="Reverse" on={channel.precomputed.reverse} onChange={(reverse) => set({ reverse })} />
-        </div>
-        <div className="mt-3 flex gap-5">
-          {PRECOMPUTED_KNOBS.map(({ key, label, name: knobName, min, max }) => (
-            <Labelled key={key} label={label}>
-              <SongKnob
-                size={30}
-                label={knobName}
-                value={channel.precomputed[key]}
-                min={min}
-                max={max}
-                defaultValue={DEFAULT_PRECOMPUTED[key]}
-                format={percent}
-                unit={PERCENT}
-                edit={(song, value) => updateChannel(song, id, { precomputed: { [key]: value } })}
-              />
-            </Labelled>
-          ))}
-        </div>
-      </Section>
+      {channel.kind !== "audio" && (
+        <Section title="Precomputed effects">
+          <div className="flex gap-6">
+            <Light label="Normalize" on={channel.precomputed.normalize} onChange={(normalize) => set({ normalize })} />
+            <Light label="Reverse" on={channel.precomputed.reverse} onChange={(reverse) => set({ reverse })} />
+          </div>
+          <div className="mt-3 flex gap-5">
+            {PRECOMPUTED_KNOBS.map(({ key, label, name: knobName, min, max }) => (
+              <Labelled key={key} label={label}>
+                <SongKnob
+                  size={30}
+                  label={knobName}
+                  value={channel.precomputed[key]}
+                  min={min}
+                  max={max}
+                  defaultValue={DEFAULT_PRECOMPUTED[key]}
+                  format={percent}
+                  unit={PERCENT}
+                  edit={(song, value) => updateChannel(song, id, { precomputed: { [key]: value } })}
+                />
+              </Labelled>
+            ))}
+          </div>
+        </Section>
+      )}
 
-      <Waveform url={asset?.src ?? null} precomputed={channel.precomputed} onClick={() => channel.sampleId && useTransport.getState().audition(id)} />
+      <Waveform url={asset?.src ?? null} precomputed={channel.kind === "audio" ? DEFAULT_PRECOMPUTED : channel.precomputed} onPlay={() => hearChannel(channel)} />
     </div>
   );
 }
@@ -293,8 +302,19 @@ function EnvelopeTab({ channel }: { channel: Channel }) {
 const WAVE_W = 414;
 const WAVE_H = 84;
 
-/** The sample as it will play, after the precomputed effects: its real waveform. Click it to hear the channel. */
-function Waveform({ url, precomputed, onClick }: { url: string | null; precomputed: Precomputed; onClick: () => void }) {
+/**
+ * Hear a channel's sample, as a click on its waveform does: a sampler plays it as a note would; an audio
+ * clip's channel, its whole file (streamed, as the Browser's previews are).
+ */
+function hearChannel(channel: Channel) {
+  if (!channel.sampleId) return;
+  if (channel.kind !== "audio") return useTransport.getState().audition(channel.id);
+  const projectId = useMusic.getState().projectId;
+  if (projectId) void musicApi.previewSample({ projectId, sampleId: channel.sampleId, id: channel.id }).catch(() => {});
+}
+
+/** The sample as it will play, after the precomputed effects: its real waveform. Press it to hear the channel. */
+function Waveform({ url, precomputed, onPlay }: { url: string | null; precomputed: Precomputed; onPlay: () => void }) {
   const [samples, setSamples] = useState<Float32Array | null>(null);
   useEffect(() => {
     setSamples(null);
@@ -330,7 +350,9 @@ function Waveform({ url, precomputed, onClick }: { url: string | null; precomput
       data-testid="sample-waveform"
       data-loaded={samples !== null}
       className="block overflow-hidden rounded-md border bg-background outline-none hover:border-brand/50"
-      onClick={onClick}
+      // On the press, not the click (which waits for the button to come up): it's heard at once, as in FL Studio.
+      onPointerDown={(e) => e.button === 0 && onPlay()}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onPlay())}
     >
       <svg width={WAVE_W} height={WAVE_H} viewBox={`0 0 ${WAVE_W} ${WAVE_H}`} className="block" aria-hidden>
         <line x1={0} x2={WAVE_W} y1={mid} y2={mid} className="stroke-border" />

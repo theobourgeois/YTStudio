@@ -15,6 +15,14 @@ export interface BrowserDrag {
 const isAudio = (file: File) => file.type.startsWith("audio/") || /\.(wav|aiff?|flac|mp3|ogg|m4a)$/i.test(file.name);
 export const audioFiles = (files: FileList | null | undefined) => [...(files ?? [])].filter(isAudio);
 
+/** The Browser's files being dragged, while they are (a drag's data can't be read until it's dropped). */
+let carried: string[] | null = null;
+export const setCarriedPaths = (paths: string[] | null) => (carried = paths);
+export const carriedPaths = (): readonly string[] | null => carried;
+
+/** What a sample's channel and clips are called, from its file's name ("808_kick.wav": "808 kick"). */
+export const sampleName = (fileName: string) => fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Sample";
+
 /** Whether a drag carries samples (while it's over something, only the kinds of what it carries are known). */
 export const carriesSamples = (data: DataTransfer) => data.types.includes("Files") || data.types.includes(BROWSER_DRAG_TYPE);
 

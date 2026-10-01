@@ -177,13 +177,31 @@ export function switchMode(mode: PlayMode, thenPlay = false) {
 
 /** Set when the mode changes while playing: play starts again once the engine has the new song. */
 let pendingRestart = false;
+/** Set when a clip's preview starts: it plays from its start once the engine has it. */
+let pendingPreview = false;
+
+/** Play what's sent next from the start of its loop, once the engine has it (a clip's preview). */
+export function playWhenSent() {
+  pendingPreview = true;
+}
 
 /** Called by `engine-sync.ts` once the engine has the song for the mode: a switch made while playing carries on. */
 export function afterSongSent() {
+  if (pendingPreview) {
+    pendingPreview = false;
+    void musicApi.engine("play", { from: 0 }).then(
+      (status) => useTransport.setState({ playing: status.transport.playing, tick: status.transport.tick, at: performance.now() }),
+      () => {},
+    );
+    return;
+  }
   if (!pendingRestart) return;
   pendingRestart = false;
   useTransport.getState().play();
 }
+
+/** A clip's preview let go before it began: it doesn't start after all. */
+export const cancelPlayWhenSent = () => (pendingPreview = false);
 
 /**
  * Where a playing loop is now, in ticks: the engine's last word, moved on by the time since and held

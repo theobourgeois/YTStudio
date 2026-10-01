@@ -1389,7 +1389,7 @@ test("split by channel turns a beat into a pattern per channel, each on its own 
   expect((await savedClips(page, id)).length).toBe(1);
 });
 
-test("a clip's menu, from the arrow at the start of its title: make unique, mute, delete", async ({ page }) => {
+test("a clip's menu, from the arrow at the start of its title: make unique, rename and color, chop, mute, delete", async ({ page }) => {
   const id = await openNewSong(page, "Clip menu");
   await addStarterKit(page);
   for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
@@ -1408,6 +1408,28 @@ test("a clip's menu, from the arrow at the start of its title: make unique, mute
   await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name)).toEqual(["Pattern 1", "Pattern 1 #2"]);
   const [first, second] = await savedClips(page, id);
   expect(first.ref).not.toBe(second.ref);
+  // Rename and color: its pattern's name and colour, which its clips and its Picker item take.
+  await page.mouse.click(arrow.x, arrow.y);
+  await menu.getByRole("menuitem", { name: "Rename and color…" }).click();
+  const box2 = page.getByTestId("rename-and-color");
+  await box2.getByRole("textbox", { name: "Pattern name" }).fill("Chorus");
+  await box2.getByRole("radio", { name: "#3f8a4c" }).click();
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await savedSong(page, id)).patterns[1]).toMatchObject({ name: "Chorus", color: "#3f8a4c" });
+  await expect(page.getByTestId("picker").getByRole("button", { name: "Chorus" })).toBeVisible();
+  // Chop into beats: four clips where the bar's one was.
+  await page.mouse.click(arrow.x, arrow.y);
+  await menu.getByRole("menuitem", { name: "Chop" }).hover();
+  await page.getByRole("menuitem", { name: "Every beat" }).click();
+  await expect.poll(async () => (await savedClips(page, id)).map((c) => [c.start, c.length])).toEqual([
+    [0, null],
+    [BAR_TICKS, BAR_TICKS / 4],
+    [BAR_TICKS * 1.25, BAR_TICKS / 4],
+    [BAR_TICKS * 1.5, BAR_TICKS / 4],
+    [BAR_TICKS * 1.75, BAR_TICKS / 4],
+  ]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(2);
   // Mute, then delete.
   await page.mouse.click(arrow.x, arrow.y);
   await menu.getByRole("menuitem", { name: "Mute" }).click();
@@ -1461,6 +1483,14 @@ test("tracks are named, coloured, muted and soloed; audio files dropped on the p
   await page.getByRole("button", { name: "Channel group" }).click();
   await page.getByRole("menuitemradio", { name: "All" }).click();
   await expect(rack.locator("[role=listitem][data-channel]")).toHaveCount(2);
+  // A double-click on the clip opens its channel's settings: pitch, but no envelope.
+  await page.getByRole("button", { name: "Close Channel rack" }).click();
+  // (Break.wav is a tenth of a second: a clip three pixels wide.)
+  await grid.dblclick({ position: { x: BAR_TICKS * 0.15 + 1.5, y: 2 * 48 + 30 } });
+  const settings = page.locator('[data-testid="channel-settings"][data-channel-name="Break"]');
+  await expect(settings).toBeVisible();
+  await expect(settings.getByRole("slider", { name: "Pitch" })).toBeVisible();
+  await expect(settings.getByRole("tab", { name: "Envelope" })).toHaveCount(0);
 });
 
 test("the assistant arranges the song with the playlist's tools", async ({ page }) => {

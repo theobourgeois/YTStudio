@@ -378,24 +378,7 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene, startTick
     ctx.globalAlpha = 1;
     ctx.fillRect(x, height - 6, w, 6);
   }
-  // Bar numbers, as many as fit, and ticks for the beats and steps.
-  const barPx = barTicks * view.pxPerTick;
-  const every = Math.max(1, 2 ** Math.ceil(Math.log2(Math.max(1, 28 / barPx))));
-  ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
-  ctx.textBaseline = "top";
-  for (const [tick, weight] of gridLines(view, width, barTicks, beatTicks)) {
-    const x = Math.round(tickToX(view, tick));
-    const bar = tick / barTicks;
-    ctx.fillStyle = palette.rulerText;
-    ctx.globalAlpha = weight === 2 ? 0.8 : weight === 1 ? 0.5 : 0.28;
-    const tall = weight === 2 ? height : weight === 1 ? 7 : 4;
-    ctx.fillRect(x, height - tall, 1, tall);
-    if (weight === 2 && bar % every === 0) {
-      ctx.globalAlpha = 1;
-      ctx.fillText(String(bar + 1), x + 4, 4);
-    }
-  }
-  ctx.globalAlpha = 1;
+  rulerMarks(ctx, palette, height, barTicks, beatTicks, view.pxPerTick, (tick) => tickToX(view, tick), xToTick(view, 0), xToTick(view, width));
   // Where the pattern ends.
   ctx.fillStyle = palette.tool;
   ctx.fillRect(Math.round(end) - 1, 0, 2, height);
@@ -409,7 +392,49 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: Scene, startTick
   ctx.lineTo(start, 12);
   ctx.closePath();
   ctx.fill();
-  ctx.fillRect(start, 0, 1.5, height);
+}
+
+/** The gap a ruler keeps between bar numbers, at least (px). */
+const LABEL_GAP = 14;
+
+/**
+ * A ruler's marks, FL Studio's way: bar numbers along the top, as many as fit without crowding (every
+ * bar, else every 2nd, 4th...), and short ticks along the bottom edge (taller under a number, then
+ * bars, then beats once they're far enough apart). Nothing crosses the numbers.
+ */
+export function rulerMarks(
+  ctx: CanvasRenderingContext2D,
+  palette: Palette,
+  height: number,
+  barTicks: number,
+  beatTicks: number,
+  pxPerTick: number,
+  toX: (tick: number) => number,
+  fromTick: number,
+  toTick: number,
+) {
+  ctx.font = "600 10.5px ui-sans-serif, system-ui, sans-serif";
+  ctx.textBaseline = "top";
+  const barPx = barTicks * pxPerTick;
+  // Wide enough for the longest number in view.
+  const widest = ctx.measureText(String(Math.ceil(toTick / barTicks) + 1)).width + LABEL_GAP;
+  const every = Math.max(1, 2 ** Math.ceil(Math.log2(Math.max(1, widest / barPx))));
+  const beats = beatTicks * pxPerTick >= 7;
+  const step = beats ? beatTicks : barTicks;
+  ctx.fillStyle = palette.rulerText;
+  for (let tick = Math.max(0, Math.floor(fromTick / step) * step); tick <= toTick; tick += step) {
+    const x = Math.round(toX(tick));
+    const bar = tick % barTicks === 0 ? tick / barTicks : null;
+    const labelled = bar !== null && bar % every === 0;
+    ctx.globalAlpha = labelled ? 0.75 : bar !== null ? 0.5 : 0.3;
+    const tall = labelled ? 8 : bar !== null ? 5 : 3;
+    ctx.fillRect(x, height - tall, 1, tall);
+    if (labelled) {
+      ctx.globalAlpha = 1;
+      ctx.fillText(String(bar + 1), x + 3, 3);
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
 /**

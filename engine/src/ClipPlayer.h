@@ -72,7 +72,7 @@ private:
     {
         juce::uint64 key = 0;
         juce::String path;
-        double tick = 0, length = 0, seconds = 0;
+        double tick = 0, length = 0, seconds = 0, speed = 1;
     };
 
     Stream* make (const Clip& clip, double startTick, juce::uint32 generation, juce::uint32 pass, bool immediate);
@@ -112,8 +112,8 @@ private:
 struct ClipPlayer::Stream final : AudioStream
 {
     Stream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 samples, juce::uint64 clipKey, double tick,
-            juce::uint32 playGeneration, juce::uint32 playPass, bool fadeIn)
-        : AudioStream (std::move (source), outputRate, startSeconds, samples, 2.0),
+            juce::uint32 playGeneration, juce::uint32 playPass, bool fadeIn, double speed)
+        : AudioStream (std::move (source), outputRate, startSeconds, samples, 2.0, speed),
           key (clipKey),
           startTick (tick),
           generation (playGeneration),

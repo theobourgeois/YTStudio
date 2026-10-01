@@ -114,6 +114,31 @@ describe.skipIf(!existsSync(ENGINE))("the playlist, offline", () => {
     expect(level(sound, 3 * BAR + RATE / 2)).toBe(0.5);
   });
 
+  it("plays a pitched clip's file faster (or slower), as FL's Resample does, and from the right place in it", async () => {
+    // An octave up: a second of the file every half second, so it's over (six seconds) a bar and a half in.
+    await play(updateChannel(song(0), "chan_steps", { pitch: 12 }));
+    await engine.command("play", {});
+    const sound = await hear(2 * BAR);
+    expect(level(sound, RATE / 4)).toBe(0.1);
+    expect(level(sound, RATE + RATE / 4)).toBe(0.3);
+    expect(level(sound, 2.5 * RATE + RATE / 4)).toBe(0.6);
+    expect(peakOf(sound.channels[0], 3 * RATE + 200, 3.9 * RATE)).toBe(0);
+    // Played from a bar in (two seconds of the song): four seconds into the file.
+    await engine.command("stop", {});
+    await hear(RATE / 10);
+    await engine.command("play", { from: BAR_TICKS });
+    const later = await hear(RATE);
+    expect(level(later, RATE / 4)).toBe(0.5);
+    // An octave down: a second of the file every two seconds.
+    await engine.command("stop", {});
+    await hear(RATE / 10);
+    await play(updateChannel(song(0), "chan_steps", { pitch: -12 }));
+    await engine.command("play", {});
+    const down = await hear(2 * BAR);
+    expect(level(down, RATE)).toBe(0.1);
+    expect(level(down, 3 * RATE)).toBe(0.2);
+  });
+
   it("plays from inside a clip when play starts there", async () => {
     await play(song(0));
     // A bar and a half in: three seconds into the file.

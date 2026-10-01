@@ -53,6 +53,12 @@ describe("the assistant's song edits", () => {
     expect(changed.song.channels[1]).toMatchObject({ volume: 0.5, pan: -0.25, muted: true, envelope: { enabled: true, release: 0.2, sustain: 1 } });
     expect(changed.text).toContain("volume 50%, pan 25% left, muted, envelope");
     expect(() => updateChannelTool(rack(), { channel: "Hat", volume: 3 }, env)).toThrow(/"volume" must be a number from 0 to 1/);
+    // Colours: a channel's and a pattern's (their clips on the playlist take them), "none" for the usual.
+    const red = updateChannelTool(rack(), { channel: "Hat", color: "#A8403C" }, env).song;
+    expect(red.channels.find((c) => c.name === "Hat")?.color).toBe("#a8403c");
+    expect(updateChannelTool(red, { channel: "Hat", color: "none" }, env).song.channels.find((c) => c.name === "Hat")?.color).toBeNull();
+    expect(() => updateChannelTool(rack(), { channel: "Hat", color: "red" }, env)).toThrow(/"#rrggbb"/);
+    expect(updatePatternTool(rack(), { pattern: rack().patterns[0].id, color: "#3f8a4c" }, env).song.patterns[0].color).toBe("#3f8a4c");
 
     const drawn = setStepsTool(rack(), { channel: "Hat", steps: "--x-" }, env).song;
     const step = editStep(drawn, { channel: "Hat", step: 3, velocity: 0.4, pitch: 12 }, env);

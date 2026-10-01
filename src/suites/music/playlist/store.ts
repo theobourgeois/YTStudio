@@ -3,6 +3,7 @@ import type { NewClip } from "@shared/music/playlist";
 import type { PlaylistClip, PlaylistClipKind } from "@shared/music/types";
 import type { Snap } from "../piano/geometry";
 import { DEFAULT_TRACK_HEIGHT } from "./geometry";
+import type { IncomingFile } from "./incoming";
 import { useMusic } from "../store";
 import { useMusicUi } from "../ui";
 
@@ -78,6 +79,12 @@ interface PlaylistState {
   sliceHover: { tick: number } | null;
   /** A clip's menu, open (its arrow was clicked): which clip, and where in the grid. */
   clipMenu: { clipId: number; x: number; y: number } | null;
+  /** A clip's source being renamed and recoloured (the clip menu's Rename and color…), and where in the grid. */
+  recoloring: { source: ClipSource; x: number; y: number } | null;
+  /** The clip heard on its own while its menu's Preview is held: the engine plays only it. */
+  previewing: number | null;
+  /** Audio files dragged over the tracks, where they'd land (`incoming.ts`): Shift (`after`) puts them one after another. */
+  incoming: { start: number; track: number; after: boolean; files: readonly IncomingFile[] } | null;
   /**
    * The patterns selected in the Picker (⌘-click, Shift+click), by id: what its menu and Alt+↑ / ↓ act
    * on. Empty: the pattern that's the clip source (`pickedPatterns`).
@@ -113,6 +120,9 @@ const INITIAL = {
   renaming: null as number | null,
   sliceHover: null as { tick: number } | null,
   clipMenu: null as { clipId: number; x: number; y: number } | null,
+  recoloring: null as { source: ClipSource; x: number; y: number } | null,
+  previewing: null as number | null,
+  incoming: null as { start: number; track: number; after: boolean; files: readonly IncomingFile[] } | null,
   patternSelection: new Set<string>() as ReadonlySet<string>,
   patternAnchor: null as string | null,
   carried: null as ClipSource | null,

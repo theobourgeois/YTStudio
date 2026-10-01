@@ -158,6 +158,16 @@ export class AudioEngine {
     return this.withSaved((await this.request("previewFile", { file, start, previewId: id })) as RawStatus);
   }
 
+  /** Preview a song's own media file (`PreviewSampleRequest`), as the Browser's are: an audio clip's channel. */
+  async previewSample(body: unknown): Promise<EngineStatus> {
+    if (!isObject(body) || !isValidId(body.projectId)) throw new HttpError(400, '"projectId" must be the song\'s project id.');
+    const file = typeof body.sampleId === "string" ? this.samplePath(body.projectId, body.sampleId) : null;
+    if (!file) throw new HttpError(404, '"sampleId" must be one of the song\'s media files.');
+    const start = isFiniteNumber(body.start) && body.start > 0 ? body.start : 0;
+    const id = typeof body.id === "string" ? body.id.slice(0, 200) : "";
+    return this.previewFile(file, start, id);
+  }
+
   /** Write the song's plugins' states now (the tab asks before it goes). */
   async saveStates(): Promise<void> {
     if (this.child) await this.request("saveStates", {});

@@ -90,7 +90,7 @@ function Windows() {
       {transposeOpen && <TransposeWindow />}
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {pianoOpen && chopping && <Chopper />}
-      {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind === "sampler" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
+      {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind !== "plugin" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
     </MusicDesktop>
   );
 }

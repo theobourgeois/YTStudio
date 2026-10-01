@@ -187,10 +187,11 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             clip.tick = number (item["tick"], 0, -1e9, 1e9);
             clip.length = number (item["length"], 0, 0, 1e9);
             clip.seconds = number (item["seconds"], 0, 0, 1e7);
+            clip.speed = number (item["speed"], 1, 0.0625, 16);
             if (clip.path.isEmpty() || clip.length <= 0 || clip.tick >= song->loopTicks || clip.tick + clip.length <= 0)
                 continue;
             clip.key = (juce::uint64) (song->channels[(size_t) clip.channel].id + "|" + clip.path + "|" + juce::String (clip.tick, 6) + "|" + juce::String (clip.length, 6) + "|"
-                        + juce::String (clip.seconds, 9) + "|" + juce::String (song->tempo, 6) + "|" + juce::String (song->ppq))
+                        + juce::String (clip.seconds, 9) + "|" + juce::String (clip.speed, 9) + "|" + juce::String (song->tempo, 6) + "|" + juce::String (song->ppq))
                                            .hashCode64();
             song->audioClips.push_back (std::move (clip));
         }

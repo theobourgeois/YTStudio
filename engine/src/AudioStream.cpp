@@ -6,11 +6,12 @@ namespace
 constexpr int chunk = 2048;
 }
 
-AudioStream::AudioStream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 maxSamples, double ringSeconds)
+AudioStream::AudioStream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 maxSamples, double ringSeconds,
+                          double speed)
     : outRate (outputRate),
       duration ((double) source->lengthInSamples / source->sampleRate),
       reader (std::move (source)),
-      ratio (reader->sampleRate / outputRate)
+      ratio (reader->sampleRate / outputRate * juce::jlimit (0.0625, 16.0, speed))
 {
     position = juce::jlimit ((juce::int64) 0, reader->lengthInSamples, (juce::int64) (juce::jmax (0.0, startSeconds) * reader->sampleRate));
     total = (juce::int64) std::ceil ((double) (reader->lengthInSamples - position) / ratio);

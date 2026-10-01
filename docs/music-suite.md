@@ -3,8 +3,7 @@
 The music suite is a DAW modelled on **FL Studio**. This is the state of it, how it's built, and every step
 still to come, in the order agreed with Théo. It's written for whoever picks the work up next. Read
 CLAUDE.md's "The music suite" section first (the rules), then `docs/fl-studio/README.md` (how FL Studio is
-put together and how we use its manual). As of 2026-09-30, all of it is on the branch
-`t3code/research-daw-architecture` (PR #23), not yet on main.
+put together and how we use its manual).
 
 ## What Théo wants
 
@@ -69,10 +68,10 @@ The tab (src/suites/music/)                 The server (server/music/)          
 
 The detailed lists are at the end of each reference doc. The main ones:
 
-- **The mixer has no track EQ yet**, and the assistant can't use the mixer yet. No effect plugins on channels (the bench in the
+- **The mixer has no track EQ yet** (put off: Théo uses Pro-Q). No effect plugins on channels (the bench in the
   audio settings can load one, for testing only).
-- **The playlist has no automation clips** yet (step 4), its clip menu lacks preview, chop, rename and
-  recolour, and audio clips have no fades, gain, pitch or stretch of their own.
+- **The playlist has no automation clips** yet (step 4), and audio clips have no fades, gain, stretch or
+  precomputed effects (their pitch works, as FL's Resample).
 - **No automation**, and **no export** of the song (the engine can render offline; nothing uses it for
   that yet).
 - Per-note pan is heard on samplers but not sent to plugins. Channels have no colours. Knob menus lack
@@ -145,10 +144,12 @@ stock EQ.
 
 ### 2. The playlist
 
-**Built** (2026-10-01). The reference is `docs/fl-studio/playlist.md`, which ends with how it's built and
-where it differs; Théo's answers to what the manual left open are in its "Decided" section. Next:
-Théo's feedback pass. Still to come for it: automation clips (step 4), the rest of the clip menu (chop,
-rename, recolour, preview), audio clips' fades and gain, the Zoom tool, more rack groups.
+**Built** (2026-10-01), with two passes of Théo's feedback (the second: the whole clip menu, FL's clip
+colours and ruler, pitched audio clips, their channel window, sharp waveforms, deleted clips fading,
+dropped files shown where they'll land). The reference is `docs/fl-studio/playlist.md`, which ends with
+how it's built and where it differs; Théo's answers to what the manual left open are in its "Decided"
+section. Still to come for it: automation clips (step 4), audio clips' fades, gain, stretch and
+precomputed effects, the Zoom tool, Select source, more rack groups.
 
 What Théo needed: split the song by track and compose the arrangement. What follows was the plan.
 
