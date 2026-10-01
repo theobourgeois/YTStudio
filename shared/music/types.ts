@@ -194,6 +194,18 @@ export interface MixerTrack {
    * it), negative when it's earlier (it waits for them).
    */
   latencyOffset: number;
+  /**
+   * The audio device's input it takes (FL's Input), recorded when the track is armed: null for none. The
+   * master never has one (it gets everything: what it recorded would be the whole song).
+   */
+  input: MixerInput | null;
+  /** When its input is heard, through its effects and on (FL's Monitor external input). */
+  monitor: InputMonitor;
+  /**
+   * Milliseconds a take recorded on it is moved earlier (FL's input delay compensation), for what the
+   * device's reported latency doesn't account for; negative moves it later.
+   */
+  inputOffset: number;
   /** Its `EFFECT_SLOTS` slots, in the order the sound goes through them; null is an empty slot. */
   effects: (MixerEffect | null)[];
   /**
@@ -202,6 +214,19 @@ export interface MixerTrack {
    */
   sends: MixerSend[];
 }
+
+/**
+ * A mixer track's input on the audio device: input `channel` (0 is the device's first) heard on both
+ * sides, or with `stereo` the pair from it (`channel` left, the next right). By number, so a song moved
+ * to another device takes its inputs in the same places; one the device doesn't have is silent.
+ */
+export interface MixerInput {
+  channel: number;
+  stereo: boolean;
+}
+
+/** FL's Monitor external input: never, only while the track is armed (the default), or always. */
+export type InputMonitor = "off" | "armed" | "on";
 
 /** A named group of mixer tracks (FL's Create group): a band with its name across their tops, dividers at its edges. */
 export interface MixerGroup {
@@ -229,6 +254,11 @@ export interface PlaylistTrack {
   size: number;
   /** Every clip on it is silent (a clip's own mute is separate). Solo is a state of these, as for channels. */
   muted: boolean;
+  /**
+   * The mixer track it's linked to (FL's Track mode → Audio track), by id, or null: that track's input
+   * and arm show on its header, and what it records lands on it.
+   */
+  mixerTrack: string | null;
 }
 
 export type PlaylistClipKind = "pattern" | "audio";

@@ -13,6 +13,7 @@ import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import {
   DEFAULT_PLAYLIST_TRACK,
+  MASTER_TRACK_ID,
   MAX_AUDIO_OFFSET,
   MAX_CLIPS,
   MAX_NAME,
@@ -499,7 +500,10 @@ function setTracks(song: MusicProject, tracks: PlaylistTrack[]): MusicProject {
 
 export type TrackPatch = Partial<PlaylistTrack>;
 
-/** Change tracks' name, colour, size or mute. A track given back its defaults is as new again. */
+/**
+ * Change tracks' name, colour, size, mute or the insert they're linked to (an audio track's; an insert
+ * that isn't in the mixer, or the master, unlinks). A track given back its defaults is as new again.
+ */
 export function updateTracks(song: MusicProject, indexes: readonly number[], patch: TrackPatch): MusicProject {
   const valid = indexes.filter((i) => Number.isInteger(i) && i >= 0 && i < MAX_PLAYLIST_TRACKS);
   if (!valid.length) return song;
@@ -513,8 +517,14 @@ export function updateTracks(song: MusicProject, indexes: readonly number[], pat
       color: patch.color === undefined ? was.color : patch.color && /^#[0-9a-f]{6}$/i.test(patch.color) ? patch.color.toLowerCase() : null,
       size: patch.size === undefined ? was.size : Math.round(clamp(patch.size, MIN_TRACK_SIZE, MAX_TRACK_SIZE) * 100) / 100,
       muted: patch.muted ?? was.muted,
+      mixerTrack:
+        patch.mixerTrack === undefined
+          ? was.mixerTrack
+          : patch.mixerTrack && patch.mixerTrack !== MASTER_TRACK_ID && song.mixer.tracks.some((t) => t.id === patch.mixerTrack)
+            ? patch.mixerTrack
+            : null,
     };
-    const same = next.name === was.name && next.color === was.color && next.size === was.size && next.muted === was.muted;
+    const same = next.name === was.name && next.color === was.color && next.size === was.size && next.muted === was.muted && next.mixerTrack === was.mixerTrack;
     if (!same) tracks[index] = next;
   }
   return setTracks(song, tracks);

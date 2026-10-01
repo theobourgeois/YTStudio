@@ -44,7 +44,7 @@ const song: MusicProject = {
     { id: "pat_b", name: "Chorus", length: null, notes: {}, color: null },
   ],
   playlist: {
-    tracks: [DEFAULT_PLAYLIST_TRACK, { name: "Drums", color: "#4a89dc", size: 1.5, muted: true }],
+    tracks: [DEFAULT_PLAYLIST_TRACK, { name: "Drums", color: "#4a89dc", size: 1.5, muted: true, mixerTrack: null }],
     clips: [
       { id: 1, kind: "pattern", ref: "pat_a", track: 0, start: 0, length: null, offset: 0, muted: false },
       { id: 4, kind: "pattern", ref: "pat_b", track: 1, start: 384, length: 192, offset: 24, muted: true },
@@ -179,7 +179,7 @@ describe("the mixer", () => {
     const { mixer, channels } = createMusicProject();
     expect(mixer.tracks.map((t) => t.id)).toEqual([MASTER_TRACK_ID, ...Array.from({ length: 16 }, (_, i) => `insert_${i + 1}`)]);
     expect(mixer.tracks[0].sends).toEqual([]);
-    expect(mixer.tracks[3]).toEqual({ id: "insert_3", name: null, color: null, dock: "middle", separator: false, group: null, volume: 0.8, pan: 0, muted: false, invert: false, swap: false, stereo: 0, latencyOffset: 0, effects: Array(10).fill(null), sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
+    expect(mixer.tracks[3]).toEqual({ id: "insert_3", name: null, color: null, dock: "middle", separator: false, group: null, volume: 0.8, pan: 0, muted: false, invert: false, swap: false, stereo: 0, latencyOffset: 0, input: null, monitor: "armed", inputOffset: 0, effects: Array(10).fill(null), sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
     expect(channels[0].mixerTrack).toBe(MASTER_TRACK_ID);
   });
 
@@ -218,6 +218,28 @@ describe("the mixer", () => {
     expect(grouped.mixer.tracks.map((t) => t.group)).toEqual([null, "g1", null]);
     const many = normalizeMusicProject({ mixer: { tracks: Array.from({ length: 600 }, (_, i) => ({ id: `t_${i}` })) } });
     expect(many.mixer.tracks).toHaveLength(MAX_INSERTS + 1);
+  });
+
+  it("keeps each insert's input (a device input, or a pair), its monitoring and input offset; never the master's", () => {
+    const repaired = normalizeMusicProject({
+      mixer: {
+        tracks: [
+          { id: MASTER_TRACK_ID, input: { channel: 0, stereo: false } },
+          { id: "vox", input: { channel: 2, stereo: false }, monitor: "on", inputOffset: 12.345 },
+          { id: "gtr", input: { channel: 62, stereo: true }, monitor: "loud", inputOffset: -9000 },
+          { id: "bad", input: { channel: 63, stereo: true } },
+          { id: "odd", input: { channel: 1.5 } },
+        ],
+      },
+      playlist: { tracks: [{ mixerTrack: "vox" }, { mixerTrack: MASTER_TRACK_ID, name: "Master?" }, { mixerTrack: "gone" }], clips: [] },
+    });
+    const [master, vox, gtr, bad, odd] = repaired.mixer.tracks;
+    expect(master.input).toBeNull();
+    expect(vox).toMatchObject({ input: { channel: 2, stereo: false }, monitor: "on", inputOffset: 12.35 });
+    expect(gtr).toMatchObject({ input: { channel: 62, stereo: true }, monitor: "armed", inputOffset: -1000 });
+    expect([bad.input, odd.input]).toEqual([null, null]);
+    // A playlist track linked to an insert (FL's audio track); never to the master or a track that's gone.
+    expect(repaired.playlist.tracks.map((t) => t.mixerTrack)).toEqual(["vox", null]);
   });
 
   it("never sends round in a loop: the send that would close one is dropped", () => {
@@ -292,7 +314,7 @@ describe("the playlist", () => {
     }, (id) => id !== "media_gone");
     // An audio clip's channel without its file goes.
     expect(messy.channels.map((c) => c.id)).toEqual(["chan_kick", "chan_hat", "chan_vox"]);
-    expect(messy.playlist.tracks).toEqual([{ name: "Lead", color: "#abcdef", size: 4, muted: false }]);
+    expect(messy.playlist.tracks).toEqual([{ name: "Lead", color: "#abcdef", size: 4, muted: false, mixerTrack: null }]);
     expect(messy.playlist.clips).toEqual([
       // In order of start; the second id 2 gets the next free one; an audio clip always has a length.
       { id: 3, kind: "audio", ref: "chan_vox", track: 1, start: 0, length: 384, offset: 1.25, muted: false },
