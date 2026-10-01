@@ -356,7 +356,7 @@ describe("automation", () => {
   const BAR = 384;
   /** The Kick's volume automated: from 0 to full over a bar, starting at bar 2, and a pattern clip so the song has length. */
   function automated() {
-    let song = editClips(rack(), (clips, ctx) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: BAR * 4 }]).clips);
+    let song = editClips(rack(), (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: BAR * 4 }]).clips);
     const made = createAutomation(song, { kind: "channel", channel: "chan_kick", control: "volume" }, { start: BAR, length: BAR }, { id: "auto_vol" });
     song = editPoints(made.song, "auto_vol", () => [
       { tick: 0, value: 0, tension: 0, curve: "single" },
