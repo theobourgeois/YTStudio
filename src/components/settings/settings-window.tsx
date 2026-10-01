@@ -55,43 +55,18 @@ function firstPlace(): WindowPlace {
 /**
  * Settings, a window over the whole app (`useSettings`) as FL Studio's is: a tab for the app (General)
  * and one per suite. It doesn't stop the app under it being used (a song keeps playing, a click on the
- * timeline works), but keys pressed in it are its own: Esc closes it, and the editors' shortcuts leave
- * them alone (`keepsKeys`).
+ * timeline works), but keys pressed in it are its own (`keepsKeys`): Esc closes it, and the editors'
+ * shortcuts leave them alone.
  */
 export function SettingsWindow() {
   const section = useSettings((s) => s.section);
   const [initial] = useState(firstPlace);
-  const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const info = sectionInfo(section);
 
-  // Focus moves in (to the tab shown), and goes back where it was when Settings closes, unless it's been
-  // taken elsewhere since (a click on the app under it).
-  useEffect(() => {
-    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const root = rootRef.current;
-    root?.querySelector<HTMLElement>("[role=tab][aria-selected=true]")?.focus();
-    return () => {
-      const now = document.activeElement;
-      if (!now || now === document.body || root?.contains(now)) before?.focus();
-    };
-  }, []);
   useEffect(() => {
     panelRef.current?.scrollTo({ top: 0 });
   }, [section]);
-
-  // Esc closes it, from anywhere in it (an open menu or list closes first; one only fading out doesn't count).
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
-      if (!(e.target instanceof Node) || !rootRef.current?.closest("[data-window]")?.contains(e.target)) return;
-      if (document.querySelector("[data-radix-popper-content-wrapper] [data-state=open]")) return;
-      e.preventDefault();
-      useSettings.getState().close();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   // The arrows go from tab to tab (and Home, End to the first and last), as in any list of tabs.
   const onTabKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -110,7 +85,7 @@ export function SettingsWindow() {
 
   return (
     <FloatingWindow id="settings" title="Settings" initial={initial} resizable={{ minWidth: 520, minHeight: 360 }} keepsKeys onClose={() => useSettings.getState().close()}>
-      <div ref={rootRef} data-settings className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
+      <div data-settings className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
         <div className="flex shrink-0 items-center gap-1 border-b border-line bg-surface-1 px-2 py-1.5">
           <div role="tablist" aria-label="Settings sections" className="flex min-w-0 items-center gap-1" onKeyDown={onTabKey}>
             {SECTIONS.map((id) => (
@@ -143,6 +118,8 @@ function SectionTab({ section, selected }: { section: SettingsSection; selected:
       aria-controls="settings-panel"
       tabIndex={selected ? 0 : -1}
       data-settings-section={section}
+      // The focus goes to the tab shown when Settings opens.
+      data-autofocus={selected || undefined}
       onClick={() => useSettings.getState().setSection(section)}
       className={cn(
         "flex h-7 shrink-0 items-center gap-2 rounded-md px-2 text-[13px] whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60",

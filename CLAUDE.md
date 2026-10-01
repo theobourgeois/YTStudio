@@ -205,8 +205,10 @@ src/
                      navigator (animation-controls.tsx), the keyframe lanes (keyframe-lanes.tsx, pure maths in
                      keyframe-geometry.ts, selection and the keyframe clipboard in keyframe-selection.ts) and a
                      property's expression (expression-row.tsx: the script, its pick-whip, examples).
-  components/captions/   Auto captions dialog, engine picker/setup, the Captions tab. State in stores/captions.ts.
-  components/library/  The Library tab, its cards and dialogs (Save to Library), folder drop targets.
+  components/captions/   Auto captions window, engine picker/setup, the Captions tab. State in stores/captions.ts.
+  components/library/  The Library tab, its cards, dialogs and the Save to Library window, folder drop targets.
+  components/workspace/video-desktop.tsx   The video editor's windows (`stores/video-windows.ts`), over it: export,
+                     video settings, Auto captions, Save to Library. Its panels stay docked (docs/windows.md).
   components/effects/  The Effects tab: video effects and transitions (library-grid.tsx is their shared search,
                      category chips and cards; thumbnails.ts draws every card with one shared compositor).
   components/workspace/workspace.tsx   The main column: the open project's suite's Workspace, or the empty state.
@@ -671,7 +673,7 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   exception: deletes close gaps, edge trims and rate stretches move the rest of the track (`rippleClipEdit`), and
   media dropped at a time pushes it along (`insertClip`). Moves stay free either way.
 - There's no right-hand inspector (the right side is only the assistant's chat). Clip properties are in the left panel's Properties tab. Video settings (aspect ratio
-  and fps) are in a header dialog. The canvas is always black.
+  and fps) are in a window opened from the header. The canvas is always black.
 - Clicking a media card previews that file in the Program monitor's place (the source monitor).
 
 ## Gotchas

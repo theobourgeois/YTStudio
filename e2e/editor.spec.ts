@@ -368,7 +368,7 @@ test("plays back and keeps the video in sync with the clock", async ({ page }) =
 test("exports an MP4", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /^export$/i }).first().click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("region", { name: "Export" });
   await dialog.getByText("720p").click();
   await dialog.getByRole("button", { name: /^export$/i }).click();
   await expect(dialog.getByRole("link", { name: /download/i }).or(dialog.getByRole("button", { name: /download/i }))).toBeVisible({
@@ -383,13 +383,19 @@ test("exports an MP4", async ({ page }) => {
 test("video settings dialog, clip volume and previewing a library file", async ({ page }) => {
   await page.goto("/");
 
-  // Settings live in a dialog opened from the header.
-  await page.getByRole("button", { name: "Video settings" }).click();
-  const dialog = page.getByRole("dialog");
+  // Settings live in a window opened from the header, which applies them at once and leaves the editor usable.
+  await page.getByRole("button", { name: "Video settings", exact: true }).click();
+  const dialog = page.getByRole("region", { name: "Video settings" });
   await dialog.getByRole("radio", { name: /Square/ }).click();
+  await expect(page.getByRole("button", { name: "Video settings", exact: true })).toHaveText("1:1 · 30 fps");
+  // Esc closes it; the button brings it back.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await page.getByRole("button", { name: "Video settings", exact: true }).click();
   await dialog.getByRole("radio", { name: /60 fps/ }).click();
   await dialog.getByRole("button", { name: "Done" }).click();
-  await expect(page.getByRole("button", { name: "Video settings" })).toHaveText("1:1 · 60 fps");
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("button", { name: "Video settings", exact: true })).toHaveText("1:1 · 60 fps");
   await expect.poll(async () => (await savedProject(page)).settings).toMatchObject({ aspectRatio: "1:1", fps: 60 });
 
   // The selected clip's volume, from the timeline toolbar.
@@ -898,7 +904,7 @@ test("auto captions: makes captions from the speech, edits one's words and style
   const words = async () => (await captions()).map((c) => effectParams({ clips: [c] }, c.id, "text")!.text);
 
   await page.getByRole("button", { name: "Auto captions" }).first().click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("region", { name: "Auto captions" });
   await dialog.getByRole("radio", { name: "Whole timeline" }).click();
   await dialog.getByRole("radio", { name: "Yellow" }).click();
   await dialog.getByRole("radio", { name: "Word" }).click();
@@ -1116,9 +1122,9 @@ test("keeps media and saved clips in the Library and uses them in another video"
   const [clip] = await timelineClips(page);
   await page.mouse.click(clip.x + 10, clip.y + clip.h / 2, { button: "right" });
   await page.getByRole("menuitem", { name: /Save to Library/ }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("region", { name: "Save clip to Library" });
   await dialog.getByRole("textbox", { name: "Name" }).fill("Intro shot");
-  await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect.poll(async () => (await library()).items.map((i: { kind: string }) => i.kind).sort()).toEqual(["clips", "media"]);
 
@@ -1870,7 +1876,7 @@ test("animates text by word, links properties with an expression, marks the time
 
   // It all exports: the animated text is drawn again for every frame it changes in.
   await page.getByRole("button", { name: /^export$/i }).first().click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("region", { name: "Export" });
   await dialog.getByText("720p").click();
   await dialog.getByRole("button", { name: /^export$/i }).click();
   await expect(dialog.getByRole("link", { name: /download/i }).or(dialog.getByRole("button", { name: /download/i }))).toBeVisible({ timeout: 60_000 });

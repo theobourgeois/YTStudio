@@ -2,7 +2,7 @@ import type { IconType } from "react-icons";
 import { PiArrowCounterClockwise, PiArrowUUpLeft, PiArrowUUpRight, PiCheckCircle } from "react-icons/pi";
 import { DEFAULT_SUITE, suiteNoun } from "@shared/suites";
 import { AssistantButton } from "@/components/assistant/assistant-button";
-import { ExportDialog } from "@/components/export/export-dialog";
+import { ExportButton } from "@/components/export/export-dialog";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -11,7 +11,7 @@ import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { useEditor } from "@/stores/editor";
 import { useProjects } from "@/stores/projects";
 import { ProjectName } from "./project-name";
-import { SettingsDialog } from "./settings-dialog";
+import { VideoSettingsButton } from "./settings-dialog";
 
 export function Header() {
   const canUndo = useEditor((s) => s.past.length > 0 && !s.gestureBase);
@@ -21,7 +21,7 @@ export function Header() {
     <header data-titlebar="header" className="flex h-13 shrink-0 items-center gap-2 border-b bg-background px-3">
       <VideoName />
       <SettledBadge />
-      <SettingsDialog />
+      <VideoSettingsButton />
 
       <div className="ml-auto flex items-center gap-0.5">
         <HistoryButton
@@ -42,7 +42,7 @@ export function Header() {
         <SettingsButton />
         <div className="ml-1.5 flex items-center gap-2">
           <SettleButton />
-          <ExportDialog />
+          <ExportButton />
         </div>
         <Separator orientation="vertical" className="mx-1.5 data-[orientation=vertical]:h-5" />
         <AssistantButton />

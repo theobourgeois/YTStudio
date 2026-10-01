@@ -152,7 +152,7 @@ async function galleryIndex(): Promise<{ SECTIONS: { id: string; shots?: { name:
 }
 
 // The app's screens, on a video and a song made for them.
-const screens = ["empty", "new-project", "video", "video-effects", "video-properties", "video-captions", "video-settings", "video-clip-menu", "settings-window", "music", "music-piano", "music-settings"];
+const screens = ["empty", "new-project", "video", "video-effects", "video-properties", "video-captions", "video-settings", "video-export", "video-clip-menu", "settings-window", "music", "music-piano", "music-settings"];
 if (screens.some(wanted)) {
   const video = await makeVideo();
   const music: ProjectSummary = await (await fetch(`${api}/projects`, { method: "POST", headers: json, body: JSON.stringify({ suite: "music", name: "Beat" }) })).json();
@@ -173,7 +173,7 @@ if (screens.some(wanted)) {
       await page.getByRole("dialog").waitFor();
       await shoot(page, `new-project-${suffix}`);
     }
-    if (screens.slice(2, 9).some(wanted)) {
+    if (screens.slice(2, 10).some(wanted)) {
       await page.goto(`${web}/p/${video.id}`);
       await page.locator("[data-clip-id]").first().waitFor();
       await page.waitForTimeout(800);
@@ -197,9 +197,17 @@ if (screens.some(wanted)) {
         await page.keyboard.press("Escape");
       }
       if (wanted("video-settings")) {
-        await page.getByRole("button", { name: /settings/i }).first().click();
-        await page.getByRole("dialog").waitFor();
+        await page.getByRole("button", { name: "Video settings", exact: true }).click();
+        await page.locator('[data-window="video-settings"]').waitFor();
         await shoot(page, `video-settings-${suffix}`);
+        await page.keyboard.press("Escape");
+      }
+      // The export, a window over the editor.
+      if (wanted("video-export")) {
+        await page.getByRole("button", { name: "Export", exact: true }).click();
+        await page.locator('[data-window="export"]').waitFor();
+        await page.waitForTimeout(300);
+        await shoot(page, `video-export-${suffix}`);
         await page.keyboard.press("Escape");
       }
       // Settings, the app's window (⌘,), over the video: on its General tab, with the themes.

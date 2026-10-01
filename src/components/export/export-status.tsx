@@ -3,7 +3,7 @@ import type { ExportJob } from "@shared/types";
 import { formatDuration } from "@shared/format";
 import { useNow } from "@/hooks/use-now";
 import { Button } from "@/components/ui/button";
-import { DialogFooter } from "@/components/ui/dialog";
+import { WindowFooter } from "@/components/windows/floating-window";
 import { Progress } from "@/components/ui/progress";
 import { brandButton } from "./export-form";
 
@@ -37,11 +37,11 @@ export function ExportProgress({
           <span className="shrink-0 tabular-nums">Elapsed {formatElapsed(now - startedAt)}</span>
         </div>
       </div>
-      <DialogFooter>
+      <WindowFooter>
         <Button variant="outline" onClick={onCancel}>
           Cancel export
         </Button>
-      </DialogFooter>
+      </WindowFooter>
     </>
   );
 }
@@ -60,7 +60,7 @@ export function ExportDone({ job, onAgain }: { job: ExportJob; onAgain: () => vo
           style={{ aspectRatio: `${job.width} / ${job.height}`, width: `min(100%, ${50 * ratio}vh)` }}
         />
       )}
-      <DialogFooter>
+      <WindowFooter>
         <Button variant="outline" onClick={onAgain}>
           <PiArrowCounterClockwise />
           Export again
@@ -73,7 +73,7 @@ export function ExportDone({ job, onAgain }: { job: ExportJob; onAgain: () => vo
             </a>
           </Button>
         )}
-      </DialogFooter>
+      </WindowFooter>
     </>
   );
 }
@@ -92,7 +92,7 @@ export function ExportError({
       <p className="max-h-40 overflow-auto rounded-md border border-destructive/30 bg-destructive/10 p-3 font-mono text-xs break-words whitespace-pre-wrap text-destructive">
         {message}
       </p>
-      <DialogFooter>
+      <WindowFooter>
         <Button variant="ghost" onClick={onBack}>
           Back
         </Button>
@@ -100,7 +100,7 @@ export function ExportError({
           <PiArrowCounterClockwise />
           Try again
         </Button>
-      </DialogFooter>
+      </WindowFooter>
     </>
   );
 }

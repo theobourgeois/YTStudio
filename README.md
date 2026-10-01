@@ -357,7 +357,7 @@ lines), an animation and whether to keep punctuation. **Word by word**, **Highli
 speech: each word appears as it's said, or the word being said is coloured or grows (a text animator on each
 caption, stepping from word to word at the times they're spoken). Pop, Fade, Rise, Blur, Glitch or any transition
 play as each caption appears instead. You can close
-the dialog while it works. The captions land on a **Captions** track on top, as one undoable step.
+the window while it works. The captions land on a **Captions** track on top, as one undoable step.
 
 The **Captions** tab edits them all at once: a preset, the animation, and the Text, Appearance and Motion values
 (font, size, case, colours, stroke, box, position...). Below that is the transcript: click a line's time to go to it,
@@ -366,7 +366,7 @@ next or delete it. Each caption is a normal text clip, so you can move, trim and
 one caption's own look in **Properties**.
 
 Transcribing happens on this Mac by default: Whisper large-v3 turbo through [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
-on the GPU, free, private and offline. The first time, **Set up** in the dialog installs whisper.cpp with Homebrew and
+on the GPU, free, private and offline. The first time, **Set up** in the window installs whisper.cpp with Homebrew and
 downloads the model (574 MB, into `~/.cache/editor/models`, shared by every checkout). Or pick **OpenAI** or **Groq** and
 paste an API key (checked, then saved in `data/settings.json`, or set `OPENAI_API_KEY` / `GROQ_API_KEY`). Before any
 engine hears the audio, long silences are squeezed out and the word timings are lined up with where the sound actually
@@ -381,7 +381,7 @@ track, or the whole video (up to 1080p, H.264), appended to the main track. Clic
 Audio is cached in `data/music`, so previewing then adding (or reusing a song in another video) only downloads once.
 
 Sites regularly break `yt-dlp`; if searches or downloads start failing, run `brew upgrade yt-dlp`.
-Mainstream songs baked into a video will likely get muted or claimed when posted, so the export dialog has
+Mainstream songs baked into a video will likely get muted or claimed when posted, so the export window has
 **Leave out music**: export without the audio tracks, then add the official sound in TikTok/Instagram when posting.
 
 ### Clip properties

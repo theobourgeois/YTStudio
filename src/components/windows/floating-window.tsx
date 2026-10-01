@@ -1,4 +1,4 @@
-import { createContext, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useContext } from "react";
+import { createContext, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { PiCornersIn, PiCornersOut, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
@@ -38,10 +38,14 @@ export interface FloatingWindowProps {
    */
   resizable?: { minWidth: number; minHeight: number };
   /**
-   * Keys pressed in it are its own: the editors' shortcuts leave them alone (`keptByWindow`), as they
-   * would in a dialog, though the window doesn't stop the editor under it being used. Settings is one.
+   * Keys pressed in it are its own, as in a dialog, though the window doesn't stop the editor under it
+   * being used: the editors' shortcuts leave them alone (`keptByWindow`) and Esc closes it. The focus
+   * moves into it when it opens (to its `[data-autofocus]` element, or the window itself) and back
+   * where it was when it closes. Settings, the export and the video editor's other windows are such.
    */
   keepsKeys?: boolean;
+  /** With `keepsKeys`, whether Esc closes it (the export's doesn't while it renders). */
+  escapeCloses?: boolean;
   className?: string;
   children: ReactNode;
 }
@@ -94,8 +98,29 @@ const CONTROLS = "button, [role=slider], [role=spinbutton], [role=tab], input";
  * top) or half of it (drag it to a side). Everything in the music editor is one of these, and so is
  * Settings, on the app's own desktop.
  */
-export function FloatingWindow({ id, title, initial, onClose, menu, heading, controls, resizable, keepsKeys, className, children }: FloatingWindowProps) {
+export function FloatingWindow({ id, title, initial, onClose, menu, heading, controls, resizable, keepsKeys, escapeCloses = true, className, children }: FloatingWindowProps) {
   const windows = useWindowsStore();
+  const ref = useRef<HTMLElement>(null);
+  // What had the focus before it opened (read while rendering, before a field in it takes it with `autoFocus`).
+  const [focusedBefore] = useState(() => (keepsKeys && document.activeElement instanceof HTMLElement ? document.activeElement : null));
+  useEffect(() => {
+    if (!keepsKeys) return;
+    const element = ref.current;
+    if (element && !element.contains(document.activeElement)) (element.querySelector<HTMLElement>("[data-autofocus]") ?? element).focus();
+    // Back where it was, unless it's been taken elsewhere since (a click on the app under it).
+    return () => {
+      const now = document.activeElement;
+      if (!now || now === document.body || element?.contains(now)) focusedBefore?.focus();
+    };
+  }, [keepsKeys, focusedBefore]);
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (!keepsKeys || !escapeCloses || e.key !== "Escape" || e.defaultPrevented || e.nativeEvent.isComposing) return;
+    // An open menu or list closes first (one only fading out doesn't count).
+    if (document.querySelector("[data-radix-popper-content-wrapper] [data-state=open]")) return;
+    e.preventDefault();
+    onClose();
+  };
   const place = windows((s) => s.places[id]) ?? initial;
   const z = windows((s) => s.order.indexOf(id));
   const snap = resizable ? (place.snap ?? null) : null;
@@ -182,13 +207,16 @@ export function FloatingWindow({ id, title, initial, onClose, menu, heading, con
 
   return (
     <section
+      ref={ref}
       aria-label={title}
+      tabIndex={keepsKeys ? -1 : undefined}
+      onKeyDown={onKeyDown}
       data-window={id}
       data-snap={snap ?? undefined}
       data-keeps-keys={keepsKeys || undefined}
       className={cn(
         // A floating surface (the theme's outline and short shadow), its title bar a step darker than its body.
-        "floating absolute flex flex-col overflow-hidden bg-card",
+        "floating absolute flex flex-col overflow-hidden bg-card outline-none",
         snap ? "rounded-none shadow-none" : "rounded-md",
         className,
       )}
@@ -278,6 +306,8 @@ interface DesktopProps<Id extends string> {
   name: string;
   /** What it is, to a screen reader. */
   label: string;
+  /** It lies over other content (the app, an editor), which stays usable: only its windows take the pointer. */
+  overlay?: boolean;
   className?: string;
   children: ReactNode;
   onDragOver?: (e: DragEvent<HTMLDivElement>) => void;
@@ -289,12 +319,12 @@ interface DesktopProps<Id extends string> {
  * context of its own, so its windows' order never reaches past it (the app's windows float above an
  * editor's).
  */
-export function Desktop<Id extends string>({ windows, name, label, className, children, onDragOver, onDrop }: DesktopProps<Id>) {
+export function Desktop<Id extends string>({ windows, name, label, overlay, className, children, onDragOver, onDrop }: DesktopProps<Id>) {
   return (
     // Its windows are given ids of its own kind (the owner's typed wrapper, as `MusicWindow`, sees to that).
     <WindowsContext.Provider value={windows as unknown as WindowsStore}>
       {/* Nothing on it is text to copy: a drag or a double-click never selects the names on buttons. */}
-      <div className={cn("isolate overflow-hidden select-none", className)} data-desktop={name} aria-label={label} onDragOver={onDragOver} onDrop={onDrop}>
+      <div className={cn("isolate overflow-hidden select-none", overlay && "pointer-events-none [&>[data-window]]:pointer-events-auto", className)} data-desktop={name} aria-label={label} onDragOver={onDragOver} onDrop={onDrop}>
         {children}
         <SnapPreview />
       </div>
@@ -308,4 +338,19 @@ function SnapPreview() {
   const snap = windows((s) => s.snapPreview);
   if (!snap) return null;
   return <div className="pointer-events-none absolute z-[9999] rounded-sm border-2 border-brand/60 bg-brand/10 transition-all" style={SNAPPED[snap]} data-testid="snap-preview" />;
+}
+
+/** A window's content: room around it, and scrolling when it's taller than the desktop leaves room for. */
+export function WindowBody({ className, children }: { className?: string; children: ReactNode }) {
+  return <div className={cn("flex min-h-0 flex-col gap-5 overflow-y-auto p-5", className)}>{children}</div>;
+}
+
+/** The line at the top of a window's content, on what it's for (a dialog's description). */
+export function WindowLead({ children }: { children: ReactNode }) {
+  return <p className="-mt-1 text-[13px] text-muted-foreground">{children}</p>;
+}
+
+/** A window's buttons, at the end of its content (a dialog's footer). */
+export function WindowFooter({ className, children }: { className?: string; children: ReactNode }) {
+  return <div className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)}>{children}</div>;
 }

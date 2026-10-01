@@ -338,7 +338,7 @@ html.desktop [data-window] {
   -webkit-app-region: no-drag;
 }
 
-/* The app's windows (Settings) take the pointer over the app, but not while a modal dialog holds it (Radix turns the body's off). */
-body[style*="pointer-events: none"] [data-desktop="app"] [data-window] {
+/* Windows over the app (Settings, the video editor's) take the pointer, but not while a modal dialog or menu holds it (Radix turns the body's off). */
+body[style*="pointer-events: none"] [data-window] {
   pointer-events: none;
 }

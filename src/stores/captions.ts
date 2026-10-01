@@ -35,6 +35,7 @@ import { layoutText, textFont } from "@/lib/text-render";
 import { useEditor } from "./editor";
 import { fontsSettled } from "./fonts";
 import { useLayout } from "./layout";
+import { useVideoWindows } from "./video-windows";
 
 const SETTINGS_KEY = "editor-auto-captions";
 const POLL_MS = 400;
@@ -121,6 +122,7 @@ export const useCaptions = create<CaptionsState>((set, get) => ({
   dialogClipIds: [],
 
   openDialog(clipIds) {
+    useVideoWindows.getState().focus("captions");
     set({ dialogOpen: true, dialogClipIds: clipIds ?? useEditor.getState().selectedClipIds });
     void get().loadEngines();
   },

@@ -4,7 +4,7 @@ import type { ExportResolution } from "@shared/types";
 import { formatDuration } from "@shared/format";
 import { isOnVideoTrack, outputSize, projectDuration, withoutAudioTracks } from "@shared/timeline";
 import { Button } from "@/components/ui/button";
-import { DialogClose, DialogFooter } from "@/components/ui/dialog";
+import { WindowFooter } from "@/components/windows/floating-window";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -28,6 +28,7 @@ interface ExportFormProps {
   onExcludeAudioTracksChange: (exclude: boolean) => void;
   starting: boolean;
   onSubmit: (fileName: string, excludeAudioTracks: boolean) => void;
+  onCancel: () => void;
 }
 
 export function ExportForm({
@@ -38,6 +39,7 @@ export function ExportForm({
   onExcludeAudioTracksChange,
   starting,
   onSubmit,
+  onCancel,
 }: ExportFormProps) {
   const project = useEditor((s) => s.document);
   const hasAudioTracks = project.clips.some((c) => !isOnVideoTrack(project, c));
@@ -140,17 +142,15 @@ export function ExportForm({
         </Notice>
       )}
 
-      <DialogFooter>
-        <DialogClose asChild>
-          <Button type="button" variant="ghost">
-            Cancel
-          </Button>
-        </DialogClose>
+      <WindowFooter>
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
         <Button type="submit" className={brandButton} disabled={blocked || starting}>
           {starting && <PiSpinnerGap className="animate-spin" />}
           Export
         </Button>
-      </DialogFooter>
+      </WindowFooter>
     </form>
   );
 }
