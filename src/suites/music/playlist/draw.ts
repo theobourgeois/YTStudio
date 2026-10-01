@@ -25,10 +25,13 @@ interface ClipColours {
   text: string;
 }
 
-/** Content colours (the same in every theme): FL's pattern clips are blue-grey, audio clips greener; deep, not pastel (Théo). */
-const PATTERN: ClipColours = { body: "#6a809e", title: "#4d6587", content: "#111c30", text: "#eef2f8" };
-const AUDIO: ClipColours = { body: "#64927b", title: "#46755e", content: "#0c2418", text: "#eef6f1" };
-const SELECTED: ClipColours = { body: "#cf7c75", title: "#ad4a43", content: "#3a0d0a", text: "#fff3f2" };
+/**
+ * Content colours (the same in every theme): FL's pattern clips are blue-grey, audio clips greener; deep,
+ * not pastel, and what's drawn in them (notes, a waveform) light on them, as FL draws it (Théo).
+ */
+const PATTERN: ClipColours = { body: "#6a809e", title: "#4d6587", content: "#dfe8f6", text: "#eef2f8" };
+const AUDIO: ClipColours = { body: "#64927b", title: "#46755e", content: "#dcf1e5", text: "#eef6f1" };
+const SELECTED: ClipColours = { body: "#cf7c75", title: "#ad4a43", content: "#ffe6e3", text: "#fff3f2" };
 
 /** How opaque a clip's body is (its title strip and content are solid): the grid shows through, as in FL. */
 const BODY_ALPHA = { light: 0.5, dark: 0.6 };
@@ -38,12 +41,12 @@ const MUTED_TRACK_ALPHA = 0.6;
 
 /** A clip's colours on a muted track: greyed and darker, so it reads as off. */
 function onMutedTrack(c: ClipColours): ClipColours {
-  return { body: mix(c.body, MUTED_GREY, 0.6), title: mix(c.title, MUTED_GREY, 0.6), content: mix(c.content, MUTED_GREY, 0.3), text: mix(c.text, MUTED_GREY, 0.35) };
+  return { body: mix(c.body, MUTED_GREY, 0.6), title: mix(c.title, MUTED_GREY, 0.6), content: mix(c.content, MUTED_GREY, 0.55), text: mix(c.text, MUTED_GREY, 0.35) };
 }
 
 /** A clip of a coloured source, or on a coloured track, takes that colour. */
 function colouredBy(color: string): ClipColours {
-  return { body: mix(color, "#ffffff", 0.2), title: color, content: mix(color, "#000000", 0.65), text: "#ffffff" };
+  return { body: mix(color, "#ffffff", 0.2), title: color, content: mix(color, "#ffffff", 0.8), text: "#ffffff" };
 }
 
 /** Two "#rrggbb" colours mixed, `amount` of the second. */
@@ -336,6 +339,31 @@ function drawClips(ctx: CanvasRenderingContext2D, scene: PlaylistScene, firstTra
   ctx.globalAlpha = 1;
 }
 
+/** Text widths in the clips' font, measured once each. */
+const widths = new Map<string, number>();
+const measure = (ctx: CanvasRenderingContext2D, text: string) => {
+  let width = widths.get(text);
+  if (width === undefined) {
+    if (widths.size > 5000) widths.clear();
+    widths.set(text, (width = ctx.measureText(text).width));
+  }
+  return width;
+};
+
+/** `text` cut to fit `width` with "…" at its end (never squeezed narrower), or nothing if not even a letter fits. */
+function ellipsize(ctx: CanvasRenderingContext2D, text: string, width: number): string {
+  if (width <= 0) return "";
+  if (measure(ctx, text) <= width) return text;
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = (low + high + 1) >> 1;
+    if (measure(ctx, `${text.slice(0, mid).trimEnd()}…`) <= width) low = mid;
+    else high = mid - 1;
+  }
+  return low ? `${text.slice(0, low).trimEnd()}…` : "";
+}
+
 /** One clip: its body, title strip and content (`alpha`: how much of it shows, for one fading out). */
 function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: PlaylistClip, isSelected: boolean, alpha: number) {
   const { view, width, layout, palette } = scene;
@@ -400,7 +428,7 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   if (w > 16 && title >= 9) {
     ctx.fillStyle = colours.text;
     const textX = Math.max(x + (arrow ? MENU_TO : 0), 0) + 4;
-    ctx.fillText(scene.names.get(clip.ref) ?? "", textX, y + title / 2 + 0.5, Math.max(0, right - textX - 3));
+    ctx.fillText(ellipsize(ctx, scene.names.get(clip.ref) ?? "", right - textX - 3), textX, y + title / 2 + 0.5);
   }
   ctx.globalAlpha = alpha;
   ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
