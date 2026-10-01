@@ -27,7 +27,7 @@ import {
   STEP_TICKS,
 } from "./types.ts";
 
-export const DEFAULT_TEMPO = 120;
+export const DEFAULT_TEMPO = 140;
 export const MIN_TEMPO = 20;
 export const MAX_TEMPO = 999;
 /** The notes that can get the beat. */
@@ -182,9 +182,23 @@ export function createMixer(): Mixer {
   return { tracks: [master, ...Array.from({ length: DEFAULT_INSERTS }, (_, i) => createMixerTrack(`insert_${i + 1}`))], groups: [] };
 }
 
-export function createMusicProject(name = DEFAULT_PROJECT_NAME): MusicProject {
-  const settings: MusicSettings = { tempo: DEFAULT_TEMPO, timeSignature: [4, 4], swing: 0 };
+export function createMusicProject(name = DEFAULT_PROJECT_NAME, tempo = DEFAULT_TEMPO): MusicProject {
+  const settings: MusicSettings = { tempo, timeSignature: [4, 4], swing: 0 };
   return { version: 1, name, settings, channels: emptyRack(), patterns: [createPattern("Pattern 1", FIRST_PATTERN_ID)], playlist: emptyPlaylist(), mixer: createMixer() };
+}
+
+/** What the tab chooses for a new song (`CreateProjectRequest.options`): the tempo set as the default. */
+export interface NewSongOptions {
+  tempo?: number;
+}
+
+/** A new song with the tab's choices for it (untrusted: a tempo out of range is ignored). */
+export function withSongOptions(song: MusicProject, options: unknown): MusicProject {
+  if (!isObject(options)) return song;
+  const tempo = options.tempo;
+  if (typeof tempo !== "number" || !Number.isFinite(tempo) || tempo < MIN_TEMPO || tempo > MAX_TEMPO) return song;
+  const rounded = Math.round(tempo * 100) / 100;
+  return rounded === song.settings.tempo ? song : { ...song, settings: { ...song.settings, tempo: rounded } };
 }
 
 /** A playlist with nothing on it: every track as new. */

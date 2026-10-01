@@ -154,7 +154,8 @@ export const useProjects = create<ProjectsState>((set, get) => {
     async create({ suite = DEFAULT_SUITE, files, blank } = {}) {
       let summary: ProjectSummary;
       try {
-        summary = await api.createProject({ suite, ...(blank && { blank }) });
+        const options = clientSuite(suite).newProjectOptions?.();
+        summary = await api.createProject({ suite, ...(blank && { blank }), ...(options !== undefined && { options }) });
       } catch (err) {
         toast.error(`Couldn't create a new ${suiteNoun(suite)}`, { description: errorMessage(err) });
         return;

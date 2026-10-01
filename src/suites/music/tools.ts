@@ -4,7 +4,7 @@
  * applied to the open song as one undo step, or to a song that isn't open by loading and saving it.
  */
 import { createId } from "@shared/ids";
-import { addChannels, addPluginChannel, updateChannel } from "@shared/music/edits";
+import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
@@ -20,6 +20,7 @@ import {
   type EditResult,
   type SongEdit,
   addPatternTool,
+  findChannel,
   editStep,
   findPattern,
   moveChannelTool,
@@ -27,6 +28,8 @@ import {
   removePatternTool,
   setStepsTool,
   transposeChannelsTool,
+  transposePatternsTool,
+  movePatternTool,
   setNotesTool,
   chopNotesTool,
   describeNotes,
@@ -113,6 +116,15 @@ function requireOpen(target: Target, what: string) {
   if (!target.open) throw new Error(`${what} only works on the song open in the editor, and this chat's song isn't open. Ask the user to open it.`);
 }
 
+/** An instrument plugin of this computer's, by its id or name; the error lists the ones there are. */
+async function findInstrument(ref: unknown) {
+  const wanted = String(ref).trim().toLowerCase();
+  const instruments = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument);
+  const plugin = instruments.find((p) => p.id.toLowerCase() === wanted) ?? instruments.find((p) => p.name.toLowerCase() === wanted);
+  if (!plugin) throw new Error(`There's no instrument plugin "${String(ref)}" on this computer. The ones found: ${instruments.map((p) => p.name).join(", ") || "none"}.`);
+  return plugin;
+}
+
 const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promise<ToolResult>> = {
   async get_song(_input, ctx) {
     const target = await targetOf(ctx);
@@ -129,10 +141,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const target = await targetOf(ctx);
     const name = typeof input.name === "string" && input.name.trim() ? input.name.trim() : null;
     if (input.plugin !== undefined) {
-      const wanted = String(input.plugin).trim().toLowerCase();
-      const instruments = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument);
-      const plugin = instruments.find((p) => p.id.toLowerCase() === wanted) ?? instruments.find((p) => p.name.toLowerCase() === wanted);
-      if (!plugin) throw new Error(`There's no instrument plugin "${String(input.plugin)}" on this computer. The ones found: ${instruments.map((p) => p.name).join(", ") || "none"}.`);
+      const plugin = await findInstrument(input.plugin);
       await apply(target, (song) => {
         const next = addPluginChannel(song, { id: plugin.id, name: plugin.name, format: plugin.format });
         return name ? updateChannel(next, next.channels[next.channels.length - 1].id, { name }) : next;
@@ -159,6 +168,15 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(`Added the channel "${channelName}"${sample ? ` playing ${sample.name}` : " with no sample (silent until it has one)"}. Read get_song for its id.`);
   },
   update_channel: edit(updateChannelTool),
+  async replace_channel(input, ctx) {
+    const target = await targetOf(ctx);
+    const old = findChannel(target.song, input.channel);
+    if (old.kind === "audio") throw new Error(`"${old.name}" is an audio clip's channel: it has no instrument to replace.`);
+    const plugin = input.plugin === undefined ? null : await findInstrument(input.plugin);
+    const id = createId("chan");
+    await apply(target, (song) => replaceChannel(song, old.id, plugin && { id: plugin.id, name: plugin.name, format: plugin.format }, id));
+    return textResult(`Replaced "${old.name}" with ${plugin ? `the plugin ${plugin.name}` : "an empty sampler"} (channel ${id}), playing its notes.`);
+  },
   remove_channel: edit(removeChannelTool),
   solo_channel: edit(soloChannelTool),
   move_channel: edit(moveChannelTool),
@@ -174,6 +192,8 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   add_pattern: edit(addPatternTool),
   update_pattern: edit(updatePatternTool),
   remove_pattern: edit(removePatternTool),
+  transpose_patterns: edit(transposePatternsTool),
+  move_pattern: edit(movePatternTool),
   async get_mixer(_input, ctx) {
     const target = await targetOf(ctx);
     return textResult(describeMixer(target.song, target.open ? useTransport.getState().effects : null));

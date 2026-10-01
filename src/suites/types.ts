@@ -79,4 +79,6 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
   runTool(name: string, input: Record<string, unknown>, ctx: ToolRunContext): Promise<ToolResult>;
   /** Put files dropped to start a project into the new project, for suites that take them. */
   importFiles?(files: File[]): Promise<void>;
+  /** The suite's choices for a new project, kept in this browser (`CreateProjectRequest.options`: music's default tempo). */
+  newProjectOptions?(): unknown;
 }

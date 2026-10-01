@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { removeChannels, removePattern, setPatternLength, setSteps } from "./edits.ts";
+import { removeChannels, removePattern, setPatternLength, setSteps, setTempo } from "./edits.ts";
 import { createChannel, createMusicProject, DEFAULT_PLAYLIST_TRACK, MAX_PLAYLIST_TRACKS } from "./project.ts";
 import {
   type NewClip,
@@ -28,6 +28,7 @@ import {
   removeClips,
   resizeClips,
   setClipProps,
+  sliceAll,
   sliceClips,
   slipClips,
   soloTrack,
@@ -53,7 +54,8 @@ function makeSong(): MusicProject {
   };
   song = setSteps(song, "pat_beat", "chan_kick", [0, 8], true);
   song = setSteps(song, "pat_beat", "chan_hat", [2, 6, 10, 14], true);
-  return song;
+  // At 120 BPM, whatever the default: a bar is two seconds.
+  return setTempo(song, 120);
 }
 
 const clip = (c: Partial<NewClip> = {}): NewClip => ({ kind: "pattern", ref: "pat_beat", track: 0, start: 0, ...c });
@@ -150,6 +152,17 @@ describe("a playlist's clips", () => {
     ]);
     // At an edge, or across nothing: whole.
     expect(sliceClips(song.playlist.clips, BAR, 0, 2, ctx).clips).toBe(song.playlist.clips);
+  });
+
+  it("slice every track at once (Shift with the slice tool)", () => {
+    const song = withClips([clip({ track: 0 }), clip({ track: 7 }), clip({ track: MAX_PLAYLIST_TRACKS - 1 }), clip({ track: 3, start: 2 * BAR })]);
+    const ctx = clipContext(song);
+    const { clips, created } = sliceAll(song.playlist.clips, 96, ctx);
+    expect(created).toHaveLength(3);
+    expect(clips.filter((c) => c.start === 96).map((c) => c.track)).toEqual([0, 7, MAX_PLAYLIST_TRACKS - 1]);
+    // The clip the line doesn't cross is whole; so is everything, cut where no clip is.
+    expect(clips.filter((c) => c.track === 3)).toHaveLength(1);
+    expect(sliceAll(song.playlist.clips, 3 * BAR, ctx).clips).toBe(song.playlist.clips);
   });
 
   it("slice audio clips in seconds of their file, at the song's tempo", () => {

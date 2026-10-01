@@ -1,4 +1,4 @@
-import { createMusicProject, normalizeMusicProject } from "../../shared/music/project.ts";
+import { createMusicProject, normalizeMusicProject, withSongOptions } from "../../shared/music/project.ts";
 import { isObject } from "../storage.ts";
 import type { SuiteBackend } from "./suite.ts";
 
@@ -6,6 +6,7 @@ import type { SuiteBackend } from "./suite.ts";
 export const musicSuite: SuiteBackend<"music"> = {
   suite: "music",
   create: (name) => createMusicProject(name),
+  withOptions: (doc, options) => withSongOptions(doc, options),
   normalize(doc, media) {
     if (!isObject(doc)) throw new Error("Not a song.");
     return normalizeMusicProject(doc, (id) => media[id]?.hasAudio === true);

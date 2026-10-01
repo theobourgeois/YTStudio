@@ -126,7 +126,7 @@ than fit. The window's **height follows the number of channels**.
   sound, so the rack shows what's playing. Its target is wider than the light, so it's easy to hit.
 - **Right-click**: add it to, or take it out of, the selection.
 - **Right-click and drag down** the selectors: select several.
-- **Double-click**: select all.
+- **Double-click**: select all. Ours (Théo): a double-click opens the channel's Piano roll instead.
 - **Up/Down arrows** select the channel above/below; with Shift they extend the selection.
 - **Alt+Up/Down** move the selected channels. Alt+C clones them, Alt+Del deletes them, Alt+Z zips them
   (a compact row), Alt+U unzips, Alt+G groups them, Ctrl+L routes them to free mixer tracks.
@@ -257,7 +257,8 @@ notes) unless its LCD sets one; the mute light, with Solo on its right-click men
 the 1…0 and Ctrl+1…0 keys; knobs (drag, Ctrl for fine, Alt+click or middle-click to reset, a right-click
 menu with Reset, Copy value, Paste value, Type in value); a channel's button opens its settings
 **window**, one at a time unless Alt is held, and Ctrl+click plays it; a file dropped on a button
-replaces its sample; the selector (click, right-click to add, right-drag, double-click for all, arrows);
+replaces its sample (and selects the channel; files dropped on the rack become channels, selected); the
+selector (click, right-click to add, right-drag, double-click for the Piano roll, arrows);
 Alt+↑/↓, Alt+C, Alt+Del, Shift+wheel; Cut/Copy/Paste and rotate of a channel's steps; Cut self; the
 graph editor's Note and Velocity tabs with Ctrl to scale, a right-drag to ramp and Alt to reset;
 normalize, reverse, sample start, length, fade in and fade out in the settings window; windows that
@@ -274,7 +275,7 @@ Shift+click, which select a range.
 | Solo | "Restore previous state after solo" is a setting | Un-soloing always unmutes everything | Later |
 | Knob menu | Also Edit events, Create automation clip, Link to controller | Reset, Copy, Paste, Type in value | With automation |
 | Windows | Snap to each other; can be detached; Esc closes; remembered | Float, drag, close, stick to edges and each other; resizable ones maximise and snap to half the desktop; positions are forgotten with the page | Detaching later |
-| Channel menu | Two columns: the channel (Piano roll, Rename/color/icon, Insert, Replace, Clone, Delete…) and its steps (Cut/Copy/Paste, Fill, Rotate, Burn…) | The same two columns, rows lined up: Piano roll, Graph editor, settings · Load sample, Cut itself, Hear it · Clone, Delete, beside Cut/Copy/Paste · Fill each 2/4/8, Clear · Rotate | Color later; the rest with their phases |
+| Channel menu | Two columns: the channel (Piano roll, Rename/color/icon, Insert, Replace, Clone, Delete…) and its steps (Cut/Copy/Paste, Fill, Rotate, Burn…) | The same two columns, rows lined up: Piano roll, Graph editor, settings · Load sample, Cut itself, Hear it · Replace… (the instrument picker: a plugin or the Sampler, in the channel's place with its notes, volume, pan and mixer track), Clone, Delete, beside Cut/Copy/Paste · Fill each 2/4/8, Clear · Rotate | Color later; the rest with their phases |
 | Rack menu | Sort, group, zip, colour, swing mix, auto resize… | Add, clone, delete, move, mute/unmute selected | Later |
 | Graph editor | Also Release, Fine, Pan, Mod X/Y, Shift, Rep | Note and Velocity | With the piano roll's note properties |
 | Channel Settings | Content, Playback (loop points), Time stretching, declicking, the other precomputed effects | File, the six precomputed effects asked for, the waveform | Later |

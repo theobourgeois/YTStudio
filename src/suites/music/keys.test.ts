@@ -36,6 +36,18 @@ describe("music keys", () => {
     expect(press("l", "KeyL", { metaKey: true })).toEqual({ type: "assignFreeTracks" });
   });
 
+  it("shows the windows with Alt+1…5 too, from anywhere (a Mac's F keys need Fn)", () => {
+    // On a Mac, Alt+1 types "¡": the key is known by where it is.
+    expect(press("¡", "Digit1", { altKey: true })).toEqual({ type: "togglePlaylist" });
+    expect(press("™", "Digit2", { altKey: true })).toEqual({ type: "toggleRack" });
+    expect(press("£", "Digit3", { altKey: true })).toEqual({ type: "togglePiano" });
+    expect(press("¢", "Digit4", { altKey: true })).toEqual({ type: "toggleMixer" });
+    expect(press("∞", "Digit5", { altKey: true })).toEqual({ type: "toggleBrowser" });
+    expect(press("§", "Digit6", { altKey: true })).toBeNull();
+    expect(press("1", "Digit1", { altKey: true, metaKey: true })).toBeNull();
+    expect(resolvePluginWindowKey({ key: "£", code: "Digit3", metaKey: false, ctrlKey: false, shiftKey: false, altKey: true })).toEqual({ type: "togglePiano" });
+  });
+
   it("mutes the first ten channels with 1…0, and solos them with Ctrl", () => {
     expect(press("1", "Digit1")).toEqual({ type: "mute", index: 0 });
     expect(press("0", "Digit0")).toEqual({ type: "mute", index: 9 });

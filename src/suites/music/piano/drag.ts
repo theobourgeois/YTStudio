@@ -13,6 +13,7 @@ import {
   resizeNotes,
   setNoteProps,
   setNoteValues,
+  sliceColumn,
   sliceNotes,
   stretchNotes,
 } from "@shared/music/notes";
@@ -39,7 +40,8 @@ export function applyDrag(notes: Note[], drag: PianoDrag | null): Created {
     case "values":
       return same(setNoteValues(notes, drag.values));
     case "slice": {
-      const { tick, low, high } = drag;
+      const { tick, low, high, column } = drag;
+      if (column) return sliceColumn(notes, tick);
       return sliceNotes(notes, (pitch) => (pitch >= Math.min(low, high) && pitch <= Math.max(low, high) ? tick : null));
     }
     case "rect":
@@ -48,7 +50,10 @@ export function applyDrag(notes: Note[], drag: PianoDrag | null): Created {
   }
 }
 
-/** What a selection rectangle selects: the notes it touches, with (`add`) what was selected before. */
+/**
+ * What a selection rectangle selects: the notes it touches, with (`add`) what was selected before. The
+ * canvas draws it while the rectangle is dragged, so notes turn selected as it covers them.
+ */
 export function rectSelection(notes: readonly Note[], drag: Extract<PianoDrag, { kind: "rect" }>, selected: ReadonlySet<number>): Set<number> {
   const inside = notesInRect(notes, Math.min(drag.from, drag.to), Math.max(drag.from, drag.to), Math.min(drag.low, drag.high), Math.max(drag.low, drag.high));
   return new Set(drag.add ? [...selected, ...inside] : inside);

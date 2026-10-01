@@ -22,7 +22,7 @@ import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import { chop, chopperResult, glue, legato, openChopper, pianoChannel, pianoContext, quantize } from "./actions";
-import { applyDrag } from "./drag";
+import { applyDrag, rectSelection } from "./drag";
 import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepare, readPalette, stretchHandle } from "./draw";
 import { onFade, vanishing } from "./fades";
 import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, wheelZoomFactor, zoomAt } from "./geometry";
@@ -83,7 +83,7 @@ export function PianoRoll() {
         usePiano.setState({ time: null, drag: null, editing: null, chopping: false });
       }}
       heading={channel ? <ChannelMenu name={channel.name} /> : undefined}
-      controls={<PianoControls />}
+      tools={<PianoControls />}
     >
       <div
         className="relative min-h-0 flex-1"
@@ -143,7 +143,7 @@ function PianoControls() {
             {SNAP_LABELS[snap]}
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="start">
           <DropdownMenuLabel>Snap (Alt: none)</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={snap} onValueChange={(value) => usePiano.getState().setSnap(value as Snap)}>
             {SNAPS.map((id) => (
@@ -251,7 +251,7 @@ function ChannelMenu({ name }: { name: string }) {
 }
 
 /** The last drag preview worked out, to reuse while neither the notes nor the drag change. */
-let previewCache: { notes: Note[]; drag: unknown; result: Note[]; created: number[] } | null = null;
+let previewCache: { notes: Note[]; drag: unknown; result: Note[]; created: number[]; selected: ReadonlySet<number> | null } | null = null;
 /** The same for the Chopper's: what it would make of the notes, while its settings, the selection and the snap stay. */
 let chopCache: { notes: Note[]; settings: unknown; selected: unknown; grid: number; result: Note[]; created: number[] } | null = null;
 
@@ -280,7 +280,7 @@ function PianoBody() {
       const { gridWidth: width, gridHeight: height, view, drag } = piano;
       const palette = readPalette(box);
       let notes = ctx.notes;
-      let selected = ctx.selected;
+      let selected: ReadonlySet<number> = ctx.selected;
       // While the Chopper is open, the notes are shown as it would leave them (until a drag starts).
       if (piano.chopping && !drag) {
         if (chopCache?.notes !== ctx.notes || chopCache.settings !== piano.chopper || chopCache.selected !== piano.selected || chopCache.grid !== ctx.grid) {
@@ -294,11 +294,13 @@ function PianoBody() {
       if (drag) {
         if (previewCache?.notes !== ctx.notes || previewCache.drag !== drag) {
           const result = applyDrag(ctx.notes, drag);
-          previewCache = { notes: ctx.notes, drag, result: result.notes, created: result.created };
+          previewCache = { notes: ctx.notes, drag, result: result.notes, created: result.created, selected: null };
         }
         notes = previewCache.result;
         // A slice shows the pieces it cuts off in the selected colour, so what it would do is seen.
         if (drag.kind === "slice" && previewCache.created.length) selected = new Set([...selected, ...previewCache.created]);
+        // A selection rectangle selects what it covers as it's dragged (the selection itself changes when it's let go).
+        if (drag.kind === "rect") selected = previewCache.selected ??= rectSelection(ctx.notes, drag, ctx.selected);
       }
       const fading = vanishing(performance.now());
       const scene: Scene = {
@@ -308,11 +310,14 @@ function PianoBody() {
         notes,
         selected,
         vanishing: fading,
+        // Shift's cut (and its hover) goes through the whole column: a line the grid's height.
         slice:
           drag?.kind === "slice"
-            ? { x: Math.round(tickToX(view, drag.tick)) + 0.5, y1: pitchToY(view, Math.max(drag.low, drag.high)), y2: pitchToY(view, Math.min(drag.low, drag.high)) + view.rowHeight }
+            ? drag.column
+              ? { x: Math.round(tickToX(view, drag.tick)) + 0.5, y1: 0, y2: height, full: true }
+              : { x: Math.round(tickToX(view, drag.tick)) + 0.5, y1: pitchToY(view, Math.max(drag.low, drag.high)), y2: pitchToY(view, Math.min(drag.low, drag.high)) + view.rowHeight, full: false }
             : !drag && piano.sliceHover
-              ? { x: Math.round(tickToX(view, piano.sliceHover.tick)) + 0.5, y1: pitchToY(view, piano.sliceHover.pitch), y2: pitchToY(view, piano.sliceHover.pitch) + view.rowHeight }
+              ? { x: Math.round(tickToX(view, piano.sliceHover.tick)) + 0.5, y1: 0, y2: height, full: true }
               : null,
         ghosts: piano.ghosts ? Object.entries(ctx.pattern.notes).flatMap(([id, list]) => (id === ctx.channel.id ? [] : [list])) : [],
         barTicks: ctx.barTicks,

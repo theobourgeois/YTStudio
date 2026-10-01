@@ -212,14 +212,18 @@ test("mutes and solos, selects, reorders, clones and deletes channels, by mouse 
   await page.keyboard.press("2");
   await page.keyboard.press("4");
 
-  // The selector: a click selects one, a right-click adds, a double-click selects all.
+  // The selector: a click selects one, a right-click adds, a double-click opens its Piano roll (Théo's).
   const selected = () => page.locator("[data-selector][aria-pressed=true]").count();
   await page.getByRole("button", { name: "Select Hat" }).click();
   expect(await selected()).toBe(1);
   await page.getByRole("button", { name: "Select Kick" }).click({ button: "right" });
   expect(await selected()).toBe(2);
   await page.getByRole("button", { name: "Select Snare" }).dblclick();
-  expect(await selected()).toBe(4);
+  const piano = page.locator('[data-window="piano"]');
+  await expect(piano).toBeVisible();
+  await expect(piano.locator("[data-window-title]")).toContainText("Snare");
+  await page.getByRole("button", { name: /^Close Piano roll/ }).click();
+  await expect(piano).toHaveCount(0);
   await page.getByRole("button", { name: "Select Hat" }).click();
   expect(await selected()).toBe(1);
 
@@ -335,6 +339,23 @@ test("the rack's + adds an instrument: a plugin of this computer's, or a sampler
   expect(await rackOrder(page)).toEqual(["Fake Synth"]);
   await page.keyboard.press("ControlOrMeta+Shift+z");
   expect(await rackOrder(page)).toEqual(["Fake Synth", "Sampler"]);
+
+  // Replace (FL's): another instrument in the channel's place, playing its notes; one undo step.
+  const settings = page.getByRole("button", { name: "Close Sampler" });
+  if (await settings.count()) await settings.click();
+  await step(page, "Sampler", 3).click();
+  await channelButton(page, "Sampler").click({ button: "right" });
+  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Replace…" }).click();
+  await page.getByTestId("replace-picker").getByRole("option", { name: /Fake Synth/ }).click();
+  expect(await rackOrder(page)).toEqual(["Fake Synth", "Fake Synth"]);
+  await expect
+    .poll(async () => {
+      const song = await savedSong(page, id);
+      return [song.channels[1].kind, song.patterns[0].notes[song.channels[1].id]?.map((n: { start: number }) => n.start)];
+    })
+    .toEqual(["plugin", [48]]);
+  await page.keyboard.press("ControlOrMeta+z");
+  expect(await rackOrder(page)).toEqual(["Fake Synth", "Sampler"]);
 });
 
 test("knobs work as in FL Studio, and a channel opens its settings window", async ({ page }) => {
@@ -343,9 +364,9 @@ test("knobs work as in FL Studio, and a channel opens its settings window", asyn
   await expect(page.getByRole("listitem")).toHaveCount(4);
 
   const tempo = page.getByRole("textbox", { name: "Tempo" });
-  await tempo.fill("140");
+  await tempo.fill("128");
   await tempo.press("Enter");
-  await expect(page.locator(`[data-project-id="${id}"]`)).toContainText("140 BPM");
+  await expect(page.locator(`[data-project-id="${id}"]`)).toContainText("128 BPM");
 
   // A knob is dragged up and down (one undo step); Alt+click resets it; its menu resets, copies, pastes and takes a typed value.
   const volume = row(page, "Kick").getByRole("slider", { name: "Volume" });
@@ -592,13 +613,45 @@ test("settings: ⌘, opens on the music section, with the device and the plugin 
 test("the toolbar, as FL Studio's: the tempo LCD drags, + makes a pattern, the position slider moves where play starts, the hint bar names what's under the pointer", async ({ page }) => {
   const id = await openNewSong(page, "Toolbar");
   const tempo = page.getByRole("textbox", { name: "Tempo" });
-  await expect(tempo).toHaveValue("120");
+  await expect(tempo).toHaveValue("140");
   // Dragged up 40 px, 4 px a BPM: one undo step.
   await drag(page, tempo, tempo, { dy: -40 });
-  await expect(tempo).toHaveValue("130");
-  await expect.poll(async () => (await savedSong(page, id)).settings.tempo).toBe(130);
+  await expect(tempo).toHaveValue("150");
+  await expect.poll(async () => (await savedSong(page, id)).settings.tempo).toBe(150);
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(tempo).toHaveValue("120");
+  await expect(tempo).toHaveValue("140");
+
+  // Its menu taps the tempo: a key every half second is 120 BPM.
+  await tempo.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Tap tempo…" }).click();
+  const tapped = page.getByTestId("tapped-tempo");
+  await expect(page.getByRole("button", { name: "Tap" })).toBeFocused();
+  for (let i = 0; i < 5; i++) {
+    if (i) await page.waitForTimeout(500);
+    await page.keyboard.press("t");
+  }
+  await expect.poll(async () => Number(await tapped.textContent())).toBeGreaterThan(110);
+  expect(Number(await tapped.textContent())).toBeLessThan(130);
+  const bpm = (await tapped.textContent())!;
+  await page.getByRole("button", { name: "Set tempo" }).click();
+  await expect(tempo).toHaveValue(bpm);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(tempo).toHaveValue("140");
+
+  // ...and makes the tempo the one new songs start at (from the New project picker), until it's reset.
+  await tempo.fill("128");
+  await tempo.press("Enter");
+  await tempo.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Make 128 BPM the default" }).click();
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("song");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => page.url()).not.toContain(id);
+  await expect(tempo).toHaveValue("128");
+  await tempo.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Reset the default (140 BPM)" }).click();
+  await page.goto(`/p/${id}`);
+  await expect(tempo).toHaveValue("128");
 
   await page.getByRole("button", { name: "New pattern" }).click();
   await page.getByLabel("New pattern's name").press("Enter");

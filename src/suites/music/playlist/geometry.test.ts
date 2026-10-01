@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { addClips, clipContext } from "@shared/music/playlist";
 import { DEFAULT_PLAYLIST_TRACK, createMusicProject } from "@shared/music/project";
 import type { PlaylistClip } from "@shared/music/types";
-import { applyDrag, rectSelection } from "./drag";
-import { MIN_TRACKS, SPARE_TRACKS, hitClip, paintClipStarts, scrollViewBy, shownTracks, tickToX, trackLayout, trackTop, visibleTracks, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
+import { applyDrag, rectSelection, shownSelection } from "./drag";
+import { MAX_PX_PER_TICK, MIN_TRACKS, MIN_ZOOM_OUT_BARS, SPARE_TRACKS, hitClip, minPxPerTick, paintClipStarts, scrollViewBy, shownTracks, tickToX, trackLayout, trackTop, visibleTracks, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
 import type { PlaylistView } from "./store";
 
 const view: PlaylistView = { scrollTick: 0, pxPerTick: 0.25, scrollY: 0, trackHeight: 40 };
@@ -53,6 +53,21 @@ describe("zooming and scrolling the Playlist", () => {
     expect(taller).toMatchObject({ trackHeight: 80, scrollY: 250 });
   });
 
+  it("zooms out as far as the whole song and some room after it, and never to fewer than 32 bars", () => {
+    const bar = 384;
+    // A short song: 32 bars across.
+    expect(minPxPerTick(2 * bar, bar, 960)).toBeCloseTo(960 / (MIN_ZOOM_OUT_BARS * bar));
+    // A long one: all of it, and an eighth more (100 bars, then 13).
+    expect(minPxPerTick(100 * bar, bar, 960)).toBeCloseTo(960 / (113 * bar));
+    // At least four bars of room.
+    expect(minPxPerTick(30 * bar, bar, 960)).toBeCloseTo(960 / (34 * bar));
+    // Never past the closest zoom.
+    expect(minPxPerTick(bar, bar, 1e9)).toBe(MAX_PX_PER_TICK);
+    // Zooming stops there.
+    const min = minPxPerTick(2 * bar, bar, 960);
+    expect(zoomAt(view, 0, min / 10, min).pxPerTick).toBe(min);
+  });
+
   it("scrolls no further back than the start, nor down past the tracks", () => {
     expect(scrollViewBy(view, -100, -100, 500)).toBe(view);
     expect(scrollViewBy(view, 40, 900, 500)).toMatchObject({ scrollTick: 160, scrollY: 500 });
@@ -73,7 +88,10 @@ describe("a drag on the Playlist", () => {
     expect(applyDrag(list, { kind: "resize", ids: new Set([1]), edge: "end", ticks: -96 }, ctx).clips[0].length).toBe(288);
     expect(applyDrag(list, { kind: "erase", ids: new Set([2]) }, ctx).clips).toHaveLength(1);
     expect(applyDrag(list, { kind: "mute", ids: new Set([2]), muted: true }, ctx).clips[1].muted).toBe(true);
-    expect(applyDrag(list, { kind: "slice", tick: 192, top: 0, bottom: 0 }, ctx).created).toEqual([3]);
+    expect(applyDrag(list, { kind: "slice", tick: 192, top: 0, bottom: 0, all: false }, ctx).created).toEqual([3]);
+    // Shift: every track, whatever the line's ends.
+    expect(applyDrag(list, { kind: "slice", tick: 500, top: 0, bottom: 0, all: true }, ctx).created).toEqual([3]);
+    expect(applyDrag(list, { kind: "slice", tick: 500, top: 0, bottom: 0, all: false }, ctx).clips).toBe(list);
     expect(applyDrag(list, { kind: "add", clips: [{ kind: "pattern", ref: "pat_1", track: 5, start: 0 }] }, ctx).created).toEqual([3]);
     expect(applyDrag(list, { kind: "rect", from: 0, to: 10, top: 0, bottom: 0, add: false }, ctx).clips).toBe(list);
     expect(applyDrag(list, null, ctx).clips).toBe(list);
@@ -82,5 +100,13 @@ describe("a drag on the Playlist", () => {
   it("selects what a rectangle touches, with what was selected when it adds", () => {
     expect([...rectSelection(list, { kind: "rect", from: 300, to: 400, top: 0, bottom: 2, add: false }, new Set(), ctx)]).toEqual([1, 2]);
     expect([...rectSelection(list, { kind: "rect", from: 500, to: 600, top: 2, bottom: 2, add: true }, new Set([1]), ctx)]).toEqual([1, 2]);
+  });
+
+  it("shows what a rectangle will select while it's drawn, and the selection otherwise", () => {
+    const selected = new Set([2]);
+    expect([...shownSelection(list, { kind: "rect", from: 0, to: 10, top: 0, bottom: 0, add: false }, selected, ctx)]).toEqual([1]);
+    expect([...shownSelection(list, { kind: "rect", from: 0, to: 10, top: 0, bottom: 0, add: true }, selected, ctx)].sort()).toEqual([1, 2]);
+    expect(shownSelection(list, null, selected, ctx)).toBe(selected);
+    expect(shownSelection(list, { kind: "erase", ids: new Set() }, selected, ctx)).toBe(selected);
   });
 });

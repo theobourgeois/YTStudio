@@ -32,6 +32,8 @@ export type PlaylistKeyAction =
   /** Move the selection: snap units along, tracks up or down. */
   | { type: "nudge"; snaps: number; tracks: number }
   | { type: "shiftTime"; direction: -1 | 1 }
+  /** Move the patterns selected in the Picker up or down the song's list. */
+  | { type: "movePatterns"; direction: -1 | 1 }
   | { type: "zoom"; factor: number }
   | { type: "zoomPreset"; preset: 1 | 2 | 3 | 4 | 5 };
 
@@ -51,6 +53,7 @@ export function resolvePlaylistKey(e: KeyLike): PlaylistKeyAction | null {
   if (horizontal || vertical) {
     if (shift && !command && !alt) return { type: "nudge", snaps: horizontal, tracks: vertical };
     if (command && !shift && !alt && horizontal) return { type: "shiftTime", direction: horizontal as -1 | 1 };
+    if (alt && !command && !shift && vertical) return { type: "movePatterns", direction: vertical as -1 | 1 };
     return null;
   }
   if (e.key === "Insert") return command ? { type: alt ? "insertSpaceSliced" : "insertSpace" } : null;

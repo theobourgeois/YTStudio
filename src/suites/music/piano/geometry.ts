@@ -252,6 +252,54 @@ export function hitNote(notes: readonly Note[], view: PianoView, x: number, y: n
   return { note: best, edge: fromEnd <= Math.min(RESIZE_ZONE, width / 2) };
 }
 
+// ---------------------------------------------------------------------------
+// The event editor
+// ---------------------------------------------------------------------------
+
+/** The event editor's margin above and below its values' range, in pixels. */
+export const LANE_PAD = 6;
+/** How near (px) a note's stem the pointer takes it by its stem rather than its tail. */
+export const STEM_ZONE = 4;
+/** How far above or below a note's tail (px) a press still takes it. */
+export const TAIL_REACH = 4;
+
+/** Where a note's value is drawn in an event editor `height` px tall: velocity up from the bottom, pan either side of the middle. */
+export function laneY(note: Note, property: "velocity" | "pan", height: number): number {
+  const span = height - LANE_PAD * 2;
+  return Math.round(property === "pan" ? LANE_PAD + span / 2 - (note.pan * span) / 2 : height - LANE_PAD - note.velocity * span);
+}
+
+/** How long a note's tail is drawn in the event editor: its length, less a little gap before the next. */
+export const tailWidth = (view: PianoView, note: Note) => Math.max(3, note.length * view.pxPerTick - 3);
+
+/**
+ * The note whose tail (the line from the top of its stem along its length) is under a point of the
+ * event editor, if any; the stem itself (`STEM_ZONE`) is left to the press that takes notes by their
+ * stems. Where tails cross, a selected note wins (it's drawn on top), then the one drawn last.
+ */
+export function laneTailAt(
+  notes: readonly Note[],
+  view: PianoView,
+  x: number,
+  y: number,
+  property: "velocity" | "pan",
+  height: number,
+  selected?: ReadonlySet<number>,
+): Note | null {
+  const tick = xToTick(view, x);
+  const [from, to] = visibleRange(notes, tick, tick + 1);
+  let best: Note | null = null;
+  for (let i = from; i < to; i++) {
+    const note = notes[i];
+    // Where the lane draws it: the stem one pixel right of the note's start (`drawLane`).
+    const start = Math.round(tickToX(view, note.start)) + 1;
+    if (x < start + STEM_ZONE || x > start + tailWidth(view, note) + 1) continue;
+    if (Math.abs(y - laneY(note, property, height)) > TAIL_REACH) continue;
+    if (!best || selected?.has(note.id) || !selected?.has(best.id)) best = note;
+  }
+  return best;
+}
+
 /**
  * The starts of the notes a paint stroke lays down from `from` to the pointer at `to`: one every
  * `length` ticks (but never closer than a grid cell), filling the span.

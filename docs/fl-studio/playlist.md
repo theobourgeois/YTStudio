@@ -357,8 +357,7 @@ clips of patterns and audio on any track, overlapping; FL's tools and keys, Draw
 the right one deletes (sweeping), Ctrl selects (Ctrl+Shift adds); a click on a clip makes it the clip
 source and its pattern the one shown; moving (to other tracks too), Shift+drag to clone, either edge to
 resize (Théo), a resized or sliced clip a window onto its content (widened again, it comes back), Alt to
-bypass snap; the slice line, straight down at the grid line nearest the pointer (Shift shows it before a
-press); slip; a double-click opens a pattern clip in the Piano roll (or the rack, if it's only steps);
+bypass snap; the slice line, straight down at the grid line nearest the pointer; slip; a double-click opens a pattern clip in the Piano roll (or the rack, if it's only steps);
 the snap menu; Ctrl+A / D, Shift+I, Shift+C, Ctrl+C / X / V (pasted at the first bar in view), Ctrl+B
 (with the time selection), Delete (everything, when nothing's selected), Shift+arrows, Alt+M /
 Alt+Shift+M, Ctrl+Q, Ctrl+Ins / Ctrl+Alt+Ins / Ctrl+Del, Ctrl+Enter, Ctrl+← / →, Page Up / Down,
@@ -368,7 +367,8 @@ double-click clears it); the wheel (tracks), Shift+wheel (time), Ctrl+wheel (zoo
 track headers (double-click renames, the mute light, a right-click or Ctrl+click on it solos, the divider
 drags a track's height, Alt+click puts it back; the menu: rename, colour, size, select its clips, mute and
 unmute all its clips, solo, insert one, move up / down, delete); the Picker panel (click to choose, drag
-onto a track, the pattern menu: rename, clone, split by channel, delete); the clip source menu in the
+onto a track, the clip drawn where it would land while it's dragged; the pattern menu: transpose, rename,
+clone, split by channel, delete); the clip source menu in the
 title; the clip menu (its arrow); PAT / SONG (L); split by channel; make unique; audio clips as channels,
 dropped from the Browser or the Finder (Shift: one after another on the track), streamed from disk.
 
@@ -376,13 +376,15 @@ dropped from the Browser or the Finder (Shift: one after another on the track), 
 | --- | --- | --- |
 | Tracks | 500, always there | As many as are used or changed, plus eight spare and enough to fill the view, up to 500 |
 | Clip kinds | Pattern, audio, automation | Pattern and audio; automation clips with automation (step 4) |
-| Clip colours | The pattern's (or its notes' or channel's) | Blue-grey for patterns, green for audio, the track's colour if it has one; red selected |
-| Zoom tool | Z | Not yet (Ctrl+wheel, Page Up / Down and Shift+1…5 zoom) |
+| Clip colours | The pattern's (or its notes' or channel's) | Blue-grey for patterns, green for audio, the track's colour if it has one; red selected (live, as a selection rectangle covers them). Bodies see-through, the grid showing (Théo) |
+| Muted track | Its clips dimmed | Its clips greyed and darker, its lane shaded, its header dimmed as a muted mixer track's is; a click on the header around the name mutes too, not only the light (Théo) |
+| Zoom tool | Z | Not yet (Ctrl+wheel, Page Up / Down and Shift+1…5 zoom). Fully zoomed out shows the whole song and some room after it (an eighth, four bars at least), never fewer than 32 bars (Théo) |
+| Slice with Shift | Slices without dragging (Left-Shift: diagonal) | Cuts every track at once: a line the whole height, shown while Shift is held (Théo) |
 | Clip menu | On each clip's corner: preview, source, rename, colour, make unique, chop, select similar, delete… | The arrow at the start of its title: edit pattern (or show an audio clip's channel), make unique, split by channel, select all similar, mute, delete. No preview, chop, rename or recolour yet |
 | Audio clips | Fades, gain, pitch, reverse, stretch, crossfades, zero-crossing slices | Their file at its own speed; a 64-sample fade where a clip cuts its file off or starts inside it (FL's declicking) |
 | Audio clip in the rack | Its channel, playable from steps | Its channel in the Audio group, with no steps: a click on it draws it on the playlist |
 | Double-click an audio clip | Its properties | Selects its channel in the rack (Audio group) |
-| Picker | Sorting, unused, groups, render | Patterns then audio clips, in the song's order |
+| Picker | Sorting, unused, groups, render; patterns reordered by dragging | Patterns then audio clips, in the song's order. Patterns select as a list does (⌘-click toggles, Shift+click a range) for the menu (Transpose selected…, Clone, Move up / down, Delete act on all of them) and Alt+↑ / ↓, which reorders them (Théo) |
 | Merge, group, consolidate, lock to content, track mode, arrangements, markers, performance mode | Yes | No (see what we'll leave out) |
 | The Piano roll's ruler in song mode | Moves the song | Switches to pattern mode, from there |
 | The playhead | In every window | The Playlist's in song mode; the rack's lights and the Piano roll's follow the pattern shown inside the song |
@@ -437,6 +439,6 @@ it's let go.
   something changed (`draw.ts`), a `PlaylistDrag` drawn through `applyDrag` and committed once
   (`drag.ts`), maths in `geometry.ts`, the mouse in `pointer.ts`, keys in `keys.ts`, commands in
   `actions.ts`, the Picker and the track headers as React beside the canvas.
-- **The assistant**: `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`,
+- **The assistant**: `transpose_patterns` and `move_pattern` (the Picker's), `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`,
   `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` with a
   mode (`src/suites/music/playlist/tool-edits.ts`).

@@ -6,19 +6,13 @@
  * The look is FL Studio's: a blue-grey grid whose lines are darker than its cells, pale notes (blue,
  * Théo's choice: FL's are green; red when selected) with a rounded, lit edge and their name on them, and a keyboard drawn as a real
  * one, white keys of their true sizes under the black ones. The grid's colours are the theme's
- * (`--piano-*`, `readPalette`); the notes' are content, the same in every theme.
+ * (`--piano-*`, `readPalette`); the notes' are content, the same in every theme (`note-colours.ts`),
+ * darker the quieter a note is.
  */
 import type { Note } from "@shared/music/types";
-import { BLACK_KEY_WIDTH, type PianoView, gridTicks, isBlackKey, pitchName, pitchToY, tickToX, visibleRange, whiteKeys, xToTick, yToPitch } from "./geometry";
+import { BLACK_KEY_WIDTH, LANE_PAD, type PianoView, gridTicks, isBlackKey, laneY, pitchName, pitchToY, tailWidth, tickToX, visibleRange, whiteKeys, xToTick, yToPitch } from "./geometry";
+import { MUTED, NOTE, type NoteColours, SELECTED, velocityColours } from "./note-colours";
 import type { LaneProperty, PianoDrag, TimeRange } from "./store";
-
-/** A note's colours: its body from top to bottom, its outline and its name. */
-interface NoteColours {
-  top: string;
-  bottom: string;
-  edge: string;
-  text: string;
-}
 
 export interface Palette {
   dark: boolean;
@@ -44,10 +38,6 @@ export interface Palette {
   /** Behind the keyboard's keys (the gaps between them). */
   keys: string;
 }
-
-const NOTE: NoteColours = { top: "#c2defe", bottom: "#83b6f2", edge: "#2e5e9c", text: "#0f2f57" };
-const SELECTED: NoteColours = { top: "#ffc2bd", bottom: "#f48b84", edge: "#9b3934", text: "#561712" };
-const MUTED: NoteColours = { top: "#b9c1bb", bottom: "#98a29b", edge: "#5d6660", text: "#39413b" };
 
 /** The palette's colours that come from the theme (`--piano-<name>` in `src/themes/`), by field. */
 const THEMED = {
@@ -117,8 +107,8 @@ export interface Scene {
   patternTicks: number;
   time: TimeRange | null;
   drag: PianoDrag | null;
-  /** The slice tool's cut, as a line on screen (`sliceGuide`), while it's dragged. */
-  slice: { x: number; y1: number; y2: number } | null;
+  /** The slice tool's cut, as a line on screen, while it's dragged; `full`: through the whole column (Shift). */
+  slice: { x: number; y1: number; y2: number; full: boolean } | null;
   palette: Palette;
 }
 
@@ -176,6 +166,16 @@ function noteBody(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
   ctx.fillRect(x + 2, y + 1.5, w - 4, 1);
 }
 
+/** A note's colours: muted, selected or not, and darker the quieter it is (as FL Studio's are). */
+function coloursOf(palette: Palette, note: Note, selected: boolean): NoteColours {
+  if (note.muted) return palette.muted;
+  return velocityColours(selected ? palette.selected : palette.note, note.velocity);
+}
+
+/**
+ * The notes in view, in two passes over them: the others, then the selected ones, so a selected note
+ * is never hidden under one it overlaps.
+ */
 function drawNotes(ctx: CanvasRenderingContext2D, scene: Scene) {
   const { view, width, height, selected, palette, notes } = scene;
   const [from, to] = visibleRange(notes, xToTick(view, 0), xToTick(view, width));
@@ -187,19 +187,22 @@ function drawNotes(ctx: CanvasRenderingContext2D, scene: Scene) {
   ctx.font = `600 ${Math.min(11, view.rowHeight - 5)}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textBaseline = "middle";
   ctx.lineWidth = 1;
-  for (let i = from; i < to; i++) {
-    const note = notes[i];
-    if (note.pitch < low || note.pitch > high) continue;
-    const x = Math.round(tickToX(view, note.start));
-    const w = Math.max(3, Math.round(note.length * view.pxPerTick));
-    if (x > width || x + w < 0) continue;
-    const y = Math.round(pitchToY(view, note.pitch));
-    const colours = note.muted ? palette.muted : selected.has(note.id) ? palette.selected : palette.note;
-    ctx.globalAlpha = note.muted ? 0.7 : 1;
-    noteBody(ctx, x, y, w, h, colours, gradients);
-    if (labels && w > 24) {
-      ctx.fillStyle = colours.text;
-      ctx.fillText(pitchName(note.pitch), x + 4, y + h / 2 + 0.5, w - 7);
+  for (const pass of [false, true]) {
+    if (pass && !selected.size) break;
+    for (let i = from; i < to; i++) {
+      const note = notes[i];
+      if (note.pitch < low || note.pitch > high || selected.has(note.id) !== pass) continue;
+      const x = Math.round(tickToX(view, note.start));
+      const w = Math.max(3, Math.round(note.length * view.pxPerTick));
+      if (x > width || x + w < 0) continue;
+      const y = Math.round(pitchToY(view, note.pitch));
+      const colours = coloursOf(palette, note, pass);
+      ctx.globalAlpha = note.muted ? 0.7 : 1;
+      noteBody(ctx, x, y, w, h, colours, gradients);
+      if (labels && w > 24) {
+        ctx.fillStyle = colours.text;
+        ctx.fillText(pitchName(note.pitch), x + 4, y + h / 2 + 0.5, w - 7);
+      }
     }
   }
   ctx.globalAlpha = 1;
@@ -235,7 +238,7 @@ function drawVanishing(ctx: CanvasRenderingContext2D, scene: Scene) {
     const cx = tickToX(view, note.start) + (note.length * view.pxPerTick) / 2;
     const cy = pitchToY(view, note.pitch) + view.rowHeight / 2;
     ctx.globalAlpha = 1 - eased;
-    noteBody(ctx, Math.round(cx - w / 2), Math.round(cy - h / 2), Math.round(w), Math.round(h), selected ? palette.selected : palette.note, gradients);
+    noteBody(ctx, Math.round(cx - w / 2), Math.round(cy - h / 2), Math.round(w), Math.round(h), coloursOf(palette, { ...note, muted: false }, selected), gradients);
   }
   ctx.globalAlpha = 1;
 }
@@ -297,7 +300,7 @@ export function drawGrid(ctx: CanvasRenderingContext2D, scene: Scene) {
     ctx.lineWidth = 1;
     ctx.strokeRect(x + 0.5, y + 0.5, w, h);
   }
-  if (scene.slice) drawCutLine(ctx, scene.slice.x, scene.slice.y1, scene.slice.y2, palette.tool);
+  if (scene.slice) drawCutLine(ctx, scene.slice.x, scene.slice.y1, scene.slice.y2, palette.tool, !scene.slice.full);
   if (drag?.kind === "playback") {
     const x = Math.round(tickToX(view, drag.tick)) + 0.5;
     ctx.fillStyle = palette.tool;
@@ -305,8 +308,11 @@ export function drawGrid(ctx: CanvasRenderingContext2D, scene: Scene) {
   }
 }
 
-/** The slice tool's line: straight down through the notes it cuts, with an arrowhead at each end. */
-function drawCutLine(ctx: CanvasRenderingContext2D, x: number, y1: number, y2: number, colour: string) {
+/**
+ * The slice tool's line: straight down through the notes it cuts, with an arrowhead at each end
+ * (`arrows`; a line through the whole column has no ends to show).
+ */
+function drawCutLine(ctx: CanvasRenderingContext2D, x: number, y1: number, y2: number, colour: string, arrows: boolean) {
   const top = Math.min(y1, y2);
   const bottom = Math.max(y1, y2);
   ctx.strokeStyle = colour;
@@ -316,13 +322,15 @@ function drawCutLine(ctx: CanvasRenderingContext2D, x: number, y1: number, y2: n
   ctx.beginPath();
   ctx.moveTo(x, top);
   ctx.lineTo(x, bottom);
-  // The arrowheads point out along the line: a "Y" at the top, an upside-down one at the bottom.
-  ctx.moveTo(x - 6, top - 7);
-  ctx.lineTo(x, top);
-  ctx.lineTo(x + 6, top - 7);
-  ctx.moveTo(x - 6, bottom + 7);
-  ctx.lineTo(x, bottom);
-  ctx.lineTo(x + 6, bottom + 7);
+  if (arrows) {
+    // The arrowheads point out along the line: a "Y" at the top, an upside-down one at the bottom.
+    ctx.moveTo(x - 6, top - 7);
+    ctx.lineTo(x, top);
+    ctx.lineTo(x + 6, top - 7);
+    ctx.moveTo(x - 6, bottom + 7);
+    ctx.lineTo(x, bottom);
+    ctx.lineTo(x + 6, bottom + 7);
+  }
   ctx.stroke();
   ctx.lineWidth = 1;
   ctx.lineCap = "butt";
@@ -483,34 +491,38 @@ export function drawLane(ctx: CanvasRenderingContext2D, scene: Scene, property: 
     ctx.fillStyle = palette.outside;
     ctx.fillRect(Math.max(0, end), 0, width - Math.max(0, end), height);
   }
-  const pad = 6;
-  const span = height - pad * 2;
-  const base = property === "pan" ? pad + span / 2 : height - pad;
+  const span = height - LANE_PAD * 2;
+  const base = property === "pan" ? LANE_PAD + span / 2 : height - LANE_PAD;
   if (property === "pan") {
     ctx.fillStyle = palette.beatLine;
     ctx.fillRect(0, base, width, 1);
   }
   const [from, to] = visibleRange(notes, xToTick(view, 0), xToTick(view, width));
   ctx.lineWidth = 2;
-  for (let i = from; i < to; i++) {
-    const note = notes[i];
-    const x = Math.round(tickToX(view, note.start)) + 1;
-    if (x < -2 || x > width + 2) continue;
-    const y = Math.round(property === "pan" ? base - (note.pan * span) / 2 : base - note.velocity * span);
-    const colours = note.muted ? palette.muted : selected.has(note.id) ? palette.selected : palette.note;
-    ctx.globalAlpha = note.muted ? 0.6 : 1;
-    ctx.fillStyle = colours.bottom;
-    ctx.fillRect(x - 1, Math.min(y, base), 2, Math.abs(base - y));
-    ctx.globalAlpha = note.muted ? 0.35 : 0.6;
-    ctx.fillRect(x, y, Math.max(3, note.length * view.pxPerTick - 3), 1);
-    ctx.globalAlpha = note.muted ? 0.6 : 1;
-    ctx.beginPath();
-    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = colours.top;
-    ctx.fill();
-    ctx.strokeStyle = colours.edge;
-    ctx.lineWidth = 1;
-    ctx.stroke();
+  // The selected notes' stems last, on top (as their notes are).
+  for (const pass of [false, true]) {
+    if (pass && !selected.size) break;
+    for (let i = from; i < to; i++) {
+      const note = notes[i];
+      if (selected.has(note.id) !== pass) continue;
+      const x = Math.round(tickToX(view, note.start)) + 1;
+      if (x < -2 || x > width + 2) continue;
+      const y = laneY(note, property, height);
+      const colours = note.muted ? palette.muted : pass ? palette.selected : palette.note;
+      ctx.globalAlpha = note.muted ? 0.6 : 1;
+      ctx.fillStyle = colours.bottom;
+      ctx.fillRect(x - 1, Math.min(y, base), 2, Math.abs(base - y));
+      ctx.globalAlpha = note.muted ? 0.35 : 0.6;
+      ctx.fillRect(x, y, tailWidth(view, note), 1);
+      ctx.globalAlpha = note.muted ? 0.6 : 1;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = colours.top;
+      ctx.fill();
+      ctx.strokeStyle = colours.edge;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
   }
   ctx.globalAlpha = 1;
 }

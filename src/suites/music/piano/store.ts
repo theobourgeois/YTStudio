@@ -47,8 +47,11 @@ export type PianoDrag =
   | { kind: "mute"; ids: ReadonlySet<number>; muted: boolean }
   /** The selection rectangle, in ticks and pitches. `add`: with what's already selected. */
   | { kind: "rect"; from: number; to: number; low: number; high: number; add: boolean }
-  /** The slice tool's line: straight down at `tick` (on the grid), across the rows from `low` to `high`. */
-  | { kind: "slice"; tick: number; low: number; high: number }
+  /**
+   * The slice tool's line: straight down at `tick` (on the grid), across the rows from `low` to `high`,
+   * or (`column`, Shift) through every row.
+   */
+  | { kind: "slice"; tick: number; low: number; high: number; column: boolean }
   /** The playback tool (scrubbing): the notes at `tick` sound. Changes no notes. */
   | { kind: "playback"; tick: number }
   /** Values being drawn in the event editor. */
@@ -84,7 +87,7 @@ interface PianoState {
   chopper: ChopperSettings;
   /** The key held down on the keyboard, lit while it sounds. */
   heldKey: number | null;
-  /** Where the slice tool would cut if pressed now (the pointer over the grid, no button down). */
+  /** Where the slice tool would cut if pressed now (the pointer over the grid, no button down, Shift held: the whole column). */
   sliceHover: { tick: number; pitch: number } | null;
 
   setChannel: (channelId: string | null) => void;

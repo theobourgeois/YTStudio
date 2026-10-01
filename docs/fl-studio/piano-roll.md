@@ -273,7 +273,8 @@ desktop (a double-click on its title makes it a window, resizable by its edges; 
 the desktop again, to a side half of it); the target channel menu (in-pattern first) and G / K, H / J; the
 Draw (P), Paint (B), Delete (D), Mute (T), Slice (C), Select (E) and Playback (Y, or Alt+right-drag) tools,
 each with its own pointer; the slice line straight down at the grid line nearest the pointer, the pieces it
-cuts off shown red (selected) while it's dragged; deleted notes shrink and fade; left adds, right deletes
+cuts off shown red (selected) while it's dragged; notes quieter than the default velocity drawn darker, selected ones drawn over the
+rest; a selection rectangle selecting what it covers as it's dragged; deleted notes shrink and fade; left adds, right deletes
 (sweeping), with the eraser pointer; a click on nothing with notes selected deselects them (and adds
 nothing); Ctrl selects (Ctrl+Shift adds); moving,
 resizing by the right edge, Shift+drag to clone, Shift / Ctrl to lock an axis once moving, Alt to bypass
@@ -297,7 +298,8 @@ shows a miniature of them in the rack, which opens them.
 | Paint | Monophonic: replaces the notes it overlaps | Lays notes over what's there |
 | Quantize | Also a dialog (Alt+Q) with strength and swing | Quick quantize only (Ctrl+Q, Shift+Q) |
 | Chopper | Patterns are score files (its own, or yours from the browser); six levels; Group notes | A set of patterns of ours (Default, triplets, dotted, gallop, rolls, gates...); VEL and PAN only, since notes have no others; no groups yet |
-| Event editor | Release, fine pitch, Mod X / Y, repeat, automation | Velocity and pan |
+| Slice + Shift | Slices without dragging, in the row under the pointer | Slices the whole column: every note across that time, at any pitch (a line the grid's height shows where, before and while pressing) |
+| Event editor | Release, fine pitch, Mod X / Y, repeat, automation | Velocity and pan; a note's tail can be grabbed too (selecting it and dragging its value alone) |
 | Zoom tool | Z | Not yet (Ctrl+wheel and the keys zoom) |
 | Look | FL Studio's artwork | Its layout and colours (pale blue notes, Théo's choice where FL's are green; red selected, a blue-grey grid, real piano keys), drawn our way, in a dark and a light version |
 | Scrollbars | Drag their ends to zoom | Drag to scroll only |

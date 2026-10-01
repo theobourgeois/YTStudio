@@ -36,9 +36,9 @@ Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/
 | PAT / SONG | Yes (L): two lights, the lit one is what plays. Not saved: a song with clips on its playlist opens in song mode |
 | Play / Pause, Stop | Play (lit while playing; pressed again it stops, since there's no pause yet), Stop |
 | Record, countdown, typing keyboard | Not yet (recording) |
-| Tempo LCD | Yes: drag it up and down, or click it to type |
+| Tempo LCD | Yes: drag it up and down (the pointer is locked, so it goes on past the screen's edge), or click it to type. Its menu has Tap tempo… (tap along to a song; any key taps too), Make it the default (new songs start at it; 140 BPM until it's set, kept in the browser) and Reset the default; no presets yet |
 | Position LCD | Yes, in B:S:T (where the pattern or the song is, or where play starts) |
-| Window buttons | Playlist (F5), Piano roll (F7), Channel rack (F6), Mixer (F9), Browser (Alt+F8): a press opens the window or brings it forward (the keys toggle) |
+| Window buttons | Playlist (F5), Piano roll (F7), Channel rack (F6), Mixer (F9), Browser (Alt+F8): a press opens the window or brings it forward (the keys toggle). Ours (Théo): Alt+1…5 toggle them too, in the F keys' order (Playlist, Channel rack, Piano roll, Mixer, Browser), since a Mac's F keys need Fn |
 | Snap | The Piano roll has its own; no global snap yet |
 | Metronome | Yes, beside the tempo rather than with the recording buttons |
 | Pattern selector with + | Yes: the arrow opens the list (rename, clone, delete); the name is scrolled or dragged up and down through the patterns, and past the last to the next one, empty, which joins the song only once something's put in it (Théo); + asks for a name and shows the new pattern |

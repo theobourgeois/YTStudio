@@ -51,7 +51,8 @@ interface MusicState {
    */
   addAudioClips: (source: { paths: string[] } | { files: File[] }, at: { start: number; track: number; after?: boolean }) => Promise<number[]>;
   /** Bring audio files into the project and add a channel for each, at the end of the rack or before channel `at`. */
-  addSamples: (files: File[], at?: number) => Promise<void>;
+  /** Files as new channels, at the end of the rack or before channel `at`. Returns their ids. */
+  addSamples: (files: File[], at?: number) => Promise<string[]>;
   /** Add a channel playing an instrument plugin, or an empty sampler. Returns its id. */
   addChannel: (plugin: PluginRef | null) => string | null;
   /** The starter kit's drums (`public/kit/`), as four channels. */
@@ -199,7 +200,9 @@ export const useMusic = create<MusicState>((set, get) => {
 
     async addSamples(files, at) {
       const assets = await upload(files);
-      get().commit((song) => addChannels(song, assets.map((a) => ({ name: channelName(a.name), sampleId: a.id })), at));
+      const added = assets.map((a) => ({ id: createId("chan"), name: channelName(a.name), sampleId: a.id }));
+      get().commit((song) => addChannels(song, added, at));
+      return added.map((c) => c.id);
     },
 
     addChannel(plugin) {

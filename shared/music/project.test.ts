@@ -18,6 +18,7 @@ import {
   normalizeMusicProject,
   patternSteps,
   stepsPerBar,
+  withSongOptions,
 } from "./project.ts";
 import type { MusicProject } from "./types.ts";
 
@@ -74,11 +75,11 @@ const song: MusicProject = {
 };
 
 describe("music projects", () => {
-  it("start at 120 BPM in 4/4, with a sampler in the rack and one pattern of automatic length", () => {
+  it("start at 140 BPM in 4/4, with a sampler in the rack and one pattern of automatic length", () => {
     expect(createMusicProject("Demo")).toEqual({
       version: 1,
       name: "Demo",
-      settings: { tempo: 120, timeSignature: [4, 4], swing: 0 },
+      settings: { tempo: 140, timeSignature: [4, 4], swing: 0 },
       channels: [expect.objectContaining({ id: FIRST_CHANNEL_ID, name: "Sampler", kind: "sampler", sampleId: null })],
       patterns: [{ id: FIRST_PATTERN_ID, name: "Pattern 1", length: null, notes: {} }],
       playlist: { tracks: [], clips: [] },
@@ -86,6 +87,15 @@ describe("music projects", () => {
     });
     expect(stepsPerBar([3, 4])).toBe(12);
     expect(stepsPerBar([6, 8])).toBe(12);
+  });
+
+  it("take the tempo set as the default, if it's one a song can have", () => {
+    const song = createMusicProject("Demo");
+    expect(withSongOptions(song, { tempo: 92.505 }).settings.tempo).toBe(92.51);
+    expect(withSongOptions(song, { tempo: 140 })).toBe(song);
+    expect(withSongOptions(song, { tempo: MAX_TEMPO + 1 })).toBe(song);
+    expect(withSongOptions(song, { tempo: "fast" })).toBe(song);
+    expect(withSongOptions(song, null)).toBe(song);
   });
 
   it("are repaired from anything", () => {

@@ -13,6 +13,7 @@ import {
   removeClips,
   resizeClips,
   setClipProps,
+  sliceAll,
   sliceClips,
   slipClips,
 } from "@shared/music/playlist";
@@ -37,7 +38,7 @@ export function applyDrag(clips: PlaylistClip[], drag: PlaylistDrag | null, ctx:
     case "mute":
       return same(setClipProps(clips, drag.ids, { muted: drag.muted }));
     case "slice":
-      return sliceClips(clips, drag.tick, drag.top, drag.bottom, ctx);
+      return drag.all ? sliceAll(clips, drag.tick, ctx) : sliceClips(clips, drag.tick, drag.top, drag.bottom, ctx);
     case "rect":
     case "playback":
       return same(clips);
@@ -48,4 +49,9 @@ export function applyDrag(clips: PlaylistClip[], drag: PlaylistDrag | null, ctx:
 export function rectSelection(clips: readonly PlaylistClip[], drag: Extract<PlaylistDrag, { kind: "rect" }>, selected: ReadonlySet<number>, ctx: ClipContext): Set<number> {
   const inside = clipsInRect(clips, Math.min(drag.from, drag.to), Math.max(drag.from, drag.to), Math.min(drag.top, drag.bottom), Math.max(drag.top, drag.bottom), ctx);
   return new Set(drag.add ? [...selected, ...inside] : inside);
+}
+
+/** The selection as it's shown: while a rectangle is drawn, what it would select if let go now. */
+export function shownSelection(clips: readonly PlaylistClip[], drag: PlaylistDrag | null, selected: ReadonlySet<number>, ctx: ClipContext): ReadonlySet<number> {
+  return drag?.kind === "rect" ? rectSelection(clips, drag, selected, ctx) : selected;
 }
