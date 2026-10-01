@@ -181,4 +181,26 @@ describe.skipIf(!built)("automation, offline", () => {
     await engine.command("play", {});
     expect(levelAt(await hear(BAR / 2), BAR / 4)).toBeCloseTo(0.25, 3);
   });
+
+  it("exports from the plugins' own values, even started while their automation plays", async () => {
+    let song = setEffect(pad(), "insert_1", 0, { id: effectId, name: "Vaudio Test Effect", format: "VST3" }, "fx_gain");
+    await playSong(song);
+    await engine.command("stop", {});
+    const gain = (await engine.parameters("effect", "fx_gain")).find((p) => p.name === "Gain")!;
+    // Full gain over the second bar; the plugin's own is a half.
+    song = automate(song, { kind: "plugin", owner: "effect", id: "fx_gain", param: gain.id, index: gain.index, name: "Gain" }, TICKS, TICKS, [point(0, 1), point(TICKS, 1)]);
+    await playSong(song);
+    await hear(BAR * 1.5);
+    expect((await engine.parameters("effect", "fx_gain")).find((p) => p.id === gain.id)!.value).toBe(1);
+
+    const folder = path.join(dir, "exported");
+    const result = await engine.renderExport({ id: "exp_auto", projectId: PROJECT, song, patternId: P, mode: "song", loop: null, resampling: "sinc", folder, mix: true, stems: false, tail: "cut" });
+    expect(result.state).toBe("done");
+    const mix = await readWav(path.join(folder, "mix.wav"));
+    // The first bar at the plugin's own half, the second at the clip's full gain.
+    expect(levelAt(mix, BAR / 2)).toBeCloseTo(0.25, 3);
+    expect(levelAt(mix, BAR * 1.5)).toBeCloseTo(0.5, 3);
+    // And after it, the plugin is as it was.
+    expect((await engine.parameters("effect", "fx_gain")).find((p) => p.id === gain.id)!.value).toBe(0.5);
+  });
 });

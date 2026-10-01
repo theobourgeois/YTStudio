@@ -77,7 +77,10 @@ public:
      * Only while `process` isn't running.
      */
     void setSliceListener (std::function<void (const Song&, int offset, int length)> listener) { onSlice = std::move (listener); }
-    /** Done with: the plugins' automated parameters get their own values back. Only once `process` has stopped running. */
+    /**
+     * The plugins' automated parameters get their own values back, and the automated controls theirs
+     * (done with it, or set aside for the export). Only while `process` isn't running.
+     */
     void release();
     /** The song playing (only on the thread that calls `process`, after it has once). */
     const Song* current() const { return song; }

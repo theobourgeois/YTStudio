@@ -572,6 +572,9 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
     tone = false;
     if (! offline)
         devices.removeAudioCallback (this);
+    // Nothing plays the live song now (its stop won't be seen until it does): its automation lets go of
+    // the plugins at once, so the export starts from their own values.
+    sequencer.release();
     for (auto* host : { &plugins, &effects })
     {
         host->setExporting (true);
