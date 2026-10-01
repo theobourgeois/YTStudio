@@ -6,7 +6,7 @@ import { ContextMenuItem } from "@/components/ui/context-menu";
 import { Lcd } from "../lcd";
 import { songGesture, useMusic, useSong } from "../store";
 import { useMusicUi } from "../ui";
-import { routeChannel, routeToFreeTrack } from "./actions";
+import { routeChannel, routeToFreeTrack, showChannelTrack } from "./actions";
 import { parseTrackNumber } from "./track-number";
 
 /**
@@ -29,7 +29,10 @@ export function TrackSelector({ channel, className }: { channel: Channel; classN
       className={className}
       onBegin={() => gesture.begin()}
       onChange={(n) => gesture.apply((song) => routeChannels(song, [id], song.mixer.tracks[n]?.id ?? MASTER_TRACK_ID))}
-      onEnd={() => gesture.end()}
+      onEnd={() => {
+        gesture.end();
+        showChannelTrack(id);
+      }}
       onCancel={() => gesture.cancel()}
       typeIn={{
         initial: number === 0 ? "M" : String(number),

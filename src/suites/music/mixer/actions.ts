@@ -56,15 +56,24 @@ export function routeSelectedChannels(trackId = currentTrack(), starting = false
   commit((doc) => (starting ? routeChannelsFrom(doc, channels, trackId) : routeChannels(doc, channels, trackId)));
 }
 
-/** A channel to a track (the rack's track selector, TRACK in its window). */
-export const routeChannel = (channelId: string, trackId: string) => commit((doc) => routeChannels(doc, [channelId], trackId));
+/** Select a channel's track in the mixer and bring it into view: its insert number was just changed. */
+export function showChannelTrack(channelId: string) {
+  const track = song()?.channels.find((c) => c.id === channelId)?.mixerTrack;
+  if (!track) return;
+  useMusicUi.getState().setTrackSelection([track]);
+  useMixerView.getState().reveal(track);
+}
 
-/** A channel to the first free track, named after it (a click on TRACK). */
+/** A channel to a track (the rack's track selector, TRACK in its window); the mixer selects that track. */
+export function routeChannel(channelId: string, trackId: string) {
+  commit((doc) => routeChannels(doc, [channelId], trackId));
+  showChannelTrack(channelId);
+}
+
+/** A channel to the first free track, named after it (a click on TRACK); the mixer selects it. */
 export function routeToFreeTrack(channelId: string) {
   commit((doc) => routeToFreeTracks(doc, [channelId]));
-  const doc = song();
-  const track = doc?.channels.find((c) => c.id === channelId)?.mixerTrack;
-  if (track && track !== MASTER_TRACK_ID) useMusicUi.getState().setTrackSelection([track]);
+  showChannelTrack(channelId);
 }
 
 /** Select, in the rack, the channels routed to a track (Alt+L). */

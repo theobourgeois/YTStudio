@@ -629,6 +629,11 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await expect(mixer).toBeVisible();
   await expect(mixer.locator("[data-track]")).toHaveCount(17);
   await expect(strip("Kick")).toBeVisible();
+  // Changing a channel's insert number selects that insert in the mixer.
+  await typeTrack("7");
+  await expect(strip("Insert 7")).toHaveAttribute("aria-selected", "true");
+  await typeTrack("M");
+  await expect(strip("Master")).toHaveAttribute("aria-selected", "true");
 
   // A fader drags down, and Alt+click puts it back at 0 dB.
   const fader = strip("Kick").getByRole("slider", { name: "Kick volume" });
