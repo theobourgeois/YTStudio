@@ -104,6 +104,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     song->loopTicks = number (json["loopTicks"], song->ppq * 4, 1, 1e9);
     song->beatTicks = number (json["beatTicks"], song->ppq, 1, 1e9);
     song->barTicks = number (json["barTicks"], song->beatTicks * 4, 1, 1e9);
+    song->resampling = resampling::parse (json["resampling"].toString(), Resampling::hermite);
 
     if (const auto* list = json["channels"].getArray())
         for (const auto& item : *list)

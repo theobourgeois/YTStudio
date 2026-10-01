@@ -4,7 +4,8 @@
 // Browser's preview (`FilePreview`) and the playlist's audio clips (`ClipPlayer`) both play these.
 #pragma once
 
-#include <array>
+#include "Resampling.h"
+
 #include <atomic>
 #include <memory>
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -15,10 +16,11 @@ public:
     /**
      * `source` from `startSeconds` in, at `outputRate`; `maxSamples` output samples at most (-1: to the
      * file's end). The ring holds `ringSeconds` of it. `speed` plays it faster (and higher) or slower (and
-     * lower), as a sampler's pitch does: an audio clip's channel pitched (FL's Resample).
+     * lower), as a sampler's pitch does: an audio clip's channel pitched (FL's Resample). `quality` is
+     * how it's read between the file's samples, when it's at another rate or pitched (`Resampling`).
      */
     AudioStream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 maxSamples = -1, double ringSeconds = 2.0,
-                 double speed = 1.0);
+                 double speed = 1.0, Resampling quality = Resampling::hermite);
 
     int useTimeSlice() override;
 
@@ -48,15 +50,20 @@ private:
     std::unique_ptr<juce::AudioFormatReader> reader;
     /** File samples per output sample. */
     const double ratio;
+    const Resampling quality;
+    /** How many file samples the resampler reads on each side of where it is. */
+    const int reach;
     juce::AudioBuffer<float> ring;
     juce::AbstractFifo fifo { 1 };
-    /** The producer's: what's been read of the file and not yet interpolated, and the next to read. */
+    /**
+     * The producer's: a window of the file (`buffered` samples from file sample `inputStart`; before the
+     * file's start and past its end, silence), and the next chunk out.
+     */
     juce::AudioBuffer<float> input, output;
+    juce::int64 inputStart = 0;
     int buffered = 0;
-    juce::int64 position = 0;
-    /** Output samples still to drop at the start (the interpolator's latency). */
-    int discard = 0;
-    std::array<juce::LagrangeInterpolator, 2> interpolators;
+    /** Where the stream starts in the file, in its samples (between two, if it starts there). */
+    double start = 0;
     /** Output samples in all, and decoded so far. */
     juce::int64 total = 0, produced = 0;
     std::atomic<bool> ended { false };

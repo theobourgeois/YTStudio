@@ -21,6 +21,7 @@ import {
   type HostWindow,
   type LoadedPlugin,
   type SetSongResponse,
+  isResampling,
 } from "../../shared/music/engine.ts";
 import { DEFAULT_VELOCITY, normalizeMusicProject } from "../../shared/music/project.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
@@ -124,6 +125,7 @@ export class AudioEngine {
     const states = path.join(this.paths.projectDir(projectId), "plugins");
     const song = {
       ...compiled,
+      resampling: isResampling(body.resampling) ? body.resampling : "hermite",
       channels: compiled.channels.map((c) => ({
         ...c,
         sample: c.sample && this.samplePath(projectId, c.sample),

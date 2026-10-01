@@ -593,6 +593,17 @@ test("settings: ⌘, opens on the music tab, with the device and the plugin benc
   await expect(device).toContainText("2.7 ms of buffer");
   await expect(dialog.getByTestId("engine-device")).toContainText("128 samples");
 
+  // Resampling: Hermite while playing and sinc in exports, until changed; the engine gets the song again with it.
+  const playing = dialog.getByRole("combobox", { name: "Resampling while playing" });
+  await expect(playing).toHaveText("Hermite (4-point)");
+  await expect(dialog.getByRole("combobox", { name: "Resampling in exports" })).toHaveText("Sinc (32-point)");
+  const sent = page.waitForRequest((r) => r.url().endsWith("/api/engine/song") && r.postDataJSON().resampling === "sinc");
+  await playing.click();
+  await page.getByRole("option", { name: "Sinc (32-point)" }).click();
+  await sent;
+  await playing.click();
+  await page.getByRole("option", { name: "Hermite (4-point)" }).click();
+
   // No instrument yet: nothing to play.
   const keys = dialog.getByRole("group", { name: "Keys" }).getByRole("button");
   await expect(keys.first()).toBeDisabled();

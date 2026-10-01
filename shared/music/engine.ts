@@ -173,6 +173,17 @@ export interface HostWindow {
 }
 
 /** The song to play (`POST /api/engine/song`): the tab's copy of the document, saved or not. */
+/**
+ * How samplers and audio clips are read between their samples, when they're pitched or at another
+ * rate than the song (FL's Resampling): a straight line (cheap, faint whistles on bright sounds), a
+ * curve through four samples (playback's default), or a windowed sinc that also filters out what
+ * pitching up would alias (the export's default). None of them delays the sound.
+ */
+export const RESAMPLING = ["linear", "hermite", "sinc"] as const;
+export type Resampling = (typeof RESAMPLING)[number];
+export const RESAMPLING_NAMES: Record<Resampling, string> = { linear: "Linear", hermite: "Hermite (4-point)", sinc: "Sinc (32-point)" };
+export const isResampling = (v: unknown): v is Resampling => RESAMPLING.includes(v as Resampling);
+
 export interface SetSongRequest {
   projectId: string;
   song: MusicProject;
@@ -182,6 +193,8 @@ export interface SetSongRequest {
   loop?: { start: number; end: number } | null;
   /** The pattern, looped (the default), or the playlist (the toolbar's PAT / SONG). */
   mode?: PlayMode;
+  /** How samples are read when pitched (default: Hermite). Settings' choice for playback. */
+  resampling?: Resampling;
 }
 
 export interface SetSongResponse {

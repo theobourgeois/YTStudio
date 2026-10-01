@@ -6,6 +6,7 @@
 
 #include "Delay.h"
 #include "Host.h"
+#include "Resampling.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <array>
@@ -171,6 +172,8 @@ struct Song
     };
 
     double tempo = 120, ppq = 96;
+    /** How samplers and audio clips are read when pitched or at another rate (playback's choice, or the export's). */
+    Resampling resampling = Resampling::hermite;
     /** The loop's length, and a beat's and a bar's (the metronome), in ticks. */
     double loopTicks = 384, beatTicks = 96, barTicks = 384;
     std::vector<Channel> channels;

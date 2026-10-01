@@ -37,6 +37,8 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
       preview (isOffline)
 {
     dataDir.createDirectory();
+    // The sinc's table, made now rather than by the audio thread the first time it's needed.
+    resampling::Kernel::get();
     if (offline)
     {
         start (offlineSampleRate, offlineBlockSize);

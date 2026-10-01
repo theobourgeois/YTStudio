@@ -7,24 +7,26 @@ constexpr int chunk = 2048;
 }
 
 AudioStream::AudioStream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 maxSamples, double ringSeconds,
-                          double speed)
+                          double speed, Resampling resamplingQuality)
     : outRate (outputRate),
       duration ((double) source->lengthInSamples / source->sampleRate),
       reader (std::move (source)),
-      ratio (reader->sampleRate / outputRate * juce::jlimit (0.0625, 16.0, speed))
+      ratio (reader->sampleRate / outputRate * juce::jlimit (0.0625, 16.0, speed)),
+      quality (resamplingQuality),
+      reach (resampling::reach (resamplingQuality, ratio))
 {
-    position = juce::jlimit ((juce::int64) 0, reader->lengthInSamples, (juce::int64) (juce::jmax (0.0, startSeconds) * reader->sampleRate));
-    total = (juce::int64) std::ceil ((double) (reader->lengthInSamples - position) / ratio);
+    start = juce::jlimit (0.0, (double) reader->lengthInSamples, juce::jmax (0.0, startSeconds) * reader->sampleRate);
+    total = (juce::int64) std::ceil (((double) reader->lengthInSamples - start) / ratio);
     if (maxSamples >= 0)
         total = juce::jmin (total, maxSamples);
     const auto capacity = juce::jmax (chunk * 2, (int) (ringSeconds * outRate));
     ring.setSize (2, capacity);
     fifo.setTotalSize (capacity);
-    // Resampling delays the sound by the interpolator's latency: that many samples out are dropped at
-    // the start, so the file's first sample is the stream's first (a clip starts on its sample).
-    discard = juce::exactlyEqual (ratio, 1.0) ? 0 : juce::jmax (0, (int) std::lround (juce::LagrangeInterpolator::getBaseLatency() / ratio));
-    input.setSize (2, (int) std::ceil ((chunk + discard) * ratio) + 16);
-    output.setSize (2, chunk + discard);
+    // A chunk's worth of the file, and what the resampler reads on each side of it. Its first sample
+    // out is the file's at `start` exactly: the resampler is centred, so the stream isn't late.
+    input.setSize (2, (int) std::ceil (chunk * ratio) + 2 * reach + 4);
+    output.setSize (2, chunk);
+    inputStart = (juce::int64) std::floor (start) - reach;
 }
 
 int AudioStream::useTimeSlice()
@@ -47,33 +49,42 @@ void AudioStream::produce()
         ended.store (true, std::memory_order_release);
         return;
     }
-    // The interpolator's latency, dropped once at the start.
-    const auto drop = discard;
-    discard = 0;
-    // Enough of the file for `n` samples out; past its end the reader gives silence, which lets the
-    // interpolator finish its last few samples.
-    const auto needed = juce::jmin (input.getNumSamples(), (int) std::ceil ((n + drop) * ratio) + 8);
-    if (buffered < needed)
+    // The file samples this chunk reads: from its first position's reach behind to its last's ahead.
+    const auto first = start + (double) produced * ratio;
+    const auto from = (juce::int64) std::floor (first) - reach;
+    const auto to = (juce::int64) std::floor (start + (double) (produced + n - 1) * ratio) + reach + 1;
+    // Keep what's still needed of the window, then read the rest (before the file's start and past its
+    // end, the reader gives silence).
+    if (from > inputStart)
     {
-        reader->read (&input, buffered, needed - buffered, position, true, true);
-        position += needed - buffered;
-        buffered = needed;
+        const auto drop = (int) juce::jmin ((juce::int64) buffered, from - inputStart);
+        buffered -= drop;
+        for (int ch = 0; ch < 2; ++ch)
+            if (buffered > 0)
+                std::memmove (input.getWritePointer (ch), input.getReadPointer (ch, drop), sizeof (float) * (size_t) buffered);
+        inputStart = buffered > 0 ? inputStart + drop : from;
     }
-    int used = 0;
+    const auto wanted = (int) juce::jmin ((juce::int64) input.getNumSamples(), to - inputStart);
+    if (buffered < wanted)
+    {
+        reader->read (&input, buffered, wanted - buffered, inputStart + buffered, true, true);
+        buffered = wanted;
+    }
     for (int ch = 0; ch < 2; ++ch)
-        used = interpolators[(size_t) ch].process (ratio, input.getReadPointer (ch), output.getWritePointer (ch), n + drop, buffered, 0);
-    buffered -= used;
-    for (int ch = 0; ch < 2; ++ch)
-        if (buffered > 0)
-            std::memmove (input.getWritePointer (ch), input.getReadPointer (ch, used), sizeof (float) * (size_t) buffered);
+    {
+        const auto* data = input.getReadPointer (ch);
+        auto* out = output.getWritePointer (ch);
+        for (int i = 0; i < n; ++i)
+            out[i] = resampling::read (data, buffered, start + (double) (produced + i) * ratio - (double) inputStart, ratio, quality);
+    }
 
     const auto scope = fifo.write (n);
     for (int ch = 0; ch < 2; ++ch)
     {
         if (scope.blockSize1 > 0)
-            ring.copyFrom (ch, scope.startIndex1, output, ch, drop, scope.blockSize1);
+            ring.copyFrom (ch, scope.startIndex1, output, ch, 0, scope.blockSize1);
         if (scope.blockSize2 > 0)
-            ring.copyFrom (ch, scope.startIndex2, output, ch, drop + scope.blockSize1, scope.blockSize2);
+            ring.copyFrom (ch, scope.startIndex2, output, ch, scope.blockSize1, scope.blockSize2);
     }
     produced += n;
     if (produced >= total)

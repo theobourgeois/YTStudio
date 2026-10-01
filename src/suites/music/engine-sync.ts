@@ -4,6 +4,7 @@ import { musicApi } from "./api";
 import { withChopPreview } from "./piano/actions";
 import { usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
+import { useMusicPreferences } from "./preferences";
 import { clipPreview } from "./playlist/preview";
 import { usePlaylist } from "./playlist/store";
 import { useMusic } from "./store";
@@ -39,8 +40,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         const loop = playMode === "song" ? usePlaylist.getState().time : usePiano.getState().time;
         // A clip previewed from its menu: the song is only that clip, its time the loop.
         const preview = clipPreview(song);
+        const { resampling } = useMusicPreferences.getState();
         const { unreadable, channels, effects, loop: playing } = await musicApi.setSong(
-          preview ? { projectId, patternId, ...preview } : { projectId, song, patternId, loop, mode: playMode },
+          preview ? { projectId, patternId, resampling, ...preview } : { projectId, song, patternId, loop, mode: playMode, resampling },
         );
         useTransport.setState({ unreadable, channels, effects: effects ?? NO_EFFECTS, loop: playing, error: null });
         if (!dirty) afterSongSent();
@@ -62,6 +64,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   });
   const unsubscribeMode = useTransport.subscribe((state, prev) => {
     if (state.mode !== prev.mode) void send();
+  });
+  const unsubscribeQuality = useMusicPreferences.subscribe((state, prev) => {
+    if (state.resampling !== prev.resampling) void send();
   });
   const unsubscribePlaylist = usePlaylist.subscribe((state, prev) => {
     if ((state.time !== prev.time && useTransport.getState().mode === "song") || state.previewing !== prev.previewing) void send();
@@ -140,6 +145,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     unsubscribeLoop();
     unsubscribePlaylist();
     unsubscribeMode();
+    unsubscribeQuality();
     unsubscribeSelection();
     stopListening();
     if (useTransport.getState().playing) void musicApi.engine("stop", {}).catch(() => {});

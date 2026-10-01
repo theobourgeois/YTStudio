@@ -614,7 +614,9 @@ void Sequencer::render (Voice& voice, int numSamples)
     const auto& audio = voice.sample->audio;
     const auto* sourceLeft = audio.getReadPointer (0);
     const auto* sourceRight = audio.getReadPointer (audio.getNumChannels() > 1 ? 1 : 0);
-    const auto last = audio.getNumSamples() - 1;
+    const auto length = audio.getNumSamples();
+    const auto last = length - 1;
+    const auto quality = song->resampling;
     const auto rate = voice.baseRate * std::pow (2.0, (double) (voice.pitch + channel.pitch) / 12.0);
     const auto gainLeft = voice.gain * channel.gainLeft * voice.panLeft, gainRight = voice.gain * channel.gainRight * voice.panRight;
     const auto& envelope = channel.envelope;
@@ -690,9 +692,8 @@ void Sequencer::render (Voice& voice, int numSamples)
             level *= (float) voice.fade-- / fadeLength;
         }
 
-        const auto fraction = (float) (voice.position - index);
-        left[i] += (sourceLeft[index] + (sourceLeft[index + 1] - sourceLeft[index]) * fraction) * gainLeft * level;
-        right[i] += (sourceRight[index] + (sourceRight[index + 1] - sourceRight[index]) * fraction) * gainRight * level;
+        left[i] += resampling::read (sourceLeft, length, voice.position, rate, quality) * gainLeft * level;
+        right[i] += resampling::read (sourceRight, length, voice.position, rate, quality) * gainRight * level;
         voice.position += rate;
     }
 }
