@@ -96,6 +96,7 @@ describe("mixer tracks", () => {
     expect(updateMixerTrack(song, "insert_1", { invert: false, stereo: 0 })).toBe(song);
     expect(updateMixerTrack(song, "insert_1", { color: "#4A89DC" }).mixer.tracks[1].color).toBe("#4a89dc");
     expect(updateMixerTrack(song, "insert_1", { color: "blue" }).mixer.tracks[1].color).toBeNull();
+    expect(updateMixerTracks(song, ["insert_1", "master"], { dock: "right" }).mixer.tracks.slice(0, 2).map((t) => t.dock)).toEqual(["left", "right"]);
     const both = setMixerVolumes(song, new Map([["insert_1", 0.5], ["insert_2", 0.3]]));
     expect(both.mixer.tracks.slice(1, 4).map((t) => t.volume)).toEqual([0.5, 0.3, 0.8]);
     expect(setMixerVolumes(song, new Map([["insert_1", NaN]]))).toBe(song);

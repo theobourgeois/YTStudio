@@ -38,6 +38,7 @@ import { MusicWindow } from "../window";
 import {
   addTrackAfterCurrent,
   addTrackAtEnd,
+  dockTracks,
   colourTrack,
   copyTrackState,
   deleteTracks,
@@ -148,17 +149,28 @@ export function MixerWindow() {
     if (!revealing) return;
     useMixerView.getState().reveal(null);
     const element = scroller.current;
-    const index = mixer.tracks.findIndex((t) => t.id === revealing) - 1;
+    // Its place in the middle dock (a docked track is always in view).
+    const index = mixer.tracks.filter((t) => t.id !== MASTER_TRACK_ID && t.dock === "middle").findIndex((t) => t.id === revealing);
     if (!element || index < 0) return;
     // By its place (it may not be drawn yet): just into view, at whichever edge it's past.
     const left = index * stripWidth;
     if (left < element.scrollLeft) element.scrollLeft = left;
     else if (left + stripWidth > element.scrollLeft + element.clientWidth) element.scrollLeft = left + stripWidth - element.clientWidth;
   }, [revealing, mixer.tracks, stripWidth]);
-  const [first, last] = useVisibleStrips(scroller, mixer.tracks.length - 1, stripWidth);
+  // FL Studio's docks: the master and the left dock stay at the left, the right dock at the right, the middle scrolls between.
+  const numbers = useMemo(() => new Map(mixer.tracks.map((t, i) => [t.id, i])), [mixer.tracks]);
+  const docked = useMemo(() => {
+    const [master, ...inserts] = mixer.tracks;
+    return {
+      left: [master, ...inserts.filter((t) => t.dock === "left")],
+      middle: inserts.filter((t) => t.dock === "middle"),
+      right: inserts.filter((t) => t.dock === "right"),
+    };
+  }, [mixer.tracks]);
+  const inserts = docked.middle;
+  const [first, last] = useVisibleStrips(scroller, inserts.length, stripWidth);
 
-  const [master, ...inserts] = mixer.tracks;
-  const strip = (track: MixerTrack, number: number) => (
+  const strip = (track: MixerTrack, number = numbers.get(track.id)!) => (
     <Strip
       key={track.id}
       track={track}
@@ -193,13 +205,13 @@ export function MixerWindow() {
       <div className="flex min-h-0 flex-1" data-testid="mixer">
         <div ref={area} className="relative flex min-w-0 flex-1 overflow-hidden" style={{ background: "var(--mixer-bg)" }} role="list" aria-label="Mixer tracks">
           <SelectionMeter meterRef={meterRef(SELECTION_METER)} />
-          <div className="flex shrink-0 border-r-2" style={{ borderColor: "var(--mixer-line)" }}>
-            {strip(master, 0)}
+          <div className="flex shrink-0 border-r-2" style={{ borderColor: "var(--mixer-line)" }} data-dock="left">
+            {docked.left.map((track) => strip(track))}
           </div>
           <div ref={scroller} className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
             {/* Only the strips in view (and a few either side) are drawn: a mixer can have hundreds. */}
             <div className="flex shrink-0" style={{ paddingLeft: first * stripWidth, paddingRight: Math.max(0, inserts.length - last) * stripWidth }}>
-              {inserts.slice(first, last).map((track, i) => strip(track, first + i + 1))}
+              {inserts.slice(first, last).map((track) => strip(track))}
             </div>
             {/* After the last track, as FL's: a + to add one at the end. */}
             <button
@@ -212,6 +224,11 @@ export function MixerWindow() {
               <PiPlus className="size-5" />
             </button>
           </div>
+          {docked.right.length > 0 && (
+            <div className="flex shrink-0 border-l-2" style={{ borderColor: "var(--mixer-line)" }} data-dock="right">
+              {docked.right.map((track) => strip(track))}
+            </div>
+          )}
           <Cables area={area} mixer={mixer} current={current} />
         </div>
         <Inspector trackId={current} />
@@ -536,6 +553,18 @@ function TrackMenu({ id, isMaster, color }: { id: string; isMaster: boolean; col
             Move right <ContextMenuShortcut>⌥→</ContextMenuShortcut>
           </ContextMenuItem>
         </>
+      )}
+      {!isMaster && (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>Dock to</ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            {(["left", "middle", "right"] as const).map((dock) => (
+              <ContextMenuItem key={dock} onSelect={() => dockTracks(id, dock)}>
+                {dock === "left" ? "Left" : dock === "middle" ? "Middle" : "Right"}
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
       )}
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={addTrackAfterCurrent}>Insert a track after</ContextMenuItem>

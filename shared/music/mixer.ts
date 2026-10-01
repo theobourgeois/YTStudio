@@ -129,7 +129,7 @@ export function moveMixerTracks(song: MusicProject, ids: readonly string[], dire
   return any ? withTracks(song, tracks) : song;
 }
 
-export type MixerTrackPatch = Partial<Pick<MixerTrack, "name" | "color" | "volume" | "pan" | "muted" | "invert" | "swap" | "stereo" | "latencyOffset">>;
+export type MixerTrackPatch = Partial<Pick<MixerTrack, "name" | "color" | "dock" | "volume" | "pan" | "muted" | "invert" | "swap" | "stereo" | "latencyOffset">>;
 
 function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
   // An empty name goes back to the track's number.
@@ -138,6 +138,8 @@ function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
     ...track,
     name,
     color: patch.color === undefined ? track.color : patch.color && /^#[0-9a-f]{6}$/i.test(patch.color) ? patch.color.toLowerCase() : null,
+    // The master stays on the left.
+    dock: track.id === MASTER_TRACK_ID || (patch.dock !== "left" && patch.dock !== "middle" && patch.dock !== "right") ? track.dock : patch.dock,
     volume: clamp(patch.volume ?? track.volume, 0, 1),
     pan: clamp(patch.pan ?? track.pan, -1, 1),
     muted: patch.muted ?? track.muted,

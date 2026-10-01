@@ -41,11 +41,12 @@ const song: MusicProject = {
   ],
   mixer: {
     tracks: [
-      { ...createMixerTrack(MASTER_TRACK_ID), sends: [] },
+      { ...createMixerTrack(MASTER_TRACK_ID), dock: "left", sends: [] },
       {
         ...createMixerTrack("insert_drums"),
         name: "Drums",
         color: "#4a89dc",
+        dock: "right",
         volume: 0.6,
         latencyOffset: -12.5,
         invert: true,
@@ -155,7 +156,7 @@ describe("the mixer", () => {
     const { mixer, channels } = createMusicProject();
     expect(mixer.tracks.map((t) => t.id)).toEqual([MASTER_TRACK_ID, ...Array.from({ length: 16 }, (_, i) => `insert_${i + 1}`)]);
     expect(mixer.tracks[0].sends).toEqual([]);
-    expect(mixer.tracks[3]).toEqual({ id: "insert_3", name: null, color: null, volume: 0.8, pan: 0, muted: false, invert: false, swap: false, stereo: 0, latencyOffset: 0, effects: Array(10).fill(null), sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
+    expect(mixer.tracks[3]).toEqual({ id: "insert_3", name: null, color: null, dock: "middle", volume: 0.8, pan: 0, muted: false, invert: false, swap: false, stereo: 0, latencyOffset: 0, effects: Array(10).fill(null), sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
     expect(channels[0].mixerTrack).toBe(MASTER_TRACK_ID);
   });
 
@@ -172,7 +173,7 @@ describe("the mixer", () => {
       mixer: {
         tracks: [
           { id: "insert_a", name: "  ", volume: 4, latencyOffset: 5000, effects: [null, { id: "fx_1", plugin: { id: "p", name: "P" } }, { id: "fx_1", plugin: { id: "q" } }, { id: "fx_2" }], sends: [{ to: "insert_gone" }, { to: MASTER_TRACK_ID, level: 7 }, { to: MASTER_TRACK_ID }] },
-          { id: MASTER_TRACK_ID, sends: [{ to: "insert_a" }] },
+          { id: MASTER_TRACK_ID, dock: "right", sends: [{ to: "insert_a" }] },
           { id: "insert_a" },
           { id: "insert_b", color: "red" },
         ],
@@ -181,7 +182,8 @@ describe("the mixer", () => {
     expect(repaired.channels[0].mixerTrack).toBe(MASTER_TRACK_ID);
     const [master, a, b] = repaired.mixer.tracks;
     expect([master.id, a.id, b.id]).toEqual([MASTER_TRACK_ID, "insert_a", "insert_b"]);
-    expect(master.sends).toEqual([]);
+    expect(master).toMatchObject({ sends: [], dock: "left" });
+    expect(b.dock).toBe("middle");
     expect(a).toMatchObject({ name: null, volume: 1, latencyOffset: 1000, sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
     expect(a.effects).toEqual([null, { id: "fx_1", plugin: { id: "p", name: "P", format: "VST3" }, enabled: true, mix: 1 }, ...Array(8).fill(null)]);
     // A track with no list of sends goes to the master; one with an empty list goes nowhere.

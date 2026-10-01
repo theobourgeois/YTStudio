@@ -138,6 +138,7 @@ export function createMixerTrack(id = createId("insert")): MixerTrack {
     id,
     name: null,
     color: null,
+    dock: "middle",
     volume: DEFAULT_FADER,
     pan: 0,
     muted: false,
@@ -152,7 +153,7 @@ export function createMixerTrack(id = createId("insert")): MixerTrack {
 
 /** A new song's mixer: the master and `DEFAULT_INSERTS` insert tracks (fixed ids, so an empty song is always the same document). */
 export function createMixer(): Mixer {
-  const master: MixerTrack = { ...createMixerTrack(MASTER_TRACK_ID), sends: [] };
+  const master: MixerTrack = { ...createMixerTrack(MASTER_TRACK_ID), dock: "left", sends: [] };
   return { tracks: [master, ...Array.from({ length: DEFAULT_INSERTS }, (_, i) => createMixerTrack(`insert_${i + 1}`))] };
 }
 
@@ -324,6 +325,7 @@ function normalizeMixer(input: unknown): Mixer {
       id,
       name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, MAX_NAME) : null,
       color: isColor(raw.color) ? raw.color.toLowerCase() : null,
+      dock: id === MASTER_TRACK_ID ? "left" : raw.dock === "left" || raw.dock === "right" ? raw.dock : "middle",
       volume: number(raw.volume, 0, 1, DEFAULT_FADER),
       pan: number(raw.pan, -1, 1, 0),
       muted: raw.muted === true,

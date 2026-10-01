@@ -250,7 +250,7 @@ export const MUSIC_TOOLS = [
     title: "Change a mixer track",
     kind: "edit",
     description:
-      "Set a mixer track's name, colour, fader level, pan, mute, phase, sides, stereo separation or delay offset. Only what's given changes. " +
+      "Set a mixer track's name, colour, fader level, pan, mute, phase, sides, stereo separation, delay offset or dock. Only what's given changes. " +
       "Its level is after its effects; the master's is the whole song's.",
     inputSchema: obj(
       {
@@ -264,6 +264,7 @@ export const MUSIC_TOOLS = [
         swap: bool("Swap its left and right."),
         stereo: num("Stereo separation, -1 to 1: 0 as it is, towards 1 narrower (1 is mono), towards -1 wider."),
         latencyOffset: num("Milliseconds (-1000 to 1000) added to the delay its plugins report, for one that reports it wrong: positive if its sound is late against the others."),
+        dock: oneOf(["left", "middle", "right"], "Which of the mixer's docks it's shown in: the left and right ones stay put while the middle scrolls (the master is always left)."),
       },
       ["track"],
     ),

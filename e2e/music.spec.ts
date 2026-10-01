@@ -826,6 +826,13 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await page.getByRole("button", { name: "Mixer view: Extra large" }).click();
   await expect(page.getByRole("button", { name: "Mixer view: Compact" })).toBeVisible();
 
+  // Docked to the right, a track stays at the mixer's right edge (keeping its number); and back to the middle.
+  await strip("Insert 8").locator("span").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Dock to" }).click();
+  await page.getByRole("menuitem", { name: "Right", exact: true }).click();
+  await expect(mixer.locator('[data-dock="right"] [data-track-name="Insert 8"]')).toBeVisible();
+  await expect.poll(async () => (await track(8)).dock).toBe("right");
+
   // Sending to insert 3 draws a cable from it.
   await strip("Insert 1").locator("canvas").click();
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(1);

@@ -85,6 +85,7 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
     track.swap ? "sides swapped" : null,
     track.stereo ? `stereo ${percent(Math.abs(track.stereo))} ${track.stereo > 0 ? "narrower" : "wider"}` : null,
     track.latencyOffset ? `delay offset ${track.latencyOffset} ms` : null,
+    track.dock !== "middle" && track.id !== MASTER_TRACK_ID ? `docked ${track.dock}` : null,
     track.color ? `colour ${COLOR_NAMES[TRACK_COLORS.indexOf(track.color as (typeof TRACK_COLORS)[number])] ?? track.color}` : null,
   ];
   return `${label(song, track)} (id ${track.id}): ${parts.filter(Boolean).join(", ")}`;
@@ -181,6 +182,11 @@ export const updateMixerTrackTool: SongEdit = (song, input) => {
   if (stereo !== undefined) patch.stereo = stereo;
   const offset = numberIn(input, "latencyOffset", -MAX_LATENCY_OFFSET, MAX_LATENCY_OFFSET);
   if (offset !== undefined) patch.latencyOffset = offset;
+  if (input.dock !== undefined) {
+    if (input.dock !== "left" && input.dock !== "middle" && input.dock !== "right") throw new Error('"dock" must be "left", "middle" or "right".');
+    if (track.id === MASTER_TRACK_ID && input.dock !== "left") throw new Error("The master is always docked on the left.");
+    patch.dock = input.dock;
+  }
   const next = updateMixerTrack(song, track.id, patch);
   const now = getMixerTrack(next, track.id)!;
   return { song: next, text: next === song ? `${label(song, track)} is already like that.` : `Changed ${describeTrack(next, now)}.` };

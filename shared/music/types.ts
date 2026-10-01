@@ -132,6 +132,8 @@ export interface MixerEffect {
   mix: number;
 }
 
+export type MixerDock = "left" | "middle" | "right";
+
 /** A mixer track sending its sound (after its fader) to another. */
 export interface MixerSend {
   /** The track it goes to. */
@@ -150,6 +152,11 @@ export interface MixerTrack {
   name: string | null;
   /** Its colour ("#rrggbb", one of `TRACK_COLORS` from the menu), or null for none. */
   color: string | null;
+  /**
+   * Which of the mixer's docks it's shown in (FL Studio's): the left and right ones stay where they are
+   * while the middle one scrolls. Its number doesn't change. The master is always on the left.
+   */
+  dock: MixerDock;
   /** 0..1, the fader; `DEFAULT_FADER` leaves the sound as it is. */
   volume: number;
   /** -1 (left) .. 1 (right). */

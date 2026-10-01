@@ -57,6 +57,8 @@ describe("the assistant's mixer edits", () => {
     expect(updateMixerTrackTool(rack(), { track: 1, color: "none" }, env).text).toMatch(/already like that/);
     expect(() => updateMixerTrackTool(rack(), { track: 1, color: "mauve" }, env)).toThrow(/one of red, orange/);
     expect(() => updateMixerTrackTool(rack(), { track: 1, level: 12 }, env)).toThrow(/"level" must be a number/);
+    expect(updateMixerTrackTool(rack(), { track: 2, dock: "right" }, env).text).toMatch(/docked right/);
+    expect(() => updateMixerTrackTool(rack(), { track: "master", dock: "right" }, env)).toThrow(/always docked on the left/);
   });
 
   it("send tracks to others, only there, or not; never round in a loop, never from the master", () => {

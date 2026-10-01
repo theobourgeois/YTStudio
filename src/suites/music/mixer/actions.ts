@@ -23,7 +23,7 @@ import {
   updateMixerTracks,
 } from "@shared/music/mixer";
 import { MASTER_TRACK_ID } from "@shared/music/project";
-import type { MusicProject } from "@shared/music/types";
+import type { MixerDock, MusicProject } from "@shared/music/types";
 import { musicApi } from "../api";
 import { selectedIds as selectedChannelIds } from "../rack-actions";
 import { useMusic } from "../store";
@@ -139,6 +139,9 @@ export function menuTargets(id: string): string[] {
 
 /** Rename a track, or every selected track if it's one of them (the same name for all). */
 export const renameTrack = (id: string, name: string) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { name }));
+
+/** Dock a track, or every selected track if it's one of them, to the mixer's left, middle or right (never the master). */
+export const dockTracks = (id: string, dock: MixerDock) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { dock }));
 
 /** Colour a track, or every selected track if it's one of them. */
 export const colourTrack = (id: string, color: string | null) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { color }));
