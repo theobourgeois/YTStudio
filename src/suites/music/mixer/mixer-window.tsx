@@ -427,7 +427,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       >
         <Led on={!track.muted} />
       </button>
-      <SongKnob size={30} label={`${name} pan`} value={track.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateMixerTrack(song, id, { pan })} />
+      <SongKnob size={36} label={`${name} pan`} value={track.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateMixerTrack(song, id, { pan })} />
       </div>
       <TrackFader track={track} name={name} selected={selected} />
       <div className="text-[9px] tabular-nums" style={{ color: "var(--mixer-name)" }} title="Level">
@@ -441,7 +441,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
           <PiArrowsLeftRight />
         </StripToggle>
       </div>
-      <SongKnob size={26} label={`${name} stereo separation`} value={track.stereo} min={-1} max={1} defaultValue={0} bipolar format={stereoText} unit={PERCENT} edit={(song, stereo) => updateMixerTrack(song, id, { stereo })} />
+      <SongKnob size={32} label={`${name} stereo separation`} value={track.stereo} min={-1} max={1} defaultValue={0} bipolar format={stereoText} unit={PERCENT} edit={(song, stereo) => updateMixerTrack(song, id, { stereo })} />
       {view === "extra" && <StripEffects track={track} />}
       <SendSwitch to={id} name={name} state={sendKind === "sending" ? { kind: "sending", level: sendLevel } : { kind: sendKind }} />
     </div>
@@ -656,7 +656,7 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
           {arrow(state.kind === "sending")}
           {state.kind === "sending" ? (
             <div data-send-point>
-              <SongKnob size={22} label={`Send to ${name}`} value={state.level} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, level) => setSend(song, currentTrackId(song, useMusicUi.getState().selectedTrackIds), to, level)} />
+              <SongKnob size={28} label={`Send to ${name}`} value={state.level} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, level) => setSend(song, currentTrackId(song, useMusicUi.getState().selectedTrackIds), to, level)} />
             </div>
           ) : (
             <div className="size-5" />
