@@ -8,7 +8,7 @@ button does and the right button undoes). Where neither the manual nor Théo say
 **(unverified)**.
 
 The last sections are ours: [what we'll leave out](#what-well-leave-out),
-[where Vaudio differs](#where-vaudio-differs), [what to decide](#to-decide-with-théo) and
+[where Vaudio differs](#where-vaudio-differs), [what was decided](#decided-with-théo-2026-10-01) and
 [how it will be built](#how-vaudio-will-build-it).
 
 ## What it is
@@ -90,9 +90,9 @@ delete several), and **Ctrl selects** instead.
 
 - **The clip source**: Draw and Paint add whatever's chosen as the clip source (the title bar's menu, the
   Picker panel, or a right-click on a clip focus tab). Clicking a clip with Draw also makes it the clip
-  source, so the next click adds another of the same. (unverified: Théo to confirm)
-- **Selecting a pattern clip makes its pattern the current one** (the rack and the Piano roll show it).
-  (unverified: Théo to confirm)
+  source, so the next click adds another of the same. (Théo)
+- **Clicking a pattern clip makes its pattern the current one** (the rack and the Piano roll show it).
+  (Théo)
 - **Right-Shift+click** a clip slices it in any tool; Right-Shift+right-click slices and deletes the
   smaller part. **Insert** slices the clip under the pointer.
 - **Double-click a pattern clip** opens it: in the Piano roll if it has notes, in the Channel rack if it's
@@ -105,10 +105,9 @@ delete several), and **Ctrl selects** instead.
 
 - **Move**: drag a clip (or any clip of the selection) left, right, and up and down between tracks. Snap
   applies to where its start lands. Alt while dragging: no snap.
-- **Resize**: drag a clip's right edge. Its left edge resizes it from the start only with "Allow resizing
-  from the left" (Ctrl+Alt+Home), which is off by default. A resized or sliced clip is **a window onto its
-  content**: what's outside it is still there, and dragging the edge out again brings it back. (The
-  manual's text mentions Shift with an edge; unverified which it is: Théo to confirm.)
+- **Resize**: drag either edge of a clip, no key needed (Théo). (The manual has the left edge behind an
+  option, "Allow resizing from the left", Ctrl+Alt+Home.) A resized or sliced clip is **a window onto its
+  content**: what's outside it is still there, and dragging the edge out again brings it back.
 - **Slip**: the Slip tool moves the content inside the window instead.
 - **Clone**: Shift+drag a clip or the selection: the original stays, a copy moves (Shift+click a clip, in
   the shortcuts table).
@@ -133,26 +132,25 @@ delete several), and **Ctrl selects** instead.
   height), and the pattern's name in its title bar. Its colour is the pattern's.
 - **Its length** when it's added is the pattern's length (the Channel Rack's pattern length, or "Auto":
   to the end of the last bar with notes).
-- **Lengthened past its pattern**, a clip repeats the pattern (unverified: the manual doesn't say; FL draws
-  the repeated notes in the clip. Théo to confirm).
+- **Lengthened past its pattern**, a clip shows more but **plays nothing there**: the pattern doesn't
+  repeat (Théo).
 - **Shortened or sliced**, a note that's cut by the clip's end stops there, and a note that starts before
   the clip's start (after a slice) plays from the clip's start: Project settings' **"Play truncated
   notes in clips"**, on in projects since FL 10.5. With it off, the second half of a sliced note is dropped.
-- **When the pattern changes length**, clips that were as long as it follow it. (unverified: Théo to
-  confirm.)
+- **When the pattern changes length**, clips that were as long as it follow it; a clip that's been resized
+  keeps its length (Théo).
 - **Split by channel** (the Patterns menu, also the Picker panel's pattern menu): makes one new pattern
   for each channel that has notes in the pattern, each named after its channel. This is what Théo means
   by "split by track": a whole beat built in one pattern, then pulled apart to arrange each part on its own
-  track. When the pattern is in the Playlist, its clips are replaced by the new patterns' clips, one per
-  channel on the tracks below. (unverified: the manual only describes the new patterns; Théo to confirm
-  what happens in the Playlist.)
+  track. **The pattern goes**: it's replaced by the new patterns, and each of its clips in the Playlist by
+  the new patterns' clips, one per channel, on its track and the ones below (Théo). It's one undo step.
 
 ### Audio clips
 
 ![Audio clips](img/playlist_audio.png)
 
 - **An audio clip is a channel**: dropping an audio file on the Playlist (from the Browser or the
-  Finder) makes an **audio clip channel** in the Channel rack (in its own "Audio Clips" group) and puts a
+  Finder) makes an **audio clip channel** in the Channel rack (in its own "Audio" group) and puts a
   clip of it where it's dropped. Every clip of that channel plays the same file. Like any channel, it plays
   into a mixer track (the rack's track selector, or its settings' TRACK).
 - An audio clip channel is a cut-down sampler: its settings have only the sample tab (precomputed effects,
@@ -239,9 +237,8 @@ The icon at the top left of each clip opens it:
   click on one selects up to the next. Their right-click menu gives them an action: Start, Loop (the song's
   repeat point), Marker loop, skip, pause, a time signature change, start / stop recording. Alt+/ and Alt+*
   jump between them.
-- **The end of the song**: playing in song mode, the song goes on to the end of its last clip (unverified:
-  whether it stops there or loops back to the start, rounded up to a bar. Théo to confirm). A "Loop"
-  marker sets where it goes back to.
+- **The end of the song**: playing in song mode, the song goes on to the end of its last clip's bar and
+  loops back to the start (Théo). A "Loop" marker sets where it goes back to.
 
 ## Snap and zoom
 
@@ -284,6 +281,10 @@ The icon at the top left of each clip opens it:
   track named after it.
 - **The Channel rack**: a channel dropped on a track header links them (track mode). The rack's channels
   that appear in the selected pattern clip are highlighted (unverified).
+- **The Channel rack's groups** (its title bar's filter menu): channels are in groups, and the rack shows
+  one group or All. New channels go in **Unsorted**, the default, where the instruments and drums are;
+  audio clips' channels go in an **Audio** group; **All** shows every channel (Théo). More groups can be
+  made and channels moved between them.
 
 ## Keys
 
@@ -361,31 +362,24 @@ rewritten as what's built, as the other docs are.
 | Time selection, Ctrl+B, Ctrl+Ins / Del, Ctrl+Enter, Ctrl+← / → | Yes | Yes, as in our Piano roll |
 | Look | FL's artwork | Its layout in our look (`docs/ui-redesign.md`), with colours of its own for each theme like the Piano roll's |
 
-## To decide with Théo
+## Decided with Théo (2026-10-01)
 
-Each has a proposed answer, which is what gets built unless Théo says otherwise.
-
-1. **A pattern clip stretched past its pattern**: does it repeat the pattern, or leave silence? Proposed:
-   it repeats (as FL draws it).
-2. **A pattern that changes length**: do its full-length clips follow? Proposed: yes; a clip that's been
-   resized keeps its length.
-3. **Split by channel**: what happens to the pattern's clips in the Playlist? Proposed: each clip is
-   replaced by one clip per channel, on that track and the ones below it (the free tracks below, so
-   nothing is covered), and the original pattern stays in the list.
-4. **The end of the song in song mode**: stop at the end of the last clip, or loop back to the start?
-   Proposed: loop to the start, at the end of the last clip's bar (FL's default, unverified).
-5. **Clicking a clip with Draw**: makes it the clip source, and a pattern clip's pattern the current
-   pattern? Proposed: both.
-6. **Resizing**: by either edge without a key (proposed), or the right edge only, as FL's default?
-7. **PAT / SONG saved with the song** (FL saves it)? Proposed: no, the editor starts in pattern mode,
-   unless the song has clips (then song mode).
-8. **Double-click a pattern clip**: Piano roll if it has notes, the rack if it's only steps (FL's
-   Automatic)? Proposed: yes, for the channel that has the most notes in it.
-9. **Audio clip channels in the rack**: shown in the rack (FL, in their own group), or hidden?
-   Proposed: shown at the bottom of the rack, with a waveform where steps would be, not playable from
+1. **A pattern clip stretched past its pattern** shows more but plays nothing there: the pattern doesn't
+   repeat.
+2. **A pattern that changes length**: its full-length clips follow it; a resized clip keeps its length.
+3. **Split by channel** removes the pattern and puts one pattern per channel (named after it) in its
+   place, in the list and in each of its clips in the Playlist (one clip per channel on its track and
+   the free ones below). One undo step.
+4. **In song mode the song loops** to its start at the end of the last clip's bar.
+5. **Clicking a clip with Draw** makes it the clip source, and a pattern clip's pattern the current one.
+6. **Clips resize from either edge**, no key.
+7. **PAT / SONG isn't saved**: a song with clips in its Playlist opens in song mode, otherwise pattern mode.
+8. **Double-click a pattern clip**: the Piano roll if it has notes off the step grid, the rack if it's only
    steps.
-10. **Order of work in the one pass**: document → song-mode compile → engine (audio clips streamed) →
-    transport → the window → split by channel → the assistant → e2e. Anything to move up?
+9. **Audio clips are channels** in the rack, in an Audio group: the rack's group filter shows Unsorted (the
+   default: every other channel), Audio, or All. In the rack they show a waveform where steps would be.
+10. **The order of work**: the document, song mode in `compileSong`, the engine (audio clips streamed),
+    the transport, the window, split by channel, the assistant, e2e. A commit after each step.
 
 ## How Vaudio will build it
 
@@ -422,7 +416,7 @@ interface Playlist { tracks: PlaylistTrack[]; clips: PlaylistClip[] }   // clips
 
 - Song mode makes the same `EngineSong` the engine already plays: its notes are the arrangement
   **flattened** into song ticks. Each pattern clip contributes its pattern's notes inside its window
-  (`offset` to `offset + length`, the pattern repeating), each note cut at the clip's end, and notes that
+  (`offset` to `offset + length`, nothing past the pattern's end), each note cut at the clip's end, and notes that
   started before the window's start played from it ("play truncated notes"). Swing as today, per pattern
   tick. Muted clips, muted tracks and soloed tracks decide what's left out.
 - `loopTicks` is the song's length (to the end of the last clip's bar), or the time selection. The
