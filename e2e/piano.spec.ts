@@ -265,7 +265,7 @@ test("the window fills the desktop, resizes and snaps; the ruler moves a playing
   const id = await openPiano(page, "Window", [{ start: 0, pitch: 72 }]);
   const roll = page.getByTestId("piano-roll");
   const win = page.locator('[data-window="piano"]');
-  const desktop = (await page.locator("[data-desktop]").boundingBox())!;
+  const desktop = (await page.locator("[data-desktop=music]").boundingBox())!;
 
   // It opens filling the desktop; a double-click on its title makes it a window, and another fills again.
   await expect(win).toHaveAttribute("data-snap", "full");

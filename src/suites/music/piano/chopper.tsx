@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Knob, PERCENT, percent } from "../knob";
 import { useMusic } from "../store";
-import { useMusicUi } from "../ui";
+import { useMusicWindows } from "../ui";
 import { MusicWindow, centredOnDesktop } from "../window";
 import { acceptChop, chopperResult, pianoContext } from "./actions";
 import { type ChopperSettings, DEFAULT_CHOPPER, usePiano } from "./store";
@@ -59,7 +59,7 @@ export function Chopper() {
     // `notes`, `selected` and `snap` are what `pianoContext` reads.
   }, [settings, notes, selected, snap]);
   // In front of the Piano roll whenever it opens.
-  useEffect(() => useMusicUi.getState().focusWindow("chopper"), []);
+  useEffect(() => useMusicWindows.getState().focus("chopper"), []);
 
   // Knob values in between land on the next setting in the direction turned (the wheel and the arrows move a little at a time).
   const turnMul = (value: number) => {

@@ -65,8 +65,8 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Markers | `M` at the playhead: on the selected clip under it, else on the timeline. `⇧M` / `⇧⌘M` go to the next / previous one, `⌥M` deletes the one at the playhead. See [Markers](#markers) |
 | Expressions | `⌥`-click a property's stopwatch (or right-click its name) to drive it with a short script like `wiggle(2, 5)`. See [Expressions](#expressions) |
 | Properties | **Properties** tab (or double-click a clip): drag a blue number sideways to change it (⇧ faster, ⌥ finer), click it to type, ↺ resets |
-| Left panel width | Drag its right edge (or focus it and use ←/→); double-click the edge for the usual width. It remembers a separate width for when the keyframes show |
-| Video effects | **Effects** tab → **Video effects**: drag one onto a clip (on the timeline or the canvas), or select clips and press **+**. Change, animate, reorder (⋯) or remove it in **Properties** |
+| Panels | Drag a panel's tab onto another panel's tabs to group them, or towards one of its edges to put it beside it; drag the line between two panels to resize them (or focus it and use the arrows). Each panel's **⋯** menu floats it out as a window (its × docks it back), picks a workspace (**Editing**, **Captions**, **Effects**, **Compact**) or resets the layout. The layout is the same in every video. While a clip's keyframes show, Properties takes the room they need |
+| Video effects | **Effects** tab → **Video effects**: drag one onto a clip (on the timeline or the canvas) or onto the Properties panel (it goes on the clips it shows), or select clips and press **+**. Change, animate, reorder (⋯) or remove it in **Properties** |
 | Copy effects | Right-click a clip → **Copy effects** (`⌥⌘C`), select other clips, right-click → **Paste effects** (`⌥⌘V` pastes all of them, or pick one): values and keyframes, and video effects the clips don't have yet. A text keeps its own words |
 | Transitions | **Effects** tab → **Transitions**: drag one onto a cut or a clip's edge, or **+** / `⇧⌘D` for the cut nearest the playhead. Click it on the timeline to select it, drag its edges to change its length, `⌫` removes it |
 | Library | **Media** tab → **Library**: media and saved clips shared by every video. Drop files or folders on it, **Add to Library** from a media card's menu, or right-click clips → **Save to Library…**. Drag onto the timeline or double-click to use |
@@ -357,7 +357,7 @@ lines), an animation and whether to keep punctuation. **Word by word**, **Highli
 speech: each word appears as it's said, or the word being said is coloured or grows (a text animator on each
 caption, stepping from word to word at the times they're spoken). Pop, Fade, Rise, Blur, Glitch or any transition
 play as each caption appears instead. You can close
-the dialog while it works. The captions land on a **Captions** track on top, as one undoable step.
+the window while it works. The captions land on a **Captions** track on top, as one undoable step.
 
 The **Captions** tab edits them all at once: a preset, the animation, and the Text, Appearance and Motion values
 (font, size, case, colours, stroke, box, position...). Below that is the transcript: click a line's time to go to it,
@@ -366,7 +366,7 @@ next or delete it. Each caption is a normal text clip, so you can move, trim and
 one caption's own look in **Properties**.
 
 Transcribing happens on this Mac by default: Whisper large-v3 turbo through [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
-on the GPU, free, private and offline. The first time, **Set up** in the dialog installs whisper.cpp with Homebrew and
+on the GPU, free, private and offline. The first time, **Set up** in the window installs whisper.cpp with Homebrew and
 downloads the model (574 MB, into `~/.cache/editor/models`, shared by every checkout). Or pick **OpenAI** or **Groq** and
 paste an API key (checked, then saved in `data/settings.json`, or set `OPENAI_API_KEY` / `GROQ_API_KEY`). Before any
 engine hears the audio, long silences are squeezed out and the word timings are lined up with where the sound actually
@@ -381,12 +381,12 @@ track, or the whole video (up to 1080p, H.264), appended to the main track. Clic
 Audio is cached in `data/music`, so previewing then adding (or reusing a song in another video) only downloads once.
 
 Sites regularly break `yt-dlp`; if searches or downloads start failing, run `brew upgrade yt-dlp`.
-Mainstream songs baked into a video will likely get muted or claimed when posted, so the export dialog has
+Mainstream songs baked into a video will likely get muted or claimed when posted, so the export window has
 **Leave out music**: export without the audio tracks, then add the official sound in TikTok/Instagram when posting.
 
 ### Clip properties
 
-The **Properties** tab in the left panel shows the selected clip's effects, like Premiere's Effect Controls:
+The **Properties** panel (right of the monitor, at first) shows the selected clip's effects, like Premiere's Effect Controls:
 
 - **Motion** (clips on video tracks): framing (fit the whole frame, or fill the canvas: that's 100%), position,
   scale, scale width (turn off *Uniform Scale* to stretch), rotation and anchor point. Positions are shown in pixels of

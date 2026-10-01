@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { edgeSnap, magnetise, resizeRect, snappedRect, unsnapAt } from "./window-geometry";
+import { edgeSnap, magnetise, resizeRect, snappedRect, unsnapAt } from "./geometry";
 
 const desktop = { width: 1000, height: 700 };
 

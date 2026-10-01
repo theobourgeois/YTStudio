@@ -92,6 +92,7 @@ import { ParamRow, ResetButton, useParamEditors } from "./param-rows";
 import { ParentRow } from "./parent-row";
 import { RemapControls, TimeRemapSwitch } from "./time-remap-controls";
 import { TransitionProperties } from "./transition-properties";
+import { showEffects, showPanel } from "@/stores/video-dock";
 
 export function PropertiesPanel() {
   const clipId = useEditor((s) => s.selectedClipIds.at(-1) ?? null);
@@ -622,7 +623,7 @@ function AddEffectRow({ clipId, kind }: { clipId: string; kind: ClipKind }) {
   };
   return (
     <div className="flex gap-1.5 px-3 py-2.5">
-      <button type="button" aria-label="Add an effect" onClick={() => useLayout.getState().showEffects("video")} className={ADD_BUTTON}>
+      <button type="button" aria-label="Add an effect" onClick={() => showEffects("video")} className={ADD_BUTTON}>
         <PiSparkle className="size-3.5 shrink-0" />
         <span className="truncate">Effect</span>
       </button>
@@ -715,7 +716,7 @@ function CaptionNote() {
       <button
         type="button"
         className="shrink-0 cursor-pointer font-medium text-brand hover:underline"
-        onClick={() => useLayout.getState().setLeftPanel("captions")}
+        onClick={() => showPanel("captions")}
       >
         Edit all captions
       </button>

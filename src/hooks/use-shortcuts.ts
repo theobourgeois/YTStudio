@@ -7,6 +7,7 @@ import { deleteSelectedKeyframes } from "@/components/properties/keyframe-lanes"
 import { copySelectedKeyframes, easeSelectedKeyframes, pasteCopiedKeyframes, useKeyframeSelection } from "@/components/properties/keyframe-selection";
 import { retimableIds } from "@/components/timeline/speed-control";
 import { timelineCommands } from "@/components/timeline/view-store";
+import { keptByWindow } from "@/components/windows/floating-window";
 import { useAssistant } from "@/stores/assistant";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
@@ -15,6 +16,7 @@ import { deleteSelectedVertices, usePathEditing } from "@/stores/path-editing";
 import { usePlayback } from "@/stores/playback";
 import { useSourcePreview } from "@/stores/source-preview";
 import { resolveShortcut, type ShortcutAction } from "./shortcuts";
+import { showPanel } from "@/stores/video-dock";
 
 const ZOOM_STEP = 1.25;
 const EPS = 1e-4;
@@ -59,7 +61,7 @@ export function useShortcuts() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing) return;
-      if (isEditableTarget(e.target) || isOverlayOpen()) return;
+      if (isEditableTarget(e.target) || keptByWindow(e.target) || isOverlayOpen()) return;
       const action = resolveShortcut(e);
       // preventDefault stops Space from clicking a focused button, arrows from scrolling, etc.
       if (action && run(action)) e.preventDefault();
@@ -68,7 +70,7 @@ export function useShortcuts() {
     // an open tooltip (or a popover still fading out) would otherwise swallow it.
     const onEscapeCapture = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.isComposing || !useSourcePreview.getState().assetId) return;
-      if (isEditableTarget(e.target) || isOverlayOpen()) return;
+      if (isEditableTarget(e.target) || keptByWindow(e.target) || isOverlayOpen()) return;
       useSourcePreview.getState().close();
       e.preventDefault(); // not also "deselect"
     };
@@ -232,15 +234,15 @@ function run(action: ShortcutAction): boolean {
       return true;
     case "newAdjustmentLayer":
       editor.addLayer("adjustment");
-      useLayout.getState().setLeftPanel("properties");
+      showPanel("properties");
       return true;
     case "newSolid":
       editor.addLayer("solid");
-      useLayout.getState().setLeftPanel("properties");
+      showPanel("properties");
       return true;
     case "newCamera":
       editor.addLayer("camera");
-      useLayout.getState().setLeftPanel("properties");
+      showPanel("properties");
       return true;
     case "nest":
       if (!editor.selectedClipIds.length) return false;

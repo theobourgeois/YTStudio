@@ -2,37 +2,6 @@ import { create } from "zustand";
 
 const SIDEBAR_KEY = "editor-sidebar-open";
 const KEYFRAMES_KEY = "editor-keyframes-open";
-const PANEL_WIDTHS_KEY = "editor-left-panel-widths";
-
-/**
- * Which width the left panel is at: its usual one, or the wider one it takes while a clip's
- * properties show their keyframe lanes (Premiere's Effect Controls timeline needs the room).
- */
-export type PanelWidthMode = "normal" | "lanes";
-
-export const DEFAULT_PANEL_WIDTHS: Record<PanelWidthMode, number> = { normal: 344, lanes: 688 };
-/** The narrowest each can be dragged to (the lanes need some room beside the properties' own column). */
-export const MIN_PANEL_WIDTHS: Record<PanelWidthMode, number> = { normal: 280, lanes: 520 };
-export const MAX_PANEL_WIDTH = 960;
-
-function storedPanelWidths(): Record<PanelWidthMode, number> {
-  try {
-    const raw = JSON.parse(localStorage.getItem(PANEL_WIDTHS_KEY) ?? "null") as Partial<Record<PanelWidthMode, unknown>> | null;
-    const width = (mode: PanelWidthMode) => {
-      const w = raw?.[mode];
-      return typeof w === "number" && Number.isFinite(w) ? w : DEFAULT_PANEL_WIDTHS[mode];
-    };
-    return { normal: width("normal"), lanes: width("lanes") };
-  } catch {
-    return { ...DEFAULT_PANEL_WIDTHS };
-  }
-}
-
-/**
- * The tabs of the left panel: media (from `MediaSource`), effects (of an `EffectKind`), captions, and the
- * selection's properties.
- */
-export type LeftPanelTab = "media" | "effects" | "captions" | "properties";
 
 /**
  * Where the Media tab's files come from: this video's own media, the Library shared by every
@@ -66,14 +35,12 @@ interface LayoutState {
   /** The timeline toolbar's Speed popover (⌘R, like Premiere's Speed/Duration). */
   speedOpen: boolean;
   setSpeedOpen: (open: boolean) => void;
-  leftPanel: LeftPanelTab;
-  setLeftPanel: (panel: LeftPanelTab) => void;
+  /** The Media panel's source (`showMedia` in `stores/video-dock.ts` also brings the panel forward). */
   mediaSource: MediaSource;
-  /** Shows the Media tab on this source. */
-  showMedia: (source: MediaSource) => void;
+  setMediaSource: (source: MediaSource) => void;
+  /** The Effects panel's kind (`showEffects` also brings it forward). */
   effectKind: EffectKind;
-  /** Shows the Effects tab on this kind. */
-  showEffects: (kind: EffectKind) => void;
+  setEffectKind: (kind: EffectKind) => void;
   tool: CanvasTool;
   setTool: (tool: CanvasTool) => void;
   /** The Program monitor draws at this fraction of its pixels (Premiere's Playback Resolution): 1, 0.5 or 0.25. */
@@ -89,10 +56,6 @@ interface LayoutState {
   graphs: Record<string, GraphMode>;
   /** Open a property's graph (in `mode`) or, with null, close it. */
   setGraph: (id: string, mode: GraphMode | null) => void;
-  /** The left panel's widths in px, as dragged (the panel keeps them inside the window). */
-  panelWidths: Record<PanelWidthMode, number>;
-  /** Set one of them (clamped); `save` remembers it for next time (at the end of a drag). */
-  setPanelWidth: (mode: PanelWidthMode, width: number, save?: boolean) => void;
 }
 
 const RESOLUTION_KEY = "editor-preview-resolution";
@@ -130,17 +93,13 @@ export const useLayout = create<LayoutState>((set, get) => ({
   setSpeedOpen(speedOpen) {
     set({ speedOpen });
   },
-  leftPanel: "media",
-  setLeftPanel(leftPanel) {
-    set({ leftPanel });
-  },
   mediaSource: "project",
-  showMedia(mediaSource) {
-    set({ leftPanel: "media", mediaSource });
+  setMediaSource(mediaSource) {
+    set({ mediaSource });
   },
   effectKind: "video",
-  showEffects(effectKind) {
-    set({ leftPanel: "effects", effectKind });
+  setEffectKind(effectKind) {
+    set({ effectKind });
   },
   tool: "select",
   setTool(tool) {
@@ -161,12 +120,5 @@ export const useLayout = create<LayoutState>((set, get) => ({
   setGraph(id, mode) {
     const { [id]: _, ...rest } = get().graphs;
     set({ graphs: mode ? { ...rest, [id]: mode } : rest });
-  },
-  panelWidths: storedPanelWidths(),
-  setPanelWidth(mode, width, save = false) {
-    const clamped = Math.round(Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTHS[mode], width)));
-    const panelWidths = { ...get().panelWidths, [mode]: clamped };
-    if (clamped !== get().panelWidths[mode]) set({ panelWidths });
-    if (save) localStorage.setItem(PANEL_WIDTHS_KEY, JSON.stringify(panelWidths));
   },
 }));

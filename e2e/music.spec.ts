@@ -570,16 +570,20 @@ test("the assistant programs the drums with the music editor's tools", async ({ 
   expect(await muted(page)).toBe("--");
 });
 
-test("settings: ⌘, opens on the music section, with the device and the plugin bench", async ({ page }) => {
+test("settings: ⌘, opens on the music tab, with the device and the plugin bench", async ({ page }) => {
   await openNewSong(page, "Engine bench");
   await page.keyboard.press("ControlOrMeta+Comma");
-  const dialog = page.getByRole("dialog", { name: "Settings" });
-  await expect(dialog.getByRole("heading", { level: 1 })).toHaveText("Music");
-  // The gear in the toolbar opens the same page.
+  const dialog = page.getByRole("region", { name: "Settings" });
+  await expect(dialog.getByRole("tab", { selected: true })).toHaveText("Music");
+  // Keys pressed in it are its own: Space doesn't play the song.
+  await page.keyboard.press("Space");
+  await page.waitForTimeout(300);
+  await expect(page.getByRole("toolbar", { name: "Transport" }).getByRole("button", { name: "Play" })).not.toHaveAttribute("aria-pressed", "true");
+  // The gear in the toolbar opens the same window.
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await page.locator("header").getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(dialog.getByRole("heading", { level: 1 })).toHaveText("Music");
+  await expect(dialog.getByRole("tab", { selected: true })).toHaveText("Music");
 
   // The output device and its buffer.
   const device = dialog.getByTestId("device-settings");
@@ -673,7 +677,7 @@ test("the toolbar, as FL Studio's: the tempo LCD drags, + makes a pattern, the p
 test("a double-click on the rack's title sends it to the desktop's corner, and another brings it back", async ({ page }) => {
   await openNewSong(page, "Corner");
   const rack = page.locator('[data-window="rack"]');
-  const desktop = (await page.locator("[data-desktop]").boundingBox())!;
+  const desktop = (await page.locator("[data-desktop=music]").boundingBox())!;
   const before = (await rack.boundingBox())!;
   expect(before.x - desktop.x).toBeGreaterThan(0);
   await rack.locator("[data-window-title]").dblclick({ position: { x: 150, y: 10 } });
@@ -1156,7 +1160,7 @@ test("the Browser's files go into the song: dragged onto the rack or a channel, 
   await expect.poll(names).toEqual(["Kick 1", "Break", "Kick 1", "Break"]);
 
   // Dropped on the desktop, away from the windows: a new channel, as in FL Studio.
-  const desktop = page.locator("[data-desktop]");
+  const desktop = page.locator("[data-desktop=music]");
   const box = (await desktop.boundingBox())!;
   await item("Kick 2.wav").dragTo(desktop, { targetPosition: { x: box.width - 40, y: box.height - 40 } });
   await expect.poll(names).toEqual(["Kick 1", "Break", "Kick 1", "Break", "Kick 2"]);

@@ -152,7 +152,7 @@ async function galleryIndex(): Promise<{ SECTIONS: { id: string; shots?: { name:
 }
 
 // The app's screens, on a video and a song made for them.
-const screens = ["empty", "new-project", "video", "video-effects", "video-properties", "video-captions", "video-settings", "video-clip-menu", "music", "music-piano"];
+const screens = ["empty", "new-project", "video", "video-effects", "video-properties", "video-captions", "video-settings", "video-export", "video-auto-captions", "video-save-to-library", "video-dock-drag", "video-dock-effects", "video-dock-floating", "video-clip-menu", "settings-window", "music", "music-piano", "music-settings"];
 if (screens.some(wanted)) {
   const video = await makeVideo();
   const music: ProjectSummary = await (await fetch(`${api}/projects`, { method: "POST", headers: json, body: JSON.stringify({ suite: "music", name: "Beat" }) })).json();
@@ -173,7 +173,7 @@ if (screens.some(wanted)) {
       await page.getByRole("dialog").waitFor();
       await shoot(page, `new-project-${suffix}`);
     }
-    if (screens.slice(2, 8).some(wanted)) {
+    if (screens.slice(2, 15).some(wanted)) {
       await page.goto(`${web}/p/${video.id}`);
       await page.locator("[data-clip-id]").first().waitFor();
       await page.waitForTimeout(800);
@@ -191,19 +191,81 @@ if (screens.some(wanted)) {
         await tab("Properties").click();
         await shoot(page, `video-properties-${suffix}`);
       }
+      // Docked panels: Captions dragged to the monitor's left (the drop shown), a workspace, a floating timeline.
+      if (wanted("video-dock-drag")) {
+        const tab = (await page.getByRole("tab", { name: "Captions", exact: true }).boundingBox())!;
+        const monitor = (await page.getByRole("region", { name: "Program panel" }).boundingBox())!;
+        await page.mouse.move(tab.x + tab.width / 2, tab.y + tab.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(tab.x + 40, tab.y + 40, { steps: 3 });
+        await page.mouse.move(monitor.x + 40, monitor.y + monitor.height / 2, { steps: 8 });
+        await shoot(page, `video-dock-drag-${suffix}`);
+        await page.mouse.up();
+        await page.waitForTimeout(300);
+        await shoot(page, `video-dock-dropped-${suffix}`);
+      }
+      if (wanted("video-dock-effects")) {
+        await page.getByRole("button", { name: "Program panel menu" }).click();
+        await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
+        await page.getByRole("tab", { name: "Effects", exact: true }).click();
+        await page.waitForTimeout(400);
+        await shoot(page, `video-dock-effects-${suffix}`);
+      }
+      if (wanted("video-dock-floating")) {
+        await page.getByRole("button", { name: "Timeline panel menu" }).click();
+        await page.getByRole("menuitem", { name: "Float Timeline" }).click();
+        await page.locator('[data-window="panel:timeline"]').waitFor();
+        await page.waitForTimeout(400);
+        await shoot(page, `video-dock-floating-${suffix}`);
+      }
+      if (screens.slice(11, 14).some(wanted)) {
+        await page.getByRole("button", { name: "Program panel menu" }).click();
+        await page.getByRole("menuitem", { name: "Reset layout" }).click();
+      }
       if (wanted("video-clip-menu")) {
         await page.locator("[data-clip-id]").first().click({ button: "right" });
         await shoot(page, `video-clip-menu-${suffix}`);
         await page.keyboard.press("Escape");
       }
       if (wanted("video-settings")) {
-        await page.getByRole("button", { name: /settings/i }).first().click();
-        await page.getByRole("dialog").waitFor();
+        await page.getByRole("button", { name: "Video settings", exact: true }).click();
+        await page.locator('[data-window="video-settings"]').waitFor();
         await shoot(page, `video-settings-${suffix}`);
         await page.keyboard.press("Escape");
       }
+      // The export, a window over the editor.
+      if (wanted("video-export")) {
+        await page.getByRole("button", { name: "Export", exact: true }).click();
+        await page.locator('[data-window="export"]').waitFor();
+        await page.waitForTimeout(300);
+        await shoot(page, `video-export-${suffix}`);
+        await page.keyboard.press("Escape");
+      }
+      if (wanted("video-auto-captions")) {
+        await page.getByRole("button", { name: "Auto captions", exact: true }).first().click();
+        await page.locator('[data-window="captions"]').waitFor();
+        await page.waitForTimeout(500);
+        await shoot(page, `video-auto-captions-${suffix}`);
+        await page.keyboard.press("Escape");
+      }
+      if (wanted("video-save-to-library")) {
+        await page.locator("[data-clip-id]").first().click({ button: "right" });
+        await page.getByRole("menuitem", { name: /Save to Library/ }).click();
+        await page.locator('[data-window="save-to-library"]').waitFor();
+        await page.waitForTimeout(300);
+        await shoot(page, `video-save-to-library-${suffix}`);
+        await page.keyboard.press("Escape");
+      }
+      // Settings, the app's window (⌘,), over the video: on its General tab, with the themes.
+      if (wanted("settings-window")) {
+        await page.keyboard.press("ControlOrMeta+Comma");
+        await page.locator("[data-settings]").waitFor();
+        await page.getByRole("tab", { name: "General" }).click();
+        await shoot(page, `settings-window-${suffix}`);
+        await page.keyboard.press("Escape");
+      }
     }
-    if (wanted("music") || wanted("music-piano")) {
+    if (wanted("music") || wanted("music-piano") || wanted("music-settings")) {
       await page.goto(`${web}/p/${music.id}`);
       await page.getByRole("toolbar", { name: "Transport" }).waitFor();
       if (!kitAdded) {
@@ -223,6 +285,13 @@ if (screens.some(wanted)) {
         await page.waitForTimeout(500);
         await shoot(page, `music-piano-${suffix}`);
         await page.keyboard.press("F7");
+      }
+      if (wanted("music-settings")) {
+        await page.keyboard.press("ControlOrMeta+Comma");
+        await page.locator("[data-settings]").waitFor();
+        await page.waitForTimeout(300);
+        await shoot(page, `music-settings-${suffix}`);
+        await page.keyboard.press("Escape");
       }
     }
     await page.close();
