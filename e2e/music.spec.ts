@@ -150,6 +150,16 @@ test("a pattern is as long as its notes: the rack is dragged wider to reach furt
   await page.getByRole("menuitemcheckbox", { name: "4 bars" }).click();
   await expect(length).toHaveAttribute("aria-valuenow", "64");
   await expect.poll(async () => (await savedSong(page, id)).patterns[0].length).toBe(64);
+  // Past the rack's width, the steps scroll; the middle button drags them along, anywhere on the rack.
+  const steps = page.getByTestId("rack-steps");
+  const scrolled = () => steps.evaluate((e) => e.scrollLeft);
+  const lead = (await page.getByTestId("channel-rack").getByRole("listitem").first().boundingBox())!;
+  await page.mouse.move(lead.x + 10, lead.y + lead.height / 2);
+  await page.mouse.down({ button: "middle" });
+  await page.mouse.move(lead.x - 110, lead.y + lead.height / 2, { steps: 5 });
+  await page.mouse.up({ button: "middle" });
+  expect(await scrolled()).toBe(120);
+  await steps.evaluate((e) => (e.scrollLeft = 0));
   await length.click({ button: "right" });
   await page.getByRole("menuitemcheckbox", { name: "1 bar" }).click();
   await expect.poll(async () => (await savedSong(page, id)).patterns[0].length).toBe(16);

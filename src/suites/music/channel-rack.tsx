@@ -193,6 +193,25 @@ export function ChannelRack() {
       <div
         className="relative flex flex-col gap-1.5 px-2.5 pt-1.5 pb-2 pr-3.5"
         data-testid="channel-rack"
+        // The middle button pans the steps, anywhere on the rack, as in the Piano roll and the Playlist
+        // (a knob's middle click resets it instead: it's prevented by then).
+        onPointerDown={(e) => {
+          const steps = scroller.current;
+          if (e.button !== 1 || e.defaultPrevented || !steps || !e.currentTarget.contains(e.target as Node)) return;
+          e.preventDefault();
+          const from = steps.scrollLeft;
+          startPointerDrag(e, {
+            button: 1,
+            threshold: 0,
+            cursor: "grabbing",
+            onMove(_, travel) {
+              steps.scrollLeft = from - travel.x;
+            },
+            onCancel() {
+              steps.scrollLeft = from;
+            },
+          });
+        }}
         // Seen before a channel's button takes it, so the line goes away over one.
         onDragOverCapture={(e) => {
           if (!carriesSamples(e.dataTransfer)) return;
