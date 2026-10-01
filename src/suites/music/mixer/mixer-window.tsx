@@ -243,7 +243,11 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       data-track={id}
       data-track-name={name}
       className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r border-line pb-1", selected ? "bg-surface-2" : "bg-surface-1", current && "shadow-[inset_0_2px_0] shadow-brand")}
-      style={{ width: STRIP_W }}
+      style={{
+        width: STRIP_W,
+        // A coloured track is coloured all the way down (FL's colourful mixer), over the theme's own strip colour.
+        ...(track.color && { background: `color-mix(in oklab, ${track.color} ${selected ? 42 : 26}%, var(--${selected ? "surface-2" : "surface-1"}))` }),
+      }}
       onPointerDownCapture={(e) => {
         // The send switch acts for the selected track: pressing it doesn't select this one.
         if ((e.target as HTMLElement).closest("[data-send]")) return;
