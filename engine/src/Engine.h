@@ -5,6 +5,7 @@
 // the song reaches it lock-free, and the bench is skipped for a block if it's busy being changed.
 #pragma once
 
+#include "FilePreview.h"
 #include "Plugins.h"
 #include "Sequencer.h"
 #include "Song.h"
@@ -71,6 +72,8 @@ private:
     PluginHost plugins;
     PluginHost effects;
     Sequencer sequencer;
+    /** The Browser's preview of a file, outside the song. */
+    FilePreview preview;
     /** The song as it was last given, to build it again when one of its plugins has finished loading. */
     juce::var lastSong;
 
@@ -88,6 +91,7 @@ private:
     /** What the last transport event said, to say it again only when it changes. */
     bool saidPlaying = false;
     bool saidQuiet = true;
+    bool saidPreviewing = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Engine)
 };

@@ -25,6 +25,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { ColorPicker, ColorSwatchPicker } from "@/components/color-picker";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -352,6 +353,23 @@ function Fields() {
   );
 }
 
+/** The colour picker: open inline, and as the swatch that opens it (the Properties panel's colours). */
+function Colours() {
+  const [color, setColor] = useState("#d4247a");
+  const edit = { begin: () => {}, set: setColor, end: () => {} };
+  return (
+    <div className="flex items-start gap-6">
+      <div className="floating w-60 rounded-md p-2.5">
+        <ColorPicker value={color} edit={edit} />
+      </div>
+      <Row label="swatch">
+        <ColorSwatchPicker value={color} label="Colour" edit={edit} />
+        <ColorSwatchPicker value="#120c5c" label="Disabled colour" disabled edit={edit} />
+      </Row>
+    </div>
+  );
+}
+
 function Ranges() {
   const [volume, setVolume] = useState([70]);
   return (
@@ -607,6 +625,7 @@ export const PRIMITIVE_SECTIONS: GallerySection[] = [
     shots: [{ name: "select-open", click: "Frame rate" }],
   },
   { id: "ranges", title: "Sliders, switches, progress", source: "components/ui/slider.tsx, switch.tsx, progress.tsx", render: () => <Ranges /> },
+  { id: "colours", title: "Colour picker", source: "components/color-picker.tsx", render: () => <Colours />, shots: [{ name: "open", click: "Colour" }] },
   {
     id: "menus",
     title: "Menus, popovers, tooltips",

@@ -157,7 +157,8 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      src/Engine.cpp: the device, commands, the real-time `process`. Song.cpp: a compiled song
                      and its samples. Sequencer.cpp: the transport, the sampler's voices, plugin channels'
                      notes, the metronome. Host.cpp: the song's plugin channels (instances, state files,
-                     windows). Plugins.cpp: plugin scanning and the bench's two slots. Protocol.cpp:
+                     windows). Plugins.cpp: plugin scanning and the bench's two slots. FilePreview.cpp:
+                     the Browser's preview, a file streamed from disk (a reader thread, a lock-free ring). Protocol.cpp:
                      the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
@@ -375,6 +376,8 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   out) and for `render`.
 - Samples are read whole into memory on the message thread and never dropped while the engine runs (`SampleCache`):
   a sounding voice holds a bare pointer to its sample.
+  Long files are streamed instead (`FilePreview`, the Browser's preview so far): a `TimeSliceThread` decodes
+  and resamples ahead into a ring the audio thread reads; offline, the rendering thread fills it.
 - `--offline` (`AudioEngine`'s `offline`) opens no device: `render` computes the next samples on request, as fast
   as it can, and measures them (or writes a WAV). `server/music/engine.integration.test.ts` tests what things
   *sound like* this way, with the real engine and the test synth, silently; it's skipped when the engine isn't

@@ -152,3 +152,28 @@ describe("SampleBrowser", () => {
     expect(browser.search("clap").hits.map((h) => h.name)).toEqual(["Clap 1.wav"]);
   });
 });
+
+describe("/api/browser/preview", () => {
+  it("previews only the Browser's audio files", async () => {
+    const { createApp } = await import("../app.ts");
+    const fake = [process.execPath, path.join(import.meta.dirname, "fake-engine.mjs")];
+    const { app, shutdown } = await createApp({ dataDir: paths.root, engine: { command: fake, pluginPaths: [] } });
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api`;
+    const post = (url: string, body: unknown) =>
+      fetch(base + url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    try {
+      await post("/browser/roots", { path: path.join(samples, "Drums") });
+      expect((await post("/browser/preview", { path: path.join(samples, "Loops", "Break 120.mp3") })).status).toBe(403);
+      expect((await post("/browser/preview", { path: path.join(samples, "Drums", "808 Kit", "notes.txt") })).status).toBe(400);
+      const res = await post("/browser/preview", { path: path.join(samples, "Drums", "Snare.aif"), id: "snare", start: 0.5 });
+      expect((await res.json()).transport.preview).toMatchObject({ id: "snare" });
+      const stopped = await (await post("/engine/stopPreview", {})).json();
+      expect(stopped.transport.preview).toBeNull();
+    } finally {
+      server.close();
+      shutdown();
+    }
+  });
+});

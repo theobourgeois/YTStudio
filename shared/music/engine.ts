@@ -96,6 +96,27 @@ export interface EngineTransport {
   playing: boolean;
   /** Where the loop is, in ticks from its start (what the engine is computing: it's heard `outputLatencyMs` later). */
   tick: number;
+  /** The Browser's preview playing, if one is (absent from engines that don't say). */
+  preview?: EnginePreview | null;
+}
+
+/** A file the Browser is previewing (`POST /api/browser/preview`), as far as the engine has played it. */
+export interface EnginePreview {
+  /** The tab's name for this preview (`PreviewFileRequest.id`). */
+  id: string;
+  /** Where it is in the file, in seconds (heard `outputLatencyMs` later). */
+  seconds: number;
+  /** The file's length, in seconds. */
+  duration: number;
+}
+
+/** Preview one of the Browser's files (`POST /api/browser/preview`), cutting off the last one. */
+export interface PreviewFileRequest {
+  path: string;
+  /** Seconds into the file (default: its start). */
+  start?: number;
+  /** The tab's name for it, given back in `EnginePreview.id`. */
+  id?: string;
 }
 
 /**
@@ -198,6 +219,10 @@ export interface EngineCommands {
   play: { from?: number };
   stop: Record<string, never>;
   metronome: { on: boolean };
+  /** Stop the Browser's preview (it's started by `POST /api/browser/preview`, which checks the file). */
+  stopPreview: Record<string, never>;
+  /** The Browser's preview volume, 0..1, at once. */
+  previewVolume: { volume: number };
   /** Play a channel's sample once, now. `pitch` is semitones from its own pitch, `velocity` 0..1. */
   trigger: { channel: string; pitch?: number; velocity?: number };
   /**

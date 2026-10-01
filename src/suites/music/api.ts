@@ -7,6 +7,7 @@ import type {
   EngineEvent,
   EnginePlugin,
   EngineStatus,
+  PreviewFileRequest,
   SetDeviceRequest,
   SetSongRequest,
   SetSongResponse,
@@ -44,6 +45,8 @@ export const musicApi = {
   listBrowserFolder: (path: string) => request<BrowserItem[]>(`/api/browser/list?${pathQuery(path)}`),
   searchBrowser: (q: string, limit?: number) =>
     request<BrowserSearchResult>(`/api/browser/search?q=${encodeURIComponent(q)}${limit ? `&limit=${limit}` : ""}`),
+  /** Hear one of the Browser's files (cutting off the last); `engine("stopPreview", {})` stops it. */
+  previewFile: (body: PreviewFileRequest) => request<EngineStatus>("/api/browser/preview", { method: "POST", body: JSON.stringify(body) }),
   /** Where a Browser file is served (its waveform, and its bytes when it's added to the project). */
   browserFileUrl: (path: string) => `/api/browser/file?${pathQuery(path)}`,
   /** What the engine says on its own (where the song is, the meter). Returns how to stop listening. */

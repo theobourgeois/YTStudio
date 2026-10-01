@@ -899,6 +899,7 @@ export interface ToolCallProgressRequest {
 //   GET    /api/browser/list?path=      -> BrowserItem[] (a folder's subfolders and audio files)
 //   GET    /api/browser/search?q=&limit= -> BrowserSearchResult
 //   GET    /api/browser/file?path=      -> the audio file (only inside the Browser's folders)
+//   POST   /api/browser/preview  body: PreviewFileRequest -> EngineStatus (hear it; POST /api/engine/stopPreview stops it)
 //   GET    /api/engine/devices          -> EngineDevices (the output device and its options)
 //   POST   /api/engine/devices  body: SetDeviceRequest -> EngineDevices
 //   POST   /api/engine/:command  body: EngineCommands[command] -> EngineStatus (starts the engine if needed)

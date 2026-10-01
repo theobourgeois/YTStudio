@@ -132,7 +132,7 @@ export async function createApp({
   app.use("/api/transcription", transcriptionRoutes(transcription));
   app.use("/api/assistant", assistantRoutes(assistant, bridge));
   app.use("/api/engine", engineRoutes(engine));
-  app.use("/api/browser", browserRoutes(browser));
+  app.use("/api/browser", browserRoutes(browser, engine));
   app.all(
     "/mcp",
     express.json({ limit: "4mb" }),

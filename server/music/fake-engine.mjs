@@ -16,6 +16,15 @@ let song = null;
 let playingSince = null;
 /** What the desktop app last said of its window (`host`). */
 let host = null;
+/** The Browser's preview: what, from where, since when (ms). It plays for 2 s: the fake reads no files. */
+let preview = null;
+const PREVIEW_SECONDS = 2;
+const previewNow = () => {
+  if (!preview) return null;
+  const seconds = preview.start + (Date.now() - preview.since) / 1000;
+  if (seconds >= PREVIEW_SECONDS) return (preview = null);
+  return { id: preview.id, seconds, duration: PREVIEW_SECONDS };
+};
 /** The plugin channels and effects whose window is open. */
 const editors = new Set();
 
@@ -57,7 +66,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), metronome },
+  transport: { playing: playingSince !== null, tick: tick(), metronome, preview: previewNow() },
   channels: channels(),
   effects: effects(),
   scanning: null,
@@ -80,13 +89,20 @@ const sendTransport = () =>
     event: "transport",
     playing: playingSince !== null,
     tick: tick(),
+    preview: previewNow(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
     cpu: 0.02,
   });
 
 send({ event: "ready", status: status() });
-setInterval(() => playingSince !== null && sendTransport(), 40);
+// While it plays or previews, and once more when a preview ends.
+let previewed = false;
+setInterval(() => {
+  const previewing = previewNow() !== null;
+  if (playingSince !== null || previewing || previewed) sendTransport();
+  previewed = previewing;
+}, 40);
 
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const { id, cmd, ...params } = JSON.parse(line);
@@ -111,6 +127,8 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     sendTransport();
   }
   if (cmd === "metronome") metronome = params.on;
+  if (cmd === "previewFile") preview = { id: params.previewId, start: params.start, since: Date.now() };
+  if (cmd === "stopPreview") preview = null;
   if (cmd === "meterTracks") metered = params.tracks;
   // A plugin window's key, as if pressed there (tests): the engine sends it on.
   if (cmd === "pressKey") send({ event: "key", key: params.key, code: params.code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...params.modifiers });

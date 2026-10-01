@@ -172,8 +172,11 @@ only Théo's own folders (no plugins, presets or kits), global, with a good sear
 and FL's keys. The plan: (0) the reference doc, done; (1) the server, done: `server/music/browser.ts`
 keeps the folders and favourites (`data/browser.json`), lists folders, indexes every folder and audio file
 under them (watched, so new files show up) and serves the files, refusing any path outside them; the
-search is pure (`shared/music/browser.ts`: words in any order, typos, ranked); `/api/browser`. Next:
-(2) a preview voice in the engine that streams from disk; (3) the Browser window (kept on the left, its
+search is pure (`shared/music/browser.ts`: words in any order, typos, ranked); `/api/browser`.
+(2) The engine's preview, done: `engine/src/FilePreview.cpp` streams a file from disk outside the song
+(decoded and resampled ahead on a reader thread into a lock-free ring), cut off by the next with a short
+fade; `POST /api/browser/preview`, `stopPreview`, `previewVolume`, and where it is in the transport
+event (`EnginePreview`); tested offline in `server/music/preview.integration.test.ts`. Next: (3) the Browser window (kept on the left, its
 width resizable, the tree, search results as a list, the waveform, favourites, keys); (4) getting files
 into the song (drags onto the rack, a channel, the Piano roll; several files at once; send to selected
 channel, Shift+Up/Down, Enter); (5) the assistant's tools; (6) the e2e test and docs.

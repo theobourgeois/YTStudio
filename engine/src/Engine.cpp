@@ -32,7 +32,8 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
           sendStatus();
       }),
       plugins (bench.formatManager(), bench.knownPlugins(), "channel", [this] { pluginChanged(); }),
-      effects (bench.formatManager(), bench.knownPlugins(), "effect", [this] { pluginChanged(); })
+      effects (bench.formatManager(), bench.knownPlugins(), "effect", [this] { pluginChanged(); }),
+      preview (isOffline)
 {
     dataDir.createDirectory();
     if (offline)
@@ -70,7 +71,10 @@ Engine::~Engine()
 
 juce::var Engine::transport() const
 {
-    return protocol::object ({ { "playing", sequencer.isPlaying() }, { "tick", sequencer.position() }, { "metronome", sequencer.metronomeOn() } });
+    return protocol::object ({ { "playing", sequencer.isPlaying() },
+                               { "tick", sequencer.position() },
+                               { "metronome", sequencer.metronomeOn() },
+                               { "preview", preview.describe() } });
 }
 
 juce::var Engine::status() const
@@ -203,6 +207,21 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             return reply (fail ("The song playing has no such channel."), {});
         return ok();
     }
+    if (command == "previewFile")
+    {
+        const auto result = preview.play (juce::File (params["file"].toString()), (double) params["start"], params["previewId"].toString());
+        return result.wasOk() ? ok() : reply (result, {});
+    }
+    if (command == "stopPreview")
+    {
+        preview.stop();
+        return ok();
+    }
+    if (command == "previewVolume")
+    {
+        preview.setVolume ((float) (double) params["volume"]);
+        return ok();
+    }
     if (command == "metronome")
     {
         sequencer.setMetronome ((bool) params["on"]);
@@ -320,22 +339,26 @@ void Engine::pluginChanged()
 void Engine::timerCallback()
 {
     sequencer.collectGarbage();
+    preview.collectGarbage();
     checkLatencies();
-    // Where the song is, while it plays or anything sounds, and once more when that ends.
+    // Where the song is, while it plays, previews or anything sounds, and once more when that ends.
     const auto playing = sequencer.isPlaying();
+    const auto previewing = preview.isPlaying();
     const auto level = peak.load();
     const auto meters = sequencer.takeMeters (meterFloor);
     // A track can sound where the output doesn't (sending to nothing but a muted one): it's not quiet then.
     const auto quiet = level < meterFloor && meters.getDynamicObject()->getProperties().isEmpty();
-    if (playing || ! quiet || playing != saidPlaying || quiet != saidQuiet)
+    if (playing || previewing || ! quiet || playing != saidPlaying || quiet != saidQuiet || previewing != saidPreviewing)
         protocol::send (protocol::object ({ { "event", "transport" },
                                             { "playing", playing },
                                             { "tick", sequencer.position() },
+                                            { "preview", preview.describe() },
                                             { "peak", level },
                                             { "meters", meters },
                                             { "cpu", devices.getCpuUsage() } }));
     saidPlaying = playing;
     saidQuiet = quiet;
+    saidPreviewing = previewing;
 }
 
 void Engine::audioDeviceAboutToStart (juce::AudioIODevice* device)
@@ -352,6 +375,7 @@ void Engine::start (double rate, int block)
     const auto longer = juce::jmax (4096, block * 2) > mix.getNumSamples();
     mix.setSize (2, juce::jmax (4096, block * 2), false, false, true);
     sequencer.prepare (rate);
+    preview.prepare (rate);
     plugins.prepare (rate, block);
     effects.prepare (rate, block);
     bench.prepare (rate, block);
@@ -371,6 +395,7 @@ void Engine::render (int frames, const juce::File& file, Reply reply)
         process (channels, 2, juce::jmin (blockSize, frames - done));
     }
     sequencer.collectGarbage();
+    preview.collectGarbage();
 
     if (file != juce::File())
     {
@@ -410,6 +435,7 @@ void Engine::process (float* const* output, int numOutputs, int numSamples)
     auto* left = mix.getWritePointer (0);
     auto* right = mix.getWritePointer (1);
     sequencer.process (left, right, numSamples);
+    preview.process (left, right, numSamples);
     if (tone.load())
     {
         const auto step = toneHz / sampleRate;

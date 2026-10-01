@@ -150,6 +150,14 @@ export class AudioEngine {
     if (this.child) void this.request("host", { ...host }).catch(() => {});
   }
 
+  /**
+   * Preview an audio file (the Browser's), outside the song, cutting off the last one. Not one of the
+   * tab's commands: the Browser's route checks the file is in its folders first.
+   */
+  async previewFile(file: string, start: number, id: string): Promise<EngineStatus> {
+    return this.withSaved((await this.request("previewFile", { file, start, previewId: id })) as RawStatus);
+  }
+
   /** Write the song's plugins' states now (the tab asks before it goes). */
   async saveStates(): Promise<void> {
     if (this.child) await this.request("saveStates", {});
@@ -246,6 +254,10 @@ export class AudioEngine {
       }
       case "metronome":
         return { on: body.on === true };
+      case "stopPreview":
+        return {};
+      case "previewVolume":
+        return { volume: isFiniteNumber(body.volume) ? clamp(body.volume, 0, 1) : 1 };
       case "channelEditor": {
         if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');
         return { channel: body.channel, open: body.open === true };
