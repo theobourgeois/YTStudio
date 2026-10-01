@@ -127,7 +127,8 @@ export function FloatingWindow({ id, title, initial, onClose, menu, heading, too
   const z = windows((s) => s.order.indexOf(id));
   const snap = resizable ? (place.snap ?? null) : null;
   const size = { width: place.width ?? initial.width ?? 800, height: place.height ?? initial.height ?? 500 };
-  const style: CSSProperties = snap ? SNAPPED[snap] : { left: place.x, top: place.y, ...(resizable ? size : {}) };
+  // One that fits what's in it reaches no further than the desktop's bottom: its body scrolls instead (`WindowBody`).
+  const style: CSSProperties = snap ? SNAPPED[snap] : { left: place.x, top: place.y, ...(resizable ? size : { maxHeight: `calc(100% - ${Math.max(0, place.y)}px)` }) };
 
   const dragTitle = (e: ReactPointerEvent<HTMLElement>) => {
     // Its controls are clicked, not dragged by. Nor is a menu opened from one of them: it's drawn

@@ -216,7 +216,8 @@ function ExportForm({ failed }: { failed: string | null }) {
         </p>
       )}
 
-      <WindowFooter>
+      {/* Kept in view at the bottom while the rest scrolls (a short desktop, or the page zoomed in). */}
+      <WindowFooter className="sticky bottom-0 -mx-4 -mb-4 border-t border-line bg-card px-4 py-3">
         <Button variant="ghost" onClick={() => useMusicUi.getState().setExportOpen(false)}>
           Cancel
         </Button>

@@ -13,6 +13,8 @@ import { useWheelValue } from "./wheel";
 
 /** Pixels of drag for the knob's whole range (ten times that with Ctrl, for fine changes). */
 const DRAG_RANGE = 150;
+/** The room (px from the top of the page) a knob needs above it to show its value there while it's dragged. */
+const VALUE_ROOM = 64;
 /** How far the pointer sweeps: from 7 o'clock round to 5 o'clock. */
 const SWEEP = 270;
 
@@ -80,7 +82,8 @@ function arc(cx: number, cy: number, r: number, from: number, to: number): strin
  * Paste value, Type in value).
  */
 export function Knob({ value, min, max, defaultValue, label, format, unit, bipolar, size = 22, className, onBegin, onDrag, onEnd, onCancel, onSet }: KnobProps) {
-  const [dragging, setDragging] = useState(false);
+  // While it's dragged, where its value shows: above it, or under it when there's no room above (the toolbar's, at the window's top).
+  const [dragging, setDragging] = useState<"above" | "below" | null>(null);
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
   const element = useRef<HTMLDivElement>(null);
@@ -136,16 +139,16 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                   threshold: 2,
                   cursor: "ns-resize",
                   onStart() {
-                    setDragging(true);
+                    setDragging((element.current?.getBoundingClientRect().top ?? 100) < VALUE_ROOM ? "below" : "above");
                     onBegin();
                   },
                   onMove: (ev) => onDrag(clamp(start + ((origin - ev.clientY) / (ev.ctrlKey || ev.metaKey ? DRAG_RANGE * 10 : DRAG_RANGE)) * (max - min), min, max)),
                   onEnd() {
-                    setDragging(false);
+                    setDragging(null);
                     onEnd();
                   },
                   onCancel() {
-                    setDragging(false);
+                    setDragging(null);
                     onCancel();
                   },
                 });
@@ -186,7 +189,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                 {notched && <line x1={ix} y1={iy} x2={px} y2={py} stroke="var(--knob-notch)" strokeWidth={Math.max(1.25, size * 0.06)} strokeLinecap="round" />}
               </svg>
               {dragging && (
-                <span className="floating pointer-events-none absolute -top-6 left-1/2 z-20 -translate-x-1/2 rounded-sm px-1.5 py-0.5 text-[10px] whitespace-nowrap tabular-nums">
+                <span className={cn("floating pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 rounded-sm px-1.5 py-0.5 text-[10px] whitespace-nowrap tabular-nums", dragging === "below" ? "top-full mt-1" : "-top-6")}>
                   {format(value)}
                 </span>
               )}
