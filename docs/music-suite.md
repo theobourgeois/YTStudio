@@ -39,6 +39,7 @@ put together and how we use its manual).
 | Windows | Every panel is a floating window on a desktop: dragged, stuck to edges and other windows, resized, maximised (double-click the title), snapped to fill the desktop or half | CLAUDE.md |
 | Transport | Play and stop the current pattern or the song (PAT / SONG), tempo, the metronome, where play starts (the Piano roll's ruler in pattern mode, the Playlist's in song mode, both also moving a playing song) | |
 | Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song`; the Browser's: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`, `star_sample`; the Playlist's: `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`, `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` in song mode | `shared/music/tools.ts` |
+| Export | ⌘R / ⌘⇧R: the save dialog, then FL's export window. Song or pattern, cut or ring out, WAV / MP3 / FLAC / OGG / M4A / MIDI from one render, stems in time with the mix, the plugin delay trimmed, plugins in their offline mode, every core (45× real time with 24 Serums). The song can be edited while it renders. Resampling (linear, Hermite, sinc) chosen in Settings. `export_song` for the assistant | `docs/fl-studio/export.md` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
 
 ### How it's built, in one screen
@@ -72,8 +73,8 @@ The detailed lists are at the end of each reference doc. The main ones:
   audio settings can load one, for testing only).
 - **The playlist has no automation clips** yet (step 4), and audio clips have no fades, gain, stretch or
   precomputed effects (their pitch works, as FL's Resample).
-- **No automation**, and **no export** of the song (the engine can render offline; nothing uses it for
-  that yet).
+- **No automation** yet (step 4, next). Exports have no time markers, wrap remainder or bouncing (render
+  as audio clip, consolidate) yet.
 - Per-note pan is heard on samplers but not sent to plugins. Channels have no colours. Knob menus lack
   "Create automation clip" and "Link to controller".
 - The channel settings window lacks FL's other tabs (loop points, time stretching, the full envelope and
@@ -205,11 +206,15 @@ speed/key/sync, dropping onto the playlist once there is one).
 
 ### 4. Automation and export
 
+**Export: built** (2026-10-01), with Théo's decisions; the reference is `docs/fl-studio/export.md`, which
+ends with how it's built and where it differs. Measured with `scripts/render-bench.ts`. **Automation is
+next.**
+
 - **Automation clips**: a curve over time for a parameter: a channel's volume or pan, a mixer insert's, the
   EQ's, or a plugin's own parameter. FL makes them from a control's right-click ("Create automation clip"),
   which belongs in the knob menu (`knob.tsx`, where FL puts it). The engine needs to list a plugin's parameters and set them
   at block rate (sample-accurate later). Automation clips live in the playlist (step 2).
-- **Export**: render the song offline (the engine already renders on request, much faster than real time)
+- **Export** (built; what was planned): render the song offline (the engine already renders on request, much faster than real time)
   to WAV, then MP3 through ffmpeg (the server already runs it for the video editor); stems per insert
   later. A dialog like the video editor's export, with progress.
 
