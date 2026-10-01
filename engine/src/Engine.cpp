@@ -196,6 +196,15 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             return reply (fail ("That effect's plugin isn't loaded."), {});
         return ok();
     }
+    if (command == "parameters")
+    {
+        // A plugin channel's (or an effect's) parameters that can be automated.
+        const auto owner = params["owner"].toString();
+        const auto list = (owner == "effect" ? effects : plugins).parameters (params["ownerId"].toString());
+        if (! list.isArray())
+            return reply (fail ("That plugin isn't loaded (yet): its parameters can't be listed."), {});
+        return reply (juce::Result::ok(), protocol::object ({ { "parameters", list } }));
+    }
     if (command == "meterTracks")
     {
         juce::StringArray ids;
@@ -377,6 +386,9 @@ void Engine::timerCallback()
     sequencer.prepareClips();
     preview.collectGarbage();
     checkLatencies();
+    // A parameter touched in a plugin's window: the tab can offer to automate it.
+    plugins.reportTouches();
+    effects.reportTouches();
     // Where the song is, while it plays, previews or anything sounds, and once more when that ends.
     const auto playing = sequencer.isPlaying();
     const auto previewing = preview.isPlaying();

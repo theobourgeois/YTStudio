@@ -15,6 +15,7 @@ import {
   type EngineDevices,
   type EngineExportDone,
   type EngineEvent,
+  type EngineParameter,
   type EnginePlugin,
   type EngineRender,
   type EngineSlot,
@@ -293,6 +294,14 @@ export class AudioEngine {
   }
 
   /** The plugins found by the last scan. */
+  /** A song's plugin's parameters that can be automated (`owner`: a plugin channel's or a mixer effect's, by its id). */
+  async parameters(owner: unknown, id: unknown): Promise<EngineParameter[]> {
+    if (owner !== "channel" && owner !== "effect") throw new HttpError(400, '"owner" must be "channel" or "effect".');
+    if (typeof id !== "string" || !/^[\w-]{1,64}$/.test(id)) throw new HttpError(400, '"id" must be a channel\'s or an effect\'s id.');
+    const { parameters } = (await this.request("parameters", { owner, ownerId: id })) as { parameters: EngineParameter[] };
+    return parameters;
+  }
+
   async plugins(): Promise<EnginePlugin[]> {
     return (await this.request("plugins", {})) as EnginePlugin[];
   }

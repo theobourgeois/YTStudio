@@ -14,6 +14,36 @@
 #include <map>
 #include <memory>
 
+/** A parameter's id as the plugin gives it (`AutomationTarget.param`): stable across versions, else its index. */
+juce::String parameterId (juce::AudioPluginInstance&, int index);
+/** A plugin's parameter by its id (or, for a plugin that names them by index, its index): null if it has none such. `found` gets its index. */
+juce::AudioProcessorParameter* findParameter (juce::AudioPluginInstance&, const juce::String& id, int index, int& found);
+
+/**
+ * Hears a plugin's parameters being touched in its own window (any thread): which one is held (so its
+ * automation lets go of it meanwhile), and which was touched last (`PluginHost::reportTouches`).
+ */
+struct ParameterWatcher final : juce::AudioProcessorListener
+{
+    std::atomic<int> held { -1 }, touched { -1 };
+    std::atomic<juce::uint32> touches { 0 };
+
+    void audioProcessorParameterChanged (juce::AudioProcessor*, int, float) override {}
+    void audioProcessorChanged (juce::AudioProcessor*, const ChangeDetails&) override {}
+    void audioProcessorParameterChangeGestureBegin (juce::AudioProcessor*, int index) override
+    {
+        held = index;
+        touched = index;
+        ++touches;
+    }
+    void audioProcessorParameterChangeGestureEnd (juce::AudioProcessor*, int index) override
+    {
+        auto expected = index;
+        held.compare_exchange_strong (expected, -1);
+        ++touches;
+    }
+};
+
 struct HostedPlugin
 {
     ~HostedPlugin();
@@ -40,6 +70,12 @@ struct HostedPlugin
     };
     std::array<Pending, 128> pending;
     int numPending = 0;
+
+    // Any thread's -------------------------------------------------------------
+    /** Its parameters being touched in its window: the one held (automation leaves it alone), the last touched. */
+    ParameterWatcher watcher;
+    /** The message thread's: the touches already said. */
+    juce::uint32 touchesSaid = 0;
 };
 
 class PluginHost final : private juce::Timer
@@ -90,9 +126,21 @@ public:
 
     /** `{ loaded: [{ <owner key>, name, editorOpen, latency }], loading: [ids], failed: [{ <owner key>, error }] }`. */
     juce::var describe() const;
+    /**
+     * The owner's plugin's parameters that can be automated: `[{ index, id, name, value, text }]`, or void
+     * if it isn't loaded.
+     */
+    juce::var parameters (const juce::String& ownerId) const;
+    /**
+     * Say which parameter was touched last in each plugin's window, if one was since the last call
+     * (`EngineEvent` "touch"), and show it on the window's Automate button. Call regularly.
+     */
+    void reportTouches();
 
 private:
     void save (HostedPlugin&);
+    /** `{ owner, id, index, param, name, value, text }` for one of the owner's plugin's parameters, or void. */
+    juce::var describeParameter (const juce::String& ownerId, int index) const;
     /** Shows, hides and floats the windows as the app's window is (`setHost`). */
     void timerCallback() override;
     void placeWindows();

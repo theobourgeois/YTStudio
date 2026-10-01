@@ -13,6 +13,10 @@ export function engineRoutes(engine: AudioEngine): Router {
   router.get("/plugins", async (_req, res) => {
     res.json(await engine.plugins());
   });
+  // A song's plugin's parameters, to automate one.
+  router.get("/parameters", async (req, res) => {
+    res.json(await engine.parameters(req.query.owner, req.query.id));
+  });
   router.get("/devices", async (_req, res) => {
     res.json(await engine.devices());
   });
