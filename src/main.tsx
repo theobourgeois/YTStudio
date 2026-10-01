@@ -3,8 +3,10 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import { exposeDesktopHooks } from "./lib/desktop";
+import { trackKeyboardNavigation } from "./lib/focus-rings";
 
 exposeDesktopHooks();
+trackKeyboardNavigation();
 
 // The component gallery (src/gallery/), in development only: every control in every state, per theme.
 const Gallery = import.meta.env.DEV && location.pathname === "/gallery" ? lazy(() => import("./gallery/gallery")) : null;
