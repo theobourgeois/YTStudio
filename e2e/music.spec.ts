@@ -1663,6 +1663,8 @@ test("exports the song as FL Studio does: ⌘R opens the export window, it rende
   await win.getByRole("radiogroup", { name: "Mode" }).getByRole("radio", { name: "Pattern" }).click();
   // One bar at 140 BPM.
   await expect(win.getByTestId("export-estimate")).toContainText("1 bar");
+  // A mix over full scale is turned down rather than clipped, unless that's turned off.
+  await expect(win.getByRole("switch", { name: "Keep it from clipping" })).toBeChecked();
   await expect(win.getByTestId("export-estimate")).toContainText("0:01");
 
   // Start: it renders (the stand-in takes a second and a half), playing waits, editing doesn't.

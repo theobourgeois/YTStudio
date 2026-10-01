@@ -18,6 +18,7 @@ import {
   type MusicExportJob,
   MAX_TAIL_SECONDS,
   encoderArgs,
+  exportGain,
   exportFileName,
   isAudioFormat,
   normalizeExportSettings,
@@ -94,7 +95,7 @@ export class MusicExports {
       await fs.mkdir(folder, { recursive: true });
     }
 
-    const view: MusicExportJob = { id, projectId, state: "rendering", rendered: 0, encoded: 0, toEncode: 0, files: [], missing: [], error: null, renderSeconds: null, seconds: null, length: null };
+    const view: MusicExportJob = { id, projectId, state: "rendering", rendered: 0, encoded: 0, toEncode: 0, files: [], missing: [], error: null, renderSeconds: null, seconds: null, length: null, peakDb: null, gainDb: 0 };
     const job: Job = { view, abort: new AbortController(), folder: kept };
     this.jobs.set(id, job);
     void this.run(job, { projectId, song, patternId, selection, settings, folder, base, keep: kept !== null });
@@ -157,7 +158,7 @@ export class MusicExports {
     const written = new Set<string>();
     try {
       const audio = settings.formats.filter(isAudioFormat);
-      let rendered: { files: { id: string; file: string }[]; sampleRate: number } = { files: [], sampleRate: 48000 };
+      let rendered: { files: { id: string; file: string; peak: number }[]; sampleRate: number } = { files: [], sampleRate: 48000 };
       if (audio.length) {
         const result = await this.engine.renderExport(
           {
@@ -183,6 +184,11 @@ export class MusicExports {
         view.length = result.frames / result.sampleRate;
         rendered = result;
       }
+      // Over full scale (the mix is floating point, a file isn't): every file turned down alike, if asked.
+      const peak = Math.max(0, ...rendered.files.map((f) => f.peak));
+      const gain = exportGain(peak, settings);
+      view.peakDb = peak > 0 ? 20 * Math.log10(peak) : null;
+      view.gainDb = gain < 1 ? 20 * Math.log10(gain) : 0;
       job.abort.signal.throwIfAborted();
 
       // Every file in every format, several at once.
@@ -213,7 +219,7 @@ export class MusicExports {
           const name = exportFileName(base, task.track, task.format);
           const target = path.join(folder, name);
           written.add(target);
-          await run(this.ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-i", task.source, ...encoderArgs(task.format, settings, rendered.sampleRate, encoders), target], {
+          await run(this.ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-i", task.source, ...encoderArgs(task.format, settings, rendered.sampleRate, encoders, gain), target], {
             signal: job.abort.signal,
           }).catch((err) => {
             if (job.abort.signal.aborted) throw job.abort.signal.reason;

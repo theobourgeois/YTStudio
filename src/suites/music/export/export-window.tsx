@@ -185,6 +185,12 @@ function ExportForm({ failed }: { failed: string | null }) {
         <Row label="Dither" hint="Shaped noise when going down to 16 bits: only heard in very quiet passages">
           <Switch checked={settings.dither} disabled={!sixteen} onCheckedChange={(dither) => set({ dither })} aria-label="Dither" />
         </Row>
+        <Row
+          label="Keep it from clipping"
+          hint="The mix can go over full scale and still sound clean (your volume turns it down before the speakers); a file can't. On, a mix that goes over is turned down as a whole, so it sounds as it played"
+        >
+          <Switch checked={settings.preventClipping} onCheckedChange={(preventClipping) => set({ preventClipping })} aria-label="Keep it from clipping" />
+        </Row>
       </Section>
 
       <Section title="Miscellaneous">
@@ -315,6 +321,15 @@ function Progressing({ job }: { job: MusicExportJob }) {
         <Progress value={part * 100} />
         {busy && <p className="text-xs text-muted-foreground">Keep editing: the song is exported as it was when you pressed Start. Playback comes back when it's done.</p>}
       </div>
+
+      {job.peakDb !== null && job.peakDb > 0 && job.state === "done" && (
+        <p className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200" role="status" data-testid="export-level">
+          <PiWarning className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          {job.gainDb < 0
+            ? `The mix peaks ${job.peakDb.toFixed(1)} dB over full scale, more than a file can hold. Every file was turned down ${(-job.gainDb).toFixed(1)} dB, so it sounds as it played rather than clipping. To export it louder, bring the master down and add a limiter.`
+            : `The mix peaks ${job.peakDb.toFixed(1)} dB over full scale, so it clips in the files (all but a 32-bit float WAV). Turn on "Keep it from clipping", or bring the master down.`}
+        </p>
+      )}
 
       {job.missing.length > 0 && (
         <p className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200" role="status">

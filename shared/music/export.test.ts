@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_EXPORT_SETTINGS, encoderArgs, exportEstimate, exportFileName, normalizeExportSettings, safeFileName } from "./export.ts";
+import { CLIP_CEILING, DEFAULT_EXPORT_SETTINGS, encoderArgs, exportEstimate, exportFileName, exportGain, normalizeExportSettings, safeFileName } from "./export.ts";
 
 describe("normalizeExportSettings", () => {
   it("takes what's valid and puts the default where something's missing or wrong", () => {
@@ -38,6 +38,28 @@ describe("encoderArgs", () => {
     expect(encoderArgs("m4a", s, 48000)).toContain("aac");
     expect(encoderArgs("ogg", s, 48000, new Set(["libvorbis"]))).toEqual(["-c:a", "libvorbis", "-b:a", "256k"]);
     expect(encoderArgs("ogg", { ...s, oggBitrate: 320 }, 48000)).toEqual(["-c:a", "vorbis", "-strict", "-2", "-q:a", "10"]);
+  });
+});
+
+describe("keeping it from clipping", () => {
+  it("turns a render over full scale down to just under it, and leaves one under it alone", () => {
+    // +12 dB over: down by 12.3 dB, to −0.3 dB.
+    const gain = exportGain(10 ** (12 / 20), DEFAULT_EXPORT_SETTINGS);
+    expect(20 * Math.log10(gain)).toBeCloseTo(-12.3, 6);
+    expect(exportGain(0.9, DEFAULT_EXPORT_SETTINGS)).toBe(1);
+    expect(exportGain(CLIP_CEILING, DEFAULT_EXPORT_SETTINGS)).toBe(1);
+    // Off: as it is (it clips, but in a 32-bit float WAV).
+    expect(exportGain(4, { preventClipping: false })).toBe(1);
+  });
+  it("turns every format down first, before any dither", () => {
+    const s = DEFAULT_EXPORT_SETTINGS;
+    expect(encoderArgs("wav", { ...s, wavBits: 16, dither: true }, 48000, new Set(), 0.5)).toEqual(["-af", "volume=0.500000:precision=double,aresample=osf=s16:dither_method=shibata", "-c:a", "pcm_s16le"]);
+    expect(encoderArgs("mp3", s, 48000, new Set(), 0.25).slice(0, 2)).toEqual(["-af", "volume=0.250000:precision=double"]);
+    expect(encoderArgs("m4a", s, 48000, new Set(), 0.25)[1]).toBe("volume=0.250000:precision=double");
+    expect(encoderArgs("ogg", s, 48000, new Set(), 0.25)[1]).toBe("volume=0.250000:precision=double");
+    expect(encoderArgs("flac", s, 48000, new Set(), 0.25)[1]).toBe("volume=0.250000:precision=double");
+    // Not turned down: no filter at all.
+    expect(encoderArgs("mp3", s, 48000)).not.toContain("-af");
   });
 });
 

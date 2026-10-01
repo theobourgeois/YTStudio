@@ -669,6 +669,7 @@ export const MUSIC_TOOLS = [
       stems: bool("A file for each mixer track that has sound, besides the mix."),
       wavBits: int("WAV bit depth: 16, 24 or 32 (floating point)."),
       mp3Bitrate: int("MP3 kilobits a second, 64 to 320."),
+      preventClipping: bool("Turn the whole render down if it goes over full scale, so it doesn't clip (default: on)."),
     }),
   }),
 ] as const satisfies readonly ToolSpec[];

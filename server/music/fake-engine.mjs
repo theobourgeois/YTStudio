@@ -55,14 +55,15 @@ const effects = () => {
 
 /**
  * The export being "rendered": it takes about a second and a half whatever the song (so a test can watch
- * it), saying how far it is, then writes a quiet tone as long as the song for the mix and each stem.
+ * it), saying how far it is, then writes a tone as long as the song for the mix and each stem: half full
+ * scale through the master's gain, so a song turned up goes over full scale as a real one would.
  */
 let exporting = null;
-/** A 32-bit float stereo WAV of a quiet 440 Hz tone, `frames` long. */
-function writeTone(file, frames, rate) {
+/** A 32-bit float stereo WAV of a 440 Hz tone, `frames` long, peaking at `level`. */
+function writeTone(file, frames, rate, level) {
   const data = Buffer.alloc(frames * 8);
   for (let i = 0; i < frames; i++) {
-    const v = 0.1 * Math.sin((2 * Math.PI * 440 * i) / rate);
+    const v = level * Math.sin((2 * Math.PI * 440 * i) / rate);
     data.writeFloatLE(v, i * 8);
     data.writeFloatLE(v, i * 8 + 4);
   }
@@ -102,13 +103,15 @@ function startExport(params) {
     clearInterval(timer);
     fs.mkdirSync(params.folder, { recursive: true });
     const files = [];
-    if (params.mix !== false) files.push({ id: "mix", file: path.join(params.folder, "mix.wav"), peak: 0.1 });
+    // The master is the last track: its left-to-left gain (fader and main volume).
+    const level = 0.5 * (exported.tracks.at(-1)?.gains?.[0] ?? 1);
+    if (params.mix !== false) files.push({ id: "mix", file: path.join(params.folder, "mix.wav"), peak: level });
     // A stem for each track a channel plays into, but the master (the last).
     if (params.stems) {
       const used = new Set(exported.channels.map((c) => c.track));
-      exported.tracks.forEach((t, i) => i < exported.tracks.length - 1 && used.has(i) && files.push({ id: t.id, file: path.join(params.folder, `${t.id}.wav`), peak: 0.1 }));
+      exported.tracks.forEach((t, i) => i < exported.tracks.length - 1 && used.has(i) && files.push({ id: t.id, file: path.join(params.folder, `${t.id}.wav`), peak: level }));
     }
-    for (const file of files) writeTone(file.file, frames, rate);
+    for (const file of files) writeTone(file.file, frames, rate, file.peak);
     exporting = null;
     send({ event: "export", id: job.id, state: "done", frames, sampleRate: rate, latency: 0, seconds: 1.5, files, missing: [] });
   }, 100);
