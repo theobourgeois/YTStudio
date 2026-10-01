@@ -250,6 +250,10 @@ export class AudioEngine {
         if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');
         return { channel: body.channel, open: body.open === true };
       }
+      case "meterTracks": {
+        const tracks = Array.isArray(body.tracks) ? body.tracks.filter((t): t is string => typeof t === "string" && /^[\w-]{1,64}$/.test(t)) : [];
+        return { tracks: tracks.slice(0, 1024) };
+      }
       case "effectEditor": {
         if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be an effect\'s id.');
         return { effect: body.effect, open: body.open === true };

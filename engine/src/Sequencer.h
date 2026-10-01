@@ -47,6 +47,11 @@ public:
      * `{ trackId: [left, right] }`, leaving out tracks quieter than `floor`. Message thread.
      */
     juce::var takeMeters (float floor);
+    /**
+     * The tracks the mixer's selection meter adds up (the selected ones), by id. Their sound after their
+     * faders is added together and measured as one more meter, "@selection". Message thread.
+     */
+    void setMeteredTracks (const juce::StringArray& trackIds);
 
     bool isPlaying() const { return playingNow; }
     /** Where the loop is, in ticks. */
@@ -148,6 +153,13 @@ private:
     static constexpr int maxMeters = 1024;
     std::array<std::atomic<float>, maxMeters * 2> meters {};
     std::atomic<juce::uint64> meterSerial { 0 };
+    /** The selection meter: which tracks it adds up (by index into the song `selectionSerial` names), and its level. */
+    juce::StringArray meteredIds;
+    std::array<std::atomic<bool>, maxMeters> metered {};
+    std::atomic<juce::uint64> selectionSerial { 0 };
+    std::array<std::atomic<float>, 2> selectionMeter {};
+    /** Mark `meteredIds` among the tracks of the song with `serial`, ordered as `ids`. */
+    void markMetered (const juce::StringArray& ids, juce::uint64 serial);
 
     std::array<Voice, maxVoices> voices;
     juce::uint32 voiceCount = 0;

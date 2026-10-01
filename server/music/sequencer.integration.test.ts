@@ -435,6 +435,22 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
       expect((await engine.render(STEP)).meters).toEqual({});
     });
 
+    it("adds up the selected tracks' sound for the selection meter", async () => {
+      let song = addChannels(kickOn("insert_1"), [{ id: "chan_twin", name: "Twin", sampleId: "hit" }]);
+      song = routeChannels(setSteps(song, P, "chan_twin", [0], true), ["chan_twin"], "insert_2");
+      const measured = async (tracks: string[]) => {
+        await engine.command("meterTracks", { tracks });
+        await engine.command("stop", {});
+        await play(song);
+        await hear(STEP);
+        await engine.command("play", {});
+        return (await engine.render(BEAT)).meters["@selection"];
+      };
+      expect((await measured(["insert_1", "insert_2"]))[0]).toBeCloseTo(1, 4);
+      expect((await measured(["insert_2"]))[0]).toBeCloseTo(0.5, 4);
+      expect(await measured([])).toBeUndefined();
+    });
+
     it("inverts a track's phase: the same hit on two tracks, one inverted, cancels out; swapped, it's on the other side", async () => {
       let song = addChannels(kickOn("insert_1"), [{ id: "chan_twin", name: "Twin", sampleId: "hit" }]);
       song = routeChannels(setSteps(song, P, "chan_twin", [0], true), ["chan_twin"], "insert_2");

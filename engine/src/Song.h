@@ -156,6 +156,8 @@ struct Song
     std::vector<Track> tracks;
     /** Two channels for each track that can be reached, `capacity` samples long: the mixer's scratch. */
     juce::AudioBuffer<float> audio;
+    /** The channel pair in `audio` where the selected tracks' sound is added up (`Sequencer::setMeteredTracks`). */
+    int selectionBuffer = 0;
     /** The longest block the song can play (a longer one plays silence). */
     int capacity = 0;
     /**

@@ -79,6 +79,9 @@ export interface EngineChannels {
  */
 export type EngineMeters = Record<string, [number, number]>;
 
+/** The meter of the selected tracks' sound added up (`meterTracks`), among `EngineMeters`. */
+export const SELECTION_METER = "@selection";
+
 /** The effects in the song's mixer, as the engine has them (by effect id, `MixerEffect.id`). */
 export interface EngineEffects {
   /** Ready to run. `editorOpen`: the plugin's own window is showing. `latency`: the samples it delays its sound by. */
@@ -206,6 +209,11 @@ export interface EngineCommands {
   channelEditor: { channel: string; open: boolean };
   /** Show or close the window of an effect in the mixer (by `MixerEffect.id`). */
   effectEditor: { effect: string; open: boolean };
+  /**
+   * The tracks the mixer's selection meter adds up (the selected ones, by id): their sound after their
+   * faders, together, is measured as the meter "@selection" (`EngineMeters`).
+   */
+  meterTracks: { tracks: string[] };
   /** Play a test tone (through the effect). */
   tone: { on: boolean };
   /** Look for plugins; the status says how far along it is. `rescan` forgets the known ones first. */

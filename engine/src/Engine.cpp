@@ -168,6 +168,15 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             return reply (fail ("That effect's plugin isn't loaded."), {});
         return ok();
     }
+    if (command == "meterTracks")
+    {
+        juce::StringArray ids;
+        if (const auto* list = params["tracks"].getArray())
+            for (const auto& id : *list)
+                ids.add (id.toString());
+        sequencer.setMeteredTracks (ids);
+        return ok();
+    }
     if (command == "host")
     {
         plugins.setHost (params);

@@ -5,6 +5,7 @@ import { usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusic } from "./store";
 import { NO_CHANNELS, NO_EFFECTS, NO_METERS, useTransport } from "./transport";
+import { currentTrackId, useMusicUi } from "./ui";
 
 /**
  * Keeps the audio engine playing the open song: every change of the document (even mid-drag, so a
@@ -50,6 +51,22 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   const unsubscribeLoop = usePiano.subscribe((state, prev) => {
     if (state.time !== prev.time) void send();
   });
+  // The mixer's selection meter adds up the selected tracks (or the one its inspector shows).
+  let metered = "";
+  const meterSelection = (force = false) => {
+    const doc = useMusic.getState().history?.doc;
+    if (!doc) return;
+    const ids = useMusicUi.getState().selectedTrackIds.filter((id) => doc.mixer.tracks.some((t) => t.id === id));
+    const tracks = ids.length ? ids : [currentTrackId(doc, [])];
+    const key = tracks.join();
+    if (key === metered && !force) return;
+    metered = key;
+    void musicApi.engine("meterTracks", { tracks }).catch(() => {});
+  };
+  const unsubscribeSelection = useMusicUi.subscribe((state, prev) => {
+    if (state.selectedTrackIds !== prev.selectedTrackIds) meterSelection();
+  });
+  meterSelection(true);
   const stopListening = musicApi.onEngineEvent((event) => {
     if (event.event === "transport") {
       useTransport.setState({ playing: event.playing, tick: event.tick, at: performance.now(), peak: event.peak, meters: event.meters ?? NO_METERS, cpu: event.cpu });
@@ -69,6 +86,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     } else {
       // A restarted engine: the server gives it the song back, but it isn't playing any more.
       useTransport.setState({ playing: false, tick: 0 });
+      meterSelection(true);
     }
   });
   void send();
@@ -92,6 +110,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     stopped = true;
     unsubscribe();
     unsubscribeLoop();
+    unsubscribeSelection();
     stopListening();
     if (useTransport.getState().playing) void musicApi.engine("stop", {}).catch(() => {});
     // What's been turned in the plugins' own windows is kept.

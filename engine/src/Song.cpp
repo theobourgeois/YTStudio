@@ -230,7 +230,9 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                 reached[(size_t) send.track] = true;
         }
     song->capacity = juce::jmax (0, capacity);
-    song->audio.setSize (buffers * 2, song->capacity);
+    // And one more pair: the selected tracks' sound added up, for the mixer's selection meter.
+    song->selectionBuffer = buffers;
+    song->audio.setSize (buffers * 2 + 2, song->capacity);
     for (auto& track : song->tracks)
         track.from = track.gains;
     song->compensate (sampleRate);

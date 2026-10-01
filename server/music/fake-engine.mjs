@@ -72,9 +72,18 @@ const devices = () => ({
   status: status(),
 });
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-// While it plays, the master's meter moves (as if every channel were on it).
+/** The tracks the selection meter adds up (`meterTracks`). */
+let metered = [];
+// While it plays, the master's meter moves (as if every channel were on it), and the selection's if it has tracks.
 const sendTransport = () =>
-  send({ event: "transport", playing: playingSince !== null, tick: tick(), peak: playingSince === null ? 0 : 0.3, meters: playingSince === null ? {} : { master: [0.3, 0.3] }, cpu: 0.02 });
+  send({
+    event: "transport",
+    playing: playingSince !== null,
+    tick: tick(),
+    peak: playingSince === null ? 0 : 0.3,
+    meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
+    cpu: 0.02,
+  });
 
 send({ event: "ready", status: status() });
 setInterval(() => playingSince !== null && sendTransport(), 40);
@@ -102,6 +111,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     sendTransport();
   }
   if (cmd === "metronome") metronome = params.on;
+  if (cmd === "meterTracks") metered = params.tracks;
   // A plugin window's key, as if pressed there (tests): the engine sends it on.
   if (cmd === "pressKey") send({ event: "key", key: params.key, code: params.code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...params.modifiers });
   if (cmd === "channelEditor") {

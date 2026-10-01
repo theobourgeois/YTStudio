@@ -58,6 +58,7 @@ void Sequencer::setSong (std::unique_ptr<Song> next)
     }
     trackIds = std::move (ids);
     sendIds = std::move (sends);
+    markMetered (trackIds, next->serial);
 
     // Delay compensation's delay lines: the last song's, where a path waits as long as it did (so what's
     // in them carries on), or new ones.
@@ -121,7 +122,25 @@ juce::var Sequencer::takeMeters (float floor)
             if (left >= floor || right >= floor)
                 result->setProperty (trackIds[t], juce::Array<juce::var> { left, right });
         }
+    const auto left = selectionMeter[0].exchange (0.0f), right = selectionMeter[1].exchange (0.0f);
+    if (left >= floor || right >= floor)
+        result->setProperty ("@selection", juce::Array<juce::var> { left, right });
     return juce::var (result);
+}
+
+void Sequencer::setMeteredTracks (const juce::StringArray& ids)
+{
+    meteredIds = ids;
+    markMetered (trackIds, serials);
+}
+
+void Sequencer::markMetered (const juce::StringArray& ids, juce::uint64 serial)
+{
+    // Off first, so the audio thread never adds up tracks of one song by another's indexes.
+    selectionSerial = 0;
+    for (int t = 0; t < maxMeters; ++t)
+        metered[(size_t) t].store (t < ids.size() && meteredIds.contains (ids[t]), std::memory_order_relaxed);
+    selectionSerial = serial;
 }
 
 void Sequencer::collectGarbage()
@@ -400,6 +419,15 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
     ramping = false;
     const auto master = song->tracks.size() - 1;
     // A new song's tracks are in another order: what was measured belonged to the last one's.
+    // The selection meter's sum, if the selection is marked for this song.
+    const auto summing = selectionSerial.load() == song->serial;
+    auto* selectedLeft = song->audio.getWritePointer (song->selectionBuffer * 2);
+    auto* selectedRight = song->audio.getWritePointer (song->selectionBuffer * 2 + 1);
+    if (summing)
+    {
+        juce::FloatVectorOperations::clear (selectedLeft, numSamples);
+        juce::FloatVectorOperations::clear (selectedRight, numSamples);
+    }
     if (meterSerial.load (std::memory_order_relaxed) != song->serial)
     {
         for (auto& meter : meters)
@@ -440,6 +468,11 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
             };
             raise (meters[t * 2], juce::FloatVectorOperations::findMinAndMax (l, numSamples));
             raise (meters[t * 2 + 1], juce::FloatVectorOperations::findMinAndMax (r, numSamples));
+            if (summing && metered[t].load (std::memory_order_relaxed))
+            {
+                juce::FloatVectorOperations::add (selectedLeft, l, numSamples);
+                juce::FloatVectorOperations::add (selectedRight, r, numSamples);
+            }
         }
 
         if (t == master)
@@ -482,6 +515,17 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
             }
             flush();
         }
+    }
+
+    if (summing)
+    {
+        const auto raise = [] (std::atomic<float>& meter, juce::Range<float> range) {
+            const auto loudest = juce::jmax (-range.getStart(), range.getEnd());
+            if (loudest > meter.load (std::memory_order_relaxed))
+                meter.store (loudest, std::memory_order_relaxed);
+        };
+        raise (selectionMeter[0], juce::FloatVectorOperations::findMinAndMax (selectedLeft, numSamples));
+        raise (selectionMeter[1], juce::FloatVectorOperations::findMinAndMax (selectedRight, numSamples));
     }
 }
 

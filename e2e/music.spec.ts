@@ -690,6 +690,15 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
         }),
     )
     .toBeGreaterThan(100);
+  // And the selection meter, at the left: the selected tracks' sound together.
+  const lit = () =>
+    page.getByTestId("selection-meter").evaluate((canvas: HTMLCanvasElement) => {
+      const data = canvas.getContext("2d")!.getImageData(0, canvas.height - 20, canvas.width, 20).data;
+      let bright = 0;
+      for (let i = 0; i < data.length; i += 4) if (data[i + 1] > 120) bright++;
+      return bright;
+    });
+  await expect.poll(lit).toBeGreaterThan(10);
   await page.getByRole("button", { name: "Stop", exact: true }).click();
 });
 

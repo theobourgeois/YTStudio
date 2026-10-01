@@ -3,6 +3,7 @@ import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { type MixerTrackPatch, setMixerVolumes, setSend, updateMixerTrack } from "@shared/music/mixer";
+import { SELECTION_METER } from "@shared/music/engine";
 import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
 import type { Mixer, MixerTrack, MusicProject } from "@shared/music/types";
 import { Button } from "@/components/ui/button";
@@ -176,6 +177,7 @@ export function MixerWindow() {
     >
       <div className="flex min-h-0 flex-1" data-testid="mixer">
         <div ref={area} className="relative flex min-w-0 flex-1 overflow-hidden bg-surface-0" role="list" aria-label="Mixer tracks">
+          <SelectionMeter meterRef={meterRef(SELECTION_METER)} />
           <div className="flex shrink-0 border-r-2 border-line">{strip(master, 0)}</div>
           <div ref={scroller} className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
             {/* Only the strips in view (and a few either side) are drawn: a mixer can have hundreds. */}
@@ -575,4 +577,15 @@ function dragSelection(e: React.PointerEvent<HTMLElement>) {
       else if (ui.selectedTrackIds.length !== 1 || ui.selectedTrackIds[0] !== id) ui.setTrackSelection([id]);
     },
   });
+}
+
+/** FL Studio's selected meter, at the mixer's left: the selected tracks' sound added up (or the one shown in the inspector). */
+function SelectionMeter({ meterRef }: { meterRef: (canvas: HTMLCanvasElement | null) => void }) {
+  const count = useMusicUi((s) => s.selectedTrackIds.length);
+  return (
+    <div className="flex w-6 shrink-0 flex-col items-center gap-1 border-r border-line bg-surface-1 py-1.5" title={count > 1 ? `The ${count} selected tracks' output, together` : "The selected track's output"}>
+      <span className="font-mono text-[9px] text-muted-foreground">SEL</span>
+      <canvas ref={meterRef} className="sunken min-h-0 w-[13px] flex-1 rounded-[2px]" role="img" aria-label="Selected tracks' level" data-testid="selection-meter" />
+    </div>
+  );
 }
