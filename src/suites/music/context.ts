@@ -19,7 +19,7 @@ export function describeSong(song: MusicProject, assets: MediaAsset[], patternId
   const shown = song.patterns.find((p) => p.id === patternId) ?? song.patterns[0];
   const used = new Set(song.channels.map((c) => c.sampleId));
   const lines = [
-    `Song: "${song.name}", ${songTiming(song)}, swing ${Math.round(song.settings.swing * 100)}%.`,
+    `Song: "${song.name}", ${songTiming(song)}, swing ${Math.round(song.settings.swing * 100)}%, main volume ${Math.round(song.settings.volume * 100)}%.`,
     "",
     song.channels.length ? "Channels (in the rack's order):" : "No channels yet (add_channel makes one).",
     ...song.channels.map((c) => `- ${describeChannel(c, sampleName(c.sampleId))}${c.kind === "audio" ? " (an audio clip's channel: its clips play on the playlist, and it can have steps and notes too)" : ""}`),

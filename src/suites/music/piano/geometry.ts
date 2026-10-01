@@ -21,8 +21,13 @@ export const MIN_PX_PER_TICK = 0.02;
 export const MAX_PX_PER_TICK = 8;
 export const MIN_ROW_HEIGHT = 6;
 export const MAX_ROW_HEIGHT = 40;
-/** How close to a note's right edge (px) the pointer resizes rather than moves it, and how much of a short note that may be. */
-export const RESIZE_ZONE = 7;
+/**
+ * How close to a note's right edge (px) the pointer resizes rather than moves it (never more than half of
+ * a short note), and how far past its end it still takes the edge: generous, as FL Studio's, so a
+ * note's end is caught without aiming.
+ */
+export const RESIZE_ZONE = 12;
+export const RESIZE_REACH = 5;
 
 export const tickToX = (view: PianoView, tick: number) => (tick - view.scrollTick) * view.pxPerTick;
 export const xToTick = (view: PianoView, x: number) => x / view.pxPerTick + view.scrollTick;
@@ -235,18 +240,28 @@ export interface NoteHit {
 /**
  * The note under a point, if any. Where several overlap, a selected one wins, then the one drawn last
  * (on top). The right `RESIZE_ZONE` pixels of a note are its edge, but never more than half of it.
+ * With `reach` (px), a point just past a note's end, on nothing else, is on that note's edge too (the
+ * tools that resize; the ones that delete or mute only take what's under the pointer).
  */
-export function hitNote(notes: readonly Note[], view: PianoView, x: number, y: number, selected?: ReadonlySet<number>): NoteHit | null {
+export function hitNote(notes: readonly Note[], view: PianoView, x: number, y: number, selected?: ReadonlySet<number>, reach = 0): NoteHit | null {
   const tick = xToTick(view, x);
   const pitch = yToPitch(view, y);
-  const [from, to] = visibleRange(notes, tick, tick + 1);
+  const past = reach / view.pxPerTick;
+  const [from, to] = visibleRange(notes, tick - past, tick + 1);
   let best: Note | null = null;
+  /** The note whose end is nearest before the point, within `reach`. */
+  let tail: Note | null = null;
   for (let i = from; i < to; i++) {
     const note = notes[i];
-    if (note.pitch !== pitch || tick < note.start || tick >= note.start + note.length) continue;
+    if (note.pitch !== pitch || tick < note.start) continue;
+    const end = note.start + note.length;
+    if (tick >= end) {
+      if (tick - end < past && (!tail || end > tail.start + tail.length)) tail = note;
+      continue;
+    }
     if (!best || selected?.has(note.id) || !selected?.has(best.id)) best = note;
   }
-  if (!best) return null;
+  if (!best) return tail && { note: tail, edge: true };
   const width = best.length * view.pxPerTick;
   const fromEnd = tickToX(view, best.start + best.length) - x;
   return { note: best, edge: fromEnd <= Math.min(RESIZE_ZONE, width / 2) };

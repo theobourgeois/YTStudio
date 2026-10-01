@@ -218,6 +218,15 @@
   --tw-inset-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35);
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
 }
+/* A number display (the toolbar's tempo and position), FL Studio's: dark and recessed, light digits. */
+@utility lcd {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--lcd-edge);
+  background-image: linear-gradient(to bottom, var(--lcd-top), var(--lcd-bottom));
+  color: var(--lcd-text);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.45), 0 1px 0 var(--bevel-highlight);
+}
 @utility sunken {
   border-width: 1px;
   border-style: solid;

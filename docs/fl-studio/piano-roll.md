@@ -277,7 +277,8 @@ cuts off shown red (selected) while it's dragged; notes quieter than the default
 rest; a selection rectangle selecting what it covers as it's dragged; deleted notes shrink and fade; left adds, right deletes
 (sweeping), with the eraser pointer; a click on nothing with notes selected deselects them (and adds
 nothing); Ctrl selects (Ctrl+Shift adds); moving,
-resizing by the right edge, Shift+drag to clone, Shift / Ctrl to lock an axis once moving, Alt to bypass
+resizing by the right edge (its last 12 px, at most half a short note, and 5 px past its end: caught without aiming, as
+FL's is), Shift+drag to clone, Shift / Ctrl to lock an axis once moving, Alt to bypass
 snap; new notes as long as the last touched; the stretch handle; the snap menu (Line, Cell, none, step
 and beat fractions, bar); the time selection (double-click or Ctrl+drag the ruler, red, loops playback,
 Ctrl+Enter, Ctrl+← / →, a right-click or a double-click without a drag clears it); a ruler click sets where

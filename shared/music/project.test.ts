@@ -4,6 +4,7 @@ import {
   DEFAULT_ENVELOPE,
   DEFAULT_PLAYLIST_TRACK,
   DEFAULT_PRECOMPUTED,
+  DEFAULT_VOLUME,
   FIRST_CHANNEL_ID,
   FIRST_PATTERN_ID,
   MASTER_TRACK_ID,
@@ -25,7 +26,7 @@ import type { MusicProject } from "./types.ts";
 const song: MusicProject = {
   version: 1,
   name: "Song",
-  settings: { tempo: 87.5, timeSignature: [7, 8], swing: 0.25 },
+  settings: { tempo: 87.5, timeSignature: [7, 8], swing: 0.25, volume: 0.6 },
   channels: [
     { ...createChannel("Kick", "media_1", "chan_kick"), cutSelf: true, precomputed: { ...DEFAULT_PRECOMPUTED, reverse: true, start: 0.25, fadeOut: 0.5 } },
     {
@@ -79,7 +80,7 @@ describe("music projects", () => {
     expect(createMusicProject("Demo")).toEqual({
       version: 1,
       name: "Demo",
-      settings: { tempo: 140, timeSignature: [4, 4], swing: 0 },
+      settings: { tempo: 140, timeSignature: [4, 4], swing: 0, volume: DEFAULT_VOLUME },
       channels: [expect.objectContaining({ id: FIRST_CHANNEL_ID, name: "Sampler", kind: "sampler", sampleId: null })],
       patterns: [{ id: FIRST_PATTERN_ID, name: "Pattern 1", length: null, notes: {}, color: null }],
       playlist: { tracks: [], clips: [] },
@@ -100,8 +101,8 @@ describe("music projects", () => {
 
   it("are repaired from anything", () => {
     expect(normalizeMusicProject(null)).toEqual(createMusicProject());
-    const repaired = normalizeMusicProject({ name: "  Beat  ", settings: { tempo: 5000, timeSignature: [6, 8], swing: 3 }, extra: 1 });
-    expect(repaired).toMatchObject({ name: "Beat", settings: { tempo: MAX_TEMPO, timeSignature: [6, 8], swing: 1 } });
+    const repaired = normalizeMusicProject({ name: "  Beat  ", settings: { tempo: 5000, timeSignature: [6, 8], swing: 3, volume: 4 }, extra: 1 });
+    expect(repaired).toMatchObject({ name: "Beat", settings: { tempo: MAX_TEMPO, timeSignature: [6, 8], swing: 1, volume: 1 } });
     // A beat unit that isn't a note, or no beats: the default.
     expect(normalizeMusicProject({ settings: { tempo: 93.456, timeSignature: [3, 5] } }).settings).toMatchObject({ tempo: 93.46, timeSignature: [4, 4] });
     expect(normalizeMusicProject({ settings: { timeSignature: [0, 4] } }).settings.timeSignature).toEqual([4, 4]);
@@ -109,7 +110,7 @@ describe("music projects", () => {
 
   it("upgrade songs from before there were channels, and from before patterns had an automatic length", () => {
     const shell = { version: 1, name: "Old", settings: { tempo: 100, timeSignature: [4, 4] } };
-    expect(normalizeMusicProject(shell)).toEqual({ ...createMusicProject("Old"), settings: { tempo: 100, timeSignature: [4, 4], swing: 0 } });
+    expect(normalizeMusicProject(shell)).toEqual({ ...createMusicProject("Old"), settings: { tempo: 100, timeSignature: [4, 4], swing: 0, volume: DEFAULT_VOLUME } });
     const stepped = { ...createMusicProject("Old"), channels: [{ id: "chan_a", name: "A" }], patterns: [{ id: "pat_a", name: "A", steps: 32, notes: {} }] };
     const upgraded = normalizeMusicProject(stepped);
     expect(upgraded.patterns[0].length).toBeNull();

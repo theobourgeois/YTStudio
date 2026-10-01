@@ -154,7 +154,7 @@ describe("notes on screen", () => {
     const flat: PianoView = { scrollTick: 0, pxPerTick: 1, topPitch: 72, rowHeight: 10 };
     const y = (pitch: number) => pitchToY(flat, pitch) + 5;
     expect(hitNote(notes, flat, 300, y(60))).toMatchObject({ note: { id: 1 }, edge: false });
-    expect(hitNote(notes, flat, 597, y(60))).toMatchObject({ note: { id: 1 }, edge: true });
+    expect(hitNote(notes, flat, 590, y(60))).toMatchObject({ note: { id: 1 }, edge: true });
     expect(hitNote(notes, flat, 300, y(61))).toBeNull();
     expect(hitNote(notes, flat, 700, y(60))).toBeNull();
     // Two overlap at 150: the one on top (later in the list), unless the other is selected.
@@ -163,6 +163,11 @@ describe("notes on screen", () => {
     // A short note's edge is never more than half of it.
     expect(hitNote(notes, flat, 805, y(60))).toMatchObject({ note: { id: 5 }, edge: false });
     expect(hitNote(notes, flat, 820, y(60))).toMatchObject({ note: { id: 5 }, edge: true });
+    // Just past a note's end, the tools that resize still take its edge; the others don't.
+    expect(hitNote(notes, flat, 603, y(60))).toBeNull();
+    expect(hitNote(notes, flat, 603, y(60), undefined, 5)).toMatchObject({ note: { id: 1 }, edge: true });
+    expect(hitNote(notes, flat, 606, y(60), undefined, 5)).toBeNull();
+    expect(hitNote(notes, flat, 826, y(60), undefined, 5)).toMatchObject({ note: { id: 5 }, edge: true });
   });
 
   it("places a note's value in the event editor: velocity up from the bottom, pan about the middle", () => {

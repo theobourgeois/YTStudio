@@ -187,7 +187,7 @@ export function createMixer(): Mixer {
 }
 
 export function createMusicProject(name = DEFAULT_PROJECT_NAME, tempo = DEFAULT_TEMPO): MusicProject {
-  const settings: MusicSettings = { tempo, timeSignature: [4, 4], swing: 0 };
+  const settings: MusicSettings = { tempo, timeSignature: [4, 4], swing: 0, volume: DEFAULT_VOLUME };
   return { version: 1, name, settings, channels: emptyRack(), patterns: [createPattern("Pattern 1", FIRST_PATTERN_ID)], playlist: emptyPlaylist(), mixer: createMixer() };
 }
 
@@ -494,7 +494,7 @@ export function normalizeMusicProject(input: unknown, isSample: (id: string) => 
   return {
     version: 1,
     name,
-    settings: { tempo, timeSignature, swing: number(settings.swing, 0, 1, 0) },
+    settings: { tempo, timeSignature, swing: number(settings.swing, 0, 1, 0), volume: number(settings.volume, 0, 1, DEFAULT_VOLUME) },
     channels,
     patterns,
     playlist: normalizePlaylist(input.playlist, patterns, channels),

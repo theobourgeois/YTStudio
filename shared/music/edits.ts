@@ -77,6 +77,7 @@ function setSettings(song: MusicProject, patch: Partial<MusicSettings>): MusicPr
   const same =
     settings.tempo === song.settings.tempo &&
     settings.swing === song.settings.swing &&
+    settings.volume === song.settings.volume &&
     settings.timeSignature[0] === song.settings.timeSignature[0] &&
     settings.timeSignature[1] === song.settings.timeSignature[1];
   return same ? song : { ...song, settings };
@@ -86,6 +87,9 @@ export const setTempo = (song: MusicProject, tempo: number) =>
   Number.isFinite(tempo) ? setSettings(song, { tempo: Math.round(clamp(tempo, MIN_TEMPO, MAX_TEMPO) * 100) / 100 }) : song;
 
 export const setSwing = (song: MusicProject, swing: number) => (Number.isFinite(swing) ? setSettings(song, { swing: clamp(swing, 0, 1) }) : song);
+
+/** The main volume (the toolbar's knob), 0..1. */
+export const setMainVolume = (song: MusicProject, volume: number) => (Number.isFinite(volume) ? setSettings(song, { volume: clamp(volume, 0, 1) }) : song);
 
 export const setTimeSignature = (song: MusicProject, timeSignature: [number, number]) => setSettings(song, { timeSignature });
 

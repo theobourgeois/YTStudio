@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { PlayMode } from "@shared/music/compile";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineChannels, EngineEffects, EngineMeters, EnginePreview } from "@shared/music/engine";
+import type { EngineChannels, EngineCommands, EngineEffects, EngineMeters, EnginePreview, MetronomeSound } from "@shared/music/engine";
 import { musicApi } from "./api";
 
 /**
@@ -32,6 +32,11 @@ interface TransportState {
   /** Where in the song play starts in song mode (a click on the Playlist's ruler), in ticks. */
   songStartTick: number;
   /**
+   * Where play was paused (the Play button pressed while playing), in the mode's ticks: the next play
+   * goes on from there; Stop, a jump or the other mode forget it. Null when it isn't paused.
+   */
+  pausedAt: number | null;
+  /**
    * What play plays (the toolbar's PAT / SONG): the pattern shown, looped, or the playlist. Not saved: a
    * song with clips on its playlist opens in song mode (Théo).
    */
@@ -50,7 +55,12 @@ interface TransportState {
   play: () => void;
   stop: () => void;
   toggle: () => void;
-  setMetronome: (on: boolean) => void;
+  /** Stop where it is (`tick`, where it's playing now in the mode's ticks), to go on from there. */
+  pause: (tick: number) => void;
+  /** The metronome on or off, in `sound` (the toolbar's preference). */
+  setMetronome: (on: boolean, sound: MetronomeSound) => void;
+  /** The metronome's sound: heard once at once, and on the beats while it's on. */
+  setMetronomeSound: (sound: MetronomeSound) => void;
   /** Hear a channel's sample once. */
   audition: (channelId: string, pitch?: number) => void;
   /** Show or close the window of a plugin channel's plugin. */
@@ -76,7 +86,7 @@ export const NO_EFFECTS: EngineEffects = { loaded: [], loading: [], failed: [] }
 
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
-  async function run(command: "play" | "stop" | "metronome", body: { on: boolean } | { from?: number }) {
+  async function run(command: "play" | "stop" | "metronome", body: EngineCommands["metronome"] | { from?: number }) {
     try {
       const status = await musicApi.engine(command, body as never);
       set({
@@ -107,6 +117,7 @@ export const useTransport = create<TransportState>((set, get) => {
     loop: { start: 0, ticks: 0 },
     startTick: 0,
     songStartTick: 0,
+    pausedAt: null,
     mode: "pattern" as PlayMode,
     unreadable: [],
     channels: NO_CHANNELS,
@@ -116,36 +127,45 @@ export const useTransport = create<TransportState>((set, get) => {
 
     // From where the ruler was clicked, if that's inside what loops; the engine counts from the loop's start.
     play() {
-      const { loop } = get();
-      const from = get().startOf() - loop.start;
+      const { loop, pausedAt } = get();
+      const from = (pausedAt ?? get().startOf()) - loop.start;
+      set({ pausedAt: null });
       void run("play", { from: from > 0 && from < loop.ticks ? from : 0 });
     },
-    stop: () => void run("stop", {}),
-    toggle: () => (get().playing ? get().stop() : get().play()),
-    setMetronome(on) {
-      set({ metronome: on });
-      void run("metronome", { on });
+    stop() {
+      set({ pausedAt: null });
+      void run("stop", {});
     },
+    pause(tick) {
+      set({ pausedAt: Math.max(0, Math.round(tick)) });
+      void run("stop", {});
+    },
+    toggle: () => (get().playing ? get().stop() : get().play()),
+    setMetronome(on, sound) {
+      set({ metronome: on });
+      void run("metronome", { on, sound });
+    },
+    setMetronomeSound: (sound) => void run("metronome", { on: get().metronome, sound, audition: true }),
     audition(channelId, pitch = 0) {
       void musicApi.engine("trigger", { channel: channelId, pitch }).catch(() => {});
     },
     preview(channelId, key, on, velocity) {
       void musicApi.engine("preview", { channel: channelId, key, on, velocity }).catch(() => {});
     },
-    setStartTick: (tick) => set({ startTick: Math.max(0, Math.round(tick)) }),
+    setStartTick: (tick) => set({ startTick: Math.max(0, Math.round(tick)), pausedAt: null }),
     jumpTo(tick) {
       get().setStartTick(tick);
       if (get().mode !== "pattern") return switchMode("pattern");
       if (get().playing) get().play();
     },
-    setSongStartTick: (tick) => set({ songStartTick: Math.max(0, Math.round(tick)) }),
+    setSongStartTick: (tick) => set({ songStartTick: Math.max(0, Math.round(tick)), pausedAt: null }),
     jumpSongTo(tick) {
       get().setSongStartTick(tick);
       if (get().mode !== "song") return switchMode("song");
       if (get().playing) get().play();
     },
     startOf: () => (get().mode === "song" ? get().songStartTick : get().startTick),
-    setMode: (mode) => get().mode !== mode && set({ mode }),
+    setMode: (mode) => get().mode !== mode && set({ mode, pausedAt: null }),
     showPlugin(channelId, open) {
       musicApi.engine("channelEditor", { channel: channelId, open }).then(
         (status) => set({ channels: status.channels }),

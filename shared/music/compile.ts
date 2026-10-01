@@ -226,7 +226,9 @@ function engineTracks(song: MusicProject): { tracks: EngineTrack[]; index: Map<s
   const index = new Map(ordered.map((t, i) => [t.id, i]));
   const numbers = new Map(song.mixer.tracks.map((t, i) => [t.id, i]));
   const tracks = ordered.map((track): EngineTrack => {
-    const gain = track.muted ? 0 : faderGain(track.volume);
+    // The main volume is the master's, after its fader.
+    const main = track.id === MASTER_TRACK_ID ? levelGain(song.settings.volume, DEFAULT_VOLUME) : 1;
+    const gain = track.muted ? 0 : faderGain(track.volume) * main;
     const number = numbers.get(track.id)!;
     return {
       id: track.id,

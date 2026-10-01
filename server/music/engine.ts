@@ -20,7 +20,9 @@ import {
   type EngineStatus,
   type HostWindow,
   type LoadedPlugin,
+  METRONOME_SOUNDS,
   type SetSongResponse,
+  isMetronomeSound,
 } from "../../shared/music/engine.ts";
 import { DEFAULT_VELOCITY, normalizeMusicProject } from "../../shared/music/project.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
@@ -265,7 +267,9 @@ export class AudioEngine {
         };
       }
       case "metronome":
-        return { on: body.on === true };
+        if (body.sound !== undefined && !isMetronomeSound(body.sound))
+          throw new HttpError(400, `"sound" must be one of ${METRONOME_SOUNDS.map((s) => s.id).join(", ")}.`);
+        return { on: body.on === true, ...(body.sound !== undefined && { sound: body.sound }), ...(body.audition === true && { audition: true }) };
       case "stopPreview":
         return {};
       case "previewVolume":
