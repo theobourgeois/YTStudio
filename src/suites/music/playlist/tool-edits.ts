@@ -269,8 +269,11 @@ export function makeClipUniqueTool(song: MusicProject, input: Input): EditResult
   const id = input.id;
   const clip = song.playlist.clips.find((c) => c.id === id);
   if (!clip) throw new Error(`There's no clip ${String(id)}. Read the clips' ids with get_playlist.`);
-  if (clip.kind !== "pattern") throw new Error("Only a pattern clip can be made unique (an audio clip plays its file).");
   const next = makeUnique(song, clip.id);
+  if (clip.kind === "audio") {
+    const made = next.channels.find((c) => !song.channels.some((d) => d.id === c.id))!;
+    return { song: next, text: `Clip ${clip.id} has an audio clip channel of its own now: "${made.name}" (id ${made.id}), playing the same file; change its pitch or volume with update_channel.` };
+  }
   const made = next.patterns.find((p) => !song.patterns.some((q) => q.id === p.id))!;
   return { song: next, text: `Clip ${clip.id} plays a pattern of its own now: "${made.name}" (id ${made.id}).` };
 }

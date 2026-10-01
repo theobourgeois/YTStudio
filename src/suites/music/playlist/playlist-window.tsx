@@ -594,11 +594,14 @@ function ClipMenu() {
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSeparator />
-        {clip.kind === "pattern" && (
+        {clip.kind === "pattern" ? (
           <>
             <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => splitPattern(clip.ref)}>Split by channel</DropdownMenuItem>
           </>
+        ) : (
+          // A channel of its own for this clip (the same file), so its pitch or volume changes it alone.
+          <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique as sample</DropdownMenuItem>
         )}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>Chop</DropdownMenuSubTrigger>

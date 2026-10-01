@@ -275,7 +275,7 @@ export function deleteTimeSpace() {
   usePlaylist.setState({ selected: new Set() });
 }
 
-/** The clip's menu: Make unique (a pattern of its own). */
+/** The clip's menu: Make unique (a pattern of its own), or Make unique as sample (an audio clip channel of its own). */
 export function makeClipUnique(clipId: number) {
   useMusic.getState().commit((song) => makeUnique(song, clipId));
 }
