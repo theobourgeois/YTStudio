@@ -7,7 +7,13 @@ import { createId } from "../ids.ts";
 import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import {
+  type Automation,
+  type AutomationLfo,
+  type AutomationPoint,
+  type AutomationTarget,
+  CURVE_TYPES,
   type Channel,
+  type CurveType,
   type Envelope,
   type Mixer,
   type MixerEffect,
@@ -83,6 +89,15 @@ export const MIN_TRACK_SIZE = 0.25;
 export const MAX_TRACK_SIZE = 4;
 /** A track as new: unnamed, the playlist's colour, the usual height, playing. */
 export const DEFAULT_PLAYLIST_TRACK: PlaylistTrack = { name: null, color: null, size: 1, muted: false };
+
+/** The most automation clips a song has, and points one curve has. */
+export const MAX_AUTOMATIONS = 2000;
+export const MAX_AUTOMATION_POINTS = 20_000;
+/** An LFO's slowest and fastest speeds, in cycles per bar. */
+export const MIN_LFO_SPEED = 1 / 16;
+export const MAX_LFO_SPEED = 32;
+/** An automation clip's LFO as new: off, a cycle a bar, even, none of it. */
+export const DEFAULT_LFO: AutomationLfo = { enabled: false, speed: 1, tension: 0, skew: 0.5, level: 0, multiply: false };
 
 /** Steps in one bar of a time signature (16 in 4/4, 12 in 3/4 and 6/8). */
 export const stepsPerBar = ([beats, unit]: MusicSettings["timeSignature"]) => Math.max(1, Math.round((beats * 16) / unit));
@@ -189,7 +204,16 @@ export function createMixer(): Mixer {
 
 export function createMusicProject(name = DEFAULT_PROJECT_NAME, tempo = DEFAULT_TEMPO): MusicProject {
   const settings: MusicSettings = { tempo, timeSignature: [4, 4], swing: 0, volume: DEFAULT_VOLUME };
-  return { version: 1, name, settings, channels: emptyRack(), patterns: [createPattern("Pattern 1", FIRST_PATTERN_ID)], playlist: emptyPlaylist(), mixer: createMixer() };
+  return {
+    version: 1,
+    name,
+    settings,
+    channels: emptyRack(),
+    patterns: [createPattern("Pattern 1", FIRST_PATTERN_ID)],
+    playlist: emptyPlaylist(),
+    mixer: createMixer(),
+    automations: [],
+  };
 }
 
 /** What the tab chooses for a new song (`CreateProjectRequest.options`): the tempo set as the default. */
@@ -435,31 +459,123 @@ function normalizeTrack(raw: unknown): PlaylistTrack {
   return sameTrack(track, DEFAULT_PLAYLIST_TRACK) ? DEFAULT_PLAYLIST_TRACK : track;
 }
 
+const CONTROLS = {
+  channel: ["volume", "pan"],
+  mixer: ["volume", "pan", "stereo"],
+} as const;
+
 /**
- * The playlist: tracks by number, and clips of patterns and audio clip channels that are still there,
+ * An automation clip's target, if it's one. Its control may be gone (a channel deleted): it's kept, and
+ * drives nothing, so undoing the deletion brings it all back.
+ */
+export function normalizeTarget(raw: unknown): AutomationTarget | null {
+  if (!isObject(raw)) return null;
+  switch (raw.kind) {
+    case "channel":
+      return isId(raw.channel) && CONTROLS.channel.includes(raw.control as never) ? { kind: "channel", channel: raw.channel, control: raw.control as "volume" | "pan" } : null;
+    case "mixer":
+      return isId(raw.track) && CONTROLS.mixer.includes(raw.control as never) ? { kind: "mixer", track: raw.track, control: raw.control as "volume" | "pan" | "stereo" } : null;
+    case "send":
+      return isId(raw.track) && isId(raw.to) ? { kind: "send", track: raw.track, to: raw.to } : null;
+    case "effect":
+      return isId(raw.effect) ? { kind: "effect", effect: raw.effect } : null;
+    case "main":
+      return { kind: "main" };
+    case "plugin":
+      if ((raw.owner !== "channel" && raw.owner !== "effect") || !isId(raw.id) || typeof raw.param !== "string" || raw.param.length > 200) return null;
+      if (!Number.isInteger(raw.index) || (raw.index as number) < 0) return null;
+      return { kind: "plugin", owner: raw.owner, id: raw.id, param: raw.param, index: raw.index as number, name: text(raw.name, "Parameter") };
+    default:
+      return null;
+  }
+}
+
+export function normalizeLfo(raw: unknown): AutomationLfo {
+  if (!isObject(raw)) return DEFAULT_LFO;
+  return {
+    enabled: raw.enabled === true,
+    speed: number(raw.speed, MIN_LFO_SPEED, MAX_LFO_SPEED, DEFAULT_LFO.speed),
+    tension: number(raw.tension, -1, 1, 0),
+    skew: number(raw.skew, 0, 1, 0.5),
+    level: number(raw.level, -1, 1, 0),
+    multiply: raw.multiply === true,
+  };
+}
+
+const isCurve = (v: unknown): v is CurveType => CURVE_TYPES.includes(v as CurveType);
+
+/** A curve's points: in order, inside its length, the first at 0 (one at the middle value if there are none). */
+export function normalizePoints(input: unknown, length: number): AutomationPoint[] {
+  const points: AutomationPoint[] = [];
+  for (const raw of Array.isArray(input) ? input.slice(0, MAX_AUTOMATION_POINTS) : []) {
+    if (!isObject(raw) || !isFiniteNumber(raw.tick)) continue;
+    points.push({
+      tick: Math.round(clamp(raw.tick, 0, length)),
+      value: number(raw.value, 0, 1, 0.5),
+      tension: number(raw.tension, -1, 1, 0),
+      curve: isCurve(raw.curve) ? raw.curve : "single",
+    });
+  }
+  // Stable: points on one tick keep their order (a jump).
+  points.sort((a, b) => a.tick - b.tick);
+  if (!points.length) return [{ tick: 0, value: 0.5, tension: 0, curve: "single" }];
+  if (points[0].tick !== 0) points[0] = { ...points[0], tick: 0 };
+  return points;
+}
+
+function normalizeAutomations(input: unknown): Automation[] {
+  const seen = new Set<string>();
+  const automations: Automation[] = [];
+  for (const raw of Array.isArray(input) ? input : []) {
+    if (automations.length >= MAX_AUTOMATIONS) break;
+    if (!isObject(raw) || !isId(raw.id) || seen.has(raw.id)) continue;
+    const target = normalizeTarget(raw.target);
+    if (!target) continue;
+    seen.add(raw.id);
+    const length = Math.round(number(raw.length, 1, MAX_PATTERN_TICKS, STEP_TICKS * 16));
+    automations.push({
+      id: raw.id,
+      name: text(raw.name, "Automation"),
+      color: isColor(raw.color) ? raw.color.toLowerCase() : null,
+      target,
+      length,
+      points: normalizePoints(raw.points, length),
+      min: number(raw.min, 0, 1, 0),
+      max: number(raw.max, 0, 1, 1),
+      lfo: normalizeLfo(raw.lfo),
+    });
+  }
+  return automations;
+}
+
+/**
+ * The playlist: tracks by number, and clips of patterns, audio clip channels and automation clips that are still there,
  * on tracks that exist, inside the song's reach. Clips get ids of their own if they lack one. Songs
  * from before the playlist get an empty one.
  */
-function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channel[]): Playlist {
+function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channel[], automations: Automation[]): Playlist {
   if (!isObject(input)) return emptyPlaylist();
   const tracks = trimTracks((Array.isArray(input.tracks) ? input.tracks : []).slice(0, MAX_PLAYLIST_TRACKS).map(normalizeTrack));
-  const patternIds = new Set(patterns.map((p) => p.id));
-  const audioIds = new Set(channels.filter((c) => c.kind === "audio").map((c) => c.id));
+  const refs = {
+    pattern: new Set(patterns.map((p) => p.id)),
+    audio: new Set(channels.filter((c) => c.kind === "audio").map((c) => c.id)),
+    automation: new Set(automations.map((a) => a.id)),
+  };
   const clips: PlaylistClip[] = [];
   const ids = new Set<number>();
   const unnamed: PlaylistClip[] = [];
   for (const raw of Array.isArray(input.clips) ? input.clips : []) {
     if (clips.length >= MAX_CLIPS) break;
     if (!isObject(raw) || typeof raw.ref !== "string") continue;
-    const kind = raw.kind === "audio" ? "audio" : raw.kind === "pattern" ? "pattern" : null;
-    if (!kind || !(kind === "pattern" ? patternIds : audioIds).has(raw.ref)) continue;
+    const kind = raw.kind === "audio" || raw.kind === "pattern" || raw.kind === "automation" ? raw.kind : null;
+    if (!kind || !refs[kind].has(raw.ref)) continue;
     if (!isFiniteNumber(raw.start) || !Number.isInteger(raw.track)) continue;
     const track = raw.track as number;
     const start = Math.round(raw.start);
     if (track < 0 || track >= MAX_PLAYLIST_TRACKS || start < 0 || start >= MAX_SONG_TICKS) continue;
-    // Only a pattern clip follows its pattern's length; an audio clip always has one.
-    const length = kind === "pattern" && raw.length === null ? null : Math.round(number(raw.length, 1, MAX_SONG_TICKS - start, STEP_TICKS * 16));
-    const offset = kind === "pattern" ? Math.round(number(raw.offset, 0, MAX_PATTERN_TICKS, 0)) : number(raw.offset, 0, MAX_AUDIO_OFFSET, 0);
+    // Only a pattern or automation clip follows its content's length; an audio clip always has one.
+    const length = kind !== "audio" && raw.length === null ? null : Math.round(number(raw.length, 1, MAX_SONG_TICKS - start, STEP_TICKS * 16));
+    const offset = kind !== "audio" ? Math.round(number(raw.offset, 0, MAX_PATTERN_TICKS, 0)) : number(raw.offset, 0, MAX_AUDIO_OFFSET, 0);
     const id = Number.isInteger(raw.id) && (raw.id as number) > 0 && !ids.has(raw.id as number) ? (raw.id as number) : 0;
     const clip: PlaylistClip = { id, kind, ref: raw.ref, track, start, length, offset, muted: raw.muted === true };
     if (id) ids.add(id);
@@ -492,13 +608,15 @@ export function normalizeMusicProject(input: unknown, isSample: (id: string) => 
   const trackIds = new Set(mixer.tracks.map((t) => t.id));
   const channels = normalizeChannels(input.channels, isSample, (id) => trackIds.has(id));
   const patterns = normalizePatterns(input.patterns, channels);
+  const automations = normalizeAutomations(input.automations);
   return {
     version: 1,
     name,
     settings: { tempo, timeSignature, swing: number(settings.swing, 0, 1, 0), volume: number(settings.volume, 0, 1, DEFAULT_VOLUME) },
     channels,
     patterns,
-    playlist: normalizePlaylist(input.playlist, patterns, channels),
+    playlist: normalizePlaylist(input.playlist, patterns, channels, automations),
     mixer,
+    automations,
   };
 }
