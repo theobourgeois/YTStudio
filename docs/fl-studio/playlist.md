@@ -376,19 +376,21 @@ dropped from the Browser or the Finder (Shift: one after another on the track), 
 | --- | --- | --- |
 | Tracks | 500, always there | As many as are used or changed, plus eight spare and enough to fill the view, up to 500 |
 | Clip kinds | Pattern, audio, automation | Pattern and audio; automation clips with automation (step 4) |
-| Clip colours | The pattern's (or its notes' or channel's) | Blue-grey for patterns, green for audio, the track's colour if it has one; red selected (live, as a selection rectangle covers them). Bodies see-through, the grid showing (Théo) |
+| Clip colours | The pattern's (or its notes' or channel's) | FL's scheme, from one colour: the title strip that colour, the body a dark shade of it (the grid faint behind), the notes or waveform a light tint (Théo). The colour is the source's (Rename and color), else the track's, else blue-grey for patterns and green for audio; red selected (live, as a selection rectangle covers them). Names too long end in … |
 | Muted track | Its clips dimmed | Its clips greyed and darker, its lane shaded, its header dimmed as a muted mixer track's is; a click on the header around the name mutes too, not only the light (Théo) |
 | Zoom tool | Z | Not yet (Ctrl+wheel, Page Up / Down and Shift+1…5 zoom). Fully zoomed out shows the whole song and some room after it (an eighth, four bars at least), never fewer than 32 bars (Théo) |
 | Slice with Shift | Slices without dragging (Left-Shift: diagonal) | Cuts every track at once: a line the whole height, shown while Shift is held (Théo) |
-| Clip menu | On each clip's corner: preview, source, rename, colour, make unique, chop, select similar, delete… | The arrow at the start of its title: edit pattern (or show an audio clip's channel), make unique, split by channel, select all similar, mute, delete. No preview, chop, rename or recolour yet |
-| Audio clips | Fades, gain, pitch, reverse, stretch, crossfades, zero-crossing slices | Their file at its own speed; a 64-sample fade where a clip cuts its file off or starts inside it (FL's declicking) |
+| Clip menu | On each clip's corner: preview, source, rename, colour, make unique, chop, select similar, delete… | The arrow at the start of its title: Preview (held: the engine plays the clip alone), Edit pattern / Channel settings, Rename and color…, Change color, make unique, split by channel, Chop (every bar, beat, step or the snap), select all similar, mute, delete. No Select source yet |
+| Audio clips | Fades, gain, pitch, reverse, stretch, crossfades, zero-crossing slices | Their channel's pitch, as FL's Resample (faster and higher together: the clip goes through its file at that speed); a 64-sample fade where a clip cuts its file off or starts inside it (FL's declicking). Their waveform decoded in the tab, sharp at any zoom. No fades, gain, stretch or precomputed effects yet |
 | Audio clip in the rack | Its channel, playable from steps | Its channel in the Audio group, with no steps: a click on it draws it on the playlist |
-| Double-click an audio clip | Its properties | Selects its channel in the rack (Audio group) |
-| Picker | Sorting, unused, groups, render; patterns reordered by dragging | Patterns then audio clips, in the song's order. Patterns select as a list does (⌘-click toggles, Shift+click a range) for the menu (Transpose selected…, Clone, Move up / down, Delete act on all of them) and Alt+↑ / ↓, which reorders them (Théo) |
+| Double-click an audio clip | Its channel's settings | Its channel's settings: a cut-down sampler window (ON, PAN, VOL, PITCH in cents, TRACK, the file; its waveform pressed plays the file). No precomputed effects or time stretching yet |
+| Dragging files in | Shown where they'd land | Shown where they'd land, see-through, as long as the files (the Browser's; Finder files show a bar each until dropped) |
+| Deleting clips | They go | They shrink and fade out where they were, as the Piano roll's notes do |
+| Picker | Sorting, unused, groups, render; patterns reordered by dragging | Patterns then audio clips, in the song's order, each with its colour. A double-click shows a pattern in the Channel rack (rename is in its menu). Patterns select as a list does (⌘-click toggles, Shift+click a range) for the menu (Transpose selected…, Clone, Move up / down, Delete act on all of them) and Alt+↑ / ↓, which reorders them (Théo) |
 | Merge, group, consolidate, lock to content, track mode, arrangements, markers, performance mode | Yes | No (see what we'll leave out) |
 | The Piano roll's ruler in song mode | Moves the song | Switches to pattern mode, from there |
 | The playhead | In every window | The Playlist's in song mode; the rack's lights and the Piano roll's follow the pattern shown inside the song |
-| Look | FL's artwork | Its layout in our look; the grid in the Piano roll's theme colours (`--piano-*`) |
+| Look | FL's artwork | Its layout in our look; the grid in the Piano roll's theme colours (`--piano-*`); the ruler FL's (numbers along the top, short ticks along the bottom) |
 
 Performance, measured in the browser: with 6 000 clips (60 tracks, 100 bars), a frame takes 1 to 5 ms
 while scrolling and about 30 ms with every clip in view at once (Shift+4); a drag edits nothing until
