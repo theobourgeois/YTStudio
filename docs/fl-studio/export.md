@@ -2,8 +2,7 @@
 
 How FL Studio exports a song to an audio file, from the manual (`fformats_save_export.htm`, with bits of
 `menu_file`, `basics_shortcuts`, `playlist` and `plugins/wrapper`) and Théo. See [README.md](README.md) for
-the sources. The last sections are ours: [what to decide](#to-decide-with-théo) (Théo: tick or strike
-each line) and [how we'd build it](#how-wed-build-it).
+the sources. The last sections are ours: [what's decided](#decided-with-théo-2026-10-01) and [how we'd build it](#how-wed-build-it).
 
 ## What it is
 
@@ -135,64 +134,45 @@ Five folding sections from top to bottom, then a progress bar and the buttons.
 - **Master (FL Cloud)**: AI mastering to a loudness target (LUFS), an online service.
 - **Command line**: `FL -R -Emp3 project.flp` renders without opening the window (batch export).
 
-## To decide with Théo
+## Decided with Théo (2026-10-01)
 
-Théo: tick (✅) or strike (❌) each line, or correct it. I've put my suggestion in bold.
+1. **A save dialog first**, as FL's: where the file goes and its name (the song's name by default), then
+   the export window. In the desktop app it's the Mac's own save dialog; in the browser, the file is
+   downloaded when the render ends.
+2. **Formats: WAV, MP3, FLAC, OGG, M4A and MIDI**, several in one render. Stems can be written in any of
+   them, not only WAV as in FL.
+3. **MIDI matters**: the whole song's notes, a MIDI track per channel. No FL-style "turn the channels into
+   MIDI Out first": we write it from the document.
+4. **The tail is a choice**: **Cut at the end** (the default: the file ends where the Playlist's last bar
+   does) or **Let it ring out** (the render goes on until the output has been silent for a moment, up to
+   a limit). No Wrap remainder for now.
+5. **Plugins render in their high-quality offline mode, always** (FL's "Notify about rendering mode").
+6. **Editing the song while it exports** would be ideal, and FL can't do it. See
+   [editing while it renders](#editing-while-it-renders): edits are free; hearing them waits for the
+   render to end.
 
-**Getting there**
-1. ⬜ **Ctrl+R / Ctrl+Shift+R open the export window** (FL's keys; on the Mac, ⌘R / ⌘⇧R).
-2. ⬜ Where the file goes. Either **FL's way: a save dialog first** (the desktop app has a real one; the
-   browser version downloads the file at the end), or always into one folder plus a "Show in Finder"
-   button. **Suggest FL's**.
-3. ⬜ **The export is a window on the music desktop** (like Settings), not a modal.
+7. **The sampler's resampling** (how a sample is played at another pitch or rate; today linear, which
+   adds faint aliasing to bright sounds pitched far): **a better method everywhere**, live too, and the
+   best (sinc) in exports. The quality can be chosen, in Settings and in the export window. Tested: the
+   aliasing measured, and every hit still landing on its sample (the interpolator's delay compensated).
+8. **Editing while it exports: yes** ([how](#editing-while-it-renders)).
+9. **The rest as suggested** (Théo: "happy with those"):
+   - **The window**: the export is a window on the music desktop, opened by **⌘R** (WAV ticked) and
+     **⌘⇧R** (MP3), after the save dialog.
+   - **What's rendered**: Song or Pattern mode, starting on the transport's mode. The length is the
+     Playlist's time selection, else the end of the last clip's bar. Length, total time and disk space are
+     shown.
+   - **Formats**: WAV 16 / 24 / 32-bit float (24 by default), MP3 320 kbps by default (a slider), FLAC 16 /
+     24 bit; stereo only; the engine's sample rate; dither off, a switch for 16-bit files.
+   - **Stems**: Split mixer tracks, one file per mixer track that has sound, from the same render, named
+     "<song> - <track>". Muted tracks are skipped; the master is included if ticked. The plugin delay's
+     silence is always trimmed.
+   - **Other settings**: no insert / master effects switches, WAV markers, tempo metadata or SoundCloud
+     upload yet. A "Show in Finder" switch; the last settings remembered across songs.
+   - **The assistant**: an `export_song` tool now; bouncing later.
 
-**Project type**
-4. ⬜ **Mode: Song or Pattern**, starting on the transport's mode.
-5. ⬜ **Length**: **the Playlist's time selection if there is one, else the end of the last clip's bar**.
-   We have no time markers, so there's no "last marker".
-6. ⬜ **Tail: Leave remainder** (the default), **Cut remainder**, and **Wrap remainder** (for loops). With
-   Leave, we stop once the output has been silent (below −90 dB or so) for a moment, up to a limit of
-   about 30 s. Wrap could come later.
-7. ⬜ Show the length, total time and disk space.
-
-**Formats**
-8. ⬜ **WAV (16 / 24 / 32-bit float) and MP3 (bitrate slider, 320 kbps by default)** to start. Ticking
-   both writes both in one render. FLAC (lossless, smaller) is cheap to add with ffmpeg. OGG and M4A only
-   if you use them.
-9. ⬜ **Stereo only**; no mono options.
-10. ⬜ The sample rate: **the engine's (Audio settings), as FL does**. Or a choice in the dialog (44.1 /
-    48 kHz), since we render offline and can render at any rate.
-11. ⬜ MIDI export of the whole song: later, or never? The Piano roll's own "Export as MIDI file" is
-    simpler and more useful.
-
-**Quality**
-12. ⬜ **Tell plugins they're rendering** (FL's "Notify about rendering mode", always on). Serum,
-    FabFilter and the like can then use their offline-quality settings, which are slower but better.
-13. ⬜ The sampler's resampling: ours is linear today. **Offer a better one (Hermite or sinc) for the
-    export only**, or better resampling everywhere?
-14. ⬜ **Dither: off by default**, a switch for 16-bit.
-15. ⬜ Max polyphony: not needed. We have no per-channel voice limit (128 voices in the engine).
-
-**Miscellaneous**
-16. ⬜ **Stems = Split mixer tracks**: one WAV per mixer track that has sound, from the same single render
-    (so stems cost about the same as one mix), named "<song> - <track>.wav". Muted tracks skipped. Plus
-    the master if ticked.
-17. ⬜ "Export all playlist tracks" (stems through the master): **later**.
-18. ⬜ **Trim PDC silence: always** (the file starts on the song's first sample). Our engine already knows
-    the song's delay (`songLatency`).
-19. ⬜ Insert / master effects switches: **leave out** (always on), since they mostly matter for bouncing.
-20. ⬜ WAV markers, tempo metadata: **later** (cheap if you want them for loops).
-21. ⬜ Upload to SoundCloud: **no**. Publishing is planned for later, with the video editor's.
-22. ⬜ **Show in Finder when done** (a switch, as FL's).
-23. ⬜ Render in the background: **yes, by default**. The rest of the app stays usable while it renders,
-    but the song can't be played or edited until the render is done (or should it be editable?).
-24. ⬜ **Remember the last settings** (format, bit depth, bitrate, tail, stems) across songs, as FL does.
-
-**Later, in other steps**
-25. ⬜ Bouncing (consolidate, render as audio clip, render and replace): after export, with the same
-    render path. Audio clips need fades and gain first.
-26. ⬜ The assistant gets an **`export_song`** tool (format, mode, tail, stems), and `get_song` says
-    where the last export went.
+**Every step is tested**, latency included (the plugin delay trimmed to the sample, stems lined up with
+the mix), and committed as it's done (Théo).
 
 ## How we'd build it
 
@@ -223,6 +203,26 @@ be very fast.
   (`server/music/export.integration.test.ts`). The window and the tool go in `e2e/music.spec.ts`, against
   the stand-in engine.
 
+### Editing while it renders
+
+FL locks the song while it renders. We can do better, because the song lives in the tab, not in the
+engine:
+
+- **The render plays a copy.** On Start, the engine renders the song as it was at that moment. Edits
+  made afterwards (notes, clips, the mixer, new channels) go on as usual: undo, autosave, everything. The
+  engine keeps the newest song aside and switches to it when the render ends, so the edits never reach
+  the file being written.
+- **What you can't do meanwhile is hear it.** Play and the previews (the Piano roll's keys, the
+  Browser's files) wait until the render is done, because the render is using the engine's plugins. A
+  quick render makes that a few seconds.
+- **Plugin windows are the catch**: a knob turned inside Serum *during* the render would change the
+  render, since it's the same instance. So plugin windows are hidden while it renders and come back
+  after.
+- **Playing while it renders** would need a second engine with its own copy of every plugin. That means
+  loading them all again (seconds each for Serum) and sharing the CPU with playback, so the export gets
+  slower. It's possible later as a "render in the background" option, but it works against "really
+  fast".
+
 **Expected speed** (estimates for a 3-minute song, to be measured first with a benchmark):
 
 | Song | One thread | In parallel |
@@ -231,8 +231,8 @@ be very fast.
 | 4–6 Serum 2 + Pro-Q / Pro-R | 20–60 s | 5–10 s |
 | 15+ synths, reverbs on sends | over a minute | 10–20 s |
 
-Plugins' offline-quality settings (item 12) can make a render slower than playing it live. That's the
-price of FL's better-than-live render; a switch could turn it off for quick bounces.
+Plugins' offline-quality modes (always on, decided) can make a render slower than playing it live. That's
+the price of FL's better-than-live render.
 
 ## Where Vaudio differs
 
