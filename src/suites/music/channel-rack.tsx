@@ -855,7 +855,7 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
   const gesture = useRef(songGesture()).current;
 
   // Notes that aren't plain steps (written in the Piano roll): a picture of them instead, as in FL Studio.
-  if (!plainSteps(notes)) return <NotesPreview channelId={channelId} name={name} notes={notes} steps={steps} loop={loop} />;
+  if (!plainSteps(notes)) return <NotesPreview channelId={channelId} name={name} notes={notes} steps={steps} />;
 
   return (
     <div
@@ -924,10 +924,23 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
 /** Steps: every note on a step, a step long. Anything else is the Piano roll's to show. */
 const plainSteps = (notes: readonly Note[]) => notes.every((n) => n.start % STEP_TICKS === 0 && n.length === STEP_TICKS);
 
-/** A miniature of a channel's notes in the rack's row; a click opens them in the Piano roll. */
-function NotesPreview({ channelId, name, notes, steps, loop }: { channelId: string; name: string; notes: readonly Note[]; steps: number; loop: number }) {
+/**
+ * Where a tick is along the steps (px): inside its step, in step with the lights above (a beat's gap is
+ * jumped over). What the notes preview and its playhead are drawn by.
+ */
+const tickLeft = (tick: number) => {
+  const step = Math.floor(tick / STEP_TICKS);
+  return stepLeft(step) + ((tick - step * STEP_TICKS) / STEP_TICKS) * (stepLeft(step + 1) - stepLeft(step));
+};
+
+/**
+ * A miniature of a channel's notes in the rack's row, on the same steps as the other rows (so its
+ * playhead keeps with the lights); a click opens them in the Piano roll.
+ */
+function NotesPreview({ channelId, name, notes, steps }: { channelId: string; name: string; notes: readonly Note[]; steps: number }) {
   const width = stepsWidth(steps);
-  const span = Math.max(steps, loop) * STEP_TICKS;
+  const span = steps * STEP_TICKS;
+  const bar = 16 * STEP_TICKS;
   let low = 127;
   let high = 0;
   for (const note of notes) {
@@ -935,7 +948,8 @@ function NotesPreview({ channelId, name, notes, steps, loop }: { channelId: stri
     high = Math.max(high, note.pitch);
   }
   const range = Math.max(12, high - low + 1);
-  const shown = notes.length > 600 ? notes.slice(0, 600) : notes;
+  const inView = notes.filter((n) => n.start < span);
+  const shown = inView.length > 600 ? inView.slice(0, 600) : inView;
   return (
     <button
       type="button"
@@ -947,27 +961,27 @@ function NotesPreview({ channelId, name, notes, steps, loop }: { channelId: stri
       onClick={() => openPianoRoll(channelId)}
     >
       {/* A lighter and a darker block per bar. */}
-      {Array.from({ length: Math.ceil(span / (16 * STEP_TICKS)) }, (_, bar) => (
-        <span key={bar} className={cn("absolute inset-y-0", bar % 2 ? "bg-foreground/6" : "")} style={{ left: (bar * 16 * STEP_TICKS * width) / span, width: (16 * STEP_TICKS * width) / span }} />
+      {Array.from({ length: Math.ceil(span / bar) }, (_, i) => (
+        <span key={i} className={cn("absolute inset-y-0", i % 2 ? "bg-foreground/6" : "")} style={{ left: tickLeft(i * bar), width: tickLeft(Math.min((i + 1) * bar, span)) - tickLeft(i * bar) }} />
       ))}
       {shown.map((note) => (
         <span
           key={note.id}
           className={cn("absolute h-[2px] rounded-full", note.muted ? "bg-brand/30" : "bg-brand")}
           style={{
-            left: (note.start * width) / span,
-            width: Math.max(2, (note.length * width) / span),
+            left: tickLeft(note.start),
+            width: Math.max(2, tickLeft(note.start + note.length) - tickLeft(note.start)),
             top: 3 + ((high - note.pitch) / range) * (ROW_H - 8) + ((range - (high - low + 1)) / range) * ((ROW_H - 8) / 2),
           }}
         />
       ))}
-      <PreviewPlayhead width={width} span={span} />
+      <PreviewPlayhead span={span} />
     </button>
   );
 }
 
 /** A line across a notes preview where the pattern is playing; moved a frame at a time without rendering. */
-function PreviewPlayhead({ width, span }: { width: number; span: number }) {
+function PreviewPlayhead({ span }: { span: number }) {
   const tempo = useSong((song) => song.settings.tempo);
   const playing = useTransport((s) => s.playing);
   const line = useRef<HTMLSpanElement>(null);
@@ -979,13 +993,15 @@ function PreviewPlayhead({ width, span }: { width: number; span: number }) {
       frame = requestAnimationFrame(draw);
       const el = line.current;
       if (!el) return;
+      // Where the lights are: past the steps shown, nowhere.
       const tick = patternPositionNow();
-      el.style.display = tick === null ? "none" : "";
-      if (tick !== null) el.style.transform = `translateX(${((tick % span) * width) / span}px)`;
+      const shown = tick !== null && tick < span;
+      el.style.display = shown ? "" : "none";
+      if (shown) el.style.transform = `translateX(${tickLeft(tick)}px)`;
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [playing, tempo, width, span]);
+  }, [playing, tempo, span]);
 
   if (!playing) return null;
   return <span ref={line} aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-px bg-brand shadow-[0_0_4px] shadow-brand" style={{ display: "none" }} />;
