@@ -486,9 +486,11 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
   };
   /** A control's value at a tick, as its own (a pan's -1..1), or its own value where no clip says. */
   const valueOf = (target: AutomationTarget, own: number) => {
-    const placed = index.get(targetKey(target));
+    const key = targetKey(target);
+    const placed = index.get(key);
     const info = controlOf(song, target);
-    if (!placed) return () => own;
+    // Held by the hand (in a lane with other controls that aren't): its own value, as the hand has it.
+    if (!placed || held.has(key)) return () => own;
     return (tick: number) => {
       const found = clipAtTick(placed, tick);
       return found ? info.toControl(placedValue(found.placed, tick, barTicks)) : own;

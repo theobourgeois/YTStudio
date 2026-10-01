@@ -277,6 +277,9 @@ void Sequencer::takeRequests()
         stopsSeen = stops;
         playing = false;
         position_ = 0;
+        // Its automation lets go at once: a play taken in this same block takes the plugins' own values.
+        if (song != nullptr && lanesLive)
+            restoreLanes (*song);
         silenceVoices();
         generation = requestedGeneration.load();
         clips.stopAll();
@@ -458,8 +461,8 @@ void Sequencer::applyLanes (int numSamples)
             case Song::Lane::Kind::track:
             {
                 auto& track = song->tracks[(size_t) lane.track];
-                // A new song's first block glides from where the last one left it.
-                if (! ramping)
+                // A new song's first block glides from where the last one left it (a track it didn't have, from its lane).
+                if (! ramping || track.previous < 0)
                     track.from = from;
                 track.gains = to;
                 track.automated = true;
@@ -468,7 +471,7 @@ void Sequencer::applyLanes (int numSamples)
             case Song::Lane::Kind::send:
             {
                 auto& send = song->tracks[(size_t) lane.track].sends[(size_t) lane.index];
-                if (! ramping)
+                if (! ramping || send.previous < 0)
                     send.from = from[0];
                 send.gain = to[0];
                 send.automated = true;

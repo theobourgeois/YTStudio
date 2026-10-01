@@ -488,6 +488,7 @@ function TrackFader({ track, name, selected }: { track: MixerTrack; name: string
       className="min-h-20 flex-1"
       label={`${name} volume`}
       value={control.value}
+      own={track.volume}
       selected={selected}
       automated={control.automated}
       menu={<AutomationMenuItems target={target} />}

@@ -99,7 +99,7 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
 }
 
 /** The points an input gives (`at` in bars from the curve's start, values as the control has them), as a curve's. */
-function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, length: number): AutomationPoint[] {
+function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, length: number, range: { min: number; max: number } = { min: 0, max: 1 }): AutomationPoint[] {
   if (!Array.isArray(raw) || !raw.length) throw new Error('"points" must be a list of { at, value }: at in bars from the clip\'s start, value as the control has it.');
   const { barTicks } = clipContext(song);
   const info = controlOf(song, target);
@@ -109,7 +109,10 @@ function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, le
     if (!isFiniteNumber(p.value)) throw new Error(`Point ${i + 1}: "value" must be a number (${valueHint(target)}).`);
     if (p.curve !== undefined && !CURVE_TYPES.includes(p.curve as CurveType)) throw new Error(`Point ${i + 1}: "curve" must be one of: ${CURVE_TYPES.join(", ")}.`);
     if (p.tension !== undefined && (!isFiniteNumber(p.tension) || Math.abs(p.tension) > 1)) throw new Error(`Point ${i + 1}: "tension" must be -1 to 1.`);
-    return { tick: Math.round(p.at * barTicks), value: info.fromControl(p.value), tension: (p.tension as number | undefined) ?? 0, curve: (p.curve as CurveType | undefined) ?? "single" };
+    // The control's value as a fraction of its range, then of the clip's (its Min / Max).
+    const span = range.max - range.min;
+    const fraction = span === 0 ? 0 : (info.fromControl(p.value) - range.min) / span;
+    return { tick: Math.round(p.at * barTicks), value: Math.min(1, Math.max(0, fraction)), tension: (p.tension as number | undefined) ?? 0, curve: (p.curve as CurveType | undefined) ?? "single" };
   });
   if (points.some((p) => p.tick > length)) throw new Error(`A point is past the clip's end (${round(length / barTicks)} bars): give a longer "length".`);
   return normalizePoints(points, length);
@@ -189,7 +192,7 @@ export function updateAutomationTool(song: MusicProject, input: Input): EditResu
   });
   if (input.points !== undefined) {
     const now = next.automations.find((a) => a.id === id)!;
-    const points = pointsOf(input.points, now.target, next, now.length);
+    const points = pointsOf(input.points, now.target, next, now.length, now);
     next = editPoints(next, id, () => points);
   }
   if (input.tool !== undefined) {
@@ -209,7 +212,7 @@ export function describeAutomation(song: MusicProject, automation: Automation): 
   const drives = info.exists ? `${info.name} of ${info.owner}` : `nothing (what it drove, ${info.owner}, is gone)`;
   const shown = automation.points.slice(0, 48).map((p, i) => {
     const shape = i === 0 ? "" : ` (${CURVE_NAMES[p.curve].toLowerCase()}${p.tension ? `, tension ${round(p.tension)}` : ""})`;
-    return `${bars(p.tick)}: ${info.format(p.value)}${shape}`;
+    return `${bars(p.tick)}: ${info.format(automation.min + p.value * (automation.max - automation.min))}${shape}`;
   });
   const more = automation.points.length > shown.length ? `, … ${automation.points.length - shown.length} more` : "";
   const { lfo } = automation;

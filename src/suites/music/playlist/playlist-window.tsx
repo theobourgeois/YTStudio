@@ -741,7 +741,7 @@ function PointMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" data-testid="point-menu" onCloseAutoFocus={(e) => e.preventDefault()}>
         <DropdownMenuLabel className="text-[11px] text-muted-foreground">
-          {info.name}: {info.format(point.value)}
+          {info.name}: {info.format(automation.min + point.value * (automation.max - automation.min))}
         </DropdownMenuLabel>
         <DropdownMenuRadioGroup value={first ? "" : point.curve} onValueChange={(curve) => commit((points) => updatePoint(points, menu.index, { curve: curve as CurveType }))}>
           {CURVE_TYPES.map((curve) => (

@@ -65,6 +65,11 @@ interface KnobProps {
   onSet: (value: number) => void;
   /** Automation drives it (in song mode): marked, as FL marks an automated control. */
   automated?: boolean;
+  /**
+   * Its own value, when what it shows is automation's: drags, keys and the wheel start from it (the hand
+   * changes the control's own value, never the curve's). Default: `value`.
+   */
+  own?: number;
   /** More of its right-click menu's items (Create automation clip). */
   menu?: ReactNode;
 }
@@ -86,14 +91,14 @@ function arc(cx: number, cy: number, r: number, from: number, to: number): strin
  * changes; Alt+click or a middle click resets it; a right-click opens its menu (Reset, Copy value,
  * Paste value, Type in value).
  */
-export function Knob({ value, min, max, defaultValue, label, format, unit, bipolar, size = 22, className, onBegin, onDrag, onEnd, onCancel, onSet, automated, menu }: KnobProps) {
+export function Knob({ value, min, max, defaultValue, label, format, unit, bipolar, size = 22, className, onBegin, onDrag, onEnd, onCancel, onSet, automated, own = value, menu }: KnobProps) {
   // While it's dragged, where its value shows: above it, or under it when there's no room above (the toolbar's, at the window's top).
   const [dragging, setDragging] = useState<"above" | "below" | null>(null);
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
   const element = useRef<HTMLDivElement>(null);
   const copied = useCopiedValue((s) => s.fraction);
-  useWheelValue(element, { value: () => value, min, max, step: (fine) => (max - min) / (fine ? 200 : 40), onBegin, onDrag, onEnd });
+  useWheelValue(element, { value: () => own, min, max, step: (fine) => (max - min) / (fine ? 200 : 40), onBegin, onDrag, onEnd });
   const fraction = (value - min) / (max - min);
   const angle = -SWEEP / 2 + fraction * SWEEP;
   const c = size / 2;
@@ -140,7 +145,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                   return;
                 }
                 const origin = e.clientY;
-                const start = value;
+                const start = own;
                 startPointerDrag(e, {
                   threshold: 2,
                   cursor: "ns-resize",
@@ -161,8 +166,8 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
               }}
               onKeyDown={(e) => {
                 const step = (max - min) / (e.ctrlKey || e.metaKey ? 200 : 40);
-                if (e.key === "ArrowUp" || e.key === "ArrowRight") onSet(clamp(value + step, min, max));
-                else if (e.key === "ArrowDown" || e.key === "ArrowLeft") onSet(clamp(value - step, min, max));
+                if (e.key === "ArrowUp" || e.key === "ArrowRight") onSet(clamp(own + step, min, max));
+                else if (e.key === "ArrowDown" || e.key === "ArrowLeft") onSet(clamp(own - step, min, max));
                 else return;
                 e.preventDefault();
                 // The arrows are the knob's here, not the rack's.
@@ -271,6 +276,7 @@ export function SongKnob({ edit, target, ...knob }: SongKnobProps) {
     <Knob
       {...knob}
       value={control.value}
+      own={knob.value}
       automated={control.automated}
       menu={target && <AutomationMenuItems target={target} />}
       onBegin={() => {

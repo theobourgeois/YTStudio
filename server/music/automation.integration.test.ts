@@ -224,4 +224,30 @@ describe.skipIf(!built)("automation, offline", () => {
     await engine.saveStates();
     expect(existsSync(file)).toBe(true);
   });
+
+  it("starts an export on its automation from the first sample (a track's too), not gliding from the song's own gains", async () => {
+    // The master turned down to nothing by automation, all through: the export is silent from its first sample.
+    const song = automate(pad(), { kind: "mixer", track: "master", control: "volume" }, 0, TICKS * 4, [point(0, 0), point(TICKS * 4, 0)]);
+    const folder = path.join(dir, "silent");
+    const result = await engine.renderExport({ id: "exp_silent", projectId: PROJECT, song, patternId: P, mode: "song", loop: null, resampling: "sinc", folder, mix: true, stems: false, tail: "cut" });
+    expect(result.state).toBe("done");
+    expect(peakOf((await readWav(path.join(folder, "mix.wav"))).channels[0], 0, 512)).toBe(0);
+  });
+
+  it("gives a plugin its own value back when it's stopped and played again in one block", async () => {
+    let song = setEffect(pad(), "insert_1", 0, { id: effectId, name: "Vaudio Test Effect", format: "VST3" }, "fx_again");
+    await playSong(song);
+    await engine.command("stop", {});
+    const gain = (await engine.parameters("effect", "fx_again")).find((p) => p.name === "Gain")!;
+    song = automate(song, { kind: "plugin", owner: "effect", id: "fx_again", param: gain.id, index: gain.index, name: "Gain" }, 0, TICKS, [point(0, 1)]);
+    await playSong(song);
+    await hear(BAR / 4);
+    // Both taken at the start of the next block.
+    await engine.command("stop", {});
+    await engine.command("play", {});
+    await hear(BAR / 4);
+    await engine.command("stop", {});
+    await hear(RATE / 10);
+    expect((await engine.parameters("effect", "fx_again")).find((p) => p.id === gain.id)!.value).toBe(0.5);
+  });
 });

@@ -46,11 +46,21 @@ describe("the assistant's automation", () => {
     const id = made.automationId;
     const changed = updateAutomationTool(made.song, { automation: id, points: [{ at: 0, value: 0.2 }, { at: 1, value: 0.6 }], max: 0.5, lfo: { enabled: true, speed: 4, level: 0.3 }, tool: "flip" });
     const automation = changed.song.automations[0];
-    expect(automation.points.map((p) => p.value)).toEqual([0.8, 0.4]);
+    // Values through the new range (Max 50%: 0.2 is 0.4 of it, 0.6 past its top), then flipped.
+    expect(automation.points.map((p) => Math.round(p.value * 1000) / 1000)).toEqual([0.6, 0]);
     expect(automation).toMatchObject({ max: 0.5, lfo: { enabled: true, speed: 4, level: 0.3 } });
     expect(updateAutomationTool(changed.song, { automation: "Volume (Kick)", remove: true }).song.automations).toEqual([]);
     expect(() => updateAutomationTool(changed.song, { automation: "nope" })).toThrow(/automation clips are: "Volume \(Kick\)"/);
     expect(() => updateAutomationTool(changed.song, { automation: id, min: 3 })).toThrow(/0 to 1/);
+  });
+
+  it("takes and gives values as the control has them, through the clip's Min / Max", () => {
+    const s = song();
+    const made = addAutomationEdit(s, { control: "volume", track: "master" }, { kind: "mixer", track: "master", control: "volume" });
+    const ranged = updateAutomationTool(made.song, { automation: made.automationId, min: 0.5, points: [{ at: 0, value: 0.6 }, { at: 1, value: 0.9 }] });
+    expect(ranged.song.automations[0].points.map((p) => Math.round(p.value * 1000) / 1000)).toEqual([0.2, 0.8]);
+    expect(controlAt(ranged.song, { kind: "mixer", track: "master", control: "volume" }, 0)).toBeCloseTo(0.6);
+    expect(ranged.text).toContain("0: 60%; 1: 90%");
   });
 
   it("describes every automation clip, and how automation plays", () => {

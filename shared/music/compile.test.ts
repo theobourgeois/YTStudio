@@ -403,6 +403,14 @@ describe("automation", () => {
     expect(compileSong(song, P, null, "song", new Set(["channel:chan_kick:volume"])).lanes).toEqual([]);
   });
 
+  it("leaves a held control at its own value inside a lane other controls still drive", () => {
+    let song = automated();
+    song = createAutomation(song, { kind: "channel", channel: "chan_kick", control: "pan" }, { start: 0, length: BAR * 4 }, { id: "auto_pan", value: 0.5 }).song;
+    const [lane] = compileSong(song, P, null, "song", new Set(["channel:chan_kick:volume"])).lanes;
+    // The pan's clip still plays; the volume is the hand's (its own 78%: the sample as it is), not the curve's 0 at bar 2.
+    expect(laneAt(lane, 2, BAR)).toEqual([1, 1]);
+  });
+
   it("makes one lane of a channel's volume and pan, and a track's matrix of its fader, pan and the main volume", () => {
     let song = automated();
     song = createAutomation(song, { kind: "channel", channel: "chan_kick", control: "pan" }, { start: 0, length: BAR }, { id: "auto_pan", value: 1 }).song;
