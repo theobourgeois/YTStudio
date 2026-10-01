@@ -368,10 +368,14 @@ swing), the Piano roll, the Playlist and song mode, the transport and the metron
   its pattern), `offset` into its content (ticks of a pattern, **seconds** of an audio file), `muted`). Clip
   ids are small numbers, like notes'. Its operations are pure functions of a clip list in
   `shared/music/playlist.ts` (with a `ClipContext`: the patterns' lengths and the tempo, which a clip's
-  length needs), and the window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
+  length needs, and each audio clip channel's speed: a pitched one plays its file faster, FL's Resample,
+  so an audio clip's ticks become file seconds through `fileSecondsPerTick(ref)`, never `secondsPerTick`), and the window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
   through `applyDrag` and committed once, maths in `geometry.ts`, mouse in `pointer.ts`, keys in `keys.ts`,
   commands in `actions.ts`. An audio clip's channel is `Channel.kind: "audio"`: no notes, in the rack's
-  Audio group (`RackGroup`), not in the Piano roll. Deleting a pattern or a channel takes its clips.
+  Audio group (`RackGroup`), not in the Piano roll, with a cut-down settings window. Deleting a pattern or
+  a channel takes its clips. A clip's colour is its source's (`Pattern.color`, `Channel.color`), else its
+  track's; every clip colour is derived from one (`clipColours` in `draw.ts`). The clip menu's Preview
+  sends the engine a song of that clip alone while it's held (`playlist/preview.ts`).
 - **Song mode** (PAT / SONG, L): `useTransport.mode` (not saved: a song with clips opens in song mode),
   with a start tick per mode; `switchMode` sends the engine the other song and carries on playing.
   `compileSong(..., "song")` flattens the arrangement into notes (a clip plays nothing past its pattern;
