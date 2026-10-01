@@ -58,7 +58,7 @@ export function Lcd({ value, min, max, label, text, derived, menu, typeIn, class
               aria-valuemax={max}
               title={label}
               className={cn(
-                "flex h-6 min-w-9 cursor-ns-resize touch-none items-center justify-end rounded border bg-background px-1.5 font-mono text-xs tabular-nums outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/60",
+                "flex h-6 min-w-9 cursor-ns-resize touch-none items-center justify-end rounded border bg-background px-1.5 font-mono text-xs tabular-nums outline-none select-none",
                 derived && "text-muted-foreground",
                 className,
               )}

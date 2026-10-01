@@ -67,7 +67,7 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
               aria-valuenow={value}
               aria-valuetext={faderDb(value)}
               title={`${label}: ${faderDb(value)}`}
-              className={cn("relative w-[22px] cursor-ns-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-ring/60", className)}
+              className={cn("relative w-[22px] cursor-ns-resize touch-none outline-none", className)}
               onPointerDown={(e) => {
                 if (e.button === 1 || (e.button === 0 && e.altKey)) {
                   e.preventDefault();

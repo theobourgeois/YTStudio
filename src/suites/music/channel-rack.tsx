@@ -708,7 +708,7 @@ const StepRow = memo(function StepRow({ channelId, name, steps }: { channelId: s
           // FL Studio's step keys: beats in two alternating colours, dark when off, pale and lit when on
           // (`step-*` in index.css, coloured by the theme).
           className={cn(
-            "absolute top-0 rounded-[2px] outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+            "absolute top-0 rounded-[2px] outline-none",
             on.has(step) ? (oddBeat(step) ? "step-on-alt" : "step-on") : oddBeat(step) ? "step-off-alt" : "step-off",
             // Past the pattern's end: there to be filled (Auto), or unheard (a set length).
             step >= loop && "opacity-45",

@@ -113,7 +113,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
               aria-valuenow={value}
               aria-valuetext={format(value)}
               title={`${label}: ${format(value)}`}
-              className={cn("relative shrink-0 cursor-ns-resize touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/60", className)}
+              className={cn("relative shrink-0 cursor-ns-resize touch-none rounded-full outline-none", className)}
               style={{ width: size, height: size }}
               onPointerDown={(e) => {
                 // A middle click, or Alt+click: back to its default.

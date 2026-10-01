@@ -251,3 +251,11 @@ html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert
 [data-radix-popper-content-wrapper]:has(> [data-slot="tooltip-content"]) {
   pointer-events: none;
 }
+
+/*
+ * The music editor's controls (knobs, faders, LCDs, buttons, strips) show no focus outline after they're
+ * clicked or used from the keyboard (Théo): its windows are full of them. Text fields keep theirs.
+ */
+[data-suite="music"] :is(button, [role="slider"], [role="spinbutton"], [role="option"], [role="listitem"], [role="tab"], [role="switch"], [tabindex]):not(input, textarea):focus-visible {
+  outline: none;
+}

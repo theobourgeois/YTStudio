@@ -35,7 +35,7 @@ export function PatternPicker() {
         aria-valuetext={current.name}
         aria-valuenow={index < 0 ? undefined : index + 1}
         title="Pattern: scroll or drag up and down to change it (past the last, a new one)"
-        className="sunken flex h-7 min-w-0 flex-1 cursor-ns-resize touch-none items-center rounded-sm px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+        className="sunken flex h-7 min-w-0 flex-1 cursor-ns-resize touch-none items-center rounded-sm px-2 text-[13px] outline-none"
         onWheel={(e) => {
           // A mouse wheel's notch is a step; a trackpad's small deltas add up to one.
           if (Math.abs(e.deltaY) >= WHEEL_STEP) {

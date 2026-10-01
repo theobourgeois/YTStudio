@@ -313,7 +313,7 @@ function Waveform({ url, precomputed, onClick }: { url: string | null; precomput
       title="Click to hear it"
       data-testid="sample-waveform"
       data-loaded={samples !== null}
-      className="block overflow-hidden rounded-md border bg-background outline-none hover:border-brand/50 focus-visible:ring-2 focus-visible:ring-ring/60"
+      className="block overflow-hidden rounded-md border bg-background outline-none hover:border-brand/50"
       onClick={onClick}
     >
       <svg width={WAVE_W} height={WAVE_H} viewBox={`0 0 ${WAVE_W} ${WAVE_H}`} className="block" aria-hidden>
