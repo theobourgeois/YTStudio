@@ -140,7 +140,7 @@ export function newClip(song: MusicProject, source: ClipSource, start: number, t
   const ctx = clipContext(song);
   const like = song.playlist.clips.find((c) => c.kind === "audio" && c.ref === source.ref);
   const asset = useMusic.getState().assets.find((a) => a.id === song.channels.find((c) => c.id === source.ref)?.sampleId);
-  const length = like ? clipLength(like, ctx) : Math.max(STEP_TICKS, Math.round((asset?.duration ?? 2) / ctx.secondsPerTick));
+  const length = like ? clipLength(like, ctx) : Math.max(STEP_TICKS, Math.round((asset?.duration ?? 2) / ctx.fileSecondsPerTick(source.ref)));
   return { kind: "audio", ref: source.ref, track, start, length, offset: like?.offset ?? 0 };
 }
 

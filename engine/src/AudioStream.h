@@ -14,9 +14,11 @@ class AudioStream : public juce::TimeSliceClient
 public:
     /**
      * `source` from `startSeconds` in, at `outputRate`; `maxSamples` output samples at most (-1: to the
-     * file's end). The ring holds `ringSeconds` of it.
+     * file's end). The ring holds `ringSeconds` of it. `speed` plays it faster (and higher) or slower (and
+     * lower), as a sampler's pitch does: an audio clip's channel pitched (FL's Resample).
      */
-    AudioStream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 maxSamples = -1, double ringSeconds = 2.0);
+    AudioStream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 maxSamples = -1, double ringSeconds = 2.0,
+                 double speed = 1.0);
 
     int useTimeSlice() override;
 

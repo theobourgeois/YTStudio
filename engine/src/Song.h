@@ -154,6 +154,8 @@ struct Song
     {
         int channel = 0;
         double tick = 0, length = 0, seconds = 0;
+        /** How fast it plays its file (its channel's pitch, as a ratio): seconds of the file per second. */
+        double speed = 1;
         /** Its channel's file. */
         juce::String path;
         /** The same clip in the next song has the same key, so a stream playing it carries on through an edit. */

@@ -81,7 +81,7 @@ export const MUSIC_TOOLS = [
         name: str("A new name."),
         volume: num("0 to 1. 0.78 (the default) plays the sample at its own level; 1 is about 4 dB louder."),
         pan: num("-1 (left) to 1 (right); 0 is the centre."),
-        pitch: num("Semitones added to every note (-48 to 48; fractions are cents)."),
+        pitch: num("Semitones added to every note (-48 to 48; fractions are cents, 0.01 a cent). An audio clip's channel plays its file faster or slower with it, as FL's Resample does (12: an octave up, twice as fast)."),
         muted: bool("Whether the channel is muted."),
         cutSelf: bool("On: each new note silences the channel's notes still sounding (a closed hat cutting an open one)."),
         color: str('A colour, "#rrggbb", or "none" for the usual. An audio clip\'s clips on the playlist take its channel\'s colour.'),

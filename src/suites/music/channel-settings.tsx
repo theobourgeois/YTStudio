@@ -5,7 +5,7 @@ import { updateChannel } from "@shared/music/edits";
 import { DEFAULT_ENVELOPE, DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH } from "@shared/music/project";
 import type { Channel, Envelope, Precomputed } from "@shared/music/types";
 import { Input } from "@/components/ui/input";
-import { MILLISECONDS, PERCENT, SEMITONES, SongKnob, type ValueUnit, panText, percent, seconds, semitones } from "./knob";
+import { CENTS, MILLISECONDS, PERCENT, SongKnob, type ValueUnit, cents, panText, percent, seconds } from "./knob";
 import { solo, toggleMute } from "./rack-actions";
 import { musicApi } from "./api";
 import { useMusic } from "./store";
@@ -34,7 +34,7 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
   const [tab, setTab] = useState<Tab>("sample");
   const id = channel.id;
   // An audio clip's channel (FL's cut-down sampler): its file streams from the Playlist, so it has no
-  // envelope, and no pitch yet (the engine plays a streamed file at its own speed).
+  // envelope; its pitch plays the file faster or slower (FL's Resample).
   const audio = channel.kind === "audio";
 
   return (
@@ -98,23 +98,21 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
                 edit={(song, volume) => updateChannel(song, id, { volume })}
               />
             </Labelled>
-            {!audio && (
-              <Labelled label="PITCH">
-                <SongKnob
-                  size={26}
-                  label="Pitch"
-                  value={clampPitch(channel.pitch)}
-                  min={-PITCH_RANGE}
-                  max={PITCH_RANGE}
-                  defaultValue={0}
-                  bipolar
-                  format={semitones}
-                  unit={SEMITONES}
-                  // Whole semitones as it turns; cents are typed in.
-                  edit={(song, pitch) => updateChannel(song, id, { pitch: Number.isInteger(pitch * 100) && !Number.isInteger(pitch) ? pitch : Math.round(pitch) })}
-                />
-              </Labelled>
-            )}
+            <Labelled label="PITCH">
+              <SongKnob
+                size={26}
+                label="Pitch"
+                value={clampPitch(channel.pitch)}
+                min={-PITCH_RANGE}
+                max={PITCH_RANGE}
+                defaultValue={0}
+                bipolar
+                format={cents}
+                unit={CENTS}
+                // Whole semitones as it turns; cents are typed in. An audio clip plays faster pitched up (FL's Resample).
+                edit={(song, pitch) => updateChannel(song, id, { pitch: Number.isInteger(pitch * 100) && !Number.isInteger(pitch) ? pitch : Math.round(pitch) })}
+              />
+            </Labelled>
             <div className="flex flex-col items-center gap-0.5">
               <TrackSelector channel={channel} className="my-0.5 h-[22px] min-w-9 text-[11px]" />
               {/* A click on its name gives the channel a free track of its own, as in FL Studio. */}

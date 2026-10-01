@@ -31,6 +31,7 @@ import {
   sliceAll,
   sliceClips,
   chopClips,
+  pitchSpeed,
   slipClips,
   soloTrack,
   songTicks,
@@ -153,6 +154,17 @@ describe("a playlist's clips", () => {
     ]);
     // At an edge, or across nothing: whole.
     expect(sliceClips(song.playlist.clips, BAR, 0, 2, ctx).clips).toBe(song.playlist.clips);
+  });
+
+  it("go through their file at their channel's speed when it's pitched (FL's Resample)", () => {
+    // Two bars of a four-second file at 120 BPM, its channel an octave up: twice as fast through the file.
+    let song = withClips([{ kind: "audio", ref: "chan_kick", track: 0, start: 0, length: 2 * BAR, offset: 0 }]);
+    song = { ...song, channels: song.channels.map((c) => (c.id === "chan_kick" ? { ...c, kind: "audio" as const, pitch: 12 } : c)) };
+    const ctx = clipContext(song);
+    expect(ctx.fileSecondsPerTick("chan_kick")).toBeCloseTo(2 * ctx.secondsPerTick);
+    const { clips } = sliceClips(song.playlist.clips, BAR, 0, 0, ctx);
+    expect(clips.map((c) => c.offset)).toEqual([0, 4]);
+    expect(pitchSpeed(-12)).toBe(0.5);
   });
 
   it("chop into bars or beats of the song, each piece carrying on through the content", () => {

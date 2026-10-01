@@ -197,7 +197,7 @@ function drawWaveform(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip:
   if (count <= 0) return;
   // Where the file runs out, nothing more is drawn.
   const fileEnd = peaks.samples.length;
-  const sampleAt = (px: number) => (clip.offset + (xToTick(view, px) - clip.start) * scene.ctx.secondsPerTick) * peaks.rate;
+  const sampleAt = (px: number) => (clip.offset + (xToTick(view, px) - clip.start) * scene.ctx.fileSecondsPerTick(clip.ref)) * peaks.rate;
   const tops = new Float32Array(count);
   const bottoms = new Float32Array(count);
   let last = count;

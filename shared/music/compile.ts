@@ -5,7 +5,7 @@
  * the mixer's routing as an order to run its tracks in. The engine (`engine/src/Song.cpp`) only has to
  * play samples and audio clips at the right moments and add up tracks as it's told.
  */
-import { clipContext, clipLength, songTicks, trackAt } from "./playlist.ts";
+import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
 import { DEFAULT_FADER, DEFAULT_PRECOMPUTED, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps } from "./project.ts";
 import { type Channel, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
@@ -104,6 +104,11 @@ export interface EngineAudioClip {
   length: number;
   /** Where in its file the clip is at `tick`, in seconds. */
   seconds: number;
+  /**
+   * How fast it plays its file: its channel's pitch as a ratio (`pitchSpeed`; 2 is an octave up, twice as
+   * fast), as FL's Resample does. Seconds of the file per second of the song.
+   */
+  speed: number;
 }
 
 /** A part of the pattern to play on its own, in ticks: the Piano roll's time selection. */
@@ -373,7 +378,7 @@ function audioClips(song: MusicProject, from: number, to: number): EngineAudioCl
     const channel = channels.get(clip.ref);
     const length = clipLength(clip, ctx);
     if (channel === undefined || clip.start + length <= from) continue;
-    clips.push({ channel, tick: clip.start - from, length, seconds: clip.offset });
+    clips.push({ channel, tick: clip.start - from, length, seconds: clip.offset, speed: pitchSpeed(song.channels[channel].pitch) });
   }
   return clips;
 }
