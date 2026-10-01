@@ -98,17 +98,18 @@ export const setTimeSignature = (song: MusicProject, timeSignature: [number, num
 // ---------------------------------------------------------------------------
 
 /**
- * The channels new ones go after. A rack is never empty (`emptyRack`), but the sampler it's given then
- * is only a placeholder: while it's untouched (no sample, no notes, its settings as they came), the
- * first channels added take its place.
+ * The channels new ones go after. A rack is never without an instrument (`emptyRack`), but the sampler
+ * it's given then is only a placeholder: while it's untouched (no sample, no notes, its settings as they
+ * came), the first channels added take its place. Audio clips' channels don't count.
  */
 function channelsBefore(song: MusicProject): Channel[] {
-  const [only] = song.channels;
+  const instruments = song.channels.filter((c) => c.kind !== "audio");
+  const [only] = instruments;
   const untouched =
-    song.channels.length === 1 &&
+    instruments.length === 1 &&
     JSON.stringify(only) === JSON.stringify(emptyRack()[0]) &&
     song.patterns.every((p) => !p.notes[only.id]?.length);
-  return untouched ? [] : song.channels;
+  return untouched ? song.channels.filter((c) => c !== only) : song.channels;
 }
 
 /** Add sampler channels at the end of the rack, one per sample. */
@@ -206,11 +207,13 @@ export function removeChannels(song: MusicProject, ids: readonly string[]): Musi
   const gone = new Set(ids.filter((id) => getChannel(song, id)));
   if (!gone.size) return song;
   const clips = song.playlist.clips.filter((c) => !(c.kind === "audio" && gone.has(c.ref)));
+  const left = song.channels.filter((c) => !gone.has(c.id));
   return {
     ...song,
     playlist: clips.length === song.playlist.clips.length ? song.playlist : { ...song.playlist, clips },
-    // All of them: the rack gets a sampler again, rather than being left empty.
-    channels: gone.size === song.channels.length ? emptyRack() : song.channels.filter((c) => !gone.has(c.id)),
+    // Every instrument: the rack gets a sampler again, rather than being left empty (or with only
+    // audio clips' channels, which it doesn't show with the instruments).
+    channels: left.some((c) => c.kind !== "audio") ? left : [...emptyRack(), ...left],
     patterns: song.patterns.map((p) => {
       if (!Object.keys(p.notes).some((id) => gone.has(id))) return p;
       return { ...p, notes: Object.fromEntries(Object.entries(p.notes).filter(([id]) => !gone.has(id))) };

@@ -31,7 +31,7 @@ import {
   transposeChannels,
   updateChannel,
 } from "./edits.ts";
-import { DEFAULT_PRECOMPUTED, FIRST_PATTERN_ID, createMusicProject, normalizeMusicProject } from "./project.ts";
+import { DEFAULT_PRECOMPUTED, FIRST_PATTERN_ID, createAudioChannel, createMusicProject, normalizeMusicProject } from "./project.ts";
 import type { MusicProject } from "./types.ts";
 
 const P = FIRST_PATTERN_ID;
@@ -109,6 +109,17 @@ describe("channels", () => {
     expect(order(addChannels(used, [{ id: "chan_kick", name: "Kick", sampleId: "s1" }]))).toEqual(["sampler", "kick"]);
     const renamed = updateChannel(empty, empty.channels[0].id, { name: "Bass" });
     expect(addChannels(renamed, [{ id: "chan_kick", name: "Kick", sampleId: "s1" }]).channels).toHaveLength(2);
+  });
+
+  it("give the rack a sampler when every instrument goes, even with audio clips' channels left", () => {
+    const song = { ...rack(), channels: [...rack().channels, createAudioChannel("Vox", "media_vox", "chan_vox")] };
+    const left = removeChannels(song, ["chan_kick", "chan_hat", "chan_clap"]);
+    expect(left.channels.map((c) => [c.name, c.kind])).toEqual([["Sampler", "sampler"], ["Vox", "audio"]]);
+    expect(normalizeMusicProject(left)).toEqual(left);
+    // The placeholder still gives way to the first instruments added; the audio channel stays.
+    expect(order(addChannels(left, [{ id: "chan_kick", name: "Kick", sampleId: "s1" }]))).toEqual(["vox", "kick"]);
+    // Not while an instrument is left.
+    expect(removeChannels(song, ["chan_kick", "chan_hat"]).channels.map((c) => c.name)).toEqual(["Clap", "Vox"]);
   });
 
   it("are cloned with their settings but without their notes", () => {
