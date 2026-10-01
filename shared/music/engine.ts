@@ -55,6 +55,8 @@ export interface EngineStatus {
   /** The output's level (0..1+), falling back slowly: a meter. */
   peak: number;
   transport: EngineTransport & { metronome: boolean };
+  /** An export rendering (playback stops meanwhile): samples of the song written, out of `frames`. */
+  exporting?: { id: string; done: number; frames: number } | null;
   channels: EngineChannels;
   effects: EngineEffects;
   /** A plugin scan in progress. */
@@ -156,7 +158,39 @@ export type EngineEvent =
   | ({ event: "transport"; peak: number; meters: EngineMeters; cpu: number } & EngineTransport)
   | { event: "status"; status: EngineStatus }
   | ({ event: "key" } & EngineKey)
-  | { event: "ready" };
+  | EngineExportEvent
+  | { event: "ready" }
+  /** The engine's process ended without being asked to (a plugin crashed it): the next command starts it again. */
+  | { event: "stopped" };
+
+/** A file an export wrote (32-bit float WAV): the mix, or a mixer track's stem, by the track's id. */
+export interface EngineExportFile {
+  id: "mix" | (string & {});
+  file: string;
+  /** Its loudest sample (1 is full scale: louder clips once it's an integer format). */
+  peak: number;
+}
+
+/** An export ended: written (`frames` samples at `sampleRate`, the plugins' `latency` trimmed off). */
+export interface EngineExportDone {
+  state: "done";
+  frames: number;
+  sampleRate: number;
+  latency: number;
+  /** How long it took. */
+  seconds: number;
+  files: EngineExportFile[];
+  /** Channels and effects that weren't heard: their plugin or sample couldn't be had. */
+  missing: string[];
+}
+
+/** How an export the engine is rendering is going (the `export` command): about ten a second, then how it ended. */
+export type EngineExportEvent = { event: "export"; id: string } & (
+  | { state: "rendering"; done: number; frames: number }
+  | EngineExportDone
+  | { state: "failed"; error: string; missing: string[] }
+  | { state: "aborted"; missing: string[] }
+);
 
 /**
  * The desktop app's window, which it tells the engine about whenever it changes, so plugin windows act

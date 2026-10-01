@@ -119,6 +119,8 @@ struct Song
         /** An effect in one of its slots. */
         struct Effect
         {
+            /** The slot's effect (`MixerEffect.id`). */
+            juce::String id;
             /** Once it's loaded (the effect is skipped until then). */
             std::shared_ptr<HostedPlugin> plugin;
             /** Off: bypassed, not run. */
@@ -139,6 +141,8 @@ struct Song
         int previous = -1;
         /** Its manual delay compensation (`MixerTrack.latencyOffset`), in ms. */
         double latencyOffsetMs = 0;
+        /** Samples its sound comes out late by, after its effects (`compensate`): a stem is held back by what the master's is later. */
+        int latency = 0;
     };
 
     struct Note
@@ -176,6 +180,8 @@ struct Song
     Resampling resampling = Resampling::hermite;
     /** The loop's length, and a beat's and a bar's (the metronome), in ticks. */
     double loopTicks = 384, beatTicks = 96, barTicks = 384;
+    /** Round and round (playing); or, exported, it plays once and then nothing more is started. */
+    bool loops = true;
     std::vector<Channel> channels;
     /** In order of `tick`. */
     std::vector<Note> notes;
@@ -201,9 +207,11 @@ struct Song
 
     /**
      * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the
-     * mixer's; `unreadable` gets the ids of channels whose sample couldn't be read.
+     * mixer's; `unreadable` gets the ids of channels whose sample couldn't be read. Unless `keepOnly` is
+     * false (a copy for the export), the hosts let go of the plugins the song doesn't have.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate);
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate,
+                                        bool keepOnly = true);
 
     /**
      * Plugin delay compensation (FL Studio's automatic PDC): every path into a track waits until the

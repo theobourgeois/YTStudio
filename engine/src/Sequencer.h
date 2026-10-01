@@ -58,6 +58,11 @@ public:
      */
     void setMeteredTracks (const juce::StringArray& trackIds);
 
+    /** A sequencer of the export's own: notes left sounding in the song's plugins end at its first block. */
+    void silenceFirst() { silencing = true; }
+    /** The song playing (only on the thread that calls `process`, after it has once). */
+    const Song* current() const { return song; }
+
     bool isPlaying() const { return playingNow; }
     /** Where the loop is, in ticks. */
     double position() const { return positionNow; }

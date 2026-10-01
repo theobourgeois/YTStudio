@@ -361,6 +361,15 @@ void Sequencer::schedule (int numSamples)
 {
     const auto ticksPerSample = song->tempo * song->ppq / (60.0 * sampleRate);
     const auto loop = song->loopTicks;
+    if (! song->loops)
+    {
+        // Once through (an export): what starts before the end plays, then nothing more does.
+        const auto to = position_ + numSamples * ticksPerSample;
+        if (position_ < loop)
+            scheduleRange (position_, juce::jmin (to, loop), position_, 0, numSamples, ticksPerSample);
+        position_ = to;
+        return;
+    }
     for (int offset = 0; offset < numSamples;)
     {
         // Up to the loop's end, then again from its start.

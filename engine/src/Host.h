@@ -75,6 +75,18 @@ public:
     juce::int64 latencySignature() const;
     /** Try again the plugins that couldn't be loaded (a scan may have found them since). */
     void forgetFailures() { failed.clear(); }
+    /** A plugin is still being loaded. */
+    bool anyLoading() const { return ! loading.empty(); }
+    /** The owner's plugin couldn't be loaded. */
+    bool hasFailed (const juce::String& ownerId) const { return failed.count (ownerId) > 0; }
+    /**
+     * While the song is exported: every plugin told it's rendering offline (so those with a better
+     * offline mode use it), and their windows hidden (what's turned in one would change the render).
+     * Only while nothing is processing them.
+     */
+    void setExporting (bool exporting);
+    /** Clear what every plugin has ringing (a reverb's tail, notes held). Only while nothing is processing them. */
+    void reset();
 
     /** `{ loaded: [{ <owner key>, name, editorOpen, latency }], loading: [ids], failed: [{ <owner key>, error }] }`. */
     juce::var describe() const;
@@ -100,6 +112,7 @@ private:
     /** When the app or the engine was last in front (ms): switching between them, neither is for a moment. */
     juce::uint32 lastInUse = 0;
     bool windowsShown = true;
+    bool exporting = false;
     double sampleRate = 48000.0;
     int blockSize = 512;
     /** So a load that finishes after the host has gone does nothing. */

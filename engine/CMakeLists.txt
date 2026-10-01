@@ -30,7 +30,7 @@ juce_add_gui_app(
   COMPANY_NAME "Vaudio"
   PLIST_TO_MERGE "<plist><dict><key>LSUIElement</key><true/></dict></plist>")
 
-target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/ClipPlayer.cpp src/EditorWindow.cpp src/Engine.cpp src/FilePreview.cpp src/Host.cpp src/Plugins.cpp src/Protocol.cpp src/Sequencer.cpp src/Song.cpp)
+target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/ClipPlayer.cpp src/EditorWindow.cpp src/Engine.cpp src/Export.cpp src/FilePreview.cpp src/Host.cpp src/Plugins.cpp src/Protocol.cpp src/Sequencer.cpp src/Song.cpp)
 
 target_compile_definitions(
   VaudioEngine

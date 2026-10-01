@@ -8,11 +8,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import { clamp, isFiniteNumber } from "../../shared/math.ts";
-import { compileSong, levelGain } from "../../shared/music/compile.ts";
+import { type PlayMode, compileSong, levelGain } from "../../shared/music/compile.ts";
 import {
   ENGINE_SLOTS,
   type EngineCommand,
   type EngineDevices,
+  type EngineExportDone,
   type EngineEvent,
   type EnginePlugin,
   type EngineRender,
@@ -20,13 +21,33 @@ import {
   type EngineStatus,
   type HostWindow,
   type LoadedPlugin,
+  type Resampling,
   type SetSongResponse,
   isResampling,
 } from "../../shared/music/engine.ts";
 import { DEFAULT_VELOCITY, normalizeMusicProject } from "../../shared/music/project.ts";
+import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
 import { spawnStreaming } from "../process.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
+
+/** What `renderExport` renders: a song as `SetSongRequest` has it, and where the files go and what they are. */
+export interface RenderExportRequest {
+  id: string;
+  projectId: string;
+  song: MusicProject;
+  patternId: string | null;
+  mode: PlayMode;
+  loop: { start: number; end: number } | null;
+  resampling: Resampling;
+  /** An absolute folder: `mix.wav` and `<track id>.wav` go there. */
+  folder: string;
+  mix: boolean;
+  stems: boolean;
+  /** Stop on the song's last sample, or ring out until it's quiet (at most `maxTail` seconds). */
+  tail: "cut" | "ring";
+  maxTail?: number;
+}
 
 /** Where a project's sample is on disk, or null if it has no such audio file. */
 export type SamplePath = (projectId: string, mediaId: string) => string | null;
@@ -116,6 +137,48 @@ export class AudioEngine {
    * (`shared/music/compile.ts`) and handed to the engine, which keeps playing through the change.
    */
   async setSong(body: unknown): Promise<SetSongResponse> {
+    const { song, compiled } = this.engineSong(body);
+    this.song = song;
+    this.keepStates(song.channels.some((c) => c.plugin) || song.tracks.some((t) => t.effects.length > 0));
+    const answer = (await this.request("song", { song })) as Omit<SetSongResponse, "loop">;
+    return { ...answer, loop: { start: compiled.offsetTicks, ticks: compiled.loopTicks } };
+  }
+
+  /**
+   * Render a song to 32-bit float WAVs in `folder` (`RenderExportRequest`): the mix, and with `stems`
+   * each mixer track's sound. The song is compiled as for playing it, but plays once. Playback stops
+   * while it renders; songs sent meanwhile are played once it's over. Resolves when it's written (or
+   * aborted: `abortExport`); `onProgress` hears how far it is about ten times a second.
+   */
+  renderExport(request: RenderExportRequest, onProgress?: (done: number, frames: number) => void): Promise<EngineExportDone | { state: "aborted"; missing: string[] }> {
+    const { song } = this.engineSong(request);
+    return new Promise((resolve, reject) => {
+      const stop = this.onEvent((event) => {
+        if (event.event === "stopped") {
+          stop();
+          reject(new HttpError(503, "The audio engine stopped while exporting (a plugin may have crashed it). Try again."));
+        }
+        if (event.event !== "export" || event.id !== request.id) return;
+        if (event.state === "rendering") return onProgress?.(event.done, event.frames);
+        stop();
+        if (event.state === "failed") reject(new HttpError(409, event.error));
+        else resolve(event);
+      });
+      const params = { exportId: request.id, song: { ...song, loops: false }, folder: request.folder, mix: request.mix, stems: request.stems, tail: request.tail, maxTail: request.maxTail };
+      this.request("export", params).catch((err: Error) => {
+        stop();
+        reject(err);
+      });
+    });
+  }
+
+  /** Stop an export rendering (what it wrote is deleted). */
+  async abortExport(id: string): Promise<void> {
+    if (this.child) await this.request("abortExport", { exportId: id });
+  }
+
+  /** A song request's song, as the engine takes it (`SetSongRequest`; checked, compiled, its files' paths). */
+  private engineSong(body: unknown) {
     if (!isObject(body) || !isValidId(body.projectId)) throw new HttpError(400, '"projectId" must be the song\'s project id.');
     const projectId = body.projectId;
     const doc = normalizeMusicProject(body.song, (id) => this.samplePath(projectId, id) !== null);
@@ -137,10 +200,7 @@ export class AudioEngine {
         effects: t.effects.map((e) => ({ ...e, plugin: { ...e.plugin, state: path.join(states, `${e.id}.bin`) } })),
       })),
     };
-    this.song = song;
-    this.keepStates(song.channels.some((c) => c.plugin) || song.tracks.some((t) => t.effects.length > 0));
-    const answer = (await this.request("song", { song })) as Omit<SetSongResponse, "loop">;
-    return { ...answer, loop: { start: compiled.offsetTicks, ticks: compiled.loopTicks } };
+    return { song, compiled };
   }
 
   /**
@@ -401,7 +461,7 @@ export class AudioEngine {
           if (this.host) void this.request("host", { ...this.host }).catch(() => {});
           resolve();
           this.emit({ event: "ready" });
-        } else if (message.event === "transport" || message.event === "key") {
+        } else if (message.event === "transport" || message.event === "key" || message.event === "export") {
           this.emit(message as unknown as EngineEvent);
         } else if (message.event === "status" && isObject(message.status)) {
           void this.withSaved(message.status as unknown as RawStatus).then((status) => this.emit({ event: "status", status }));
@@ -418,6 +478,7 @@ export class AudioEngine {
         .finally(() => {
           clearTimeout(timer);
           if (this.child === child) this.child = null;
+          if (!this.stopping) this.emit({ event: "stopped" });
           for (const pending of this.pending.values()) {
             clearTimeout(pending.timer);
             pending.reject(new HttpError(503, "The audio engine stopped (a plugin may have crashed it). Try again."));

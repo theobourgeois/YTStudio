@@ -96,7 +96,8 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate)
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate,
+                                  bool keepOnly)
 {
     auto song = std::make_unique<Song>();
     song->tempo = number (json["tempo"], 120, 1, 2000);
@@ -105,6 +106,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     song->beatTicks = number (json["beatTicks"], song->ppq, 1, 1e9);
     song->barTicks = number (json["barTicks"], song->beatTicks * 4, 1, 1e9);
     song->resampling = resampling::parse (json["resampling"].toString(), Resampling::hermite);
+    song->loops = ! json.hasProperty ("loops") || (bool) json["loops"];
 
     if (const auto* list = json["channels"].getArray())
         for (const auto& item : *list)
@@ -224,7 +226,8 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         continue;
                     const auto state = plugin["state"].toString();
                     effectIds.add (id);
-                    track.effects.push_back ({ effects.get (id, plugin["id"].toString(), state.isEmpty() ? juce::File() : juce::File (state), item["name"].toString()),
+                    track.effects.push_back ({ id,
+                                              effects.get (id, plugin["id"].toString(), state.isEmpty() ? juce::File() : juce::File (state), item["name"].toString()),
                                               (bool) slot["enabled"],
                                               (float) number (slot["mix"], 1, 0, 1) });
                 }
@@ -282,8 +285,11 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     juce::StringArray channelIds;
     for (const auto& channel : song->channels)
         channelIds.add (channel.id);
-    plugins.keepOnly (channelIds);
-    effects.keepOnly (effectIds);
+    if (keepOnly)
+    {
+        plugins.keepOnly (channelIds);
+        effects.keepOnly (effectIds);
+    }
 
     std::stable_sort (song->notes.begin(), song->notes.end(), [] (const Note& a, const Note& b) { return a.tick < b.tick; });
     return song;
@@ -311,6 +317,7 @@ void Song::compensate (double sampleRate)
             if (effect.enabled && effect.plugin != nullptr)
                 delay += effect.plugin->instance->getLatencySamples();
         out[t] = arrival[t] + delay;
+        tracks[t].latency = out[t];
         for (const auto& send : track.sends)
             arrival[(size_t) send.track] = juce::jmax (arrival[(size_t) send.track], out[t]);
     }

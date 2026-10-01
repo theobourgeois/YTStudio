@@ -80,6 +80,7 @@ void ClipPlayer::setSong (const Song& song)
     loopTicks = juce::jmax (1.0, song.loopTicks);
     secondsPerTick = 60.0 / (song.tempo * song.ppq);
     quality = song.resampling;
+    loops = song.loops;
 }
 
 bool ClipPlayer::has (juce::uint64 key, juce::uint32 playGeneration, juce::uint32 pass) const
@@ -106,6 +107,8 @@ void ClipPlayer::prepare (double position, juce::uint32 playGeneration, juce::ui
         // Where it's next entered: its start, in this pass or the next one round the loop.
         const auto entry = juce::jmax (start, 0.0);
         const auto later = entry > position;
+        if (! later && ! loops)
+            continue;
         const auto ahead = later ? entry - position : entry + loopTicks - position;
         const auto entryPass = later ? pass : pass + 1;
         if (ahead <= lookahead && ! has (clip.key, playGeneration, entryPass))

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // A stand-in for the audio engine (tests): the same JSON lines, no sound. It keeps time like the real
 // one (a playing song's position moves), and `crash` exits mid-command.
+import fs from "node:fs";
+import path from "node:path";
 import readline from "node:readline";
 
 const PLUGINS = [
@@ -51,6 +53,67 @@ const effects = () => {
   };
 };
 
+/**
+ * The export being "rendered": it takes about a second and a half whatever the song (so a test can watch
+ * it), saying how far it is, then writes a quiet tone as long as the song for the mix and each stem.
+ */
+let exporting = null;
+/** A 32-bit float stereo WAV of a quiet 440 Hz tone, `frames` long. */
+function writeTone(file, frames, rate) {
+  const data = Buffer.alloc(frames * 8);
+  for (let i = 0; i < frames; i++) {
+    const v = 0.1 * Math.sin((2 * Math.PI * 440 * i) / rate);
+    data.writeFloatLE(v, i * 8);
+    data.writeFloatLE(v, i * 8 + 4);
+  }
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(3, 20);
+  header.writeUInt16LE(2, 22);
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 8, 28);
+  header.writeUInt16LE(8, 32);
+  header.writeUInt16LE(32, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(file, Buffer.concat([header, data]));
+}
+function startExport(params) {
+  const exported = params.song;
+  const rate = device.sampleRate;
+  const frames = Math.ceil((exported.loopTicks * 60 * rate) / (exported.tempo * exported.ppq));
+  const job = { id: params.exportId, frames, done: 0, aborted: false };
+  exporting = job;
+  playingSince = null;
+  const steps = 15;
+  let step = 0;
+  const timer = setInterval(() => {
+    if (job.aborted) {
+      clearInterval(timer);
+      exporting = null;
+      return send({ event: "export", id: job.id, state: "aborted", missing: [] });
+    }
+    step++;
+    job.done = Math.min(frames, Math.round((frames * step) / steps));
+    if (step < steps) return send({ event: "export", id: job.id, state: "rendering", done: job.done, frames });
+    clearInterval(timer);
+    fs.mkdirSync(params.folder, { recursive: true });
+    const files = [];
+    if (params.mix !== false) files.push({ id: "mix", file: path.join(params.folder, "mix.wav"), peak: 0.1 });
+    // A stem for each track a channel plays into, but the master (the last).
+    if (params.stems) {
+      const used = new Set(exported.channels.map((c) => c.track));
+      exported.tracks.forEach((t, i) => i < exported.tracks.length - 1 && used.has(i) && files.push({ id: t.id, file: path.join(params.folder, `${t.id}.wav`), peak: 0.1 }));
+    }
+    for (const file of files) writeTone(file.file, frames, rate);
+    exporting = null;
+    send({ event: "export", id: job.id, state: "done", frames, sampleRate: rate, latency: 0, seconds: 1.5, files, missing: [] });
+  }, 100);
+}
+
 const tick = () => {
   if (playingSince === null || !song) return 0;
   return (((Date.now() - playingSince) / 60000) * song.tempo * song.ppq) % song.loopTicks;
@@ -67,6 +130,7 @@ const status = () => ({
   tone,
   peak: 0,
   transport: { playing: playingSince !== null, tick: tick(), metronome, preview: previewNow() },
+  exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
   scanning: null,
@@ -108,6 +172,16 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const { id, cmd, ...params } = JSON.parse(line);
   const fail = (error) => send({ id, ok: false, error });
   if (cmd === "crash") process.exit(3);
+  if (exporting && ["play", "preview", "trigger", "previewFile", "render", "setDevice", "tone", "note", "load", "unload", "editor"].includes(cmd)) return fail("The song is being exported: wait for it to finish.");
+  if (cmd === "export") {
+    if (exporting) return fail("A song is being exported already.");
+    startExport(params);
+    return send({ id, ok: true, result: status() });
+  }
+  if (cmd === "abortExport") {
+    if (exporting && exporting.id === params.exportId) exporting.aborted = true;
+    return send({ id, ok: true, result: status() });
+  }
   if (cmd === "plugins") return send({ id, ok: true, result: PLUGINS });
   if (cmd === "song") {
     song = params.song;
