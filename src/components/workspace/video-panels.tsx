@@ -10,6 +10,7 @@ import { importMedia } from "@/components/media/import-media";
 import { MediaBin } from "@/components/media/media-bin";
 import { OnlinePanel } from "@/components/media/online-panel";
 import { Preview } from "@/components/preview/preview";
+import { PropertiesDrop } from "@/components/properties/properties-drop";
 import { PropertiesPanel } from "@/components/properties/properties-panel";
 import { PANEL_MIN_HEIGHT } from "@/components/timeline/constants";
 import { Timeline } from "@/components/timeline/timeline";
@@ -51,8 +52,17 @@ export const VIDEO_PANEL_DEFS: Record<VideoPanel, DockPanel> = {
   // Premiere's Effects panel: video effects, presets and transitions.
   effects: { title: "Effects", render: () => <EffectsPanel />, minWidth: 280, minHeight: 200 },
   captions: { title: "Captions", render: () => <CaptionsPanel />, minWidth: 280, minHeight: 200 },
-  // The selection's properties (Premiere's Effect Controls).
-  properties: { title: "Properties", render: () => <PropertiesPanel />, minWidth: 280, minHeight: 200 },
+  // The selection's properties (Premiere's Effect Controls); effects and presets dropped on it go on its clips.
+  properties: {
+    title: "Properties",
+    render: () => (
+      <PropertiesDrop>
+        <PropertiesPanel />
+      </PropertiesDrop>
+    ),
+    minWidth: 280,
+    minHeight: 200,
+  },
   // As wide as its transport bar (the time, the buttons, the resolution and the tools).
   program: { title: "Program", render: () => <Preview />, minWidth: 480, minHeight: 240 },
   timeline: { title: "Timeline", render: () => <Timeline />, minWidth: 360, minHeight: PANEL_MIN_HEIGHT },

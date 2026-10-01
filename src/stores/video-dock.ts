@@ -17,18 +17,47 @@ export const panelWindow = (panel: VideoPanel): VideoWindowId => `panel:${panel}
 
 const group = (id: string, panels: VideoPanel[], active = panels[0]) => ({ type: "group" as const, id, panels, active });
 
-/** The tabs beside the monitor, the timeline below: the editor as it's always been. */
-export function editingLayout(): DockLayout<VideoPanel> {
+/**
+ * Three columns over the timeline: what's being added on the left (as tabs, `left` in front), the
+ * monitor, then the properties of what's selected; `widths` in proportion.
+ */
+function threeColumns(left: VideoPanel[], widths: [number, number, number]): DockLayout<VideoPanel> {
   return {
     root: {
       type: "split",
-      id: "editing",
+      id: "columns",
+      direction: "column",
+      sizes: [625, 435],
+      children: [
+        {
+          type: "split",
+          id: "columns-top",
+          direction: "row",
+          sizes: widths,
+          children: [group("browse", left), group("monitor", ["program"]), group("inspect", ["properties"])],
+        },
+        group("timeline", ["timeline"]),
+      ],
+    },
+    floating: [],
+  };
+}
+
+/** The default (Théo's): Media, Effects and Captions on the left, the monitor, Properties on the right. */
+export const editingLayout = () => threeColumns(["media", "effects", "captions"], [370, 1175, 445]);
+
+/** Every tab beside the monitor (Properties too), the timeline below: the most room for the monitor's width. */
+function compactLayout(): DockLayout<VideoPanel> {
+  return {
+    root: {
+      type: "split",
+      id: "compact",
       direction: "column",
       sizes: [548, 300],
       children: [
         {
           type: "split",
-          id: "editing-top",
+          id: "compact-top",
           direction: "row",
           sizes: [344, 856],
           children: [group("browse", ["media", "effects", "captions", "properties"]), group("monitor", ["program"])],
@@ -40,36 +69,14 @@ export function editingLayout(): DockLayout<VideoPanel> {
   };
 }
 
-/** Three columns: what's being added on the left, the monitor, then the properties of what's selected. */
-function threeColumns(left: VideoPanel[], right: VideoPanel): DockLayout<VideoPanel> {
-  return {
-    root: {
-      type: "split",
-      id: "columns",
-      direction: "column",
-      sizes: [548, 300],
-      children: [
-        {
-          type: "split",
-          id: "columns-top",
-          direction: "row",
-          sizes: [320, 560, 360],
-          children: [group("left", left), group("monitor", ["program"]), group("right", [right])],
-        },
-        group("timeline", ["timeline"]),
-      ],
-    },
-    floating: [],
-  };
-}
-
 /** Ready-made layouts (Premiere's workspaces), in each panel's menu. */
 export const VIDEO_WORKSPACES = [
   { name: "Editing", layout: editingLayout },
-  // Captions on the left, a caption's own style on the right.
-  { name: "Captions", layout: () => threeColumns(["captions", "media", "effects"], "properties") },
-  // Effects to drag from, and the clip's properties (Effect Controls) to set them in.
-  { name: "Effects", layout: () => threeColumns(["effects", "media", "captions"], "properties") },
+  // The captions in front, with room for their transcript.
+  { name: "Captions", layout: () => threeColumns(["captions", "media", "effects"], [480, 1065, 445]) },
+  // Effects to drag from, and the clip's properties wide enough for their keyframes.
+  { name: "Effects", layout: () => threeColumns(["effects", "media", "captions"], [370, 1035, 585]) },
+  { name: "Compact", layout: compactLayout },
 ];
 
 export const useVideoDock = createDock<VideoPanel, VideoWindowId>({

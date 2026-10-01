@@ -191,14 +191,14 @@ if (screens.some(wanted)) {
         await tab("Properties").click();
         await shoot(page, `video-properties-${suffix}`);
       }
-      // Docked panels: Properties dragged beside the monitor (the drop shown), a workspace, a floating timeline.
+      // Docked panels: Captions dragged to the monitor's left (the drop shown), a workspace, a floating timeline.
       if (wanted("video-dock-drag")) {
-        const tab = (await page.getByRole("tab", { name: "Properties", exact: true }).boundingBox())!;
+        const tab = (await page.getByRole("tab", { name: "Captions", exact: true }).boundingBox())!;
         const monitor = (await page.getByRole("region", { name: "Program panel" }).boundingBox())!;
         await page.mouse.move(tab.x + tab.width / 2, tab.y + tab.height / 2);
         await page.mouse.down();
         await page.mouse.move(tab.x + 40, tab.y + 40, { steps: 3 });
-        await page.mouse.move(monitor.x + monitor.width - 40, monitor.y + monitor.height / 2, { steps: 8 });
+        await page.mouse.move(monitor.x + 40, monitor.y + monitor.height / 2, { steps: 8 });
         await shoot(page, `video-dock-drag-${suffix}`);
         await page.mouse.up();
         await page.waitForTimeout(300);

@@ -65,8 +65,8 @@ gets its own copy of the media. Toggle the sidebar with `⌘\`.
 | Markers | `M` at the playhead: on the selected clip under it, else on the timeline. `⇧M` / `⇧⌘M` go to the next / previous one, `⌥M` deletes the one at the playhead. See [Markers](#markers) |
 | Expressions | `⌥`-click a property's stopwatch (or right-click its name) to drive it with a short script like `wiggle(2, 5)`. See [Expressions](#expressions) |
 | Properties | **Properties** tab (or double-click a clip): drag a blue number sideways to change it (⇧ faster, ⌥ finer), click it to type, ↺ resets |
-| Panels | Drag a panel's tab onto another panel's tabs to group them, or towards one of its edges to put it beside it; drag the line between two panels to resize them (or focus it and use the arrows). Each panel's **⋯** menu floats it out as a window (its × docks it back), picks a workspace (**Editing**, **Captions**, **Effects**) or resets the layout. The layout is the same in every video. While a clip's keyframes show, Properties takes the room they need |
-| Video effects | **Effects** tab → **Video effects**: drag one onto a clip (on the timeline or the canvas), or select clips and press **+**. Change, animate, reorder (⋯) or remove it in **Properties** |
+| Panels | Drag a panel's tab onto another panel's tabs to group them, or towards one of its edges to put it beside it; drag the line between two panels to resize them (or focus it and use the arrows). Each panel's **⋯** menu floats it out as a window (its × docks it back), picks a workspace (**Editing**, **Captions**, **Effects**, **Compact**) or resets the layout. The layout is the same in every video. While a clip's keyframes show, Properties takes the room they need |
+| Video effects | **Effects** tab → **Video effects**: drag one onto a clip (on the timeline or the canvas) or onto the Properties panel (it goes on the clips it shows), or select clips and press **+**. Change, animate, reorder (⋯) or remove it in **Properties** |
 | Copy effects | Right-click a clip → **Copy effects** (`⌥⌘C`), select other clips, right-click → **Paste effects** (`⌥⌘V` pastes all of them, or pick one): values and keyframes, and video effects the clips don't have yet. A text keeps its own words |
 | Transitions | **Effects** tab → **Transitions**: drag one onto a cut or a clip's edge, or **+** / `⇧⌘D` for the cut nearest the playhead. Click it on the timeline to select it, drag its edges to change its length, `⌫` removes it |
 | Library | **Media** tab → **Library**: media and saved clips shared by every video. Drop files or folders on it, **Add to Library** from a media card's menu, or right-click clips → **Save to Library…**. Drag onto the timeline or double-click to use |
@@ -386,7 +386,7 @@ Mainstream songs baked into a video will likely get muted or claimed when posted
 
 ### Clip properties
 
-The **Properties** panel (beside the monitor, at first) shows the selected clip's effects, like Premiere's Effect Controls:
+The **Properties** panel (right of the monitor, at first) shows the selected clip's effects, like Premiere's Effect Controls:
 
 - **Motion** (clips on video tracks): framing (fit the whole frame, or fill the canvas: that's 100%), position,
   scale, scale width (turn off *Uniform Scale* to stretch), rotation and anchor point. Positions are shown in pixels of

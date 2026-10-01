@@ -510,7 +510,7 @@ test("imports an image and transforms it in the properties panel and on the canv
   await page.mouse.click(clipBox.x + clipBox.width / 2, lanes.y - 10);
 
   // An image has Motion and Opacity, but no Volume.
-  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
   await expect(page.getByRole("region", { name: "Motion" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Opacity" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Volume" })).toHaveCount(0);
@@ -601,7 +601,7 @@ test("animates a property with keyframes and edits them in the Effect Controls' 
   const lanes = (await page.locator("[data-timeline-lanes]").boundingBox())!;
   await clip.click({ position: { x: box.width / 2, y: 10 } });
   await page.mouse.click(box.x + box.width * 0.2, lanes.y - 10);
-  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
 
   // The stopwatch starts animating; changing the value later on adds a keyframe there.
   await page.getByRole("button", { name: "Animate Opacity" }).click();
@@ -646,7 +646,7 @@ test("animates a property with keyframes and edits them in the Effect Controls' 
 
 test("adds transitions from the library, edits them and previews them", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Effects" }).click();
+  await page.getByRole("tab", { name: "Effects", exact: true }).click();
   await page.getByRole("tab", { name: "Transitions" }).click();
   const card = (name: string) => page.locator("[data-transition-type]").filter({ hasText: name }).first();
   const withTransitions = async () =>
@@ -670,7 +670,7 @@ test("adds transitions from the library, edits them and previews them", async ({
   await expect.poll(withTransitions).toEqual([expect.objectContaining({ type: "cross-dissolve", duration: 0.5 })]);
 
   // Its properties: type a new duration.
-  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
   await expect(page.getByRole("region", { name: "Timing" })).toBeVisible();
   await page.getByRole("spinbutton", { name: "Duration" }).click();
   await page.keyboard.type("1");
@@ -678,7 +678,7 @@ test("adds transitions from the library, edits them and previews them", async ({
   await expect.poll(async () => (await withTransitions())[0]?.duration).toBe(1);
 
   // Drag another one onto the end of the first video clip.
-  await page.getByRole("tab", { name: "Effects" }).click();
+  await page.getByRole("tab", { name: "Effects", exact: true }).click();
   await page.getByRole("tab", { name: "Transitions" }).click();
   await page.getByRole("searchbox", { name: "Search transitions" }).fill("glitch");
   const videoLane = await laneY(page, "Video 1");
@@ -706,7 +706,7 @@ test("adds transitions from the library, edits them and previews them", async ({
 
 test("adds video effects from the Effects tab, edits, reorders and removes them", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "Effects" }).click();
+  await page.getByRole("tab", { name: "Effects", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Video effects" })).toHaveAttribute("aria-selected", "true");
   const card = (name: string) => page.locator("[data-effect-type]").filter({ hasText: name }).first();
   const videoLane = await laneY(page, "Video 1");
@@ -743,8 +743,24 @@ test("adds video effects from the Effects tab, edits, reorders and removes them"
   await page.mouse.up();
   await expect.poll(effectsOf).toEqual(["sepia", "mosaic"]);
 
+  // Or onto the Properties panel, which shows the selected clip: it goes on that clip.
+  await page.getByRole("searchbox", { name: "Search effects" }).fill("invert");
+  const invert = (await card("Invert").boundingBox())!;
+  const properties = (await page.getByRole("region", { name: "Properties panel" }).boundingBox())!;
+  await page.mouse.move(invert.x + invert.width / 2, invert.y + invert.height / 3);
+  await page.mouse.down();
+  await page.mouse.move(properties.x + properties.width / 2, properties.y + properties.height / 2, { steps: 5 });
+  await expect(page.getByTestId("properties-drop")).toHaveText("Drop to add to this clip");
+  await page.mouse.move(properties.x + properties.width / 2 + 4, properties.y + properties.height / 2, { steps: 2 });
+  await page.mouse.up();
+  await expect.poll(effectsOf).toEqual(["sepia", "mosaic", "invert"]);
+  await expect(page.getByTestId("properties-drop")).toHaveCount(0);
+  await page.getByRole("button", { name: "Invert options" }).click();
+  await page.getByRole("menuitem", { name: "Remove Invert" }).click();
+  await expect.poll(effectsOf).toEqual(["sepia", "mosaic"]);
+
   // Properties: its settings, then move it up and remove the other.
-  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
   await expect(page.getByRole("region", { name: "Mosaic" })).toBeVisible();
   await page.getByRole("button", { name: "Mosaic options" }).click();
   await page.getByRole("menuitem", { name: "Move up" }).click();
@@ -777,7 +793,7 @@ test("panels dock where they're dragged, float out and back, and keep their layo
   const tab = (name: string) => page.getByRole("tab", { name, exact: true });
   /** A group's panel tabs (not the tabs inside its panels, like Media's sources). */
   const panelTabs = (title: string) => group(title).getByRole("tablist", { name: "Panels" }).getByRole("tab");
-  /** Drag a panel's tab to a point. */
+  /** Drag a panel's tab to a point (left held, to look at the drop before letting go). */
   const dragTab = async (name: string, to: { x: number; y: number }) => {
     const from = (await tab(name).boundingBox())!;
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
@@ -786,31 +802,34 @@ test("panels dock where they're dragged, float out and back, and keep their layo
     await page.mouse.move(to.x, to.y, { steps: 8 });
   };
 
-  // Properties dragged to the Program monitor's right edge: a column of its own beside it.
-  const program = (await group("Program").boundingBox())!;
-  await dragTab("Properties", { x: program.x + program.width - 30, y: program.y + program.height / 2 });
-  await expect(page.getByTestId("dock-drop-preview")).toHaveAttribute("data-zone", "right");
-  await page.mouse.up();
-  await expect(group("Properties")).toBeVisible();
-  const props = (await group("Properties").boundingBox())!;
-  expect(props.x).toBeGreaterThan(program.x + 50);
+  // The usual layout: Media, Effects and Captions, the Program monitor, Properties, the timeline below.
+  await expect(page.locator("[data-dock-group]")).toHaveCount(4);
   await expect(panelTabs("Media")).toHaveText(["Media", "Effects", "Captions"]);
-  // Selecting a clip shows its properties there, the Media tab staying in front on the left.
-  const [clip] = await timelineClips(page);
-  await page.mouse.dblclick(clip.x + clip.w / 2, clip.y + clip.h / 2);
-  await expect(group("Properties").getByRole("region", { name: "Motion" })).toBeVisible();
-  await expect(tab("Media")).toHaveAttribute("aria-selected", "true");
 
-  // Effects dropped among the Properties tabs.
+  // Effects dropped in the middle of Properties: among its tabs, in front.
+  const props = (await group("Properties").boundingBox())!;
   await dragTab("Effects", { x: props.x + props.width / 2, y: props.y + props.height / 2 });
   await expect(page.getByTestId("dock-drop-preview")).toHaveAttribute("data-zone", "center");
   await page.mouse.up();
   await expect(panelTabs("Effects")).toHaveText(["Properties", "Effects"]);
+  await expect(panelTabs("Media")).toHaveText(["Media", "Captions"]);
+
+  // Captions dragged to the Program monitor's left edge: a column of its own between the two.
+  const program = (await group("Program").boundingBox())!;
+  await dragTab("Captions", { x: program.x + 30, y: program.y + program.height / 2 });
+  await expect(page.getByTestId("dock-drop-preview")).toHaveAttribute("data-zone", "left");
+  await page.mouse.up();
+  await expect(page.locator("[data-dock-group]")).toHaveCount(5);
+  const captions = (await group("Captions").boundingBox())!;
+  const media = (await group("Media").boundingBox())!;
+  expect(captions.x).toBeGreaterThan(media.x + media.width - 2);
+  expect(captions.x + captions.width).toBeLessThan((await group("Program").boundingBox())!.x + 2);
 
   // The layout is the same after a reload.
   await page.reload();
+  await expect(page.locator("[data-dock-group]")).toHaveCount(5);
   await expect(panelTabs("Effects")).toHaveText(["Properties", "Effects"]);
-  await expect(panelTabs("Media")).toHaveText(["Media", "Captions"]);
+  await expect(panelTabs("Captions")).toHaveText(["Captions"]);
 
   // The timeline floated out as a window, then docked back by its button.
   await page.getByRole("button", { name: "Timeline panel menu" }).click();
@@ -825,12 +844,13 @@ test("panels dock where they're dragged, float out and back, and keep their layo
 
   // A workspace from any panel's menu; Reset layout goes back to the usual one.
   await page.getByRole("button", { name: "Program panel menu" }).click();
-  await page.getByRole("menuitem", { name: "Captions" }).click();
-  await expect(panelTabs("Captions")).toHaveText(["Captions", "Media", "Effects"]);
-  await page.getByRole("button", { name: "Program panel menu" }).click();
-  await page.getByRole("menuitem", { name: "Reset layout" }).click();
+  await page.getByRole("menuitem", { name: "Compact" }).click();
   await expect(page.locator("[data-dock-group]")).toHaveCount(3);
   await expect(panelTabs("Media")).toHaveText(["Media", "Effects", "Captions", "Properties"]);
+  await page.getByRole("button", { name: "Program panel menu" }).click();
+  await page.getByRole("menuitem", { name: "Reset layout" }).click();
+  await expect(page.locator("[data-dock-group]")).toHaveCount(4);
+  await expect(panelTabs("Media")).toHaveText(["Media", "Effects", "Captions"]);
 });
 
 test("adds adjustment layers and solids, and presets: a transition across a cut and a move on a clip", async ({ page }) => {
@@ -870,7 +890,7 @@ test("adds adjustment layers and solids, and presets: a transition across a cut 
   await page.keyboard.press("ControlOrMeta+z");
 
   // Presets: a spin across the cut nearest the playhead, drawn over what's below.
-  await page.getByRole("tab", { name: "Effects" }).click();
+  await page.getByRole("tab", { name: "Effects", exact: true }).click();
   await page.getByRole("tab", { name: "Presets" }).click();
   await page.getByRole("searchbox", { name: "Search presets" }).fill("spin");
   const card = (name: string) => page.locator("[data-preset-type]").filter({ hasText: name }).first();
@@ -932,7 +952,7 @@ test("adds text with the Type tool, types into it on the canvas, styles it and e
 
   // Its properties: Text and Appearance, no framing.
   await page.locator(`[data-clip-id="${clip.id}"]`).click();
-  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
   await expect(page.getByRole("region", { name: "Text" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Appearance" })).toBeVisible();
   await expect(page.locator('[data-param="fit"]')).toHaveCount(0);
@@ -976,7 +996,7 @@ test("auto captions: makes captions from the speech, edits one's words and style
   await expect(dialog.getByRole("radio", { name: /On this Mac/ })).toHaveAttribute("aria-checked", "true");
   await dialog.getByRole("button", { name: "Generate captions" }).click();
   await expect(page.getByText(/Added \d+ captions/)).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole("tab", { name: "Captions" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Captions", exact: true })).toHaveAttribute("aria-selected", "true");
 
   // One word each, in the Yellow style, popping in, on their own track.
   await expect.poll(async () => (await words()).slice(0, 3)).toEqual(["This", "is", "a"]);
@@ -1004,9 +1024,9 @@ test("auto captions: makes captions from the speech, edits one's words and style
 
   // A caption's own look is in Properties, which points back here.
   await page.getByTitle("Go to this caption").first().click();
-  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
   await page.getByRole("button", { name: "Edit all captions" }).click();
-  await expect(page.getByRole("tab", { name: "Captions" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Captions", exact: true })).toHaveAttribute("aria-selected", "true");
 
   // Deleting them all is one undoable step.
   await page.getByRole("button", { name: "Delete all captions" }).click();
@@ -1654,7 +1674,7 @@ test("parents to a null, nests clips, opens the nest in a tab, and remaps its ti
   await expect.poll(async () => (await savedProject(page)).clips.filter((c: SavedClip) => c.nullObject).length).toBe(1);
   const video = (await timelineClips(page)).find((c) => c.text.includes("vertical"))!;
   await page.locator(`[data-clip-id="${video.id}"]`).click();
-  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
   await page.getByRole("combobox", { name: "Parent" }).click();
   await page.getByRole("option", { name: "Null" }).click();
   await expect.poll(async () => (await savedProject(page)).clips.find((c: SavedClip) => c.id === video.id)?.parent?.id).toBeTruthy();
@@ -1677,7 +1697,7 @@ test("parents to a null, nests clips, opens the nest in a tab, and remaps its ti
   // Time Remapping on the nest, then a freeze frame at the start: a second longer.
   const nest = (await timelineClips(page))[0];
   await page.locator(`[data-clip-id="${nest.id}"]`).click();
-  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
   const before = (await savedProject(page)).clips[0];
   await page.getByRole("switch", { name: "Time Remapping" }).click();
   await page.getByRole("button", { name: "Freeze frame" }).click();
@@ -1737,7 +1757,7 @@ test("masks a clip with shapes and the pen, and draws shape layers with operator
 
   // An ellipse mask from Properties: the corners of the picture go, its middle stays.
   await page.locator("[data-clip-id]").first().click();
-  await page.getByRole("tab", { name: "Properties" }).click();
+  await page.getByRole("tab", { name: "Properties", exact: true }).click();
   await expect.poll(async () => black(await monitorPixel(page, 0.04, 0.03))).toBe(false);
   await page.getByRole("button", { name: "Add a mask" }).click();
   await page.getByRole("menuitem", { name: "Ellipse" }).click();

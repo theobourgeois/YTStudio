@@ -233,8 +233,10 @@ src/
                      `FloatingPanels` on a desktop).
   components/workspace/video-panels.tsx   The video editor's panels (`VIDEO_PANEL_DEFS`): Media (This video | Library
                      | Online, `MediaSource`), Effects (Video effects | Presets | Transitions, `EffectKind`, `KINDS`),
-                     Captions, Properties, Program, Timeline. Laid out by `stores/video-dock.ts` (the default layout is
-                     the first four as tabs beside the monitor, the timeline below; `VIDEO_WORKSPACES`). Show one with
+                     Captions, Properties, Program, Timeline. Laid out by `stores/video-dock.ts` (the default, Théo's: Media,
+                     Effects and Captions as tabs on the left, the monitor, Properties on the right, the timeline
+                     below; `VIDEO_WORKSPACES`). Effects and effect presets dropped on Properties go on its clips
+                     (`properties/properties-drop.tsx`). Show one with
                      `showPanel` (also `showMedia`, `showEffects`), never by assuming where it is: it may be in any
                      group, or floating. Properties widens to 520 px while its keyframe lanes show (`useVideoPanelMins`).
   assistant/         Where agents' tool calls run (in the tab): tools.ts (every tool's handler), doc.ts (the video a call
@@ -680,7 +682,8 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   **Auto ripple** (the toolbar's chain toggle, off by default, `autoRipple` in the editor store) is the opt-in
   exception: deletes close gaps, edge trims and rate stretches move the rest of the track (`rippleClipEdit`), and
   media dropped at a time pushes it along (`insertClip`). Moves stay free either way.
-- There's no right-hand inspector (the right side is only the assistant's chat). Clip properties are in the Properties panel (docked on the left at first; the user may move it anywhere). Video settings (aspect ratio
+- Clip properties are in the Properties panel, docked right of the Program monitor by default (Théo's layout; the
+  user may move it anywhere). The assistant's chat is the app's, outside the dock, at the far right. Video settings (aspect ratio
   and fps) are in a window opened from the header. The canvas is always black.
 - Clicking a media card previews that file in the Program monitor's place (the source monitor).
 
