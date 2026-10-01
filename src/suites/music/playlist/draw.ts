@@ -68,6 +68,8 @@ export interface PlaylistScene {
   names: ReadonlyMap<string, string>;
   /** The colours patterns and audio clip channels have been given, by ref (their clips take them). */
   colors: ReadonlyMap<string, string>;
+  /** Audio files dragged over the tracks, drawn where they'd land (`incoming.ts`); their names are in `names`. */
+  incoming: readonly PlaylistClip[];
   /** Clips just deleted, fading out (`fades.ts`). */
   vanishing: readonly VanishingClip[];
   /** An audio clip's waveform, by its channel's id, once it's loaded. */
@@ -314,6 +316,8 @@ function drawClips(ctx: CanvasRenderingContext2D, scene: PlaylistScene, firstTra
     if (clip.track < firstTrack || clip.track > lastTrack) continue;
     drawClip(ctx, scene, clip, selected.has(clip.id), 1);
   }
+  // Files being dragged in, see-through where they'd land.
+  for (const clip of scene.incoming) drawClip(ctx, scene, clip, false, 0.7);
   // Clips just deleted, shrinking and fading where they were.
   for (const { clip, selected: was, progress } of scene.vanishing) {
     if (clip.track < firstTrack || clip.track > lastTrack) continue;

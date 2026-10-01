@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef } from "react";
 import { PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
-import { clipContext, songTicks } from "@shared/music/playlist";
+import { type ClipContext, clipContext, songTicks } from "@shared/music/playlist";
 import { TRACK_COLORS } from "@shared/music/project";
 import { type MusicProject, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import {
@@ -22,7 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { carriesSamples, dropAsAudioClips } from "../browser/drops";
+import { carriedPaths, carriesSamples, dropAsAudioClips } from "../browser/drops";
 import { type Palette, prepare, readPalette } from "../piano/draw";
 import { SNAPS, SNAP_LABELS, type Snap, snapTick, wheelZoomFactor } from "../piano/geometry";
 import { DeleteIcon, DrawIcon, MuteIcon, PaintIcon, PlaybackIcon, SelectIcon, SliceIcon } from "../piano/tool-icons";
@@ -57,6 +57,7 @@ import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
 import { type WavePeaks, clipPeaks, onWaveform } from "./waveforms";
 import { MAX_PX_PER_TICK, scrollViewBy, tickToX, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
 import { CLIP_DRAG_TYPE, Picker } from "./picker";
+import { clearIncoming, showIncoming } from "./incoming";
 import { holdClipPreview } from "./preview";
 import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
@@ -322,6 +323,7 @@ function PlaylistBody() {
         if (data) waveforms.set(channel.id, data);
       }
       const palette: Palette = readPalette(box);
+      const incoming = incomingClips(playlist.incoming, p.ctx);
       const fading = vanishingClips(performance.now());
       const scene: PlaylistScene = {
         view,
@@ -333,7 +335,12 @@ function PlaylistBody() {
         tracks: song.playlist.tracks,
         layout: p.layout,
         patterns: new Map(song.patterns.map((pattern) => [pattern.id, pattern])),
-        names: new Map([...song.patterns.map((pattern) => [pattern.id, pattern.name] as const), ...song.channels.map((c) => [c.id, c.name] as const)]),
+        names: new Map([
+          ...song.patterns.map((pattern) => [pattern.id, pattern.name] as const),
+          ...song.channels.map((c) => [c.id, c.name] as const),
+          ...(playlist.incoming?.files.map((f, i) => [incoming[i].ref, f.name] as const) ?? []),
+        ]),
+        incoming,
         colors: new Map([...song.patterns, ...song.channels].flatMap((source) => (source.color ? [[source.id, source.color] as const] : []))),
         waveforms,
         vanishing: fading,
@@ -485,10 +492,15 @@ function PlaylistBody() {
           if (carriesSamples(e.dataTransfer)) {
             e.preventDefault();
             e.stopPropagation();
+            // Shown where they'd land, as a pattern from the Picker is.
+            const at = dropPoint(e.currentTarget, e);
+            if (at) showIncoming(carriedPaths(), e.dataTransfer.items.length, at.start, at.track, e.shiftKey);
           }
         }}
         onDragLeave={(e) => {
-          if (usePlaylist.getState().drag?.kind === "add" && !e.currentTarget.contains(e.relatedTarget as Node | null)) cancelDrag();
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+          if (usePlaylist.getState().drag?.kind === "add") cancelDrag();
+          clearIncoming();
         }}
         onDrop={(e) => {
           const p = playlistContext();
@@ -499,14 +511,12 @@ function PlaylistBody() {
             dropClip(e.dataTransfer.getData(CLIP_DRAG_TYPE), e.currentTarget, e);
             return;
           }
-          const rect = e.currentTarget.getBoundingClientRect();
-          const { view } = usePlaylist.getState();
-          const start = snapTick(xToTick(view, e.clientX - rect.left), e.altKey ? 1 : p.grid, "cell");
-          const track = Math.min(yToTrack(p.layout, view, e.clientY - rect.top), p.trackCount - 1);
-          if (!carriesSamples(e.dataTransfer)) return;
+          clearIncoming();
+          const at = dropPoint(e.currentTarget, e);
+          if (!at || !carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
-          void dropAsAudioClips(e.dataTransfer, { start, track, after: e.shiftKey });
+          void dropAsAudioClips(e.dataTransfer, { ...at, after: e.shiftKey });
         }}
       >
         <canvas
@@ -708,6 +718,18 @@ function SourceEditor() {
       </PopoverContent>
     </Popover>
   );
+}
+
+/** The files dragged over the tracks as clips, where they'd land: one per track down, or one after another (Shift). */
+function incomingClips(incoming: ReturnType<typeof usePlaylist.getState>["incoming"], ctx: ClipContext): PlaylistClip[] {
+  if (!incoming) return [];
+  let start = incoming.start;
+  return incoming.files.map((file, i) => {
+    const length = file.seconds === null ? ctx.barTicks : Math.max(1, Math.round(file.seconds / ctx.secondsPerTick));
+    const clip: PlaylistClip = { id: -1 - i, kind: "audio", ref: `incoming:${i}`, track: incoming.after ? incoming.track : incoming.track + i, start, length, offset: 0, muted: false };
+    if (incoming.after) start += length;
+    return clip;
+  });
 }
 
 /** Where a clip dragged over the tracks would land: the cell under the pointer (Alt: no snap), on its track. */
