@@ -26,8 +26,12 @@ public:
 
     // Message thread -------------------------------------------------------------------------------
 
-    /** Play `file` from `startSeconds`, cutting off whatever was previewing. `id` is the tab's name for it. */
-    juce::Result play (const juce::File& file, double startSeconds, const juce::String& id);
+    /**
+     * Play `file` from `startSeconds`, cutting the last one off. `id` is the tab's name for it. A channel's own preview (an audio clip's,
+     * from its settings window) gives its gains and speed (its pitch) and isn't at the Browser's volume.
+     */
+    juce::Result play (const juce::File& file, double startSeconds, const juce::String& id, float gainLeft = 1.0f, float gainRight = 1.0f, double speed = 1.0,
+                       bool browserVolume = true);
     void stop();
     /** 0..1, at once (it's the Browser's volume). */
     void setVolume (float gain);
@@ -49,7 +53,7 @@ private:
     /** Delete a stream nothing plays any more (the audio thread never got it, or gave it back). */
     void discard (Stream*);
     /** Add up to `numSamples` of `stream` from its ring (faded in at its start, or out over this block); how many it had. */
-    int pull (Stream& stream, float* left, float* right, int numSamples, float gain, bool fadeOut);
+    int pull (Stream& stream, float* left, float* right, int numSamples, float volume, bool fadeOut);
 
     const bool offline;
     double sampleRate = 48000.0;

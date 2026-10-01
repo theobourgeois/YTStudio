@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { addClips, editClips } from "./playlist.ts";
 import {
   addChannels,
   addPattern,
@@ -11,6 +12,7 @@ import {
   removeChannel,
   removeChannels,
   removePattern,
+  removePatterns,
   renamePattern,
   setPatternColor,
   replaceChannel,
@@ -256,11 +258,16 @@ describe("patterns", () => {
     expect(updateChannel(song, "chan_kick", { color: "#3f8a4c" }).channels[0].color).toBe("#3f8a4c");
   });
 
-  it("can't all be removed", () => {
-    const song = addPattern(rack(), { id: "pat_2" });
+  it("are removed with their clips; all of them leave an empty Pattern 1, as a new song has", () => {
+    let song = setSteps(addPattern(rack(), { id: "pat_2" }), "pat_2", "chan_kick", [0], true);
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: "pat_2", track: 0, start: 0 }]).clips);
     const one = removePattern(song, P);
     expect(one.patterns.map((p) => p.id)).toEqual(["pat_2"]);
-    expect(removePattern(one, "pat_2")).toBe(one);
+    const none = removePatterns(song, [P, "pat_2"]);
+    expect(none.patterns).toEqual([{ id: P, name: "Pattern 1", length: null, notes: {}, color: null }]);
+    expect(none.playlist.clips).toEqual([]);
+    expect(removePattern(one, "pat_2").patterns.map((p) => p.name)).toEqual(["Pattern 1"]);
+    expect(removePatterns(song, ["pat_9"])).toBe(song);
   });
 
   it("have a length that's set, or automatic; a shorter one keeps the notes past its end", () => {

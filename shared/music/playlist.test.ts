@@ -347,6 +347,17 @@ describe("playlist tracks", () => {
 });
 
 describe("making a clip unique", () => {
+  it("gives an audio clip a channel of its own, playing the same file, right after the other", () => {
+    let song = withClips([]);
+    song = addAudioClips(song, [{ name: "Vox", sampleId: "m_vox", seconds: 2, channelId: "chan_vox" }], { start: 0, track: 0 }).song;
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "audio", ref: "chan_vox", track: 0, start: BAR, length: BAR, offset: 0 }]).clips);
+    song = { ...song, channels: song.channels.map((c) => (c.id === "chan_vox" ? { ...c, pitch: 3 } : c)) };
+    const next = makeUnique(song, 2, "chan_vox_2");
+    expect(next.channels.map((c) => c.id).slice(-2)).toEqual(["chan_vox", "chan_vox_2"]);
+    expect(next.channels.at(-1)).toMatchObject({ name: "Vox #2", kind: "audio", sampleId: "m_vox", pitch: 3 });
+    expect(next.playlist.clips.map((c) => c.ref)).toEqual(["chan_vox", "chan_vox_2"]);
+  });
+
   it("gives it a copy of its pattern of its own, named after it", () => {
     const song = withClips([clip(), clip({ start: BAR })]);
     const unique = makeUnique(song, 2, "pat_copy");

@@ -16,6 +16,7 @@ import {
   MIN_TEMPO,
   createChannel,
   emptyRack,
+  FIRST_PATTERN_ID,
   createPattern,
   byStart,
   createPluginChannel,
@@ -287,16 +288,24 @@ export function clonePattern(song: MusicProject, id: string, newId = createId("p
   return { ...song, patterns: [...song.patterns.slice(0, index + 1), copy, ...song.patterns.slice(index + 1)] };
 }
 
-/** Remove a pattern and its clips on the playlist; a song keeps at least one. */
-export function removePattern(song: MusicProject, id: string): MusicProject {
-  if (song.patterns.length <= 1 || !getPattern(song, id)) return song;
-  const clips = song.playlist.clips.filter((c) => !(c.kind === "pattern" && c.ref === id));
+/**
+ * Remove patterns and their clips on the playlist (one edit). A song always has a pattern: with every
+ * one gone, it's left an empty "Pattern 1", as a new song has.
+ */
+export function removePatterns(song: MusicProject, ids: readonly string[]): MusicProject {
+  const gone = new Set(ids.filter((id) => getPattern(song, id)));
+  if (!gone.size) return song;
+  const left = song.patterns.filter((p) => !gone.has(p.id));
+  const clips = song.playlist.clips.filter((c) => !(c.kind === "pattern" && gone.has(c.ref)));
   return {
     ...song,
-    patterns: song.patterns.filter((p) => p.id !== id),
+    patterns: left.length ? left : [createPattern("Pattern 1", FIRST_PATTERN_ID)],
     playlist: clips.length === song.playlist.clips.length ? song.playlist : { ...song.playlist, clips },
   };
 }
+
+/** Remove a pattern and its clips on the playlist; the last one leaves an empty "Pattern 1" (`removePatterns`). */
+export const removePattern = (song: MusicProject, id: string): MusicProject => removePatterns(song, [id]);
 
 /**
  * Move patterns one place up (-1) or down (1) the song's list (the Playlist's Picker, Alt+↑ / ↓),

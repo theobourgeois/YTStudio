@@ -165,7 +165,9 @@ export class AudioEngine {
     if (!file) throw new HttpError(404, '"sampleId" must be one of the song\'s media files.');
     const start = isFiniteNumber(body.start) && body.start > 0 ? body.start : 0;
     const id = typeof body.id === "string" ? body.id.slice(0, 200) : "";
-    return this.previewFile(file, start, id);
+    const gain = (value: unknown) => (isFiniteNumber(value) ? clamp(value, 0, 4) : 1);
+    const speed = isFiniteNumber(body.speed) ? clamp(body.speed, 1 / 16, 16) : 1;
+    return this.withSaved((await this.request("previewFile", { file, start, previewId: id, gainLeft: gain(body.gainLeft), gainRight: gain(body.gainRight), speed })) as RawStatus);
   }
 
   /** Write the song's plugins' states now (the tab asks before it goes). */

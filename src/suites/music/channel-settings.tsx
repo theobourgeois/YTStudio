@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { PiFolderOpen, PiWaveform, PiWaveSine } from "react-icons/pi";
 import { cn } from "cn";
+import { levelGain, panGains } from "@shared/music/compile";
 import { updateChannel } from "@shared/music/edits";
+import { pitchSpeed } from "@shared/music/playlist";
 import { DEFAULT_ENVELOPE, DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH } from "@shared/music/project";
 import type { Channel, Envelope, Precomputed } from "@shared/music/types";
 import { Input } from "@/components/ui/input";
@@ -310,7 +312,11 @@ function hearChannel(channel: Channel) {
   if (!channel.sampleId) return;
   if (channel.kind !== "audio") return useTransport.getState().audition(channel.id);
   const projectId = useMusic.getState().projectId;
-  if (projectId) void musicApi.previewSample({ projectId, sampleId: channel.sampleId, id: channel.id }).catch(() => {});
+  // As its clips sound: its volume, pan and pitch (whether it's on or not, so it can be heard while muted).
+  const [left, right] = panGains(channel.pan);
+  const gain = levelGain(channel.volume, DEFAULT_VOLUME);
+  const request = { projectId: projectId ?? "", sampleId: channel.sampleId, id: channel.id, gainLeft: gain * left, gainRight: gain * right, speed: pitchSpeed(channel.pitch) };
+  if (projectId) void musicApi.previewSample(request).catch(() => {});
 }
 
 /** The sample as it will play, after the precomputed effects: its real waveform. Press it to hear the channel. */

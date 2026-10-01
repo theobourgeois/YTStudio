@@ -265,7 +265,7 @@ export const MUSIC_TOOLS = [
     name: "remove_pattern",
     title: "Remove a pattern",
     kind: "edit",
-    description: "Remove a pattern (a song keeps at least one). The user can undo it.",
+    description: "Remove a pattern and its clips on the playlist. Removing the last one leaves an empty \"Pattern 1\", as a new song has. The user can undo it.",
     inputSchema: obj({ pattern: str("The pattern: its id or its name.") }, ["pattern"]),
   }),
   tool({
@@ -594,7 +594,9 @@ export const MUSIC_TOOLS = [
     name: "make_clip_unique",
     title: "Make a clip unique",
     kind: "edit",
-    description: "Give a pattern clip a copy of its pattern of its own (\"Verse #2\"), so editing it changes no other clip.",
+    description:
+      "Give a pattern clip a copy of its pattern of its own (\"Verse #2\"), so editing it changes no other clip; an audio clip a channel of its own " +
+      "(FL's Make unique as sample: the same file), so its pitch or volume can change without the other clips'.",
     inputSchema: obj({ id: int("The clip's id.") }, ["id"]),
   }),
   tool({

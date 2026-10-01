@@ -51,7 +51,12 @@ describe.skipIf(!existsSync(ENGINE))("the Browser's preview, offline", () => {
   beforeAll(async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "engine-preview-"));
     out = path.join(dir, "out.wav");
-    engine = new AudioEngine(new DataPaths(dir), { offline: true, onlyPluginPaths: true, pluginPaths: [] });
+    engine = new AudioEngine(new DataPaths(dir), {
+      offline: true,
+      onlyPluginPaths: true,
+      pluginPaths: [],
+      samplePath: (_project, id) => (id === "steps" ? path.join(dir, "steps.wav") : null),
+    });
   });
   afterAll(async () => {
     engine.shutdown();
@@ -61,6 +66,19 @@ describe.skipIf(!existsSync(ENGINE))("the Browser's preview, offline", () => {
     await engine.command("stopPreview", {});
     await engine.command("previewVolume", { volume: 1 });
     await render(0.05);
+  });
+
+  it("plays a song's own file as its channel sounds: its gains, its speed, whatever the Browser's volume", async () => {
+    // A second at 0.2, then a second at 0.4.
+    await levels("steps.wav", RATE, [0.2, 1], [0.4, 1]);
+    await engine.command("previewVolume", { volume: 0.1 });
+    await engine.previewSample({ projectId: "proj_0123456789ab", sampleId: "steps", id: "chan", gainLeft: 0.5, gainRight: 2, speed: 2 });
+    const sound = await render(1.5);
+    // Twice as fast: the second level half a second in, all of it over by one second.
+    expect(at(sound, 0.25)).toBeCloseTo(0.1, 2);
+    expect(at(sound, 0.75)).toBeCloseTo(0.2, 2);
+    expect(extent(sound, 0.1)[1] / RATE).toBeCloseTo(1, 1);
+    await expect(engine.previewSample({ projectId: "proj_0123456789ab", sampleId: "nope" })).rejects.toThrow(/song's media/);
   });
 
   it("plays a file once, at once, at its level, and says how far along it is", async () => {

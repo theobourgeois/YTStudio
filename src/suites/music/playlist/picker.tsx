@@ -1,61 +1,109 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PiListDashes, PiWaveform } from "react-icons/pi";
 import { cn } from "cn";
-import { removeChannels, renamePattern } from "@shared/music/edits";
+import { renamePattern } from "@shared/music/edits";
+import { clipContext } from "@shared/music/playlist";
+import type { Channel, Pattern } from "@shared/music/types";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { prepare } from "../piano/draw";
 import { useMusic, useSong } from "../store";
 import { useMusicUi } from "../ui";
 import {
-  chooseSource,
+  clickAudio,
   clickPattern,
   clipSource,
   clonePickedPatterns,
+  deletePickedAudio,
   deletePickedPatterns,
   movePickedPatterns,
+  pickAudioForMenu,
   pickForMenu,
   showInRack,
   splitPattern,
   transposePickedPatterns,
 } from "./actions";
+import { AUDIO, PATTERN, clipColours, drawPatternPreview, drawWaveformPreview } from "./draw";
 import { pickMode } from "./picks";
 import { usePlaylist } from "./store";
+import { clipPeaks, onWaveform } from "./waveforms";
 
 /** What a drag from the Picker carries: the clip source, as JSON (`ClipSource`). */
 export const CLIP_DRAG_TYPE = "application/x-vaudio-clip";
 
+/** An item's preview, under its name: as wide as the item, this tall. */
+const PREVIEW_H = 16;
+
 /**
- * FL Studio's Picker panel (Alt+P): every pattern and audio clip of the song. A click makes one the clip
- * source (what Draw and Paint add), a double-click shows it in the Channel rack, a drag puts it on a track
- * (drawn there while it's dragged). Patterns
- * select as a list does (⌘-click toggles one, Shift+click takes a range) for their menu (a right-click:
- * transpose, rename, clone, split by channel, move, delete) and Alt+↑ / ↓, which reorders them.
+ * FL Studio's Picker panel (Alt+P): the song's patterns, or its audio clips (its tabs, as FL's; automation
+ * clips will be a third). Each is shown as its clips are, in its colour with a preview of its notes or
+ * waveform. A click makes one the clip source (what Draw and Paint add), a double-click shows it in the
+ * Channel rack, a drag puts it on a track (drawn there while it's dragged). They select as a list does
+ * (⌘-click toggles one, Shift+click takes a range) for their menu (a right-click) and, for patterns,
+ * Alt+↑ / ↓, which reorders them.
  */
 export function Picker() {
+  const tab = usePlaylist((s) => s.pickerTab);
   const patterns = useSong((song) => song.patterns);
   const channels = useSong((song) => song.channels);
+  const audio = channels.filter((c) => c.kind === "audio");
+  return (
+    <div className="flex w-48 shrink-0 flex-col border-r border-line bg-surface-1" data-testid="picker" aria-label="Picker panel">
+      <div className="flex h-7 shrink-0 items-end gap-0.5 border-b border-line px-1.5" role="tablist" aria-label="What the Picker shows">
+        <PickerTab id="patterns" label={`Patterns (${patterns.length})`}>
+          <PiListDashes className="size-3.5" />
+        </PickerTab>
+        <PickerTab id="audio" label={`Audio clips (${audio.length})`}>
+          <PiWaveform className="size-3.5" />
+        </PickerTab>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1">
+        {tab === "patterns" ? <PatternItems patterns={patterns} /> : <AudioItems audio={audio} />}
+      </div>
+    </div>
+  );
+}
+
+/** One of the Picker's tabs: a quiet icon, lit when it's the one shown. */
+function PickerTab({ id, label, children }: { id: "patterns" | "audio"; label: string; children: React.ReactNode }) {
+  const selected = usePlaylist((s) => s.pickerTab === id);
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      aria-label={label}
+      title={label}
+      className={cn("-mb-px grid h-6 w-8 place-items-center border-b-2", selected ? "border-brand text-foreground" : "border-transparent text-muted-foreground/70 hover:text-foreground")}
+      onClick={() => usePlaylist.setState({ pickerTab: id })}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PatternItems({ patterns }: { patterns: readonly Pattern[] }) {
   usePlaylist((s) => s.source);
   useMusic((s) => s.patternId);
   const patternSelection = usePlaylist((s) => s.patternSelection);
   const song = useSong((s) => s);
   const source = clipSource(song);
   const [renaming, setRenaming] = useState<string | null>(null);
-  const audio = channels.filter((c) => c.kind === "audio");
   // What's selected: the patterns picked, or the clip source's pattern.
   const picked = patterns.filter((p) => patternSelection.has(p.id)).map((p) => p.id);
   if (!picked.length && source.kind === "pattern") picked.push(source.ref);
   const count = picked.length;
+  const ctx = clipContext(song);
 
-  const item = (kind: "pattern" | "audio", ref: string, name: string, color: string | null) => {
-    const chosen = source.kind === kind && source.ref === ref;
-    const selected = kind === "pattern" ? picked.includes(ref) : chosen;
+  return patterns.map((pattern) => {
+    const ref = pattern.id;
     if (renaming === ref) {
       return (
         <input
           key={ref}
           autoFocus
           aria-label="Pattern name"
-          defaultValue={name}
-          className="sunken h-6 w-full rounded-sm px-1.5 text-[11px] outline-none"
+          defaultValue={pattern.name}
+          className="sunken h-[34px] w-full shrink-0 rounded-[3px] px-1.5 text-[11px] outline-none"
           onFocus={(e) => e.currentTarget.select()}
           onBlur={(e) => {
             const value = e.currentTarget.value;
@@ -71,80 +119,154 @@ export function Picker() {
       );
     }
     return (
-      <ContextMenu key={ref} onOpenChange={(open) => open && kind === "pattern" && pickForMenu(ref)}>
+      <ContextMenu key={ref} onOpenChange={(open) => open && pickForMenu(ref)}>
         <ContextMenuTrigger asChild>
-          <button
-            type="button"
-            draggable
-            data-picker-item={ref}
-            data-selected={selected || undefined}
-            aria-pressed={selected}
-            title={kind === "pattern" ? `${name}: click to draw it, drag it onto a track; ⌘-click or Shift+click to select several` : `${name}: click to draw it, drag it onto a track`}
-            className={cn(
-              "flex h-6 w-full min-w-0 items-center gap-1.5 rounded-sm px-1.5 text-left text-[11px]",
-              selected ? "pressed" : "raised hover:raised-hover",
-              chosen && "text-brand",
-            )}
-            // Its colour (the clip menu's Rename and color), as a strip down its left edge.
-            style={color ? { boxShadow: `inset 3px 0 ${color}` } : undefined}
-            onClick={(e) => {
-              if (kind === "pattern") return clickPattern(ref, pickMode(e));
-              usePlaylist.setState({ patternSelection: new Set() });
-              chooseSource({ kind, ref });
-            }}
-            // A double-click shows it in the Channel rack (an audio clip: its channel, in the rack's Audio group).
-            onDoubleClick={(e) => pickMode(e) === "only" && showInRack(kind, ref)}
-            onDragStart={(e) => {
-              e.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify({ kind, ref }));
-              e.dataTransfer.effectAllowed = "copy";
-              usePlaylist.setState({ carried: { kind, ref } });
-            }}
-            onDragEnd={() => {
-              // Dropped elsewhere, or called off (Esc): the clip shown on the tracks goes.
-              if (usePlaylist.getState().drag?.kind === "add") usePlaylist.setState({ drag: null });
-              usePlaylist.setState({ carried: null });
-            }}
-          >
-            {kind === "pattern" ? <PiListDashes className="size-3 shrink-0 opacity-70" /> : <PiWaveform className="size-3 shrink-0 opacity-70" />}
-            <span className="truncate">{name}</span>
-          </button>
+          <PickerItem
+            kind="pattern"
+            id={ref}
+            name={pattern.name}
+            color={pattern.color}
+            selected={picked.includes(ref)}
+            chosen={source.kind === "pattern" && source.ref === ref}
+            title={`${pattern.name}: click to draw it, drag it onto a track, double-click to show it in the rack; ⌘-click or Shift+click to select several`}
+            onClick={(e) => clickPattern(ref, pickMode(e))}
+            draw={(c, w, h, colour) => drawPatternPreview(c, pattern, ctx.patternTicks(ref), w, h, colour)}
+            drawKey={pattern.notes}
+          />
         </ContextMenuTrigger>
-        <ContextMenuContent data-testid={kind === "pattern" ? "pattern-menu" : undefined} onCloseAutoFocus={(e) => useMusicUi.getState().transposeOpen && e.preventDefault()}>
-          {kind === "pattern" ? (
-            <>
-              {count > 1 && <ContextMenuLabel className="text-[11px] text-muted-foreground">{count} patterns selected</ContextMenuLabel>}
-              <ContextMenuItem onSelect={transposePickedPatterns}>Transpose selected…</ContextMenuItem>
-              <ContextMenuItem onSelect={() => setRenaming(ref)}>Rename…</ContextMenuItem>
-              <ContextMenuItem onSelect={clonePickedPatterns}>Clone</ContextMenuItem>
-              <ContextMenuItem onSelect={() => splitPattern(ref)}>Split by channel</ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem disabled={picked.includes(patterns[0]?.id)} onSelect={() => movePickedPatterns(-1)}>
-                Move up <ContextMenuShortcut>⌥↑</ContextMenuShortcut>
-              </ContextMenuItem>
-              <ContextMenuItem disabled={picked.includes(patterns[patterns.length - 1]?.id)} onSelect={() => movePickedPatterns(1)}>
-                Move down <ContextMenuShortcut>⌥↓</ContextMenuShortcut>
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-              <ContextMenuItem variant="destructive" disabled={count >= patterns.length} onSelect={deletePickedPatterns}>
-                {count > 1 ? `Delete ${count} patterns` : "Delete"}
-              </ContextMenuItem>
-            </>
-          ) : (
-            <ContextMenuItem variant="destructive" onSelect={() => useMusic.getState().commit((s) => removeChannels(s, [ref]))}>
-              Delete (and its clips)
-            </ContextMenuItem>
-          )}
+        <ContextMenuContent data-testid="pattern-menu" onCloseAutoFocus={(e) => useMusicUi.getState().transposeOpen && e.preventDefault()}>
+          {count > 1 && <ContextMenuLabel className="text-[11px] text-muted-foreground">{count} patterns selected</ContextMenuLabel>}
+          <ContextMenuItem onSelect={transposePickedPatterns}>Transpose selected…</ContextMenuItem>
+          <ContextMenuItem onSelect={() => setRenaming(ref)}>Rename…</ContextMenuItem>
+          <ContextMenuItem onSelect={clonePickedPatterns}>Clone</ContextMenuItem>
+          <ContextMenuItem onSelect={() => splitPattern(ref)}>Split by channel</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem disabled={picked.includes(patterns[0]?.id)} onSelect={() => movePickedPatterns(-1)}>
+            Move up <ContextMenuShortcut>⌥↑</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem disabled={picked.includes(patterns[patterns.length - 1]?.id)} onSelect={() => movePickedPatterns(1)}>
+            Move down <ContextMenuShortcut>⌥↓</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem variant="destructive" onSelect={deletePickedPatterns}>
+            {count > 1 ? `Delete ${count} patterns` : "Delete"}
+          </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
     );
-  };
+  });
+}
+
+function AudioItems({ audio }: { audio: readonly Channel[] }) {
+  usePlaylist((s) => s.source);
+  const audioSelection = usePlaylist((s) => s.audioSelection);
+  const assets = useMusic((s) => s.assets);
+  const song = useSong((s) => s);
+  const source = clipSource(song);
+  const picked = audio.filter((c) => audioSelection.has(c.id)).map((c) => c.id);
+  if (!picked.length && source.kind === "audio") picked.push(source.ref);
+  const count = picked.length;
+  if (!audio.length) return <p className="px-1.5 py-2 text-[11px] text-muted-foreground">No audio clips yet: drop a file from the Browser or the Finder on a track.</p>;
+
+  return audio.map((channel) => {
+    const url = assets.find((a) => a.id === channel.sampleId)?.src ?? null;
+    return (
+      <ContextMenu key={channel.id} onOpenChange={(open) => open && pickAudioForMenu(channel.id)}>
+        <ContextMenuTrigger asChild>
+          <PickerItem
+            kind="audio"
+            id={channel.id}
+            name={channel.name}
+            color={channel.color}
+            selected={picked.includes(channel.id)}
+            chosen={source.kind === "audio" && source.ref === channel.id}
+            title={`${channel.name}: click to draw it, drag it onto a track; ⌘-click or Shift+click to select several`}
+            onClick={(e) => clickAudio(channel.id, pickMode(e))}
+            draw={(c, w, h, colour) => {
+              const peaks = url ? clipPeaks(url) : null;
+              if (peaks) drawWaveformPreview(c, peaks, w, h, colour);
+              else c.clearRect(0, 0, w, h);
+            }}
+            drawKey={url}
+          />
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {count > 1 && <ContextMenuLabel className="text-[11px] text-muted-foreground">{count} audio clips selected</ContextMenuLabel>}
+          <ContextMenuItem onSelect={() => useMusicUi.getState().openChannelWindow(channel.id)}>Channel settings</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem variant="destructive" onSelect={deletePickedAudio}>
+            {count > 1 ? `Delete ${count} audio clips (and their clips)` : "Delete (and its clips)"}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  });
+}
+
+interface PickerItemProps extends Omit<React.ComponentProps<"button">, "onClick" | "color"> {
+  kind: "pattern" | "audio";
+  id: string;
+  name: string;
+  color: string | null;
+  selected: boolean;
+  /** It's the clip source: what Draw and Paint add (FL's red marker on its left). */
+  chosen: boolean;
+  onClick: (e: React.MouseEvent) => void;
+  /** Draw its preview on a canvas `w` by `h` CSS pixels, in its content colour. */
+  draw: (ctx: CanvasRenderingContext2D, w: number, h: number, colour: string) => void;
+  /** When this changes, the preview is drawn again. */
+  drawKey: unknown;
+}
+
+/** An item of the Picker, as FL shows one: a small clip, its name on its title strip, its preview under it. */
+function PickerItem({ kind, id, name, color, selected, chosen, onClick, draw, drawKey, ...rest }: PickerItemProps) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const colours = color ? clipColours(color) : kind === "audio" ? AUDIO : PATTERN;
+  const drawRef = useRef(draw);
+  drawRef.current = draw;
+  useEffect(() => {
+    const paint = () => {
+      const width = canvas.current?.clientWidth ?? 0;
+      const c = canvas.current && width && prepare(canvas.current, width, PREVIEW_H);
+      if (c) drawRef.current(c, width, PREVIEW_H, colours.content);
+    };
+    paint();
+    // An audio file's waveform arrives once it's decoded.
+    return kind === "audio" ? onWaveform(paint) : undefined;
+  }, [drawKey, colours.content, kind]);
 
   return (
-    <div className="flex w-40 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-surface-1 p-1" data-testid="picker" aria-label="Picker panel">
-      <div className="px-1 pt-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Patterns</div>
-      {patterns.map((p) => item("pattern", p.id, p.name, p.color))}
-      {audio.length > 0 && <div className="px-1 pt-1.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Audio clips</div>}
-      {audio.map((c) => item("audio", c.id, c.name, c.color))}
-    </div>
+    <button
+      {...rest}
+      type="button"
+      draggable
+      data-picker-item={id}
+      data-selected={selected || undefined}
+      aria-pressed={selected}
+      className={cn(
+        "relative flex w-full shrink-0 flex-col overflow-hidden rounded-[3px] text-left outline-offset-1",
+        selected ? "outline-2 outline-[var(--piano-start)]" : "outline-1 outline-black/30 hover:brightness-110",
+      )}
+      style={{ background: colours.body }}
+      onClick={onClick}
+      onDoubleClick={(e) => pickMode(e) === "only" && showInRack(kind, id)}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify({ kind, ref: id }));
+        e.dataTransfer.effectAllowed = "copy";
+        usePlaylist.setState({ carried: { kind, ref: id } });
+      }}
+      onDragEnd={() => {
+        // Dropped elsewhere, or called off (Esc): the clip shown on the tracks goes.
+        if (usePlaylist.getState().drag?.kind === "add") usePlaylist.setState({ drag: null });
+        usePlaylist.setState({ carried: null });
+      }}
+    >
+      <span className="flex h-4 items-center gap-1 px-1 text-[11px] leading-none font-semibold" style={{ background: colours.title, color: colours.text }}>
+        {kind === "pattern" ? <PiListDashes className="size-3 shrink-0 opacity-80" /> : <PiWaveform className="size-3 shrink-0 opacity-80" />}
+        <span className="truncate">{name}</span>
+      </span>
+      <canvas ref={canvas} aria-hidden className="block w-full" style={{ height: PREVIEW_H }} />
+      {chosen && <span aria-hidden className="absolute top-0.5 left-0 size-0 border-y-[5px] border-l-[6px] border-y-transparent border-l-[var(--piano-start)]" />}
+    </button>
   );
 }

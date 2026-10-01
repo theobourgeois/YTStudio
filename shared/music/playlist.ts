@@ -27,7 +27,7 @@ import {
   stepsPerBar,
   trimTracks,
 } from "./project.ts";
-import { type MusicProject, PPQ, type Pattern, type PlaylistClip, type PlaylistTrack, STEP_TICKS } from "./types.ts";
+import { type Channel, type MusicProject, PPQ, type Pattern, type PlaylistClip, type PlaylistTrack, STEP_TICKS } from "./types.ts";
 
 export type ClipIds = ReadonlySet<number>;
 
@@ -568,25 +568,32 @@ export function moveTrack(song: MusicProject, index: number, direction: -1 | 1):
 
 /**
  * Make unique: the clip gets a copy of its pattern of its own (named "Pattern 1 #2", right after the
- * original), so editing it changes no other clip. Audio clips share their file; only patterns are copied.
+ * original), so editing it changes no other clip. An audio clip (FL's "Make unique as sample") gets a
+ * copy of its channel, playing the same file (it isn't copied: nothing changes a file), so its pitch,
+ * volume or colour can change without the other clips'.
  */
-export function makeUnique(song: MusicProject, clipId: number, newId = createId("pat")): MusicProject {
+export function makeUnique(song: MusicProject, clipId: number, newId?: string): MusicProject {
   const clip = song.playlist.clips.find((c) => c.id === clipId);
-  const index = clip?.kind === "pattern" ? song.patterns.findIndex((p) => p.id === clip.ref) : -1;
-  if (!clip || index < 0) return song;
+  if (!clip) return song;
+  const clips = (ref: string) => ({ ...song.playlist, clips: song.playlist.clips.map((c) => (c === clip ? { ...c, ref } : c)) });
+  if (clip.kind === "audio") {
+    const index = song.channels.findIndex((c) => c.id === clip.ref);
+    if (index < 0) return song;
+    const original = song.channels[index];
+    const copy: Channel = { ...original, id: newId ?? createId("chan"), name: uniqueName(song.channels, original.name) };
+    return { ...song, channels: [...song.channels.slice(0, index + 1), copy, ...song.channels.slice(index + 1)], playlist: clips(copy.id) };
+  }
+  const index = song.patterns.findIndex((p) => p.id === clip.ref);
+  if (index < 0) return song;
   const original = song.patterns[index];
-  const copy: Pattern = { ...original, id: newId, name: uniqueName(song, original.name) };
-  return {
-    ...song,
-    patterns: [...song.patterns.slice(0, index + 1), copy, ...song.patterns.slice(index + 1)],
-    playlist: { ...song.playlist, clips: song.playlist.clips.map((c) => (c === clip ? { ...c, ref: newId } : c)) },
-  };
+  const copy: Pattern = { ...original, id: newId ?? createId("pat"), name: uniqueName(song.patterns, original.name) };
+  return { ...song, patterns: [...song.patterns.slice(0, index + 1), copy, ...song.patterns.slice(index + 1)], playlist: clips(copy.id) };
 }
 
-/** "Name #2": the first such name no pattern has. */
-function uniqueName(song: MusicProject, name: string): string {
+/** "Name #2": the first such name none of `taken` has. */
+function uniqueName(taken: readonly { name: string }[], name: string): string {
   const base = name.replace(/ #\d+$/, "");
-  const names = new Set(song.patterns.map((p) => p.name));
+  const names = new Set(taken.map((p) => p.name));
   for (let n = 2; ; n++) if (!names.has(`${base} #${n}`)) return `${base} #${n}`.slice(0, MAX_NAME);
 }
 

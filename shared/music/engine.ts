@@ -115,6 +115,10 @@ export interface EnginePreview {
 export interface PreviewSampleRequest {
   projectId: string;
   sampleId: string;
+  /** Its channel's gains (volume and pan, 0..4) and speed (its pitch: `pitchSpeed`), heard as its clips are. Default: as it is. */
+  gainLeft?: number;
+  gainRight?: number;
+  speed?: number;
   /** Seconds into the file (default: its start). */
   start?: number;
   /** The tab's name for it, given back in `EnginePreview.id`. */

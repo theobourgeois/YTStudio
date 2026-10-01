@@ -1383,6 +1383,20 @@ test("split by channel turns a beat into a pattern per channel, each on its own 
   ]);
   expect(Object.keys(song.patterns[1].notes)).toEqual([song.channels[2].id]);
   await expect(page.getByTestId("picker")).toContainText("Snare");
+  // All three selected (Shift+click) and deleted: an empty Pattern 1 is left, as a new song has.
+  const picker = page.getByTestId("picker");
+  await picker.getByRole("button", { name: "Kick" }).click();
+  await picker.getByRole("button", { name: "Snare" }).click({ modifiers: ["Shift"] });
+  await picker.getByRole("button", { name: "Hat" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete 3 patterns" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name)).toEqual(["Pattern 1"]);
+  expect(await savedClips(page, id)).toEqual([]);
+  // The Picker's other tab: the audio clips (none yet).
+  await picker.getByRole("tab", { name: /Audio clips/ }).click();
+  await expect(picker).toContainText("No audio clips yet");
+  await picker.getByRole("tab", { name: /Patterns/ }).click();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name)).toEqual(["Kick", "Hat", "Snare"]);
   // One undo step: the beat, and its one clip, are back.
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name)).toEqual(["Pattern 1"]);
