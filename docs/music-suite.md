@@ -14,7 +14,8 @@ put together and how we use its manual).
   devices needed are the sampler and an EQ.
 - **His workflow**, which the order of work serves: a melody first (Serum 2 in the piano roll), then drums
   (the rack), then the playlist, split by track, to arrange the song; mixing after that.
-- **Later, but designed for now**: recording audio (vocals over a song) and a MIDI keyboard.
+- **Recording audio** (vocals over a song): being built now (step 6). **Later, but designed for now**: a
+  MIDI keyboard.
 - **The look** is FL's too (decided after the Piano roll): 3D-ish but modern, the accent blue, in dark and
   light. The whole app is being restyled that way: `docs/ui-redesign.md`.
 - **How to build each panel**: talk the phase through with Théo first; write its FL Studio reference in
@@ -227,10 +228,28 @@ next.**
 
 ### 6. Audio recording
 
-- An input device (Settings already picks the output), monitoring, arming a mixer insert (FL records
-  through an insert), record to a WAV on disk (on a writer thread, never the audio thread), the take
-  becoming an audio clip in the playlist. Latency compensation from the device's reported latency. The
-  streaming playback it needs is built (`engine/src/ClipPlayer.cpp`, `AudioStream.cpp`).
+**Next, in parallel with automation** (Théo, 2026-10-01; branch `t3code/mixer-track-recording`). The
+reference, Théo's decisions and the plan are in `docs/fl-studio/recording.md`: read its "Decided" and
+"How we'd build it" sections first. The pass builds, in this order:
+
+1. **Microphone access** (step zero): the usage string in Vaudio's and the engine's Info.plist, the
+   desktop app asking, inputs opened only once one is chosen, Settings saying when it's refused.
+2. **The input device** in Settings (an interface, or the Mac's mic with other outputs: both), and the
+   latencies both ways in the status.
+3. **The document**: an insert's `input`, `monitor` and `inputOffset`; a Playlist track's `mixerTrack`
+   (FL's audio tracks). Arming, Record, Loop record, Blend and the count-in are the tab's.
+4. **The engine**: inputs into their tracks before the effects (monitoring), the dry input written per
+   armed track on a writer thread (`Recorder.cpp`), the count-in, loop passes split on the sample, the
+   `take` event; tested offline with a stand-in input.
+5. **Takes into the song**: the server adopts the files as media; `addTakes` places them (the audio
+   track, else the first free track; loop passes below, muted), latency taken off in TypeScript.
+6. **The UI**: Record and its menu on the toolbar (R), the Mixer's input, monitor and arm, audio tracks
+   on the Playlist, recording drawn as it goes.
+7. **The assistant's tools**, the e2e spec, this file and CLAUDE.md.
+
+Automation (step 4) is being built at the same time on another branch: both touch `types.ts`,
+`project.ts`, `compile.ts`, `Song.cpp`, `Sequencer.cpp`, the engine protocol and the tools, so whichever
+merges second takes the other's changes in those files.
 
 ### Also on the list, when they fit
 
