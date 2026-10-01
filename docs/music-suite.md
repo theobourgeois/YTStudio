@@ -39,6 +39,7 @@ put together and how we use its manual).
 | Windows | Every panel is a floating window on a desktop: dragged, stuck to edges and other windows, resized, maximised (double-click the title), snapped to fill the desktop or half | CLAUDE.md |
 | Transport | Play and stop the current pattern or the song (PAT / SONG), tempo, the metronome, where play starts (the Piano roll's ruler in pattern mode, the Playlist's in song mode, both also moving a playing song) | |
 | Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song`; the Browser's: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`, `star_sample`; the Playlist's: `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`, `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` in song mode | `shared/music/tools.ts` |
+| Automation | FL's automation clips, in one pass: a knob's or fader's Create automation clip (channels' volume and pan, mixer faders, pans, stereo separation, sends, effects' mixes, the main volume), a plugin's parameters (Automate "…" in its window's title bar, or the Picker's Automate… window listing every control), the curve shaped on its clips in the Playlist (points, tension handles, FL's eleven curve types, Alt+click deletes), its window (Min / Max, the LFO, the Tools), shared curves and Make unique, an audio clip's Automate volume / pan. Song mode only; a control is its own value before its first clip and holds the last value after one; the hand wins while it's held. In the engine, slices of 256 samples from where play started: the same live and exported. `get_automation`, `list_controls`, `add_automation`, `update_automation` | `docs/fl-studio/automation.md` |
 | Export | ⌘R / ⌘⇧R: the save dialog, then FL's export window. Song or pattern, cut or ring out, WAV / MP3 / FLAC / OGG / M4A / MIDI from one render, stems in time with the mix, the plugin delay trimmed, plugins in their offline mode, every core (45× real time with 24 Serums). The song can be edited while it renders. Resampling (linear, Hermite, sinc) chosen in Settings. `export_song` for the assistant | `docs/fl-studio/export.md` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
 
@@ -54,7 +55,7 @@ The tab (src/suites/music/)                 The server (server/music/)          
   transport.ts: where it's playing                                                  Protocol.cpp: JSON lines
 ```
 
-- **The document** (`shared/music/types.ts`): `MusicProject = { settings, channels, patterns, playlist, mixer }`. Times are
+- **The document** (`shared/music/types.ts`): `MusicProject = { settings, channels, patterns, playlist, mixer, automations }`. Times are
   whole ticks (`PPQ` 96 to a quarter note; a step is 24). Edits are pure functions (`edits.ts` for the
   song, `notes.ts` for a note list) that return the same object when nothing changes.
 - **What things sound like is decided in TypeScript**: `compile.ts` turns the song into an `EngineSong`
@@ -71,12 +72,12 @@ The detailed lists are at the end of each reference doc. The main ones:
 
 - **The mixer has no track EQ yet** (put off: Théo uses Pro-Q). No effect plugins on channels (the bench in the
   audio settings can load one, for testing only).
-- **The playlist has no automation clips** yet (step 4), and audio clips have no fades, gain, stretch or
-  precomputed effects (their pitch works, as FL's Resample).
-- **No automation** yet (step 4, next). Exports have no time markers, wrap remainder or bouncing (render
-  as audio clip, consolidate) yet.
+- Audio clips have no fades, gain, stretch or precomputed effects (their pitch works, as FL's Resample).
+- Automation has no tempo, channel pitch or other channel controls yet, no Step and Slide modes, and one
+  control per clip (`docs/fl-studio/automation.md` ends with the rest). Exports have no time markers,
+  wrap remainder or bouncing (render as audio clip, consolidate) yet.
 - Per-note pan is heard on samplers but not sent to plugins. Channels have no colours. Knob menus lack
-  "Create automation clip" and "Link to controller".
+  "Link to controller".
 - The channel settings window lacks FL's other tabs (loop points, time stretching, the full envelope and
   LFO page). Plugin channels have no FL-style wrapper window (their own window opens bare).
 
@@ -206,11 +207,16 @@ speed/key/sync, dropping onto the playlist once there is one).
 
 ### 4. Automation and export
 
-**Export: built** (2026-10-01), with Théo's decisions; the reference is `docs/fl-studio/export.md`, which
-ends with how it's built and where it differs. Measured with `scripts/render-bench.ts`. **Automation is
-next.**
+**Both built** (2026-10-01). Export, with Théo's decisions: `docs/fl-studio/export.md`, which ends with how
+it's built and where it differs (measured with `scripts/render-bench.ts`). Automation, in one pass as the
+playlist was: `docs/fl-studio/automation.md`, with what was decided (song mode only; a control's own value
+before its clips and the last value after; the hand wins while it holds a control; a better way than Last
+tweaked for plugin parameters), where it differs and how it's built. Not yet seen by Théo with his own
+plugins: the Automate button in a plugin window's title bar is only exercised by hand (the tests can't
+open a plugin's window). **MIDI input is next (step 5); audio recording (step 6) is being built
+alongside, in its own branch.**
 
-- **Automation clips**: a curve over time for a parameter: a channel's volume or pan, a mixer insert's, the
+- **Automation clips** (what was planned): a curve over time for a parameter: a channel's volume or pan, a mixer insert's, the
   EQ's, or a plugin's own parameter. FL makes them from a control's right-click ("Create automation clip"),
   which belongs in the knob menu (`knob.tsx`, where FL puts it). The engine needs to list a plugin's parameters and set them
   at block rate (sample-accurate later). Automation clips live in the playlist (step 2).
@@ -237,7 +243,7 @@ next.**
 From the reference docs' tables, roughly in order of use: channel colours; FL's wrapper around a plugin's
 window (volume, pan, presets); the Piano roll's scale highlighting and stamp (chords); per-channel swing;
 the full sampler envelope and LFO; loop points in the sampler; channel groups; per-note pan and the other
-note properties sent to plugins (MPE, or per-note controllers); plugin delay compensation.
+note properties sent to plugins (MPE, or per-note controllers); tempo automation.
 
 ## Working on it
 

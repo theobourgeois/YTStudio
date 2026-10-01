@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addChannels, addPluginChannel, setChannelNotes, setSteps, updateChannel } from "../../shared/music/edits.ts";
 import { routeChannels, setEffect, setSend } from "../../shared/music/mixer.ts";
 import { addAudioClips, addClips, editClips } from "../../shared/music/playlist.ts";
+import { createAutomation, editPoints, updateAutomation } from "../../shared/music/automation.ts";
 import { FIRST_PATTERN_ID, createMusicProject as newSong } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
@@ -214,5 +215,46 @@ describe.skipIf(!built)("the export, offline", () => {
     const song = addPluginChannel(kicks([0]), { id: "VST3-Nowhere-1234", name: "Nowhere", format: "VST3" }, "chan_nowhere");
     const { result } = await exportSong(song);
     expect(result).toMatchObject({ state: "done", missing: ["chan_nowhere"] });
+  });
+
+  it("plays its automation as it plays live, sample for sample, in the mix and the stems", async () => {
+    // The long sound on insert 1, once a bar for two bars; its volume rising, the track's pan swinging.
+    let song = routeChannels(setSteps(addChannels(createMusicProject("Automated"), [{ id: "chan_long", name: "Long", sampleId: "long" }]), P, "chan_long", [0], true), ["chan_long"], "insert_1");
+    song = editClips(song, (clips) =>
+      addClips(clips, [
+        { kind: "pattern", ref: P, track: 0, start: 0 },
+        { kind: "pattern", ref: P, track: 0, start: BAR_TICKS },
+      ]).clips,
+    );
+    const rise = createAutomation(song, { kind: "channel", channel: "chan_long", control: "volume" }, { start: 0, length: BAR_TICKS * 2 });
+    song = editPoints(rise.song, rise.automationId, () => [
+      { tick: 0, value: 0, tension: 0.5, curve: "single" },
+      // Kept under full scale, which the live render's 24-bit file can't go past.
+      { tick: BAR_TICKS * 2, value: 0.6, tension: 0.5, curve: "single" },
+    ]);
+    const swing = createAutomation(song, { kind: "mixer", track: "insert_1", control: "pan" }, { start: 0, length: BAR_TICKS * 2 });
+    song = updateAutomation(swing.song, swing.automationId, { lfo: { enabled: true, speed: 3, level: 1 } });
+
+    const { files } = await exportSong(song, { mode: "song", stems: true, threads: 4 });
+    // Live: played once first (a new song's first block glides from the last's gains), then from the start.
+    await engine.setSong({ projectId: PROJECT, song, patternId: P, mode: "song" });
+    await engine.command("play", {});
+    await engine.render(2048);
+    await engine.command("stop", {});
+    await engine.render(2048);
+    await engine.command("play", {});
+    const file = path.join(dir, "live.wav");
+    await engine.render(BAR * 2, file);
+    const live = await readWav(file);
+    await engine.command("stop", {});
+    let worst = 0;
+    for (const side of [0, 1]) for (let i = 0; i < BAR * 2; i++) worst = Math.max(worst, Math.abs(files.mix.channels[side][i] - live.channels[side][i]));
+    // The same, but for the live render's 24-bit file.
+    expect(worst).toBeLessThan(1e-4);
+    // The pan swings: the sides differ, and it isn't silence.
+    expect(peakOf(files.mix.channels[0], BAR, BAR * 2)).toBeGreaterThan(0.1);
+    expect(files.mix.channels[0][BAR + 1000]).not.toBeCloseTo(files.mix.channels[1][BAR + 1000], 2);
+    // Insert 1's stem is the whole mix (the master is at 0 dB).
+    for (let i = 0; i < BAR * 2; i += 97) expect(files.insert_1.channels[0][i]).toBeCloseTo(files.mix.channels[0][i], 6);
   });
 });

@@ -1,9 +1,10 @@
-import { useId, useRef, useState } from "react";
+import { type ReactNode, useId, useRef, useState } from "react";
 import { cn } from "cn";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { create } from "zustand";
 import { clamp } from "@shared/math";
-import type { MusicProject } from "@shared/music/types";
+import type { AutomationTarget, MusicProject } from "@shared/music/types";
+import { AutomationMenuItems, useAutomatedControl } from "./automation/control";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { PopoverContent } from "@/components/ui/popover";
@@ -62,6 +63,15 @@ interface KnobProps {
   onCancel: () => void;
   /** Set outright: a reset, a paste, a typed value, a key. */
   onSet: (value: number) => void;
+  /** Automation drives it (in song mode): marked, as FL marks an automated control. */
+  automated?: boolean;
+  /**
+   * Its own value, when what it shows is automation's: drags, keys and the wheel start from it (the hand
+   * changes the control's own value, never the curve's). Default: `value`.
+   */
+  own?: number;
+  /** More of its right-click menu's items (Create automation clip). */
+  menu?: ReactNode;
 }
 
 const polar = (cx: number, cy: number, r: number, degrees: number) => {
@@ -81,14 +91,14 @@ function arc(cx: number, cy: number, r: number, from: number, to: number): strin
  * changes; Alt+click or a middle click resets it; a right-click opens its menu (Reset, Copy value,
  * Paste value, Type in value).
  */
-export function Knob({ value, min, max, defaultValue, label, format, unit, bipolar, size = 22, className, onBegin, onDrag, onEnd, onCancel, onSet }: KnobProps) {
+export function Knob({ value, min, max, defaultValue, label, format, unit, bipolar, size = 22, className, onBegin, onDrag, onEnd, onCancel, onSet, automated, own = value, menu }: KnobProps) {
   // While it's dragged, where its value shows: above it, or under it when there's no room above (the toolbar's, at the window's top).
   const [dragging, setDragging] = useState<"above" | "below" | null>(null);
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
   const element = useRef<HTMLDivElement>(null);
   const copied = useCopiedValue((s) => s.fraction);
-  useWheelValue(element, { value: () => value, min, max, step: (fine) => (max - min) / (fine ? 200 : 40), onBegin, onDrag, onEnd });
+  useWheelValue(element, { value: () => own, min, max, step: (fine) => (max - min) / (fine ? 200 : 40), onBegin, onDrag, onEnd });
   const fraction = (value - min) / (max - min);
   const angle = -SWEEP / 2 + fraction * SWEEP;
   const c = size / 2;
@@ -123,7 +133,8 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
               aria-valuemax={max}
               aria-valuenow={value}
               aria-valuetext={format(value)}
-              title={`${label}: ${format(value)}`}
+              title={`${label}: ${format(value)}${automated ? " (automated)" : ""}`}
+              data-automated={automated || undefined}
               className={cn("relative shrink-0 cursor-ns-resize touch-none rounded-full outline-none", className)}
               style={{ width: size, height: size }}
               onPointerDown={(e) => {
@@ -134,7 +145,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                   return;
                 }
                 const origin = e.clientY;
-                const start = value;
+                const start = own;
                 startPointerDrag(e, {
                   threshold: 2,
                   cursor: "ns-resize",
@@ -155,8 +166,8 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
               }}
               onKeyDown={(e) => {
                 const step = (max - min) / (e.ctrlKey || e.metaKey ? 200 : 40);
-                if (e.key === "ArrowUp" || e.key === "ArrowRight") onSet(clamp(value + step, min, max));
-                else if (e.key === "ArrowDown" || e.key === "ArrowLeft") onSet(clamp(value - step, min, max));
+                if (e.key === "ArrowUp" || e.key === "ArrowRight") onSet(clamp(own + step, min, max));
+                else if (e.key === "ArrowDown" || e.key === "ArrowLeft") onSet(clamp(own - step, min, max));
                 else return;
                 e.preventDefault();
                 // The arrows are the knob's here, not the rack's.
@@ -188,6 +199,8 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                 <path d={arc(c, c, capRadius - 0.4, 110, 250)} fill="none" stroke="rgb(0 0 0 / 0.35)" strokeWidth={0.8} />
                 {notched && <line x1={ix} y1={iy} x2={px} y2={py} stroke="var(--knob-notch)" strokeWidth={Math.max(1.25, size * 0.06)} strokeLinecap="round" />}
               </svg>
+              {/* Automated: a small mark in the accent at its top right. */}
+              {automated && <span aria-hidden className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full border border-black/40 bg-brand" />}
               {dragging && (
                 <span className={cn("floating pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 rounded-sm px-1.5 py-0.5 text-[10px] whitespace-nowrap tabular-nums", dragging === "below" ? "top-full mt-1" : "-top-6")}>
                   {format(value)}
@@ -219,6 +232,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
           >
             Type in value…
           </ContextMenuItem>
+          {menu}
         </ContextMenuContent>
       </ContextMenu>
       <PopoverContent className="w-36 p-2" onOpenAutoFocus={(e) => e.preventDefault()}>
@@ -243,21 +257,41 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
   );
 }
 
-type SongKnobProps = Omit<KnobProps, "onBegin" | "onDrag" | "onEnd" | "onCancel" | "onSet"> & {
+type SongKnobProps = Omit<KnobProps, "onBegin" | "onDrag" | "onEnd" | "onCancel" | "onSet" | "automated" | "menu"> & {
   /** The song with this knob at `value`. */
   edit: (song: MusicProject, value: number) => MusicProject;
+  /** The control it is, if it can be automated (its menu then has Create automation clip). */
+  target?: AutomationTarget;
 };
 
-/** A knob on the open song: a drag is one undo step, heard as it turns. */
-export function SongKnob({ edit, ...knob }: SongKnobProps) {
+/**
+ * A knob on the open song: a drag is one undo step, heard as it turns. One that can be automated
+ * (`target`) follows its automation in song mode, and while it's held the hand wins (the engine leaves
+ * its automation out until it's let go).
+ */
+export function SongKnob({ edit, target, ...knob }: SongKnobProps) {
   const gesture = useRef(songGesture()).current;
+  const control = useAutomatedControl(target, knob.value);
   return (
     <Knob
       {...knob}
-      onBegin={() => gesture.begin()}
+      value={control.value}
+      own={knob.value}
+      automated={control.automated}
+      menu={target && <AutomationMenuItems target={target} />}
+      onBegin={() => {
+        control.hold();
+        gesture.begin();
+      }}
       onDrag={(value) => gesture.apply((song) => edit(song, value))}
-      onEnd={() => gesture.end()}
-      onCancel={() => gesture.cancel()}
+      onEnd={() => {
+        gesture.end();
+        control.release();
+      }}
+      onCancel={() => {
+        gesture.cancel();
+        control.release();
+      }}
       onSet={(value) => useMusic.getState().commit((song) => edit(song, value))}
     />
   );

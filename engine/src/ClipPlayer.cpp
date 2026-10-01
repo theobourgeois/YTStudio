@@ -277,7 +277,10 @@ void ClipPlayer::schedule (double from, double to, double origin, juce::uint32 p
     }
 }
 
-void ClipPlayer::renderStream (Stream& stream, float gainLeft, float gainRight, float* left, float* right, int numSamples)
+/** How many samples of an automated clip play at one gain as it glides (a third of a millisecond). */
+constexpr int rampChunk = 16;
+
+void ClipPlayer::renderStream (Stream& stream, float fromLeft, float fromRight, float gainLeft, float gainRight, float* left, float* right, int numSamples)
 {
     const auto start = juce::jmin (stream.delay, numSamples);
     stream.delay = 0;
@@ -298,7 +301,19 @@ void ClipPlayer::renderStream (Stream& stream, float gainLeft, float gainRight, 
     const auto want = (int) juce::jmin (stream.remaining, (juce::int64) room);
     // All but the clip's last few samples as they are; those fade out, so a clip cut off doesn't click.
     const auto plain = (int) juce::jlimit ((juce::int64) 0, (juce::int64) want, stream.remaining - fadeSamples);
-    auto got = plain > 0 ? stream.pull (left, right, start, plain, gainLeft, gainRight, fadeIn, 0) : 0;
+    auto got = 0;
+    if (juce::exactlyEqual (fromLeft, gainLeft) && juce::exactlyEqual (fromRight, gainRight))
+        got = plain > 0 ? stream.pull (left, right, start, plain, gainLeft, gainRight, fadeIn, 0) : 0;
+    else
+        // Automated: gliding from `from…` to `gain…` across the block, a few samples at a time.
+        for (int done = 0; done < plain;)
+        {
+            const auto part = juce::jmin (rampChunk, plain - done);
+            const auto at = (float) (start + done) + (float) part / 2.0f;
+            const auto k = at / (float) numSamples;
+            got += stream.pull (left, right, start + done, part, fromLeft + (gainLeft - fromLeft) * k, fromRight + (gainRight - fromRight) * k, fadeIn, 0);
+            done += part;
+        }
     for (int j = plain; j < want; ++j)
     {
         const auto level = (float) (stream.remaining - j - 1) / (float) fadeSamples;

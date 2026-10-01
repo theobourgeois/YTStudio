@@ -149,15 +149,41 @@ export interface EngineKey {
   altKey: boolean;
 }
 
+/** One of a plugin's parameters that can be automated (`GET /api/engine/parameters`). */
+export interface EngineParameter {
+  /** Its place in the plugin's list, and its id (`AutomationTarget.param`: what names it across versions). */
+  index: number;
+  id: string;
+  name: string;
+  /** Its value now, 0..1, and as the plugin says it ("2.4 kHz"). */
+  value: number;
+  text: string;
+}
+
+/** A parameter of a song's plugin (a plugin channel's, or a mixer effect's), as the engine names it. */
+export interface PluginParameter {
+  owner: "channel" | "effect";
+  /** The channel's or the effect's id. */
+  id: string;
+  index: number;
+  /** The parameter's id. */
+  param: string;
+  name: string;
+  value: number;
+  text: string;
+}
+
 /**
  * What the engine says on its own (`GET /api/engine/events`): where the song is, about 25 times a
  * second while it plays or anything sounds; its status when that changes by itself (a scan ending, a
- * plugin's window closed by hand); a key pressed in a plugin's window; and that it has (re)started.
+ * plugin's window closed by hand); a key pressed in a plugin's window; a parameter touched in a plugin's
+ * window ("touch"), or its Automate button pressed ("automate"); and that it has (re)started.
  */
 export type EngineEvent =
   | ({ event: "transport"; peak: number; meters: EngineMeters; cpu: number } & EngineTransport)
   | { event: "status"; status: EngineStatus }
   | ({ event: "key" } & EngineKey)
+  | ({ event: "touch" | "automate" } & PluginParameter)
   | EngineExportEvent
   | { event: "ready" }
   /** The engine's process ended without being asked to (a plugin crashed it): the next command starts it again. */
@@ -229,6 +255,11 @@ export interface SetSongRequest {
   mode?: PlayMode;
   /** How samples are read when pitched (default: Hermite). Settings' choice for playback. */
   resampling?: Resampling;
+  /**
+   * Controls held by the hand (a knob being dragged), by `targetKey`: their automation is left out while
+   * they're held, so the hand wins (`docs/fl-studio/automation.md`).
+   */
+  held?: string[];
 }
 
 export interface SetSongResponse {

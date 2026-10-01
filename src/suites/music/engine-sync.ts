@@ -10,6 +10,8 @@ import { usePlaylist } from "./playlist/store";
 import { useMusic } from "./store";
 import { NO_CHANNELS, NO_EFFECTS, NO_METERS, afterSongSent, useTransport } from "./transport";
 import { currentTrackId, useMusicUi } from "./ui";
+import { automateParameter } from "./automation/actions";
+import { useAutomationUi } from "./automation/store";
 
 /**
  * Keeps the audio engine playing the open song: every change of the document (even mid-drag, so a
@@ -41,8 +43,10 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         // A clip previewed from its menu: the song is only that clip, its time the loop.
         const preview = clipPreview(song);
         const { resampling } = useMusicPreferences.getState();
+        // Controls the hand holds: their automation is left out until they're let go (song mode's alone has any).
+        const held = playMode === "song" ? [...useAutomationUi.getState().held] : [];
         const { unreadable, channels, effects, loop: playing } = await musicApi.setSong(
-          preview ? { projectId, patternId, resampling, ...preview } : { projectId, song, patternId, loop, mode: playMode, resampling },
+          preview ? { projectId, patternId, resampling, ...preview } : { projectId, song, patternId, loop, mode: playMode, resampling, held },
         );
         useTransport.setState({ unreadable, channels, effects: effects ?? NO_EFFECTS, loop: playing, error: null });
         if (!dirty) afterSongSent();
@@ -67,6 +71,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   });
   const unsubscribeQuality = useMusicPreferences.subscribe((state, prev) => {
     if (state.resampling !== prev.resampling) void send();
+  });
+  const unsubscribeHeld = useAutomationUi.subscribe((state, prev) => {
+    if (state.held !== prev.held && useTransport.getState().mode === "song") void send();
   });
   const unsubscribePlaylist = usePlaylist.subscribe((state, prev) => {
     if ((state.time !== prev.time && useTransport.getState().mode === "song") || state.previewing !== prev.previewing) void send();
@@ -103,6 +110,14 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         cpu: event.cpu,
         filePreview: event.preview ?? null,
       });
+    } else if (event.event === "touch") {
+      // A parameter touched in a plugin's window: what Automate offers first.
+      const { event: _, ...parameter } = event;
+      useAutomationUi.setState({ touched: parameter });
+    } else if (event.event === "automate") {
+      // The Automate button in a plugin window's title bar: an automation clip of what was touched there.
+      const { event: _, ...parameter } = event;
+      automateParameter(parameter);
     } else if (event.event === "key") {
       // Pressed in a plugin's window, which the plugin didn't use: the editor's shortcut runs.
       const { event: _, ...key } = event;
@@ -146,6 +161,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     unsubscribePlaylist();
     unsubscribeMode();
     unsubscribeQuality();
+    unsubscribeHeld();
     unsubscribeSelection();
     stopListening();
     if (useTransport.getState().playing) void musicApi.engine("stop", {}).catch(() => {});

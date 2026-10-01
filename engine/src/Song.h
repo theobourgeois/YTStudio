@@ -94,6 +94,12 @@ struct Song
          */
         int delay = 0;
         std::shared_ptr<DelayLine> delayLine;
+        /**
+         * Automated (a `Lane` drives its gains): they glide across the block from these to `gainLeft`
+         * and `gainRight`. The audio thread's.
+         */
+        bool ramp = false;
+        float fromLeft = 1, fromRight = 1;
     };
 
     /**
@@ -114,6 +120,8 @@ struct Song
             /** Samples it waits before its track (delay compensation), and the delay line that does it. */
             int delay = 0;
             std::shared_ptr<DelayLine> delayLine;
+            /** Automated: it glides from `from` to `gain` across each block. */
+            bool automated = false;
         };
 
         /** An effect in one of its slots. */
@@ -143,6 +151,39 @@ struct Song
         double latencyOffsetMs = 0;
         /** Samples its sound comes out late by, after its effects (`compensate`): a stem is held back by what the master's is later. */
         int latency = 0;
+        /** Automated: its gains glide from `from` to `gains` across each block. */
+        bool automated = false;
+    };
+
+    /**
+     * An automated control (`EngineLane`): straight lines between points in ticks of the loop, each point
+     * `size` values: a channel's two gains, a track's four, a send's gain, an effect's mix, or a plugin
+     * parameter's value (0..1; below 0 where the plugin keeps its own).
+     */
+    struct Lane
+    {
+        enum class Kind { channel, track, send, mix, param };
+        Kind kind = Kind::channel;
+        /** What it drives: the channel, or the track (and its send or effect), by index. */
+        int channel = -1, track = -1, index = -1;
+        int size = 1;
+        std::vector<double> ticks;
+        std::vector<float> values;
+        /** What it drives as the song has it, unautomated: put back when the song stops. */
+        std::array<float, 4> base {};
+
+        /** A plugin parameter's: its plugin, the parameter, and what names it across songs. */
+        std::shared_ptr<HostedPlugin> plugin;
+        juce::AudioProcessorParameter* parameter = nullptr;
+        int parameterIndex = -1;
+        juce::String key;
+        /** The audio thread's: the plugin's own value (taken when play starts), and the value this lane last gave it (below -1: none yet). */
+        float own = 0;
+        float lastSet = -2;
+
+        /** Its values at `tick` into `out` (`size` of them): the later of two points on one tick, the ends held. `cursor` speeds the next lookup. */
+        void valueAt (double tick, float* out);
+        size_t cursor = 0;
     };
 
     struct Note
@@ -189,6 +230,8 @@ struct Song
     std::vector<AudioClip> audioClips;
     /** In the order they're run: each after every track sending to it. The master is the last. */
     std::vector<Track> tracks;
+    /** The automated controls (song mode). */
+    std::vector<Lane> lanes;
     /**
      * The tracks something reaches, in stages: none in a stage sends to another in it, and each stage's
      * senders are all in earlier ones. So a stage's tracks can be run at once (the export does).
@@ -226,4 +269,7 @@ struct Song
      * master; `latency` is how late that is. From the plugins' reported delays and the tracks' offsets.
      */
     void compensate (double sampleRate);
+
+    /** The lanes of an `EngineSong` (`lanes`), once its channels and tracks are parsed: those that name nothing it has are left out. */
+    static void parseLanes (Song&, const juce::var& json);
 };

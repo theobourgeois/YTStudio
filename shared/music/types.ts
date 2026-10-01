@@ -1,7 +1,8 @@
 /**
  * The music suite's document (a DAW project), modelled on FL Studio: the channel rack's channels
  * (instruments), patterns (notes for any of the channels), the playlist (the song's arrangement: clips
- * of patterns and audio on tracks) and the mixer (where the channels' sound goes).
+ * of patterns, audio and automation on tracks), the mixer (where the channels' sound goes) and the
+ * automation clips (curves for controls over the song).
  * Validated by `normalizeMusicProject`; edited by the pure functions in `edits.ts`.
  *
  * Musical time is in ticks, whole numbers, `PPQ` to a quarter note: never seconds, so nothing moves
@@ -231,10 +232,10 @@ export interface PlaylistTrack {
   muted: boolean;
 }
 
-export type PlaylistClipKind = "pattern" | "audio";
+export type PlaylistClipKind = "pattern" | "audio" | "automation";
 
 /**
- * A clip on the playlist: a window onto a pattern or an audio file, placed at `start` on a track. Its
+ * A clip on the playlist: a window onto a pattern, an audio file or an automation clip's curve, placed at `start` on a track. Its
  * content starts `offset` before its window (a clip resized from the left, sliced or slip-edited shows a
  * later part of it); what's outside the window is still there, and comes back when it's widened.
  */
@@ -242,7 +243,7 @@ export interface PlaylistClip {
   /** Tells it from the other clips (a small whole number, as notes have): what's selected is a set of these. */
   id: number;
   kind: PlaylistClipKind;
-  /** The pattern's id, or the audio clip channel's id. */
+  /** The pattern's id, the audio clip channel's id, or the automation clip's (`Automation.id`). */
   ref: string;
   /** The track's number (0 is the first). */
   track: number;
@@ -250,10 +251,11 @@ export interface PlaylistClip {
   start: number;
   /**
    * Ticks. Null for a pattern clip that's as long as its pattern (from `offset` to its end), as FL
-   * Studio's are until they're resized: it follows the pattern as it grows and shrinks.
+   * Studio's are until they're resized: it follows the pattern as it grows and shrinks. An automation
+   * clip follows its curve's length the same way.
    */
   length: number | null;
-  /** How far into its content the window starts: ticks of the pattern, or seconds of the audio file. */
+  /** How far into its content the window starts: ticks of the pattern or the curve, or seconds of the audio file. */
   offset: number;
   /** Kept, but not played (the playlist's mute tool). */
   muted: boolean;
@@ -267,6 +269,78 @@ export interface Playlist {
   clips: PlaylistClip[];
 }
 
+/**
+ * The control an automation clip drives (`docs/fl-studio/automation.md`): a channel's volume or pan, a
+ * mixer track's fader, pan or stereo separation, a send's level, an effect slot's mix, the main volume,
+ * or one of a plugin's own parameters (a plugin channel's instrument's, or an effect's).
+ */
+export type AutomationTarget =
+  | { kind: "channel"; channel: string; control: "volume" | "pan" }
+  | { kind: "mixer"; track: string; control: "volume" | "pan" | "stereo" }
+  | { kind: "send"; track: string; to: string }
+  | { kind: "effect"; effect: string }
+  | { kind: "main" }
+  | {
+      kind: "plugin";
+      /** Whose plugin: a plugin channel's (by channel id) or a mixer effect's (by effect id). */
+      owner: "channel" | "effect";
+      id: string;
+      /** The parameter's id as the plugin gives it (it stays the same across versions), its index as a fallback, and its name to show. */
+      param: string;
+      index: number;
+      name: string;
+    };
+
+/** How a segment of an automation clip's curve goes from one point to the next: FL Studio's curve types. */
+export const CURVE_TYPES = ["single", "double", "altSingle", "altDouble", "hold", "stairs", "smoothStairs", "pulse", "wave", "halfSine", "smooth"] as const;
+export type CurveType = (typeof CURVE_TYPES)[number];
+
+/** A point of an automation clip's curve. Its `curve` and `tension` shape the segment arriving at it (from the point before). */
+export interface AutomationPoint {
+  /** Ticks into the curve, whole. */
+  tick: number;
+  /** 0..1 of the clip's range (between its `min` and `max`). */
+  value: number;
+  /** -1..1: how the segment bends (or, for stairs, pulses and waves, how many steps or cycles it has). 0 is straight. */
+  tension: number;
+  curve: CurveType;
+}
+
+/** An automation clip's LFO (FL's): an oscillator added to its curve, or multiplying it, without changing its points. */
+export interface AutomationLfo {
+  enabled: boolean;
+  /** Cycles per bar. */
+  speed: number;
+  /** -1..1: its shape, from peaky (-1) through a triangle-ish sine (0) to square (1). */
+  tension: number;
+  /** 0..1: where in its cycle it peaks; 0.5 is even, either end a saw. */
+  skew: number;
+  /** -1..1: how much of it there is (negative is upside down); 0 is none. */
+  level: number;
+  /** It scales the curve (for a one-sided control: volume) rather than adding to it (two-sided: pan). */
+  multiply: boolean;
+}
+
+/**
+ * An automation clip (FL Studio's): a curve over time for one control. Its clips on the playlist
+ * (`PlaylistClip.kind: "automation"`) all play this curve, as a pattern's clips play its notes.
+ */
+export interface Automation {
+  id: string;
+  name: string;
+  /** "#rrggbb", or null for the usual: its clips take it. */
+  color: string | null;
+  target: AutomationTarget;
+  /** The curve's length, in ticks (its clips that follow it are as long). */
+  length: number;
+  /** In order of `tick`, at least one; the first is at 0. Past the last, the value stays. */
+  points: AutomationPoint[];
+  /** The part of the control's range its 0..1 covers (FL's Min / Max). */
+  min: number;
+  max: number;
+  lfo: AutomationLfo;
+}
+
 export interface MusicProject {
   version: 1;
   name: string;
@@ -277,4 +351,6 @@ export interface MusicProject {
   patterns: Pattern[];
   playlist: Playlist;
   mixer: Mixer;
+  /** The automation clips, in the Picker's order. */
+  automations: Automation[];
 }

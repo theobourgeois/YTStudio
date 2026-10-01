@@ -1719,3 +1719,166 @@ test("the assistant exports the song: the export window opens and lists what it 
   await expect(files).toContainText("Assisted export.mp3");
   await expect(files).toContainText("Assisted export.mid");
 });
+
+/** Where a value is on an automation clip's curve, on a playlist track (the Playlist's usual zoom, scrolled to its start). */
+async function curvePoint(page: Page, tick: number, value: number, track: number) {
+  const box = (await page.getByTestId("playlist-grid").boundingBox())!;
+  // Under the clip's 13 px title: the curve keeps 3 px top and bottom of the 33 px left.
+  return { x: box.x + tick * 0.15, y: box.y + track * 48 + 13 + 3 + (1 - value) * 27 };
+}
+type SavedAutomation = { id: string; name: string; target: Record<string, unknown>; length: number; points: { tick: number; value: number; curve: string }[]; lfo: { enabled: boolean } };
+const savedAutomations = async (page: Page, id: string): Promise<SavedAutomation[]> => (await savedSong(page, id)).automations;
+
+test("automation, as FL Studio's: a knob makes a clip, its curve is shaped on the Playlist, the knob follows it in song mode and the hand wins while it's held", async ({ page }) => {
+  const id = await openNewSong(page, "Automated");
+  await addStarterKit(page);
+  await expect(page.getByRole("listitem")).toHaveCount(4);
+  await expect.poll(async () => (await savedSong(page, id)).channels.map((c: { name: string }) => c.name)).toEqual(["Kick", "Clap", "Hat", "Snare"]);
+  const kickId = (await savedSong(page, id)).channels[0].id;
+
+  // A knob's menu: Create automation clip. A clip of it covers the song (four bars, at least), flat at the knob's value, below the other clips; the Playlist shows it.
+  const volume = row(page, "Kick").getByRole("slider", { name: "Volume" });
+  await volume.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Create automation clip" }).click();
+  await expect.poll(async () => (await savedAutomations(page, id)).map((a) => a.name)).toEqual(["Volume (Kick)"]);
+  const [automation] = await savedAutomations(page, id);
+  expect(automation).toMatchObject({ target: { kind: "channel", channel: kickId, control: "volume" }, length: 4 * BAR_TICKS, points: [{ tick: 0, value: 0.78 }, { tick: 4 * BAR_TICKS, value: 0.78 }] });
+  expect(await savedClips(page, id)).toEqual([{ id: 1, kind: "automation", ref: automation.id, track: 0, start: 0, length: null, offset: 0, muted: false }]);
+  await expect(page.getByTestId("playlist")).toBeVisible();
+  await expect(page.getByTestId("picker").getByRole("button", { name: "Volume (Kick)" })).toBeVisible();
+  // The knob says it's automated.
+  await expect(volume).toHaveAttribute("data-automated", "true");
+
+  // A right-click on its line adds a point there; drag a point to move it.
+  let at = await curvePoint(page, 2 * BAR_TICKS, 0.3, 0);
+  await page.mouse.click(at.x, at.y, { button: "right" });
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points.length).toBe(3);
+  let point = (await savedAutomations(page, id))[0].points[1];
+  expect(point.tick).toBe(2 * BAR_TICKS);
+  expect(point.value).toBeCloseTo(0.3, 1);
+  at = await curvePoint(page, 2 * BAR_TICKS, point.value, 0);
+  const to = await curvePoint(page, 3 * BAR_TICKS, 0.9, 0);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points[1].tick).toBe(3 * BAR_TICKS);
+  point = (await savedAutomations(page, id))[0].points[1];
+  expect(point.value).toBeCloseTo(0.9, 1);
+
+  // A right-click on a point: its menu, FL's curve types.
+  at = await curvePoint(page, point.tick, point.value, 0);
+  await page.mouse.click(at.x, at.y, { button: "right" });
+  await page.getByTestId("point-menu").getByRole("menuitemradio", { name: "Hold" }).click();
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points[1].curve).toBe("hold");
+
+  // In song mode the knob follows the curve where the song is: the ruler clicked at bar 4 (where the point is, after the hold).
+  const rulerBox = (await page.getByTestId("playlist").getByLabel("Ruler").boundingBox())!;
+  await page.mouse.click(rulerBox.x + 3 * BAR_TICKS * 0.15 + 1, rulerBox.y + rulerBox.height / 2);
+  await expect(page.getByRole("radio", { name: "Song mode" })).toHaveAttribute("aria-checked", "true");
+  await expect.poll(async () => Number(await volume.getAttribute("aria-valuenow"))).toBeCloseTo(point.value, 2);
+
+  // Held, the hand wins: the engine is told to leave its automation out until the knob's let go. (F6 closes the rack behind the Playlist, and brings it back in front.)
+  await page.keyboard.press("F6");
+  await expect(page.getByTestId("channel-rack")).toHaveCount(0);
+  await page.keyboard.press("F6");
+  const held = page.waitForRequest((r) => r.url().endsWith("/api/engine/song") && (r.postDataJSON().held ?? []).includes(`channel:${kickId}:volume`));
+  const knob = (await volume.boundingBox())!;
+  await page.mouse.move(knob.x + knob.width / 2, knob.y + knob.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(knob.x + knob.width / 2, knob.y - 30, { steps: 6 });
+  await held;
+  const released = page.waitForRequest((r) => r.url().endsWith("/api/engine/song") && !(r.postDataJSON().held ?? []).length);
+  await page.mouse.up();
+  await released;
+
+  // Alt+click deletes a point. (F5 twice: the Playlist closed, then back in front.)
+  await page.keyboard.press("F5");
+  await expect(page.getByTestId("playlist")).toHaveCount(0);
+  await page.keyboard.press("F5");
+  at = await curvePoint(page, point.tick, point.value, 0);
+  await page.keyboard.down("Alt");
+  await page.mouse.click(at.x, at.y);
+  await page.keyboard.up("Alt");
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points.length).toBe(2);
+
+  // A double-click on the clip: its window, with Min / Max and the LFO.
+  at = await curvePoint(page, BAR_TICKS, 0.05, 0);
+  await page.mouse.dblclick(at.x, at.y);
+  const window = page.getByTestId("automation-window");
+  await expect(window).toContainText("Drives Volume of Kick");
+  await window.getByRole("button", { name: "LFO" }).click();
+  await expect.poll(async () => (await savedAutomations(page, id))[0].lfo.enabled).toBe(true);
+  // Its Tools: flip vertically.
+  await window.getByRole("button", { name: "Tools" }).click();
+  await page.getByRole("menuitem", { name: "Flip vertically" }).click();
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points[0].value).toBeCloseTo(0.22, 2);
+
+  // Undo takes the edits back one at a time; deleting it from the Picker takes its clips.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points[0].value).toBeCloseTo(0.78, 2);
+  await page.getByTestId("picker").getByRole("button", { name: "Volume (Kick)" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete (and its clips)" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).automations).toEqual([]);
+  expect(await savedClips(page, id)).toEqual([]);
+  await expect(volume).not.toHaveAttribute("data-automated");
+});
+
+test("Automate… lists every control of the song, a plugin's own parameters too; picking one makes its clip", async ({ page }) => {
+  const id = await openNewSong(page, "Automate a plugin");
+  await page.getByTestId("channel-rack").getByRole("button", { name: "Add a channel" }).click();
+  await page.getByTestId("channel-picker").getByRole("option", { name: /Fake Synth/ }).click();
+  await expect(row(page, "Fake Synth")).toBeVisible();
+  await page.keyboard.press("F5");
+  await page.getByRole("tab", { name: /Automation clips/ }).click();
+  await page.getByRole("button", { name: "Automate…" }).click();
+  const chooser = page.getByTestId("automate-window");
+  await expect(chooser).toContainText("Main volume");
+  await expect(chooser).toContainText("Volume");
+  // A plugin's parameters, asked of the engine when its section opens, or found by typing.
+  await chooser.getByRole("textbox", { name: "Find a control" }).fill("cut");
+  await chooser.getByRole("button", { name: /Cutoff.*Fake Synth/ }).click();
+  await expect(chooser).toHaveCount(0);
+  await expect
+    .poll(async () => {
+      const song = await savedSong(page, id);
+      const synth = song.channels.find((c: { kind: string }) => c.kind === "plugin")?.id;
+      return song.automations.map((a: SavedAutomation) => [a.name, { ...a.target, id: a.target.id === synth ? "the synth" : a.target.id }]);
+    })
+    .toEqual([["Cutoff (Fake Synth)", { kind: "plugin", owner: "channel", id: "the synth", param: "cutoff", index: 0, name: "Cutoff" }]]);
+  // Its window says what it drives.
+  await page.getByTestId("picker").getByRole("button", { name: "Cutoff (Fake Synth)" }).dblclick();
+  await expect(page.getByTestId("automation-window")).toContainText("Drives Cutoff of Fake Synth");
+});
+
+test("the assistant automates: a filter sweep on a plugin's parameter, a volume ride reshaped", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted automation");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_channel {"plugin": "Fake Synth"}',
+      'call list_controls {"channel": "Fake Synth", "query": "cut"}',
+      'call add_automation {"control": "parameter", "channel": "Fake Synth", "parameter": "cutoff", "bar": 1, "length": 8, "points": [{"at": 0, "value": 0.1}, {"at": 8, "value": 0.9, "tension": 0.4}]}',
+      'call add_automation {"control": "volume", "channel": "Fake Synth", "bar": 5, "length": 4}',
+      'call update_automation {"automation": "Volume (Fake Synth)", "points": [{"at": 0, "value": 0.78}, {"at": 4, "value": 0, "curve": "smooth"}]}',
+      'call update_automation {"automation": "nothing"}',
+      "call get_automation",
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("update_automation: failed, get_automation: ok", { timeout: 30_000 });
+  await expect.poll(async () => (await savedAutomations(page, id)).map((a) => a.name)).toEqual(["Cutoff (Fake Synth)", "Volume (Fake Synth)"]);
+  const [sweep, ride] = await savedAutomations(page, id);
+  expect(sweep).toMatchObject({ target: { kind: "plugin", param: "cutoff" }, length: 8 * BAR_TICKS, points: [{ tick: 0, value: 0.1 }, { tick: 8 * BAR_TICKS, value: 0.9 }] });
+  expect(ride.points.map((p) => [p.tick, p.value, p.curve])).toEqual([
+    [0, 0.78, "single"],
+    [4 * BAR_TICKS, 0, "smooth"],
+  ]);
+  const clips = await savedClips(page, id);
+  expect(clips.map((c) => [c.kind, c.track, c.start])).toEqual([
+    ["automation", 0, 0],
+    ["automation", 1, 4 * BAR_TICKS],
+  ]);
+});

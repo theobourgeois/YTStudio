@@ -9,7 +9,10 @@
  * darker on a muted track (as a muted mixer track is).
  */
 import { type ClipContext, clipEnd, clipLength, visibleClips } from "@shared/music/playlist";
-import type { Pattern, PlaylistClip, PlaylistTrack } from "@shared/music/types";
+import { AUTOMATION_COLOR } from "@shared/music/automation";
+import type { Automation, Pattern, PlaylistClip, PlaylistTrack } from "@shared/music/types";
+import { CURVE_PAD } from "../automation/curve-geometry";
+import { drawCurve } from "../automation/draw-curve";
 import { gridTicks } from "../piano/geometry";
 import { type Palette, rulerMarks } from "../piano/draw";
 import { MENU_FROM, MENU_TO, TITLE_HEIGHT, type TrackLayout, tickToX, trackTop, visibleTracks, xToTick } from "./geometry";
@@ -34,9 +37,13 @@ export function clipColours(color: string): ClipColours {
   return { title: color, body: mix(color, "#101318", 0.55), content: mix(color, "#ffffff", 0.62), text: mix(color, "#ffffff", 0.88) };
 }
 
-/** FL's own: pattern clips blue-grey, audio clips green; a selected clip red. */
+/** FL's own: pattern clips blue-grey, audio clips green, automation clips violet; a selected clip red. */
 export const PATTERN = clipColours("#5a78a6");
 export const AUDIO = clipColours("#4f946c");
+export const AUTOMATION = clipColours(AUTOMATION_COLOR);
+
+/** The usual colours of a kind of clip. */
+export const KIND_COLOURS = { pattern: PATTERN, audio: AUDIO, automation: AUTOMATION } as const;
 const SELECTED = clipColours("#cc5a50");
 
 /** How opaque a clip's body is (its title strip and content are solid): the grid shows faintly through, as in FL. */
@@ -68,7 +75,9 @@ export interface PlaylistScene {
   tracks: readonly PlaylistTrack[];
   layout: TrackLayout;
   patterns: ReadonlyMap<string, Pattern>;
-  /** Clip titles: a pattern's or an audio clip channel's name, by ref. */
+  /** The automation clips by id (with the curve being dragged, as it would be left). */
+  automations: ReadonlyMap<string, Automation>;
+  /** Clip titles: a pattern's, an audio clip channel's or an automation clip's name, by ref. */
   names: ReadonlyMap<string, string>;
   /** The colours patterns and audio clip channels have been given, by ref (their clips take them). */
   colors: ReadonlyMap<string, string>;
@@ -378,7 +387,7 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   const track = scene.tracks[clip.track];
   // Its source's colour, else its track's, else the usual for its kind (FL's order).
   const color = scene.colors.get(clip.ref) ?? track?.color;
-  const own = isSelected ? SELECTED : color ? clipColours(color) : clip.kind === "audio" ? AUDIO : PATTERN;
+  const own = isSelected ? SELECTED : color ? clipColours(color) : KIND_COLOURS[clip.kind];
   const colours = track?.muted ? onMutedTrack(own) : own;
   const fade = (clip.muted ? 0.5 : 1) * (track?.muted ? MUTED_TRACK_ALPHA : 1) * alpha;
   // On whole pixels, edge to edge: clips one after another meet at their outlines, with no gap between.
@@ -408,6 +417,13 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
         ctx.fillRect(Math.max(x, contentEnd), bodyY, right - Math.max(x, contentEnd), bodyH);
       }
       drawNotes(ctx, scene, clip, pattern, x, bodyY, w, bodyH, colours.content);
+    }
+  } else if (clip.kind === "automation") {
+    const automation = scene.automations.get(clip.ref);
+    if (automation) {
+      // Its curve from where the clip's window starts on it; past its end, the last value is held (drawn so).
+      const box = { x0: x - clip.offset * view.pxPerTick, pxPerTick: view.pxPerTick, top: bodyY, height: bodyH };
+      drawCurve(ctx, automation, box, x + 1, right - 1, { line: colours.content, point: colours.title }, bodyH >= 14 + CURVE_PAD * 2, scene.barTicks);
     }
   } else {
     const data = scene.waveforms.get(clip.ref);
@@ -492,6 +508,12 @@ export function drawPatternPreview(ctx: CanvasRenderingContext2D, pattern: Patte
     const x = s.starts[i] * scale;
     ctx.fillRect(x, top + (s.high - s.pitches[i]) * rowH, Math.max(1, Math.min(s.ends[i], ticks) * scale - x - 0.5), rowH);
   }
+}
+
+/** The Picker's preview of an automation clip: its whole curve across the item, as its clips draw it. */
+export function drawAutomationPreview(ctx: CanvasRenderingContext2D, automation: Automation, width: number, height: number, colour: string, barTicks: number) {
+  ctx.clearRect(0, 0, width, height);
+  drawCurve(ctx, automation, { x0: 0, pxPerTick: width / Math.max(1, automation.length), top: -1, height: height + 2 }, 0, width, { line: colour, point: colour }, false, barTicks);
 }
 
 /** The Picker's preview of an audio clip: its whole file's waveform across the item, as its clips draw it. */

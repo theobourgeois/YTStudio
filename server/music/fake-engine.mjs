@@ -27,6 +27,16 @@ const previewNow = () => {
   if (seconds >= PREVIEW_SECONDS) return (preview = null);
   return { id: preview.id, seconds, duration: PREVIEW_SECONDS };
 };
+/** Each fake plugin's parameters (`parameters`), by plugin id. */
+const PARAMETERS = {
+  "VST3-Fake Synth-1": ["Cutoff", "Resonance", "Attack", "Release"],
+  "VST3-Fake Delay-2": ["Mix", "Feedback", "Time"],
+};
+/** The plugin of a song's channel or effect, by its id. */
+const pluginOf = (owner, id) =>
+  owner === "channel" ? song?.channels.find((c) => c.id === id && c.plugin)?.plugin : (song?.tracks ?? []).flatMap((t) => t.effects ?? []).find((e) => e.id === id)?.plugin;
+const parameterList = (plugin) => (PARAMETERS[plugin.id] ?? []).map((name, index) => ({ index, id: name.toLowerCase(), name, value: 0.5, text: "50%" }));
+
 /** The plugin channels and effects whose window is open. */
 const editors = new Set();
 
@@ -192,6 +202,20 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   }
   if (cmd === "host") host = params;
   if (cmd === "whatHost") return send({ id, ok: true, result: host });
+  // The song as it was last given (tests: its automation lanes).
+  if (cmd === "whatSong") return send({ id, ok: true, result: song });
+  if (cmd === "parameters") {
+    const plugin = pluginOf(params.owner, params.ownerId);
+    if (!plugin || !PARAMETERS[plugin.id]) return fail("That plugin isn't loaded (yet): its parameters can't be listed.");
+    return send({ id, ok: true, result: { parameters: parameterList(plugin) } });
+  }
+  // A parameter touched in a plugin's window, or its Automate button pressed, as if by hand (tests).
+  if (cmd === "touchParameter" || cmd === "pressAutomate") {
+    const plugin = pluginOf(params.owner, params.ownerId);
+    const parameter = plugin && parameterList(plugin)[params.index];
+    if (!parameter) return fail("No such parameter.");
+    send({ event: cmd === "touchParameter" ? "touch" : "automate", owner: params.owner, id: params.ownerId, index: parameter.index, param: parameter.id, name: parameter.name, value: params.value ?? 0.5, text: "" });
+  }
   if (cmd === "devices") return send({ id, ok: true, result: devices() });
   if (cmd === "setDevice") {
     Object.assign(device, params);

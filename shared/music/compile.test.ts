@@ -5,6 +5,7 @@ import { editNotes, setNoteProps } from "./notes.ts";
 import { addMixerTracks, routeChannels, sendOnly, setEffect, setSend, updateEffect, updateMixerTrack } from "./mixer.ts";
 import { type NewClip, addAudioClips, addClips, editClips, sliceClips, soloTrack } from "./playlist.ts";
 import { DEFAULT_VOLUME, FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "./project.ts";
+import { controlAt, createAutomation, editPoints, updateAutomation } from "./automation.ts";
 
 const P = FIRST_PATTERN_ID;
 const rack = () =>
@@ -348,5 +349,124 @@ describe("compileSong in song mode", () => {
     const compiled = compileSong(song, P, null, "song");
     expect(compiled.notes).toHaveLength(16_000);
     expect(performance.now() - started).toBeLessThan(400);
+  });
+});
+
+describe("automation", () => {
+  const BAR = 384;
+  /** The Kick's volume automated: from 0 to full over a bar, starting at bar 2, and a pattern clip so the song has length. */
+  function automated() {
+    let song = editClips(rack(), (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: BAR * 4 }]).clips);
+    const made = createAutomation(song, { kind: "channel", channel: "chan_kick", control: "volume" }, { start: BAR, length: BAR }, { id: "auto_vol" });
+    song = editPoints(made.song, "auto_vol", () => [
+      { tick: 0, value: 0, tension: 0, curve: "single" },
+      { tick: BAR, value: 1, tension: 0, curve: "single" },
+    ]);
+    return song;
+  }
+  /** A lane's values at a tick, as the engine draws them (straight lines, the later of two points on one tick). */
+  function laneAt(lane: { ticks: number[]; values: number[] }, size: number, tick: number): number[] {
+    let i = 0;
+    while (i + 1 < lane.ticks.length && lane.ticks[i + 1] <= tick) i++;
+    const at = (k: number) => lane.values.slice(k * size, k * size + size);
+    if (i + 1 >= lane.ticks.length || tick <= lane.ticks[i]) return at(i);
+    const f = (tick - lane.ticks[i]) / (lane.ticks[i + 1] - lane.ticks[i]);
+    return at(i).map((v, c) => v + (at(i + 1)[c] - v) * f);
+  }
+
+  it("plays only in song mode", () => {
+    const song = automated();
+    expect(compileSong(song, P).lanes).toEqual([]);
+    expect(compileSong(song, P, null, "song").lanes).toHaveLength(1);
+  });
+
+  it("is the control's own value before the clip, the curve on it, the last value after: in the channel's gains", () => {
+    const song = automated();
+    const [lane] = compileSong(song, P, null, "song").lanes;
+    expect(lane.target).toEqual({ kind: "channel", channel: 0 });
+    const own = levelGain(DEFAULT_VOLUME, DEFAULT_VOLUME);
+    expect(laneAt(lane, 2, 0)).toEqual([own, own]);
+    // The jump to the clip's first value, at its start.
+    expect(laneAt(lane, 2, BAR - 0.01)[0]).toBeCloseTo(own);
+    expect(laneAt(lane, 2, BAR)[0]).toBeCloseTo(0);
+    for (const at of [1.1, 1.25, 1.5, 1.77, 1.99]) expect(laneAt(lane, 2, BAR * at)[0]).toBeCloseTo(levelGain(at - 1, DEFAULT_VOLUME), 2);
+    expect(laneAt(lane, 2, BAR * 3)[0]).toBeCloseTo(levelGain(1, DEFAULT_VOLUME));
+    // Straight stretches are two points, not hundreds.
+    expect(lane.ticks.length).toBeLessThan(80);
+  });
+
+  it("counts from the loop's start, and leaves out controls held by the hand", () => {
+    const song = automated();
+    const [lane] = compileSong(song, P, { start: BAR, end: BAR * 2 }, "song").lanes;
+    expect(lane.ticks[0]).toBe(0);
+    expect(laneAt(lane, 2, BAR / 2)[0]).toBeCloseTo(levelGain(0.5, DEFAULT_VOLUME), 2);
+    expect(compileSong(song, P, null, "song", new Set(["channel:chan_kick:volume"])).lanes).toEqual([]);
+  });
+
+  it("leaves a held control at its own value inside a lane other controls still drive", () => {
+    let song = automated();
+    song = createAutomation(song, { kind: "channel", channel: "chan_kick", control: "pan" }, { start: 0, length: BAR * 4 }, { id: "auto_pan", value: 0.5 }).song;
+    const [lane] = compileSong(song, P, null, "song", new Set(["channel:chan_kick:volume"])).lanes;
+    // The pan's clip still plays; the volume is the hand's (its own 78%: the sample as it is), not the curve's 0 at bar 2.
+    expect(laneAt(lane, 2, BAR)).toEqual([1, 1]);
+  });
+
+  it("makes one lane of a channel's volume and pan, and a track's matrix of its fader, pan and the main volume", () => {
+    let song = automated();
+    song = createAutomation(song, { kind: "channel", channel: "chan_kick", control: "pan" }, { start: 0, length: BAR }, { id: "auto_pan", value: 1 }).song;
+    song = createAutomation(song, { kind: "main" }, { start: 0, length: BAR }, { id: "auto_main", value: 0 }).song;
+    const lanes = compileSong(song, P, null, "song").lanes;
+    expect(lanes.map((l) => l.target)).toEqual([{ kind: "channel", channel: 0 }, { kind: "track", track: 16 }]);
+    // Panned hard right: no left.
+    expect(laneAt(lanes[0], 2, 10)).toEqual([0, levelGain(DEFAULT_VOLUME, DEFAULT_VOLUME)]);
+    // The main volume at 0 silences the master.
+    expect(laneAt(lanes[1], 4, 10)).toEqual([0, 0, 0, 0]);
+  });
+
+  it("drives a send's gain and an effect's mix, by their place in the engine's lists", () => {
+    let song = automated();
+    song = setSend(song, "insert_1", "insert_2", 1);
+    song = setEffect(song, "insert_1", 3, { id: "VST3-a", name: "A", format: "VST3" }, "fx_a");
+    song = createAutomation(song, { kind: "send", track: "insert_1", to: "insert_2" }, { start: 0, length: BAR }, { id: "auto_send", value: 0.5 }).song;
+    song = createAutomation(song, { kind: "effect", effect: "fx_a" }, { start: 0, length: BAR }, { id: "auto_mix", value: 0.25 }).song;
+    const compiled = compileSong(song, P, null, "song");
+    const send = compiled.lanes.find((l) => l.target.kind === "send")!;
+    const track = compiled.tracks.findIndex((t) => t.id === "insert_1");
+    expect(send.target).toEqual({ kind: "send", track, send: compiled.tracks[track].sends.findIndex((s) => s.track === compiled.tracks.findIndex((t) => t.id === "insert_2")) });
+    expect(laneAt(send, 1, 0)).toEqual([levelGain(0.5, 1)]);
+    const mix = compiled.lanes.find((l) => l.target.kind === "mix")!;
+    expect(mix.target).toEqual({ kind: "mix", track, effect: 0 });
+    expect(laneAt(mix, 1, 0)).toEqual([0.25]);
+  });
+
+  it("leaves a plugin its own value (-1) before any clip of its parameter", () => {
+    let song = addPluginChannel(automated(), { id: "VST3-synth", name: "Synth", format: "VST3" }, "chan_synth");
+    const target = { kind: "plugin", owner: "channel", id: "chan_synth", param: "cutoff", index: 4, name: "Cutoff" } as const;
+    song = createAutomation(song, target, { start: BAR * 2, length: BAR }, { id: "auto_cut", value: 0.3 }).song;
+    const lane = compileSong(song, P, null, "song").lanes.find((l) => l.target.kind === "param")!;
+    expect(lane.target).toEqual({ kind: "param", owner: "channel", id: "chan_synth", param: "cutoff", index: 4 });
+    expect(laneAt(lane, 1, BAR)).toEqual([-1]);
+    expect(laneAt(lane, 1, BAR * 2)[0]).toBeCloseTo(0.3);
+    expect(laneAt(lane, 1, BAR * 3.5)[0]).toBeCloseTo(0.3);
+  });
+
+  it("draws curves within a thousandth of what they are, steps and LFOs too", () => {
+    let song = automated();
+    song = editPoints(song, "auto_vol", () => [
+      { tick: 0, value: 0, tension: 0, curve: "single" },
+      { tick: 96, value: 1, tension: 0.8, curve: "double" },
+      { tick: 192, value: 0.2, tension: 0, curve: "stairs" },
+      { tick: 288, value: 0.9, tension: 0.3, curve: "wave" },
+    ]);
+    song = updateAutomation(song, "auto_vol", { lfo: { enabled: true, speed: 3, level: 0.4 } });
+    const [lane] = compileSong(song, P, null, "song").lanes;
+    const exact = (tick: number) => levelGain(controlAt(song, { kind: "channel", channel: "chan_kick", control: "volume" }, tick)!, DEFAULT_VOLUME);
+    for (let tick = BAR; tick < BAR * 2; tick += 0.37) {
+      // Within a thousandth of what it is within the lane's finest look (an eighth of a tick: a corner, a step).
+      const near = [-0.125, -0.0625, 0, 0.0625, 0.125].map((d) => exact(tick + d));
+      const drawn = laneAt(lane, 2, tick)[0];
+      expect(drawn).toBeGreaterThan(Math.min(...near) - 1e-3);
+      expect(drawn).toBeLessThan(Math.max(...near) + 1e-3);
+    }
   });
 });

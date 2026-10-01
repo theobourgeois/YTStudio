@@ -27,6 +27,7 @@ import {
 import { paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack } from "./geometry";
 import { fadeOutClips } from "./fades";
 import { usePlaylist } from "./store";
+import { curveCursor, curvePointerDown } from "../automation/curve-pointer";
 
 type Press = ReactPointerEvent<HTMLElement>;
 
@@ -156,6 +157,10 @@ export function gridPointerDown(e: Press) {
   }
 
   const hit = hitClip(p.clips, p.ctx, p.layout, view, q0.x, q0.y, p.selected);
+
+  // An automation clip's curve, edited on the clip (FL's): its points and tension handles, and a
+  // right-click on its line adds a point. (Its title is the clip's: a right-click there deletes it.)
+  if (hit?.clip.kind === "automation" && !hit.menu && !hit.edge && (tool === "draw" || tool === "paint") && curvePointerDown(e, element, p, hit.clip, q0.x, q0.y)) return;
 
   // The right button deletes, sweeping; on nothing, it deselects. With Alt: play from there.
   if (e.button === 2) {
@@ -359,6 +364,8 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   const q = local(element, ev);
   const hit = hitClip(p.clips, p.ctx, p.layout, view, q.x, q.y, p.selected);
   if (hit?.menu) return "pointer";
+  const onCurve = hit?.clip.kind === "automation" && !hit.edge && (tool === "draw" || tool === "paint") ? curveCursor(p, view, hit.clip, q.x, q.y) : null;
+  if (onCurve) return onCurve;
   if (tool === "slip") return hit ? RESIZE_CURSOR : "default";
   if (tool === "select") return hit ? "pointer" : "default";
   if (hit) return hit.edge ? RESIZE_CURSOR : MOVE_CURSOR;

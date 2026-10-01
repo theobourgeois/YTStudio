@@ -14,6 +14,7 @@
 
 #include <array>
 #include <atomic>
+#include <functional>
 #include <map>
 #include <utility>
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -70,6 +71,17 @@ public:
     void setWorkers (Workers* pool) { workers = pool; }
     /** A sequencer of the export's own: notes left sounding in the song's plugins end at its first block. */
     void silenceFirst() { silencing = true; }
+    /**
+     * Told after each part of a block it renders (`offset` samples in, `length` long), while the song's
+     * mixer buffers hold that part: a song with automation is rendered in slices (the export's stems).
+     * Only while `process` isn't running.
+     */
+    void setSliceListener (std::function<void (const Song&, int offset, int length)> listener) { onSlice = std::move (listener); }
+    /**
+     * The plugins' automated parameters get their own values back, and the automated controls theirs
+     * (done with it, or set aside for the export). Only while `process` isn't running.
+     */
+    void release();
     /** The song playing (only on the thread that calls `process`, after it has once). */
     const Song* current() const { return song; }
 
@@ -117,6 +129,16 @@ private:
     bool silencing = false;
 
     void adopt (Song* next);
+    /** The message thread's requests (a new song, play, stop), taken at the start of a block. */
+    void takeRequests();
+    /** A part of a block: the whole of it, or a slice when automation plays. */
+    void processBlock (float* left, float* right, int numSamples);
+    /** Drive the automated controls over the next `numSamples` (from `position_`). */
+    void applyLanes (int numSamples);
+    /** Put the automated controls back as the song has them unautomated, and plugins' parameters to their own values. */
+    void restoreLanes (Song&);
+    /** Take each automated plugin parameter's own value (what it is when play starts), or `previous`'s where it automated it too. */
+    void takeOwnValues (Song& next, Song* previous);
     void schedule (int numSamples);
     void scheduleRange (double from, double to, double origin, int offset, int length, double ticksPerSample);
     /** Make a new play (or stop): its number, published for the audio thread to pick up with the request. */
@@ -175,6 +197,18 @@ private:
     std::map<juce::String, std::shared_ptr<DelayLine>> delayLines;
     /** Set when a song is adopted: its first block ramps from the last song's gains to its own. */
     bool ramping = false;
+    /**
+     * While a song with automation plays, it's rendered in slices this long, counted from where play
+     * started (`sliceClock`), so the same song sounds the same whatever the blocks it's asked for (the
+     * device's, the export's): gains glide across a slice, plugin parameters are set at its start.
+     */
+    static constexpr int sliceSamples = 256;
+    juce::int64 sliceClock = 0;
+    /** Where play started (ticks): with `sliceClock`, where each slice is, exactly (the position adds up rounding as it goes). */
+    double playStart = 0;
+    /** The automated controls are being driven (it's playing a song with lanes): they're put back when it stops. */
+    bool lanesLive = false;
+    std::function<void (const Song&, int, int)> onSlice;
 
     std::atomic<int> playRequests { 0 }, stopRequests { 0 };
     std::atomic<double> playFrom { 0.0 };

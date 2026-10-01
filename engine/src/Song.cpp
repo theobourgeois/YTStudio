@@ -88,6 +88,33 @@ std::shared_ptr<const Sample> SampleCache::get (const juce::String& path)
     return sample;
 }
 
+void Song::Lane::valueAt (double tick, float* out)
+{
+    const auto count = ticks.size();
+    if (count == 0)
+    {
+        for (int c = 0; c < size; ++c)
+            out[c] = base[(size_t) c];
+        return;
+    }
+    // The last point at or before `tick`: from where the last lookup was (they mostly go forwards), else searched.
+    if (cursor >= count || ticks[cursor] > tick || (cursor + 1 < count && ticks[cursor + 1] <= tick && cursor + 2 < count && ticks[cursor + 2] <= tick))
+        cursor = (size_t) juce::jmax (0, (int) (std::upper_bound (ticks.begin(), ticks.end(), tick) - ticks.begin()) - 1);
+    while (cursor + 1 < count && ticks[cursor + 1] <= tick)
+        ++cursor;
+    const auto* from = values.data() + cursor * (size_t) size;
+    if (cursor + 1 >= count || tick <= ticks[cursor])
+    {
+        for (int c = 0; c < size; ++c)
+            out[c] = from[c];
+        return;
+    }
+    const auto* to = from + size;
+    const auto f = (float) ((tick - ticks[cursor]) / (ticks[cursor + 1] - ticks[cursor]));
+    for (int c = 0; c < size; ++c)
+        out[c] = from[c] + (to[c] - from[c]) * f;
+}
+
 int Song::channelIndex (const juce::String& id) const
 {
     for (size_t i = 0; i < channels.size(); ++i)
@@ -295,6 +322,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     for (auto& track : song->tracks)
         track.from = track.gains;
     song->compensate (sampleRate);
+    parseLanes (*song, json["lanes"]);
 
     juce::StringArray channelIds;
     for (const auto& channel : song->channels)
@@ -307,6 +335,99 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
 
     std::stable_sort (song->notes.begin(), song->notes.end(), [] (const Note& a, const Note& b) { return a.tick < b.tick; });
     return song;
+}
+
+void Song::parseLanes (Song& song, const juce::var& json)
+{
+    const auto* list = json.getArray();
+    if (list == nullptr)
+        return;
+    for (const auto& item : *list)
+    {
+        const auto target = item["target"];
+        const auto kind = target["kind"].toString();
+        Lane lane;
+        if (kind == "channel")
+        {
+            lane.kind = Lane::Kind::channel;
+            lane.channel = (int) number (target["channel"], -1, -1, 1e6);
+            if (lane.channel < 0 || lane.channel >= (int) song.channels.size())
+                continue;
+            lane.size = 2;
+            const auto& channel = song.channels[(size_t) lane.channel];
+            lane.base = { channel.gainLeft, channel.gainRight, 0, 0 };
+        }
+        else if (kind == "track" || kind == "send" || kind == "mix")
+        {
+            lane.track = (int) number (target["track"], -1, -1, 1e6);
+            if (lane.track < 0 || lane.track >= (int) song.tracks.size())
+                continue;
+            const auto& track = song.tracks[(size_t) lane.track];
+            if (kind == "track")
+            {
+                lane.kind = Lane::Kind::track;
+                lane.size = 4;
+                lane.base = track.gains;
+            }
+            else if (kind == "send")
+            {
+                lane.kind = Lane::Kind::send;
+                lane.index = (int) number (target["send"], -1, -1, 1e6);
+                if (lane.index < 0 || lane.index >= (int) track.sends.size())
+                    continue;
+                lane.base[0] = track.sends[(size_t) lane.index].gain;
+            }
+            else
+            {
+                lane.kind = Lane::Kind::mix;
+                lane.index = (int) number (target["effect"], -1, -1, 1e6);
+                if (lane.index < 0 || lane.index >= (int) track.effects.size())
+                    continue;
+                lane.base[0] = track.effects[(size_t) lane.index].mix;
+            }
+        }
+        else if (kind == "param")
+        {
+            lane.kind = Lane::Kind::param;
+            const auto owner = target["owner"].toString();
+            const auto id = target["id"].toString();
+            if (owner == "channel")
+            {
+                for (const auto& channel : song.channels)
+                    if (channel.id == id)
+                        lane.plugin = channel.plugin;
+            }
+            else
+                for (const auto& track : song.tracks)
+                    for (const auto& effect : track.effects)
+                        if (effect.id == id)
+                            lane.plugin = effect.plugin;
+            // Not loaded yet: the song is made again once it is.
+            if (lane.plugin == nullptr)
+                continue;
+            const auto param = target["param"].toString();
+            lane.parameter = findParameter (*lane.plugin->instance, param, (int) number (target["index"], -1, -1, 1e6), lane.parameterIndex);
+            if (lane.parameter == nullptr)
+                continue;
+            lane.key = owner + ":" + id + ":" + param;
+            lane.base[0] = -1;
+        }
+        else
+            continue;
+
+        const auto* ticks = item["ticks"].getArray();
+        const auto* values = item["values"].getArray();
+        if (ticks == nullptr || values == nullptr || ticks->isEmpty() || values->size() != ticks->size() * lane.size)
+            continue;
+        lane.ticks.reserve ((size_t) ticks->size());
+        lane.values.reserve ((size_t) values->size());
+        auto last = 0.0;
+        for (const auto& tick : *ticks)
+            lane.ticks.push_back (last = juce::jmax (last, number (tick, last, 0, 1e9)));
+        for (const auto& value : *values)
+            lane.values.push_back ((float) number (value, 0, -64, 64));
+        song.lanes.push_back (std::move (lane));
+    }
 }
 
 void Song::compensate (double sampleRate)

@@ -154,13 +154,31 @@ juce::var SongExport::render()
         workers = std::make_unique<Workers> (settings.threads);
         sequencer.setWorkers (workers.get());
     }
+    // Each stem's part of every slice the sequencer renders (a song with automation is rendered in
+    // slices: the mixer's buffers only hold the last one once a block is done).
+    std::vector<juce::AudioBuffer<float>> stems;
+    for (auto& output : outputs)
+        stems.emplace_back (output.buffer >= 0 ? 2 : 0, output.buffer >= 0 ? block : 0);
+    sequencer.setSliceListener ([&] (const Song& playing, int offset, int length) {
+        for (size_t o = 0; o < outputs.size(); ++o)
+            if (const auto buffer = outputs[o].buffer; buffer >= 0)
+            {
+                stems[o].copyFrom (0, offset, playing.audio, buffer * 2, 0, length);
+                stems[o].copyFrom (1, offset, playing.audio, buffer * 2 + 1, 0, length);
+            }
+    });
     sequencer.setSong (std::move (song));
     // Notes the live song left sounding in the plugins end before the first one is played.
     sequencer.silenceFirst();
     sequencer.play (0);
+    // However it ends, the plugins' automated parameters get their own values back.
+    const struct Release
+    {
+        Sequencer& sequencer;
+        ~Release() { sequencer.release(); }
+    } release { sequencer };
 
     juce::AudioBuffer<float> mix (2, block);
-    juce::AudioBuffer<float> stem (2, block);
     // Samples rendered (the first `latency` of them are trimmed), written to every file, and to write:
     // the song, or while it rings out, everything until it's quiet.
     juce::int64 rendered = 0, written = 0, target = settings.ringOut ? std::numeric_limits<juce::int64>::max() : frames;
@@ -180,7 +198,6 @@ juce::var SongExport::render()
         sequencer.collectGarbage();
         mix.clear();
         sequencer.process (mix.getWritePointer (0), mix.getWritePointer (1), block);
-        const auto* playing = sequencer.current();
 
         const auto skip = (int) juce::jlimit ((juce::int64) 0, (juce::int64) block, latency - rendered);
         rendered += block;
@@ -188,8 +205,9 @@ juce::var SongExport::render()
         const auto count = (int) juce::jmin ((juce::int64) available, target - written);
 
         auto loudest = 0.0f;
-        for (auto& output : outputs)
+        for (size_t o = 0; o < outputs.size(); ++o)
         {
+            auto& output = outputs[o];
             float* sides[2];
             if (output.buffer < 0)
             {
@@ -198,10 +216,8 @@ juce::var SongExport::render()
             }
             else
             {
-                stem.copyFrom (0, 0, playing->audio, output.buffer * 2, 0, block);
-                stem.copyFrom (1, 0, playing->audio, output.buffer * 2 + 1, 0, block);
-                sides[0] = stem.getWritePointer (0);
-                sides[1] = stem.getWritePointer (1);
+                sides[0] = stems[o].getWritePointer (0);
+                sides[1] = stems[o].getWritePointer (1);
                 output.hold->apply (sides[0], sides[1], block);
             }
             if (count <= 0)

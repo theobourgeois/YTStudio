@@ -181,8 +181,8 @@ delete several), and **Ctrl selects** instead.
   right-click menu ("Create automation clip"), which puts a clip on the Playlist covering the song (or the
   time selection).
 - Its points are edited on the clip itself (right-click adds, drag moves; resizing is by its title bar).
-- Vaudio's automation is step 4 of [../music-suite.md](../music-suite.md), after the playlist: it's only
-  noted here so the playlist leaves room for it.
+- Vaudio has them: everything about automation (making a clip, editing its curve, the curve types, what an
+  automated control does) is in [automation.md](automation.md).
 
 ## The clip menu
 
@@ -339,7 +339,7 @@ From the first version (most of it for good):
   **track mode** (instrument / audio tracks linked to channels and mixer tracks), **lock to content**,
   **consolidate / render as audio clip** (needs export, step 4), **merge pattern clips**, **clip
   groups**, the magic lasso, background pictures, icons, the View menu's styles.
-- **Automation clips**: step 4, after the playlist. The clip kinds leave room for them.
+- **Automation clips**: built since ([automation.md](automation.md)).
 - **Audio clips' time stretching, pitch and reverse, zero-crossing slicing, crossfades**: the clip plays
   its file at its own speed. Fades and gain on the clip can come soon after, if wanted.
 - **Time markers and time signature changes**, the Zoom tool, Slip's ripple mode.
@@ -375,7 +375,7 @@ dropped from the Browser or the Finder (Shift: one after another on the track), 
 | What | FL Studio | Vaudio now |
 | --- | --- | --- |
 | Tracks | 500, always there | As many as are used or changed, plus eight spare and enough to fill the view, up to 500 |
-| Clip kinds | Pattern, audio, automation | Pattern and audio; automation clips with automation (step 4) |
+| Clip kinds | Pattern, audio, automation | Pattern, audio, automation ([automation.md](automation.md)) |
 | Clip colours | The pattern's (or its notes' or channel's) | FL's scheme, from one colour: the title strip that colour, the body a dark shade of it (the grid faint behind), the notes or waveform a light tint (Théo). The colour is the source's (Rename and color), else the track's, else blue-grey for patterns and green for audio; red selected (live, as a selection rectangle covers them). Names too long end in … |
 | Muted track | Its clips dimmed | Its clips greyed and darker, its lane shaded, its header dimmed as a muted mixer track's is; a click on the header around the name mutes too, not only the light (Théo) |
 | Zoom tool | Z | Not yet (Ctrl+wheel, Page Up / Down and Shift+1…5 zoom). Fully zoomed out shows the whole song and some room after it (an eighth, four bars at least), never fewer than 32 bars (Théo) |
@@ -386,7 +386,7 @@ dropped from the Browser or the Finder (Shift: one after another on the track), 
 | Double-click an audio clip | Its channel's settings | Its channel's settings: a cut-down sampler window (ON, PAN, VOL, PITCH in cents, TRACK, the file; its waveform pressed plays the file). No precomputed effects or time stretching yet |
 | Dragging files in | Shown where they'd land | Shown where they'd land, see-through, as long as the files (the Browser's; Finder files show a bar each until dropped) |
 | Deleting clips | They go | They shrink and fade out where they were, as the Piano roll's notes do |
-| Picker | Sorting, unused, groups, render; patterns reordered by dragging; tabs for patterns, audio and automation clips | Its tabs, as FL's (patterns, audio clips; automation clips with automation). Each item drawn as its clips are, in its colour, with its notes or its file's waveform; the clip source marked on its left. Items select as a list does (⌘-click toggles, Shift+click a range) for the menu: patterns' Transpose selected…, Rename, Clone, Move up / down, Delete (every one: an empty Pattern 1 is left); audio clips' Channel settings and Delete. A double-click shows it in the Channel rack. Alt+↑ / ↓ reorders patterns (Théo) |
+| Picker | Sorting, unused, groups, render; patterns reordered by dragging; tabs for patterns, audio and automation clips | Its tabs, as FL's (patterns, audio clips, automation clips, the last with an Automate… button: every control of the song to pick from). Each item drawn as its clips are, in its colour, with its notes or its file's waveform; the clip source marked on its left. Items select as a list does (⌘-click toggles, Shift+click a range) for the menu: patterns' Transpose selected…, Rename, Clone, Move up / down, Delete (every one: an empty Pattern 1 is left); audio clips' Channel settings and Delete. A double-click shows it in the Channel rack. Alt+↑ / ↓ reorders patterns (Théo) |
 | Merge, group, consolidate, lock to content, track mode, arrangements, markers, performance mode | Yes | No (see what we'll leave out) |
 | The Piano roll's ruler in song mode | Moves the song | Switches to pattern mode, from there |
 | The playhead | In every window | The Playlist's in song mode; the rack's lights and the Piano roll's follow the pattern shown inside the song |

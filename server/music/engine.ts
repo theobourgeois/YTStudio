@@ -15,6 +15,7 @@ import {
   type EngineDevices,
   type EngineExportDone,
   type EngineEvent,
+  type EngineParameter,
   type EnginePlugin,
   type EngineRender,
   type EngineSlot,
@@ -187,7 +188,8 @@ export class AudioEngine {
     const projectId = body.projectId;
     const doc = normalizeMusicProject(body.song, (id) => this.samplePath(projectId, id) !== null);
     const loop = isObject(body.loop) && isFiniteNumber(body.loop.start) && isFiniteNumber(body.loop.end) ? { start: body.loop.start, end: body.loop.end } : null;
-    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, body.mode === "song" ? "song" : "pattern");
+    const held = new Set(Array.isArray(body.held) ? body.held.filter((k): k is string => typeof k === "string").slice(0, 64) : []);
+    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, body.mode === "song" ? "song" : "pattern", held);
     // A plugin's state is a file of its own beside the project's document: `plugins/<channel id>.bin`, or the effect's id.
     const states = path.join(this.paths.projectDir(projectId), "plugins");
     const song = {
@@ -292,6 +294,14 @@ export class AudioEngine {
   }
 
   /** The plugins found by the last scan. */
+  /** A song's plugin's parameters that can be automated (`owner`: a plugin channel's or a mixer effect's, by its id). */
+  async parameters(owner: unknown, id: unknown): Promise<EngineParameter[]> {
+    if (owner !== "channel" && owner !== "effect") throw new HttpError(400, '"owner" must be "channel" or "effect".');
+    if (typeof id !== "string" || !/^[\w-]{1,64}$/.test(id)) throw new HttpError(400, '"id" must be a channel\'s or an effect\'s id.');
+    const { parameters } = (await this.request("parameters", { owner, ownerId: id })) as { parameters: EngineParameter[] };
+    return parameters;
+  }
+
   async plugins(): Promise<EnginePlugin[]> {
     return (await this.request("plugins", {})) as EnginePlugin[];
   }
@@ -467,7 +477,7 @@ export class AudioEngine {
           if (this.host) void this.request("host", { ...this.host }).catch(() => {});
           resolve();
           this.emit({ event: "ready" });
-        } else if (message.event === "transport" || message.event === "key" || message.event === "export") {
+        } else if (message.event === "transport" || message.event === "key" || message.event === "export" || message.event === "touch" || message.event === "automate") {
           this.emit(message as unknown as EngineEvent);
         } else if (message.event === "status" && isObject(message.status)) {
           void this.withSaved(message.status as unknown as RawStatus).then((status) => this.emit({ event: "status", status }));

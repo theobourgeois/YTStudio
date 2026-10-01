@@ -31,6 +31,7 @@ import {
 import { MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import { type Channel, type MusicProject, PPQ, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import { type EditEnv, type EditResult, findPattern } from "../tool-edits";
+import { findAutomation } from "../automation/tool-edits";
 
 type Input = Record<string, unknown>;
 
@@ -76,10 +77,13 @@ function describeClip(song: MusicProject, clip: PlaylistClip, ctx: ClipContext):
   const what =
     clip.kind === "pattern"
       ? `pattern "${song.patterns.find((p) => p.id === clip.ref)?.name ?? clip.ref}"`
-      : `audio "${song.channels.find((c) => c.id === clip.ref)?.name ?? clip.ref}"`;
+      : clip.kind === "automation"
+        ? `automation "${song.automations.find((a) => a.id === clip.ref)?.name ?? clip.ref}" (id ${clip.ref})`
+        : `audio "${song.channels.find((c) => c.id === clip.ref)?.name ?? clip.ref}"`;
   const length = clipLength(clip, ctx);
-  const offset = clip.kind === "audio" ? (clip.offset ? `, from ${round(clip.offset)}s into its file` : "") : clip.offset ? `, from ${barsOf(clip.offset, ctx)} bars into its pattern` : "";
-  const follows = clip.kind === "pattern" && clip.length === null ? " (its pattern's length)" : "";
+  const content = clip.kind === "automation" ? "curve" : "pattern";
+  const offset = clip.kind === "audio" ? (clip.offset ? `, from ${round(clip.offset)}s into its file` : "") : clip.offset ? `, from ${barsOf(clip.offset, ctx)} bars into its ${content}` : "";
+  const follows = clip.kind !== "audio" && clip.length === null ? ` (its ${content}'s length)` : "";
   return `- clip ${clip.id}: ${what} at bar ${barOf(clip.start, ctx)}, ${barsOf(length, ctx)} bars${follows}${offset}${clip.muted ? ", muted" : ""}`;
 }
 
@@ -107,6 +111,7 @@ export function describePlaylist(song: MusicProject, mode: "pattern" | "song" | 
   }
   const audio = song.channels.filter((c) => c.kind === "audio");
   if (audio.length) lines.push("", `Audio clips (their channels): ${audio.map((c) => `"${c.name}" (id ${c.id})`).join(", ")}.`);
+  if (song.automations.length) lines.push("", `Automation clips: ${song.automations.map((a) => `"${a.name}" (id ${a.id})`).join(", ")} (get_automation has their curves; they play in song mode).`);
   return lines.join("\n");
 }
 
@@ -129,7 +134,8 @@ export function placeClipsTool(song: MusicProject, input: Input, env: EditEnv): 
     try {
       const hasPattern = clip.pattern !== undefined && clip.pattern !== "";
       const hasAudio = clip.audio !== undefined && clip.audio !== "";
-      if (hasPattern === hasAudio) throw new Error('give either "pattern" or "audio".');
+      const hasAutomation = clip.automation !== undefined && clip.automation !== "";
+      if (Number(hasPattern) + Number(hasAudio) + Number(hasAutomation) !== 1) throw new Error('give one of "pattern", "audio" or "automation".');
       const track = trackIndex(clip.track);
       const start = barTick(clip.bar, ctx);
       const repeat = clip.repeat === undefined ? 1 : Number.isInteger(clip.repeat) && (clip.repeat as number) >= 1 && (clip.repeat as number) <= 256 ? (clip.repeat as number) : -1;
@@ -141,6 +147,12 @@ export function placeClipsTool(song: MusicProject, input: Input, env: EditEnv): 
         const length = clip.length === undefined ? null : barsTicks(clip.length, ctx, "length", 1 / 64);
         const each = length ?? Math.max(1, ctx.patternTicks(pattern.id) - offset);
         for (let n = 0; n < repeat; n++) placed.push({ kind: "pattern", ref: pattern.id, track, start: start + n * each, length, offset, muted });
+      } else if (hasAutomation) {
+        const automation = findAutomation(song, clip.automation);
+        const offset = clip.offset === undefined ? 0 : barsTicks(clip.offset, ctx, "offset");
+        const length = clip.length === undefined ? null : barsTicks(clip.length, ctx, "length", 1 / 64);
+        const each = length ?? Math.max(1, automation.length - offset);
+        for (let n = 0; n < repeat; n++) placed.push({ kind: "automation", ref: automation.id, track, start: start + n * each, length, offset, muted });
       } else {
         const channel = findAudio(song, clip.audio);
         const like = song.playlist.clips.find((c) => c.kind === "audio" && c.ref === channel.id);
@@ -217,8 +229,12 @@ export function removeClipsTool(song: MusicProject, input: Input, env: EditEnv):
     const channel = findAudio(song, input.audio);
     for (const c of clips) if (c.kind === "audio" && c.ref === channel.id) gone.add(c.id);
   }
-  if (input.ids === undefined && input.track === undefined && input.pattern === undefined && input.audio === undefined) {
-    throw new Error('Say which clips: "ids", a "track", a "pattern" or an "audio" clip.');
+  if (input.automation !== undefined) {
+    const automation = findAutomation(song, input.automation);
+    for (const c of clips) if (c.kind === "automation" && c.ref === automation.id) gone.add(c.id);
+  }
+  if (input.ids === undefined && input.track === undefined && input.pattern === undefined && input.audio === undefined && input.automation === undefined) {
+    throw new Error('Say which clips: "ids", a "track", a "pattern", an "audio" clip or an "automation" clip.');
   }
   const next = editClips(song, (list) => removeClips(list, gone));
   return { song: next, text: gone.size ? `Removed ${gone.size} clip${gone.size === 1 ? "" : "s"}; ${next.playlist.clips.length} left.` : "No clips matched: nothing was removed." };

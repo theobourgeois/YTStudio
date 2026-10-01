@@ -27,6 +27,7 @@ import { toggleVariants } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { canRedo, canUndo } from "@/lib/document-history";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import type { AutomationTarget } from "@shared/music/types";
 import { PERCENT, SongKnob, percent } from "./knob";
 import { ModeLights } from "./mode-switch";
 import { CpuGraph, OutputGraph } from "./monitors";
@@ -43,6 +44,9 @@ import { useMusicUi } from "./ui";
 import { useBrowser } from "./browser/store";
 import { addTap, tappedTempo } from "./tap-tempo";
 import { useWheelValue } from "./wheel";
+
+/** The main volume as an automation target (a constant, so the knob's menu and hook see one target). */
+const MAIN_VOLUME: AutomationTarget = { kind: "main" };
 
 /**
  * The music editor's toolbar, FL Studio's (`docs/fl-studio/toolbar.md`), with only what Vaudio does: the
@@ -519,7 +523,7 @@ function PositionLcd() {
 /** FL Studio's main volume knob: everything the song puts out (the song's, `settings.volume`). */
 function MainVolume() {
   const volume = useSong((song) => song.settings.volume);
-  return <SongKnob value={volume} min={0} max={1} defaultValue={DEFAULT_VOLUME} label="Main volume" format={percent} unit={PERCENT} size={30} edit={setMainVolume} className="mx-0.5" />;
+  return <SongKnob value={volume} min={0} max={1} defaultValue={DEFAULT_VOLUME} label="Main volume" format={percent} unit={PERCENT} size={30} target={MAIN_VOLUME} edit={setMainVolume} className="mx-0.5" />;
 }
 
 /** The song position slider's thumb, in px. */
