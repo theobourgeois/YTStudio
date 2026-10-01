@@ -6,6 +6,8 @@ import { addChannels, addPluginChannel, setSteps } from "../../shared/music/edit
 import { setEffect } from "../../shared/music/mixer.ts";
 import type { EngineEvent } from "../../shared/music/engine.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
+import { createAutomation } from "../../shared/music/automation.ts";
+import { addClips, editClips } from "../../shared/music/playlist.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
 
@@ -138,6 +140,31 @@ describe("AudioEngine", () => {
     await engine.command("status", {});
     await expect.poll(() => request("whatHost", {})).toEqual(host);
     await expect(engine.command("host", host)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("lists a plugin's parameters, passes on those touched in its window, and leaves out automation the hand holds", async () => {
+    let song = addPluginChannel(createMusicProject("Automated"), { id: "VST3-Fake Synth-1", name: "Fake Synth", format: "VST3" }, "chan_synth");
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: FIRST_PATTERN_ID, track: 0, start: 0, length: 384 }]).clips);
+    song = createAutomation(song, { kind: "channel", channel: "chan_synth", control: "volume" }, { start: 0, length: 384 }).song;
+    await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null, mode: "song" });
+    expect((await engine.parameters("channel", "chan_synth")).map((p) => p.name)).toEqual(["Cutoff", "Resonance", "Attack", "Release"]);
+    await expect(engine.parameters("channel", "chan_none")).rejects.toMatchObject({ status: 409 });
+    await expect(engine.parameters("bench", "chan_synth")).rejects.toMatchObject({ status: 400 });
+
+    const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
+    const events: EngineEvent[] = [];
+    engine.onEvent((event) => events.push(event));
+    await request("touchParameter", { owner: "channel", ownerId: "chan_synth", index: 0, value: 0.25 });
+    await request("pressAutomate", { owner: "channel", ownerId: "chan_synth", index: 1 });
+    await expect.poll(() => events.filter((e) => e.event === "touch" || e.event === "automate")).toEqual([
+      { event: "touch", owner: "channel", id: "chan_synth", index: 0, param: "cutoff", name: "Cutoff", value: 0.25, text: "" },
+      { event: "automate", owner: "channel", id: "chan_synth", index: 1, param: "resonance", name: "Resonance", value: 0.5, text: "" },
+    ]);
+
+    // The song as the engine has it: a lane for the channel, unless the hand holds its volume.
+    expect(((await request("whatSong", {})) as { lanes: unknown[] }).lanes).toHaveLength(1);
+    await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null, mode: "song", held: ["channel:chan_synth:volume"] });
+    expect(((await request("whatSong", {})) as { lanes: unknown[] }).lanes).toEqual([]);
   });
 
   it("lists the audio devices and changes them", async () => {

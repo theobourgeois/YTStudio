@@ -308,7 +308,7 @@ track's strip is faded and greyed. The selected-track meter is wider, with FL's 
 every 6 or 12 dB on a short mixer).
 
 Not yet, or different: icons, the Current track, the track EQ (put off), "Compensate automations"
-(no automation yet), recording, the slot's presets and Patcher, the
+(automation is applied as the song plays, not shifted for plugin delay), recording, the slot's presets and Patcher, the
 "glide" when the groove is clicked (the handle goes there at once). Choices made, to check with Théo:
 
 - **The fader** is cubed: 0.8 of its travel is 0 dB, the top about +5.8 dB (FL's own curve is unverified).

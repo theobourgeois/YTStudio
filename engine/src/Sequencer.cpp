@@ -217,6 +217,9 @@ void Sequencer::adopt (Song* next)
     // (Playing on past the loop's end, recording, it stays where it is.)
     if (position_ >= next->loopTicks && ! through)
         position_ = std::fmod (position_, next->loopTicks);
+    // The slices automation is played in count on from where it is now (the song may be longer, or faster).
+    if (playing)
+        playStart = position_ - (double) sliceClock * next->tempo * next->ppq / (60.0 * sampleRate);
 
     // Each track (and send) starts where the last song left it, and its first block glides to where
     // it's going. A new one starts as it is; a new send fades in.
@@ -237,6 +240,22 @@ void Sequencer::adopt (Song* next)
     ramping = true;
 
     clips.adopt (*next);
+    if (playing)
+        takeOwnValues (*next, song);
+    // The lanes of the last song's that this one doesn't have: their controls are as the song says again.
+    if (song != nullptr && lanesLive)
+        for (auto& lane : song->lanes)
+            if (lane.kind == Song::Lane::Kind::param && lane.lastSet > -2.0f)
+            {
+                auto kept = false;
+                for (const auto& other : next->lanes)
+                    kept = kept || (other.kind == Song::Lane::Kind::param && other.key == lane.key);
+                if (! kept)
+                {
+                    lane.parameter->setValue (lane.own);
+                    lane.plugin->automating.store (false);
+                }
+            }
 
     if (song != nullptr)
     {
@@ -264,7 +283,7 @@ void Sequencer::silenceVoices()
     silencing = true;
 }
 
-void Sequencer::process (float* left, float* right, int numSamples, const float* const* inputs, int numInputs)
+void Sequencer::takeRequests()
 {
     if (auto* next = pending.exchange (nullptr))
         adopt (next);
@@ -274,6 +293,9 @@ void Sequencer::process (float* left, float* right, int numSamples, const float*
         stopsSeen = stops;
         playing = false;
         position_ = 0;
+        // Its automation lets go at once: a play taken in this same block takes the plugins' own values.
+        if (song != nullptr && lanesLive)
+            restoreLanes (*song);
         silenceVoices();
         generation = requestedGeneration.load();
         clips.stopAll();
@@ -287,22 +309,68 @@ void Sequencer::process (float* left, float* right, int numSamples, const float*
         playsSeen = plays;
         // Played while playing (the ruler clicked): it goes there, the notes sounding cut short; a
         // recording in progress ends there.
+        recording.end();
         if (playing)
             silenceVoices();
-        recording.end();
+        // Plugins' own values are what they are now, unless automation has them already.
+        else if (song != nullptr)
+            takeOwnValues (*song, nullptr);
         playing = true;
         position_ = song != nullptr ? std::fmod (playFrom.load(), song->loopTicks) : 0;
         generation = requestedGeneration.load();
         pass = 0;
+        sliceClock = 0;
+        playStart = position_;
         clips.setGeneration (generation);
         through = playThrough.load();
         recordWaiting = playRecords.load();
         countInDone = 0;
         countInLeft = song != nullptr ? (juce::int64) std::llround (playCountIn.load() * 60.0 * sampleRate / (song->tempo * song->ppq)) : 0;
     }
+}
 
+void Sequencer::process (float* left, float* right, int numSamples, const float* const* inputs, int numInputs)
+{
+    takeRequests();
+    numInputs = inputs != nullptr ? juce::jlimit (0, maxInputs, numInputs) : 0;
+    std::array<const float*, maxInputs> sliceInputs {};
+    for (int done = 0; done < numSamples;)
+    {
+        auto length = numSamples - done;
+        // A count-in is a part of its own: the transport (and automation's clock) holds while it clicks.
+        const auto counting = playing && countInLeft > 0;
+        if (counting)
+            length = (int) juce::jmin ((juce::int64) length, countInLeft);
+        // Automation plays in slices counted from where play started, whatever the blocks.
+        else if (playing && song != nullptr && ! song->lanes.empty())
+            length = juce::jmin (length, sliceSamples - (int) (sliceClock % sliceSamples));
+        // The inputs from the same sample.
+        for (int ch = 0; ch < numInputs; ++ch)
+            sliceInputs[(size_t) ch] = inputs[ch] != nullptr ? inputs[ch] + done : nullptr;
+        processBlock (left + done, right + done, length, sliceInputs.data(), numInputs);
+        if (onSlice != nullptr && song != nullptr)
+            onSlice (*song, done, length);
+        if (playing && ! counting)
+            sliceClock += length;
+        done += length;
+    }
+
+    playingNow = playing;
+    positionNow = position_;
+    generationNow = generation;
+    passNow = pass;
+}
+
+void Sequencer::processBlock (float* left, float* right, int numSamples, const float* const* inputs, int numInputs)
+{
     if (song != nullptr)
     {
+        // Automation drives its controls while the song plays, and lets go of them when it stops.
+        if (playing && ! song->lanes.empty())
+            applyLanes (numSamples);
+        else if (lanesLive)
+            restoreLanes (*song);
+
         // Each plugin's notes for this block: the ends of the ones sounding first, then the new ones.
         for (auto& channel : song->channels)
             if (channel.plugin != nullptr)
@@ -344,19 +412,20 @@ void Sequencer::process (float* left, float* right, int numSamples, const float*
         clips.receive (*song);
         if (playing)
         {
-            // The count-in's clicks first (the transport holds); the recording begins as it moves.
-            const auto counting = countInLeft > 0;
-            const auto start = countIn (numSamples);
-            if (recordWaiting && countInLeft == 0)
+            // A count-in's part (`process` gives it one of its own): its clicks, the transport held.
+            if (countInLeft > 0)
+                countIn (numSamples);
+            else
             {
-                recordWaiting = false;
-                recording.begin (start, position_);
-            }
-            // Clips already under the playhead start in the block after the count-in ends (in time: they skip what they missed).
-            if (! counting)
+                // The recording asked for begins as the transport moves.
+                if (recordWaiting)
+                {
+                    recordWaiting = false;
+                    recording.begin (0, position_);
+                }
                 clips.startLate (position_, pass, song->loopTicks, song->tempo * song->ppq / (60.0 * sampleRate));
-            if (start < numSamples)
-                schedule (start, numSamples);
+                schedule (0, numSamples);
+            }
         }
         // A block longer than the song's buffers (the device just changed): silence until the engine
         // gives it the song again with longer ones.
@@ -400,12 +469,167 @@ void Sequencer::process (float* left, float* right, int numSamples, const float*
         }
     }
     renderClick (left, right, numSamples);
-    recording.write (inputs, inputs != nullptr ? numInputs : 0, numSamples);
+    recording.write (inputs, numInputs, numSamples);
+}
 
-    playingNow = playing;
-    positionNow = position_;
-    generationNow = generation;
-    passNow = pass;
+
+void Sequencer::applyLanes (int numSamples)
+{
+    // The slice this block is in (blocks never cross one: `process` cuts them): its ends' values, and how
+    // far into it the block starts and ends. A gain glides along the slice's straight line, whatever
+    // part of it a block is, so any block size makes the same sound.
+    const auto ticksPerSample = song->tempo * song->ppq / (60.0 * sampleRate);
+    const auto into = (int) (sliceClock % sliceSamples);
+    const auto loop = song->loopTicks;
+    // From where play started and the samples since, not the position (which gathers rounding), so the
+    // slices are the same however the samples were asked for. (A tempo change mid-play moves them a
+    // little: they're worked out at the new tempo from the start.)
+    const auto first = (double) (sliceClock - into);
+    auto sliceStart = playStart + first * ticksPerSample;
+    auto sliceEnd = playStart + (first + sliceSamples) * ticksPerSample;
+    // Its start inside the loop; its end straight on from there (a slice across the loop's end holds the
+    // song's last values to it, as the export does, and the next starts from the loop's start).
+    if (song->loops && ! through)
+    {
+        const auto span = sliceEnd - sliceStart;
+        sliceStart = std::fmod (std::fmod (sliceStart, loop) + loop, loop);
+        sliceEnd = sliceStart + span;
+    }
+    const auto a = (float) into / (float) sliceSamples, b = (float) (into + numSamples) / (float) sliceSamples;
+    std::array<float, 4> start {}, end {}, from {}, to {};
+    for (auto& lane : song->lanes)
+    {
+        lane.valueAt (sliceStart, start.data());
+        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::param)
+        {
+            lane.valueAt (sliceEnd, end.data());
+            for (int c = 0; c < lane.size; ++c)
+            {
+                from[(size_t) c] = start[(size_t) c] + (end[(size_t) c] - start[(size_t) c]) * a;
+                to[(size_t) c] = start[(size_t) c] + (end[(size_t) c] - start[(size_t) c]) * b;
+            }
+        }
+        switch (lane.kind)
+        {
+            case Song::Lane::Kind::channel:
+            {
+                auto& channel = song->channels[(size_t) lane.channel];
+                channel.fromLeft = from[0];
+                channel.fromRight = from[1];
+                channel.gainLeft = to[0];
+                channel.gainRight = to[1];
+                channel.ramp = true;
+                break;
+            }
+            case Song::Lane::Kind::track:
+            {
+                auto& track = song->tracks[(size_t) lane.track];
+                // A new song's first block glides from where the last one left it (a track it didn't have, from its lane).
+                if (! ramping || track.previous < 0)
+                    track.from = from;
+                track.gains = to;
+                track.automated = true;
+                break;
+            }
+            case Song::Lane::Kind::send:
+            {
+                auto& send = song->tracks[(size_t) lane.track].sends[(size_t) lane.index];
+                if (! ramping || send.previous < 0)
+                    send.from = from[0];
+                send.gain = to[0];
+                send.automated = true;
+                break;
+            }
+            case Song::Lane::Kind::mix:
+                // An effect's mix and a plugin's parameter: as they are at the slice's start, all through it.
+                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].mix = juce::jlimit (0.0f, 1.0f, start[0]);
+                break;
+            case Song::Lane::Kind::param:
+            {
+                // Held in its window by the hand: the hand wins, and the lane takes it back once it's let go.
+                if (lane.plugin->watcher.held.load (std::memory_order_relaxed) == lane.parameterIndex)
+                {
+                    lane.lastSet = -2.0f;
+                    break;
+                }
+                lane.plugin->automating.store (true, std::memory_order_relaxed);
+                // Set at a slice's start (or straight away, the first time).
+                if (into != 0 && lane.lastSet > -2.0f)
+                    break;
+                const auto value = start[0] < 0.0f ? lane.own : juce::jlimit (0.0f, 1.0f, start[0]);
+                if (! juce::exactlyEqual (value, lane.lastSet))
+                {
+                    lane.parameter->setValue (value);
+                    lane.lastSet = value;
+                }
+                break;
+            }
+        }
+    }
+    lanesLive = true;
+}
+
+void Sequencer::restoreLanes (Song& from)
+{
+    for (auto& lane : from.lanes)
+        switch (lane.kind)
+        {
+            case Song::Lane::Kind::channel:
+            {
+                auto& channel = from.channels[(size_t) lane.channel];
+                channel.gainLeft = channel.fromLeft = lane.base[0];
+                channel.gainRight = channel.fromRight = lane.base[1];
+                channel.ramp = false;
+                break;
+            }
+            case Song::Lane::Kind::track:
+            {
+                auto& track = from.tracks[(size_t) lane.track];
+                track.gains = track.from = lane.base;
+                track.automated = false;
+                break;
+            }
+            case Song::Lane::Kind::send:
+            {
+                auto& send = from.tracks[(size_t) lane.track].sends[(size_t) lane.index];
+                send.gain = send.from = lane.base[0];
+                send.automated = false;
+                break;
+            }
+            case Song::Lane::Kind::mix:
+                from.tracks[(size_t) lane.track].effects[(size_t) lane.index].mix = lane.base[0];
+                break;
+            case Song::Lane::Kind::param:
+                if (lane.lastSet > -2.0f)
+                    lane.parameter->setValue (lane.own);
+                lane.lastSet = -2.0f;
+                lane.plugin->automating.store (false);
+                break;
+        }
+    lanesLive = false;
+}
+
+void Sequencer::takeOwnValues (Song& next, Song* previous)
+{
+    for (auto& lane : next.lanes)
+    {
+        if (lane.kind != Song::Lane::Kind::param)
+            continue;
+        const Song::Lane* before = nullptr;
+        if (previous != nullptr && lanesLive)
+            for (const auto& other : previous->lanes)
+                if (other.kind == Song::Lane::Kind::param && other.key == lane.key)
+                    before = &other;
+        // Automated by the last song too: what it is now is automation's, so its own value carries on.
+        lane.own = before != nullptr ? before->own : lane.parameter->getValue();
+        lane.lastSet = before != nullptr ? before->lastSet : -2.0f;
+    }
+}
+
+void Sequencer::release()
+{
+    if (song != nullptr && lanesLive)
+        restoreLanes (*song);
 }
 
 int Sequencer::countIn (int numSamples)
@@ -613,7 +837,7 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
                     if (line != nullptr)
                         line->flushInto (song->audio.getWritePointer (target.buffer * 2), song->audio.getWritePointer (target.buffer * 2 + 1), numSamples);
                 };
-                if (! glide || juce::exactlyEqual (send.from, send.gain))
+                if ((! glide && ! send.automated) || juce::exactlyEqual (send.from, send.gain))
                 {
                     juce::FloatVectorOperations::addWithMultiply (toLeft, l, send.gain, numSamples);
                     juce::FloatVectorOperations::addWithMultiply (toRight, r, send.gain, numSamples);
@@ -653,7 +877,8 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
         if (effect.enabled && effect.plugin != nullptr)
             runEffect (*effect.plugin, effect.mix, l, r, numSamples);
 
-    // The fader, pan and mute: each side out from both sides in.
+    // The fader, pan and mute: each side out from both sides in (gliding after a new song, or automated).
+    glide = glide || track.automated;
     const auto& to = track.gains;
     const auto& from = glide ? track.from : track.gains;
     const auto step = 1.0f / (float) numSamples;
@@ -717,7 +942,10 @@ void Sequencer::render (Voice& voice, int numSamples)
     const auto last = length - 1;
     const auto quality = song->resampling;
     const auto rate = voice.baseRate * std::pow (2.0, (double) (voice.pitch + channel.pitch) / 12.0);
-    const auto gainLeft = voice.gain * channel.gainLeft * voice.panLeft, gainRight = voice.gain * channel.gainRight * voice.panRight;
+    // An automated channel's gains glide across the block.
+    const auto noteLeft = voice.gain * voice.panLeft, noteRight = voice.gain * voice.panRight;
+    const auto fromLeft = channel.ramp ? channel.fromLeft : channel.gainLeft, fromRight = channel.ramp ? channel.fromRight : channel.gainRight;
+    const auto stepLeft = (channel.gainLeft - fromLeft) / (float) numSamples, stepRight = (channel.gainRight - fromRight) / (float) numSamples;
     const auto& envelope = channel.envelope;
     const auto perSecond = (float) (1.0 / sampleRate);
     const auto fadeLength = (float) juce::jmax (1, (int) (fadeSeconds * sampleRate));
@@ -791,6 +1019,7 @@ void Sequencer::render (Voice& voice, int numSamples)
             level *= (float) voice.fade-- / fadeLength;
         }
 
+        const auto gainLeft = noteLeft * (fromLeft + stepLeft * (float) (i + 1)), gainRight = noteRight * (fromRight + stepRight * (float) (i + 1));
         left[i] += resampling::read (sourceLeft, length, voice.position, rate, quality) * gainLeft * level;
         right[i] += resampling::read (sourceRight, length, voice.position, rate, quality) * gainRight * level;
         voice.position += rate;
@@ -866,8 +1095,21 @@ void Sequencer::renderPlugins (int numSamples)
         const auto& plugin = *channel.plugin;
         const auto [left, right] = trackAudio (c);
         // A plugin with one output plays on both sides.
-        juce::FloatVectorOperations::addWithMultiply (left, plugin.buffer.getReadPointer (0), channel.gainLeft, numSamples);
-        juce::FloatVectorOperations::addWithMultiply (right, plugin.buffer.getReadPointer (plugin.buffer.getNumChannels() > 1 && plugin.instance->getTotalNumOutputChannels() > 1 ? 1 : 0), channel.gainRight, numSamples);
+        const auto* outLeft = plugin.buffer.getReadPointer (0);
+        const auto* outRight = plugin.buffer.getReadPointer (plugin.buffer.getNumChannels() > 1 && plugin.instance->getTotalNumOutputChannels() > 1 ? 1 : 0);
+        if (! channel.ramp)
+        {
+            juce::FloatVectorOperations::addWithMultiply (left, outLeft, channel.gainLeft, numSamples);
+            juce::FloatVectorOperations::addWithMultiply (right, outRight, channel.gainRight, numSamples);
+            continue;
+        }
+        // Automated: its gains glide across the block.
+        const auto stepLeft = (channel.gainLeft - channel.fromLeft) / (float) numSamples, stepRight = (channel.gainRight - channel.fromRight) / (float) numSamples;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            left[i] += outLeft[i] * (channel.fromLeft + stepLeft * (float) (i + 1));
+            right[i] += outRight[i] * (channel.fromRight + stepRight * (float) (i + 1));
+        }
     }
 }
 

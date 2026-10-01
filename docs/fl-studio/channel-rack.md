@@ -274,7 +274,7 @@ Shift+click, which select a range.
 | Auto length | To the end of the last bar with notes | A bar, else rounded up to two bars (three bars of notes make four) | On purpose (Théo) |
 | "Mute removed steps" | A step turned off keeps its note, muted | The note is removed | With the piano roll (muted notes) |
 | Solo | "Restore previous state after solo" is a setting | Un-soloing always unmutes everything | Later |
-| Knob menu | Also Edit events, Create automation clip, Link to controller | Reset, Copy, Paste, Type in value | With automation |
+| Knob menu | Also Edit events, Create automation clip, Link to controller | Reset, Copy, Paste, Type in value, Create automation clip (volume and pan; `automation.md`) | Edit events, Link to controller |
 | Windows | Snap to each other; can be detached; Esc closes; remembered | Float, drag, close, stick to edges and each other; resizable ones maximise and snap to half the desktop; positions are forgotten with the page | Detaching later |
 | Channel menu | Two columns: the channel (Piano roll, Rename/color/icon, Insert, Replace, Clone, Delete…) and its steps (Cut/Copy/Paste, Fill, Rotate, Burn…) | The same two columns, rows lined up: Piano roll, Graph editor, settings · Load sample, Cut itself, Hear it · Replace… (the instrument picker: a plugin or the Sampler, in the channel's place with its notes, volume, pan and mixer track), Clone, Delete, beside Cut/Copy/Paste · Fill each 2/4/8, Clear · Rotate | Color later; the rest with their phases |
 | Rack menu | Sort, group, zip, colour, swing mix, auto resize… | Add, clone, delete, move, mute/unmute selected | Later |

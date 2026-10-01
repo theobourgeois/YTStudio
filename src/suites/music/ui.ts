@@ -6,9 +6,10 @@ import { useMusic } from "./store";
 
 /**
  * A window of the music editor: the channel rack, the Piano roll, the Playlist, the mixer, a channel's settings,
- * or one of the small ones a command opens (Transpose selected, a note's properties).
+ * an automation clip's, or one of the small ones a command opens (Transpose selected, a note's properties,
+ * Automate: every control to automate).
  */
-export type WindowId = "rack" | "piano" | "playlist" | "mixer" | "transpose" | "note" | "chopper" | "export" | `channel:${string}`;
+export type WindowId = "rack" | "piano" | "playlist" | "mixer" | "transpose" | "note" | "chopper" | "export" | "automate" | `channel:${string}` | `automation:${string}`;
 
 /**
  * The rack's group filter (FL Studio's): Unsorted is every channel but the audio clips' (the default),
@@ -16,6 +17,8 @@ export type WindowId = "rack" | "piano" | "playlist" | "mixer" | "transpose" | "
  */
 export type RackGroup = "unsorted" | "audio" | "all";
 export const channelWindow = (channelId: string): WindowId => `channel:${channelId}`;
+/** An automation clip's window (`automation/automation-window.tsx`). */
+export const automationWindow = (automationId: string): WindowId => `automation:${automationId}`;
 
 /** Where the music editor's windows are on its desktop, and which is in front (the rack over the Playlist, at first). */
 export const useMusicWindows = createWindows<WindowId>(["playlist", "rack"]);

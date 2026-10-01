@@ -46,7 +46,7 @@ describe("the assistant's playlist tools", () => {
   it("say what's wrong with a clip, and what would do", () => {
     expect(() => placeClipsTool(beat(), { clips: [{ pattern: "Nope", track: 1, bar: 1 }] }, env)).toThrow(/Clip 1: There's no pattern "Nope". The patterns are: "Beat"/);
     expect(() => placeClipsTool(beat(), { clips: [{ pattern: "Beat", track: 0, bar: 1 }] }, env)).toThrow(/"track" must be a track's number/);
-    expect(() => placeClipsTool(beat(), { clips: [{ track: 1, bar: 1 }] }, env)).toThrow(/either "pattern" or "audio"/);
+    expect(() => placeClipsTool(beat(), { clips: [{ track: 1, bar: 1 }] }, env)).toThrow(/one of "pattern", "audio" or "automation"/);
     expect(() => placeClipsTool(beat(), { clips: [{ audio: "Vox", track: 1, bar: 1 }] }, env)).toThrow(/The song has none: add_audio_clip/);
   });
 

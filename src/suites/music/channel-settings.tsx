@@ -85,7 +85,19 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
               />
             </Labelled>
             <Labelled label="PAN">
-              <SongKnob size={26} label="Pan" value={channel.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateChannel(song, id, { pan })} />
+              <SongKnob
+                size={26}
+                label="Pan"
+                value={channel.pan}
+                min={-1}
+                max={1}
+                defaultValue={0}
+                bipolar
+                format={panText}
+                unit={PERCENT}
+                target={{ kind: "channel", channel: id, control: "pan" }}
+                edit={(song, pan) => updateChannel(song, id, { pan })}
+              />
             </Labelled>
             <Labelled label="VOL">
               <SongKnob
@@ -97,6 +109,7 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
                 defaultValue={DEFAULT_VOLUME}
                 format={percent}
                 unit={PERCENT}
+                target={{ kind: "channel", channel: id, control: "volume" }}
                 edit={(song, volume) => updateChannel(song, id, { volume })}
               />
             </Labelled>

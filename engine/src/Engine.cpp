@@ -71,13 +71,15 @@ Engine::~Engine()
     exportTicker.stopTimer();
     exportJob.reset();
     stopTimer();
-    plugins.saveStates();
-    effects.saveStates();
+    // Nothing plays any more, and automation gives the plugins their own values back before they're saved.
     if (! offline)
     {
         devices.removeAudioCallback (this);
         devices.closeAudioDevice();
     }
+    sequencer.release();
+    plugins.saveStates();
+    effects.saveStates();
 }
 
 juce::var Engine::transport() const
@@ -220,6 +222,15 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         if (! effects.showEditor (params["effect"].toString(), (bool) params["open"]))
             return reply (fail ("That effect's plugin isn't loaded."), {});
         return ok();
+    }
+    if (command == "parameters")
+    {
+        // A plugin channel's (or an effect's) parameters that can be automated.
+        const auto owner = params["owner"].toString();
+        const auto list = (owner == "effect" ? effects : plugins).parameters (params["ownerId"].toString());
+        if (! list.isArray())
+            return reply (fail ("That plugin isn't loaded (yet): its parameters can't be listed."), {});
+        return reply (juce::Result::ok(), protocol::object ({ { "parameters", list } }));
     }
     if (command == "meterTracks")
     {
@@ -455,6 +466,9 @@ void Engine::timerCallback()
     preview.collectGarbage();
     reportTakes();
     checkLatencies();
+    // A parameter touched in a plugin's window: the tab can offer to automate it.
+    plugins.reportTouches();
+    effects.reportTouches();
     // Where the song is, while it plays, previews or anything sounds, and once more when that ends.
     const auto playing = sequencer.isPlaying();
     const auto previewing = preview.isPlaying();
@@ -676,6 +690,9 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
     tone = false;
     if (! offline)
         devices.removeAudioCallback (this);
+    // Nothing plays the live song now (its stop won't be seen until it does): its automation lets go of
+    // the plugins at once, so the export starts from their own values.
+    sequencer.release();
     for (auto* host : { &plugins, &effects })
     {
         host->setExporting (true);

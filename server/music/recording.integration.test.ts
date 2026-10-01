@@ -9,10 +9,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { EngineTakeEvent } from "../../shared/music/engine.ts";
-import { setSteps } from "../../shared/music/edits.ts";
-import { addChannels } from "../../shared/music/edits.ts";
-import { updateMixerTrack } from "../../shared/music/mixer.ts";
-import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
+import { createAutomation, editPoints } from "../../shared/music/automation.ts";
+import { levelGain } from "../../shared/music/compile.ts";
+import { addChannels, setSteps } from "../../shared/music/edits.ts";
+import { routeChannels, updateMixerTrack } from "../../shared/music/mixer.ts";
+import { addClips, editClips } from "../../shared/music/playlist.ts";
+import { DEFAULT_VOLUME, FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
 import type { InputMonitor, MusicProject } from "../../shared/music/types.ts";
 import type { MediaAsset } from "../../shared/types.ts";
 import { ENGINE } from "../config.ts";
@@ -70,11 +72,12 @@ describe.skipIf(!existsSync(ENGINE))("recording, offline", () => {
     await writeWavChannels(inputFile, [noise(), noise()], RATE);
     input = await readWav(inputFile);
     await writeWav(path.join(dir, "hit.wav"), new Float32Array(480).fill(0.5), RATE);
+    await writeWav(path.join(dir, "pad.wav"), new Float32Array(RATE * 8).fill(0.5), RATE);
     engine = new AudioEngine(new DataPaths(dir), {
       offline: true,
       onlyPluginPaths: true,
       pluginPaths: [],
-      samplePath: (_project, id) => (id === "hit" ? path.join(dir, "hit.wav") : null),
+      samplePath: (_project, id) => (id === "hit" || id === "pad" ? path.join(dir, `${id}.wav`) : null),
       // A take is moved into the "media", as the app's library does.
       adoptTake: async (_project, file, name, origin) => {
         const to = path.join(dir, "media", `${origin.replace(/:/g, "_")}.wav`);
@@ -178,4 +181,25 @@ describe.skipIf(!existsSync(ENGINE))("recording, offline", () => {
     expect(slice((await fileOf(take)).channels[0], BAR - 100, 200)).toEqual(slice(input.channels[0], BAR - 100, 200));
     expect((await engine.command("status", {})).recording).toBeNull();
   });
+
+  it("keeps automation on the song's time through a count-in: it starts when the transport moves", async () => {
+    // A steady pad over four bars (song mode), its volume automated up a line across the second bar.
+    let song = addChannels(withInput(createMusicProject("Test", 120), false, "off"), [{ id: "chan_pad", name: "Pad", sampleId: "pad" }]);
+    song = routeChannels(setSteps(song, P, "chan_pad", [0], true), ["chan_pad"], "insert_2");
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: BAR_TICKS * 4 }]).clips);
+    const made = createAutomation(song, { kind: "channel", channel: "chan_pad", control: "volume" }, { start: BAR_TICKS, length: BAR_TICKS });
+    song = editPoints(made.song, made.automationId, () => [
+      { tick: 0, value: 0, tension: 0, curve: "single" },
+      { tick: BAR_TICKS, value: 1, tension: 0, curve: "single" },
+    ]);
+    await engine.setSong({ projectId: PROJECT, song, patternId: P, mode: "song", armed: ["insert_1"] });
+    await record({ countIn: BAR_TICKS });
+    const heard = await hear(3 * BAR, true);
+    const levelAt = (at: number) => peakOf(heard.channels[0], at - 50, at + 50);
+    // The song's first bar (after the count-in's): the pad as it is; then its second bar, up the line.
+    expect(levelAt(BAR + BAR / 2)).toBeCloseTo(0.5, 3);
+    expect(levelAt(2 * BAR + BAR / 2)).toBeCloseTo(0.5 * levelGain(0.5, DEFAULT_VOLUME), 2);
+    await stopFor(1);
+  });
 });
+

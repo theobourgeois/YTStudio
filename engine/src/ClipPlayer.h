@@ -82,7 +82,7 @@ private:
     void retire (Stream* stream);
     void discard (Stream* stream);
     /** One stream's part of a block (audio thread). */
-    void renderStream (Stream& stream, float gainLeft, float gainRight, float* left, float* right, int numSamples);
+    void renderStream (Stream& stream, float fromLeft, float fromRight, float gainLeft, float gainRight, float* left, float* right, int numSamples);
 
     const bool offline;
     double sampleRate = 48000.0;
@@ -158,12 +158,16 @@ void ClipPlayer::render (const Song& song, int numSamples, Target&& target)
             continue;
         if (offline)
             stream.fill();
-        float gainLeft = 0, gainRight = 0;
+        float gainLeft = 0, gainRight = 0, fromLeft = 0, fromRight = 0;
         std::pair<float*, float*> buffers { nullptr, nullptr };
         if (stream.channel >= 0)
         {
-            gainLeft = song.channels[(size_t) stream.channel].gainLeft;
-            gainRight = song.channels[(size_t) stream.channel].gainRight;
+            const auto& channel = song.channels[(size_t) stream.channel];
+            gainLeft = channel.gainLeft;
+            gainRight = channel.gainRight;
+            // Automated: its gains glide across the block, from these.
+            fromLeft = channel.ramp ? channel.fromLeft : gainLeft;
+            fromRight = channel.ramp ? channel.fromRight : gainRight;
             buffers = target (stream.channel);
         }
         if (buffers.first == nullptr)
@@ -173,7 +177,7 @@ void ClipPlayer::render (const Song& song, int numSamples, Target&& target)
             stream.remaining = 0;
         }
         else
-            renderStream (stream, gainLeft, gainRight, buffers.first, buffers.second, numSamples);
+            renderStream (stream, fromLeft, fromRight, gainLeft, gainRight, buffers.first, buffers.second, numSamples);
     }
     // Those that have ended go back to be deleted.
     for (int i = 0; i < numActive;)

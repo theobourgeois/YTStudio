@@ -48,6 +48,7 @@ const song: MusicProject = {
     clips: [
       { id: 1, kind: "pattern", ref: "pat_a", track: 0, start: 0, length: null, offset: 0, muted: false },
       { id: 4, kind: "pattern", ref: "pat_b", track: 1, start: 384, length: 192, offset: 24, muted: true },
+      { id: 5, kind: "automation", ref: "auto_cut", track: 2, start: 384, length: null, offset: 96, muted: false },
     ],
   },
   mixer: {
@@ -73,6 +74,24 @@ const song: MusicProject = {
     ],
     groups: [{ id: "group_fx", name: "FX" }],
   },
+  automations: [
+    {
+      id: "auto_cut",
+      name: "Cutoff (Serum 2)",
+      color: "#8a4a9e",
+      target: { kind: "plugin", owner: "effect", id: "fx_eq", param: "1029", index: 12, name: "Cutoff" },
+      length: 768,
+      points: [
+        { tick: 0, value: 0.25, tension: 0, curve: "single" },
+        { tick: 384, value: 1, tension: -0.5, curve: "double" },
+        { tick: 384, value: 0, tension: 0, curve: "hold" },
+        { tick: 768, value: 0.5, tension: 0.75, curve: "stairs" },
+      ],
+      min: 0.1,
+      max: 0.9,
+      lfo: { enabled: true, speed: 4, tension: 0.5, skew: 0.25, level: -0.5, multiply: true },
+    },
+  ],
 };
 
 describe("music projects", () => {
@@ -85,6 +104,7 @@ describe("music projects", () => {
       patterns: [{ id: FIRST_PATTERN_ID, name: "Pattern 1", length: null, notes: {}, color: null }],
       playlist: { tracks: [], clips: [] },
       mixer: createMixer(),
+      automations: [],
     });
     expect(stepsPerBar([3, 4])).toBe(12);
     expect(stepsPerBar([6, 8])).toBe(12);
@@ -333,5 +353,58 @@ describe("the playlist", () => {
     const withNotes = normalizeMusicProject({ ...song, channels: [...song.channels, audio], patterns: [{ id: "pat_a", notes: { chan_vox: [{ start: 0 }] } }] });
     expect(Object.keys(withNotes.patterns[0].notes)).toEqual(["chan_vox"]);
     expect(withNotes.channels[2]).toMatchObject({ kind: "audio", sampleId: "media_vox" });
+  });
+});
+
+describe("automation clips", () => {
+  it("are kept, with their clips", () => {
+    const kept = normalizeMusicProject(song);
+    expect(kept.automations).toEqual(song.automations);
+    expect(kept.playlist.clips.find((c) => c.kind === "automation")).toEqual(song.playlist.clips[2]);
+  });
+
+  it("are none in songs from before them", () => {
+    const { automations: _, ...old } = song;
+    expect(normalizeMusicProject(old).automations).toEqual([]);
+  });
+
+  it("are repaired: points in order inside the curve, the first at 0, limits kept, unknown targets dropped", () => {
+    const fixed = normalizeMusicProject({
+      ...song,
+      automations: [
+        {
+          id: "auto_a",
+          target: { kind: "channel", channel: "chan_kick", control: "volume" },
+          length: 96.4,
+          points: [{ tick: 200, value: 3 }, { tick: 10, value: -1, tension: 9, curve: "zigzag" }, "x"],
+          min: -1,
+          max: 2,
+          lfo: { enabled: true, speed: 1000, skew: 2 },
+        },
+        { id: "auto_a", target: { kind: "main" } },
+        { id: "auto_b", target: { kind: "channel", channel: "chan_kick", control: "pitch" } },
+        { id: "auto_c", target: { kind: "plugin", owner: "channel", id: "chan_gone", param: "7", index: 2 } },
+        { id: "auto_d", target: { kind: "main" }, points: [] },
+      ],
+      playlist: { tracks: [], clips: [{ kind: "automation", ref: "auto_a", track: 0, start: 0, length: null }, { kind: "automation", ref: "auto_b", track: 0, start: 0 }] },
+    });
+    expect(fixed.automations.map((a) => a.id)).toEqual(["auto_a", "auto_c", "auto_d"]);
+    expect(fixed.automations[0]).toMatchObject({
+      name: "Automation",
+      length: 96,
+      points: [
+        { tick: 0, value: 0, tension: 1, curve: "single" },
+        { tick: 96, value: 1, tension: 0, curve: "single" },
+      ],
+      min: 0,
+      max: 1,
+      lfo: { enabled: true, speed: 32, skew: 1, level: 0, multiply: false },
+    });
+    // A target that's gone (the channel deleted) is kept: undoing the deletion brings it back to life.
+    expect(fixed.automations[1].target).toEqual({ kind: "plugin", owner: "channel", id: "chan_gone", param: "7", index: 2, name: "Parameter" });
+    expect(fixed.automations[2].points).toEqual([{ tick: 0, value: 0.5, tension: 0, curve: "single" }]);
+    // Clips of automation clips that are gone go.
+    expect(fixed.playlist.clips.map((c) => c.ref)).toEqual(["auto_a"]);
+    expect(fixed.playlist.clips[0].length).toBeNull();
   });
 });

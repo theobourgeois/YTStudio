@@ -20,12 +20,23 @@ public:
     /** Bring it in front of the other apps' windows: the engine has no Dock icon to do it from. */
     void show();
 
+    /**
+     * The parameter last touched in it (by index, and its name): its title bar then offers to automate it
+     * (Automate "Cutoff"), which calls `onAutomate` with the index.
+     */
+    void setTouched (int index, const juce::String& name);
+    std::function<void (int)> onAutomate;
+    void resized() override;
+
 private:
     using DocumentWindow::keyPressed;
     /** Keys the plugin didn't use (Space, F6, ⌘Z…) go to the app, which runs its shortcut (`EngineEvent` "key"). */
     bool keyPressed (const juce::KeyPress&, juce::Component*) override;
 
     std::function<void()> onClose;
+    /** The title bar's Automate button, shown once a parameter has been touched. */
+    std::unique_ptr<juce::Button> automate;
+    int touched = -1;
     /** Its title bar's look; outlives the window's use of it (`setLookAndFeel (nullptr)` first). */
     std::unique_ptr<juce::LookAndFeel> look;
     juce::Component::SafePointer<juce::Component> editor;

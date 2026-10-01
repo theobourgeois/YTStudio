@@ -59,6 +59,9 @@ import {
   updatePlaylistTrackTool,
 } from "./playlist/tool-edits";
 import { describeBrowser, describeFolder, describeSearch, loadSampleEdit, sampleChannel } from "./browser/describe";
+import { addAutomationEdit, describeAutomations, resolveControl, updateAutomationTool } from "./automation/tool-edits";
+import { matches, pluginOwners, songControls } from "./automation/controls";
+import { usePlaylist } from "./playlist/store";
 import { useBrowser } from "./browser/store";
 import {
   addMixerTrackTool,
@@ -397,6 +400,64 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     useBrowser.setState({ state });
     return textResult(`${favourite ? "Starred" : "Unstarred"} ${input.path}. Favourites: ${state.favourites.length ? state.favourites.join(", ") : "none"}.`);
   },
+  async get_automation(input, ctx) {
+    const target = await targetOf(ctx);
+    return textResult(describeAutomations(target.song, input.automation));
+  },
+  async list_controls(input, ctx) {
+    const target = await targetOf(ctx);
+    const song = target.song;
+    const query = typeof input.query === "string" ? input.query : "";
+    const wantsPlugin = (input.channel !== undefined && input.channel !== "") || input.track !== undefined;
+    if (!wantsPlugin) {
+      const lines = ["Controls that can be automated (add_automation's `control` and what it belongs to):"];
+      for (const group of songControls(song)) {
+        const rows = group.rows.filter((r) => matches(query, r.name, r.owner));
+        if (rows.length) lines.push("", `${group.title}:`, ...rows.map((r) => `- ${r.name} of ${r.owner}${r.automated ? " (automated)" : ""}`));
+      }
+      const owners = pluginOwners(song);
+      lines.push("", owners.length ? `Plugins with their own parameters (ask with \`channel\`, or \`track\` and \`slot\`): ${owners.map((o) => o.name).join(", ")}.` : "No plugins: the song has no plugin channels or mixer effects.");
+      return textResult(lines.join("\n"));
+    }
+    const owner = resolveControl(song, { ...input, control: "parameter", parameter: "?" });
+    if ("kind" in owner) throw new Error("Name a plugin: a plugin channel (`channel`), or a mixer `track` and `slot`.");
+    const parameters = await musicApi.pluginParameters(owner.owner, owner.id);
+    const shown = parameters.filter((p) => matches(query, p.name));
+    const lines = [`${owner.ownerName}'s parameters${query ? ` matching "${query}"` : ""} (${shown.length} of ${parameters.length}): name (id) = value now.`];
+    for (const p of shown.slice(0, 400)) lines.push(`- ${p.name} (${p.id}) = ${p.text || Math.round(p.value * 100) + "%"}`);
+    if (shown.length > 400) lines.push(`… ${shown.length - 400} more: give a \`query\`.`);
+    return textResult(lines.join("\n"));
+  },
+  async add_automation(input, ctx) {
+    const target = await targetOf(ctx);
+    let control = resolveControl(target.song, input);
+    let value: number | undefined;
+    if (!("kind" in control)) {
+      // A plugin's parameter: its id and value now are the engine's.
+      const { owner, id, parameter, ownerName } = control;
+      const parameters = await musicApi.pluginParameters(owner, id);
+      const wanted = parameter.toLowerCase();
+      const found = parameters.find((p) => p.id === parameter) ?? parameters.find((p) => p.name.toLowerCase() === wanted) ?? parameters.find((p) => p.name.toLowerCase().includes(wanted));
+      if (!found) {
+        const near = parameters.filter((p) => matches(parameter, p.name)).slice(0, 20);
+        throw new Error(`${ownerName} has no parameter "${parameter}". ${near.length ? `Close: ${near.map((p) => p.name).join(", ")}.` : "list_controls lists them."}`);
+      }
+      control = { kind: "plugin", owner, id, param: found.id, index: found.index, name: found.name };
+      value = found.value;
+    }
+    const resolved = control;
+    let text = "";
+    let made = "";
+    await apply(target, (song) => {
+      const result = addAutomationEdit(song, input, resolved, value);
+      text = result.text;
+      made = result.automationId;
+      return result.song;
+    });
+    if (target.open && made) usePlaylist.setState({ source: { kind: "automation", ref: made }, pickerTab: "automation" });
+    return textResult(text);
+  },
+  update_automation: edit(updateAutomationTool),
   async play_song(input, ctx) {
     const target = await targetOf(ctx);
     requireOpen(target, "Playing");

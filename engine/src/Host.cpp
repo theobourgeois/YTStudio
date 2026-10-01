@@ -26,7 +26,33 @@ HostedPlugin::~HostedPlugin()
 {
     window.reset();
     if (instance != nullptr)
+    {
+        instance->removeListener (&watcher);
         instance->releaseResources();
+    }
+}
+
+juce::String parameterId (juce::AudioPluginInstance& instance, int index)
+{
+    const auto& parameters = instance.getParameters();
+    if (index < 0 || index >= parameters.size())
+        return {};
+    if (auto* hosted = dynamic_cast<juce::HostedAudioProcessorParameter*> (parameters[index]))
+        if (const auto id = hosted->getParameterID(); id.isNotEmpty())
+            return id;
+    return juce::String (index);
+}
+
+juce::AudioProcessorParameter* findParameter (juce::AudioPluginInstance& instance, const juce::String& id, int index, int& found)
+{
+    const auto& parameters = instance.getParameters();
+    // Where it was last time first: most plugins keep their parameters in one order.
+    if (index >= 0 && index < parameters.size() && parameterId (instance, index) == id)
+        return parameters[(found = index)];
+    for (int i = 0; i < parameters.size(); ++i)
+        if (parameterId (instance, i) == id)
+            return parameters[(found = i)];
+    return nullptr;
 }
 
 PluginHost::PluginHost (juce::AudioPluginFormatManager& f, juce::KnownPluginList& k, juce::String key, std::function<void()> onChange)
@@ -105,6 +131,7 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& ownerId, cons
                                            const auto channels = juce::jmax (2, hosted->instance->getTotalNumInputChannels(), hosted->instance->getTotalNumOutputChannels());
                                            hosted->buffer.setSize (channels, maxBlock);
                                            hosted->midi.ensureSize (4096);
+                                           hosted->instance->addListener (&hosted->watcher);
                                            loaded[ownerId] = std::move (hosted);
                                            changed();
                                        });
@@ -131,7 +158,8 @@ void PluginHost::keepOnly (const juce::StringArray& ownerIds)
 
 void PluginHost::save (HostedPlugin& hosted)
 {
-    if (hosted.stateFile == juce::File())
+    // Its automated values aren't its own: it's saved once automation has given them back.
+    if (hosted.stateFile == juce::File() || hosted.automating.load())
         return;
     juce::MemoryBlock state;
     hosted.instance->getStateInformation (state);
@@ -161,6 +189,7 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
         return true;
     }
     if (hosted.window == nullptr)
+    {
         hosted.window = std::make_unique<EditorWindow> (*hosted.instance, titleOf (hosted), [this, stillAlive = alive, ownerId] {
             juce::MessageManager::callAsync ([this, stillAlive, ownerId] {
                 if (! *stillAlive)
@@ -170,6 +199,17 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
                 changed();
             });
         });
+        // Its Automate button: the tab makes an automation clip of the parameter last touched in it.
+        hosted.window->onAutomate = [this, ownerId] (int index) {
+            if (const auto described = describeParameter (ownerId, index); described.isObject())
+            {
+                described.getDynamicObject()->setProperty ("event", "automate");
+                protocol::send (described);
+            }
+        };
+        if (const auto touched = hosted.watcher.touched.load(); touched >= 0)
+            hosted.window->setTouched (touched, hosted.instance->getParameters()[touched]->getName (64));
+    }
     hosted.window->show();
     placeWindows();
     return true;
@@ -283,6 +323,66 @@ juce::var PluginHost::describe() const
     for (const auto& [id, error] : failed)
         broken.add (protocol::object ({ { ownerKey.toRawUTF8(), id }, { "error", error } }));
     return protocol::object ({ { "loaded", ready }, { "loading", busy }, { "failed", broken } });
+}
+
+juce::var PluginHost::describeParameter (const juce::String& ownerId, int index) const
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end())
+        return {};
+    auto& instance = *found->second->instance;
+    const auto& parameters = instance.getParameters();
+    if (index < 0 || index >= parameters.size())
+        return {};
+    auto* parameter = parameters[index];
+    return protocol::object ({ { "owner", ownerKey },
+                               { "id", ownerId },
+                               { "index", index },
+                               { "param", parameterId (instance, index) },
+                               { "name", parameter->getName (64) },
+                               { "value", parameter->getValue() },
+                               { "text", parameter->getCurrentValueAsText() } });
+}
+
+juce::var PluginHost::parameters (const juce::String& ownerId) const
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end())
+        return {};
+    auto& instance = *found->second->instance;
+    juce::Array<juce::var> list;
+    const auto& parameters = instance.getParameters();
+    for (int i = 0; i < parameters.size(); ++i)
+    {
+        auto* parameter = parameters[i];
+        if (! parameter->isAutomatable())
+            continue;
+        list.add (protocol::object ({ { "index", i },
+                                      { "id", parameterId (instance, i) },
+                                      { "name", parameter->getName (64) },
+                                      { "value", parameter->getValue() },
+                                      { "text", parameter->getCurrentValueAsText() } }));
+    }
+    return list;
+}
+
+void PluginHost::reportTouches()
+{
+    for (auto& [id, hosted] : loaded)
+    {
+        const auto touches = hosted->watcher.touches.load();
+        if (touches == hosted->touchesSaid)
+            continue;
+        hosted->touchesSaid = touches;
+        const auto index = hosted->watcher.touched.load();
+        auto described = describeParameter (id, index);
+        if (! described.isObject())
+            continue;
+        if (hosted->window != nullptr)
+            hosted->window->setTouched (index, described["name"].toString());
+        described.getDynamicObject()->setProperty ("event", "touch");
+        protocol::send (described);
+    }
 }
 
 juce::int64 PluginHost::latencySignature() const

@@ -1,8 +1,8 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
-import { type ClipContext, clipContext, songTicks } from "@shared/music/playlist";
+import { type ClipContext, clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, TRACK_COLORS } from "@shared/music/project";
 import { type MusicProject, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import {
@@ -49,9 +49,13 @@ import {
   selectAll,
   selectSimilar,
   setMuted,
+  sourceName,
   splitPattern,
   zoomFloor,
 } from "./actions";
+import { CURVE_NAMES, controlOf, deletePoint, editPoints, updatePoint } from "@shared/music/automation";
+import { CURVE_TYPES, type CurveType } from "@shared/music/types";
+import { AUTOMATION_TOOLS, type AutomationTool, createAutomationClip, openAutomationWindow, runTool } from "../automation/actions";
 import { editClips, removeClips, setClipProps } from "@shared/music/playlist";
 import { fadeOutClips, onClipFade, vanishingClips } from "./fades";
 import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
@@ -230,7 +234,7 @@ function SourceMenu() {
   usePlaylist((s) => s.source);
   useMusic((s) => s.patternId);
   const source = clipSource(song);
-  const name = source.kind === "pattern" ? song.patterns.find((p) => p.id === source.ref)?.name : song.channels.find((c) => c.id === source.ref)?.name;
+  const name = sourceName(song, source);
   const audio = song.channels.filter((c) => c.kind === "audio");
   return (
     <DropdownMenu>
@@ -250,7 +254,7 @@ function SourceMenu() {
           value={`${source.kind}:${source.ref}`}
           onValueChange={(value) => {
             const [kind, ref] = value.split(/:(.*)/s);
-            usePlaylist.setState({ source: { kind: kind as "pattern" | "audio", ref } });
+            usePlaylist.setState({ source: { kind: kind as ClipSource["kind"], ref } });
             if (kind === "pattern") useMusic.getState().selectPattern(ref);
           }}
         >
@@ -267,6 +271,17 @@ function SourceMenu() {
               {audio.map((c) => (
                 <DropdownMenuRadioItem key={c.id} value={`audio:${c.id}`}>
                   {c.name}
+                </DropdownMenuRadioItem>
+              ))}
+            </>
+          )}
+          {song.automations.length > 0 && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Automation clips</DropdownMenuLabel>
+              {song.automations.map((a) => (
+                <DropdownMenuRadioItem key={a.id} value={`automation:${a.id}`}>
+                  {a.name}
                 </DropdownMenuRadioItem>
               ))}
             </>
@@ -337,13 +352,16 @@ function PlaylistBody() {
         tracks: song.playlist.tracks,
         layout: p.layout,
         patterns: new Map(song.patterns.map((pattern) => [pattern.id, pattern])),
+        // A curve being shaped is drawn as it would be left.
+        automations: new Map(song.automations.map((a) => [a.id, drag?.kind === "curve" && drag.automationId === a.id ? { ...a, points: drag.points } : a])),
         names: new Map([
           ...song.patterns.map((pattern) => [pattern.id, pattern.name] as const),
           ...song.channels.map((c) => [c.id, c.name] as const),
+          ...song.automations.map((a) => [a.id, a.name] as const),
           ...(playlist.incoming?.files.map((f, i) => [incoming[i].ref, f.name] as const) ?? []),
         ]),
         incoming,
-        colors: new Map([...song.patterns, ...song.channels].flatMap((source) => (source.color ? [[source.id, source.color] as const] : []))),
+        colors: new Map([...song.patterns, ...song.channels, ...song.automations].flatMap((source) => (source.color ? [[source.id, source.color] as const] : []))),
         waveforms,
         vanishing: fading,
         barTicks: p.barTicks,
@@ -550,6 +568,7 @@ function PlaylistBody() {
         <div ref={recorded} className="pointer-events-none absolute inset-y-0 left-0 w-0 bg-destructive/12" data-testid="playlist-recorded" />
         <div ref={playhead} className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground opacity-0" data-testid="playlist-playhead" />
         <ClipMenu />
+        <PointMenu />
         <SourceEditor />
       </div>
       <VerticalScrollbar />
@@ -599,7 +618,7 @@ function ClipMenu() {
         >
           Preview <DropdownMenuShortcut>hold</DropdownMenuShortcut>
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => openClip(clip)}>{clip.kind === "pattern" ? "Edit pattern" : "Channel settings"}</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => openClip(clip)}>{clip.kind === "pattern" ? "Edit pattern" : clip.kind === "automation" ? "Automation settings" : "Channel settings"}</DropdownMenuItem>
         <DropdownMenuSeparator />
         {/* Opened once the menu has gone, so its closing doesn't close the box too. */}
         <DropdownMenuItem onSelect={() => setTimeout(() => usePlaylist.setState({ recoloring: { source, x: menu.x, y: menu.y } }))}>Rename and color…</DropdownMenuItem>
@@ -615,9 +634,40 @@ function ClipMenu() {
             <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => splitPattern(clip.ref)}>Split by channel</DropdownMenuItem>
           </>
+        ) : clip.kind === "automation" ? (
+          <>
+            {/* A curve of its own for this clip, so shaping it changes no other. */}
+            <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique</DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Tools</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {(Object.keys(AUTOMATION_TOOLS) as AutomationTool[]).map((tool) => (
+                  <DropdownMenuItem key={tool} onSelect={() => runTool(clip.ref, tool)}>
+                    {AUTOMATION_TOOLS[tool].name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
         ) : (
-          // A channel of its own for this clip (the same file), so its pitch or volume changes it alone.
-          <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique as sample</DropdownMenuItem>
+          <>
+            {/* A channel of its own for this clip (the same file), so its pitch or volume changes it alone. */}
+            <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique as sample</DropdownMenuItem>
+            {/* FL's Automate: an automation clip of its channel's volume or pan, over the clip. */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Automate</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {(["volume", "pan"] as const).map((control) => (
+                  <DropdownMenuItem
+                    key={control}
+                    onSelect={() => p && createAutomationClip({ kind: "channel", channel: clip.ref, control }, undefined, { start: clip.start, length: clipLength(clip, p.ctx), track: clip.track + 1 })}
+                  >
+                    {control === "volume" ? "Volume" : "Panning"}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
         )}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>Chop</DropdownMenuSubTrigger>
@@ -655,7 +705,80 @@ function ClipMenu() {
 
 /** The colour a clip's source has been given, if any. */
 function sourceColor(song: MusicProject, source: ClipSource): string | null {
-  return (source.kind === "pattern" ? song.patterns.find((p) => p.id === source.ref)?.color : song.channels.find((c) => c.id === source.ref)?.color) ?? null;
+  const list = source.kind === "pattern" ? song.patterns : source.kind === "automation" ? song.automations : song.channels;
+  return list.find((item) => item.id === source.ref)?.color ?? null;
+}
+
+/**
+ * A point of an automation clip's curve, its menu (a right-click on it, FL's): the shape of the segment
+ * arriving at it (the curve types), its value typed in, its tension straightened, deleting it.
+ */
+function PointMenu() {
+  const menu = usePlaylist((s) => s.pointMenu);
+  const automation = useMusic((s) => (menu ? s.history!.doc.automations.find((a) => a.id === menu.automationId) : undefined));
+  const [typing, setTyping] = useState<string | null>(null);
+  if (!menu || !automation) return null;
+  const point = automation.points[menu.index];
+  if (!point) return null;
+  const close = () => usePlaylist.setState({ pointMenu: null });
+  const commit = (change: Parameters<typeof editPoints>[2]) => useMusic.getState().commit((song) => editPoints(song, automation.id, change));
+  const song = useMusic.getState().history!.doc;
+  const info = controlOf(song, automation.target);
+  const first = menu.index === 0;
+  if (typing !== null) {
+    return (
+      <Popover open onOpenChange={(open) => !open && (setTyping(null), close())}>
+        <PopoverTrigger asChild>
+          <span aria-hidden className="pointer-events-none absolute size-px" style={{ left: menu.x, top: menu.y }} />
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-44 p-2" data-testid="point-value">
+          <form
+            className="flex items-center gap-1.5 text-xs text-muted-foreground"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const value = Number(typing.replace(",", "."));
+              if (Number.isFinite(value)) commit((points) => updatePoint(points, menu.index, { value: value / 100 }));
+              setTyping(null);
+              close();
+            }}
+          >
+            <Input autoFocus aria-label="Point value" inputMode="decimal" className="h-7" value={typing} onChange={(e) => setTyping(e.target.value)} onFocus={(e) => e.currentTarget.select()} onKeyDown={(e) => e.stopPropagation()} />
+            % of its range
+          </form>
+        </PopoverContent>
+      </Popover>
+    );
+  }
+  return (
+    <DropdownMenu open onOpenChange={(open) => !open && close()}>
+      <DropdownMenuTrigger asChild>
+        <span aria-hidden className="pointer-events-none absolute size-px" style={{ left: menu.x, top: menu.y }} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" data-testid="point-menu" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+          {info.name}: {info.format(automation.min + point.value * (automation.max - automation.min))}
+        </DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={first ? "" : point.curve} onValueChange={(curve) => commit((points) => updatePoint(points, menu.index, { curve: curve as CurveType }))}>
+          {CURVE_TYPES.map((curve) => (
+            <DropdownMenuRadioItem key={curve} value={curve} disabled={first}>
+              {CURVE_NAMES[curve]}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        {/* Opened once the menu has gone. */}
+        <DropdownMenuItem onSelect={(e) => (e.preventDefault(), setTyping(String(Math.round(point.value * 1000) / 10)))}>Type in value…</DropdownMenuItem>
+        <DropdownMenuItem disabled={first || point.tension === 0} onSelect={() => commit((points) => updatePoint(points, menu.index, { tension: 0 }))}>
+          Reset tension
+        </DropdownMenuItem>
+        <DropdownMenuItem variant="destructive" disabled={first} onSelect={() => commit((points) => deletePoint(points, menu.index))}>
+          Delete <DropdownMenuShortcut>⌥click</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => openAutomationWindow(automation.id)}>Automation settings…</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 /** The colours a clip's source can be given (the tracks' too), and the usual. */
@@ -699,7 +822,7 @@ function SourceEditor() {
   const song = useMusic((s) => s.history?.doc);
   if (!editing || !song) return null;
   const { source } = editing;
-  const name = (source.kind === "pattern" ? song.patterns.find((p) => p.id === source.ref)?.name : song.channels.find((c) => c.id === source.ref)?.name) ?? "";
+  const name = sourceName(song, source) ?? "";
   const close = () => usePlaylist.setState({ recoloring: null });
   return (
     <Popover open onOpenChange={(open) => !open && close()}>
@@ -718,7 +841,7 @@ function SourceEditor() {
         >
           <Input
             name="name"
-            aria-label={source.kind === "pattern" ? "Pattern name" : "Audio clip name"}
+            aria-label={source.kind === "pattern" ? "Pattern name" : source.kind === "automation" ? "Automation clip name" : "Audio clip name"}
             className="h-7 text-xs"
             defaultValue={name}
             autoFocus
@@ -782,7 +905,7 @@ function carriedSources(data: string): ClipSource[] | null {
   try {
     const parsed = JSON.parse(data) as unknown;
     const list = (Array.isArray(parsed) ? parsed : [parsed]) as ClipSource[];
-    return list.length && list.every((s) => s && (s.kind === "pattern" || s.kind === "audio") && typeof s.ref === "string") ? list : null;
+    return list.length && list.every((s) => s && (s.kind === "pattern" || s.kind === "audio" || s.kind === "automation") && typeof s.ref === "string") ? list : null;
   } catch {
     return null;
   }

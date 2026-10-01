@@ -5,7 +5,8 @@ import { startPointerDrag } from "@/lib/pointer-drag";
 import { type MixerTrackPatch, setMixerVolumes, setSend, trackName, updateMixerTrack } from "@shared/music/mixer";
 import { SELECTION_METER } from "@shared/music/engine";
 import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
-import type { Mixer, MixerTrack, MusicProject } from "@shared/music/types";
+import type { AutomationTarget, Mixer, MixerTrack, MusicProject } from "@shared/music/types";
+import { AutomationMenuItems, useAutomatedControl } from "../automation/control";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -433,7 +434,19 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       >
         <Led on={!track.muted} />
       </button>
-      <SongKnob size={36} label={`${name} pan`} value={track.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateMixerTrack(song, id, { pan })} />
+      <SongKnob
+        size={36}
+        label={`${name} pan`}
+        value={track.pan}
+        min={-1}
+        max={1}
+        defaultValue={0}
+        bipolar
+        format={panText}
+        unit={PERCENT}
+        target={{ kind: "mixer", track: id, control: "pan" }}
+        edit={(song, pan) => updateMixerTrack(song, id, { pan })}
+      />
       </div>
       <TrackFader track={track} name={name} selected={selected} />
       <div className="text-[9px] tabular-nums" style={{ color: "var(--mixer-name)" }} title="Level">
@@ -449,7 +462,19 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
           <PiArrowsLeftRight />
         </StripToggle>
       </div>
-      <SongKnob size={32} label={`${name} stereo separation`} value={track.stereo} min={-1} max={1} defaultValue={0} bipolar format={stereoText} unit={PERCENT} edit={(song, stereo) => updateMixerTrack(song, id, { stereo })} />
+      <SongKnob
+        size={32}
+        label={`${name} stereo separation`}
+        value={track.stereo}
+        min={-1}
+        max={1}
+        defaultValue={0}
+        bipolar
+        format={stereoText}
+        unit={PERCENT}
+        target={{ kind: "mixer", track: id, control: "stereo" }}
+        edit={(song, stereo) => updateMixerTrack(song, id, { stereo })}
+      />
       {view === "extra" && <StripEffects track={track} />}
       <SendSwitch to={id} name={name} state={sendKind === "sending" ? { kind: "sending", level: sendLevel } : { kind: sendKind }} />
     </div>
@@ -462,14 +487,20 @@ function TrackFader({ track, name, selected }: { track: MixerTrack; name: string
   const armed = useRecording((s) => s.armed.includes(track.id));
   const start = useRef<Map<string, number>>(new Map());
   const id = track.id;
+  const target = useMemo<AutomationTarget>(() => ({ kind: "mixer", track: id, control: "volume" }), [id]);
+  const control = useAutomatedControl(target, track.volume);
   return (
     <Fader
       className="min-h-20 flex-1"
       label={`${name} volume`}
-      value={track.volume}
+      value={control.value}
+      own={track.volume}
       selected={selected}
       armed={armed}
+      automated={control.automated}
+      menu={<AutomationMenuItems target={target} />}
       onBegin={() => {
+        control.hold();
         const song = useMusic.getState().history!.doc;
         const group = selected ? selectedTracks() : [id];
         start.current = new Map(song.mixer.tracks.filter((t) => group.includes(t.id) || t.id === id).map((t) => [t.id, t.volume]));
@@ -479,8 +510,14 @@ function TrackFader({ track, name, selected }: { track: MixerTrack; name: string
         const delta = value - start.current.get(id)!;
         gesture.apply((song) => setMixerVolumes(song, new Map([...start.current].map(([t, v]) => [t, v + delta]))));
       }}
-      onEnd={() => gesture.end()}
-      onCancel={() => gesture.cancel()}
+      onEnd={() => {
+        gesture.end();
+        control.release();
+      }}
+      onCancel={() => {
+        gesture.cancel();
+        control.release();
+      }}
       onSet={(volume) => useMusic.getState().commit((song) => updateMixerTrack(song, id, { volume }))}
     />
   );
@@ -643,6 +680,9 @@ function TrackMenu({ id, isMaster, color, separator, grouped }: { id: string; is
  * could send to, an up-arrow to click; greyed where a send would make a loop.
  */
 function SendSwitch({ to, name, state }: { to: string; name: string; state: SendState }) {
+  // The track the send is from (the selected one), whose send can be automated.
+  const selectedIds = useMusicUi((s) => s.selectedTrackIds);
+  const sendFrom = useSong((song) => currentTrackId(song, selectedIds));
   if (state.kind === "source") {
     return (
       <div className="grid h-14 place-items-center pb-3" style={{ color: "var(--mixer-on)" }} title="The selected track: its sends are shown">
@@ -671,7 +711,18 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
           {arrow(state.kind === "sending")}
           {state.kind === "sending" ? (
             <div data-send-point>
-              <SongKnob size={28} label={`Send to ${name}`} value={state.level} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, level) => setSend(song, currentTrackId(song, useMusicUi.getState().selectedTrackIds), to, level)} />
+              <SongKnob
+                size={28}
+                label={`Send to ${name}`}
+                value={state.level}
+                min={0}
+                max={1}
+                defaultValue={1}
+                format={percent}
+                unit={PERCENT}
+                target={sendFrom ? { kind: "send", track: sendFrom, to } : undefined}
+                edit={(song, level) => setSend(song, currentTrackId(song, useMusicUi.getState().selectedTrackIds), to, level)}
+              />
             </div>
           ) : (
             <div className="size-5" />

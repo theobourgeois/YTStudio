@@ -10,7 +10,7 @@ constexpr int barHeight = 24;
 namespace colour
 {
 const juce::Colour barTop { 0xff3a4049 }, barBottom { 0xff2e343c }, barHighlight { 0x17ffffff }, edge { 0xff08090b },
-    text { 0xffe2e5e9 }, muted { 0xff9ba4af }, hover { 0xff4a525d };
+    text { 0xffe2e5e9 }, muted { 0xff9ba4af }, hover { 0xff4a525d }, accent { 0xff5b9cf0 };
 }
 
 /** FL's × at the title bar's right end, lit when the pointer is over it. */
@@ -32,6 +32,53 @@ public:
         g.drawLine ({ cross.getTopLeft(), cross.getBottomRight() }, 1.5f);
         g.drawLine ({ cross.getBottomLeft(), cross.getTopRight() }, 1.5f);
     }
+};
+
+/**
+ * The title bar's Automate button: "Automate “Cutoff”", the parameter last touched in the window. A click
+ * makes an automation clip of it in the song (FL Studio's Tools → Last tweaked, a click away).
+ */
+class AutomateButton final : public juce::Button
+{
+public:
+    AutomateButton() : Button ("Automate") { setTooltip ("Make an automation clip of this parameter, over the song or the Playlist's time selection"); }
+
+    void setParameter (const juce::String& name)
+    {
+        label = juce::String::fromUTF8 ("Automate \u201c") + name + juce::String::fromUTF8 ("\u201d");
+        setButtonText (label);
+        repaint();
+    }
+
+    /** As wide as its words, up to `most`. */
+    int idealWidth (int most) const
+    {
+        juce::GlyphArrangement glyphs;
+        glyphs.addLineOfText (juce::FontOptions (12.0f), label, 0, 0);
+        return juce::jmin (most, (int) std::ceil (glyphs.getBoundingBox (0, -1, true).getWidth()) + 30);
+    }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        const auto area = getLocalBounds().toFloat().reduced (2.0f, 3.0f);
+        g.setColour (down ? colour::edge : over ? colour::hover : colour::barBottom.brighter (0.08f));
+        g.fillRoundedRectangle (area, 3.0f);
+        g.setColour (colour::edge);
+        g.drawRoundedRectangle (area, 3.0f, 1.0f);
+        // A small automation curve, then the words.
+        const auto icon = area.withWidth (area.getHeight()).reduced (4.0f);
+        juce::Path curve;
+        curve.startNewSubPath (icon.getBottomLeft());
+        curve.cubicTo (icon.getCentreX(), icon.getBottom(), icon.getCentreX(), icon.getY(), icon.getRight(), icon.getY());
+        g.setColour (colour::accent);
+        g.strokePath (curve, juce::PathStrokeType (1.5f));
+        g.setColour (over ? colour::text : colour::muted);
+        g.setFont (juce::FontOptions (12.0f));
+        g.drawText (label, area.withTrimmedLeft (area.getHeight()).withTrimmedRight (4.0f), juce::Justification::centredLeft, true);
+    }
+
+private:
+    juce::String label;
 };
 
 /** Draws the window's title bar in our look rather than the system's. */
@@ -89,11 +136,42 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
 
 EditorWindow::~EditorWindow()
 {
+    automate.reset();
     if (editor != nullptr)
         editor->removeKeyListener (this);
     removeKeyListener (this);
     clearContentComponent();
     setLookAndFeel (nullptr);
+}
+
+void EditorWindow::setTouched (int index, const juce::String& name)
+{
+    if (automate == nullptr)
+    {
+        auto* button = new AutomateButton();
+        automate.reset (button);
+        button->onClick = [this] {
+            if (onAutomate != nullptr && touched >= 0)
+                onAutomate (touched);
+        };
+        Component::addAndMakeVisible (*button);
+    }
+    touched = index;
+    static_cast<AutomateButton&> (*automate).setParameter (name);
+    resized();
+}
+
+void EditorWindow::resized()
+{
+    DocumentWindow::resized();
+    if (automate == nullptr)
+        return;
+    // Left of the ×, as wide as its words (never over the title's start).
+    const auto bar = getTitleBarArea();
+    const auto most = juce::jmax (0, bar.getWidth() / 2 - bar.getHeight());
+    const auto width = static_cast<AutomateButton&> (*automate).idealWidth (most);
+    automate->setBounds (bar.getRight() - bar.getHeight() - width - 2, bar.getY(), width, bar.getHeight());
+    automate->toFront (false);
 }
 
 void EditorWindow::show()

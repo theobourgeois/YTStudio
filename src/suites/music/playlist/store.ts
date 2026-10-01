@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { NewClip } from "@shared/music/playlist";
-import type { PlaylistClip, PlaylistClipKind } from "@shared/music/types";
+import type { AutomationPoint, PlaylistClip, PlaylistClipKind } from "@shared/music/types";
 import type { Snap } from "../piano/geometry";
 import { DEFAULT_TRACK_HEIGHT } from "./geometry";
 import type { IncomingFile } from "./incoming";
@@ -21,7 +21,10 @@ export interface PlaylistView {
   trackHeight: number;
 }
 
-/** What Draw and Paint add (FL's clip source): a pattern, or an audio clip's channel. */
+/** The Picker's tabs: patterns, audio clips, automation clips. */
+export type PickerTab = "patterns" | "audio" | "automation";
+
+/** What Draw and Paint add (FL's clip source): a pattern, an audio clip's channel, or an automation clip. */
 export interface ClipSource {
   kind: PlaylistClipKind;
   ref: string;
@@ -45,6 +48,8 @@ export type PlaylistDrag =
   | { kind: "slip"; ids: ReadonlySet<number>; ticks: number }
   /** Clips being drawn or painted, not yet in the song. */
   | { kind: "add"; clips: NewClip[] }
+  /** An automation clip's curve being shaped (a point moved or added, a segment bent): its points as they'd be. */
+  | { kind: "curve"; automationId: string; points: AutomationPoint[] }
   /** Clips swept by the right button (or the delete tool): gone when it's let go. */
   | { kind: "erase"; ids: ReadonlySet<number> }
   | { kind: "mute"; ids: ReadonlySet<number>; muted: boolean }
@@ -92,11 +97,19 @@ interface PlaylistState {
   patternSelection: ReadonlySet<string>;
   /** The pattern last clicked in the Picker, where a Shift+click's range starts. */
   patternAnchor: string | null;
-  /** Which of the Picker's tabs shows: the patterns or the audio clips (FL's; automation clips will be a third). */
-  pickerTab: "patterns" | "audio";
+  /** Which of the Picker's tabs shows: the patterns, the audio clips or the automation clips (FL's). */
+  pickerTab: PickerTab;
   /** The audio clips selected in the Picker (by channel id) and where a Shift+click's range starts, as for patterns. */
   audioSelection: ReadonlySet<string>;
   audioAnchor: string | null;
+  /** The automation clips selected in the Picker (by id) and where a Shift+click's range starts, likewise. */
+  automationSelection: ReadonlySet<string>;
+  automationAnchor: string | null;
+  /**
+   * A point of an automation clip's curve, its menu open (a right-click on it): which clip's curve and
+   * point, and where in the grid.
+   */
+  pointMenu: { automationId: string; index: number; x: number; y: number } | null;
   /**
    * What's being dragged from the Picker, while it's dragged (a drag's data can't be read until it's
    * dropped): the item, or every one selected with it, stacked a track apart from where it's dropped.
@@ -133,9 +146,12 @@ const INITIAL = {
   incoming: null as { start: number; track: number; after: boolean; files: readonly IncomingFile[] } | null,
   patternSelection: new Set<string>() as ReadonlySet<string>,
   patternAnchor: null as string | null,
-  pickerTab: "patterns" as "patterns" | "audio",
+  pickerTab: "patterns" as PickerTab,
   audioSelection: new Set<string>() as ReadonlySet<string>,
   audioAnchor: null as string | null,
+  automationSelection: new Set<string>() as ReadonlySet<string>,
+  automationAnchor: null as string | null,
+  pointMenu: null as { automationId: string; index: number; x: number; y: number } | null,
   carried: null as readonly ClipSource[] | null,
   transposing: null as readonly string[] | null,
 };

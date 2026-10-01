@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
@@ -33,6 +33,12 @@ interface FaderProps {
   onCancel: () => void;
   /** Set outright: a reset, a typed value, a key. */
   onSet: (value: number) => void;
+  /** Automation drives it (in song mode): marked. */
+  automated?: boolean;
+  /** Its own value, when what it shows is automation's: drags, keys and the wheel start from it. Default: `value`. */
+  own?: number;
+  /** More of its right-click menu's items (Create automation clip). */
+  menu?: ReactNode;
 }
 
 /**
@@ -41,13 +47,13 @@ interface FaderProps {
  * groove to bring the handle there and drag on; Alt+click or a middle click puts it back at 0 dB; a
  * right-click opens its menu (Reset, Type in value, in dB). It shows its level in dB while it moves.
  */
-export function Fader({ value, label, selected, armed, className, onBegin, onDrag, onEnd, onCancel, onSet }: FaderProps) {
+export function Fader({ value, label, selected, className, onBegin, onDrag, onEnd, onCancel, onSet, automated, armed, own = value, menu }: FaderProps) {
   const look: CapLook = armed ? "armed" : selected ? "selected" : "plain";
   const [dragging, setDragging] = useState(false);
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
   const groove = useRef<HTMLDivElement>(null);
-  useWheelValue(groove, { value: () => value, min: 0, max: 1, step: (fine) => (fine ? 0.005 : 0.025), onBegin, onDrag, onEnd });
+  useWheelValue(groove, { value: () => own, min: 0, max: 1, step: (fine) => (fine ? 0.005 : 0.025), onBegin, onDrag, onEnd });
   const handleTop = (v: number) => `calc((1 - ${v}) * (100% - ${HANDLE_H}px))`;
 
   const commitTyped = () => {
@@ -71,7 +77,8 @@ export function Fader({ value, label, selected, armed, className, onBegin, onDra
               aria-valuemax={1}
               aria-valuenow={value}
               aria-valuetext={faderDb(value)}
-              title={`${label}: ${faderDb(value)}`}
+              title={`${label}: ${faderDb(value)}${automated ? " (automated)" : ""}`}
+              data-automated={automated || undefined}
               className={cn("relative w-[22px] cursor-ns-resize touch-none outline-none", className)}
               onPointerDown={(e) => {
                 if (e.button === 1 || (e.button === 0 && e.altKey)) {
@@ -83,9 +90,9 @@ export function Fader({ value, label, selected, armed, className, onBegin, onDra
                 const rect = groove.current!.getBoundingClientRect();
                 const travel = rect.height - HANDLE_H;
                 const handleY = rect.top + (1 - value) * travel;
-                // On the handle it's dragged from where it is; on the groove, it's brought there first.
+                // On the handle it's dragged from where it is (its own value, if automation has it elsewhere); on the groove, it's brought there first.
                 const onHandle = e.clientY >= handleY && e.clientY <= handleY + HANDLE_H;
-                const start = onHandle ? value : clamp(1 - (e.clientY - rect.top - HANDLE_H / 2) / travel, 0, 1);
+                const start = onHandle ? own : clamp(1 - (e.clientY - rect.top - HANDLE_H / 2) / travel, 0, 1);
                 const origin = e.clientY;
                 let began = false;
                 const begin = () => {
@@ -119,8 +126,8 @@ export function Fader({ value, label, selected, armed, className, onBegin, onDra
               }}
               onKeyDown={(e) => {
                 const step = e.ctrlKey || e.metaKey ? 0.005 : 0.025;
-                if (e.key === "ArrowUp") onSet(clamp(value + step, 0, 1));
-                else if (e.key === "ArrowDown") onSet(clamp(value - step, 0, 1));
+                if (e.key === "ArrowUp") onSet(clamp(own + step, 0, 1));
+                else if (e.key === "ArrowDown") onSet(clamp(own - step, 0, 1));
                 else return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -155,6 +162,7 @@ export function Fader({ value, label, selected, armed, className, onBegin, onDra
                 }}
                 aria-hidden
               />
+              {automated && <span aria-hidden className="pointer-events-none absolute top-0 right-0 size-1.5 rounded-full border border-black/40 bg-brand" />}
               {dragging && (
                 <span className="floating pointer-events-none absolute -top-6 left-1/2 z-20 -translate-x-1/2 rounded-sm px-1.5 py-0.5 text-[10px] whitespace-nowrap tabular-nums">
                   {faderDb(value)}
@@ -182,6 +190,7 @@ export function Fader({ value, label, selected, armed, className, onBegin, onDra
           >
             Type in value…
           </ContextMenuItem>
+          {menu}
         </ContextMenuContent>
       </ContextMenu>
       <PopoverContent className="w-36 p-2" onOpenAutoFocus={(e) => e.preventDefault()}>

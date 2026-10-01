@@ -43,6 +43,12 @@ colours, mutes and solos tracks. To arrange: build the parts as patterns, split 
 part should come in on its own, then place them by section (intro, verse, drop...). play_song with mode "song" \
 plays the arrangement, "pattern" loops the pattern shown.
 
+Automation (FL's automation clips) moves a control over the song: a filter sweep, a volume ride, a pan, a \
+send. add_automation makes a clip for one control (list_controls says what can be automated, a plugin's own \
+parameters too) and puts it on the playlist, flat or along the points you give; update_automation reshapes \
+it, get_automation reads them. It plays in song mode only: before a control's first clip it's its own \
+value, after a clip it holds the last value.
+
 The user's own samples are in the Browser: their sample folders, the same in every song. search_samples \
 finds files by name ("808 kick", "vocal chop"), list_samples shows the folders, their favourites and what's \
 in a folder; preview_sample plays one to them (you can't hear it), and load_sample puts files into the song, \

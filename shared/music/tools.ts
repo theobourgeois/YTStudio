@@ -5,6 +5,7 @@
 import { type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { CHOP_PATTERNS } from "./chop.ts";
 import { EXPORT_FORMATS } from "./export.ts";
+import { CURVE_TYPES } from "./types.ts";
 
 const channel = str('A channel: its id (from get_song) or its name ("Kick").');
 const pattern = str("A pattern: its id or its name. Default: the pattern shown in the channel rack.");
@@ -13,6 +14,30 @@ const mixerTrack = (what = "A mixer track") =>
 const slot = int("An effect slot of the track, 1 to 10 (as the mixer numbers them).");
 const playlistTrack = int("A playlist track's number, 1 for the first (as the Playlist numbers them).");
 const clipIds = arr(int("A clip's id"), "Clips, by their ids from get_playlist.");
+
+const automationRef = str("An automation clip: its id or its name (from get_automation).");
+/** What names a control to automate (`add_automation`, `list_controls`). */
+const controlFields = {
+  control: oneOf(["volume", "pan", "stereo", "send", "mix", "main volume", "parameter"], "Which control: a channel's or mixer track's volume or pan, a track's stereo separation, a send's level, an effect slot's mix, the main volume, or a plugin's own parameter."),
+  channel: str("A channel (volume, pan), or a plugin channel (its parameters): id or name."),
+  track: mixerTrack("A mixer track (its volume, pan, stereo separation; a send from it; an effect in it)"),
+  to: mixerTrack("The track a send goes to"),
+  slot: int("An effect slot of the track, 1 to 10 (its mix, or its plugin's parameters)."),
+  parameter: str("A plugin's parameter: its name or id, from list_controls."),
+} as const;
+const automationPoints = arr(
+  obj(
+    {
+      at: num("Bars from the clip's start (0 is its start)."),
+      value: num("The control's value there, as its knob has it: a volume 0 to 1 (0.78 plays as it is), a pan -1 (left) to 1 (right), a send or mix 0 to 1, a plugin parameter 0 to 1 of its range."),
+      curve: oneOf(CURVE_TYPES, "How the line gets here from the point before (FL's curve types; default single: straight, or bent by tension). hold steps, stairs and pulse step, wave and smooth curve."),
+      tension: num("-1 to 1: how the segment bends; for stairs, pulse and wave how many steps or cycles. 0 is straight."),
+    },
+    ["at", "value"],
+    "A point of the curve.",
+  ),
+  "The curve's points, in order: the first is at 0.",
+);
 
 /** The starter kit's sounds (`public/kit/`). */
 export const KIT_SOUNDS = ["kick", "clap", "hat", "snare"] as const;
@@ -559,8 +584,8 @@ export const MUSIC_TOOLS = [
     title: "Place clips on the playlist",
     kind: "edit",
     description:
-      "Put clips on the playlist, to arrange the song. Each is a pattern (by id or name), or an audio clip already in the song (its channel, " +
-      "from get_playlist; add_audio_clip brings in a new file), on a track, at a bar. A pattern clip is as long as its pattern unless `length` " +
+      "Put clips on the playlist, to arrange the song. Each is a pattern (by id or name), an audio clip already in the song (its channel, " +
+      "from get_playlist; add_audio_clip brings in a new file) or an automation clip (another clip of its curve; add_automation makes one), on a track, at a bar. A pattern clip is as long as its pattern unless `length` " +
       "says otherwise (stretched past its pattern, it plays nothing more); `repeat` places it that many times, one after another. Clips can " +
       "overlap, but keep each part of the arrangement on its own track.",
     inputSchema: obj(
@@ -570,6 +595,7 @@ export const MUSIC_TOOLS = [
             {
               pattern: str("A pattern: its id or its name."),
               audio: str("An audio clip's channel: its id or its name."),
+              automation: str("An automation clip: its id or its name (from get_automation)."),
               track: playlistTrack,
               bar: num("Where it starts: a bar, 1 for the first (1.5 is half a bar in)."),
               length: num("Its length in bars (default: its pattern's, or the audio clip's)."),
@@ -578,7 +604,7 @@ export const MUSIC_TOOLS = [
               muted: bool("Muted (default false)."),
             },
             ["track", "bar"],
-            "A clip: `pattern` or `audio`, a track and a bar.",
+            "A clip: `pattern`, `audio` or `automation`, a track and a bar.",
           ),
           "The clips to place.",
         ),
@@ -611,8 +637,14 @@ export const MUSIC_TOOLS = [
     name: "remove_clips",
     title: "Remove clips from the playlist",
     kind: "edit",
-    description: "Remove clips from the playlist: by id, or every clip on a track, or every clip of a pattern or audio clip. The patterns themselves stay.",
-    inputSchema: obj({ ids: clipIds, track: playlistTrack, pattern: str("Every clip of this pattern (id or name)."), audio: str("Every clip of this audio clip (its channel's id or name).") }),
+    description: "Remove clips from the playlist: by id, or every clip on a track, or every clip of a pattern, audio clip or automation clip. The patterns (and curves) themselves stay.",
+    inputSchema: obj({
+      ids: clipIds,
+      track: playlistTrack,
+      pattern: str("Every clip of this pattern (id or name)."),
+      audio: str("Every clip of this audio clip (its channel's id or name)."),
+      automation: str("Every clip of this automation clip (id or name)."),
+    }),
   }),
   tool({
     name: "slice_clips",
@@ -688,6 +720,83 @@ export const MUSIC_TOOLS = [
         after: bool("Several files one after another on the track (default: each on the track below)."),
       },
       ["track", "bar"],
+    ),
+  }),
+  tool({
+    name: "get_automation",
+    title: "Read the automation",
+    kind: "look",
+    description:
+      "The song's automation clips (FL's): curves over time for one control each (a volume, a pan, a send, an effect's mix, a plugin's parameter), " +
+      "placed on the playlist as clips. For each: what it drives, its points (bars from its start, values as the control shows them, each segment's " +
+      "curve type), its range and LFO, and its clips. Automation plays in song mode only.",
+    inputSchema: obj({ automation: automationRef }),
+  }),
+  tool({
+    name: "list_controls",
+    title: "List what can be automated",
+    kind: "look",
+    description:
+      "The controls of the song that can be automated: the main volume, each channel's volume and pan, the mixer's faders, pans, stereo separation, " +
+      "sends and effects' mixes, and the plugins (plugin channels and mixer effects). With a plugin (`channel`, or `track` and `slot`), its own " +
+      "parameters, as the plugin names them, with their values now (only once it's loaded); `query` narrows them (\"cutoff\").",
+    inputSchema: obj({
+      channel: str("A plugin channel: its parameters."),
+      track: mixerTrack("A mixer track, with `slot`: the effect there's parameters"),
+      slot: int("An effect slot of the track, 1 to 10."),
+      query: str("Words to look for in the parameters' names."),
+    }),
+  }),
+  tool({
+    name: "add_automation",
+    title: "Automate a control",
+    kind: "action",
+    description:
+      "FL's Create automation clip: make an automation clip for a control and put it on the playlist (a track below the others, or `playlistTrack`), " +
+      "from `bar` for `length` bars (default: the whole song). Without `points` it's flat at the control's value now; with them, it follows them " +
+      "(e.g. a filter sweep: [{at: 0, value: 0.1}, {at: 8, value: 0.9, curve: \"single\", tension: 0.4}]). It plays in song mode only: before it the " +
+      "control is its own value, after it it holds its last value. A plugin parameter is named by `parameter` (list_controls has them).",
+    inputSchema: obj(
+      {
+        ...controlFields,
+        bar: num("Where the clip starts: a bar, 1 for the first (default 1)."),
+        length: num("How long it is, in bars (default: to the song's end)."),
+        playlistTrack,
+        points: automationPoints,
+        name: str("Its name (default: the control's, as \"Volume (Kick)\")."),
+      },
+      ["control"],
+    ),
+  }),
+  tool({
+    name: "update_automation",
+    title: "Change an automation clip",
+    kind: "edit",
+    description:
+      "Change an automation clip's curve (`points`, replacing them all), its range (`min`/`max`, fractions of the control's range: FL's Min / Max), " +
+      "its LFO (an oscillator added to the curve, or multiplying it), its length, its name or colour; run one of FL's tools on it (flip, normalize, louder, " +
+      "quieter, decimate, smooth); or delete it with its clips (`remove`). Every clip of it changes: make_clip_unique gives one a curve of its own.",
+    inputSchema: obj(
+      {
+        automation: automationRef,
+        points: automationPoints,
+        min: num("0 to 1: the bottom of its range, of the control's."),
+        max: num("0 to 1: the top of its range."),
+        lfo: obj({
+          enabled: bool("On or off."),
+          speed: num("Cycles a bar, 1/16 to 32."),
+          tension: num("-1 (peaky) to 1 (square); 0 a triangle."),
+          skew: num("0 to 1: where in its cycle it peaks (0.5 even; the ends are saws)."),
+          level: num("-1 to 1: how much of it (negative: upside down)."),
+          multiply: bool("It scales the curve (a volume) rather than adding to it (a pan)."),
+        }),
+        length: num("Its curve's length, in bars."),
+        name: str("A new name."),
+        color: str('A colour, "#rrggbb", or "" for the usual.'),
+        tool: oneOf(["flip", "normalize", "louder", "quieter", "decimate", "smooth"], "One of FL's tools on its curve."),
+        remove: bool("Delete it and every clip of it."),
+      },
+      ["automation"],
     ),
   }),
   tool({

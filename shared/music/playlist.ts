@@ -32,9 +32,9 @@ import { type Channel, type MusicProject, PPQ, type Pattern, type PlaylistClip, 
 
 export type ClipIds = ReadonlySet<number>;
 
-/** What a clip's length and content depend on, besides the clip: its pattern's length, and the tempo. */
+/** What a clip's length and content depend on, besides the clip: its pattern's (or curve's) length, and the tempo. */
 export interface ClipContext {
-  /** A pattern's length in ticks (0 for one that's gone). */
+  /** A pattern's length in ticks, or an automation clip's curve's (by id; 0 for one that's gone). */
   patternTicks: (patternId: string) => number;
   /** Seconds a tick lasts at the song's tempo. */
   secondsPerTick: number;
@@ -49,6 +49,8 @@ export interface ClipContext {
 
 const contexts = new WeakMap<MusicProject["patterns"], Map<string, ClipContext>>();
 const pitchKeys = new WeakMap<MusicProject["channels"], string>();
+const lengthKeys = new WeakMap<MusicProject["automations"], string>();
+const NO_AUTOMATIONS: MusicProject["automations"] = [];
 
 /** How much faster an audio clip channel pitched by `semitones` plays its file (FL's Resample: pitch and speed together). */
 export const pitchSpeed = (semitones: number) => 2 ** (semitones / 12);
@@ -63,15 +65,27 @@ function pitchKey(channels: MusicProject["channels"]): string {
   return key;
 }
 
-/** The song's `ClipContext` (made once per pattern list, settings and pitches: nothing changes them in place). */
-export function clipContext(song: Pick<MusicProject, "patterns" | "settings" | "channels">): ClipContext {
+/** The automation clips' curves' lengths, as a key (made once per automation list). */
+function lengthKey(automations: MusicProject["automations"]): string {
+  let key = lengthKeys.get(automations);
+  if (key === undefined) {
+    key = automations.map((a) => `${a.id}:${a.length}`).join(",");
+    lengthKeys.set(automations, key);
+  }
+  return key;
+}
+
+/** The song's `ClipContext` (made once per pattern list, settings, pitches and curve lengths: nothing changes them in place). */
+export function clipContext(song: Pick<MusicProject, "patterns" | "settings" | "channels"> & { automations?: MusicProject["automations"] }): ClipContext {
   const pitches = pitchKey(song.channels);
-  const key = `${song.settings.tempo}|${song.settings.timeSignature.join("/")}|${pitches}`;
+  const automations = song.automations ?? NO_AUTOMATIONS;
+  const key = `${song.settings.tempo}|${song.settings.timeSignature.join("/")}|${pitches}|${lengthKey(automations)}`;
   let byKey = contexts.get(song.patterns);
   if (!byKey) contexts.set(song.patterns, (byKey = new Map()));
   let ctx = byKey.get(key);
   if (!ctx) {
     const lengths = new Map(song.patterns.map((p) => [p.id, patternSteps(p, song.settings.timeSignature) * STEP_TICKS]));
+    for (const automation of automations) lengths.set(automation.id, automation.length);
     const secondsPerTick = 60 / (song.settings.tempo * PPQ);
     const speeds = new Map(song.channels.flatMap((c) => (c.kind === "audio" && c.pitch ? [[c.id, pitchSpeed(c.pitch)] as const] : [])));
     ctx = {
@@ -251,7 +265,7 @@ function tidy(clip: NewClip, id: number): PlaylistClip {
     ref: clip.ref,
     track: clamp(Math.round(clip.track), 0, MAX_PLAYLIST_TRACKS - 1),
     start,
-    length: clip.length === null || (clip.length === undefined && clip.kind === "pattern") ? null : clamp(Math.round(clip.length ?? STEP_TICKS), 1, MAX_SONG_TICKS - start),
+    length: clip.length === null || (clip.length === undefined && clip.kind !== "audio") ? null : clamp(Math.round(clip.length ?? STEP_TICKS), 1, MAX_SONG_TICKS - start),
     offset: clip.kind === "audio" ? clamp(clip.offset ?? 0, 0, MAX_AUDIO_OFFSET) : clamp(Math.round(clip.offset ?? 0), 0, MAX_PATTERN_TICKS),
     muted: clip.muted ?? false,
   };
@@ -578,7 +592,7 @@ export function moveTrack(song: MusicProject, index: number, direction: -1 | 1):
 
 /**
  * Make unique: the clip gets a copy of its pattern of its own (named "Pattern 1 #2", right after the
- * original), so editing it changes no other clip. An audio clip (FL's "Make unique as sample") gets a
+ * original), so editing it changes no other clip; an automation clip's, a copy of its curve. An audio clip (FL's "Make unique as sample") gets a
  * copy of its channel, playing the same file (it isn't copied: nothing changes a file), so its pitch,
  * volume or colour can change without the other clips'.
  */
@@ -586,6 +600,13 @@ export function makeUnique(song: MusicProject, clipId: number, newId?: string): 
   const clip = song.playlist.clips.find((c) => c.id === clipId);
   if (!clip) return song;
   const clips = (ref: string) => ({ ...song.playlist, clips: song.playlist.clips.map((c) => (c === clip ? { ...c, ref } : c)) });
+  if (clip.kind === "automation") {
+    const index = song.automations.findIndex((a) => a.id === clip.ref);
+    if (index < 0) return song;
+    const original = song.automations[index];
+    const copy = { ...original, id: newId ?? createId("auto"), name: uniqueName(song.automations, original.name) };
+    return { ...song, automations: [...song.automations.slice(0, index + 1), copy, ...song.automations.slice(index + 1)], playlist: clips(copy.id) };
+  }
   if (clip.kind === "audio") {
     const index = song.channels.findIndex((c) => c.id === clip.ref);
     if (index < 0) return song;
