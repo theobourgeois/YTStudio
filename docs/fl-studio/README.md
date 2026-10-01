@@ -20,7 +20,9 @@ about to touch before changing it, and correct it when you learn it's wrong.
   keys. Ends with where Vaudio differs (only the user's own folders) and what's still to decide.
 - [settings.md](settings.md): the Settings window (F10): its Audio, General and Themes tabs. Ends with
   where Vaudio differs (one Settings page for the app, a section per suite).
-- Playlist: not written yet. Write it before its phase is built.
+- [playlist.md](playlist.md): the Playlist: tracks, pattern and audio clips, the tools, the time
+  selection, the Picker panel, song mode, split by channel and its keys. Ends with what we'll leave out,
+  where Vaudio will differ, what's still to decide, and how it will be built.
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).
 
@@ -31,7 +33,8 @@ Where the music suite is and the order of what's next: [../music-suite.md](../mu
    `channelrack`, `chansettings`, `chansettings_main`, `chansettings_sampler`, `chansettings_misc`,
    `basics_interface`, `basics_shortcuts`, `basics_workflow`, `toolbar_panels`, `envsettings_general`,
    `songsettings_settings`, `pianoroll`, `playlist`, `mixer`, `mixer_trackprops`, `mixer_mixermenu`,
-   `mixer_levelsandmixing`, `browser`. It describes the current version
+   `mixer_levelsandmixing`, `browser`, `playlist_patterns`, `playlist_audioclip`,
+   `playlist_automationclip`, `menu_patterns`. It describes the current version
    (FL Studio 2025), which is what we follow.
 2. **Théo**, who has used FL Studio for years: where he says it works a certain way, that wins, and the
    text says "(Théo)". His own screenshots go in `img/user/`.
