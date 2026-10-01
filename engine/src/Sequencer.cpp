@@ -385,6 +385,10 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
         auto* l = song->audio.getWritePointer (track.buffer * 2);
         auto* r = song->audio.getWritePointer (track.buffer * 2 + 1);
 
+        for (const auto& effect : track.effects)
+            if (effect.enabled && effect.plugin != nullptr)
+                runEffect (*effect.plugin, effect.mix, l, r, numSamples);
+
         // The fader, pan and mute: each side out from both sides in.
         const auto& to = track.gains;
         const auto& from = glide ? track.from : track.gains;
@@ -436,6 +440,32 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
             }
         }
     }
+}
+
+void Sequencer::runEffect (HostedPlugin& plugin, float mix, float* left, float* right, int numSamples)
+{
+    if (numSamples > plugin.buffer.getNumSamples())
+        return;
+    juce::AudioBuffer<float> view (plugin.buffer.getArrayOfWritePointers(), plugin.buffer.getNumChannels(), numSamples);
+    view.clear();
+    view.copyFrom (0, 0, left, numSamples);
+    view.copyFrom (1, 0, right, numSamples);
+    plugin.midi.clear();
+    plugin.instance->processBlock (view, plugin.midi);
+    // A plugin with one output gives it to both sides.
+    const auto* wetLeft = view.getReadPointer (0);
+    const auto* wetRight = view.getReadPointer (plugin.instance->getTotalNumOutputChannels() > 1 ? 1 : 0);
+    if (mix >= 1.0f)
+    {
+        juce::FloatVectorOperations::copy (left, wetLeft, numSamples);
+        juce::FloatVectorOperations::copy (right, wetRight, numSamples);
+        return;
+    }
+    // Some of the dry sound, and the rest of the effect's.
+    juce::FloatVectorOperations::multiply (left, 1.0f - mix, numSamples);
+    juce::FloatVectorOperations::multiply (right, 1.0f - mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (left, wetLeft, mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (right, wetRight, mix, numSamples);
 }
 
 void Sequencer::render (Voice& voice, int numSamples)

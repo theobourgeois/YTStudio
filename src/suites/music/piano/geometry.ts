@@ -307,3 +307,29 @@ export function zoomToRange(view: PianoView, from: number, to: number, width: nu
   const pxPerTick = clamp((width * 0.92) / span, MIN_PX_PER_TICK, MAX_PX_PER_TICK);
   return { ...view, pxPerTick, scrollTick: Math.max(0, from - (width / pxPerTick - span) / 2) };
 }
+
+/** How near the grid's edge (px) a drag starts scrolling it, and how fast (px a frame) it scrolls right at the edge. */
+export const EDGE_ZONE = 32;
+export const EDGE_SPEED = 8;
+
+/**
+ * How fast a drag scrolls the grid, in px a frame, with the pointer at `pos` along a side `size` px
+ * long: towards the edge it's near (negative: the start), faster the nearer and faster still past it.
+ */
+export function edgeSpeed(pos: number, size: number): number {
+  const zone = Math.min(EDGE_ZONE, size / 4);
+  if (zone <= 0) return 0;
+  if (pos < zone) return -EDGE_SPEED * clamp((zone - pos) / zone, 0, 4);
+  if (pos > size - zone) return EDGE_SPEED * clamp((pos - (size - zone)) / zone, 0, 4);
+  return 0;
+}
+
+/**
+ * The view scrolled by `dx` px along time and `dy` px down the keys, kept where the wheel keeps it (no
+ * earlier than 0, the keyboard's ends in reach of a grid `height` px tall). The same view if it can't move.
+ */
+export function scrollViewBy(view: PianoView, dx: number, dy: number, height: number): PianoView {
+  const scrollTick = clamp(view.scrollTick + dx / view.pxPerTick, 0, Math.max(view.scrollTick, MAX_TICK));
+  const topPitch = clamp(view.topPitch - dy / view.rowHeight, Math.min(view.topPitch, height / view.rowHeight - 1), Math.max(view.topPitch, 128));
+  return scrollTick === view.scrollTick && topPitch === view.topPitch ? view : { ...view, scrollTick, topPitch };
+}

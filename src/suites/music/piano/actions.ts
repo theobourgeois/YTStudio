@@ -200,7 +200,7 @@ export function duplicate() {
   const ctx = pianoContext();
   if (!ctx) return;
   const { time } = usePiano.getState();
-  const result = duplicateNotes(ctx.notes, ctx.selected, ctx.barTicks, time ? time.end - time.start : undefined);
+  const result = duplicateNotes(ctx.notes, ctx.selected, ctx.grid, time ? time.end - time.start : undefined);
   if (!result.created.length) return;
   edit(ctx, () => result.notes);
   usePiano.setState({ selected: new Set(result.created), time: time && { start: time.start + result.interval, end: time.end + result.interval } });

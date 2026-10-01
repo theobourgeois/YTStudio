@@ -3,6 +3,9 @@ import { byStart } from "@shared/music/project";
 import type { Note } from "@shared/music/types";
 import {
   wheelZoomFactor,
+  EDGE_SPEED,
+  edgeSpeed,
+  scrollViewBy,
   type PianoView,
   formatLength,
   formatPosition,
@@ -206,5 +209,28 @@ describe("zooming", () => {
     expect(tickToX(fitted, 384)).toBeGreaterThan(0);
     expect(tickToX(fitted, 768)).toBeLessThan(800);
     expect(tickToX(fitted, 768) - tickToX(fitted, 384)).toBeCloseTo(800 * 0.92, 5);
+  });
+});
+
+describe("edge scrolling", () => {
+  it("scrolls towards the edge the pointer is near, faster past it", () => {
+    expect(edgeSpeed(400, 800)).toBe(0);
+    expect(edgeSpeed(0, 800)).toBe(-EDGE_SPEED);
+    expect(edgeSpeed(800, 800)).toBe(EDGE_SPEED);
+    expect(edgeSpeed(-40, 800)).toBeLessThan(-EDGE_SPEED);
+    expect(edgeSpeed(2000, 800)).toBe(EDGE_SPEED * 4);
+    expect(edgeSpeed(10, 0)).toBe(0);
+  });
+
+  it("scrolls the view, kept in bounds, and returns it unchanged when it can't move", () => {
+    const view: PianoView = { scrollTick: 10, pxPerTick: 0.5, topPitch: 84, rowHeight: 16 };
+    expect(scrollViewBy(view, 20, 32, 320)).toEqual({ ...view, scrollTick: 50, topPitch: 82 });
+    expect(scrollViewBy(view, -100, 0, 320).scrollTick).toBe(0);
+    const start = { ...view, scrollTick: 0 };
+    expect(scrollViewBy(start, -8, 0, 320)).toBe(start);
+    const top = { ...view, topPitch: 128 };
+    expect(scrollViewBy(top, 0, -8, 320)).toBe(top);
+    const bottom = { ...view, topPitch: 19 };
+    expect(scrollViewBy(bottom, 0, 8, 320)).toBe(bottom);
   });
 });

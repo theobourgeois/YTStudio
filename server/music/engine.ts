@@ -116,7 +116,7 @@ export class AudioEngine {
     const doc = normalizeMusicProject(body.song, (id) => this.samplePath(projectId, id) !== null);
     const loop = isObject(body.loop) && isFiniteNumber(body.loop.start) && isFiniteNumber(body.loop.end) ? { start: body.loop.start, end: body.loop.end } : null;
     const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop);
-    // A plugin's state is a file of its own beside the project's document: `plugins/<channel id>.bin`.
+    // A plugin's state is a file of its own beside the project's document: `plugins/<channel id>.bin`, or the effect's id.
     const states = path.join(this.paths.projectDir(projectId), "plugins");
     const song = {
       ...compiled,
@@ -132,7 +132,7 @@ export class AudioEngine {
       })),
     };
     this.song = song;
-    this.keepStates(song.channels.some((c) => c.plugin));
+    this.keepStates(song.channels.some((c) => c.plugin) || song.tracks.some((t) => t.effects.length > 0));
     const answer = (await this.request("song", { song })) as Omit<SetSongResponse, "loop">;
     return { ...answer, loop: { start: compiled.offsetTicks, ticks: compiled.loopTicks } };
   }
@@ -224,6 +224,10 @@ export class AudioEngine {
       case "channelEditor": {
         if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');
         return { channel: body.channel, open: body.open === true };
+      }
+      case "effectEditor": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be an effect\'s id.');
+        return { effect: body.effect, open: body.open === true };
       }
       case "trigger": {
         if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');

@@ -1,5 +1,6 @@
-// The plugins that are channels of the song: an instrument per plugin channel, kept alive across the
-// song's edits, with its window and its state (saved beside the project).
+// The song's plugins, kept alive across its edits, with their windows and their states (saved beside
+// the project). The engine has two: the instruments of plugin channels (by channel id) and the effects
+// in mixer tracks' slots (by effect id). Each plugin belongs to its owner: a channel, or an effect slot.
 //
 // Instances are made and destroyed on the message thread. The audio thread reaches one only through
 // the Song that holds it (a `shared_ptr`), and only its `midi`, `buffer` and `pending`, which are the
@@ -17,9 +18,10 @@ struct HostedPlugin
 {
     ~HostedPlugin();
 
-    juce::String channelId, pluginId;
-    /** The channel's name, for its window's title: "Serum 2 (Chorus)". */
-    juce::String channelName;
+    /** The channel's or the effect's id. */
+    juce::String ownerId, pluginId;
+    /** The channel's or the mixer track's name, for its window's title: "Serum 2 (Chorus)". */
+    juce::String ownerName;
     std::unique_ptr<juce::AudioPluginInstance> instance;
     /** After `instance`, so it goes first. */
     std::unique_ptr<EditorWindow> window;
@@ -43,21 +45,24 @@ struct HostedPlugin
 class PluginHost final : private juce::Timer
 {
 public:
-    /** `changed` is called when a plugin finishes loading (or fails), or its window is closed by hand. */
-    PluginHost (juce::AudioPluginFormatManager& formats, juce::KnownPluginList& known, std::function<void()> changed);
+    /**
+     * `changed` is called when a plugin finishes loading (or fails), or its window is closed by hand.
+     * `ownerKey` names an owner in `describe` ("channel", "effect").
+     */
+    PluginHost (juce::AudioPluginFormatManager& formats, juce::KnownPluginList& known, juce::String ownerKey, std::function<void()> changed);
     ~PluginHost() override;
 
     /**
-     * The channel's plugin, if it's loaded. If it isn't, it starts loading (and `changed` says when it
+     * The owner's plugin, if it's loaded. If it isn't, it starts loading (and `changed` says when it
      * has), its state read from `stateFile` if that exists. Null meanwhile, and if it can't be loaded.
      */
-    std::shared_ptr<HostedPlugin> get (const juce::String& channelId, const juce::String& pluginId, const juce::File& stateFile, const juce::String& channelName);
-    /** Let go of the plugins of channels that aren't in `channelIds` any more, saving their state first. */
-    void keepOnly (const juce::StringArray& channelIds);
+    std::shared_ptr<HostedPlugin> get (const juce::String& ownerId, const juce::String& pluginId, const juce::File& stateFile, const juce::String& ownerName);
+    /** Let go of the plugins of owners that aren't in `ownerIds` any more, saving their state first. */
+    void keepOnly (const juce::StringArray& ownerIds);
     /** Write every plugin's state that has changed since it was last written. */
     void saveStates();
-    /** False if the channel has no loaded plugin. */
-    bool showEditor (const juce::String& channelId, bool open);
+    /** False if the owner has no loaded plugin. */
+    bool showEditor (const juce::String& ownerId, bool open);
     void prepare (double sampleRate, int blockSize);
     /**
      * The app's window (`{ active, visible, bounds: { x, y, width, height } }`), which the desktop app
@@ -69,7 +74,7 @@ public:
     /** Try again the plugins that couldn't be loaded (a scan may have found them since). */
     void forgetFailures() { failed.clear(); }
 
-    /** `[{ channel, name, editorOpen }]`, the channels still loading, and `[{ channel, error }]`. */
+    /** `{ loaded: [{ <owner key>, name, editorOpen, latency }], loading: [ids], failed: [{ <owner key>, error }] }`. */
     juce::var describe() const;
 
 private:
@@ -81,9 +86,10 @@ private:
 
     juce::AudioPluginFormatManager& formats;
     juce::KnownPluginList& known;
+    juce::String ownerKey;
     std::function<void()> changed;
     std::map<juce::String, std::shared_ptr<HostedPlugin>> loaded;
-    /** Channel id -> the plugin id being loaded for it. */
+    /** Owner id -> the plugin id being loaded for it. */
     std::map<juce::String, juce::String> loading;
     std::map<juce::String, juce::String> failed;
     /** The app's window, once the desktop app has said. */

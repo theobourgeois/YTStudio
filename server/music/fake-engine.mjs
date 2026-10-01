@@ -16,7 +16,7 @@ let song = null;
 let playingSince = null;
 /** What the desktop app last said of its window (`host`). */
 let host = null;
-/** The plugin channels whose window is open. */
+/** The plugin channels and effects whose window is open. */
 const editors = new Set();
 
 /** The song's plugin channels: all loaded at once, but for a plugin that isn't one of ours. */
@@ -24,9 +24,20 @@ const channels = () => {
   const hosted = (song?.channels ?? []).filter((c) => c.plugin);
   const known = (c) => PLUGINS.some((p) => p.id === c.plugin.id);
   return {
-    loaded: hosted.filter(known).map((c) => ({ channel: c.id, name: PLUGINS.find((p) => p.id === c.plugin.id).name, editorOpen: editors.has(c.id) })),
+    loaded: hosted.filter(known).map((c) => ({ channel: c.id, name: PLUGINS.find((p) => p.id === c.plugin.id).name, editorOpen: editors.has(c.id), latency: 0 })),
     loading: [],
     failed: hosted.filter((c) => !known(c)).map((c) => ({ channel: c.id, error: "This plugin isn't installed on this computer (or hasn't been scanned)." })),
+  };
+};
+
+/** The mixer's effects: all loaded at once, but for a plugin that isn't one of ours. */
+const effects = () => {
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []);
+  const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
+  return {
+    loaded: hosted.filter(known).map((e) => ({ effect: e.id, name: PLUGINS.find((p) => p.id === e.plugin.id).name, editorOpen: editors.has(e.id), latency: 0 })),
+    loading: [],
+    failed: hosted.filter((e) => !known(e)).map((e) => ({ effect: e.id, error: "This plugin isn't installed on this computer (or hasn't been scanned)." })),
   };
 };
 
@@ -46,6 +57,7 @@ const status = () => ({
   peak: 0,
   transport: { playing: playingSince !== null, tick: tick(), metronome },
   channels: channels(),
+  effects: effects(),
   scanning: null,
   pluginCount: PLUGINS.length,
   ...slots,
@@ -72,7 +84,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (cmd === "plugins") return send({ id, ok: true, result: PLUGINS });
   if (cmd === "song") {
     song = params.song;
-    return send({ id, ok: true, result: { unreadable: [], channels: channels() } });
+    return send({ id, ok: true, result: { unreadable: [], channels: channels(), effects: effects() } });
   }
   if (cmd === "host") host = params;
   if (cmd === "whatHost") return send({ id, ok: true, result: host });
@@ -94,6 +106,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (!channels().loaded.some((c) => c.channel === params.channel)) return fail("That channel's plugin isn't loaded.");
     if (params.open) editors.add(params.channel);
     else editors.delete(params.channel);
+  }
+  if (cmd === "effectEditor") {
+    if (!effects().loaded.some((e) => e.effect === params.effect)) return fail("That effect's plugin isn't loaded.");
+    if (params.open) editors.add(params.effect);
+    else editors.delete(params.effect);
   }
   if ((cmd === "trigger" || cmd === "preview") && !song?.channels.some((c) => c.id === params.channel)) return fail("The song playing has no such channel.");
   if (cmd === "tone") tone = params.on;

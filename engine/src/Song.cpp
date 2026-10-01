@@ -95,7 +95,7 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, juce::StringArray& unreadable, int capacity)
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, juce::StringArray& unreadable, int capacity)
 {
     auto song = std::make_unique<Song>();
     song->tempo = number (json["tempo"], 120, 1, 2000);
@@ -165,11 +165,25 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             song->notes.push_back (note);
         }
     // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
+    juce::StringArray effectIds;
     if (const auto* list = json["tracks"].getArray())
         for (const auto& item : *list)
         {
             Track track;
             track.id = item["id"].toString();
+            if (const auto* slots = item["effects"].getArray())
+                for (const auto& slot : *slots)
+                {
+                    const auto plugin = slot["plugin"];
+                    const auto id = slot["id"].toString();
+                    if (! plugin.isObject() || id.isEmpty())
+                        continue;
+                    const auto state = plugin["state"].toString();
+                    effectIds.add (id);
+                    track.effects.push_back ({ effects.get (id, plugin["id"].toString(), state.isEmpty() ? juce::File() : juce::File (state), item["name"].toString()),
+                                              (bool) slot["enabled"],
+                                              (float) number (slot["mix"], 1, 0, 1) });
+                }
             if (const auto* gains = item["gains"].getArray(); gains != nullptr && gains->size() == 4)
                 for (size_t g = 0; g < 4; ++g)
                     track.gains[g] = (float) number ((*gains)[(int) g], 0, 0, 64);
@@ -217,6 +231,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     for (const auto& channel : song->channels)
         channelIds.add (channel.id);
     plugins.keepOnly (channelIds);
+    effects.keepOnly (effectIds);
 
     std::stable_sort (song->notes.begin(), song->notes.end(), [] (const Note& a, const Note& b) { return a.tick < b.tick; });
     return song;

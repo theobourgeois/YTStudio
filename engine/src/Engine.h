@@ -53,6 +53,8 @@ private:
     juce::Result setDevice (const juce::var& params);
     /** Hand the song to the sequencer, with whichever of its plugins are loaded by now. */
     juce::StringArray applySong();
+    /** A song's plugin has loaded, failed or had its window closed. */
+    void pluginChanged();
     void sendStatus() const;
 
     const bool offline;
@@ -60,8 +62,12 @@ private:
     juce::AudioDeviceManager devices;
     PluginBench bench;
     SampleCache samples;
-    /** The song's own plugins (its plugin channels). Before the sequencer, which plays them: it must outlive the songs there. */
+    /**
+     * The song's own plugins: its plugin channels' instruments and its mixer's effects. Before the
+     * sequencer, which plays them: they must outlive the songs there.
+     */
     PluginHost plugins;
+    PluginHost effects;
     Sequencer sequencer;
     /** The song as it was last given, to build it again when one of its plugins has finished loading. */
     juce::var lastSong;

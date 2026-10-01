@@ -8,13 +8,13 @@ import { clamp } from "@shared/math";
 import { DEFAULT_VELOCITY } from "@shared/music/project";
 import { type NewNote, type NotePatch, noteBounds } from "@shared/music/notes";
 import type { Note } from "@shared/music/types";
-import { startPointerDrag } from "@/lib/pointer-drag";
+import { type DragHandlers, startPointerDrag } from "@/lib/pointer-drag";
 import { useTransport } from "../transport";
 import { type PianoContext, commitDrag, cancelDrag, deselect, pianoContext, selectTime } from "./actions";
 import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR } from "./cursors";
 import { stretchHandle } from "./draw";
 import { fadeOut } from "./fades";
-import { BLACK_KEY_WIDTH, type PianoView, ROW_ZOOM_DRAG, hitNote, keyAt, paintStarts, snapDelta, snapTick, tickToX, visibleRange, xToTick, yToPitch, zoomRowsAt } from "./geometry";
+import { BLACK_KEY_WIDTH, type PianoView, ROW_ZOOM_DRAG, hitNote, keyAt, edgeSpeed, paintStarts, scrollViewBy, snapDelta, snapTick, tickToX, visibleRange, xToTick, yToPitch, zoomRowsAt } from "./geometry";
 import { usePiano } from "./store";
 
 type Press = ReactPointerEvent<HTMLElement>;
@@ -25,6 +25,52 @@ const local = (element: Element, ev: { clientX: number; clientY: number }) => {
 };
 /** Show this pointer over the grid while a press lasts (the grid's own, set here, would hide the drag's). */
 const show = (element: HTMLElement, cursor: string) => (element.style.cursor = cursor);
+
+/**
+ * A drag on the grid that scrolls it while the pointer is near or past its edges, along time and up
+ * and down the keys, and moves on as it does (`onMove` again, with the pointer where it was): a note
+ * dragged off the side is followed. Its `onMove` must read the view from the store, not keep the first.
+ */
+function startGridDrag(e: Press, element: HTMLElement, h: DragHandlers) {
+  let last: PointerEvent | null = null;
+  let frame = 0;
+  const step = () => {
+    frame = 0;
+    if (!last) return;
+    const rect = element.getBoundingClientRect();
+    const { view, setView } = usePiano.getState();
+    const next = scrollViewBy(view, edgeSpeed(last.clientX - rect.left, rect.width), edgeSpeed(last.clientY - rect.top, rect.height), rect.height);
+    if (next === view) return;
+    setView(next);
+    h.onMove(last);
+    frame = requestAnimationFrame(step);
+  };
+  const stop = () => {
+    cancelAnimationFrame(frame);
+    frame = 0;
+    last = null;
+  };
+  return startPointerDrag(e, {
+    ...h,
+    onMove(ev) {
+      last = ev;
+      h.onMove(ev);
+      if (!frame) frame = requestAnimationFrame(step);
+    },
+    onEnd() {
+      stop();
+      h.onEnd?.();
+    },
+    onCancel() {
+      stop();
+      h.onCancel?.();
+    },
+    onClick() {
+      stop();
+      h.onClick?.();
+    },
+  });
+}
 
 /**
  * Play a key of the channel for as long as it's held, moving to another as the pointer does. `quiet`
@@ -156,9 +202,11 @@ export function gridPointerDown(e: Press) {
   const tick0 = xToTick(view, p.x);
   const pitch0 = yToPitch(view, p.y);
   const gridOf = (ev: { altKey: boolean }) => (ev.altKey ? 1 : ctx.grid);
+  // The view as it is now: a drag scrolls it (`startGridDrag`).
   const at = (ev: PointerEvent) => {
     const q = local(element, ev);
-    return { x: q.x, y: q.y, tick: xToTick(view, q.x), pitch: yToPitch(view, q.y) };
+    const now = usePiano.getState().view;
+    return { x: q.x, y: q.y, tick: xToTick(now, q.x), pitch: yToPitch(now, q.y) };
   };
   const finish = { onEnd: commitDrag, onClick: commitDrag, onCancel: cancelDrag };
 
@@ -216,7 +264,7 @@ export function gridPointerDown(e: Press) {
     if (p.x >= handle.x - 2 && p.x <= handle.x + handle.size + 2 && p.y >= handle.y - 2 && p.y <= handle.y + handle.size + 2) {
       const span = bounds.end - bounds.start;
       show(element, RESIZE_CURSOR);
-      startPointerDrag(e, {
+      startGridDrag(e, element, {
         threshold: 0,
         cursor: "ew-resize",
         onMove(ev) {
@@ -240,7 +288,7 @@ export function gridPointerDown(e: Press) {
       return;
     }
     show(element, "crosshair");
-    startPointerDrag(e, {
+    startGridDrag(e, element, {
       threshold: 3,
       onMove(ev) {
         const q = at(ev);
@@ -270,11 +318,11 @@ export function gridPointerDown(e: Press) {
     const swept = new Set<number>(hit ? [hit.note.id] : []);
     show(element, CURSORS.mute);
     piano.setDrag({ kind: "mute", ids: new Set(swept), muted });
-    startPointerDrag(e, {
+    startGridDrag(e, element, {
       threshold: 0,
       onMove(ev) {
         const q = at(ev);
-        const note = noteAt(ctx.notes, view, q.x, q.y);
+        const note = noteAt(ctx.notes, usePiano.getState().view, q.x, q.y);
         if (note && !swept.has(note.id)) {
           swept.add(note.id);
           usePiano.getState().setDrag({ kind: "mute", ids: new Set(swept), muted });
@@ -310,7 +358,7 @@ export function gridPointerDown(e: Press) {
     if (hit.edge) {
       const end = hit.note.start + hit.note.length;
       show(element, RESIZE_CURSOR);
-      startPointerDrag(e, {
+      startGridDrag(e, element, {
         threshold: 2,
         cursor: "ew-resize",
         onMove(ev) {
@@ -326,7 +374,7 @@ export function gridPointerDown(e: Press) {
     const clone = e.shiftKey;
     show(element, MOVING_CURSOR);
     keys.to(hit.note.pitch);
-    startPointerDrag(e, {
+    startGridDrag(e, element, {
       threshold: 2,
       onMove(ev) {
         const q = at(ev);
@@ -368,7 +416,7 @@ export function gridPointerDown(e: Press) {
   const release = () => keys.release();
 
   if (tool === "paint") {
-    startPointerDrag(e, {
+    startGridDrag(e, element, {
       threshold: 0,
       onMove(ev) {
         const q = at(ev);
@@ -396,7 +444,7 @@ export function gridPointerDown(e: Press) {
   }
 
   const stretching = e.shiftKey;
-  startPointerDrag(e, {
+  startGridDrag(e, element, {
     threshold: 0,
     onMove(ev) {
       const q = at(ev);

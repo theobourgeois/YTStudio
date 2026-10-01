@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { PiCaretRightFill } from "react-icons/pi";
+import { PiCaretRightFill, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { errorMessage } from "@shared/errors";
 import type { EnginePlugin } from "@shared/music/engine";
@@ -19,6 +19,7 @@ import {
 import { musicApi } from "../api";
 import { PERCENT, SongKnob, percent } from "../knob";
 import { useMusic, useSong } from "../store";
+import { useTransport } from "../transport";
 
 /** The effect plugins found on this computer, read once and kept between openings of a slot's menu. */
 let found: EnginePlugin[] | null = null;
@@ -41,8 +42,8 @@ function useEffectPlugins(open: boolean): { plugins: EnginePlugin[] | null; erro
 
 /**
  * The selected track's inspector, on the mixer's right as in FL Studio: its name and its ten effect
- * slots, each with its menu (choose a plugin, replace, delete, move), its mix knob and its on light.
- * The mouse wheel over a slot moves its effect up or down.
+ * slots, each with its menu (choose a plugin, replace, delete, move), its name (a click opens the
+ * plugin's window), its mix knob and its on light. The mouse wheel over a slot moves its effect up or down.
  */
 export function Inspector({ trackId }: { trackId: string }) {
   const effects = useSong((song) => song.mixer.tracks.find((t) => t.id === trackId)?.effects);
@@ -56,7 +57,6 @@ export function Inspector({ trackId }: { trackId: string }) {
           <Slot key={slot} trackId={trackId} slot={slot} effect={effect} />
         ))}
       </ol>
-      <p className="mt-auto px-2 pb-1.5 text-[10px] leading-snug text-muted-foreground">Effects are kept with the song; the audio engine doesn't play them yet.</p>
     </aside>
   );
 }
@@ -120,9 +120,11 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      <span className={cn("min-w-0 flex-1 truncate text-xs", !effect && "text-muted-foreground/70 italic")} title={effect ? `${effect.plugin.name} (${effect.plugin.format})` : undefined}>
-        {effect ? effect.plugin.name : `Slot ${slot + 1}`}
-      </span>
+      {effect ? (
+        <EffectName effect={effect} />
+      ) : (
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70 italic">{`Slot ${slot + 1}`}</span>
+      )}
       {effect && (
         <>
           <SongKnob size={18} label={`${effect.plugin.name} mix`} value={effect.mix} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, mix) => updateEffect(song, trackId, slot, { mix })} />
@@ -138,5 +140,31 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
         </>
       )}
     </li>
+  );
+}
+
+/**
+ * A loaded effect's name: a click opens its window (or closes it), as in FL Studio; while it loads, a
+ * spinner; if it couldn't be loaded, a warning and why.
+ */
+function EffectName({ effect }: { effect: MixerEffect }) {
+  const open = useTransport((s) => s.effects.loaded.some((e) => e.effect === effect.id && e.editorOpen));
+  const loaded = useTransport((s) => s.effects.loaded.some((e) => e.effect === effect.id));
+  const loading = useTransport((s) => s.effects.loading.includes(effect.id));
+  const error = useTransport((s) => s.effects.failed.find((e) => e.effect === effect.id)?.error ?? null);
+  return (
+    <button
+      type="button"
+      aria-label={`${effect.plugin.name}: ${open ? "close its window" : "open its window"}`}
+      aria-pressed={open}
+      disabled={!loaded}
+      title={error ?? (loading ? `${effect.plugin.name}: loading…` : `${effect.plugin.name} (${effect.plugin.format}): click for its window`)}
+      className={cn("flex min-w-0 flex-1 items-center gap-1 text-left text-xs", open ? "text-brand" : "hover:text-brand", !effect.enabled && "text-muted-foreground line-through", error && "text-destructive")}
+      onClick={() => useTransport.getState().showEffect(effect.id, !open)}
+    >
+      <span className="truncate">{effect.plugin.name}</span>
+      {loading && <PiSpinnerGap className="size-3 shrink-0 animate-spin" aria-label="Loading the plugin" />}
+      {error && <PiWarning className="size-3 shrink-0" aria-label="The plugin couldn't be loaded" />}
+    </button>
   );
 }

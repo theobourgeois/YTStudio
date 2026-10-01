@@ -214,16 +214,15 @@ export function cloneNotes(notes: Note[], ids: NoteIds, ticks: number, semitones
 
 /**
  * Duplicate to the right (Ctrl+B): copies of the selected notes (or of all of them) placed `interval`
- * later. Without an interval (no time selection), it's the bars the notes span, from the start of the
- * first note's bar to the end of the last note's: a phrase repeats in the bars after it.
+ * later. Without an interval (no time selection), it's what the notes span, from the first's start to
+ * the last's end, rounded up to the snap's `grid`: the copy starts straight after the original.
  */
-export function duplicateNotes(notes: Note[], ids: NoteIds, barTicks: number, interval?: number): Created & { interval: number } {
+export function duplicateNotes(notes: Note[], ids: NoteIds, grid: number, interval?: number): Created & { interval: number } {
   const chosen = orAll(notes, ids);
   const bounds = noteBounds(notes, chosen);
   if (!bounds) return { ...nothing(notes), interval: 0 };
-  const from = Math.floor(bounds.start / barTicks) * barTicks;
-  const to = Math.max(from + barTicks, Math.ceil(bounds.end / barTicks) * barTicks);
-  const by = interval && interval > 0 ? Math.round(interval) : to - from;
+  const step = Math.max(1, Math.round(grid));
+  const by = interval && interval > 0 ? Math.round(interval) : Math.max(step, Math.ceil((bounds.end - bounds.start) / step) * step);
   // A copy that would start past the end of what a pattern can hold isn't made.
   const copies = notes.filter((n) => chosen.has(n.id) && n.start + by < MAX_TICK).map((n) => ({ ...n, start: n.start + by }));
   return { ...addNotes(notes, copies), interval: by };

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, addPluginChannel, setSteps } from "../../shared/music/edits.ts";
+import { setEffect } from "../../shared/music/mixer.ts";
 import type { EngineEvent } from "../../shared/music/engine.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
 import { DataPaths } from "../storage.ts";
@@ -68,12 +69,22 @@ describe("AudioEngine", () => {
     let song = addPluginChannel(createMusicProject("Synth"), synth, "chan_synth");
     song = addPluginChannel(song, { id: "VST3-Not installed-9", name: "Missing", format: "VST3" }, "chan_missing");
     const answer = await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
-    expect(answer.channels.loaded).toEqual([{ channel: "chan_synth", name: "Fake Synth", editorOpen: false }]);
+    expect(answer.channels.loaded).toEqual([{ channel: "chan_synth", name: "Fake Synth", editorOpen: false, latency: 0 }]);
     expect(answer.channels.failed).toMatchObject([{ channel: "chan_missing" }]);
     expect((await engine.command("channelEditor", { channel: "chan_synth", open: true })).channels.loaded[0].editorOpen).toBe(true);
     await expect(engine.command("channelEditor", { channel: "chan_missing", open: true })).rejects.toMatchObject({ status: 409 });
     await expect(engine.command("channelEditor", { open: true })).rejects.toMatchObject({ status: 400 });
     await engine.saveStates();
+  });
+
+  it("runs the mixer's effects: loaded by their ids, their windows opened", async () => {
+    const delay = (await engine.plugins()).find((p) => !p.isInstrument)!;
+    const song = setEffect(createMusicProject("Effects"), "insert_1", 0, delay, "fx_delay");
+    const answer = await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
+    expect(answer.effects.loaded).toEqual([{ effect: "fx_delay", name: "Fake Delay", editorOpen: false, latency: 0 }]);
+    expect((await engine.command("effectEditor", { effect: "fx_delay", open: true })).effects.loaded[0].editorOpen).toBe(true);
+    await expect(engine.command("effectEditor", { effect: "fx_none", open: true })).rejects.toMatchObject({ status: 409 });
+    await expect(engine.command("effectEditor", { open: true })).rejects.toMatchObject({ status: 400 });
   });
 
   it("passes on the keys pressed in plugin windows, and tells the engine (a restarted one too) where the app's window is", async () => {

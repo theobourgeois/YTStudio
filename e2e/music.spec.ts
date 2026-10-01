@@ -665,3 +665,34 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
     .toBeGreaterThan(100);
   await page.getByRole("button", { name: "Stop", exact: true }).click();
 });
+
+test("an effect goes in a mixer track's slot: chosen from the effect plugins, its window opened by its name, bypassed, moved", async ({ page }) => {
+  const id = await openNewSong(page, "Effects");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  await expect(inspector).toContainText("Master");
+  const slots = async () => ((await savedSong(page, id)).mixer.tracks[0].effects as ({ plugin: { name: string }; enabled: boolean } | null)[]).map((e) => e && `${e.plugin.name}${e.enabled ? "" : " (off)"}`);
+
+  // A slot's menu lists the effect plugins (not the instruments).
+  await inspector.getByRole("button", { name: "Slot 2 menu" }).click();
+  await expect(page.getByRole("menuitem", { name: /Fake Synth/ })).toHaveCount(0);
+  await page.getByRole("menuitem", { name: /Fake Delay/ }).click();
+  await expect.poll(async () => (await slots()).slice(0, 3)).toEqual([null, "Fake Delay", null]);
+
+  // Its name opens its window (the engine's), and closes it again.
+  const name = inspector.getByRole("button", { name: /Fake Delay: open its window/ });
+  await name.click();
+  await expect(inspector.getByRole("button", { name: /Fake Delay: close its window/ })).toHaveAttribute("aria-pressed", "true");
+  await inspector.getByRole("button", { name: /Fake Delay: close its window/ }).click();
+  await expect(name).toHaveAttribute("aria-pressed", "false");
+
+  // Its light bypasses it; its menu moves it up, and deletes it.
+  await inspector.getByRole("button", { name: "Bypass Fake Delay" }).click();
+  await expect.poll(async () => (await slots())[1]).toBe("Fake Delay (off)");
+  await inspector.getByRole("button", { name: "Slot 2 menu" }).click();
+  await page.getByRole("menuitem", { name: "Move up" }).click();
+  await expect.poll(async () => (await slots()).slice(0, 2)).toEqual(["Fake Delay (off)", null]);
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await expect.poll(async () => (await slots()).every((s) => s === null)).toBe(true);
+});

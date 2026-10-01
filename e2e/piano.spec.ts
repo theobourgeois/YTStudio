@@ -156,14 +156,14 @@ test("selects and edits with FL Studio's keys: Ctrl+B repeats, arrows move, quan
   ]);
   const roll = page.getByTestId("piano-roll");
 
-  // Ctrl+B with nothing selected: all of it, the bar it's in repeated after it; the copies are selected.
+  // Ctrl+B with nothing selected: all of it, repeated straight after its end; the copies are selected.
   await page.keyboard.press("ControlOrMeta+b");
-  await expect.poll(async () => (await saved(page, id)).map((n) => n.start)).toEqual([0, 96, 192, 384, 480, 576]);
+  await expect.poll(async () => (await saved(page, id)).map((n) => n.start)).toEqual([0, 96, 192, 288, 384, 480]);
   await expect(roll).toHaveAttribute("data-selected", "3");
-  // Again: the copies of the copies, a bar further.
+  // Again: the copies of the copies, straight after them.
   await page.keyboard.press("ControlOrMeta+b");
   await expect.poll(async () => (await saved(page, id)).length).toBe(9);
-  await expect.poll(async () => Math.max(...(await saved(page, id)).map((n) => n.start))).toBe(768 + 192);
+  await expect.poll(async () => Math.max(...(await saved(page, id)).map((n) => n.start))).toBe(768);
 
   // Ctrl+drag selects a rectangle; Shift+arrows move it a snap unit (a step at this zoom) and a semitone.
   await page.keyboard.press("ControlOrMeta+d");
@@ -462,4 +462,18 @@ test("Ctrl (⌘) + middle-button drag zooms the keys, as does a middle-button dr
   const keys = (await page.getByRole("img", { name: "Keyboard" }).or(page.locator('canvas[aria-label="Keyboard"]')).first().boundingBox())!;
   await middleDrag(keys, 120);
   await expect(roll).toHaveAttribute("data-row-height", String(ROW / 2));
+});
+
+test("a note dragged to the grid's edges scrolls it, along time and down the keys, and goes along", async ({ page }) => {
+  const id = await openPiano(page, "Edge scroll", [{ start: 0, pitch: 72 }]);
+  const box = (await page.getByTestId("piano-grid").boundingBox())!;
+  const from = await at(page, 10, 72);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  // Held in the bottom-right corner: the grid scrolls right and down, the note under the pointer.
+  await page.mouse.move(box.x + box.width - 4, box.y + box.height - 4, { steps: 8 });
+  await page.waitForTimeout(600);
+  await page.mouse.up();
+  await expect.poll(async () => (await saved(page, id))[0].start).toBeGreaterThan(box.width / PX_PER_TICK);
+  expect((await saved(page, id))[0].pitch).toBeLessThan(TOP_PITCH - box.height / ROW);
 });

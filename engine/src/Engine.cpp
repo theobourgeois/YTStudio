@@ -26,16 +26,13 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
       bench (dataDir, pluginPaths, onlyPluginPaths, [this] {
           // A scan has ended (or a bench window closed): a plugin the song was missing may be there now.
           plugins.forgetFailures();
+          effects.forgetFailures();
           if (! lastSong.isVoid())
               applySong();
           sendStatus();
       }),
-      plugins (bench.formatManager(), bench.knownPlugins(), [this] {
-          // A plugin has loaded (or its window was closed): the song gets it, and the server is told.
-          if (! lastSong.isVoid())
-              applySong();
-          sendStatus();
-      })
+      plugins (bench.formatManager(), bench.knownPlugins(), "channel", [this] { pluginChanged(); }),
+      effects (bench.formatManager(), bench.knownPlugins(), "effect", [this] { pluginChanged(); })
 {
     dataDir.createDirectory();
     if (offline)
@@ -63,6 +60,7 @@ Engine::~Engine()
 {
     stopTimer();
     plugins.saveStates();
+    effects.saveStates();
     if (! offline)
     {
         devices.removeAudioCallback (this);
@@ -91,6 +89,7 @@ juce::var Engine::status() const
         { "peak", peak.load() },
         { "transport", transport() },
         { "channels", plugins.describe() },
+        { "effects", effects.describe() },
         { "scanning", bench.scanning() },
         { "pluginCount", bench.pluginCount() },
         { "instrument", bench.instrument.describe() },
@@ -154,7 +153,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         juce::Array<juce::var> ids;
         for (const auto& id : applySong())
             ids.add (id);
-        return reply (juce::Result::ok(), protocol::object ({ { "unreadable", ids }, { "channels", plugins.describe() } }));
+        return reply (juce::Result::ok(), protocol::object ({ { "unreadable", ids }, { "channels", plugins.describe() }, { "effects", effects.describe() } }));
     }
     if (command == "channelEditor")
     {
@@ -162,14 +161,22 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             return reply (fail ("That channel's plugin isn't loaded."), {});
         return ok();
     }
+    if (command == "effectEditor")
+    {
+        if (! effects.showEditor (params["effect"].toString(), (bool) params["open"]))
+            return reply (fail ("That effect's plugin isn't loaded."), {});
+        return ok();
+    }
     if (command == "host")
     {
         plugins.setHost (params);
+        effects.setHost (params);
         return ok();
     }
     if (command == "saveStates")
     {
         plugins.saveStates();
+        effects.saveStates();
         return ok();
     }
     if (command == "play" || command == "stop")
@@ -273,8 +280,16 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
 juce::StringArray Engine::applySong()
 {
     juce::StringArray unreadable;
-    sequencer.setSong (Song::parse (lastSong, samples, plugins, unreadable, mix.getNumSamples()));
+    sequencer.setSong (Song::parse (lastSong, samples, plugins, effects, unreadable, mix.getNumSamples()));
     return unreadable;
+}
+
+void Engine::pluginChanged()
+{
+    // A plugin has loaded (or its window was closed): the song gets it, and the server is told.
+    if (! lastSong.isVoid())
+        applySong();
+    sendStatus();
 }
 
 void Engine::timerCallback()
@@ -312,6 +327,7 @@ void Engine::start (double rate, int block)
     mix.setSize (2, juce::jmax (4096, block * 2), false, false, true);
     sequencer.prepare (rate);
     plugins.prepare (rate, block);
+    effects.prepare (rate, block);
     bench.prepare (rate, block);
     // The song's mixer buffers are as long as `mix`: longer blocks need a song with longer ones.
     if (longer && ! lastSong.isVoid())

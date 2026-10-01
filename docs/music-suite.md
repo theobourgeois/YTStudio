@@ -67,8 +67,8 @@ The tab (src/suites/music/)                 The server (server/music/)          
 
 The detailed lists are at the end of each reference doc. The main ones:
 
-- **The mixer's effects aren't played yet**: its window routes, mixes and meters, and effect plugins can
-  be put in its slots, but the engine doesn't host them until the next step. No effect plugins on channels (the bench in the
+- **No delay compensation yet**: an effect that delays its sound (a linear-phase EQ, a look-ahead
+  limiter) puts its track late against the others. The engine reports each plugin's latency already. No effect plugins on channels (the bench in the
   audio dialog can load one, for testing only).
 - **No playlist**: only the current pattern plays, looped (FL's pattern mode). No song mode, no
   arrangement, no audio clips.
@@ -102,7 +102,10 @@ over a block; tested offline), and meters (each track's loudest level on each si
 transport event, after its fader, in `EngineEvent` "transport" as `meters`, kept in `useTransport`), and
 the Mixer window (F9, `src/suites/music/mixer/`: strips, the send row, the track menu, the inspector's
 effect slots, FL's keys; the track selector on the rack, Alt+M, and TRACK in a channel's window).
-Next: effect plugins (the engine hosts what the slots hold), latency, the stock EQ, the assistant's tools.
+Effect plugins: the engine hosts what the slots hold (a second `PluginHost`, by effect id), runs them
+on the track before its fader with bypass and mix, keeps their states beside the project, and opens
+their windows from the slot's name; tested offline with our test effect (`engine/test-plugin/`).
+Next: latency (and its compensation), the track EQ, the assistant's tools.
 
 What Théo needs: his effect plugins (Pro-Q, Pro-R, EchoBoy) on channels and on the master, levels, and a
 stock EQ.
@@ -202,5 +205,5 @@ note properties sent to plugins (MPE, or per-note controllers); plugin delay com
 - `pnpm test` runs the engine's integration tests too when it's built (they're skipped otherwise). The e2e
   suite uses the stand-in engine (`server/music/fake-engine.mjs`): answer any new command there.
 - `pnpm test:e2e music` and `pnpm test:e2e piano` run the music suite's browser tests alone.
-- The test synth (`engine/test-plugin/`) is a VST3 of our own: tests use it instead of anyone's plugins.
+- The test synth and test effect (`engine/test-plugin/`) are VST3s of our own: tests use them instead of anyone's plugins.
 - To hear things for real, run `pnpm dev`, make a music project, and add Serum 2 with the rack's +.

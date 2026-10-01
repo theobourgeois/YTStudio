@@ -11,7 +11,9 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
 import { addPluginChannel, setSteps } from "../../shared/music/edits.ts";
+import { routeChannels, setEffect, updateEffect } from "../../shared/music/mixer.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
+import type { MusicProject } from "../../shared/music/types.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
 import { peakOf, readWav } from "./wav.ts";
@@ -23,12 +25,13 @@ describe.skipIf(!built)("the audio engine, offline", () => {
   let dir: string;
   let engine: AudioEngine;
   let synthId: string;
+  let effectId: string;
 
   beforeAll(async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "engine-offline-"));
     // Only our own test synth: a scan of this computer's plugins would be slow and differ per machine.
     engine = new AudioEngine(new DataPaths(dir), { offline: true, onlyPluginPaths: true });
-    synthId = await scanForTestSynth(engine);
+    ({ synth: synthId, effect: effectId } = await scanForTestPlugins(engine));
   });
   afterAll(async () => {
     engine.shutdown();
@@ -136,6 +139,48 @@ describe.skipIf(!built)("the audio engine, offline", () => {
     expect((await engine.setSong({ projectId: project, song: missing, patternId: null })).channels.failed).toMatchObject([{ channel: "chan_none" }]);
   });
 
+  it("runs a mixer track's effects on its sound: in order, bypassed, mixed, their state kept beside the project", async () => {
+    const project = "proj_0123456789ab";
+    const gain = { id: effectId, name: "Vaudio Test Effect", format: "VST3" };
+    let song = addPluginChannel(createMusicProject("Effects"), { id: synthId, name: "Vaudio Test Synth", format: "VST3" }, "chan_synth");
+    song = routeChannels(song, ["chan_synth"], "insert_1");
+    const withGain = setEffect(song, "insert_1", 0, gain, "fx_gain");
+    /** The held note's level through the song as it is now (after it's settled). */
+    const level = async (next: MusicProject) => {
+      await engine.setSong({ projectId: project, song: next, patternId: null });
+      await engine.render(SECOND / 4);
+      return (await engine.render(SECOND / 4)).peak;
+    };
+
+    // The effect loads in the background, as an instrument does.
+    const first = await engine.setSong({ projectId: project, song: withGain, patternId: null });
+    expect([...first.effects.loading, ...first.effects.loaded.map((e) => e.effect)]).toEqual(["fx_gain"]);
+    await expect.poll(async () => (await engine.command("status", {})).effects.loaded.map((e) => e.effect)).toEqual(["fx_gain"]);
+    await expect.poll(async () => (await engine.command("status", {})).channels.loaded.map((c) => c.channel)).toEqual(["chan_synth"]);
+    await engine.command("preview", { channel: "chan_synth", key: 69, on: true });
+
+    // A half (the test effect's gain), nothing when bypassed, three quarters at half mix; two of them, a quarter.
+    const dry = await level(updateEffect(withGain, "insert_1", 0, { enabled: false }));
+    expect(dry).toBeGreaterThan(0.05);
+    expect((await level(withGain)) / dry).toBeCloseTo(0.5, 2);
+    expect((await level(updateEffect(withGain, "insert_1", 0, { mix: 0.5 }))) / dry).toBeCloseTo(0.75, 2);
+    const two = setEffect(withGain, "insert_1", 4, gain, "fx_gain_2");
+    await expect.poll(async () => (await engine.setSong({ projectId: project, song: two, patternId: null })).effects.loaded.length).toBe(2);
+    expect((await level(two)) / dry).toBeCloseTo(0.25, 2);
+    await engine.command("preview", { channel: "chan_synth", key: 69, on: false });
+
+    // Its state is a file beside the project's, by the effect's id; its window opens by that id.
+    await engine.saveStates();
+    expect((await fs.stat(path.join(dir, "projects", project, "plugins", "fx_gain.bin"))).size).toBeGreaterThan(0);
+    await expect(engine.command("effectEditor", { effect: "fx_none", open: true })).rejects.toMatchObject({ status: 409 });
+
+    // Removed, it goes; an effect that isn't on this computer says so, and the rest plays.
+    expect((await engine.setSong({ projectId: project, song, patternId: null })).effects).toEqual({ loaded: [], loading: [], failed: [] });
+    const missing = setEffect(song, "insert_1", 0, { id: "VST3-Nothing-0-0", name: "Nothing", format: "VST3" }, "fx_none");
+    expect((await engine.setSong({ projectId: project, song: missing, patternId: null })).effects.failed).toMatchObject([{ effect: "fx_none" }]);
+    await engine.setSong({ projectId: project, song: createMusicProject("Empty"), patternId: null });
+  });
+
   it("keeps a plugin's state across saving, unloading and restoring", async () => {
     await engine.command("load", { slot: "instrument", pluginId: synthId });
     expect((await engine.command("saveState", { slot: "instrument" })).instrument?.hasSavedState).toBe(true);
@@ -146,8 +191,8 @@ describe.skipIf(!built)("the audio engine, offline", () => {
   });
 });
 
-/** Scan, wait for it, and answer with the test synth's id. */
-async function scanForTestSynth(engine: AudioEngine): Promise<string> {
+/** Scan, wait for it, and answer with the test synth's id and the test effect's. */
+async function scanForTestPlugins(engine: AudioEngine): Promise<{ synth: string; effect: string }> {
   await engine.command("scan", {});
   for (;;) {
     const status = await engine.command("status", {});
@@ -155,8 +200,10 @@ async function scanForTestSynth(engine: AudioEngine): Promise<string> {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   const plugins = await engine.plugins();
-  expect(plugins.map((p) => p.name)).toEqual(["Vaudio Test Synth"]);
-  const [synth] = plugins;
-  if (!synth) throw new Error("The test synth wasn't found: run `pnpm engine:build`.");
-  return synth.id;
+  expect(plugins.map((p) => p.name).sort()).toEqual(["Vaudio Test Effect", "Vaudio Test Synth"]);
+  const synth = plugins.find((p) => p.name === "Vaudio Test Synth");
+  const effect = plugins.find((p) => p.name === "Vaudio Test Effect");
+  if (!synth || !effect) throw new Error("The test plugins weren't found: run `pnpm engine:build`.");
+  expect(effect.isInstrument).toBe(false);
+  return { synth: synth.id, effect: effect.id };
 }

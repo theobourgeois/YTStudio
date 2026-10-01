@@ -156,7 +156,7 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      notes, the metronome. Host.cpp: the song's plugin channels (instances, state files,
                      windows). Plugins.cpp: plugin scanning and the bench's two slots. Protocol.cpp:
                      the JSON lines. One file per job: split a file rather than let it grow past a few hundred
-                     lines. test-plugin/ is a VST3 synth of our own to test with.
+                     lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain).
 electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
                      main process and shows the page in a window; packaged, data is in userData, in development ./data.
                      gl-window.ts: the export's compositor page in a hidden window (`setGlPageOpener`), so no Playwright.
@@ -286,7 +286,10 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   A track has `EFFECT_SLOTS` effect slots (null is empty) and `sends` (post-fader, the master's by default).
   Sends never make a loop: `normalizeMusicProject` drops one and `setSend` refuses it (`canSend`), so
   `compileSong` can always order the tracks (`trackOrder`: each after its senders, the master last). Its edits
-  are in `shared/music/mixer.ts`. An effect's settings are a file like a plugin channel's, by the effect's id.
+  are in `shared/music/mixer.ts`. An effect's settings are a file like a plugin channel's, by the effect's id:
+  the engine has a second `PluginHost` for the mixer's effects (keyed by effect id, `EngineStatus.effects`,
+  the `effectEditor` command), and each track runs its loaded, enabled effects in order before its fader,
+  blending by its mix (`Sequencer::runEffect`).
   The Mixer window is `src/suites/music/mixer/` (F9): `mixer-window.tsx` (strips, the send row, menus),
   `inspector.tsx` (effect slots), `fader.tsx`, `meters.ts` (one animation loop draws every strip's meter from
   `useTransport().meters`; the falling in `meter.ts`, tested), `actions.ts` (what menus and keys do), `keys.ts`

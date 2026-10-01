@@ -248,8 +248,10 @@ make a loop; its menu routes only there or sidechains); the track menu (rename, 
 routing, select its channels, solo, Alt solo, move, insert, delete); a double-click or F2 renames; +
 adds a track after the selected one; S, Alt+S, Ctrl+L, Ctrl+Shift+L, Alt+L, ← / →, Alt+← / →, Ctrl+A;
 the rack's track selectors (Alt+M), its Ctrl+L (free tracks named after the channels) and TRACK in a
-channel's window (a click on the word routes to a free track). The effect slots (choose, replace,
-delete, move by menu or the wheel, mix, on) edit the song, but the engine doesn't play them yet.
+channel's window (a click on the word routes to a free track). The effect slots: choose, replace,
+delete, move (by menu or the wheel), mix, on; the effect's name opens its own window (the engine's,
+as an instrument's), and the engine runs the effects on the track before its fader. Bypassed, an effect
+isn't run at all (FL does the same: its slot's mute).
 
 Not yet, or different: the routing cables, docks, colours and icons, the Current track, the track EQ,
 stereo separation, phase and swap, delay compensation, recording, the slot's presets and Patcher, the

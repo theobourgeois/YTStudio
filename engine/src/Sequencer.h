@@ -101,6 +101,8 @@ private:
     void silencePlugins();
     void renderPlugins (int numSamples);
     void render (Voice& voice, int numSamples);
+    /** Put a track's sound through an effect, `mix` of it heard against the dry sound. */
+    void runEffect (HostedPlugin&, float mix, float* left, float* right, int numSamples);
     /** Run the mixer's tracks in order and add the master's sound to `left` and `right`. */
     void mixTracks (float* left, float* right, int numSamples);
     /** A channel's track's two buffers, or nulls if it has none. */

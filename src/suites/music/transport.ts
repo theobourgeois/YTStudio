@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineChannels, EngineMeters } from "@shared/music/engine";
+import type { EngineChannels, EngineEffects, EngineMeters } from "@shared/music/engine";
 import { musicApi } from "./api";
 
 /**
@@ -30,6 +30,8 @@ interface TransportState {
   unreadable: string[];
   /** The song's plugin channels as the engine has them: loaded (and whose window is open), loading, failed. */
   channels: EngineChannels;
+  /** The mixer's effects as the engine has them: loaded (and whose window is open), loading, failed. */
+  effects: EngineEffects;
   /** Why the engine can't be reached (it isn't built, it won't start), or null. */
   error: string | null;
 
@@ -41,6 +43,8 @@ interface TransportState {
   audition: (channelId: string, pitch?: number) => void;
   /** Show or close the window of a plugin channel's plugin. */
   showPlugin: (channelId: string, open: boolean) => void;
+  /** Show or close the window of an effect in the mixer. */
+  showEffect: (effectId: string, open: boolean) => void;
   /** Hold a key on a channel, or let it go (the Piano roll's keyboard, a note being drawn). `key` is a MIDI note. */
   preview: (channelId: string, key: number, on: boolean, velocity?: number) => void;
   setStartTick: (tick: number) => void;
@@ -50,6 +54,7 @@ interface TransportState {
 
 export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: [] };
 export const NO_METERS: EngineMeters = {};
+export const NO_EFFECTS: EngineEffects = { loaded: [], loading: [], failed: [] };
 
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
@@ -83,6 +88,7 @@ export const useTransport = create<TransportState>((set, get) => {
     startTick: 0,
     unreadable: [],
     channels: NO_CHANNELS,
+    effects: NO_EFFECTS,
     error: null,
 
     // From where the ruler was clicked, if that's inside what loops; the engine counts from the loop's start.
@@ -112,6 +118,12 @@ export const useTransport = create<TransportState>((set, get) => {
       musicApi.engine("channelEditor", { channel: channelId, open }).then(
         (status) => set({ channels: status.channels }),
         (err) => toast.error("Couldn't open the plugin", { description: errorMessage(err) }),
+      );
+    },
+    showEffect(effectId, open) {
+      musicApi.engine("effectEditor", { effect: effectId, open }).then(
+        (status) => set({ effects: status.effects }),
+        (err) => toast.error("Couldn't open the effect", { description: errorMessage(err) }),
       );
     },
   };

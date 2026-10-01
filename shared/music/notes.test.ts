@@ -29,6 +29,7 @@ import { byStart } from "./project.ts";
 import type { Note } from "./types.ts";
 
 const BAR = 384;
+const STEP = 24;
 /** Notes from a short description: [start, length, pitch]. Ids are 1, 2, 3... in the order given. */
 const make = (...specs: [number, number, number][]): Note[] =>
   specs.map(([start, length, pitch], i) => ({ id: i + 1, start, length, pitch, velocity: 0.78, pan: 0, muted: false })).sort(byStart);
@@ -185,20 +186,21 @@ describe("copies", () => {
     expect(cloneNotes(same, ids(), 10, 0).notes).toBe(same);
   });
 
-  it("duplicates a phrase into the bars after it", () => {
+  it("duplicates notes straight after themselves, by what they span rounded up to the grid", () => {
     // A bar of notes: the copy is a bar later.
-    const one = duplicateNotes(melody(), ids(), BAR);
+    const one = duplicateNotes(melody(), ids(), STEP);
     expect(one.interval).toBe(BAR);
     expect(one.created).toEqual([5, 6, 7, 8]);
     expect(one.notes.filter((n) => one.created.includes(n.id)).map((n) => n.start)).toEqual([384, 480, 576, 624]);
-    // Notes that fill half a bar still repeat a bar later: the bar they're in is what repeats.
-    const half = duplicateNotes(make([96, 48, 60], [144, 48, 62]), ids(), BAR);
-    expect(half.interval).toBe(BAR);
-    expect(half.notes.map((n) => n.start)).toEqual([96, 144, 480, 528]);
-    // A note that runs into the next bar: two bars repeat.
-    expect(duplicateNotes(make([0, 400, 60]), ids(), BAR).interval).toBe(2 * BAR);
-    // A phrase that starts in bar 2 repeats from there.
-    expect(duplicateNotes(make([400, 24, 60]), ids(), BAR).notes.map((n) => n.start)).toEqual([400, 784]);
+    // Notes that fill half a bar repeat half a bar later, wherever they start.
+    const half = duplicateNotes(make([96, 48, 60], [144, 48, 62]), ids(), STEP);
+    expect(half.interval).toBe(96);
+    expect(half.notes.map((n) => n.start)).toEqual([96, 144, 192, 240]);
+    // One short note: the copy starts where it ends.
+    expect(duplicateNotes(make([400, 24, 60]), ids(), STEP).notes.map((n) => n.start)).toEqual([400, 424]);
+    // A span that isn't whole cells is rounded up to the next; with no snap (a grid of a tick), it's exact.
+    expect(duplicateNotes(make([0, 30, 60]), ids(), STEP).interval).toBe(48);
+    expect(duplicateNotes(make([0, 30, 60]), ids(), 1).interval).toBe(30);
   });
 
   it("duplicates only what's selected, and by the time selection's length when there is one", () => {

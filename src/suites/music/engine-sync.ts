@@ -4,7 +4,7 @@ import { musicApi } from "./api";
 import { usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusic } from "./store";
-import { NO_CHANNELS, NO_METERS, useTransport } from "./transport";
+import { NO_CHANNELS, NO_EFFECTS, NO_METERS, useTransport } from "./transport";
 
 /**
  * Keeps the audio engine playing the open song: every change of the document (even mid-drag, so a
@@ -29,8 +29,13 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       if (stopped || !projectId || !history) break;
       try {
         // The Piano roll's time selection is what loops, while there is one. A draft pattern shown plays (empty).
-        const { unreadable, channels, loop } = await musicApi.setSong({ projectId, song: withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern)), patternId, loop: usePiano.getState().time });
-        useTransport.setState({ unreadable, channels, loop, error: null });
+        const { unreadable, channels, effects, loop } = await musicApi.setSong({ projectId, song: withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern)), patternId, loop: usePiano.getState().time });
+        useTransport.setState({ unreadable, channels, effects: effects ?? NO_EFFECTS, loop, error: null });
+        // A plugin that finished loading while this answer was on its way said so first: ask again, so the
+        // answer's "loading" doesn't stand.
+        if (channels.loading.length || effects?.loading.length) {
+          void musicApi.engine("status", {}).then((status) => !stopped && useTransport.setState({ channels: status.channels, effects: status.effects ?? NO_EFFECTS }), () => {});
+        }
       } catch (err) {
         useTransport.setState({ error: errorMessage(err) });
         break;
@@ -54,7 +59,12 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       onKey(key);
     } else if (event.event === "status") {
       // Its status changed on its own: a plugin finished loading, or its window was closed by hand.
-      useTransport.setState({ latencyMs: event.status.outputLatencyMs, metronome: event.status.transport.metronome, channels: event.status.channels });
+      useTransport.setState({
+        latencyMs: event.status.outputLatencyMs,
+        metronome: event.status.transport.metronome,
+        channels: event.status.channels,
+        effects: event.status.effects ?? NO_EFFECTS,
+      });
     } else {
       // A restarted engine: the server gives it the song back, but it isn't playing any more.
       useTransport.setState({ playing: false, tick: 0 });
@@ -84,6 +94,6 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     if (useTransport.getState().playing) void musicApi.engine("stop", {}).catch(() => {});
     // What's been turned in the plugins' own windows is kept.
     void musicApi.saveStates().catch(() => {});
-    useTransport.setState({ playing: false, tick: 0, peak: 0, meters: NO_METERS, unreadable: [], channels: NO_CHANNELS });
+    useTransport.setState({ playing: false, tick: 0, peak: 0, meters: NO_METERS, unreadable: [], channels: NO_CHANNELS, effects: NO_EFFECTS });
   };
 }

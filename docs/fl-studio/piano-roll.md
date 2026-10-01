@@ -105,8 +105,9 @@ This is the "select in red and only that plays" feature.
   selection are independent: the notes say what's copied, the time selection says how far.
 - The copy becomes the selection and the time selection moves with it, so pressing Ctrl+B again adds
   another repeat. (Théo)
-- Without a time selection, the distance is the bars the notes span: from the start of the first note's
-  bar to the end of the last note's, rounded up to a bar. (Théo)
+- Without a time selection, the distance is what the notes span, from the first one's start to the last
+  one's end, rounded up to the snap's grid: the copy starts right where the original ends, so one
+  short note is repeated straight after itself, not a bar later. (Théo)
 
 ## Snap
 

@@ -29,8 +29,8 @@ HostedPlugin::~HostedPlugin()
         instance->releaseResources();
 }
 
-PluginHost::PluginHost (juce::AudioPluginFormatManager& f, juce::KnownPluginList& k, std::function<void()> onChange)
-    : formats (f), known (k), changed (std::move (onChange))
+PluginHost::PluginHost (juce::AudioPluginFormatManager& f, juce::KnownPluginList& k, juce::String key, std::function<void()> onChange)
+    : formats (f), known (k), ownerKey (std::move (key)), changed (std::move (onChange))
 {
 }
 
@@ -41,56 +41,56 @@ PluginHost::~PluginHost()
     saveStates();
 }
 
-std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& channelId, const juce::String& pluginId, const juce::File& stateFile, const juce::String& channelName)
+std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& ownerId, const juce::String& pluginId, const juce::File& stateFile, const juce::String& ownerName)
 {
-    if (const auto found = loaded.find (channelId); found != loaded.end())
+    if (const auto found = loaded.find (ownerId); found != loaded.end())
     {
         if (found->second->pluginId == pluginId)
         {
             // Renamed: its window's title says so.
-            if (auto& hosted = *found->second; hosted.channelName != channelName)
+            if (auto& hosted = *found->second; hosted.ownerName != ownerName)
             {
-                hosted.channelName = channelName;
+                hosted.ownerName = ownerName;
                 if (hosted.window != nullptr)
                     hosted.window->setName (titleOf (hosted));
             }
             return found->second;
         }
-        // The channel has another plugin now.
+        // The owner has another plugin now.
         save (*found->second);
         loaded.erase (found);
     }
-    if (const auto busy = loading.find (channelId); busy != loading.end() && busy->second == pluginId)
+    if (const auto busy = loading.find (ownerId); busy != loading.end() && busy->second == pluginId)
         return nullptr;
-    if (const auto broken = failed.find (channelId); broken != failed.end())
+    if (const auto broken = failed.find (ownerId); broken != failed.end())
         return nullptr;
 
     const auto description = known.getTypeForIdentifierString (pluginId);
     if (description == nullptr)
     {
-        failed[channelId] = "This plugin isn't installed on this computer (or hasn't been scanned).";
+        failed[ownerId] = "This plugin isn't installed on this computer (or hasn't been scanned).";
         return nullptr;
     }
 
-    loading[channelId] = pluginId;
+    loading[ownerId] = pluginId;
     formats.createPluginInstanceAsync (*description, sampleRate, blockSize,
-                                       [this, stillAlive = alive, channelId, pluginId, stateFile, channelName] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
+                                       [this, stillAlive = alive, ownerId, pluginId, stateFile, ownerName] (std::unique_ptr<juce::AudioPluginInstance> created, const juce::String& error) {
                                            if (! *stillAlive)
                                                return;
                                            // Asked for something else (or nothing) since.
-                                           if (const auto busy = loading.find (channelId); busy == loading.end() || busy->second != pluginId)
+                                           if (const auto busy = loading.find (ownerId); busy == loading.end() || busy->second != pluginId)
                                                return;
-                                           loading.erase (channelId);
+                                           loading.erase (ownerId);
                                            if (created == nullptr)
                                            {
-                                               failed[channelId] = error.isNotEmpty() ? error : "The plugin couldn't be loaded.";
+                                               failed[ownerId] = error.isNotEmpty() ? error : "The plugin couldn't be loaded.";
                                                return changed();
                                            }
 
                                            auto hosted = std::make_shared<HostedPlugin>();
-                                           hosted->channelId = channelId;
+                                           hosted->ownerId = ownerId;
                                            hosted->pluginId = pluginId;
-                                           hosted->channelName = channelName;
+                                           hosted->ownerName = ownerName;
                                            hosted->stateFile = stateFile;
                                            hosted->instance = std::move (created);
                                            configurePlugin (*hosted->instance, sampleRate, blockSize);
@@ -104,28 +104,28 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& channelId, co
                                            const auto channels = juce::jmax (2, hosted->instance->getTotalNumInputChannels(), hosted->instance->getTotalNumOutputChannels());
                                            hosted->buffer.setSize (channels, maxBlock);
                                            hosted->midi.ensureSize (4096);
-                                           loaded[channelId] = std::move (hosted);
+                                           loaded[ownerId] = std::move (hosted);
                                            changed();
                                        });
     return nullptr;
 }
 
-void PluginHost::keepOnly (const juce::StringArray& channelIds)
+void PluginHost::keepOnly (const juce::StringArray& ownerIds)
 {
     for (auto it = loaded.begin(); it != loaded.end();)
     {
-        if (channelIds.contains (it->first))
+        if (ownerIds.contains (it->first))
         {
             ++it;
             continue;
         }
-        // Its state is kept: undoing the channel's removal brings the plugin back as it was.
+        // Its state is kept: undoing the owner's removal brings the plugin back as it was.
         save (*it->second);
         it->second->window.reset();
         it = loaded.erase (it);
     }
-    std::erase_if (loading, [&] (const auto& entry) { return ! channelIds.contains (entry.first); });
-    std::erase_if (failed, [&] (const auto& entry) { return ! channelIds.contains (entry.first); });
+    std::erase_if (loading, [&] (const auto& entry) { return ! ownerIds.contains (entry.first); });
+    std::erase_if (failed, [&] (const auto& entry) { return ! ownerIds.contains (entry.first); });
 }
 
 void PluginHost::save (HostedPlugin& hosted)
@@ -148,9 +148,9 @@ void PluginHost::saveStates()
         save (*hosted);
 }
 
-bool PluginHost::showEditor (const juce::String& channelId, bool open)
+bool PluginHost::showEditor (const juce::String& ownerId, bool open)
 {
-    const auto found = loaded.find (channelId);
+    const auto found = loaded.find (ownerId);
     if (found == loaded.end())
         return false;
     auto& hosted = *found->second;
@@ -160,11 +160,11 @@ bool PluginHost::showEditor (const juce::String& channelId, bool open)
         return true;
     }
     if (hosted.window == nullptr)
-        hosted.window = std::make_unique<EditorWindow> (*hosted.instance, titleOf (hosted), [this, stillAlive = alive, channelId] {
-            juce::MessageManager::callAsync ([this, stillAlive, channelId] {
+        hosted.window = std::make_unique<EditorWindow> (*hosted.instance, titleOf (hosted), [this, stillAlive = alive, ownerId] {
+            juce::MessageManager::callAsync ([this, stillAlive, ownerId] {
                 if (! *stillAlive)
                     return;
-                if (const auto it = loaded.find (channelId); it != loaded.end())
+                if (const auto it = loaded.find (ownerId); it != loaded.end())
                     it->second->window.reset();
                 changed();
             });
@@ -177,7 +177,7 @@ bool PluginHost::showEditor (const juce::String& channelId, bool open)
 juce::String PluginHost::titleOf (const HostedPlugin& hosted)
 {
     const auto name = hosted.instance->getName();
-    return hosted.channelName.isEmpty() || hosted.channelName == name ? name : name + " (" + hosted.channelName + ")";
+    return hosted.ownerName.isEmpty() || hosted.ownerName == name ? name : name + " (" + hosted.ownerName + ")";
 }
 
 void PluginHost::setHost (const juce::var& host)
@@ -247,10 +247,10 @@ juce::var PluginHost::describe() const
 {
     juce::Array<juce::var> ready, busy, broken;
     for (const auto& [id, hosted] : loaded)
-        ready.add (protocol::object ({ { "channel", id }, { "name", hosted->instance->getName() }, { "editorOpen", hosted->window != nullptr } }));
+        ready.add (protocol::object ({ { ownerKey.toRawUTF8(), id }, { "name", hosted->instance->getName() }, { "editorOpen", hosted->window != nullptr }, { "latency", hosted->instance->getLatencySamples() } }));
     for (const auto& [id, plugin] : loading)
         busy.add (id);
     for (const auto& [id, error] : failed)
-        broken.add (protocol::object ({ { "channel", id }, { "error", error } }));
+        broken.add (protocol::object ({ { ownerKey.toRawUTF8(), id }, { "error", error } }));
     return protocol::object ({ { "loaded", ready }, { "loading", busy }, { "failed", broken } });
 }

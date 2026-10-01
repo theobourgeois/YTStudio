@@ -53,6 +53,7 @@ export interface EngineStatus {
   peak: number;
   transport: EngineTransport & { metronome: boolean };
   channels: EngineChannels;
+  effects: EngineEffects;
   /** A plugin scan in progress. */
   scanning: { progress: number; name: string } | null;
   pluginCount: number;
@@ -62,8 +63,8 @@ export interface EngineStatus {
 
 /** The song's plugin channels, as the engine has them. */
 export interface EngineChannels {
-  /** Ready to play. `editorOpen`: the plugin's own window is showing. */
-  loaded: { channel: string; name: string; editorOpen: boolean }[];
+  /** Ready to play. `editorOpen`: the plugin's own window is showing. `latency`: the samples it delays its sound by. */
+  loaded: { channel: string; name: string; editorOpen: boolean; latency: number }[];
   /** Channel ids whose plugin is still being loaded. */
   loading: string[];
   /** Channels whose plugin couldn't be loaded (it isn't installed here, or it failed), and why. */
@@ -75,6 +76,16 @@ export interface EngineChannels {
  * last said, by track id. Tracks that were silent are left out.
  */
 export type EngineMeters = Record<string, [number, number]>;
+
+/** The effects in the song's mixer, as the engine has them (by effect id, `MixerEffect.id`). */
+export interface EngineEffects {
+  /** Ready to run. `editorOpen`: the plugin's own window is showing. `latency`: the samples it delays its sound by. */
+  loaded: { effect: string; name: string; editorOpen: boolean; latency: number }[];
+  /** Effect ids whose plugin is still being loaded. */
+  loading: string[];
+  /** Effects whose plugin couldn't be loaded, and why. */
+  failed: { effect: string; error: string }[];
+}
 
 export interface EngineTransport {
   playing: boolean;
@@ -134,6 +145,7 @@ export interface SetSongResponse {
   /** Channels whose sample the engine couldn't read (they're silent). */
   unreadable: string[];
   channels: EngineChannels;
+  effects: EngineEffects;
   /** What plays, in the pattern's ticks: from `start`, `ticks` long, round and round. The engine's ticks count from `start`. */
   loop: { start: number; ticks: number };
 }
@@ -180,6 +192,8 @@ export interface EngineCommands {
   preview: { channel: string; key: number; on: boolean; velocity?: number };
   /** Show or close the window of a plugin channel's plugin. */
   channelEditor: { channel: string; open: boolean };
+  /** Show or close the window of an effect in the mixer (by `MixerEffect.id`). */
+  effectEditor: { effect: string; open: boolean };
   /** Play a test tone (through the effect). */
   tone: { on: boolean };
   /** Look for plugins; the status says how far along it is. `rescan` forgets the known ones first. */

@@ -96,7 +96,20 @@ struct Song
             int previous = -1;
         };
 
+        /** An effect in one of its slots. */
+        struct Effect
+        {
+            /** Once it's loaded (the effect is skipped until then). */
+            std::shared_ptr<HostedPlugin> plugin;
+            /** Off: bypassed, not run. */
+            bool enabled = true;
+            /** 0..1 of the effect's sound against the dry sound. */
+            float mix = 1;
+        };
+
         juce::String id;
+        /** In the order the sound goes through them. */
+        std::vector<Effect> effects;
         std::array<float, 4> gains { 1, 0, 0, 1 };
         std::array<float, 4> from { 1, 0, 0, 1 };
         std::vector<Send> sends;
@@ -138,6 +151,9 @@ struct Song
 
     int channelIndex (const juce::String& id) const;
 
-    /** From the JSON of an `EngineSong`. `unreadable` gets the ids of channels whose sample couldn't be read. */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, juce::StringArray& unreadable, int capacity);
+    /**
+     * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the
+     * mixer's; `unreadable` gets the ids of channels whose sample couldn't be read.
+     */
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, juce::StringArray& unreadable, int capacity);
 };
