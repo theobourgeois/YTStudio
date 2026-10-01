@@ -6,7 +6,7 @@ import { errorMessage } from "@shared/errors";
 import type { EnginePlugin } from "@shared/music/engine";
 import { Input } from "@/components/ui/input";
 import { musicApi } from "./api";
-import { PINNED, type PickerItem, besideIndex, pickerColumns, pickerOrder } from "./plugin-groups";
+import { PINNED, type PickerItem, besideIndex, pickerColumns, pickerOrder, pickerSize } from "./plugin-groups";
 
 const PINS_KEY = "vaudio.music.pinnedPlugins";
 
@@ -68,13 +68,15 @@ interface PluginPickerProps {
  * narrows at once), then the plugins by kind (EQ, Reverb, Synth...), the pinned ones first (and in their
  * own group too), one line each. The groups run down a column and on into the next, as a newspaper's
  * do. A pin on each, shown on hover. Up and down go through them in order, left and right to the one
- * level with it in the next column; Enter chooses.
+ * level with it in the next column; Enter chooses. Few plugins, it's only as big as they need (`pickerSize`).
  */
 export function PluginPicker({ noun, items, loading, error, firstGroups, onChoose, footer }: PluginPickerProps) {
   const [query, setQuery] = useState("");
   const pinned = usePluginPins((s) => s.pinned);
   const columns = useMemo(() => pickerColumns(items, pinned, query, firstGroups), [items, pinned, query, firstGroups]);
   const order = useMemo(() => pickerOrder(columns), [columns]);
+  // Its size from all of them, not what's typed: it doesn't change size as the list narrows.
+  const size = useMemo(() => pickerSize(pickerColumns(items, pinned, "", firstGroups)), [items, pinned, firstGroups]);
   const [at, setAt] = useState(0);
   const list = useRef<HTMLDivElement>(null);
   const highlighted = order[Math.min(at, order.length - 1)]?.item ?? null;
@@ -99,7 +101,12 @@ export function PluginPicker({ noun, items, loading, error, firstGroups, onChoos
 
   let index = 0;
   return (
-    <div className="flex w-[min(52rem,calc(100vw-4rem))] flex-col gap-1.5" data-testid={`${noun}-picker`}>
+    <div
+      className={cn("flex flex-col gap-1.5", !size && "w-[min(52rem,calc(100vw-4rem))]")}
+      // A column is 11rem, a line 1.5rem (and the list's border); two columns at least, for the search field.
+      style={size ? { width: `calc(${Math.max(2, size.columns) * 11}rem + 2px)` } : undefined}
+      data-testid={`${noun}-picker`}
+    >
       <Input
         autoFocus
         aria-label={`Find an ${noun}`}
@@ -124,7 +131,9 @@ export function PluginPicker({ noun, items, loading, error, firstGroups, onChoos
           e.stopPropagation();
         }}
       />
-      <div ref={list} role="listbox" aria-label={`${noun[0].toUpperCase()}${noun.slice(1)}s`} className="h-[min(22rem,60vh)] overflow-x-auto overflow-y-hidden rounded-sm border border-line bg-popover">
+      <div ref={list} role="listbox" aria-label={`${noun[0].toUpperCase()}${noun.slice(1)}s`} className={cn("overflow-x-auto overflow-y-hidden rounded-sm border border-line bg-popover", !size && "h-[min(22rem,60vh)]")}
+        style={size ? { height: `min(max(3rem, ${size.rows * 1.5 + 0.25}rem + 2px), 60vh)` } : undefined}
+      >
         {/* Newspaper columns: a group runs down a column and on into the next; never a header left alone at a column's foot. */}
         <div className="h-full [column-fill:auto] [column-gap:0] [column-rule:1px_solid_var(--line)] [column-width:11rem]">
           {columns.map((column) => (

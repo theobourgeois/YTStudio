@@ -69,6 +69,23 @@ export function pickerColumns(items: readonly PickerItem[], pinned: readonly str
   return pins.length ? [{ title: PINNED, items: pins }, ...columns] : columns;
 }
 
+/** Lines (a group's title or an item) a column of the picker holds before the next one starts. */
+export const PICKER_ROWS = 14;
+/** Columns side by side before the picker scrolls across instead. */
+export const PICKER_COLUMNS = 4;
+
+/**
+ * How big the picker is for these columns: few plugins, a few columns just tall enough for them; more than
+ * `PICKER_COLUMNS` of `PICKER_ROWS` hold, null (full size, scrolling across).
+ */
+export function pickerSize(columns: readonly PickerColumn[]): { columns: number; rows: number } | null {
+  const lines = columns.reduce((n, column) => n + 1 + column.items.length, 0);
+  const count = Math.max(1, Math.ceil(lines / PICKER_ROWS));
+  if (count > PICKER_COLUMNS) return null;
+  // A line spare in each: a group's title isn't left alone at a column's foot, so a column may end one short.
+  return { columns: count, rows: Math.min(PICKER_ROWS, Math.ceil(lines / count) + 1) };
+}
+
 /** Every item in the order the picker shows them (group after group), each with its group: up and down go through this. */
 export function pickerOrder(columns: readonly PickerColumn[]): { item: PickerItem; group: string }[] {
   return columns.flatMap((column) => column.items.map((item) => ({ item, group: column.title })));

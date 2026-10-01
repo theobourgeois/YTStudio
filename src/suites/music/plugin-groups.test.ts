@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EnginePlugin } from "@shared/music/engine";
-import { OTHER, PINNED, besideIndex, matches, pickerColumns, pickerItem, pickerOrder, pluginGroup } from "./plugin-groups";
+import { OTHER, PINNED, PICKER_COLUMNS, PICKER_ROWS, besideIndex, matches, pickerColumns, pickerItem, pickerOrder, pickerSize, pluginGroup } from "./plugin-groups";
 
 const plugin = (name: string, category: string, manufacturer = "Maker"): EnginePlugin => ({ id: `VST3-${name}`, name, format: "VST3", manufacturer, category, isInstrument: false });
 
@@ -45,5 +45,13 @@ describe("the plugin picker", () => {
     expect(besideIndex(rects, 1, 1)).toBe(3);
     expect(besideIndex(rects, 4, -1)).toBe(2);
     expect(besideIndex(rects, 3, 1)).toBeNull();
+  });
+
+  it("is as big as its plugins need: a short column for a few, more columns for more, then full size", () => {
+    const group = (title: string, n: number) => ({ title, items: Array.from({ length: n }, (_, i) => pickerItem(plugin(`${title}${i}`, `Fx|${title}`))) });
+    expect(pickerSize([])).toEqual({ columns: 1, rows: 1 });
+    expect(pickerSize([group("EQ", 2), group("Reverb", 1)])).toEqual({ columns: 1, rows: 6 });
+    expect(pickerSize([group("EQ", 10), group("Reverb", 10)])).toEqual({ columns: 2, rows: 12 });
+    expect(pickerSize([group("EQ", PICKER_ROWS * PICKER_COLUMNS)])).toBeNull();
   });
 });
