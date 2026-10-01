@@ -346,10 +346,13 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       aria-selected={selected}
       data-track={id}
       data-track-name={name}
-      className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r pb-1", dropTarget && "ring-2 ring-inset")}
+      data-muted={track.muted || undefined}
+      className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r pb-1 transition-[opacity,filter] duration-150", dropTarget && "ring-2 ring-inset")}
       style={{
         width: STRIP_WIDTHS[view],
         ...stripLook(track.color, selected),
+        // Muted, the whole strip is faded and greyed: off at a glance.
+        ...(track.muted && { opacity: "var(--mixer-muted-opacity)", filter: "saturate(0.35)" }),
         borderColor: "var(--mixer-line)",
         // A divider: a gap of the mixer's background down its left edge (its width stays the same, so the strips scroll as they did).
         ...(separator && { borderLeft: "5px solid var(--mixer-bg)" }),
