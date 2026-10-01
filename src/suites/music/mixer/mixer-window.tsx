@@ -25,6 +25,7 @@ import { currentTrackId, useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import {
   addTrackAfterCurrent,
+  colourTrack,
   copyTrackState,
   deleteTracks,
   moveSelectedTracks,
@@ -242,6 +243,8 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       onPointerDownCapture={(e) => {
         // The send switch acts for the selected track: pressing it doesn't select this one.
         if ((e.target as HTMLElement).closest("[data-send]")) return;
+        // A right-click on a selected track keeps the selection: its menu acts on all of them.
+        if (e.button === 2 && selected) return;
         const ui = useMusicUi.getState();
         if ((e.ctrlKey || e.metaKey) && e.shiftKey) ui.selectTrack(id, "add");
         // Dragging one of several selected faders moves them all: they stay selected.
@@ -340,20 +343,28 @@ function TrackFader({ track, name, selected }: { track: MixerTrack; name: string
   );
 }
 
-/** The name, being typed: Enter keeps it, Escape doesn't, an empty one goes back to the track's number. */
+/**
+ * The name, being typed: Enter gives it to the track (and to every selected track, if it's one of them);
+ * clicking away does too if it was changed; Escape doesn't. An empty name goes back to the track's number.
+ */
 function RenameField({ track, name }: { track: MixerTrack; name: string }) {
+  const initial = track.name ?? name;
+  const finished = useRef(false);
   const done = (value: string | null) => {
-    if (value !== null && value.trim() !== (track.name ?? "")) renameTrack(track.id, value);
+    // Once: the field's blur as it goes away comes after Enter or Escape.
+    if (finished.current) return;
+    finished.current = true;
+    if (value !== null) renameTrack(track.id, value);
     useMixerView.getState().rename(null);
   };
   return (
     <Input
       autoFocus
       aria-label="Track name"
-      defaultValue={track.name ?? name}
+      defaultValue={initial}
       className="absolute z-30 h-6 w-36 text-xs"
       onFocus={(e) => e.currentTarget.select()}
-      onBlur={(e) => done(e.currentTarget.value)}
+      onBlur={(e) => done(e.currentTarget.value !== initial ? e.currentTarget.value : null)}
       onKeyDown={(e) => {
         e.stopPropagation();
         if (e.key === "Enter") done(e.currentTarget.value);
@@ -383,11 +394,11 @@ function TrackMenu({ id, isMaster, color }: { id: string; isMaster: boolean; col
                 aria-label={COLOR_NAMES[i]}
                 className={cn("size-5 rounded-sm p-0 focus:ring-2 focus:ring-ring", color === swatch && "ring-2 ring-foreground")}
                 style={{ background: swatch }}
-                onSelect={() => commitTrack(id, { color: swatch })}
+                onSelect={() => colourTrack(id, swatch)}
               />
             ))}
           </div>
-          <ContextMenuItem disabled={!color} onSelect={() => commitTrack(id, { color: null })}>
+          <ContextMenuItem disabled={!color} onSelect={() => colourTrack(id, null)}>
             No colour
           </ContextMenuItem>
         </ContextMenuSubContent>

@@ -24,6 +24,7 @@ import {
   trackState,
   updateEffect,
   updateMixerTrack,
+  updateMixerTracks,
 } from "./mixer.ts";
 import { MASTER_TRACK_ID, MAX_INSERTS, createMusicProject } from "./project.ts";
 import type { MusicProject } from "./types.ts";
@@ -98,6 +99,9 @@ describe("mixer tracks", () => {
     expect(both.mixer.tracks.slice(1, 4).map((t) => t.volume)).toEqual([0.5, 0.3, 0.8]);
     expect(setMixerVolumes(song, new Map([["insert_1", NaN]]))).toBe(song);
     expect(mutes(setMixerMuted(song, ["insert_2"], true))).toEqual([false, false, true, false, false, false]);
+    const named = updateMixerTracks(song, ["insert_1", "insert_3"], { name: "Drums", color: "#e8833a" });
+    expect([1, 2, 3].map((n) => [named.mixer.tracks[n].name, named.mixer.tracks[n].color])).toEqual([["Drums", "#e8833a"], [null, null], ["Drums", "#e8833a"]]);
+    expect(updateMixerTracks(named, ["insert_1"], { name: "Drums" })).toBe(named);
   });
 });
 

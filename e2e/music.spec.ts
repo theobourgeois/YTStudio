@@ -754,6 +754,20 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await page.getByRole("menuitem", { name: "Blue" }).click();
   await expect.poll(async () => (await track(1)).color).toBe("#4a89dc");
 
+  // With several selected, a right-click keeps them selected, and Colour and Rename give them all the same.
+  await strip("Insert 5").locator("canvas").click();
+  await strip("Insert 6").locator("canvas").click({ modifiers: ["ControlOrMeta", "Shift"] });
+  await strip("Insert 6").locator("span").first().click({ button: "right" });
+  await expect(strip("Insert 5")).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("menuitem", { name: "Colour" }).click();
+  await page.getByRole("menuitem", { name: "Green", exact: true }).click();
+  await expect.poll(async () => [(await track(5)).color, (await track(6)).color]).toEqual(["#3fb27f", "#3fb27f"]);
+  await strip("Insert 6").locator("span").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: /Rename/ }).click();
+  await page.getByRole("textbox", { name: "Track name" }).fill("Pads");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => [(await track(5)).name, (await track(6)).name]).toEqual(["Pads", "Pads"]);
+
   // Sending to insert 3 draws a cable from it.
   await strip("Insert 1").locator("canvas").click();
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(1);

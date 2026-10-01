@@ -20,6 +20,7 @@ import {
   soloMixerTrack,
   trackState,
   updateMixerTrack,
+  updateMixerTracks,
 } from "@shared/music/mixer";
 import { MASTER_TRACK_ID } from "@shared/music/project";
 import type { MusicProject } from "@shared/music/types";
@@ -120,7 +121,17 @@ export function deleteTracks(ids: string[]) {
   if (first > 0) useMusicUi.getState().setTrackSelection([song()!.mixer.tracks[first - 1].id]);
 }
 
-export const renameTrack = (id: string, name: string) => commit((doc) => updateMixerTrack(doc, id, { name }));
+/** The tracks a track's menu acts on: every selected track if it's one of them, else it alone (FL's way). */
+export function menuTargets(id: string): string[] {
+  const selected = selectedTracks();
+  return selected.includes(id) ? selected : [id];
+}
+
+/** Rename a track, or every selected track if it's one of them (the same name for all). */
+export const renameTrack = (id: string, name: string) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { name }));
+
+/** Colour a track, or every selected track if it's one of them. */
+export const colourTrack = (id: string, color: string | null) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { color }));
 
 /** The current track sends to `to`, or stops (a click on the send switch). */
 export function toggleSend(to: string, from = currentTrack()) {
