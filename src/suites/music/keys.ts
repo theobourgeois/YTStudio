@@ -22,7 +22,10 @@ export type MusicKeyAction =
         | "delete"
         | "copy"
         | "cut"
-        | "paste";
+        | "paste"
+        /** FL's Ctrl+R and Ctrl+Shift+R: export a WAV, or an MP3 (the save dialog, then the export window). */
+        | "exportWav"
+        | "exportMp3";
     }
   /** Mute or solo the nth channel of the rack (0 is the first). */
   | { type: "mute" | "solo"; index: number }
@@ -80,6 +83,7 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   }
   if (command && !e.altKey) {
     if (letter === "Z") return { type: e.shiftKey ? "redo" : "undo" };
+    if (letter === "R") return { type: e.shiftKey ? "exportMp3" : "exportWav" };
     if (e.shiftKey) return null;
     if (letter === "Y") return { type: "redo" };
     if (letter === "K") return { type: "toggleGraph" };
@@ -92,7 +96,7 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
 }
 
 /** Keys for the whole editor, whichever window is in front (the Piano roll and the mixer leave only these to the rack). */
-const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set(["togglePlay", "undo", "redo", "toggleRack", "togglePiano", "togglePlaylist", "toggleMixer", "toggleBrowser", "toggleMode"]);
+const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set(["togglePlay", "undo", "redo", "toggleRack", "togglePiano", "togglePlaylist", "toggleMixer", "toggleBrowser", "toggleMode", "exportWav", "exportMp3"]);
 
 export const isGlobalKey = (action: MusicKeyAction) => GLOBAL_KEYS.has(action.type);
 

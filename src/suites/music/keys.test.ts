@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveMusicKey, resolvePluginWindowKey } from "./keys";
+import { isGlobalKey, resolveMusicKey, resolvePluginWindowKey } from "./keys";
 
 type Mods = Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolean>>;
 const press = (key: string, code: string, mods: Mods = {}) => resolveMusicKey({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
@@ -21,6 +21,10 @@ describe("music keys", () => {
     expect(press("Z", "KeyZ", { metaKey: true, shiftKey: true })).toEqual({ type: "redo" });
     expect(press("y", "KeyY", { ctrlKey: true })).toEqual({ type: "redo" });
     expect(press("k", "KeyK", { ctrlKey: true })).toEqual({ type: "toggleGraph" });
+    // FL's export keys, whichever window is in front (and from a plugin's): ⌘R a WAV, ⌘⇧R an MP3.
+    expect(press("r", "KeyR", { metaKey: true })).toEqual({ type: "exportWav" });
+    expect(press("R", "KeyR", { ctrlKey: true, shiftKey: true })).toEqual({ type: "exportMp3" });
+    expect(isGlobalKey({ type: "exportWav" })).toBe(true);
   });
 
   it("shows the Browser with Alt+F8, from anywhere", () => {

@@ -8,7 +8,7 @@ import { useMusic } from "./store";
  * A window of the music editor: the channel rack, the Piano roll, the Playlist, the mixer, a channel's settings,
  * or one of the small ones a command opens (Transpose selected, a note's properties).
  */
-export type WindowId = "rack" | "piano" | "playlist" | "mixer" | "transpose" | "note" | "chopper" | `channel:${string}`;
+export type WindowId = "rack" | "piano" | "playlist" | "mixer" | "transpose" | "note" | "chopper" | "export" | `channel:${string}`;
 
 /**
  * The rack's group filter (FL Studio's): Unsorted is every channel but the audio clips' (the default),
@@ -52,6 +52,8 @@ interface MusicUiState {
   copiedTrack: { projectId: string; state: TrackState } | null;
   /** The rack's Transpose selected window. */
   transposeOpen: boolean;
+  /** The export window (⌘R). */
+  exportOpen: boolean;
   /** The channels whose settings windows are open. */
   openChannelIds: string[];
 
@@ -74,6 +76,7 @@ interface MusicUiState {
   setTrackSelectorsShown: (shown: boolean) => void;
   copyTrack: (copied: { projectId: string; state: TrackState }) => void;
   setTransposeOpen: (open: boolean) => void;
+  setExportOpen: (open: boolean) => void;
   /**
    * Open a channel's settings window (or close it, if it's open). Only one is open at a time, as in
    * FL Studio, unless `keepOthers` (Alt+click).
@@ -98,6 +101,7 @@ const INITIAL = {
   trackSelectorsShown: true,
   copiedTrack: null as { projectId: string; state: TrackState } | null,
   transposeOpen: false,
+  exportOpen: false,
   openChannelIds: [] as string[],
 };
 
@@ -156,6 +160,10 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   setTransposeOpen(transposeOpen) {
     if (transposeOpen) windows().focus("transpose");
     set({ transposeOpen });
+  },
+  setExportOpen(exportOpen) {
+    if (exportOpen) windows().focus("export");
+    set({ exportOpen });
   },
 
   toggleChannelWindow(id, keepOthers) {
