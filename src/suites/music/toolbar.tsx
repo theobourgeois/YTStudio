@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiMetronome, PiPianoKeys, PiPlayFill, PiRows, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiMetronome, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { lengthOf, setTempo } from "@shared/music/edits";
 import { MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
@@ -366,7 +366,7 @@ function MetronomeToggle() {
 
 /**
  * Buttons that bring up the windows, as FL Studio's toolbar has for each of its own: a press opens the
- * window, or brings it to the front if it's open. F6 and F7 are the toggles.
+ * window, or brings it to the front if it's open. F6, F7 and F9 are the toggles.
  */
 function WindowToggles() {
   return (
@@ -376,6 +376,9 @@ function WindowToggles() {
       </WindowButton>
       <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (F6)">
         <PiRows />
+      </WindowButton>
+      <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} label="Mixer" title="Mixer (F9)">
+        <PiSlidersHorizontal className="rotate-90" />
       </WindowButton>
     </>
   );

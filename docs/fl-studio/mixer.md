@@ -236,9 +236,24 @@ the waveform meters, spare states, the eight layout sizes.
 ## Where Vaudio differs
 
 The song has a mixer (`shared/music/mixer.ts`: tracks, routing, sends, effect slots, solo, all tested),
-`compileSong` turns it into tracks in an order with their gains, and the engine plays through it
-(`Sequencer::mixTracks`). There's no Mixer window yet, and the effect slots aren't played (effect plugins
-can only be loaded on the audio dialog's bench). Choices made, to check with Théo:
+`compileSong` turns it into tracks in an order with their gains, the engine plays through it
+(`Sequencer::mixTracks`) and meters it, and the Mixer window shows it (`src/suites/music/mixer/`, tested
+in `e2e/music.spec.ts`). What the window does as FL Studio does: F9 and the toolbar's button; the master
+on the left, the inserts scrolling beside it, the selected track's inspector on the right (Théo); a click
+on a strip selects it, Ctrl+Shift+click adds, and the selected faders move together; the mute light (a
+right-click solos, Théo; so do Ctrl and Alt with a click); pan; the fader (Ctrl for fine, Alt+click
+resets, its menu types a level in dB); the send row (the selected track's down-arrow, a knob where it
+sends with the switch above it to remove the send, an arrow where it could, greyed where a send would
+make a loop; its menu routes only there or sidechains); the track menu (rename, channel routing, track
+routing, select its channels, solo, Alt solo, move, insert, delete); a double-click or F2 renames; +
+adds a track after the selected one; S, Alt+S, Ctrl+L, Ctrl+Shift+L, Alt+L, ← / →, Alt+← / →, Ctrl+A;
+the rack's track selectors (Alt+M), its Ctrl+L (free tracks named after the channels) and TRACK in a
+channel's window (a click on the word routes to a free track). The effect slots (choose, replace,
+delete, move by menu or the wheel, mix, on) edit the song, but the engine doesn't play them yet.
+
+Not yet, or different: the routing cables, docks, colours and icons, the Current track, the track EQ,
+stereo separation, phase and swap, delay compensation, recording, the slot's presets and Patcher, the
+"glide" when the groove is clicked (the handle goes there at once). Choices made, to check with Théo:
 
 - **The fader** is cubed: 0.8 of its travel is 0 dB, the top about +5.8 dB (FL's own curve is unverified).
 - **The pan** moves each side as a mono sound under the circular law: the centre leaves the sound alone,

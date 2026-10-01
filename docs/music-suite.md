@@ -67,8 +67,8 @@ The tab (src/suites/music/)                 The server (server/music/)          
 
 The detailed lists are at the end of each reference doc. The main ones:
 
-- **The mixer has no window yet**: songs have one and the engine plays through it (levels, pan, mute,
-  sends), but nothing shows it, and its effect slots aren't played. No effect plugins on channels (the bench in the
+- **The mixer's effects aren't played yet**: its window routes, mixes and meters, and effect plugins can
+  be put in its slots, but the engine doesn't host them until the next step. No effect plugins on channels (the bench in the
   audio dialog can load one, for testing only).
 - **No playlist**: only the current pattern plays, looped (FL's pattern mode). No song mode, no
   arrangement, no audio clips.
@@ -99,8 +99,10 @@ in `MusicProject`, `Channel.mixerTrack`, the edits in `shared/music/mixer.ts`, t
 order with their gains in `compileSong`), and routing in the engine (channels play into their track's
 buffer, tracks run in that order through their gains and sends into the master; a changed gain glides
 over a block; tested offline), and meters (each track's loudest level on each side since the last
-transport event, after its fader, in `EngineEvent` "transport" as `meters`, kept in `useTransport`).
-Next: the Mixer window, effect plugins, latency, the stock EQ, the assistant's tools.
+transport event, after its fader, in `EngineEvent` "transport" as `meters`, kept in `useTransport`), and
+the Mixer window (F9, `src/suites/music/mixer/`: strips, the send row, the track menu, the inspector's
+effect slots, FL's keys; the track selector on the rack, Alt+M, and TRACK in a channel's window).
+Next: effect plugins (the engine hosts what the slots hold), latency, the stock EQ, the assistant's tools.
 
 What Théo needs: his effect plugins (Pro-Q, Pro-R, EchoBoy) on channels and on the master, levels, and a
 stock EQ.

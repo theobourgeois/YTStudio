@@ -596,3 +596,72 @@ test("a double-click on the rack's title sends it to the desktop's corner, and a
   await rack.locator("[data-window-title]").dblclick({ position: { x: 150, y: 10 } });
   await expect.poll(async () => (await rack.boundingBox())!.x).toBeCloseTo(before.x, 0);
 });
+
+test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and solo, sends that never loop, meters", async ({ page }) => {
+  const id = await openNewSong(page, "Mixing");
+  await addStarterKit(page);
+  await expect(page.getByRole("listitem")).toHaveCount(4);
+  const mixer = page.getByTestId("mixer");
+  const strip = (name: string) => mixer.locator(`[data-track-name="${name}"]`);
+  const mixerOf = async () => (await savedSong(page, id)).mixer.tracks as { id: string; name: string | null; volume: number; muted: boolean; sends: { to: string; level: number }[] }[];
+
+  // Every channel starts on the master ("---"); Ctrl+L in the rack gives the selected ones free tracks named after them.
+  await expect(row(page, "Kick").getByRole("spinbutton")).toHaveText("---");
+  await page.getByRole("button", { name: "Select Kick" }).click();
+  await page.keyboard.press("ControlOrMeta+l");
+  await expect(row(page, "Kick").getByRole("spinbutton")).toHaveText("1");
+  await expect.poll(async () => (await savedSong(page, id)).channels[0].mixerTrack).toBe("insert_1");
+
+  // F9 shows the mixer: the master, then 16 inserts, the first now called Kick.
+  await page.keyboard.press("F9");
+  await expect(mixer).toBeVisible();
+  await expect(mixer.locator("[data-track]")).toHaveCount(17);
+  await expect(strip("Kick")).toBeVisible();
+
+  // A fader drags down, and Alt+click puts it back at 0 dB.
+  const fader = strip("Kick").getByRole("slider", { name: "Kick volume" });
+  await drag(page, fader, fader, { dy: 40 });
+  await expect.poll(async () => (await mixerOf())[1].volume).toBeLessThan(0.7);
+  await fader.click({ modifiers: ["Alt"] });
+  await expect.poll(async () => (await mixerOf())[1].volume).toBe(0.8);
+
+  // With Kick selected, insert 3's arrow sends Kick there too; then insert 3 can't send back (a loop).
+  await strip("Kick").locator("canvas").click();
+  await strip("Insert 3").getByRole("button", { name: "Send to Insert 3" }).click();
+  await expect.poll(async () => (await mixerOf())[1].sends.map((s) => s.to)).toEqual(["master", "insert_3"]);
+  await strip("Insert 3").locator("canvas").click();
+  await expect(strip("Kick").getByRole("button", { name: "Send to Kick" })).toBeDisabled();
+
+  // The mute light mutes; a right-click solos (the other inserts muted, never the master); again, all back on.
+  await strip("Insert 2").getByRole("button", { name: "Mute Insert 2" }).click();
+  await expect.poll(async () => (await mixerOf())[2].muted).toBe(true);
+  await strip("Insert 2").getByRole("button", { name: "Unmute Insert 2" }).click({ button: "right" });
+  await expect.poll(async () => (await mixerOf()).slice(0, 4).map((t) => t.muted)).toEqual([false, true, false, true]);
+  await strip("Insert 2").getByRole("button", { name: "Mute Insert 2" }).click({ button: "right" });
+  await expect.poll(async () => (await mixerOf()).some((t) => t.muted)).toBe(false);
+
+  // A double-click on a name renames the track; + adds a track after the selected one.
+  await strip("Insert 3").locator("span").first().dblclick();
+  await page.getByRole("textbox", { name: "Track name" }).fill("Verb");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await mixerOf())[3].name).toBe("Verb");
+  await mixer.page().getByRole("button", { name: "Add a mixer track" }).click();
+  await expect(mixer.locator("[data-track]")).toHaveCount(18);
+  expect((await mixerOf())[4].name).toBeNull();
+
+  // Playing, the meters move (the stand-in engine reports the master's level).
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect
+    .poll(() =>
+      strip("Master")
+        .locator("canvas")
+        .evaluate((canvas: HTMLCanvasElement) => {
+          const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+          let lit = 0;
+          for (let i = 3; i < data.length; i += 4) if (data[i] > 0) lit++;
+          return lit;
+        }),
+    )
+    .toBeGreaterThan(100);
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+});

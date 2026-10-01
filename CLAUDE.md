@@ -287,6 +287,11 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   Sends never make a loop: `normalizeMusicProject` drops one and `setSend` refuses it (`canSend`), so
   `compileSong` can always order the tracks (`trackOrder`: each after its senders, the master last). Its edits
   are in `shared/music/mixer.ts`. An effect's settings are a file like a plugin channel's, by the effect's id.
+  The Mixer window is `src/suites/music/mixer/` (F9): `mixer-window.tsx` (strips, the send row, menus),
+  `inspector.tsx` (effect slots), `fader.tsx`, `meters.ts` (one animation loop draws every strip's meter from
+  `useTransport().meters`; the falling in `meter.ts`, tested), `actions.ts` (what menus and keys do), `keys.ts`
+  (its keys while it's in front), `track-selector.tsx` (the rack's and a channel window's track LCD). The
+  selected tracks are UI state (`selectedTrackIds`; the first is the one sends are made from).
 - What volume, pan, velocity and swing *mean* is decided in `shared/music/compile.ts` (`compileSong` → `EngineSong`:
   gains, swung ticks), in tested TypeScript. The engine only plays samples at the moments it's told. Add musical
   rules there, not in C++.

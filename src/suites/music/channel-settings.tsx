@@ -11,6 +11,8 @@ import { useMusic } from "./store";
 import { useTransport } from "./transport";
 import { channelWindow, useMusicUi } from "./ui";
 import { loadSamples, waveformColumns } from "./waveform";
+import { routeToFreeTrack } from "./mixer/actions";
+import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow } from "./window";
 
 /** The envelope's knobs go to 3 s; the document allows more (for the assistant, or typed values later). */
@@ -88,6 +90,13 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
                 edit={(song, pitch) => updateChannel(song, id, { pitch: Number.isInteger(pitch * 100) && !Number.isInteger(pitch) ? pitch : Math.round(pitch) })}
               />
             </Labelled>
+            <div className="flex flex-col items-center gap-0.5">
+              <TrackSelector channel={channel} className="my-0.5 h-[22px] min-w-9 text-[11px]" />
+              {/* A click on its name gives the channel a free track of its own, as in FL Studio. */}
+              <button type="button" className="text-[9px] font-medium tracking-wide text-muted-foreground hover:text-foreground" title="Route to a free mixer track" onClick={() => routeToFreeTrack(id)}>
+                TRACK
+              </button>
+            </div>
           </div>
         </div>
 

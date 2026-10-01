@@ -4,10 +4,10 @@ import { useMusic } from "./store";
 import type { WindowSnap } from "./window-geometry";
 
 /**
- * A window of the music editor: the channel rack, the Piano roll, a channel's settings, or one of the
+ * A window of the music editor: the channel rack, the Piano roll, the mixer, a channel's settings, or one of the
  * small ones a command opens (Transpose selected, a note's properties).
  */
-export type WindowId = "rack" | "piano" | "transpose" | "note" | `channel:${string}`;
+export type WindowId = "rack" | "piano" | "mixer" | "transpose" | "note" | `channel:${string}`;
 export const channelWindow = (channelId: string): WindowId => `channel:${channelId}`;
 
 export interface WindowPlace {
@@ -40,6 +40,11 @@ interface MusicUiState {
   graphOpen: boolean;
   rackOpen: boolean;
   pianoOpen: boolean;
+  mixerOpen: boolean;
+  /** The mixer's selected tracks; the first is the one its inspector shows and sends are made from. */
+  selectedTrackIds: string[];
+  /** The rack shows each channel's mixer track (Alt+M). */
+  trackSelectorsShown: boolean;
   /** The rack's Transpose selected window. */
   transposeOpen: boolean;
   /** The channels whose settings windows are open. */
@@ -61,6 +66,11 @@ interface MusicUiState {
   setGraphOpen: (open: boolean) => void;
   setRackOpen: (open: boolean) => void;
   setPianoOpen: (open: boolean) => void;
+  setMixerOpen: (open: boolean) => void;
+  /** Select a mixer track (`add`: Ctrl+Shift, toggling it among the others, the first staying the current one). */
+  selectTrack: (id: string, mode?: "only" | "add") => void;
+  setTrackSelection: (ids: string[]) => void;
+  setTrackSelectorsShown: (shown: boolean) => void;
   setTransposeOpen: (open: boolean) => void;
   /**
    * Open a channel's settings window (or close it, if it's open). Only one is open at a time, as in
@@ -89,6 +99,9 @@ const INITIAL = {
   graphOpen: false,
   rackOpen: true,
   pianoOpen: false,
+  mixerOpen: false,
+  selectedTrackIds: [] as string[],
+  trackSelectorsShown: true,
   transposeOpen: false,
   openChannelIds: [] as string[],
   places: {},
@@ -114,6 +127,17 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   setRackOpen: (rackOpen) => set({ rackOpen, order: rackOpen ? toFront(get().order, "rack") : get().order }),
 
   setPianoOpen: (pianoOpen) => set({ pianoOpen, order: pianoOpen ? toFront(get().order, "piano") : get().order.filter((w) => w !== "piano") }),
+
+  setMixerOpen: (mixerOpen) => set({ mixerOpen, order: mixerOpen ? toFront(get().order, "mixer") : get().order }),
+  selectTrack(id, mode = "only") {
+    const selected = get().selectedTrackIds;
+    if (mode === "only") return set({ selectedTrackIds: [id] });
+    if (!selected.includes(id)) return set({ selectedTrackIds: [...selected, id] });
+    // The current one stays selected (it's what the inspector shows).
+    if (selected.length > 1) set({ selectedTrackIds: selected.filter((t) => t !== id) });
+  },
+  setTrackSelection: (selectedTrackIds) => set({ selectedTrackIds }),
+  setTrackSelectorsShown: (trackSelectorsShown) => set({ trackSelectorsShown }),
 
   setTransposeOpen: (transposeOpen) => set({ transposeOpen, order: transposeOpen ? toFront(get().order, "transpose") : get().order }),
 
@@ -155,6 +179,14 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
 useMusic.subscribe((state, prev) => {
   if (state.projectId !== prev.projectId) useMusicUi.setState(INITIAL);
 });
+
+/**
+ * The mixer track its inspector shows and sends are made from: the first selected that's still in the
+ * song, or the master.
+ */
+export function currentTrackId(song: MusicProject, selected: readonly string[]): string {
+  return selected.find((id) => song.mixer.tracks.some((t) => t.id === id)) ?? song.mixer.tracks[0].id;
+}
 
 /** The selected channels that are still in the song, in the rack's order. */
 export const selectedIn = (song: MusicProject, ids: readonly string[]) => song.channels.filter((c) => ids.includes(c.id));

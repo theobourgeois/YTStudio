@@ -17,7 +17,15 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { startPointerDrag } from "@/lib/pointer-drag";
@@ -26,6 +34,7 @@ import { openPianoRoll } from "./piano/actions";
 import { PERCENT, SongKnob, panText, percent } from "./knob";
 import { Lcd } from "./lcd";
 import {
+  assignFreeTracks,
   cloneSelected,
   copySteps,
   cutSteps,
@@ -44,6 +53,7 @@ import {
 import { currentPattern, songGesture, useCurrentPattern, useMusic, useSong } from "./store";
 import { patternTickNow, useTransport } from "./transport";
 import { MIN_RACK_STEPS, selectedIn, useMusicUi } from "./ui";
+import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow } from "./window";
 
 /** A step's width and the gaps between steps and between beats (px): the lights, rows and graph share them. */
@@ -67,8 +77,9 @@ const stepLeft = (step: number) => step * (STEP_W + STEP_GAP) + Math.floor(step 
 const stepsWidth = (steps: number) => stepLeft(steps - 1) + STEP_W;
 /** FL Studio's rack alternates two colours, beat by beat. */
 const oddBeat = (step: number) => Math.floor(step / GROUP) % 2 === 1;
-/** Width of everything left of the steps in a row. */
+/** Width of everything left of the steps in a row, with the mixer track selectors (Alt+M) and without. */
 const LEAD = "w-[212px]";
+const LEAD_WITH_TRACK = "w-[246px]";
 const isAudio = (file: File) => file.type.startsWith("audio/") || /\.(wav|aiff?|flac|mp3|ogg|m4a)$/i.test(file.name);
 const audioFiles = (files: FileList | null) => [...(files ?? [])].filter(isAudio);
 
@@ -131,6 +142,7 @@ export function ChannelRack() {
   const graph = useMusicUi((s) => s.graphOpen);
   const selectedIdsNow = useMusicUi((s) => s.selectedChannelIds);
   const sounding = useSoundingChannels();
+  const lead = useMusicUi((s) => s.trackSelectorsShown) ? LEAD_WITH_TRACK : LEAD;
   const selected = selectedIn({ channels } as MusicProject, selectedIdsNow);
   const file = useRef<HTMLInputElement>(null);
   const [dropping, setDropping] = useState(false);
@@ -162,7 +174,7 @@ export function ChannelRack() {
         }}
       >
         <div className="flex">
-          <div className={cn("flex shrink-0 flex-col", LEAD)} style={{ gap: ROW_GAP, paddingTop: LIGHTS_H + ROW_GAP }} role="list" aria-label="Channels">
+          <div className={cn("flex shrink-0 flex-col", lead)} style={{ gap: ROW_GAP, paddingTop: LIGHTS_H + ROW_GAP }} role="list" aria-label="Channels">
             {channels.map((channel) => (
               <ChannelLead key={channel.id} channel={channel} selected={selectedIdsNow.includes(channel.id)} sounding={sounding.has(channel.id)} />
             ))}
@@ -178,7 +190,7 @@ export function ChannelRack() {
           </div>
         </div>
 
-        <div className={cn("flex justify-center", LEAD)}>
+        <div className={cn("flex justify-center", lead)}>
           <ChannelPicker />
         </div>
         <input
@@ -227,6 +239,7 @@ function ResizeEdge({ steps }: { steps: number }) {
 /** The window's menu (the arrow at its top-left): what's done to the selected channels, and adding some. */
 function RackMenu({ onAddSamples }: { onAddSamples: () => void }) {
   const none = useMusicUi((s) => s.selectedChannelIds.length === 0);
+  const selectorsShown = useMusicUi((s) => s.trackSelectorsShown);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -260,6 +273,13 @@ function RackMenu({ onAddSamples }: { onAddSamples: () => void }) {
         <DropdownMenuItem disabled={none} onSelect={() => muteSelected(false)}>
           Unmute selected
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={none} onSelect={() => assignFreeTracks()}>
+          Assign selected to free mixer tracks <DropdownMenuShortcut>⌘L</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuCheckboxItem checked={selectorsShown} onCheckedChange={(shown) => useMusicUi.getState().setTrackSelectorsShown(shown)}>
+          Show mixer track selectors <DropdownMenuShortcut>⌥M</DropdownMenuShortcut>
+        </DropdownMenuCheckboxItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -365,6 +385,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
   const open = isPlugin ? pluginOpen : settingsOpen;
   const silent = isPlugin ? pluginError !== null : unreadable || !channel.sampleId;
   const canPaste = useMusicUi((s) => s.copiedSteps !== null);
+  const trackSelectorShown = useMusicUi((s) => s.trackSelectorsShown);
   const [dropping, setDropping] = useState(false);
   const file = useRef<HTMLInputElement>(null);
   const commit = useMusic.getState().commit;
@@ -416,6 +437,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
         edit={(song, volume) => updateChannel(song, id, { volume })}
       />
 
+      {trackSelectorShown && <TrackSelector channel={channel} className="ml-0.5 h-[22px] min-w-8 px-1 text-[11px]" />}
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <button

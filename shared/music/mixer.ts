@@ -146,9 +146,12 @@ function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
 
 export const updateMixerTrack = (song: MusicProject, id: string, patch: MixerTrackPatch) => updateTracks(song, [id], (t) => patchedTrack(t, patch));
 
-/** Set several tracks' faders at once (FL moves every selected track's fader together). */
-export const setMixerVolumes = (song: MusicProject, ids: readonly string[], volume: number) =>
-  Number.isFinite(volume) ? updateTracks(song, ids, (t) => patchedTrack(t, { volume })) : song;
+/** Set several tracks' faders at once, each to its own level (FL moves every selected track's fader together). */
+export const setMixerVolumes = (song: MusicProject, volumes: ReadonlyMap<string, number>) =>
+  updateTracks(song, [...volumes.keys()], (t) => {
+    const volume = volumes.get(t.id)!;
+    return Number.isFinite(volume) ? patchedTrack(t, { volume }) : t;
+  });
 
 export const setMixerMuted = (song: MusicProject, ids: readonly string[], muted: boolean) => updateTracks(song, ids, (t) => patchedTrack(t, { muted }));
 

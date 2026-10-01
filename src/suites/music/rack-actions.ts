@@ -16,6 +16,7 @@ import {
   transposeChannels,
   updateChannel,
 } from "@shared/music/edits";
+import { routeToFreeTracks } from "@shared/music/mixer";
 import type { MusicProject } from "@shared/music/types";
 import { currentPattern, useMusic } from "./store";
 import { selectedIn, useMusicUi } from "./ui";
@@ -112,3 +113,6 @@ export function rotate(direction: -1 | 1, channelId = target()) {
 
 /** Move every note of the selected channels in the pattern shown up or down by semitones. */
 export const transposeSelected = (semitones: number) => commit((doc) => transposeChannels(doc, patternId(), selectedIds(), semitones));
+
+/** Give each selected channel a free mixer track of its own, named after it (FL's Ctrl+L in the rack). */
+export const assignFreeTracks = () => commit((doc) => routeToFreeTracks(doc, selectedIds()));

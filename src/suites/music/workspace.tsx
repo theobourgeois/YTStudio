@@ -6,7 +6,7 @@ import { ChannelRack } from "./channel-rack";
 import { ChannelSettingsWindow } from "./channel-settings";
 import { startEngineSync } from "./engine-sync";
 import { type MusicKeyAction, isGlobalKey, isTyping, resolveMusicKey, resolvePluginWindowKey } from "./keys";
-import { cloneSelected, copySteps, cutSteps, deleteSelected, moveSelected, muteAt, pasteSteps, rotate, selectNeighbour } from "./rack-actions";
+import { assignFreeTracks, cloneSelected, copySteps, cutSteps, deleteSelected, moveSelected, muteAt, pasteSteps, rotate, selectNeighbour } from "./rack-actions";
 import { useMusic, useSong } from "./store";
 import { MusicToolbar } from "./toolbar";
 import { useTransport } from "./transport";
@@ -17,6 +17,10 @@ import { NoteProperties } from "./piano/note-properties";
 import { PianoRoll } from "./piano/piano-roll";
 import { usePiano } from "./piano/store";
 import { TransposeWindow } from "./transpose-window";
+import * as mixer from "./mixer/actions";
+import { type MixerKeyAction, resolveMixerKey } from "./mixer/keys";
+import { MixerWindow } from "./mixer/mixer-window";
+import { useMixerView } from "./mixer/view";
 import { type WindowId, useMusicUi } from "./ui";
 import { Desktop } from "./window";
 
@@ -50,6 +54,7 @@ export default function MusicWorkspace() {
 function Windows() {
   const rackOpen = useMusicUi((s) => s.rackOpen);
   const pianoOpen = useMusicUi((s) => s.pianoOpen);
+  const mixerOpen = useMusicUi((s) => s.mixerOpen);
   const transposeOpen = useMusicUi((s) => s.transposeOpen);
   const editingNote = usePiano((s) => s.editing);
   const openIds = useMusicUi((s) => s.openChannelIds);
@@ -58,6 +63,7 @@ function Windows() {
     <Desktop>
       {rackOpen && <ChannelRack />}
       {pianoOpen && <PianoRoll />}
+      {mixerOpen && <MixerWindow />}
       {transposeOpen && <TransposeWindow />}
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind === "sampler" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
@@ -71,6 +77,7 @@ function frontWindow(): WindowId | null {
   const open = (id: WindowId) =>
     id === "rack" ? ui.rackOpen
     : id === "piano" ? ui.pianoOpen
+    : id === "mixer" ? ui.mixerOpen
     : id === "transpose" ? ui.transposeOpen
     : id === "note" ? usePiano.getState().editing !== null
     : ui.openChannelIds.includes(id.slice("channel:".length));
@@ -141,6 +148,25 @@ function runPianoKey(action: PianoKeyAction) {
   }
 }
 
+function runMixerKey(action: MixerKeyAction) {
+  switch (action.type) {
+    case "solo":
+      return mixer.soloTrack(mixer.currentTrack(), action.linked);
+    case "route":
+      return mixer.routeSelectedChannels(undefined, action.starting);
+    case "selectChannels":
+      return mixer.selectChannelsOn();
+    case "move":
+      return mixer.moveSelectedTracks(action.direction);
+    case "select":
+      return mixer.selectNeighbourTrack(action.direction);
+    case "selectAll":
+      return mixer.selectAllTracks();
+    case "rename":
+      return useMixerView.getState().rename(mixer.currentTrack());
+  }
+}
+
 function runKey(action: MusicKeyAction) {
   const ui = useMusicUi.getState();
   switch (action.type) {
@@ -154,6 +180,12 @@ function runKey(action: MusicKeyAction) {
       return ui.setRackOpen(!ui.rackOpen);
     case "togglePiano":
       return ui.pianoOpen ? ui.setPianoOpen(false) : openPianoRoll();
+    case "toggleMixer":
+      return ui.setMixerOpen(!ui.mixerOpen);
+    case "toggleTrackSelectors":
+      return ui.setTrackSelectorsShown(!ui.trackSelectorsShown);
+    case "assignFreeTracks":
+      return assignFreeTracks();
     case "toggleGraph":
       return ui.setGraphOpen(!ui.graphOpen);
     case "mute":
@@ -206,10 +238,19 @@ function useMusicKeys(enabled: boolean) {
           return runPianoKey(piano);
         }
       }
+      // The mixer's, while it's in front.
+      if (frontWindow() === "mixer") {
+        const own = resolveMixerKey(e);
+        if (own) {
+          e.preventDefault();
+          e.stopPropagation();
+          return runMixerKey(own);
+        }
+      }
       const action = resolveMusicKey(e);
       if (!action) return;
-      // With the Piano roll in front, only the keys for everything (play, undo, the windows) are the rack's.
-      if (frontWindow() === "piano" && !isGlobalKey(action)) return;
+      // With the Piano roll or the mixer in front, only the keys for everything (play, undo, the windows) are the rack's.
+      if ((frontWindow() === "piano" || frontWindow() === "mixer") && !isGlobalKey(action)) return;
       // Copying text that's selected on the page is still the browser's.
       if (action.type === "copy" && window.getSelection()?.toString()) return;
       // A focused knob, number or list keeps its own arrows. (A menu's button doesn't: it opens with Enter.)

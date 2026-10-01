@@ -15,6 +15,13 @@ describe("music keys", () => {
     expect(press("k", "KeyK", { ctrlKey: true })).toEqual({ type: "toggleGraph" });
   });
 
+  it("shows the mixer with F9 (from any window, a plugin's too), and works its routing from the rack", () => {
+    expect(press("F9", "F9")).toEqual({ type: "toggleMixer" });
+    expect(resolvePluginWindowKey({ key: "F9", code: "F9", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false })).toEqual({ type: "toggleMixer" });
+    expect(press("µ", "KeyM", { altKey: true })).toEqual({ type: "toggleTrackSelectors" });
+    expect(press("l", "KeyL", { metaKey: true })).toEqual({ type: "assignFreeTracks" });
+  });
+
   it("mutes the first ten channels with 1…0, and solos them with Ctrl", () => {
     expect(press("1", "Digit1")).toEqual({ type: "mute", index: 0 });
     expect(press("0", "Digit0")).toEqual({ type: "mute", index: 9 });
