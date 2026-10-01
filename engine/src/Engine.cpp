@@ -14,6 +14,8 @@ constexpr int preferredBlockSize = 256;
 constexpr int transportIntervalMs = 40;
 /** How much of its level the meter keeps per block, so a hit is seen even between two readings. */
 constexpr float meterFall = 0.85f;
+/** Quieter than this is silence, to a meter (-66 dB). */
+constexpr float meterFloor = 0.0005f;
 
 juce::Result fail (const juce::String& message) { return juce::Result::fail (message); }
 }
@@ -281,12 +283,15 @@ void Engine::timerCallback()
     // Where the song is, while it plays or anything sounds, and once more when that ends.
     const auto playing = sequencer.isPlaying();
     const auto level = peak.load();
-    const auto quiet = level < 0.0005f;
+    const auto meters = sequencer.takeMeters (meterFloor);
+    // A track can sound where the output doesn't (sending to nothing but a muted one): it's not quiet then.
+    const auto quiet = level < meterFloor && meters.getDynamicObject()->getProperties().isEmpty();
     if (playing || ! quiet || playing != saidPlaying || quiet != saidQuiet)
         protocol::send (protocol::object ({ { "event", "transport" },
                                             { "playing", playing },
                                             { "tick", sequencer.position() },
                                             { "peak", level },
+                                            { "meters", meters },
                                             { "cpu", devices.getCpuUsage() } }));
     saidPlaying = playing;
     saidQuiet = quiet;
@@ -338,6 +343,7 @@ void Engine::render (int frames, const juce::File& file, Reply reply)
                                { "sampleRate", sampleRate },
                                { "peak", frames > 0 ? rendered.getMagnitude (0, frames) : 0.0f },
                                { "rms", frames > 0 ? rendered.getRMSLevel (0, 0, frames) : 0.0f },
+                               { "meters", sequencer.takeMeters (meterFloor) },
                                { "transport", transport() } }));
 }
 

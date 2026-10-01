@@ -409,6 +409,32 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
       expect((await hit(song))[0]).toBeCloseTo(0.5 * 0.125 * 0.125, 5);
     });
 
+    it("measures each track's loudest level on each side, after its fader, leaving silent tracks out", async () => {
+      const metersOf = async (song: MusicProject) => {
+        await engine.command("stop", {});
+        await play(song);
+        await hear(STEP);
+        await engine.command("play", {});
+        return (await engine.render(BEAT)).meters;
+      };
+      const panned = updateMixerTrack(updateMixerTrack(kickOn("insert_1"), "insert_1", { volume: 0.4 }), "insert_1", { pan: 1 });
+      const meters = await metersOf(panned);
+      expect(Object.keys(meters).sort()).toEqual(["insert_1", MASTER_TRACK_ID]);
+      expect(meters.insert_1[0]).toBeCloseTo(0, 4);
+      expect(meters.insert_1[1]).toBeCloseTo(0.125, 4);
+      expect(meters[MASTER_TRACK_ID][1]).toBeCloseTo(0.125, 4);
+
+      // A track sending only to a muted one is measured, though nothing is heard.
+      const hidden = await metersOf(setMixerMuted(sendOnly(kickOn("insert_1"), "insert_1", "insert_2"), ["insert_2"], true));
+      expect(Object.keys(hidden)).toEqual(["insert_1"]);
+      expect(hidden.insert_1[0]).toBeCloseTo(0.5, 4);
+
+      // What was measured is taken: stopped and silent, there's nothing.
+      await engine.command("stop", {});
+      await hear(STEP);
+      expect((await engine.render(STEP)).meters).toEqual({});
+    });
+
     it("glides to a fader's new level as it moves while playing, rather than jumping (a click)", async () => {
       const song = routeChannels(setSteps(rack(), P, "chan_pad", [0], true), ["chan_pad"], "insert_1");
       await play(song);

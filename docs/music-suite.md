@@ -98,8 +98,9 @@ window title bars are part of it. New panels below should be built in the new lo
 in `MusicProject`, `Channel.mixerTrack`, the edits in `shared/music/mixer.ts`, the tracks compiled in an
 order with their gains in `compileSong`), and routing in the engine (channels play into their track's
 buffer, tracks run in that order through their gains and sends into the master; a changed gain glides
-over a block; tested offline). Next: meters, the Mixer window, effect plugins, latency, the stock EQ, the
-assistant's tools.
+over a block; tested offline), and meters (each track's loudest level on each side since the last
+transport event, after its fader, in `EngineEvent` "transport" as `meters`, kept in `useTransport`).
+Next: the Mixer window, effect plugins, latency, the stock EQ, the assistant's tools.
 
 What Théo needs: his effect plugins (Pro-Q, Pro-R, EchoBoy) on channels and on the master, levels, and a
 stock EQ.

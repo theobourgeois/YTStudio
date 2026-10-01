@@ -70,6 +70,12 @@ export interface EngineChannels {
   failed: { channel: string; error: string }[];
 }
 
+/**
+ * The mixer's meters: each track's loudest level on each side (0..1+, after its fader) since the engine
+ * last said, by track id. Tracks that were silent are left out.
+ */
+export type EngineMeters = Record<string, [number, number]>;
+
 export interface EngineTransport {
   playing: boolean;
   /** Where the loop is, in ticks from its start (what the engine is computing: it's heard `outputLatencyMs` later). */
@@ -95,7 +101,7 @@ export interface EngineKey {
  * plugin's window closed by hand); a key pressed in a plugin's window; and that it has (re)started.
  */
 export type EngineEvent =
-  | ({ event: "transport"; peak: number; cpu: number } & EngineTransport)
+  | ({ event: "transport"; peak: number; meters: EngineMeters; cpu: number } & EngineTransport)
   | { event: "status"; status: EngineStatus }
   | ({ event: "key" } & EngineKey)
   | { event: "ready" };
@@ -153,6 +159,8 @@ export interface EngineRender {
   sampleRate: number;
   peak: number;
   rms: number;
+  /** Each mixer track's loudest level over these samples. */
+  meters: EngineMeters;
   transport: EngineTransport & { metronome: boolean };
 }
 

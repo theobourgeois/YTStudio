@@ -58,7 +58,9 @@ const devices = () => ({
   status: status(),
 });
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-const sendTransport = () => send({ event: "transport", playing: playingSince !== null, tick: tick(), peak: playingSince === null ? 0 : 0.3, cpu: 0.02 });
+// While it plays, the master's meter moves (as if every channel were on it).
+const sendTransport = () =>
+  send({ event: "transport", playing: playingSince !== null, tick: tick(), peak: playingSince === null ? 0 : 0.3, meters: playingSince === null ? {} : { master: [0.3, 0.3] }, cpu: 0.02 });
 
 send({ event: "ready", status: status() });
 setInterval(() => playingSince !== null && sendTransport(), 40);

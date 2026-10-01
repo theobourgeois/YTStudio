@@ -4,7 +4,7 @@ import { musicApi } from "./api";
 import { usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusic } from "./store";
-import { NO_CHANNELS, useTransport } from "./transport";
+import { NO_CHANNELS, NO_METERS, useTransport } from "./transport";
 
 /**
  * Keeps the audio engine playing the open song: every change of the document (even mid-drag, so a
@@ -47,7 +47,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   });
   const stopListening = musicApi.onEngineEvent((event) => {
     if (event.event === "transport") {
-      useTransport.setState({ playing: event.playing, tick: event.tick, at: performance.now(), peak: event.peak, cpu: event.cpu });
+      useTransport.setState({ playing: event.playing, tick: event.tick, at: performance.now(), peak: event.peak, meters: event.meters ?? NO_METERS, cpu: event.cpu });
     } else if (event.event === "key") {
       // Pressed in a plugin's window, which the plugin didn't use: the editor's shortcut runs.
       const { event: _, ...key } = event;
@@ -84,6 +84,6 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     if (useTransport.getState().playing) void musicApi.engine("stop", {}).catch(() => {});
     // What's been turned in the plugins' own windows is kept.
     void musicApi.saveStates().catch(() => {});
-    useTransport.setState({ playing: false, tick: 0, peak: 0, unreadable: [], channels: NO_CHANNELS });
+    useTransport.setState({ playing: false, tick: 0, peak: 0, meters: NO_METERS, unreadable: [], channels: NO_CHANNELS });
   };
 }

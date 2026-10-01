@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineChannels } from "@shared/music/engine";
+import type { EngineChannels, EngineMeters } from "@shared/music/engine";
 import { musicApi } from "./api";
 
 /**
@@ -17,6 +17,8 @@ interface TransportState {
   /** The output's level (0..1+) and the audio thread's load (0..1). */
   peak: number;
   cpu: number;
+  /** Each mixer track's loudest level since the engine last said (at `at`); silent tracks are absent. */
+  meters: EngineMeters;
   metronome: boolean;
   /** How long after the engine computes a sound it's heard: the playhead is shown that much late. */
   latencyMs: number;
@@ -47,6 +49,7 @@ interface TransportState {
 }
 
 export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: [] };
+export const NO_METERS: EngineMeters = {};
 
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
@@ -73,6 +76,7 @@ export const useTransport = create<TransportState>((set, get) => {
     at: 0,
     peak: 0,
     cpu: 0,
+    meters: NO_METERS,
     metronome: false,
     latencyMs: 0,
     loop: { start: 0, ticks: 0 },

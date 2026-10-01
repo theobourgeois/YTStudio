@@ -91,6 +91,20 @@ bool Sequencer::trigger (const juce::String& channelId, float pitch, float gain)
     return true;
 }
 
+juce::var Sequencer::takeMeters (float floor)
+{
+    auto* result = new juce::DynamicObject();
+    // Only when the audio thread is measuring the song last handed over: the tracks' ids are its.
+    if (meterSerial.load() == serials)
+        for (int t = 0; t < trackIds.size() && t < maxMeters; ++t)
+        {
+            const auto left = meters[(size_t) t * 2].exchange (0.0f), right = meters[(size_t) t * 2 + 1].exchange (0.0f);
+            if (left >= floor || right >= floor)
+                result->setProperty (trackIds[t], juce::Array<juce::var> { left, right });
+        }
+    return juce::var (result);
+}
+
 void Sequencer::collectGarbage()
 {
     const auto scope = garbageQueue.read (garbageQueue.getNumReady());
@@ -356,6 +370,13 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
     const auto glide = ramping;
     ramping = false;
     const auto master = song->tracks.size() - 1;
+    // A new song's tracks are in another order: what was measured belonged to the last one's.
+    if (meterSerial.load (std::memory_order_relaxed) != song->serial)
+    {
+        for (auto& meter : meters)
+            meter.store (0.0f, std::memory_order_relaxed);
+        meterSerial = song->serial;
+    }
     for (size_t t = 0; t < song->tracks.size(); ++t)
     {
         const auto& track = song->tracks[t];
@@ -376,6 +397,16 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
             const auto inLeft = l[i], inRight = r[i];
             l[i] = ll * inLeft + rl * inRight;
             r[i] = lr * inLeft + rr * inRight;
+        }
+        if (t < (size_t) maxMeters)
+        {
+            const auto raise = [] (std::atomic<float>& meter, juce::Range<float> range) {
+                const auto loudest = juce::jmax (-range.getStart(), range.getEnd());
+                if (loudest > meter.load (std::memory_order_relaxed))
+                    meter.store (loudest, std::memory_order_relaxed);
+            };
+            raise (meters[t * 2], juce::FloatVectorOperations::findMinAndMax (l, numSamples));
+            raise (meters[t * 2 + 1], juce::FloatVectorOperations::findMinAndMax (r, numSamples));
         }
 
         if (t == master)

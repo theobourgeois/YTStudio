@@ -343,7 +343,9 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   Voices and plugins render into their channel's track; `Sequencer::mixTracks` runs the tracks' gains and
   sends. The metronome is added after the master, outside the mixer. Gains glide over the first block of a
   new song: which track and send of the last song each one was is worked out in `setSong`, so the audio
-  thread only copies by index.
+  thread only copies by index. Meters: the audio thread raises each track's peak (after its fader) in
+  atomics, and `takeMeters` takes them back to 0 for each transport event (`meters`, silent tracks left
+  out) and for `render`.
 - Samples are read whole into memory on the message thread and never dropped while the engine runs (`SampleCache`):
   a sounding voice holds a bare pointer to its sample.
 - `--offline` (`AudioEngine`'s `offline`) opens no device: `render` computes the next samples on request, as fast

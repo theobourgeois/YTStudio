@@ -41,6 +41,12 @@ public:
     /** Delete the songs the audio thread has let go of. Call regularly. */
     void collectGarbage();
 
+    /**
+     * Each mixer track's loudest sample on each side (after its fader) since the last call, as
+     * `{ trackId: [left, right] }`, leaving out tracks quieter than `floor`. Message thread.
+     */
+    juce::var takeMeters (float floor);
+
     bool isPlaying() const { return playingNow; }
     /** Where the loop is, in ticks. */
     double position() const { return positionNow; }
@@ -132,6 +138,11 @@ private:
     double position_ = 0;
     std::atomic<bool> playingNow { false };
     std::atomic<double> positionNow { 0.0 };
+
+    /** The meters: two per track of the song `meterSerial` names, by its tracks' order. The audio thread raises them, `takeMeters` takes them back to 0. */
+    static constexpr int maxMeters = 1024;
+    std::array<std::atomic<float>, maxMeters * 2> meters {};
+    std::atomic<juce::uint64> meterSerial { 0 };
 
     std::array<Voice, maxVoices> voices;
     juce::uint32 voiceCount = 0;
