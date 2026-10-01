@@ -12,6 +12,11 @@ contextBridge.exposeInMainWorld("editorDesktopInfo", {
   // Where to save a file (a song's export), from the Mac's save dialog; null if it's cancelled.
   saveFile: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) =>
     ipcRenderer.invoke("save-file", options) as Promise<string | null>,
+  // Whether the engine may read inputs (recording): macOS asks Vaudio, which started it.
+  microphone: {
+    status: () => ipcRenderer.invoke("microphone-status") as Promise<string>,
+    ask: () => ipcRenderer.invoke("microphone-ask") as Promise<string>,
+  },
 });
 
 /**

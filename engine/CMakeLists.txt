@@ -23,11 +23,15 @@ FetchContent_MakeAvailable(JUCE)
 
 # An app bundle rather than a bare executable: plugin editors are windows, and macOS only gives
 # those to an application. LSUIElement keeps it out of the Dock (it's part of Vaudio, not an app).
+# Recording reads the microphone, which macOS only allows an app that says why (Vaudio, which starts
+# the engine, says so too: scripts/desktop.ts).
 juce_add_gui_app(
   VaudioEngine
   PRODUCT_NAME "Vaudio Engine"
   BUNDLE_ID gg.jestr.vaudio.engine
   COMPANY_NAME "Vaudio"
+  MICROPHONE_PERMISSION_ENABLED TRUE
+  MICROPHONE_PERMISSION_TEXT "Vaudio records your microphone or audio interface when you arm a mixer track."
   PLIST_TO_MERGE "<plist><dict><key>LSUIElement</key><true/></dict></plist>")
 
 target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/ClipPlayer.cpp src/EditorWindow.cpp src/Engine.cpp src/Export.cpp src/FilePreview.cpp src/Host.cpp src/Plugins.cpp src/Protocol.cpp src/Sequencer.cpp src/Song.cpp)
