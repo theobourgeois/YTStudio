@@ -80,6 +80,7 @@ import { usePlayback } from "@/stores/playback";
 import { lanePoint, useTimelineContext } from "./context";
 import { laneAt } from "./geometry";
 import { SPEED_PRESETS, commitSpeed, useRetimableSelection } from "./speed-control";
+import { showPanel } from "@/stores/video-dock";
 
 type MenuTarget =
   | { kind: "transition"; ref: TransitionRef }
@@ -142,7 +143,7 @@ function TransitionMenuItems({ target }: { target: Extract<MenuTarget, { kind: "
   });
   return (
     <>
-      <ContextMenuItem onSelect={() => useLayout.getState().setLeftPanel("properties")}>
+      <ContextMenuItem onSelect={() => showPanel("properties")}>
         <PiSlidersHorizontal /> Properties
       </ContextMenuItem>
       {alignment && (
@@ -209,7 +210,7 @@ function ClipMenuItems({ target }: { target: Extract<MenuTarget, { kind: "clip" 
 
   return (
     <>
-      <ContextMenuItem onSelect={() => useLayout.getState().setLeftPanel("properties")}>
+      <ContextMenuItem onSelect={() => showPanel("properties")}>
         <PiSlidersHorizontal /> Properties
       </ContextMenuItem>
       {nested && (

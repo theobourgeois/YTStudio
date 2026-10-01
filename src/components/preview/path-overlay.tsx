@@ -37,6 +37,7 @@ import { usePlayback } from "@/stores/playback";
 import { newLayerDuration } from "@/stores/video-preferences";
 import { canvasToFrame, dragBox, hitPath, pathOnCanvas } from "./path-geometry";
 import type { OnCanvas } from "./placement";
+import { showPanel } from "@/stores/video-dock";
 
 /** How near (px) the pointer must be to a vertex, a handle or an outline. */
 const HIT_PX = 7;
@@ -226,7 +227,7 @@ export function pressPath(e: ReactPointerEvent, ctx: PressContext): boolean {
       if (sameTarget(target, state.target)) continue;
       if (hitPath(pathOnCanvas(path, shown.placement), pt, [], HIT_PX)) {
         usePathEditing.getState().edit(target);
-        useLayout.getState().setLeftPanel("properties");
+        showPanel("properties");
         return true;
       }
     }
@@ -314,7 +315,7 @@ function startPath(e: ReactPointerEvent, ctx: PressContext) {
   const target = made.target();
   if (!target) return;
   if (!shown) editor().select(target.clipId);
-  useLayout.getState().setLeftPanel("properties");
+  showPanel("properties");
   usePathEditing.getState().edit(target, { drawing: true, selected: [0] });
 }
 
@@ -359,7 +360,7 @@ function dragShape(e: ReactPointerEvent, ctx: PressContext, kind: "rectangle" | 
       const target = made?.target();
       if (!target) return;
       if (!shown) editor().select(target.clipId);
-      useLayout.getState().setLeftPanel("properties");
+      showPanel("properties");
       useLayout.getState().setTool("select");
       // A mask shows its path; a shape is a rectangle or an ellipse, with handles of its own.
       if (shown && !isShapeClip(shown.clip)) usePathEditing.getState().edit(target);

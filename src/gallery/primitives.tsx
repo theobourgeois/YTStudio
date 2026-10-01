@@ -29,6 +29,8 @@ import { ColorPicker, ColorSwatchPicker } from "@/components/color-picker";
 import { ThemePicker } from "@/components/settings/general-settings";
 import { SettingsGroup, SettingsRow } from "@/components/settings/settings-ui";
 import { Button } from "@/components/ui/button";
+import { DockArea, type DockPanel } from "@/components/dock/dock-area";
+import { createDock } from "@/components/dock/store";
 import { Desktop, FloatingWindow } from "@/components/windows/floating-window";
 import { createWindows } from "@/components/windows/store";
 import {
@@ -651,7 +653,54 @@ export const PRIMITIVE_SECTIONS: GallerySection[] = [
   { id: "scrolling", title: "Scrolling and separators", source: "components/ui/scroll-area.tsx, separator.tsx, index.css", render: () => <Scrolling /> },
   { id: "settings", title: "Settings: groups, rows, themes", source: "components/settings/", render: () => <SettingsParts /> },
   { id: "windows", title: "Windows", source: "components/windows/", render: () => <Windows /> },
+  { id: "dock", title: "Docked panels", source: "components/dock/", render: () => <Dock /> },
 ];
+
+type GalleryPanel = "one" | "two" | "three" | "four";
+const galleryPanel = (title: string): DockPanel => ({
+  title,
+  render: () => <div className="grid flex-1 place-items-center text-xs text-muted-foreground">{title}: drag its tab to another group, or beside one</div>,
+  minWidth: 160,
+  minHeight: 80,
+});
+const GALLERY_PANELS: Record<GalleryPanel, DockPanel> = { one: galleryPanel("One"), two: galleryPanel("Two"), three: galleryPanel("Three"), four: galleryPanel("Four") };
+const galleryDock = createDock<GalleryPanel, string>({
+  key: "gallery-dock",
+  panels: ["one", "two", "three", "four"],
+  initial: () => ({
+    root: {
+      type: "split",
+      id: "g-root",
+      direction: "column",
+      sizes: [2, 1],
+      children: [
+        {
+          type: "split",
+          id: "g-top",
+          direction: "row",
+          sizes: [1, 2],
+          children: [
+            { type: "group", id: "g-a", panels: ["one", "two"], active: "one" },
+            { type: "group", id: "g-b", panels: ["three"], active: "three" },
+          ],
+        },
+        { type: "group", id: "g-c", panels: ["four"], active: "four" },
+      ],
+    },
+    floating: [],
+  }),
+  windows: createWindows<string>(),
+  windowId: (panel) => `panel:${panel}`,
+});
+
+/** A dock of four panels: tabs that drag, lines between groups that resize them, each group's menu. */
+function Dock() {
+  return (
+    <div className="flex h-96 overflow-hidden rounded-md border border-line">
+      <DockArea dock={galleryDock} panels={GALLERY_PANELS} />
+    </div>
+  );
+}
 
 const galleryWindows = createWindows<"plain" | "resizable" | "snapped">(["plain", "resizable", "snapped"]);
 

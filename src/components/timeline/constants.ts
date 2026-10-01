@@ -30,6 +30,5 @@ export const EDGE_SCROLL_MAX_SPEED = 22;
 /** Keep the playhead at least this far from the right edge while playing. */
 export const PAGE_MARGIN = 24;
 
-export const PANEL_DEFAULT_HEIGHT = 300;
+/** The least height the timeline's panel can be docked at (its toolbar, ruler and a lane). */
 export const PANEL_MIN_HEIGHT = 180;
-export const PANEL_MAX_FRACTION = 0.7;

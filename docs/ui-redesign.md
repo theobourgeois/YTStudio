@@ -163,7 +163,7 @@ onto the primitives. Do it area by area and look at each:
 - **The assistant** (`components/assistant/`): the chat panel, messages, tool steps, the model and thinking
   pickers, Markdown, the activity pill. It's the most SaaS-looking part now: make the panel a surface like
   the others, the input a sunken field, the send button a raised one.
-- **The video editor**: the left panel and its tabs (`workspace/left-panel.tsx`), the Media bin and cards
+- **The video editor**: its docked panels and their tabs (`components/dock/`, `workspace/video-panels.tsx`), the Media bin and cards
   (`components/media/`), the Library (`components/library/`), Effects and presets (`components/effects/`:
   the grid, chips, cards), Captions (`components/captions/`), Properties (`components/properties/`: param
   rows, the stopwatch, keyframe lanes), the preview and its transport (`components/preview/`), the timeline

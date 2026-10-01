@@ -46,8 +46,13 @@ same title bars, snapping, stacking and keys.
 1. Done: **the video editor's dialogs are windows** (export, Auto captions, the video's settings, Save to
    Library). Its main layout (left panel, Program monitor, timeline) stays docked, as Premiere's does:
    those are always on screen and the timeline wants the full width.
-2. Things better seen beside the edit become windows too: a source monitor, the graph editor, a mixer.
-3. **The image editor** starts the same way: the canvas docked in the middle, as Photoshop's, and its
+2. Done: **the video editor's panels dock** (`src/components/dock/`, `stores/video-dock.ts`): a tab dragged
+   onto another group's tabs joins them, towards an edge goes beside it; the lines between groups resize
+   them; each group's menu floats its panel out as a window on the video desktop (its × docks it back),
+   picks a workspace or resets the layout. The layout is remembered (localStorage), the same in every video.
+   The assistant's side panel stays outside it, the app's.
+3. Things better seen beside the edit become panels too: a source monitor, the graph editor, a mixer.
+4. **The image editor** starts the same way: the canvas docked in the middle, as Photoshop's, and its
    panels (layers, history, brushes) windows.
-4. Later, windows that **dock**: dragged into a region of the layout and out again, so any suite can
-   start docked and float what it likes (FL Studio's newer versions and Premiere's panels both do this).
+5. The music editor docks with it too, where FL Studio does (its Browser, the Playlist and the Mixer can dock
+   in FL 21+), and a floating window could dock by being dragged onto a group rather than by its button.

@@ -759,14 +759,78 @@ test("adds video effects from the Effects tab, edits, reorders and removes them"
   await page.getByRole("button", { name: "Add an effect" }).click();
   await expect(page.getByRole("searchbox", { name: "Search effects" })).toBeVisible();
 
-  // The panel's edge resizes it (more cards per row); a double-click puts it back.
-  const panel = page.locator("aside").filter({ has: page.getByRole("separator", { name: "Resize panel" }) });
+  // The line beside the panel resizes it (more cards per row); Reset layout puts it back.
+  const panel = page.getByRole("region", { name: "Effects panel" });
   const before = (await panel.boundingBox())!.width;
-  const edge = (await page.getByRole("separator", { name: "Resize panel" }).boundingBox())!;
+  const edge = (await page.locator('[role=separator][aria-orientation=vertical][aria-label="Resize panels"]').first().boundingBox())!;
   await drag(page, { x: edge.x + edge.width / 2, y: edge.y + 300 }, { x: edge.x + edge.width / 2 + 200, y: edge.y + 300 });
   await expect.poll(async () => Math.round((await panel.boundingBox())!.width - before)).toBe(200);
-  await page.getByRole("separator", { name: "Resize panel" }).dblclick();
-  await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(Math.round(before));
+  await page.getByRole("button", { name: "Effects panel menu" }).click();
+  await page.getByRole("menuitem", { name: "Reset layout" }).click();
+  await expect.poll(async () => Math.round((await page.getByRole("region", { name: "Media panel" }).boundingBox())!.width)).toBe(Math.round(before));
+});
+
+test("panels dock where they're dragged, float out and back, and keep their layout", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/p\/[\w-]+$/);
+  const group = (title: string) => page.getByRole("region", { name: `${title} panel` });
+  const tab = (name: string) => page.getByRole("tab", { name, exact: true });
+  /** A group's panel tabs (not the tabs inside its panels, like Media's sources). */
+  const panelTabs = (title: string) => group(title).getByRole("tablist", { name: "Panels" }).getByRole("tab");
+  /** Drag a panel's tab to a point. */
+  const dragTab = async (name: string, to: { x: number; y: number }) => {
+    const from = (await tab(name).boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 20, from.y + from.height / 2 + 20, { steps: 3 });
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+  };
+
+  // Properties dragged to the Program monitor's right edge: a column of its own beside it.
+  const program = (await group("Program").boundingBox())!;
+  await dragTab("Properties", { x: program.x + program.width - 30, y: program.y + program.height / 2 });
+  await expect(page.getByTestId("dock-drop-preview")).toHaveAttribute("data-zone", "right");
+  await page.mouse.up();
+  await expect(group("Properties")).toBeVisible();
+  const props = (await group("Properties").boundingBox())!;
+  expect(props.x).toBeGreaterThan(program.x + 50);
+  await expect(panelTabs("Media")).toHaveText(["Media", "Effects", "Captions"]);
+  // Selecting a clip shows its properties there, the Media tab staying in front on the left.
+  const [clip] = await timelineClips(page);
+  await page.mouse.dblclick(clip.x + clip.w / 2, clip.y + clip.h / 2);
+  await expect(group("Properties").getByRole("region", { name: "Motion" })).toBeVisible();
+  await expect(tab("Media")).toHaveAttribute("aria-selected", "true");
+
+  // Effects dropped among the Properties tabs.
+  await dragTab("Effects", { x: props.x + props.width / 2, y: props.y + props.height / 2 });
+  await expect(page.getByTestId("dock-drop-preview")).toHaveAttribute("data-zone", "center");
+  await page.mouse.up();
+  await expect(panelTabs("Effects")).toHaveText(["Properties", "Effects"]);
+
+  // The layout is the same after a reload.
+  await page.reload();
+  await expect(panelTabs("Effects")).toHaveText(["Properties", "Effects"]);
+  await expect(panelTabs("Media")).toHaveText(["Media", "Captions"]);
+
+  // The timeline floated out as a window, then docked back by its button.
+  await page.getByRole("button", { name: "Timeline panel menu" }).click();
+  await page.getByRole("menuitem", { name: "Float Timeline" }).click();
+  const floated = page.locator('[data-window="panel:timeline"]');
+  await expect(floated).toBeVisible();
+  await expect(floated.getByRole("region", { name: "Timeline" })).toBeVisible();
+  await expect(group("Timeline")).toHaveCount(0);
+  await floated.getByRole("button", { name: "Dock Timeline" }).click();
+  await expect(floated).toHaveCount(0);
+  await expect(group("Timeline")).toBeVisible();
+
+  // A workspace from any panel's menu; Reset layout goes back to the usual one.
+  await page.getByRole("button", { name: "Program panel menu" }).click();
+  await page.getByRole("menuitem", { name: "Captions" }).click();
+  await expect(panelTabs("Captions")).toHaveText(["Captions", "Media", "Effects"]);
+  await page.getByRole("button", { name: "Program panel menu" }).click();
+  await page.getByRole("menuitem", { name: "Reset layout" }).click();
+  await expect(page.locator("[data-dock-group]")).toHaveCount(3);
+  await expect(panelTabs("Media")).toHaveText(["Media", "Effects", "Captions", "Properties"]);
 });
 
 test("adds adjustment layers and solids, and presets: a transition across a cut and a move on a clip", async ({ page }) => {

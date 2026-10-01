@@ -212,7 +212,7 @@ src/
   components/effects/  The Effects tab: video effects and transitions (library-grid.tsx is their shared search,
                      category chips and cards; thumbnails.ts draws every card with one shared compositor).
   components/workspace/workspace.tsx   The main column: the open project's suite's Workspace, or the empty state.
-  components/workspace/video-workspace.tsx   The video editor's (header, left panel, preview, timeline, assistant).
+  components/workspace/video-workspace.tsx   The video editor's (header, its docked panels, assistant).
   components/sidebar/new-project-dialog.tsx  The New project picker (a suite per row, ⌘1, ⌘2…).
   components/windows/  Floating windows, FL Studio's way, for every suite (docs/windows.md): `FloatingWindow` on a
                      `Desktop`, a store per desktop (`createWindows`: places, stacking, snaps), the maths in
@@ -226,10 +226,17 @@ src/
                      `keptByWindow`). Built from
                      `settings-ui.tsx` (`SettingsGroup`, `SettingsRow`). A preference goes here, kept where
                      what it changes lives (`stores/video-preferences.ts` for the video editor's own).
-  components/workspace/left-panel.tsx   Left panel tabs: Media | Effects | Captions | Properties.
-                     Media switches between sources: This video | Library | Online (`MediaSource`); Effects between
-                     kinds: Video effects | Presets | Transitions (`EffectKind`, `KINDS`). Its right edge resizes it (widths
-                     in `stores/layout.ts`, one for usual and one while the keyframe lanes show).
+  components/dock/   Docked panels, Premiere's way, for any suite (docs/windows.md): model.ts (the layout: splits of
+                     tab groups, floating panels; its edits are pure and tested), store.ts (`createDock`: the layout
+                     remembered in localStorage), dock-area.tsx (`DockArea`: tabs that drag onto another group's tabs
+                     or beside it, lines that resize, each group's menu: float, workspaces, Reset layout;
+                     `FloatingPanels` on a desktop).
+  components/workspace/video-panels.tsx   The video editor's panels (`VIDEO_PANEL_DEFS`): Media (This video | Library
+                     | Online, `MediaSource`), Effects (Video effects | Presets | Transitions, `EffectKind`, `KINDS`),
+                     Captions, Properties, Program, Timeline. Laid out by `stores/video-dock.ts` (the default layout is
+                     the first four as tabs beside the monitor, the timeline below; `VIDEO_WORKSPACES`). Show one with
+                     `showPanel` (also `showMedia`, `showEffects`), never by assuming where it is: it may be in any
+                     group, or floating. Properties widens to 520 px while its keyframe lanes show (`useVideoPanelMins`).
   assistant/         Where agents' tool calls run (in the tab): tools.ts (every tool's handler), doc.ts (the video a call
                      acts on: the open one via the editor store, or a background copy), edits.ts (the pure timeline
                      edits, tested), describe.ts (what the model reads: timeline, clips, catalogue...), frames.ts
@@ -626,9 +633,10 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   (it can then go in a `batch`), with a test in `edits.test.ts`; describe new state in `describe.ts` so the model can
   see it. Give it a label in `describeToolCall` and an icon in `components/assistant/tool-steps.tsx`. Error messages
   go to the model: say what's wrong and what to do (which ids exist, which values are allowed).
-- **A left-panel tab**: add it to `LeftPanelTab` (`stores/layout.ts`) and to `TABS` in `workspace/left-panel.tsx`.
-  Keep the strip short: a new place to find media is a `MediaSource` (and `SOURCES`), and a new kind of effect
-  (video, audio) is an `EffectKind` (and `KINDS`), not a tab.
+- **A video editor panel**: its id in `VideoPanel` and `VIDEO_PANELS` (`stores/video-dock.ts`, where the default
+  layout puts it; saved layouts get it in their first group) and its entry in `VIDEO_PANEL_DEFS`
+  (`workspace/video-panels.tsx`). Keep the panels few: a new place to find media is a `MediaSource` (and
+  `SOURCES`), and a new kind of effect (video, audio) is an `EffectKind` (and `KINDS`), not a panel.
 - **A clip kind (like text) or a track kind**: there's no registry yet. Clip kinds are branched on in
   `preview/engine.ts` (`kindOf` and each kind's slots), `preview/stage.tsx`, `preview/placement.ts`,
   `timeline/timeline-clip.tsx`, `timeline-menus.tsx`, `properties-panel.tsx`, `server/render.ts` and
@@ -672,7 +680,7 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   **Auto ripple** (the toolbar's chain toggle, off by default, `autoRipple` in the editor store) is the opt-in
   exception: deletes close gaps, edge trims and rate stretches move the rest of the track (`rippleClipEdit`), and
   media dropped at a time pushes it along (`insertClip`). Moves stay free either way.
-- There's no right-hand inspector (the right side is only the assistant's chat). Clip properties are in the left panel's Properties tab. Video settings (aspect ratio
+- There's no right-hand inspector (the right side is only the assistant's chat). Clip properties are in the Properties panel (docked on the left at first; the user may move it anywhere). Video settings (aspect ratio
   and fps) are in a window opened from the header. The canvas is always black.
 - Clicking a media card previews that file in the Program monitor's place (the source monitor).
 

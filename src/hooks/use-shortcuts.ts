@@ -16,6 +16,7 @@ import { deleteSelectedVertices, usePathEditing } from "@/stores/path-editing";
 import { usePlayback } from "@/stores/playback";
 import { useSourcePreview } from "@/stores/source-preview";
 import { resolveShortcut, type ShortcutAction } from "./shortcuts";
+import { showPanel } from "@/stores/video-dock";
 
 const ZOOM_STEP = 1.25;
 const EPS = 1e-4;
@@ -233,15 +234,15 @@ function run(action: ShortcutAction): boolean {
       return true;
     case "newAdjustmentLayer":
       editor.addLayer("adjustment");
-      useLayout.getState().setLeftPanel("properties");
+      showPanel("properties");
       return true;
     case "newSolid":
       editor.addLayer("solid");
-      useLayout.getState().setLeftPanel("properties");
+      showPanel("properties");
       return true;
     case "newCamera":
       editor.addLayer("camera");
-      useLayout.getState().setLeftPanel("properties");
+      showPanel("properties");
       return true;
     case "nest":
       if (!editor.selectedClipIds.length) return false;

@@ -152,7 +152,7 @@ async function galleryIndex(): Promise<{ SECTIONS: { id: string; shots?: { name:
 }
 
 // The app's screens, on a video and a song made for them.
-const screens = ["empty", "new-project", "video", "video-effects", "video-properties", "video-captions", "video-settings", "video-export", "video-auto-captions", "video-save-to-library", "video-clip-menu", "settings-window", "music", "music-piano", "music-settings"];
+const screens = ["empty", "new-project", "video", "video-effects", "video-properties", "video-captions", "video-settings", "video-export", "video-auto-captions", "video-save-to-library", "video-dock-drag", "video-dock-effects", "video-dock-floating", "video-clip-menu", "settings-window", "music", "music-piano", "music-settings"];
 if (screens.some(wanted)) {
   const video = await makeVideo();
   const music: ProjectSummary = await (await fetch(`${api}/projects`, { method: "POST", headers: json, body: JSON.stringify({ suite: "music", name: "Beat" }) })).json();
@@ -173,7 +173,7 @@ if (screens.some(wanted)) {
       await page.getByRole("dialog").waitFor();
       await shoot(page, `new-project-${suffix}`);
     }
-    if (screens.slice(2, 12).some(wanted)) {
+    if (screens.slice(2, 15).some(wanted)) {
       await page.goto(`${web}/p/${video.id}`);
       await page.locator("[data-clip-id]").first().waitFor();
       await page.waitForTimeout(800);
@@ -190,6 +190,37 @@ if (screens.some(wanted)) {
         await page.locator("[data-clip-id]").first().click();
         await tab("Properties").click();
         await shoot(page, `video-properties-${suffix}`);
+      }
+      // Docked panels: Properties dragged beside the monitor (the drop shown), a workspace, a floating timeline.
+      if (wanted("video-dock-drag")) {
+        const tab = (await page.getByRole("tab", { name: "Properties", exact: true }).boundingBox())!;
+        const monitor = (await page.getByRole("region", { name: "Program panel" }).boundingBox())!;
+        await page.mouse.move(tab.x + tab.width / 2, tab.y + tab.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(tab.x + 40, tab.y + 40, { steps: 3 });
+        await page.mouse.move(monitor.x + monitor.width - 40, monitor.y + monitor.height / 2, { steps: 8 });
+        await shoot(page, `video-dock-drag-${suffix}`);
+        await page.mouse.up();
+        await page.waitForTimeout(300);
+        await shoot(page, `video-dock-dropped-${suffix}`);
+      }
+      if (wanted("video-dock-effects")) {
+        await page.getByRole("button", { name: "Program panel menu" }).click();
+        await page.getByRole("menuitem", { name: "Effects", exact: true }).click();
+        await page.getByRole("tab", { name: "Effects", exact: true }).click();
+        await page.waitForTimeout(400);
+        await shoot(page, `video-dock-effects-${suffix}`);
+      }
+      if (wanted("video-dock-floating")) {
+        await page.getByRole("button", { name: "Timeline panel menu" }).click();
+        await page.getByRole("menuitem", { name: "Float Timeline" }).click();
+        await page.locator('[data-window="panel:timeline"]').waitFor();
+        await page.waitForTimeout(400);
+        await shoot(page, `video-dock-floating-${suffix}`);
+      }
+      if (screens.slice(11, 14).some(wanted)) {
+        await page.getByRole("button", { name: "Program panel menu" }).click();
+        await page.getByRole("menuitem", { name: "Reset layout" }).click();
       }
       if (wanted("video-clip-menu")) {
         await page.locator("[data-clip-id]").first().click({ button: "right" });

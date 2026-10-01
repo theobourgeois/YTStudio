@@ -1,11 +1,11 @@
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
+import { DockArea } from "@/components/dock/dock-area";
 import { Header } from "@/components/header/header";
-import { Preview } from "@/components/preview/preview";
-import { Timeline } from "@/components/timeline/timeline";
 import { useEditor } from "@/stores/editor";
-import { LeftPanel } from "./left-panel";
+import { VIDEO_WORKSPACES, useVideoDock } from "@/stores/video-dock";
 import { PlainWorkspace, WorkspaceError, WorkspaceLoading } from "./plain-workspace";
 import { VideoDesktop } from "./video-desktop";
+import { VIDEO_PANEL_DEFS, useVideoPanelMins } from "./video-panels";
 
 /** The video suite's main column: the open video's editor (`clientSuite("video").Workspace`). */
 export default function VideoWorkspace() {
@@ -18,13 +18,8 @@ export default function VideoWorkspace() {
       <div key={projectId} className="relative flex min-h-0 flex-1 flex-col">
         <Header />
         <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col">
-            <div className="flex min-h-0 flex-1">
-              <LeftPanel />
-              <Preview />
-            </div>
-            <Timeline />
-          </div>
+          {/* The editor's panels, docked: rearranged by dragging their tabs, floated out from their menus. */}
+          <VideoPanels />
           {/* Full height beside the preview and the timeline, so both stay in view while it works. */}
           <AssistantPanel suite="video" />
         </div>
@@ -35,4 +30,9 @@ export default function VideoWorkspace() {
   }
 
   return <PlainWorkspace>{loadError ? <WorkspaceError noun="video" error={loadError} /> : <WorkspaceLoading />}</PlainWorkspace>;
+}
+
+function VideoPanels() {
+  const mins = useVideoPanelMins();
+  return <DockArea dock={useVideoDock} panels={VIDEO_PANEL_DEFS} mins={mins} workspaces={VIDEO_WORKSPACES} />;
 }

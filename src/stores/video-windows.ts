@@ -4,9 +4,9 @@ import { useEditor } from "./editor";
 
 /**
  * The video editor's windows, floating over it (`components/workspace/video-desktop.tsx`): what were its
- * dialogs. Its main layout (the left panel, the Program monitor, the timeline) stays docked, as Premiere's.
+ * dialogs, and any of its panels floated out of the dock (`panel:<id>`, `stores/video-dock.ts`).
  */
-export type VideoWindowId = "export" | "video-settings" | "captions" | "save-to-library";
+export type VideoWindowId = "export" | "video-settings" | "captions" | "save-to-library" | `panel:${string}`;
 
 /** Where the video editor's windows are, and which is in front. */
 export const useVideoWindows = createWindows<VideoWindowId>();
