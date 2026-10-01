@@ -10,7 +10,7 @@
  * darker the quieter a note is.
  */
 import type { Note } from "@shared/music/types";
-import { BLACK_KEY_WIDTH, LANE_PAD, type PianoView, gridTicks, isBlackKey, laneY, pitchName, pitchToY, tailWidth, tickToX, visibleRange, whiteKeys, xToTick, yToPitch } from "./geometry";
+import { BLACK_KEY_WIDTH, LANE_PAD, type PianoView, type Snap, isBlackKey, laneY, lineTicks, pitchName, pitchToY, tailWidth, tickToX, visibleRange, whiteKeys, xToTick, yToPitch } from "./geometry";
 import { MUTED, NOTE, type NoteColours, SELECTED, velocityColours } from "./note-colours";
 import type { LaneProperty, PianoDrag, TimeRange } from "./store";
 
@@ -103,6 +103,8 @@ export interface Scene {
   vanishing: readonly Vanishing[];
   barTicks: number;
   beatTicks: number;
+  /** The magnet's setting: its divisions are drawn when the zoom's grid would miss them (triplets). */
+  snap: Snap;
   /** Where the pattern ends: past it the grid is dimmed. */
   patternTicks: number;
   time: TimeRange | null;
@@ -127,8 +129,8 @@ export function prepare(canvas: HTMLCanvasElement, width: number, height: number
 }
 
 /** The grid lines in view: `[tick, weight]`, weight 2 for bars, 1 for beats, 0 for the rest. */
-function gridLines(view: PianoView, width: number, barTicks: number, beatTicks: number): [number, number][] {
-  const grid = gridTicks(view.pxPerTick, barTicks, beatTicks);
+function gridLines(view: PianoView, width: number, barTicks: number, beatTicks: number, snap: Snap): [number, number][] {
+  const grid = lineTicks(snap, view.pxPerTick, barTicks, beatTicks);
   const lines: [number, number][] = [];
   const last = xToTick(view, width);
   for (let tick = Math.floor(view.scrollTick / grid) * grid; tick <= last; tick += grid) {
@@ -261,7 +263,7 @@ export function drawGrid(ctx: CanvasRenderingContext2D, scene: Scene) {
     ctx.fillRect(0, Math.round(pitchToY(view, pitch - 1)) - 1, width, 1);
   }
 
-  for (const [tick, weight] of gridLines(view, width, barTicks, beatTicks)) {
+  for (const [tick, weight] of gridLines(view, width, barTicks, beatTicks, scene.snap)) {
     ctx.fillStyle = weight === 2 ? palette.barLine : weight === 1 ? palette.beatLine : palette.line;
     ctx.fillRect(Math.round(tickToX(view, tick)) - (weight === 2 ? 1 : 0), 0, weight === 2 ? 2 : 1, height);
   }
@@ -506,7 +508,7 @@ export function drawLane(ctx: CanvasRenderingContext2D, scene: Scene, property: 
   const { view, width, height, palette, notes, selected, barTicks, beatTicks } = scene;
   ctx.fillStyle = palette.row;
   ctx.fillRect(0, 0, width, height);
-  for (const [tick, weight] of gridLines(view, width, barTicks, beatTicks)) {
+  for (const [tick, weight] of gridLines(view, width, barTicks, beatTicks, scene.snap)) {
     if (weight < 1) continue;
     ctx.fillStyle = weight === 2 ? palette.barLine : palette.beatLine;
     ctx.fillRect(Math.round(tickToX(view, tick)), 0, 1, height);

@@ -10,6 +10,7 @@ import {
   formatLength,
   formatPosition,
   gridTicks,
+  lineTicks,
   hitNote,
   isBlackKey,
   keyAt,
@@ -103,6 +104,19 @@ describe("the grid and snapping", () => {
     expect(gridTicks(0.1, BAR)).toBe(96);
     expect(gridTicks(0.03, BAR)).toBe(384);
     expect(gridTicks(0.02, BAR)).toBe(768);
+  });
+
+  it("draws a snap's own divisions when the zoom's grid would miss them (triplets, quarter steps)", () => {
+    expect(lineTicks("beat/3", 0.5, BAR)).toBe(32);
+    expect(lineTicks("step/3", 2, BAR)).toBe(8);
+    // Too close to draw each: every few, each still a whole part of the bar.
+    expect(lineTicks("step/3", 0.5, BAR)).toBe(24);
+    expect(lineTicks("beat/3", 0.2, BAR)).toBe(64);
+    expect(lineTicks("step/4", 2, BAR)).toBe(6);
+    // A snap on the zoom's lines keeps them.
+    expect(lineTicks("beat", 0.5, BAR)).toBe(24);
+    expect(lineTicks("step/2", 0.5, BAR)).toBe(24);
+    expect(lineTicks("line", 0.1, BAR)).toBe(96);
   });
 
   it("gives each snap setting its size", () => {

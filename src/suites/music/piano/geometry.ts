@@ -160,6 +160,23 @@ export function snapTicks(snap: Snap, pxPerTick: number, barTicks: number, beatT
 }
 
 /**
+ * The ticks between the grid's lines with this snap: the zoom's grid (`gridTicks`), unless the snap has
+ * points between its lines (a triplet's, a quarter step's): then the snap's own divisions, every one or
+ * every few (each a whole part of the bar) as the zoom allows, so what's snapped to is what's drawn.
+ */
+export function lineTicks(snap: Snap, pxPerTick: number, barTicks: number, beatTicks = PPQ): number {
+  const grid = gridTicks(pxPerTick, barTicks, beatTicks);
+  if (snap === "line" || snap === "cell" || snap === "none" || snap === "bar") return grid;
+  const unit = snapTicks(snap, pxPerTick, barTicks, beatTicks);
+  if (unit % grid === 0) return grid;
+  for (let every = 1; unit * every < barTicks; every++) {
+    const ticks = unit * every;
+    if (barTicks % ticks === 0 && ticks * pxPerTick >= MIN_LINE_GAP) return ticks;
+  }
+  return grid;
+}
+
+/**
  * Where a position lands on the grid. A new note goes at the start of the cell the pointer is in
  * ("cell"); a moved edge goes to the nearest line ("line").
  */

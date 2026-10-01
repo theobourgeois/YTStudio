@@ -321,6 +321,7 @@ function PianoBody() {
         ghosts: piano.ghosts ? Object.entries(ctx.pattern.notes).flatMap(([id, list]) => (id === ctx.channel.id ? [] : [list])) : [],
         barTicks: ctx.barTicks,
         beatTicks: ctx.beatTicks,
+        snap: piano.snap,
         patternTicks: ctx.patternTicks,
         time: piano.time,
         drag,
