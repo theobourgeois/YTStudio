@@ -114,6 +114,19 @@
   --knob-cap-edge: #2a2d34;
   --knob-notch: #e9edf2;
   --knob-arc: #f08a2c;
+
+  /* The mixer's faders (`mixer/fader.tsx`), FL Studio's metal caps; green on the selected track. */
+  --fader-groove: #8e96a2;
+  --fader-tick: rgb(40 50 62 / 0.12);
+  --fader-tick-strong: rgb(40 50 62 / 0.3);
+  --fader-cap-light: #ffffff;
+  --fader-cap: #d6d9df;
+  --fader-cap-dark: #9da2ab;
+  --fader-cap-edge: #6a707b;
+  --fader-cap-on-light: #b6f08e;
+  --fader-cap-on: #5cc23c;
+  --fader-cap-on-dark: #2f8d22;
+  --fader-cap-on-edge: #236a19;
   --piano-time: #e5484d;
   --piano-start: #e08a12;
   --piano-tool: #2f7be5;
@@ -206,4 +219,16 @@
   --knob-cap-edge: #17191e;
   --knob-notch: #d9dee6;
   --knob-arc: #f2902e;
+
+  --fader-groove: #15171b;
+  --fader-tick: rgb(255 255 255 / 0.05);
+  --fader-tick-strong: rgb(255 255 255 / 0.13);
+  --fader-cap-light: #f1f2f5;
+  --fader-cap: #c9ccd3;
+  --fader-cap-dark: #8b8f99;
+  --fader-cap-edge: #3c4048;
+  --fader-cap-on-light: #a6ec7c;
+  --fader-cap-on: #52b934;
+  --fader-cap-on-dark: #2d8520;
+  --fader-cap-on-edge: #1d5a14;
 }

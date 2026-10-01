@@ -10,7 +10,9 @@ import { startPointerDrag } from "@/lib/pointer-drag";
 import { faderAt, faderDb } from "./meter";
 
 /** The handle's height, and how far a drag with Ctrl moves it for the same distance (fine changes). */
-const HANDLE_H = 12;
+const HANDLE_H = 26;
+/** Levels marked across the fader (FL's faint lines), in dB. */
+const TICKS_DB = [0, -6, -12, -24];
 const FINE = 10;
 
 interface FaderProps {
@@ -62,7 +64,7 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
               aria-valuenow={value}
               aria-valuetext={faderDb(value)}
               title={`${label}: ${faderDb(value)}`}
-              className={cn("relative w-5 cursor-ns-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-ring/60", className)}
+              className={cn("relative w-[22px] cursor-ns-resize touch-none outline-none focus-visible:ring-2 focus-visible:ring-ring/60", className)}
               onPointerDown={(e) => {
                 if (e.button === 1 || (e.button === 0 && e.altKey)) {
                   e.preventDefault();
@@ -112,19 +114,39 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
                 e.stopPropagation();
               }}
             >
-              {/* The groove, and a mark at 0 dB. */}
-              <span className="sunken pointer-events-none absolute inset-y-1 left-1/2 w-1 -translate-x-1/2 rounded-full" aria-hidden />
+              {/* FL Studio's fader: a thin dark groove (lit below the cap of a selected track), faint lines across at 0, -6, -12 and -24 dB, and a chunky metal cap. */}
+              <span className="pointer-events-none absolute inset-y-1 left-1/2 w-[3px] -translate-x-1/2 rounded-full" style={{ background: "var(--fader-groove)", boxShadow: "inset 0 1px 1px rgb(0 0 0 / 0.5)" }} aria-hidden />
+              {selected && (
+                <span
+                  className="pointer-events-none absolute bottom-1 left-1/2 w-px -translate-x-1/2"
+                  style={{ top: `calc(${handleTop(value)} + ${HANDLE_H}px)`, background: "var(--fader-cap-on)" }}
+                  aria-hidden
+                />
+              )}
+              {TICKS_DB.map((db) => (
+                <span
+                  key={db}
+                  className="pointer-events-none absolute -right-2.5 -left-2.5 h-px"
+                  style={{ top: `calc(${handleTop(faderAt(db))} + ${HANDLE_H / 2}px)`, background: db === 0 ? "var(--fader-tick-strong)" : "var(--fader-tick)" }}
+                  aria-hidden
+                />
+              ))}
               <span
-                className="pointer-events-none absolute left-0.5 right-0.5 h-px bg-line-strong"
-                style={{ top: `calc(${handleTop(DEFAULT_FADER)} + ${HANDLE_H / 2}px)` }}
-                aria-hidden
-              />
-              <span
-                className={cn("pointer-events-none absolute inset-x-0 rounded-[3px]", selected ? "raised-brand" : "raised")}
-                style={{ top: handleTop(value), height: HANDLE_H }}
+                className="pointer-events-none absolute inset-x-0 overflow-hidden rounded-[3px] border"
+                style={{
+                  top: handleTop(value),
+                  height: HANDLE_H,
+                  borderColor: selected ? "var(--fader-cap-on-edge)" : "var(--fader-cap-edge)",
+                  background: selected
+                    ? "linear-gradient(to bottom, var(--fader-cap-on-light), var(--fader-cap-on) 48%, var(--fader-cap-on-dark))"
+                    : "linear-gradient(to bottom, var(--fader-cap-light), var(--fader-cap) 48%, var(--fader-cap-dark))",
+                  boxShadow: "inset 0 1px 0 rgb(255 255 255 / 0.55), 0 2px 3px rgb(0 0 0 / 0.45)",
+                }}
                 aria-hidden
               >
-                <span className="absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-current opacity-40" />
+                {/* The groove across it, with its lit lower edge. */}
+                <span className="absolute inset-x-0.5 top-[46%] h-[2px] bg-black/45" />
+                <span className="absolute inset-x-0.5 top-[calc(46%+2px)] h-px bg-white/35" />
               </span>
               {dragging && (
                 <span className="floating pointer-events-none absolute -top-6 left-1/2 z-20 -translate-x-1/2 rounded-sm px-1.5 py-0.5 text-[10px] whitespace-nowrap tabular-nums">
