@@ -1,6 +1,7 @@
 /**
  * The music suite's document (a DAW project), modelled on FL Studio: the channel rack's channels
- * (instruments) and patterns (notes for any of the channels). The playlist and the mixer come next.
+ * (instruments), patterns (notes for any of the channels) and the mixer (where the channels' sound goes).
+ * The playlist comes next.
  * Validated by `normalizeMusicProject`; edited by the pure functions in `edits.ts`.
  *
  * Musical time is in ticks, whole numbers, `PPQ` to a quarter note: never seconds, so nothing moves
@@ -85,6 +86,8 @@ export interface Channel {
   cutSelf: boolean;
   envelope: Envelope;
   precomputed: Precomputed;
+  /** The mixer track it plays into (a `MixerTrack` id): the master unless routed elsewhere. */
+  mixerTrack: string;
 }
 
 export interface Note {
@@ -118,6 +121,52 @@ export interface Pattern {
   notes: Record<string, Note[]>;
 }
 
+/** An effect plugin in a mixer track's slot. */
+export interface MixerEffect {
+  /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
+  id: string;
+  plugin: PluginRef;
+  /** Off, it's bypassed: the plugin stays loaded and the sound goes past it untouched. */
+  enabled: boolean;
+  /** 0..1: how much of the effect's sound is heard against the sound coming in (FL's slot mix knob). */
+  mix: number;
+}
+
+/** A mixer track sending its sound (after its fader) to another. */
+export interface MixerSend {
+  /** The track it goes to. */
+  to: string;
+  /** 0..1, as a knob: 1 sends it as it is. At 0 the link is kept but silent (FL's sidechain-only send). */
+  level: number;
+}
+
+/**
+ * A track of the mixer, FL Studio's: channels play into it, then its sound goes through its effects,
+ * its fader and pan, and on to the tracks it sends to.
+ */
+export interface MixerTrack {
+  id: string;
+  /** Null until it's renamed: then it's called by its number ("Insert 3"), as in FL Studio. */
+  name: string | null;
+  /** 0..1, the fader; `DEFAULT_FADER` leaves the sound as it is. */
+  volume: number;
+  /** -1 (left) .. 1 (right). */
+  pan: number;
+  muted: boolean;
+  /** Its `EFFECT_SLOTS` slots, in the order the sound goes through them; null is an empty slot. */
+  effects: (MixerEffect | null)[];
+  /**
+   * Where its sound goes: the master by default, any other tracks too, or nowhere. Never round in a
+   * loop (the edits refuse one). The master sends nowhere: it's what's heard.
+   */
+  sends: MixerSend[];
+}
+
+export interface Mixer {
+  /** The master first, then the insert tracks in their order (their numbers: 1, 2, 3...). */
+  tracks: MixerTrack[];
+}
+
 export interface MusicProject {
   version: 1;
   name: string;
@@ -126,4 +175,5 @@ export interface MusicProject {
   channels: Channel[];
   /** Always at least one. */
   patterns: Pattern[];
+  mixer: Mixer;
 }

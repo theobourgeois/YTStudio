@@ -13,7 +13,10 @@ about to touch before changing it, and correct it when you learn it's wrong.
   selector, window buttons, the hint bar, the meters). Ends with where Vaudio differs.
 - [plugin-window.md](plugin-window.md): the window a plugin's interface is shown in (the wrapper): its
   title bar, and how the keyboard is shared with FL. Ends with where Vaudio differs.
-- Playlist, mixer, browser: not written yet. Write each one before its phase is built.
+- [mixer.md](mixer.md): the Mixer: tracks, what a track does to its sound, effect slots, the track
+  inspector and its EQ, mute and solo, routing channels and tracks, delay compensation. Ends with where
+  Vaudio differs and what's still to decide.
+- Playlist, browser: not written yet. Write each one before its phase is built.
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).
 
@@ -23,7 +26,8 @@ Where the music suite is and the order of what's next: [../music-suite.md](../mu
    `https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/<page>.htm`:
    `channelrack`, `chansettings`, `chansettings_main`, `chansettings_sampler`, `chansettings_misc`,
    `basics_interface`, `basics_shortcuts`, `basics_workflow`, `toolbar_panels`, `envsettings_general`,
-   `songsettings_settings`, `pianoroll`, `playlist`, `mixer`, `browser`. It describes the current version
+   `songsettings_settings`, `pianoroll`, `playlist`, `mixer`, `mixer_trackprops`, `mixer_mixermenu`,
+   `mixer_levelsandmixing`, `browser`. It describes the current version
    (FL Studio 2025), which is what we follow.
 2. **Théo**, who has used FL Studio for years: where he says it works a certain way, that wins, and the
    text says "(Théo)". His own screenshots go in `img/user/`.

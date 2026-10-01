@@ -125,6 +125,11 @@ export class AudioEngine {
         sample: c.sample && this.samplePath(projectId, c.sample),
         plugin: c.plugin && { ...c.plugin, state: path.join(states, `${c.id}.bin`) },
       })),
+      // An effect's the same, by the effect's id.
+      tracks: compiled.tracks.map((t) => ({
+        ...t,
+        effects: t.effects.map((e) => ({ ...e, plugin: { ...e.plugin, state: path.join(states, `${e.id}.bin`) } })),
+      })),
     };
     this.song = song;
     this.keepStates(song.channels.some((c) => c.plugin));

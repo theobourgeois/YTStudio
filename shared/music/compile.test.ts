@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { compileSong, levelGain, panGains, soundingChannels, swungTick } from "./compile.ts";
+import { compileSong, faderGain, levelGain, mixerPanGains, panGains, soundingChannels, swungTick, trackOrder } from "./compile.ts";
 import { addChannels, addPattern, addPluginChannel, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
 import { editNotes, setNoteProps } from "./notes.ts";
-import { FIRST_PATTERN_ID, createMusicProject } from "./project.ts";
+import { addMixerTracks, routeChannels, sendOnly, setEffect, setSend, updateEffect, updateMixerTrack } from "./mixer.ts";
+import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "./project.ts";
 
 const P = FIRST_PATTERN_ID;
 const rack = () =>
@@ -110,6 +111,79 @@ describe("compileSong", () => {
   it("counts beats and bars by the time signature", () => {
     expect(compileSong(setTimeSignature(rack(), [6, 8]), P)).toMatchObject({ beatTicks: 48, barTicks: 288 });
     expect(compileSong(setTimeSignature(rack(), [3, 4]), P)).toMatchObject({ beatTicks: 96, barTicks: 288 });
+  });
+});
+
+describe("the mixer, compiled", () => {
+  const order = (song: ReturnType<typeof rack>) => compileSong(song, P).tracks.map((t) => t.id);
+
+  it("runs every track after those sending to it, otherwise in the mixer's order, and the master last", () => {
+    const song = rack();
+    expect(order(song)).toEqual([...song.mixer.tracks.slice(1).map((t) => t.id), MASTER_TRACK_ID]);
+    // 1 → 3 → 2: 2 has to wait for 3, which waits for 1.
+    let routed = sendOnly(song, "insert_1", "insert_3");
+    routed = sendOnly(routed, "insert_3", "insert_2");
+    expect(order(routed).slice(0, 3)).toEqual(["insert_1", "insert_3", "insert_2"]);
+    const compiled = compileSong(routed, P);
+    const at = (id: string) => compiled.tracks.findIndex((t) => t.id === id);
+    expect(compiled.tracks[at("insert_1")].sends).toEqual([{ track: at("insert_3"), gain: 1 }]);
+    expect(compiled.tracks[at("insert_2")].sends).toEqual([{ track: at(MASTER_TRACK_ID), gain: 1 }]);
+    expect(compiled.tracks.at(-1)).toMatchObject({ id: MASTER_TRACK_ID, name: "Master", sends: [] });
+    // Every send goes to a later track.
+    for (const [i, track] of compiled.tracks.entries()) for (const send of track.sends) expect(send.track).toBeGreaterThan(i);
+  });
+
+  it("orders 500 tracks in a long chain quickly", () => {
+    let song = addMixerTracks(rack(), null, 484);
+    const tracks = song.mixer.tracks;
+    for (let i = tracks.length - 1; i > 1; i--) song = sendOnly(song, tracks[i].id, tracks[i - 1].id);
+    const started = performance.now();
+    const ordered = trackOrder(song.mixer.tracks);
+    expect(performance.now() - started).toBeLessThan(100);
+    expect(ordered.map((t) => t.id)).toEqual([...tracks.slice(1).reverse().map((t) => t.id), MASTER_TRACK_ID]);
+  });
+
+  it("sends each channel into its track", () => {
+    const song = routeChannels(rack(), ["chan_hat"], "insert_2");
+    const compiled = compileSong(song, P);
+    expect(compiled.channels.map((c) => compiled.tracks[c.track].id)).toEqual([MASTER_TRACK_ID, "insert_2"]);
+  });
+
+  it("turns the fader, pan and mute into a track's gains, and a send's level into its gain", () => {
+    expect(faderGain(0.8)).toBe(1);
+    expect(faderGain(0)).toBe(0);
+    expect(20 * Math.log10(faderGain(1))).toBeCloseTo(5.8, 1);
+    expect(mixerPanGains(0)).toEqual([1, 0, 0, 1]);
+    // Fully right: both sides on the right.
+    expect(mixerPanGains(1).map((g) => Math.round(g * 1000) / 1000)).toEqual([0, 0, 1, 1]);
+    expect(mixerPanGains(-1).map((g) => Math.round(g * 1000) / 1000)).toEqual([1, 1, 0, 0]);
+    // Halfway: the left side is a centred mono sound, -3 dB on each side.
+    expect(mixerPanGains(0.5)[0]).toBeCloseTo(Math.SQRT1_2, 6);
+
+    let song = updateMixerTrack(rack(), "insert_1", { volume: 0.4, pan: 1 });
+    song = updateMixerTrack(song, "insert_2", { muted: true });
+    song = setSend(song, "insert_1", "insert_3", 0.5);
+    const compiled = compileSong(song, P);
+    const track = (id: string) => compiled.tracks.find((t) => t.id === id)!;
+    const one = track("insert_1");
+    expect(one.gains.map((g) => Math.round(g * 1000) / 1000)).toEqual([0, 0, 0.125, 0.125]);
+    expect(one.sends.map((s) => s.gain)).toEqual([1, 0.25]);
+    expect(track("insert_2").gains).toEqual([0, 0, 0, 0]);
+  });
+
+  it("lists each track's effects in order, bypassed ones too, without empty slots", () => {
+    let song = setEffect(rack(), "insert_1", 3, { id: "VST3-Pro-Q", name: "Pro-Q", format: "VST3" }, "fx_eq");
+    song = setEffect(song, "insert_1", 1, { id: "AU-EchoBoy", name: "EchoBoy", format: "AudioUnit" }, "fx_echo");
+    song = updateEffect(song, "insert_1", 1, { enabled: false, mix: 0.4 });
+    song = updateMixerTrack(song, "insert_1", { name: "Lead" });
+    expect(compileSong(song, P).tracks[0]).toMatchObject({
+      id: "insert_1",
+      name: "Lead",
+      effects: [
+        { id: "fx_echo", plugin: { id: "AU-EchoBoy", state: "" }, enabled: false, mix: 0.4 },
+        { id: "fx_eq", plugin: { id: "VST3-Pro-Q", state: "" }, enabled: true, mix: 1 },
+      ],
+    });
   });
 });
 

@@ -9,6 +9,10 @@ import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import {
   type Channel,
   type Envelope,
+  type Mixer,
+  type MixerEffect,
+  type MixerSend,
+  type MixerTrack,
   type MusicProject,
   type MusicSettings,
   type Note,
@@ -42,6 +46,16 @@ export const DEFAULT_PRECOMPUTED: Precomputed = { normalize: false, reverse: fal
 /** The most a sample's start can be moved, so something is always left to play. */
 export const MAX_SAMPLE_START = 0.99;
 export const MIN_SAMPLE_LENGTH = 0.01;
+
+/** The master's id, the same in every song. */
+export const MASTER_TRACK_ID = "master";
+/** How many insert tracks a new song has (FL Studio's templates' 16), and the most it can have (FL's 500). */
+export const DEFAULT_INSERTS = 16;
+export const MAX_INSERTS = 500;
+/** Effect slots on each mixer track, as in FL Studio. */
+export const EFFECT_SLOTS = 10;
+/** Where a mixer track's fader leaves its sound as it is (0 dB). */
+export const DEFAULT_FADER = 0.8;
 
 /** Steps in one bar of a time signature (16 in 4/4, 12 in 3/4 and 6/8). */
 export const stepsPerBar = ([beats, unit]: MusicSettings["timeSignature"]) => Math.max(1, Math.round((beats * 16) / unit));
@@ -97,6 +111,7 @@ export function createChannel(name: string, sampleId: string | null, id = create
     cutSelf: false,
     envelope: DEFAULT_ENVELOPE,
     precomputed: DEFAULT_PRECOMPUTED,
+    mixerTrack: MASTER_TRACK_ID,
   };
 }
 
@@ -109,9 +124,39 @@ export function createPluginChannel(plugin: PluginRef, id = createId("chan")): C
 export const FIRST_CHANNEL_ID = "chan_sampler";
 export const emptyRack = (): Channel[] => [createChannel("Sampler", null, FIRST_CHANNEL_ID)];
 
+const emptySlots = (): null[] => Array.from({ length: EFFECT_SLOTS }, () => null);
+
+/** An insert track as FL Studio adds one: unnamed, at 0 dB, no effects, sending to the master. */
+export function createMixerTrack(id = createId("insert")): MixerTrack {
+  return { id, name: null, volume: DEFAULT_FADER, pan: 0, muted: false, effects: emptySlots(), sends: [{ to: MASTER_TRACK_ID, level: 1 }] };
+}
+
+/** A new song's mixer: the master and `DEFAULT_INSERTS` insert tracks (fixed ids, so an empty song is always the same document). */
+export function createMixer(): Mixer {
+  const master: MixerTrack = { ...createMixerTrack(MASTER_TRACK_ID), sends: [] };
+  return { tracks: [master, ...Array.from({ length: DEFAULT_INSERTS }, (_, i) => createMixerTrack(`insert_${i + 1}`))] };
+}
+
 export function createMusicProject(name = DEFAULT_PROJECT_NAME): MusicProject {
   const settings: MusicSettings = { tempo: DEFAULT_TEMPO, timeSignature: [4, 4], swing: 0 };
-  return { version: 1, name, settings, channels: emptyRack(), patterns: [createPattern("Pattern 1", FIRST_PATTERN_ID)] };
+  return { version: 1, name, settings, channels: emptyRack(), patterns: [createPattern("Pattern 1", FIRST_PATTERN_ID)], mixer: createMixer() };
+}
+
+/**
+ * Whether `from`'s sound reaches `to` through sends (or is `to`): a send from `to` to `from` would
+ * then make a loop. `sends` gives each track's destinations.
+ */
+export function reaches(sends: (id: string) => readonly MixerSend[], from: string, to: string): boolean {
+  const seen = new Set<string>();
+  const stack = [from];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (id === to) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const send of sends(id)) stack.push(send.to);
+  }
+  return false;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -148,7 +193,7 @@ function normalizePlugin(input: unknown): PluginRef | null {
 }
 
 /** The song's channels; never none (a rack is never empty: `emptyRack`). */
-function normalizeChannels(input: unknown, isSample: (id: string) => boolean): Channel[] {
+function normalizeChannels(input: unknown, isSample: (id: string) => boolean, isTrack: (id: string) => boolean): Channel[] {
   if (!Array.isArray(input)) return emptyRack();
   const seen = new Set<string>();
   const channels: Channel[] = [];
@@ -169,6 +214,7 @@ function normalizeChannels(input: unknown, isSample: (id: string) => boolean): C
       cutSelf: raw.cutSelf === true,
       envelope: normalizeEnvelope(raw.envelope),
       precomputed: normalizePrecomputed(raw.precomputed),
+      mixerTrack: isId(raw.mixerTrack) && isTrack(raw.mixerTrack) ? raw.mixerTrack : MASTER_TRACK_ID,
     });
   }
   return channels.length ? channels : emptyRack();
@@ -229,6 +275,58 @@ function normalizePatterns(input: unknown, channels: Channel[]): Pattern[] {
   return patterns.length ? patterns : [createPattern("Pattern 1", FIRST_PATTERN_ID)];
 }
 
+function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null {
+  if (!isObject(input) || !isId(input.id) || seen.has(input.id)) return null;
+  const plugin = normalizePlugin(input.plugin);
+  if (!plugin) return null;
+  seen.add(input.id);
+  return { id: input.id, plugin, enabled: input.enabled !== false, mix: number(input.mix, 0, 1, 1) };
+}
+
+/**
+ * The song's mixer: the master first (made if it's missing), then the insert tracks. Sends go to tracks
+ * that exist, one per destination, and any that would close a loop is dropped (the first ones win), so
+ * the engine can always put the tracks in an order. Songs from before the mixer get a new one.
+ */
+function normalizeMixer(input: unknown): Mixer {
+  if (!isObject(input) || !Array.isArray(input.tracks)) return createMixer();
+  const raws = new Map<string, Record<string, unknown>>();
+  for (const raw of input.tracks) {
+    if (!isObject(raw) || !isId(raw.id) || raws.has(raw.id)) continue;
+    if (raw.id !== MASTER_TRACK_ID && raws.size - (raws.has(MASTER_TRACK_ID) ? 1 : 0) >= MAX_INSERTS) continue;
+    raws.set(raw.id, raw);
+  }
+  const ids = [MASTER_TRACK_ID, ...[...raws.keys()].filter((id) => id !== MASTER_TRACK_ID)];
+  const effectIds = new Set<string>();
+  const tracks: MixerTrack[] = ids.map((id) => {
+    const raw = raws.get(id) ?? {};
+    const effects = Array.isArray(raw.effects) ? raw.effects : [];
+    return {
+      id,
+      name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, MAX_NAME) : null,
+      volume: number(raw.volume, 0, 1, DEFAULT_FADER),
+      pan: number(raw.pan, -1, 1, 0),
+      muted: raw.muted === true,
+      effects: Array.from({ length: EFFECT_SLOTS }, (_, slot) => normalizeEffect(effects[slot], effectIds)),
+      sends: [],
+    };
+  });
+  const byId = new Map(tracks.map((t) => [t.id, t]));
+  const sendsOf = (id: string) => byId.get(id)?.sends ?? [];
+  for (const track of tracks) {
+    // A track that never had a list of sends (a hand-made song) goes to the master.
+    const raw = raws.get(track.id);
+    const list = Array.isArray(raw?.sends) ? raw.sends : track.id === MASTER_TRACK_ID ? [] : [{ to: MASTER_TRACK_ID, level: 1 }];
+    if (track.id === MASTER_TRACK_ID) continue;
+    for (const send of list) {
+      if (!isObject(send) || typeof send.to !== "string" || !byId.has(send.to)) continue;
+      if (track.sends.some((s) => s.to === send.to) || reaches(sendsOf, send.to, track.id)) continue;
+      track.sends.push({ to: send.to, level: number(send.level, 0, 1, 1) });
+    }
+  }
+  return { tracks };
+}
+
 /**
  * Repair a song from untrusted storage: anything missing or out of range falls back to the default.
  * `isSample` says which media ids the song may play (its project's audio); others are dropped.
@@ -244,12 +342,15 @@ export function normalizeMusicProject(input: unknown, isSample: (id: string) => 
       ? [beats as number, unit as number]
       : base.settings.timeSignature;
   const name = typeof input.name === "string" && input.name.trim() ? input.name.trim() : base.name;
-  const channels = normalizeChannels(input.channels, isSample);
+  const mixer = normalizeMixer(input.mixer);
+  const trackIds = new Set(mixer.tracks.map((t) => t.id));
+  const channels = normalizeChannels(input.channels, isSample, (id) => trackIds.has(id));
   return {
     version: 1,
     name,
     settings: { tempo, timeSignature, swing: number(settings.swing, 0, 1, 0) },
     channels,
     patterns: normalizePatterns(input.patterns, channels),
+    mixer,
   };
 }

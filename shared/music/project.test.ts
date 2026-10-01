@@ -5,8 +5,12 @@ import {
   DEFAULT_PRECOMPUTED,
   FIRST_CHANNEL_ID,
   FIRST_PATTERN_ID,
+  MASTER_TRACK_ID,
+  MAX_INSERTS,
   MAX_TEMPO,
   createChannel,
+  createMixer,
+  createMixerTrack,
   createMusicProject,
   createPluginChannel,
   normalizeMusicProject,
@@ -21,12 +25,37 @@ const song: MusicProject = {
   settings: { tempo: 87.5, timeSignature: [7, 8], swing: 0.25 },
   channels: [
     { ...createChannel("Kick", "media_1", "chan_kick"), cutSelf: true, precomputed: { ...DEFAULT_PRECOMPUTED, reverse: true, start: 0.25, fadeOut: 0.5 } },
-    { ...createChannel("Hat", null, "chan_hat"), volume: 0.5, pan: -0.3, pitch: 12, muted: true, envelope: { ...DEFAULT_ENVELOPE, enabled: true } },
+    {
+      ...createChannel("Hat", null, "chan_hat"),
+      volume: 0.5,
+      pan: -0.3,
+      pitch: 12,
+      muted: true,
+      envelope: { ...DEFAULT_ENVELOPE, enabled: true },
+      mixerTrack: "insert_drums",
+    },
   ],
   patterns: [
     { id: "pat_a", name: "Verse", length: 14, notes: { chan_kick: [{ id: 3, start: 0, length: 24, pitch: 60, velocity: 0.78, pan: -0.5, muted: true }] } },
     { id: "pat_b", name: "Chorus", length: null, notes: {} },
   ],
+  mixer: {
+    tracks: [
+      { ...createMixerTrack(MASTER_TRACK_ID), sends: [] },
+      {
+        ...createMixerTrack("insert_drums"),
+        name: "Drums",
+        volume: 0.6,
+        pan: 0.25,
+        effects: [{ id: "fx_eq", plugin: { id: "VST3-Pro-Q 4", name: "Pro-Q 4", format: "VST3" }, enabled: false, mix: 0.5 }, ...Array(9).fill(null)],
+        sends: [
+          { to: "insert_verb", level: 0.3 },
+          { to: MASTER_TRACK_ID, level: 1 },
+        ],
+      },
+      { ...createMixerTrack("insert_verb"), muted: true, sends: [] },
+    ],
+  },
 };
 
 describe("music projects", () => {
@@ -37,6 +66,7 @@ describe("music projects", () => {
       settings: { tempo: 120, timeSignature: [4, 4], swing: 0 },
       channels: [expect.objectContaining({ id: FIRST_CHANNEL_ID, name: "Sampler", kind: "sampler", sampleId: null })],
       patterns: [{ id: FIRST_PATTERN_ID, name: "Pattern 1", length: null, notes: {} }],
+      mixer: createMixer(),
     });
     expect(stepsPerBar([3, 4])).toBe(12);
     expect(stepsPerBar([6, 8])).toBe(12);
@@ -113,6 +143,61 @@ describe("music projects", () => {
         },
       },
     ]);
+  });
+});
+
+describe("the mixer", () => {
+  it("starts as FL Studio's templates do: the master and 16 inserts at 0 dB, sending to the master, every channel on the master", () => {
+    const { mixer, channels } = createMusicProject();
+    expect(mixer.tracks.map((t) => t.id)).toEqual([MASTER_TRACK_ID, ...Array.from({ length: 16 }, (_, i) => `insert_${i + 1}`)]);
+    expect(mixer.tracks[0].sends).toEqual([]);
+    expect(mixer.tracks[3]).toEqual({ id: "insert_3", name: null, volume: 0.8, pan: 0, muted: false, effects: Array(10).fill(null), sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
+    expect(channels[0].mixerTrack).toBe(MASTER_TRACK_ID);
+  });
+
+  it("is given to songs from before it, their channels on the master", () => {
+    const old = normalizeMusicProject({ ...song, mixer: undefined, channels: song.channels.map(({ mixerTrack: _, ...c }) => c) });
+    expect(old.mixer).toEqual(createMixer());
+    expect(old.channels.map((c) => c.mixerTrack)).toEqual([MASTER_TRACK_ID, MASTER_TRACK_ID]);
+  });
+
+  it("is repaired: the master first, unknown sends and routing dropped, ten slots, limits kept", () => {
+    const repaired = normalizeMusicProject({
+      ...song,
+      channels: [{ ...song.channels[0], mixerTrack: "insert_gone" }],
+      mixer: {
+        tracks: [
+          { id: "insert_a", name: "  ", volume: 4, effects: [null, { id: "fx_1", plugin: { id: "p", name: "P" } }, { id: "fx_1", plugin: { id: "q" } }, { id: "fx_2" }], sends: [{ to: "insert_gone" }, { to: MASTER_TRACK_ID, level: 7 }, { to: MASTER_TRACK_ID }] },
+          { id: MASTER_TRACK_ID, sends: [{ to: "insert_a" }] },
+          { id: "insert_a" },
+          { id: "insert_b" },
+        ],
+      },
+    });
+    expect(repaired.channels[0].mixerTrack).toBe(MASTER_TRACK_ID);
+    const [master, a, b] = repaired.mixer.tracks;
+    expect([master.id, a.id, b.id]).toEqual([MASTER_TRACK_ID, "insert_a", "insert_b"]);
+    expect(master.sends).toEqual([]);
+    expect(a).toMatchObject({ name: null, volume: 1, sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
+    expect(a.effects).toEqual([null, { id: "fx_1", plugin: { id: "p", name: "P", format: "VST3" }, enabled: true, mix: 1 }, ...Array(8).fill(null)]);
+    // A track with no list of sends goes to the master; one with an empty list goes nowhere.
+    expect(b.sends).toEqual([{ to: MASTER_TRACK_ID, level: 1 }]);
+    const many = normalizeMusicProject({ mixer: { tracks: Array.from({ length: 600 }, (_, i) => ({ id: `t_${i}` })) } });
+    expect(many.mixer.tracks).toHaveLength(MAX_INSERTS + 1);
+  });
+
+  it("never sends round in a loop: the send that would close one is dropped", () => {
+    const repaired = normalizeMusicProject({
+      mixer: {
+        tracks: [
+          { id: MASTER_TRACK_ID },
+          { id: "a", sends: [{ to: "b" }] },
+          { id: "b", sends: [{ to: "c" }, { to: MASTER_TRACK_ID }] },
+          { id: "c", sends: [{ to: "a" }, { to: "c" }, { to: MASTER_TRACK_ID }] },
+        ],
+      },
+    });
+    expect(repaired.mixer.tracks.map((t) => t.sends.map((s) => s.to))).toEqual([[], ["b"], ["c", MASTER_TRACK_ID], [MASTER_TRACK_ID]]);
   });
 });
 

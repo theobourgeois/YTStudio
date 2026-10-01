@@ -263,7 +263,7 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing }, channels,
-  patterns }`. A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
+  patterns, mixer }`. A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
   `precomputed` effects (trim, reverse, normalise, fades); a `Pattern` has `notes[channelId]`, sorted by `start`,
   and a `length` that's null for FL's Auto: use `lengthOf`/`patternSteps`, never the field. Solo isn't a field:
   it's a state of the mutes (`soloChannel`).
@@ -281,6 +281,12 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   like the video editor's. The store (`src/suites/music/store.ts`) keeps a `DocumentHistory`: `commit(edit)` for a
   one-shot edit, `songGesture()` for a drag (one undo step). Which pattern is shown and which channel is selected
   are UI state, not the song.
+- **The mixer** (`docs/fl-studio/mixer.md`): `mixer.tracks` is the master (always first, `MASTER_TRACK_ID`) then
+  the insert tracks; a channel plays into one (`Channel.mixerTrack`, by id, so moving tracks keeps the routing).
+  A track has `EFFECT_SLOTS` effect slots (null is empty) and `sends` (post-fader, the master's by default).
+  Sends never make a loop: `normalizeMusicProject` drops one and `setSend` refuses it (`canSend`), so
+  `compileSong` can always order the tracks (`trackOrder`: each after its senders, the master last). Its edits
+  are in `shared/music/mixer.ts`. An effect's settings are a file like a plugin channel's, by the effect's id.
 - What volume, pan, velocity and swing *mean* is decided in `shared/music/compile.ts` (`compileSong` → `EngineSong`:
   gains, swung ticks), in tested TypeScript. The engine only plays samples at the moments it's told. Add musical
   rules there, not in C++.

@@ -67,7 +67,8 @@ The tab (src/suites/music/)                 The server (server/music/)          
 
 The detailed lists are at the end of each reference doc. The main ones:
 
-- **No mixer**: every channel goes straight to the output. No effect plugins on channels (the bench in the
+- **No mixer yet**: the song has one (step 1 of the mixer), but the engine doesn't use it: every channel
+  goes straight to the output. No effect plugins on channels (the bench in the
   audio dialog can load one, for testing only).
 - **No playlist**: only the current pattern plays, looped (FL's pattern mode). No song mode, no
   arrangement, no audio clips.
@@ -92,6 +93,11 @@ file and CLAUDE.md.
 window title bars are part of it. New panels below should be built in the new look from the start.
 
 ### 1. The mixer
+
+**In progress.** The reference is `docs/fl-studio/mixer.md`. Done: step 1, the document and its logic
+(`mixer` in `MusicProject`, `Channel.mixerTrack`, the edits in `shared/music/mixer.ts`, the tracks compiled
+in an order with their gains in `compileSong`; the engine doesn't read them yet). Next: routing in the
+engine, meters, the Mixer window, effect plugins, latency, the stock EQ, the assistant's tools.
 
 What Théo needs: his effect plugins (Pro-Q, Pro-R, EchoBoy) on channels and on the master, levels, and a
 stock EQ.
