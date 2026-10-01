@@ -6,7 +6,7 @@ import { errorMessage } from "@shared/errors";
 import type { EnginePlugin } from "@shared/music/engine";
 import { Input } from "@/components/ui/input";
 import { musicApi } from "./api";
-import { PINNED, type PickerItem, type PickerPosition, movePosition, pickerColumns } from "./plugin-groups";
+import { PINNED, type PickerItem, besideIndex, pickerColumns, pickerOrder } from "./plugin-groups";
 
 const PINS_KEY = "vaudio.music.pinnedPlugins";
 
@@ -65,17 +65,19 @@ interface PluginPickerProps {
 
 /**
  * The plugin picker, for the rack's + and the mixer's effect slots: a search field (focused, so typing
- * narrows at once), then the plugins in columns by kind (EQ, Reverb, Synth...), the pinned ones first
- * (and in their own column too), wrapping onto more rows. A pin on each, shown on hover. The arrows
- * move through a group and to the group before or after; Enter chooses.
+ * narrows at once), then the plugins by kind (EQ, Reverb, Synth...), the pinned ones first (and in their
+ * own group too), one line each. The groups run down a column and on into the next, as a newspaper's
+ * do. A pin on each, shown on hover. Up and down go through them in order, left and right to the one
+ * level with it in the next column; Enter chooses.
  */
 export function PluginPicker({ noun, items, loading, error, firstGroups, onChoose, footer }: PluginPickerProps) {
   const [query, setQuery] = useState("");
   const pinned = usePluginPins((s) => s.pinned);
   const columns = useMemo(() => pickerColumns(items, pinned, query, firstGroups), [items, pinned, query, firstGroups]);
-  const [at, setAt] = useState<PickerPosition>({ column: 0, row: 0 });
+  const order = useMemo(() => pickerOrder(columns), [columns]);
+  const [at, setAt] = useState(0);
   const list = useRef<HTMLDivElement>(null);
-  const highlighted = columns[Math.min(at.column, columns.length - 1)]?.items[at.row] ?? null;
+  const highlighted = order[Math.min(at, order.length - 1)]?.item ?? null;
   // Out of the search field first: it lingers while the picker closes, and the editor's keys (⌘Z) skip a field.
   const choose = (item: PickerItem) => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -83,26 +85,37 @@ export function PluginPicker({ noun, items, loading, error, firstGroups, onChoos
   };
 
   // What's typed narrows the list: the highlight goes back to the first.
-  useEffect(() => setAt({ column: 0, row: 0 }), [query]);
+  useEffect(() => setAt(0), [query]);
   useEffect(() => {
     list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [at]);
 
+  /** Left or right: the item level with the highlighted one in the next column, as they're laid out. */
+  const across = (direction: -1 | 1) => {
+    const rows = [...(list.current?.querySelectorAll<HTMLElement>("[data-picker-item]") ?? [])].map((row) => row.getBoundingClientRect());
+    const next = besideIndex(rows, at, direction);
+    if (next !== null) setAt(next);
+  };
+
+  let index = 0;
   return (
-    <div className="flex w-[min(56rem,calc(100vw-4rem))] flex-col gap-2" data-testid={`${noun}-picker`}>
+    <div className="flex w-[min(52rem,calc(100vw-4rem))] flex-col gap-1.5" data-testid={`${noun}-picker`}>
       <Input
         autoFocus
         aria-label={`Find an ${noun}`}
         placeholder={`Find an ${noun}…`}
-        className="h-8"
+        className="h-7"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
-            // Left and right move the caret while there's text to move it in; with the field empty, they're the columns'.
-            if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && query && !e.altKey) return;
+          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
             e.preventDefault();
-            setAt((now) => movePosition(columns, now, e.key as "ArrowUp"));
+            setAt((now) => Math.max(0, Math.min(order.length - 1, now + (e.key === "ArrowUp" ? -1 : 1))));
+          } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            // Left and right move the caret while there's text to move it in (Alt: the columns anyway).
+            if (query && !e.altKey) return;
+            e.preventDefault();
+            across(e.key === "ArrowLeft" ? -1 : 1);
           } else if (e.key === "Enter" && highlighted) {
             e.preventDefault();
             choose(highlighted);
@@ -111,34 +124,34 @@ export function PluginPicker({ noun, items, loading, error, firstGroups, onChoos
           e.stopPropagation();
         }}
       />
-      {/* The groups wrap onto more rows rather than scroll sideways: every kind is in view at once. */}
-      <div
-        ref={list}
-        role="listbox"
-        aria-label={`${noun[0].toUpperCase()}${noun.slice(1)}s`}
-        className="grid max-h-[26rem] grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-px overflow-y-auto rounded-sm border border-line bg-line"
-      >
-        {columns.map((column, c) => (
-          <section key={column.title} className="flex min-w-0 flex-col bg-popover" aria-label={column.title}>
-            <h3 className="border-b border-line bg-surface-1 px-2 py-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">{column.title}</h3>
-            {column.items.map((item, r) => (
-              <PickerRow
-                key={`${column.title}:${item.id}`}
-                item={item}
-                active={at.column === c && at.row === r}
-                pinned={pinned.includes(item.id)}
-                inPinned={column.title === PINNED}
-                onHover={() => setAt({ column: c, row: r })}
-                onChoose={() => choose(item)}
-              />
-            ))}
-          </section>
-        ))}
-        {!columns.length && (
-          <p className="bg-popover p-3 text-xs text-muted-foreground">
-            {error ? <span className="text-destructive">{error}</span> : loading ? "Looking for plugins…" : query ? `No ${noun} matches "${query}".` : `No ${noun} plugins found yet.`}
-          </p>
-        )}
+      <div ref={list} role="listbox" aria-label={`${noun[0].toUpperCase()}${noun.slice(1)}s`} className="h-[min(22rem,60vh)] overflow-x-auto overflow-y-hidden rounded-sm border border-line bg-popover">
+        {/* Newspaper columns: a group runs down a column and on into the next; never a header left alone at a column's foot. */}
+        <div className="h-full [column-fill:auto] [column-gap:0] [column-rule:1px_solid_var(--line)] [column-width:11rem]">
+          {columns.map((column) => (
+            <section key={column.title} aria-label={column.title}>
+              <h3 className="break-after-avoid px-2 pt-1.5 pb-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">{column.title}</h3>
+              {column.items.map((item) => {
+                const i = index++;
+                return (
+                  <PickerRow
+                    key={`${column.title}:${item.id}`}
+                    item={item}
+                    active={at === i}
+                    pinned={pinned.includes(item.id)}
+                    inPinned={column.title === PINNED}
+                    onHover={() => setAt(i)}
+                    onChoose={() => choose(item)}
+                  />
+                );
+              })}
+            </section>
+          ))}
+          {!columns.length && (
+            <p className="p-3 text-xs text-muted-foreground">
+              {error ? <span className="text-destructive">{error}</span> : loading ? "Looking for plugins…" : query ? `No ${noun} matches "${query}".` : `No ${noun} plugins found yet.`}
+            </p>
+          )}
+        </div>
       </div>
       {footer}
     </div>
@@ -146,27 +159,27 @@ export function PluginPicker({ noun, items, loading, error, firstGroups, onChoos
 }
 
 function PickerRow({ item, active, pinned, inPinned, onHover, onChoose }: { item: PickerItem; active: boolean; pinned: boolean; inPinned: boolean; onHover: () => void; onChoose: () => void }) {
+  const format = item.plugin ? (item.plugin.format === "AudioUnit" ? "AU" : item.plugin.format) : "";
   return (
     <div
       role="option"
       aria-selected={active}
       aria-label={item.name}
-      className={cn("group flex cursor-pointer items-center gap-1.5 px-2 py-1 text-left", active ? "bg-accent text-foreground" : "hover:bg-accent/60")}
+      title={item.detail}
+      className={cn("group flex h-6 cursor-pointer break-inside-avoid items-center gap-1.5 pr-1 pl-2 text-left", active ? "bg-accent text-foreground" : "hover:bg-accent/60")}
       onPointerEnter={onHover}
       onPointerDown={(e) => e.preventDefault()}
       onClick={onChoose}
       data-picker-item={item.id}
     >
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px]">{item.name}</span>
-        {item.detail && <span className="block truncate text-[10px] text-muted-foreground">{item.detail}</span>}
-      </span>
+      <span className="min-w-0 flex-1 truncate text-[12px]">{item.name}</span>
+      {format && <span className="shrink-0 text-[9px] text-muted-foreground/70">{format}</span>}
       {item.plugin && (
         <button
           type="button"
           aria-label={pinned ? `Unpin ${item.name}` : `Pin ${item.name}`}
           title={pinned ? "Unpin" : "Pin to the top"}
-          className={cn("grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground hover:text-foreground", pinned ? (inPinned ? "text-brand" : "text-brand/70") : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100")}
+          className={cn("grid size-4 shrink-0 place-items-center rounded-sm text-muted-foreground hover:text-foreground", pinned ? (inPinned ? "text-brand" : "text-brand/70") : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100")}
           // The search keeps the focus (typing goes on narrowing the list).
           onPointerDown={(e) => e.preventDefault()}
           onClick={(e) => {
@@ -174,7 +187,7 @@ function PickerRow({ item, active, pinned, inPinned, onHover, onChoose }: { item
             usePluginPins.getState().toggle(item.id);
           }}
         >
-          {pinned ? <PiPushPinFill className="size-3.5" /> : <PiPushPin className="size-3.5" />}
+          {pinned ? <PiPushPinFill className="size-3" /> : <PiPushPin className="size-3" />}
         </button>
       )}
     </div>

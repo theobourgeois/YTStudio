@@ -69,26 +69,22 @@ export function pickerColumns(items: readonly PickerItem[], pinned: readonly str
   return pins.length ? [{ title: PINNED, items: pins }, ...columns] : columns;
 }
 
-/** Where the highlight is: a column, and an item in it. */
-export interface PickerPosition {
-  column: number;
-  row: number;
+/** Every item in the order the picker shows them (group after group), each with its group: up and down go through this. */
+export function pickerOrder(columns: readonly PickerColumn[]): { item: PickerItem; group: string }[] {
+  return columns.flatMap((column) => column.items.map((item) => ({ item, group: column.title })));
 }
 
-/** The highlight after an arrow key: up and down in a column, left and right to the next column (the row kept where it can be). */
-export function movePosition(columns: readonly PickerColumn[], at: PickerPosition, key: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight"): PickerPosition {
-  if (!columns.length) return at;
-  const column = Math.min(at.column, columns.length - 1);
-  const rows = columns[column].items.length;
-  switch (key) {
-    case "ArrowUp":
-      return { column, row: Math.max(0, at.row - 1) };
-    case "ArrowDown":
-      return { column, row: Math.min(rows - 1, at.row + 1) };
-    case "ArrowLeft":
-    case "ArrowRight": {
-      const next = Math.min(columns.length - 1, Math.max(0, column + (key === "ArrowLeft" ? -1 : 1)));
-      return { column: next, row: Math.min(at.row, columns[next].items.length - 1) };
-    }
-  }
+/**
+ * The item beside another, in the next column to the left or right of it as laid out: the one whose
+ * top is nearest (by `rects`, the items' places on screen, in `pickerOrder`); null past the last column.
+ */
+export function besideIndex(rects: readonly { left: number; right: number; top: number }[], from: number, direction: -1 | 1): number | null {
+  const here = rects[from];
+  if (!here) return null;
+  const across = rects.map((r, i) => ({ r, i })).filter(({ r }) => (direction > 0 ? r.left >= here.right - 1 : r.right <= here.left + 1));
+  if (!across.length) return null;
+  // The nearest column that way, then the item in it level with this one.
+  const edge = direction > 0 ? Math.min(...across.map(({ r }) => r.left)) : Math.max(...across.map(({ r }) => r.left));
+  const column = across.filter(({ r }) => Math.abs(r.left - edge) < 2);
+  return column.reduce((best, c) => (Math.abs(c.r.top - here.top) < Math.abs(best.r.top - here.top) ? c : best)).i;
 }

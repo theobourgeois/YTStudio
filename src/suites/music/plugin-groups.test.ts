@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EnginePlugin } from "@shared/music/engine";
-import { OTHER, PINNED, matches, movePosition, pickerColumns, pickerItem, pluginGroup } from "./plugin-groups";
+import { OTHER, PINNED, besideIndex, matches, pickerColumns, pickerItem, pickerOrder, pluginGroup } from "./plugin-groups";
 
 const plugin = (name: string, category: string, manufacturer = "Maker"): EnginePlugin => ({ id: `VST3-${name}`, name, format: "VST3", manufacturer, category, isInstrument: false });
 
@@ -27,16 +27,23 @@ describe("the plugin picker", () => {
     expect(items[0].detail).toBe("FabFilter · VST3");
   });
 
-  it("moves the highlight with the arrows: in a column, and across, keeping the row where it can", () => {
+  it("goes through the items group after group, and across to the item level with one in the next column", () => {
     const columns = [
-      { title: "A", items: [1, 2, 3].map((n) => pickerItem(plugin(`a${n}`, "Fx|A"))) },
+      { title: "A", items: [1, 2].map((n) => pickerItem(plugin(`a${n}`, "Fx|A"))) },
       { title: "B", items: [pickerItem(plugin("b1", "Fx|B"))] },
     ];
-    expect(movePosition(columns, { column: 0, row: 0 }, "ArrowDown")).toEqual({ column: 0, row: 1 });
-    expect(movePosition(columns, { column: 0, row: 2 }, "ArrowDown")).toEqual({ column: 0, row: 2 });
-    expect(movePosition(columns, { column: 0, row: 2 }, "ArrowRight")).toEqual({ column: 1, row: 0 });
-    expect(movePosition(columns, { column: 1, row: 0 }, "ArrowRight")).toEqual({ column: 1, row: 0 });
-    expect(movePosition(columns, { column: 1, row: 0 }, "ArrowLeft")).toEqual({ column: 0, row: 0 });
-    expect(movePosition(columns, { column: 0, row: 0 }, "ArrowUp")).toEqual({ column: 0, row: 0 });
+    expect(pickerOrder(columns).map((o) => `${o.group}:${o.item.name}`)).toEqual(["A:a1", "A:a2", "B:b1"]);
+    // Two columns: a1, a2, b1 down the first; c1, c2 down the second.
+    const rects = [
+      { left: 0, right: 100, top: 0 },
+      { left: 0, right: 100, top: 24 },
+      { left: 0, right: 100, top: 72 },
+      { left: 100, right: 200, top: 0 },
+      { left: 100, right: 200, top: 72 },
+    ];
+    expect(besideIndex(rects, 2, 1)).toBe(4);
+    expect(besideIndex(rects, 1, 1)).toBe(3);
+    expect(besideIndex(rects, 4, -1)).toBe(2);
+    expect(besideIndex(rects, 3, 1)).toBeNull();
   });
 });

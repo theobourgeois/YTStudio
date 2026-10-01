@@ -279,12 +279,12 @@ test("the rack's + adds an instrument: a plugin of this computer's, or a sampler
   await rack.getByRole("button", { name: "Add a channel" }).click();
   const picker = page.getByTestId("channel-picker");
   await expect(picker.getByRole("option")).toHaveText([/Sampler/, /Fake Synth/]);
-  // The arrows move the highlight (right: the next group) and Enter would choose it.
+  // The arrows move the highlight through the list, and Enter would choose it.
   await expect(picker.getByRole("textbox")).toBeFocused();
   await expect(picker.getByRole("option", { name: "Sampler" })).toHaveAttribute("aria-selected", "true");
-  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowDown");
   await expect(picker.getByRole("option", { name: "Fake Synth" })).toHaveAttribute("aria-selected", "true");
-  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowUp");
   await expect(picker.getByRole("option", { name: "Sampler" })).toHaveAttribute("aria-selected", "true");
   await picker.getByRole("textbox").fill("synth");
   await expect(picker.getByRole("option")).toHaveCount(1);
