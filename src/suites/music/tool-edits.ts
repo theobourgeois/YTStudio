@@ -14,6 +14,7 @@ import {
   removeChannel,
   removePattern,
   renamePattern,
+  setPatternColor,
   setPatternLength,
   setStepNote,
   soloChannel,
@@ -88,6 +89,13 @@ export const updateSong: SongEdit = (song, input) => {
   return { song: next, text: `The song is at ${bpm} BPM in ${timeSignature.join("/")}, swing ${Math.round(sw * 100)}%.` };
 };
 
+/** A colour as a tool gives it: "#rrggbb", or "none" (or null) for the usual. */
+function colorInput(value: unknown): string | null {
+  if (value === null || value === "none") return null;
+  if (typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)) return value.toLowerCase();
+  throw new Error('"color" must be a colour as "#rrggbb" (like "#3f8a4c"), or "none" for the usual.');
+}
+
 export const updateChannelTool: SongEdit = (song, input) => {
   const channel = findChannel(song, input.channel);
   const patch: ChannelPatch = {};
@@ -100,6 +108,7 @@ export const updateChannelTool: SongEdit = (song, input) => {
   if (pitch !== undefined) patch.pitch = pitch;
   if (typeof input.muted === "boolean") patch.muted = input.muted;
   if (typeof input.cutSelf === "boolean") patch.cutSelf = input.cutSelf;
+  if (input.color !== undefined) patch.color = colorInput(input.color);
   if (input.sample && typeof input.sample === "object") {
     const sample = input.sample as Input;
     patch.precomputed = {
@@ -266,6 +275,7 @@ export const updatePatternTool: SongEdit = (song, input, env) => {
   const pattern = findPattern(song, input.pattern, env);
   let next = song;
   if (typeof input.name === "string") next = renamePattern(next, pattern.id, input.name);
+  if (input.color !== undefined) next = setPatternColor(next, pattern.id, colorInput(input.color));
   if (input.length === "auto") next = setPatternLength(next, pattern.id, null);
   else if (input.length !== undefined) {
     const length = input.length;

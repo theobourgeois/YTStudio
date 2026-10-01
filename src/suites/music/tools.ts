@@ -41,6 +41,7 @@ import {
 import { switchMode, useTransport } from "./transport";
 import { addAudioClips, clipContext } from "@shared/music/playlist";
 import {
+  chopClipsTool,
   describePlaylist,
   makeClipUniqueTool,
   placeClipsTool,
@@ -339,6 +340,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   update_clips: edit(updateClipsTool),
   remove_clips: edit(removeClipsTool),
   slice_clips: edit(sliceClipsTool),
+  chop_clips: edit(chopClipsTool),
   split_by_channel: edit(splitByChannelTool),
   make_clip_unique: edit(makeClipUniqueTool),
   update_playlist_track: edit(updatePlaylistTrackTool),

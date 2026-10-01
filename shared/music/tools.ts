@@ -74,7 +74,7 @@ export const MUSIC_TOOLS = [
     name: "update_channel",
     title: "Change a channel",
     kind: "edit",
-    description: "Rename a channel, or set its volume, pan, pitch, mute or volume envelope. Only what's given changes.",
+    description: "Rename a channel, or set its volume, pan, pitch, mute, colour or volume envelope. Only what's given changes.",
     inputSchema: obj(
       {
         channel,
@@ -84,6 +84,7 @@ export const MUSIC_TOOLS = [
         pitch: num("Semitones added to every note (-48 to 48; fractions are cents)."),
         muted: bool("Whether the channel is muted."),
         cutSelf: bool("On: each new note silences the channel's notes still sounding (a closed hat cutting an open one)."),
+        color: str('A colour, "#rrggbb", or "none" for the usual. An audio clip\'s clips on the playlist take its channel\'s colour.'),
         sample: obj(
           {
             normalize: bool("Raise the sample's level until its loudest point is full scale."),
@@ -251,9 +252,14 @@ export const MUSIC_TOOLS = [
     title: "Change a pattern",
     kind: "edit",
     description:
-      'Rename a pattern or set its length. A length is a number of sixteenth-note steps (1 to 512; 16 is a bar of 4/4), or "auto" (the default): ' +
-      "as long as the last bar with a step in it. Steps past a set length stay but aren't played.",
-    inputSchema: obj({ pattern, name: str("A new name."), length: { description: 'A number of steps, or "auto".', anyOf: [{ type: "integer" }, { type: "string", enum: ["auto"] }] } }),
+      'Rename a pattern, colour it or set its length. A length is a number of sixteenth-note steps (1 to 512; 16 is a bar of 4/4), or "auto" (the default): ' +
+      "as long as the last bar with a step in it. Steps past a set length stay but aren't played. Its clips on the playlist take its colour.",
+    inputSchema: obj({
+      pattern,
+      name: str("A new name."),
+      color: str('A colour, "#rrggbb", or "none" for the usual.'),
+      length: { description: 'A number of steps, or "auto".', anyOf: [{ type: "integer" }, { type: "string", enum: ["auto"] }] },
+    }),
   }),
   tool({
     name: "remove_pattern",
@@ -566,6 +572,13 @@ export const MUSIC_TOOLS = [
     kind: "edit",
     description: "Cut clips in two at a bar (FL's slice tool): every clip crossing it, on the tracks given (default: every track). Each part plays its part of the content.",
     inputSchema: obj({ bar: num("Where to cut: a bar, 1 for the first (fractions are beats in)."), tracks: arr(playlistTrack, "The tracks (default: all).") }, ["bar"]),
+  }),
+  tool({
+    name: "chop_clips",
+    title: "Chop clips",
+    kind: "edit",
+    description: "Chop clips into pieces (FL's clip menu's Chop): each clip is cut at every bar, beat or step of the song inside it. Each piece plays its part of the content.",
+    inputSchema: obj({ ids: clipIds, every: oneOf(["bar", "beat", "step"], "Where to cut: every bar, every beat or every step (a sixteenth).") }, ["ids", "every"]),
   }),
   tool({
     name: "split_by_channel",

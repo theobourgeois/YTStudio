@@ -37,7 +37,7 @@ send to). get_mixer shows it all.
 The playlist arranges the song (get_playlist): numbered tracks, bound to nothing, with clips on them. A pattern \
 clip plays its pattern where it's placed (as long as the pattern unless resized; past its pattern it plays \
 nothing); an audio clip plays an audio file (add_audio_clip: a vocal, a loop), streamed. place_clips arranges \
-patterns by bar (repeat to fill a section), update_clips moves, resizes and mutes, slice_clips cuts, \
+patterns by bar (repeat to fill a section), update_clips moves, resizes and mutes, slice_clips cuts, chop_clips chops into bars or beats, \
 split_by_channel turns one pattern into one per channel (each on its own track), update_playlist_track names, \
 colours, mutes and solos tracks. To arrange: build the parts as patterns, split the beat by channel if each \
 part should come in on its own, then place them by section (intro, verse, drop...). play_song with mode "song" \

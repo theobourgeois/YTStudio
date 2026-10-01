@@ -3,7 +3,7 @@ import { addChannels, setSteps, setTempo } from "@shared/music/edits";
 import { addAudioClips } from "@shared/music/playlist";
 import { createMusicProject } from "@shared/music/project";
 import type { MusicProject } from "@shared/music/types";
-import { describePlaylist, makeClipUniqueTool, placeClipsTool, playlistSummary, removeClipsTool, sliceClipsTool, splitByChannelTool, updateClipsTool, updatePlaylistTrackTool } from "./tool-edits";
+import { chopClipsTool, describePlaylist, makeClipUniqueTool, placeClipsTool, playlistSummary, removeClipsTool, sliceClipsTool, splitByChannelTool, updateClipsTool, updatePlaylistTrackTool } from "./tool-edits";
 
 const BAR = 384;
 const env = { patternId: null };
@@ -20,6 +20,16 @@ function beat(): MusicProject {
 }
 
 describe("the assistant's playlist tools", () => {
+  it("chop clips into bars or beats, and say when nothing's inside", () => {
+    const placed = placeClipsTool(beat(), { clips: [{ pattern: "Beat", track: 1, bar: 1, length: 2 }] }, env).song;
+    const { song, text } = chopClipsTool(placed, { ids: [1], every: "beat" });
+    expect(song.playlist.clips.map((c) => [c.start, c.length, c.offset])).toEqual(Array.from({ length: 8 }, (_, i) => [(i * BAR) / 4, BAR / 4, (i * BAR) / 4]));
+    expect(text).toContain("into 8 pieces");
+    expect(chopClipsTool(placed, { ids: [1], every: "bar" }).song.playlist.clips).toHaveLength(2);
+    expect(() => chopClipsTool(placed, { ids: [9], every: "bar" })).toThrow(/no clip 9/);
+    expect(() => chopClipsTool(placed, { ids: [1], every: "half" })).toThrow(/"bar", "beat" or "step"/);
+  });
+
   it("place patterns by bar on numbered tracks, repeated to fill a section", () => {
     const { song, text } = placeClipsTool(beat(), { clips: [{ pattern: "Beat", track: 1, bar: 1, repeat: 4 }, { pattern: "beat", track: 2, bar: 3, length: 0.5 }] }, env);
     expect(song.playlist.clips.map((c) => [c.track, c.start, c.length])).toEqual([
