@@ -9,8 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, setPatternLength, setStepNote, setSteps, setSwing, setTempo, updateChannel } from "../../shared/music/edits.ts";
+import { routeChannels, sendOnly, setMixerMuted, setSend, updateMixerTrack } from "../../shared/music/mixer.ts";
 import { editNotes, setNoteProps } from "../../shared/music/notes.ts";
-import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
+import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE } from "../config.ts";
 import { DataPaths } from "../storage.ts";
@@ -365,5 +366,61 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
     } finally {
       broken.shutdown();
     }
+  });
+
+  describe("through the mixer", () => {
+    /** The kick's hit, once a beat, played into `track`. */
+    const kickOn = (track: string) => routeChannels(setSteps(rack(), P, "chan_kick", [0], true), ["chan_kick"], track);
+    /** The level of the hit on each side. */
+    async function hit(song: MusicProject): Promise<[number, number]> {
+      await engine.command("stop", {});
+      await play(song);
+      // The first block after a change glides there from the last song's levels: let it pass.
+      await hear(STEP);
+      await engine.command("play", {});
+      const sound = await hear(BEAT);
+      return [peakOf(sound.channels[0], 0, HIT - 1), peakOf(sound.channels[1], 0, HIT - 1)];
+    }
+
+    it("plays a channel into its track, through the track's fader and pan, and the master's", async () => {
+      // A fader at half of 0 dB's travel is an eighth of the gain: 0.5 × 0.125.
+      expect(await hit(updateMixerTrack(kickOn("insert_1"), "insert_1", { volume: 0.4 }))).toEqual([expect.closeTo(0.0625, 4), expect.closeTo(0.0625, 4)]);
+      // Fully right, both sides end up on the right.
+      expect(await hit(updateMixerTrack(kickOn("insert_1"), "insert_1", { pan: 1 }))).toEqual([expect.closeTo(0, 4), expect.closeTo(1, 4)]);
+      expect(await hit(updateMixerTrack(kickOn(MASTER_TRACK_ID), MASTER_TRACK_ID, { volume: 0.4 }))).toEqual([expect.closeTo(0.0625, 4), expect.closeTo(0.0625, 4)]);
+      expect(await hit(setMixerMuted(kickOn("insert_1"), ["insert_1"], true))).toEqual([0, 0]);
+    });
+
+    it("sends a track's sound on to other tracks, each at its level", async () => {
+      // To the master as it is, and to insert 2 (which goes to the master too) at a quarter of the gain.
+      const both = setSend(kickOn("insert_1"), "insert_1", "insert_2", 0.5);
+      expect((await hit(both))[0]).toBeCloseTo(0.5 + 0.5 * 0.25, 4);
+      expect((await hit(sendOnly(both, "insert_1", "insert_2")))[0]).toBeCloseTo(0.125, 4);
+      expect((await hit(setMixerMuted(sendOnly(both, "insert_1", "insert_2"), ["insert_2"], true)))[0]).toBe(0);
+      // Sending nowhere, it's not heard.
+      expect((await hit(setSend(setSend(both, "insert_1", "insert_2", null), "insert_1", MASTER_TRACK_ID, null)))[0]).toBe(0);
+    });
+
+    it("runs a chain of tracks in order, whatever their numbers: 1 → 3 → 2 → the master", async () => {
+      let song = sendOnly(kickOn("insert_1"), "insert_1", "insert_3");
+      song = sendOnly(song, "insert_3", "insert_2");
+      song = updateMixerTrack(song, "insert_2", { volume: 0.4 });
+      song = updateMixerTrack(song, "insert_3", { volume: 0.4 });
+      expect((await hit(song))[0]).toBeCloseTo(0.5 * 0.125 * 0.125, 5);
+    });
+
+    it("glides to a fader's new level as it moves while playing, rather than jumping (a click)", async () => {
+      const song = routeChannels(setSteps(rack(), P, "chan_pad", [0], true), ["chan_pad"], "insert_1");
+      await play(song);
+      await engine.command("play", {});
+      const before = await hear(STEP);
+      expect(peakOf(before.channels[0], STEP / 2)).toBeCloseTo(0.5, 4);
+      await play(updateMixerTrack(song, "insert_1", { volume: 0.4 }));
+      const after = (await hear(STEP)).channels[0];
+      let jump = 0;
+      for (let i = 1; i < after.length; i++) jump = Math.max(jump, Math.abs(after[i] - after[i - 1]));
+      expect(jump).toBeLessThan(0.01);
+      expect(after[after.length - 1]).toBeCloseTo(0.0625, 4);
+    });
   });
 });

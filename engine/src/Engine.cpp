@@ -271,7 +271,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
 juce::StringArray Engine::applySong()
 {
     juce::StringArray unreadable;
-    sequencer.setSong (Song::parse (lastSong, samples, plugins, unreadable));
+    sequencer.setSong (Song::parse (lastSong, samples, plugins, unreadable, mix.getNumSamples()));
     return unreadable;
 }
 
@@ -303,10 +303,14 @@ void Engine::start (double rate, int block)
 {
     sampleRate = rate;
     blockSize = block;
+    const auto longer = juce::jmax (4096, block * 2) > mix.getNumSamples();
     mix.setSize (2, juce::jmax (4096, block * 2), false, false, true);
     sequencer.prepare (rate);
     plugins.prepare (rate, block);
     bench.prepare (rate, block);
+    // The song's mixer buffers are as long as `mix`: longer blocks need a song with longer ones.
+    if (longer && ! lastSong.isVoid())
+        juce::MessageManager::callAsync ([this] { applySong(); });
 }
 
 void Engine::render (int frames, const juce::File& file, Reply reply)

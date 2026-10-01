@@ -1,4 +1,5 @@
-// Plays a Song: the transport (a position in ticks, looping), the sampler's voices and the metronome.
+// Plays a Song: the transport (a position in ticks, looping), the sampler's voices, the mixer's tracks
+// (channels play into theirs, which add up into the master) and the metronome.
 //
 // Two threads meet here and neither waits for the other. The message thread hands over songs and
 // requests (`setSong`, `play`, `stop`, `trigger`) through atomics and lock-free queues; the audio
@@ -10,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <utility>
 #include <juce_audio_basics/juce_audio_basics.h>
 
 class Sequencer
@@ -44,7 +46,7 @@ public:
     double position() const { return positionNow; }
 
     // Audio thread -----------------------------------------------------------
-    /** Add the next `numSamples` of the song to `left` and `right`. */
+    /** Add the next `numSamples` of the song (the master's output, and the metronome) to `left` and `right`. */
     void process (float* left, float* right, int numSamples);
 
 private:
@@ -91,8 +93,12 @@ private:
     /** Send the note-offs that fall in this block, and count the others down. */
     void endNotes (HostedPlugin&, int numSamples);
     void silencePlugins();
-    void renderPlugins (float* left, float* right, int numSamples);
-    void render (Voice& voice, float* left, float* right, int numSamples);
+    void renderPlugins (int numSamples);
+    void render (Voice& voice, int numSamples);
+    /** Run the mixer's tracks in order and add the master's sound to `left` and `right`. */
+    void mixTracks (float* left, float* right, int numSamples);
+    /** A channel's track's two buffers, or nulls if it has none. */
+    std::pair<float*, float*> trackAudio (int channel);
     void renderClick (float* left, float* right, int numSamples);
     void silenceVoices();
 
@@ -110,6 +116,12 @@ private:
     std::array<Trigger, queueSize> triggers {};
     /** The channels of the song last handed over (message thread), to name a trigger's channel. */
     juce::StringArray channelIds;
+    /** The tracks of the song last handed over and each one's sends' tracks' ids (message thread), to match the next song's to them. */
+    juce::StringArray trackIds;
+    std::vector<juce::StringArray> sendIds;
+    juce::uint64 serials = 0;
+    /** Set when a song is adopted: its first block ramps from the last song's gains to its own. */
+    bool ramping = false;
 
     std::atomic<int> playRequests { 0 }, stopRequests { 0 };
     std::atomic<double> playFrom { 0.0 };

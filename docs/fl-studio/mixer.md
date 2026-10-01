@@ -236,9 +236,9 @@ the waveform meters, spare states, the eight layout sizes.
 ## Where Vaudio differs
 
 The song has a mixer (`shared/music/mixer.ts`: tracks, routing, sends, effect slots, solo, all tested),
-and `compileSong` turns it into tracks in an order with their gains, but the engine doesn't use it yet:
-every channel still plays straight to the output (`Sequencer::renderPlugins`), and effect plugins can only
-be loaded on the audio dialog's bench. Choices made in the document, to check with Théo:
+`compileSong` turns it into tracks in an order with their gains, and the engine plays through it
+(`Sequencer::mixTracks`). There's no Mixer window yet, and the effect slots aren't played (effect plugins
+can only be loaded on the audio dialog's bench). Choices made, to check with Théo:
 
 - **The fader** is cubed: 0.8 of its travel is 0 dB, the top about +5.8 dB (FL's own curve is unverified).
 - **The pan** moves each side as a mono sound under the circular law: the centre leaves the sound alone,

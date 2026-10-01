@@ -338,6 +338,12 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   atomic pointer and goes back through a lock-free queue to be deleted (`Sequencer::setSong`, `collectGarbage`);
   requests are atomics and queues; the plugin bench has a lock the audio thread only tries (a block goes out
   without the bench if it's busy). Keep it that way: no allocation, locks or I/O on the audio thread.
+- The mixer: a `Song` has its tracks in the order to run them (the master last) and allocates their buffers
+  itself, when it's parsed on the message thread (`Song::audio`, as long as the engine's longest block).
+  Voices and plugins render into their channel's track; `Sequencer::mixTracks` runs the tracks' gains and
+  sends. The metronome is added after the master, outside the mixer. Gains glide over the first block of a
+  new song: which track and send of the last song each one was is worked out in `setSong`, so the audio
+  thread only copies by index.
 - Samples are read whole into memory on the message thread and never dropped while the engine runs (`SampleCache`):
   a sounding voice holds a bare pointer to its sample.
 - `--offline` (`AudioEngine`'s `offline`) opens no device: `render` computes the next samples on request, as fast

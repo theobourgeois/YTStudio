@@ -95,7 +95,7 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, juce::StringArray& unreadable)
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, juce::StringArray& unreadable, int capacity)
 {
     auto song = std::make_unique<Song>();
     song->tempo = number (json["tempo"], 120, 1, 2000);
@@ -164,6 +164,55 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             note.pan = (float) number (item["pan"], 0, -1, 1);
             song->notes.push_back (note);
         }
+    // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
+    if (const auto* list = json["tracks"].getArray())
+        for (const auto& item : *list)
+        {
+            Track track;
+            track.id = item["id"].toString();
+            if (const auto* gains = item["gains"].getArray(); gains != nullptr && gains->size() == 4)
+                for (size_t g = 0; g < 4; ++g)
+                    track.gains[g] = (float) number ((*gains)[(int) g], 0, 0, 64);
+            if (const auto* sends = item["sends"].getArray())
+                for (const auto& send : *sends)
+                {
+                    const auto to = (int) number (send["track"], -1, -1, 1e6);
+                    // Only later tracks: a song that doesn't keep to it can't make a loop here.
+                    if (to > (int) song->tracks.size() && to < list->size())
+                        track.sends.push_back ({ to, (float) number (send["gain"], 1, 0, 64) });
+                }
+            song->tracks.push_back (std::move (track));
+        }
+    if (song->tracks.empty())
+        song->tracks.push_back ({});
+    song->tracks.back().sends.clear();
+    const auto master = (int) song->tracks.size() - 1;
+    if (const auto* list = json["channels"].getArray())
+        for (size_t c = 0; c < song->channels.size() && c < (size_t) list->size(); ++c)
+        {
+            const auto track = (int) number ((*list)[(int) c]["track"], master, 0, master);
+            song->channels[c].track = track;
+        }
+
+    // A buffer for each track something can reach: a channel plays into it, or a track that's reached
+    // sends to it. (Senders come first, so one pass finds them all.)
+    std::vector<bool> reached (song->tracks.size(), false);
+    reached[(size_t) master] = true;
+    for (const auto& channel : song->channels)
+        reached[(size_t) channel.track] = true;
+    int buffers = 0;
+    for (size_t t = 0; t < song->tracks.size(); ++t)
+        if (reached[t])
+        {
+            song->tracks[t].buffer = buffers++;
+            for (const auto& send : song->tracks[t].sends)
+                reached[(size_t) send.track] = true;
+        }
+    song->capacity = juce::jmax (0, capacity);
+    song->audio.setSize (buffers * 2, song->capacity);
+    for (auto& track : song->tracks)
+        track.from = track.gains;
+
     juce::StringArray channelIds;
     for (const auto& channel : song->channels)
         channelIds.add (channel.id);
