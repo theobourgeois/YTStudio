@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { type MixerTrackPatch, setMixerVolumes, setSend, updateMixerTrack } from "@shared/music/mixer";
+import { type MixerTrackPatch, setMixerVolumes, setSend, trackName, updateMixerTrack } from "@shared/music/mixer";
 import { SELECTION_METER } from "@shared/music/engine";
 import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
 import type { Mixer, MixerTrack, MusicProject } from "@shared/music/types";
@@ -189,6 +189,7 @@ export function MixerWindow() {
         </div>
         <Inspector trackId={current} />
       </div>
+      <CarriedState />
     </MusicWindow>
   );
 }
@@ -233,6 +234,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
+  const dropTarget = useMixerView((s) => s.carrying !== null && s.carrying.over === track.id && s.carrying.from !== track.id);
   const id = track.id;
 
   return (
@@ -242,7 +244,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       aria-selected={selected}
       data-track={id}
       data-track-name={name}
-      className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r border-line pb-1", selected ? "bg-surface-2" : "bg-surface-1", current && "shadow-[inset_0_2px_0] shadow-brand")}
+      className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r border-line pb-1", selected ? "bg-surface-2" : "bg-surface-1", current && "shadow-[inset_0_2px_0] shadow-brand", dropTarget && "ring-2 ring-brand ring-inset")}
       style={{
         width: STRIP_W,
         // A coloured track is coloured all the way down (FL's colourful mixer), over the theme's own strip colour.
@@ -440,7 +442,9 @@ function TrackMenu({ id, isMaster, color }: { id: string; isMaster: boolean; col
           </ContextMenuItem>
         </ContextMenuSubContent>
       </ContextMenuSub>
-      <ContextMenuItem onSelect={() => copyTrackState(id)}>Copy track state</ContextMenuItem>
+      <ContextMenuItem onSelect={() => copyTrackState(id)} onPointerDown={(e) => carryTrackState(e, id)} title="Click to copy, or drag onto another track to copy it there">
+        Copy track state
+      </ContextMenuItem>
       <ContextMenuItem disabled={!canPaste} onSelect={() => void pasteTrackStateOnto(id)}>
         Paste track state
       </ContextMenuItem>
@@ -590,6 +594,67 @@ function SelectionMeter({ meterRef }: { meterRef: (canvas: HTMLCanvasElement | n
     <div className="flex w-6 shrink-0 flex-col items-center gap-1 border-r border-line bg-surface-1 py-1.5" title={count > 1 ? `The ${count} selected tracks' output, together` : "The selected track's output"}>
       <span className="font-mono text-[9px] text-muted-foreground">SEL</span>
       <canvas ref={meterRef} className="sunken min-h-0 w-[13px] flex-1 rounded-[2px]" role="img" aria-label="Selected tracks' level" data-testid="selection-meter" />
+    </div>
+  );
+}
+
+/** The track under a point of the page, if it's one of the mixer's strips. */
+function trackAt(x: number, y: number): string | null {
+  const strip = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-track]");
+  return strip?.closest('[data-testid="mixer"]') ? (strip.dataset.track ?? null) : null;
+}
+
+/**
+ * FL Studio's drag of a track's state: pressed on its menu's Copy track state and dragged, the menu
+ * goes, the state follows the pointer, and let go on another track it's copied there (effects, their
+ * settings, the controls). A press that isn't dragged is the item's click: it copies.
+ */
+function carryTrackState(e: React.PointerEvent, from: string) {
+  if (e.button !== 0) return;
+  const origin = { x: e.clientX, y: e.clientY };
+  let carrying = false;
+  const view = useMixerView.getState();
+  const stop = () => {
+    window.removeEventListener("pointermove", move, true);
+    window.removeEventListener("pointerup", up, true);
+    window.removeEventListener("keydown", key, true);
+    view.carry(null);
+  };
+  const move = (ev: PointerEvent) => {
+    if (!carrying && Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) < 6) return;
+    if (!carrying) {
+      // The menu goes, as FL's does once the item is dragged (before the drag's own Escape listens).
+      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      carrying = true;
+    }
+    view.carry({ from, x: ev.clientX, y: ev.clientY, over: trackAt(ev.clientX, ev.clientY) });
+  };
+  const up = (ev: PointerEvent) => {
+    if (carrying) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const to = trackAt(ev.clientX, ev.clientY);
+      if (to && to !== from) {
+        copyTrackState(from);
+        void pasteTrackStateOnto(to);
+      }
+    }
+    stop();
+  };
+  const key = (ev: KeyboardEvent) => ev.key === "Escape" && carrying && stop();
+  window.addEventListener("pointermove", move, true);
+  window.addEventListener("pointerup", up, true);
+  window.addEventListener("keydown", key, true);
+}
+
+/** A track's state being dragged: a label under the pointer. */
+function CarriedState() {
+  const carrying = useMixerView((s) => s.carrying);
+  const name = useSong((song) => (carrying ? trackName(song, carrying.from) : ""));
+  if (!carrying) return null;
+  return (
+    <div className="floating pointer-events-none fixed z-[10000] rounded-sm px-2 py-1 text-[11px]" style={{ left: carrying.x + 12, top: carrying.y + 8 }} data-testid="carried-state">
+      {name}'s state{carrying.over && carrying.over !== carrying.from ? " → drop to copy" : ""}
     </div>
   );
 }

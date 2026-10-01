@@ -817,6 +817,19 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   const [one, two] = [await track(1), await track(2)];
   expect(two).toMatchObject({ invert: true, swap: true, stereo: one.stereo, color: null, sends: [{ to: "master", level: 1 }] });
   expect(two.effects[0].id).not.toBe(one.effects[0].id);
+
+  // Dragged from the menu onto another track, FL's way: its state is copied there.
+  await strip("Insert 1").locator("span").first().click({ button: "right" });
+  const item = page.getByRole("menuitem", { name: "Copy track state" });
+  const from = (await item.boundingBox())!;
+  const to = (await strip("Insert 7").locator("canvas").boundingBox())!;
+  await page.mouse.move(from.x + 10, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + 5, to.y + 40, { steps: 10 });
+  await expect(page.getByTestId("carried-state")).toContainText("drop to copy");
+  await page.mouse.up();
+  await expect.poll(async () => (await track(7)).effects[0]?.plugin.name).toBe("Fake Delay");
+  await expect(page.getByTestId("carried-state")).toHaveCount(0);
 });
 
 test("the assistant mixes with the mixer's tools: routes, levels, sends, effects, a track's state copied", async ({ page }) => {
