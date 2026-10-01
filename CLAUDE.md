@@ -302,6 +302,9 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   draws only the strips in view (`useVisibleStrips`): don't rely on off-screen strips being in the DOM.
   Plugins are chosen in one picker (`plugin-picker.tsx`, its model in `plugin-groups.ts`: groups from the
   plugin's reported category, pins in localStorage) for the rack's + and the effect slots.
+  The mixer's look is its own theme tokens (`--mixer-*`, `--fader-*`; knobs everywhere use `--knob-*`), FL
+  Studio's colours: use them in the mixer rather than the app's surfaces. A track's `dock`, `separator` and
+  `group` (`Mixer.groups`) are only how the mixer shows it; they route nothing.
   The Mixer window is `src/suites/music/mixer/` (F9): `mixer-window.tsx` (strips, the send row, menus),
   `inspector.tsx` (effect slots), `fader.tsx`, `meters.ts` (one animation loop draws every strip's meter from
   `useTransport().meters`; the falling in `meter.ts`, tested), `actions.ts` (what menus and keys do), `keys.ts`

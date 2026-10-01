@@ -285,7 +285,16 @@ Théo's first pass (2026-09-30), all built:
   category the plugin reports, pins (this computer's) in a Pinned group and their own, arrow keys.
 - Views: Compact, Wide, Extra large (effects listed under each strip).
 
-Not yet, or different: docks, icons, the Current track, the track EQ (put off), "Compensate automations"
+Théo's second pass (2026-10-01), all built: the plugin picker in newspaper columns (a group runs on
+into the next column; one line a plugin); an idle meter grey; a + after the last track; every knob
+FL's (a lit cap in a well, the value an orange arc; bigger in the mixer); FL's metal fader caps (green
+when selected) over a groove with faint dB lines; the mixer in FL's colours (mid-tone strips darker at
+the top, tracks tinted all the way down under a header of their colour, green lights and cables, FL's
+muted track colours), all `--knob-*`, `--fader-*` and `--mixer-*` theme tokens, in light and dark;
+docks (left, middle, right; the master always left); Separator before, and named groups (a band across
+their tops, dividers at their edges).
+
+Not yet, or different: icons, the Current track, the track EQ (put off), "Compensate automations"
 (no automation yet), recording, the slot's presets and Patcher, the
 "glide" when the groove is clicked (the handle goes there at once). Choices made, to check with Théo:
 
