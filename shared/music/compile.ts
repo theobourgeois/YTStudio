@@ -6,7 +6,7 @@
  * play samples and audio clips at the right moments and add up tracks as it's told.
  */
 import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
-import { DEFAULT_FADER, DEFAULT_PRECOMPUTED, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps } from "./project.ts";
+import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { type Channel, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
@@ -248,7 +248,7 @@ function engineChannel(channel: Channel, track: number): EngineChannel {
   const gain = channel.muted ? 0 : levelGain(channel.volume, DEFAULT_VOLUME);
   const [left, right] = panGains(channel.pan);
   const { enabled, ...envelope } = channel.envelope;
-  const untouched = (Object.keys(DEFAULT_PRECOMPUTED) as (keyof Precomputed)[]).every((key) => channel.precomputed[key] === DEFAULT_PRECOMPUTED[key]);
+  const untouched = precomputedUntouched(channel.precomputed);
   const stream = channel.kind === "audio";
   return {
     id: channel.id,
@@ -260,7 +260,8 @@ function engineChannel(channel: Channel, track: number): EngineChannel {
     pitch: channel.pitch,
     envelope: enabled && !stream ? envelope : null,
     cutSelf: channel.cutSelf,
-    precomputed: untouched || stream ? null : channel.precomputed,
+    // An audio clip channel's too: prepared in memory, its clips play that instead of streaming the file.
+    precomputed: untouched ? null : channel.precomputed,
     plugin: channel.kind === "plugin" && channel.plugin ? { id: channel.plugin.id, state: "" } : null,
     track,
   };

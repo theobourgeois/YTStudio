@@ -48,6 +48,31 @@ export function waveformColumns(samples: Float32Array, precomputed: Precomputed,
   return { min, max };
 }
 
+/**
+ * `samples` after `precomputed`, sample by sample: what the engine plays (`engine/src/Song.cpp`, in the
+ * same order: trim, reverse, normalise, fade). The same array back when it changes nothing.
+ */
+export function precomputeSamples(samples: Float32Array, precomputed: Precomputed): Float32Array {
+  const { normalize, reverse, start, length, fadeIn, fadeOut } = precomputed;
+  if (!normalize && !reverse && start <= 0 && length >= 1 && fadeIn <= 0 && fadeOut <= 0) return samples;
+  const total = samples.length;
+  if (!total) return samples;
+  const first = Math.min(total - 1, Math.floor(start * total));
+  const kept = Math.max(1, Math.min(total - first, Math.ceil(length * (total - first))));
+  const out = new Float32Array(kept);
+  for (let i = 0; i < kept; i++) out[i] = samples[first + (reverse ? kept - 1 - i : i)];
+  if (normalize) {
+    let peak = 0;
+    for (let i = 0; i < kept; i++) peak = Math.max(peak, Math.abs(out[i]));
+    if (peak > 0) for (let i = 0; i < kept; i++) out[i] /= peak;
+  }
+  const ins = Math.min(kept, Math.floor(fadeIn * kept));
+  const outs = Math.min(kept, Math.floor(fadeOut * kept));
+  for (let i = 0; i < ins; i++) out[i] *= i / ins;
+  for (let i = 0; i < outs; i++) out[kept - 1 - i] *= i / outs;
+  return out;
+}
+
 /** Each file's samples (its channels mixed to one), decoded once: media files never change. */
 const decoded = new Map<string, Promise<Float32Array>>();
 

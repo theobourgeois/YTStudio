@@ -139,6 +139,21 @@ describe.skipIf(!existsSync(ENGINE))("the playlist, offline", () => {
     expect(level(down, 3 * RATE)).toBe(0.2);
   });
 
+  it("plays its channel's precomputed effects: the file prepared in memory (reversed, trimmed), not streamed as it is", async () => {
+    // Reversed: the last second first. Started a third of the way in (trimmed): the file from its third second.
+    await play(updateChannel(song(0), "chan_steps", { precomputed: { reverse: true } }));
+    await engine.command("play", {});
+    const backwards = await hear(BAR);
+    expect(level(backwards, RATE / 2)).toBe(0.6);
+    expect(level(backwards, 1.5 * RATE)).toBe(0.5);
+    await engine.command("stop", {});
+    await hear(RATE / 10);
+    await play(updateChannel(song(0), "chan_steps", { precomputed: { start: 2 / 6 } }));
+    await engine.command("play", {});
+    const trimmed = await hear(BAR);
+    expect(level(trimmed, RATE / 2)).toBe(0.3);
+  });
+
   it("plays from inside a clip when play starts there", async () => {
     await play(song(0));
     // A bar and a half in: three seconds into the file.

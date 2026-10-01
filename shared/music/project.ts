@@ -51,6 +51,9 @@ export const DEFAULT_PRECOMPUTED: Precomputed = { normalize: false, reverse: fal
 export const MAX_SAMPLE_START = 0.99;
 export const MIN_SAMPLE_LENGTH = 0.01;
 
+/** Whether a sample's precomputed effects change nothing (it plays as its file is). */
+export const precomputedUntouched = (p: Precomputed) => (Object.keys(DEFAULT_PRECOMPUTED) as (keyof Precomputed)[]).every((key) => p[key] === DEFAULT_PRECOMPUTED[key]);
+
 /** The master's id, the same in every song. */
 export const MASTER_TRACK_ID = "master";
 /** How many insert tracks a new song has (FL Studio's templates' 16), and the most it can have (FL's 500). */

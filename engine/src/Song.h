@@ -68,9 +68,15 @@ struct Song
         /** A plugin channel's instrument, once it's loaded (the channel is silent until then). */
         std::shared_ptr<HostedPlugin> plugin;
         bool isPlugin = false;
-        /** An audio clip's channel: its file (`path`) is streamed as its clips play (`ClipPlayer`), never read whole. */
+        /**
+         * An audio clip's channel: its file (`path`) is streamed as its clips play (`ClipPlayer`), not read
+         * whole, unless it has precomputed effects: then, as a sampler's, it's prepared in memory (`sample`,
+         * FL's way) and its clips play that.
+         */
         bool stream = false;
         juce::String path;
+        /** What its precomputed effects are (`Precomputed::key`), so a clip's stream changes when they do. */
+        juce::String prepared;
         float gainLeft = 1, gainRight = 1;
         /** Semitones added to every note. */
         float pitch = 0;
@@ -158,6 +164,8 @@ struct Song
         double speed = 1;
         /** Its channel's file. */
         juce::String path;
+        /** Its channel's sound prepared by its precomputed effects, in memory: played instead of the file. */
+        std::shared_ptr<const Sample> sample;
         /** The same clip in the next song has the same key, so a stream playing it carries on through an edit. */
         juce::uint64 key = 0;
     };

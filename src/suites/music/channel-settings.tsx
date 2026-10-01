@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { levelGain, panGains } from "@shared/music/compile";
 import { updateChannel } from "@shared/music/edits";
 import { pitchSpeed } from "@shared/music/playlist";
-import { DEFAULT_ENVELOPE, DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH } from "@shared/music/project";
+import { DEFAULT_ENVELOPE, DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH, precomputedUntouched } from "@shared/music/project";
 import type { Channel, Envelope, Precomputed } from "@shared/music/types";
 import { Input } from "@/components/ui/input";
 import { CENTS, MILLISECONDS, PERCENT, SongKnob, type ValueUnit, cents, panText, percent, seconds } from "./knob";
@@ -234,33 +234,31 @@ function SampleTab({ channel }: { channel: Channel }) {
         </div>
       </Section>
 
-      {channel.kind !== "audio" && (
-        <Section title="Precomputed effects">
-          <div className="flex gap-6">
-            <Light label="Normalize" on={channel.precomputed.normalize} onChange={(normalize) => set({ normalize })} />
-            <Light label="Reverse" on={channel.precomputed.reverse} onChange={(reverse) => set({ reverse })} />
-          </div>
-          <div className="mt-3 flex gap-5">
-            {PRECOMPUTED_KNOBS.map(({ key, label, name: knobName, min, max }) => (
-              <Labelled key={key} label={label}>
-                <SongKnob
-                  size={30}
-                  label={knobName}
-                  value={channel.precomputed[key]}
-                  min={min}
-                  max={max}
-                  defaultValue={DEFAULT_PRECOMPUTED[key]}
-                  format={percent}
-                  unit={PERCENT}
-                  edit={(song, value) => updateChannel(song, id, { precomputed: { [key]: value } })}
-                />
-              </Labelled>
-            ))}
-          </div>
-        </Section>
-      )}
+      <Section title="Precomputed effects">
+        <div className="flex gap-6">
+          <Light label="Normalize" on={channel.precomputed.normalize} onChange={(normalize) => set({ normalize })} />
+          <Light label="Reverse" on={channel.precomputed.reverse} onChange={(reverse) => set({ reverse })} />
+        </div>
+        <div className="mt-3 flex gap-5">
+          {PRECOMPUTED_KNOBS.map(({ key, label, name: knobName, min, max }) => (
+            <Labelled key={key} label={label}>
+              <SongKnob
+                size={30}
+                label={knobName}
+                value={channel.precomputed[key]}
+                min={min}
+                max={max}
+                defaultValue={DEFAULT_PRECOMPUTED[key]}
+                format={percent}
+                unit={PERCENT}
+                edit={(song, value) => updateChannel(song, id, { precomputed: { [key]: value } })}
+              />
+            </Labelled>
+          ))}
+        </div>
+      </Section>
 
-      <Waveform url={asset?.src ?? null} precomputed={channel.kind === "audio" ? DEFAULT_PRECOMPUTED : channel.precomputed} onPlay={() => hearChannel(channel)} />
+      <Waveform url={asset?.src ?? null} precomputed={channel.precomputed} onPlay={() => hearChannel(channel)} />
     </div>
   );
 }
@@ -310,7 +308,9 @@ const WAVE_H = 84;
  */
 function hearChannel(channel: Channel) {
   if (!channel.sampleId) return;
-  if (channel.kind !== "audio") return useTransport.getState().audition(channel.id);
+  // A sampler plays it as a note would; so does an audio clip's channel with precomputed effects (the
+  // engine has it prepared in memory, as its clips play it). Otherwise its file is streamed.
+  if (channel.kind !== "audio" || !precomputedUntouched(channel.precomputed)) return useTransport.getState().audition(channel.id);
   const projectId = useMusic.getState().projectId;
   // As its clips sound: its volume, pan and pitch (whether it's on or not, so it can be heard while muted).
   const [left, right] = panGains(channel.pan);

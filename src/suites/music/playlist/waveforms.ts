@@ -4,7 +4,8 @@
  * highest values over buckets of samples at every power of two (`WavePeaks`), so a column of the
  * Playlist at any zoom reads a handful of values: sharp when zoomed in, cheap when zoomed out.
  */
-import { loadSamples } from "../waveform";
+import type { Precomputed } from "@shared/music/types";
+import { loadSamples, precomputeSamples } from "../waveform";
 
 /** `loadSamples` decodes at this rate. */
 export const WAVE_RATE = 44_100;
@@ -92,16 +93,20 @@ export function peakRange(peaks: WavePeaks, from: number, to: number): [number, 
 const loaded = new Map<string, WavePeaks | "loading" | "failed">();
 const listeners = new Set<() => void>();
 
-/** The peaks of the audio file at `url` if they're ready; otherwise they start loading, and `onWaveform` listeners hear when. */
-export function clipPeaks(url: string): WavePeaks | null {
-  const known = loaded.get(url);
+/**
+ * The peaks of the audio file at `url`, after its channel's `precomputed` effects (as the engine plays it),
+ * if they're ready; otherwise they start loading, and `onWaveform` listeners hear when.
+ */
+export function clipPeaks(url: string, precomputed?: Precomputed): WavePeaks | null {
+  const key = precomputed ? `${url}|${JSON.stringify(precomputed)}` : url;
+  const known = loaded.get(key);
   if (known && known !== "loading" && known !== "failed") return known;
   if (!known) {
-    loaded.set(url, "loading");
+    loaded.set(key, "loading");
     loadSamples(url)
       .then(
-        (samples) => loaded.set(url, buildPeaks(samples)),
-        () => loaded.set(url, "failed"),
+        (samples) => loaded.set(key, buildPeaks(precomputed ? precomputeSamples(samples, precomputed) : samples)),
+        () => loaded.set(key, "failed"),
       )
       .finally(() => {
         for (const listener of listeners) listener();

@@ -319,7 +319,7 @@ function PlaylistBody() {
       for (const channel of song.channels) {
         if (channel.kind !== "audio") continue;
         const url = assets.find((a) => a.id === channel.sampleId)?.src;
-        const data = url ? clipPeaks(url) : null;
+        const data = url ? clipPeaks(url, channel.precomputed) : null;
         if (data) waveforms.set(channel.id, data);
       }
       const palette: Palette = readPalette(box);

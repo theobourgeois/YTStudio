@@ -183,11 +183,11 @@ function AudioItems({ audio }: { audio: readonly Channel[] }) {
             title={`${channel.name}: click to draw it, drag it onto a track; ⌘-click or Shift+click to select several`}
             onClick={(e) => clickAudio(channel.id, pickMode(e))}
             draw={(c, w, h, colour) => {
-              const peaks = url ? clipPeaks(url) : null;
+              const peaks = url ? clipPeaks(url, channel.precomputed) : null;
               if (peaks) drawWaveformPreview(c, peaks, w, h, colour);
               else c.clearRect(0, 0, w, h);
             }}
-            drawKey={url}
+            drawKey={`${url}|${JSON.stringify(channel.precomputed)}`}
           />
         </ContextMenuTrigger>
         <ContextMenuContent>
