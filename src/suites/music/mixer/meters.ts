@@ -10,8 +10,9 @@ interface Meter {
 }
 
 interface Colours {
-  brand: string;
-  danger: string;
+  low: string;
+  mid: string;
+  high: string;
   mark: string;
 }
 
@@ -19,8 +20,15 @@ interface Colours {
 function readColours(element: Element): Colours {
   const style = getComputedStyle(element);
   const read = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-  return { brand: read("--brand", "#5b9bf0"), danger: read("--destructive", "#e5484d"), mark: read("--line-strong", "#555") };
+  return { low: read("--meter-low", "#4cc46c"), mid: read("--meter-mid", "#f2b33d"), high: read("--meter-high", "#ef4d55"), mark: read("--line-strong", "#555") };
 }
+
+/** Where the meter's colours change, as levels: green up to -18 dB, amber by -6, red from 0 dB. */
+const COLOUR_STOPS = [
+  { level: 10 ** (-18 / 20), colour: "low" },
+  { level: 10 ** (-6 / 20), colour: "mid" },
+  { level: 1, colour: "high" },
+] as const;
 
 /**
  * The mixer's meters: every strip's canvas, drawn by one animation loop from the engine's reports
@@ -71,7 +79,11 @@ export function useMeters(): (trackId: string) => (canvas: HTMLCanvasElement | n
   }, []);
 }
 
-/** Two bars, left and right, rising from the bottom; red while they've lately been over 0 dB. */
+/**
+ * Two bars, left and right, rising from the bottom, coloured by how loud they are, FL Studio's way: green,
+ * through amber, to red at 0 dB, blended, over a faint track of the same colours; a red cap while they've
+ * lately been over 0 dB.
+ */
 function draw(canvas: HTMLCanvasElement, heights: number[], clipping: boolean[], colours: Colours) {
   const ratio = window.devicePixelRatio || 1;
   const width = canvas.clientWidth;
@@ -85,12 +97,28 @@ function draw(canvas: HTMLCanvasElement, heights: number[], clipping: boolean[],
   if (!ctx) return;
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
+  const gradient = ctx.createLinearGradient(0, height, 0, 0);
+  gradient.addColorStop(0, colours.low);
+  for (const stop of COLOUR_STOPS) gradient.addColorStop(meterFraction(stop.level), colours[stop.colour]);
+  gradient.addColorStop(1, colours.high);
+  ctx.fillStyle = gradient;
   const bar = (width - 1) / 2;
   heights.forEach((h, side) => {
+    const x = side * (bar + 1);
+    // The unlit track, faint; then the level.
+    ctx.globalAlpha = 0.14;
+    ctx.fillRect(x, 0, bar, height);
+    ctx.globalAlpha = 0.95;
     const top = height - h * height;
-    ctx.fillStyle = clipping[side] ? colours.danger : colours.brand;
-    ctx.fillRect(side * (bar + 1), top, bar, height - top);
+    ctx.fillRect(x, top, bar, height - top);
+    if (clipping[side]) {
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = colours.high;
+      ctx.fillRect(x, 0, bar, 3);
+      ctx.fillStyle = gradient;
+    }
   });
+  ctx.globalAlpha = 1;
   // 0 dB.
   ctx.fillStyle = colours.mark;
   ctx.fillRect(0, Math.round(height - meterFraction(1) * height), width, 1);

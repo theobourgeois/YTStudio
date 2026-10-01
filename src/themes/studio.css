@@ -98,6 +98,11 @@
   --piano-ruler: #e3e7ec;
   --piano-ruler-text: #4b535d;
   --piano-ghost: rgb(60 76 94 / 0.14);
+
+  /* The mixer's meters (`mixer/meters.ts` reads these): low levels, nearing 0 dB, and over it. */
+  --meter-low: #2f9e54;
+  --meter-mid: #d99a1e;
+  --meter-high: #d6403c;
   --piano-time: #e5484d;
   --piano-start: #e08a12;
   --piano-tool: #2f7be5;
@@ -176,4 +181,8 @@
   --piano-start: #f2a93b;
   --piano-tool: #6fb6ff;
   --piano-keys: #101215;
+
+  --meter-low: #4cc46c;
+  --meter-mid: #f2b33d;
+  --meter-high: #ef4d55;
 }
