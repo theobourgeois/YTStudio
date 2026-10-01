@@ -223,16 +223,20 @@ engine:
   slower. It's possible later as a "render in the background" option, but it works against "really
   fast".
 
-**Expected speed** (estimates for a 3-minute song, to be measured first with a benchmark):
+**Measured** (`pnpm tsx scripts/render-bench.ts`, 2026-10-01, an M5 Pro with 18 cores): the engine as it
+was before the export, on one thread in blocks of 512, rendering chords on Serum 2's init patch (a
+light one: real patches with unison and effects cost several times more) and two sampler drums.
 
-| Song | One thread | In parallel |
+| Song | One thread | A 3-minute song |
 | --- | --- | --- |
-| Samples only | about 1 s or less | the same |
-| 4–6 Serum 2 + Pro-Q / Pro-R | 20–60 s | 5–10 s |
-| 15+ synths, reverbs on sends | over a minute | 10–20 s |
+| 6 × the test synth through the test effect | 71× real time | 2.5 s |
+| 6 × Serum 2 through AUReverb2 | 18× | 10 s |
+| 6 × Serum 2, no effects | 20× | 9 s |
+| 24 × Serum 2 through AUReverb2 | 4.3× | 42 s |
 
-Plugins' offline-quality modes (always on, decided) can make a render slower than playing it live. That's
-the price of FL's better-than-live render.
+The plugins are nearly all of it, and each instance only depends on its own input: that's what running
+them in parallel speeds up. Plugins' offline-quality modes (always on, decided) can make a render slower
+than playing it live. That's the price of FL's better-than-live render.
 
 ## Where Vaudio differs
 
