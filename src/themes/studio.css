@@ -114,6 +114,7 @@
   --knob-cap-edge: #2a2d34;
   --knob-notch: #e9edf2;
   --knob-arc: var(--brand);
+  --knob-track: rgb(30 40 52 / 0.16);
 
   /* The mixer's faders (`mixer/fader.tsx`), FL Studio's metal caps; the accent on the selected track. */
   --fader-groove: #8e96a2;
@@ -247,6 +248,7 @@
   --knob-cap-edge: #17191e;
   --knob-notch: #d9dee6;
   --knob-arc: var(--brand);
+  --knob-track: rgb(255 255 255 / 0.09);
 
   --fader-groove: #15171b;
   --fader-tick: rgb(255 255 255 / 0.05);

@@ -157,7 +157,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
             >
               {/*
                 FL Studio's knob: a dark cap with a soft top light, sitting in a recessed well, its value an arc
-                round the well (from the start, or from the middle for pan), a small notch on the cap for where
+                round the well over its unlit track (from the start, or from the middle for pan), a small notch on the cap for where
                 it points. The colours are the theme's (--knob-*).
               */}
               <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="relative overflow-visible" aria-hidden>
@@ -168,6 +168,8 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                     <stop offset="100%" stopColor="var(--knob-cap-dark)" />
                   </linearGradient>
                 </defs>
+                {/* The arc's unlit track, the whole sweep: a knob at its start still has its ring. */}
+                <path d={arc(c, c, arcRadius, -SWEEP / 2, SWEEP / 2)} fill="none" stroke="var(--knob-track)" strokeWidth={arcWidth} strokeLinecap="butt" />
                 {Math.abs(angle - (bipolar ? 0 : -SWEEP / 2)) > 1 && (
                   <path d={arc(c, c, arcRadius, bipolar ? 0 : -SWEEP / 2, angle)} fill="none" stroke="var(--knob-arc)" strokeWidth={arcWidth} strokeLinecap="butt" />
                 )}
