@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PiCaretRightFill, PiClock, PiSpinnerGap, PiWarning } from "react-icons/pi";
+import { PiCaretRightFill, PiClock, PiSlidersHorizontal, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import type { EnginePlugin } from "@shared/music/engine";
 import { moveEffect, moveEffectTo, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
@@ -14,7 +14,7 @@ import { ArmButton } from "./arm-button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover as PopoverPrimitive } from "radix-ui";
-import { Popover, PopoverContent } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { PERCENT, SongKnob, percent } from "../knob";
 import { useMusic, useSong } from "../store";
@@ -294,28 +294,21 @@ function DelayCompensation({ trackId }: { trackId: string }) {
 const MONITOR_NAMES: Record<InputMonitor, string> = { off: "Off", armed: "When armed", on: "On" };
 
 /**
- * The track's input, FL Studio's (at the top of its inspector): which of the device's inputs it takes
- * (choosing one arms it), its arm switch, when the input is heard (through the track's effects), and
- * the input offset that moves its takes earlier or later.
+ * The track's input, FL Studio's (at the top of its inspector), in one row: its arm switch, which of the
+ * device's inputs it takes (choosing one arms it), and a button for the rest (`InputOptions`).
  */
 function TrackInput({ trackId, name }: { trackId: string; name: string }) {
   const track = useSong((song) => song.mixer.tracks.find((t) => t.id === trackId));
   const channels = useInputs((s) => s.channels);
   const loaded = useInputs((s) => s.loaded);
-  const [typing, setTyping] = useState<string | null>(null);
   useEffect(() => {
     if (!useInputs.getState().loaded) void useInputs.getState().load();
   }, []);
   const choices = useMemo(() => inputChoices(channels), [channels]);
   if (!track) return null;
   const current = inputKey(track.input);
-  const commitOffset = () => {
-    const ms = Number((typing ?? "").replace(",", ".").replace("−", "-"));
-    if (typing !== null && Number.isFinite(ms)) useMusic.getState().commit((song) => updateMixerTrack(song, trackId, { inputOffset: ms }));
-    setTyping(null);
-  };
   return (
-    <section className="flex flex-col gap-1 border-b border-line px-2 py-1.5 text-[11px]" aria-label="Input" data-testid="track-input">
+    <section className="border-b border-line px-2 py-1.5 text-[11px]" aria-label="Input" data-testid="track-input">
       <div className="flex items-center gap-1.5">
         <ArmButton trackId={trackId} name={name} size={13} />
         <Select
@@ -355,47 +348,81 @@ function TrackInput({ trackId, name }: { trackId: string; name: string }) {
             <SelectItem value="settings">{loaded && !channels.length ? "Choose an input device in Settings…" : "Input device settings…"}</SelectItem>
           </SelectContent>
         </Select>
+        <InputOptions trackId={trackId} />
       </div>
-      <label className="flex items-center gap-1.5 text-muted-foreground">
-        <span>Monitor</span>
-        <Select value={track.monitor} onValueChange={(monitor) => useMusic.getState().commit((song) => updateMixerTrack(song, trackId, { monitor: monitor as InputMonitor }))}>
-          <SelectTrigger size="sm" className="ml-auto h-6 w-28 text-[11px]" aria-label="Monitor input">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(MONITOR_NAMES) as InputMonitor[]).map((m) => (
-              <SelectItem key={m} value={m}>
-                {MONITOR_NAMES[m]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </label>
-      <label className="flex items-center gap-1.5 text-muted-foreground" title="Moves this track's takes earlier (positive) or later, for the latency the device doesn't report: record the metronome through the mic and line its clicks up with the beat">
-        <span>Input offset</span>
-        <Input
-          aria-label="Input offset in ms"
-          inputMode="decimal"
-          className="ml-auto h-6 w-16 text-right text-[11px] tabular-nums"
-          value={typing ?? String(track.inputOffset)}
-          onFocus={(e) => {
-            setTyping(String(track.inputOffset));
-            e.currentTarget.select();
-          }}
-          onChange={(e) => setTyping(e.target.value)}
-          onBlur={commitOffset}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter") e.currentTarget.blur();
-            if (e.key === "Escape") {
-              setTyping(null);
-              e.currentTarget.blur();
-            }
-          }}
-        />
-        ms
-      </label>
     </section>
+  );
+}
+
+/**
+ * A track's input options, behind a small button at the end of its input's row (FL keeps them in the
+ * input's menus too): when the input is heard (through the track's effects), and the input offset that
+ * moves its takes earlier or later. The button is lit while either isn't as it came.
+ */
+function InputOptions({ trackId }: { trackId: string }) {
+  const track = useSong((song) => song.mixer.tracks.find((t) => t.id === trackId));
+  const [typing, setTyping] = useState<string | null>(null);
+  if (!track) return null;
+  const changed = track.monitor !== "armed" || track.inputOffset !== 0;
+  const commitOffset = () => {
+    const ms = Number((typing ?? "").replace(",", ".").replace("−", "-"));
+    if (typing !== null && Number.isFinite(ms)) useMusic.getState().commit((song) => updateMixerTrack(song, trackId, { inputOffset: ms }));
+    setTyping(null);
+  };
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Input options"
+          title={`Monitoring: ${MONITOR_NAMES[track.monitor].toLowerCase()}${track.inputOffset ? `; input offset ${track.inputOffset} ms` : ""}`}
+          className={cn("grid size-6 shrink-0 place-items-center rounded-sm hover:bg-surface-2", changed ? "text-brand" : "text-muted-foreground hover:text-foreground")}
+        >
+          <PiSlidersHorizontal className="size-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="flex w-60 flex-col gap-2 p-2 text-[11px]">
+        <label className="flex items-center gap-1.5 text-muted-foreground">
+          <span title="When the input is heard, through the track's effects: never, while the track is armed, or always. It's recorded dry whichever.">Monitor</span>
+          <Select value={track.monitor} onValueChange={(monitor) => useMusic.getState().commit((song) => updateMixerTrack(song, trackId, { monitor: monitor as InputMonitor }))}>
+            <SelectTrigger size="sm" className="ml-auto h-6 w-28 text-[11px]" aria-label="Monitor input">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(MONITOR_NAMES) as InputMonitor[]).map((m) => (
+                <SelectItem key={m} value={m}>
+                  {MONITOR_NAMES[m]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+        <label className="flex items-center gap-1.5 text-muted-foreground" title="Moves this track's takes earlier (positive) or later, for the latency the device doesn't report: record the metronome through the mic and line its clicks up with the beat">
+          <span>Input offset</span>
+          <Input
+            aria-label="Input offset in ms"
+            inputMode="decimal"
+            className="ml-auto h-6 w-16 text-right text-[11px] tabular-nums"
+            value={typing ?? String(track.inputOffset)}
+            onFocus={(e) => {
+              setTyping(String(track.inputOffset));
+              e.currentTarget.select();
+            }}
+            onChange={(e) => setTyping(e.target.value)}
+            onBlur={commitOffset}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") {
+                setTyping(null);
+                e.currentTarget.blur();
+              }
+            }}
+          />
+          ms
+        </label>
+      </PopoverContent>
+    </Popover>
   );
 }
 

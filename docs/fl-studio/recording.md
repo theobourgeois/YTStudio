@@ -286,8 +286,9 @@ the engine moves samples and says where they were.
 - **The toolbar**: Record (R) beside Stop, red while on, pulsing while recording; its right-click menu has
   the count-in, Loop record, Blend and Disarm on stop. Pressed in pattern mode, Play switches to song mode
   and records there. While recording, a ruler click only moves where the next play starts.
-- **The Mixer**: the inspector's Input section (the Input menu, FL's: stereo pairs, then mono inputs,
-  then (none) and the device's settings; choosing one arms the track), Monitor and Input offset; the arm
+- **The Mixer**: the inspector's Input row (the arm light; the Input menu, FL's: stereo pairs, then mono
+  inputs, then (none) and the device's settings; choosing one arms the track; and a sliders button for
+  Monitor and Input offset, lit when either isn't as it came: Théo wanted the row short); the arm
   light under each strip's fader, the fader FL's orange while armed (`--mixer-armed`, `--mixer-arm`); the
   track menu's Assign to new audio track.
 - **The Playlist**: the track menu's Audio track (an insert, or none); an audio track's header has the
