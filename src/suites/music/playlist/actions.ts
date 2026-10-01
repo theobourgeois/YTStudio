@@ -4,7 +4,7 @@
  * acts on the selected clips, or on all of them when none are selected.
  */
 import { clamp } from "@shared/math";
-import { removePattern } from "@shared/music/edits";
+import { clonePattern, movePatterns, removePattern } from "@shared/music/edits";
 import {
   type ClipContext,
   type NewClip,
@@ -41,7 +41,8 @@ import { currentPattern, useMusic } from "../store";
 import { switchMode, useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
-import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, type TrackLayout, shownTracks, trackLayout, zoomAt, zoomToRange } from "./geometry";
+import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, type TrackLayout, minPxPerTick, shownTracks, trackLayout, zoomAt, zoomToRange } from "./geometry";
+import { type PickMode, pickPattern } from "./picks";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
 
 export interface PlaylistContext {
@@ -293,6 +294,68 @@ export function deletePattern(patternId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// The Picker's patterns
+// ---------------------------------------------------------------------------
+
+/**
+ * The patterns selected in the Picker that are still there, in the song's order; with none selected,
+ * the clip source's pattern (what a plain click picks), so its menu and keys always have something.
+ */
+export function pickedPatterns(song: MusicProject): string[] {
+  const { patternSelection } = usePlaylist.getState();
+  const picked = song.patterns.filter((p) => patternSelection.has(p.id)).map((p) => p.id);
+  if (picked.length) return picked;
+  const source = clipSource(song);
+  return source.kind === "pattern" ? [source.ref] : [];
+}
+
+/** A click on a pattern in the Picker: alone it's the clip source too; ⌘ toggles it, Shift takes a range. */
+export function clickPattern(patternId: string, mode: PickMode) {
+  const song = useMusic.getState().history?.doc;
+  if (!song) return;
+  const { patternAnchor } = usePlaylist.getState();
+  const order = song.patterns.map((p) => p.id);
+  const pick = pickPattern(order, new Set(pickedPatterns(song)), patternAnchor, patternId, mode);
+  usePlaylist.setState({ patternSelection: pick.selection, patternAnchor: pick.anchor });
+  if (mode === "only") chooseSource({ kind: "pattern", ref: patternId });
+}
+
+/** A right-click on a pattern that isn't selected: it alone is, for its menu (as lists do). */
+export function pickForMenu(patternId: string) {
+  const song = useMusic.getState().history?.doc;
+  if (song && !pickedPatterns(song).includes(patternId)) usePlaylist.setState({ patternSelection: new Set([patternId]), patternAnchor: patternId });
+}
+
+/** Alt+↑ / ↓ (while the Picker shows), its menu's Move up / down: the selected patterns a place along the list (one undo step). */
+export function movePickedPatterns(direction: -1 | 1) {
+  const song = useMusic.getState().history?.doc;
+  if (song && usePlaylist.getState().pickerOpen) useMusic.getState().commit((s) => movePatterns(s, pickedPatterns(song), direction));
+}
+
+/** The Picker's Transpose selected: the Transpose window, for the selected patterns. */
+export function transposePickedPatterns() {
+  const song = useMusic.getState().history?.doc;
+  const ids = song ? pickedPatterns(song) : [];
+  if (!ids.length) return;
+  usePlaylist.setState({ transposing: ids });
+  useMusicUi.getState().setTransposeOpen(true);
+}
+
+/** Clone the selected patterns, each copy after its original (one undo step). */
+export function clonePickedPatterns() {
+  const song = useMusic.getState().history?.doc;
+  if (song) useMusic.getState().commit((s) => pickedPatterns(song).reduce((next, id) => clonePattern(next, id), s));
+}
+
+/** Delete the selected patterns and their clips (one undo step; a song keeps one pattern). */
+export function deletePickedPatterns() {
+  const song = useMusic.getState().history?.doc;
+  if (!song) return;
+  useMusic.getState().commit((s) => pickedPatterns(song).reduce((next, id) => removePattern(next, id), s));
+  usePlaylist.setState({ patternSelection: new Set() });
+}
+
+// ---------------------------------------------------------------------------
 // Tracks
 // ---------------------------------------------------------------------------
 
@@ -353,10 +416,17 @@ export function openClip(clip: PlaylistClip) {
   openPianoRoll(channelId);
 }
 
+/** How far out the Playlist may zoom now: the whole song and some room, 32 bars at least (`minPxPerTick`). */
+export function zoomFloor(): number {
+  const song = useMusic.getState().history?.doc;
+  return song ? minPxPerTick(songTicks(song), clipContext(song).barTicks, usePlaylist.getState().gridWidth) : MIN_PX_PER_TICK;
+}
+
 /** Page Up / Down: zoom about the middle of the grid. */
 export function zoomBy(factor: number) {
   const { view, gridWidth, setView } = usePlaylist.getState();
-  setView(zoomAt(view, gridWidth / 2, clamp(view.pxPerTick * factor, MIN_PX_PER_TICK, MAX_PX_PER_TICK)));
+  const min = zoomFloor();
+  setView(zoomAt(view, gridWidth / 2, clamp(view.pxPerTick * factor, min, MAX_PX_PER_TICK), min));
 }
 
 /** Shift+1…3: four, sixteen and sixty-four bars across. Shift+4: the whole song. Shift+5: the time selection. */
@@ -364,11 +434,12 @@ export function zoomPreset(preset: 1 | 2 | 3 | 4 | 5) {
   const p = playlistContext();
   const { view, gridWidth, time, setView } = usePlaylist.getState();
   if (!p) return;
-  if (preset === 5) return time ? setView(zoomToRange(view, time.start, time.end, gridWidth)) : undefined;
-  if (preset === 4) return setView(zoomToRange(view, 0, songTicks(p.song), gridWidth));
+  const min = zoomFloor();
+  if (preset === 5) return time ? setView(zoomToRange(view, time.start, time.end, gridWidth, min)) : undefined;
+  if (preset === 4) return setView(zoomToRange(view, 0, songTicks(p.song), gridWidth, min));
   const bars = [4, 16, 64][preset - 1];
   const from = Math.floor(view.scrollTick / p.barTicks) * p.barTicks;
-  setView(zoomToRange(view, from, from + bars * p.barTicks, gridWidth));
+  setView(zoomToRange(view, from, from + bars * p.barTicks, gridWidth, min));
 }
 
 /** Shift+0: scroll so the playhead (or where play starts) is in the middle. */

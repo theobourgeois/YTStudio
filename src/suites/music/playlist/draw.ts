@@ -5,7 +5,8 @@
  *
  * The look is FL Studio's in our colours: the grid in bars shaded in turn (the Piano roll's theme colours,
  * `readPalette`), clips with a title strip over their content (a pattern's notes in miniature, an audio
- * file's waveform), red when selected, greyed when muted.
+ * file's waveform), their bodies see-through so the grid shows, red when selected, greyed when muted, and
+ * darker on a muted track (as a muted mixer track is).
  */
 import { type ClipContext, clipEnd, clipLength, visibleClips } from "@shared/music/playlist";
 import type { Pattern, PlaylistClip, PlaylistTrack } from "@shared/music/types";
@@ -27,6 +28,17 @@ interface ClipColours {
 const PATTERN: ClipColours = { body: "#8fa6c4", title: "#647da0", content: "#1d2c42", text: "#f4f7fb" };
 const AUDIO: ClipColours = { body: "#8fb8a2", title: "#5f9077", content: "#173326", text: "#f2f8f4" };
 const SELECTED: ClipColours = { body: "#f0a19b", title: "#d0625b", content: "#4d1410", text: "#fff5f4" };
+
+/** How opaque a clip's body is (its title strip and content are solid): the grid shows through, as in FL. */
+const BODY_ALPHA = { light: 0.5, dark: 0.6 };
+/** A clip on a muted track: its colours greyed towards this, and fainter. */
+const MUTED_GREY = "#4a525c";
+const MUTED_TRACK_ALPHA = 0.6;
+
+/** A clip's colours on a muted track: greyed and darker, so it reads as off. */
+function onMutedTrack(c: ClipColours): ClipColours {
+  return { body: mix(c.body, MUTED_GREY, 0.6), title: mix(c.title, MUTED_GREY, 0.6), content: mix(c.content, MUTED_GREY, 0.3), text: mix(c.text, MUTED_GREY, 0.35) };
+}
 
 /** A clip on a coloured track takes the track's colour. */
 function colouredBy(color: string): ClipColours {
@@ -61,8 +73,8 @@ export interface PlaylistScene {
   songTicks: number;
   time: TimeRange | null;
   drag: PlaylistDrag | null;
-  /** The slice tool's line (tick and tracks), while it's dragged or Shift shows it. */
-  slice: { tick: number; top: number; bottom: number } | null;
+  /** The slice tool's line (tick and tracks, or `all` of them), while it's dragged or Shift shows it. */
+  slice: { tick: number; top: number; bottom: number; all: boolean } | null;
   palette: Palette;
 }
 
@@ -209,6 +221,13 @@ export function drawTracks(ctx: CanvasRenderingContext2D, scene: PlaylistScene) 
     ctx.fillStyle = palette.beatLine;
     ctx.fillRect(0, Math.round(trackTop(layout, view, track)) - 1, width, 1);
   }
+  // Muted tracks, shaded: what's on them doesn't play.
+  for (let track = firstTrack; track <= lastTrack && track < layout.length - 1; track++) {
+    if (!scene.tracks[track]?.muted) continue;
+    const top = Math.round(trackTop(layout, view, track));
+    ctx.fillStyle = palette.outside;
+    ctx.fillRect(0, top, width, Math.round(trackTop(layout, view, track + 1)) - top - 1);
+  }
   const bottom = trackTop(layout, view, layout.length - 1);
   if (bottom < height) {
     ctx.fillStyle = palette.outside;
@@ -247,8 +266,8 @@ export function drawTracks(ctx: CanvasRenderingContext2D, scene: PlaylistScene) 
   }
   if (scene.slice) {
     const x = Math.round(tickToX(view, scene.slice.tick)) + 0.5;
-    const y1 = trackTop(layout, view, Math.min(scene.slice.top, scene.slice.bottom));
-    const y2 = trackTop(layout, view, Math.max(scene.slice.top, scene.slice.bottom) + 1);
+    const y1 = scene.slice.all ? 0 : trackTop(layout, view, Math.min(scene.slice.top, scene.slice.bottom));
+    const y2 = scene.slice.all ? Math.min(height, bottom) : trackTop(layout, view, Math.max(scene.slice.top, scene.slice.bottom) + 1);
     ctx.strokeStyle = palette.tool;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -264,7 +283,8 @@ export function drawTracks(ctx: CanvasRenderingContext2D, scene: PlaylistScene) 
 }
 
 function drawClips(ctx: CanvasRenderingContext2D, scene: PlaylistScene, firstTrack: number, lastTrack: number) {
-  const { view, width, clips, selected, layout } = scene;
+  const { view, width, clips, selected, layout, palette } = scene;
+  const bodyAlpha = palette.dark ? BODY_ALPHA.dark : BODY_ALPHA.light;
   const [from, to] = visibleClips(clips, xToTick(view, 0), xToTick(view, width), scene.ctx);
   ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
   ctx.textBaseline = "middle";
@@ -277,14 +297,16 @@ function drawClips(ctx: CanvasRenderingContext2D, scene: PlaylistScene, firstTra
     const y = Math.round(trackTop(layout, view, clip.track));
     const h = Math.round(trackTop(layout, view, clip.track + 1)) - y - 1;
     const w = Math.max(2, right - x);
-    const trackColor = scene.tracks[clip.track]?.color;
-    const colours = selected.has(clip.id) ? SELECTED : trackColor ? colouredBy(trackColor) : clip.kind === "audio" ? AUDIO : PATTERN;
-    ctx.globalAlpha = clip.muted ? 0.4 : 0.92;
+    const track = scene.tracks[clip.track];
+    const own = selected.has(clip.id) ? SELECTED : track?.color ? colouredBy(track.color) : clip.kind === "audio" ? AUDIO : PATTERN;
+    const colours = track?.muted ? onMutedTrack(own) : own;
+    const fade = (clip.muted ? 0.5 : 1) * (track?.muted ? MUTED_TRACK_ALPHA : 1);
+    ctx.globalAlpha = bodyAlpha * fade * (clip.muted ? 0.8 : 1);
     ctx.fillStyle = colours.body;
     ctx.beginPath();
     ctx.roundRect(Math.round(x) + 0.5, y + 0.5, Math.round(w) - 1, h - 1, 2);
     ctx.fill();
-    ctx.globalAlpha = clip.muted ? 0.5 : 1;
+    ctx.globalAlpha = fade;
     const title = Math.min(TITLE_HEIGHT, h);
     ctx.fillStyle = colours.title;
     ctx.fillRect(Math.round(x) + 1, y + 1, Math.round(w) - 2, title - 1);

@@ -12,12 +12,15 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addChannels, setSteps, updateChannel } from "../../shared/music/edits.ts";
 import { routeChannels, sendOnly, setEffect, setSend, updateEffect, updateMixerTrack } from "../../shared/music/mixer.ts";
-import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
+import { FIRST_PATTERN_ID, createMusicProject as newSong } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
 import { type WavData, onsets, peakOf, readWav, writeWav } from "./wav.ts";
+
+/** A new song at 120 BPM, which these tests' timings are worked out at (new songs start at 140). */
+const createMusicProject = (name: string) => newSong(name, 120);
 
 const RATE = 48_000;
 const BEAT = 24_000;

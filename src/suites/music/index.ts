@@ -2,6 +2,7 @@ import { lazy } from "react";
 import { PiWaveform } from "react-icons/pi";
 import type { ClientSuite } from "../types";
 import { songContext, songTiming } from "./context";
+import { newSongOptions } from "./preferences";
 import { discardSong, flushSongs, useMusic } from "./store";
 import { runMusicTool } from "./tools";
 
@@ -37,4 +38,5 @@ export const musicSuite: ClientSuite<"music"> = {
     return history ? songContext(history.doc, patternId) : null;
   },
   runTool: runMusicTool,
+  newProjectOptions: newSongOptions,
 };

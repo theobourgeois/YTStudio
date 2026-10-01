@@ -36,6 +36,14 @@ describe("the Playlist's keys", () => {
     expect(press("ArrowUp", "ArrowUp")).toBeNull();
   });
 
+  it("move the Picker's selected patterns up and down with Alt", () => {
+    expect(press("ArrowUp", "ArrowUp", { altKey: true })).toEqual({ type: "movePatterns", direction: -1 });
+    expect(press("ArrowDown", "ArrowDown", { altKey: true })).toEqual({ type: "movePatterns", direction: 1 });
+    expect(press("ArrowLeft", "ArrowLeft", { altKey: true })).toBeNull();
+    expect(press("ArrowUp", "ArrowUp", { altKey: true, shiftKey: true })).toBeNull();
+    expect(press("ArrowUp", "ArrowUp", { altKey: true, metaKey: true })).toBeNull();
+  });
+
   it("insert and delete space, and time-select around the clips", () => {
     expect(press("Insert", "Insert", { ctrlKey: true })).toEqual({ type: "insertSpace" });
     expect(press("Insert", "Insert", { ctrlKey: true, altKey: true })).toEqual({ type: "insertSpaceSliced" });

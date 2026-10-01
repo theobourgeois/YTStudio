@@ -15,8 +15,11 @@ import type { PlaylistView } from "./store";
 export const DEFAULT_TRACK_HEIGHT = 48;
 export const MIN_TRACK_HEIGHT = 18;
 export const MAX_TRACK_HEIGHT = 160;
-export const MIN_PX_PER_TICK = 0.005;
+/** The furthest out the view ever zooms; how far it may for a song is `minPxPerTick`. */
+export const MIN_PX_PER_TICK = 0.0005;
 export const MAX_PX_PER_TICK = 2;
+/** Fully zoomed out shows at least this many bars, however short the song. */
+export const MIN_ZOOM_OUT_BARS = 32;
 /** How close to a clip's edge (px) a press resizes it rather than moving it, and how much of a short clip that may be. */
 export const EDGE_ZONE = 6;
 /** Empty tracks shown below the last one in use, so there's always room to put a clip lower. */
@@ -110,9 +113,20 @@ export function hitClip(clips: readonly PlaylistClip[], ctx: ClipContext, layout
   return { clip, edge, menu };
 }
 
-/** Zoom along time about a point: the tick under `x` stays under it. */
-export function zoomAt(view: PlaylistView, x: number, pxPerTick: number): PlaylistView {
-  const next = clamp(pxPerTick, MIN_PX_PER_TICK, MAX_PX_PER_TICK);
+/**
+ * How far out the view may zoom for a song ending at `songEnd` (px a tick): the whole song and some room
+ * after it (an eighth of it, four bars at least) across `width` px, and never fewer than
+ * `MIN_ZOOM_OUT_BARS` bars, so a short song doesn't stop zooming at two.
+ */
+export function minPxPerTick(songEnd: number, barTicks: number, width: number): number {
+  const room = Math.max(4, Math.ceil(songEnd / barTicks / 8)) * barTicks;
+  const span = Math.max(MIN_ZOOM_OUT_BARS * barTicks, songEnd + room);
+  return clamp(width / span, MIN_PX_PER_TICK, MAX_PX_PER_TICK);
+}
+
+/** Zoom along time about a point: the tick under `x` stays under it (no further out than `min`). */
+export function zoomAt(view: PlaylistView, x: number, pxPerTick: number, min = MIN_PX_PER_TICK): PlaylistView {
+  const next = clamp(pxPerTick, min, MAX_PX_PER_TICK);
   return { ...view, pxPerTick: next, scrollTick: Math.max(0, xToTick(view, x) - x / next) };
 }
 
@@ -124,9 +138,9 @@ export function zoomTracksAt(view: PlaylistView, y: number, trackHeight: number)
 }
 
 /** The view showing `[from, to)` ticks across `width` pixels, with a little room either side. */
-export function zoomToRange(view: PlaylistView, from: number, to: number, width: number): PlaylistView {
+export function zoomToRange(view: PlaylistView, from: number, to: number, width: number, min = MIN_PX_PER_TICK): PlaylistView {
   const span = Math.max(STEP_TICKS * 4, to - from);
-  const pxPerTick = clamp((width * 0.94) / span, MIN_PX_PER_TICK, MAX_PX_PER_TICK);
+  const pxPerTick = clamp((width * 0.94) / span, min, MAX_PX_PER_TICK);
   return { ...view, pxPerTick, scrollTick: Math.max(0, from - (width / pxPerTick - span) / 2) };
 }
 

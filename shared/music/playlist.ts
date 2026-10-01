@@ -351,6 +351,9 @@ export function sliceClips(clips: PlaylistClip[], at: number, top: number, botto
   return addClips(next, tails);
 }
 
+/** Slice every track at `at` (Shift with the slice tool: a line the whole height of the Playlist). */
+export const sliceAll = (clips: PlaylistClip[], at: number, ctx: ClipContext): CreatedClips => sliceClips(clips, at, 0, MAX_PLAYLIST_TRACKS - 1, ctx);
+
 export type ClipPatch = Partial<Pick<PlaylistClip, "muted">>;
 
 /** Set properties of clips outright (mute). */

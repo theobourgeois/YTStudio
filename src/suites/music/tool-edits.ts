@@ -10,6 +10,7 @@ import {
   getPattern,
   lengthOf,
   moveChannels,
+  movePatterns,
   removeChannel,
   removePattern,
   renamePattern,
@@ -22,6 +23,7 @@ import {
   stepNotes,
   stepString,
   transposeChannels,
+  transposePatterns,
   updateChannel,
 } from "@shared/music/edits";
 import { CHOP_PATTERNS, chopPattern, chopPieces, chopToPattern } from "@shared/music/chop";
@@ -274,6 +276,26 @@ export const updatePatternTool: SongEdit = (song, input, env) => {
   }
   const now = getPattern(next, pattern.id)!;
   return { song: next, text: `The pattern "${now.name}" is ${describeLength(next, now)}.` };
+};
+
+export const transposePatternsTool: SongEdit = (song, input, env) => {
+  if (!Array.isArray(input.patterns) || !input.patterns.length) throw new Error('"patterns" must be a list of patterns (ids or names from get_song).');
+  const patterns = [...new Set(input.patterns.map((ref) => findPattern(song, ref, env)))];
+  const semitones = number(input, "semitones", -127, 127);
+  if (semitones === undefined || !Number.isInteger(semitones)) throw new Error('"semitones" must be a whole number from -127 to 127 (12 is an octave up).');
+  const next = transposePatterns(song, patterns.map((p) => p.id), semitones);
+  const list = patterns.map((p) => `"${p.name}"`).join(", ");
+  if (next === song) return { song, text: `Nothing moved: ${list} ${semitones === 0 ? "stay where they are" : "have no notes that can move that way"}.` };
+  return { song: next, text: `Moved every note of ${list} ${Math.abs(semitones)} semitone${Math.abs(semitones) === 1 ? "" : "s"} ${semitones > 0 ? "up" : "down"}.` };
+};
+
+export const movePatternTool: SongEdit = (song, input, env) => {
+  const pattern = findPattern(song, input.pattern, env);
+  if (input.direction !== "up" && input.direction !== "down") throw new Error('"direction" must be "up" or "down".');
+  const next = movePatterns(song, [pattern.id], input.direction === "up" ? -1 : 1);
+  const order = next.patterns.map((p) => `"${p.name}"`).join(", ");
+  if (next === song) return { song, text: `"${pattern.name}" is already ${input.direction === "up" ? "first" : "last"}. The patterns are, in order: ${order}.` };
+  return { song: next, text: `The patterns are now, in order: ${order}.` };
 };
 
 export const removePatternTool: SongEdit = (song, input, env) => {

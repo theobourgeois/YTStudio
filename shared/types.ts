@@ -416,6 +416,8 @@ export interface CreateProjectRequest {
   suite?: SuiteId;
   /** Start from nothing, even if the suite has a starting point. */
   blank?: boolean;
+  /** The suite's own choices for a new document, kept in the tab (the music suite's default tempo). */
+  options?: unknown;
 }
 
 /**

@@ -310,7 +310,8 @@ describe("compileSong in song mode", () => {
   });
 
   it("plays audio clips from their channel's file, streamed, at their offset", () => {
-    const { song } = addAudioClips(rack(), [{ name: "Vocal", sampleId: "media_vox", seconds: 4, channelId: "chan_vox" }], { start: BAR, track: 2 });
+    // At 120 BPM, a bar is two seconds.
+    const { song } = addAudioClips(setTempo(rack(), 120), [{ name: "Vocal", sampleId: "media_vox", seconds: 4, channelId: "chan_vox" }], { start: BAR, track: 2 });
     const sliced = editClips(song, (clips, ctx) => sliceClips(clips, 2 * BAR, 0, 5, ctx).clips);
     const compiled = compileSong(sliced, P, null, "song");
     expect(compiled.channels[2]).toMatchObject({ id: "chan_vox", sample: "media_vox", stream: true, precomputed: null, envelope: null });

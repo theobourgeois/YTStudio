@@ -222,6 +222,29 @@ export function cloneChannel(song: MusicProject, id: string, newId = createId("c
   return { ...song, channels: [...song.channels.slice(0, index + 1), copy, ...song.channels.slice(index + 1)] };
 }
 
+/**
+ * FL Studio's Replace: another instrument (a plugin, or the Sampler when `plugin` is null) in the
+ * channel's place, playing its notes in every pattern, at its volume, pan, mute and mixer track. It's
+ * a channel of its own (`newId`), so the old plugin's settings file isn't given to the new one, and undo
+ * brings the old channel back as it was. An audio clip's channel has no instrument to replace.
+ */
+export function replaceChannel(song: MusicProject, id: string, plugin: PluginRef | null, newId = createId("chan")): MusicProject {
+  const index = song.channels.findIndex((c) => c.id === id);
+  const old = song.channels[index];
+  if (!old || old.kind === "audio") return song;
+  const fresh = plugin ? createPluginChannel(plugin, newId) : createChannel("Sampler", null, newId);
+  const channel: Channel = { ...fresh, volume: old.volume, pan: old.pan, muted: old.muted, mixerTrack: old.mixerTrack };
+  return {
+    ...song,
+    channels: song.channels.map((c, i) => (i === index ? channel : c)),
+    patterns: song.patterns.map((p) => {
+      if (!(id in p.notes)) return p;
+      const { [id]: notes, ...rest } = p.notes;
+      return { ...p, notes: { ...rest, [newId]: notes } };
+    }),
+  };
+}
+
 /** Move channels one place up (-1) or down (1) the rack, together. Those against the edge stay. */
 export function moveChannels(song: MusicProject, ids: readonly string[], direction: -1 | 1): MusicProject {
   const moving = new Set(ids);
@@ -269,6 +292,60 @@ export function removePattern(song: MusicProject, id: string): MusicProject {
     patterns: song.patterns.filter((p) => p.id !== id),
     playlist: clips.length === song.playlist.clips.length ? song.playlist : { ...song.playlist, clips },
   };
+}
+
+/**
+ * Move patterns one place up (-1) or down (1) the song's list (the Playlist's Picker, Alt+↑ / ↓),
+ * together. Those against the edge stay, as channels do in the rack.
+ */
+export function movePatterns(song: MusicProject, ids: readonly string[], direction: -1 | 1): MusicProject {
+  const moving = new Set(ids);
+  const patterns = [...song.patterns];
+  let any = false;
+  const order = direction < 0 ? patterns.map((_, i) => i) : patterns.map((_, i) => patterns.length - 1 - i);
+  for (const i of order) {
+    const to = i + direction;
+    if (!moving.has(patterns[i].id) || to < 0 || to >= patterns.length || moving.has(patterns[to].id)) continue;
+    [patterns[i], patterns[to]] = [patterns[to], patterns[i]];
+    any = true;
+  }
+  return any ? { ...song, patterns } : song;
+}
+
+/** Notes moved by whole semitones, stopping at the ends of the MIDI range (the same list if none moves). */
+function transposeNotes(notes: Note[], by: number): Note[] {
+  let any = false;
+  const moved = notes.map((note) => {
+    const pitch = clamp(note.pitch + by, 0, 127);
+    if (pitch === note.pitch) return note;
+    any = true;
+    return { ...note, pitch };
+  });
+  return any ? moved.sort(byStart) : notes;
+}
+
+/**
+ * Move every note of some patterns, all their channels', up (positive) or down by semitones (the
+ * Picker's "Transpose selected"): one edit for them all.
+ */
+export function transposePatterns(song: MusicProject, patternIds: readonly string[], semitones: number): MusicProject {
+  const by = Math.round(semitones);
+  if (!Number.isFinite(by) || by === 0) return song;
+  const chosen = new Set(patternIds);
+  let any = false;
+  const patterns = song.patterns.map((pattern) => {
+    if (!chosen.has(pattern.id)) return pattern;
+    let changed = false;
+    const notes: Pattern["notes"] = {};
+    for (const [channelId, list] of Object.entries(pattern.notes)) {
+      notes[channelId] = transposeNotes(list, by);
+      if (notes[channelId] !== list) changed = true;
+    }
+    if (!changed) return pattern;
+    any = true;
+    return { ...pattern, notes };
+  });
+  return any ? { ...song, patterns } : song;
 }
 
 function updatePattern(song: MusicProject, id: string, update: (p: Pattern) => Pattern): MusicProject {

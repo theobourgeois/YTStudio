@@ -20,6 +20,8 @@ interface MusicWindowProps {
   menu?: ReactNode;
   /** Shown instead of the title's text (which still names the window): a selector, as the Piano roll's channel. */
   heading?: ReactNode;
+  /** Before the title, as FL Studio puts them: the window's tools (the Piano roll's and the Playlist's). */
+  tools?: ReactNode;
   /** After the title: the window's own controls. */
   controls?: ReactNode;
   /**
@@ -73,7 +75,7 @@ const px = (element: HTMLElement, r: Rect, sized: boolean) => {
  * the music editor is one of these: the channel rack, a channel's settings, the piano roll, later the
  * mixer and the playlist.
  */
-export function MusicWindow({ id, title, initial, onClose, menu, heading, controls, resizable, className, children }: MusicWindowProps) {
+export function MusicWindow({ id, title, initial, onClose, menu, heading, tools, controls, resizable, className, children }: MusicWindowProps) {
   const place = useMusicUi((s) => s.places[id]) ?? initial;
   const z = useMusicUi((s) => s.order.indexOf(id));
   const snap = resizable ? (place.snap ?? null) : null;
@@ -185,6 +187,7 @@ export function MusicWindow({ id, title, initial, onClose, menu, heading, contro
         }}
       >
         {menu}
+        {tools && <div className="flex shrink-0 items-center gap-1.5">{tools}</div>}
         <h2 className="min-w-0 truncate text-xs font-medium">{heading ?? title}</h2>
         <div className="ml-auto flex items-center gap-1.5">
           {controls}

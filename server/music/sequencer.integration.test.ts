@@ -11,12 +11,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, setPatternLength, setStepNote, setSteps, setSwing, setTempo, updateChannel } from "../../shared/music/edits.ts";
 import { routeChannels, sendOnly, setMixerMuted, setSend, updateMixerTrack } from "../../shared/music/mixer.ts";
 import { editNotes, setNoteProps } from "../../shared/music/notes.ts";
-import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "../../shared/music/project.ts";
+import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject as newSong } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE } from "../config.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
 import { type WavData, onsets, peakOf, readWav, writeWav } from "./wav.ts";
+
+/** A new song at 120 BPM, which these tests' timings are worked out at (new songs start at 140). */
+const createMusicProject = (name: string) => newSong(name, 120);
 
 const RATE = 48_000;
 const BEAT = 24_000;

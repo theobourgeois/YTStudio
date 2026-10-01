@@ -33,6 +33,9 @@ export type MusicKeyAction =
   /** Shift the selected channel's steps left or right. */
   | { type: "rotate"; direction: -1 | 1 };
 
+/** Alt+1…5: Playlist, Channel rack, Piano roll, Mixer, Browser (F5, F6, F7, F9, Alt+F8). */
+const WINDOW_DIGITS: Partial<Record<string, "togglePlaylist" | "toggleRack" | "togglePiano" | "toggleMixer" | "toggleBrowser">> = { "1": "togglePlaylist", "2": "toggleRack", "3": "togglePiano", "4": "toggleMixer", "5": "toggleBrowser" };
+
 type KeyLike = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">;
 
 export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
@@ -51,6 +54,11 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   if (e.key === "F9") return only("toggleMixer");
   // FL's Alt+F8. (F8 alone is FL's plugin picker.)
   if (e.key === "F8" && e.altKey && !command && !e.shiftKey) return { type: "toggleBrowser" };
+  // The same windows on Alt+1…5, in the F keys' order: a Mac's F keys need Fn.
+  if (digit !== undefined && e.altKey && !command && !e.shiftKey) {
+    const window = WINDOW_DIGITS[digit];
+    return window ? { type: window } : null;
+  }
 
   if (digit !== undefined && !e.shiftKey && !e.altKey) {
     // 1…9 then 0: the first ten channels.

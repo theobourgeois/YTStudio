@@ -32,8 +32,9 @@ import { usePlaylist } from "./store";
 
 /**
  * The tracks' headers, down the Playlist's left (FL Studio's): each track's name (double-click to rename),
- * its colour, its mute light (a right-click or Ctrl+click solos), the divider under it that drags its height,
- * and its menu. Only those in view are made.
+ * its colour, its mute light (a right-click or Ctrl+click solos; a click anywhere else on the header that
+ * isn't its name mutes too, a bigger target), the divider under it that drags its height, and its menu.
+ * A muted track's header is dimmed, as a muted mixer track is. Only those in view are made.
  */
 export function TrackHeaders() {
   const playlist = useMusic((s) => s.history!.doc.playlist);
@@ -62,11 +63,22 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
-          className="absolute inset-x-0 flex items-start gap-1 border-b border-line px-1.5 pt-1"
-          style={{ top, height, background: track.color ? `color-mix(in srgb, ${track.color} 55%, var(--surface-1))` : undefined }}
+          className={cn("absolute inset-x-0 flex items-start gap-1 border-b border-line px-1.5 pt-1", track.muted && !track.color && "bg-sunken")}
+          style={{
+            top,
+            height,
+            background: track.color ? `color-mix(in srgb, ${track.color} 55%, var(${track.muted ? "--sunken" : "--surface-1"}))` : undefined,
+            ...(track.muted && { filter: "saturate(0.6) brightness(0.92)" }),
+          }}
           data-track={index}
           data-track-name={name}
           data-muted={track.muted || undefined}
+          // The header around the name and the light: a click mutes (Ctrl: solos), as the light does.
+          onClick={(e) => {
+            if (e.target !== e.currentTarget || e.button !== 0) return;
+            if (e.ctrlKey || e.metaKey || e.altKey) soloPlaylistTrack(index);
+            else toggleTrackMute(index);
+          }}
         >
           {renaming ? (
             <input
@@ -89,7 +101,11 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
           ) : (
             <button
               type="button"
-              className={cn("min-w-0 flex-1 truncate text-left text-[11px] font-medium", track.color ? "text-white" : track.name ? "text-foreground" : "text-muted-foreground")}
+              className={cn(
+                "mr-auto min-w-0 truncate text-left text-[11px] font-medium",
+                track.color ? "text-white" : track.name ? "text-foreground" : "text-muted-foreground",
+                track.muted && "opacity-[var(--mixer-muted-opacity)]",
+              )}
               title={`${name}: double-click to rename, right-click for its menu`}
               onDoubleClick={() => usePlaylist.setState({ renaming: index })}
             >

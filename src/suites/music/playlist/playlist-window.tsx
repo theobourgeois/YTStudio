@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import { PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
 import { cn } from "cn";
-import { applyDrag } from "./drag";
+import { applyDrag, shownSelection } from "./drag";
 import { clipContext, songTicks } from "@shared/music/playlist";
 import type { PlaylistClip } from "@shared/music/types";
 import type { WaveformData } from "@shared/types";
@@ -27,6 +27,7 @@ import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import {
+  cancelDrag,
   clipSource,
   commitDrag,
   deleteSelected,
@@ -40,13 +41,14 @@ import {
   selectSimilar,
   setMuted,
   splitPattern,
+  zoomFloor,
 } from "./actions";
 import { editClips, removeClips, setClipProps } from "@shared/music/playlist";
 import { type PlaylistScene, drawRuler, drawTracks, onWaveform, waveformAt } from "./draw";
-import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, scrollViewBy, tickToX, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
+import { MAX_PX_PER_TICK, scrollViewBy, tickToX, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
 import { CLIP_DRAG_TYPE, Picker } from "./picker";
 import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
-import { type PlaylistTool, usePlaylist } from "./store";
+import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
 import { TrackHeaders } from "./track-headers";
 
 const HEADERS_W = 128;
@@ -100,7 +102,7 @@ export function PlaylistWindow() {
         usePlaylist.setState({ drag: null });
       }}
       heading={<SourceMenu />}
-      controls={<PlaylistControls />}
+      tools={<PlaylistControls />}
     >
       <div
         className="relative flex min-h-0 flex-1"
@@ -156,7 +158,7 @@ function PlaylistControls() {
             {SNAP_LABELS[snap]}
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="start">
           <DropdownMenuLabel>Snap (Alt: none)</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={snap} onValueChange={(value) => usePlaylist.setState({ snap: value as Snap })}>
             {SNAPS.map((id) => (
@@ -270,6 +272,8 @@ function SourceMenu() {
 
 /** The last drag preview worked out, to reuse while neither the clips nor the drag change. */
 let previewCache: { clips: PlaylistClip[]; drag: unknown; result: PlaylistClip[] } | null = null;
+/** The selection as shown (a rectangle's, live), likewise. */
+let selectionCache: { clips: PlaylistClip[]; drag: unknown; selected: ReadonlySet<number>; result: ReadonlySet<number> } | null = null;
 
 function PlaylistBody() {
   const grid = useRef<HTMLCanvasElement>(null);
@@ -294,6 +298,10 @@ function PlaylistBody() {
         clips = previewCache.result;
       }
       const { song } = p;
+      const sc = selectionCache;
+      if (sc?.clips !== p.clips || sc.drag !== drag || sc.selected !== playlist.selected) {
+        selectionCache = { clips: p.clips, drag, selected: playlist.selected, result: shownSelection(p.clips, drag, p.selected, p.ctx) };
+      }
       const assets = useMusic.getState().assets;
       const waveforms = new Map<string, WaveformData>();
       for (const channel of song.channels) {
@@ -309,7 +317,7 @@ function PlaylistBody() {
         height,
         ctx: p.ctx,
         clips,
-        selected: p.selected,
+        selected: selectionCache!.result,
         tracks: song.playlist.tracks,
         layout: p.layout,
         patterns: new Map(song.patterns.map((pattern) => [pattern.id, pattern])),
@@ -322,9 +330,9 @@ function PlaylistBody() {
         drag,
         slice:
           drag?.kind === "slice"
-            ? { tick: drag.tick, top: drag.top, bottom: drag.bottom }
+            ? { tick: drag.tick, top: drag.top, bottom: drag.bottom, all: drag.all }
             : !drag && playlist.sliceHover
-              ? { tick: playlist.sliceHover.tick, top: playlist.sliceHover.track, bottom: playlist.sliceHover.track }
+              ? { tick: playlist.sliceHover.tick, top: 0, bottom: 0, all: true }
               : null,
         palette,
       };
@@ -427,7 +435,10 @@ function PlaylistBody() {
       const { view } = playlist;
       const rect = box.getBoundingClientRect();
       if ((e.ctrlKey || e.metaKey) && e.altKey) return playlist.setView(zoomTracksAt(view, e.clientY - rect.top, view.trackHeight * wheelZoomFactor(e.deltaY, e.deltaMode)));
-      if (e.ctrlKey || e.metaKey) return playlist.setView(zoomAt(view, e.clientX - rect.left, Math.min(MAX_PX_PER_TICK, Math.max(MIN_PX_PER_TICK, view.pxPerTick * wheelZoomFactor(e.deltaY, e.deltaMode)))));
+      if (e.ctrlKey || e.metaKey) {
+        const min = zoomFloor();
+        return playlist.setView(zoomAt(view, e.clientX - rect.left, Math.min(MAX_PX_PER_TICK, Math.max(min, view.pxPerTick * wheelZoomFactor(e.deltaY, e.deltaMode))), min));
+      }
       const p = playlistContext();
       const sideways = e.shiftKey ? e.deltaY : e.deltaX;
       const down = e.shiftKey ? 0 : e.deltaY;
@@ -454,26 +465,38 @@ function PlaylistBody() {
         ref={gridBox}
         className="relative min-h-0 overflow-hidden"
         data-testid="playlist-grid"
-        // Patterns and audio clips from the Picker, and audio files from the Browser and Finder.
+        // Patterns and audio clips from the Picker (drawn where they'd land while they're dragged), and
+        // audio files from the Browser and Finder.
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes(CLIP_DRAG_TYPE) || carriesSamples(e.dataTransfer)) {
+          if (e.dataTransfer.types.includes(CLIP_DRAG_TYPE)) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "copy";
+            const carried = usePlaylist.getState().carried;
+            if (carried) showCarried(carried, e.currentTarget, e);
+            return;
+          }
+          if (carriesSamples(e.dataTransfer)) {
             e.preventDefault();
             e.stopPropagation();
           }
         }}
+        onDragLeave={(e) => {
+          if (usePlaylist.getState().drag?.kind === "add" && !e.currentTarget.contains(e.relatedTarget as Node | null)) cancelDrag();
+        }}
         onDrop={(e) => {
           const p = playlistContext();
           if (!p) return;
+          if (e.dataTransfer.types.includes(CLIP_DRAG_TYPE)) {
+            e.preventDefault();
+            e.stopPropagation();
+            dropClip(e.dataTransfer.getData(CLIP_DRAG_TYPE), e.currentTarget, e);
+            return;
+          }
           const rect = e.currentTarget.getBoundingClientRect();
           const { view } = usePlaylist.getState();
           const start = snapTick(xToTick(view, e.clientX - rect.left), e.altKey ? 1 : p.grid, "cell");
           const track = Math.min(yToTrack(p.layout, view, e.clientY - rect.top), p.trackCount - 1);
-          if (e.dataTransfer.types.includes(CLIP_DRAG_TYPE)) {
-            e.preventDefault();
-            e.stopPropagation();
-            dropClip(e.dataTransfer.getData(CLIP_DRAG_TYPE), start, track);
-            return;
-          }
           if (!carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
@@ -547,20 +570,42 @@ function ClipMenu() {
   );
 }
 
-/** A clip dragged from the Picker, dropped at a tick on a track. */
-function dropClip(data: string, start: number, track: number) {
+/** Where a clip dragged over the tracks would land: the cell under the pointer (Alt: no snap), on its track. */
+function dropPoint(box: Element, ev: { clientX: number; clientY: number; altKey: boolean }): { start: number; track: number } | null {
+  const p = playlistContext();
+  if (!p) return null;
+  const rect = box.getBoundingClientRect();
+  const { view } = usePlaylist.getState();
+  return {
+    start: Math.max(0, snapTick(xToTick(view, ev.clientX - rect.left), ev.altKey ? 1 : p.grid, "cell")),
+    track: Math.min(yToTrack(p.layout, view, ev.clientY - rect.top), p.trackCount - 1),
+  };
+}
+
+/** A clip being dragged from the Picker, shown where it would land: an "add" drag, drawn as a clip. */
+function showCarried(source: ClipSource, box: Element, ev: { clientX: number; clientY: number; altKey: boolean }) {
+  const song = useMusic.getState().history?.doc;
+  const at = dropPoint(box, ev);
+  if (!song || !at) return;
+  const drag = usePlaylist.getState().drag;
+  const shown = drag?.kind === "add" && drag.clips.length === 1 ? drag.clips[0] : null;
+  if (shown?.start === at.start && shown.track === at.track && shown.ref === source.ref) return;
+  usePlaylist.getState().setDrag({ kind: "add", clips: [newClip(song, source, at.start, at.track)] });
+}
+
+/** A clip dragged from the Picker, dropped: it's added where it was shown, and becomes the clip source. */
+function dropClip(data: string, box: Element, ev: { clientX: number; clientY: number; altKey: boolean }) {
+  let source: ClipSource;
   try {
-    const source = JSON.parse(data) as { kind: "pattern" | "audio"; ref: string };
-    if (source.kind !== "pattern" && source.kind !== "audio") return;
-    usePlaylist.setState({ source });
-    if (source.kind === "pattern") useMusic.getState().selectPattern(source.ref);
-    const song = useMusic.getState().history?.doc;
-    if (!song) return;
-    usePlaylist.getState().setDrag({ kind: "add", clips: [newClip(song, source, start, track)] });
-    commitDrag();
+    source = JSON.parse(data) as ClipSource;
   } catch {
-    // Not one of ours.
+    return cancelDrag(); // Not one of ours.
   }
+  if (source.kind !== "pattern" && source.kind !== "audio") return cancelDrag();
+  usePlaylist.setState({ source, carried: null });
+  if (source.kind === "pattern") useMusic.getState().selectPattern(source.ref);
+  showCarried(source, box, ev);
+  commitDrag();
 }
 
 function HorizontalScrollbar() {

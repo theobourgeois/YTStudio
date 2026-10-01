@@ -227,6 +227,8 @@ function runPlaylistKey(action: PlaylistKeyAction) {
       return playlist.zoomBy(action.factor);
     case "zoomPreset":
       return playlist.zoomPreset(action.preset);
+    case "movePatterns":
+      return playlist.movePickedPatterns(action.direction);
   }
 }
 

@@ -28,6 +28,11 @@ export interface SuiteBackend<S extends SuiteId> {
   /** A new, empty document. */
   create(name: string): SuiteDocument<S>;
   /**
+   * A new document (empty or a copy of the starting point) with the tab's choices for new projects
+   * (`CreateProjectRequest.options`, untrusted: anything it doesn't know is ignored).
+   */
+  withOptions?(doc: SuiteDocument<S>, options: unknown): SuiteDocument<S>;
+  /**
    * Validate and repair an untrusted document (from disk or a request) against the project's own
    * media. Throws if it's beyond repair.
    */

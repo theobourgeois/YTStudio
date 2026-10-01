@@ -39,6 +39,7 @@ const lastTrack = (p: PlaylistContext) => Math.min(MAX_PLAYLIST_TRACKS - 1, p.tr
 /** A drag that scrolls the tracks while the pointer is near or past their edges, moving on as it does. */
 function startGridDrag(e: Press, element: HTMLElement, h: DragHandlers) {
   let last: PointerEvent | null = null;
+  let travel = { x: 0, y: 0 };
   let frame = 0;
   const step = () => {
     frame = 0;
@@ -50,7 +51,7 @@ function startGridDrag(e: Press, element: HTMLElement, h: DragHandlers) {
     const next = scrollViewBy(view, edgeSpeed(last.clientX - rect.left, rect.width), edgeSpeed(last.clientY - rect.top, rect.height), maxY);
     if (next === view) return;
     setView(next);
-    h.onMove(last);
+    h.onMove(last, travel);
     frame = requestAnimationFrame(step);
   };
   const stop = () => {
@@ -60,9 +61,10 @@ function startGridDrag(e: Press, element: HTMLElement, h: DragHandlers) {
   };
   return startPointerDrag(e, {
     ...h,
-    onMove(ev) {
+    onMove(ev, moved) {
       last = ev;
-      h.onMove(ev);
+      travel = { ...moved };
+      h.onMove(ev, moved);
       if (!frame) frame = requestAnimationFrame(step);
     },
     onEnd() {
@@ -236,13 +238,14 @@ export function gridPointerDown(e: Press) {
     return;
   }
 
-  // The slice tool: a line straight down at the grid line nearest the pointer, across the tracks dragged over.
+  // The slice tool: a line straight down at the grid line nearest the pointer, across the tracks dragged
+  // over; with Shift, the whole height, cutting every track.
   if (tool === "slice") {
-    const slice = (ev: { clientX: number; clientY: number; altKey: boolean }) => {
+    const slice = (ev: { clientX: number; clientY: number; altKey: boolean; shiftKey: boolean }) => {
       const q = local(element, ev);
       const now = usePlaylist.getState().view;
       const tick = snapTick(xToTick(now, q.x), ev.altKey ? 1 : p.grid, "line");
-      usePlaylist.getState().setDrag({ kind: "slice", tick, top: track0, bottom: Math.min(yToTrack(p.layout, now, q.y), lastTrack(p)) });
+      usePlaylist.getState().setDrag({ kind: "slice", tick, top: track0, bottom: Math.min(yToTrack(p.layout, now, q.y), lastTrack(p)), all: ev.shiftKey });
     };
     usePlaylist.setState({ sliceHover: null });
     show(element, CURSORS.knife);
@@ -360,17 +363,13 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   return tool === "paint" ? CURSORS.brush : CURSORS.pencil;
 }
 
-/** With the slice tool and Shift held, its line shows where a press would cut. */
+/** With the slice tool and Shift held, its line shows where a press would cut: every track, the whole height. */
 export function trackSliceHover(element: Element, ev: { clientX: number; clientY: number; altKey: boolean; shiftKey: boolean } | null) {
   const playlist = usePlaylist.getState();
   const p = playlist.tool === "slice" && ev?.shiftKey ? playlistContext() : null;
-  let next: { tick: number; track: number } | null = null;
-  if (p && ev) {
-    const q = local(element, ev);
-    next = { tick: snapTick(xToTick(playlist.view, q.x), ev.altKey ? 1 : p.grid, "line"), track: yToTrack(p.layout, playlist.view, q.y) };
-  }
-  const was = playlist.sliceHover;
-  if (next?.tick !== was?.tick || next?.track !== was?.track) usePlaylist.setState({ sliceHover: next });
+  let next: { tick: number } | null = null;
+  if (p && ev) next = { tick: snapTick(xToTick(playlist.view, local(element, ev).x), ev.altKey ? 1 : p.grid, "line") };
+  if (next?.tick !== playlist.sliceHover?.tick) usePlaylist.setState({ sliceHover: next });
 }
 
 /**

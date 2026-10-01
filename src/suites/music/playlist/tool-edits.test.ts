@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addChannels, setSteps } from "@shared/music/edits";
+import { addChannels, setSteps, setTempo } from "@shared/music/edits";
 import { addAudioClips } from "@shared/music/playlist";
 import { createMusicProject } from "@shared/music/project";
 import type { MusicProject } from "@shared/music/types";
@@ -9,7 +9,8 @@ const BAR = 384;
 const env = { patternId: null };
 
 function beat(): MusicProject {
-  let song = addChannels(createMusicProject("Song"), [
+  // At 120 BPM, whatever the default: a bar is two seconds.
+  let song = addChannels(setTempo(createMusicProject("Song"), 120), [
     { id: "chan_kick", name: "Kick", sampleId: "m1" },
     { id: "chan_hat", name: "Hat", sampleId: "m2" },
   ]);

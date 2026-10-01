@@ -14,7 +14,7 @@ import { type PianoContext, commitDrag, cancelDrag, deselect, pianoContext, sele
 import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR } from "./cursors";
 import { stretchHandle } from "./draw";
 import { fadeOut } from "./fades";
-import { BLACK_KEY_WIDTH, type PianoView, ROW_ZOOM_DRAG, hitNote, keyAt, edgeSpeed, paintStarts, scrollViewBy, snapDelta, snapTick, tickToX, visibleRange, xToTick, yToPitch, zoomRowsAt } from "./geometry";
+import { BLACK_KEY_WIDTH, LANE_PAD, type PianoView, ROW_ZOOM_DRAG, hitNote, keyAt, edgeSpeed, laneTailAt, paintStarts, scrollViewBy, snapDelta, snapTick, tickToX, visibleRange, xToTick, yToPitch, zoomRowsAt } from "./geometry";
 import { usePiano } from "./store";
 
 type Press = ReactPointerEvent<HTMLElement>;
@@ -33,6 +33,7 @@ const show = (element: HTMLElement, cursor: string) => (element.style.cursor = c
  */
 function startGridDrag(e: Press, element: HTMLElement, h: DragHandlers) {
   let last: PointerEvent | null = null;
+  let travel = { x: 0, y: 0 };
   let frame = 0;
   const step = () => {
     frame = 0;
@@ -42,7 +43,7 @@ function startGridDrag(e: Press, element: HTMLElement, h: DragHandlers) {
     const next = scrollViewBy(view, edgeSpeed(last.clientX - rect.left, rect.width), edgeSpeed(last.clientY - rect.top, rect.height), rect.height);
     if (next === view) return;
     setView(next);
-    h.onMove(last);
+    h.onMove(last, travel);
     frame = requestAnimationFrame(step);
   };
   const stop = () => {
@@ -52,9 +53,10 @@ function startGridDrag(e: Press, element: HTMLElement, h: DragHandlers) {
   };
   return startPointerDrag(e, {
     ...h,
-    onMove(ev) {
+    onMove(ev, moved) {
       last = ev;
-      h.onMove(ev);
+      travel = { ...moved };
+      h.onMove(ev, moved);
       if (!frame) frame = requestAnimationFrame(step);
     },
     onEnd() {
@@ -334,12 +336,13 @@ export function gridPointerDown(e: Press) {
   }
 
   // The slice tool: a line straight down through the notes, at the grid line nearest the pointer,
-  // from the row pressed to the row it's dragged to. Each note it crosses is cut there when let go.
+  // from the row pressed to the row it's dragged to (Shift: through every row). Each note it crosses
+  // is cut there when let go.
   if (tool === "slice") {
     const from = slicePoint(element, e, ctx.grid);
-    const slice = (ev: { clientX: number; clientY: number; altKey: boolean }) => {
+    const slice = (ev: { clientX: number; clientY: number; altKey: boolean; shiftKey: boolean }) => {
       const to = slicePoint(element, ev, ctx.grid);
-      usePiano.getState().setDrag({ kind: "slice", tick: to.tick, low: from.pitch, high: to.pitch });
+      usePiano.getState().setDrag({ kind: "slice", tick: to.tick, low: from.pitch, high: to.pitch, column: ev.shiftKey });
     };
     usePiano.setState({ sliceHover: null });
     show(element, CURSORS.knife);
@@ -500,7 +503,8 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
 
 /**
  * Where the slice tool cuts for a pointer over the grid: the grid line nearest it (Alt: any tick), in
- * the row under it. With Shift held, the line is drawn there before a press too (`trackSliceHover`).
+ * the row under it. With Shift held, it cuts the whole column, whose line is drawn there before a
+ * press too (`trackSliceHover`).
  */
 export function slicePoint(element: Element, ev: { clientX: number; clientY: number; altKey: boolean }, grid: number) {
   const { view } = usePiano.getState();
@@ -510,7 +514,7 @@ export function slicePoint(element: Element, ev: { clientX: number; clientY: num
 
 /**
  * The pointer moved over the grid with no button down (or left it: null): with the slice tool and
- * Shift held, its line shows where a press would cut (otherwise it's only drawn while cutting).
+ * Shift held, the column's line shows where a press would cut (otherwise it's only drawn while cutting).
  */
 export function trackSliceHover(element: Element, ev: { clientX: number; clientY: number; altKey: boolean; shiftKey: boolean } | null) {
   const piano = usePiano.getState();
@@ -616,7 +620,8 @@ export function keysPointerDown(e: Press) {
 
 /**
  * The event editor: drag across it to draw each note's value (only the selected notes', if some are);
- * Shift gives every note swept the value it started with; Alt resets them.
+ * Shift gives every note swept the value it started with; Alt resets them. A press on a note's tail
+ * takes that note alone (selecting it) and drags its value up and down.
  */
 export function lanePointerDown(e: Press) {
   const ctx = pianoContext();
@@ -624,14 +629,31 @@ export function lanePointerDown(e: Press) {
   const element = e.currentTarget;
   const { view, lane } = usePiano.getState();
   const height = element.getBoundingClientRect().height;
-  const pad = 6;
+  const pad = LANE_PAD;
   const span = height - pad * 2;
   const valueAt = (y: number): NotePatch =>
     lane === "velocity" ? { velocity: clamp(1 - (y - pad) / span, 0, 1) } : { pan: clamp(((pad + span / 2 - y) / span) * 2, -1, 1) };
   const reset: NotePatch = lane === "velocity" ? { velocity: DEFAULT_VELOCITY } : { pan: 0 };
-  const editable = ctx.selected.size ? ctx.notes.filter((n) => ctx.selected.has(n.id)) : ctx.notes;
   const first = local(element, e);
   const fixed = e.altKey ? reset : e.shiftKey ? valueAt(first.y) : null;
+
+  const tail = laneTailAt(ctx.notes, view, first.x, first.y, lane, height, ctx.selected);
+  if (tail) {
+    if (!ctx.selected.has(tail.id)) usePiano.getState().select([tail.id]);
+    const set = (y: number) => usePiano.getState().setDrag({ kind: "values", values: new Map([[tail.id, fixed ?? valueAt(y)]]) });
+    set(first.y);
+    startPointerDrag(e, {
+      threshold: 0,
+      cursor: "ns-resize",
+      onMove: (ev) => set(local(element, ev).y),
+      onEnd: commitDrag,
+      onClick: commitDrag,
+      onCancel: cancelDrag,
+    });
+    return;
+  }
+
+  const editable = ctx.selected.size ? ctx.notes.filter((n) => ctx.selected.has(n.id)) : ctx.notes;
   const values = new Map<number, NotePatch>();
   // A note is reached if its start is within a few pixels of the pointer's path; a press between notes
   // takes the nearest one, a little further off, so a click doesn't have to land on a stem.

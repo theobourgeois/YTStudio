@@ -1863,8 +1863,8 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await expect.poll(() => page.url()).not.toBe(videoUrl);
   await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
   const song = (await projectList(page)).find((p: { suite: string }) => p.suite === "music");
-  expect(song).toMatchObject({ name: "Untitled", tempo: 120, status: "active" });
-  await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("120 BPM");
+  expect(song).toMatchObject({ name: "Untitled", tempo: 140, status: "active" });
+  await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("140 BPM");
 
   // Renamed from its header, like a video.
   await page.locator("header").getByTitle("Rename project").click();

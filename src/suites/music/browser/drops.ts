@@ -33,8 +33,7 @@ export async function dropAsChannels(data: DataTransfer, at?: number): Promise<s
   const paths = browserPaths(data);
   if (paths.length) return useMusic.getState().addBrowserSamples(paths, at);
   const files = audioFiles(data.files);
-  if (files.length) await useMusic.getState().addSamples(files, at);
-  return [];
+  return files.length ? useMusic.getState().addSamples(files, at) : [];
 }
 
 /** A drop onto the Playlist: audio clips, the first at `start` on `track` (`after`: one after another, FL's Shift). */

@@ -13,6 +13,8 @@ import {
   hitNote,
   isBlackKey,
   keyAt,
+  laneTailAt,
+  laneY,
   paintStarts,
   parseTime,
   pitchFromName,
@@ -161,6 +163,37 @@ describe("notes on screen", () => {
     // A short note's edge is never more than half of it.
     expect(hitNote(notes, flat, 805, y(60))).toMatchObject({ note: { id: 5 }, edge: false });
     expect(hitNote(notes, flat, 820, y(60))).toMatchObject({ note: { id: 5 }, edge: true });
+  });
+
+  it("places a note's value in the event editor: velocity up from the bottom, pan about the middle", () => {
+    const [note] = make([0, 96, 60]);
+    expect(laneY({ ...note, velocity: 0 }, "velocity", 100)).toBe(94);
+    expect(laneY({ ...note, velocity: 1 }, "velocity", 100)).toBe(6);
+    expect(laneY({ ...note, pan: 0 }, "pan", 100)).toBe(50);
+    expect(laneY({ ...note, pan: 1 }, "pan", 100)).toBe(6);
+    expect(laneY({ ...note, pan: -1 }, "pan", 100)).toBe(94);
+  });
+
+  it("takes a note by its tail in the event editor, but leaves its stem to the stem's press", () => {
+    const flat: PianoView = { ...view, scrollTick: 0, pxPerTick: 1 };
+    // Velocities 0.5, 0.5 and 0.25 in a lane 100 px tall: tails at 50, 50 and 72.
+    const notes = make([0, 200, 60], [100, 200, 64], [400, 96, 60]).map((n, i) => ({ ...n, velocity: [0.5, 0.5, 0.25][i] }));
+    const tail = (x: number, y: number, selected?: Set<number>) => laneTailAt(notes, flat, x, y, "velocity", 100, selected)?.id ?? null;
+    expect(tail(50, 50)).toBe(1);
+    expect(tail(50, 53)).toBe(1);
+    expect(tail(50, 56)).toBeNull();
+    // The stem's few pixels are the stem's.
+    expect(tail(2, 50)).toBeNull();
+    // Past its end (less the gap before the next note), nothing.
+    expect(tail(250, 50)).toBe(2);
+    expect(tail(305, 50)).toBeNull();
+    // Where two tails cross: the later one (drawn on top), unless the other is selected.
+    expect(tail(150, 50)).toBe(2);
+    expect(tail(150, 50, new Set([1]))).toBe(1);
+    expect(tail(450, 72)).toBe(3);
+    expect(tail(450, 50)).toBeNull();
+    // In the pan lane, at their pans (all in the middle).
+    expect(laneTailAt(notes, flat, 450, 50, "pan", 100)?.id).toBe(3);
   });
 
   it("lays a paint stroke's notes end to end", () => {

@@ -53,6 +53,16 @@ export const MUSIC_TOOLS = [
     }),
   }),
   tool({
+    name: "replace_channel",
+    title: "Replace a channel's instrument",
+    kind: "action",
+    description:
+      "FL Studio's Replace: put another instrument in a channel's place, an instrument plugin (`plugin`, from list_plugins) or, without one, " +
+      "an empty sampler. It keeps the channel's notes in every pattern, its volume, pan, mute and mixer track; it's named after the new " +
+      "instrument and gets a new id. Not for audio clips' channels.",
+    inputSchema: obj({ channel, plugin: str("An instrument plugin: its name or its id, from list_plugins. Leave it out for a sampler.") }, ["channel"]),
+  }),
+  tool({
     name: "list_plugins",
     title: "List the plugins",
     kind: "look",
@@ -251,6 +261,22 @@ export const MUSIC_TOOLS = [
     kind: "edit",
     description: "Remove a pattern (a song keeps at least one). The user can undo it.",
     inputSchema: obj({ pattern: str("The pattern: its id or its name.") }, ["pattern"]),
+  }),
+  tool({
+    name: "transpose_patterns",
+    title: "Transpose patterns",
+    kind: "edit",
+    description:
+      "Move every note of one or more patterns, every channel's, up or down by a number of semitones (12 is an octave; negative is down): " +
+      "the Playlist's Picker's Transpose selected. Notes stop at the ends of the MIDI range. For some channels of one pattern, use transpose_channels.",
+    inputSchema: obj({ patterns: arr(str("A pattern: its id or its name."), "The patterns."), semitones: int("Semitones: positive up, negative down.") }, ["patterns", "semitones"]),
+  }),
+  tool({
+    name: "move_pattern",
+    title: "Move a pattern",
+    kind: "edit",
+    description: "Move a pattern one place up or down the song's list of patterns (the Picker's order, Alt+Up / Down). Its clips stay where they are.",
+    inputSchema: obj({ pattern: str("The pattern: its id or its name."), direction: oneOf(["up", "down"], "Up (earlier in the list) or down.") }, ["pattern", "direction"]),
   }),
   tool({
     name: "show_pattern",
