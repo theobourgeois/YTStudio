@@ -9,8 +9,12 @@ import { type ClipContext, clipAt, clipEnd, lastUsedTrack } from "@shared/music/
 import { MAX_PLAYLIST_TRACKS, MAX_SONG_TICKS } from "@shared/music/project";
 import type { PlaylistClip, PlaylistTrack } from "@shared/music/types";
 import { STEP_TICKS } from "@shared/music/types";
-import { MAX_TRACK_HEIGHT, MIN_TRACK_HEIGHT, type PlaylistView } from "./store";
+import type { PlaylistView } from "./store";
 
+/** A track's height at size 1 (FL's track height control zooms it), and its limits. */
+export const DEFAULT_TRACK_HEIGHT = 48;
+export const MIN_TRACK_HEIGHT = 18;
+export const MAX_TRACK_HEIGHT = 160;
 export const MIN_PX_PER_TICK = 0.005;
 export const MAX_PX_PER_TICK = 2;
 /** How close to a clip's edge (px) a press resizes it rather than moving it, and how much of a short clip that may be. */

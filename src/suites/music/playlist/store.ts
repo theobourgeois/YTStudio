@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { NewClip } from "@shared/music/playlist";
 import type { PlaylistClip, PlaylistClipKind } from "@shared/music/types";
 import type { Snap } from "../piano/geometry";
+import { DEFAULT_TRACK_HEIGHT } from "./geometry";
 import { useMusic } from "../store";
 
 export const PLAYLIST_TOOLS = ["draw", "paint", "delete", "mute", "slip", "slice", "select", "playback"] as const;
@@ -81,9 +82,6 @@ interface PlaylistState {
   setDrag: (drag: PlaylistDrag | null) => void;
 }
 
-export const DEFAULT_TRACK_HEIGHT = 48;
-export const MIN_TRACK_HEIGHT = 18;
-export const MAX_TRACK_HEIGHT = 160;
 
 const INITIAL = {
   tool: "draw" as PlaylistTool,
