@@ -10,7 +10,16 @@ const PLUGINS = [
   { id: "VST3-Fake Delay-2", name: "Fake Delay", format: "VST3", manufacturer: "Fake", category: "Fx", isInstrument: false },
 ];
 const slots = { instrument: null, effect: null };
-const device = { output: "Fake Output", bufferSize: 256, sampleRate: 48000 };
+const device = { output: "Fake Output", input: null, bufferSize: 256, sampleRate: 48000 };
+/** The input devices and their channels' names (recording). */
+const INPUTS = { "Fake Interface": ["In 1", "In 2"], "Fake Microphone": ["Mic"] };
+/**
+ * A recording: its id, folder, the armed tracks it records ({ id, channels }), whether it loops, and
+ * when play (after the count-in) starts. On stop, each armed track gets a take per pass: a tone as
+ * long as was "recorded", with 10 ms of latency at the head of the first.
+ */
+let recording = null;
+const LATENCY = 480;
 let tone = false;
 let metronome = false;
 let song = null;
@@ -59,13 +68,12 @@ const effects = () => {
  * scale through the master's gain, so a song turned up goes over full scale as a real one would.
  */
 let exporting = null;
-/** A 32-bit float stereo WAV of a 440 Hz tone, `frames` long, peaking at `level`. */
-function writeTone(file, frames, rate, level) {
-  const data = Buffer.alloc(frames * 8);
+/** A 32-bit float WAV (stereo, or `count` channels) of a 440 Hz tone, `frames` long, peaking at `level`. */
+function writeTone(file, frames, rate, level, count = 2) {
+  const data = Buffer.alloc(frames * 4 * count);
   for (let i = 0; i < frames; i++) {
     const v = level * Math.sin((2 * Math.PI * 440 * i) / rate);
-    data.writeFloatLE(v, i * 8);
-    data.writeFloatLE(v, i * 8 + 4);
+    for (let ch = 0; ch < count; ch++) data.writeFloatLE(v, (i * count + ch) * 4);
   }
   const header = Buffer.alloc(44);
   header.write("RIFF", 0);
@@ -73,10 +81,10 @@ function writeTone(file, frames, rate, level) {
   header.write("WAVEfmt ", 8);
   header.writeUInt32LE(16, 16);
   header.writeUInt16LE(3, 20);
-  header.writeUInt16LE(2, 22);
+  header.writeUInt16LE(count, 22);
   header.writeUInt32LE(rate, 24);
-  header.writeUInt32LE(rate * 8, 28);
-  header.writeUInt16LE(8, 32);
+  header.writeUInt32LE(rate * 4 * count, 28);
+  header.writeUInt16LE(4 * count, 32);
   header.writeUInt16LE(32, 34);
   header.write("data", 36);
   header.writeUInt32LE(data.length, 40);
@@ -117,10 +125,46 @@ function startExport(params) {
   }, 100);
 }
 
+/** Ticks played since `playingSince` (0 during a count-in). */
+const elapsed = () => (playingSince === null || !song ? 0 : Math.max(0, ((Date.now() - playingSince) / 60000) * song.tempo * song.ppq));
 const tick = () => {
   if (playingSince === null || !song) return 0;
-  return (((Date.now() - playingSince) / 60000) * song.tempo * song.ppq) % song.loopTicks;
+  // Recording without Loop record goes on past the loop's end.
+  return recording && !recording.loop ? elapsed() : elapsed() % song.loopTicks;
 };
+
+/** Play stopped: each armed track's takes, as files, told as the real engine tells them. */
+function finishRecording() {
+  const done = recording;
+  recording = null;
+  if (!done || !song) return;
+  const rate = device.sampleRate;
+  const ticks = elapsed();
+  if (ticks <= 0) return;
+  const samplesPerTick = (60 * rate) / (song.tempo * song.ppq);
+  // Each pass round the loop (from where play started), or all of it as one.
+  const passes = [];
+  if (done.loop) {
+    let at = done.from;
+    let left = ticks;
+    while (left > 0) {
+      const length = Math.min(left, song.loopTicks - (at % song.loopTicks));
+      passes.push({ start: passes.length ? 0 : at, length });
+      left -= length;
+      at += length;
+    }
+  } else passes.push({ start: done.from, length: ticks });
+  fs.mkdirSync(done.folder, { recursive: true });
+  passes.forEach((pass, i) => {
+    for (const track of done.tracks) {
+      const skip = i === 0 ? LATENCY : 0;
+      const frames = Math.max(1, Math.round(pass.length * samplesPerTick)) + skip;
+      const file = path.join(done.folder, `${done.id}-${track.id}-${i + 1}.wav`);
+      writeTone(file, frames, rate, 0.25, track.channels.length);
+      send({ event: "take", recordingId: done.id, track: track.id, file, startTick: pass.start, skip, frames, sampleRate: rate, pass: i, final: i === passes.length - 1, dropped: false });
+    }
+  });
+}
 const status = () => ({
   device: device.output,
   offline: false,
@@ -129,6 +173,10 @@ const status = () => ({
   sampleRate: device.sampleRate,
   bufferSize: device.bufferSize,
   outputLatencyMs: 12,
+  input: device.input,
+  inputChannels: device.input ? INPUTS[device.input].length : 0,
+  inputLatencyMs: device.input ? 5 : 0,
+  recording: recording && { id: recording.id },
   songLatency: 0,
   tone,
   peak: 0,
@@ -143,6 +191,9 @@ const status = () => ({
 const devices = () => ({
   outputs: ["Fake Output", "Fake Headphones"],
   output: device.output,
+  inputs: Object.keys(INPUTS),
+  input: device.input,
+  inputChannels: device.input ? INPUTS[device.input] : [],
   bufferSizes: [64, 128, 256, 512],
   sampleRates: [44100, 48000],
   status: status(),
@@ -194,12 +245,27 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (cmd === "whatHost") return send({ id, ok: true, result: host });
   if (cmd === "devices") return send({ id, ok: true, result: devices() });
   if (cmd === "setDevice") {
+    if (typeof params.input === "string") params.input = INPUTS[params.input] ? params.input : null;
     Object.assign(device, params);
     return send({ id, ok: true, result: devices() });
   }
-  // Started `from` ticks in: as if it had begun that much earlier.
-  if (cmd === "play") playingSince = Date.now() - ((params.from ?? 0) / (song ? song.tempo * song.ppq : 1)) * 60000;
+  if (cmd === "record") {
+    if (recording) return fail("It's recording already: stop it first.");
+    const tracks = (song?.tracks ?? []).filter((t) => t.input?.armed).map((t) => ({ id: t.id, channels: t.input.channels }));
+    if (!tracks.length) return fail("No mixer track is armed with an input: choose a track's input in the Mixer, which arms it.");
+    recording = { id: params.recordingId, folder: params.folder, from: params.from ?? 0, loop: params.loop === true, tracks };
+    // After the count-in, as if it had begun `from` ticks earlier.
+    const msPerTick = song ? 60000 / (song.tempo * song.ppq) : 0;
+    playingSince = Date.now() + (params.countIn ?? 0) * msPerTick - (params.from ?? 0) * msPerTick;
+    return send({ id, ok: true, result: status() });
+  }
+  // Started `from` ticks in: as if it had begun that much earlier. A recording ends there.
+  if (cmd === "play") {
+    finishRecording();
+    playingSince = Date.now() - ((params.from ?? 0) / (song ? song.tempo * song.ppq : 1)) * 60000;
+  }
   if (cmd === "stop") {
+    finishRecording();
     playingSince = null;
     sendTransport();
   }
