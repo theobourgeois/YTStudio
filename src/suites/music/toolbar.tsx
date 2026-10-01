@@ -165,7 +165,7 @@ function ModeSwitch() {
 
 /**
  * A button of the transport panel, FL Studio's: a raised face (play and stop are joined, `className` rounds
- * the outer corners), its icon lit (FL's orange) while it's on. `menu`: its right-click menu.
+ * the outer corners), its icon lit in the accent while it's on (no glow). `menu`: its right-click menu.
  */
 function TransportButton({ label, title, on, onClick, className, menu, children }: { label: string; title: string; on?: boolean; onClick: () => void; className?: string; menu?: ReactNode; children: ReactNode }) {
   const button = (
@@ -175,7 +175,7 @@ function TransportButton({ label, title, on, onClick, className, menu, children 
       aria-pressed={on}
       className={cn(
         "raised hover:raised-hover active:pressed grid h-7 w-8 place-items-center rounded-[4px] transition-colors",
-        on ? "text-[var(--piano-start)] [filter:drop-shadow(0_0_4px_color-mix(in_srgb,var(--piano-start)_55%,transparent))]" : "text-foreground/80 hover:text-foreground",
+        on ? "text-brand" : "text-foreground/80 hover:text-foreground",
         className,
       )}
       onClick={onClick}
@@ -256,15 +256,18 @@ function TempoLcd() {
   );
 
   const [whole, decimals] = splitTail(tempoText(tempo), ".");
-  // The field covers the display and only shows while it's typed in; otherwise the digits under it do, FL's way.
+  // The field covers the whole display, on top of everything in it (so the desktop app's window dragging, which
+  // the header has, can't come back through the digits), and only shows while it's typed in; otherwise the
+  // digits under it do, FL's way.
   const lcd = (
-    <Lcd label="BPM" className="w-[92px]">
+    <Lcd label="BPM" className="group w-[92px]">
+      <LcdDigits main={whole} tail={decimals} className="group-focus-within:invisible" />
       <input
         ref={input}
         aria-label="Tempo"
         title="Tempo: drag up and down, or click to type it"
         inputMode="decimal"
-        className="peer absolute inset-0 w-full cursor-ns-resize rounded-[5px] bg-transparent px-2 pt-3 pb-[5px] text-right font-sans text-[22px] leading-none font-medium text-transparent tabular-nums caret-transparent outline-none selection:bg-brand/40 focus:cursor-text focus:text-[var(--lcd-text)] focus:caret-[var(--lcd-text)]"
+        className="absolute inset-0 z-10 w-full cursor-ns-resize rounded-[5px] bg-transparent px-2 pt-3 pb-[5px] text-right font-sans text-[22px] leading-none font-medium text-transparent tabular-nums caret-transparent outline-none selection:bg-brand/40 focus:cursor-text focus:text-[var(--lcd-text)] focus:caret-[var(--lcd-text)]"
         value={draft ?? String(tempo)}
         onPointerDown={(e) => {
           const input = e.currentTarget;
@@ -306,7 +309,6 @@ function TempoLcd() {
           }
         }}
       />
-      <LcdDigits main={whole} tail={decimals} className="peer-focus:invisible" />
     </Lcd>
   );
 
@@ -404,7 +406,7 @@ function TapTempo({ onSet, onDone }: { onSet: (tempo: number) => void; onDone: (
 /** A number display with its small label in the corner, FL Studio's: dark, recessed, light digits (`lcd`). */
 function Lcd({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <div className={cn("lcd relative flex h-10 shrink-0 items-end justify-end rounded-[5px] px-2 pb-[5px]", className)}>
+    <div data-no-drag className={cn("lcd relative flex h-10 shrink-0 items-end justify-end rounded-[5px] px-2 pb-[5px]", className)}>
       <span className="pointer-events-none absolute top-[3px] right-2 text-[8px] leading-none font-semibold tracking-[0.08em] text-[var(--lcd-dim)]">{label}</span>
       {children}
     </div>
@@ -412,17 +414,43 @@ function Lcd({ label, className, children }: { label: string; className?: string
 }
 
 /** An LCD's digits: the number, then its last part smaller, as FL Studio draws "140.000" and "1:01:00". */
-function LcdDigits({ main, tail, className, mainRef, tailRef }: { main?: string; tail?: string; className?: string; mainRef?: Ref<HTMLSpanElement>; tailRef?: Ref<HTMLSpanElement> }) {
+function LcdDigits({ main = "", tail = "", className, mainRef, tailRef }: { main?: string; tail?: string; className?: string; mainRef?: Ref<HTMLSpanElement>; tailRef?: Ref<HTMLSpanElement> }) {
   return (
-    <span className={cn("pointer-events-none flex items-baseline font-sans leading-none font-medium tabular-nums", className)}>
-      <span ref={mainRef} className="text-[22px] tracking-[-0.01em]">
-        {main}
+    <span className={cn("pointer-events-none flex items-baseline font-sans leading-none font-medium", className)}>
+      <span ref={mainRef} className="text-[22px]">
+        {[...main].map((ch, i) => (
+          <span key={i} className={cellClass(ch)}>
+            {ch}
+          </span>
+        ))}
       </span>
       <span ref={tailRef} className="text-[13px] opacity-80">
-        {tail}
+        {[...tail].map((ch, i) => (
+          <span key={i} className={cellClass(ch)}>
+            {ch}
+          </span>
+        ))}
       </span>
     </span>
   );
+}
+
+/**
+ * Each character of an LCD in a cell of its own, digits all as wide, so a running display doesn't shift as its
+ * digits change (whatever the font: not every one has figures of a width).
+ */
+const cellClass = (ch: string) => (/\d/.test(ch) ? "inline-block w-[0.6em] text-center" : "inline-block w-[0.3em] text-center");
+
+/** Write `text` into an LCD's digits, a cell a character, touching only the cells that change (every frame while playing). */
+function writeCells(element: HTMLElement, text: string) {
+  while (element.childElementCount > text.length) element.lastElementChild!.remove();
+  while (element.childElementCount < text.length) element.append(document.createElement("span"));
+  for (let i = 0; i < text.length; i++) {
+    const cell = element.children[i] as HTMLElement;
+    if (cell.textContent === text[i]) continue;
+    cell.textContent = text[i];
+    cell.className = cellClass(text[i]);
+  }
 }
 
 /** Where play is now (or starts) in the mode playing, frame by frame while it plays, written straight into the display. */
@@ -463,8 +491,8 @@ function PositionLcd() {
   usePlayTick(
     (tick) => {
       const [a, b] = splitTail(format === "mscs" ? timeText(tick, tempo) : positionText(tick, barSteps), ":");
-      if (main.current) main.current.textContent = a;
-      if (tail.current) tail.current.textContent = b;
+      if (main.current) writeCells(main.current, a);
+      if (tail.current) writeCells(tail.current, b);
     },
     [format, barSteps],
   );
