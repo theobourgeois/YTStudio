@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SILENT_METER, detent, faderAt, faderDb, isClipping, meterFraction, stepMeter } from "./meter";
+import { SILENT_METER, detent, faderAt, faderDb, isClipping, meterFraction, meterScale, stepMeter } from "./meter";
 
 describe("meters", () => {
   it("put 0 dB near the top, and silence at the bottom", () => {
@@ -52,5 +52,13 @@ describe("a fader's hold at 0 dB", () => {
     expect(detent(1, 0.8, 0.03)).toBeCloseTo(1, 6);
     expect(detent(0, 0.8, 0.03)).toBeCloseTo(0, 6);
     expect(detent(0.9, 0.8, 0)).toBe(0.9);
+  });
+
+  it("marks the meter's scale every 3 dB from +3 to -51, more sparsely on a short meter", () => {
+    const tall = meterScale(600);
+    expect(tall.map((m) => m.db)).toEqual([3, 0, -3, -6, -9, -12, -15, -18, -21, -24, -27, -30, -33, -36, -39, -42, -45, -48, -51]);
+    expect(tall[1].at).toBeCloseTo(meterFraction(1), 6);
+    expect(meterScale(200).map((m) => m.db)).toEqual([0, -6, -12, -18, -24, -30, -36, -42, -48]);
+    expect(meterScale(100).map((m) => m.db)).toEqual([0, -12, -24, -36, -48]);
   });
 });

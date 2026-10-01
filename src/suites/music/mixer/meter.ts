@@ -22,6 +22,24 @@ export function meterFraction(level: number): number {
   return Math.min(1, (db - METER_FLOOR_DB) / (METER_TOP_DB - METER_FLOOR_DB));
 }
 
+/** The lowest level the scale marks, in dB (FL's selected meter goes down to 51). */
+const SCALE_FLOOR_DB = -51;
+/** The closest two of the scale's labels may be, in px. */
+const SCALE_MIN_GAP = 11;
+
+/**
+ * The dB scale beside a meter `height` px tall, FL Studio's: a mark every 3 dB from +3 down to -51 (shown
+ * without their sign: 3, 0, 3, 6...), or every 6 or 12 when they wouldn't fit. `at` is the mark's height
+ * on the meter, 0..1 from the bottom, as `meterFraction` puts a level.
+ */
+export function meterScale(height: number): { db: number; at: number }[] {
+  const at = (db: number) => (db - METER_FLOOR_DB) / (METER_TOP_DB - METER_FLOOR_DB);
+  const step = [3, 6, 12].find((s) => (at(s) - at(0)) * height >= SCALE_MIN_GAP) ?? 24;
+  const marks = [];
+  for (let db = step === 3 ? 3 : 0; db >= SCALE_FLOOR_DB; db -= step) marks.push({ db, at: at(db) });
+  return marks;
+}
+
 export interface MeterState {
   /** What it shows now, as a level (0..1+). */
   level: number;

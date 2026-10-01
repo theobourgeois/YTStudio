@@ -63,7 +63,7 @@ import {
 import { Cables } from "./cables";
 import { Fader } from "./fader";
 import { Led } from "./led";
-import { faderDb } from "./meter";
+import { faderDb, meterScale } from "./meter";
 import { useMeters } from "./meters";
 import { Inspector } from "./inspector";
 import { delayText, offsetText, pluginDelay } from "./latency";
@@ -736,10 +736,31 @@ function dragSelection(e: React.PointerEvent<HTMLElement>) {
 /** FL Studio's selected meter, at the mixer's left: the selected tracks' sound added up (or the one shown in the inspector). */
 function SelectionMeter({ meterRef }: { meterRef: (canvas: HTMLCanvasElement | null) => void }) {
   const count = useMusicUi((s) => s.selectedTrackIds.length);
+  const scale = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  useLayoutEffect(() => {
+    const element = scale.current;
+    if (!element) return;
+    const resize = new ResizeObserver(() => setHeight(element.clientHeight));
+    resize.observe(element);
+    return () => resize.disconnect();
+  }, []);
+  const marks = useMemo(() => meterScale(height), [height]);
   return (
-    <div className="flex w-6 shrink-0 flex-col items-center gap-[9px] border-r py-1.5" style={{ ...stripLook(null, false), borderColor: "var(--mixer-line)" }} title={count > 1 ? `The ${count} selected tracks' output, together` : "The selected track's output"}>
+    <div className="flex w-12 shrink-0 flex-col items-center gap-[9px] border-r py-1.5" style={{ ...stripLook(null, false), borderColor: "var(--mixer-line)" }} title={count > 1 ? `The ${count} selected tracks' output, together` : "The selected track's output"}>
       <span className="font-mono text-[9px]" style={{ color: "var(--mixer-name)" }}>SEL</span>
-      <canvas ref={meterRef} className="min-h-0 w-[13px] flex-1 rounded-[2px]" style={{ background: "var(--mixer-well)", boxShadow: "inset 0 1px 2px rgb(0 0 0 / 0.5)" }} role="img" aria-label="Selected tracks' level" data-testid="selection-meter" />
+      <div className="flex min-h-0 w-full flex-1 gap-0.5 pl-1.5">
+        <canvas ref={meterRef} className="h-full w-[15px] shrink-0 rounded-[2px]" style={{ background: "var(--mixer-well)", boxShadow: "inset 0 1px 2px rgb(0 0 0 / 0.5)" }} role="img" aria-label="Selected tracks' level" data-testid="selection-meter" />
+        {/* Its scale in dB, FL's: 3, 0, 3, 6... (below 0 dB without the minus). */}
+        <div ref={scale} className="relative min-w-0 flex-1" aria-hidden>
+          {marks.map(({ db, at }) => (
+            <span key={db} className="absolute left-0 flex -translate-y-1/2 items-center gap-px font-mono text-[8px] leading-none tabular-nums" style={{ top: `${(1 - at) * 100}%`, color: db === 0 ? "var(--mixer-header-text)" : "var(--mixer-name)" }}>
+              <span className="h-px w-1 bg-current opacity-60" />
+              {Math.abs(db)}
+            </span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
