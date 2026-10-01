@@ -812,6 +812,16 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await page.keyboard.press("Enter");
   await expect.poll(async () => [(await track(5)).name, (await track(6)).name]).toEqual(["Pads", "Pads"]);
 
+  // The views: Compact, Wide, Extra large (its strips list their effects), from the title bar; kept for next time.
+  const width = async () => (await strip("Insert 1").boundingBox())!.width;
+  const compact = await width();
+  await page.getByRole("button", { name: "Mixer view: Compact" }).click();
+  expect(await width()).toBeGreaterThan(compact);
+  await page.getByRole("button", { name: "Mixer view: Wide" }).click();
+  await expect(strip("Insert 1").getByTestId("strip-effects")).toBeVisible();
+  await page.getByRole("button", { name: "Mixer view: Extra large" }).click();
+  await expect(page.getByRole("button", { name: "Mixer view: Compact" })).toBeVisible();
+
   // Sending to insert 3 draws a cable from it.
   await strip("Insert 1").locator("canvas").click();
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(1);

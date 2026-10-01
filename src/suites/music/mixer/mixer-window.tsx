@@ -18,7 +18,17 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { PERCENT, SongKnob, panText, percent } from "../knob";
 import { songGesture, useMusic, useSong } from "../store";
@@ -49,10 +59,8 @@ import { faderDb } from "./meter";
 import { useMeters } from "./meters";
 import { Inspector } from "./inspector";
 import { delayText, offsetText, pluginDelay } from "./latency";
-import { useMixerView } from "./view";
+import { MIXER_VIEWS, type MixerViewKind, STRIP_WIDTHS, VIEW_NAMES, useMixerView } from "./view";
 
-/** A strip's width (px). */
-const STRIP_W = 46;
 
 /** What a track's send switch shows, for the current track (the one sends are made from). */
 type SendState =
@@ -69,7 +77,7 @@ type SendState =
 const OVERSCAN = 4;
 
 /** The inserts in view in the scrolling strip area, as `[first, last)` indexes into them. */
-function useVisibleStrips(scroller: React.RefObject<HTMLDivElement | null>, count: number): [number, number] {
+function useVisibleStrips(scroller: React.RefObject<HTMLDivElement | null>, count: number, stripWidth: number): [number, number] {
   const [view, setView] = useState({ left: 0, width: 1200 });
   useLayoutEffect(() => {
     const element = scroller.current;
@@ -89,8 +97,8 @@ function useVisibleStrips(scroller: React.RefObject<HTMLDivElement | null>, coun
       resize.disconnect();
     };
   }, [scroller]);
-  const first = Math.max(0, Math.floor(view.left / STRIP_W) - OVERSCAN);
-  const last = Math.min(count, Math.ceil((view.left + view.width) / STRIP_W) + OVERSCAN);
+  const first = Math.max(0, Math.floor(view.left / stripWidth) - OVERSCAN);
+  const last = Math.min(count, Math.ceil((view.left + view.width) / stripWidth) + OVERSCAN);
   return [first, Math.max(first, last)];
 }
 
@@ -118,6 +126,8 @@ export function MixerWindow() {
   const scroller = useRef<HTMLDivElement>(null);
   const area = useRef<HTMLDivElement>(null);
   const revealing = useMixerView((s) => s.revealing);
+  const view = useMixerView((s) => s.view);
+  const stripWidth = STRIP_WIDTHS[view];
 
   const sendStates = useMemo(() => {
     const from = mixer.tracks.find((t) => t.id === current)!;
@@ -140,11 +150,11 @@ export function MixerWindow() {
     const index = mixer.tracks.findIndex((t) => t.id === revealing) - 1;
     if (!element || index < 0) return;
     // By its place (it may not be drawn yet): just into view, at whichever edge it's past.
-    const left = index * STRIP_W;
+    const left = index * stripWidth;
     if (left < element.scrollLeft) element.scrollLeft = left;
-    else if (left + STRIP_W > element.scrollLeft + element.clientWidth) element.scrollLeft = left + STRIP_W - element.clientWidth;
-  }, [revealing, mixer.tracks]);
-  const [first, last] = useVisibleStrips(scroller, mixer.tracks.length - 1);
+    else if (left + stripWidth > element.scrollLeft + element.clientWidth) element.scrollLeft = left + stripWidth - element.clientWidth;
+  }, [revealing, mixer.tracks, stripWidth]);
+  const [first, last] = useVisibleStrips(scroller, mixer.tracks.length - 1, stripWidth);
 
   const [master, ...inserts] = mixer.tracks;
   const strip = (track: MixerTrack, number: number) => (
@@ -157,6 +167,7 @@ export function MixerWindow() {
       sendKind={sendStates.get(track.id)!.kind}
       sendLevel={(sendStates.get(track.id) as { level?: number }).level ?? 0}
       meterRef={meterRef(track.id)}
+      view={view}
     />
   );
 
@@ -170,9 +181,12 @@ export function MixerWindow() {
       onClose={() => useMusicUi.getState().setMixerOpen(false)}
       menu={<MixerMenu />}
       controls={
-        <Button variant="ghost" size="icon-xs" aria-label="Add a mixer track" title="Add a mixer track after the selected one" className="text-muted-foreground hover:text-foreground" onClick={addTrackAfterCurrent}>
-          <PiPlus />
-        </Button>
+        <>
+          <ViewSwitch />
+          <Button variant="ghost" size="icon-xs" aria-label="Add a mixer track" title="Add a mixer track after the selected one" className="text-muted-foreground hover:text-foreground" onClick={addTrackAfterCurrent}>
+            <PiPlus />
+          </Button>
+        </>
       }
     >
       <div className="flex min-h-0 flex-1" data-testid="mixer">
@@ -181,7 +195,7 @@ export function MixerWindow() {
           <div className="flex shrink-0 border-r-2 border-line">{strip(master, 0)}</div>
           <div ref={scroller} className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
             {/* Only the strips in view (and a few either side) are drawn: a mixer can have hundreds. */}
-            <div className="flex shrink-0" style={{ paddingLeft: first * STRIP_W, paddingRight: Math.max(0, inserts.length - last) * STRIP_W }}>
+            <div className="flex shrink-0" style={{ paddingLeft: first * stripWidth, paddingRight: Math.max(0, inserts.length - last) * stripWidth }}>
               {inserts.slice(first, last).map((track, i) => strip(track, first + i + 1))}
             </div>
           </div>
@@ -196,6 +210,7 @@ export function MixerWindow() {
 
 /** The window's menu (its arrow). */
 function MixerMenu() {
+  const view = useMixerView((s) => s.view);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -213,8 +228,34 @@ function MixerMenu() {
         <DropdownMenuItem onSelect={() => routeSelectedChannels(undefined, true)}>
           Route selected channels starting from this track <DropdownMenuShortcut>⇧⌘L</DropdownMenuShortcut>
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-[11px] text-muted-foreground">View</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={view} onValueChange={(next) => useMixerView.getState().setView(next as MixerViewKind)}>
+          {MIXER_VIEWS.map((kind) => (
+            <DropdownMenuRadioItem key={kind} value={kind}>
+              {VIEW_NAMES[kind]}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** The view's name on the title bar, FL Studio's layout menu: a click goes to the next. */
+function ViewSwitch() {
+  const view = useMixerView((s) => s.view);
+  const next = MIXER_VIEWS[(MIXER_VIEWS.indexOf(view) + 1) % MIXER_VIEWS.length];
+  return (
+    <button
+      type="button"
+      className="rounded-sm px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+      title={`The mixer's view: ${VIEW_NAMES[view]} (click for ${VIEW_NAMES[next]})`}
+      aria-label={`Mixer view: ${VIEW_NAMES[view]}`}
+      onClick={() => useMixerView.getState().setView(next)}
+    >
+      {VIEW_NAMES[view]}
+    </button>
   );
 }
 
@@ -227,10 +268,11 @@ interface StripProps {
   sendKind: SendState["kind"];
   sendLevel: number;
   meterRef: (canvas: HTMLCanvasElement | null) => void;
+  view: MixerViewKind;
 }
 
 /** A track's strip, top to bottom: its number, its name beside its meter, mute, pan, fader, send switch. */
-const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, meterRef }: StripProps) {
+const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, meterRef, view }: StripProps) {
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
@@ -246,7 +288,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       data-track-name={name}
       className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r border-line pb-1", selected ? "bg-surface-2" : "bg-surface-1", current && "shadow-[inset_0_2px_0] shadow-brand", dropTarget && "ring-2 ring-brand ring-inset")}
       style={{
-        width: STRIP_W,
+        width: STRIP_WIDTHS[view],
         // A coloured track is coloured all the way down (FL's colourful mixer), over the theme's own strip colour.
         ...(track.color && { background: `color-mix(in oklab, ${track.color} ${selected ? 42 : 26}%, var(--${selected ? "surface-2" : "surface-1"}))` }),
       }}
@@ -323,6 +365,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         </StripToggle>
       </div>
       <SongKnob size={20} label={`${name} stereo separation`} value={track.stereo} min={-1} max={1} defaultValue={0} bipolar format={stereoText} unit={PERCENT} edit={(song, stereo) => updateMixerTrack(song, id, { stereo })} />
+      {view === "extra" && <StripEffects track={track} />}
       <SendSwitch to={id} name={name} state={sendKind === "sending" ? { kind: "sending", level: sendLevel } : { kind: sendKind }} />
     </div>
   );
@@ -656,5 +699,27 @@ function CarriedState() {
     <div className="floating pointer-events-none fixed z-[10000] rounded-sm px-2 py-1 text-[11px]" style={{ left: carrying.x + 12, top: carrying.y + 8 }} data-testid="carried-state">
       {name}'s state{carrying.over && carrying.over !== carrying.from ? " → drop to copy" : ""}
     </div>
+  );
+}
+
+/** The Extra large view's list of a strip's effects, FL Studio's: a click opens one's window. */
+function StripEffects({ track }: { track: MixerTrack }) {
+  const effects = track.effects.flatMap((effect, slot) => (effect ? [{ effect, slot }] : []));
+  return (
+    // The same height on every strip (scrolling past five), so the faders above them line up.
+    <ol className="flex h-[5.5rem] w-full shrink-0 flex-col gap-px overflow-y-auto px-1" aria-label={`${track.name ?? "Track"}'s effects`} data-testid="strip-effects">
+      {effects.map(({ effect, slot }) => (
+        <li key={effect.id}>
+          <button
+            type="button"
+            className={cn("w-full truncate rounded-[2px] bg-surface-0/70 px-1 text-left text-[10px] leading-4 hover:text-brand", !effect.enabled && "text-muted-foreground line-through")}
+            title={`Slot ${slot + 1}: ${effect.plugin.name} (click for its window)`}
+            onClick={() => useTransport.getState().showEffect(effect.id, true)}
+          >
+            {effect.plugin.name}
+          </button>
+        </li>
+      ))}
+    </ol>
   );
 }
