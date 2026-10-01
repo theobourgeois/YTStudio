@@ -13,6 +13,7 @@ interface Colours {
   low: string;
   mid: string;
   high: string;
+  off: string;
   mark: string;
 }
 
@@ -20,7 +21,7 @@ interface Colours {
 function readColours(element: Element): Colours {
   const style = getComputedStyle(element);
   const read = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-  return { low: read("--meter-low", "#4cc46c"), mid: read("--meter-mid", "#f2b33d"), high: read("--meter-high", "#ef4d55"), mark: read("--line-strong", "#555") };
+  return { low: read("--meter-low", "#4cc46c"), mid: read("--meter-mid", "#f2b33d"), high: read("--meter-high", "#ef4d55"), off: read("--meter-off", "#353b45"), mark: read("--line-strong", "#555") };
 }
 
 /** Where the meter's colours change, as levels: green up to -18 dB, amber by -6, red from 0 dB. */
@@ -81,8 +82,7 @@ export function useMeters(): (trackId: string) => (canvas: HTMLCanvasElement | n
 
 /**
  * Two bars, left and right, rising from the bottom, coloured by how loud they are, FL Studio's way: green,
- * through amber, to red at 0 dB, blended, over a faint track of the same colours; a red cap while they've
- * lately been over 0 dB.
+ * through amber, to red at 0 dB, blended, over a grey track; a red cap while they've lately been over 0 dB.
  */
 function draw(canvas: HTMLCanvasElement, heights: number[], clipping: boolean[], colours: Colours) {
   const ratio = window.devicePixelRatio || 1;
@@ -105,20 +105,18 @@ function draw(canvas: HTMLCanvasElement, heights: number[], clipping: boolean[],
   const bar = (width - 1) / 2;
   heights.forEach((h, side) => {
     const x = side * (bar + 1);
-    // The unlit track, faint; then the level.
-    ctx.globalAlpha = 0.14;
+    // The unlit track, grey (FL's: no colour where there's no sound); then the level in its colours.
+    ctx.fillStyle = colours.off;
     ctx.fillRect(x, 0, bar, height);
-    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = gradient;
     const top = height - h * height;
     ctx.fillRect(x, top, bar, height - top);
     if (clipping[side]) {
-      ctx.globalAlpha = 1;
       ctx.fillStyle = colours.high;
       ctx.fillRect(x, 0, bar, 3);
       ctx.fillStyle = gradient;
     }
   });
-  ctx.globalAlpha = 1;
   // 0 dB.
   ctx.fillStyle = colours.mark;
   ctx.fillRect(0, Math.round(height - meterFraction(1) * height), width, 1);

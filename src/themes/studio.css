@@ -103,6 +103,7 @@
   --meter-low: #2f9e54;
   --meter-mid: #d99a1e;
   --meter-high: #d6403c;
+  --meter-off: #c5ccd5;
   --piano-time: #e5484d;
   --piano-start: #e08a12;
   --piano-tool: #2f7be5;
@@ -185,4 +186,5 @@
   --meter-low: #4cc46c;
   --meter-mid: #f2b33d;
   --meter-high: #ef4d55;
+  --meter-off: #353b45;
 }
