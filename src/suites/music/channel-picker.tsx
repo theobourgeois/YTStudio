@@ -7,6 +7,7 @@ import { musicApi } from "./api";
 import { type PickerItem, pickerItem } from "./plugin-groups";
 import { PluginPicker, usePluginList } from "./plugin-picker";
 import { useMusic } from "./store";
+import { showPluginWhenLoaded } from "./transport";
 import { useMusicUi } from "./ui";
 
 /** Ours, before the plugins: the Sampler. */
@@ -25,8 +26,10 @@ export function ChannelPicker() {
     setOpen(false);
     if (!id) return;
     useMusicUi.getState().setSelection([id]);
-    // A sampler has nothing to play yet: its window is where it's given a sample.
+    // A sampler has nothing to play yet: its window is where it's given a sample. A plugin's own window
+    // opens once it's loaded, as FL Studio's do.
     if (!plugin) useMusicUi.getState().openChannelWindow(id);
+    else showPluginWhenLoaded(id);
   };
 
   return (

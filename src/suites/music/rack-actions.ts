@@ -22,6 +22,7 @@ import { createId } from "@shared/ids";
 import type { MusicProject, PluginRef } from "@shared/music/types";
 import { usePiano } from "./piano/store";
 import { currentPattern, useMusic } from "./store";
+import { showPluginWhenLoaded } from "./transport";
 import { selectedIn, useMusicUi } from "./ui";
 
 const song = (): MusicProject | null => useMusic.getState().history?.doc ?? null;
@@ -89,8 +90,8 @@ export const deleteSelected = () => deleteChannels(selectedIds());
 
 /**
  * FL Studio's Replace: another instrument in the channel's place, with its notes (`replaceChannel`). What
- * showed the old channel shows the new one: the selection, the Piano roll; a sampler's window opens, as
- * a new one's does, since it has nothing to play yet.
+ * showed the old channel shows the new one: the selection, the Piano roll; the new instrument's window
+ * opens, as a new channel's does (a sampler's has nothing to play yet, a plugin's once it's loaded).
  */
 export function replaceInstrument(channelId: string, plugin: PluginRef | null) {
   const before = song();
@@ -102,6 +103,7 @@ export function replaceInstrument(channelId: string, plugin: PluginRef | null) {
   ui.closeChannelWindow(channelId);
   if (usePiano.getState().channelId === channelId) usePiano.getState().setChannel(id);
   if (!plugin) ui.openChannelWindow(id);
+  else showPluginWhenLoaded(id);
 }
 
 /** The channel the step commands act on: the first selected. */
