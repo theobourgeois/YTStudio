@@ -104,6 +104,16 @@
   --meter-mid: #d99a1e;
   --meter-high: #d6403c;
   --meter-off: #c5ccd5;
+
+  /* Knobs (`knob.tsx`), FL Studio's: a cap in a well, the value an arc round it. */
+  --knob-well: #c8ced6;
+  --knob-well-edge: #b3bac4;
+  --knob-cap-light: #7a808b;
+  --knob-cap: #4e535d;
+  --knob-cap-dark: #343841;
+  --knob-cap-edge: #2a2d34;
+  --knob-notch: #e9edf2;
+  --knob-arc: #f08a2c;
   --piano-time: #e5484d;
   --piano-start: #e08a12;
   --piano-tool: #2f7be5;
@@ -187,4 +197,13 @@
   --meter-mid: #f2b33d;
   --meter-high: #ef4d55;
   --meter-off: #353b45;
+
+  --knob-well: #1d2027;
+  --knob-well-edge: #15171c;
+  --knob-cap-light: #5f6470;
+  --knob-cap: #40444e;
+  --knob-cap-dark: #2a2d35;
+  --knob-cap-edge: #17191e;
+  --knob-notch: #d9dee6;
+  --knob-arc: #f2902e;
 }
