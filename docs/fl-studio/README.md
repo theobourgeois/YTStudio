@@ -23,6 +23,8 @@ about to touch before changing it, and correct it when you learn it's wrong.
 - [playlist.md](playlist.md): the Playlist: tracks, pattern and audio clips, the tools, the time
   selection, the Picker panel, song mode, split by channel and its keys. Ends with what we'll leave out,
   where Vaudio differs, what was decided, and how it's built.
+- [automation.md](automation.md): automation clips: making one, editing its curve, the curve types, its
+  settings and LFO, what an automated control does. Ends with what was decided, where Vaudio differs and how it's built.
 - [export.md](export.md): exporting (rendering) a song: the export dialog's settings, the tail, stems,
   quality. Ends with what was decided with Théo, how it's built (fast: every core) and where Vaudio differs.
 
