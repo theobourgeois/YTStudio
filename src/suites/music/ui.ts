@@ -17,8 +17,8 @@ export type WindowId = "rack" | "piano" | "playlist" | "mixer" | "transpose" | "
 export type RackGroup = "unsorted" | "audio" | "all";
 export const channelWindow = (channelId: string): WindowId => `channel:${channelId}`;
 
-/** Where the music editor's windows are on its desktop, and which is in front (the rack, at first). */
-export const useMusicWindows = createWindows<WindowId>(["rack"]);
+/** Where the music editor's windows are on its desktop, and which is in front (the rack over the Playlist, at first). */
+export const useMusicWindows = createWindows<WindowId>(["playlist", "rack"]);
 
 /** The fewest steps the rack shows: a bar of 4/4, FL Studio's default. */
 export const MIN_RACK_STEPS = 16;
@@ -94,7 +94,8 @@ const INITIAL = {
   graphOpen: false,
   rackOpen: true,
   pianoOpen: false,
-  playlistOpen: false,
+  // A song opens on the Playlist (maximised) with the rack over it, as FL Studio does.
+  playlistOpen: true,
   mixerOpen: false,
   rackGroup: "unsorted" as RackGroup,
   selectedTrackIds: [] as string[],

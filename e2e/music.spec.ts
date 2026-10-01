@@ -12,7 +12,8 @@ import { writeWav } from "../server/music/wav.ts";
 test.describe.configure({ mode: "serial" });
 
 /** A new song, open in the page. The Browser starts closed (it takes room from the desktop) unless `browser`. */
-async function openNewSong(page: Page, name: string, { browser = false } = {}): Promise<string> {
+/** A new song, open. It opens on the Playlist (the rack over it): closed unless `playlist`, so the tests see the desktop. */
+async function openNewSong(page: Page, name: string, { browser = false, playlist = false } = {}): Promise<string> {
   await page.addInitScript((open) => {
     if (!sessionStorage.getItem("e2e-browser-set")) {
       localStorage.setItem("vaudio.music.browser", JSON.stringify({ open, width: 280, volume: 0.8, expanded: [] }));
@@ -24,6 +25,11 @@ async function openNewSong(page: Page, name: string, { browser = false } = {}): 
   const { id } = await response.json();
   await page.goto(`/p/${id}`);
   await expect(page.locator('[data-suite="music"]')).toBeVisible();
+  await expect(page.getByTestId("playlist")).toBeVisible();
+  if (!playlist) {
+    await page.getByRole("button", { name: "Close Playlist" }).click();
+    await expect(page.getByTestId("playlist")).toHaveCount(0);
+  }
   return id;
 }
 
@@ -61,6 +67,14 @@ async function addStarterKit(page: Page) {
   await page.getByRole("button", { name: "Channel rack menu" }).click();
   await page.getByRole("menuitem", { name: "Add starter kit" }).click();
 }
+
+test("a song opens on the Playlist, filling the desktop, with the channel rack over it", async ({ page }) => {
+  await openNewSong(page, "Opening", { playlist: true });
+  const z = (id: string) => page.locator(`[data-window="${id}"]`).evaluate((e) => Number(getComputedStyle(e).zIndex));
+  await expect(page.locator('[data-window="playlist"]')).toHaveAttribute("data-snap", "full");
+  await expect(page.getByTestId("channel-rack")).toBeVisible();
+  expect(await z("rack")).toBeGreaterThan(await z("playlist"));
+});
 
 test("makes a beat in the channel rack as in FL Studio: left turns steps on, right turns them off", async ({ page }) => {
   const id = await openNewSong(page, "First beat");
@@ -1459,6 +1473,8 @@ test("split by channel turns a beat into a pattern per channel, each on its own 
       [2, "Hat"],
       [3, "Snare"],
     ]);
+  // Dropped in, they're selected.
+  await expect(page.getByTestId("playlist")).toHaveAttribute("data-selected", "3");
   // A press away from the Picker's items lets go of them (the clip source alone stays marked).
   await picker.getByRole("tab", { name: /Patterns/ }).click();
   await expect(picker.locator("[data-picker-item][aria-pressed=true]")).toHaveCount(1);
