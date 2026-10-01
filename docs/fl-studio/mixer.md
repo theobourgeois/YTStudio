@@ -303,7 +303,9 @@ controls drawn closer to FL's pictures: narrow, tall metal fader caps; knobs wit
 whole sweep (so one at zero still has its outline), bigger in the mixer; lights as a lens in a bezel,
 unlit a dark tint of the accent. The fader hangs at 0 dB for a few pixels on the way past (Shift: not).
 Alt+Delete deletes the selected tracks. No focus outlines on the music editor's controls. Cables follow
-the strips as they scroll, however fast. The plugin picker is only as big as its plugins need.
+the strips as they scroll, however fast. The plugin picker is only as big as its plugins need. A muted
+track's strip is faded and greyed. The selected-track meter is wider, with FL's dB scale (3, 0, 3 … 51;
+every 6 or 12 dB on a short mixer).
 
 Not yet, or different: icons, the Current track, the track EQ (put off), "Compensate automations"
 (no automation yet), recording, the slot's presets and Patcher, the
