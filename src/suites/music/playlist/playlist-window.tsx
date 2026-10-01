@@ -462,7 +462,7 @@ function PlaylistBody() {
           if (!carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
-          void dropAsAudioClips(e.dataTransfer, { start, track, after: e.shiftKey }).then((ids) => ids.length && usePlaylist.getState().select(ids));
+          void dropAsAudioClips(e.dataTransfer, { start, track, after: e.shiftKey });
         }}
       >
         <canvas

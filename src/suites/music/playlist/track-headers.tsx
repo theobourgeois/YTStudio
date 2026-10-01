@@ -125,11 +125,11 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
           <ContextMenuSubTrigger>Change color</ContextMenuSubTrigger>
           <ContextMenuSubContent className="grid grid-cols-6 gap-1 p-1.5">
             {TRACK_COLORS.map((color) => (
-              <button key={color} type="button" aria-label={color} className="size-5 rounded-sm border border-black/30" style={{ background: color }} onClick={() => setTrackColor(index, color)} />
+              <ContextMenuItem key={color} aria-label={color} className="size-5 rounded-sm border border-black/30 p-0" style={{ background: color }} onSelect={() => setTrackColor(index, color)} />
             ))}
-            <button type="button" className="col-span-6 mt-1 text-left text-[11px] text-muted-foreground hover:text-foreground" onClick={() => setTrackColor(index, null)}>
+            <ContextMenuItem className="col-span-6 mt-1 text-[11px] text-muted-foreground" onSelect={() => setTrackColor(index, null)}>
               No colour
-            </button>
+            </ContextMenuItem>
           </ContextMenuSubContent>
         </ContextMenuSub>
         <ContextMenuSub>

@@ -178,8 +178,12 @@ export function ChannelRack() {
       initial={{ x: 16, y: 16 }}
       onClose={() => useMusicUi.getState().setRackOpen(false)}
       menu={<RackMenu onAddSamples={() => file.current?.click()} />}
-      controls={<RackControls graph={graph} />}
-      heading={<GroupMenu group={group} />}
+      controls={
+        <>
+          <GroupMenu group={group} />
+          <RackControls graph={graph} />
+        </>
+      }
     >
       <div
         className="relative flex flex-col gap-1.5 px-2.5 pt-1.5 pb-2 pr-3.5"
@@ -265,8 +269,8 @@ const GROUPS: { id: RackGroup; label: string }[] = [
 ];
 
 /**
- * The title, "Channel rack - group", is FL Studio's group filter: Unsorted (every channel but the audio
- * clips', the default), Audio (theirs), or All (Théo).
+ * FL Studio's group filter, on the title bar: Unsorted (every channel but the audio clips', the default),
+ * Audio (theirs), or All (Théo).
  */
 function GroupMenu({ group }: { group: RackGroup }) {
   const label = GROUPS.find((g) => g.id === group)!.label;
@@ -277,10 +281,10 @@ function GroupMenu({ group }: { group: RackGroup }) {
           type="button"
           aria-label="Channel group"
           title="Which channels the rack shows: Unsorted (instruments and samples), Audio (the playlist's audio clips), or All"
-          className="flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-medium hover:bg-surface-2 data-[state=open]:bg-surface-2"
+          className="sunken flex h-5.5 items-center gap-1 rounded-sm px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
         >
-          <span className="truncate">Channel rack - {label}</span>
-          <PiCaretDownBold className="size-2.5 shrink-0 text-muted-foreground" />
+          {label}
+          <PiCaretDownBold className="size-2.5 shrink-0" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">

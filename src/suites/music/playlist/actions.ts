@@ -105,7 +105,8 @@ export function commitDrag() {
   const result = applyDrag(p.clips, drag, p.ctx);
   if (result.clips === p.clips) return;
   edit(() => result.clips);
-  if ((drag.kind === "move" && drag.clone) || drag.kind === "add") playlist.select(result.created);
+  // Copies take the selection with them. (What's drawn isn't selected, as in the Piano roll: the next click draws again.)
+  if (drag.kind === "move" && drag.clone) playlist.select(result.created);
   if (drag.kind === "erase") playlist.select([...p.selected].filter((id) => !drag.ids.has(id)));
 }
 
