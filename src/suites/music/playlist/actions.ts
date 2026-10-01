@@ -34,6 +34,8 @@ import {
   updateTrack,
 } from "@shared/music/playlist";
 import { stepsPerBar } from "@shared/music/project";
+import { editPoints, updateAutomation } from "@shared/music/automation";
+import { openAutomationWindow } from "../automation/actions";
 import { type MusicProject, PPQ, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import { openPianoRoll } from "../piano/actions";
 import { snapTicks } from "../piano/geometry";
@@ -106,6 +108,8 @@ export function commitDrag(selectAdded = false) {
   if (!drag || !p) return;
   if (drag.kind === "rect") return playlist.select(rectSelection(p.clips, drag, p.selected, p.ctx));
   if (drag.kind === "playback") return;
+  // An automation clip's curve: its points as they were left.
+  if (drag.kind === "curve") return useMusic.getState().commit((song) => editPoints(song, drag.automationId, () => drag.points));
   const result = applyDrag(p.clips, drag, p.ctx);
   if (result.clips === p.clips) return;
   edit(() => result.clips);
@@ -122,11 +126,24 @@ export const cancelDrag = () => usePlaylist.setState({ drag: null });
 // The clip source
 // ---------------------------------------------------------------------------
 
+/** Whether a clip source is still in the song. */
+export function sourceExists(song: MusicProject, source: ClipSource): boolean {
+  if (source.kind === "pattern") return song.patterns.some((p) => p.id === source.ref);
+  if (source.kind === "automation") return song.automations.some((a) => a.id === source.ref);
+  return song.channels.some((c) => c.id === source.ref && c.kind === "audio");
+}
+
+/** A clip source's name (a pattern's, an audio clip channel's, an automation clip's). */
+export function sourceName(song: MusicProject, source: ClipSource): string | undefined {
+  if (source.kind === "pattern") return song.patterns.find((p) => p.id === source.ref)?.name;
+  if (source.kind === "automation") return song.automations.find((a) => a.id === source.ref)?.name;
+  return song.channels.find((c) => c.id === source.ref)?.name;
+}
+
 /** What Draw and Paint add: the source chosen, else the pattern shown (if it's still there). */
 export function clipSource(song: MusicProject): ClipSource {
   const { source } = usePlaylist.getState();
-  const there = source && (source.kind === "pattern" ? song.patterns.some((p) => p.id === source.ref) : song.channels.some((c) => c.id === source.ref && c.kind === "audio"));
-  if (source && there) return source;
+  if (source && sourceExists(song, source)) return source;
   return { kind: "pattern", ref: currentPattern(song, useMusic.getState().patternId).id };
 }
 
@@ -139,6 +156,8 @@ export function chooseSource(source: ClipSource) {
 /** A new clip of the source at a tick and track, as long as it is (a pattern clip follows its pattern). */
 export function newClip(song: MusicProject, source: ClipSource, start: number, track: number): NewClip {
   if (source.kind === "pattern") return { kind: "pattern", ref: source.ref, track, start, length: null };
+  // An automation clip as long as its curve (it follows it), as a pattern clip follows its pattern.
+  if (source.kind === "automation") return { kind: "automation", ref: source.ref, track, start, length: null };
   // An audio clip as long as the last one of its channel, or its file.
   const ctx = clipContext(song);
   const like = song.playlist.clips.find((c) => c.kind === "audio" && c.ref === source.ref);
@@ -293,14 +312,18 @@ export function chopClip(clipId: number, every: number) {
   usePlaylist.getState().select([clipId, ...result.created]);
 }
 
-/** Rename a clip's source (its pattern, or its audio clip's channel): every clip of it shows the name. */
+/** Rename a clip's source (its pattern, its audio clip's channel, its automation clip): every clip of it shows the name. */
 export function renameSource(source: ClipSource, name: string) {
-  useMusic.getState().commit((song) => (source.kind === "pattern" ? renamePattern(song, source.ref, name) : updateChannel(song, source.ref, { name })));
+  useMusic.getState().commit((song) =>
+    source.kind === "pattern" ? renamePattern(song, source.ref, name) : source.kind === "automation" ? updateAutomation(song, source.ref, { name }) : updateChannel(song, source.ref, { name }),
+  );
 }
 
 /** Colour a clip's source ("#rrggbb", or null for the usual): every clip of it takes the colour. */
 export function recolorSource(source: ClipSource, color: string | null) {
-  useMusic.getState().commit((song) => (source.kind === "pattern" ? setPatternColor(song, source.ref, color) : updateChannel(song, source.ref, { color })));
+  useMusic.getState().commit((song) =>
+    source.kind === "pattern" ? setPatternColor(song, source.ref, color) : source.kind === "automation" ? updateAutomation(song, source.ref, { color }) : updateChannel(song, source.ref, { color }),
+  );
 }
 
 /** Split by channel (the pattern's menu, the Picker's): one pattern per channel, its clips with it. One undo step. */
@@ -361,6 +384,8 @@ export function clickPattern(patternId: string, mode: PickMode) {
  */
 export function showInRack(kind: ClipSource["kind"], ref: string) {
   const ui = useMusicUi.getState();
+  // An automation clip isn't in the rack: its window instead.
+  if (kind === "automation") return openAutomationWindow(ref);
   if (kind === "pattern") {
     useMusic.getState().selectPattern(ref);
     // Its channels, not the audio clips'.
@@ -451,6 +476,35 @@ export function deletePickedAudio() {
 }
 
 // ---------------------------------------------------------------------------
+// The Picker's automation clips
+// ---------------------------------------------------------------------------
+
+/** The automation clips selected in the Picker that are still there; with none, the clip source's. */
+export function pickedAutomations(song: MusicProject): string[] {
+  const { automationSelection } = usePlaylist.getState();
+  const picked = song.automations.filter((a) => automationSelection.has(a.id)).map((a) => a.id);
+  if (picked.length) return picked;
+  const source = clipSource(song);
+  return source.kind === "automation" ? [source.ref] : [];
+}
+
+/** A click on an automation clip in the Picker: alone it's the clip source too; ⌘ toggles it, Shift takes a range. */
+export function clickAutomation(id: string, mode: PickMode) {
+  const song = useMusic.getState().history?.doc;
+  if (!song) return;
+  const order = song.automations.map((a) => a.id);
+  const pick = pickPattern(order, new Set(pickedAutomations(song)), usePlaylist.getState().automationAnchor, id, mode);
+  usePlaylist.setState({ automationSelection: pick.selection, automationAnchor: pick.anchor });
+  if (mode === "only") chooseSource({ kind: "automation", ref: id });
+}
+
+/** A right-click on an automation clip that isn't selected: it alone is, for its menu. */
+export function pickAutomationForMenu(id: string) {
+  const song = useMusic.getState().history?.doc;
+  if (song && !pickedAutomations(song).includes(id)) usePlaylist.setState({ automationSelection: new Set([id]), automationAnchor: id });
+}
+
+// ---------------------------------------------------------------------------
 // Tracks
 // ---------------------------------------------------------------------------
 
@@ -500,8 +554,9 @@ export function openPlaylist() {
 export function openClip(clip: PlaylistClip) {
   const song = useMusic.getState().history?.doc;
   if (!song) return;
-  // An audio clip: its channel's settings (FL's double-click on one).
+  // An audio clip: its channel's settings (FL's double-click on one); an automation clip, its window.
   if (clip.kind === "audio") return useMusicUi.getState().openChannelWindow(clip.ref);
+  if (clip.kind === "automation") return openAutomationWindow(clip.ref);
   const pattern = song.patterns.find((p) => p.id === clip.ref);
   if (!pattern) return;
   useMusic.getState().selectPattern(pattern.id);

@@ -477,7 +477,7 @@ export class AudioEngine {
           if (this.host) void this.request("host", { ...this.host }).catch(() => {});
           resolve();
           this.emit({ event: "ready" });
-        } else if (message.event === "transport" || message.event === "key" || message.event === "export") {
+        } else if (message.event === "transport" || message.event === "key" || message.event === "export" || message.event === "touch" || message.event === "automate") {
           this.emit(message as unknown as EngineEvent);
         } else if (message.event === "status" && isObject(message.status)) {
           void this.withSaved(message.status as unknown as RawStatus).then((status) => this.emit({ event: "status", status }));

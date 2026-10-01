@@ -579,7 +579,19 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
           <ContextMenuItem onSelect={() => solo(id)}>Solo</ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
-      <SongKnob size={21} label="Pan" value={channel.pan} min={-1} max={1} defaultValue={0} bipolar format={panText} unit={PERCENT} edit={(song, pan) => updateChannel(song, id, { pan })} />
+      <SongKnob
+        size={21}
+        label="Pan"
+        value={channel.pan}
+        min={-1}
+        max={1}
+        defaultValue={0}
+        bipolar
+        format={panText}
+        unit={PERCENT}
+        target={{ kind: "channel", channel: id, control: "pan" }}
+        edit={(song, pan) => updateChannel(song, id, { pan })}
+      />
       <SongKnob
         size={21}
         label="Volume"
@@ -589,6 +601,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
         defaultValue={DEFAULT_VOLUME}
         format={percent}
         unit={PERCENT}
+        target={{ kind: "channel", channel: id, control: "volume" }}
         edit={(song, volume) => updateChannel(song, id, { volume })}
       />
 

@@ -120,7 +120,18 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
               {effect ? <EffectName effect={effect} /> : <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/70 italic">{`Slot ${slot + 1}`}</span>}
               {effect && (
                 <>
-                  <SongKnob size={18} label={`${effect.plugin.name} mix`} value={effect.mix} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, mix) => updateEffect(song, trackId, slot, { mix })} />
+                  <SongKnob
+                    size={18}
+                    label={`${effect.plugin.name} mix`}
+                    value={effect.mix}
+                    min={0}
+                    max={1}
+                    defaultValue={1}
+                    format={percent}
+                    unit={PERCENT}
+                    target={{ kind: "effect", effect: effect.id }}
+                    edit={(song, mix) => updateEffect(song, trackId, slot, { mix })}
+                  />
                   <button
                     type="button"
                     aria-label={effect.enabled ? `Bypass ${effect.plugin.name}` : `Enable ${effect.plugin.name}`}

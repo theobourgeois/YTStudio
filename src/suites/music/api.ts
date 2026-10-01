@@ -5,6 +5,7 @@ import type {
   EngineCommands,
   EngineDevices,
   EngineEvent,
+  EngineParameter,
   EnginePlugin,
   EngineStatus,
   PreviewFileRequest,
@@ -32,6 +33,9 @@ export const musicApi = {
   engine: <C extends EngineCommand>(command: C, body: EngineCommands[C]) =>
     request<EngineStatus>(`/api/engine/${command}`, { method: "POST", body: JSON.stringify(body) }),
   listEnginePlugins: () => request<EnginePlugin[]>("/api/engine/plugins"),
+  /** A song's plugin's parameters that can be automated (a plugin channel's or a mixer effect's, by its id). */
+  pluginParameters: (owner: "channel" | "effect", id: string) =>
+    request<EngineParameter[]>(`/api/engine/parameters?owner=${owner}&id=${encodeURIComponent(id)}`),
   /** The song the engine plays: sent whole on every edit (it keeps playing through the change). */
   setSong: (body: SetSongRequest) => request<SetSongResponse>("/api/engine/song", { method: "POST", body: JSON.stringify(body) }),
   /** Write the song's plugins' states now (they're written every few seconds anyway). */

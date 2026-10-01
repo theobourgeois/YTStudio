@@ -34,6 +34,9 @@ import { MixerWindow } from "./mixer/mixer-window";
 import { useMixerView } from "./mixer/view";
 import { type WindowId, useMusicUi, useMusicWindows } from "./ui";
 import { MusicDesktop } from "./window";
+import { AutomationWindow } from "./automation/automation-window";
+import { AutomationChooser } from "./automation/chooser";
+import { useAutomationUi } from "./automation/store";
 
 /** The music suite's main column (`clientSuite("music").Workspace`): its toolbar, its windows, its assistant. */
 export default function MusicWorkspace() {
@@ -74,6 +77,9 @@ function Windows() {
   const chopping = usePiano((s) => s.chopping);
   const openIds = useMusicUi((s) => s.openChannelIds);
   const channels = useSong((song) => song.channels);
+  const automations = useSong((song) => song.automations);
+  const openAutomations = useAutomationUi((s) => s.openIds);
+  const chooserOpen = useAutomationUi((s) => s.chooserOpen);
   return (
     <MusicDesktop
       // Samples dropped on the desktop itself (not on a window) become channels, as in FL Studio.
@@ -95,6 +101,8 @@ function Windows() {
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {pianoOpen && chopping && <Chopper />}
       {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind !== "plugin" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
+      {automations.map((automation, index) => (openAutomations.includes(automation.id) ? <AutomationWindow key={automation.id} automation={automation} index={index} /> : null))}
+      {chooserOpen && <AutomationChooser />}
     </MusicDesktop>
   );
 }
@@ -111,6 +119,8 @@ function frontWindow(): WindowId | null {
     : id === "export" ? ui.exportOpen
     : id === "note" ? usePiano.getState().editing !== null
     : id === "chopper" ? usePiano.getState().chopping
+    : id === "automate" ? useAutomationUi.getState().chooserOpen
+    : id.startsWith("automation:") ? useAutomationUi.getState().openIds.includes(id.slice("automation:".length))
     : ui.openChannelIds.includes(id.slice("channel:".length));
   return [...useMusicWindows.getState().order].reverse().find(open) ?? null;
 }

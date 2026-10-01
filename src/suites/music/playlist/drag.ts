@@ -20,7 +20,7 @@ import {
 import type { PlaylistClip } from "@shared/music/types";
 import type { PlaylistDrag } from "./store";
 
-/** The clips after a drag, and the ones it made (to select them). A selection rectangle and the playback tool change none. */
+/** The clips after a drag, and the ones it made (to select them). A selection rectangle, the playback tool and a curve's drag change none. */
 export function applyDrag(clips: PlaylistClip[], drag: PlaylistDrag | null, ctx: ClipContext): CreatedClips {
   const same = (list: PlaylistClip[]): CreatedClips => ({ clips: list, created: [] });
   if (!drag) return same(clips);
@@ -41,6 +41,7 @@ export function applyDrag(clips: PlaylistClip[], drag: PlaylistDrag | null, ctx:
       return drag.all ? sliceAll(clips, drag.tick, ctx) : sliceClips(clips, drag.tick, drag.top, drag.bottom, ctx);
     case "rect":
     case "playback":
+    case "curve":
       return same(clips);
   }
 }

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
@@ -31,6 +31,10 @@ interface FaderProps {
   onCancel: () => void;
   /** Set outright: a reset, a typed value, a key. */
   onSet: (value: number) => void;
+  /** Automation drives it (in song mode): marked. */
+  automated?: boolean;
+  /** More of its right-click menu's items (Create automation clip). */
+  menu?: ReactNode;
 }
 
 /**
@@ -39,7 +43,7 @@ interface FaderProps {
  * groove to bring the handle there and drag on; Alt+click or a middle click puts it back at 0 dB; a
  * right-click opens its menu (Reset, Type in value, in dB). It shows its level in dB while it moves.
  */
-export function Fader({ value, label, selected, className, onBegin, onDrag, onEnd, onCancel, onSet }: FaderProps) {
+export function Fader({ value, label, selected, className, onBegin, onDrag, onEnd, onCancel, onSet, automated, menu }: FaderProps) {
   const [dragging, setDragging] = useState(false);
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
@@ -68,7 +72,8 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
               aria-valuemax={1}
               aria-valuenow={value}
               aria-valuetext={faderDb(value)}
-              title={`${label}: ${faderDb(value)}`}
+              title={`${label}: ${faderDb(value)}${automated ? " (automated)" : ""}`}
+              data-automated={automated || undefined}
               className={cn("relative w-[22px] cursor-ns-resize touch-none outline-none", className)}
               onPointerDown={(e) => {
                 if (e.button === 1 || (e.button === 0 && e.altKey)) {
@@ -152,6 +157,7 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
                 }}
                 aria-hidden
               />
+              {automated && <span aria-hidden className="pointer-events-none absolute top-0 right-0 size-1.5 rounded-full border border-black/40 bg-brand" />}
               {dragging && (
                 <span className="floating pointer-events-none absolute -top-6 left-1/2 z-20 -translate-x-1/2 rounded-sm px-1.5 py-0.5 text-[10px] whitespace-nowrap tabular-nums">
                   {faderDb(value)}
@@ -179,6 +185,7 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
           >
             Type in value…
           </ContextMenuItem>
+          {menu}
         </ContextMenuContent>
       </ContextMenu>
       <PopoverContent className="w-36 p-2" onOpenAutoFocus={(e) => e.preventDefault()}>
