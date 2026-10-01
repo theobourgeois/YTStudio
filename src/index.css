@@ -28,6 +28,20 @@
 @import "./themes/contrast.css";
 
 @custom-variant dark (&:is(.dark *));
+/*
+ * Focus rings only where they help (Théo: never on a clicked control): a text field always shows where typing
+ * goes; anything else only while the keyboard is moving the focus (Tab: `html[data-keyboard-nav]`, set by
+ * `lib/focus-rings.ts`). Chromium otherwise counts a key pressed after a click (Space to play) as reason to
+ * ring whatever was clicked.
+ */
+@custom-variant focus-visible {
+  &:is(input, textarea, [contenteditable="true"]):focus-visible {
+    @slot;
+  }
+  html[data-keyboard-nav] &:focus-visible {
+    @slot;
+  }
+}
 
 @theme {
   --font-sans: "DM Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -334,11 +348,8 @@ html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert
   pointer-events: none;
 }
 
-/*
- * The music editor's controls (knobs, faders, LCDs, buttons, strips) show no focus outline after they're
- * clicked or used from the keyboard (Théo): its windows are full of them. Text fields keep theirs.
- */
-[data-suite="music"] :is(button, [role="slider"], [role="spinbutton"], [role="option"], [role="listitem"], [role="tab"], [role="switch"], [tabindex]):not(input, textarea):focus-visible {
+/* The browser's own focus outline, by the same rule as the `focus-visible` variant above. */
+html:not([data-keyboard-nav]) :focus-visible:not(input, textarea, [contenteditable="true"]) {
   outline: none;
 }
 

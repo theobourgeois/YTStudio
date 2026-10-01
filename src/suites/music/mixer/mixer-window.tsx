@@ -528,7 +528,7 @@ function TrackMenu({ id, isMaster, color, separator, grouped }: { id: string; is
               <ContextMenuItem
                 key={swatch}
                 aria-label={COLOR_NAMES[i]}
-                className={cn("size-5 rounded-sm p-0 focus:ring-2 focus:ring-ring", color === swatch && "ring-2 ring-foreground")}
+                className={cn("size-5 rounded-sm p-0 focus-visible:ring-2 focus-visible:ring-ring", color === swatch && "ring-2 ring-foreground")}
                 style={{ background: swatch }}
                 onSelect={() => colourTrack(id, swatch)}
               />

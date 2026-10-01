@@ -66,6 +66,7 @@ const PLATFORM = [
   "src/lib/api.ts",
   "src/lib/route.ts",
   "src/lib/desktop.ts",
+  "src/lib/focus-rings.ts",
   "src/lib/pointer-drag.ts",
   "src/lib/document-history.ts",
   "src/lib/autosaver.ts",
