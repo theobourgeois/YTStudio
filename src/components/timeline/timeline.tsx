@@ -1,17 +1,15 @@
 /**
- * Bottom timeline panel.
+ * The timeline panel (docked below the monitor at first; it fills whatever room the dock gives it).
  *
- *   Timeline (panel, resize handle, context)
+ *   Timeline (panel, context)
  *   ├─ TimelineToolbar
  *   └─ TimelineBody (single scroller)
  *      ├─ ruler row (sticky top): corner + Ruler (ticks, scrub, PlayheadHead)
  *      └─ TrackHeaders (sticky left) + lanes (backgrounds, TimelineClip*, overlays, PlayheadLine)
  */
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { projectDuration } from "@shared/timeline";
 import { MAX_ZOOM, useEditor } from "@/stores/editor";
-import { cn } from "cn";
-import { PANEL_DEFAULT_HEIGHT, PANEL_MAX_FRACTION, PANEL_MIN_HEIGHT } from "./constants";
 import { TimelineContext, type TimelineContextValue } from "./context";
 import { anchoredScrollLeft, fitZoom, type LaneLayout } from "./geometry";
 import { cancelActiveDrag } from "@/lib/pointer-drag";
@@ -20,18 +18,7 @@ import { SequenceTabs } from "./sequence-tabs";
 import { TimelineToolbar } from "./toolbar";
 import { minZoom, setView, timelineCommands, useTimelineView } from "./view-store";
 
-const HEIGHT_KEY = "editor-timeline-height";
-
-const clampHeight = (h: number) =>
-  Math.round(Math.min(Math.max(h, PANEL_MIN_HEIGHT), window.innerHeight * PANEL_MAX_FRACTION));
-
-function initialHeight() {
-  const saved = Number(localStorage.getItem(HEIGHT_KEY));
-  return clampHeight(Number.isFinite(saved) && saved > 0 ? saved : PANEL_DEFAULT_HEIGHT);
-}
-
 export function Timeline() {
-  const [height, setHeight] = useState(initialHeight);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const lanesRef = useRef<HTMLDivElement>(null);
   const lanesLayout = useRef<LaneLayout[]>([]);
@@ -93,65 +80,11 @@ export function Timeline() {
 
   return (
     <TimelineContext value={ctx}>
-      <section
-        aria-label="Timeline"
-        className="relative flex shrink-0 flex-col border-t bg-timeline"
-        style={{ height, maxHeight: `${PANEL_MAX_FRACTION * 100}vh` }}
-      >
-        <ResizeHandle height={height} onResize={setHeight} />
+      <section aria-label="Timeline" className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-timeline">
         <SequenceTabs />
         <TimelineToolbar />
         <TimelineBody />
       </section>
     </TimelineContext>
-  );
-}
-
-function ResizeHandle({ height, onResize }: { height: number; onResize: (h: number) => void }) {
-  const drag = useRef<{ startY: number; startH: number; pointerId: number } | null>(null);
-  const [active, setActive] = useState(false);
-
-  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { startY: e.clientY, startH: height, pointerId: e.pointerId };
-    setActive(true);
-  };
-  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = drag.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    onResize(clampHeight(d.startH - (e.clientY - d.startY)));
-  };
-  const end = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = drag.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    drag.current = null;
-    setActive(false);
-    localStorage.setItem(HEIGHT_KEY, String(clampHeight(d.startH - (e.clientY - d.startY))));
-  };
-
-  return (
-    <div
-      role="separator"
-      aria-orientation="horizontal"
-      aria-label="Resize timeline"
-      className="group/resize absolute inset-x-0 -top-1 z-50 h-2 cursor-ns-resize touch-none"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={end}
-      onPointerCancel={end}
-      onLostPointerCapture={end}
-      onDoubleClick={() => {
-        onResize(clampHeight(PANEL_DEFAULT_HEIGHT));
-        localStorage.setItem(HEIGHT_KEY, String(PANEL_DEFAULT_HEIGHT));
-      }}
-    >
-      <div
-        className={cn(
-          "absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-brand opacity-0 transition-opacity group-hover/resize:opacity-60",
-          active && "opacity-100 group-hover/resize:opacity-100",
-        )}
-      />
-    </div>
   );
 }

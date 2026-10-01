@@ -39,6 +39,7 @@ import { usePathEditing } from "@/stores/path-editing";
 import { useKeyframeSelection } from "@/components/properties/keyframe-selection";
 import { PathLayer, pressPath } from "./path-overlay";
 import { type OnCanvas, boxCorners, boxPoint, clipAtPoint, clipsOnCanvas, snapMove } from "./placement";
+import { showPanel } from "@/stores/video-dock";
 
 type Mode =
   | { kind: "move" }
@@ -150,7 +151,7 @@ export function TransformOverlay({ canvas, area }: { canvas: Size; area: RefObje
     e.preventDefault();
     usePlayback.getState().pause();
     // Working on a clip on the canvas: show its properties.
-    useLayout.getState().setLeftPanel("properties");
+    showPanel("properties");
     const { clip, placement: p0 } = target;
     // An animated value is keyframed at the frame under the playhead (or a keyframe right next to it).
     const editTime = keyframeTime(clip, usePlayback.getState().time, useEditor.getState().project.settings.fps);

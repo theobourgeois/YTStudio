@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -24,8 +23,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FloatingWindow, WindowBody, WindowFooter, WindowLead, centredOnDesktop } from "@/components/windows/floating-window";
 import { useEditor } from "@/stores/editor";
 import { useLibrary } from "@/stores/library";
+import { useVideoWindows } from "@/stores/video-windows";
 
 interface NameDialogProps {
   open: boolean;
@@ -106,11 +107,14 @@ export function ConfirmDeleteDialog({ open, onOpenChange, title, description, on
   );
 }
 
-/** The clips the "Save to Library" dialog is saving (null while it's closed). */
+/** The clips the "Save to Library" window is saving (null while it's closed). */
 export const useSaveToLibrary = create<{ clipIds: string[] | null; open: (clipIds: string[]) => void; close: () => void }>(
   (set) => ({
     clipIds: null,
-    open: (clipIds) => set({ clipIds }),
+    open(clipIds) {
+      useVideoWindows.getState().focus("save-to-library");
+      set({ clipIds });
+    },
     close: () => set({ clipIds: null }),
   }),
 );
@@ -118,47 +122,49 @@ export const useSaveToLibrary = create<{ clipIds: string[] | null; open: (clipId
 /** Value of the top level in the folder picker (Radix Select can't use ""). */
 const TOP = "top";
 
-/** Saves the selected timeline clips, with everything set on them, to a Library folder. */
-export function SaveToLibraryDialog() {
+/** Saves the selected timeline clips, with everything set on them, to a Library folder: a window over the editor. */
+export function SaveToLibraryWindow() {
   const clipIds = useSaveToLibrary((s) => s.clipIds);
+  // Keyed by the clips, so saving others starts afresh.
+  return clipIds ? <SaveToLibrary key={clipIds.join()} clipIds={clipIds} /> : null;
+}
+
+function SaveToLibrary({ clipIds }: { clipIds: string[] }) {
+  const [initial] = useState(() => centredOnDesktop(448, 300, "video"));
   const folders = useLibrary((s) => s.folders);
   const flat = useMemo(() => flattenFolders(folders), [folders]);
-  const [name, setName] = useState("");
-  const [folder, setFolder] = useState(TOP);
-  const [saving, setSaving] = useState(false);
-  const count = clipIds?.length ?? 0;
-
-  useEffect(() => {
-    if (!clipIds) return;
-    void useLibrary.getState().load();
+  const [name, setName] = useState(() => {
     const { project, getAsset } = useEditor.getState();
     const first = getClip(project, clipIds[0]);
-    setName(clipIds.length === 1 && first ? clipName(first, getAsset(first.assetId)).replace(/\.[^.]+$/, "") : "");
-    // Where the Library tab is browsing, if that's a folder.
+    return clipIds.length === 1 && first ? clipName(first, getAsset(first.assetId)).replace(/\.[^.]+$/, "") : "";
+  });
+  // Where the Library tab is browsing, if that's a folder.
+  const [folder, setFolder] = useState(() => {
     const view = useLibrary.getState().view;
-    setFolder(view.kind === "folder" && view.folderId ? view.folderId : TOP);
-  }, [clipIds]);
+    return view.kind === "folder" && view.folderId ? view.folderId : TOP;
+  });
+  const [saving, setSaving] = useState(false);
+  const count = clipIds.length;
+  const close = () => useSaveToLibrary.getState().close();
+
+  useEffect(() => void useLibrary.getState().load(), []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!clipIds || !name.trim() || saving) return;
+    if (!name.trim() || saving) return;
     setSaving(true);
     const saved = await useLibrary.getState().saveClips(clipIds, name.trim(), folder === TOP ? null : folder);
     setSaving(false);
-    if (saved) useSaveToLibrary.getState().close();
+    if (saved) close();
   };
 
   return (
-    <Dialog open={clipIds !== null} onOpenChange={(open) => !open && useSaveToLibrary.getState().close()}>
-      <DialogContent className="sm:max-w-md">
+    <FloatingWindow id="save-to-library" title={`Save ${count === 1 ? "clip" : `${count} clips`} to Library`} initial={initial} keepsKeys onClose={close} className="w-[448px] max-w-full">
+      <WindowBody>
         <form onSubmit={submit} className="grid gap-4">
-          <DialogHeader>
-            <DialogTitle>Save {count === 1 ? "clip" : `${count} clips`} to Library</DialogTitle>
-            <DialogDescription>
-              Keeps the trim, position, text, effects and transitions, so you can drop {count === 1 ? "it" : "them"}{" "}
-              into any video as is.
-            </DialogDescription>
-          </DialogHeader>
+          <WindowLead>
+            Keeps the trim, position, text, effects and transitions, so you can drop {count === 1 ? "it" : "them"} into any video as is.
+          </WindowLead>
           <div className="grid gap-2">
             <Label htmlFor="library-save-name">Name</Label>
             <Input
@@ -186,16 +192,16 @@ export function SaveToLibraryDialog() {
               </SelectContent>
             </Select>
           </div>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => useSaveToLibrary.getState().close()}>
+          <WindowFooter>
+            <Button type="button" variant="ghost" onClick={close}>
               Cancel
             </Button>
             <Button type="submit" disabled={!name.trim() || saving}>
               {saving ? "Saving…" : "Save"}
             </Button>
-          </DialogFooter>
+          </WindowFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </WindowBody>
+    </FloatingWindow>
   );
 }

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { PiCaretRight, PiGearSix, PiMagnifyingGlass, PiNotePencil, PiSidebarSimple } from "react-icons/pi";
 import type { ProjectSummary } from "@shared/types";
 import { useNow } from "@/hooks/use-now";
-import { SETTINGS_KEYS } from "@/components/settings/settings-page";
+import { SETTINGS_KEYS } from "@/components/settings/settings-window";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";

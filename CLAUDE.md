@@ -176,8 +176,8 @@ src/
                      assistant's side (message context, chat texts, tool handlers). index.ts is the registry;
                      video.ts plugs in the video editor; music/ is the music editor: store.ts (the song, undo,
                      autosave), ui.ts (selection, which windows are open and where), engine-sync.ts +
-                     transport.ts (the engine follows the song; where it's playing), window.tsx (a floating
-                     window and the desktop), channel-rack.tsx, rack-actions.ts (what its menus and keys do),
+                     transport.ts (the engine follows the song; where it's playing), window.tsx (`MusicWindow`
+                     and `MusicDesktop` on the platform's windows), channel-rack.tsx, rack-actions.ts (what its menus and keys do),
                      channel-settings.tsx (a sampler's window), channel-picker.tsx (the +: choose an
                      instrument), knob.tsx, lcd.tsx, waveform.ts, browser/ (the Browser, Alt+F8: a panel
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
@@ -210,23 +210,40 @@ src/
                      navigator (animation-controls.tsx), the keyframe lanes (keyframe-lanes.tsx, pure maths in
                      keyframe-geometry.ts, selection and the keyframe clipboard in keyframe-selection.ts) and a
                      property's expression (expression-row.tsx: the script, its pick-whip, examples).
-  components/captions/   Auto captions dialog, engine picker/setup, the Captions tab. State in stores/captions.ts.
-  components/library/  The Library tab, its cards and dialogs (Save to Library), folder drop targets.
+  components/captions/   Auto captions window, engine picker/setup, the Captions tab. State in stores/captions.ts.
+  components/library/  The Library tab, its cards, dialogs and the Save to Library window, folder drop targets.
+  components/workspace/video-desktop.tsx   The video editor's windows (`stores/video-windows.ts`), over it: export,
+                     video settings, Auto captions, Save to Library. Its panels stay docked (docs/windows.md).
   components/effects/  The Effects tab: video effects and transitions (library-grid.tsx is their shared search,
                      category chips and cards; thumbnails.ts draws every card with one shared compositor).
   components/workspace/workspace.tsx   The main column: the open project's suite's Workspace, or the empty state.
-  components/workspace/video-workspace.tsx   The video editor's (header, left panel, preview, timeline, assistant).
+  components/workspace/video-workspace.tsx   The video editor's (header, its docked panels, assistant).
   components/sidebar/new-project-dialog.tsx  The New project picker (a suite per row, ⌘1, ⌘2…).
-  components/settings/  Settings (⌘,, `stores/settings.ts`): a page over the whole window, General (the theme and
-                     fonts: `stores/theme.ts`) then a section per suite (`ClientSuite.settings`; video's is
-                     `src/suites/video-settings.tsx`, music's `src/suites/music/settings.tsx`), each ending with
-                     where its new projects start. ⌘, opens it on the open project's suite. Built from
+  components/windows/  Floating windows, FL Studio's way, for every suite (docs/windows.md): `FloatingWindow` on a
+                     `Desktop`, a store per desktop (`createWindows`: places, stacking, snaps), the maths in
+                     geometry.ts. The music editor's desktop is one; the app's (`stores/app-windows.ts`, drawn by
+                     App.tsx over everything) holds Settings.
+  components/settings/  Settings (⌘,, `stores/settings.ts`): a window on the app's desktop, as FL's, with a tab for
+                     General (the theme and fonts: `stores/theme.ts`) then one per suite (`ClientSuite.settings`;
+                     video's is `src/suites/video-settings.tsx`, music's `src/suites/music/settings.tsx`), each
+                     ending with where its new projects start. ⌘, opens it on the open project's suite. It doesn't
+                     block the app under it, but keeps its keys (`keepsKeys`: the editors' shortcuts check
+                     `keptByWindow`). Built from
                      `settings-ui.tsx` (`SettingsGroup`, `SettingsRow`). A preference goes here, kept where
                      what it changes lives (`stores/video-preferences.ts` for the video editor's own).
-  components/workspace/left-panel.tsx   Left panel tabs: Media | Effects | Captions | Properties.
-                     Media switches between sources: This video | Library | Online (`MediaSource`); Effects between
-                     kinds: Video effects | Presets | Transitions (`EffectKind`, `KINDS`). Its right edge resizes it (widths
-                     in `stores/layout.ts`, one for usual and one while the keyframe lanes show).
+  components/dock/   Docked panels, Premiere's way, for any suite (docs/windows.md): model.ts (the layout: splits of
+                     tab groups, floating panels; its edits are pure and tested), store.ts (`createDock`: the layout
+                     remembered in localStorage), dock-area.tsx (`DockArea`: tabs that drag onto another group's tabs
+                     or beside it, lines that resize, each group's menu: float, workspaces, Reset layout;
+                     `FloatingPanels` on a desktop).
+  components/workspace/video-panels.tsx   The video editor's panels (`VIDEO_PANEL_DEFS`): Media (This video | Library
+                     | Online, `MediaSource`), Effects (Video effects | Presets | Transitions, `EffectKind`, `KINDS`),
+                     Captions, Properties, Program, Timeline. Laid out by `stores/video-dock.ts` (the default, Théo's: Media,
+                     Effects and Captions as tabs on the left, the monitor, Properties on the right, the timeline
+                     below; `VIDEO_WORKSPACES`). Effects and effect presets dropped on Properties go on its clips
+                     (`properties/properties-drop.tsx`). Show one with
+                     `showPanel` (also `showMedia`, `showEffects`), never by assuming where it is: it may be in any
+                     group, or floating. Properties widens to 520 px while its keyframe lanes show (`useVideoPanelMins`).
   assistant/         Where agents' tool calls run (in the tab): tools.ts (every tool's handler), doc.ts (the video a call
                      acts on: the open one via the editor store, or a background copy), edits.ts (the pure timeline
                      edits, tested), describe.ts (what the model reads: timeline, clips, catalogue...), frames.ts
@@ -349,12 +366,13 @@ swing), the Piano roll, the Playlist and song mode, the transport and the metron
   `POST /api/engine/song`: the server normalises it, compiles it and turns sample ids into paths). The engine
   swaps songs without a gap. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a
   second); the tab fills in between (`tickNow`) and shows it late by the output's latency.
-- **Everything is a window** (`window.tsx`: `MusicWindow` on the `Desktop`), as in FL Studio: dragged by its
-  title bar, its edges sticking to the desktop's and other windows' (Alt: not), brought forward when touched,
-  closed and reopened (`ui.ts` keeps which are open and where). A `resizable` one also resizes by its edges and
+- **Everything is a window** (`window.tsx`: `MusicWindow` on the `MusicDesktop`, the platform's
+  `components/windows/`), as in FL Studio: dragged by its title bar, its edges sticking to the desktop's and
+  other windows' (Alt: not), brought forward when touched, closed and reopened (`ui.ts` keeps which are open,
+  `useMusicWindows` where they are and which is in front). A `resizable` one also resizes by its edges and
   fills the desktop (double-click its title, or drag it to the top) or half of it (drag it to a side); one that
   doesn't resize (the rack) goes to the corner and back on that double-click (`toggleCorner`); the Piano
-  roll opens that way. The maths is `window-geometry.ts`. A new panel is a new window, not a docked pane. One thing to know: a menu opened from inside a window is drawn
+  roll opens that way. The maths is `components/windows/geometry.ts`. A new panel is a new window, not a docked pane. One thing to know: a menu opened from inside a window is drawn
   elsewhere on the page but its React events still bubble through the window, so a handler on a container must
   check `currentTarget.contains(target)` before treating a press as its own (the title bar's drag does).
 - **Mouse conventions** (FL's, and the ones to keep in every panel): the left button adds or turns on, the right
@@ -646,9 +664,10 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   (it can then go in a `batch`), with a test in `edits.test.ts`; describe new state in `describe.ts` so the model can
   see it. Give it a label in `describeToolCall` and an icon in `components/assistant/tool-steps.tsx`. Error messages
   go to the model: say what's wrong and what to do (which ids exist, which values are allowed).
-- **A left-panel tab**: add it to `LeftPanelTab` (`stores/layout.ts`) and to `TABS` in `workspace/left-panel.tsx`.
-  Keep the strip short: a new place to find media is a `MediaSource` (and `SOURCES`), and a new kind of effect
-  (video, audio) is an `EffectKind` (and `KINDS`), not a tab.
+- **A video editor panel**: its id in `VideoPanel` and `VIDEO_PANELS` (`stores/video-dock.ts`, where the default
+  layout puts it; saved layouts get it in their first group) and its entry in `VIDEO_PANEL_DEFS`
+  (`workspace/video-panels.tsx`). Keep the panels few: a new place to find media is a `MediaSource` (and
+  `SOURCES`), and a new kind of effect (video, audio) is an `EffectKind` (and `KINDS`), not a panel.
 - **A clip kind (like text) or a track kind**: there's no registry yet. Clip kinds are branched on in
   `preview/engine.ts` (`kindOf` and each kind's slots), `preview/stage.tsx`, `preview/placement.ts`,
   `timeline/timeline-clip.tsx`, `timeline-menus.tsx`, `properties-panel.tsx`, `server/render.ts` and
@@ -692,8 +711,9 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   **Auto ripple** (the toolbar's chain toggle, off by default, `autoRipple` in the editor store) is the opt-in
   exception: deletes close gaps, edge trims and rate stretches move the rest of the track (`rippleClipEdit`), and
   media dropped at a time pushes it along (`insertClip`). Moves stay free either way.
-- There's no right-hand inspector (the right side is only the assistant's chat). Clip properties are in the left panel's Properties tab. Video settings (aspect ratio
-  and fps) are in a header dialog. The canvas is always black.
+- Clip properties are in the Properties panel, docked right of the Program monitor by default (Théo's layout; the
+  user may move it anywhere). The assistant's chat is the app's, outside the dock, at the far right. Video settings (aspect ratio
+  and fps) are in a window opened from the header. The canvas is always black.
 - Clicking a media card previews that file in the Program monitor's place (the source monitor).
 
 ## Gotchas

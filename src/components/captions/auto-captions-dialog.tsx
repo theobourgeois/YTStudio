@@ -1,8 +1,8 @@
 /**
- * The Auto captions dialog (CapCut's "Auto captions", Premiere's "Create
+ * The Auto captions window (CapCut's "Auto captions", Premiere's "Create
  * captions"): which clips, the language, a style, how long captions are,
  * their animation, and which engine transcribes. Generating keeps going if
- * the dialog is closed; the captions are added (as one undo step) when it's done.
+ * the window is closed; the captions are added (as one undo step) when it's done.
  */
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { PiSparkle, PiWarning } from "react-icons/pi";
@@ -21,12 +21,12 @@ import {
 import { TRANSITIONS } from "@shared/transitions";
 import { brandButton } from "@/components/export/export-form";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { FloatingWindow, WindowBody, WindowFooter, WindowLead, centredOnDesktop } from "@/components/windows/floating-window";
 import { cn } from "cn";
 import { type CaptionOptions, type CaptionScope, useCaptions } from "@/stores/captions";
 import { useEditor } from "@/stores/editor";
@@ -38,23 +38,34 @@ import { EnginePicker } from "./engine-picker";
 
 const CURATED = new Set(CAPTION_ANIMATIONS.map((a) => a.type));
 
-export function AutoCaptionsDialog() {
+/** Auto captions' window over the video editor, while it's open (`useCaptions.dialogOpen`). */
+export function AutoCaptionsWindow() {
   const open = useCaptions((s) => s.dialogOpen);
+  return open ? <CaptionsWindow /> : null;
+}
+
+const close = () => useCaptions.getState().closeDialog();
+
+function CaptionsWindow() {
+  const [initial] = useState(() => centredOnDesktop(512, 560, "video"));
   const running = useCaptions((s) => s.run.status === "running");
   return (
-    <Dialog open={open} onOpenChange={(next) => (next ? useCaptions.getState().openDialog() : useCaptions.getState().closeDialog())}>
-      <DialogContent className="gap-5 sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{running ? "Making captions…" : "Auto captions"}</DialogTitle>
-          <DialogDescription>
-            {running
-              ? "You can close this; the captions are added when they're ready."
-              : "Turn the speech in your clips into captions you can edit."}
-          </DialogDescription>
-        </DialogHeader>
+    <FloatingWindow
+      id="captions"
+      title="Auto captions"
+      heading={running ? "Making captions…" : undefined}
+      initial={initial}
+      keepsKeys
+      onClose={close}
+      className="max-h-full w-[512px] max-w-full"
+    >
+      <WindowBody>
+        <WindowLead>
+          {running ? "You can close this; the captions are added when they're ready." : "Turn the speech in your clips into captions you can edit."}
+        </WindowLead>
         {running ? <Running /> : <CaptionForm />}
-      </DialogContent>
-    </Dialog>
+      </WindowBody>
+    </FloatingWindow>
   );
 }
 
@@ -73,16 +84,14 @@ function Running() {
         </div>
         <Progress value={pct} className="[&>div]:bg-brand" />
       </div>
-      <DialogFooter>
+      <WindowFooter>
         <Button type="button" variant="ghost" onClick={() => useCaptions.getState().cancel()}>
           Stop
         </Button>
-        <DialogClose asChild>
-          <Button type="button" variant="outline">
-            Hide
-          </Button>
-        </DialogClose>
-      </DialogFooter>
+        <Button type="button" variant="outline" onClick={close}>
+          Hide
+        </Button>
+      </WindowFooter>
     </div>
   );
 }
@@ -205,20 +214,18 @@ function CaptionForm() {
         </div>
       )}
 
-      <DialogFooter className="items-center">
+      <WindowFooter className="items-center">
         {hasCaptions && (
           <p className="mr-auto text-xs text-muted-foreground">Replaces the captions over these clips.</p>
         )}
-        <DialogClose asChild>
-          <Button type="button" variant="ghost">
-            Cancel
-          </Button>
-        </DialogClose>
+        <Button type="button" variant="ghost" onClick={close}>
+          Cancel
+        </Button>
         <Button type="submit" className={brandButton} disabled={!canGenerate}>
           <PiSparkle />
           Generate captions
         </Button>
-      </DialogFooter>
+      </WindowFooter>
     </form>
   );
 }

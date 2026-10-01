@@ -34,7 +34,8 @@ import { api } from "@/lib/api";
 import { layoutText, textFont } from "@/lib/text-render";
 import { useEditor } from "./editor";
 import { fontsSettled } from "./fonts";
-import { useLayout } from "./layout";
+import { useVideoWindows } from "./video-windows";
+import { showPanel } from "./video-dock";
 
 const SETTINGS_KEY = "editor-auto-captions";
 const POLL_MS = 400;
@@ -121,6 +122,7 @@ export const useCaptions = create<CaptionsState>((set, get) => ({
   dialogClipIds: [],
 
   openDialog(clipIds) {
+    useVideoWindows.getState().focus("captions");
     set({ dialogOpen: true, dialogClipIds: clipIds ?? useEditor.getState().selectedClipIds });
     void get().loadEngines();
   },
@@ -199,7 +201,7 @@ export const useCaptions = create<CaptionsState>((set, get) => ({
         toast("No speech found", { description: "There were no words to caption in those clips." });
         return;
       }
-      useLayout.getState().setLeftPanel("captions");
+      showPanel("captions");
       toast.success(`Added ${added} caption${added === 1 ? "" : "s"}`, {
         description: "Edit their words and style in the Captions tab.",
         action: { label: "Undo", onClick: () => useEditor.getState().undo() },

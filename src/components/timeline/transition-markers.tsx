@@ -19,12 +19,12 @@ import {
 import { MIN_TRANSITION_DURATION } from "@shared/transitions";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
-import { useLayout } from "@/stores/layout";
 import { CLIP_INSET_Y, TRIM_THRESHOLD_PX } from "./constants";
 import { type TimelineContextValue, useTimelineContext } from "./context";
 import type { LaneLayout } from "./geometry";
 import { startPointerSession } from "./pointer-session";
 import { useTimelineView, useVisibleWindow } from "./view-store";
+import { showPanel } from "@/stores/video-dock";
 
 /** Narrowest a marker is drawn, so short transitions stay clickable. */
 const MIN_WIDTH = 14;
@@ -84,7 +84,7 @@ const Marker = memo(function Marker({
       style={{ left, width, top, height }}
       title={w.def.label}
       onPointerDown={onPointerDown}
-      onDoubleClick={() => useLayout.getState().setLeftPanel("properties")}
+      onDoubleClick={() => showPanel("properties")}
     >
       {width >= 40 && (
         <span className="pointer-events-none flex max-w-full items-center gap-1 rounded-[4px] bg-black/55 px-1.5 text-[10.5px] leading-4 font-medium text-white">

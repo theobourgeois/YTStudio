@@ -59,7 +59,7 @@ import {
 import { currentPattern, songGesture, useCurrentPattern, useMusic, useSong } from "./store";
 import { patternPositionNow } from "./playhead";
 import { useTransport } from "./transport";
-import { MIN_RACK_STEPS, type RackGroup, inRackGroup, selectedIn, useMusicUi } from "./ui";
+import { MIN_RACK_STEPS, type RackGroup, inRackGroup, selectedIn, useMusicUi, useMusicWindows } from "./ui";
 import { chooseSource, openPlaylist } from "./playlist/actions";
 import { usePlaylist } from "./playlist/store";
 import { TrackSelector } from "./mixer/track-selector";
@@ -282,7 +282,7 @@ const RIGHT_OF_STEPS = 18;
  * moves and when the desktop changes size.
  */
 function useStepsRoom(scroller: RefObject<HTMLDivElement | null>): number {
-  const place = useMusicUi((s) => s.places.rack);
+  const place = useMusicWindows((s) => s.places.rack);
   const [room, setRoom] = useState(MAX_STEPS_ROOM);
   useLayoutEffect(() => {
     const element = scroller.current;

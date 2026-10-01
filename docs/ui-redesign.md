@@ -158,19 +158,19 @@ dots, avatars, the record light), soft shadows removed except on floating things
 onto the primitives. Do it area by area and look at each:
 
 - **Platform**: the sidebar (`components/sidebar/`: project list, new project picker, chat status), the
-  header (`components/header/`), the settings and export dialogs, the empty state
+  header (`components/header/`), the settings and export windows, the empty state
   (`components/workspace/empty-state.tsx`).
 - **The assistant** (`components/assistant/`): the chat panel, messages, tool steps, the model and thinking
   pickers, Markdown, the activity pill. It's the most SaaS-looking part now: make the panel a surface like
   the others, the input a sunken field, the send button a raised one.
-- **The video editor**: the left panel and its tabs (`workspace/left-panel.tsx`), the Media bin and cards
+- **The video editor**: its docked panels and their tabs (`components/dock/`, `workspace/video-panels.tsx`), the Media bin and cards
   (`components/media/`), the Library (`components/library/`), Effects and presets (`components/effects/`:
   the grid, chips, cards), Captions (`components/captions/`), Properties (`components/properties/`: param
   rows, the stopwatch, keyframe lanes), the preview and its transport (`components/preview/`), the timeline
   (`components/timeline/`): toolbar, track headers, ruler (like the Piano roll's), clips (beveled like the
   Piano roll's notes: a lit top edge, a darker outline, small corners), transition markers, the playhead.
 - **The music editor** (`src/suites/music/`): the transport bar, the pattern picker, windows' title bars
-  (`window.tsx`), the channel rack (step buttons raised, lit when on; the channel buttons; the mute lights),
+  (`components/windows/floating-window.tsx`), the channel rack (step buttons raised, lit when on; the channel buttons; the mute lights),
   knobs (`knob.tsx`), LCDs (`lcd.tsx`), the channel settings and picker, the audio dialog. The Piano roll
   only needs its chrome (its toolbar, lane header, scrollbars) to match.
 

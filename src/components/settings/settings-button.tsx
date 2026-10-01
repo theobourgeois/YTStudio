@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { projectSuite, useProjects } from "@/stores/projects";
 import { useSettings } from "@/stores/settings";
-import { SETTINGS_KEYS } from "./settings-page";
+import { SETTINGS_KEYS } from "./settings-window";
 
 /** Opens Settings on the open project's suite (General when none is), as ⌘, does. In every suite's header. */
 export function SettingsButton() {

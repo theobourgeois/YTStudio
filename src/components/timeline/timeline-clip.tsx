@@ -10,13 +10,13 @@ import { formatSpeed } from "@shared/format";
 import { cn } from "cn";
 import { ClipMarkers } from "./markers";
 import { useAssistant } from "@/stores/assistant";
-import { useLayout } from "@/stores/layout";
 import { startClipMove, startClipTrim } from "./clip-gestures";
 import { Filmstrip, PosterStrip, Waveform } from "./clip-media";
 import { CLIP_INSET_Y } from "./constants";
 import { useTimelineContext } from "./context";
 import type { LaneLayout } from "./geometry";
 import { useTimelineView } from "./view-store";
+import { showPanel } from "@/stores/video-dock";
 
 interface TimelineClipProps {
   clip: Clip;
@@ -67,7 +67,7 @@ export const TimelineClip = memo(function TimelineClip({
       onDoubleClick={() => {
         // A nested sequence opens in its own tab (Premiere); anything else shows its properties.
         if (isNestedClip(clip)) useEditor.getState().openSequence(clip.assetId);
-        else useLayout.getState().setLeftPanel("properties");
+        else showPanel("properties");
       }}
     >
       <div

@@ -1,23 +1,16 @@
+import { useState } from "react";
 import { PiSlidersHorizontal } from "react-icons/pi";
 import { aspectParts } from "@shared/timeline";
 import { getSequence, sequenceDuration } from "@shared/sequences";
 import type { AspectRatio, Sequence } from "@shared/types";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { FloatingWindow, WindowBody, WindowFooter, WindowLead, centredOnDesktop } from "@/components/windows/floating-window";
 import { useEditor } from "@/stores/editor";
+import { useOpenVideoWindows } from "@/stores/video-windows";
 
 const RATIOS: { value: AspectRatio; label: string }[] = [
   { value: "9:16", label: "Vertical" },
@@ -35,45 +28,60 @@ const FRAME_RATES: { value: number; label: string }[] = [
 const optionClass =
   "group h-auto flex-col gap-1 rounded-lg border border-input px-0 py-2.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground data-[state=on]:border-brand data-[state=on]:bg-brand/10 data-[state=on]:text-foreground data-[state=on]:ring-1 data-[state=on]:ring-brand";
 
-/** Header button showing the video's format; opens the (live-applying) settings dialog. */
-export function SettingsDialog() {
+/** Header button showing the video's format; opens its settings window (`VideoSettingsWindow`), or brings it to the front. */
+export function VideoSettingsButton() {
+  const settings = useEditor((s) => s.project.settings);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Video settings"
+          className="gap-1.5 px-2 text-xs font-normal text-muted-foreground tabular-nums hover:text-foreground"
+          onClick={() => useOpenVideoWindows.getState().show("settings")}
+        >
+          <PiSlidersHorizontal className="size-3.5" />
+          {settings.aspectRatio} · {settings.fps} fps
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Video settings</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * The video's (or the open nested sequence's) frame and frame rate, in a window over the editor. They
+ * apply at once, so the Program monitor beside it shows each choice.
+ */
+export function VideoSettingsWindow() {
+  const [initial] = useState(() => centredOnDesktop(448, 360, "video"));
   const settings = useEditor((s) => s.project.settings);
   // With a nested sequence open, these are that sequence's settings (its own size, frame rate and length).
   const sequence = useEditor((s) => (s.sequenceId ? (getSequence(s.document, s.sequenceId) ?? null) : null));
   const { updateSettings } = useEditor.getState();
+  const close = () => useOpenVideoWindows.getState().close("settings");
   // Keep an unusual rate (e.g. from an older project) selectable.
   const frameRates = FRAME_RATES.some((r) => r.value === settings.fps)
     ? FRAME_RATES
     : [...FRAME_RATES, { value: settings.fps, label: "Custom" }].sort((a, b) => a.value - b.value);
 
   return (
-    <Dialog>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DialogTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Video settings"
-              className="gap-1.5 px-2 text-xs font-normal text-muted-foreground tabular-nums hover:text-foreground"
-            >
-              <PiSlidersHorizontal className="size-3.5" />
-              {settings.aspectRatio} · {settings.fps} fps
-            </Button>
-          </DialogTrigger>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">Video settings</TooltipContent>
-      </Tooltip>
-
-      <DialogContent className="gap-5 sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{sequence ? `${sequence.name} settings` : "Video settings"}</DialogTitle>
-          <DialogDescription>
-            {sequence
-              ? "A nested sequence's own frame and frame rate. The clips that play it show it at this size and rate."
-              : "Applies to the preview and to exports."}
-          </DialogDescription>
-        </DialogHeader>
+    <FloatingWindow
+      id="video-settings"
+      title="Video settings"
+      heading={sequence ? `${sequence.name} settings` : undefined}
+      initial={initial}
+      keepsKeys
+      onClose={close}
+      className="w-[448px] max-w-full"
+    >
+      <WindowBody>
+        <WindowLead>
+          {sequence
+            ? "A nested sequence's own frame and frame rate. The clips that play it show it at this size and rate."
+            : "Applies to the preview and to exports."}
+        </WindowLead>
 
         <div className="grid gap-2">
           <Label>Aspect ratio</Label>
@@ -116,13 +124,11 @@ export function SettingsDialog() {
 
         {sequence && <SequenceLength sequence={sequence} />}
 
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button>Done</Button>
-          </DialogClose>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <WindowFooter>
+          <Button onClick={close}>Done</Button>
+        </WindowFooter>
+      </WindowBody>
+    </FloatingWindow>
   );
 }
 

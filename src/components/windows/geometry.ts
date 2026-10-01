@@ -1,5 +1,5 @@
 /**
- * The window manager's maths (`window.tsx`): where a dragged window's edges stick to the desktop's and
+ * The window manager's maths (`floating-window.tsx`): where a dragged window's edges stick to the desktop's and
  * to other windows' (FL Studio's windows snap together), when the pointer at the desktop's edge snaps
  * a window to fill it or half of it, and how a window is resized by an edge or a corner. Pure, so it's
  * tested.

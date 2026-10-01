@@ -14,6 +14,7 @@ import { useEditor } from "./editor";
 import { useLayout } from "./layout";
 import { usePlayback } from "./playback";
 import { newLayerDuration } from "./video-preferences";
+import { showPanel } from "./video-dock";
 
 interface TextEditingState {
   /** The text clip being typed into, if any. */
@@ -54,7 +55,7 @@ export function createText(position: Vec2) {
 function begin(clipId: string, gesture: EditGesture, created: boolean) {
   session = { clipId, gesture, created };
   useEditor.getState().select(clipId);
-  useLayout.getState().setLeftPanel("properties");
+  showPanel("properties");
   useTextEditing.setState({ clipId });
 }
 

@@ -333,7 +333,12 @@ html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert
   outline: none;
 }
 
-/* Settings' top bars (components/settings/settings-page.tsx) leave a Mac's window buttons room, as the sidebar does. */
-html.desktop-darwin:not(.fullscreen) .settings-titlebar {
-  padding-left: var(--traffic-lights-end);
+/* A floating window (components/windows/) is clicked and dragged as the page's, even over the title bar's drag region. */
+html.desktop [data-window] {
+  -webkit-app-region: no-drag;
+}
+
+/* Windows over the app (Settings, the video editor's) take the pointer, but not while a modal dialog or menu holds it (Radix turns the body's off). */
+body[style*="pointer-events: none"] [data-window] {
+  pointer-events: none;
 }

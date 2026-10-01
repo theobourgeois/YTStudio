@@ -43,6 +43,7 @@ import { sliderToZoom, zoomToSlider } from "./geometry";
 import { timelineCommands, useMinZoom } from "./view-store";
 import { ClipSpeedButton } from "./speed-control";
 import { ClipVolumeButton } from "./volume-control";
+import { showPanel } from "@/stores/video-dock";
 
 const ZOOM_STEP = 1.5;
 const SLIDER_MAX = 1000;
@@ -241,7 +242,7 @@ export function TimelineToolbar() {
 /** Add a layer over the selection (or at the playhead) and show its properties. */
 function newLayer(kind: LayerKind) {
   useEditor.getState().addLayer(kind);
-  useLayout.getState().setLeftPanel("properties");
+  showPanel("properties");
 }
 
 function Kbd({ children }: { children: ReactNode }) {
