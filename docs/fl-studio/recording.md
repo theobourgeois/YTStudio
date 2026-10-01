@@ -7,7 +7,7 @@ How FL Studio records audio (a vocal, a guitar) into a song, from the manual (`r
 hardly changed since FL 20, and what's newer says so. Recording notes (MIDI) is another page, for step 5.
 
 The last sections are ours: [what we'll leave out](#what-well-leave-out), [what's decided](#decided-with-théo-2026-10-01),
-[how we'd build it](#how-wed-build-it) and [where Vaudio differs](#where-vaudio-differs).
+[how it's built](#how-its-built) and [where Vaudio differs](#where-vaudio-differs).
 
 ## What it is
 
@@ -218,131 +218,107 @@ markers' menu); there's no punch mode as such.
   where recording started.
 - Not now: punch in/out, recording in pattern mode.
 
-## How we'd build it
+## How it's built
 
-The plan for the pass (also `docs/music-suite.md`, step 6). Musical decisions stay in TypeScript; the
-engine moves samples and says when.
+Built in one pass (2026-10-01), as planned, apart from what's said. Musical decisions are TypeScript's;
+the engine moves samples and says where they were.
 
-### Step zero: microphone access
+### Microphone access
 
-Nothing records until macOS lets the engine read an input.
+- The engine opens **no input until one is chosen** in Settings (Input device), and again at start from
+  what it saved (`device.xml`): someone who never records is never asked.
+- Both Vaudio's Info.plist (`mac.extendInfo` in `scripts/desktop.ts`) and the engine's
+  (`MICROPHONE_PERMISSION_ENABLED` in `engine/CMakeLists.txt`) say why it wants the microphone. The
+  desktop app asks (`systemPreferences.askForMediaAccess`, `electron/main.ts`, through the preload's
+  `microphone` and `askMicrophone` in `src/lib/desktop.ts`) as an input device or a track's input is chosen;
+  Settings says how to allow it when it's been refused. In `pnpm dev`, macOS asks the terminal running
+  the server. Once the app is signed with the hardened runtime, both need
+  `com.apple.security.device.audio-input`.
 
-- **The engine opens no inputs today** (`devices.initialise (0, 2, …)` in `engine/src/Engine.cpp`), on
-  purpose: opening one asks for the microphone. It should open inputs **only once the user picks an
-  input device or an insert's input**, so someone who never records is never asked.
-- **The usage string**: macOS refuses (or kills) a process reading the mic when the app responsible for it
-  has no `NSMicrophoneUsageDescription`. The engine is started by Vaudio, which is then the app
-  responsible: add the key to Vaudio's Info.plist (`mac.extendInfo` in `scripts/desktop.ts`) and to the
-  engine's (`PLIST_TO_MERGE` in `engine/CMakeLists.txt`). When the app is signed with the hardened
-  runtime, both need `com.apple.security.device.audio-input`.
-- **Asking**: the desktop app asks first (`systemPreferences.askForMediaAccess("microphone")` in
-  `electron/main.ts`, through the preload) when an input is chosen, and Settings says so plainly when
-  it's been refused ("Vaudio can't hear your microphone: System Settings → Privacy & Security →
-  Microphone"). In `pnpm dev` the terminal running the server is the app responsible, and it's that one
-  macOS asks about.
+### The document and the tab's state
 
-### The document (`shared/music/types.ts`, validated in `project.ts`)
-
-- `MixerTrack.input: { channels: [number] | [number, number] } | null`: the device's input channels it
-  takes (one: mono, heard on both sides). By channel number, so it survives the device being renamed;
-  a channel the device doesn't have is silent, not an error.
-- `MixerTrack.monitor: "off" | "armed" | "on"` (`"armed"` by default) and `MixerTrack.inputOffset` (ms,
-  FL's input delay compensation; positive moves takes earlier).
-- `PlaylistTrack.mixerTrack: string | null`: FL's audio track, the insert it's linked to (by id).
-- **Arming isn't in the document** (nor in undo): which tracks are armed, Record, Loop record, Blend and
-  the count-in are the tab's (`src/suites/music/recording.ts`, a store; the count-in, Loop record and
-  Blend kept in the browser like the metronome's sound). The master can't be armed.
+- `MixerTrack.input` (`MixerInput`: a device channel, mono on both sides, or the pair from it),
+  `monitor` (off / armed / on, armed by default) and `inputOffset` (ms); `PlaylistTrack.mixerTrack` (FL's
+  audio track). Validated in `normalizeMusicProject`; the master never has an input, and an audio track
+  linked to an insert that's removed is an ordinary one again.
+- **Arming, Record and the recording in progress are the tab's** (`src/suites/music/recording.ts`, not
+  saved, not undone; cleared when another song opens). Record's options (count-in 0/1/2/4 bars, 1 by
+  default; Loop record; Blend; Disarm on stop) are kept in the browser (`preferences.ts`). The transport
+  doesn't import the recording store (that made a cycle through the song's store): it registers itself
+  (`setRecorder`), and Play records while Record is on.
 
 ### The engine
 
-- **Devices**: `EngineDevices` gains `inputs` (devices), `input` (the chosen one), `inputChannels` (their
-  names, for the menus) and the status `inputLatencyMs`. On macOS, JUCE pairs a different input and
-  output device itself (an `AudioIODeviceCombiner`); test the Mac's mic with headphones (two devices,
-  maybe at different rates) as well as an interface.
-- **Input into the mixer**: the callback's input buffers reach `Engine::process` (live) or a test
-  signal (offline, below). `compileSong` gives each track its `input` channels and whether it's
-  `monitored` (monitor, armed) and `armed`; `Sequencer::mixTracks` adds a monitored track's input into its
-  buffer **before its effects**, so it's heard through them. Meters show an armed track's input level
-  even when it isn't monitored (FL's "always show input levels").
-- **Writing** (`engine/src/Recorder.cpp`): per armed track, the dry input goes into a lock-free ring on
-  the audio thread and a writer thread writes it (`juce::AudioFormatWriter::ThreadedWriter`): 32-bit
-  float WAV, mono for a mono input, stereo for a pair. Files are opened ahead on the message thread (a
-  spare one per track, ready for the next loop pass), as `ClipPlayer` makes streams ahead: the audio
-  thread never opens or closes a file. A take records **the tick its first sample was taken at** and its
-  length in samples.
-- **Count-in**: `play { from, countIn }`: the metronome clicks `countIn` bars with the transport held,
-  then play starts on the bar; recording starts with the transport, never during the count-in.
-- **Loop record**: at the loop's end each armed track's file is closed (handed to the writer thread to
-  finish) and the spare starts on the same sample: no gap and no glitch, unlike FL. Without Loop
-  record, the song doesn't wrap while recording (the take can run past the song's end).
-- **Events**: `EngineEvent "take"`: `{ track, file, startTick, frames, sampleRate, pass, latency }`
-  (`latency`: the device's input + output latency and the song's plugin delay, in samples, at that
-  moment). One per track per pass, when its file is complete.
-- `fake-engine.mjs` answers the new commands and, on stop, writes a short WAV per armed track and sends
-  its `take`, so the e2e suite can record without a microphone.
-
-### Latency (`shared/music/recording.ts`, tested)
-
-What's heard at tick T left the speakers late by the output latency and the song's plugin delay; what's
-played along to it arrives late by the input latency. So a take's clip starts at its `startTick` with its
-`offset` (seconds into the file) set to that total plus the track's `inputOffset`: the first sample
-heard is the one played on the beat. Pure arithmetic, tested; the device's reported latency is often a
-little off, which is what `inputOffset` is for (measured as the manual says: record the metronome
-through the mic and line the clicks up).
-
-### The server
-
-- Takes are written straight into the project's folder (`data/projects/<id>/recordings/`), never `tmp`
-  (wiped on startup). `POST /api/music/takes` (routes in `server/music/routes.ts`) adopts each finished
-  file as project media (moved, not copied: a `MediaLibrary.adopt`), with its waveform, and returns the
-  `MediaAsset`. Files of a take that crashed mid-way are WAVs with an unfinished header: repair them on
-  the next start (later; note it).
+- **Inputs**: Settings' input device opens all its channels (JUCE masks what it hasn't);
+  `audioDeviceAboutToStart` maps the callback's inputs to the device's channel numbers. `compileSong`
+  gives each track `input: { channels, monitor, armed }` (`armed` comes with `SetSongRequest.armed`), and
+  `Sequencer::process` adds a monitored input into its track before the effects (no delay compensation:
+  it's live). A monitored track is "reached", so it has a buffer even with no channel on it.
+- **Writing** (`engine/src/Recorder.cpp`): files are opened on the message thread (a recording's first
+  ones in `start`, a spare per track for the next pass made by `service`, on the engine's timer); the audio
+  thread writes each armed track's dry input into a `ThreadedWriter`'s FIFO (32-bit float WAV, one channel
+  for a mono input, two for a pair) and hands finished files back through a lock-free queue. Offline,
+  files are written at once on the rendering thread.
+- **Count-in**: `Sequencer::record` asks for play with a count-in: the transport holds while the clicks
+  (on every beat, higher on bars, heard whether the metronome is on or not) play, and recording begins on
+  the sample the transport moves.
+- **Loops**: at each wrap the recorder switches every track to its spare, `latency` samples after the
+  sample the loop's first notes play on, so each pass after the first starts on the beat; nothing is lost
+  or doubled (tested). Without Loop record, the song doesn't wrap while recording (`through`): it plays on
+  past its end, and the playhead with it (`TransportState.through`).
+- **Latency**: the device's input and output latency (CoreAudio's include the buffer) and the song's
+  plugin delay, given at the start. The first take's file keeps it at its head (`skip`); `takeWindow` leaves
+  it out, with the track's input offset.
+- **Events**: the engine says `take` (`recordingId`, track, file, the tick at sample `skip`, frames,
+  pass, final); the server makes the file the project's media (moved, `library.add`, wired in `app.ts` as
+  `adoptTake`) and sends the tab an `EngineTakeEvent` with the `MediaAsset`. Files are written in
+  `data/projects/<id>/recordings/` (never `tmp`, which is wiped on start).
+- **Tests**: offline, a WAV stands in for the device's inputs (`render`'s `input`): takes match it sample
+  for sample, a pair records two channels, the count-in records nothing, loop passes split exactly, a
+  plugin's delay is left out (`server/music/recording.integration.test.ts`, `latency.integration.test.ts`).
 
 ### The tab
 
-- **Takes become clips** (`addTakes` in `shared/music/playlist.ts`, tested): an audio clip channel per
-  take (named after the insert and the take's number, routed **into the insert that recorded it**: it's
-  heard through the same effects it was monitored through, and since we record the dry input it's never
-  recorded twice), and a clip at its start: on the insert's audio track if it has one (then, with no room,
-  the tracks below it), else **the first track it fits on**. Loop passes of one recording: the newest on
-  the audio track (or the first free), each earlier one on its own track below and **muted** when Blend
-  is off (FL's "Group loop recorded takes" and its advice for takes; we have no child tracks). All the
-  takes of one recording are **one undo step**.
-- **Recording in progress** is drawn on the Playlist: a red region growing from where it started on each
-  track a take will land on (from the transport, not the file); the clip and its waveform appear when the
-  take is done.
-- **The toolbar**: Record (R) beside Play and Stop, lit red while on; its right-click menu: Count-in
-  (Off, 1 bar, 2 bars, 4 bars; 1 bar by default), Loop record, Blend, Disarm on stop. Pressed in pattern
-  mode, it switches to song mode (recording is the song's).
-- **The Mixer**: the inspector's Input menu (stereo pairs, then mono inputs, then (none); choosing one
-  arms the track), Monitor (Off / When armed / On) and the input offset; the arm dot under each strip's
-  fader, the fader orange while armed; the track menu's Assign to new audio track(s).
-- **The Playlist**: a track header's menu Track mode → Audio track → Insert N, and an audio track's
-  header showing its input, monitor and arm.
-- **Settings**: the input device, with the latencies both ways and the permission's state.
-
-### The assistant
-
-- `update_mixer_track` takes `input`, `monitor` and `inputOffset`; `update_playlist_track` takes the
-  insert of an audio track; `list_audio_inputs`; `arm_tracks`; `record` (start and stop recording, with
-  the count-in and loop options); `get_mixer` and `get_playlist` say what's armed and linked.
-
-### Tests
-
-- Vitest: the document's new fields through `normalizeMusicProject`; `addTakes` (placement, audio
-  tracks, the first free track, loop passes muted, one undo step); the latency arithmetic; `compileSong`'s
-  inputs and monitoring.
-- The real engine, offline (`server/music/recording.integration.test.ts`): an offline engine has no
-  device, so `render` takes an `input` (a WAV, or clicks at known samples) that stands in for it. Record
-  clicks played on the beat: the take's file has them where they were, `startTick` is right, and the
-  clip `addTakes` makes puts them on the beat to the sample; loop passes split exactly at the wrap with no
-  sample lost or doubled; monitoring is heard through the track's effects and not when it's off; the
-  count-in records nothing.
-- E2e (`e2e/music.spec.ts`, the fake engine): choose an input, arm, Record, play, stop: the take is a clip
-  on the right track; loop recording makes muted takes; an audio track gets its takes.
+- **Takes become clips** (`addTakes`, `shared/music/recording.ts`): a channel each, routed into the track
+  that recorded it, a clip where it was recorded: on the track's audio track, else the first track it
+  fits on; loop passes stack below, all but the last muted unless Blend. A recording's takes are one undo
+  step (each take arriving undoes the last and commits them all, while nothing else was edited).
+- **The toolbar**: Record (R) beside Stop, red while on, pulsing while recording; its right-click menu has
+  the count-in, Loop record, Blend and Disarm on stop. Pressed in pattern mode, Play switches to song mode
+  and records there. While recording, a ruler click only moves where the next play starts.
+- **The Mixer**: the inspector's Input section (the Input menu, FL's: stereo pairs, then mono inputs,
+  then (none) and the device's settings; choosing one arms the track), Monitor and Input offset; the arm
+  light under each strip's fader, the fader FL's orange while armed (`--mixer-armed`, `--mixer-arm`); the
+  track menu's Assign to new audio track.
+- **The Playlist**: the track menu's Audio track (an insert, or none); an audio track's header has the
+  insert's arm light and, if it's tall enough, its insert and input. While recording, the playhead is red
+  and what's been recorded is shaded red behind it. (Not a growing waveform per track, as planned: the
+  clip and its waveform appear when the take is in.)
+- **Settings**: the input device, its inputs and their latency, and the microphone's permission.
+- **The assistant**: `update_mixer_track` takes `input` ("1", "1-2", "none"), `monitor` and
+  `inputOffset`; `update_playlist_track` takes `audioTrack`; `list_audio_inputs`, `arm_tracks`,
+  `record_audio` (start, and stop answering with the takes); `get_mixer` says what's armed.
+- **E2e**: the stand-in engine records (a tone per armed track and pass, 10 ms of latency at the head).
 
 ## Where Vaudio differs
 
-Nothing is built yet. Once it is, this lists where it's not FL's (from the decisions above: no pickup
-menu, no Edison or One-click, no punch markers, no pattern-mode recording, loop takes on tracks below
-rather than child tracks, Record in pattern mode switching to song mode, 32-bit float only).
+| FL Studio | Vaudio |
+| --- | --- |
+| Pickup: EXT, MIX, FX, EQ, LVL, POST | The dry input only (EXT), heard through the track (Théo) |
+| A track can be armed with no input, recording what's routed into it | Only a track with an input can be armed |
+| Recording filter (notes, automation, clips), Edison, One-click, Wait for input, the Audio Logger | Audio only, into the Playlist |
+| Start/Stop recording markers (punch in/out) | Not yet (Théo): the time selection loops |
+| Recording in pattern mode makes an audio clip channel | Record switches to song mode (Théo) |
+| Loop takes as child tracks under the audio track (Group loop recorded takes) | On the tracks below it (no child tracks yet) |
+| A glitch may come at each loop's wrap (FL saves and makes a channel there) | Files are opened ahead: none |
+| Input delay compensation per input, in ms, samples or beats | Per track, in ms |
+| Auto-unarm (tracks), Auto-name playlist tracks, latency compensation as an option | Always: takes are named after their track, the latency is always left out; Disarm on stop is Record's |
+| Bit depth 16/24/32 | 32-bit float always |
+| File names chosen on the arm's right-click; files in a Recorded folder | Takes are the project's media, named after the track and when |
+| AutoMap, low-latency monitoring (Bypass track latency compensation) | Not yet |
+| Undone takes go to the trash | Undone takes stay in the project's media |
+| The take's waveform appears as it's dumped | The same: the clip and its waveform appear when each take is in; the recording is shaded red while it goes |
+
+Still to come: a take's file repaired if the engine dies mid-recording (its WAV header is written when it
+closes), punch in/out, recording in pattern mode, and an input level meter for an armed track that isn't
+monitored.

@@ -27,7 +27,7 @@ about to touch before changing it, and correct it when you learn it's wrong.
   quality. Ends with what was decided with Théo, how it's built (fast: every core) and where Vaudio differs.
 - [recording.md](recording.md): recording audio: a mixer track's input and arm, monitoring, the Record
   button and count-in, loop recording and takes, audio tracks, latency. Ends with what was decided with
-  Théo and how we'd build it.
+  Théo, how it's built and where Vaudio differs.
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).
 

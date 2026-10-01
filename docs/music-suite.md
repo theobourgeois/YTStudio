@@ -14,8 +14,8 @@ put together and how we use its manual).
   devices needed are the sampler and an EQ.
 - **His workflow**, which the order of work serves: a melody first (Serum 2 in the piano roll), then drums
   (the rack), then the playlist, split by track, to arrange the song; mixing after that.
-- **Recording audio** (vocals over a song): being built now (step 6). **Later, but designed for now**: a
-  MIDI keyboard.
+- **Recording audio** (vocals over a song): built (step 6). **Later, but designed for now**: a MIDI
+  keyboard.
 - **The look** is FL's too (decided after the Piano roll): 3D-ish but modern, the accent blue, in dark and
   light. The whole app is being restyled that way: `docs/ui-redesign.md`.
 - **How to build each panel**: talk the phase through with Théo first; write its FL Studio reference in
@@ -41,6 +41,7 @@ put together and how we use its manual).
 | Transport | Play and stop the current pattern or the song (PAT / SONG), tempo, the metronome, where play starts (the Piano roll's ruler in pattern mode, the Playlist's in song mode, both also moving a playing song) | |
 | Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song`; the Browser's: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`, `star_sample`; the Playlist's: `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`, `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` in song mode | `shared/music/tools.ts` |
 | Export | ⌘R / ⌘⇧R: the save dialog, then FL's export window. Song or pattern, cut or ring out, WAV / MP3 / FLAC / OGG / M4A / MIDI from one render, stems in time with the mix, the plugin delay trimmed, plugins in their offline mode, every core (45× real time with 24 Serums). The song can be edited while it renders. Resampling (linear, Hermite, sinc) chosen in Settings. `export_song` for the assistant | `docs/fl-studio/export.md` |
+| Recording | FL's: an input device (an interface, or the Mac's mic), a mixer track's input (choosing it arms the track), monitoring through the track's effects, Record (R) and its count-in, a take per armed track placed where it was recorded (on the track's audio track, or the first free one), Loop record (a take each pass, the earlier muted unless Blend), latency left out; `list_audio_inputs`, `arm_tracks`, `record_audio` for the assistant | `docs/fl-studio/recording.md` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
 
 ### How it's built, in one screen
@@ -228,28 +229,10 @@ next.**
 
 ### 6. Audio recording
 
-**Next, in parallel with automation** (Théo, 2026-10-01; branch `t3code/mixer-track-recording`). The
-reference, Théo's decisions and the plan are in `docs/fl-studio/recording.md`: read its "Decided" and
-"How we'd build it" sections first. The pass builds, in this order:
-
-1. **Microphone access** (step zero): the usage string in Vaudio's and the engine's Info.plist, the
-   desktop app asking, inputs opened only once one is chosen, Settings saying when it's refused.
-2. **The input device** in Settings (an interface, or the Mac's mic with other outputs: both), and the
-   latencies both ways in the status.
-3. **The document**: an insert's `input`, `monitor` and `inputOffset`; a Playlist track's `mixerTrack`
-   (FL's audio tracks). Arming, Record, Loop record, Blend and the count-in are the tab's.
-4. **The engine**: inputs into their tracks before the effects (monitoring), the dry input written per
-   armed track on a writer thread (`Recorder.cpp`), the count-in, loop passes split on the sample, the
-   `take` event; tested offline with a stand-in input.
-5. **Takes into the song**: the server adopts the files as media; `addTakes` places them (the audio
-   track, else the first free track; loop passes below, muted), latency taken off in TypeScript.
-6. **The UI**: Record and its menu on the toolbar (R), the Mixer's input, monitor and arm, audio tracks
-   on the Playlist, recording drawn as it goes.
-7. **The assistant's tools**, the e2e spec, this file and CLAUDE.md.
-
-Automation (step 4) is being built at the same time on another branch: both touch `types.ts`,
-`project.ts`, `compile.ts`, `Song.cpp`, `Sequencer.cpp`, the engine protocol and the tools, so whichever
-merges second takes the other's changes in those files.
+**Built** (2026-10-01, in one pass, while automation was built on another branch). The reference,
+Théo's decisions, how it's built and where it differs are in `docs/fl-studio/recording.md`. Still to
+come for it: punch in/out, recording in pattern mode, repairing a take's file if the engine dies
+mid-recording, an input meter for an armed track that isn't monitored.
 
 ### Also on the list, when they fit
 
