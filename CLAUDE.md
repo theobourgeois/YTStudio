@@ -428,7 +428,9 @@ the export. Where it is and every step still to come, in order:
   device back. Meanwhile the tab edits on (`useTransport.exporting` stops play), and songs sent wait for
   the end. The song's plugin delay is trimmed and stems held back to the master's lateness: they add up
   to the mix, sample for sample (tested). Parallel and one-thread renders are identical (tested); keep
-  it so: a stage's tracks touch only their own buffers, sends are added in order after.
+  it so: a stage's tracks touch only their own buffers, sends are added in order after. The mix is floating
+  point and can go over full scale and still sound clean live (the system volume turns it down first); a
+  file would clip, so a render that goes over is turned down as a whole (`exportGain`, `preventClipping`).
 - **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).

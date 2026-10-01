@@ -354,6 +354,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
       patch.tail = input.tail;
     }
     if (input.stems !== undefined) patch.stems = input.stems === true;
+    if (input.preventClipping !== undefined) patch.preventClipping = input.preventClipping === true;
     if (input.wavBits !== undefined) {
       if (![16, 24, 32].includes(input.wavBits as number)) throw new Error('"wavBits" must be 16, 24 or 32.');
       patch.wavBits = input.wavBits as ExportSettings["wavBits"];
@@ -377,6 +378,12 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
       ...job.files.map((f) => `- ${f.name} (${size(f.bytes)})`),
       "They're listed in the export window for the user to download or show in Finder.",
     ];
+    if (job.peakDb !== null && job.peakDb > 0)
+      lines.push(
+        job.gainDb < 0
+          ? `The mix peaks ${job.peakDb.toFixed(1)} dB over full scale (too hot): every file was turned down ${(-job.gainDb).toFixed(1)} dB so it doesn't clip. Suggest bringing the master or the loudest channels down.`
+          : `The mix peaks ${job.peakDb.toFixed(1)} dB over full scale, so the files clip. Suggest bringing the master or the loudest channels down.`,
+      );
     if (job.missing.length) lines.push(`Not heard (their plugin or sample couldn't be loaded): ${job.missing.join(", ")}.`);
     return textResult(lines.join("\n"));
   },

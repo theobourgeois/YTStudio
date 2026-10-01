@@ -274,3 +274,4 @@ trimmed; plugins told they're rendering offline; Show in Finder when done; Stop.
 | Upload to SoundCloud, FL Cloud mastering | Yes | No |
 | Export all playlist tracks, consolidate, render as audio clip | Yes | Not yet (bouncing comes after automation) |
 | In a browser | — | No save dialog: the files are downloaded |
+| A mix over full scale | Clipped in the file (but 32-bit float); FL's default template has a limiter on the master | **Keep it from clipping** (on by default): the engine mixes in floating point, so a mix can go over full scale and sound clean live (the computer's volume turns it down before the speakers), but a file would clip. A render that goes over is turned down as a whole, every file alike, to −0.3 dB, so it sounds as it played; the window says by how much. Found on Théo's first export: his mix peaked +12.6 dB over and the 808 was clipped flat |

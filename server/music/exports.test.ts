@@ -7,11 +7,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { addChannels, setSteps } from "../../shared/music/edits.ts";
+import { addChannels, setMainVolume, setSteps } from "../../shared/music/edits.ts";
 import { DEFAULT_EXPORT_SETTINGS, type ExportSettings, type MusicExportJob } from "../../shared/music/export.ts";
-import { routeChannels } from "../../shared/music/mixer.ts";
-import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
-import { FFPROBE } from "../config.ts";
+import { routeChannels, updateMixerTrack } from "../../shared/music/mixer.ts";
+import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "../../shared/music/project.ts";
+import { FFMPEG, FFPROBE } from "../config.ts";
 import { run } from "../process.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
@@ -30,6 +30,13 @@ const song = () => {
   s = setSteps(setSteps(s, P, "chan_kick", [0, 4], true), P, "chan_bass", [8], true);
   return routeChannels(routeChannels(s, ["chan_kick"], "insert_1"), ["chan_bass"], "insert_2");
 };
+
+/** A file's loudest sample, in dB from full scale (ffmpeg says on stderr). */
+async function peakDb(file: string): Promise<number> {
+  let said = "";
+  await run(FFMPEG, ["-hide_banner", "-i", file, "-af", "astats=measure_overall=Peak_level:measure_perchannel=0", "-f", "null", "-"], { onStderr: (chunk) => (said += chunk.toString()) });
+  return Number(/Peak level dB: (-?[\d.]+)/.exec(said)?.[1] ?? NaN);
+}
 
 async function probe(file: string) {
   const out = await run(FFPROBE, ["-v", "error", "-show_entries", "stream=codec_name,sample_fmt,sample_rate,channels,bits_per_raw_sample:format=duration", "-of", "json", file]);
@@ -117,6 +124,25 @@ describe("MusicExports", () => {
     expect(await fs.readdir(path.dirname(chosen))).toEqual([]);
     // Free for the next.
     expect((await finished((await start({ mode: "pattern" })).id)).state).toBe("done");
+  });
+
+  it("turns a render that goes over full scale down, every file alike, so nothing clips; or leaves it, if asked", async () => {
+    // The master turned right up and the main volume too: the mix peaks at about 1.6 (+4 dB).
+    const loud = setMainVolume(updateMixerTrack(song(), MASTER_TRACK_ID, { volume: 1 }), 1);
+    const startLoud = (settings: Partial<ExportSettings>) =>
+      exports.start({ projectId: PROJECT, song: loud, patternId: P, selection: null, settings: { ...DEFAULT_EXPORT_SETTINGS, mode: "pattern", ...settings }, destination: null });
+    const job = await finished((await startLoud({ formats: ["wav", "mp3"], wavBits: 24, stems: true })).id);
+    expect(job.peakDb).toBeGreaterThan(3);
+    expect(job.gainDb).toBeCloseTo(-(job.peakDb! + 0.3), 6);
+    // Just under full scale, the mix and the stems alike.
+    expect(await peakDb(exports.file(job.id, "Night drive.wav"))).toBeCloseTo(-0.3, 1);
+    expect(await peakDb(exports.file(job.id, "Night drive - Insert 1.wav"))).toBeCloseTo(-0.3, 1);
+    expect(await peakDb(exports.file(job.id, "Night drive.mp3"))).toBeLessThan(0);
+
+    // Off: written as it is, so a 24-bit file clips at full scale.
+    const asIs = await finished((await startLoud({ formats: ["wav"], wavBits: 24, preventClipping: false })).id);
+    expect(asIs.gainDb).toBe(0);
+    expect(await peakDb(exports.file(asIs.id, "Night drive.wav"))).toBeCloseTo(0, 1);
   });
 
   it("fails cleanly when ffmpeg can't encode, saying why", async () => {

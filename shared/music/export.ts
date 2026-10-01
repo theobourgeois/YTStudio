@@ -52,6 +52,14 @@ export interface ExportSettings {
   flacLevel: number;
   /** Shaped noise when going down to 16 bits (WAV, FLAC), off by default. */
   dither: boolean;
+  /**
+   * The engine mixes in floating point, so a mix can go over full scale and still sound clean (the
+   * computer's volume turns it down before the speakers); a file can't hold that, and would clip. On
+   * (the default), a render that goes over is turned down as a whole, every file by the same amount,
+   * until its loudest peak is just under full scale (`CLIP_CEILING`): it sounds as it played. Off, it's
+   * written as it is (FL Studio's way: clipped, except in 32-bit float WAVs).
+   */
+  preventClipping: boolean;
   /** A file for each mixer track that has sound (FL's Split mixer tracks), from the same render. */
   stems: boolean;
   /** With stems: the mix too (FL's Include master). */
@@ -73,6 +81,7 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   flacBits: 24,
   flacLevel: 5,
   dither: false,
+  preventClipping: true,
   stems: false,
   includeMix: true,
   tail: "cut",
@@ -98,6 +107,7 @@ export function normalizeExportSettings(raw: unknown): ExportSettings {
     flacBits: FLAC_BITS.includes(input.flacBits as FlacBits) ? (input.flacBits as FlacBits) : d.flacBits,
     flacLevel: isFiniteNumber(input.flacLevel) ? Math.round(clamp(input.flacLevel, 0, 8)) : d.flacLevel,
     dither: typeof input.dither === "boolean" ? input.dither : d.dither,
+    preventClipping: typeof input.preventClipping === "boolean" ? input.preventClipping : d.preventClipping,
     stems: typeof input.stems === "boolean" ? input.stems : d.stems,
     includeMix: typeof input.includeMix === "boolean" ? input.includeMix : d.includeMix,
     tail: input.tail === "ring" ? "ring" : input.tail === "cut" ? "cut" : d.tail,
@@ -152,6 +162,10 @@ export interface MusicExportJob {
   seconds: number | null;
   /** The song's length rendered, in seconds (with the tail). */
   length: number | null;
+  /** The render's loudest sample, in dB from full scale (over 0: it went over), once rendered. */
+  peakDb: number | null;
+  /** How far it was turned down so as not to clip (`preventClipping`), in dB; 0 if it wasn't. */
+  gainDb: number;
 }
 
 /** A name a file can have on any system: no slashes, colons or the like, not too long. */
@@ -174,25 +188,40 @@ export const exportFileName = (base: string, track: string | null, format: Expor
  * `encoders` are the ones this ffmpeg has: the better one is used where there's a choice (Apple's AAC,
  * libvorbis; else ffmpeg's own Vorbis, which only takes a quality).
  */
-export function encoderArgs(format: AudioFormat, settings: ExportSettings, sampleRate: number, encoders: ReadonlySet<string> = new Set()): string[] {
-  const dither = (bits: number) => (bits === 16 && settings.dither ? ["-af", "aresample=osf=s16:dither_method=shibata"] : []);
+export function encoderArgs(format: AudioFormat, settings: ExportSettings, sampleRate: number, encoders: ReadonlySet<string> = new Set(), gain = 1): string[] {
+  // Turned down first (`exportGain`), then dithered on the way down to 16 bits if asked.
+  const filters = (bits: number) => {
+    const filters = [...(gain !== 1 ? [`volume=${gain.toFixed(6)}:precision=double`] : []), ...(bits === 16 && settings.dither ? ["aresample=osf=s16:dither_method=shibata"] : [])];
+    return filters.length ? ["-af", filters.join(",")] : [];
+  };
   switch (format) {
     case "wav": {
       const codec = settings.wavBits === 32 ? "pcm_f32le" : settings.wavBits === 24 ? "pcm_s24le" : "pcm_s16le";
-      return [...dither(settings.wavBits), "-c:a", codec];
+      return [...filters(settings.wavBits), "-c:a", codec];
     }
     case "flac":
-      return [...dither(settings.flacBits), "-c:a", "flac", "-sample_fmt", settings.flacBits === 16 ? "s16" : "s32", ...(settings.flacBits === 24 ? ["-bits_per_raw_sample", "24"] : []), "-compression_level", String(settings.flacLevel)];
+      return [...filters(settings.flacBits), "-c:a", "flac", "-sample_fmt", settings.flacBits === 16 ? "s16" : "s32", ...(settings.flacBits === 24 ? ["-bits_per_raw_sample", "24"] : []), "-compression_level", String(settings.flacLevel)];
     case "mp3":
       // MP3 only has 32, 44.1 and 48 kHz.
-      return ["-c:a", "libmp3lame", "-b:a", `${settings.mp3Bitrate}k`, ...([32000, 44100, 48000].includes(sampleRate) ? [] : ["-ar", sampleRate > 48000 ? "48000" : "44100"])];
+      return [...filters(0), "-c:a", "libmp3lame", "-b:a", `${settings.mp3Bitrate}k`, ...([32000, 44100, 48000].includes(sampleRate) ? [] : ["-ar", sampleRate > 48000 ? "48000" : "44100"])];
     case "ogg":
-      if (encoders.has("libvorbis")) return ["-c:a", "libvorbis", "-b:a", `${settings.oggBitrate}k`];
+      if (encoders.has("libvorbis")) return [...filters(0), "-c:a", "libvorbis", "-b:a", `${settings.oggBitrate}k`];
       // Quality 0..10, about 64 kb/s at 2 and 320 at 9.
-      return ["-c:a", "vorbis", "-strict", "-2", "-q:a", String(Math.round(clamp((settings.oggBitrate - 64) / 32 + 2, 0, 10)))];
+      return [...filters(0), "-c:a", "vorbis", "-strict", "-2", "-q:a", String(Math.round(clamp((settings.oggBitrate - 64) / 32 + 2, 0, 10)))];
     case "m4a":
-      return ["-c:a", encoders.has("aac_at") ? "aac_at" : "aac", "-b:a", `${settings.m4aBitrate}k`, "-movflags", "+faststart"];
+      return [...filters(0), "-c:a", encoders.has("aac_at") ? "aac_at" : "aac", "-b:a", `${settings.m4aBitrate}k`, "-movflags", "+faststart"];
   }
+}
+
+/** Where "just under full scale" is: −0.3 dB, room for a lossy format's own small overshoots. */
+export const CLIP_CEILING = 10 ** (-0.3 / 20);
+
+/**
+ * How much to turn a render down (a linear gain, 1: not at all), from the loudest sample of any of
+ * its files: one gain for all of them, so stems still add up to the mix.
+ */
+export function exportGain(peak: number, settings: Pick<ExportSettings, "preventClipping">): number {
+  return settings.preventClipping && peak > CLIP_CEILING ? CLIP_CEILING / peak : 1;
 }
 
 /** About how many bytes a second of stereo sound takes in a format, for the window's disk space. */
