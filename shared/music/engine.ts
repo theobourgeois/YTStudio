@@ -229,6 +229,11 @@ export interface SetSongRequest {
   mode?: PlayMode;
   /** How samples are read when pitched (default: Hermite). Settings' choice for playback. */
   resampling?: Resampling;
+  /**
+   * Controls held by the hand (a knob being dragged), by `targetKey`: their automation is left out while
+   * they're held, so the hand wins (`docs/fl-studio/automation.md`).
+   */
+  held?: string[];
 }
 
 export interface SetSongResponse {

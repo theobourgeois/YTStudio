@@ -145,7 +145,7 @@ export function automationValue(automation: Automation, tick: number, barTicks: 
 
 /**
  * The ticks inside a curve where its value may jump (Hold's, Stairs' and Pulse's steps, points on one
- * tick), from `from` to `to`: where a sampler of it must look closely.
+ * tick) or turn sharply (a wave's peaks), from `from` to `to`: where a sampler of it must look closely.
  */
 export function curveBreaks(automation: Automation, from: number, to: number): number[] {
   const breaks: number[] = [];
@@ -158,7 +158,9 @@ export function curveBreaks(automation: Automation, from: number, to: number): n
     const span = b.tick - a.tick;
     breaks.push(b.tick);
     if (span <= 0) continue;
-    const steps = b.curve === "stairs" ? stepCount(b.tension) : b.curve === "pulse" ? cycleCount(b.tension) * 2 : 0;
+    // Stairs' and pulses' steps are jumps; smooth stairs' and waves' turns are where a straight line would cut a corner.
+    const steps =
+      b.curve === "stairs" || b.curve === "smoothStairs" ? stepCount(b.tension) : b.curve === "pulse" ? cycleCount(b.tension) * 2 : b.curve === "wave" ? cycleCount(b.tension) * 2 - 1 : 0;
     for (let k = 1; k < steps; k++) {
       const at = a.tick + (span * k) / steps;
       if (at >= from && at <= to) breaks.push(at);

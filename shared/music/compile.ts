@@ -5,9 +5,10 @@
  * the mixer's routing as an order to run its tracks in. The engine (`engine/src/Song.cpp`) only has to
  * play samples and audio clips at the right moments and add up tracks as it's told.
  */
+import { automationIndex, controlAt, controlBreaks, controlOf, targetKey } from "./automation.ts";
 import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
-import { type Channel, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { type AutomationTarget, type Channel, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -116,6 +117,32 @@ export interface EngineAudioClip {
   speed: number;
 }
 
+/**
+ * What an automation lane drives in the engine, in the engine's own units: a channel's two gains, a mixer
+ * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, or a plugin's parameter (0..1,
+ * or -1 where the plugin keeps its own value: before any clip of it).
+ */
+export type EngineLaneTarget =
+  | { kind: "channel"; channel: number }
+  | { kind: "track"; track: number }
+  | { kind: "send"; track: number; send: number }
+  | { kind: "mix"; track: number; effect: number }
+  | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
+
+/**
+ * A control automated over the song (`docs/fl-studio/automation.md`), as straight lines between points:
+ * at `ticks[i]` (from the loop's start, in order; two on one tick are a jump) it's `values[i * n .. i * n + n]`,
+ * `n` being how many values its target takes (2 for a channel, 4 for a track, else 1).
+ */
+export interface EngineLane {
+  target: EngineLaneTarget;
+  ticks: number[];
+  values: number[];
+}
+
+/** How many values a lane's target takes at each point. */
+export const laneSize = (target: EngineLaneTarget) => (target.kind === "channel" ? 2 : target.kind === "track" ? 4 : 1);
+
 /** A part of the pattern to play on its own, in ticks: the Piano roll's time selection. */
 export interface LoopRange {
   start: number;
@@ -143,6 +170,8 @@ export interface EngineSong {
    * master last (what it puts out is what's heard).
    */
   tracks: EngineTrack[];
+  /** The automated controls (song mode only): what they are over the loop. Without one, a control is as `channels` and `tracks` say. */
+  lanes: EngineLane[];
 }
 
 /**
@@ -221,6 +250,19 @@ export function trackOrder(tracks: readonly MixerTrack[]): MixerTrack[] {
   return order;
 }
 
+/** A mixer track's gain matrix from its fader, pan and stereo separation (and the main volume, for the master). */
+function trackGains(track: Pick<MixerTrack, "invert" | "swap" | "stereo" | "pan" | "volume" | "muted">, main: number): EngineTrack["gains"] {
+  const gain = track.muted ? 0 : faderGain(track.volume) * main;
+  return after(mixerPanGains(track.pan), stereoGains(track)).map((g) => g * gain) as EngineTrack["gains"];
+}
+
+/** A channel's gains on each side, from its volume and pan. */
+function channelGains(channel: Pick<Channel, "muted" | "volume" | "pan">): [number, number] {
+  const gain = channel.muted ? 0 : levelGain(channel.volume, DEFAULT_VOLUME);
+  const [left, right] = panGains(channel.pan);
+  return [gain * left, gain * right];
+}
+
 function engineTracks(song: MusicProject): { tracks: EngineTrack[]; index: Map<string, number> } {
   const ordered = trackOrder(song.mixer.tracks);
   const index = new Map(ordered.map((t, i) => [t.id, i]));
@@ -228,13 +270,12 @@ function engineTracks(song: MusicProject): { tracks: EngineTrack[]; index: Map<s
   const tracks = ordered.map((track): EngineTrack => {
     // The main volume is the master's, after its fader.
     const main = track.id === MASTER_TRACK_ID ? levelGain(song.settings.volume, DEFAULT_VOLUME) : 1;
-    const gain = track.muted ? 0 : faderGain(track.volume) * main;
     const number = numbers.get(track.id)!;
     return {
       id: track.id,
       name: track.name ?? (number === 0 ? "Master" : `Insert ${number}`),
       effects: track.effects.flatMap((e) => (e ? [{ id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix }] : [])),
-      gains: after(mixerPanGains(track.pan), stereoGains(track)).map((g) => g * gain) as EngineTrack["gains"],
+      gains: trackGains(track, main),
       latencyOffset: track.latencyOffset,
       sends: track.sends.flatMap((send) => {
         const to = index.get(send.to);
@@ -252,8 +293,7 @@ const MAX_SWING = STEP_TICKS / 2;
 export const swungTick = (start: number, swing: number) => (start % (2 * STEP_TICKS) === STEP_TICKS ? start + swing * MAX_SWING : start);
 
 function engineChannel(channel: Channel, track: number): Omit<EngineChannel, "playsNotes"> {
-  const gain = channel.muted ? 0 : levelGain(channel.volume, DEFAULT_VOLUME);
-  const [left, right] = panGains(channel.pan);
+  const [gainLeft, gainRight] = channelGains(channel);
   const { enabled, ...envelope } = channel.envelope;
   const untouched = precomputedUntouched(channel.precomputed);
   const stream = channel.kind === "audio";
@@ -262,8 +302,8 @@ function engineChannel(channel: Channel, track: number): Omit<EngineChannel, "pl
     name: channel.name,
     sample: channel.sampleId,
     stream,
-    gainLeft: gain * left,
-    gainRight: gain * right,
+    gainLeft,
+    gainRight,
     pitch: channel.pitch,
     envelope: enabled && !stream ? envelope : null,
     cutSelf: channel.cutSelf,
@@ -280,7 +320,7 @@ function engineChannel(channel: Channel, track: number): Omit<EngineChannel, "pl
  * and round again, or only `loop`, a part of the song. Notes that start in the part played are heard; one
  * already sounding when it starts isn't.
  */
-export function compileSong(song: MusicProject, patternId: string | null, loop: LoopRange | null = null, mode: PlayMode = "pattern"): EngineSong {
+export function compileSong(song: MusicProject, patternId: string | null, loop: LoopRange | null = null, mode: PlayMode = "pattern", held: ReadonlySet<string> = NONE_HELD): EngineSong {
   const pattern = song.patterns.find((p) => p.id === patternId) ?? song.patterns[0];
   const [beats, unit] = song.settings.timeSignature;
   const beatTicks = (PPQ * 4) / unit;
@@ -303,8 +343,12 @@ export function compileSong(song: MusicProject, patternId: string | null, loop: 
     notes,
     audioClips: mode === "song" ? audioClips(song, from, to) : [],
     tracks,
+    // Automation only plays in song mode (Théo).
+    lanes: mode === "song" ? automationLanes(song, index, from, to, held) : [],
   };
 }
+
+const NONE_HELD: ReadonlySet<string> = new Set();
 
 /** A note as the engine plays it, `tick` ticks into the loop, `length` long. */
 function engineNote(channel: number, note: Pattern["notes"][string][number], tick: number, length: number): EngineNote {
@@ -412,4 +456,180 @@ export function soundingChannels(song: MusicProject, pattern: Pattern, tick: num
     }
   }
   return sounding;
+}
+
+// ---------------------------------------------------------------------------
+// Automation
+// ---------------------------------------------------------------------------
+
+/** How far a lane may be from the control it draws (in its own units: a gain, a plugin's 0..1), between its points. */
+const LANE_TOLERANCE = 1e-3;
+/** A lane is looked at every this many ticks at least, then closer where it bends, down to `LANE_FINEST`. */
+const LANE_STEP = 8;
+const LANE_FINEST = 1 / 8;
+/** Just before a tick: the value a control arrives at, before it jumps. */
+const JUST_BEFORE = 1e-6;
+
+/**
+ * The automated controls as the engine plays them: for each engine target whose controls any clip drives
+ * (and that isn't being held by the hand: `held`, by `targetKey`), what it is from `from` to `to` of the
+ * song, worked out from `controlAt` and drawn as straight lines close enough to it. A channel's volume
+ * and pan make one lane of its gains, a track's fader, pan and stereo separation (and the master's main
+ * volume) one of its matrix.
+ */
+function automationLanes(song: MusicProject, trackIndex: Map<string, number>, from: number, to: number, held: ReadonlySet<string>): EngineLane[] {
+  const index = automationIndex(song);
+  if (!index.size || to <= from) return [];
+  const automated = (target: AutomationTarget) => {
+    const key = targetKey(target);
+    return !held.has(key) && index.has(key) ? key : null;
+  };
+  /** A control's value at a tick, as its own (a pan's -1..1), or its own value where no clip says. */
+  const valueOf = (target: AutomationTarget, own: number) => {
+    const info = controlOf(song, target);
+    return (tick: number) => {
+      const fraction = controlAt(song, target, tick);
+      return fraction === null ? own : info.toControl(fraction);
+    };
+  };
+  const breaksOf = (keys: (string | null)[]) => {
+    const all = new Set<number>();
+    for (const key of keys) if (key) for (const tick of controlBreaks(index.get(key)!, from, to)) all.add(tick);
+    return [...all].sort((a, b) => a - b);
+  };
+  const lanes: EngineLane[] = [];
+  const add = (target: EngineLaneTarget, keys: (string | null)[], value: (tick: number) => number[]) => {
+    if (!keys.some(Boolean)) return;
+    lanes.push({ target, ...sampleLane(value, breaksOf(keys), from, to) });
+  };
+
+  song.channels.forEach((channel, i) => {
+    if (channel.muted) return;
+    const volumeTarget: AutomationTarget = { kind: "channel", channel: channel.id, control: "volume" };
+    const panTarget: AutomationTarget = { kind: "channel", channel: channel.id, control: "pan" };
+    const volume = valueOf(volumeTarget, channel.volume);
+    const pan = valueOf(panTarget, channel.pan);
+    add({ kind: "channel", channel: i }, [automated(volumeTarget), automated(panTarget)], (tick) => channelGains({ muted: false, volume: volume(tick), pan: pan(tick) }));
+  });
+
+  for (const track of song.mixer.tracks) {
+    const t = trackIndex.get(track.id)!;
+    if (!track.muted) {
+      const controls = (["volume", "pan", "stereo"] as const).map((control) => {
+        const target: AutomationTarget = { kind: "mixer", track: track.id, control };
+        return { key: automated(target), value: valueOf(target, track[control]) };
+      });
+      const master = track.id === MASTER_TRACK_ID;
+      const mainTarget: AutomationTarget = { kind: "main" };
+      const main = valueOf(mainTarget, song.settings.volume);
+      const keys = [...controls.map((c) => c.key), master ? automated(mainTarget) : null];
+      add({ kind: "track", track: t }, keys, (tick) =>
+        trackGains({ ...track, volume: controls[0].value(tick), pan: controls[1].value(tick), stereo: controls[2].value(tick) }, master ? levelGain(main(tick), DEFAULT_VOLUME) : 1),
+      );
+    }
+    // Sends as the engine has them (to later tracks), in the same order.
+    let sendIndex = 0;
+    for (const send of track.sends) {
+      const to = trackIndex.get(send.to);
+      if (to === undefined || to <= t) continue;
+      const target: AutomationTarget = { kind: "send", track: track.id, to: send.to };
+      const level = valueOf(target, send.level);
+      add({ kind: "send", track: t, send: sendIndex++ }, [automated(target)], (tick) => [levelGain(level(tick), 1)]);
+    }
+    let effectIndex = 0;
+    for (const effect of track.effects) {
+      if (!effect) continue;
+      const mixTarget: AutomationTarget = { kind: "effect", effect: effect.id };
+      const mix = valueOf(mixTarget, effect.mix);
+      add({ kind: "mix", track: t, effect: effectIndex++ }, [automated(mixTarget)], (tick) => [mix(tick)]);
+    }
+  }
+
+  // Plugins' parameters: wherever no clip says, the plugin keeps its own value (-1).
+  const pluginKeys = new Set<string>();
+  for (const automation of song.automations) {
+    const target = automation.target;
+    if (target.kind !== "plugin") continue;
+    const key = automated(target);
+    if (!key || pluginKeys.has(key) || !controlOf(song, target).exists) continue;
+    pluginKeys.add(key);
+    add({ kind: "param", owner: target.owner, id: target.id, param: target.param, index: target.index }, [key], (tick) => [controlAt(song, target, tick) ?? -1]);
+  }
+  return lanes;
+}
+
+/**
+ * A function of the song's ticks drawn as straight lines between points, from `from` to `to`, counted from
+ * `from`: looked at every `LANE_STEP` ticks and more closely where a straight line would be further than
+ * `LANE_TOLERANCE` from it, then thinned where the lines are straight. At each of `breaks` (where it may
+ * jump) it has two points on the tick: what it arrives at, and what it jumps to.
+ */
+export function sampleLane(value: (tick: number) => number[], breaks: readonly number[], from: number, to: number): { ticks: number[]; values: number[] } {
+  const edges = [from, ...breaks.filter((b) => b > from && b < to), to];
+  const ticks: number[] = [];
+  const values: number[] = [];
+  for (let e = 0; e + 1 < edges.length; e++) {
+    const a = edges[e];
+    const b = edges[e + 1];
+    // One run of points without jumps: sampled, refined, thinned.
+    const run: { tick: number; value: number[] }[] = [];
+    const steps = Math.max(1, Math.ceil((b - a) / LANE_STEP));
+    let previous = { tick: a, value: value(a) };
+    run.push(previous);
+    // Looked at in quarters, not only the middle: an S (a smooth or double curve, half a wave) crosses its
+    // straight line there, as if it were one.
+    const refine = (left: { tick: number; value: number[] }, right: { tick: number; value: number[] }) => {
+      if (right.tick - left.tick <= LANE_FINEST) return;
+      const span = right.tick - left.tick;
+      const middle = { tick: left.tick + span / 2, value: value(left.tick + span / 2) };
+      const off = (at: number, got: number[]) => got.some((v, i) => Math.abs(v - (left.value[i] + (right.value[i] - left.value[i]) * at)) > LANE_TOLERANCE);
+      if (!off(0.5, middle.value) && !off(0.25, value(left.tick + span / 4)) && !off(0.75, value(left.tick + (span * 3) / 4))) return;
+      refine(left, middle);
+      run.push(middle);
+      refine(middle, right);
+    };
+    for (let k = 1; k <= steps; k++) {
+      const tick = k === steps ? b : a + ((b - a) * k) / steps;
+      const next = { tick, value: value(k === steps ? b - JUST_BEFORE : tick) };
+      refine(previous, next);
+      run.push(next);
+      previous = next;
+    }
+    for (const point of thin(run)) {
+      const tick = point.tick - from;
+      const n = point.value.length;
+      // Where the last run ended on the value this one starts at, there's no jump: one point does.
+      if (ticks.length && ticks[ticks.length - 1] === tick && point.value.every((v, c) => v === values[values.length - n + c])) continue;
+      ticks.push(tick);
+      values.push(...point.value);
+    }
+  }
+  return { ticks, values };
+}
+
+/** Douglas–Peucker: the points of a polyline that keep it within `LANE_TOLERANCE` of what it was. */
+function thin(run: { tick: number; value: number[] }[]): { tick: number; value: number[] }[] {
+  if (run.length <= 2) return run;
+  const keep = new Uint8Array(run.length);
+  keep[0] = keep[run.length - 1] = 1;
+  const stack: [number, number][] = [[0, run.length - 1]];
+  while (stack.length) {
+    const [i, j] = stack.pop()!;
+    let worst = -1;
+    let at = -1;
+    for (let k = i + 1; k < j; k++) {
+      const f = (run[k].tick - run[i].tick) / (run[j].tick - run[i].tick || 1);
+      let off = 0;
+      for (let c = 0; c < run[k].value.length; c++) off = Math.max(off, Math.abs(run[k].value[c] - (run[i].value[c] + (run[j].value[c] - run[i].value[c]) * f)));
+      if (off > worst) {
+        worst = off;
+        at = k;
+      }
+    }
+    if (worst > LANE_TOLERANCE) {
+      keep[at] = 1;
+      stack.push([i, at], [at, j]);
+    }
+  }
+  return run.filter((_, i) => keep[i]);
 }
