@@ -42,6 +42,10 @@ import {
   updateSong,
 } from "./tool-edits";
 import { switchMode, useTransport } from "./transport";
+import { armedIn, takesOf, useRecording } from "./recording";
+import { inputChoices, inputKey, useInputs } from "./inputs";
+import { inputText } from "./mixer/tool-edits";
+import { COUNT_IN_BARS, useMusicPreferences } from "./preferences";
 import { addAudioClips, clipContext } from "@shared/music/playlist";
 import {
   chopClipsTool,
@@ -200,7 +204,84 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   move_pattern: edit(movePatternTool),
   async get_mixer(_input, ctx) {
     const target = await targetOf(ctx);
-    return textResult(describeMixer(target.song, target.open ? useTransport.getState().effects : null));
+    return textResult(describeMixer(target.song, target.open ? useTransport.getState().effects : null, target.open ? useRecording.getState().armed : []));
+  },
+  async list_audio_inputs(_input, ctx) {
+    const target = await targetOf(ctx);
+    await useInputs.getState().load();
+    const { device, channels } = useInputs.getState();
+    const lines = device
+      ? [`The input device is "${device}". Its inputs, as update_mixer_track's "input" takes them:`, ...inputChoices(channels).map((c) => `- "${inputText(c.input)}": ${c.label}${c.input.stereo ? " (stereo pair)" : ""}`)]
+      : ["No input device is open: the user chooses one in Settings (⌘,, Music → Input device). Until then nothing can be recorded."];
+    const armed = target.open ? armedIn(target.song, useRecording.getState().armed) : [];
+    const taking = target.song.mixer.tracks.filter((t) => t.input);
+    lines.push(
+      "",
+      taking.length
+        ? `Tracks with an input: ${taking.map((t) => `${trackLabel(target.song, t)} takes "${inputText(t.input!)}"${armed.includes(t.id) ? " (armed)" : ""}`).join("; ")}.`
+        : "No mixer track takes an input yet.",
+    );
+    if (device && taking.some((t) => !channels.length || !inputChoices(channels).some((c) => inputKey(c.input) === inputKey(t.input)))) lines.push("Some of those inputs aren't on this device: they record silence.");
+    return textResult(lines.join("\n"));
+  },
+  async arm_tracks(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Arming tracks");
+    if (!Array.isArray(input.tracks) || !input.tracks.length) throw new Error('"tracks" must be a list of mixer tracks (ids, numbers or names from get_mixer).');
+    const tracks = input.tracks.map((ref) => findTrack(target.song, ref));
+    const arm = input.armed !== false;
+    const without = tracks.filter((t) => !t.input);
+    if (arm && without.length) throw new Error(`${without.map((t) => trackLabel(target.song, t)).join(", ")} ${without.length === 1 ? "has" : "have"} no input: give ${without.length === 1 ? "it" : "them"} one with update_mixer_track first ("input").`);
+    for (const track of tracks) useRecording.getState().arm(track.id, arm);
+    return textResult(`${arm ? "Armed" : "Disarmed"} ${tracks.map((t) => trackLabel(target.song, t)).join(", ")}. Armed now: ${useRecording.getState().armed.map((id) => trackLabel(target.song, findTrack(target.song, id))).join(", ") || "none"}.`);
+  },
+  async record_audio(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Recording");
+    const recording = useRecording.getState();
+    if (input.action === "stop") {
+      const active = recording.active;
+      useTransport.getState().stop();
+      if (!active) return textResult("Nothing was recording; stopped.");
+      const takes = await takesOf(active.id, active.tracks.length);
+      if (!takes.length) return textResult("Stopped. Nothing was recorded (it was stopped in its count-in, or the takes couldn't be kept).");
+      const song = useMusic.getState().history!.doc;
+      const ctxClip = clipContext(song);
+      return textResult(
+        [
+          `Stopped. ${takes.length} take${takes.length === 1 ? "" : "s"} placed on the Playlist:`,
+          ...takes.map((t) => `- ${trackLabel(song, findTrack(song, t.track))}${t.pass ? ` pass ${t.pass + 1}` : ""}: ${t.seconds.toFixed(1)} s from bar ${(t.startTick / ctxClip.barTicks + 1).toFixed(2).replace(/\.00$/, "")}`),
+          "get_playlist has the clips (each on its own audio clip channel, routed back into the track that recorded it).",
+        ].join("\n"),
+      );
+    }
+    if (input.action !== "start") throw new Error('"action" must be "start" or "stop".');
+    if (recording.active) throw new Error("It's recording already: stop it first.");
+    const armed = armedIn(target.song, recording.armed);
+    if (!armed.length) throw new Error("No mixer track is armed: give one an input (update_mixer_track) and arm it (arm_tracks).");
+    const options: Partial<ReturnType<typeof useMusicPreferences.getState>["recording"]> = {};
+    if (input.countIn !== undefined) {
+      if (!COUNT_IN_BARS.includes(input.countIn as (typeof COUNT_IN_BARS)[number])) throw new Error(`"countIn" must be one of ${COUNT_IN_BARS.join(", ")} (bars).`);
+      options.countIn = input.countIn as number;
+    }
+    if (typeof input.loop === "boolean") options.loop = input.loop;
+    if (typeof input.blend === "boolean") options.blend = input.blend;
+    if (Object.keys(options).length) useMusicPreferences.getState().setRecording(options);
+    if (input.bar !== undefined) {
+      if (typeof input.bar !== "number" || !(input.bar >= 1)) throw new Error('"bar" must be a bar number, 1 or more.');
+      useTransport.getState().setSongStartTick(Math.round((input.bar - 1) * clipContext(target.song).barTicks));
+    }
+    if (useTransport.getState().playing) useTransport.getState().stop();
+    recording.setOn(true);
+    await recording.record();
+    // In pattern mode it switches to the song first, and starts once the engine has it.
+    for (let waited = 0; !useRecording.getState().active && waited < 3000; waited += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+    if (!useRecording.getState().active) throw new Error("Recording didn't start (the audio engine may have refused: see the editor).");
+    const prefs = useMusicPreferences.getState().recording;
+    return textResult(
+      `Recording ${armed.map((id) => trackLabel(target.song, findTrack(target.song, id))).join(", ")}${prefs.countIn ? ` after ${prefs.countIn} bar${prefs.countIn === 1 ? "" : "s"} of count-in` : ""}${prefs.loop ? ", looping (a take each pass)" : ""}. ` +
+        "The user performs now; call record_audio with action \"stop\" when they're done (or they press Stop).",
+    );
   },
   route_channels: edit(routeChannelsTool),
   update_mixer_track: edit(updateMixerTrackTool),

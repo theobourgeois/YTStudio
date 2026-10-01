@@ -112,3 +112,15 @@ describe("the assistant's playlist tools", () => {
     expect(describePlaylist(beat(), null)).toContain("Nothing is on it yet");
   });
 });
+
+describe("the assistant's audio tracks", () => {
+  it("link a playlist track to a mixer track, and back", () => {
+    const { song, text } = updatePlaylistTrackTool(beat(), { track: 3, audioTrack: "Insert 2" });
+    expect(song.playlist.tracks[2].mixerTrack).toBe("insert_2");
+    expect(text).toMatch(/the audio track of Insert 2/);
+    expect(describePlaylist(song, null)).toMatch(/Track 3 \(audio track of Insert 2: its takes land here\)/);
+    expect(updatePlaylistTrackTool(song, { track: 3, audioTrack: "none" }).song.playlist.tracks).toEqual([]);
+    expect(() => updatePlaylistTrackTool(beat(), { track: 1, audioTrack: "master" })).toThrow(/master/);
+  });
+});
+

@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import type { EngineChannels, EngineCommands, EngineEffects, EngineMeters, EnginePreview, MetronomeSound } from "@shared/music/engine";
 import { musicApi } from "./api";
-import { useRecording } from "./recording";
 
 /**
  * What the audio engine is doing, as it tells us (`engine-sync.ts` feeds this from its event
@@ -88,6 +87,21 @@ interface TransportState {
   setMode: (mode: PlayMode) => void;
 }
 
+/**
+ * Recording's part in the transport (`recording.ts` gives it, so the transport needn't import the song's
+ * store): whether Play records, starting a recording, being told play stopped, and whether one is going.
+ */
+export interface Recorder {
+  recordsOnPlay: () => boolean;
+  record: () => void;
+  stopped: () => void;
+  recording: () => boolean;
+}
+let recorder: Recorder | null = null;
+export const setRecorder = (hook: Recorder) => {
+  recorder = hook;
+};
+
 export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: [] };
 export const NO_METERS: EngineMeters = {};
 export const NO_EFFECTS: EngineEffects = { loaded: [], loading: [], failed: [] };
@@ -138,7 +152,7 @@ export const useTransport = create<TransportState>((set, get) => {
     // From where the ruler was clicked, if that's inside what loops; the engine counts from the loop's start.
     // While Record is on, Play records.
     play() {
-      if (useRecording.getState().on) return void useRecording.getState().record();
+      if (recorder?.recordsOnPlay()) return recorder.record();
       if (get().exporting) return void toast.info("Exporting", { description: "Playback comes back as soon as the export is done.", id: "exporting" });
       const { loop, pausedAt } = get();
       const from = (pausedAt ?? get().startOf()) - loop.start;
@@ -147,12 +161,12 @@ export const useTransport = create<TransportState>((set, get) => {
     },
     stop() {
       set({ pausedAt: null });
-      useRecording.getState().stopped();
+      recorder?.stopped();
       void run("stop", {});
     },
     pause(tick) {
       set({ pausedAt: Math.max(0, Math.round(tick)) });
-      useRecording.getState().stopped();
+      recorder?.stopped();
       void run("stop", {});
     },
     toggle: () => (get().playing ? get().stop() : get().play()),
@@ -171,14 +185,14 @@ export const useTransport = create<TransportState>((set, get) => {
     jumpTo(tick) {
       get().setStartTick(tick);
       // (Not while recording: play goes on, the next one starts there.)
-      if (useRecording.getState().active) return;
+      if (recorder?.recording()) return;
       if (get().mode !== "pattern") return switchMode("pattern");
       if (get().playing) get().play();
     },
     setSongStartTick: (tick) => set({ songStartTick: Math.max(0, Math.round(tick)), pausedAt: null }),
     jumpSongTo(tick) {
       get().setSongStartTick(tick);
-      if (useRecording.getState().active) return;
+      if (recorder?.recording()) return;
       if (get().mode !== "song") return switchMode("song");
       if (get().playing) get().play();
     },

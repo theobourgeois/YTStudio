@@ -7,11 +7,10 @@ import { stepsPerBar } from "@shared/music/project";
 import { type Take, addTakes } from "@shared/music/recording";
 import { type MixerInput, type MusicProject, PPQ, STEP_TICKS } from "@shared/music/types";
 import { commit, undo } from "@/lib/document-history";
-import { askMicrophone } from "@/lib/desktop";
 import { musicApi } from "./api";
 import { useMusicPreferences } from "./preferences";
 import { useMusic } from "./store";
-import { switchMode, useTransport } from "./transport";
+import { setRecorder, switchMode, useTransport } from "./transport";
 
 /** A recording in progress, as the tab knows it. */
 export interface ActiveRecording {
@@ -57,6 +56,10 @@ interface RecordingState {
 const recordings = new Map<string, { loopStart: number; projectId: string }>();
 /** The last takes committed, to make the next of the same recording the same undo step. */
 let lastTakes: { recordingId: string; takes: Take[]; doc: MusicProject } | null = null;
+/** Each recording's final takes come in one per track: who's waiting for them (`takesOf`). */
+const waiting = new Map<string, { tracks: number; finals: number; done: (takes: Take[]) => void }>();
+/** Every take placed, by recording (for `takesOf`). */
+const placed = new Map<string, Take[]>();
 
 /** A bar of the song, in ticks. */
 const barTicks = (song: MusicProject) => stepsPerBar(song.settings.timeSignature) * STEP_TICKS;
@@ -154,8 +157,19 @@ export const useRecording = create<RecordingState>((set, get) => ({
     if (next === history) return;
     useMusic.setState({ history: next });
     lastTakes = { recordingId: event.recordingId, takes, doc: next.doc };
+    placed.set(event.recordingId, [...(placed.get(event.recordingId) ?? []), take]);
+    const wait = waiting.get(event.recordingId);
+    if (wait && event.final && ++wait.finals >= wait.tracks) wait.done(placed.get(event.recordingId) ?? []);
   },
 }));
+
+// While Record is on, the transport's Play records; Stop ends a recording.
+setRecorder({
+  recordsOnPlay: () => useRecording.getState().on,
+  record: () => void useRecording.getState().record(),
+  stopped: () => useRecording.getState().stopped(),
+  recording: () => useRecording.getState().active !== null,
+});
 
 // Another song: nothing of the last one is armed.
 useMusic.subscribe((state, prev) => {
@@ -172,10 +186,27 @@ export function armedIn(song: MusicProject, armed: readonly string[]): string[] 
 
 /**
  * Give a mixer track an input (or none): as in FL Studio, choosing one arms the track, and none
- * disarms it. Opening an input asks for the microphone first in the desktop app.
+ * disarms it.
  */
-export async function setTrackInput(trackId: string, input: MixerInput | null) {
-  if (input) await askMicrophone()?.catch(() => {});
+export function setTrackInput(trackId: string, input: MixerInput | null) {
   useMusic.getState().commit((song) => updateMixerTrack(song, trackId, { input }));
   useRecording.getState().arm(trackId, input !== null);
+}
+
+/**
+ * The takes of a recording once its last ones are in (one final take per track it recorded), or what's
+ * come by `timeoutMs` (the assistant's record_audio, answering on stop).
+ */
+export function takesOf(recordingId: string, tracks: number, timeoutMs = 5000): Promise<Take[]> {
+  return new Promise((resolve) => {
+    const done = (takes: Take[]) => {
+      clearTimeout(timer);
+      waiting.delete(recordingId);
+      resolve(takes);
+    };
+    const finals = (placed.get(recordingId) ?? []).filter((t) => t.final).length;
+    if (finals >= tracks) return resolve(placed.get(recordingId) ?? []);
+    const timer = setTimeout(() => done(placed.get(recordingId) ?? []), timeoutMs);
+    waiting.set(recordingId, { tracks, finals, done });
+  });
 }

@@ -2,6 +2,10 @@ import { create } from "zustand";
 import { DEFAULT_METRONOME_SOUND, type MetronomeSound, type Resampling, isMetronomeSound, isResampling } from "@shared/music/engine";
 import { DEFAULT_TEMPO, MAX_TEMPO, MIN_TEMPO, type NewSongOptions } from "@shared/music/project";
 
+/** This browser's storage, or none (Node, in tests that load the transport): nothing is kept then. */
+const storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> =
+  typeof localStorage !== "undefined" ? localStorage : { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+
 const DEFAULT_TEMPO_KEY = "music-default-tempo";
 const METRONOME_SOUND_KEY = "music-metronome-sound";
 const TIME_FORMAT_KEY = "music-time-format";
@@ -28,7 +32,7 @@ const DEFAULT_RECORDING: RecordingOptions = { countIn: 1, loop: false, blend: fa
 
 function storedRecording(): RecordingOptions {
   try {
-    const raw = JSON.parse(localStorage.getItem(RECORDING_KEY) ?? "{}") as Partial<RecordingOptions>;
+    const raw = JSON.parse(storage.getItem(RECORDING_KEY) ?? "{}") as Partial<RecordingOptions>;
     return {
       countIn: COUNT_IN_BARS.includes(raw.countIn as (typeof COUNT_IN_BARS)[number]) ? (raw.countIn as number) : DEFAULT_RECORDING.countIn,
       loop: raw.loop === true,
@@ -44,7 +48,7 @@ function storedRecording(): RecordingOptions {
 export type TimeFormat = "bst" | "mscs";
 
 const storedResampling = (key: string, fallback: Resampling): Resampling => {
-  const value = localStorage.getItem(key);
+  const value = storage.getItem(key);
   return isResampling(value) ? value : fallback;
 };
 
@@ -77,41 +81,41 @@ interface MusicPreferencesState {
   setRecording: (patch: Partial<RecordingOptions>) => void;
 }
 
-const storedSound = localStorage.getItem(METRONOME_SOUND_KEY);
+const storedSound = storage.getItem(METRONOME_SOUND_KEY);
 
 export const useMusicPreferences = create<MusicPreferencesState>((set, get) => ({
   recording: storedRecording(),
   setRecording(patch) {
     const recording = { ...get().recording, ...patch };
-    localStorage.setItem(RECORDING_KEY, JSON.stringify(recording));
+    storage.setItem(RECORDING_KEY, JSON.stringify(recording));
     set({ recording });
   },
-  defaultTempo: validTempo(localStorage.getItem(DEFAULT_TEMPO_KEY)),
+  defaultTempo: validTempo(storage.getItem(DEFAULT_TEMPO_KEY)),
   setDefaultTempo(tempo) {
     const defaultTempo = tempo === null ? null : validTempo(tempo);
-    if (defaultTempo === null) localStorage.removeItem(DEFAULT_TEMPO_KEY);
-    else localStorage.setItem(DEFAULT_TEMPO_KEY, String(defaultTempo));
+    if (defaultTempo === null) storage.removeItem(DEFAULT_TEMPO_KEY);
+    else storage.setItem(DEFAULT_TEMPO_KEY, String(defaultTempo));
     set({ defaultTempo });
   },
   metronomeSound: isMetronomeSound(storedSound) ? storedSound : DEFAULT_METRONOME_SOUND,
   setMetronomeSound(metronomeSound) {
-    localStorage.setItem(METRONOME_SOUND_KEY, metronomeSound);
+    storage.setItem(METRONOME_SOUND_KEY, metronomeSound);
     set({ metronomeSound });
   },
-  timeFormat: localStorage.getItem(TIME_FORMAT_KEY) === "mscs" ? "mscs" : "bst",
+  timeFormat: storage.getItem(TIME_FORMAT_KEY) === "mscs" ? "mscs" : "bst",
   setTimeFormat(timeFormat) {
-    localStorage.setItem(TIME_FORMAT_KEY, timeFormat);
+    storage.setItem(TIME_FORMAT_KEY, timeFormat);
     set({ timeFormat });
   },
   resampling: storedResampling(RESAMPLING_KEY, "hermite"),
   exportResampling: storedResampling(EXPORT_RESAMPLING_KEY, "sinc"),
   setResampling({ resampling, exportResampling }) {
     if (isResampling(resampling)) {
-      localStorage.setItem(RESAMPLING_KEY, resampling);
+      storage.setItem(RESAMPLING_KEY, resampling);
       set({ resampling });
     }
     if (isResampling(exportResampling)) {
-      localStorage.setItem(EXPORT_RESAMPLING_KEY, exportResampling);
+      storage.setItem(EXPORT_RESAMPLING_KEY, exportResampling);
       set({ exportResampling });
     }
   },

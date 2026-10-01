@@ -8,6 +8,7 @@ import {
   describeMixer,
   findTrack,
   groupMixerTracksTool,
+  parseInput,
   moveMixerTrackTool,
   removeMixerEffectTool,
   removeMixerTrackTool,
@@ -131,3 +132,23 @@ describe("get_mixer", () => {
     expect(text).toContain('- insert 5 ("Insert 5")');
   });
 });
+
+describe("the assistant's inputs", () => {
+  it("are read as FL numbers them: one input, or a pair next to each other", () => {
+    expect(parseInput("1")).toEqual({ channel: 0, stereo: false });
+    expect(parseInput(3)).toEqual({ channel: 2, stereo: false });
+    expect(parseInput("3-4")).toEqual({ channel: 2, stereo: true });
+    expect(parseInput("none")).toBeNull();
+    for (const bad of ["0", "2-4", "1-", "left", "65"]) expect(() => parseInput(bad), bad).toThrow(/list_audio_inputs/);
+  });
+
+  it("give an insert its input, monitoring and offset, never the master, and say so in get_mixer", () => {
+    const { song, text } = updateMixerTrackTool(rack(), { track: 2, input: "1-2", monitor: "on", inputOffset: 12 }, env);
+    expect(track(song, 2)).toMatchObject({ input: { channel: 0, stereo: true }, monitor: "on", inputOffset: 12 });
+    expect(text).toMatch(/records input 1-2 \(stereo, always heard\), input offset 12 ms/);
+    expect(() => updateMixerTrackTool(rack(), { track: "master", input: "1" }, env)).toThrow(/master/);
+    expect(() => updateMixerTrackTool(rack(), { track: 1, monitor: "sometimes" }, env)).toThrow(/off, armed, on/);
+    expect(describeMixer(song, null, [track(song, 2).id])).toMatch(/insert 2 .*\(id insert_2\): .*records input 1-2.*ARMED to record/);
+  });
+});
+

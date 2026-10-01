@@ -28,8 +28,8 @@ import {
   updateMixerTrack,
   type MixerTrackPatch,
 } from "@shared/music/mixer";
-import { EFFECT_SLOTS, MASTER_TRACK_ID, MAX_LATENCY_OFFSET, TRACK_COLORS, createMixerTrack } from "@shared/music/project";
-import type { MixerTrack, MusicProject } from "@shared/music/types";
+import { EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_CHANNELS, MAX_INPUT_OFFSET, MAX_LATENCY_OFFSET, TRACK_COLORS, createMixerTrack } from "@shared/music/project";
+import type { InputMonitor, MixerInput, MixerTrack, MusicProject } from "@shared/music/types";
 import { type SongEdit, findChannel } from "../tool-edits";
 import { faderAt, faderDb } from "./meter";
 
@@ -77,6 +77,23 @@ function slotOf(input: Input): number {
 
 const percent = (v: number) => `${Math.round(v * 100)}%`;
 
+/** A track's input as the tools name it: "1" (mono), "1-2" (a stereo pair), by the device's numbers from 1. */
+export const inputText = (input: MixerInput) => (input.stereo ? `${input.channel + 1}-${input.channel + 2}` : `${input.channel + 1}`);
+
+/** An input as the tools give it ("1", "1-2", "none"), or an error saying how to write one. */
+export function parseInput(value: unknown): MixerInput | null {
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (text === "none" || text === "") return null;
+  const match = /^(\d+)(?:\s*-\s*(\d+))?$/.exec(text);
+  const first = match ? Number(match[1]) : NaN;
+  const second = match?.[2] === undefined ? null : Number(match[2]);
+  if (!match || first < 1 || first > MAX_INPUT_CHANNELS || (second !== null && second !== first + 1) || (second ?? first) > MAX_INPUT_CHANNELS)
+    throw new Error('"input" must be an input\'s number ("1": mono), two next to each other ("1-2": a stereo pair), or "none". list_audio_inputs has the device\'s.');
+  return { channel: first - 1, stereo: second !== null };
+}
+
+const MONITOR_TEXT: Record<InputMonitor, string> = { off: "never heard", armed: "heard while armed", on: "always heard" };
+
 /** A track's own controls, in a line. */
 export function describeTrack(song: MusicProject, track: MixerTrack): string {
   const parts = [
@@ -87,6 +104,8 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
     track.swap ? "sides swapped" : null,
     track.stereo ? `stereo ${percent(Math.abs(track.stereo))} ${track.stereo > 0 ? "narrower" : "wider"}` : null,
     track.latencyOffset ? `delay offset ${track.latencyOffset} ms` : null,
+    track.input ? `records input ${inputText(track.input)} (${track.input.stereo ? "stereo" : "mono"}, ${MONITOR_TEXT[track.monitor]})` : null,
+    track.inputOffset ? `input offset ${track.inputOffset} ms` : null,
     track.dock !== "middle" && track.id !== MASTER_TRACK_ID ? `docked ${track.dock}` : null,
     track.separator ? "a divider before it" : null,
     track.group ? `in the group "${song.mixer.groups.find((g) => g.id === track.group)?.name ?? track.group}"` : null,
@@ -95,8 +114,11 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
   return `${label(song, track)} (id ${track.id}): ${parts.filter(Boolean).join(", ")}`;
 }
 
-/** The mixer as text (`get_mixer`). `effects` is what the engine says of the effects, when it's known (the song open in the editor). */
-export function describeMixer(song: MusicProject, effects: EngineEffects | null): string {
+/**
+ * The mixer as text (`get_mixer`). `effects` is what the engine says of the effects, when it's known (the
+ * song open in the editor), and `armed` the tracks armed to record there.
+ */
+export function describeMixer(song: MusicProject, effects: EngineEffects | null, armed: readonly string[] = []): string {
   const lines = ["The mixer (a channel plays into its track; a track's sound goes through its effects, its fader and pan, then to the tracks it sends to):"];
   const quiet: number[] = [];
   song.mixer.tracks.forEach((track, number) => {
@@ -104,7 +126,7 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null)
       quiet.push(number);
       return;
     }
-    lines.push(`- ${describeTrack(song, track)}`);
+    lines.push(`- ${describeTrack(song, track)}${armed.includes(track.id) ? ", ARMED to record" : ""}`);
     const channels = channelsOn(song, track.id);
     if (channels.length) lines.push(`    channels: ${channels.map((c) => `"${c.name}"`).join(", ")}`);
     track.effects.forEach((effect, slot) => {
@@ -129,7 +151,7 @@ function isUntouched(song: MusicProject, track: MixerTrack): boolean {
   return (
     isFreeTrack(song, track) &&
     track.color === null &&
-    (["volume", "pan", "muted", "invert", "swap", "stereo", "latencyOffset"] as const).every((key) => track[key] === fresh[key]) &&
+    (["volume", "pan", "muted", "invert", "swap", "stereo", "latencyOffset", "input", "monitor", "inputOffset"] as const).every((key) => track[key] === fresh[key]) &&
     track.sends.length === 1 &&
     track.sends[0].to === MASTER_TRACK_ID &&
     track.sends[0].level === 1
@@ -187,6 +209,17 @@ export const updateMixerTrackTool: SongEdit = (song, input) => {
   const offset = numberIn(input, "latencyOffset", -MAX_LATENCY_OFFSET, MAX_LATENCY_OFFSET);
   if (offset !== undefined) patch.latencyOffset = offset;
   if (typeof input.separator === "boolean") patch.separator = input.separator;
+  if (input.input !== undefined) {
+    const parsed = parseInput(input.input);
+    if (parsed && track.id === MASTER_TRACK_ID) throw new Error("The master can't take an input: it gets the whole song. Give an insert one.");
+    patch.input = parsed;
+  }
+  if (input.monitor !== undefined) {
+    if (!INPUT_MONITORS.includes(input.monitor as InputMonitor)) throw new Error(`"monitor" must be one of ${INPUT_MONITORS.join(", ")}.`);
+    patch.monitor = input.monitor as InputMonitor;
+  }
+  const inputOffset = numberIn(input, "inputOffset", -MAX_INPUT_OFFSET, MAX_INPUT_OFFSET);
+  if (inputOffset !== undefined) patch.inputOffset = inputOffset;
   if (input.dock !== undefined) {
     if (input.dock !== "left" && input.dock !== "middle" && input.dock !== "right") throw new Error('"dock" must be "left", "middle" or "right".');
     if (track.id === MASTER_TRACK_ID && input.dock !== "left") throw new Error("The master is always docked on the left.");

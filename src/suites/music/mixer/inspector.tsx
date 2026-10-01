@@ -7,6 +7,7 @@ import { EFFECT_SLOTS, MASTER_TRACK_ID } from "@shared/music/project";
 import type { InputMonitor, MixerEffect } from "@shared/music/types";
 import { Select, SelectContent, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSettings } from "@/stores/settings";
+import { askMicrophone } from "@/lib/desktop";
 import { inputChoices, inputKey, inputLabel, useInputs } from "../inputs";
 import { setTrackInput } from "../recording";
 import { ArmButton } from "./arm-button";
@@ -311,7 +312,9 @@ function TrackInput({ trackId, name }: { trackId: string; name: string }) {
           onValueChange={(value) => {
             if (value === "settings") return useSettings.getState().show("music");
             const choice = choices.find((c) => inputKey(c.input) === value);
-            void setTrackInput(trackId, choice?.input ?? null);
+            // The desktop app asks for the microphone as an input is first chosen (macOS asks the app, not the engine).
+            if (choice) void askMicrophone()?.catch(() => {});
+            setTrackInput(trackId, choice?.input ?? null);
           }}
         >
           <SelectTrigger size="sm" className="h-6 min-w-0 flex-1 text-[11px]" aria-label="Input">
