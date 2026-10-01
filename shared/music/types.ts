@@ -90,6 +90,8 @@ export interface Channel {
   precomputed: Precomputed;
   /** The mixer track it plays into (a `MixerTrack` id): the master unless routed elsewhere. */
   mixerTrack: string;
+  /** "#rrggbb", or null for the usual: an audio clip channel's clips take it (FL's Rename and recolor). */
+  color: string | null;
 }
 
 export type ChannelKind = "sampler" | "plugin" | "audio";
@@ -123,6 +125,8 @@ export interface Pattern {
   length: number | null;
   /** Each channel's notes (by channel id), in order of `start`. Channels without notes are absent. */
   notes: Record<string, Note[]>;
+  /** "#rrggbb", or null for the usual: its clips in the Playlist take it, as in FL Studio. */
+  color: string | null;
 }
 
 /** An effect plugin in a mixer track's slot. */

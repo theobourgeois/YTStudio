@@ -351,6 +351,29 @@ export function sliceClips(clips: PlaylistClip[], at: number, top: number, botto
   return addClips(next, tails);
 }
 
+/**
+ * Chop (the clip menu's): cut each of the clips in `ids` at every multiple of `every` ticks of the song
+ * inside it (every bar, every beat...), into pieces carrying on through its content. Each first piece
+ * keeps its clip's id; the rest are new clips.
+ */
+export function chopClips(clips: PlaylistClip[], ids: ClipIds, every: number, ctx: ClipContext): CreatedClips {
+  const step = Math.round(every);
+  if (step < 1 || !ids.size) return nothing(clips);
+  const pieces: NewClip[] = [];
+  const next = clips.map((clip) => {
+    if (!ids.has(clip.id)) return clip;
+    const end = clipEnd(clip, ctx);
+    const first = (Math.floor(clip.start / step) + 1) * step;
+    if (first >= end) return clip;
+    for (let cut = first; cut < end; cut += step) {
+      pieces.push({ ...clip, start: cut, length: Math.min(step, end - cut), offset: contentAt(clip, cut, ctx) });
+    }
+    return { ...clip, length: first - clip.start };
+  });
+  if (!pieces.length) return nothing(clips);
+  return addClips(next, pieces);
+}
+
 /** Slice every track at `at` (Shift with the slice tool: a line the whole height of the Playlist). */
 export const sliceAll = (clips: PlaylistClip[], at: number, ctx: ClipContext): CreatedClips => sliceClips(clips, at, 0, MAX_PLAYLIST_TRACKS - 1, ctx);
 
@@ -562,7 +585,7 @@ export function splitByChannel(song: MusicProject, patternId: string, ids: () =>
     let name = channel.name;
     for (let n = 2; names.has(name); n++) name = `${channel.name} #${n}`;
     names.add(name);
-    return { id: ids(), name: name.slice(0, MAX_NAME), length: steps, notes: { [channel.id]: pattern.notes[channel.id] } };
+    return { id: ids(), name: name.slice(0, MAX_NAME), length: steps, notes: { [channel.id]: pattern.notes[channel.id] }, color: pattern.color };
   });
 
   const ctx = clipContext(song);

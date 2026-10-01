@@ -4,6 +4,7 @@ import { musicApi } from "./api";
 import { withChopPreview } from "./piano/actions";
 import { usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
+import { clipPreview } from "./playlist/preview";
 import { usePlaylist } from "./playlist/store";
 import { useMusic } from "./store";
 import { NO_CHANNELS, NO_EFFECTS, NO_METERS, afterSongSent, useTransport } from "./transport";
@@ -36,7 +37,11 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         // Playlist's in song mode. A draft pattern shown plays (empty), and the Chopper's chop is heard while it's open.
         const song = withChopPreview(withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern)));
         const loop = playMode === "song" ? usePlaylist.getState().time : usePiano.getState().time;
-        const { unreadable, channels, effects, loop: playing } = await musicApi.setSong({ projectId, song, patternId, loop, mode: playMode });
+        // A clip previewed from its menu: the song is only that clip, its time the loop.
+        const preview = clipPreview(song);
+        const { unreadable, channels, effects, loop: playing } = await musicApi.setSong(
+          preview ? { projectId, patternId, ...preview } : { projectId, song, patternId, loop, mode: playMode },
+        );
         useTransport.setState({ unreadable, channels, effects: effects ?? NO_EFFECTS, loop: playing, error: null });
         if (!dirty) afterSongSent();
         // A plugin that finished loading while this answer was on its way said so first: ask again, so the
@@ -59,7 +64,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     if (state.mode !== prev.mode) void send();
   });
   const unsubscribePlaylist = usePlaylist.subscribe((state, prev) => {
-    if (state.time !== prev.time && useTransport.getState().mode === "song") void send();
+    if ((state.time !== prev.time && useTransport.getState().mode === "song") || state.previewing !== prev.previewing) void send();
   });
   const unsubscribeLoop = usePiano.subscribe((state, prev) => {
     if ((state.time !== prev.time && useTransport.getState().mode === "pattern") || state.chopping !== prev.chopping) void send();

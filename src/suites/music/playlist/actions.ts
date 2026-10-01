@@ -4,13 +4,14 @@
  * acts on the selected clips, or on all of them when none are selected.
  */
 import { clamp } from "@shared/math";
-import { clonePattern, movePatterns, removePattern } from "@shared/music/edits";
+import { clonePattern, movePatterns, removePattern, renamePattern, setPatternColor, updateChannel } from "@shared/music/edits";
 import {
   type ClipContext,
   type NewClip,
   clipBounds,
   clipContext,
   clipLength,
+  chopClips,
   clipsInTime,
   copyClips,
   deleteSpace,
@@ -279,6 +280,26 @@ export function makeClipUnique(clipId: number) {
   useMusic.getState().commit((song) => makeUnique(song, clipId));
 }
 
+/** The clip menu's Chop: the clip cut at every `every` ticks of the song (a bar, a beat...); the pieces are selected. */
+export function chopClip(clipId: number, every: number) {
+  const p = playlistContext();
+  if (!p) return;
+  const result = chopClips(p.clips, new Set([clipId]), every, p.ctx);
+  if (!result.created.length) return;
+  edit(() => result.clips);
+  usePlaylist.getState().select([clipId, ...result.created]);
+}
+
+/** Rename a clip's source (its pattern, or its audio clip's channel): every clip of it shows the name. */
+export function renameSource(source: ClipSource, name: string) {
+  useMusic.getState().commit((song) => (source.kind === "pattern" ? renamePattern(song, source.ref, name) : updateChannel(song, source.ref, { name })));
+}
+
+/** Colour a clip's source ("#rrggbb", or null for the usual): every clip of it takes the colour. */
+export function recolorSource(source: ClipSource, color: string | null) {
+  useMusic.getState().commit((song) => (source.kind === "pattern" ? setPatternColor(song, source.ref, color) : updateChannel(song, source.ref, { color })));
+}
+
 /** Split by channel (the pattern's menu, the Picker's): one pattern per channel, its clips with it. One undo step. */
 export function splitPattern(patternId: string) {
   const before = useMusic.getState().history?.doc;
@@ -417,11 +438,8 @@ export function openPlaylist() {
 export function openClip(clip: PlaylistClip) {
   const song = useMusic.getState().history?.doc;
   if (!song) return;
-  if (clip.kind === "audio") {
-    useMusicUi.getState().setSelection([clip.ref]);
-    useMusicUi.getState().setRackGroup("audio");
-    return useMusicUi.getState().setRackOpen(true);
-  }
+  // An audio clip: its channel's settings (FL's double-click on one).
+  if (clip.kind === "audio") return useMusicUi.getState().openChannelWindow(clip.ref);
   const pattern = song.patterns.find((p) => p.id === clip.ref);
   if (!pattern) return;
   useMusic.getState().selectPattern(pattern.id);

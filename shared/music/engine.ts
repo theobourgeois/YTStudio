@@ -111,6 +111,16 @@ export interface EnginePreview {
   duration: number;
 }
 
+/** Hear one of a song's own media files on its own (`POST /api/engine/previewSample`): an audio clip's channel. */
+export interface PreviewSampleRequest {
+  projectId: string;
+  sampleId: string;
+  /** Seconds into the file (default: its start). */
+  start?: number;
+  /** The tab's name for it, given back in `EnginePreview.id`. */
+  id?: string;
+}
+
 /** Preview one of the Browser's files (`POST /api/browser/preview`), cutting off the last one. */
 export interface PreviewFileRequest {
   path: string;

@@ -8,6 +8,7 @@ import type {
   EnginePlugin,
   EngineStatus,
   PreviewFileRequest,
+  PreviewSampleRequest,
   SetDeviceRequest,
   SetSongRequest,
   SetSongResponse,
@@ -52,6 +53,8 @@ export const musicApi = {
   revealBrowserFile: (path: string) => request<void>("/api/browser/reveal", { method: "POST", body: JSON.stringify({ path }) }),
   /** Hear one of the Browser's files (cutting off the last); `engine("stopPreview", {})` stops it. */
   previewFile: (body: PreviewFileRequest) => request<EngineStatus>("/api/browser/preview", { method: "POST", body: JSON.stringify(body) }),
+  /** Hear one of the song's own media files (an audio clip's channel), as the Browser's are. */
+  previewSample: (body: PreviewSampleRequest) => request<EngineStatus>("/api/engine/previewSample", { method: "POST", body: JSON.stringify(body) }),
   /** Where a Browser file is served (its waveform, and its bytes when it's added to the project). */
   browserFileUrl: (path: string) => `/api/browser/file?${pathQuery(path)}`,
   /** What the engine says on its own (where the song is, the meter). Returns how to stop listening. */

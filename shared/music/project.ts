@@ -88,7 +88,7 @@ export const stepsPerBar = ([beats, unit]: MusicSettings["timeSignature"]) => Ma
 export const FIRST_PATTERN_ID = "pat_1";
 
 export function createPattern(name: string, id = createId("pat")): Pattern {
-  return { id, name, length: null, notes: {} };
+  return { id, name, length: null, notes: {}, color: null };
 }
 
 /** Where each note list's last note ends (they're kept per list: nothing changes a list in place). */
@@ -136,6 +136,7 @@ export function createChannel(name: string, sampleId: string | null, id = create
     envelope: DEFAULT_ENVELOPE,
     precomputed: DEFAULT_PRECOMPUTED,
     mixerTrack: MASTER_TRACK_ID,
+    color: null,
   };
 }
 
@@ -280,6 +281,7 @@ function normalizeChannels(input: unknown, isSample: (id: string) => boolean, is
       envelope: normalizeEnvelope(raw.envelope),
       precomputed: normalizePrecomputed(raw.precomputed),
       mixerTrack: isId(raw.mixerTrack) && isTrack(raw.mixerTrack) ? raw.mixerTrack : MASTER_TRACK_ID,
+      color: isColor(raw.color) ? raw.color.toLowerCase() : null,
     });
   }
   return channels.length ? channels : emptyRack();
@@ -336,7 +338,7 @@ function normalizePatterns(input: unknown, channels: Channel[]): Pattern[] {
       const valid = normalizeNotes(list, MAX_PATTERN_TICKS);
       if (valid.length) notes[channelId] = valid;
     }
-    patterns.push({ id: raw.id, name: text(raw.name, `Pattern ${patterns.length + 1}`), length, notes });
+    patterns.push({ id: raw.id, name: text(raw.name, `Pattern ${patterns.length + 1}`), length, notes, color: isColor(raw.color) ? raw.color.toLowerCase() : null });
   }
   return patterns.length ? patterns : [createPattern("Pattern 1", FIRST_PATTERN_ID)];
 }

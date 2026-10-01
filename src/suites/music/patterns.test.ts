@@ -41,7 +41,7 @@ describe("a draft pattern", () => {
     expect(activeDraft(s, draft.id, draft)).toBe(draft);
     expect(activeDraft(s, "pat_2", draft)).toBeNull();
     expect(activeDraft(addPattern(s, draft), draft.id, draft)).toBeNull();
-    expect(withDraftPattern(s, draft).patterns[2]).toEqual({ id: "pat_draft", name: "Pattern 3", length: null, notes: {} });
+    expect(withDraftPattern(s, draft).patterns[2]).toEqual({ id: "pat_draft", name: "Pattern 3", length: null, notes: {}, color: null });
     expect(withDraftPattern(s, null)).toBe(s);
   });
 });

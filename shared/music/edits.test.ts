@@ -12,6 +12,7 @@ import {
   removeChannels,
   removePattern,
   renamePattern,
+  setPatternColor,
   replaceChannel,
   rotateSteps,
   setChannelNotes,
@@ -240,13 +241,19 @@ describe("steps", () => {
 describe("patterns", () => {
   it("are added empty, named after their number, cloned and renamed", () => {
     let song = addPattern(rack(), { id: "pat_2" });
-    expect(song.patterns[1]).toEqual({ id: "pat_2", name: "Pattern 2", length: null, notes: {} });
+    expect(song.patterns[1]).toEqual({ id: "pat_2", name: "Pattern 2", length: null, notes: {}, color: null });
     song = setSteps(song, "pat_2", "chan_kick", [0], true);
     song = clonePattern(song, "pat_2", "pat_3");
     expect(song.patterns.map((p) => p.name)).toEqual(["Pattern 1", "Pattern 2", "Pattern 3"]);
     expect(steps(song, "chan_kick", "pat_3")).toBe("x---------------");
     expect(renamePattern(song, "pat_3", " Drop ").patterns[2].name).toBe("Drop");
     expect(renamePattern(song, "pat_3", "Pattern 3")).toBe(song);
+    // Its colour (its clips' in the Playlist): a colour or none, the same song back when it's unchanged.
+    const red = setPatternColor(song, "pat_3", "#A8403C");
+    expect(red.patterns[2].color).toBe("#a8403c");
+    expect(setPatternColor(red, "pat_3", "#a8403c")).toBe(red);
+    expect(setPatternColor(red, "pat_3", "red").patterns[2].color).toBeNull();
+    expect(updateChannel(song, "chan_kick", { color: "#3f8a4c" }).channels[0].color).toBe("#3f8a4c");
   });
 
   it("can't all be removed", () => {

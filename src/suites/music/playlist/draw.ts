@@ -41,7 +41,7 @@ function onMutedTrack(c: ClipColours): ClipColours {
   return { body: mix(c.body, MUTED_GREY, 0.6), title: mix(c.title, MUTED_GREY, 0.6), content: mix(c.content, MUTED_GREY, 0.3), text: mix(c.text, MUTED_GREY, 0.35) };
 }
 
-/** A clip on a coloured track takes the track's colour. */
+/** A clip of a coloured source, or on a coloured track, takes that colour. */
 function colouredBy(color: string): ClipColours {
   return { body: mix(color, "#ffffff", 0.2), title: color, content: mix(color, "#000000", 0.65), text: "#ffffff" };
 }
@@ -66,6 +66,8 @@ export interface PlaylistScene {
   patterns: ReadonlyMap<string, Pattern>;
   /** Clip titles: a pattern's or an audio clip channel's name, by ref. */
   names: ReadonlyMap<string, string>;
+  /** The colours patterns and audio clip channels have been given, by ref (their clips take them). */
+  colors: ReadonlyMap<string, string>;
   /** Clips just deleted, fading out (`fades.ts`). */
   vanishing: readonly VanishingClip[];
   /** An audio clip's waveform, by its channel's id, once it's loaded. */
@@ -341,7 +343,9 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   const h = Math.round(trackTop(layout, view, clip.track + 1)) - y - 1;
   const w = Math.max(2, right - x);
   const track = scene.tracks[clip.track];
-  const own = isSelected ? SELECTED : track?.color ? colouredBy(track.color) : clip.kind === "audio" ? AUDIO : PATTERN;
+  // Its source's colour, else its track's, else the usual for its kind (FL's order).
+  const color = scene.colors.get(clip.ref) ?? track?.color;
+  const own = isSelected ? SELECTED : color ? colouredBy(color) : clip.kind === "audio" ? AUDIO : PATTERN;
   const colours = track?.muted ? onMutedTrack(own) : own;
   const fade = (clip.muted ? 0.5 : 1) * (track?.muted ? MUTED_TRACK_ALPHA : 1) * alpha;
   ctx.globalAlpha = bodyAlpha * fade * (clip.muted ? 0.8 : 1);

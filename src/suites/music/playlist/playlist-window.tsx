@@ -3,7 +3,8 @@ import { PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
 import { clipContext, songTicks } from "@shared/music/playlist";
-import type { PlaylistClip } from "@shared/music/types";
+import { TRACK_COLORS } from "@shared/music/project";
+import { type MusicProject, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,8 +14,13 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { carriesSamples, dropAsAudioClips } from "../browser/drops";
 import { type Palette, prepare, readPalette } from "../piano/draw";
@@ -27,6 +33,7 @@ import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import {
   cancelDrag,
+  chopClip,
   clipSource,
   commitDrag,
   deleteSelected,
@@ -36,6 +43,8 @@ import {
   openClip,
   playlistContext,
   quantize,
+  recolorSource,
+  renameSource,
   selectAll,
   selectSimilar,
   setMuted,
@@ -48,6 +57,7 @@ import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
 import { type WavePeaks, clipPeaks, onWaveform } from "./waveforms";
 import { MAX_PX_PER_TICK, scrollViewBy, tickToX, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
 import { CLIP_DRAG_TYPE, Picker } from "./picker";
+import { holdClipPreview } from "./preview";
 import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
 import { TrackHeaders } from "./track-headers";
@@ -324,6 +334,7 @@ function PlaylistBody() {
         layout: p.layout,
         patterns: new Map(song.patterns.map((pattern) => [pattern.id, pattern])),
         names: new Map([...song.patterns.map((pattern) => [pattern.id, pattern.name] as const), ...song.channels.map((c) => [c.id, c.name] as const)]),
+        colors: new Map([...song.patterns, ...song.channels].flatMap((source) => (source.color ? [[source.id, source.color] as const] : []))),
         waveforms,
         vanishing: fading,
         barTicks: p.barTicks,
@@ -513,6 +524,7 @@ function PlaylistBody() {
         />
         <div ref={playhead} className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground opacity-0" data-testid="playlist-playhead" />
         <ClipMenu />
+        <SourceEditor />
       </div>
       <VerticalScrollbar />
 
@@ -524,8 +536,9 @@ function PlaylistBody() {
 }
 
 /**
- * A clip's menu (FL's, from the arrow at the start of its title): open what it plays, make it unique,
- * split its pattern by channel, select the clips like it, mute it, delete it.
+ * A clip's menu (FL's, from the arrow at the start of its title): hear it on its own (held), open what
+ * it plays, rename and recolour its source, make it unique, split its pattern by channel, chop it, select
+ * the clips like it, mute it, delete it.
  */
 function ClipMenu() {
   const menu = usePlaylist((s) => s.clipMenu);
@@ -534,19 +547,59 @@ function ClipMenu() {
   const close = () => usePlaylist.setState({ clipMenu: null });
   const only = new Set([clip.id]);
   const commit = (update: Parameters<typeof editClips>[1]) => useMusic.getState().commit((song) => editClips(song, update));
+  const source = { kind: clip.kind, ref: clip.ref };
+  const color = useMusic.getState().history?.doc && sourceColor(useMusic.getState().history!.doc, source);
+  const p = playlistContext();
+  const chops = p
+    ? [
+        { label: "Every bar", ticks: p.barTicks },
+        { label: "Every beat", ticks: p.beatTicks },
+        { label: "Every step", ticks: STEP_TICKS },
+        ...(p.grid > 1 && ![p.barTicks, p.beatTicks, STEP_TICKS].includes(p.grid) ? [{ label: "At the snap", ticks: p.grid }] : []),
+      ]
+    : [];
   return (
     <DropdownMenu open onOpenChange={(open) => !open && close()}>
       <DropdownMenuTrigger asChild>
         <span aria-hidden className="pointer-events-none absolute size-px" style={{ left: menu.x, top: menu.y }} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" data-testid="clip-menu">
-        <DropdownMenuItem onSelect={() => openClip(clip)}>{clip.kind === "pattern" ? "Edit pattern" : "Show its channel"}</DropdownMenuItem>
+      {/* Its trigger is only a point on the grid: focus stays where it goes next (the Rename and color box). */}
+      <DropdownMenuContent align="start" data-testid="clip-menu" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <DropdownMenuItem
+          title="Hold to hear the clip on its own"
+          // Held, as in FL Studio: it plays while the button's down, and the menu stays.
+          onPointerDown={(e) => e.button === 0 && holdClipPreview(clip.id)}
+          onSelect={(e) => e.preventDefault()}
+        >
+          Preview <DropdownMenuShortcut>hold</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => openClip(clip)}>{clip.kind === "pattern" ? "Edit pattern" : "Channel settings"}</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {/* Opened once the menu has gone, so its closing doesn't close the box too. */}
+        <DropdownMenuItem onSelect={() => setTimeout(() => usePlaylist.setState({ recoloring: { source, x: menu.x, y: menu.y } }))}>Rename and color…</DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Change color</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-auto">
+            <ColorSwatches value={color ?? null} onPick={(picked) => recolorSource(source, picked)} />
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSeparator />
         {clip.kind === "pattern" && (
           <>
             <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => splitPattern(clip.ref)}>Split by channel</DropdownMenuItem>
           </>
         )}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Chop</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {chops.map(({ label, ticks }) => (
+              <DropdownMenuItem key={label} onSelect={() => chopClip(clip.id, ticks)}>
+                {label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         <DropdownMenuItem
           onSelect={() => {
             usePlaylist.getState().select([clip.id]);
@@ -568,6 +621,92 @@ function ClipMenu() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** The colour a clip's source has been given, if any. */
+function sourceColor(song: MusicProject, source: ClipSource): string | null {
+  return (source.kind === "pattern" ? song.patterns.find((p) => p.id === source.ref)?.color : song.channels.find((c) => c.id === source.ref)?.color) ?? null;
+}
+
+/** The colours a clip's source can be given (the tracks' too), and the usual. */
+function ColorSwatches({ value, onPick }: { value: string | null; onPick: (color: string | null) => void }) {
+  return (
+    <div className="grid grid-cols-7 gap-1 p-1" role="radiogroup" aria-label="Color">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={value === null}
+        aria-label="The usual color"
+        title="The usual color"
+        className={cn("grid size-5 place-items-center rounded-sm border border-line bg-surface-2 text-[10px] text-muted-foreground", value === null && "ring-2 ring-brand")}
+        onClick={() => onPick(null)}
+      >
+        ∅
+      </button>
+      {TRACK_COLORS.map((c) => (
+        <button
+          key={c}
+          type="button"
+          role="radio"
+          aria-checked={value === c}
+          aria-label={c}
+          className={cn("size-5 rounded-sm border border-black/30", value === c && "ring-2 ring-brand")}
+          style={{ background: c }}
+          onClick={() => onPick(c)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The clip menu's Rename and color (FL's dialog): the name of what the clip plays (its pattern, or its
+ * audio clip's channel) and its colour, which every clip of it shows. Enter or a click away keeps the name;
+ * Esc leaves it.
+ */
+function SourceEditor() {
+  const editing = usePlaylist((s) => s.recoloring);
+  const song = useMusic((s) => s.history?.doc);
+  if (!editing || !song) return null;
+  const { source } = editing;
+  const name = (source.kind === "pattern" ? song.patterns.find((p) => p.id === source.ref)?.name : song.channels.find((c) => c.id === source.ref)?.name) ?? "";
+  const close = () => usePlaylist.setState({ recoloring: null });
+  return (
+    <Popover open onOpenChange={(open) => !open && close()}>
+      <PopoverTrigger asChild>
+        <span aria-hidden className="pointer-events-none absolute size-px" style={{ left: editing.x, top: editing.y }} />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-2" data-testid="rename-and-color" onFocusOutside={(e) => e.preventDefault()}>
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const value = new FormData(e.currentTarget).get("name");
+            if (typeof value === "string") renameSource(source, value);
+            close();
+          }}
+        >
+          <Input
+            name="name"
+            aria-label={source.kind === "pattern" ? "Pattern name" : "Audio clip name"}
+            className="h-7 text-xs"
+            defaultValue={name}
+            autoFocus
+            onFocus={(e) => e.currentTarget.select()}
+            onBlur={(e) => renameSource(source, e.currentTarget.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") {
+                e.currentTarget.value = name;
+                close();
+              }
+            }}
+          />
+          <ColorSwatches value={sourceColor(song, source)} onPick={(picked) => recolorSource(source, picked)} />
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }
 
