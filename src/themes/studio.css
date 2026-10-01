@@ -136,7 +136,7 @@
   --mixer-bg: var(--surface-0);
   --mixer-strip: var(--surface-1);
   --mixer-strip-selected: var(--surface-2);
-  --mixer-upper-shade: rgb(30 40 52 / 0.07);
+  --mixer-upper-shade: rgb(30 40 52 / 0.045);
   --mixer-line: var(--line);
   --mixer-header: var(--surface-0);
   --mixer-header-text: var(--muted-foreground);
@@ -149,7 +149,7 @@
   --mixer-led-edge: var(--brand-edge);
   --mixer-on: var(--brand);
   --mixer-delay: var(--brand);
-  --fader-slot: rgb(30 40 52 / 0.08);
+  --fader-slot: rgb(30 40 52 / 0.05);
   /* The mixer's lights (`mixer/led.tsx`): their bezel, and their lens when off. */
   --led-bezel-light: #a9b0b9;
   --led-bezel-dark: #6f7680;
@@ -260,10 +260,10 @@
   --fader-cap-on-dark: color-mix(in oklab, var(--brand) 70%, #000);
   --fader-cap-on-edge: var(--brand-edge);
 
-  --mixer-upper-shade: rgb(0 0 0 / 0.2);
+  --mixer-upper-shade: rgb(0 0 0 / 0.1);
   --mixer-tint-base: #16181c;
   --mixer-name-tint: #ffffff;
-  --fader-slot: rgb(0 0 0 / 0.22);
+  --fader-slot: rgb(0 0 0 / 0.12);
   --led-bezel-light: #8b8f97;
   --led-bezel-dark: #4c5058;
   --led-off-light: #3d424b;
