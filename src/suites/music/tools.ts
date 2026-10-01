@@ -35,7 +35,18 @@ import {
   updatePatternTool,
   updateSong,
 } from "./tool-edits";
-import { useTransport } from "./transport";
+import { switchMode, useTransport } from "./transport";
+import { addAudioClips, clipContext } from "@shared/music/playlist";
+import {
+  describePlaylist,
+  makeClipUniqueTool,
+  placeClipsTool,
+  removeClipsTool,
+  sliceClipsTool,
+  splitByChannelTool,
+  updateClipsTool,
+  updatePlaylistTrackTool,
+} from "./playlist/tool-edits";
 import { describeBrowser, describeFolder, describeSearch, loadSampleEdit, sampleChannel } from "./browser/describe";
 import { useBrowser } from "./browser/store";
 import {
@@ -285,8 +296,64 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const target = await targetOf(ctx);
     requireOpen(target, "Playing");
     if (input.action !== "play" && input.action !== "stop") throw new Error('"action" must be "play" or "stop".');
-    useTransport.getState()[input.action]();
-    return textResult(input.action === "play" ? "Playing the pattern shown, on a loop." : "Stopped.");
+    if (input.mode !== undefined && input.mode !== "pattern" && input.mode !== "song") throw new Error('"mode" must be "pattern" or "song".');
+    const transport = useTransport.getState();
+    if (input.action === "stop") {
+      transport.stop();
+      return textResult("Stopped.");
+    }
+    const mode = (input.mode as "pattern" | "song" | undefined) ?? transport.mode;
+    if (mode === "song" && input.bar !== undefined) {
+      if (typeof input.bar !== "number" || !(input.bar >= 1)) throw new Error('"bar" must be a bar number, 1 or more.');
+      transport.setSongStartTick(Math.round((input.bar - 1) * clipContext(target.song).barTicks));
+    }
+    if (transport.playing && mode === transport.mode) transport.play();
+    else switchMode(mode, true);
+    return textResult(mode === "song" ? `Playing the song (the playlist)${input.bar !== undefined ? ` from bar ${input.bar}` : ""}, round and round.` : "Playing the pattern shown, on a loop.");
+  },
+  async get_playlist(_input, ctx) {
+    const target = await targetOf(ctx);
+    return textResult(describePlaylist(target.song, target.open ? useTransport.getState().mode : null));
+  },
+  place_clips: edit(placeClipsTool),
+  update_clips: edit(updateClipsTool),
+  remove_clips: edit(removeClipsTool),
+  slice_clips: edit(sliceClipsTool),
+  split_by_channel: edit(splitByChannelTool),
+  make_clip_unique: edit(makeClipUniqueTool),
+  update_playlist_track: edit(updatePlaylistTrackTool),
+  async add_audio_clip(input, ctx) {
+    const target = await targetOf(ctx);
+    const track = input.track;
+    const bar = input.bar;
+    if (!Number.isInteger(track) || (track as number) < 1) throw new Error('"track" must be a track\'s number, 1 or more.');
+    if (typeof bar !== "number" || !(bar >= 1)) throw new Error('"bar" must be a bar number, 1 or more.');
+    const assets: MediaAsset[] = [];
+    if (typeof input.mediaId === "string" && input.mediaId) {
+      const asset = target.assets.find((a) => a.id === input.mediaId && a.hasAudio);
+      if (!asset) throw new Error(`There's no audio file "${input.mediaId}" in the project. Its audio files: ${target.assets.filter((a) => a.hasAudio).map((a) => `${a.name} (${a.id})`).join(", ") || "none"}.`);
+      assets.push(asset);
+    }
+    const paths = Array.isArray(input.paths) ? input.paths.filter((p): p is string => typeof p === "string" && p.length > 0) : [];
+    for (const path of paths) {
+      const asset = await musicApi.useBrowserFile({ projectId: target.projectId, path });
+      if (!asset.hasAudio) throw new Error(`${asset.name} has no sound.`);
+      assets.push(asset);
+    }
+    if (!assets.length) throw new Error('Give the files: "paths" (the Browser\'s, from search_samples) or a "mediaId".');
+    if (target.open && useMusic.getState().projectId === target.projectId) {
+      const known = new Set(useMusic.getState().assets.map((a) => a.id));
+      const added = assets.filter((a) => !known.has(a.id));
+      if (added.length) useMusic.setState({ assets: [...useMusic.getState().assets, ...added] });
+    }
+    const start = Math.round((bar - 1) * clipContext(target.song).barTicks);
+    let made: number[] = [];
+    await apply(target, (song) => {
+      const result = addAudioClips(song, assets.map((a) => ({ name: a.name.replace(/\.[^.]+$/, ""), sampleId: a.id, seconds: a.duration })), { start, track: (track as number) - 1, after: input.after === true });
+      made = result.clipIds;
+      return result.song;
+    });
+    return textResult(`Added ${assets.length} audio clip${assets.length === 1 ? "" : "s"} (clip ${made.join(", ")}) from bar ${bar} on track ${track}: ${assets.map((a) => a.name).join(", ")}. Each has a channel of its own in the rack's Audio group; read get_playlist.`);
   },
 };
 
