@@ -779,8 +779,8 @@ test("adds video effects from the Effects tab, edits, reorders and removes them"
   const panel = page.getByRole("region", { name: "Effects panel" });
   const before = (await panel.boundingBox())!.width;
   const edge = (await page.locator('[role=separator][aria-orientation=vertical][aria-label="Resize panels"]').first().boundingBox())!;
-  await drag(page, { x: edge.x + edge.width / 2, y: edge.y + 300 }, { x: edge.x + edge.width / 2 + 200, y: edge.y + 300 });
-  await expect.poll(async () => Math.round((await panel.boundingBox())!.width - before)).toBe(200);
+  await drag(page, { x: edge.x + edge.width / 2, y: edge.y + 300 }, { x: edge.x + edge.width / 2 + 60, y: edge.y + 300 });
+  await expect.poll(async () => Math.round((await panel.boundingBox())!.width - before)).toBe(60);
   await page.getByRole("button", { name: "Effects panel menu" }).click();
   await page.getByRole("menuitem", { name: "Reset layout" }).click();
   await expect.poll(async () => Math.round((await page.getByRole("region", { name: "Media panel" }).boundingBox())!.width)).toBe(Math.round(before));
@@ -1550,8 +1550,9 @@ test("speeds a clip up, reverses it and stretches it to fit, moving the clips af
 
   // Twice as fast from the toolbar: half as long, and the next clip moves up.
   await page.mouse.click(await timeX(page, 1), y);
-  await page.getByRole("button", { name: "Speed", exact: true }).click();
-  const control = page.locator("[data-speed-control]");
+  await page.getByRole("region", { name: "Timeline", exact: true }).getByRole("button", { name: "Speed", exact: true }).click();
+  // The toolbar's popover (Properties, beside the monitor, has the same control).
+  const control = page.locator("[data-radix-popper-content-wrapper] [data-speed-control]");
   await control.getByRole("button", { name: "2×" }).click();
   await expect.poll(async () => (await clips()).map((c) => [c.start, c.speed])).toEqual([[0, 2], [1.5, undefined]]);
   await expect(control.locator("[data-speed-duration]")).toContainText("0:01.50");
@@ -1982,8 +1983,8 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await expect.poll(() => page.url()).not.toBe(videoUrl);
   await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
   const song = (await projectList(page)).find((p: { suite: string }) => p.suite === "music");
-  expect(song).toMatchObject({ name: "Untitled", tempo: 120, status: "active" });
-  await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("120 BPM");
+  expect(song).toMatchObject({ name: "Untitled", tempo: 140, status: "active" });
+  await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("140 BPM");
 
   // Renamed from its header, like a video.
   await page.locator("header").getByTitle("Rename project").click();
@@ -1997,7 +1998,7 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   const panel = page.locator('[data-slot="assistant-panel"]');
   const composer = panel.getByRole("textbox", { name: "Message the assistant" });
   await expect(composer).toHaveAttribute("placeholder", /help with your song/);
-  await expect(panel.getByText("120 BPM, 4/4")).toBeVisible();
+  await expect(panel.getByText("140 BPM, 4/4")).toBeVisible();
   await composer.fill('call get_song\ncall split_clips {"at": 1}');
   await composer.press("Enter");
   await expect(panel.locator('[data-tool="get_song"][data-status="done"]')).toContainText("Read the song");

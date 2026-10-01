@@ -29,6 +29,8 @@ export interface FloatingWindowProps {
   menu?: ReactNode;
   /** Shown instead of the title's text (which still names the window): a selector, as the Piano roll's channel. */
   heading?: ReactNode;
+  /** Before the title, as FL Studio puts them: the window's tools (the Piano roll's and the Playlist's). */
+  tools?: ReactNode;
   /** After the title: the window's own controls. */
   controls?: ReactNode;
   /**
@@ -98,7 +100,7 @@ const CONTROLS = "button, [role=slider], [role=spinbutton], [role=tab], input";
  * top) or half of it (drag it to a side). Everything in the music editor is one of these, and so is
  * Settings, on the app's own desktop.
  */
-export function FloatingWindow({ id, title, initial, onClose, menu, heading, controls, resizable, keepsKeys, escapeCloses = true, className, children }: FloatingWindowProps) {
+export function FloatingWindow({ id, title, initial, onClose, menu, heading, tools, controls, resizable, keepsKeys, escapeCloses = true, className, children }: FloatingWindowProps) {
   const windows = useWindowsStore();
   const ref = useRef<HTMLElement>(null);
   // What had the focus before it opened (read while rendering, before a field in it takes it with `autoFocus`).
@@ -236,6 +238,7 @@ export function FloatingWindow({ id, title, initial, onClose, menu, heading, con
         }}
       >
         {menu}
+        {tools && <div className="flex shrink-0 items-center gap-1.5">{tools}</div>}
         <h2 className="min-w-0 truncate text-xs font-medium">{heading ?? title}</h2>
         <div className="ml-auto flex items-center gap-1.5">
           {controls}

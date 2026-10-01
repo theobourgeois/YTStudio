@@ -332,3 +332,9 @@ export function sliceNotes(notes: Note[], cutAt: (pitch: number) => number | nul
   if (!tails.length) return nothing(notes);
   return addNotes(next, tails);
 }
+
+/**
+ * Slice the whole column (the slice tool with Shift): every note sounding across `tick` is cut there,
+ * whatever its pitch.
+ */
+export const sliceColumn = (notes: Note[], tick: number, ids?: NoteIds): Created => sliceNotes(notes, () => tick, ids);

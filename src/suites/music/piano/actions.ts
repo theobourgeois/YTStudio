@@ -28,7 +28,8 @@ import {
 import { stepsPerBar } from "@shared/music/project";
 import { type Channel, type MusicProject, type Note, PPQ, type Pattern, STEP_TICKS } from "@shared/music/types";
 import { currentPattern, useMusic } from "../store";
-import { patternTickNow, useTransport } from "../transport";
+import { patternPositionNow } from "../playhead";
+import { useTransport } from "../transport";
 import { useMusicUi, useMusicWindows } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
 import { fadeOut } from "./fades";
@@ -53,9 +54,13 @@ export interface PianoContext {
   patternTicks: number;
 }
 
-/** The channel the Piano roll shows: the one chosen, else the rack's selected one, else the first. */
+/**
+ * The channel the Piano roll shows: the one chosen, else the rack's selected one, else the first. Never an
+ * audio clip's channel: it plays from the playlist, not from notes.
+ */
 export function pianoChannel(song: MusicProject, channelId: string | null, rackSelection: readonly string[]): Channel | null {
-  return song.channels.find((c) => c.id === channelId) ?? song.channels.find((c) => rackSelection.includes(c.id)) ?? song.channels[0] ?? null;
+  const playable = (c: Channel) => c.kind !== "audio";
+  return song.channels.find((c) => c.id === channelId && playable(c)) ?? song.channels.find((c) => rackSelection.includes(c.id) && playable(c)) ?? song.channels.find(playable) ?? null;
 }
 
 /** Everything a command needs, as things are now; null with no song or no channel. */
@@ -312,6 +317,7 @@ export function stepChannel(direction: -1 | 1, withNotes: boolean) {
   if (!ctx) return;
   const { channels } = ctx.song;
   for (let i = channels.indexOf(ctx.channel) + direction; i >= 0 && i < channels.length; i += direction) {
+    if (channels[i].kind === "audio") continue;
     if (!withNotes || ctx.pattern.notes[channels[i].id]?.length) return usePiano.getState().setChannel(channels[i].id);
   }
 }
@@ -340,7 +346,7 @@ export function centreOnPlayhead() {
   const { view, gridWidth, setView } = usePiano.getState();
   if (!ctx) return;
   const transport = useTransport.getState();
-  const tick = patternTickNow(transport, performance.now(), ctx.song.settings.tempo, PPQ) ?? transport.startTick;
+  const tick = patternPositionNow() ?? transport.startTick;
   setView({ ...view, scrollTick: Math.max(0, tick - gridWidth / view.pxPerTick / 2) });
 }
 

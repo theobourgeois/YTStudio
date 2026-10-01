@@ -12,6 +12,7 @@ import {
   removeChannels,
   removePattern,
   renamePattern,
+  replaceChannel,
   rotateSteps,
   setChannelNotes,
   setMuted,
@@ -44,9 +45,9 @@ const muted = (song: MusicProject) => song.channels.map((c) => c.muted);
 describe("song settings", () => {
   it("clamps the tempo and the swing, and leaves the song alone when nothing changes", () => {
     const song = rack();
-    expect(setTempo(song, 140.004).settings.tempo).toBe(140);
+    expect(setTempo(song, 120.004).settings.tempo).toBe(120);
     expect(setTempo(song, 5).settings.tempo).toBe(20);
-    expect(setTempo(song, 120)).toBe(song);
+    expect(setTempo(song, 140)).toBe(song);
     expect(setTempo(song, NaN)).toBe(song);
     expect(setSwing(song, 2).settings.swing).toBe(1);
     expect(setSwing(song, 0)).toBe(song);
@@ -113,6 +114,20 @@ describe("channels", () => {
     expect(order(cloned)).toEqual(["kick", "copy", "hat", "clap"]);
     expect(cloned.channels[1]).toMatchObject({ name: "Kick", volume: 0.5, sampleId: "media_kick" });
     expect(steps(cloned, "chan_copy")).toBe("----------------");
+  });
+
+  it("are replaced by another instrument in their place, which plays their notes", () => {
+    let song = updateChannel(setSteps(rack(), P, "chan_hat", [0, 4], true), "chan_hat", { volume: 0.5, pan: -0.25, muted: true });
+    song = { ...song, channels: song.channels.map((c) => (c.id === "chan_hat" ? { ...c, mixerTrack: "insert_2" } : c)) };
+    const serum = { id: "vst3:serum", name: "Serum", format: "VST3" };
+    const replaced = replaceChannel(song, "chan_hat", serum, "chan_serum");
+    expect(order(replaced)).toEqual(["kick", "serum", "clap"]);
+    expect(replaced.channels[1]).toMatchObject({ kind: "plugin", plugin: serum, name: "Serum", sampleId: null, volume: 0.5, pan: -0.25, muted: true, mixerTrack: "insert_2" });
+    expect(steps(replaced, "chan_serum")).toBe("x---x-----------");
+    expect(replaced.patterns[0].notes.chan_hat).toBeUndefined();
+    // Back to a sampler, with nothing to play yet.
+    expect(replaceChannel(replaced, "chan_serum", null, "chan_s").channels[1]).toMatchObject({ kind: "sampler", plugin: null, name: "Sampler", sampleId: null });
+    expect(replaceChannel(song, "chan_nope", serum)).toBe(song);
   });
 
   it("move up and down the rack together, stopping at its edges", () => {

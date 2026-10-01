@@ -33,15 +33,15 @@ Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/
 | Layout: groups of two rows each | Ours (Théo): the title and hint at the left; in the middle two rows, the transport, tempo, position and monitors above, the window buttons, pattern selector and a wide song position slider below |
 | Menus | None yet. The project's name (click to rename) is in their place, as the title |
 | Hint bar | Yes: the name of what's under the pointer (its title) |
-| PAT / SONG | No song mode yet (the playlist): it always plays the pattern |
+| PAT / SONG | Yes (L): two lights, the lit one is what plays. Not saved: a song with clips on its playlist opens in song mode |
 | Play / Pause, Stop | Play (lit while playing; pressed again it stops, since there's no pause yet), Stop |
 | Record, countdown, typing keyboard | Not yet (recording) |
-| Tempo LCD | Yes: drag it up and down, or click it to type |
-| Position LCD | Yes, in B:S:T (where the pattern is, or where play starts) |
-| Window buttons | Piano roll (F7) and Channel rack (F6): a press opens the window or brings it forward (the keys toggle); the others come with their windows |
+| Tempo LCD | Yes: drag it up and down (the pointer is locked, so it goes on past the screen's edge), or click it to type. Its menu has Tap tempo… (tap along to a song; any key taps too), Make it the default (new songs start at it; 140 BPM until it's set, kept in the browser) and Reset the default; no presets yet |
+| Position LCD | Yes, in B:S:T (where the pattern or the song is, or where play starts) |
+| Window buttons | Playlist (F5), Piano roll (F7), Channel rack (F6), Mixer (F9), Browser (Alt+F8): a press opens the window or brings it forward (the keys toggle). Ours (Théo): Alt+1…5 toggle them too, in the F keys' order (Playlist, Channel rack, Piano roll, Mixer, Browser), since a Mac's F keys need Fn |
 | Snap | The Piano roll has its own; no global snap yet |
 | Metronome | Yes, beside the tempo rather than with the recording buttons |
 | Pattern selector with + | Yes: the arrow opens the list (rename, clone, delete); the name is scrolled or dragged up and down through the patterns, and past the last to the next one, empty, which joins the song only once something's put in it (Théo); + asks for a name and shows the new pattern |
-| Song position slider | Yes, along the pattern: drag it to move where play is |
+| Song position slider | Yes, along the pattern (or the song, in song mode): drag it to move where play is |
 | CPU, output meter, oscilloscope | The output's level over the last few seconds (mirrored, like a waveform's outline) beside the time, and the engine's load now and over the last half minute, (the audio settings are in Settings, the gear at the toolbar's right end). Not a true oscilloscope: the engine sends levels, not samples |
 | — | Ours: undo and redo, the theme, Settle and the assistant, at the right end |

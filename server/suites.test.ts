@@ -49,7 +49,7 @@ describe("suites", () => {
     await start();
     const created = await send<ProjectSummary>("POST", "/api/projects", { suite: "music", name: "Demo" });
     expect(created.status).toBe(201);
-    expect(created.body).toMatchObject({ suite: "music", name: "Demo", status: "active", tempo: 120, duration: 0, thumbnail: null });
+    expect(created.body).toMatchObject({ suite: "music", name: "Demo", status: "active", tempo: 140, duration: 0, thumbnail: null });
     const id = created.body.id;
     expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body).toEqual(createMusicProject("Demo"));
 
@@ -87,11 +87,14 @@ describe("suites", () => {
     const next = (await send<ProjectSummary>("POST", "/api/projects", { suite: "music" })).body;
     expect(next).toMatchObject({ suite: "music", name: "Untitled", tempo: 142 });
     expect(readFileSync(path.join(dataDir, "projects", next.id, "plugins", "chan_serum.bin"), "utf8")).toBe("state");
-    expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "music", blank: true })).body).toMatchObject({ tempo: 120 });
+    expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "music", blank: true })).body).toMatchObject({ tempo: 140 });
+    // The tempo set as the default (the tab's) goes over the starting point's, and into blank songs.
+    expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "music", options: { tempo: 96 } })).body).toMatchObject({ tempo: 96 });
+    expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "music", blank: true, options: { tempo: 100 } })).body).toMatchObject({ tempo: 100 });
     // Other suites start blank; the starting point itself isn't listed.
     expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "video" })).body).toMatchObject({ suite: "video", clipCount: 0 });
     const list = (await send<ProjectSummary[]>("GET", "/api/projects")).body;
-    expect(list).toHaveLength(4);
+    expect(list).toHaveLength(6);
 
     // Saving another replaces it; clearing it, and new ones start blank.
     await send("POST", `/api/projects/${next.id}/template`);
@@ -100,7 +103,7 @@ describe("suites", () => {
     await start();
     expect((await send("GET", "/api/projects/templates")).body).toMatchObject({ music: { name: "Untitled" } });
     expect((await send("DELETE", "/api/projects/templates/music")).body).toEqual({});
-    expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "music" })).body).toMatchObject({ tempo: 120 });
+    expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "music" })).body).toMatchObject({ tempo: 140 });
     expect((await send("DELETE", "/api/projects/templates/spreadsheet")).status).toBe(400);
   });
 

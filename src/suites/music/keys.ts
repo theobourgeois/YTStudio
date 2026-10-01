@@ -4,7 +4,26 @@
  */
 
 export type MusicKeyAction =
-  | { type: "togglePlay" | "undo" | "redo" | "toggleRack" | "togglePiano" | "toggleMixer" | "toggleBrowser" | "toggleGraph" | "toggleTrackSelectors" | "assignFreeTracks" | "clone" | "delete" | "copy" | "cut" | "paste" }
+  | {
+      type:
+        | "togglePlay"
+        | "undo"
+        | "redo"
+        | "toggleRack"
+        | "togglePiano"
+        | "togglePlaylist"
+        | "toggleMixer"
+        | "toggleBrowser"
+        | "toggleMode"
+        | "toggleGraph"
+        | "toggleTrackSelectors"
+        | "assignFreeTracks"
+        | "clone"
+        | "delete"
+        | "copy"
+        | "cut"
+        | "paste";
+    }
   /** Mute or solo the nth channel of the rack (0 is the first). */
   | { type: "mute" | "solo"; index: number }
   /** Select the channel above (-1) or below (1); `extend` keeps what's selected. */
@@ -14,11 +33,14 @@ export type MusicKeyAction =
   /** Shift the selected channel's steps left or right. */
   | { type: "rotate"; direction: -1 | 1 };
 
+/** Alt+1…5: Playlist, Channel rack, Piano roll, Mixer, Browser (F5, F6, F7, F9, Alt+F8). */
+const WINDOW_DIGITS: Partial<Record<string, "togglePlaylist" | "toggleRack" | "togglePiano" | "toggleMixer" | "toggleBrowser">> = { "1": "togglePlaylist", "2": "toggleRack", "3": "togglePiano", "4": "toggleMixer", "5": "toggleBrowser" };
+
 type KeyLike = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">;
 
 export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   const command = e.metaKey || e.ctrlKey;
-  const only = (type: "togglePlay" | "toggleRack" | "togglePiano" | "toggleMixer") => (!command && !e.shiftKey && !e.altKey ? { type } : null);
+  const only = (type: "togglePlay" | "toggleRack" | "togglePiano" | "togglePlaylist" | "toggleMixer" | "toggleMode") => (!command && !e.shiftKey && !e.altKey ? { type } : null);
   // By position, so Alt (which types other characters on a Mac) doesn't hide the key.
   const letter = /^Key([A-Z])$/.exec(e.code)?.[1] ?? "";
   const digit = /^Digit(\d)$/.exec(e.code)?.[1];
@@ -26,11 +48,17 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   const horizontal = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : null;
 
   if (e.code === "Space") return only("togglePlay");
+  if (e.key === "F5") return only("togglePlaylist");
   if (e.key === "F6") return only("toggleRack");
   if (e.key === "F7") return only("togglePiano");
   if (e.key === "F9") return only("toggleMixer");
   // FL's Alt+F8. (F8 alone is FL's plugin picker.)
   if (e.key === "F8" && e.altKey && !command && !e.shiftKey) return { type: "toggleBrowser" };
+  // The same windows on Alt+1…5, in the F keys' order: a Mac's F keys need Fn.
+  if (digit !== undefined && e.altKey && !command && !e.shiftKey) {
+    const window = WINDOW_DIGITS[digit];
+    return window ? { type: window } : null;
+  }
 
   if (digit !== undefined && !e.shiftKey && !e.altKey) {
     // 1…9 then 0: the first ten channels.
@@ -42,6 +70,8 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
   }
   if (horizontal !== null && command && e.shiftKey && !e.altKey) return { type: "rotate", direction: horizontal };
 
+  // FL's L: pattern or song mode.
+  if (letter === "L" && !command && !e.shiftKey && !e.altKey) return only("toggleMode");
   if (e.altKey && !command && !e.shiftKey) {
     if (letter === "C") return { type: "clone" };
     if (letter === "M") return { type: "toggleTrackSelectors" };
@@ -62,7 +92,7 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
 }
 
 /** Keys for the whole editor, whichever window is in front (the Piano roll and the mixer leave only these to the rack). */
-const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set(["togglePlay", "undo", "redo", "toggleRack", "togglePiano", "toggleMixer", "toggleBrowser"]);
+const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set(["togglePlay", "undo", "redo", "toggleRack", "togglePiano", "togglePlaylist", "toggleMixer", "toggleBrowser", "toggleMode"]);
 
 export const isGlobalKey = (action: MusicKeyAction) => GLOBAL_KEYS.has(action.type);
 

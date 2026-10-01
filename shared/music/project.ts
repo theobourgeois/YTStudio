@@ -18,13 +18,16 @@ import {
   type MusicSettings,
   type Note,
   type Pattern,
+  type Playlist,
+  type PlaylistClip,
+  type PlaylistTrack,
   type PluginRef,
   type Precomputed,
   ROOT_PITCH,
   STEP_TICKS,
 } from "./types.ts";
 
-export const DEFAULT_TEMPO = 120;
+export const DEFAULT_TEMPO = 140;
 export const MIN_TEMPO = 20;
 export const MAX_TEMPO = 999;
 /** The notes that can get the beat. */
@@ -63,6 +66,20 @@ const isColor = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f
 export const MAX_LATENCY_OFFSET = 1000;
 /** Where a mixer track's fader leaves its sound as it is (0 dB). */
 export const DEFAULT_FADER = 0.8;
+
+/** The playlist's tracks, as many as FL Studio has. */
+export const MAX_PLAYLIST_TRACKS = 500;
+/** How late in the song a clip can end: 1000 bars of 4/4, as far as a pattern reaches. */
+export const MAX_SONG_TICKS = MAX_PATTERN_TICKS;
+/** The most clips a playlist holds. */
+export const MAX_CLIPS = 50_000;
+/** How far into its file an audio clip's window can start, in seconds (a day). */
+export const MAX_AUDIO_OFFSET = 86_400;
+/** A playlist track's height, as a share of the usual one (FL's track Size). */
+export const MIN_TRACK_SIZE = 0.25;
+export const MAX_TRACK_SIZE = 4;
+/** A track as new: unnamed, the playlist's colour, the usual height, playing. */
+export const DEFAULT_PLAYLIST_TRACK: PlaylistTrack = { name: null, color: null, size: 1, muted: false };
 
 /** Steps in one bar of a time signature (16 in 4/4, 12 in 3/4 and 6/8). */
 export const stepsPerBar = ([beats, unit]: MusicSettings["timeSignature"]) => Math.max(1, Math.round((beats * 16) / unit));
@@ -122,6 +139,11 @@ export function createChannel(name: string, sampleId: string | null, id = create
   };
 }
 
+/** An audio clip's channel (FL's "Audio clip"): the file the playlist's audio clips play. */
+export function createAudioChannel(name: string, sampleId: string, id = createId("chan")): Channel {
+  return { ...createChannel(name, sampleId, id), kind: "audio" };
+}
+
 /** A channel playing an instrument plugin. */
 export function createPluginChannel(plugin: PluginRef, id = createId("chan")): Channel {
   return { ...createChannel(plugin.name, null, id), kind: "plugin", plugin };
@@ -160,10 +182,27 @@ export function createMixer(): Mixer {
   return { tracks: [master, ...Array.from({ length: DEFAULT_INSERTS }, (_, i) => createMixerTrack(`insert_${i + 1}`))], groups: [] };
 }
 
-export function createMusicProject(name = DEFAULT_PROJECT_NAME): MusicProject {
-  const settings: MusicSettings = { tempo: DEFAULT_TEMPO, timeSignature: [4, 4], swing: 0 };
-  return { version: 1, name, settings, channels: emptyRack(), patterns: [createPattern("Pattern 1", FIRST_PATTERN_ID)], mixer: createMixer() };
+export function createMusicProject(name = DEFAULT_PROJECT_NAME, tempo = DEFAULT_TEMPO): MusicProject {
+  const settings: MusicSettings = { tempo, timeSignature: [4, 4], swing: 0 };
+  return { version: 1, name, settings, channels: emptyRack(), patterns: [createPattern("Pattern 1", FIRST_PATTERN_ID)], playlist: emptyPlaylist(), mixer: createMixer() };
 }
+
+/** What the tab chooses for a new song (`CreateProjectRequest.options`): the tempo set as the default. */
+export interface NewSongOptions {
+  tempo?: number;
+}
+
+/** A new song with the tab's choices for it (untrusted: a tempo out of range is ignored). */
+export function withSongOptions(song: MusicProject, options: unknown): MusicProject {
+  if (!isObject(options)) return song;
+  const tempo = options.tempo;
+  if (typeof tempo !== "number" || !Number.isFinite(tempo) || tempo < MIN_TEMPO || tempo > MAX_TEMPO) return song;
+  const rounded = Math.round(tempo * 100) / 100;
+  return rounded === song.settings.tempo ? song : { ...song, settings: { ...song.settings, tempo: rounded } };
+}
+
+/** A playlist with nothing on it: every track as new. */
+export const emptyPlaylist = (): Playlist => ({ tracks: [], clips: [] });
 
 /**
  * Whether `from`'s sound reaches `to` through sends (or is `to`): a send from `to` to `from` would
@@ -224,12 +263,15 @@ function normalizeChannels(input: unknown, isSample: (id: string) => boolean, is
     if (!isObject(raw) || !isId(raw.id) || seen.has(raw.id)) continue;
     seen.add(raw.id);
     const plugin = raw.kind === "plugin" ? normalizePlugin(raw.plugin) : null;
+    const sampleId = !plugin && typeof raw.sampleId === "string" && isSample(raw.sampleId) ? raw.sampleId : null;
+    // An audio clip's channel without its file has nothing to be: it goes (its clips with it).
+    if (raw.kind === "audio" && !sampleId) continue;
     channels.push({
       id: raw.id,
       name: text(raw.name, plugin?.name ?? "Channel"),
-      kind: plugin ? "plugin" : "sampler",
+      kind: plugin ? "plugin" : raw.kind === "audio" ? "audio" : "sampler",
       plugin,
-      sampleId: !plugin && typeof raw.sampleId === "string" && isSample(raw.sampleId) ? raw.sampleId : null,
+      sampleId,
       volume: number(raw.volume, 0, 1, DEFAULT_VOLUME),
       pan: number(raw.pan, -1, 1, 0),
       pitch: number(raw.pitch, -MAX_PITCH, MAX_PITCH, 0),
@@ -279,7 +321,8 @@ export const byStart = (a: Note, b: Note) => a.start - b.start || a.pitch - b.pi
 export const nextNoteId = (notes: readonly Note[]) => notes.reduce((max, note) => Math.max(max, note.id), 0) + 1;
 
 function normalizePatterns(input: unknown, channels: Channel[]): Pattern[] {
-  const channelIds = new Set(channels.map((c) => c.id));
+  // An audio clip's channel plays from the playlist, never from notes.
+  const channelIds = new Set(channels.filter((c) => c.kind !== "audio").map((c) => c.id));
   const seen = new Set<string>();
   const patterns: Pattern[] = [];
   for (const raw of Array.isArray(input) ? input : []) {
@@ -363,6 +406,67 @@ function normalizeMixer(input: unknown): Mixer {
   return { tracks, groups: groups.filter((g) => tracks.some((t) => t.group === g.id)) };
 }
 
+const sameTrack = (a: PlaylistTrack, b: PlaylistTrack) => a.name === b.name && a.color === b.color && a.size === b.size && a.muted === b.muted;
+
+/** The tracks' list without the tracks at its end that are as new (the list is only as long as it needs to be). */
+export function trimTracks(tracks: PlaylistTrack[]): PlaylistTrack[] {
+  let end = tracks.length;
+  while (end > 0 && sameTrack(tracks[end - 1], DEFAULT_PLAYLIST_TRACK)) end--;
+  return end === tracks.length ? tracks : tracks.slice(0, end);
+}
+
+/** The order clips are kept in: by start, then track, then id (so it's the same every time). */
+export const byClipStart = (a: PlaylistClip, b: PlaylistClip) => a.start - b.start || a.track - b.track || a.id - b.id;
+
+function normalizeTrack(raw: unknown): PlaylistTrack {
+  if (!isObject(raw)) return DEFAULT_PLAYLIST_TRACK;
+  const track: PlaylistTrack = {
+    name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, MAX_NAME) : null,
+    color: isColor(raw.color) ? raw.color.toLowerCase() : null,
+    size: Math.round(number(raw.size, MIN_TRACK_SIZE, MAX_TRACK_SIZE, 1) * 100) / 100,
+    muted: raw.muted === true,
+  };
+  return sameTrack(track, DEFAULT_PLAYLIST_TRACK) ? DEFAULT_PLAYLIST_TRACK : track;
+}
+
+/**
+ * The playlist: tracks by number, and clips of patterns and audio clip channels that are still there,
+ * on tracks that exist, inside the song's reach. Clips get ids of their own if they lack one. Songs
+ * from before the playlist get an empty one.
+ */
+function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channel[]): Playlist {
+  if (!isObject(input)) return emptyPlaylist();
+  const tracks = trimTracks((Array.isArray(input.tracks) ? input.tracks : []).slice(0, MAX_PLAYLIST_TRACKS).map(normalizeTrack));
+  const patternIds = new Set(patterns.map((p) => p.id));
+  const audioIds = new Set(channels.filter((c) => c.kind === "audio").map((c) => c.id));
+  const clips: PlaylistClip[] = [];
+  const ids = new Set<number>();
+  const unnamed: PlaylistClip[] = [];
+  for (const raw of Array.isArray(input.clips) ? input.clips : []) {
+    if (clips.length >= MAX_CLIPS) break;
+    if (!isObject(raw) || typeof raw.ref !== "string") continue;
+    const kind = raw.kind === "audio" ? "audio" : raw.kind === "pattern" ? "pattern" : null;
+    if (!kind || !(kind === "pattern" ? patternIds : audioIds).has(raw.ref)) continue;
+    if (!isFiniteNumber(raw.start) || !Number.isInteger(raw.track)) continue;
+    const track = raw.track as number;
+    const start = Math.round(raw.start);
+    if (track < 0 || track >= MAX_PLAYLIST_TRACKS || start < 0 || start >= MAX_SONG_TICKS) continue;
+    // Only a pattern clip follows its pattern's length; an audio clip always has one.
+    const length = kind === "pattern" && raw.length === null ? null : Math.round(number(raw.length, 1, MAX_SONG_TICKS - start, STEP_TICKS * 16));
+    const offset = kind === "pattern" ? Math.round(number(raw.offset, 0, MAX_PATTERN_TICKS, 0)) : number(raw.offset, 0, MAX_AUDIO_OFFSET, 0);
+    const id = Number.isInteger(raw.id) && (raw.id as number) > 0 && !ids.has(raw.id as number) ? (raw.id as number) : 0;
+    const clip: PlaylistClip = { id, kind, ref: raw.ref, track, start, length, offset, muted: raw.muted === true };
+    if (id) ids.add(id);
+    else unnamed.push(clip);
+    clips.push(clip);
+  }
+  // (A loop, not a spread: a playlist can hold more ids than a call takes arguments.)
+  let next = 0;
+  for (const id of ids) next = Math.max(next, id);
+  for (const clip of unnamed) clip.id = ++next;
+  return { tracks, clips: clips.sort(byClipStart) };
+}
+
 /**
  * Repair a song from untrusted storage: anything missing or out of range falls back to the default.
  * `isSample` says which media ids the song may play (its project's audio); others are dropped.
@@ -381,12 +485,14 @@ export function normalizeMusicProject(input: unknown, isSample: (id: string) => 
   const mixer = normalizeMixer(input.mixer);
   const trackIds = new Set(mixer.tracks.map((t) => t.id));
   const channels = normalizeChannels(input.channels, isSample, (id) => trackIds.has(id));
+  const patterns = normalizePatterns(input.patterns, channels);
   return {
     version: 1,
     name,
     settings: { tempo, timeSignature, swing: number(settings.swing, 0, 1, 0) },
     channels,
-    patterns: normalizePatterns(input.patterns, channels),
+    patterns,
+    playlist: normalizePlaylist(input.playlist, patterns, channels),
     mixer,
   };
 }

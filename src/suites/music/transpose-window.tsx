@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { transposePatterns } from "@shared/music/edits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { usePlaylist } from "./playlist/store";
 import { transposeSelected } from "./rack-actions";
-import { useSong } from "./store";
+import { useMusic, useSong } from "./store";
 import { selectedIn, useMusicUi } from "./ui";
 import { MusicWindow, centredOnDesktop } from "./window";
 
@@ -15,13 +17,18 @@ export function parseSemitones(text: string): number | null {
 }
 
 /**
- * The rack's Transpose selected (its menu): a small window asking by how many semitones, up (positive)
- * or down, to move every note of the selected channels in the pattern shown. Enter applies it.
+ * Transpose selected: a small window asking by how many semitones, up (positive) or down, to move every
+ * note of the rack's selected channels in the pattern shown (the rack's menu), or of the patterns
+ * selected in the Playlist's Picker (its menu: `usePlaylist.transposing`). Enter applies it.
  */
 export function TransposeWindow() {
   const channels = useSong((song) => song.channels);
+  const patterns = useSong((song) => song.patterns);
   const selectedIds = useMusicUi((s) => s.selectedChannelIds);
-  const selected = selectedIn({ channels } as Parameters<typeof selectedIn>[0], selectedIds);
+  const transposing = usePlaylist((s) => s.transposing);
+  const selected: { id: string; name: string }[] = transposing
+    ? patterns.filter((p) => transposing.includes(p.id))
+    : selectedIn({ channels } as Parameters<typeof selectedIn>[0], selectedIds);
   const [text, setText] = useState("0");
   const field = useRef<HTMLInputElement>(null);
   // Ready to type in. `autoFocus` isn't enough: the menu it's opened from gives the focus back to its
@@ -37,7 +44,10 @@ export function TransposeWindow() {
   const close = () => useMusicUi.getState().setTransposeOpen(false);
   const accept = () => {
     if (semitones === null || !selected.length) return;
-    transposeSelected(semitones);
+    if (transposing) {
+      const ids = selected.map((p) => p.id);
+      useMusic.getState().commit((song) => transposePatterns(song, ids, semitones));
+    } else transposeSelected(semitones);
     close();
   };
   const nudge = (by: number) => setText((t) => String(Math.max(-127, Math.min(127, (parseSemitones(t) ?? 0) + by))));
@@ -53,7 +63,13 @@ export function TransposeWindow() {
         }}
       >
         <p className="truncate text-[11px] text-muted-foreground" title={names}>
-          {selected.length ? `${names}: every note in this pattern` : "Select channels in the rack first"}
+          {transposing
+            ? selected.length
+              ? `${names}: every note of ${selected.length === 1 ? "this pattern" : "these patterns"}`
+              : "Select patterns in the Picker first"
+            : selected.length
+              ? `${names}: every note in this pattern`
+              : "Select channels in the rack first"}
         </p>
         <div className="flex items-center gap-1">
           <label htmlFor="transpose-semitones" className="mr-auto text-xs">

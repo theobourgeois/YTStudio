@@ -122,8 +122,10 @@ export class ProjectStore {
     if (input.suite !== undefined && !isSuiteId(input.suite)) throw new HttpError(400, "Unknown suite: use video or music.");
     const suite = (input.suite as SuiteId | undefined) ?? DEFAULT_SUITE;
     const template = input.blank === true ? null : this.templateId(suite);
-    if (template) return this.copy(template, { name });
-    return this.add(createId("project"), suite, suiteBackend(suite).create(name), this.now());
+    const backend = suiteBackend(suite);
+    const adjust = (doc: SuiteDocument) => (backend.withOptions && input.options !== undefined ? backend.withOptions(doc as never, input.options) : doc);
+    if (template) return this.copy(template, { name, adjust });
+    return this.add(createId("project"), suite, adjust(backend.create(name)), this.now());
   }
 
   /** Commit a new project with the given document and timestamps (`updatedAt` = `createdAt`). */
@@ -178,7 +180,7 @@ export class ProjectStore {
    * A new project copied from another: its document (its media remapped to their copies), its media and
    * the files beside its document (a music project's plugin settings, by channel id, which the copy keeps).
    */
-  private async copy(id: string, { name, template = false }: { name: string; template?: boolean }): Promise<ProjectSummary> {
+  private async copy(id: string, { name, template = false, adjust = (doc) => doc }: { name: string; template?: boolean; adjust?: (doc: SuiteDocument) => SuiteDocument }): Promise<ProjectSummary> {
     const { suite } = this.entry(id).meta;
     const source = await this.readDoc(id, suite);
     const copyId = createId("project");
@@ -190,7 +192,7 @@ export class ProjectStore {
         if (file === "project.json" || file === "meta.json") continue;
         await fs.cp(path.join(this.paths.projectDir(id), file), path.join(this.paths.projectDir(copyId), file), { recursive: true });
       }
-      return await this.add(copyId, suite, { ...copy, name }, this.now(), template);
+      return await this.add(copyId, suite, adjust({ ...copy, name }), this.now(), template);
     } catch (err) {
       await this.library.removeProject(copyId);
       await fs.rm(this.paths.projectDir(copyId), { recursive: true, force: true, maxRetries: 5 });

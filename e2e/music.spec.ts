@@ -212,14 +212,18 @@ test("mutes and solos, selects, reorders, clones and deletes channels, by mouse 
   await page.keyboard.press("2");
   await page.keyboard.press("4");
 
-  // The selector: a click selects one, a right-click adds, a double-click selects all.
+  // The selector: a click selects one, a right-click adds, a double-click opens its Piano roll (Théo's).
   const selected = () => page.locator("[data-selector][aria-pressed=true]").count();
   await page.getByRole("button", { name: "Select Hat" }).click();
   expect(await selected()).toBe(1);
   await page.getByRole("button", { name: "Select Kick" }).click({ button: "right" });
   expect(await selected()).toBe(2);
   await page.getByRole("button", { name: "Select Snare" }).dblclick();
-  expect(await selected()).toBe(4);
+  const piano = page.locator('[data-window="piano"]');
+  await expect(piano).toBeVisible();
+  await expect(piano.locator("[data-window-title]")).toContainText("Snare");
+  await page.getByRole("button", { name: /^Close Piano roll/ }).click();
+  await expect(piano).toHaveCount(0);
   await page.getByRole("button", { name: "Select Hat" }).click();
   expect(await selected()).toBe(1);
 
@@ -335,6 +339,23 @@ test("the rack's + adds an instrument: a plugin of this computer's, or a sampler
   expect(await rackOrder(page)).toEqual(["Fake Synth"]);
   await page.keyboard.press("ControlOrMeta+Shift+z");
   expect(await rackOrder(page)).toEqual(["Fake Synth", "Sampler"]);
+
+  // Replace (FL's): another instrument in the channel's place, playing its notes; one undo step.
+  const settings = page.getByRole("button", { name: "Close Sampler" });
+  if (await settings.count()) await settings.click();
+  await step(page, "Sampler", 3).click();
+  await channelButton(page, "Sampler").click({ button: "right" });
+  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Replace…" }).click();
+  await page.getByTestId("replace-picker").getByRole("option", { name: /Fake Synth/ }).click();
+  expect(await rackOrder(page)).toEqual(["Fake Synth", "Fake Synth"]);
+  await expect
+    .poll(async () => {
+      const song = await savedSong(page, id);
+      return [song.channels[1].kind, song.patterns[0].notes[song.channels[1].id]?.map((n: { start: number }) => n.start)];
+    })
+    .toEqual(["plugin", [48]]);
+  await page.keyboard.press("ControlOrMeta+z");
+  expect(await rackOrder(page)).toEqual(["Fake Synth", "Sampler"]);
 });
 
 test("knobs work as in FL Studio, and a channel opens its settings window", async ({ page }) => {
@@ -343,9 +364,9 @@ test("knobs work as in FL Studio, and a channel opens its settings window", asyn
   await expect(page.getByRole("listitem")).toHaveCount(4);
 
   const tempo = page.getByRole("textbox", { name: "Tempo" });
-  await tempo.fill("140");
+  await tempo.fill("128");
   await tempo.press("Enter");
-  await expect(page.locator(`[data-project-id="${id}"]`)).toContainText("140 BPM");
+  await expect(page.locator(`[data-project-id="${id}"]`)).toContainText("128 BPM");
 
   // A knob is dragged up and down (one undo step); Alt+click resets it; its menu resets, copies, pastes and takes a typed value.
   const volume = row(page, "Kick").getByRole("slider", { name: "Volume" });
@@ -596,13 +617,45 @@ test("settings: ⌘, opens on the music tab, with the device and the plugin benc
 test("the toolbar, as FL Studio's: the tempo LCD drags, + makes a pattern, the position slider moves where play starts, the hint bar names what's under the pointer", async ({ page }) => {
   const id = await openNewSong(page, "Toolbar");
   const tempo = page.getByRole("textbox", { name: "Tempo" });
-  await expect(tempo).toHaveValue("120");
+  await expect(tempo).toHaveValue("140");
   // Dragged up 40 px, 4 px a BPM: one undo step.
   await drag(page, tempo, tempo, { dy: -40 });
-  await expect(tempo).toHaveValue("130");
-  await expect.poll(async () => (await savedSong(page, id)).settings.tempo).toBe(130);
+  await expect(tempo).toHaveValue("150");
+  await expect.poll(async () => (await savedSong(page, id)).settings.tempo).toBe(150);
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(tempo).toHaveValue("120");
+  await expect(tempo).toHaveValue("140");
+
+  // Its menu taps the tempo: a key every half second is 120 BPM.
+  await tempo.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Tap tempo…" }).click();
+  const tapped = page.getByTestId("tapped-tempo");
+  await expect(page.getByRole("button", { name: "Tap" })).toBeFocused();
+  for (let i = 0; i < 5; i++) {
+    if (i) await page.waitForTimeout(500);
+    await page.keyboard.press("t");
+  }
+  await expect.poll(async () => Number(await tapped.textContent())).toBeGreaterThan(110);
+  expect(Number(await tapped.textContent())).toBeLessThan(130);
+  const bpm = (await tapped.textContent())!;
+  await page.getByRole("button", { name: "Set tempo" }).click();
+  await expect(tempo).toHaveValue(bpm);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(tempo).toHaveValue("140");
+
+  // ...and makes the tempo the one new songs start at (from the New project picker), until it's reset.
+  await tempo.fill("128");
+  await tempo.press("Enter");
+  await tempo.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Make 128 BPM the default" }).click();
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("song");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => page.url()).not.toContain(id);
+  await expect(tempo).toHaveValue("128");
+  await tempo.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Reset the default (140 BPM)" }).click();
+  await page.goto(`/p/${id}`);
+  await expect(tempo).toHaveValue("128");
 
   await page.getByRole("button", { name: "New pattern" }).click();
   await page.getByLabel("New pattern's name").press("Enter");
@@ -1148,4 +1201,307 @@ test("the assistant finds the user's samples, plays one to them and puts them in
   await expect(list.getByRole("treeitem", { name: "Kick 2.wav" }).first()).toHaveAttribute("data-playing", "true");
   // (Favourites come in the order they were starred: the last test starred Snare and Loops.)
   await expect(list.locator('[data-row^="f:"]')).toHaveText(["Snare.wav", "Loops", "Kick 2.wav"]);
+});
+
+/** Where a tick and a track are on the Playlist's grid, in the page (the view as it opens: 0.15 px a tick, tracks 48 px tall). */
+async function playlistPoint(page: Page, tick: number, track: number) {
+  const box = (await page.getByTestId("playlist-grid").boundingBox())!;
+  return { x: box.x + tick * 0.15 + 2, y: box.y + track * 48 + 28 };
+}
+const BAR_TICKS = 384;
+type SavedClip = { id: number; kind: string; ref: string; track: number; start: number; length: number | null; offset: number; muted: boolean };
+const savedClips = async (page: Page, id: string): Promise<SavedClip[]> => (await savedSong(page, id)).playlist.clips;
+const clipsAt = async (page: Page, id: string) => (await savedClips(page, id)).map((c) => [c.track, c.start, c.length]);
+
+test("the Playlist, as FL Studio's: patterns drawn, painted, moved, cloned, resized, sliced, muted and deleted on tracks", async ({ page }) => {
+  const id = await openNewSong(page, "Arranged");
+  await addStarterKit(page);
+  await expect(page.getByRole("listitem")).toHaveCount(4);
+  for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
+  // F5 opens it, filling the desktop; the Picker lists the patterns.
+  await page.keyboard.press("F5");
+  const playlist = page.getByTestId("playlist");
+  await expect(playlist).toBeVisible();
+  await expect(page.getByTestId("picker")).toContainText("Pattern 1");
+  // A new song plays its pattern; the toolbar says so.
+  await expect(page.getByRole("radio", { name: "Pattern mode" })).toHaveAttribute("aria-checked", "true");
+
+  // Draw: a click on an empty track adds the pattern shown, as long as it is.
+  let at = await playlistPoint(page, 0, 0);
+  await page.mouse.click(at.x, at.y);
+  await expect.poll(() => clipsAt(page, id)).toEqual([[0, 0, null]]);
+  // Paint (B): a drag lays one after another along the track.
+  await page.keyboard.press("b");
+  at = await playlistPoint(page, 0, 1);
+  const to = await playlistPoint(page, 3 * BAR_TICKS + 100, 1);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedClips(page, id)).filter((c) => c.track === 1).map((c) => c.start)).toEqual([0, 384, 768, 1152]);
+  // The right button deletes, sweeping.
+  at = await playlistPoint(page, 2 * BAR_TICKS + 100, 1);
+  const end = await playlistPoint(page, 3 * BAR_TICKS + 100, 1);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.move(end.x, end.y, { steps: 6 });
+  await page.mouse.up({ button: "right" });
+  await expect.poll(async () => (await savedClips(page, id)).filter((c) => c.track === 1).map((c) => c.start)).toEqual([0, 384]);
+
+  // Draw (P): a clip dragged moves along the grid and to another track; with Shift, a copy moves.
+  await page.keyboard.press("p");
+  at = await playlistPoint(page, 150, 0);
+  let target = await playlistPoint(page, 150 + 2 * BAR_TICKS, 2);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(target.x, target.y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedClips(page, id)).find((c) => c.id === 1)).toMatchObject({ track: 2, start: 768 });
+  at = await playlistPoint(page, 768 + 150, 2);
+  target = await playlistPoint(page, 4 * BAR_TICKS + 150, 2);
+  await page.mouse.move(at.x, at.y);
+  await page.keyboard.down("Shift");
+  await page.mouse.down();
+  await page.mouse.move(target.x, target.y, { steps: 10 });
+  await page.mouse.up();
+  await page.keyboard.up("Shift");
+  await expect.poll(async () => (await savedClips(page, id)).filter((c) => c.track === 2).map((c) => c.start)).toEqual([768, 1536]);
+
+  // Its right edge resizes it: two bars long (it plays nothing past its pattern).
+  at = await playlistPoint(page, 1536 + BAR_TICKS - 20, 2);
+  target = await playlistPoint(page, 1536 + 2 * BAR_TICKS - 20, 2);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(target.x, target.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedClips(page, id)).find((c) => c.track === 2 && c.start === 1536)?.length).toBe(2 * BAR_TICKS);
+
+  // Slice (C): a line dragged down through it cuts it in two, on the grid.
+  await page.keyboard.press("c");
+  at = await playlistPoint(page, 1536 + BAR_TICKS, 2);
+  await page.mouse.move(at.x, at.y - 10);
+  await page.mouse.down();
+  await page.mouse.move(at.x, at.y + 5, { steps: 3 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedClips(page, id)).filter((c) => c.track === 2).map((c) => [c.start, c.length, c.offset])).toEqual([
+    [768, null, 0],
+    [1536, 384, 0],
+    [1920, 384, 384],
+  ]);
+
+  // Mute (T): a click mutes a clip; it stays.
+  await page.keyboard.press("t");
+  at = await playlistPoint(page, 100, 1);
+  await page.mouse.click(at.x, at.y);
+  await expect.poll(async () => (await savedClips(page, id)).find((c) => c.track === 1 && c.start === 0)?.muted).toBe(true);
+
+  // Ctrl+A and Ctrl+B: everything duplicated to the right, one undo step.
+  await page.keyboard.press("p");
+  const before = (await savedClips(page, id)).length;
+  await page.keyboard.press("ControlOrMeta+a");
+  await expect(playlist).toHaveAttribute("data-selected", String(before));
+  await page.keyboard.press("ControlOrMeta+b");
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(before * 2);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(before);
+  // Delete with nothing selected... is everything (FL's); undone.
+  await page.keyboard.press("ControlOrMeta+d");
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(0);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(before);
+});
+
+test("song mode plays the playlist: PAT / SONG, the ruler sets where it plays from, a time selection loops", async ({ page }) => {
+  const id = await openNewSong(page, "Song mode");
+  await addStarterKit(page);
+  for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
+  await page.keyboard.press("F5");
+  for (const bar of [0, 1, 2, 3]) {
+    const at = await playlistPoint(page, bar * BAR_TICKS, 0);
+    await page.mouse.click(at.x + 4, at.y);
+  }
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(4);
+  // L switches to song mode; the playlist's playhead runs while it plays.
+  await page.keyboard.press("l");
+  await expect(page.getByRole("radio", { name: "Song mode" })).toHaveAttribute("aria-checked", "true");
+  const playlist = page.getByTestId("playlist");
+  await expect(playlist).toHaveAttribute("data-loop", `0:${4 * BAR_TICKS}`);
+  // (Stopped first: the stand-in engine is shared, and a test before may have left it playing.)
+  const transport = page.getByRole("toolbar", { name: "Transport" });
+  await transport.getByRole("button", { name: "Stop" }).click();
+  await expect(transport.getByRole("button", { name: "Play" })).toHaveAttribute("aria-pressed", "false");
+  await page.keyboard.press("Space");
+  const playhead = page.getByTestId("playlist-playhead");
+  await expect(playhead).toHaveCSS("opacity", "1");
+  const x0 = await playhead.evaluate((e) => new DOMMatrix(getComputedStyle(e).transform).m41);
+  await expect.poll(() => playhead.evaluate((e) => new DOMMatrix(getComputedStyle(e).transform).m41)).toBeGreaterThan(x0);
+  await page.keyboard.press("Space");
+  await expect(playhead).toHaveCSS("opacity", "0");
+
+  // A click on the ruler: where the song plays from.
+  const ruler = page.getByTestId("playlist").getByLabel("Ruler");
+  const box = (await ruler.boundingBox())!;
+  await page.mouse.click(box.x + 2 * BAR_TICKS * 0.15 + 2, box.y + 10);
+  await expect(playlist).toHaveAttribute("data-start", String(2 * BAR_TICKS));
+  await expect(page.getByLabel("Position", { exact: true })).toHaveText("3:01:00");
+  // Ctrl+drag along it: a time selection, which is what loops.
+  await page.keyboard.down("ControlOrMeta");
+  await page.mouse.move(box.x + BAR_TICKS * 0.15 + 2, box.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 3 * BAR_TICKS * 0.15 + 2, box.y + 10, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.up("ControlOrMeta");
+  await expect(playlist).toHaveAttribute("data-loop", `${BAR_TICKS}:${2 * BAR_TICKS}`);
+  // Back to pattern mode: the pattern loops.
+  await page.getByRole("radio", { name: "Pattern mode" }).click();
+  await expect(playlist).toHaveAttribute("data-loop", `0:${BAR_TICKS}`);
+  // A song with clips opens in song mode.
+  await page.reload();
+  await expect(page.getByRole("radio", { name: "Song mode" })).toHaveAttribute("aria-checked", "true");
+});
+
+test("split by channel turns a beat into a pattern per channel, each on its own track; undo brings the beat back", async ({ page }) => {
+  const id = await openNewSong(page, "Split");
+  await addStarterKit(page);
+  for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
+  for (const n of [3, 7, 11, 15]) await step(page, "Hat", n).click();
+  await step(page, "Snare", 5).click();
+  await page.keyboard.press("F5");
+  const at = await playlistPoint(page, 0, 0);
+  await page.mouse.click(at.x + 4, at.y);
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(1);
+  // The Picker's menu (as FL's pattern menu): Split by channel.
+  await page.getByTestId("picker").getByRole("button", { name: "Pattern 1" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Split by channel" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name)).toEqual(["Kick", "Hat", "Snare"]);
+  const song = await savedSong(page, id);
+  expect(song.playlist.clips.map((c: SavedClip) => [c.track, c.start])).toEqual([
+    [0, 0],
+    [1, 0],
+    [2, 0],
+  ]);
+  expect(Object.keys(song.patterns[1].notes)).toEqual([song.channels[2].id]);
+  await expect(page.getByTestId("picker")).toContainText("Snare");
+  // One undo step: the beat, and its one clip, are back.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name)).toEqual(["Pattern 1"]);
+  expect((await savedClips(page, id)).length).toBe(1);
+});
+
+test("a clip's menu, from the arrow at the start of its title: make unique, mute, delete", async ({ page }) => {
+  const id = await openNewSong(page, "Clip menu");
+  await addStarterKit(page);
+  for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
+  await page.keyboard.press("F5");
+  for (const bar of [0, 1]) {
+    const at = await playlistPoint(page, bar * BAR_TICKS, 0);
+    await page.mouse.click(at.x + 4, at.y);
+  }
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(2);
+  const box = (await page.getByTestId("playlist-grid").boundingBox())!;
+  const arrow = { x: box.x + BAR_TICKS * 0.15 + 10, y: box.y + 6 };
+  const menu = page.getByTestId("clip-menu");
+  // Make unique: the second clip plays a copy of the pattern of its own.
+  await page.mouse.click(arrow.x, arrow.y);
+  await menu.getByRole("menuitem", { name: "Make unique" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name)).toEqual(["Pattern 1", "Pattern 1 #2"]);
+  const [first, second] = await savedClips(page, id);
+  expect(first.ref).not.toBe(second.ref);
+  // Mute, then delete.
+  await page.mouse.click(arrow.x, arrow.y);
+  await menu.getByRole("menuitem", { name: "Mute" }).click();
+  await expect.poll(async () => (await savedClips(page, id))[1].muted).toBe(true);
+  await page.mouse.click(arrow.x, arrow.y);
+  await menu.getByRole("menuitem", { name: "Delete" }).click();
+  await expect.poll(async () => (await savedClips(page, id)).length).toBe(1);
+});
+
+test("tracks are named, coloured, muted and soloed; audio files dropped on the playlist are audio clips, in the rack's Audio group", async ({ page }) => {
+  const id = await openNewSong(page, "Tracks and audio", { browser: true });
+  await page.keyboard.press("F5");
+  const headers = page.getByTestId("track-headers");
+  const header = (n: number) => headers.locator(`[data-track="${n - 1}"]`);
+  // Double-click a header's name: rename it.
+  await header(1).getByRole("button", { name: "Track 1", exact: true }).dblclick();
+  await page.getByRole("textbox", { name: "Track name" }).fill("Drums");
+  await page.keyboard.press("Enter");
+  await expect(header(1)).toHaveAttribute("data-track-name", "Drums");
+  // The mute light; a right-click on it solos.
+  await header(2).getByRole("button", { name: "Mute Track 2" }).click();
+  await expect(header(2)).toHaveAttribute("data-muted", "true");
+  await header(3).getByRole("button", { name: "Mute Track 3" }).click({ button: "right" });
+  await expect(header(2)).toHaveAttribute("data-muted", "true");
+  await expect(header(1)).toHaveAttribute("data-muted", "true");
+  await expect(header(3)).not.toHaveAttribute("data-muted");
+  // Its menu: a colour.
+  await header(1).click({ button: "right", position: { x: 40, y: 30 } });
+  await page.getByRole("menuitem", { name: "Change color" }).hover();
+  await page.getByRole("menuitem", { name: "#3f5ea8" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).playlist.tracks[0]).toMatchObject({ name: "Drums", color: "#3f5ea8", muted: true });
+
+  // A file of the Browser dropped on track 3 at bar 2: an audio clip, with a channel of its own.
+  const list = page.getByRole("complementary", { name: "Browser" }).getByTestId("browser-list");
+  const item = (name: string) => list.getByRole("treeitem", { name, exact: true }).last();
+  for (const folder of ["My Samples", "Loops"]) if (!(await item("Break.wav").isVisible())) await item(folder).click();
+  await expect(item("Break.wav")).toBeVisible();
+  const grid = page.getByTestId("playlist-grid");
+  await item("Break.wav").dragTo(grid, { targetPosition: { x: BAR_TICKS * 0.15 + 4, y: 2 * 48 + 24 } });
+  await expect.poll(async () => (await savedClips(page, id)).map((c) => [c.kind, c.track, c.start])).toEqual([["audio", 2, BAR_TICKS]]);
+  const song = await savedSong(page, id);
+  expect(song.channels.find((c: { kind: string }) => c.kind === "audio")).toMatchObject({ name: "Break" });
+  // The rack keeps it in its Audio group: Unsorted (the default) shows the rest, All shows everything.
+  await page.getByRole("button", { name: "Channel rack", exact: true }).click();
+  const rack = page.getByTestId("channel-rack");
+  await expect(rack.locator('[data-channel-name="Break"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Channel group" }).click();
+  await page.getByRole("menuitemradio", { name: "Audio" }).click();
+  await expect(rack.locator('[role=listitem][data-channel-name="Break"]')).toHaveCount(1);
+  await expect(rack.locator('[role=listitem][data-channel-name="Sampler"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Channel group" }).click();
+  await page.getByRole("menuitemradio", { name: "All" }).click();
+  await expect(rack.locator("[role=listitem][data-channel]")).toHaveCount(2);
+});
+
+test("the assistant arranges the song with the playlist's tools", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted arrangement");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_channel {"kit": "kick"}',
+      'call add_channel {"kit": "hat"}',
+      'call set_steps {"channel": "Kick", "steps": "x---x---x---x---"}',
+      'call set_steps {"channel": "Hat", "steps": "--x-"}',
+      'call place_clips {"clips": [{"pattern": "Pattern 1", "track": 1, "bar": 1, "repeat": 4}]}',
+      'call split_by_channel {"pattern": "Pattern 1"}',
+      'call update_playlist_track {"track": 2, "name": "Hats", "muted": true}',
+      'call update_clips {"ids": [999]}',
+      'call play_song {"action": "play", "mode": "song", "bar": 2}',
+      "call get_playlist",
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("update_clips: failed, play_song: ok, get_playlist: ok", { timeout: 30_000 });
+  await expect.poll(async () => (await savedSong(page, id)).patterns.map((p: { name: string }) => p.name)).toEqual(["Kick", "Hat"]);
+  const song = await savedSong(page, id);
+  expect(song.playlist.clips.map((c: SavedClip) => [c.track, c.start])).toEqual([
+    [0, 0],
+    [1, 0],
+    [0, 384],
+    [1, 384],
+    [0, 768],
+    [1, 768],
+    [0, 1152],
+    [1, 1152],
+  ]);
+  expect(song.playlist.tracks[1]).toMatchObject({ name: "Hats", muted: true });
+  // It plays the song, from bar 2.
+  await expect(page.getByRole("radio", { name: "Song mode" })).toHaveAttribute("aria-checked", "true");
+  const transport = page.getByRole("toolbar", { name: "Transport" });
+  await expect(transport.getByRole("button", { name: "Play" })).toHaveAttribute("aria-pressed", "true");
+  // Stopped by the button (the chat's box has the keys), so the next tests find the engine quiet.
+  await transport.getByRole("button", { name: "Stop" }).click();
+  await expect(transport.getByRole("button", { name: "Play" })).toHaveAttribute("aria-pressed", "false");
 });

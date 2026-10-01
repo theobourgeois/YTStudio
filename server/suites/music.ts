@@ -1,4 +1,4 @@
-import { createMusicProject, normalizeMusicProject } from "../../shared/music/project.ts";
+import { createMusicProject, normalizeMusicProject, withSongOptions } from "../../shared/music/project.ts";
 import { isObject } from "../storage.ts";
 import type { SuiteBackend } from "./suite.ts";
 
@@ -6,6 +6,7 @@ import type { SuiteBackend } from "./suite.ts";
 export const musicSuite: SuiteBackend<"music"> = {
   suite: "music",
   create: (name) => createMusicProject(name),
+  withOptions: (doc, options) => withSongOptions(doc, options),
   normalize(doc, media) {
     if (!isObject(doc)) throw new Error("Not a song.");
     return normalizeMusicProject(doc, (id) => media[id]?.hasAudio === true);
@@ -22,7 +23,7 @@ export const musicSuite: SuiteBackend<"music"> = {
 Tools for a local music editor (a DAW that works like FL Studio). They act on the song open in the editor \
 tab (unless you're told otherwise), live: the user sees and hears every change as it happens, and can undo it.
 
-So far a song is a channel rack, patterns and a mixer. A channel is a sampler playing one audio file, or an \
+A song is a channel rack, patterns, a playlist and a mixer. A channel is a sampler playing one audio file, or an \
 instrument plugin of the user's (a synth, whose sound is set in its own window, not by you); a pattern holds \
 each channel's notes and loops while it plays. Drums are usually steps (set_steps: sixteenth notes drawn as \
 text); melodies, chords and bass lines are notes (set_notes, get_notes: the Piano roll's).
@@ -31,8 +32,16 @@ The mixer is FL Studio's: every channel plays into a mixer track (the master unl
 and each track's sound goes through its effect plugins (add_mixer_effect, from list_plugins with kind \
 "effect"; their settings are the user's, in the plugin's window), its fader and pan (update_mixer_track, \
 levels in dB), then to the master and any tracks it sends to (set_send: a reverb bus is a track the others \
-send to). get_mixer shows it all. There's no playlist yet: if asked for one, say plainly that the music \
-editor can't do that yet.
+send to). get_mixer shows it all.
+
+The playlist arranges the song (get_playlist): numbered tracks, bound to nothing, with clips on them. A pattern \
+clip plays its pattern where it's placed (as long as the pattern unless resized; past its pattern it plays \
+nothing); an audio clip plays an audio file (add_audio_clip: a vocal, a loop), streamed. place_clips arranges \
+patterns by bar (repeat to fill a section), update_clips moves, resizes and mutes, slice_clips cuts, \
+split_by_channel turns one pattern into one per channel (each on its own track), update_playlist_track names, \
+colours, mutes and solos tracks. To arrange: build the parts as patterns, split the beat by channel if each \
+part should come in on its own, then place them by section (intro, verse, drop...). play_song with mode "song" \
+plays the arrangement, "pattern" loops the pattern shown.
 
 The user's own samples are in the Browser: their sample folders, the same in every song. search_samples \
 finds files by name ("808 kick", "vocal chop"), list_samples shows the folders, their favourites and what's \

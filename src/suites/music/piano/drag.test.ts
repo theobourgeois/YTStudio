@@ -35,7 +35,7 @@ describe("applyDrag", () => {
   it("adds the notes being drawn, and slices the rows the line crosses where it is", () => {
     const added = applyDrag(notes, { kind: "add", notes: [{ start: 300, length: 24, pitch: 72 }] });
     expect(added.created).toEqual([4]);
-    const sliced = applyDrag(notes, { kind: "slice", tick: 48, low: 61, high: 59 });
+    const sliced = applyDrag(notes, { kind: "slice", tick: 48, low: 61, high: 59, column: false });
     expect(shape(sliced.notes)).toEqual([
       [1, 0, 48, 60],
       [4, 48, 48, 60],
@@ -43,9 +43,17 @@ describe("applyDrag", () => {
       [3, 192, 96, 67],
     ]);
     // Up to E5 and through G5, it cuts both where they're crossed; a cut at a note's edge isn't one.
-    const two = applyDrag(notes, { kind: "slice", tick: 240, low: 60, high: 67 });
+    const two = applyDrag(notes, { kind: "slice", tick: 240, low: 60, high: 67, column: false });
     expect(two.created).toEqual([4]);
-    expect(applyDrag(notes, { kind: "slice", tick: 96, low: 60, high: 64 }).notes).toBe(notes);
+    expect(applyDrag(notes, { kind: "slice", tick: 96, low: 60, high: 64, column: false }).notes).toBe(notes);
+    // Shift: the whole column, whatever rows the line was dragged across.
+    const column = applyDrag(notes, { kind: "slice", tick: 240, low: 60, high: 60, column: true });
+    expect(shape(column.notes)).toEqual([
+      [1, 0, 96, 60],
+      [2, 96, 96, 64],
+      [3, 192, 48, 67],
+      [4, 240, 48, 67],
+    ]);
   });
 
   it("selects what a rectangle touches, in whichever direction it was dragged", () => {

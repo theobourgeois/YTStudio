@@ -1,11 +1,12 @@
-import { memo, useEffect, useRef, useState } from "react";
-import { PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning } from "react-icons/pi";
+import { type RefObject, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { PiCaretDownBold, PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning, PiWaveform } from "react-icons/pi";
+import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { soundingChannels } from "@shared/music/compile";
 import { type StepPatch, drawSteps, fillSteps, lengthOf, setPatternLength, setStepNotes, setSteps, setSwing, stepNotes, updateChannel } from "@shared/music/edits";
 import { DEFAULT_VELOCITY, DEFAULT_VOLUME, MAX_STEPS, stepsPerBar } from "@shared/music/project";
-import { type Channel, type MusicProject, type Note, PPQ, ROOT_PITCH, STEP_TICKS } from "@shared/music/types";
+import { type Channel, type MusicProject, type Note, ROOT_PITCH, STEP_TICKS } from "@shared/music/types";
 import {
   ContextMenu,
   ContextMenuCell,
@@ -22,15 +23,18 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent } from "@/components/ui/popover";
 import { Toggle } from "@/components/ui/toggle";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { audioFiles, carriesSamples, dropAsChannels, dropOnChannel } from "./browser/drops";
-import { ChannelPicker } from "./channel-picker";
+import { ChannelPicker, InstrumentPicker } from "./channel-picker";
 import { openPianoRoll } from "./piano/actions";
 import { PERCENT, SongKnob, panText, percent } from "./knob";
 import { Lcd } from "./lcd";
@@ -45,6 +49,7 @@ import {
   moveSelected,
   muteSelected,
   pasteSteps,
+  replaceInstrument,
   rotate,
   selectRange,
   shownSteps,
@@ -52,8 +57,11 @@ import {
   toggleMute,
 } from "./rack-actions";
 import { currentPattern, songGesture, useCurrentPattern, useMusic, useSong } from "./store";
-import { patternTickNow, useTransport } from "./transport";
-import { MIN_RACK_STEPS, selectedIn, useMusicUi } from "./ui";
+import { patternPositionNow } from "./playhead";
+import { useTransport } from "./transport";
+import { MIN_RACK_STEPS, type RackGroup, inRackGroup, selectedIn, useMusicUi, useMusicWindows } from "./ui";
+import { chooseSource, openPlaylist } from "./playlist/actions";
+import { usePlaylist } from "./playlist/store";
 import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow } from "./window";
 
@@ -127,7 +135,7 @@ function useSoundingChannels(): ReadonlySet<string> {
       const { history, patternId } = useMusic.getState();
       if (!history) return;
       const song = history.doc;
-      const tick = patternTickNow(useTransport.getState(), performance.now(), song.settings.tempo, PPQ);
+      const tick = patternPositionNow();
       const next = tick === null ? NONE_SOUNDING : soundingChannels(song, currentPattern(song, patternId), tick);
       const nextKey = [...next].join(",");
       if (nextKey !== key) {
@@ -155,7 +163,9 @@ function useShownSteps(): number {
  * when dragged. Its right edge is dragged to show more steps.
  */
 export function ChannelRack() {
-  const channels = useSong((song) => song.channels);
+  const allChannels = useSong((song) => song.channels);
+  const group = useMusicUi((s) => s.rackGroup);
+  const channels = allChannels.filter((c) => inRackGroup(c, group));
   const steps = useShownSteps();
   const graph = useMusicUi((s) => s.graphOpen);
   const selectedIdsNow = useMusicUi((s) => s.selectedChannelIds);
@@ -164,6 +174,8 @@ export function ChannelRack() {
   const selected = selectedIn({ channels } as MusicProject, selectedIdsNow);
   const file = useRef<HTMLInputElement>(null);
   const [drop, setDrop] = useState<{ index: number; top: number } | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const room = useStepsRoom(scroller);
 
   return (
     <MusicWindow
@@ -172,7 +184,12 @@ export function ChannelRack() {
       initial={{ x: 16, y: 16 }}
       onClose={() => useMusicUi.getState().setRackOpen(false)}
       menu={<RackMenu onAddSamples={() => file.current?.click()} />}
-      controls={<RackControls graph={graph} />}
+      controls={
+        <>
+          <GroupMenu group={group} />
+          <RackControls graph={graph} />
+        </>
+      }
     >
       <div
         className="relative flex flex-col gap-1.5 px-2.5 pt-1.5 pb-2 pr-3.5"
@@ -197,7 +214,8 @@ export function ChannelRack() {
           e.stopPropagation();
           const at = dropPlace(e.currentTarget, e.target, e.clientY)?.index;
           setDrop(null);
-          void dropAsChannels(e.dataTransfer, at);
+          // What's dropped is what's worked on next: the new channels are selected.
+          void dropAsChannels(e.dataTransfer, at).then((ids) => ids.length && useMusicUi.getState().setSelection(ids));
         }}
       >
         {drop && (
@@ -214,13 +232,17 @@ export function ChannelRack() {
               <ChannelLead key={channel.id} channel={channel} selected={selectedIdsNow.includes(channel.id)} sounding={sounding.has(channel.id)} />
             ))}
           </div>
-          <div className="ml-1.5 max-w-[min(62vw,1180px)] overflow-x-auto pb-1" data-testid="rack-steps">
+          <div ref={scroller} className="ml-1.5 overflow-x-auto pb-1" style={{ maxWidth: `min(62vw, ${room}px)` }} data-testid="rack-steps">
             <div className="flex flex-col" style={{ gap: ROW_GAP, width: stepsWidth(steps) }}>
               <StepLights steps={steps} />
-              {channels.map((channel) => (
-                <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
-              ))}
-              {graph && (selected[0] ?? channels[0]) && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
+              {channels.map((channel) =>
+                channel.kind === "audio" ? (
+                  <AudioRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
+                ) : (
+                  <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
+                ),
+              )}
+              {graph && (selected[0] ?? channels[0]) && (selected[0] ?? channels[0]).kind !== "audio" && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
             </div>
           </div>
         </div>
@@ -244,6 +266,96 @@ export function ChannelRack() {
         {channels.length > 0 && <ResizeEdge steps={steps} />}
       </div>
     </MusicWindow>
+  );
+}
+
+/** The steps' widest (px), and narrowest however little room is left. */
+const MAX_STEPS_ROOM = 1180;
+const MIN_STEPS_ROOM = 160;
+/** What's right of the steps in the window: the content's padding and the window's edge. */
+const RIGHT_OF_STEPS = 18;
+
+/**
+ * How wide the steps can be: up to the desktop's right edge from where they start, so the end of a long
+ * pattern can always be scrolled to (the window fits what's in it, and the desktop hides what's past its
+ * edge: with the Browser open or the page zoomed in, 62vw went past it). Measured again when the window
+ * moves and when the desktop changes size.
+ */
+function useStepsRoom(scroller: RefObject<HTMLDivElement | null>): number {
+  const place = useMusicWindows((s) => s.places.rack);
+  const [room, setRoom] = useState(MAX_STEPS_ROOM);
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    const desk = element?.closest("[data-desktop]");
+    if (!element || !desk) return;
+    const measure = () => {
+      const space = desk.getBoundingClientRect().right - element.getBoundingClientRect().left - RIGHT_OF_STEPS;
+      setRoom(Math.round(clamp(space, MIN_STEPS_ROOM, MAX_STEPS_ROOM)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(desk);
+    return () => observer.disconnect();
+  }, [scroller, place]);
+  return room;
+}
+
+const GROUPS: { id: RackGroup; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "unsorted", label: "Unsorted" },
+  { id: "audio", label: "Audio" },
+];
+
+/**
+ * FL Studio's group filter, on the title bar: Unsorted (every channel but the audio clips', the default),
+ * Audio (theirs), or All (Théo).
+ */
+function GroupMenu({ group }: { group: RackGroup }) {
+  const label = GROUPS.find((g) => g.id === group)!.label;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Channel group"
+          title="Which channels the rack shows: Unsorted (instruments and samples), Audio (the playlist's audio clips), or All"
+          className="sunken flex h-5.5 items-center gap-1 rounded-sm px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          {label}
+          <PiCaretDownBold className="size-2.5 shrink-0" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuRadioGroup value={group} onValueChange={(value) => useMusicUi.getState().setRackGroup(value as RackGroup)}>
+          {GROUPS.map((g) => (
+            <DropdownMenuRadioItem key={g.id} value={g.id}>
+              {g.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** An audio clip's channel in the rack: no steps (it plays from the playlist), a strip that shows its clips there. */
+function AudioRow({ channelId, name, steps }: { channelId: string; name: string; steps: number }) {
+  return (
+    <button
+      type="button"
+      aria-label={`${name}: an audio clip, played from the playlist`}
+      title="An audio clip: it plays from the playlist. Click to draw it there"
+      data-audio-row={channelId}
+      className="sunken flex shrink-0 items-center gap-1.5 rounded-[2px] px-2 text-[11px] text-muted-foreground hover:text-foreground"
+      style={{ width: stepsWidth(steps), height: ROW_H }}
+      onClick={() => {
+        chooseSource({ kind: "audio", ref: channelId });
+        openPlaylist();
+      }}
+    >
+      <PiWaveform className="size-3.5 shrink-0" />
+      <span className="truncate">Audio clip: plays from the playlist</span>
+    </button>
   );
 }
 
@@ -299,7 +411,14 @@ function RackMenu({ onAddSamples }: { onAddSamples: () => void }) {
         <DropdownMenuItem disabled={none} onSelect={() => moveSelected(1)}>
           Move selected down <DropdownMenuShortcut>⌥↓</DropdownMenuShortcut>
         </DropdownMenuItem>
-        <DropdownMenuItem disabled={none} onSelect={() => useMusicUi.getState().setTransposeOpen(true)}>
+        <DropdownMenuItem
+          disabled={none}
+          onSelect={() => {
+            // The rack's channels, not the patterns the Playlist's Picker last transposed.
+            usePlaylist.setState({ transposing: null });
+            useMusicUi.getState().setTransposeOpen(true);
+          }}
+        >
           Transpose selected…
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -388,7 +507,7 @@ function StepLights({ steps }: { steps: number }) {
     }
     let frame = 0;
     const draw = () => {
-      const tick = patternTickNow(useTransport.getState(), performance.now(), tempo, PPQ);
+      const tick = patternPositionNow();
       setStep(tick === null ? null : Math.floor(tick / STEP_TICKS));
       frame = requestAnimationFrame(draw);
     };
@@ -423,6 +542,12 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
   const canPaste = useMusicUi((s) => s.copiedSteps !== null);
   const trackSelectorShown = useMusicUi((s) => s.trackSelectorsShown);
   const [dropping, setDropping] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  /**
+   * Replace… was chosen: the picker opens once the menu has let go of the focus (while it closes it
+   * keeps the focus in itself, which would close the picker), and the focus isn't given back to the button.
+   */
+  const replacingNext = useRef(false);
   const file = useRef<HTMLInputElement>(null);
   const commit = useMusic.getState().commit;
   const id = channel.id;
@@ -474,7 +599,9 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
       />
 
       {trackSelectorShown && <TrackSelector channel={channel} className="ml-0.5 h-[22px] min-w-8 px-1 text-[11px]" />}
+      <Popover open={replacing} onOpenChange={setReplacing}>
       <ContextMenu>
+        <PopoverPrimitive.Anchor asChild>
         <ContextMenuTrigger asChild>
           <button
             type="button"
@@ -500,7 +627,10 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
             onClick={(e) => {
               if (e.metaKey || e.ctrlKey) useTransport.getState().audition(id);
               else if (isPlugin) useTransport.getState().showPlugin(id, !pluginOpen);
-              else useMusicUi.getState().toggleChannelWindow(id, e.altKey);
+              else if (channel.kind === "audio") {
+                chooseSource({ kind: "audio", ref: id });
+                openPlaylist();
+              } else useMusicUi.getState().toggleChannelWindow(id, e.altKey);
             }}
             onWheel={(e) => e.shiftKey && e.deltaY !== 0 && moveChannel(id, e.deltaY < 0 ? -1 : 1)}
             // A file dropped on the button replaces this channel's sample.
@@ -516,6 +646,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               e.preventDefault();
               e.stopPropagation();
               setDropping(false);
+              useMusicUi.getState().selectChannel(id);
               dropOnChannel(e.dataTransfer, id);
             }}
           >
@@ -532,8 +663,18 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
             </span>
           </button>
         </ContextMenuTrigger>
+        </PopoverPrimitive.Anchor>
         {/* FL Studio's channel menu: the channel on the left, its steps on the right. */}
-        <ContextMenuContent className="p-0" data-testid="channel-menu">
+        <ContextMenuContent
+          className="p-0"
+          data-testid="channel-menu"
+          onCloseAutoFocus={(e) => {
+            if (!replacingNext.current) return;
+            e.preventDefault();
+            replacingNext.current = false;
+            setReplacing(true);
+          }}
+        >
           <ContextMenuColumns>
             <ContextMenuCell first>
               <ContextMenuItem inset onSelect={() => openPianoRoll(id)}>
@@ -597,6 +738,16 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
             </ContextMenuCell>
             <ContextMenuSeparator className="col-span-full m-0" />
             <ContextMenuCell first>
+              {channel.kind !== "audio" && (
+                <ContextMenuItem
+                  inset
+                  onSelect={() => {
+                    replacingNext.current = true;
+                  }}
+                >
+                  Replace…
+                </ContextMenuItem>
+              )}
               <ContextMenuItem
                 inset
                 onSelect={() => {
@@ -621,6 +772,16 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
           </ContextMenuColumns>
         </ContextMenuContent>
       </ContextMenu>
+        <PopoverContent align="start" className="w-auto p-2" data-testid="replace-picker" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <InstrumentPicker
+            open={replacing}
+            onChoose={(plugin) => {
+              setReplacing(false);
+              replaceInstrument(id, plugin && { id: plugin.id, name: plugin.name, format: plugin.format });
+            }}
+          />
+        </PopoverContent>
+      </Popover>
       <input
         ref={file}
         type="file"
@@ -638,12 +799,13 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
         data-selector={id}
         aria-label={`Select ${channel.name}`}
         aria-pressed={selected}
-        title="Select (drag or Shift+click for a range, right-click to add one, double-click for all)"
+        title="Select (drag or Shift+click for a range, right-click to add one, double-click for its Piano roll)"
         data-sounding={sounding || undefined}
         // FL Studio's selector: a thin light after the button (in a wider target, so it's easy to hit),
         // outlined when the channel is selected and lit while it makes a sound.
         className="group flex h-[24px] w-4 shrink-0 touch-none justify-center"
-        onDoubleClick={() => useMusicUi.getState().setSelection(useMusic.getState().history!.doc.channels.map((c) => c.id))}
+        // Théo's, not FL's (which selects every channel): straight into its notes.
+        onDoubleClick={() => channel.kind !== "audio" && openPianoRoll(id)}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           const rack = e.currentTarget.closest("[data-window]") ?? document.body;
@@ -826,7 +988,7 @@ function PreviewPlayhead({ width, span }: { width: number; span: number }) {
       frame = requestAnimationFrame(draw);
       const el = line.current;
       if (!el) return;
-      const tick = patternTickNow(useTransport.getState(), performance.now(), tempo, PPQ);
+      const tick = patternPositionNow();
       el.style.display = tick === null ? "none" : "";
       if (tick !== null) el.style.transform = `translateX(${((tick % span) * width) / span}px)`;
     };

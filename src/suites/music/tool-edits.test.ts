@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addChannels, stepString } from "@shared/music/edits";
+import { addChannels, addPattern, setSteps, setTempo, stepString } from "@shared/music/edits";
 import { FIRST_PATTERN_ID, createMusicProject } from "@shared/music/project";
 import type { MediaAsset } from "@shared/types";
 import { describeSong, songContext } from "./context";
@@ -7,11 +7,13 @@ import {
   addPatternTool,
   editStep,
   moveChannelTool,
+  movePatternTool,
   removeChannelTool,
   removePatternTool,
   setStepsTool,
   soloChannelTool,
   transposeChannelsTool,
+  transposePatternsTool,
   setNotesTool,
   chopNotesTool,
   describeNotes,
@@ -22,7 +24,7 @@ import {
 
 const env = { patternId: FIRST_PATTERN_ID };
 const rack = () =>
-  addChannels(createMusicProject("Beat"), [
+  addChannels(setTempo(createMusicProject("Beat"), 120), [
     { id: "chan_kick", name: "Kick", sampleId: "media_kick" },
     { id: "chan_hat", name: "Hat", sampleId: null },
   ]);
@@ -101,6 +103,24 @@ describe("the assistant's song edits", () => {
     expect(transposeChannelsTool(drawn, { channels: ["Hat"], semitones: -1 }, env).text).toMatch(/Nothing moved/);
     expect(() => transposeChannelsTool(drawn, { channels: ["Kick"], semitones: 1.5 }, env)).toThrow(/whole number/);
     expect(() => transposeChannelsTool(drawn, { channels: [], semitones: 1 }, env)).toThrow(/list of channels/);
+  });
+
+  it("transpose whole patterns, every channel's notes, and move patterns along the list", () => {
+    let song = addPattern(rack(), { id: "pat_fill", name: "Fill" });
+    song = setSteps(song, FIRST_PATTERN_ID, "chan_kick", [0], true);
+    song = setSteps(song, FIRST_PATTERN_ID, "chan_hat", [2], true);
+    song = setSteps(song, "pat_fill", "chan_kick", [4], true);
+    const down = transposePatternsTool(song, { patterns: ["Pattern 1", "pat_fill"], semitones: -12 }, env);
+    expect(down.song.patterns.flatMap((p) => Object.values(p.notes).flat().map((n) => n.pitch))).toEqual([48, 48, 48]);
+    expect(down.text).toBe('Moved every note of "Pattern 1", "Fill" 12 semitones down.');
+    expect(transposePatternsTool(song, { patterns: ["Fill"], semitones: 0 }, env).text).toMatch(/Nothing moved/);
+    expect(() => transposePatternsTool(song, { patterns: ["Chorus"], semitones: 1 }, env)).toThrow(/The patterns are: "Pattern 1", "Fill"/);
+    expect(() => transposePatternsTool(song, { patterns: [], semitones: 1 }, env)).toThrow(/list of patterns/);
+    const moved = movePatternTool(song, { pattern: "Fill", direction: "up" }, env);
+    expect(moved.song.patterns.map((p) => p.name)).toEqual(["Fill", "Pattern 1"]);
+    expect(moved.text).toBe('The patterns are now, in order: "Fill", "Pattern 1".');
+    expect(movePatternTool(song, { pattern: "Fill", direction: "down" }, env).song).toBe(song);
+    expect(() => movePatternTool(song, { pattern: "Fill", direction: "left" }, env)).toThrow(/"up" or "down"/);
   });
 
   it("write and read a channel's notes: pitches by name, times in steps", () => {

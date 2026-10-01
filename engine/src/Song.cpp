@@ -138,11 +138,22 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                 precomputed.fadeIn = number (tools["fadeIn"], 0, 0, 1);
                 precomputed.fadeOut = number (tools["fadeOut"], 0, 0, 1);
             }
+            channel.stream = (bool) item["stream"];
             if (const auto path = item["sample"]; path.isString() && path.toString().isNotEmpty())
             {
-                channel.sample = samples.get (path.toString(), precomputed);
-                if (channel.sample == nullptr)
-                    unreadable.add (channel.id);
+                // An audio clip's file is streamed when it plays: here it only has to be there.
+                if (channel.stream)
+                {
+                    channel.path = path.toString();
+                    if (! juce::File (channel.path).existsAsFile())
+                        unreadable.add (channel.id);
+                }
+                else
+                {
+                    channel.sample = samples.get (path.toString(), precomputed);
+                    if (channel.sample == nullptr)
+                        unreadable.add (channel.id);
+                }
             }
             song->channels.push_back (std::move (channel));
         }
@@ -165,6 +176,26 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             note.pan = (float) number (item["pan"], 0, -1, 1);
             song->notes.push_back (note);
         }
+    if (const auto* list = json["audioClips"].getArray())
+        for (const auto& item : *list)
+        {
+            AudioClip clip;
+            clip.channel = (int) number (item["channel"], -1, -1, 1e6);
+            if (clip.channel < 0 || clip.channel >= (int) song->channels.size() || ! song->channels[(size_t) clip.channel].stream)
+                continue;
+            clip.path = song->channels[(size_t) clip.channel].path;
+            clip.tick = number (item["tick"], 0, -1e9, 1e9);
+            clip.length = number (item["length"], 0, 0, 1e9);
+            clip.seconds = number (item["seconds"], 0, 0, 1e7);
+            if (clip.path.isEmpty() || clip.length <= 0 || clip.tick >= song->loopTicks || clip.tick + clip.length <= 0)
+                continue;
+            clip.key = (juce::uint64) (song->channels[(size_t) clip.channel].id + "|" + clip.path + "|" + juce::String (clip.tick, 6) + "|" + juce::String (clip.length, 6) + "|"
+                        + juce::String (clip.seconds, 9) + "|" + juce::String (song->tempo, 6) + "|" + juce::String (song->ppq))
+                                           .hashCode64();
+            song->audioClips.push_back (std::move (clip));
+        }
+    std::stable_sort (song->audioClips.begin(), song->audioClips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.tick < b.tick; });
+
     // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
     juce::StringArray effectIds;
     if (const auto* list = json["tracks"].getArray())

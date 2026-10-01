@@ -22,6 +22,7 @@ import {
   rotateNotes,
   setNoteProps,
   setNoteValues,
+  sliceColumn,
   sliceNotes,
   stretchNotes,
 } from "./notes.ts";
@@ -308,6 +309,23 @@ describe("tools", () => {
     expect(sliceNotes(notes, () => 0).notes).toBe(notes);
     expect(sliceNotes(notes, () => 96).notes).toBe(notes);
     expect(sliceNotes(notes, () => 48, ids(2)).created).toEqual([4]);
+  });
+
+  it("slices a whole column: every note across the tick, at any pitch", () => {
+    const notes = make([0, 96, 12], [48, 96, 60], [0, 48, 120], [100, 24, 72]);
+    const { notes: cut, created } = sliceColumn(notes, 72);
+    expect(shape(cut)).toEqual([
+      [1, 0, 72, 12],
+      [3, 0, 48, 120],
+      [2, 48, 24, 60],
+      [5, 72, 24, 12],
+      [6, 72, 72, 60],
+      [4, 100, 24, 72],
+    ]);
+    expect(created).toEqual([5, 6]);
+    // Through no note (or along their edges): the same list.
+    expect(sliceColumn(notes, 48).created).toEqual([5]);
+    expect(sliceColumn(notes, 400).notes).toBe(notes);
   });
 });
 

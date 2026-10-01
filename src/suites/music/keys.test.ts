@@ -5,6 +5,14 @@ type Mods = Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolea
 const press = (key: string, code: string, mods: Mods = {}) => resolveMusicKey({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 
 describe("music keys", () => {
+  it("shows the Playlist with F5 and switches pattern and song mode with L, from any window", () => {
+    expect(press("F5", "F5")).toEqual({ type: "togglePlaylist" });
+    expect(press("l", "KeyL")).toEqual({ type: "toggleMode" });
+    expect(press("l", "KeyL", { metaKey: true })).toEqual({ type: "assignFreeTracks" });
+    expect(press("l", "KeyL", { shiftKey: true })).toBeNull();
+    expect(resolvePluginWindowKey({ key: "l", code: "KeyL", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false })).toEqual({ type: "toggleMode" });
+  });
+
   it("plays with Space, shows the rack with F6, and undoes and redoes with the usual keys", () => {
     expect(press(" ", "Space")).toEqual({ type: "togglePlay" });
     expect(press("F6", "F6")).toEqual({ type: "toggleRack" });
@@ -26,6 +34,18 @@ describe("music keys", () => {
     expect(resolvePluginWindowKey({ key: "F9", code: "F9", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false })).toEqual({ type: "toggleMixer" });
     expect(press("µ", "KeyM", { altKey: true })).toEqual({ type: "toggleTrackSelectors" });
     expect(press("l", "KeyL", { metaKey: true })).toEqual({ type: "assignFreeTracks" });
+  });
+
+  it("shows the windows with Alt+1…5 too, from anywhere (a Mac's F keys need Fn)", () => {
+    // On a Mac, Alt+1 types "¡": the key is known by where it is.
+    expect(press("¡", "Digit1", { altKey: true })).toEqual({ type: "togglePlaylist" });
+    expect(press("™", "Digit2", { altKey: true })).toEqual({ type: "toggleRack" });
+    expect(press("£", "Digit3", { altKey: true })).toEqual({ type: "togglePiano" });
+    expect(press("¢", "Digit4", { altKey: true })).toEqual({ type: "toggleMixer" });
+    expect(press("∞", "Digit5", { altKey: true })).toEqual({ type: "toggleBrowser" });
+    expect(press("§", "Digit6", { altKey: true })).toBeNull();
+    expect(press("1", "Digit1", { altKey: true, metaKey: true })).toBeNull();
+    expect(resolvePluginWindowKey({ key: "£", code: "Digit3", metaKey: false, ctrlKey: false, shiftKey: false, altKey: true })).toEqual({ type: "togglePiano" });
   });
 
   it("mutes the first ten channels with 1…0, and solos them with Ctrl", () => {

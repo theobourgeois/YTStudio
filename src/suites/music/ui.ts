@@ -1,14 +1,20 @@
 import { create } from "zustand";
 import type { TrackState } from "@shared/music/mixer";
-import type { MusicProject, Note } from "@shared/music/types";
+import type { Channel, MusicProject, Note } from "@shared/music/types";
 import { createWindows } from "@/components/windows/store";
 import { useMusic } from "./store";
 
 /**
- * A window of the music editor: the channel rack, the Piano roll, the mixer, a channel's settings, or one of the
- * small ones a command opens (Transpose selected, a note's properties).
+ * A window of the music editor: the channel rack, the Piano roll, the Playlist, the mixer, a channel's settings,
+ * or one of the small ones a command opens (Transpose selected, a note's properties).
  */
-export type WindowId = "rack" | "piano" | "mixer" | "transpose" | "note" | "chopper" | `channel:${string}`;
+export type WindowId = "rack" | "piano" | "playlist" | "mixer" | "transpose" | "note" | "chopper" | `channel:${string}`;
+
+/**
+ * The rack's group filter (FL Studio's): Unsorted is every channel but the audio clips' (the default),
+ * Audio is theirs, All is everything (Théo).
+ */
+export type RackGroup = "unsorted" | "audio" | "all";
 export const channelWindow = (channelId: string): WindowId => `channel:${channelId}`;
 
 /** Where the music editor's windows are on its desktop, and which is in front (the rack, at first). */
@@ -34,7 +40,10 @@ interface MusicUiState {
   graphOpen: boolean;
   rackOpen: boolean;
   pianoOpen: boolean;
+  playlistOpen: boolean;
   mixerOpen: boolean;
+  /** Which channels the rack shows. */
+  rackGroup: RackGroup;
   /** The mixer's selected tracks; the first is the one its inspector shows and sends are made from. */
   selectedTrackIds: string[];
   /** The rack shows each channel's mixer track (Alt+M). */
@@ -54,7 +63,9 @@ interface MusicUiState {
   setGraphOpen: (open: boolean) => void;
   setRackOpen: (open: boolean) => void;
   setPianoOpen: (open: boolean) => void;
+  setPlaylistOpen: (open: boolean) => void;
   setMixerOpen: (open: boolean) => void;
+  setRackGroup: (group: RackGroup) => void;
   /** Select a mixer track (`add`: Ctrl+Shift, toggling it among the others, the first staying the current one). */
   selectTrack: (id: string, mode?: "only" | "add") => void;
   setTrackSelection: (ids: string[]) => void;
@@ -80,7 +91,9 @@ const INITIAL = {
   graphOpen: false,
   rackOpen: true,
   pianoOpen: false,
+  playlistOpen: false,
   mixerOpen: false,
+  rackGroup: "unsorted" as RackGroup,
   selectedTrackIds: [] as string[],
   trackSelectorsShown: true,
   copiedTrack: null as { projectId: string; state: TrackState } | null,
@@ -113,10 +126,17 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
     set({ pianoOpen });
   },
 
+  setPlaylistOpen(playlistOpen) {
+    if (playlistOpen) windows().focus("playlist");
+    else windows().remove("playlist");
+    set({ playlistOpen });
+  },
+
   setMixerOpen(mixerOpen) {
     if (mixerOpen) windows().focus("mixer");
     set({ mixerOpen });
   },
+  setRackGroup: (rackGroup) => set({ rackGroup }),
   selectTrack(id, mode = "only") {
     const selected = get().selectedTrackIds;
     if (mode === "only") return set({ selectedTrackIds: [id] });
@@ -167,6 +187,9 @@ useMusic.subscribe((state, prev) => {
 export function currentTrackId(song: MusicProject, selected: readonly string[]): string {
   return selected.find((id) => song.mixer.tracks.some((t) => t.id === id)) ?? song.mixer.tracks[0].id;
 }
+
+/** Whether the rack's group filter shows a channel. */
+export const inRackGroup = (channel: Pick<Channel, "kind">, group: RackGroup) => group === "all" || (group === "audio") === (channel.kind === "audio");
 
 /** The selected channels that are still in the song, in the rack's order. */
 export const selectedIn = (song: MusicProject, ids: readonly string[]) => song.channels.filter((c) => ids.includes(c.id));

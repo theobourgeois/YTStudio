@@ -4,7 +4,7 @@
  * applied to the open song as one undo step, or to a song that isn't open by loading and saving it.
  */
 import { createId } from "@shared/ids";
-import { addChannels, addPluginChannel, updateChannel } from "@shared/music/edits";
+import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
@@ -20,6 +20,7 @@ import {
   type EditResult,
   type SongEdit,
   addPatternTool,
+  findChannel,
   editStep,
   findPattern,
   moveChannelTool,
@@ -27,6 +28,8 @@ import {
   removePatternTool,
   setStepsTool,
   transposeChannelsTool,
+  transposePatternsTool,
+  movePatternTool,
   setNotesTool,
   chopNotesTool,
   describeNotes,
@@ -35,7 +38,18 @@ import {
   updatePatternTool,
   updateSong,
 } from "./tool-edits";
-import { useTransport } from "./transport";
+import { switchMode, useTransport } from "./transport";
+import { addAudioClips, clipContext } from "@shared/music/playlist";
+import {
+  describePlaylist,
+  makeClipUniqueTool,
+  placeClipsTool,
+  removeClipsTool,
+  sliceClipsTool,
+  splitByChannelTool,
+  updateClipsTool,
+  updatePlaylistTrackTool,
+} from "./playlist/tool-edits";
 import { describeBrowser, describeFolder, describeSearch, loadSampleEdit, sampleChannel } from "./browser/describe";
 import { useBrowser } from "./browser/store";
 import {
@@ -102,6 +116,15 @@ function requireOpen(target: Target, what: string) {
   if (!target.open) throw new Error(`${what} only works on the song open in the editor, and this chat's song isn't open. Ask the user to open it.`);
 }
 
+/** An instrument plugin of this computer's, by its id or name; the error lists the ones there are. */
+async function findInstrument(ref: unknown) {
+  const wanted = String(ref).trim().toLowerCase();
+  const instruments = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument);
+  const plugin = instruments.find((p) => p.id.toLowerCase() === wanted) ?? instruments.find((p) => p.name.toLowerCase() === wanted);
+  if (!plugin) throw new Error(`There's no instrument plugin "${String(ref)}" on this computer. The ones found: ${instruments.map((p) => p.name).join(", ") || "none"}.`);
+  return plugin;
+}
+
 const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promise<ToolResult>> = {
   async get_song(_input, ctx) {
     const target = await targetOf(ctx);
@@ -118,10 +141,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const target = await targetOf(ctx);
     const name = typeof input.name === "string" && input.name.trim() ? input.name.trim() : null;
     if (input.plugin !== undefined) {
-      const wanted = String(input.plugin).trim().toLowerCase();
-      const instruments = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument);
-      const plugin = instruments.find((p) => p.id.toLowerCase() === wanted) ?? instruments.find((p) => p.name.toLowerCase() === wanted);
-      if (!plugin) throw new Error(`There's no instrument plugin "${String(input.plugin)}" on this computer. The ones found: ${instruments.map((p) => p.name).join(", ") || "none"}.`);
+      const plugin = await findInstrument(input.plugin);
       await apply(target, (song) => {
         const next = addPluginChannel(song, { id: plugin.id, name: plugin.name, format: plugin.format });
         return name ? updateChannel(next, next.channels[next.channels.length - 1].id, { name }) : next;
@@ -148,6 +168,15 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(`Added the channel "${channelName}"${sample ? ` playing ${sample.name}` : " with no sample (silent until it has one)"}. Read get_song for its id.`);
   },
   update_channel: edit(updateChannelTool),
+  async replace_channel(input, ctx) {
+    const target = await targetOf(ctx);
+    const old = findChannel(target.song, input.channel);
+    if (old.kind === "audio") throw new Error(`"${old.name}" is an audio clip's channel: it has no instrument to replace.`);
+    const plugin = input.plugin === undefined ? null : await findInstrument(input.plugin);
+    const id = createId("chan");
+    await apply(target, (song) => replaceChannel(song, old.id, plugin && { id: plugin.id, name: plugin.name, format: plugin.format }, id));
+    return textResult(`Replaced "${old.name}" with ${plugin ? `the plugin ${plugin.name}` : "an empty sampler"} (channel ${id}), playing its notes.`);
+  },
   remove_channel: edit(removeChannelTool),
   solo_channel: edit(soloChannelTool),
   move_channel: edit(moveChannelTool),
@@ -163,6 +192,8 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   add_pattern: edit(addPatternTool),
   update_pattern: edit(updatePatternTool),
   remove_pattern: edit(removePatternTool),
+  transpose_patterns: edit(transposePatternsTool),
+  move_pattern: edit(movePatternTool),
   async get_mixer(_input, ctx) {
     const target = await targetOf(ctx);
     return textResult(describeMixer(target.song, target.open ? useTransport.getState().effects : null));
@@ -285,8 +316,64 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const target = await targetOf(ctx);
     requireOpen(target, "Playing");
     if (input.action !== "play" && input.action !== "stop") throw new Error('"action" must be "play" or "stop".');
-    useTransport.getState()[input.action]();
-    return textResult(input.action === "play" ? "Playing the pattern shown, on a loop." : "Stopped.");
+    if (input.mode !== undefined && input.mode !== "pattern" && input.mode !== "song") throw new Error('"mode" must be "pattern" or "song".');
+    const transport = useTransport.getState();
+    if (input.action === "stop") {
+      transport.stop();
+      return textResult("Stopped.");
+    }
+    const mode = (input.mode as "pattern" | "song" | undefined) ?? transport.mode;
+    if (mode === "song" && input.bar !== undefined) {
+      if (typeof input.bar !== "number" || !(input.bar >= 1)) throw new Error('"bar" must be a bar number, 1 or more.');
+      transport.setSongStartTick(Math.round((input.bar - 1) * clipContext(target.song).barTicks));
+    }
+    if (transport.playing && mode === transport.mode) transport.play();
+    else switchMode(mode, true);
+    return textResult(mode === "song" ? `Playing the song (the playlist)${input.bar !== undefined ? ` from bar ${input.bar}` : ""}, round and round.` : "Playing the pattern shown, on a loop.");
+  },
+  async get_playlist(_input, ctx) {
+    const target = await targetOf(ctx);
+    return textResult(describePlaylist(target.song, target.open ? useTransport.getState().mode : null));
+  },
+  place_clips: edit(placeClipsTool),
+  update_clips: edit(updateClipsTool),
+  remove_clips: edit(removeClipsTool),
+  slice_clips: edit(sliceClipsTool),
+  split_by_channel: edit(splitByChannelTool),
+  make_clip_unique: edit(makeClipUniqueTool),
+  update_playlist_track: edit(updatePlaylistTrackTool),
+  async add_audio_clip(input, ctx) {
+    const target = await targetOf(ctx);
+    const track = input.track;
+    const bar = input.bar;
+    if (!Number.isInteger(track) || (track as number) < 1) throw new Error('"track" must be a track\'s number, 1 or more.');
+    if (typeof bar !== "number" || !(bar >= 1)) throw new Error('"bar" must be a bar number, 1 or more.');
+    const assets: MediaAsset[] = [];
+    if (typeof input.mediaId === "string" && input.mediaId) {
+      const asset = target.assets.find((a) => a.id === input.mediaId && a.hasAudio);
+      if (!asset) throw new Error(`There's no audio file "${input.mediaId}" in the project. Its audio files: ${target.assets.filter((a) => a.hasAudio).map((a) => `${a.name} (${a.id})`).join(", ") || "none"}.`);
+      assets.push(asset);
+    }
+    const paths = Array.isArray(input.paths) ? input.paths.filter((p): p is string => typeof p === "string" && p.length > 0) : [];
+    for (const path of paths) {
+      const asset = await musicApi.useBrowserFile({ projectId: target.projectId, path });
+      if (!asset.hasAudio) throw new Error(`${asset.name} has no sound.`);
+      assets.push(asset);
+    }
+    if (!assets.length) throw new Error('Give the files: "paths" (the Browser\'s, from search_samples) or a "mediaId".');
+    if (target.open && useMusic.getState().projectId === target.projectId) {
+      const known = new Set(useMusic.getState().assets.map((a) => a.id));
+      const added = assets.filter((a) => !known.has(a.id));
+      if (added.length) useMusic.setState({ assets: [...useMusic.getState().assets, ...added] });
+    }
+    const start = Math.round((bar - 1) * clipContext(target.song).barTicks);
+    let made: number[] = [];
+    await apply(target, (song) => {
+      const result = addAudioClips(song, assets.map((a) => ({ name: a.name.replace(/\.[^.]+$/, ""), sampleId: a.id, seconds: a.duration })), { start, track: (track as number) - 1, after: input.after === true });
+      made = result.clipIds;
+      return result.song;
+    });
+    return textResult(`Added ${assets.length} audio clip${assets.length === 1 ? "" : "s"} (clip ${made.join(", ")}) from bar ${bar} on track ${track}: ${assets.map((a) => a.name).join(", ")}. Each has a channel of its own in the rack's Audio group; read get_playlist.`);
   },
 };
 

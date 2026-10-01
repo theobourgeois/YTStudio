@@ -1,26 +1,35 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiFolders, PiMetronome, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiFolders, PiListDashes, PiMetronome, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { lengthOf, setTempo } from "@shared/music/edits";
-import { MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
-import { PPQ, STEP_TICKS } from "@shared/music/types";
+import { songTicks } from "@shared/music/playlist";
+import { DEFAULT_TEMPO, MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
+import { STEP_TICKS } from "@shared/music/types";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { SettleButton, SettledBadge } from "@/components/header/header";
 import { ProjectName } from "@/components/header/project-name";
 import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { Popover, PopoverContent } from "@/components/ui/popover";
 import { Toggle, toggleVariants } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { canRedo, canUndo } from "@/lib/document-history";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { ModeLights } from "./mode-switch";
 import { CpuGraph, OutputGraph } from "./monitors";
 import { PatternPicker } from "./pattern-picker";
 import { openPianoRoll } from "./piano/actions";
+import { positionNow } from "./playhead";
+import { openPlaylist } from "./playlist/actions";
 import { positionAt, positionText } from "./position";
-import { songGesture, useCurrentPattern, useMusic, useSong } from "./store";
-import { patternTickNow, useTransport } from "./transport";
+import { useMusicPreferences } from "./preferences";
+import { currentPattern, songGesture, useMusic, useSong } from "./store";
+import { switchMode, useTransport } from "./transport";
 import { useMusicUi } from "./ui";
 import { useBrowser } from "./browser/store";
+import { addTap, tappedTempo } from "./tap-tempo";
 import { useWheelValue } from "./wheel";
 
 /**
@@ -50,6 +59,7 @@ export function MusicToolbar() {
       <div className="flex min-w-0 flex-1 flex-col justify-between">
         <div className="flex h-10 min-w-0 items-center gap-2">
           <div className="flex items-center gap-2" role="toolbar" aria-label="Transport">
+            <ModeSwitch />
             <PlayButtons />
             <MetronomeToggle />
             <TempoLcd />
@@ -125,6 +135,15 @@ function HintBar() {
   );
 }
 
+/**
+ * FL Studio's PAT / SONG switch (L): play plays the pattern shown, looped, or the playlist. Two lights,
+ * the one lit is what plays.
+ */
+function ModeSwitch() {
+  const mode = useTransport((s) => s.mode);
+  return <ModeLights mode={mode} onChange={(next) => switchMode(next)} />;
+}
+
 /** Play (lit while playing; pressed again it stops, there's no pause yet) and Stop. */
 function PlayButtons() {
   const playing = useTransport((s) => s.playing);
@@ -155,11 +174,16 @@ function PlayButtons() {
 const TEMPO_DRAG = 4;
 
 /**
- * The tempo, FL Studio's LCD: dragged up and down (one undo step), or clicked to type it (Enter or
- * leaving the field sets it, Escape doesn't; the arrow keys nudge it).
+ * The tempo, FL Studio's LCD: dragged up and down (one undo step; the pointer is locked, so it goes on
+ * past the screen's edge), or clicked to type it (Enter or leaving the field sets it, Escape doesn't; the
+ * arrow keys nudge it). Its right-click menu taps the tempo and makes it the one new songs start at.
  */
 function TempoLcd() {
   const tempo = useSong((song) => song.settings.tempo);
+  const defaultTempo = useMusicPreferences((s) => s.defaultTempo);
+  const [tapping, setTapping] = useState(false);
+  /** Tap tempo… was chosen: its popover opens once the menu has let go of the focus (or it would close at once). */
+  const tappingNext = useRef(false);
   const [draft, setDraft] = useState<string | null>(null);
   const gesture = useRef(songGesture()).current;
   const set = (value: number) => useMusic.getState().commit((song) => setTempo(song, value));
@@ -179,7 +203,7 @@ function TempoLcd() {
     draft === null,
   );
 
-  return (
+  const lcd = (
     <Lcd label="BPM" className="w-[76px]">
       <input
         ref={input}
@@ -193,14 +217,14 @@ function TempoLcd() {
           // While typing, the pointer places the caret.
           if (document.activeElement === input || e.button !== 0) return;
           e.preventDefault();
-          const origin = e.clientY;
           const start = Math.round(tempo);
           startPointerDrag(e, {
             threshold: 3,
             cursor: "ns-resize",
+            lock: true,
             onStart: () => gesture.begin(),
-            onMove: (ev) => {
-              const value = Math.min(MAX_TEMPO, Math.max(MIN_TEMPO, start + Math.round((origin - ev.clientY) / TEMPO_DRAG)));
+            onMove: (_, travel) => {
+              const value = Math.min(MAX_TEMPO, Math.max(MIN_TEMPO, start - Math.round(travel.y / TEMPO_DRAG)));
               gesture.apply((song) => setTempo(song, value));
             },
             onEnd: () => gesture.end(),
@@ -230,6 +254,96 @@ function TempoLcd() {
       />
     </Lcd>
   );
+
+  return (
+    <Popover open={tapping} onOpenChange={setTapping}>
+      <ContextMenu>
+        <PopoverPrimitive.Anchor asChild>
+          <ContextMenuTrigger asChild>
+            <div>{lcd}</div>
+          </ContextMenuTrigger>
+        </PopoverPrimitive.Anchor>
+        <ContextMenuContent
+          // The menu mustn't take the focus back to the field as it closes: a click on it is for typing.
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            if (tappingNext.current) setTapping(true);
+            tappingNext.current = false;
+          }}
+        >
+          <ContextMenuItem onSelect={() => (tappingNext.current = true)}>Tap tempo…</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem disabled={tempo === (defaultTempo ?? DEFAULT_TEMPO)} onSelect={() => useMusicPreferences.getState().setDefaultTempo(tempo)}>
+            Make {tempo} BPM the default
+          </ContextMenuItem>
+          <ContextMenuItem disabled={defaultTempo === null} onSelect={() => useMusicPreferences.getState().setDefaultTempo(null)}>
+            Reset the default ({DEFAULT_TEMPO} BPM)
+          </ContextMenuItem>
+          <ContextMenuLabel className="text-[11px] font-normal text-muted-foreground">New songs start at {defaultTempo ?? DEFAULT_TEMPO} BPM</ContextMenuLabel>
+        </ContextMenuContent>
+      </ContextMenu>
+      <PopoverContent align="start" className="w-56 p-3">
+        {tapping && <TapTempo onSet={(value) => set(value)} onDone={() => setTapping(false)} />}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Tap tempo: tap along to a song (click the pad, or press any key) and its tempo is worked out from the
+ * taps (`tap-tempo.ts`); Set tempo gives it to the song, to the nearest whole BPM.
+ */
+function TapTempo({ onSet, onDone }: { onSet: (tempo: number) => void; onDone: () => void }) {
+  const [taps, setTaps] = useState<number[]>([]);
+  const bpm = tappedTempo(taps);
+  const pad = useRef<HTMLButtonElement>(null);
+  const tap = () => setTaps((taps) => addTap(taps, performance.now()));
+  const apply = () => {
+    if (bpm === null) return;
+    onSet(Math.round(bpm));
+    onDone();
+  };
+  useEffect(() => pad.current?.focus(), []);
+  return (
+    <div
+      className="flex flex-col gap-2"
+      onKeyDown={(e) => {
+        // The popover's own keys: Escape closes, Enter sets it. Every other key taps (and isn't the editor's).
+        if (e.key === "Escape" || e.key === "Tab" || e.metaKey || e.ctrlKey) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === "Enter") apply();
+        else if (!e.repeat) tap();
+      }}
+    >
+      <p className="text-xs text-muted-foreground">Tap along to the beat: click the pad or press any key, at least three times.</p>
+      <button
+        ref={pad}
+        type="button"
+        aria-label="Tap"
+        className="raised raised-hover active:pressed flex h-16 flex-col items-center justify-center rounded-md font-mono tabular-nums"
+        // On the press, not the release: a tap's moment is when the finger lands.
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          tap();
+        }}
+      >
+        <span className="text-2xl leading-none" data-testid="tapped-tempo">
+          {bpm === null ? "—" : Math.round(bpm)}
+        </span>
+        <span className="mt-1 text-[10px] text-muted-foreground">{bpm === null ? `${taps.length} of 3 taps` : `${bpm.toFixed(1)} BPM tapped`}</span>
+      </button>
+      <div className="flex justify-end gap-1.5">
+        <Button size="sm" variant="ghost" onClick={() => setTaps([])} disabled={taps.length === 0}>
+          Reset
+        </Button>
+        <Button size="sm" onClick={apply} disabled={bpm === null}>
+          Set tempo
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 /** A recessed number display with its small label in the corner, as FL Studio's toolbar has. */
@@ -242,10 +356,11 @@ function Lcd({ label, className, children }: { label: string; className?: string
   );
 }
 
-/** Where play is now (or starts), frame by frame while it plays, written straight into the display. */
+/** Where play is now (or starts) in the mode playing, frame by frame while it plays, written straight into the display. */
 function usePlayTick(onTick: (tick: number) => void) {
   const playing = useTransport((s) => s.playing);
-  const startTick = useTransport((s) => s.startTick);
+  const mode = useTransport((s) => s.mode);
+  const startTick = useTransport((s) => (mode === "song" ? s.songStartTick : s.startTick));
   const tempo = useSong((song) => song.settings.tempo);
   const latest = useRef(onTick);
   latest.current = onTick;
@@ -256,12 +371,12 @@ function usePlayTick(onTick: (tick: number) => void) {
     }
     let frame = 0;
     const draw = () => {
-      latest.current(patternTickNow(useTransport.getState(), performance.now(), tempo, PPQ) ?? startTick);
+      latest.current(positionNow() ?? startTick);
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [playing, startTick, tempo]);
+  }, [playing, startTick, tempo, mode]);
 }
 
 /** FL Studio's position display, in bars:steps:ticks. */
@@ -273,7 +388,7 @@ function PositionLcd() {
   });
   return (
     <Lcd label="B:S:T" className="w-[96px] justify-end">
-      <span ref={text} className="font-mono text-[18px] leading-none tabular-nums" title="Where the pattern is playing, or where play starts (bar:step:tick)" aria-label="Position">
+      <span ref={text} className="font-mono text-[18px] leading-none tabular-nums" title="Where the pattern (or the song) is playing, or where play starts (bar:step:tick)" aria-label="Position">
         1:01:00
       </span>
     </Lcd>
@@ -284,12 +399,14 @@ function PositionLcd() {
 const THUMB = 16;
 
 /**
- * The song position slider: along the pattern, where play is (it moves while playing), lit with the
- * accent up to there. A press or a drag moves play there, to the step (the thumb follows the pointer
- * while it's held); the arrow keys move it a step, Home and End to the ends.
+ * The song position slider: along the pattern (or the song, in song mode), where play is (it moves while
+ * playing), lit with the accent up to there. A press or a drag moves play there, to the step (the thumb
+ * follows the pointer while it's held); the arrow keys move it a step, Home and End to the ends.
  */
 function PositionSlider() {
-  const patternTicks = useCurrentPattern((pattern, song) => lengthOf(song, pattern) * STEP_TICKS);
+  const mode = useTransport((s) => s.mode);
+  const patternTicks = useMusic((s) => (mode === "song" ? songTicks(s.history!.doc) : lengthOf(s.history!.doc, currentPattern(s.history!.doc, s.patternId)) * STEP_TICKS));
+  const startOf = () => useTransport.getState().startOf();
   const thumb = useRef<HTMLDivElement>(null);
   const fill = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLDivElement>(null);
@@ -310,7 +427,8 @@ function PositionSlider() {
     setNow(tick);
     if (tick === sent.current) return;
     sent.current = tick;
-    useTransport.getState().jumpTo(tick);
+    if (mode === "song") useTransport.getState().jumpSongTo(tick);
+    else useTransport.getState().jumpTo(tick);
   };
   const moveTo = (clientX: number) => {
     const rect = track.current!.getBoundingClientRect();
@@ -340,14 +458,14 @@ function PositionSlider() {
         const release = () => {
           held.current = false;
           // On its step, if it's not playing (playing, the next frame puts it where play is).
-          const tick = useTransport.getState().startTick;
+          const tick = startOf();
           if (patternTicks > 0) show(tick / patternTicks);
         };
         const started = startPointerDrag(e, { threshold: 0, onMove: (ev) => moveTo(ev.clientX), onEnd: release, onCancel: release, onClick: release });
         if (!started) release();
       }}
       onKeyDown={(e) => {
-        const from = useTransport.getState().startTick;
+        const from = startOf();
         const to =
           e.key === "ArrowLeft" || e.key === "ArrowDown" ? from - STEP_TICKS
           : e.key === "ArrowRight" || e.key === "ArrowUp" ? from + STEP_TICKS
@@ -385,16 +503,19 @@ function MetronomeToggle() {
 function WindowToggles() {
   return (
     <>
-      <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (F7)">
+      <WindowButton onOpen={() => openPlaylist()} label="Playlist" title="Playlist: the song's arrangement (F5, ⌥1)">
+        <PiListDashes />
+      </WindowButton>
+      <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (F7, ⌥3)">
         <PiPianoKeys />
       </WindowButton>
-      <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (F6)">
+      <WindowButton onOpen={() => useMusicUi.getState().setRackOpen(true)} label="Channel rack" title="Channel rack (F6, ⌥2)">
         <PiRows />
       </WindowButton>
-      <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} label="Mixer" title="Mixer (F9)">
+      <WindowButton onOpen={() => useMusicUi.getState().setMixerOpen(true)} label="Mixer" title="Mixer (F9, ⌥4)">
         <PiSlidersHorizontal className="rotate-90" />
       </WindowButton>
-      <WindowButton onOpen={() => useBrowser.getState().setOpen(!useBrowser.getState().open)} label="Browser" title="Browser: your sample folders (Alt+F8)">
+      <WindowButton onOpen={() => useBrowser.getState().setOpen(!useBrowser.getState().open)} label="Browser" title="Browser: your sample folders (Alt+F8, ⌥5)">
         <PiFolders />
       </WindowButton>
     </>
