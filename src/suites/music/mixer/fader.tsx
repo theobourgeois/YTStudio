@@ -10,7 +10,7 @@ import { startPointerDrag } from "@/lib/pointer-drag";
 import { detent, faderAt, faderDb } from "./meter";
 
 /** The handle's height, and how far a drag with Ctrl moves it for the same distance (fine changes). */
-const HANDLE_H = 30;
+const HANDLE_H = 38;
 /** How far (px) the pointer moves while the fader hangs at 0 dB. */
 const HOLD_PX = 7;
 /** Levels marked across the fader (FL's faint lines), in dB. */
@@ -141,7 +141,7 @@ export function Fader({ value, label, selected, className, onBegin, onDrag, onEn
                 />
               ))}
               <span
-                className="pointer-events-none absolute inset-x-0 rounded-[4px]"
+                className="pointer-events-none absolute inset-x-[3px] rounded-[3px]"
                 style={{
                   top: handleTop(value),
                   height: HANDLE_H,
