@@ -51,8 +51,9 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   tool-spec.ts       What a tool is (ToolSpec, kinds, JSON schema helpers) and its results, for every suite.
   ids.ts             createId, for everything the app makes.
   music/             The music suite: its document (types.ts), create/normalise (project.ts), its pure edits
-                     (edits.ts; the playlist's in playlist.ts), the song as the engine plays it (compile.ts:
-                     swing, gains, mutes, song mode's arrangement flattened), its tools
+                     (edits.ts; the playlist's in playlist.ts), automation (automation.ts: curves, what a
+                     control is at any tick), the song as the engine plays it (compile.ts:
+                     swing, gains, mutes, song mode's arrangement flattened, automation as lanes), its tools
                      (tools.ts), the audio engine's commands, status and events (engine.ts), the
                      Browser's types and search (browser.ts: pure, ranked, typo-tolerant), and the
                      export's settings, file names and ffmpeg arguments (export.ts) and MIDI file (midi.ts).
@@ -187,7 +188,8 @@ src/
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
                      pattern-picker.tsx, toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
                      tempo and position LCDs, the hint bar; its maths in position.ts), playlist/ (the
-                     Playlist, F5: see "The music suite"), playhead.ts (where the song and the shown pattern
+                     Playlist, F5: see "The music suite"), automation/ (automation clips: see "The music
+                     suite"), playhead.ts (where the song and the shown pattern
                      are now), settings.tsx (its section of Settings: the device, and
                      engine-panel.tsx, the plugin bench), keys.ts, api.ts, and the assistant's side (tools.ts, tool-edits.ts,
                      context.ts).
@@ -300,11 +302,11 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export. Where it is and every step still to come, in order:
+the export, automation. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
-  patterns, mixer }` (`volume` is the toolbar's main volume, folded into the master's gain by `compileSong`). A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
+  patterns, playlist, mixer, automations }` (`volume` is the toolbar's main volume, folded into the master's gain by `compileSong`). A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
   `precomputed` effects (trim, reverse, normalise, fades); a `Pattern` has `notes[channelId]`, sorted by `start`,
   and a `length` that's null for FL's Auto: use `lengthOf`/`patternSteps`, never the field. Solo isn't a field:
   it's a state of the mutes (`soloChannel`).
@@ -387,7 +389,7 @@ the export. Where it is and every step still to come, in order:
   tested) and run in `workspace.tsx`.
 - **The Playlist** (`docs/fl-studio/playlist.md`, F5; `src/suites/music/playlist/`): `MusicProject.playlist`
   is numbered tracks (bound to nothing; `tracks` only as long as the last one changed) and clips
-  (`PlaylistClip`: a pattern or an audio clip's channel, `start`, `length` (null: a pattern clip following
+  (`PlaylistClip`: a pattern, an audio clip's channel or an automation clip, `start`, `length` (null: a pattern clip following
   its pattern), `offset` into its content (ticks of a pattern, **seconds** of an audio file), `muted`). Clip
   ids are small numbers, like notes'. Its operations are pure functions of a clip list in
   `shared/music/playlist.ts` (with a `ClipContext`: the patterns' lengths and the tempo, which a clip's
@@ -431,6 +433,20 @@ the export. Where it is and every step still to come, in order:
   it so: a stage's tracks touch only their own buffers, sends are added in order after. The mix is floating
   point and can go over full scale and still sound clean live (the system volume turns it down first); a
   file would clip, so a render that goes over is turned down as a whole (`exportGain`, `preventClipping`).
+- **Automation** (`docs/fl-studio/automation.md`; `shared/music/automation.ts`, `src/suites/music/automation/`):
+  an automation clip (`MusicProject.automations`) is a curve for one control (`AutomationTarget`: a
+  channel's volume or pan, a mixer track's fader, pan or stereo separation, a send, an effect's mix, the
+  main volume, a plugin's parameter by the id the plugin gives it); its clips on the playlist
+  (`kind: "automation"`) share it. **It plays in song mode only**, and what a control is at a tick follows
+  from the song alone (`controlAt`): its own value before its first clip, the curve inside one (the latest
+  started wins), the last value after one. `compileSong` turns it into lanes in the engine's units (a
+  channel's gains, a track's matrix...), sampled within a thousandth; the engine plays them in slices of
+  256 samples counted from where play started (`Sequencer::applyLanes`), so live and exported sound the
+  same whatever the blocks: keep any new lane kind on that grid. A control held by the hand is left out
+  (`SetSongRequest.held`, from `useAutomatedControl`'s hold/release); a plugin's own value is taken when play
+  starts and given back when it stops. A knob or fader that can be automated takes a `target`
+  (`SongKnob`'s), which gives it Create automation clip and has it follow the curve in song mode. Its curve
+  is edited on its clips in the Playlist (`curve-pointer.ts`, a `curve` drag committed once).
 - **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).

@@ -45,7 +45,7 @@ export function automationPlace(song: MusicProject): AutomationPlace {
  * now, over the time selection or the song, on a track below the others. It's selected, and the Playlist
  * shows it. `value`: a plugin parameter's (only the engine knows it), 0..1.
  */
-export function createAutomationClip(target: AutomationTarget, value?: number): string | null {
+export function createAutomationClip(target: AutomationTarget, value?: number, place?: AutomationPlace): string | null {
   const song = useMusic.getState().history?.doc;
   if (!song) return null;
   const info = controlOf(song, target);
@@ -53,7 +53,7 @@ export function createAutomationClip(target: AutomationTarget, value?: number): 
     toast.error("There's nothing to automate", { description: `${info.owner} isn't in the song any more.` });
     return null;
   }
-  const made = createAutomation(song, target, automationPlace(song), { value });
+  const made = createAutomation(song, target, place ?? automationPlace(song), { value });
   if (made.song === song) {
     toast.error("No more automation clips fit in this song");
     return null;

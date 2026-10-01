@@ -134,31 +134,56 @@ The manual doesn't say. What FL Studio does, from Théo and from using it:
 | Pattern mode | (unverified) | Automation never plays in pattern mode (Théo) |
 | A held control | (unverified) | The hand wins while it's held, the curve takes over when it's let go |
 | Initialised values | A separate value per control, set when a clip is made, *Init song with this position* | The control's own value is the initialised value |
-| Plugin parameters | Tools → Last tweaked, the Browser's Current project | Automate "…" in the plugin window's title bar, and the Picker's Automate… list |
+| Plugin parameters | Tools → Last tweaked, the Browser's Current project | **Automate "…"** in the plugin window's title bar (the parameter last touched there), and the Picker's **Automate…** window: every control of the song, each plugin's parameters with them, searchable |
+| What can be automated | Nearly every control | Channels' volume and pan, mixer tracks' fader, pan and stereo separation, sends, effects' mixes, the main volume, plugins' parameters |
+| Deleting a point | Right Alt+click | Alt+click (a Mac has no right Alt to tell apart), or the point's menu |
+| The curve types | Eleven | The same eleven; how Alt single / Alt double, Half sine and Smooth stairs bend is ours (unverified against FL) |
+| Tools | Copy / Paste state, Flip, Scale levels (a dialog), Normalize, Decimate, Filter, Smooth up, Create sequence, Analyze audio file | Flip vertically, Normalize levels, Scale levels up (×1.25) and down (×0.8), Decimate points, Smooth |
+| LFO | SPD, TENS, SKEW, PW, LVL, Multiply | SPD (cycles a bar), TENS, SKEW, LVL, Multiply; no PW |
 | One clip, several controls | Target links | One control per automation clip |
 | Step and Slide modes, Filter, Create sequence, Analyze audio file, Time, Convert to events | Yes | Not yet |
-| Pulse width (PW) in the LFO | Yes | Not yet |
 | Tempo | Automatable | Not yet |
 | Channel pitch and other channel controls | Automatable | Volume and pan only |
-| Precision | Per buffer (FL's "smooth" options) | Every 256 samples, the same live and exported: gains glide between, a plugin parameter is set at each |
+| An audio clip's Automate | Volume, Panning | The same: an automation clip of its channel's volume or pan, over the clip |
+| Precision | Per buffer (FL's "smooth" options) | Slices of 256 samples counted from where play started, the same live and exported: gains glide along each slice, an effect's mix and a plugin's parameter are set at its start |
+| Plugin delay | "Compensate automations" | Automation is applied as the song plays, not shifted for a plugin's delay |
 
 ## How it's built
 
 - **The document** (`shared/music/types.ts`): `MusicProject.automations` holds each automation clip's
   source (`Automation`: its target, points, length, Min / Max, LFO, name, colour); a playlist clip of
-  `kind: "automation"` refers to one by id, as a pattern clip does to its pattern. A point is
-  `{ tick, value, tension, curve }`: the curve and tension are the segment arriving at it.
-- **The maths** (`shared/music/automation.ts`, pure and tested): each curve type, the LFO, the value of an
-  automation clip at a tick, and the value of a control at any tick of the song (the rules above); the
-  edits (points, tension, curve, the Tools); making a clip for a control.
-- **Compiling** (`compile.ts`): in song mode, each control a clip drives becomes a lane in the engine's own
-  units (a channel's two gains, a mixer track's gain matrix, a send's gain, an effect's mix, a plugin
-  parameter's 0..1), sampled from the rules into points the engine only has to draw straight lines
-  between. Controls held by the hand are left out (`SetSongRequest.held`).
-- **The engine** (`Sequencer`): while a song with lanes plays, it works in slices of 256 samples counted
-  from where play started, so live playback and the export (in blocks of 2048) make exactly the same
-  sound: gains glide across each slice, an effect's mix and a plugin's parameter are set at its start. A
-  plugin's parameters are listed (`/api/engine/parameters`) and found by their id; the plugin's own value
-  is taken when play starts and given back when it stops or the lane goes. The engine says which
-  parameter was last touched in a plugin's window (`EngineEvent` "tweak"), and its title bar's
-  Automate button asks the tab to automate it (`EngineEvent` "automate").
+  `kind: "automation"` refers to one by id, as a pattern clip does to its pattern (it follows the curve's
+  length until it's resized). A point is `{ tick, value, tension, curve }`: the curve and tension are the
+  segment arriving at it. `normalizeMusicProject` keeps an automation clip whose control has gone (a
+  deleted channel): it drives nothing, and undoing the deletion brings it back to life.
+- **The maths** (`shared/music/automation.ts`, pure and tested): each curve type (`curveAt`), the LFO
+  (`lfoAt`), a clip's value at a tick of its curve (`automationValue`), a control's value at any tick of
+  the song (`controlAt`, over `automationIndex`: the rules above); the controls (`controlOf`: names, own
+  values, a fraction to the control's units); the edits (points, tension, curve, the Tools); making a clip
+  for a control (`createAutomation`).
+- **Compiling** (`compile.ts`): in song mode, each engine target any clip drives becomes a lane in the
+  engine's own units: a channel's two gains (its volume and pan together), a mixer track's gain matrix
+  (fader, pan, stereo separation, and the main volume on the master), a send's gain, an effect's mix, a
+  plugin parameter's 0..1 (-1 where it keeps its own value). Sampled from `controlAt` every 8 ticks and
+  closer where a straight line would be more than a thousandth off (checked in quarters, as an S crosses
+  its line in the middle), two points at a tick for a jump, then thinned. Controls held by the hand are left
+  out (`SetSongRequest.held`).
+- **The engine** (`Sequencer`): while a song with lanes plays, blocks are cut into slices of 256 samples
+  counted from where play started (`sliceClock`), and each slice's ticks are worked out from that count,
+  not the running position, so any block size (the device's, the export's 2048) makes the same sound
+  (tested: blocks of 300 against 512, and the export against playback). A slice across the loop's end
+  holds the song's last values to it. Gains glide along the slice's straight line; an effect's mix and a
+  plugin's parameter are set at its start (`AudioProcessorParameter::setValue`, the hosts' automation
+  path). A plugin's own value is taken when play starts (or carried from the last song) and given back
+  when it stops, a lane goes, or the export ends. A song arriving mid-play re-anchors the slices where play
+  is. Parameters are found by the id the plugin gives them (`parameterId`), their index as a hint.
+- **Plugin windows**: each hosted plugin has a `ParameterWatcher` (gestures, any thread, in atomics); the
+  engine's timer reports the parameter last touched (`EngineEvent` "touch") and shows **Automate "…"** in
+  the window's title bar (`EditorWindow::setTouched`), whose click is `EngineEvent` "automate"; a
+  parameter held in its window isn't driven by its lane meanwhile. `GET /api/engine/parameters` lists a
+  plugin's automatable parameters.
+- **The tab** (`src/suites/music/automation/`): `actions.ts` (make, open, delete, Tools), `store.ts` (open
+  windows, the last touched parameter, the held controls), `control.tsx` (a knob's or fader's automation:
+  following the curve in song mode, its menu items), `curve-geometry.ts` and `curve-pointer.ts` (editing
+  on the Playlist, a `curve` drag committed once), `draw-curve.ts`, `automation-window.tsx`,
+  `chooser.tsx` + `controls.ts` (Automate…), `tool-edits.ts` (the assistant's).

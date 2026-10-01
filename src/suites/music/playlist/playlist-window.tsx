@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
-import { type ClipContext, clipContext, songTicks } from "@shared/music/playlist";
+import { type ClipContext, clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, TRACK_COLORS } from "@shared/music/project";
 import { type MusicProject, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import {
@@ -54,7 +54,7 @@ import {
 } from "./actions";
 import { CURVE_NAMES, controlOf, deletePoint, editPoints, updatePoint } from "@shared/music/automation";
 import { CURVE_TYPES, type CurveType } from "@shared/music/types";
-import { AUTOMATION_TOOLS, type AutomationTool, openAutomationWindow, runTool } from "../automation/actions";
+import { AUTOMATION_TOOLS, type AutomationTool, createAutomationClip, openAutomationWindow, runTool } from "../automation/actions";
 import { editClips, removeClips, setClipProps } from "@shared/music/playlist";
 import { fadeOutClips, onClipFade, vanishingClips } from "./fades";
 import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
@@ -635,8 +635,24 @@ function ClipMenu() {
             </DropdownMenuSub>
           </>
         ) : (
-          // A channel of its own for this clip (the same file), so its pitch or volume changes it alone.
-          <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique as sample</DropdownMenuItem>
+          <>
+            {/* A channel of its own for this clip (the same file), so its pitch or volume changes it alone. */}
+            <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique as sample</DropdownMenuItem>
+            {/* FL's Automate: an automation clip of its channel's volume or pan, over the clip. */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Automate</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {(["volume", "pan"] as const).map((control) => (
+                  <DropdownMenuItem
+                    key={control}
+                    onSelect={() => p && createAutomationClip({ kind: "channel", channel: clip.ref, control }, undefined, { start: clip.start, length: clipLength(clip, p.ctx), track: clip.track + 1 })}
+                  >
+                    {control === "volume" ? "Volume" : "Panning"}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
         )}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>Chop</DropdownMenuSubTrigger>
