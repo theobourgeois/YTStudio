@@ -90,29 +90,50 @@ export function peakRange(peaks: WavePeaks, from: number, to: number): [number, 
   return [low, high];
 }
 
-const loaded = new Map<string, WavePeaks | "loading" | "failed">();
+/** Each file's samples, once decoded (or while they are, or if they couldn't be). */
+const decoded = new Map<string, Float32Array | "loading" | "failed">();
+/** Peaks made, by file and precomputed effects; the least recently used go first. */
+const prepared = new Map<string, WavePeaks>();
+const KEPT = 64;
+/** The last peaks given for each file, shown while others are made (so a knob turned never blanks it). */
+const latest = new Map<string, WavePeaks>();
 const listeners = new Set<() => void>();
 
 /**
- * The peaks of the audio file at `url`, after its channel's `precomputed` effects (as the engine plays it),
- * if they're ready; otherwise they start loading, and `onWaveform` listeners hear when.
+ * The peaks of the audio file at `url`, after its channel's `precomputed` effects (as the engine plays it).
+ * Once the file's decoded, they're made at once, so a knob turned redraws without a flash; until then it's
+ * null (or the file's last peaks), and `onWaveform` listeners hear when it's ready.
  */
 export function clipPeaks(url: string, precomputed?: Precomputed): WavePeaks | null {
   const key = precomputed ? `${url}|${JSON.stringify(precomputed)}` : url;
-  const known = loaded.get(key);
-  if (known && known !== "loading" && known !== "failed") return known;
-  if (!known) {
-    loaded.set(key, "loading");
+  const known = prepared.get(key);
+  if (known) {
+    // Most recently used: to the end.
+    prepared.delete(key);
+    prepared.set(key, known);
+    latest.set(url, known);
+    return known;
+  }
+  const samples = decoded.get(url);
+  if (samples instanceof Float32Array) {
+    const peaks = buildPeaks(precomputed ? precomputeSamples(samples, precomputed) : samples);
+    prepared.set(key, peaks);
+    while (prepared.size > KEPT) prepared.delete(prepared.keys().next().value!);
+    latest.set(url, peaks);
+    return peaks;
+  }
+  if (!samples) {
+    decoded.set(url, "loading");
     loadSamples(url)
       .then(
-        (samples) => loaded.set(key, buildPeaks(precomputed ? precomputeSamples(samples, precomputed) : samples)),
-        () => loaded.set(key, "failed"),
+        (data) => decoded.set(url, data),
+        () => decoded.set(url, "failed"),
       )
       .finally(() => {
         for (const listener of listeners) listener();
       });
   }
-  return null;
+  return latest.get(url) ?? null;
 }
 
 /** Be told when a waveform has loaded (to draw again). Returns how to stop. */
