@@ -20,6 +20,8 @@ constexpr double heldSeconds = 30.0;
 constexpr double tickSlack = 1e-6;
 }
 
+Sequencer::Sequencer (bool offline) : clips (offline) {}
+
 Sequencer::~Sequencer()
 {
     delete song;
@@ -27,7 +29,11 @@ Sequencer::~Sequencer()
     collectGarbage();
 }
 
-void Sequencer::prepare (double rate) { sampleRate = rate > 0 ? rate : 48000.0; }
+void Sequencer::prepare (double rate)
+{
+    sampleRate = rate > 0 ? rate : 48000.0;
+    clips.prepare (sampleRate);
+}
 
 // Message thread -------------------------------------------------------------
 
@@ -78,14 +84,36 @@ void Sequencer::setSong (std::unique_ptr<Song> next)
             send.delayLine = lineFor ("s" + track.id + ">" + next->tracks[(size_t) send.track].id, send.delay);
     delayLines = std::move (lines);
 
+    // Its audio clips, to look ahead for while it plays.
+    clips.setSong (*next);
+    loopTicks = juce::jmax (1.0, next->loopTicks);
+
     // One still waiting was never played: it's ours to delete.
     delete pending.exchange (next.release());
 }
 
+juce::uint32 Sequencer::nextGeneration()
+{
+    const auto next = ++generations;
+    requestedGeneration = next;
+    return next;
+}
+
 void Sequencer::play (double fromTick)
 {
-    playFrom = juce::jmax (0.0, fromTick);
+    const auto from = juce::jmax (0.0, fromTick);
+    const auto next = nextGeneration();
+    // The clips where play starts are decoded before it does, so they sound from its first block.
+    clips.prepare (std::fmod (from, loopTicks), next, 0, 0.0);
+    playFrom = from;
     ++playRequests;
+}
+
+void Sequencer::prepareClips()
+{
+    // Only once the audio thread has the play the message thread last asked for.
+    if (playingNow.load() && generationNow.load() == generations)
+        clips.prepare (positionNow.load(), generations, passNow.load(), 0.06);
 }
 
 bool Sequencer::preview (const juce::String& channelId, int key, float velocity, bool on)
@@ -98,7 +126,11 @@ bool Sequencer::preview (const juce::String& channelId, int key, float velocity,
         triggers[(size_t) scope.startIndex1] = { channel, (float) (key - 60), velocity * velocity / (0.78f * 0.78f), on ? Trigger::Kind::hold : Trigger::Kind::release, key, velocity };
     return true;
 }
-void Sequencer::stop() { ++stopRequests; }
+void Sequencer::stop()
+{
+    nextGeneration();
+    ++stopRequests;
+}
 
 bool Sequencer::trigger (const juce::String& channelId, float pitch, float gain)
 {
@@ -145,6 +177,7 @@ void Sequencer::markMetered (const juce::StringArray& ids, juce::uint64 serial)
 
 void Sequencer::collectGarbage()
 {
+    clips.collectGarbage();
     const auto scope = garbageQueue.read (garbageQueue.getNumReady());
     for (int i = 0; i < scope.blockSize1; ++i)
         delete garbage[(size_t) (scope.startIndex1 + i)];
@@ -189,6 +222,8 @@ void Sequencer::adopt (Song* next)
                 send.from = send.gain;
     ramping = true;
 
+    clips.adopt (*next);
+
     if (song != nullptr)
     {
         const auto scope = garbageQueue.write (1);
@@ -226,6 +261,8 @@ void Sequencer::process (float* left, float* right, int numSamples)
         playing = false;
         position_ = 0;
         silenceVoices();
+        generation = requestedGeneration.load();
+        clips.stopAll();
     }
     if (const auto plays = playRequests.load(); plays != playsSeen)
     {
@@ -235,6 +272,9 @@ void Sequencer::process (float* left, float* right, int numSamples)
             silenceVoices();
         playing = true;
         position_ = song != nullptr ? std::fmod (playFrom.load(), song->loopTicks) : 0;
+        generation = requestedGeneration.load();
+        pass = 0;
+        clips.setGeneration (generation);
     }
 
     if (song != nullptr)
@@ -277,8 +317,12 @@ void Sequencer::process (float* left, float* right, int numSamples)
                 startVoice (trigger.channel, trigger.pitch, trigger.gain, -1, 0);
         }
 
+        clips.receive (*song);
         if (playing)
+        {
+            clips.startLate (position_, pass, song->loopTicks, song->tempo * song->ppq / (60.0 * sampleRate));
             schedule (numSamples);
+        }
         // A block longer than the song's buffers (the device just changed): silence until the engine
         // gives it the song again with longer ones.
         if (numSamples <= song->capacity)
@@ -296,6 +340,7 @@ void Sequencer::process (float* left, float* right, int numSamples)
                 if (voice.active)
                     render (voice, numSamples);
             renderPlugins (numSamples);
+            clips.render (*song, numSamples, [this] (int channel) { return trackAudio (channel); });
             // Channels that wait for their track's later inputs come out of their delay lines into it.
             for (auto& channel : song->channels)
                 if (channel.delayLine != nullptr)
@@ -308,6 +353,8 @@ void Sequencer::process (float* left, float* right, int numSamples)
 
     playingNow = playing;
     positionNow = position_;
+    generationNow = generation;
+    passNow = pass;
 }
 
 void Sequencer::schedule (int numSamples)
@@ -325,6 +372,8 @@ void Sequencer::schedule (int numSamples)
         if (to >= loop)
         {
             to -= loop;
+            // Round again: a new pass, whose clips' streams start now.
+            ++pass;
             scheduleRange (0, to, from - loop, offset, length, ticksPerSample);
         }
         position_ = to;
@@ -337,6 +386,7 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
     const auto at = [&] (double tick) {
         return offset + juce::jlimit (0, length - 1, (int) std::floor ((tick - origin + tickSlack) / ticksPerSample));
     };
+    clips.schedule (from, to, origin, pass, offset, length, ticksPerSample);
     from -= tickSlack;
     to -= tickSlack;
 
