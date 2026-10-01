@@ -352,6 +352,23 @@ export function clickPattern(patternId: string, mode: PickMode) {
   if (mode === "only") chooseSource({ kind: "pattern", ref: patternId });
 }
 
+/**
+ * A double-click in the Picker: the Channel rack, in front, showing the pattern (it's the pattern shown,
+ * as a click made it), or an audio clip's channel selected in the rack's Audio group.
+ */
+export function showInRack(kind: ClipSource["kind"], ref: string) {
+  const ui = useMusicUi.getState();
+  if (kind === "pattern") {
+    useMusic.getState().selectPattern(ref);
+    // Its channels, not the audio clips'.
+    if (ui.rackGroup === "audio") ui.setRackGroup("unsorted");
+  } else {
+    ui.setSelection([ref]);
+    ui.setRackGroup("audio");
+  }
+  ui.setRackOpen(true);
+}
+
 /** A right-click on a pattern that isn't selected: it alone is, for its menu (as lists do). */
 export function pickForMenu(patternId: string) {
   const song = useMusic.getState().history?.doc;

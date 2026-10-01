@@ -13,6 +13,7 @@ import {
   deletePickedPatterns,
   movePickedPatterns,
   pickForMenu,
+  showInRack,
   splitPattern,
   transposePickedPatterns,
 } from "./actions";
@@ -24,7 +25,8 @@ export const CLIP_DRAG_TYPE = "application/x-vaudio-clip";
 
 /**
  * FL Studio's Picker panel (Alt+P): every pattern and audio clip of the song. A click makes one the clip
- * source (what Draw and Paint add), a drag puts it on a track (drawn there while it's dragged). Patterns
+ * source (what Draw and Paint add), a double-click shows it in the Channel rack, a drag puts it on a track
+ * (drawn there while it's dragged). Patterns
  * select as a list does (⌘-click toggles one, Shift+click takes a range) for their menu (a right-click:
  * transpose, rename, clone, split by channel, move, delete) and Alt+↑ / ↓, which reorders them.
  */
@@ -90,7 +92,8 @@ export function Picker() {
               usePlaylist.setState({ patternSelection: new Set() });
               chooseSource({ kind, ref });
             }}
-            onDoubleClick={(e) => kind === "pattern" && pickMode(e) === "only" && setRenaming(ref)}
+            // A double-click shows it in the Channel rack (an audio clip: its channel, in the rack's Audio group).
+            onDoubleClick={(e) => pickMode(e) === "only" && showInRack(kind, ref)}
             onDragStart={(e) => {
               e.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify({ kind, ref }));
               e.dataTransfer.effectAllowed = "copy";
