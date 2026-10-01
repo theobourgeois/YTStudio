@@ -44,6 +44,7 @@ import {
   zoomFloor,
 } from "./actions";
 import { editClips, removeClips, setClipProps } from "@shared/music/playlist";
+import { fadeOutClips, onClipFade, vanishingClips } from "./fades";
 import { type PlaylistScene, drawRuler, drawTracks, onWaveform, waveformAt } from "./draw";
 import { MAX_PX_PER_TICK, scrollViewBy, tickToX, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
 import { CLIP_DRAG_TYPE, Picker } from "./picker";
@@ -311,6 +312,7 @@ function PlaylistBody() {
         if (data) waveforms.set(channel.id, data);
       }
       const palette: Palette = readPalette(box);
+      const fading = vanishingClips(performance.now());
       const scene: PlaylistScene = {
         view,
         width,
@@ -323,6 +325,7 @@ function PlaylistBody() {
         patterns: new Map(song.patterns.map((pattern) => [pattern.id, pattern])),
         names: new Map([...song.patterns.map((pattern) => [pattern.id, pattern.name] as const), ...song.channels.map((c) => [c.id, c.name] as const)]),
         waveforms,
+        vanishing: fading,
         barTicks: p.barTicks,
         beatTicks: p.beatTicks,
         songTicks: songTicks(song),
@@ -341,6 +344,8 @@ function PlaylistBody() {
       const r = prepare(ruler.current, width, RULER_H);
       if (r) drawRuler(r, { ...scene, height: RULER_H }, useTransport.getState().songStartTick);
       box.dataset.drawMs = (performance.now() - started).toFixed(2);
+      // Deleted clips still fading: another frame.
+      if (fading.length) schedule();
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(draw);
@@ -350,6 +355,7 @@ function PlaylistBody() {
       usePlaylist.subscribe(schedule),
       useTransport.subscribe((s, p) => s.songStartTick !== p.songStartTick && schedule()),
       onWaveform(schedule),
+      onClipFade(schedule),
     ];
     const theme = new MutationObserver(schedule);
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme"] });
@@ -562,7 +568,13 @@ function ClipMenu() {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => commit((clips) => setClipProps(clips, only, { muted: !clip.muted }))}>{clip.muted ? "Unmute" : "Mute"}</DropdownMenuItem>
-        <DropdownMenuItem variant="destructive" onSelect={() => commit((clips) => removeClips(clips, only))}>
+        <DropdownMenuItem
+          variant="destructive"
+          onSelect={() => {
+            fadeOutClips([clip], usePlaylist.getState().selected);
+            commit((clips) => removeClips(clips, only));
+          }}
+        >
           Delete
         </DropdownMenuItem>
       </DropdownMenuContent>

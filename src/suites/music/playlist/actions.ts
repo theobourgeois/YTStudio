@@ -41,6 +41,7 @@ import { currentPattern, useMusic } from "../store";
 import { switchMode, useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
+import { fadeOutClips } from "./fades";
 import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, type TrackLayout, minPxPerTick, shownTracks, trackLayout, zoomAt, zoomToRange } from "./geometry";
 import { type PickMode, pickPattern } from "./picks";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
@@ -203,7 +204,9 @@ export function selectSimilar() {
 export function deleteSelected() {
   const p = playlistContext();
   if (!p?.clips.length) return;
-  edit((clips) => removeClips(clips, orAllClips(clips, p.selected)));
+  const gone = orAllClips(p.clips, p.selected);
+  fadeOutClips(p.clips.filter((c) => gone.has(c.id)), p.selected);
+  edit((clips) => removeClips(clips, gone));
   usePlaylist.getState().select([]);
 }
 
@@ -288,8 +291,16 @@ export function splitPattern(patternId: string) {
   usePlaylist.setState({ source: null, selected: new Set() });
 }
 
+/** The clips of these patterns fade out (the patterns are going, and their clips with them). */
+function fadeClipsOf(patternIds: string[]) {
+  const p = playlistContext();
+  const ids = new Set(patternIds);
+  if (p) fadeOutClips(p.clips.filter((c) => c.kind === "pattern" && ids.has(c.ref)), p.selected);
+}
+
 /** Delete a pattern from the Picker: it and its clips (a song keeps one pattern). */
 export function deletePattern(patternId: string) {
+  fadeClipsOf([patternId]);
   useMusic.getState().commit((song) => removePattern(song, patternId));
 }
 
@@ -351,6 +362,7 @@ export function clonePickedPatterns() {
 export function deletePickedPatterns() {
   const song = useMusic.getState().history?.doc;
   if (!song) return;
+  fadeClipsOf(pickedPatterns(song));
   useMusic.getState().commit((s) => pickedPatterns(song).reduce((next, id) => removePattern(next, id), s));
   usePlaylist.setState({ patternSelection: new Set() });
 }
@@ -370,7 +382,11 @@ export function toggleTrackMute(index: number) {
 
 export const soloPlaylistTrack = (index: number) => useMusic.getState().commit((song) => soloTrack(song, index));
 export const insertPlaylistTrack = (index: number) => useMusic.getState().commit((song) => insertTrack(song, index));
-export const deletePlaylistTrack = (index: number) => useMusic.getState().commit((song) => deleteTrack(song, index));
+export function deletePlaylistTrack(index: number) {
+  const p = playlistContext();
+  if (p) fadeOutClips(p.clips.filter((c) => c.track === index), p.selected);
+  useMusic.getState().commit((song) => deleteTrack(song, index));
+}
 export const movePlaylistTrack = (index: number, direction: -1 | 1) => useMusic.getState().commit((song) => moveTrack(song, index, direction));
 
 /** Mute or unmute every clip on a track (its menu's Mute all clips / Unmute all clips). */
