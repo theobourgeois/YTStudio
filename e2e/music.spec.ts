@@ -614,6 +614,8 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
 
   // The insert number's menu types one in: a number, or M for the master.
   const typeTrack = async (value: string) => {
+    // The rack in front (the mixer fills the desktop once it's open).
+    await page.getByRole("button", { name: "Channel rack", exact: true }).click();
     await row(page, "Hat").getByRole("spinbutton").click({ button: "right" });
     await page.getByRole("menuitem", { name: "Type in value…" }).click();
     await page.getByRole("textbox", { name: /Hat's mixer track.*type a value/ }).fill(value);

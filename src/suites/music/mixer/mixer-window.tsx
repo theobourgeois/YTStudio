@@ -163,7 +163,8 @@ export function MixerWindow() {
     <MusicWindow
       id="mixer"
       title="Mixer"
-      initial={{ x: 40, y: 230, width: 980, height: 430 }}
+      // It opens filling the desktop (a double-click on its title makes it a window, as the Piano roll's).
+      initial={{ x: 40, y: 230, width: 980, height: 480, snap: "full" }}
       resizable={{ minWidth: 520, minHeight: 330 }}
       onClose={() => useMusicUi.getState().setMixerOpen(false)}
       menu={<MixerMenu />}
@@ -256,7 +257,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="flex w-full flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)} onPointerDown={(e) => dragSelection(e)}>
+          <div className="flex min-h-28 w-full flex-1 flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)} onPointerDown={(e) => dragSelection(e)}>
             <div
               className={cn("relative w-full py-0.5 text-center font-mono text-[11px] tabular-nums", track.color ? "font-semibold text-white" : current ? "text-brand" : "text-muted-foreground")}
               style={track.color ? { background: track.color, textShadow: "0 1px 1px rgb(0 0 0 / 0.35)" } : undefined}
@@ -264,7 +265,8 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
               {isMaster ? "M" : number}
               <DelayMark track={track} />
             </div>
-            <div className="flex h-24 w-full justify-center gap-1 px-1">
+            {/* The meter and the fader share the strip's height: a taller mixer has longer ones. */}
+            <div className="flex min-h-0 w-full flex-1 justify-center gap-1 px-1">
               {renaming ? (
                 <RenameField track={track} name={name} />
               ) : (
@@ -325,7 +327,7 @@ function TrackFader({ track, name, selected }: { track: MixerTrack; name: string
   const id = track.id;
   return (
     <Fader
-      className="min-h-16 flex-1"
+      className="min-h-20 flex-1"
       label={`${name} volume`}
       value={track.volume}
       selected={selected}
