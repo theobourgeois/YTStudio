@@ -34,6 +34,8 @@ async function openPiano(page: Page, name: string, notes: Partial<SavedNote>[] =
   await page.request.put(`/api/projects/${created.id}`, { data: song });
   await page.goto(`/p/${created.id}`);
   await expect(page.locator('[role=listitem][data-channel-name="Fake Synth"]')).toBeVisible();
+  // A song opens on the Playlist: closed, so only the Piano roll is on the desktop.
+  await page.getByRole("button", { name: "Close Playlist" }).click();
   await page.getByRole("button", { name: "Select Fake Synth" }).click();
   await page.keyboard.press("F7");
   await expect(page.getByTestId("piano-roll")).toHaveAttribute("data-channel-name", "Fake Synth");
@@ -318,10 +320,10 @@ test("the window fills the desktop, resizes and snaps; the ruler moves a playing
   await page.mouse.move(onNote.x, onNote.y);
   await expect.poll(cursor).toBe("grab");
 
-  // A note past the pattern's end takes the pattern to the end of that note's bar.
+  // A note past the pattern's end takes the pattern to the end of the two bars it's in (bar 3: four bars).
   await expect(roll).toHaveAttribute("data-loop", "0:384");
   await click(page, 900, 70);
-  await expect(roll).toHaveAttribute("data-loop", "0:1152");
+  await expect(roll).toHaveAttribute("data-loop", "0:1536");
 
   // With notes selected, a click on nothing deselects them, and adds nothing.
   await page.keyboard.press("ControlOrMeta+a");
@@ -342,7 +344,7 @@ test("the window fills the desktop, resizes and snaps; the ruler moves a playing
   });
   await expect(roll).toHaveAttribute("data-loop", "0:384");
   await page.mouse.dblclick(rx(100), ry);
-  await expect(roll).toHaveAttribute("data-loop", "0:1152");
+  await expect(roll).toHaveAttribute("data-loop", "0:1536");
 
   // While it plays, a click on the ruler takes it there at once.
   await page.getByRole("button", { name: "Play", exact: true }).click();
