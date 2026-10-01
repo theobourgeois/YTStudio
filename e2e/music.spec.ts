@@ -754,6 +754,15 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await page.getByRole("menuitem", { name: "Blue" }).click();
   await expect.poll(async () => (await track(1)).color).toBe("#4a89dc");
 
+  // Dragging across the strips' meters moves the selection along, one at a time; with Cmd, each one passed joins it.
+  const selectedNames = () => mixer.locator('[data-track][aria-selected="true"]').evaluateAll((strips) => strips.map((s) => s.getAttribute("data-track-name")));
+  await drag(page, strip("Insert 2").locator("canvas"), strip("Insert 4").locator("canvas"));
+  expect(await selectedNames()).toEqual(["Insert 4"]);
+  await page.keyboard.down("ControlOrMeta");
+  await drag(page, strip("Insert 7").locator("canvas"), strip("Insert 9").locator("canvas"));
+  await page.keyboard.up("ControlOrMeta");
+  expect(await selectedNames()).toEqual(["Insert 4", "Insert 7", "Insert 8", "Insert 9"]);
+
   // With several selected, a right-click keeps them selected, and Colour and Rename give them all the same.
   await strip("Insert 5").locator("canvas").click();
   await strip("Insert 6").locator("canvas").click({ modifiers: ["ControlOrMeta", "Shift"] });

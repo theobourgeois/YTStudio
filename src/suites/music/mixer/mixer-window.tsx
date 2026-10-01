@@ -1,6 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
+import { startPointerDrag } from "@/lib/pointer-drag";
 import { type MixerTrackPatch, setMixerVolumes, setSend, updateMixerTrack } from "@shared/music/mixer";
 import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
 import type { Mixer, MixerTrack, MusicProject } from "@shared/music/types";
@@ -247,13 +248,15 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         if (e.button === 2 && selected) return;
         const ui = useMusicUi.getState();
         if ((e.ctrlKey || e.metaKey) && e.shiftKey) ui.selectTrack(id, "add");
+        // Cmd (or Ctrl) alone: it joins the selection (dragging on adds the tracks passed over).
+        else if (e.ctrlKey || e.metaKey) ui.includeTracks([id]);
         // Dragging one of several selected faders moves them all: they stay selected.
         else if (!selected || !(e.target as HTMLElement).closest("[aria-orientation=vertical]")) ui.selectTrack(id);
       }}
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="flex w-full flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)}>
+          <div className="flex w-full flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)} onPointerDown={(e) => dragSelection(e)}>
             <div
               className={cn("relative w-full py-0.5 text-center font-mono text-[11px] tabular-nums", track.color ? "font-semibold text-white" : current ? "text-brand" : "text-muted-foreground")}
               style={track.color ? { background: track.color, textShadow: "0 1px 1px rgb(0 0 0 / 0.35)" } : undefined}
@@ -551,3 +554,23 @@ function StripToggle({ label, on, onChange, children }: { label: string; on: boo
 
 /** The track colours' names, in `TRACK_COLORS`'s order (for the menu's swatches). */
 const COLOR_NAMES = ["Red", "Orange", "Yellow", "Lime", "Green", "Teal", "Blue", "Indigo", "Purple", "Pink", "Brown", "Grey"];
+
+/**
+ * A drag across the strips' names and meters, FL Studio's: the selection follows the pointer, one track
+ * at a time; with Cmd (or Ctrl), every track passed over joins it.
+ */
+function dragSelection(e: React.PointerEvent<HTMLElement>) {
+  if ((e.target as HTMLElement).closest("input")) return;
+  const adding = e.metaKey || e.ctrlKey;
+  startPointerDrag(e, {
+    threshold: 4,
+    onMove(ev) {
+      const strip = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-track]");
+      const id = strip?.dataset.track;
+      if (!id || !strip.closest('[data-testid="mixer"]')) return;
+      const ui = useMusicUi.getState();
+      if (adding) ui.includeTracks([id]);
+      else if (ui.selectedTrackIds.length !== 1 || ui.selectedTrackIds[0] !== id) ui.setTrackSelection([id]);
+    },
+  });
+}

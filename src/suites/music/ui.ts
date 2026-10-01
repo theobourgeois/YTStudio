@@ -73,6 +73,8 @@ interface MusicUiState {
   /** Select a mixer track (`add`: Ctrl+Shift, toggling it among the others, the first staying the current one). */
   selectTrack: (id: string, mode?: "only" | "add") => void;
   setTrackSelection: (ids: string[]) => void;
+  /** Add tracks to the selection (those already in it stay where they are). */
+  includeTracks: (ids: string[]) => void;
   setTrackSelectorsShown: (shown: boolean) => void;
   copyTrack: (copied: { projectId: string; state: TrackState }) => void;
   setTransposeOpen: (open: boolean) => void;
@@ -142,6 +144,11 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
     if (selected.length > 1) set({ selectedTrackIds: selected.filter((t) => t !== id) });
   },
   setTrackSelection: (selectedTrackIds) => set({ selectedTrackIds }),
+  includeTracks(ids) {
+    const selected = get().selectedTrackIds;
+    const added = ids.filter((id) => !selected.includes(id));
+    if (added.length) set({ selectedTrackIds: [...selected, ...added] });
+  },
   setTrackSelectorsShown: (trackSelectorsShown) => set({ trackSelectorsShown }),
   copyTrack: (copiedTrack) => set({ copiedTrack }),
 
