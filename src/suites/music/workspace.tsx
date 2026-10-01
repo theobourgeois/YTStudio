@@ -16,6 +16,7 @@ import { useTransport } from "./transport";
 import { resolvePianoKey, type PianoKeyAction } from "./piano/keys";
 import * as piano from "./piano/actions";
 import { openPianoRoll } from "./piano/actions";
+import { Chopper } from "./piano/chopper";
 import { NoteProperties } from "./piano/note-properties";
 import { PianoRoll } from "./piano/piano-roll";
 import { usePiano } from "./piano/store";
@@ -61,6 +62,7 @@ function Windows() {
   const mixerOpen = useMusicUi((s) => s.mixerOpen);
   const transposeOpen = useMusicUi((s) => s.transposeOpen);
   const editingNote = usePiano((s) => s.editing);
+  const chopping = usePiano((s) => s.chopping);
   const openIds = useMusicUi((s) => s.openChannelIds);
   const channels = useSong((song) => song.channels);
   return (
@@ -80,6 +82,7 @@ function Windows() {
       {mixerOpen && <MixerWindow />}
       {transposeOpen && <TransposeWindow />}
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
+      {pianoOpen && chopping && <Chopper />}
       {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind === "sampler" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
     </Desktop>
   );
@@ -94,6 +97,7 @@ function frontWindow(): WindowId | null {
     : id === "mixer" ? ui.mixerOpen
     : id === "transpose" ? ui.transposeOpen
     : id === "note" ? usePiano.getState().editing !== null
+    : id === "chopper" ? usePiano.getState().chopping
     : ui.openChannelIds.includes(id.slice("channel:".length));
   return [...ui.order].reverse().find(open) ?? null;
 }
@@ -122,6 +126,8 @@ function runPianoKey(action: PianoKeyAction) {
       return piano.glue();
     case "chop":
       return piano.chop();
+    case "chopper":
+      return piano.openChopper();
     case "quantize":
       return piano.quantize("both");
     case "quantizeStarts":

@@ -7,12 +7,13 @@
 import { create } from "zustand";
 import type { Vec2 } from "@shared/types";
 import { MOTION, TEXT, isTextClip, setParams, textEffects, textStyleAt } from "@shared/effects";
-import { STILL_DURATION, addTextClip, createId, getClip, removeClips } from "@shared/timeline";
+import { addTextClip, createId, getClip, removeClips } from "@shared/timeline";
 import { roundTime } from "@shared/math";
 import { EditGesture } from "@/lib/edit-gesture";
 import { useEditor } from "./editor";
 import { useLayout } from "./layout";
 import { usePlayback } from "./playback";
+import { newLayerDuration } from "./video-preferences";
 
 interface TextEditingState {
   /** The text clip being typed into, if any. */
@@ -42,7 +43,7 @@ export function createText(position: Vec2) {
   const effects = textEffects().map((e) =>
     e.type === MOTION.type ? { ...e, params: { ...e.params, position } } : e,
   );
-  const clip = { id: createId("clip"), assetId: "", start: roundTime(playback.time), in: 0, out: STILL_DURATION, effects };
+  const clip = { id: createId("clip"), assetId: "", start: roundTime(playback.time), in: 0, out: newLayerDuration(), effects };
   const gesture = new EditGesture();
   gesture.begin();
   gesture.apply((p) => addTextClip(p, clip).project);

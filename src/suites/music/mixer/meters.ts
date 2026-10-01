@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useTransport } from "../transport";
-import { type MeterState, SILENT_METER, isClipping, meterFraction, stepMeter } from "./meter";
+import { METER_COLOUR_STOPS, type MeterState, SILENT_METER, isClipping, meterFraction, stepMeter } from "./meter";
 
 interface Meter {
   canvas: HTMLCanvasElement;
@@ -23,13 +23,6 @@ function readColours(element: Element): Colours {
   const read = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
   return { low: read("--meter-low", "#4cc46c"), mid: read("--meter-mid", "#f2b33d"), high: read("--meter-high", "#ef4d55"), off: read("--meter-off", "#353b45"), mark: read("--line-strong", "#555") };
 }
-
-/** Where the meter's colours change, as levels: green up to -18 dB, amber by -6, red from 0 dB. */
-const COLOUR_STOPS = [
-  { level: 10 ** (-18 / 20), colour: "low" },
-  { level: 10 ** (-6 / 20), colour: "mid" },
-  { level: 1, colour: "high" },
-] as const;
 
 /**
  * The mixer's meters: every strip's canvas, drawn by one animation loop from the engine's reports
@@ -99,7 +92,7 @@ function draw(canvas: HTMLCanvasElement, heights: number[], clipping: boolean[],
   ctx.clearRect(0, 0, width, height);
   const gradient = ctx.createLinearGradient(0, height, 0, 0);
   gradient.addColorStop(0, colours.low);
-  for (const stop of COLOUR_STOPS) gradient.addColorStop(meterFraction(stop.level), colours[stop.colour]);
+  for (const stop of METER_COLOUR_STOPS) gradient.addColorStop(meterFraction(stop.level), colours[stop.colour]);
   gradient.addColorStop(1, colours.high);
   ctx.fillStyle = gradient;
   const bar = (width - 1) / 2;

@@ -1,12 +1,13 @@
 /**
- * Screenshots of the app's look, in every theme and variant, to check a restyle (docs/ui-redesign.md):
+ * Screenshots of the app's look, in every theme, to check a restyle (docs/ui-redesign.md):
  * each section of the component gallery (`/gallery`, `src/gallery/`) and the app's screens (the empty
  * state, the New project picker, the video editor with clips, the music editor). Starts its own server
  * and app on ports 5340/5341 with a throwaway data dir and the stand-in engine and assistant, like e2e.
  *
- *   pnpm tsx scripts/ui-sheet.ts [section or screen ...] [--out dir] [--light | --dark]
+ *   pnpm tsx scripts/ui-sheet.ts [section or screen ...] [--out dir] [--light | --dark] [--theme <id>]
  *
- * Pictures go to `ui-sheet/` (`<name>-<theme>-<variant>.png`); with names, only those are taken.
+ * Pictures go to `ui-sheet/` (`<name>-<theme>.png`); with names, only those are taken. `--light`/`--dark`
+ * take only the light or dark themes, `--theme` one theme.
  */
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -15,17 +16,20 @@ import path from "node:path";
 import { type Page, chromium } from "@playwright/test";
 import { defaultEffects, textEffects } from "../shared/effects.ts";
 import type { Clip, MediaAsset, Project, ProjectSummary } from "../shared/types.ts";
+import { THEMES as ALL_THEMES } from "../src/themes/index.ts";
 
 const WEB_PORT = "5340";
 const SERVER_PORT = "5341";
-const THEMES = ["studio"];
 
 const args = process.argv.slice(2);
 const outIndex = args.indexOf("--out");
 const root = path.resolve(import.meta.dirname, "..");
 const outDir = path.resolve(outIndex >= 0 ? args[outIndex + 1] : path.join(root, "ui-sheet"));
-const names = args.filter((a, i) => !a.startsWith("--") && (outIndex < 0 || i !== outIndex + 1));
-const variants = args.includes("--light") ? ["light"] : args.includes("--dark") ? ["dark"] : ["dark", "light"];
+const themeIndex = args.indexOf("--theme");
+const names = args.filter((a, i) => !a.startsWith("--") && (outIndex < 0 || i !== outIndex + 1) && (themeIndex < 0 || i !== themeIndex + 1));
+const THEMES = ALL_THEMES.filter(
+  (t) => (themeIndex < 0 || t.id === args[themeIndex + 1]) && (args.includes("--light") ? !t.dark : args.includes("--dark") ? t.dark : true),
+).map((t) => t.id);
 const wanted = (name: string) => names.length === 0 || names.some((n) => name === n || name.startsWith(`${n}-`));
 
 // Another run's server would be used instead of ours (and its projects shown): refuse rather than mix them.
@@ -87,15 +91,15 @@ fs.mkdirSync(outDir, { recursive: true });
 const browser = await chromium.launch();
 const written: string[] = [];
 
-/** A page in one theme and variant: the look is saved in localStorage before the app starts. */
-async function pageIn(theme: string, variant: string): Promise<Page> {
+/** A page in one theme: the look is saved in localStorage before the app starts. */
+async function pageIn(theme: string): Promise<Page> {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
   await page.addInitScript(
-    ([t, v]) => {
-      localStorage.setItem("editor-theme-id", t);
-      localStorage.setItem("editor-theme", v);
+    ([t, dark]) => {
+      localStorage.setItem("editor-theme-choice", t);
+      localStorage.setItem("editor-theme-dark", dark);
     },
-    [theme, variant],
+    [theme, String(ALL_THEMES.find((t) => t.id === theme)!.dark)],
   );
   return page;
 }
@@ -113,27 +117,25 @@ async function shoot(page: Page, name: string, target?: string) {
 // The gallery: each section alone, then the extra shots it asks for (a menu open, a dialog...).
 const { SECTIONS } = await galleryIndex();
 for (const theme of THEMES) {
-  for (const variant of variants) {
-    for (const section of SECTIONS) {
-      const suffix = `${theme}-${variant}`;
-      const shots = (section.shots ?? []).filter((s) => wanted(`${section.id}-${s.name}`));
-      if (!wanted(section.id) && shots.length === 0) continue;
-      const page = await pageIn(theme, variant);
-      const url = `${web}/gallery?section=${section.id}&theme=${theme}&appearance=${variant}`;
+  for (const section of SECTIONS) {
+    const suffix = theme;
+    const shots = (section.shots ?? []).filter((s) => wanted(`${section.id}-${s.name}`));
+    if (!wanted(section.id) && shots.length === 0) continue;
+    const page = await pageIn(theme);
+    const url = `${web}/gallery?section=${section.id}&theme=${theme}`;
+    await page.goto(url);
+    const box = `[data-gallery-section="${section.id}"]`;
+    await page.locator(box).waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    if (wanted(section.id)) await shoot(page, `${section.id}-${suffix}`, box);
+    for (const shot of shots) {
       await page.goto(url);
-      const box = `[data-gallery-section="${section.id}"]`;
       await page.locator(box).waitFor();
-      await page.evaluate(() => document.fonts.ready);
-      if (wanted(section.id)) await shoot(page, `${section.id}-${suffix}`, box);
-      for (const shot of shots) {
-        await page.goto(url);
-        await page.locator(box).waitFor();
-        if (shot.click) await page.getByRole("button", { name: shot.click, exact: true }).or(page.getByRole("combobox", { name: shot.click })).first().click();
-        if (shot.rightClick) await page.locator(`[data-gallery-target="${shot.rightClick}"]`).click({ button: "right" });
-        await shoot(page, `${section.id}-${shot.name}-${suffix}`, shot.page ? undefined : box);
-      }
-      await page.close();
+      if (shot.click) await page.getByRole("button", { name: shot.click, exact: true }).or(page.getByRole("combobox", { name: shot.click })).first().click();
+      if (shot.rightClick) await page.locator(`[data-gallery-target="${shot.rightClick}"]`).click({ button: "right" });
+      await shoot(page, `${section.id}-${shot.name}-${suffix}`, shot.page ? undefined : box);
     }
+    await page.close();
   }
 }
 
@@ -156,76 +158,74 @@ if (screens.some(wanted)) {
   const music: ProjectSummary = await (await fetch(`${api}/projects`, { method: "POST", headers: json, body: JSON.stringify({ suite: "music", name: "Beat" }) })).json();
   let kitAdded = false;
   for (const theme of THEMES) {
-    for (const variant of variants) {
-      const suffix = `${theme}-${variant}`;
-      const page = await pageIn(theme, variant);
-      const tab = (name: string) => page.getByRole("tab", { name, exact: true });
+    const suffix = theme;
+    const page = await pageIn(theme);
+    const tab = (name: string) => page.getByRole("tab", { name, exact: true });
 
-      if (wanted("empty")) {
-        await page.goto(web);
-        await page.getByRole("button", { name: "New project" }).first().waitFor();
-        await shoot(page, `empty-${suffix}`);
-      }
-      if (wanted("new-project")) {
-        await page.goto(web);
-        await page.getByRole("button", { name: "New project" }).first().click();
-        await page.getByRole("dialog").waitFor();
-        await shoot(page, `new-project-${suffix}`);
-      }
-      if (screens.slice(2, 8).some(wanted)) {
-        await page.goto(`${web}/p/${video.id}`);
-        await page.locator("[data-clip-id]").first().waitFor();
-        await page.waitForTimeout(800);
-        if (wanted("video")) await shoot(page, `video-${suffix}`);
-        if (wanted("video-effects")) {
-          await tab("Effects").click();
-          await shoot(page, `video-effects-${suffix}`);
-        }
-        if (wanted("video-captions")) {
-          await tab("Captions").click();
-          await shoot(page, `video-captions-${suffix}`);
-        }
-        if (wanted("video-properties")) {
-          await page.locator("[data-clip-id]").first().click();
-          await tab("Properties").click();
-          await shoot(page, `video-properties-${suffix}`);
-        }
-        if (wanted("video-clip-menu")) {
-          await page.locator("[data-clip-id]").first().click({ button: "right" });
-          await shoot(page, `video-clip-menu-${suffix}`);
-          await page.keyboard.press("Escape");
-        }
-        if (wanted("video-settings")) {
-          await page.getByRole("button", { name: /settings/i }).first().click();
-          await page.getByRole("dialog").waitFor();
-          await shoot(page, `video-settings-${suffix}`);
-          await page.keyboard.press("Escape");
-        }
-      }
-      if (wanted("music") || wanted("music-piano")) {
-        await page.goto(`${web}/p/${music.id}`);
-        await page.getByRole("toolbar", { name: "Transport" }).waitFor();
-        if (!kitAdded) {
-          await page.getByRole("button", { name: "Channel rack menu" }).click();
-          await page.getByRole("menuitem", { name: "Add starter kit" }).click();
-          await page.getByRole("listitem").nth(3).waitFor();
-          for (const [channel, steps] of [["Kick", [1, 5, 9, 13]], ["Hat", [3, 7, 11, 15]], ["Snare", [5, 13]]] as const) {
-            for (const n of steps) await page.getByRole("button", { name: `${channel} step ${n}`, exact: true }).click();
-          }
-          kitAdded = true;
-        }
-        await page.waitForTimeout(500);
-        if (wanted("music")) await shoot(page, `music-${suffix}`);
-        if (wanted("music-piano")) {
-          await page.getByRole("button", { name: "Select Kick" }).click();
-          await page.keyboard.press("F7");
-          await page.waitForTimeout(500);
-          await shoot(page, `music-piano-${suffix}`);
-          await page.keyboard.press("F7");
-        }
-      }
-      await page.close();
+    if (wanted("empty")) {
+      await page.goto(web);
+      await page.getByRole("button", { name: "New project" }).first().waitFor();
+      await shoot(page, `empty-${suffix}`);
     }
+    if (wanted("new-project")) {
+      await page.goto(web);
+      await page.getByRole("button", { name: "New project" }).first().click();
+      await page.getByRole("dialog").waitFor();
+      await shoot(page, `new-project-${suffix}`);
+    }
+    if (screens.slice(2, 8).some(wanted)) {
+      await page.goto(`${web}/p/${video.id}`);
+      await page.locator("[data-clip-id]").first().waitFor();
+      await page.waitForTimeout(800);
+      if (wanted("video")) await shoot(page, `video-${suffix}`);
+      if (wanted("video-effects")) {
+        await tab("Effects").click();
+        await shoot(page, `video-effects-${suffix}`);
+      }
+      if (wanted("video-captions")) {
+        await tab("Captions").click();
+        await shoot(page, `video-captions-${suffix}`);
+      }
+      if (wanted("video-properties")) {
+        await page.locator("[data-clip-id]").first().click();
+        await tab("Properties").click();
+        await shoot(page, `video-properties-${suffix}`);
+      }
+      if (wanted("video-clip-menu")) {
+        await page.locator("[data-clip-id]").first().click({ button: "right" });
+        await shoot(page, `video-clip-menu-${suffix}`);
+        await page.keyboard.press("Escape");
+      }
+      if (wanted("video-settings")) {
+        await page.getByRole("button", { name: /settings/i }).first().click();
+        await page.getByRole("dialog").waitFor();
+        await shoot(page, `video-settings-${suffix}`);
+        await page.keyboard.press("Escape");
+      }
+    }
+    if (wanted("music") || wanted("music-piano")) {
+      await page.goto(`${web}/p/${music.id}`);
+      await page.getByRole("toolbar", { name: "Transport" }).waitFor();
+      if (!kitAdded) {
+        await page.getByRole("button", { name: "Channel rack menu" }).click();
+        await page.getByRole("menuitem", { name: "Add starter kit" }).click();
+        await page.getByRole("listitem").nth(3).waitFor();
+        for (const [channel, steps] of [["Kick", [1, 5, 9, 13]], ["Hat", [3, 7, 11, 15]], ["Snare", [5, 13]]] as const) {
+          for (const n of steps) await page.getByRole("button", { name: `${channel} step ${n}`, exact: true }).click();
+        }
+        kitAdded = true;
+      }
+      await page.waitForTimeout(500);
+      if (wanted("music")) await shoot(page, `music-${suffix}`);
+      if (wanted("music-piano")) {
+        await page.getByRole("button", { name: "Select Kick" }).click();
+        await page.keyboard.press("F7");
+        await page.waitForTimeout(500);
+        await shoot(page, `music-piano-${suffix}`);
+        await page.keyboard.press("F7");
+      }
+    }
+    await page.close();
   }
 }
 

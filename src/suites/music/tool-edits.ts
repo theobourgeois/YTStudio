@@ -24,6 +24,7 @@ import {
   transposeChannels,
   updateChannel,
 } from "@shared/music/edits";
+import { CHOP_PATTERNS, chopPattern, chopPieces, chopToPattern } from "@shared/music/chop";
 import { addNotes, editNotes } from "@shared/music/notes";
 import { BEAT_UNITS, DEFAULT_VELOCITY, MAX_PATTERN_TICKS, MAX_STEPS, MAX_TEMPO, MIN_TEMPO } from "@shared/music/project";
 import { pitchFromName, pitchName } from "./piano/geometry";
@@ -201,6 +202,34 @@ export const setNotesTool: SongEdit = (song, input, env) => {
   const next = editNotes(song, pattern.id, channel.id, (notes) => addNotes(input.mode === "add" ? notes : [], made).notes);
   const now = getPattern(next, pattern.id)!;
   return { song: next, text: `"${channel.name}" has ${(now.notes[channel.id] ?? []).length} notes in "${pattern.name}", which is ${lengthOf(next, now)} steps long.` };
+};
+
+/** The Chopper (`chop_notes`): a channel's notes, or some of them, cut into a rhythm. */
+export const chopNotesTool: SongEdit = (song, input, env) => {
+  const channel = findChannel(song, input.channel);
+  const pattern = findPattern(song, input.pattern, env);
+  const rhythm = chopPattern(typeof input.rhythm === "string" ? input.rhythm : "default");
+  if (!rhythm) throw new Error(`There's no rhythm "${String(input.rhythm)}". The rhythms are: ${CHOP_PATTERNS.map((p) => `"${p.id}"`).join(", ")}.`);
+  const grid = (number(input, "grid", 1 / 6, 64) ?? 1) * STEP;
+  const pieces = chopPieces(rhythm, number(input, "time_mul", 1 / 4, 4) ?? 1, grid);
+  if (!pieces) throw new Error("That makes pieces shorter than the Piano roll can hold (a 96th of a beat): use a longer grid or a smaller time_mul.");
+  const from = (number(input, "from", 0, MAX_PATTERN_TICKS / STEP) ?? 0) * STEP;
+  const to = (number(input, "to", 0, MAX_PATTERN_TICKS / STEP) ?? MAX_PATTERN_TICKS / STEP) * STEP;
+  const pitch = input.pitch === undefined ? null : typeof input.pitch === "string" ? pitchFromName(input.pitch) : Number.isInteger(input.pitch) ? (input.pitch as number) : null;
+  if (input.pitch !== undefined && pitch === null) throw new Error('"pitch" must be a note name like "F#5" or a MIDI number.');
+  const notes = pattern.notes[channel.id] ?? [];
+  const picked = new Set(notes.filter((n) => n.start >= from && n.start < to && (pitch === null || n.pitch === pitch)).map((n) => n.id));
+  if (!picked.size) throw new Error(`"${channel.name}" has no notes${pitch === null ? "" : ` of ${pitchName(pitch)}`} there in "${pattern.name}". Read them with get_notes.`);
+  const options = {
+    pieces,
+    absolute: input.absolute !== false,
+    velocity: number(input, "velocity_levels", 0, 1) ?? 0,
+    pan: number(input, "pan_levels", 0, 1) ?? 0,
+  };
+  const next = editNotes(song, pattern.id, channel.id, (list) => chopToPattern(list, picked, options).notes);
+  const after = getPattern(next, pattern.id)!.notes[channel.id] ?? [];
+  if (next === song) return { song, text: `Nothing to chop: the notes picked are no longer than the rhythm's pieces.` };
+  return { song: next, text: `Chopped ${picked.size} note${picked.size === 1 ? "" : "s"} of "${channel.name}" to "${rhythm.name}": it has ${after.length} notes in "${pattern.name}" now.` };
 };
 
 export const editStep: SongEdit = (song, input, env) => {

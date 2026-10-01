@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { cn } from "cn";
+import { METER_COLOUR_STOPS } from "./mixer/meter";
 import { useTransport } from "./transport";
 
 /** How long a graph shows, and how often it takes a sample. */
@@ -59,20 +60,37 @@ function useRollingGraph(canvas: React.RefObject<HTMLCanvasElement | null>, ever
 
 interface Colours {
   brand: string;
-  danger: string;
   faint: string;
+  /** The mixer meters' (green, amber, red at 0 dB). */
+  meter: { low: string; mid: string; high: string };
 }
 
 /** The theme's colours, from its CSS variables (canvases can't use its classes). */
 function readColours(element: Element): Colours {
   const style = getComputedStyle(element);
   const read = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
-  return { brand: read("--brand", "#5b9bf0"), danger: read("--destructive", "#e5484d"), faint: read("--line", "#333") };
+  return {
+    brand: read("--brand", "#5b9bf0"),
+    faint: read("--line", "#333"),
+    meter: { low: read("--meter-low", "#4cc46c"), mid: read("--meter-mid", "#f2b33d"), high: read("--meter-high", "#ef4d55") },
+  };
 }
 
 /**
+ * Where the output graph's colours change, as fractions of its half height out from the middle: the
+ * meters' stops (green to -18 dB, amber by -6, red at 0) on its scale (`peakLevel`).
+ */
+export function outputColourStops(): { at: number; colour: "low" | "mid" | "high" }[] {
+  return [{ at: 0, colour: "low" }, ...METER_COLOUR_STOPS.map((stop) => ({ at: peakLevel(stop.level), colour: stop.colour }))];
+}
+
+/** How much of the graph's oldest end fades away, as a fraction of its width. */
+const FADE = 0.3;
+
+/**
  * The output, as FL Studio's toolbar shows it beside the time: its level over the last few seconds,
- * mirrored about the middle like a waveform's outline, red where it clipped.
+ * mirrored about the middle like a waveform's outline, in the mixer meters' colours (red reaching 0 dB),
+ * fading out as it rolls away.
  */
 export function OutputGraph({ className }: { className?: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -82,14 +100,25 @@ export function OutputGraph({ className }: { className?: string }) {
     (now) => peakNow(now),
     (ctx, values, width, height, colours) => {
       const middle = height / 2;
+      const reach = middle - 2;
       ctx.fillStyle = colours.faint;
       ctx.fillRect(0, Math.round(middle), width, 1);
+      // Coloured as the meters are, by how far out from the middle: quiet green, loud amber, red at 0 dB.
+      const gradient = ctx.createLinearGradient(0, middle - reach, 0, middle + reach);
+      for (const stop of outputColourStops()) {
+        gradient.addColorStop(0.5 - stop.at / 2, colours.meter[stop.colour]);
+        gradient.addColorStop(0.5 + stop.at / 2, colours.meter[stop.colour]);
+      }
       const x0 = width - values.length * 2;
       values.forEach((peak, i) => {
-        const half = Math.max(0.5, peakLevel(peak) * (middle - 2));
-        ctx.fillStyle = peak >= 1 ? colours.danger : colours.brand;
-        ctx.fillRect(x0 + i * 2, middle - half, 1.5, half * 2);
+        const x = x0 + i * 2;
+        const half = Math.max(0.5, peakLevel(peak) * reach);
+        // The oldest fade out as they roll off the left.
+        ctx.globalAlpha = Math.min(1, x / (width * FADE));
+        ctx.fillStyle = gradient;
+        ctx.fillRect(x, middle - half, 1.5, half * 2);
       });
+      ctx.globalAlpha = 1;
     },
   );
   return (

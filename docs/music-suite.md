@@ -35,9 +35,10 @@ put together and how we use its manual). As of 2026-09-30, all of it is on the b
 | Channel settings | A sampler's window: its waveform, volume, pan, pitch, the ADSR envelope, cut self, normalize, reverse, sample start and length, fades | same |
 | Plugin channels | One plugin instance per channel, loaded in the background, played from the pattern's notes as MIDI; its own window from the channel's button; its state kept beside the project and restored | CLAUDE.md |
 | Piano roll | Every tool (draw, paint, delete, mute, slice, select, playback), selecting, the time selection that loops, Ctrl+B, quantize, glue, chop, legato, the event editor (velocity, pan), note properties, ghost notes, the target channel, FL's keys; FL's look; tested with 20 000 notes | `docs/fl-studio/piano-roll.md` |
+| Browser | The user's sample folders for every song (dropped from Finder): the tree, favourites, a search that forgives typos, previews streamed from disk with a waveform, files dragged onto the rack, a channel or the Piano roll, sent to the selected channel (Enter, Shift+Up/Down to try them in the beat) | `docs/fl-studio/browser.md` |
 | Windows | Every panel is a floating window on a desktop: dragged, stuck to edges and other windows, resized, maximised (double-click the title), snapped to fill the desktop or half | CLAUDE.md |
 | Transport | Play and stop the current pattern, tempo, the metronome, where play starts (the Piano roll's ruler, which also moves a playing song) | |
-| Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song` | `shared/music/tools.ts` |
+| Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song`; the Browser's: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`, `star_sample` | `shared/music/tools.ts` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
 
 ### How it's built, in one screen
@@ -68,10 +69,9 @@ The tab (src/suites/music/)                 The server (server/music/)          
 The detailed lists are at the end of each reference doc. The main ones:
 
 - **The mixer has no track EQ yet**, and the assistant can't use the mixer yet. No effect plugins on channels (the bench in the
-  audio dialog can load one, for testing only).
+  audio settings can load one, for testing only).
 - **No playlist**: only the current pattern plays, looped (FL's pattern mode). No song mode, no
   arrangement, no audio clips.
-- **No browser**: samples are added from the rack's menu, by dropping files, or with the starter kit.
 - **No automation**, and **no export** of the song (the engine can render offline; nothing uses it for
   that yet).
 - Per-note pan is heard on samplers but not sent to plugins. Channels have no colours. Knob menus lack
@@ -167,40 +167,34 @@ What Théo needs: split the song by track and compose the arrangement.
 
 ### 3. The browser
 
-**In progress** (moved before the playlist, 2026-10-01). The reference is `docs/fl-studio/browser.md`:
-only Théo's own folders (no plugins, presets or kits), global, with a good search, previews, favourites
-and FL's keys. The plan: (0) the reference doc, done; (1) the server, done: `server/music/browser.ts`
-keeps the folders and favourites (`data/browser.json`), lists folders, indexes every folder and audio file
-under them (watched, so new files show up) and serves the files, refusing any path outside them; the
-search is pure (`shared/music/browser.ts`: words in any order, typos, ranked); `/api/browser`.
-(2) The engine's preview, done: `engine/src/FilePreview.cpp` streams a file from disk outside the song
-(decoded and resampled ahead on a reader thread into a lock-free ring), cut off by the next with a short
-fade; `POST /api/browser/preview`, `stopPreview`, `previewVolume`, and where it is in the transport
-event (`EnginePreview`); tested offline in `server/music/preview.integration.test.ts`.
-(3) The Browser window, done: `src/suites/music/browser/` (a panel in the look of the windows, kept on
-the desktop's left, its width dragged; Alt+F8 and the toolbar's folder button): the tree with Favourites
-on top (a favourite folder is a shortcut into the tree), search as you type with the results as a list,
-a click or the arrows play a file, its waveform with the preview's playhead (click to play from there),
-the preview's volume, stars, a row's menu, FL's keys (`browser/keys.ts`), several rows selected
-(⌘/Shift+click) and dragged as `BROWSER_DRAG_TYPE`. Folders are dropped from Finder in the desktop app
-(the preload's `pathForFile`), or added by path from the menu.
-(4) Into the song, done: a file becomes the project's media through `POST /api/browser/use` (copied
-once: the copy's `origin` is the file's path, size and date, so trying it again reuses it). Dropped
-(`browser/drops.ts`, Finder's files too) on the rack it's a new channel where it lands, several a
-channel each; on a channel's button or settings window, that channel's sample; on the Piano roll, its
-channel's (a plugin channel's: a new channel, shown there); on the desktop itself, a new channel.
-Enter, the middle button and the menu send a file to the selected sampler (none: a new channel,
-selected); Shift+Up/Down tries the next files in it, all of them one undo step
-(`replaceSampleFromBrowser`'s `swap`); the menu also opens files in new channels and shows them in
-Finder. Next: (5) the assistant's tools; (6) the e2e test and docs.
+**Built** (2026-10-01, before the playlist). The reference is `docs/fl-studio/browser.md`: only Théo's
+own folders (no plugins, presets or kits), the same in every song, with a good search, previews,
+favourites and FL's keys. What's left for it is in that doc's last table (tags, a preview's
+speed/key/sync, dropping onto the playlist once there is one).
 
-- **FL's model** (manual page `browser`): a tree of folders (the user's sample folders, the project's
-  files, plugins, presets), clicking a sample to hear it, dragging it onto the rack (a new channel), a
-  channel (replace its sample), the playlist (an audio clip) or the Piano roll.
-- **The server**: the folders to show (a setting; by default a sensible music folder), listing them lazily,
-  file metadata; files dragged in are imported as project media, as today.
-- **The engine**: a preview voice for a file that isn't in the song (a `previewFile` command).
-- The plugin list (already scanned) and, later, presets.
+- **The server** (`server/music/browser.ts`, `/api/browser`): the folders and favourites
+  (`data/browser.json`), a folder's audio files and subfolders, and an index of everything under the
+  folders, watched so new files show up. The search is pure (`shared/music/browser.ts`: words in any
+  order, typos, ranked). Every path is checked to be inside a folder added. A file goes into a song as the
+  project's media (`POST /api/browser/use`), copied once: the copy's `origin` is the file's path, size and
+  date.
+- **The engine's preview** (`engine/src/FilePreview.cpp`): a file streamed from disk outside the song,
+  decoded and resampled ahead on a reader thread into a lock-free ring; a new one cuts the last off with a
+  short fade. Where it is comes back in the transport event (`EnginePreview`). Tested offline
+  (`server/music/preview.integration.test.ts`). The playlist's audio clips will stream the same way.
+- **The window** (`src/suites/music/browser/`, Alt+F8): a panel in the windows' look, kept on the
+  desktop's left (its width dragged), so the windows keep to the desktop beside it. The tree with
+  Favourites on top, search as you type (results as a list), a click or the arrows play a file, its
+  waveform with the preview's playhead, FL's keys (`keys.ts`; the rows and arrows in `tree.ts`, both
+  pure). Folders are dropped from Finder in the desktop app (the preload's `pathForFile`), or added by path.
+- **Into the song** (`drops.ts`, `actions.ts`): dropped on the rack, a new channel where it lands (several
+  files, a channel each); on a channel's button or settings window, its sample; on the Piano roll, its
+  channel's; on the desktop, a new channel. Enter, the middle button and the menu send a file to the
+  selected sampler; Shift+Up/Down tries the next files in it, all one undo step.
+- **The assistant**: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`,
+  `star_sample` (`browser/describe.ts` is what it reads, and `load_sample`'s edit).
+- **Tests**: the search and the server in vitest, the preview in the real engine, the window, drops, keys
+  and the assistant's tools in `e2e/music.spec.ts`.
 
 ### 4. Automation and export
 
@@ -221,7 +215,7 @@ Finder. Next: (5) the assistant's tools; (6) the e2e test and docs.
 
 ### 6. Audio recording
 
-- An input device (the audio dialog already picks the output), monitoring, arming a mixer insert (FL records
+- An input device (Settings already picks the output), monitoring, arming a mixer insert (FL records
   through an insert), record to a WAV on disk (on a writer thread, never the audio thread), the take
   becoming an audio clip in the playlist. Latency compensation from the device's reported latency. This
   needs the streaming playback from step 2.

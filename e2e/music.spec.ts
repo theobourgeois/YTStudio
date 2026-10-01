@@ -549,11 +549,16 @@ test("the assistant programs the drums with the music editor's tools", async ({ 
   expect(await muted(page)).toBe("--");
 });
 
-test("audio settings: the device, and the plugin bench", async ({ page }) => {
+test("settings: ⌘, opens on the music section, with the device and the plugin bench", async ({ page }) => {
   await openNewSong(page, "Engine bench");
-  await page.getByRole("button", { name: "Audio settings" }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("heading", { name: "Audio engine" })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+Comma");
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await expect(dialog.getByRole("heading", { level: 1 })).toHaveText("Music");
+  // The gear in the toolbar opens the same page.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await page.locator("header").getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(dialog.getByRole("heading", { level: 1 })).toHaveText("Music");
 
   // The output device and its buffer.
   const device = dialog.getByTestId("device-settings");
@@ -1108,4 +1113,35 @@ test("the Browser's files go into the song: dragged onto the rack or a channel, 
   await expect(page.getByTestId("piano-roll")).toHaveAttribute("data-channel-name", "Kick 2");
   await item("Snare.wav").dragTo(page.getByTestId("piano-roll"));
   await expect.poll(() => sampleOf(4)).toBe("Snare.wav");
+});
+
+test("the assistant finds the user's samples, plays one to them and puts them in the song", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted samples", { browser: true });
+  const folder = path.resolve("e2e/.data/My Samples");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      "call list_samples",
+      'call search_samples {"query": "kik 808"}',
+      `call list_samples {"folder": ${JSON.stringify(`${folder}/808 Kit`)}}`,
+      `call preview_sample {"path": ${JSON.stringify(`${folder}/808 Kit/Kick 2.wav`)}}`,
+      `call load_sample {"paths": [${JSON.stringify(`${folder}/808 Kit/Kick 1.wav`)}, ${JSON.stringify(`${folder}/808 Kit/Snare.wav`)}]}`,
+      `call load_sample {"paths": [${JSON.stringify(`${folder}/808 Kit/Kick 2.wav`)}], "channel": "Kick 1"}`,
+      `call star_sample {"path": ${JSON.stringify(`${folder}/808 Kit/Kick 2.wav`)}}`,
+      `call load_sample {"paths": ["/etc/hosts"]}`,
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("star_sample: ok, load_sample: failed", { timeout: 30_000 });
+  await expect(panel).not.toContainText("list_samples: failed");
+  await expect(panel).not.toContainText("search_samples: failed");
+  await expect(panel).not.toContainText("preview_sample: failed");
+  await expect.poll(async () => (await savedSong(page, id)).channels.map((c: { name: string }) => c.name)).toEqual(["Kick 2", "Snare"]);
+  // The Browser shows what it did: the file it played, the one it starred.
+  const list = page.getByTestId("browser-list");
+  await expect(list.getByRole("treeitem", { name: "Kick 2.wav" }).first()).toHaveAttribute("data-playing", "true");
+  // (Favourites come in the order they were starred: the last test starred Snare and Loops.)
+  await expect(list.locator('[data-row^="f:"]')).toHaveText(["Snare.wav", "Loops", "Kick 2.wav"]);
 });

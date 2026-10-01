@@ -26,6 +26,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ColorPicker, ColorSwatchPicker } from "@/components/color-picker";
+import { ThemePicker } from "@/components/settings/general-settings";
+import { SettingsGroup, SettingsRow } from "@/components/settings/settings-ui";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -645,4 +647,21 @@ export const PRIMITIVE_SECTIONS: GallerySection[] = [
     ],
   },
   { id: "scrolling", title: "Scrolling and separators", source: "components/ui/scroll-area.tsx, separator.tsx, index.css", render: () => <Scrolling /> },
+  { id: "settings", title: "Settings: groups, rows, themes", source: "components/settings/", render: () => <SettingsParts /> },
 ];
+
+/** Settings' pieces: a group of rows (with and without a control) and every theme's preview. */
+function SettingsParts() {
+  const [on, setOn] = useState(true);
+  return (
+    <div className="flex max-w-3xl flex-col gap-6">
+      <SettingsGroup title="A group" description="What the settings in it are about.">
+        <SettingsRow title="A switch" description="A line on what it does.">
+          <Switch checked={on} onCheckedChange={setOn} aria-label="A switch" />
+        </SettingsRow>
+        <SettingsRow title="Only words" description="A row can say something without a control." />
+      </SettingsGroup>
+      <ThemePicker />
+    </div>
+  );
+}

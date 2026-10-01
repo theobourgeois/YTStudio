@@ -8,6 +8,7 @@
  */
 import { type FSWatcher, watch } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {
   type BrowserItem,
@@ -119,7 +120,8 @@ export class SampleBrowser {
   // --- Folders ---------------------------------------------------------------------------------------
 
   async addRoot(raw: unknown): Promise<BrowserState> {
-    const folder = this.absolute(raw);
+    // "~/Music/Samples", as people (and the assistant) write it.
+    const folder = this.absolute(typeof raw === "string" ? raw.trim().replace(/^~(?=$|\/)/, os.homedir()) : raw);
     const stat = await fs.stat(folder).catch(() => null);
     if (!stat?.isDirectory()) throw new HttpError(400, `"${folder}" isn't a folder.`);
     if (path.dirname(folder) === folder) throw new HttpError(400, "A whole drive is too big to add: add the folders with your samples in them.");

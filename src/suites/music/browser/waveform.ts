@@ -1,5 +1,6 @@
 /** The Browser's waveforms: a file's loudest points in a few hundred columns, decoded in the tab and kept small. */
 import { musicApi } from "../api";
+import { METER_COLOUR_STOPS } from "../mixer/meter";
 
 export const PEAK_COLUMNS = 400;
 /** Bigger files aren't decoded for a picture (a whole song would take a lot of memory to): they play without one. */
@@ -66,4 +67,17 @@ export function columns(channels: Float32Array[], duration: number, count = PEAK
     max[column] = high === -Infinity ? 0 : high;
   }
   return { min, max, duration };
+}
+
+/**
+ * The waveform's colours, the mixer meters' (green, amber, red at 0 dB) by how far from the middle a point
+ * is: as SVG gradient stops down a picture `height` tall whose ±1 is `scale` from its middle. Each is an
+ * offset (0..1, top to bottom) and a theme variable.
+ */
+export function waveformStops(height: number, scale: number): { offset: number; colour: string }[] {
+  const at = (amplitude: number, side: 1 | -1) => Math.max(0, Math.min(1, (height / 2 - side * amplitude * scale) / height));
+  const colour = (name: string) => `var(--meter-${name})`;
+  const half = [{ amplitude: 0, colour: colour("low") }, ...METER_COLOUR_STOPS.map((s) => ({ amplitude: s.level, colour: colour(s.colour) }))];
+  // The top half from its peak down to the middle, then the bottom half from the middle down to its trough.
+  return [...[...half].reverse().map((s) => ({ offset: at(s.amplitude, 1), colour: s.colour })), ...half.map((s) => ({ offset: at(s.amplitude, -1), colour: s.colour }))];
 }

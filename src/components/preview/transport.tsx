@@ -18,7 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { cn } from "cn";
 import { useEditor } from "@/stores/editor";
-import { type CanvasTool, PREVIEW_RESOLUTIONS, useLayout } from "@/stores/layout";
+import { type CanvasTool, PREVIEW_RESOLUTIONS, PREVIEW_RESOLUTION_LABELS, useLayout } from "@/stores/layout";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePlayback } from "@/stores/playback";
 
@@ -89,8 +89,6 @@ export function Transport() {
   );
 }
 
-const RESOLUTION_LABELS: Record<number, string> = { 1: "Full", 0.5: "1/2", 0.25: "1/4" };
-
 /** Premiere's Playback Resolution: drawing fewer pixels keeps heavy edits (nests, effects) playing smoothly. */
 function ResolutionPicker() {
   const resolution = useLayout((s) => s.previewResolution);
@@ -107,7 +105,7 @@ function ResolutionPicker() {
       <SelectContent position="popper" align="end">
         {PREVIEW_RESOLUTIONS.map((r) => (
           <SelectItem key={r} value={String(r)} className="text-xs">
-            {RESOLUTION_LABELS[r]}
+            {PREVIEW_RESOLUTION_LABELS[r]}
           </SelectItem>
         ))}
       </SelectContent>

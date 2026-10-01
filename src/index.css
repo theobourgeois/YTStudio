@@ -2,8 +2,30 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/dm-sans/opsz.css";
 @import "@fontsource-variable/geist-mono";
-/* The theme's values (a class on <html>: `theme-<id>`, plus `dark`); `src/stores/theme.ts` lists the themes. */
+/* The fonts Settings offers (`FONTS` in `src/stores/theme.ts`): only declared here, each downloads when it's picked. */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/ibm-plex-sans";
+@import "@fontsource-variable/figtree";
+@import "@fontsource-variable/manrope";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/fira-code";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+/*
+ * The theme's values (classes on <html>: `theme`, `theme-<id>`, plus `dark` for a dark one); `src/themes/index.ts`
+ * lists them. Studio (Light and Dark) is the base, `derived.css` fills in what the others leave out, and they
+ * come last to win.
+ */
 @import "./themes/studio.css";
+@import "./themes/derived.css";
+@import "./themes/luna.css";
+@import "./themes/ultraviolet.css";
+@import "./themes/synthwave.css";
+@import "./themes/terminal.css";
+@import "./themes/bubblegum.css";
+@import "./themes/contrast.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -60,6 +82,25 @@
   --color-timeline: var(--timeline);
   --color-stage: var(--stage);
   --color-sidebar: var(--sidebar);
+}
+
+/* The music Browser (browser-panel.tsx): everything in it that can be clicked shows it. */
+[data-browser] :is(button, a, label, summary, [role="button"], [role="treeitem"], [role="menuitem"], [role="checkbox"], [role="slider"]):not(:disabled) {
+  cursor: pointer;
+}
+
+/* The music Browser's waveform (browser-panel.tsx): it opens out from its middle as a file's peaks arrive. */
+@keyframes browser-wave-in {
+  from { opacity: 0; transform: scaleY(0.15); }
+  60% { opacity: 1; }
+  to { opacity: 1; transform: scaleY(1); }
+}
+.browser-wave {
+  transform-origin: center;
+  animation: browser-wave-in 320ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-wave { animation-duration: 1ms; }
 }
 
 /* The assistant: its mark breathing while it works, the typing dots, and clips it just changed. */
@@ -243,13 +284,24 @@ html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [rol
 /*
  * The sidebar's toggle (sidebar.tsx) is pinned to the window's top-left corner, after a Mac's window buttons
  * in the desktop app; while the sidebar is hidden, the header starts after it.
+ *
+ * The window buttons (electron/main.ts: 18 points in, centred 26 points down) don't zoom with the page, so
+ * beside them lengths are window points divided by the page's zoom (`--desktop-zoom`, electron/preload.ts):
+ * zoomed out, the toggle would otherwise slide under them.
  */
 .sidebar-toggle {
   left: 12px;
   -webkit-app-region: no-drag;
 }
+html.desktop-darwin:not(.fullscreen) {
+  /* Where what follows the window buttons starts, and the middle of the buttons' row, in the page's px. */
+  --traffic-lights-end: calc(80px / var(--desktop-zoom, 1));
+  --traffic-lights-middle: calc(26px / var(--desktop-zoom, 1));
+}
 html.desktop-darwin:not(.fullscreen) .sidebar-toggle {
-  left: 80px;
+  left: var(--traffic-lights-end);
+  /* Level with the buttons (it's 28px tall). */
+  top: max(4px, calc(var(--traffic-lights-middle) - 14px));
 }
 [data-titlebar="header"] {
   transition: padding-left 200ms ease-out;
@@ -258,7 +310,7 @@ body:has(aside[aria-label="Projects"][inert]) [data-titlebar="header"] {
   padding-left: 48px;
 }
 html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert]) [data-titlebar="header"] {
-  padding-left: 116px;
+  padding-left: calc(var(--traffic-lights-end) + 36px);
 }
 
 /* The clip under the pick-whip while parenting (properties/parent-row.tsx). */
@@ -279,4 +331,9 @@ html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert
  */
 [data-suite="music"] :is(button, [role="slider"], [role="spinbutton"], [role="option"], [role="listitem"], [role="tab"], [role="switch"], [tabindex]):not(input, textarea):focus-visible {
   outline: none;
+}
+
+/* Settings' top bars (components/settings/settings-page.tsx) leave a Mac's window buttons room, as the sidebar does. */
+html.desktop-darwin:not(.fullscreen) .settings-titlebar {
+  padding-left: var(--traffic-lights-end);
 }

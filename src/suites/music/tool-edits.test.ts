@@ -13,6 +13,7 @@ import {
   soloChannelTool,
   transposeChannelsTool,
   setNotesTool,
+  chopNotesTool,
   describeNotes,
   updateChannelTool,
   updatePatternTool,
@@ -135,6 +136,20 @@ describe("the assistant's song edits", () => {
     expect(() => setNotesTool(rack(), { channel: "Kick", notes: [{ pitch: "H2", start: 0, length: 1 }] }, env)).toThrow(/Note 1: "pitch"/);
     expect(() => setNotesTool(rack(), { channel: "Kick", notes: [{ pitch: "C5", start: -1, length: 1 }] }, env)).toThrow(/"start" must be a number/);
     expect(describeNotes(rack(), { channel: "Hat" }, env)).toBe('"Hat" has no notes in "Pattern 1".');
+  });
+
+  it("chop a channel's notes into a rhythm", () => {
+    const held = setNotesTool(rack(), { channel: "Hat", notes: [{ pitch: "C5", start: 0, length: 4 }, { pitch: "D5", start: 4, length: 4 }] }, env).song;
+    const sixteenths = chopNotesTool(held, { channel: "Hat", pitch: "C5" }, env);
+    expect(sixteenths.text).toBe('Chopped 1 note of "Hat" to "Default": it has 5 notes in "Pattern 1" now.');
+    expect(sixteenths.song.patterns[0].notes.chan_hat.filter((n) => n.pitch === 60).map((n) => [n.start, n.length])).toEqual([[0, 24], [24, 24], [48, 24], [72, 24]]);
+    const roll = chopNotesTool(held, { channel: "Hat", rhythm: "trap-roll", time_mul: 2, velocity_levels: 1 }, env).song.patterns[0].notes.chan_hat;
+    // The roll, twice as fast, is a beat long: an eighth's worth of sixteenths, then triplets and 32nds' halves.
+    expect(roll.filter((n) => n.pitch === 60).map((n) => n.length)).toEqual([24, 24, 8, 8, 8, 6, 6, 6, 6]);
+    expect(roll.find((n) => n.start === 24)!.velocity).toBeCloseTo(0.78 * 0.8);
+    expect(() => chopNotesTool(held, { channel: "Hat", rhythm: "nope" }, env)).toThrow(/"trap-roll"/);
+    expect(() => chopNotesTool(held, { channel: "Hat", pitch: "G5" }, env)).toThrow(/no notes of G5/);
+    expect(chopNotesTool(chopNotesTool(held, { channel: "Hat" }, env).song, { channel: "Hat" }, env).text).toMatch(/Nothing to chop/);
   });
 
   it("describe the song for the model: channels, every pattern's steps, spare files", () => {

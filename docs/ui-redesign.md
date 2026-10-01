@@ -74,7 +74,11 @@ so there's nothing to copy. Check it as carefully as dark.
 ## Where it is
 
 - **Done (2026-09-30):** steps 1 to 3. The theme system (`src/themes/studio.css`, `THEMES` in
-  `stores/theme.ts`, the theme menu lists themes and light / dark / system), the palette (every text colour
+  `stores/theme.ts`; since 2026-10-01 Settings' General section picks the theme and the fonts. Théo then
+  decided a theme is one whole look, not a light and dark pair: Studio became the Light and Dark themes (and
+  the base the others override, `src/themes/derived.css`), System (the default) follows the computer between
+  them, and the rest are playful (Luna, Windows XP's; Ultraviolet; Synthwave; Terminal; Bubblegum; High
+  contrast), each held to the same contrast by `src/themes/themes.test.ts`), the palette (every text colour
   passes on every surface: the gallery's first section measures it), the depth utilities (`raised`,
   `pressed`, `raised-brand`, `pressed-brand`, `sunken`, `floating` in `index.css`), the radius scale (4px), the
   scrollbars, the Piano roll's grid colours as theme variables (`--piano-*`), and every primitive in

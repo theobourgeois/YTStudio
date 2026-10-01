@@ -151,10 +151,14 @@ plain browser (`pnpm dev`) needn't add folders.
 | Favourites | Files, in the Starred tab | Files and folders, at the top of the tree. A favourite folder is a **shortcut**: it jumps to the folder where it is in the tree (Théo) |
 | Tags | Free tags, filtered in the search | Not yet. Favourites only |
 | Docking | Docked left by default | A window, but **it lives on the left** (Théo never moves it): full height, against the left edge, only its right edge resizes it. Its title bar doesn't move it unless it's pulled well away, and it snaps back to the left when let go near it. The other windows treat its right edge as the desktop's (sticking, maximising, half-screen), like FL's docked Browser |
-| The assistant | — | Tools to search the folders, list one, preview a file and load it onto a channel |
+| The assistant | — | `search_samples`, `list_samples` (the folders, favourites, a folder), `preview_sample`, `load_sample` (new channels, or a sampler's sample), `add_sample_folder`, `star_sample` |
 
-## To decide with Théo
+## Decided with Théo
 
-Decided (2026-10-01): a window kept on the left (above), search results as a flat list, a favourite folder
-as a shortcut, arrowing onto a file plays it, and **several files selected at once** (Shift+click a range,
-Cmd+click one more) dragged onto the rack become one new channel each.
+2026-10-01: a window kept on the left (only its width changes), search results as a flat list, a favourite
+folder as a shortcut into the tree, arrowing onto a file plays it, and several files selected at once
+(⌘+click, Shift+click) dragged onto the rack become one channel each. All built.
+
+Still to do, when they fit: tags, the preview's speed, key and tempo sync, Backspace through the folders
+visited, and dropping onto the playlist (once there is one). Samples tried and left (Shift+Up/Down) stay in
+the project's media: nothing removes unused media yet.

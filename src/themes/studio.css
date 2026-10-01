@@ -1,16 +1,17 @@
 /*
- * Studio, the app's theme: FL Studio's idea (not its artwork) in a blue-grey family. Mid-tone surfaces in
- * clear steps, lines darker than what they divide, a little depth on what can be pressed (a lit top edge,
- * a slight gradient, a dark outline) and sunken fields. `docs/ui-redesign.md` says why.
+ * Studio, the app's own look and the Light and Dark themes: FL Studio's idea (not its artwork) in a blue-grey
+ * family. Mid-tone surfaces in clear steps, lines darker than what they divide, a little depth on what can be
+ * pressed (a lit top edge, a slight gradient, a dark outline) and sunken fields. `docs/ui-redesign.md` says why.
  *
- * A theme is only this: a class on <html> (`theme-studio`, plus `dark` for its dark variant) that sets every
- * variable `src/index.css` maps to Tailwind. Another theme is another file like this one and a line in
- * `THEMES` (`src/stores/theme.ts`).
+ * It's also the base every other theme starts from: its values are on `.theme` (the class every themed
+ * element has, with `theme-<id>` beside it), its dark ones on `.theme.dark` (the dark themes have `dark`).
+ * Another theme's file only says what it changes, and `derived.css` works out the rest. The list of themes
+ * is `src/themes/index.ts`.
  *
  *   surface-0 < surface-1 < surface-2 < popover < surface-3     (the desktop, panels, cards, menus, controls)
  *   sunken: fields, darker than what they sit on.
  */
-.theme-studio {
+.theme {
   color-scheme: light;
   --radius: 4px;
 
@@ -163,7 +164,7 @@
   --piano-keys: #8b929b;
 }
 
-.theme-studio.dark {
+.theme.dark {
   color-scheme: dark;
 
   --surface-0: #15181c;

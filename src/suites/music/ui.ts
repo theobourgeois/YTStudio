@@ -8,7 +8,7 @@ import type { WindowSnap } from "./window-geometry";
  * A window of the music editor: the channel rack, the Piano roll, the mixer, a channel's settings, or one of the
  * small ones a command opens (Transpose selected, a note's properties).
  */
-export type WindowId = "rack" | "piano" | "mixer" | "transpose" | "note" | `channel:${string}`;
+export type WindowId = "rack" | "piano" | "mixer" | "transpose" | "note" | "chopper" | `channel:${string}`;
 export const channelWindow = (channelId: string): WindowId => `channel:${channelId}`;
 
 export interface WindowPlace {

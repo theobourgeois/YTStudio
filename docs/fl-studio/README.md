@@ -18,6 +18,8 @@ about to touch before changing it, and correct it when you learn it's wrong.
   Vaudio differs and what's still to decide.
 - [browser.md](browser.md): the Browser: folders, previewing, using a file, favourites, search and its
   keys. Ends with where Vaudio differs (only the user's own folders) and what's still to decide.
+- [settings.md](settings.md): the Settings window (F10): its Audio, General and Themes tabs. Ends with
+  where Vaudio differs (one Settings page for the app, a section per suite).
 - Playlist: not written yet. Write it before its phase is built.
 
 Where the music suite is and the order of what's next: [../music-suite.md](../music-suite.md).

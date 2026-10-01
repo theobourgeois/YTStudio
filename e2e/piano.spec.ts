@@ -350,9 +350,13 @@ test("the window fills the desktop, resizes and snaps; the ruler moves a playing
   await expect(page.getByRole("button", { name: "Play", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.mouse.click(rx(768), ry);
   await expect(roll).toHaveAttribute("data-start", "768");
-  const status = await (await page.request.post("/api/engine/status", { data: {} })).json();
-  expect(status.transport.tick).toBeGreaterThanOrEqual(768);
-  expect(status.transport.tick).toBeLessThan(900);
+  // (The jump reaches the engine a moment after the click.)
+  await expect
+    .poll(async () => {
+      const { tick } = (await (await page.request.post("/api/engine/status", { data: {} })).json()).transport;
+      return tick >= 768 && tick < 900;
+    })
+    .toBe(true);
   await page.getByRole("button", { name: "Stop", exact: true }).click();
 });
 
@@ -363,6 +367,10 @@ test("the event editor, note properties, ghost notes and the target channel", as
     { start: 192, pitch: 76 },
   ]);
   const lane = (await page.getByLabel("Event editor").boundingBox())!;
+  // The lane is as tall as it's meant to be (its resizer once pushed it into the scrollbar's row), its label beside it.
+  expect(lane.height).toBeGreaterThan(80);
+  const label = (await page.getByRole("button", { name: "Velocity" }).boundingBox())!;
+  expect(Math.abs(label.y - lane.y)).toBeLessThan(3);
   // Drawn across the velocity lane from high to low.
   await page.mouse.move(lane.x + 2, lane.y + 8);
   await page.mouse.down();
@@ -399,6 +407,66 @@ test("the event editor, note properties, ghost notes and the target channel", as
   await expect(page.getByTestId("piano-roll")).toHaveCount(0);
   await page.locator('[data-notes-preview="chan_synth"]').click();
   await expect(page.getByTestId("piano-roll")).toHaveAttribute("data-channel-name", "Fake Synth");
+});
+
+test("the Chopper (Alt+U) cuts notes into a rhythm, shown live until it's accepted", async ({ page }) => {
+  const id = await openPiano(page, "Chopper", [
+    { start: 0, length: 192, pitch: 72 },
+    { start: 0, length: 96, pitch: 76 },
+  ]);
+  const shown = () => page.getByTestId("piano-grid").getAttribute("data-notes");
+  await page.keyboard.press("Alt+u");
+  const chopper = page.getByTestId("chopper");
+  await expect(chopper).toBeVisible();
+  // Default cuts at the snap (a step here): shown at once, but nothing's changed in the song yet.
+  await expect.poll(shown).toBe("12");
+  await expect(chopper.getByTestId("chopper-summary")).toHaveText("All 2 notes → 12 pieces.");
+  expect(await saved(page, id)).toHaveLength(2);
+
+  // A gallop, twice as fast: an eighth's worth of steps, then two 32nds.
+  await chopper.getByRole("button", { name: "Chop pattern" }).click();
+  await page.getByRole("menuitemradio", { name: /^Gallop/ }).click();
+  const mul = chopper.getByRole("slider", { name: "Time mul" });
+  await mul.focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(chopper.getByTestId("chopper-time-mul")).toHaveText("×1.5");
+  await page.keyboard.press("ArrowUp");
+  await expect(chopper.getByTestId("chopper-time-mul")).toHaveText("×2");
+
+  // Closed, nothing changed; open again, its settings are kept, and Accept makes them notes (one undo step).
+  await page.keyboard.press("Escape");
+  await expect(chopper).toHaveCount(0);
+  await expect.poll(shown).toBe("2");
+  await page.getByRole("button", { name: "Piano roll tool menu" }).click();
+  await page.getByRole("menuitem", { name: /Chop…/ }).click();
+  await expect(chopper.getByTestId("chopper-time-mul")).toHaveText("×2");
+  await chopper.getByRole("button", { name: "Accept" }).click();
+  await expect(chopper).toHaveCount(0);
+  await expectNotes(page, id, [
+    [0, 24, 72],
+    [0, 24, 76],
+    [24, 12, 72],
+    [24, 12, 76],
+    [36, 12, 72],
+    [36, 12, 76],
+    [48, 24, 72],
+    [48, 24, 76],
+    [72, 12, 72],
+    [72, 12, 76],
+    [84, 12, 72],
+    [84, 12, 76],
+    [96, 24, 72],
+    [120, 12, 72],
+    [132, 12, 72],
+    [144, 24, 72],
+    [168, 12, 72],
+    [180, 12, 72],
+  ]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expectNotes(page, id, [
+    [0, 192, 72],
+    [0, 96, 76],
+  ]);
 });
 
 test("stays quick with thousands of notes: drawing, selecting, dragging and duplicating", async ({ page }) => {

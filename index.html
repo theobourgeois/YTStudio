@@ -6,12 +6,18 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>Vaudio</title>
     <script>
-      // Apply the saved theme before first paint to avoid a flash.
+      // Apply the saved theme and fonts before first paint to avoid a flash (`src/stores/theme.ts` checks them after).
       (function () {
-        var t = localStorage.getItem("editor-theme") || "dark";
-        var dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-        document.documentElement.classList.add("theme-" + (localStorage.getItem("editor-theme-id") || "studio"));
-        document.documentElement.classList.toggle("dark", dark);
+        var root = document.documentElement;
+        var choice = localStorage.getItem("editor-theme-choice") || localStorage.getItem("editor-theme") || "system";
+        var dark = choice === "system" ? matchMedia("(prefers-color-scheme: dark)").matches : choice === "dark" || localStorage.getItem("editor-theme-dark") === "true";
+        var theme = choice === "system" ? (dark ? "dark" : "light") : choice;
+        root.classList.add("theme", "theme-" + theme);
+        root.classList.toggle("dark", dark);
+        var sans = localStorage.getItem("editor-font-stack");
+        var mono = localStorage.getItem("editor-mono-font-stack");
+        if (sans) root.style.setProperty("--font-sans", sans);
+        if (mono) root.style.setProperty("--font-mono", mono);
       })();
     </script>
   </head>

@@ -15,6 +15,11 @@ export const musicSuite: ClientSuite<"music"> = {
   flush: () => flushSongs(),
   discard: (projectId) => discardSong(projectId),
   Workspace: lazy(() => import("./workspace")),
+  settings: {
+    title: "Music",
+    description: "The music editor (the DAW): where its sound goes, and your plugins.",
+    Panel: lazy(() => import("./settings")),
+  },
   describe: (p) => `${p.tempo} BPM`,
   useLiveName: (projectId) => useMusic((s) => (s.projectId === projectId ? (s.history?.doc.name ?? null) : null)),
   chat: {

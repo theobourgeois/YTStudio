@@ -181,7 +181,7 @@ export function EnginePanel() {
 }
 
 function Card({ className, ...props }: React.ComponentProps<"div">) {
-  return <div className={cn("rounded-xl border bg-card p-4", className)} {...props} />;
+  return <div className={cn("rounded-md border border-line bg-card p-4", className)} {...props} />;
 }
 
 /** The output level, on a scale where the last 40 dB fill the bar. */

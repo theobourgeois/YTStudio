@@ -179,8 +179,8 @@ src/
                      instrument), knob.tsx, lcd.tsx, waveform.ts, browser/ (the Browser, Alt+F8: a panel
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
                      pattern-picker.tsx, toolbar.tsx (FL's toolbar: transport, tempo and position LCDs, the hint
-                     bar; its maths in position.ts), audio-dialog.tsx (device + engine-panel.tsx, the
-                     plugin bench), keys.ts, api.ts, and the assistant's side (tools.ts, tool-edits.ts,
+                     bar; its maths in position.ts), settings.tsx (its section of Settings: the device, and
+                     engine-panel.tsx, the plugin bench), keys.ts, api.ts, and the assistant's side (tools.ts, tool-edits.ts,
                      context.ts).
   lib/document-history.ts, autosaver.ts   Undo (with gestures) and autosave for any suite's document; music uses
                      them, the video editor still has its own in stores/editor.ts and stores/autosave.ts.
@@ -212,6 +212,12 @@ src/
   components/workspace/workspace.tsx   The main column: the open project's suite's Workspace, or the empty state.
   components/workspace/video-workspace.tsx   The video editor's (header, left panel, preview, timeline, assistant).
   components/sidebar/new-project-dialog.tsx  The New project picker (a suite per row, ⌘1, ⌘2…).
+  components/settings/  Settings (⌘,, `stores/settings.ts`): a page over the whole window, General (the theme and
+                     fonts: `stores/theme.ts`) then a section per suite (`ClientSuite.settings`; video's is
+                     `src/suites/video-settings.tsx`, music's `src/suites/music/settings.tsx`), each ending with
+                     where its new projects start. ⌘, opens it on the open project's suite. Built from
+                     `settings-ui.tsx` (`SettingsGroup`, `SettingsRow`). A preference goes here, kept where
+                     what it changes lives (`stores/video-preferences.ts` for the video editor's own).
   components/workspace/left-panel.tsx   Left panel tabs: Media | Effects | Captions | Properties.
                      Media switches between sources: This video | Library | Online (`MediaSource`); Effects between
                      kinds: Video effects | Presets | Transitions (`EffectKind`, `KINDS`). Its right edge resizes it (widths
@@ -265,7 +271,7 @@ A DAW modelled on **FL Studio**: when in doubt about its UX, do what FL Studio d
 Théo): read the panel's document before touching that panel, don't work from memory, and write the document for
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
-swing), the Piano roll, the transport and the metronome. Where it is and every step still to come, in order:
+swing), the Piano roll, the transport and the metronome, the mixer, the Browser. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing }, channels,
@@ -349,6 +355,14 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   right-click is its menu. Knobs are `Knob`/`SongKnob`, number displays `Lcd`: don't hand-roll either.
 - What a menu item and its shortcut do lives once, in `rack-actions.ts`; keys are resolved in `keys.ts` (pure,
   tested) and run in `workspace.tsx`.
+- **The Browser** (`docs/fl-studio/browser.md`, Alt+F8): the user's own sample folders, global, not the
+  song's (`data/browser.json`, `server/music/browser.ts`; the tab's open folders and width are localStorage).
+  The server reads nothing outside the folders added. It's a panel kept on the desktop's left
+  (`browser/browser-panel.tsx`), outside the `Desktop`, so the windows keep to the room beside it; e2e
+  tests that measure windows open songs with it closed. A file reaches a song as project media through
+  `POST /api/browser/use` (copied once, by `origin`); a drag of its files carries their paths
+  (`BROWSER_DRAG_TYPE`), and every drop target goes through `browser/drops.ts`, which takes Finder's files
+  too. Previews are the engine's `FilePreview` (streamed), not the song's.
 - The starter kit (`public/kit/`, made by `scripts/make-kit.ts`) becomes ordinary project media when it's added.
 - The assistant's tools: specs in `shared/music/tools.ts`, handlers in `src/suites/music/tools.ts`, and their
   edits as pure `(song, input, env) => { song, text }` in `tool-edits.ts` (tested); the mixer's in
@@ -623,9 +637,15 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
   `react-icons/pi`.
 - Design: FL Studio's idea in a blue-grey family (docs/ui-redesign.md): mid-tone surfaces in clear steps
   (`surface-0`..`surface-3`, `sunken`), lines darker than what they divide (`line`), a little depth on what can be
-  pressed (the `raised`/`pressed`/`sunken`/`floating` utilities in `index.css`), small corners, dense; DM Sans.
-  The accent is `brand`. It's a theme system: a theme is a CSS file in `src/themes/` (light + `.dark`), listed in
-  `THEMES` (`stores/theme.ts`); use its tokens, never raw colours (canvases read theirs from CSS variables too).
+  pressed (the `raised`/`pressed`/`sunken`/`floating` utilities in `index.css`), small corners, dense; DM Sans by
+  default (Settings offers others: `FONTS`, `MONO_FONTS`, set as `--font-sans`/`--font-mono` on <html>).
+  The accent is `brand`. It's a theme system: a theme is one whole look, light or dark (`dark` adds the `dark`
+  class), in a CSS file in `src/themes/`, listed in `THEMES` (`src/themes/index.ts`); System (the default) is
+  Light or Dark as the computer is. Use its tokens, never raw colours (canvases read theirs from CSS variables
+  too). Studio (`studio.css`: `.theme` is Light, `.theme.dark` Dark) is the base every theme has; another
+  theme (`.theme.theme-<id>`) sets only what differs and `derived.css` works out the rest (faces, accent
+  buttons, steps, knobs). A value a canvas reads (`--piano-*`, `--meter-*`, `--brand`, `--line`) must be a plain
+  colour, never `color-mix()`. `src/themes/themes.test.ts` fails any theme whose text or accent isn't readable.
 - The component gallery (`/gallery` in `pnpm dev`, `src/gallery/`) shows every primitive and suite control in
   each state; `pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]` screenshots it and the app's screens
   into `ui-sheet/`. Add a section (`GallerySection`) when you add a control.

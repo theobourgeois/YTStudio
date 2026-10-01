@@ -98,6 +98,8 @@ interface LayoutState {
 const RESOLUTION_KEY = "editor-preview-resolution";
 /** The preview resolutions offered: full, half and quarter. */
 export const PREVIEW_RESOLUTIONS = [1, 0.5, 0.25] as const;
+/** How each preview resolution is named (the Program monitor's picker, Settings). */
+export const PREVIEW_RESOLUTION_LABELS: Record<number, string> = { 1: "Full", 0.5: "1/2", 0.25: "1/4" };
 function storedResolution(): number {
   const stored = Number(localStorage.getItem(RESOLUTION_KEY));
   return (PREVIEW_RESOLUTIONS as readonly number[]).includes(stored) ? stored : 1;

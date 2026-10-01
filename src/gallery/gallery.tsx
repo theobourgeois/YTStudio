@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { cn } from "cn";
-import { PiDesktop, PiMoon, PiSun } from "react-icons/pi";
 import { Toaster } from "@/components/ui/sonner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { THEMES, applyTheme, useTheme, type Appearance, type ThemeId } from "@/stores/theme";
+import { THEMES, applyTheme, useTheme, type ThemeId } from "@/stores/theme";
+import { isThemeId, themeInfo } from "@/themes";
 import { MUSIC_SECTIONS } from "@/suites/music/gallery";
 import { PRIMITIVE_SECTIONS } from "./primitives";
 import type { GallerySection } from "./types";
@@ -15,26 +15,20 @@ export const SECTIONS: GallerySection[] = [...PRIMITIVE_SECTIONS, ...MUSIC_SECTI
 /**
  * The component gallery (`/gallery`, in development): every UI primitive and suite control in the states
  * worth looking at, in whichever theme is picked, to restyle and check them without opening a project.
- * `?section=<id>` shows one section alone and `?theme=<id>&appearance=light|dark` picks the look without
- * saving it; `scripts/ui-sheet.ts` screenshots them all that way.
+ * `?section=<id>` shows one section alone and `?theme=<id>` picks the look without saving it; `scripts/ui-sheet.ts` screenshots them all that way.
  */
 export default function Gallery() {
   const params = new URLSearchParams(location.search);
   const only = params.get("section");
   const theme = useTheme((s) => s.theme);
-  const appearance = useTheme((s) => s.appearance);
   const [active, setActive] = useState(only ?? SECTIONS[0].id);
 
   // The URL's look is for this page only: it's applied without saving it, so screenshots don't change the app's.
   useEffect(() => {
-    const t = params.get("theme") as ThemeId | null;
-    const a = params.get("appearance") as Appearance | null;
-    if (t || a) useTheme.setState({ theme: t ?? theme, appearance: a ?? appearance });
+    const t = params.get("theme");
+    if (isThemeId(t)) useTheme.setState({ choice: t, theme: t, resolved: themeInfo(t).dark ? "dark" : "light" });
   }, []);
-  useEffect(() => {
-    applyTheme(theme, appearance);
-    useTheme.setState({ resolved: document.documentElement.classList.contains("dark") ? "dark" : "light" });
-  }, [theme, appearance]);
+  useEffect(() => applyTheme(theme), [theme]);
 
   const shown = only ? SECTIONS.filter((s) => s.id === only) : SECTIONS;
 
@@ -74,23 +68,6 @@ export default function Gallery() {
                     {t.name}
                   </ToggleGroupItem>
                 ))}
-              </ToggleGroup>
-              <ToggleGroup
-                type="single"
-                size="sm"
-                value={appearance}
-                onValueChange={(v) => v && useTheme.getState().setAppearance(v as Appearance)}
-                aria-label="Appearance"
-              >
-                <ToggleGroupItem value="light" aria-label="Light">
-                  <PiSun />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="dark" aria-label="Dark">
-                  <PiMoon />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="system" aria-label="System">
-                  <PiDesktop />
-                </ToggleGroupItem>
               </ToggleGroup>
               <span className="ml-auto text-xs text-muted-foreground">pnpm tsx scripts/ui-sheet.ts screenshots every section</span>
             </header>

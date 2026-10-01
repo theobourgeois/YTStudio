@@ -3,6 +3,7 @@
  * `src/suites/music/tools.ts`, their edits in `tool-edits.ts`). Add a tool with each feature.
  */
 import { type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
+import { CHOP_PATTERNS } from "./chop.ts";
 
 const channel = str('A channel: its id (from get_song) or its name ("Kick").');
 const pattern = str("A pattern: its id or its name. Default: the pattern shown in the channel rack.");
@@ -168,6 +169,36 @@ export const MUSIC_TOOLS = [
         mode: oneOf(["replace", "add"], "Replace the channel's notes (the default), or add to them."),
       },
       ["channel", "notes"],
+    ),
+  }),
+  tool({
+    name: "chop_notes",
+    title: "Chop notes",
+    kind: "edit",
+    description:
+      "The Piano roll's Chopper: cut a channel's long notes in a pattern into a rhythm (a held hi-hat into a roll, a pad into a gate). " +
+      "Rhythms: " +
+      CHOP_PATTERNS.map((p) => `"${p.id}" (${p.hint})`).join(", ") +
+      ". Some leave rests (what of a note falls there is cut out) and give pieces their own velocity or pan, which `velocity_levels` " +
+      "and `pan_levels` apply (0, the default, none of it; 1 all of it). Acts on every note of the channel, or those `from`/`to` and `pitch` pick.",
+    inputSchema: obj(
+      {
+        channel,
+        pattern,
+        rhythm: oneOf(
+          CHOP_PATTERNS.map((p) => p.id),
+          'The chop pattern (default "default": pieces `grid` steps long).',
+        ),
+        grid: num('For "default": how long each piece is, in steps (default 1, a sixteenth; 0.5 is a 32nd, 2/3 a sixteenth triplet).'),
+        time_mul: num("How much faster the rhythm goes: 2 is twice as fast (pieces half as long), 0.5 half as fast. 1/4 to 4; default 1."),
+        velocity_levels: num("0 to 1: how much of the rhythm's accents the pieces get (default 0)."),
+        pan_levels: num("0 to 1: how much of the rhythm's panning the pieces get (default 0)."),
+        absolute: bool("Count the rhythm from the pattern's start, so pieces fall on the same beats whatever the note's start (the default); false starts it at each note."),
+        from: num("Only notes starting at or after this step."),
+        to: num("Only notes starting before this step."),
+        pitch: { description: 'Only notes of this pitch: a note name ("F#5") or a MIDI number.', anyOf: [{ type: "string" }, { type: "integer" }] },
+      },
+      ["channel"],
     ),
   }),
   tool({
@@ -369,6 +400,66 @@ export const MUSIC_TOOLS = [
       "Copy a mixer track's state onto another track: its effects (copies, with their plugins' settings as they are now) and its level, pan, " +
       "phase, sides, stereo separation and delay offset; not its name, colour, channels or sends. What the other track had is replaced.",
     inputSchema: obj({ from: mixerTrack("The track copied"), to: mixerTrack("The track it's copied onto") }, ["from", "to"]),
+  }),
+  tool({
+    name: "list_samples",
+    title: "Browse the samples",
+    kind: "look",
+    description:
+      "The Browser: the user's own sample folders (the same in every song) and their favourites; or, given a `folder`, what's in it " +
+      "(its subfolders and audio files, with full paths). For a sound by name, search_samples is quicker.",
+    inputSchema: obj({ folder: str("A folder's full path: one of the Browser's folders or a folder inside one. Default: the Browser's folders and favourites.") }),
+  }),
+  tool({
+    name: "search_samples",
+    title: "Search the samples",
+    kind: "look",
+    description:
+      "Search every audio file and folder in the user's sample folders by name: words in any order, matched in the file's name or its " +
+      'folders, small typos forgiven ("808 kick", "snare tight", "vox chop"). The best first, with full paths, which load_sample and preview_sample take.',
+    inputSchema: obj({ query: str("What to look for."), limit: int("At most this many results (default 30, up to 200).") }, ["query"]),
+  }),
+  tool({
+    name: "preview_sample",
+    title: "Play a sample",
+    kind: "action",
+    description:
+      "Play one of the Browser's audio files to the user once, outside the song (it cuts off the last preview). You can't hear it: ask the user. " +
+      'With `stop`, stop the preview instead.',
+    inputSchema: obj({ path: str("The file's full path (from search_samples or list_samples)."), start: num("Seconds into the file to start from (default 0)."), stop: bool("Stop the preview playing.") }),
+  }),
+  tool({
+    name: "load_sample",
+    title: "Load a sample",
+    kind: "action",
+    description:
+      "Put the user's audio files (the Browser's, by full path) into the song: as the sample of an existing sampler channel (`channel`: its " +
+      "sample is replaced, its steps and notes stay), or as new channels, one per file, at the end of the rack. The file is copied into the " +
+      "project the first time; using it again reuses the copy.",
+    inputSchema: obj(
+      {
+        paths: arr(str("A file's full path."), "The files (from search_samples or list_samples). With `channel`, only the first is used."),
+        channel: str('A sampler channel to give the first file to: its id or its name ("Kick"). Default: new channels.'),
+        name: str("A new channel's name (default: the file's name). Only for a single new channel."),
+      },
+      ["paths"],
+    ),
+  }),
+  tool({
+    name: "add_sample_folder",
+    title: "Add a sample folder",
+    kind: "action",
+    description:
+      "Add a folder of the user's to the Browser (for every song), so its audio files can be browsed and searched. Only when the user asks for a " +
+      "folder: give its full path (~ is their home folder). A folder inside one already added, or a whole drive, is refused.",
+    inputSchema: obj({ path: str("The folder's full path.") }, ["path"]),
+  }),
+  tool({
+    name: "star_sample",
+    title: "Star a sample",
+    kind: "action",
+    description: "Add one of the Browser's files or folders to the user's favourites (shown at the top of the Browser), or remove it (`favourite: false`).",
+    inputSchema: obj({ path: str("The file's or folder's full path."), favourite: bool("true (the default) to star it, false to unstar it.") }, ["path"]),
   }),
   tool({
     name: "play_song",

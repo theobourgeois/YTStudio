@@ -11,6 +11,20 @@ export type PianoTool = (typeof PIANO_TOOLS)[number];
 /** A property of notes the event editor (the lane under the grid) shows and edits. */
 export type LaneProperty = "velocity" | "pan";
 
+/** The Chopper's settings (Alt+U): kept between openings, as FL Studio keeps them. */
+export interface ChopperSettings {
+  /** A chop pattern's id (`CHOP_PATTERNS`). */
+  patternId: string;
+  /** Time mul: how much faster the pattern goes (one of `TIME_MULS`). */
+  timeMul: number;
+  /** The Levels knobs, 0..1. */
+  velocity: number;
+  pan: number;
+  absolute: boolean;
+}
+
+export const DEFAULT_CHOPPER: ChopperSettings = { patternId: "default", timeMul: 1, velocity: 0, pan: 0, absolute: true };
+
 export interface TimeRange {
   start: number;
   end: number;
@@ -65,6 +79,9 @@ interface PianoState {
   copied: Note[] | null;
   /** The note whose properties dialog is open. */
   editing: number | null;
+  /** The Chopper's window is open: the notes are drawn chopped until it's accepted or closed. */
+  chopping: boolean;
+  chopper: ChopperSettings;
   /** The key held down on the keyboard, lit while it sounds. */
   heldKey: number | null;
   /** Where the slice tool would cut if pressed now (the pointer over the grid, no button down). */
@@ -102,6 +119,8 @@ const INITIAL = {
   drag: null,
   copied: null,
   editing: null,
+  chopping: false,
+  chopper: DEFAULT_CHOPPER,
   heldKey: null,
   sliceHover: null as { tick: number; pitch: number } | null,
 };
@@ -121,8 +140,8 @@ export const usePiano = create<PianoState>((set, get) => ({
 // Another song, or another pattern: the selection and the time selection were the old one's.
 useMusic.subscribe((state, prev) => {
   if (state.projectId !== prev.projectId) {
-    const { copied, laneHeight, laneSize } = usePiano.getState();
-    usePiano.setState({ ...INITIAL, copied, laneHeight, laneSize });
+    const { copied, laneHeight, laneSize, chopper } = usePiano.getState();
+    usePiano.setState({ ...INITIAL, copied, laneHeight, laneSize, chopper });
   }
   else if (state.patternId !== prev.patternId) usePiano.setState({ selected: new Set(), time: null, drag: null, editing: null });
 });

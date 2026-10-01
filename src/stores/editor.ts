@@ -16,7 +16,6 @@ import { type CopiedEffects, addEffect, copyEffects, defaultEffects, effectDefin
 import { placeTemplate } from "@shared/library";
 import {
   type CopiedClip,
-  STILL_DURATION,
   addClip,
   addLayerClip,
   addTrack,
@@ -64,6 +63,7 @@ import { api } from "@/lib/api";
 import { pollProcessingAssets, pollWebDownload, requestReversedCopies } from "./asset-polling";
 import { flushAutosave, startAutosave } from "./autosave";
 import { usePlayback } from "./playback";
+import { newLayerDuration } from "./video-preferences";
 import { setParent } from "@shared/parenting";
 import {
   breakApart,
@@ -383,6 +383,7 @@ const emptyEditor = () => ({
 });
 
 const AUTO_RIPPLE_KEY = "editor-auto-ripple";
+const SNAPPING_KEY = "editor-snapping";
 
 export const useEditor = create<EditorState>((set, get) => ({
   projectId: null,
@@ -398,7 +399,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   clipboard: [],
   effectsClipboard: null,
   zoom: 60,
-  snapping: true,
+  snapping: localStorage.getItem(SNAPPING_KEY) !== "false",
   autoRipple: localStorage.getItem(AUTO_RIPPLE_KEY) === "true",
   past: [],
   future: [],
@@ -566,7 +567,9 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   toggleSnapping() {
-    set({ snapping: !get().snapping });
+    const snapping = !get().snapping;
+    set({ snapping });
+    localStorage.setItem(SNAPPING_KEY, String(snapping));
   },
 
   toggleAutoRipple() {
@@ -856,7 +859,7 @@ export const useEditor = create<EditorState>((set, get) => ({
         ? { at: Math.min(...selected.map((c) => c.start)), end: Math.max(...selected.map(clipEnd)) }
         : null;
     const at = opts.at ?? span?.at ?? usePlayback.getState().time;
-    const duration = opts.duration ?? (span ? span.end - span.at : STILL_DURATION);
+    const duration = opts.duration ?? (span ? span.end - span.at : newLayerDuration());
     const clip = newLayerClip(kind, at, duration, opts.color ? { color: opts.color } : {});
     let next = addLayerClip(project, clip, opts.trackId).project;
     for (const type of opts.effects ?? []) next = addEffect(next, [clip.id], type).project;

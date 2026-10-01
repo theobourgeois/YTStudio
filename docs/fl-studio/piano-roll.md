@@ -109,6 +109,28 @@ This is the "select in red and only that plays" feature.
   one's end, rounded up to the snap's grid: the copy starts right where the original ends, so one
   short note is repeated straight after itself, not a bar later. (Théo)
 
+## The Chopper (Alt+U)
+
+![The Chopper](img/pianoroll_chopper.png)
+
+Tools > Chop, or **Alt+U**: cuts long notes into a rhythm. Théo uses it to chop a held hi-hat into rolls.
+A small window of its own ("Piano roll - chopper"). Like FL's other tool windows, **what it does shows in the
+Piano roll at once**, and changes with every knob; **Accept** keeps it, closing the window (or Esc) leaves the
+notes as they were. **Reset** puts the window's settings back. It chops the selected notes, or every note
+when none are selected.
+
+- **Pattern**: the rhythm, from a menu of chop patterns (the folder button). **Default** cuts at the snap,
+  as Quick chop (Ctrl+U) does; the others are rhythms of their own, which may leave rests (gaps) and carry
+  a level for each piece (a louder first hit, a pan from side to side).
+- **Time mul**: the pattern's speed: centred is as written; turned left the pieces get longer (half, a
+  quarter), right shorter (double, four times).
+- **Levels**: PAN, VEL, REL, MOD X, MOD Y, PITCH: how much of the pattern's levels each piece gets, from none
+  (the knob all the way down, where it starts) to all of it.
+- **Absolute pattern** (on at first): the rhythm is counted from the start of the pattern, so the pieces
+  fall on the same beats whatever the note's start; off, it starts again at each note.
+- **Group notes**: the pieces of each note are made a group (they then select and move together).
+- Ctrl+U is **Quick chop**: Default, without the window.
+
 ## Snap
 
 The magnet's menu. It decides where notes land when added, moved, resized and sliced, and how far the
@@ -227,7 +249,7 @@ changes the note's property; Ctrl+right-click zooms to the selection.
 
 ## The rest of the menu (mostly not for now)
 
-- **Tools**: Riff machine, chord progression, Articulate, Quantize, Chop, Arpeggiate, Strum, Flam, Claw
+- **Tools**: Riff machine, chord progression, Articulate, Quantize, Chop (above), Arpeggiate, Strum, Flam, Claw
   machine, Limit, Flip, Randomize, Scale levels, LFO, scripts.
 - **Stamp**: chords and scales from a menu, placed with one click.
 - **Snap to scale / scale highlighting**: a root and a scale; the grid shades the notes in it, and notes
@@ -262,7 +284,8 @@ play starts, and while the song plays it goes there at once; a note past the pat
 pattern reach the end of that note's bar (a set length is only the least it is); Ctrl+B with the
 copies selected and the time selection moving; Ctrl+A / D, Shift+I, Ctrl+C / X / V (pasted at the first
 bar in view), Delete; Shift+arrows, Ctrl+↑ / ↓, Alt+arrows, Shift+Ctrl+← / →; Ctrl+G, Ctrl+U, Ctrl+Q,
-Shift+Q, Ctrl+L, Shift+D, Alt+M / Alt+Shift+M; the event editor (velocity and pan; Shift+drag, Alt to
+Shift+Q, Ctrl+L, Shift+D, Alt+M / Alt+Shift+M; the Chopper (Alt+U, the title bar's Tools menu: its pattern, time mul, VEL and PAN levels and absolute
+pattern, shown and heard live until accepted); the event editor (velocity and pan; Shift+drag, Alt to
 reset, Alt+wheel on a note; F / Shift+F); the note properties dialog; ghost notes (Alt+V, a double
 right-click on one switches channel); zoom (Ctrl+wheel, Page Up / Down, Shift+1…5, Shift+0), scroll
 (wheel, Shift+wheel, middle-drag); the keyboard sounds while held; a channel whose notes aren't steps
@@ -273,6 +296,7 @@ shows a miniature of them in the rack, which opens them.
 | Backspace | Toggles the global snap | Deletes the selection too (a Mac keyboard has no Delete key) |
 | Paint | Monophonic: replaces the notes it overlaps | Lays notes over what's there |
 | Quantize | Also a dialog (Alt+Q) with strength and swing | Quick quantize only (Ctrl+Q, Shift+Q) |
+| Chopper | Patterns are score files (its own, or yours from the browser); six levels; Group notes | A set of patterns of ours (Default, triplets, dotted, gallop, rolls, gates...); VEL and PAN only, since notes have no others; no groups yet |
 | Event editor | Release, fine pitch, Mod X / Y, repeat, automation | Velocity and pan |
 | Zoom tool | Z | Not yet (Ctrl+wheel and the keys zoom) |
 | Look | FL Studio's artwork | Its layout and colours (pale blue notes, Théo's choice where FL's are green; red selected, a blue-grey grid, real piano keys), drawn our way, in a dark and a light version |

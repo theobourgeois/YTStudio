@@ -1,6 +1,7 @@
 import { errorMessage } from "@shared/errors";
 import type { EngineKey } from "@shared/music/engine";
 import { musicApi } from "./api";
+import { withChopPreview } from "./piano/actions";
 import { usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusic } from "./store";
@@ -29,8 +30,10 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       const { projectId, history, patternId, draftPattern } = useMusic.getState();
       if (stopped || !projectId || !history) break;
       try {
-        // The Piano roll's time selection is what loops, while there is one. A draft pattern shown plays (empty).
-        const { unreadable, channels, effects, loop } = await musicApi.setSong({ projectId, song: withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern)), patternId, loop: usePiano.getState().time });
+        // The Piano roll's time selection is what loops, while there is one. A draft pattern shown plays (empty),
+        // and the Chopper's chop is heard while it's open.
+        const song = withChopPreview(withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern)));
+        const { unreadable, channels, effects, loop } = await musicApi.setSong({ projectId, song, patternId, loop: usePiano.getState().time });
         useTransport.setState({ unreadable, channels, effects: effects ?? NO_EFFECTS, loop, error: null });
         // A plugin that finished loading while this answer was on its way said so first: ask again, so the
         // answer's "loading" doesn't stand.
@@ -49,7 +52,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     if (state.history?.doc !== prev.history?.doc || state.patternId !== prev.patternId || state.projectId !== prev.projectId) void send();
   });
   const unsubscribeLoop = usePiano.subscribe((state, prev) => {
-    if (state.time !== prev.time) void send();
+    if (state.time !== prev.time || state.chopping !== prev.chopping) void send();
+    // What the Chopper makes changes with its settings, the selection and the snap (Line's grid follows the zoom).
+    else if (state.chopping && (state.chopper !== prev.chopper || state.selected !== prev.selected || state.snap !== prev.snap || state.view.pxPerTick !== prev.view.pxPerTick || state.channelId !== prev.channelId)) void send();
   });
   // The mixer's selection meter adds up the selected tracks (or the one its inspector shows).
   let metered = "";

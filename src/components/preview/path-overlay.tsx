@@ -25,7 +25,7 @@ import {
   toSvgPathData,
   toggleSmooth,
 } from "@shared/path";
-import { STILL_DURATION, addLayerClip, newLayerClip } from "@shared/timeline";
+import { addLayerClip, newLayerClip } from "@shared/timeline";
 import type { Size } from "@shared/transform";
 import type { Clip, ParamValues, Project, Vec2 } from "@shared/types";
 import { EditGesture } from "@/lib/edit-gesture";
@@ -34,6 +34,7 @@ import { useEditor } from "@/stores/editor";
 import { type CanvasTool, useLayout } from "@/stores/layout";
 import { type PathTarget, sameTarget, usePathEditing, writePath } from "@/stores/path-editing";
 import { usePlayback } from "@/stores/playback";
+import { newLayerDuration } from "@/stores/video-preferences";
 import { canvasToFrame, dragBox, hitPath, pathOnCanvas } from "./path-geometry";
 import type { OnCanvas } from "./placement";
 
@@ -288,7 +289,7 @@ function newPathOn(ctx: PressContext): { shown: OnCanvas | undefined; make: (par
   return {
     shown: undefined,
     make(params) {
-      const clip = newLayerClip("shape", roundTime(playhead()), STILL_DURATION, params);
+      const clip = newLayerClip("shape", roundTime(playhead()), newLayerDuration(), params);
       return {
         edit: (p) => addLayerClip(p, clip).project,
         target: () => ({ clipId: clip.id, effectId: SHAPE.type, key: "path" }),

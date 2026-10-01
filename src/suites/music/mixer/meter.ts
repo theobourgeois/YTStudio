@@ -22,6 +22,13 @@ export function meterFraction(level: number): number {
   return Math.min(1, (db - METER_FLOOR_DB) / (METER_TOP_DB - METER_FLOOR_DB));
 }
 
+/** Where a meter's colours change, as levels: green up to -18 dB, amber by -6, red from 0 dB. The Browser's waveform uses them too. */
+export const METER_COLOUR_STOPS = [
+  { level: 10 ** (-18 / 20), colour: "low" },
+  { level: 10 ** (-6 / 20), colour: "mid" },
+  { level: 1, colour: "high" },
+] as const;
+
 /** The lowest level the scale marks, in dB (FL's selected meter goes down to 51). */
 const SCALE_FLOOR_DB = -51;
 /** The closest two of the scale's labels may be, in px. */

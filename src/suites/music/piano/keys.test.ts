@@ -42,6 +42,8 @@ describe("piano roll keys", () => {
   it("runs the tools' shortcuts", () => {
     expect(press("g", "KeyG", cmd)).toEqual({ type: "glue" });
     expect(press("u", "KeyU", cmd)).toEqual({ type: "chop" });
+    // Alt types "¨" on a Mac: the key's position is what counts.
+    expect(press("¨", "KeyU", { altKey: true })).toEqual({ type: "chopper" });
     expect(press("q", "KeyQ", cmd)).toEqual({ type: "quantize" });
     expect(press("Q", "KeyQ", shift)).toEqual({ type: "quantizeStarts" });
     expect(press("l", "KeyL", cmd)).toEqual({ type: "legato" });

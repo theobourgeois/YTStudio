@@ -18,6 +18,8 @@ interface MusicWindowProps {
   onClose: () => void;
   /** At the start of the title bar (the window's menu arrow). */
   menu?: ReactNode;
+  /** Shown instead of the title's text (which still names the window): a selector, as the Piano roll's channel. */
+  heading?: ReactNode;
   /** After the title: the window's own controls. */
   controls?: ReactNode;
   /**
@@ -71,7 +73,7 @@ const px = (element: HTMLElement, r: Rect, sized: boolean) => {
  * the music editor is one of these: the channel rack, a channel's settings, the piano roll, later the
  * mixer and the playlist.
  */
-export function MusicWindow({ id, title, initial, onClose, menu, controls, resizable, className, children }: MusicWindowProps) {
+export function MusicWindow({ id, title, initial, onClose, menu, heading, controls, resizable, className, children }: MusicWindowProps) {
   const place = useMusicUi((s) => s.places[id]) ?? initial;
   const z = useMusicUi((s) => s.order.indexOf(id));
   const snap = resizable ? (place.snap ?? null) : null;
@@ -183,7 +185,7 @@ export function MusicWindow({ id, title, initial, onClose, menu, controls, resiz
         }}
       >
         {menu}
-        <h2 className="truncate text-xs font-medium">{title}</h2>
+        <h2 className="min-w-0 truncate text-xs font-medium">{heading ?? title}</h2>
         <div className="ml-auto flex items-center gap-1.5">
           {controls}
           {resizable && (

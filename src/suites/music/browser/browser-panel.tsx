@@ -1,4 +1,4 @@
-import { type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   PiArrowClockwise,
   PiCaretDownFill,
@@ -37,7 +37,7 @@ import { BROWSER_DRAG_TYPE, type BrowserDrag } from "./drops";
 import { resolveBrowserKey } from "./keys";
 import { useBrowser } from "./store";
 import { type ItemRow, type Row, arrowAction, isItem, resultRows, rowRange, step, treeRows } from "./tree";
-import { type Peaks, PEAK_COLUMNS, loadPeaks } from "./waveform";
+import { type Peaks, PEAK_COLUMNS, loadPeaks, waveformStops } from "./waveform";
 
 
 const ROW_HEIGHT = 22;
@@ -493,7 +493,7 @@ const RowView = memo(function RowView({ row, top, rows, onMenu }: { row: Row; to
         onMenu(row);
       }}
       className={cn(
-        "group absolute inset-x-0 flex cursor-default items-center gap-1 pr-1.5",
+        "group absolute inset-x-0 flex cursor-pointer items-center gap-1 pr-1.5",
         selected ? "bg-brand/20" : "hover:bg-surface-2",
         isCursor && "shadow-[inset_2px_0_0_var(--color-brand)]",
         row.missing && "opacity-50",
@@ -634,9 +634,16 @@ function PreviewBar() {
 }
 
 const WAVE_HEIGHT = 44;
+/** How far from the middle a full-scale (0 dB) point is drawn. */
+const WAVE_SCALE = WAVE_HEIGHT / 2 - 2;
+const WAVE_STOPS = waveformStops(WAVE_HEIGHT, WAVE_SCALE);
 
-/** A file's waveform: click it to play from there. A playhead follows the engine's preview of it. */
+/**
+ * A file's waveform, in the mixer meters' colours (green, through amber, to red at 0 dB), opening out from
+ * its middle as it arrives: click it to play from there. A playhead follows the engine's preview of it.
+ */
 function Waveform({ path, peaks, note }: { path: string | null; peaks: Peaks | null; note?: string }) {
+  const gradient = useId();
   const head = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
 
@@ -664,8 +671,7 @@ function Waveform({ path, peaks, note }: { path: string | null; peaks: Peaks | n
   const d = useMemo(() => {
     if (!peaks) return "";
     const mid = WAVE_HEIGHT / 2;
-    const scale = mid - 2;
-    const y = (v: number, nudge: number) => (mid - Math.max(-1, Math.min(1, v)) * scale + nudge).toFixed(1);
+    const y = (v: number, nudge: number) => (mid - Math.max(-1, Math.min(1, v)) * WAVE_SCALE + nudge).toFixed(1);
     let path = "";
     for (let x = 0; x < PEAK_COLUMNS; x++) path += `${x ? "L" : "M"}${x} ${y(peaks.max[x], -0.5)}`;
     for (let x = PEAK_COLUMNS - 1; x >= 0; x--) path += `L${x} ${y(peaks.min[x], 0.5)}`;
@@ -688,8 +694,17 @@ function Waveform({ path, peaks, note }: { path: string | null; peaks: Peaks | n
       data-loaded={peaks !== null}
     >
       {peaks ? (
-        <svg viewBox={`0 0 ${PEAK_COLUMNS} ${WAVE_HEIGHT}`} preserveAspectRatio="none" className="absolute inset-0 size-full" aria-hidden>
-          <path d={d} className="fill-brand/70" />
+        // Keyed by the peaks, so each file's waveform comes in afresh.
+        <svg key={path} viewBox={`0 0 ${PEAK_COLUMNS} ${WAVE_HEIGHT}`} preserveAspectRatio="none" className="browser-wave absolute inset-0 size-full" aria-hidden>
+          <defs>
+            <linearGradient id={gradient} gradientUnits="userSpaceOnUse" x1={0} y1={0} x2={0} y2={WAVE_HEIGHT}>
+              {WAVE_STOPS.map((stop, i) => (
+                <stop key={i} offset={stop.offset} style={{ stopColor: stop.colour }} />
+              ))}
+            </linearGradient>
+          </defs>
+          <line x1={0} x2={PEAK_COLUMNS} y1={WAVE_HEIGHT / 2} y2={WAVE_HEIGHT / 2} strokeWidth={1} vectorEffect="non-scaling-stroke" style={{ stroke: "var(--meter-low)" }} opacity={0.35} />
+          <path d={d} fill={`url(#${gradient})`} opacity={0.92} />
         </svg>
       ) : (
         note && <p className="absolute inset-0 grid place-items-center text-[10px] text-muted-foreground">{note}</p>

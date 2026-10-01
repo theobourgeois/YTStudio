@@ -3,6 +3,7 @@ import { PiArrowCounterClockwise, PiArrowUUpLeft, PiArrowUUpRight, PiCheckCircle
 import { DEFAULT_SUITE, suiteNoun } from "@shared/suites";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { ExportDialog } from "@/components/export/export-dialog";
+import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -11,7 +12,6 @@ import { useEditor } from "@/stores/editor";
 import { useProjects } from "@/stores/projects";
 import { ProjectName } from "./project-name";
 import { SettingsDialog } from "./settings-dialog";
-import { ThemeMenu } from "./theme-menu";
 
 export function Header() {
   const canUndo = useEditor((s) => s.past.length > 0 && !s.gestureBase);
@@ -39,7 +39,7 @@ export function Header() {
           onClick={() => useEditor.getState().redo()}
         />
         <Separator orientation="vertical" className="mx-1.5 data-[orientation=vertical]:h-5" />
-        <ThemeMenu />
+        <SettingsButton />
         <div className="ml-1.5 flex items-center gap-2">
           <SettleButton />
           <ExportDialog />

@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef } from "react";
-import { PiCaretDownBold, PiGhost, PiMagnet } from "react-icons/pi";
+import { PiCaretDownBold, PiGhost, PiMagnet, PiWrench } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { noteBounds } from "@shared/music/notes";
@@ -7,10 +7,12 @@ import { type Note, PPQ } from "@shared/music/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { startPointerDrag } from "@/lib/pointer-drag";
@@ -18,7 +20,7 @@ import { useMusic } from "../store";
 import { patternTickNow, useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
-import { pianoChannel, pianoContext } from "./actions";
+import { chop, chopperResult, glue, legato, openChopper, pianoChannel, pianoContext, quantize } from "./actions";
 import { applyDrag } from "./drag";
 import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepare, readPalette, stretchHandle } from "./draw";
 import { onFade, vanishing } from "./fades";
@@ -77,8 +79,9 @@ export function PianoRoll() {
       onClose={() => {
         useMusicUi.getState().setPianoOpen(false);
         // What loops is the time selection only while it can be seen.
-        usePiano.setState({ time: null, drag: null, editing: null });
+        usePiano.setState({ time: null, drag: null, editing: null, chopping: false });
       }}
+      heading={channel ? <ChannelMenu name={channel.name} /> : undefined}
       controls={<PianoControls />}
     >
       <div
@@ -116,6 +119,7 @@ function PianoControls() {
   const ghosts = usePiano((s) => s.ghosts);
   return (
     <>
+      <ToolsMenu />
       <div className="flex items-center gap-0.5" role="toolbar" aria-label="Piano roll tools">
         {TOOLS.map(({ tool: id, label, key, icon: Icon }) => (
           <button
@@ -149,7 +153,6 @@ function PianoControls() {
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      <ChannelMenu />
       <button
         type="button"
         aria-label="Ghost notes"
@@ -164,8 +167,46 @@ function PianoControls() {
   );
 }
 
-/** The target channel: the channels with notes in this pattern first, then the rest. */
-function ChannelMenu() {
+/** FL Studio's Tools menu (the wrench): what's done to the notes at once, and the Chopper. */
+function ToolsMenu() {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" aria-label="Piano roll tool menu" title="Tools" className="grid size-5.5 place-items-center rounded-sm border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground">
+          <PiWrench className="size-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuLabel>The selection, or every note</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={openChopper}>
+          Chop… <DropdownMenuShortcut>⌥U</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={chop}>
+          Quick chop <DropdownMenuShortcut>⌘U</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={glue}>
+          Glue <DropdownMenuShortcut>⌘G</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => quantize("both")}>
+          Quick quantize <DropdownMenuShortcut>⌘Q</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => quantize("starts")}>
+          Quantize start times <DropdownMenuShortcut>⇧Q</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={legato}>
+          Quick legato <DropdownMenuShortcut>⌘L</DropdownMenuShortcut>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * The title, "Piano roll - channel", is the target channel selector, as FL Studio's: a menu of the channels,
+ * those with notes in this pattern first, then the rest.
+ */
+function ChannelMenu({ name }: { name: string }) {
   const channels = useMusic((s) => s.history!.doc.channels);
   const patternNotes = useMusic((s) => s.history!.doc.patterns.find((p) => p.id === s.patternId)?.notes ?? s.history!.doc.patterns[0].notes);
   const current = pianoContext()?.channel.id ?? "";
@@ -176,11 +217,17 @@ function ChannelMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" aria-label="Target channel" title="The channel whose notes are shown (G / K, H / J)" className="grid size-5.5 place-items-center rounded-sm border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground">
-          <PiCaretDownBold className="size-3" />
+        <button
+          type="button"
+          aria-label="Target channel"
+          title="The channel whose notes are shown (G / K, H / J)"
+          className="flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-medium hover:bg-surface-2 data-[state=open]:bg-surface-2"
+        >
+          <span className="truncate">Piano roll - {name}</span>
+          <PiCaretDownBold className="size-2.5 shrink-0 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
+      <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto">
         <DropdownMenuRadioGroup value={current} onValueChange={pick}>
           {used.length > 0 && <DropdownMenuLabel>In this pattern</DropdownMenuLabel>}
           {used.map((c) => (
@@ -203,6 +250,8 @@ function ChannelMenu() {
 
 /** The last drag preview worked out, to reuse while neither the notes nor the drag change. */
 let previewCache: { notes: Note[]; drag: unknown; result: Note[]; created: number[] } | null = null;
+/** The same for the Chopper's: what it would make of the notes, while its settings, the selection and the snap stay. */
+let chopCache: { notes: Note[]; settings: unknown; selected: unknown; grid: number; result: Note[]; created: number[] } | null = null;
 
 function PianoBody() {
   const grid = useRef<HTMLCanvasElement>(null);
@@ -230,6 +279,16 @@ function PianoBody() {
       const palette = readPalette(box);
       let notes = ctx.notes;
       let selected = ctx.selected;
+      // While the Chopper is open, the notes are shown as it would leave them (until a drag starts).
+      if (piano.chopping && !drag) {
+        if (chopCache?.notes !== ctx.notes || chopCache.settings !== piano.chopper || chopCache.selected !== piano.selected || chopCache.grid !== ctx.grid) {
+          const result = chopperResult(ctx, piano.chopper);
+          chopCache = { notes: ctx.notes, settings: piano.chopper, selected: piano.selected, grid: ctx.grid, result: result?.notes ?? ctx.notes, created: result?.created ?? [] };
+        }
+        notes = chopCache.result;
+        // The pieces of selected notes are as selected as the notes were.
+        if (selected.size && chopCache.created.length) selected = new Set([...selected, ...chopCache.created]);
+      }
       if (drag) {
         if (previewCache?.notes !== ctx.notes || previewCache.drag !== drag) {
           const result = applyDrag(ctx.notes, drag);
@@ -415,20 +474,22 @@ function PianoBody() {
       </div>
       <VerticalScrollbar />
 
+      {/* Placed by row and column: the resizer spans row 3, and auto-placement would push these below it. */}
       {laneHeight > 0 && (
         <>
           <button
             type="button"
-            className="border-t border-r bg-muted px-1 text-left text-[10px] text-muted-foreground hover:text-foreground"
+            style={{ gridRow: 3, gridColumn: 1 }}
+            className="flex items-start border-t border-r bg-muted px-1 pt-1 text-left text-[10px] text-muted-foreground hover:text-foreground"
             title="The property shown (F)"
             onClick={() => usePiano.setState({ lane: laneProperty === "velocity" ? "pan" : "velocity" })}
           >
             {laneProperty === "velocity" ? "Velocity" : "Pan"}
           </button>
-          <div className="relative min-w-0 border-t">
+          <div className="relative min-w-0 border-t" style={{ gridRow: 3, gridColumn: 2 }}>
             <canvas ref={lane} className="absolute inset-0 size-full" style={{ cursor: laneCursor }} aria-label="Event editor" onPointerDown={lanePointerDown} />
           </div>
-          <div className="border-t" />
+          <div className="border-t" style={{ gridRow: 3, gridColumn: 3 }} />
           <LaneResizer />
         </>
       )}

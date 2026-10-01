@@ -28,6 +28,7 @@ import {
   setStepsTool,
   transposeChannelsTool,
   setNotesTool,
+  chopNotesTool,
   describeNotes,
   soloChannelTool,
   updateChannelTool,
@@ -35,6 +36,8 @@ import {
   updateSong,
 } from "./tool-edits";
 import { useTransport } from "./transport";
+import { describeBrowser, describeFolder, describeSearch, loadSampleEdit, sampleChannel } from "./browser/describe";
+import { useBrowser } from "./browser/store";
 import {
   addMixerTrackTool,
   describeMixer,
@@ -155,6 +158,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(describeNotes(target.song, input, { patternId: target.patternId }));
   },
   set_notes: edit(setNotesTool),
+  chop_notes: edit(chopNotesTool),
   edit_step: edit(editStep),
   add_pattern: edit(addPatternTool),
   update_pattern: edit(updatePatternTool),
@@ -205,6 +209,77 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const pattern = findPattern(target.song, input.pattern, { patternId: target.patternId });
     useMusic.getState().selectPattern(pattern.id);
     return textResult(`The channel rack shows "${pattern.name}".`);
+  },
+  async list_samples(input) {
+    if (typeof input.folder === "string" && input.folder.trim()) {
+      const folder = input.folder.trim().replace(/\/+$/, "");
+      return textResult(describeFolder(folder, await musicApi.listBrowserFolder(folder)));
+    }
+    const state = await musicApi.browser();
+    useBrowser.setState({ state });
+    return textResult(describeBrowser(state));
+  },
+  async search_samples(input) {
+    const query = typeof input.query === "string" ? input.query.trim() : "";
+    if (!query) throw new Error('"query" must be the words to look for ("808 kick").');
+    const limit = typeof input.limit === "number" ? Math.max(1, Math.min(200, Math.round(input.limit))) : 30;
+    const [result, state] = await Promise.all([musicApi.searchBrowser(query, limit), musicApi.browser()]);
+    return textResult(describeSearch(query, result, state));
+  },
+  async preview_sample(input) {
+    if (input.stop === true) {
+      useBrowser.getState().stopPreview();
+      await musicApi.engine("stopPreview", {});
+      return textResult("Stopped the preview.");
+    }
+    if (typeof input.path !== "string" || !input.path) throw new Error('"path" must be a file\'s full path, from search_samples or list_samples.');
+    const start = typeof input.start === "number" && input.start > 0 ? input.start : 0;
+    const id = `assistant-${Date.now()}`;
+    await musicApi.previewFile({ path: input.path, start, id });
+    // The Browser shows it playing, as if the user had clicked it.
+    useBrowser.setState({ previewing: { path: input.path, id } });
+    return textResult(`Playing ${input.path.slice(input.path.lastIndexOf("/") + 1)} to the user${start ? ` from ${start}s` : ""}. You can't hear it: ask them what they think.`);
+  },
+  async load_sample(input, ctx) {
+    const target = await targetOf(ctx);
+    const paths = Array.isArray(input.paths) ? input.paths.filter((p): p is string => typeof p === "string" && p.length > 0) : [];
+    if (!paths.length) throw new Error('"paths" must be a list of files\' full paths, from search_samples or list_samples.');
+    const toChannel = input.channel !== undefined && input.channel !== null && input.channel !== "";
+    // Checked before any file is copied: a channel that isn't there, or can't take a sample.
+    if (toChannel) sampleChannel(target.song, input.channel);
+    const assets: MediaAsset[] = [];
+    for (const path of toChannel ? paths.slice(0, 1) : paths) {
+      const asset = await musicApi.useBrowserFile({ projectId: target.projectId, path });
+      if (!asset.hasAudio) throw new Error(`${asset.name} has no sound.`);
+      assets.push(asset);
+    }
+    if (target.open && useMusic.getState().projectId === target.projectId) {
+      const known = new Set(useMusic.getState().assets.map((a) => a.id));
+      const added = assets.filter((a) => !known.has(a.id));
+      if (added.length) useMusic.setState({ assets: [...useMusic.getState().assets, ...added] });
+    }
+    let text = "";
+    await apply(target, (song) => {
+      const result = loadSampleEdit(song, assets, input);
+      text = result.text;
+      return result.song;
+    });
+    return textResult(text);
+  },
+  async add_sample_folder(input) {
+    if (typeof input.path !== "string" || !input.path.trim()) throw new Error('"path" must be the folder\'s full path.');
+    const state = await musicApi.addBrowserRoot({ path: input.path.trim() });
+    useBrowser.setState({ state });
+    const root = state.roots[state.roots.length - 1];
+    if (root) useBrowser.getState().expand(root.path);
+    return textResult(`Added ${root?.path ?? input.path} to the Browser.\n\n${describeBrowser(state)}`);
+  },
+  async star_sample(input) {
+    if (typeof input.path !== "string" || !input.path) throw new Error('"path" must be a file\'s or folder\'s full path.');
+    const favourite = input.favourite !== false;
+    const state = await musicApi.setBrowserFavourite({ path: input.path, favourite });
+    useBrowser.setState({ state });
+    return textResult(`${favourite ? "Starred" : "Unstarred"} ${input.path}. Favourites: ${state.favourites.length ? state.favourites.join(", ") : "none"}.`);
   },
   async play_song(input, ctx) {
     const target = await targetOf(ctx);

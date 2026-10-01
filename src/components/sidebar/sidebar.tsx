@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
-import { PiCaretRight, PiMagnifyingGlass, PiNotePencil, PiSidebarSimple } from "react-icons/pi";
+import { PiCaretRight, PiGearSix, PiMagnifyingGlass, PiNotePencil, PiSidebarSimple } from "react-icons/pi";
 import type { ProjectSummary } from "@shared/types";
 import { useNow } from "@/hooks/use-now";
+import { SETTINGS_KEYS } from "@/components/settings/settings-page";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { cn } from "cn";
 import { useLayout } from "@/stores/layout";
-import { activeProjects, settledProjects, useProjects } from "@/stores/projects";
+import { activeProjects, projectSuite, settledProjects, useProjects } from "@/stores/projects";
+import { useSettings } from "@/stores/settings";
 import { ProjectItem } from "./project-item";
 
 const SETTLED_OPEN_KEY = "editor-settled-open";
@@ -119,6 +121,18 @@ export function Sidebar() {
             )}
           </div>
         )}
+
+        <div className="shrink-0 border-t border-line px-2.5 py-2">
+          <button
+            type="button"
+            onClick={() => useSettings.getState().show(projectSuite(openId) ?? "general")}
+            className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          >
+            <PiGearSix className="size-4.5 shrink-0" />
+            Settings
+            <kbd className="ml-auto font-sans text-xs">{SETTINGS_KEYS}</kbd>
+          </button>
+        </div>
       </div>
     </aside>
   );

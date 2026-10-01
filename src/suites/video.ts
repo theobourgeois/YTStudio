@@ -6,6 +6,7 @@ import VideoWorkspace from "@/components/workspace/video-workspace";
 import { discardPendingSave, flushAutosave, useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
 import type { ClientSuite } from "./types";
+import { VideoSettings } from "./video-settings";
 
 /**
  * The video editor, which predates suites: its store is `stores/editor.ts`, its workspace
@@ -20,6 +21,11 @@ export const videoSuite: ClientSuite<"video"> = {
   flush: () => flushAutosave(),
   discard: (projectId) => discardPendingSave(projectId),
   Workspace: VideoWorkspace,
+  settings: {
+    title: "Video editor",
+    description: "How the video editor previews, how its timeline behaves, and how new clips start.",
+    Panel: VideoSettings,
+  },
   describe: (p) => (p.clipCount === 0 ? "Empty" : `${formatDuration(p.duration)} · ${p.clipCount} clip${p.clipCount === 1 ? "" : "s"}`),
   useLiveName: (projectId) => useEditor((s) => (s.projectId === projectId ? s.project.name : null)),
   chat: {

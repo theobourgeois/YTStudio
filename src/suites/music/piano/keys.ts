@@ -18,6 +18,7 @@ export type PianoKeyAction =
         | "delete"
         | "glue"
         | "chop"
+        | "chopper"
         | "quantize"
         | "quantizeStarts"
         | "legato"
@@ -80,6 +81,7 @@ export function resolvePianoKey(e: KeyLike): PianoKeyAction | null {
   if (alt && !command) {
     if (letter === "M") return { type: shift ? "unmute" : "mute" };
     if (letter === "V" && !shift) return { type: "ghosts" };
+    if (letter === "U" && !shift) return { type: "chopper" };
     return null;
   }
   if (shift) {

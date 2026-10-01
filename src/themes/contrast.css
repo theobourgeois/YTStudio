@@ -1,0 +1,39 @@
+/*
+ * High contrast: as much contrast as the look allows (FL Studio's "high visibility"). Black surfaces, white
+ * text at full strength, a yellow accent, and lines you can't miss: lighter than the black they divide, the
+ * one rule of Studio's this theme breaks, because a dark groove on black can't be seen. Dark; only what
+ * differs from Studio's Dark is here.
+ */
+.theme.theme-contrast {
+  --surface-0: #000000;
+  --surface-1: #0a0a0a;
+  --surface-2: #141414;
+  --surface-3: #1f1f1f;
+  --sunken: #000000;
+  --line: #6e6e6e;
+  --line-strong: #a0a0a0;
+
+  --foreground: #ffffff;
+  --muted-foreground: #d6d6d6;
+
+  --bevel-highlight: rgb(255 255 255 / 0.28);
+  --bevel-shadow: #8a8a8a;
+  --raised: linear-gradient(to bottom, #2a2a2a, #1c1c1c);
+  --raised-hover: linear-gradient(to bottom, #383838, #262626);
+  --pressed: linear-gradient(to bottom, #000000, #0d0d0d);
+  --popover: #141414;
+  --accent: #333333;
+  --brand: #ffd23f;
+  --brand-foreground: #000000;
+  --brand-edge: #fff1b8;
+  --destructive: #ff6b75;
+  --destructive-solid: #c8102e;
+
+  --piano-row: #141414;
+  --piano-black-row: #0a0a0a;
+  --piano-line: #2e2e2e;
+  --piano-beat-line: #4f4f4f;
+  --piano-bar-line: #9a9a9a;
+  --piano-ruler: #000000;
+  --piano-ruler-text: #ffffff;
+}

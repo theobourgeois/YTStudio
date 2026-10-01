@@ -4,6 +4,7 @@
  * As in FL Studio, a command acts on the selected notes, or on all of them when none are selected.
  */
 import { clamp } from "@shared/math";
+import { DEFAULT_CHOP_PATTERN, chopPattern, chopPieces, chopToPattern } from "@shared/music/chop";
 import { lengthOf } from "@shared/music/edits";
 import {
   type Created,
@@ -32,7 +33,7 @@ import { useMusicUi } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
 import { fadeOut } from "./fades";
 import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, snapTicks, zoomAt, zoomToRange } from "./geometry";
-import { type PianoTool, usePiano } from "./store";
+import { type ChopperSettings, type PianoTool, usePiano } from "./store";
 
 const EMPTY: Note[] = [];
 
@@ -229,6 +230,45 @@ export function glue() {
 export function chop() {
   const ctx = pianoContext();
   if (ctx) editCreating(ctx, (notes) => chopNotes(notes, ctx.selected, ctx.grid));
+}
+
+/**
+ * What the Chopper (Alt+U) would make of the notes now, with its settings: the selection, or every note,
+ * cut to its pattern (Default: the snap). Null when the pattern can't be that fast at this snap.
+ */
+export function chopperResult(ctx: PianoContext, settings: ChopperSettings): Created | null {
+  const pattern = chopPattern(settings.patternId) ?? DEFAULT_CHOP_PATTERN;
+  const pieces = chopPieces(pattern, settings.timeMul, ctx.grid);
+  if (!pieces) return null;
+  return chopToPattern(ctx.notes, ctx.selected, { pieces, absolute: settings.absolute, velocity: settings.velocity, pan: settings.pan });
+}
+
+/**
+ * The song as the engine should play it while the Chopper is open: with its chop, so what's shown is
+ * heard before it's accepted. The song itself is unchanged until then.
+ */
+export function withChopPreview(song: MusicProject): MusicProject {
+  const piano = usePiano.getState();
+  if (!piano.chopping) return song;
+  const ctx = pianoContext();
+  const result = ctx && chopperResult(ctx, piano.chopper);
+  if (!ctx || !result || result.notes === ctx.notes) return song;
+  return editNotes(song, ctx.pattern.id, ctx.channel.id, () => result.notes);
+}
+
+/** Alt+U: the Chopper's window, in front. The Piano roll shows the notes chopped while it's open. */
+export function openChopper() {
+  usePiano.setState({ chopping: true });
+  useMusicUi.getState().focusWindow("chopper");
+}
+
+/** The Chopper's Accept: its chop becomes an edit (one undo step), and the pieces are selected. */
+export function acceptChop() {
+  const ctx = pianoContext();
+  usePiano.setState({ chopping: false });
+  if (!ctx) return;
+  const result = chopperResult(ctx, usePiano.getState().chopper);
+  if (result) editCreating(ctx, () => result);
 }
 
 /** Quick quantize: to the snap's grid (a step, when snap is off). */

@@ -7,13 +7,12 @@ import { PPQ, STEP_TICKS } from "@shared/music/types";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { SettleButton, SettledBadge } from "@/components/header/header";
 import { ProjectName } from "@/components/header/project-name";
-import { ThemeMenu } from "@/components/header/theme-menu";
+import { SettingsButton } from "@/components/settings/settings-button";
 import { Button } from "@/components/ui/button";
 import { Toggle, toggleVariants } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { canRedo, canUndo } from "@/lib/document-history";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { AudioDialog } from "./audio-dialog";
 import { CpuGraph, OutputGraph } from "./monitors";
 import { PatternPicker } from "./pattern-picker";
 import { openPianoRoll } from "./piano/actions";
@@ -28,7 +27,7 @@ import { useWheelValue } from "./wheel";
  * The music editor's toolbar, FL Studio's (`docs/fl-studio/toolbar.md`), with only what Vaudio does: the
  * title and the hint bar, the transport (play, stop, the metronome, tempo, position), the windows,
  * the pattern selector and the song position, the engine's load and output, and at the right end the
- * app's own (undo, theme, Settle, the assistant). In the middle, two rows: the transport and the
+ * app's own (undo, Settings, Settle, the assistant). In the middle, two rows: the transport and the
  * monitors above, the windows, the pattern and the song position below; groups apart by grooves.
  */
 export function MusicToolbar() {
@@ -59,7 +58,6 @@ export function MusicToolbar() {
           <OutputGraph className="w-32 shrink-0" />
           <Groove className="mx-1 h-8 self-center" />
           <CpuGraph className="w-32 shrink-0" />
-          <AudioDialog />
           {error && (
             <span className="flex max-w-60 min-w-0 items-center gap-1.5 text-xs text-destructive" role="alert" title={error}>
               <PiWarning className="shrink-0" />
@@ -83,7 +81,7 @@ export function MusicToolbar() {
         <Groove className="mr-1.5 h-6 self-center" />
         <HistoryButtons />
         <Groove className="mx-1.5 h-6 self-center" />
-        <ThemeMenu />
+        <SettingsButton />
         <div className="ml-1.5 flex items-center">
           <SettleButton />
         </div>
