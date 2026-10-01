@@ -58,8 +58,9 @@ const song: MusicProject = {
           { to: MASTER_TRACK_ID, level: 1 },
         ],
       },
-      { ...createMixerTrack("insert_verb"), muted: true, sends: [] },
+      { ...createMixerTrack("insert_verb"), muted: true, separator: true, group: "group_fx", sends: [] },
     ],
+    groups: [{ id: "group_fx", name: "FX" }],
   },
 };
 
@@ -156,7 +157,7 @@ describe("the mixer", () => {
     const { mixer, channels } = createMusicProject();
     expect(mixer.tracks.map((t) => t.id)).toEqual([MASTER_TRACK_ID, ...Array.from({ length: 16 }, (_, i) => `insert_${i + 1}`)]);
     expect(mixer.tracks[0].sends).toEqual([]);
-    expect(mixer.tracks[3]).toEqual({ id: "insert_3", name: null, color: null, dock: "middle", volume: 0.8, pan: 0, muted: false, invert: false, swap: false, stereo: 0, latencyOffset: 0, effects: Array(10).fill(null), sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
+    expect(mixer.tracks[3]).toEqual({ id: "insert_3", name: null, color: null, dock: "middle", separator: false, group: null, volume: 0.8, pan: 0, muted: false, invert: false, swap: false, stereo: 0, latencyOffset: 0, effects: Array(10).fill(null), sends: [{ to: MASTER_TRACK_ID, level: 1 }] });
     expect(channels[0].mixerTrack).toBe(MASTER_TRACK_ID);
   });
 
@@ -189,6 +190,10 @@ describe("the mixer", () => {
     // A track with no list of sends goes to the master; one with an empty list goes nowhere.
     expect(b.sends).toEqual([{ to: MASTER_TRACK_ID, level: 1 }]);
     expect(b.color).toBeNull();
+    // A group no track is in goes; a track in a group that isn't there is in none.
+    const grouped = normalizeMusicProject({ mixer: { tracks: [{ id: "a", group: "g1" }, { id: "b", group: "g9" }], groups: [{ id: "g1", name: "Drums" }, { id: "g2", name: "Empty" }] } });
+    expect(grouped.mixer.groups).toEqual([{ id: "g1", name: "Drums" }]);
+    expect(grouped.mixer.tracks.map((t) => t.group)).toEqual([null, "g1", null]);
     const many = normalizeMusicProject({ mixer: { tracks: Array.from({ length: 600 }, (_, i) => ({ id: `t_${i}` })) } });
     expect(many.mixer.tracks).toHaveLength(MAX_INSERTS + 1);
   });

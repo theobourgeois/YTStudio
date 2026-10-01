@@ -250,7 +250,7 @@ export const MUSIC_TOOLS = [
     title: "Change a mixer track",
     kind: "edit",
     description:
-      "Set a mixer track's name, colour, fader level, pan, mute, phase, sides, stereo separation, delay offset or dock. Only what's given changes. " +
+      "Set a mixer track's name, colour, fader level, pan, mute, phase, sides, stereo separation, delay offset, dock or divider. Only what's given changes. " +
       "Its level is after its effects; the master's is the whole song's.",
     inputSchema: obj(
       {
@@ -265,6 +265,7 @@ export const MUSIC_TOOLS = [
         stereo: num("Stereo separation, -1 to 1: 0 as it is, towards 1 narrower (1 is mono), towards -1 wider."),
         latencyOffset: num("Milliseconds (-1000 to 1000) added to the delay its plugins report, for one that reports it wrong: positive if its sound is late against the others."),
         dock: oneOf(["left", "middle", "right"], "Which of the mixer's docks it's shown in: the left and right ones stay put while the middle scrolls (the master is always left)."),
+        separator: bool("A divider before it, to set tracks apart."),
       },
       ["track"],
     ),
@@ -317,6 +318,15 @@ export const MUSIC_TOOLS = [
     kind: "edit",
     description: "Move an insert track one place left or right (its channels and sends go with it). The master stays first.",
     inputSchema: obj({ track: mixerTrack(), direction: oneOf(["left", "right"], "Which way.") }, ["track", "direction"]),
+  }),
+  tool({
+    name: "group_mixer_tracks",
+    title: "Group mixer tracks",
+    kind: "edit",
+    description:
+      "Put mixer tracks in a named group (FL's Create group: a band with its name across their tops, dividers at its edges), taking them out of any " +
+      "other; or take them out of their groups (`ungroup`). Grouping is only how the mixer shows them: it doesn't route anything (set_send does).",
+    inputSchema: obj({ tracks: arr(mixerTrack(), "The tracks."), name: str("The group's name (default: Group N)."), ungroup: bool("Take them out of their groups instead.") }, ["tracks"]),
   }),
   tool({
     name: "add_mixer_effect",

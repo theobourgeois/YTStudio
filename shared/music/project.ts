@@ -11,6 +11,7 @@ import {
   type Envelope,
   type Mixer,
   type MixerEffect,
+  type MixerGroup,
   type MixerSend,
   type MixerTrack,
   type MusicProject,
@@ -139,6 +140,8 @@ export function createMixerTrack(id = createId("insert")): MixerTrack {
     name: null,
     color: null,
     dock: "middle",
+    separator: false,
+    group: null,
     volume: DEFAULT_FADER,
     pan: 0,
     muted: false,
@@ -154,7 +157,7 @@ export function createMixerTrack(id = createId("insert")): MixerTrack {
 /** A new song's mixer: the master and `DEFAULT_INSERTS` insert tracks (fixed ids, so an empty song is always the same document). */
 export function createMixer(): Mixer {
   const master: MixerTrack = { ...createMixerTrack(MASTER_TRACK_ID), dock: "left", sends: [] };
-  return { tracks: [master, ...Array.from({ length: DEFAULT_INSERTS }, (_, i) => createMixerTrack(`insert_${i + 1}`))] };
+  return { tracks: [master, ...Array.from({ length: DEFAULT_INSERTS }, (_, i) => createMixerTrack(`insert_${i + 1}`))], groups: [] };
 }
 
 export function createMusicProject(name = DEFAULT_PROJECT_NAME): MusicProject {
@@ -317,6 +320,10 @@ function normalizeMixer(input: unknown): Mixer {
     raws.set(raw.id, raw);
   }
   const ids = [MASTER_TRACK_ID, ...[...raws.keys()].filter((id) => id !== MASTER_TRACK_ID)];
+  const groups: MixerGroup[] = [];
+  for (const raw of Array.isArray(input.groups) ? input.groups : []) {
+    if (isObject(raw) && isId(raw.id) && !groups.some((g) => g.id === raw.id)) groups.push({ id: raw.id, name: text(raw.name, "Group") });
+  }
   const effectIds = new Set<string>();
   const tracks: MixerTrack[] = ids.map((id) => {
     const raw = raws.get(id) ?? {};
@@ -326,6 +333,8 @@ function normalizeMixer(input: unknown): Mixer {
       name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, MAX_NAME) : null,
       color: isColor(raw.color) ? raw.color.toLowerCase() : null,
       dock: id === MASTER_TRACK_ID ? "left" : raw.dock === "left" || raw.dock === "right" ? raw.dock : "middle",
+      separator: raw.separator === true,
+      group: id !== MASTER_TRACK_ID && typeof raw.group === "string" && groups.some((g) => g.id === raw.group) ? raw.group : null,
       volume: number(raw.volume, 0, 1, DEFAULT_FADER),
       pan: number(raw.pan, -1, 1, 0),
       muted: raw.muted === true,
@@ -350,7 +359,8 @@ function normalizeMixer(input: unknown): Mixer {
       track.sends.push({ to: send.to, level: number(send.level, 0, 1, 1) });
     }
   }
-  return { tracks };
+  // A group no track is in any more goes.
+  return { tracks, groups: groups.filter((g) => tracks.some((t) => t.group === g.id)) };
 }
 
 /**

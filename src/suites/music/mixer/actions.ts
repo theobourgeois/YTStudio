@@ -8,10 +8,12 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import {
   addMixerTracks,
+  createGroup,
   getMixerTrack,
   moveMixerTracks,
   pasteTrackState,
   removeMixerTracks,
+  renameGroup,
   routeChannels,
   routeChannelsFrom,
   routeToFreeTracks,
@@ -19,6 +21,7 @@ import {
   setSend,
   soloMixerTrack,
   trackState,
+  ungroup,
   updateMixerTrack,
   updateMixerTracks,
 } from "@shared/music/mixer";
@@ -142,6 +145,22 @@ export const renameTrack = (id: string, name: string) => commit((doc) => updateM
 
 /** Dock a track, or every selected track if it's one of them, to the mixer's left, middle or right (never the master). */
 export const dockTracks = (id: string, dock: MixerDock) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { dock }));
+
+/** Toggle the divider before a track (or before every selected track, if it's one of them), as its state is. */
+export function toggleSeparator(id: string) {
+  const on = !song()?.mixer.tracks.find((t) => t.id === id)?.separator;
+  commit((doc) => updateMixerTracks(doc, menuTargets(id), { separator: on }));
+}
+
+/** Group a track with the other selected ones (FL's Create group), and type its name at once. */
+export function groupTracks(id: string) {
+  const groupId = createId("group");
+  commit((doc) => createGroup(doc, menuTargets(id), undefined, groupId));
+  if (song()?.mixer.groups.some((g) => g.id === groupId)) useMixerView.getState().renameGroup(groupId);
+}
+
+export const ungroupTracks = (id: string) => commit((doc) => ungroup(doc, menuTargets(id)));
+export const renameMixerGroup = (groupId: string, name: string) => commit((doc) => renameGroup(doc, groupId, name));
 
 /** Colour a track, or every selected track if it's one of them. */
 export const colourTrack = (id: string, color: string | null) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { color }));

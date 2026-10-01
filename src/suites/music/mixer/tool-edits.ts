@@ -9,6 +9,7 @@ import {
   addMixerTracks,
   canSend,
   channelsOn,
+  createGroup,
   getMixerTrack,
   isFreeTrack,
   moveEffect,
@@ -22,6 +23,7 @@ import {
   soloMixerTrack,
   trackName,
   trackNumber,
+  ungroup,
   updateEffect,
   updateMixerTrack,
   type MixerTrackPatch,
@@ -86,6 +88,8 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
     track.stereo ? `stereo ${percent(Math.abs(track.stereo))} ${track.stereo > 0 ? "narrower" : "wider"}` : null,
     track.latencyOffset ? `delay offset ${track.latencyOffset} ms` : null,
     track.dock !== "middle" && track.id !== MASTER_TRACK_ID ? `docked ${track.dock}` : null,
+    track.separator ? "a divider before it" : null,
+    track.group ? `in the group "${song.mixer.groups.find((g) => g.id === track.group)?.name ?? track.group}"` : null,
     track.color ? `colour ${COLOR_NAMES[TRACK_COLORS.indexOf(track.color as (typeof TRACK_COLORS)[number])] ?? track.color}` : null,
   ];
   return `${label(song, track)} (id ${track.id}): ${parts.filter(Boolean).join(", ")}`;
@@ -182,6 +186,7 @@ export const updateMixerTrackTool: SongEdit = (song, input) => {
   if (stereo !== undefined) patch.stereo = stereo;
   const offset = numberIn(input, "latencyOffset", -MAX_LATENCY_OFFSET, MAX_LATENCY_OFFSET);
   if (offset !== undefined) patch.latencyOffset = offset;
+  if (typeof input.separator === "boolean") patch.separator = input.separator;
   if (input.dock !== undefined) {
     if (input.dock !== "left" && input.dock !== "middle" && input.dock !== "right") throw new Error('"dock" must be "left", "middle" or "right".');
     if (track.id === MASTER_TRACK_ID && input.dock !== "left") throw new Error("The master is always docked on the left.");
@@ -218,6 +223,18 @@ export const soloMixerTrackTool: SongEdit = (song, input) => {
   const next = soloMixerTrack(song, track.id, input.withRouted === true);
   const muted = next.mixer.tracks.filter((t) => t.muted).length;
   return { song: next, text: muted ? `${label(next, track)} is soloed (${muted} other track${muted === 1 ? " is" : "s are"} muted).` : "Nothing is soloed now: every track is unmuted." };
+};
+
+export const groupMixerTracksTool: SongEdit = (song, input) => {
+  if (!Array.isArray(input.tracks) || !input.tracks.length) throw new Error('"tracks" must be a list of mixer tracks (numbers, ids or names).');
+  const tracks = input.tracks.map((ref) => findTrack(song, ref));
+  const ids = tracks.map((t) => t.id);
+  const list = tracks.map((t) => label(song, t)).join(", ");
+  if (input.ungroup === true) return { song: ungroup(song, ids), text: `${list} ${tracks.length === 1 ? "is" : "are"} in no group now.` };
+  if (ids.includes(MASTER_TRACK_ID)) throw new Error("The master can't be in a group.");
+  const next = createGroup(song, ids, typeof input.name === "string" ? input.name : undefined);
+  const group = next.mixer.groups[next.mixer.groups.length - 1];
+  return { song: next, text: `Grouped ${list} as "${group.name}".` };
 };
 
 export const addMixerTrackTool: SongEdit = (song, input) => {

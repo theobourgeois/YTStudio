@@ -833,6 +833,20 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await expect(mixer.locator('[data-dock="right"] [data-track-name="Insert 8"]')).toBeVisible();
   await expect.poll(async () => (await track(8)).dock).toBe("right");
 
+  // A separator before a track; a group of the selected ones, its name typed at once into its band.
+  await strip("Insert 10").locator("span").first().click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "Separator before" }).click();
+  await expect.poll(async () => (await track(10)).separator).toBe(true);
+  await strip("Insert 11").locator("canvas").click();
+  await strip("Insert 12").locator("canvas").click({ modifiers: ["ControlOrMeta", "Shift"] });
+  await strip("Insert 12").locator("span").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Create group…" }).click();
+  await page.getByRole("textbox", { name: "Group name" }).fill("Drums");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await savedSong(page, id)).mixer.groups.map((g: { name: string }) => g.name)).toEqual(["Drums"]);
+  await expect(mixer.locator("[data-group]").first()).toContainText("Drums");
+  expect([(await track(11)).group, (await track(12)).group]).toEqual([(await savedSong(page, id)).mixer.groups[0].id, (await savedSong(page, id)).mixer.groups[0].id]);
+
   // Sending to insert 3 draws a cable from it.
   await strip("Insert 1").locator("canvas").click();
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(1);

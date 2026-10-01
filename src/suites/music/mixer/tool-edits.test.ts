@@ -7,6 +7,7 @@ import {
   addMixerTrackTool,
   describeMixer,
   findTrack,
+  groupMixerTracksTool,
   moveMixerTrackTool,
   removeMixerEffectTool,
   removeMixerTrackTool,
@@ -84,6 +85,15 @@ describe("the assistant's mixer edits", () => {
     expect(() => removeMixerTrackTool(rack(), { track: 0 }, env)).toThrow(/can't be removed/);
     expect(moveMixerTrackTool(rack(), { track: 1, direction: "right" }, env).text).toBe('It\'s insert 2 ("Insert 2") now.');
     expect(moveMixerTrackTool(rack(), { track: 1, direction: "left" }, env).text).toMatch(/can't go further left/);
+  });
+
+  it("group tracks under a name, and ungroup them; never the master", () => {
+    const grouped = groupMixerTracksTool(rack(), { tracks: [1, 2], name: "Drums" }, env);
+    expect(grouped.text).toBe('Grouped insert 1 ("Insert 1"), insert 2 ("Insert 2") as "Drums".');
+    expect(grouped.song.mixer.groups.map((g) => g.name)).toEqual(["Drums"]);
+    expect(groupMixerTracksTool(grouped.song, { tracks: [1, 2], ungroup: true }, env).song.mixer.groups).toEqual([]);
+    expect(() => groupMixerTracksTool(rack(), { tracks: ["master"] }, env)).toThrow(/master can't be in a group/);
+    expect(updateMixerTrackTool(rack(), { track: 3, separator: true }, env).text).toMatch(/a divider before it/);
   });
 
   it("change, move and remove effects by slot, and find a free slot for one", () => {

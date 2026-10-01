@@ -15,6 +15,9 @@ const VIEW_KEY = "vaudio.music.mixerView";
 interface MixerViewState {
   /** The track whose name is being edited (F2, a double-click, the menu's Rename), or null. */
   renaming: string | null;
+  /** The group whose name is being edited (just made, or its band double-clicked), or null. */
+  renamingGroup: string | null;
+  renameGroup: (id: string | null) => void;
   /** A track to scroll into view, once (just added, or selected by a key). */
   revealing: string | null;
   /** A track's state being dragged (from its menu's Copy track state) to drop on another: where, and the track under it. */
@@ -29,6 +32,8 @@ interface MixerViewState {
 
 export const useMixerView = create<MixerViewState>((set) => ({
   renaming: null,
+  renamingGroup: null,
+  renameGroup: (renamingGroup) => set({ renamingGroup }),
   view: (() => {
     const saved = typeof localStorage === "undefined" ? null : localStorage.getItem(VIEW_KEY);
     return MIXER_VIEWS.includes(saved as MixerViewKind) ? (saved as MixerViewKind) : "compact";

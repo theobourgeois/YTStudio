@@ -9,6 +9,7 @@ import type { Mixer, MixerTrack, MusicProject } from "@shared/music/types";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
@@ -39,6 +40,10 @@ import {
   addTrackAfterCurrent,
   addTrackAtEnd,
   dockTracks,
+  groupTracks,
+  renameMixerGroup,
+  toggleSeparator,
+  ungroupTracks,
   colourTrack,
   copyTrackState,
   deleteTracks,
@@ -168,6 +173,19 @@ export function MixerWindow() {
     };
   }, [mixer.tracks]);
   const inserts = docked.middle;
+  // Dividers and group bands, from each dock's order (worked out for the whole dock, though only some of the middle is drawn).
+  const layout = useMemo(() => {
+    const names = new Map(mixer.groups.map((g) => [g.id, g.name]));
+    const info = new Map<string, { separator: boolean; groupName: string | null }>();
+    for (const list of [docked.left, docked.middle, docked.right])
+      list.forEach((track, i) => {
+        const before = list[i - 1];
+        const edge = before !== undefined && before.group !== track.group && (before.group !== null || track.group !== null);
+        info.set(track.id, { separator: track.separator || edge, groupName: track.group && before?.group !== track.group ? (names.get(track.group) ?? null) : null });
+      });
+    return info;
+  }, [docked, mixer.groups]);
+  const banded = mixer.groups.length > 0;
   const [first, last] = useVisibleStrips(scroller, inserts.length, stripWidth);
 
   const strip = (track: MixerTrack, number = numbers.get(track.id)!) => (
@@ -181,6 +199,9 @@ export function MixerWindow() {
       sendLevel={(sendStates.get(track.id) as { level?: number }).level ?? 0}
       meterRef={meterRef(track.id)}
       view={view}
+      separator={layout.get(track.id)?.separator ?? false}
+      groupName={layout.get(track.id)?.groupName ?? null}
+      banded={banded}
     />
   );
 
@@ -299,10 +320,16 @@ interface StripProps {
   sendLevel: number;
   meterRef: (canvas: HTMLCanvasElement | null) => void;
   view: MixerViewKind;
+  /** A divider on its left (its own Separator, or a group's edge). */
+  separator: boolean;
+  /** The group's name, on the first track of a group (the band runs on over the rest). */
+  groupName: string | null;
+  /** The mixer has groups: every strip has room for their band, so they line up. */
+  banded: boolean;
 }
 
 /** A track's strip, top to bottom: its number, its name beside its meter, mute, pan, fader, send switch. */
-const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, meterRef, view }: StripProps) {
+const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, meterRef, view, separator, groupName, banded }: StripProps) {
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
@@ -317,7 +344,14 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       data-track={id}
       data-track-name={name}
       className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r pb-1", dropTarget && "ring-2 ring-inset")}
-      style={{ width: STRIP_WIDTHS[view], ...stripLook(track.color, selected), borderColor: "var(--mixer-line)", ...(dropTarget && { "--tw-ring-color": "var(--mixer-on)" }) }}
+      style={{
+        width: STRIP_WIDTHS[view],
+        ...stripLook(track.color, selected),
+        borderColor: "var(--mixer-line)",
+        // A divider: a gap of the mixer's background down its left edge (its width stays the same, so the strips scroll as they did).
+        ...(separator && { borderLeft: "5px solid var(--mixer-bg)" }),
+        ...(dropTarget && { "--tw-ring-color": "var(--mixer-on)" }),
+      }}
       onPointerDownCapture={(e) => {
         // The send switch acts for the selected track: pressing it doesn't select this one.
         if ((e.target as HTMLElement).closest("[data-send]")) return;
@@ -331,6 +365,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         else if (!selected || !(e.target as HTMLElement).closest("[aria-orientation=vertical]")) ui.selectTrack(id);
       }}
     >
+      {banded && <GroupBand track={track} groupName={groupName} />}
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="flex min-h-28 w-full flex-1 flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)} onPointerDown={(e) => dragSelection(e)}>
@@ -369,7 +404,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
             </div>
           </div>
         </ContextMenuTrigger>
-        <TrackMenu id={id} isMaster={isMaster} color={track.color} />
+        <TrackMenu id={id} isMaster={isMaster} color={track.color} separator={track.separator} grouped={track.group !== null} />
       </ContextMenu>
 
       <button
@@ -472,7 +507,7 @@ function RenameField({ track, name }: { track: MixerTrack; name: string }) {
 }
 
 /** A track's right-click menu (on its number and name), FL Studio's. */
-function TrackMenu({ id, isMaster, color }: { id: string; isMaster: boolean; color: string | null }) {
+function TrackMenu({ id, isMaster, color, separator, grouped }: { id: string; isMaster: boolean; color: string | null; separator: boolean; grouped: boolean }) {
   const channelsSelected = useMusicUi((s) => s.selectedChannelIds.length > 0);
   const others = useMusicUi((s) => s.selectedTrackIds.some((t) => t !== id));
   const canPaste = useMusicUi((s) => s.copiedTrack !== null);
@@ -552,6 +587,15 @@ function TrackMenu({ id, isMaster, color }: { id: string; isMaster: boolean; col
           <ContextMenuItem onSelect={() => moveSelectedTracks(1)}>
             Move right <ContextMenuShortcut>⌥→</ContextMenuShortcut>
           </ContextMenuItem>
+        </>
+      )}
+      {!isMaster && (
+        <>
+          <ContextMenuCheckboxItem checked={separator} onSelect={() => toggleSeparator(id)}>
+            Separator before
+          </ContextMenuCheckboxItem>
+          <ContextMenuItem onSelect={() => setTimeout(() => groupTracks(id), 0)}>Create group…</ContextMenuItem>
+          {grouped && <ContextMenuItem onSelect={() => ungroupTracks(id)}>Ungroup</ContextMenuItem>}
         </>
       )}
       {!isMaster && (
@@ -789,4 +833,56 @@ function stripLook(color: string | null, selected: boolean): React.CSSProperties
   const body = selected ? "var(--mixer-strip-selected)" : "var(--mixer-strip)";
   const tint = (base: string) => (color ? `color-mix(in oklab, ${color} ${selected ? 40 : 30}%, ${base})` : base);
   return { background: `linear-gradient(to bottom, ${tint(top)}, ${tint(top)} 18%, ${tint(body)} 42%)` };
+}
+
+/**
+ * A group's band, FL Studio's, above the strips' numbers: shaded over its tracks, its name on the first
+ * (running on over the others); a double-click names it. Strips in no group keep the room, so all line up.
+ */
+function GroupBand({ track, groupName }: { track: MixerTrack; groupName: string | null }) {
+  const renaming = useMixerView((s) => track.group !== null && s.renamingGroup === track.group && groupName !== null);
+  return (
+    <div
+      className="relative h-4 w-full shrink-0"
+      style={{ background: track.group ? "var(--mixer-header)" : "transparent", borderBottom: track.group ? "1px solid var(--mixer-line)" : undefined }}
+      onDoubleClick={() => track.group && useMixerView.getState().renameGroup(track.group)}
+      data-group={track.group ?? undefined}
+    >
+      {renaming ? (
+        <GroupNameField groupId={track.group!} name={groupName!} />
+      ) : (
+        groupName && (
+          <span className="pointer-events-none absolute top-0 left-1 z-10 text-[10px] leading-4 font-semibold whitespace-nowrap" style={{ color: "var(--mixer-header-text)" }} title={`${groupName} (double-click to rename)`}>
+            {groupName}
+          </span>
+        )
+      )}
+    </div>
+  );
+}
+
+/** A group's name, being typed: Enter keeps it, Escape doesn't. */
+function GroupNameField({ groupId, name }: { groupId: string; name: string }) {
+  const finished = useRef(false);
+  const done = (value: string | null) => {
+    if (finished.current) return;
+    finished.current = true;
+    if (value !== null) renameMixerGroup(groupId, value);
+    useMixerView.getState().renameGroup(null);
+  };
+  return (
+    <Input
+      autoFocus
+      aria-label="Group name"
+      defaultValue={name}
+      className="absolute top-0 left-0 z-30 h-5 w-36 text-xs"
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={(e) => done(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") done(e.currentTarget.value);
+        if (e.key === "Escape") done(null);
+      }}
+    />
+  );
 }

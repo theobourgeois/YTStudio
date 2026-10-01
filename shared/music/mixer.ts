@@ -6,7 +6,7 @@
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import { EFFECT_SLOTS, MASTER_TRACK_ID, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, reaches } from "./project.ts";
-import type { Channel, MixerEffect, MixerSend, MixerTrack, MusicProject, PluginRef } from "./types.ts";
+import type { Channel, MixerEffect, MixerGroup, MixerSend, MixerTrack, MusicProject, PluginRef } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -107,7 +107,8 @@ export function removeMixerTracks(song: MusicProject, ids: readonly string[]): M
   const channels = song.channels.some((c) => gone.has(c.mixerTrack))
     ? song.channels.map((c) => (gone.has(c.mixerTrack) ? { ...c, mixerTrack: MASTER_TRACK_ID } : c))
     : song.channels;
-  return { ...withTracks(song, tracks), channels };
+  const removed = { ...withTracks(song, tracks), channels };
+  return withGroups(removed, keptGroups(removed));
 }
 
 /**
@@ -129,7 +130,7 @@ export function moveMixerTracks(song: MusicProject, ids: readonly string[], dire
   return any ? withTracks(song, tracks) : song;
 }
 
-export type MixerTrackPatch = Partial<Pick<MixerTrack, "name" | "color" | "dock" | "volume" | "pan" | "muted" | "invert" | "swap" | "stereo" | "latencyOffset">>;
+export type MixerTrackPatch = Partial<Pick<MixerTrack, "name" | "color" | "dock" | "separator" | "volume" | "pan" | "muted" | "invert" | "swap" | "stereo" | "latencyOffset">>;
 
 function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
   // An empty name goes back to the track's number.
@@ -138,6 +139,7 @@ function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
     ...track,
     name,
     color: patch.color === undefined ? track.color : patch.color && /^#[0-9a-f]{6}$/i.test(patch.color) ? patch.color.toLowerCase() : null,
+    separator: patch.separator ?? track.separator,
     // The master stays on the left.
     dock: track.id === MASTER_TRACK_ID || (patch.dock !== "left" && patch.dock !== "middle" && patch.dock !== "right") ? track.dock : patch.dock,
     volume: clamp(patch.volume ?? track.volume, 0, 1),
@@ -366,4 +368,39 @@ export function pasteTrackState(song: MusicProject, id: string, state: TrackStat
   });
   const pasted = updateMixerTrack(song, id, { volume: state.volume, pan: state.pan, invert: state.invert, swap: state.swap, stereo: state.stereo, latencyOffset: state.latencyOffset });
   return updateTracks(pasted, [id], (track) => ({ ...track, effects }));
+}
+
+// ---------------------------------------------------------------------------
+// Groups
+// ---------------------------------------------------------------------------
+
+const withGroups = (song: MusicProject, groups: MixerGroup[]): MusicProject => ({ ...song, mixer: { ...song.mixer, groups } });
+/** The groups some track is still in (a group left empty goes). */
+const keptGroups = (song: MusicProject) => song.mixer.groups.filter((g) => song.mixer.tracks.some((t) => t.group === g.id));
+
+/** "Group 3": the first such name no group has. */
+export function nextGroupName(song: MusicProject): string {
+  const names = new Set(song.mixer.groups.map((g) => g.name));
+  for (let n = song.mixer.groups.length + 1; ; n++) if (!names.has(`Group ${n}`)) return `Group ${n}`;
+}
+
+/** Put tracks in a new named group (FL's Create group), taking them out of any they were in. Never the master. */
+export function createGroup(song: MusicProject, ids: readonly string[], name = nextGroupName(song), id = createId("group")): MusicProject {
+  const members = ids.filter((t) => t !== MASTER_TRACK_ID && getMixerTrack(song, t));
+  if (!members.length) return song;
+  const grouped = updateTracks(song, members, (t) => ({ ...t, group: id }));
+  return withGroups(grouped, [...keptGroups(grouped), { id, name: name.trim().slice(0, MAX_NAME) || nextGroupName(song) }]);
+}
+
+/** Take tracks out of their groups (a group left empty goes). */
+export function ungroup(song: MusicProject, ids: readonly string[]): MusicProject {
+  const next = updateTracks(song, ids, (t) => (t.group === null ? t : { ...t, group: null }));
+  return next === song ? song : withGroups(next, keptGroups(next));
+}
+
+export function renameGroup(song: MusicProject, groupId: string, name: string): MusicProject {
+  const trimmed = name.trim().slice(0, MAX_NAME);
+  const group = song.mixer.groups.find((g) => g.id === groupId);
+  if (!group || !trimmed || trimmed === group.name) return song;
+  return withGroups(song, song.mixer.groups.map((g) => (g === group ? { ...g, name: trimmed } : g)));
 }

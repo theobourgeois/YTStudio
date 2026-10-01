@@ -5,10 +5,12 @@ import {
   canSend,
   channelsOn,
   isFreeTrack,
+  createGroup,
   moveEffect,
   moveEffectTo,
   moveMixerTracks,
   pasteTrackState,
+  renameGroup,
   removeMixerTracks,
   routeChannels,
   routeChannelsFrom,
@@ -23,6 +25,7 @@ import {
   trackName,
   trackNumber,
   trackState,
+  ungroup,
   updateEffect,
   updateMixerTrack,
   updateMixerTracks,
@@ -235,5 +238,26 @@ describe("a track's state", () => {
     expect(pasteTrackState(song, "insert_2", state).mixer.tracks[2].effects[2]!.id).not.toBe("fx_eq");
     expect(trackState(song, "insert_404")).toBeNull();
     expect(pasteTrackState(song, "insert_404", state)).toBe(song);
+  });
+});
+
+describe("separators and groups", () => {
+  it("put a divider before a track, and name groups of tracks; an emptied group goes", () => {
+    expect(updateMixerTrack(rack(), "insert_3", { separator: true }).mixer.tracks[3].separator).toBe(true);
+    let song = createGroup(rack(), ["insert_1", "insert_2", M], "Drums", "group_drums");
+    expect(song.mixer.groups).toEqual([{ id: "group_drums", name: "Drums" }]);
+    expect(song.mixer.tracks.slice(0, 3).map((t) => t.group)).toEqual([null, "group_drums", "group_drums"]);
+    expect(createGroup(song, ["insert_5"]).mixer.groups.map((g) => g.name)).toEqual(["Drums", "Group 2"]);
+    // A track moved into another group leaves its old one (which goes once it's empty).
+    const moved = createGroup(createGroup(rack(), ["insert_1"], "A", "g_a"), ["insert_1"], "B", "g_b");
+    expect(moved.mixer.groups).toEqual([{ id: "g_b", name: "B" }]);
+    song = renameGroup(song, "group_drums", " Kit ");
+    expect(song.mixer.groups[0].name).toBe("Kit");
+    expect(renameGroup(song, "group_drums", "Kit")).toBe(song);
+    song = ungroup(song, ["insert_1"]);
+    expect(song.mixer.groups).toHaveLength(1);
+    expect(ungroup(song, ["insert_2"]).mixer.groups).toEqual([]);
+    expect(removeMixerTracks(song, ["insert_2"]).mixer.groups).toEqual([]);
+    expect(createGroup(rack(), [M])).toEqual(rack());
   });
 });

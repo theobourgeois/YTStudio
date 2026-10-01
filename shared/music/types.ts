@@ -157,6 +157,10 @@ export interface MixerTrack {
    * while the middle one scrolls. Its number doesn't change. The master is always on the left.
    */
   dock: MixerDock;
+  /** A divider before it (FL's Separator), to set tracks apart. */
+  separator: boolean;
+  /** The group it's in (`Mixer.groups`), or null. */
+  group: string | null;
   /** 0..1, the fader; `DEFAULT_FADER` leaves the sound as it is. */
   volume: number;
   /** -1 (left) .. 1 (right). */
@@ -186,9 +190,16 @@ export interface MixerTrack {
   sends: MixerSend[];
 }
 
+/** A named group of mixer tracks (FL's Create group): a band with its name across their tops, dividers at its edges. */
+export interface MixerGroup {
+  id: string;
+  name: string;
+}
+
 export interface Mixer {
   /** The master first, then the insert tracks in their order (their numbers: 1, 2, 3...). */
   tracks: MixerTrack[];
+  groups: MixerGroup[];
 }
 
 export interface MusicProject {
