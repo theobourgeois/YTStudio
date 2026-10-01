@@ -286,7 +286,9 @@ Shift+click, which select a range.
 | A plugin's window | FL's wrapper around it: ON, PAN, VOL, PITCH, TRACK, presets, its menu | The plugin's own window, bare (pan and volume are on the rack) | With the mixer |
 | Plugin picker | Favourites first, "More plugins…", categories | Every instrument found, with a search | Later |
 | Mixer track selector | Per row and in settings (TRACK) | None | With the mixer |
-| Channel groups (filter), zip, colours | Yes | None | Later |
+| Channel groups (filter) | Any number, made and named by the user; the title bar's filter | Three fixed ones in a chip on the title bar (Théo): Unsorted (the default: every channel but the audio clips'), Audio (the playlist's audio clips) and All | More groups later |
+| Audio clip channels | In the Audio Clips group; playable from steps | In the Audio group; no steps (a strip that draws them on the playlist) | Keep |
+| Zip, colours | Yes | None | Later |
 | Per-channel swing | Yes | Global only | Later |
 | Hint bar | Yes | Tooltips | Visual pass |
 

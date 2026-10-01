@@ -33,6 +33,7 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
       }),
       plugins (bench.formatManager(), bench.knownPlugins(), "channel", [this] { pluginChanged(); }),
       effects (bench.formatManager(), bench.knownPlugins(), "effect", [this] { pluginChanged(); }),
+      sequencer (isOffline),
       preview (isOffline)
 {
     dataDir.createDirectory();
@@ -339,6 +340,7 @@ void Engine::pluginChanged()
 void Engine::timerCallback()
 {
     sequencer.collectGarbage();
+    sequencer.prepareClips();
     preview.collectGarbage();
     checkLatencies();
     // Where the song is, while it plays, previews or anything sounds, and once more when that ends.
@@ -391,6 +393,9 @@ void Engine::render (int frames, const juce::File& file, Reply reply)
     juce::AudioBuffer<float> rendered (2, frames);
     for (int done = 0; done < frames; done += blockSize)
     {
+        // What the timer does live: the audio clips about to play are made ready (decoded here, offline).
+        sequencer.prepareClips();
+        sequencer.collectGarbage();
         float* channels[] = { rendered.getWritePointer (0, done), rendered.getWritePointer (1, done) };
         process (channels, 2, juce::jmin (blockSize, frames - done));
     }

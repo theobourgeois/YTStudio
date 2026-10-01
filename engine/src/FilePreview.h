@@ -1,12 +1,14 @@
 // The Browser's preview: one audio file played straight to the output, outside the song, streamed from
 // disk so a whole song previews in the memory of a few seconds of it (`SampleCache` reads files whole).
 //
-// A `Stream` is a file being played: a reader thread decodes it ahead, at the device's rate, into a
-// lock-free ring the audio thread reads. Streams reach the audio thread through an atomic pointer and go
+// A `Stream` is a file being played (an `AudioStream`): a reader thread decodes it ahead, at the
+// device's rate, into a lock-free ring the audio thread reads. Streams reach the audio thread through an atomic pointer and go
 // back through a lock-free queue to be deleted on the message thread, like songs (`Sequencer`). A new
 // preview cuts the last one off with a short fade. Offline, the stream is read on the rendering thread
 // instead, so a render is the same every time.
 #pragma once
+
+#include "AudioStream.h"
 
 #include <array>
 #include <atomic>

@@ -33,8 +33,8 @@ export const withDraftPattern = (song: MusicProject, draft: DraftPattern | null)
 
 /**
  * An edit made while a draft is shown: it's applied to the song with the draft in it, which stays
- * only if the edit changed it (a note put in it, its length set). The same song back when nothing
- * changed, so no-ops still skip the undo history.
+ * only if the edit changed it (a note put in it, its length set) or put it on the playlist. The same
+ * song back when nothing changed, so no-ops still skip the undo history.
  */
 export function editWithDraft(song: MusicProject, draft: DraftPattern | null, update: (song: MusicProject) => MusicProject): MusicProject {
   if (!draft || song.patterns.some((p) => p.id === draft.id)) return update(song);
@@ -43,7 +43,8 @@ export function editWithDraft(song: MusicProject, draft: DraftPattern | null, up
   if (next === base) return song;
   const before = base.patterns.find((p) => p.id === draft.id);
   const after = next.patterns.find((p) => p.id === draft.id);
-  return after === before ? { ...next, patterns: next.patterns.filter((p) => p.id !== draft.id) } : next;
+  const placed = next.playlist.clips.some((c) => c.kind === "pattern" && c.ref === draft.id);
+  return after === before && !placed ? { ...next, patterns: next.patterns.filter((p) => p.id !== draft.id) } : next;
 }
 
 /**

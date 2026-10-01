@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { setSteps } from "./edits.ts";
 import {
   DEFAULT_ENVELOPE,
+  DEFAULT_PLAYLIST_TRACK,
   DEFAULT_PRECOMPUTED,
   FIRST_CHANNEL_ID,
   FIRST_PATTERN_ID,
   MASTER_TRACK_ID,
   MAX_INSERTS,
   MAX_TEMPO,
+  createAudioChannel,
   createChannel,
   createMixer,
   createMixerTrack,
@@ -39,6 +41,13 @@ const song: MusicProject = {
     { id: "pat_a", name: "Verse", length: 14, notes: { chan_kick: [{ id: 3, start: 0, length: 24, pitch: 60, velocity: 0.78, pan: -0.5, muted: true }] } },
     { id: "pat_b", name: "Chorus", length: null, notes: {} },
   ],
+  playlist: {
+    tracks: [DEFAULT_PLAYLIST_TRACK, { name: "Drums", color: "#4a89dc", size: 1.5, muted: true }],
+    clips: [
+      { id: 1, kind: "pattern", ref: "pat_a", track: 0, start: 0, length: null, offset: 0, muted: false },
+      { id: 4, kind: "pattern", ref: "pat_b", track: 1, start: 384, length: 192, offset: 24, muted: true },
+    ],
+  },
   mixer: {
     tracks: [
       { ...createMixerTrack(MASTER_TRACK_ID), dock: "left", sends: [] },
@@ -72,6 +81,7 @@ describe("music projects", () => {
       settings: { tempo: 120, timeSignature: [4, 4], swing: 0 },
       channels: [expect.objectContaining({ id: FIRST_CHANNEL_ID, name: "Sampler", kind: "sampler", sampleId: null })],
       patterns: [{ id: FIRST_PATTERN_ID, name: "Pattern 1", length: null, notes: {} }],
+      playlist: { tracks: [], clips: [] },
       mixer: createMixer(),
     });
     expect(stepsPerBar([3, 4])).toBe(12);
@@ -242,5 +252,50 @@ describe("a pattern's length", () => {
     expect(steps(setSteps(set, FIRST_PATTERN_ID, "chan_kick", [19], true))).toBe(20);
     expect(steps(setSteps(set, FIRST_PATTERN_ID, "chan_kick", [20], true))).toBe(32);
     expect(steps(setSteps(set, FIRST_PATTERN_ID, "chan_kick", [40], true))).toBe(48);
+  });
+});
+
+describe("the playlist", () => {
+  it("keeps tracks by number, as short a list as it can be, and clips of what's still there", () => {
+    const audio = createAudioChannel("Vocal", "media_vox", "chan_vox");
+    const messy = normalizeMusicProject({
+      ...song,
+      channels: [...song.channels, audio, { id: "chan_lost", kind: "audio", sampleId: "media_gone" }],
+      playlist: {
+        tracks: [{ name: "  Lead  ", size: 9, color: "#ABCDEF" }, "x", {}, { muted: false }],
+        clips: [
+          { id: 2, kind: "pattern", ref: "pat_b", track: 3, start: 96.4, length: 0, offset: -5 },
+          { id: 2, kind: "audio", ref: "chan_vox", track: 1, start: 0, length: null, offset: 1.25 },
+          { kind: "pattern", ref: "pat_gone", track: 0, start: 0 },
+          { kind: "audio", ref: "chan_kick", track: 0, start: 0 },
+          { kind: "audio", ref: "chan_lost", track: 0, start: 0 },
+          { kind: "pattern", ref: "pat_a", track: 500, start: 0 },
+          { kind: "pattern", ref: "pat_a", track: 1.5, start: 0 },
+          { kind: "pattern", ref: "pat_a", track: 2, start: -1 },
+          { kind: "pattern", ref: "pat_a", track: 2, start: 10, length: null },
+        ],
+      },
+    }, (id) => id !== "media_gone");
+    // An audio clip's channel without its file goes.
+    expect(messy.channels.map((c) => c.id)).toEqual(["chan_kick", "chan_hat", "chan_vox"]);
+    expect(messy.playlist.tracks).toEqual([{ name: "Lead", color: "#abcdef", size: 4, muted: false }]);
+    expect(messy.playlist.clips).toEqual([
+      // In order of start; the second id 2 gets the next free one; an audio clip always has a length.
+      { id: 3, kind: "audio", ref: "chan_vox", track: 1, start: 0, length: 384, offset: 1.25, muted: false },
+      { id: 4, kind: "pattern", ref: "pat_a", track: 2, start: 10, length: null, offset: 0, muted: false },
+      { id: 2, kind: "pattern", ref: "pat_b", track: 3, start: 96, length: 1, offset: 0, muted: false },
+    ]);
+  });
+
+  it("is empty in songs from before it", () => {
+    const { playlist: _, ...old } = song;
+    expect(normalizeMusicProject(old).playlist).toEqual({ tracks: [], clips: [] });
+  });
+
+  it("drops the notes of an audio clip's channel: it plays from the playlist", () => {
+    const audio = createAudioChannel("Vocal", "media_vox", "chan_vox");
+    const withNotes = normalizeMusicProject({ ...song, channels: [...song.channels, audio], patterns: [{ id: "pat_a", notes: { chan_vox: [{ start: 0 }] } }] });
+    expect(withNotes.patterns[0].notes).toEqual({});
+    expect(withNotes.channels[2]).toMatchObject({ kind: "audio", sampleId: "media_vox" });
   });
 });

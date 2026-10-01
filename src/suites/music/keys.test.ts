@@ -5,6 +5,14 @@ type Mods = Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolea
 const press = (key: string, code: string, mods: Mods = {}) => resolveMusicKey({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 
 describe("music keys", () => {
+  it("shows the Playlist with F5 and switches pattern and song mode with L, from any window", () => {
+    expect(press("F5", "F5")).toEqual({ type: "togglePlaylist" });
+    expect(press("l", "KeyL")).toEqual({ type: "toggleMode" });
+    expect(press("l", "KeyL", { metaKey: true })).toEqual({ type: "assignFreeTracks" });
+    expect(press("l", "KeyL", { shiftKey: true })).toBeNull();
+    expect(resolvePluginWindowKey({ key: "l", code: "KeyL", metaKey: false, ctrlKey: false, shiftKey: false, altKey: false })).toEqual({ type: "toggleMode" });
+  });
+
   it("plays with Space, shows the rack with F6, and undoes and redoes with the usual keys", () => {
     expect(press(" ", "Space")).toEqual({ type: "togglePlay" });
     expect(press("F6", "F6")).toEqual({ type: "toggleRack" });

@@ -68,6 +68,9 @@ struct Song
         /** A plugin channel's instrument, once it's loaded (the channel is silent until then). */
         std::shared_ptr<HostedPlugin> plugin;
         bool isPlugin = false;
+        /** An audio clip's channel: its file (`path`) is streamed as its clips play (`ClipPlayer`), never read whole. */
+        bool stream = false;
+        juce::String path;
         float gainLeft = 1, gainRight = 1;
         /** Semitones added to every note. */
         float pitch = 0;
@@ -146,12 +149,25 @@ struct Song
         float pan = 0;
     };
 
+    /** An audio clip of the playlist: its channel's file, from `seconds` in, at `tick` of the loop (negative: it began before the loop does). */
+    struct AudioClip
+    {
+        int channel = 0;
+        double tick = 0, length = 0, seconds = 0;
+        /** Its channel's file. */
+        juce::String path;
+        /** The same clip in the next song has the same key, so a stream playing it carries on through an edit. */
+        juce::uint64 key = 0;
+    };
+
     double tempo = 120, ppq = 96;
     /** The loop's length, and a beat's and a bar's (the metronome), in ticks. */
     double loopTicks = 384, beatTicks = 96, barTicks = 384;
     std::vector<Channel> channels;
     /** In order of `tick`. */
     std::vector<Note> notes;
+    /** In order of `tick`. */
+    std::vector<AudioClip> audioClips;
     /** In the order they're run: each after every track sending to it. The master is the last. */
     std::vector<Track> tracks;
     /** Two channels for each track that can be reached, `capacity` samples long: the mixer's scratch. */

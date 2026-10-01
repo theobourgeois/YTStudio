@@ -192,12 +192,14 @@ export function soloChannel(song: MusicProject, id: string): MusicProject {
   return setMuted(setMuted(song, others, true), [id], false);
 }
 
-/** Remove channels and their notes in every pattern. */
+/** Remove channels, their notes in every pattern and (an audio clip's channel) their clips on the playlist. */
 export function removeChannels(song: MusicProject, ids: readonly string[]): MusicProject {
   const gone = new Set(ids.filter((id) => getChannel(song, id)));
   if (!gone.size) return song;
+  const clips = song.playlist.clips.filter((c) => !(c.kind === "audio" && gone.has(c.ref)));
   return {
     ...song,
+    playlist: clips.length === song.playlist.clips.length ? song.playlist : { ...song.playlist, clips },
     // All of them: the rack gets a sampler again, rather than being left empty.
     channels: gone.size === song.channels.length ? emptyRack() : song.channels.filter((c) => !gone.has(c.id)),
     patterns: song.patterns.map((p) => {
@@ -258,10 +260,15 @@ export function clonePattern(song: MusicProject, id: string, newId = createId("p
   return { ...song, patterns: [...song.patterns.slice(0, index + 1), copy, ...song.patterns.slice(index + 1)] };
 }
 
-/** Remove a pattern; a song keeps at least one. */
+/** Remove a pattern and its clips on the playlist; a song keeps at least one. */
 export function removePattern(song: MusicProject, id: string): MusicProject {
   if (song.patterns.length <= 1 || !getPattern(song, id)) return song;
-  return { ...song, patterns: song.patterns.filter((p) => p.id !== id) };
+  const clips = song.playlist.clips.filter((c) => !(c.kind === "pattern" && c.ref === id));
+  return {
+    ...song,
+    patterns: song.patterns.filter((p) => p.id !== id),
+    playlist: clips.length === song.playlist.clips.length ? song.playlist : { ...song.playlist, clips },
+  };
 }
 
 function updatePattern(song: MusicProject, id: string, update: (p: Pattern) => Pattern): MusicProject {

@@ -7,7 +7,7 @@ README.md is the user-facing guide. This file is for working on the code.
 
 It's growing into a **creative suite**: every project belongs to one app, a *suite* (`SuiteId`: video, music; image
 next), picked in the sidebar's New project picker. The video editor is the furthest along; **music is a DAW modelled on
-FL Studio**, with its channel rack built so far (see "The music suite"). See "Suites" below: most of this file is about the video editor, which lives at the roots of
+FL Studio** (see "The music suite"). See "Suites" below: most of this file is about the video editor, which lives at the roots of
 `shared/`, `server/` and `src/`; every other suite has folders of its own.
 
 ## Commands
@@ -51,7 +51,8 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
   tool-spec.ts       What a tool is (ToolSpec, kinds, JSON schema helpers) and its results, for every suite.
   ids.ts             createId, for everything the app makes.
   music/             The music suite: its document (types.ts), create/normalise (project.ts), its pure edits
-                     (edits.ts), the song as the engine plays it (compile.ts: swing, gains, mutes), its tools
+                     (edits.ts; the playlist's in playlist.ts), the song as the engine plays it (compile.ts:
+                     swing, gains, mutes, song mode's arrangement flattened), its tools
                      (tools.ts), the audio engine's commands, status and events (engine.ts), and the
                      Browser's types and search (browser.ts: pure, ranked, typo-tolerant).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
@@ -158,7 +159,9 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      and its samples. Sequencer.cpp: the transport, the sampler's voices, plugin channels'
                      notes, the metronome. Host.cpp: the song's plugin channels (instances, state files,
                      windows). Plugins.cpp: plugin scanning and the bench's two slots. FilePreview.cpp:
-                     the Browser's preview, a file streamed from disk (a reader thread, a lock-free ring). Protocol.cpp:
+                     the Browser's preview, a file streamed from disk; AudioStream.cpp is that stream (a reader
+                     thread, a lock-free ring), and ClipPlayer.cpp plays the playlist's audio clips with it,
+                     each started on its sample. Protocol.cpp:
                      the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
@@ -178,8 +181,10 @@ src/
                      channel-settings.tsx (a sampler's window), channel-picker.tsx (the +: choose an
                      instrument), knob.tsx, lcd.tsx, waveform.ts, browser/ (the Browser, Alt+F8: a panel
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
-                     pattern-picker.tsx, toolbar.tsx (FL's toolbar: transport, tempo and position LCDs, the hint
-                     bar; its maths in position.ts), settings.tsx (its section of Settings: the device, and
+                     pattern-picker.tsx, toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
+                     tempo and position LCDs, the hint bar; its maths in position.ts), playlist/ (the
+                     Playlist, F5: see "The music suite"), playhead.ts (where the song and the shown pattern
+                     are now), settings.tsx (its section of Settings: the device, and
                      engine-panel.tsx, the plugin bench), keys.ts, api.ts, and the assistant's side (tools.ts, tool-edits.ts,
                      context.ts).
   lib/document-history.ts, autosaver.ts   Undo (with gestures) and autosave for any suite's document; music uses
@@ -271,7 +276,7 @@ A DAW modelled on **FL Studio**: when in doubt about its UX, do what FL Studio d
 Théo): read the panel's document before touching that panel, don't work from memory, and write the document for
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
-swing), the Piano roll, the transport and the metronome, the mixer, the Browser. Where it is and every step still to come, in order:
+swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing }, channels,
@@ -355,6 +360,24 @@ swing), the Piano roll, the transport and the metronome, the mixer, the Browser.
   right-click is its menu. Knobs are `Knob`/`SongKnob`, number displays `Lcd`: don't hand-roll either.
 - What a menu item and its shortcut do lives once, in `rack-actions.ts`; keys are resolved in `keys.ts` (pure,
   tested) and run in `workspace.tsx`.
+- **The Playlist** (`docs/fl-studio/playlist.md`, F5; `src/suites/music/playlist/`): `MusicProject.playlist`
+  is numbered tracks (bound to nothing; `tracks` only as long as the last one changed) and clips
+  (`PlaylistClip`: a pattern or an audio clip's channel, `start`, `length` (null: a pattern clip following
+  its pattern), `offset` into its content (ticks of a pattern, **seconds** of an audio file), `muted`). Clip
+  ids are small numbers, like notes'. Its operations are pure functions of a clip list in
+  `shared/music/playlist.ts` (with a `ClipContext`: the patterns' lengths and the tempo, which a clip's
+  length needs), and the window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
+  through `applyDrag` and committed once, maths in `geometry.ts`, mouse in `pointer.ts`, keys in `keys.ts`,
+  commands in `actions.ts`. An audio clip's channel is `Channel.kind: "audio"`: no notes, in the rack's
+  Audio group (`RackGroup`), not in the Piano roll. Deleting a pattern or a channel takes its clips.
+- **Song mode** (PAT / SONG, L): `useTransport.mode` (not saved: a song with clips opens in song mode),
+  with a start tick per mode; `switchMode` sends the engine the other song and carries on playing.
+  `compileSong(..., "song")` flattens the arrangement into notes (a clip plays nothing past its pattern;
+  notes cut at its end; a note a slice went through plays from the slice) and lists `audioClips`; the loop is
+  the song (to its last clip's bar) or the Playlist's time selection. The engine streams audio clips
+  (`ClipPlayer`): streams are made ahead on the message thread, each for a play (`generation`) and a pass
+  round the loop, and started on their sample; keep that when adding to it. `playhead.ts` says where the
+  shown pattern is inside the song, for the rack's lights and the Piano roll's playhead.
 - **The Browser** (`docs/fl-studio/browser.md`, Alt+F8): the user's own sample folders, global, not the
   song's (`data/browser.json`, `server/music/browser.ts`; the tab's open folders and width are localStorage).
   The server reads nothing outside the folders added. It's a panel kept on the desktop's left

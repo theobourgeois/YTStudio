@@ -10,6 +10,8 @@ const pattern = str("A pattern: its id or its name. Default: the pattern shown i
 const mixerTrack = (what = "A mixer track") =>
   ({ description: `${what}: its id, its number (0 or "M" is the master, 1 the first insert), "master", or its name ("Drums", "Insert 3").`, anyOf: [{ type: "string" }, { type: "integer" }] }) as const;
 const slot = int("An effect slot of the track, 1 to 10 (as the mixer numbers them).");
+const playlistTrack = int("A playlist track's number, 1 for the first (as the Playlist numbers them).");
+const clipIds = arr(int("A clip's id"), "Clips, by their ids from get_playlist.");
 
 /** The starter kit's sounds (`public/kit/`). */
 export const KIT_SOUNDS = ["kick", "clap", "hat", "snare"] as const;
@@ -462,11 +464,150 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({ path: str("The file's or folder's full path."), favourite: bool("true (the default) to star it, false to unstar it.") }, ["path"]),
   }),
   tool({
+    name: "get_playlist",
+    title: "Read the playlist",
+    kind: "look",
+    description:
+      "The playlist: the song's arrangement (what plays in song mode). Its tracks (numbered from 1, bound to nothing: any clip goes on any " +
+      "track) and every clip on them: its id, what it plays (a pattern, or an audio clip's file), where it starts (a bar, 1 is the first, " +
+      "fractions are beats in), how long it is in bars, how far into its content it starts, and whether it's muted. Also the song's length " +
+      "and whether the editor plays the pattern or the song.",
+    inputSchema: obj({}),
+  }),
+  tool({
+    name: "place_clips",
+    title: "Place clips on the playlist",
+    kind: "edit",
+    description:
+      "Put clips on the playlist, to arrange the song. Each is a pattern (by id or name), or an audio clip already in the song (its channel, " +
+      "from get_playlist; add_audio_clip brings in a new file), on a track, at a bar. A pattern clip is as long as its pattern unless `length` " +
+      "says otherwise (stretched past its pattern, it plays nothing more); `repeat` places it that many times, one after another. Clips can " +
+      "overlap, but keep each part of the arrangement on its own track.",
+    inputSchema: obj(
+      {
+        clips: arr(
+          obj(
+            {
+              pattern: str("A pattern: its id or its name."),
+              audio: str("An audio clip's channel: its id or its name."),
+              track: playlistTrack,
+              bar: num("Where it starts: a bar, 1 for the first (1.5 is half a bar in)."),
+              length: num("Its length in bars (default: its pattern's, or the audio clip's)."),
+              offset: num("How far into its content it starts, in bars (default 0)."),
+              repeat: int("Place it this many times, one after another (default 1)."),
+              muted: bool("Muted (default false)."),
+            },
+            ["track", "bar"],
+            "A clip: `pattern` or `audio`, a track and a bar.",
+          ),
+          "The clips to place.",
+        ),
+      },
+      ["clips"],
+    ),
+  }),
+  tool({
+    name: "update_clips",
+    title: "Change clips on the playlist",
+    kind: "edit",
+    description:
+      "Move clips (to another bar or track: `move_bars` and `move_tracks` move them all together, or `bar` and `track` put one clip there), resize " +
+      "them, slip their content, or mute and unmute them. Only what's given changes.",
+    inputSchema: obj(
+      {
+        ids: clipIds,
+        bar: num("Where it starts, for a single clip: a bar, 1 for the first."),
+        track: playlistTrack,
+        move_bars: num("Move them all this many bars later (negative: earlier)."),
+        move_tracks: int("Move them all this many tracks down (negative: up)."),
+        length: num("Their length in bars."),
+        offset: num("How far into their content they start, in bars."),
+        muted: bool("Muted, or not."),
+      },
+      ["ids"],
+    ),
+  }),
+  tool({
+    name: "remove_clips",
+    title: "Remove clips from the playlist",
+    kind: "edit",
+    description: "Remove clips from the playlist: by id, or every clip on a track, or every clip of a pattern or audio clip. The patterns themselves stay.",
+    inputSchema: obj({ ids: clipIds, track: playlistTrack, pattern: str("Every clip of this pattern (id or name)."), audio: str("Every clip of this audio clip (its channel's id or name).") }),
+  }),
+  tool({
+    name: "slice_clips",
+    title: "Slice clips",
+    kind: "edit",
+    description: "Cut clips in two at a bar (FL's slice tool): every clip crossing it, on the tracks given (default: every track). Each part plays its part of the content.",
+    inputSchema: obj({ bar: num("Where to cut: a bar, 1 for the first (fractions are beats in)."), tracks: arr(playlistTrack, "The tracks (default: all).") }, ["bar"]),
+  }),
+  tool({
+    name: "split_by_channel",
+    title: "Split a pattern by channel",
+    kind: "edit",
+    description:
+      "FL's Split by channel: the pattern is replaced by one pattern per channel that has notes in it (each named after its channel), and each " +
+      "of its clips on the playlist by one clip per channel, on its track and the free tracks below. Use it to arrange the parts of a beat on " +
+      "tracks of their own. The user can undo it.",
+    inputSchema: obj({ pattern: str("The pattern: its id or its name.") }, ["pattern"]),
+  }),
+  tool({
+    name: "make_clip_unique",
+    title: "Make a clip unique",
+    kind: "edit",
+    description: "Give a pattern clip a copy of its pattern of its own (\"Verse #2\"), so editing it changes no other clip.",
+    inputSchema: obj({ id: int("The clip's id.") }, ["id"]),
+  }),
+  tool({
+    name: "update_playlist_track",
+    title: "Change a playlist track",
+    kind: "edit",
+    description:
+      "Rename a playlist track, colour it, mute or solo it (a muted track's clips are silent), change its height, or insert an empty track before " +
+      "it, delete it (and its clips) or move it up or down (with its clips). Only what's given changes.",
+    inputSchema: obj(
+      {
+        track: playlistTrack,
+        name: str("A new name (empty: back to \"Track N\")."),
+        color: str('A colour, "#rrggbb", or "" for none.'),
+        muted: bool("Muted, or not."),
+        solo: bool("Solo it (every other track is muted; soloing the one already alone unmutes them all)."),
+        size: num("Its height, 0.25 to 4 times the usual."),
+        insert: bool("Insert an empty track before it (it and those below move down)."),
+        delete: bool("Delete it and its clips (those below move up)."),
+        move: oneOf(["up", "down"], "Move it a place up or down, with its clips."),
+      },
+      ["track"],
+    ),
+  }),
+  tool({
+    name: "add_audio_clip",
+    title: "Add an audio clip",
+    kind: "action",
+    description:
+      "Put audio files on the playlist as audio clips (FL's): a vocal, a loop, a whole song. Each gets a channel of its own (in the rack's " +
+      "Audio group, routed to a mixer track like any channel) and a clip as long as the file, streamed from disk when it plays. Files from " +
+      "the Browser (by full path), or already in the project (`mediaId`). Several are placed on the tracks below each other, or one after " +
+      "another on one track (`after`).",
+    inputSchema: obj(
+      {
+        paths: arr(str("A file's full path."), "The Browser's files (from search_samples or list_samples)."),
+        mediaId: str("An audio file already in the project (from get_song)."),
+        track: playlistTrack,
+        bar: num("Where it starts: a bar, 1 for the first."),
+        after: bool("Several files one after another on the track (default: each on the track below)."),
+      },
+      ["track", "bar"],
+    ),
+  }),
+  tool({
     name: "play_song",
     title: "Play or stop",
     kind: "action",
-    description: "Start the song playing (the pattern shown, looped, from its start) or stop it, so the user hears it. You can't hear it yourself.",
-    inputSchema: obj({ action: oneOf(["play", "stop"], "What to do.") }, ["action"]),
+    description:
+      "Start playing or stop, so the user hears it (you can't hear it yourself). `mode` chooses what plays, as the toolbar's PAT / SONG does: " +
+      "the pattern shown, looped (\"pattern\"), or the playlist (\"song\", from `bar`, going round at its end). Default: as the editor is.",
+    inputSchema: obj({ action: oneOf(["play", "stop"], "What to do."), mode: oneOf(["pattern", "song"], "What plays."), bar: num("In song mode, the bar to play from (1 is the start).") }, ["action"]),
   }),
 ] as const satisfies readonly ToolSpec[];
 

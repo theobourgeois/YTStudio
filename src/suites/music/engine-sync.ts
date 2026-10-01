@@ -4,8 +4,9 @@ import { musicApi } from "./api";
 import { withChopPreview } from "./piano/actions";
 import { usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
+import { usePlaylist } from "./playlist/store";
 import { useMusic } from "./store";
-import { NO_CHANNELS, NO_EFFECTS, NO_METERS, useTransport } from "./transport";
+import { NO_CHANNELS, NO_EFFECTS, NO_METERS, afterSongSent, useTransport } from "./transport";
 import { currentTrackId, useMusicUi } from "./ui";
 
 /**
@@ -28,13 +29,16 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     do {
       dirty = false;
       const { projectId, history, patternId, draftPattern } = useMusic.getState();
+      const playMode = useTransport.getState().mode;
       if (stopped || !projectId || !history) break;
       try {
-        // The Piano roll's time selection is what loops, while there is one. A draft pattern shown plays (empty),
-        // and the Chopper's chop is heard while it's open.
+        // The time selection is what loops, while there is one: the Piano roll's in pattern mode, the
+        // Playlist's in song mode. A draft pattern shown plays (empty), and the Chopper's chop is heard while it's open.
         const song = withChopPreview(withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern)));
-        const { unreadable, channels, effects, loop } = await musicApi.setSong({ projectId, song, patternId, loop: usePiano.getState().time });
-        useTransport.setState({ unreadable, channels, effects: effects ?? NO_EFFECTS, loop, error: null });
+        const loop = playMode === "song" ? usePlaylist.getState().time : usePiano.getState().time;
+        const { unreadable, channels, effects, loop: playing } = await musicApi.setSong({ projectId, song, patternId, loop, mode: playMode });
+        useTransport.setState({ unreadable, channels, effects: effects ?? NO_EFFECTS, loop: playing, error: null });
+        if (!dirty) afterSongSent();
         // A plugin that finished loading while this answer was on its way said so first: ask again, so the
         // answer's "loading" doesn't stand.
         if (channels.loading.length || effects?.loading.length) {
@@ -51,8 +55,14 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   const unsubscribe = useMusic.subscribe((state, prev) => {
     if (state.history?.doc !== prev.history?.doc || state.patternId !== prev.patternId || state.projectId !== prev.projectId) void send();
   });
+  const unsubscribeMode = useTransport.subscribe((state, prev) => {
+    if (state.mode !== prev.mode) void send();
+  });
+  const unsubscribePlaylist = usePlaylist.subscribe((state, prev) => {
+    if (state.time !== prev.time && useTransport.getState().mode === "song") void send();
+  });
   const unsubscribeLoop = usePiano.subscribe((state, prev) => {
-    if (state.time !== prev.time || state.chopping !== prev.chopping) void send();
+    if ((state.time !== prev.time && useTransport.getState().mode === "pattern") || state.chopping !== prev.chopping) void send();
     // What the Chopper makes changes with its settings, the selection and the snap (Line's grid follows the zoom).
     else if (state.chopping && (state.chopper !== prev.chopper || state.selected !== prev.selected || state.snap !== prev.snap || state.view.pxPerTick !== prev.view.pxPerTick || state.channelId !== prev.channelId)) void send();
   });
@@ -123,6 +133,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     stopped = true;
     unsubscribe();
     unsubscribeLoop();
+    unsubscribePlaylist();
+    unsubscribeMode();
     unsubscribeSelection();
     stopListening();
     if (useTransport.getState().playing) void musicApi.engine("stop", {}).catch(() => {});

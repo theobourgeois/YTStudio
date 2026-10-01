@@ -1,5 +1,6 @@
-// Plays a Song: the transport (a position in ticks, looping), the sampler's voices, the mixer's tracks
-// (channels play into theirs, which add up into the master) and the metronome.
+// Plays a Song: the transport (a position in ticks, looping), the sampler's voices, the playlist's audio
+// clips (`ClipPlayer`), the mixer's tracks (channels play into theirs, which add up into the master) and
+// the metronome.
 //
 // Two threads meet here and neither waits for the other. The message thread hands over songs and
 // requests (`setSong`, `play`, `stop`, `trigger`) through atomics and lock-free queues; the audio
@@ -7,6 +8,7 @@
 // way, to be deleted off the audio thread (`collectGarbage`).
 #pragma once
 
+#include "ClipPlayer.h"
 #include "Song.h"
 
 #include <array>
@@ -18,7 +20,8 @@
 class Sequencer
 {
 public:
-    Sequencer() = default;
+    /** `offline`: audio clips' files are decoded on the rendering thread rather than a reader thread of their own. */
+    explicit Sequencer (bool offline);
     ~Sequencer();
 
     /** The sample rate sound is made at. Only while `process` isn't running. */
@@ -41,6 +44,8 @@ public:
     bool preview (const juce::String& channelId, int key, float velocity, bool on);
     /** Delete the songs the audio thread has let go of. Call regularly. */
     void collectGarbage();
+    /** Have the audio clips about to play ready to start on time (they're streamed from disk). Call regularly, and before each offline block. */
+    void prepareClips();
 
     /**
      * Each mixer track's loudest sample on each side (after its fader) since the last call, as
@@ -99,6 +104,8 @@ private:
     void adopt (Song* next);
     void schedule (int numSamples);
     void scheduleRange (double from, double to, double origin, int offset, int length, double ticksPerSample);
+    /** Make a new play (or stop): its number, published for the audio thread to pick up with the request. */
+    juce::uint32 nextGeneration();
     void startVoice (int channel, float pitch, float gain, double lengthTicks, int delay, float pan = 0);
     /** A note for a channel's plugin: on at `delay` samples into the block, off `lengthSamples` later. */
     void startNote (HostedPlugin&, int key, float velocity, juce::int64 lengthSamples, int delay);
@@ -144,10 +151,21 @@ private:
     int playsSeen = 0, stopsSeen = 0;
     std::atomic<bool> metronome { false };
 
+    /** The audio clips: their streams, made ahead on the message thread. */
+    ClipPlayer clips;
+    /** Every play and every stop is a new generation, so streams made for one don't play in another. The message thread's count, and the one it asks for. */
+    juce::uint32 generations = 0;
+    std::atomic<juce::uint32> requestedGeneration { 0 };
+    /** The message thread's copy of the last song's loop length (where play starts is within it). */
+    double loopTicks = 1;
+
     bool playing = false;
     double position_ = 0;
+    /** The audio thread's play generation, and how many times round the loop it's been since play started. */
+    juce::uint32 generation = 0, pass = 0;
     std::atomic<bool> playingNow { false };
     std::atomic<double> positionNow { 0.0 };
+    std::atomic<juce::uint32> generationNow { 0 }, passNow { 0 };
 
     /** The meters: two per track of the song `meterSerial` names, by its tracks' order. The audio thread raises them, `takeMeters` takes them back to 0. */
     static constexpr int maxMeters = 1024;

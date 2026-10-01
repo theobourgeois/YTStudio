@@ -3,7 +3,7 @@ import { PiCaretDownBold, PiGhost, PiMagnet, PiWrench } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { noteBounds } from "@shared/music/notes";
-import { type Note, PPQ } from "@shared/music/types";
+import type { Note } from "@shared/music/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,7 +17,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { useMusic } from "../store";
-import { patternTickNow, useTransport } from "../transport";
+import { patternPositionNow } from "../playhead";
+import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import { chop, chopperResult, glue, legato, openChopper, pianoChannel, pianoContext, quantize } from "./actions";
@@ -207,7 +208,8 @@ function ToolsMenu() {
  * those with notes in this pattern first, then the rest.
  */
 function ChannelMenu({ name }: { name: string }) {
-  const channels = useMusic((s) => s.history!.doc.channels);
+  const allChannels = useMusic((s) => s.history!.doc.channels);
+  const channels = allChannels.filter((c) => c.kind !== "audio");
   const patternNotes = useMusic((s) => s.history!.doc.patterns.find((p) => p.id === s.patternId)?.notes ?? s.history!.doc.patterns[0].notes);
   const current = pianoContext()?.channel.id ?? "";
   usePiano((s) => s.channelId);
@@ -402,9 +404,8 @@ function PianoBody() {
     let frame = 0;
     const move = () => {
       const line = playhead.current;
-      const song = useMusic.getState().history?.doc;
-      if (line && song) {
-        const tick = patternTickNow(useTransport.getState(), performance.now(), song.settings.tempo, PPQ);
+      if (line) {
+        const tick = patternPositionNow();
         const x = tick === null ? -10 : tickToX(usePiano.getState().view, tick);
         line.style.transform = `translateX(${x}px)`;
         line.style.opacity = tick === null ? "0" : "1";

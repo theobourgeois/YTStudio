@@ -1,9 +1,10 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiFolders, PiMetronome, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiFolders, PiListDashes, PiMetronome, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { lengthOf, setTempo } from "@shared/music/edits";
+import { songTicks } from "@shared/music/playlist";
 import { MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
-import { PPQ, STEP_TICKS } from "@shared/music/types";
+import { STEP_TICKS } from "@shared/music/types";
 import { AssistantButton } from "@/components/assistant/assistant-button";
 import { SettleButton, SettledBadge } from "@/components/header/header";
 import { ProjectName } from "@/components/header/project-name";
@@ -13,12 +14,15 @@ import { Toggle, toggleVariants } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { canRedo, canUndo } from "@/lib/document-history";
 import { startPointerDrag } from "@/lib/pointer-drag";
+import { ModeLights } from "./mode-switch";
 import { CpuGraph, OutputGraph } from "./monitors";
 import { PatternPicker } from "./pattern-picker";
 import { openPianoRoll } from "./piano/actions";
+import { positionNow } from "./playhead";
+import { openPlaylist } from "./playlist/actions";
 import { positionAt, positionText } from "./position";
-import { songGesture, useCurrentPattern, useMusic, useSong } from "./store";
-import { patternTickNow, useTransport } from "./transport";
+import { currentPattern, songGesture, useMusic, useSong } from "./store";
+import { switchMode, useTransport } from "./transport";
 import { useMusicUi } from "./ui";
 import { useBrowser } from "./browser/store";
 import { useWheelValue } from "./wheel";
@@ -50,6 +54,7 @@ export function MusicToolbar() {
       <div className="flex min-w-0 flex-1 flex-col justify-between">
         <div className="flex h-10 min-w-0 items-center gap-2">
           <div className="flex items-center gap-2" role="toolbar" aria-label="Transport">
+            <ModeSwitch />
             <PlayButtons />
             <MetronomeToggle />
             <TempoLcd />
@@ -123,6 +128,15 @@ function HintBar() {
       {hint || " "}
     </div>
   );
+}
+
+/**
+ * FL Studio's PAT / SONG switch (L): play plays the pattern shown, looped, or the playlist. Two lights,
+ * the one lit is what plays.
+ */
+function ModeSwitch() {
+  const mode = useTransport((s) => s.mode);
+  return <ModeLights mode={mode} onChange={(next) => switchMode(next)} />;
 }
 
 /** Play (lit while playing; pressed again it stops, there's no pause yet) and Stop. */
@@ -242,10 +256,11 @@ function Lcd({ label, className, children }: { label: string; className?: string
   );
 }
 
-/** Where play is now (or starts), frame by frame while it plays, written straight into the display. */
+/** Where play is now (or starts) in the mode playing, frame by frame while it plays, written straight into the display. */
 function usePlayTick(onTick: (tick: number) => void) {
   const playing = useTransport((s) => s.playing);
-  const startTick = useTransport((s) => s.startTick);
+  const mode = useTransport((s) => s.mode);
+  const startTick = useTransport((s) => (mode === "song" ? s.songStartTick : s.startTick));
   const tempo = useSong((song) => song.settings.tempo);
   const latest = useRef(onTick);
   latest.current = onTick;
@@ -256,12 +271,12 @@ function usePlayTick(onTick: (tick: number) => void) {
     }
     let frame = 0;
     const draw = () => {
-      latest.current(patternTickNow(useTransport.getState(), performance.now(), tempo, PPQ) ?? startTick);
+      latest.current(positionNow() ?? startTick);
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [playing, startTick, tempo]);
+  }, [playing, startTick, tempo, mode]);
 }
 
 /** FL Studio's position display, in bars:steps:ticks. */
@@ -273,7 +288,7 @@ function PositionLcd() {
   });
   return (
     <Lcd label="B:S:T" className="w-[96px] justify-end">
-      <span ref={text} className="font-mono text-[18px] leading-none tabular-nums" title="Where the pattern is playing, or where play starts (bar:step:tick)" aria-label="Position">
+      <span ref={text} className="font-mono text-[18px] leading-none tabular-nums" title="Where the pattern (or the song) is playing, or where play starts (bar:step:tick)" aria-label="Position">
         1:01:00
       </span>
     </Lcd>
@@ -284,12 +299,14 @@ function PositionLcd() {
 const THUMB = 16;
 
 /**
- * The song position slider: along the pattern, where play is (it moves while playing), lit with the
- * accent up to there. A press or a drag moves play there, to the step (the thumb follows the pointer
- * while it's held); the arrow keys move it a step, Home and End to the ends.
+ * The song position slider: along the pattern (or the song, in song mode), where play is (it moves while
+ * playing), lit with the accent up to there. A press or a drag moves play there, to the step (the thumb
+ * follows the pointer while it's held); the arrow keys move it a step, Home and End to the ends.
  */
 function PositionSlider() {
-  const patternTicks = useCurrentPattern((pattern, song) => lengthOf(song, pattern) * STEP_TICKS);
+  const mode = useTransport((s) => s.mode);
+  const patternTicks = useMusic((s) => (mode === "song" ? songTicks(s.history!.doc) : lengthOf(s.history!.doc, currentPattern(s.history!.doc, s.patternId)) * STEP_TICKS));
+  const startOf = () => useTransport.getState().startOf();
   const thumb = useRef<HTMLDivElement>(null);
   const fill = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLDivElement>(null);
@@ -310,7 +327,8 @@ function PositionSlider() {
     setNow(tick);
     if (tick === sent.current) return;
     sent.current = tick;
-    useTransport.getState().jumpTo(tick);
+    if (mode === "song") useTransport.getState().jumpSongTo(tick);
+    else useTransport.getState().jumpTo(tick);
   };
   const moveTo = (clientX: number) => {
     const rect = track.current!.getBoundingClientRect();
@@ -340,14 +358,14 @@ function PositionSlider() {
         const release = () => {
           held.current = false;
           // On its step, if it's not playing (playing, the next frame puts it where play is).
-          const tick = useTransport.getState().startTick;
+          const tick = startOf();
           if (patternTicks > 0) show(tick / patternTicks);
         };
         const started = startPointerDrag(e, { threshold: 0, onMove: (ev) => moveTo(ev.clientX), onEnd: release, onCancel: release, onClick: release });
         if (!started) release();
       }}
       onKeyDown={(e) => {
-        const from = useTransport.getState().startTick;
+        const from = startOf();
         const to =
           e.key === "ArrowLeft" || e.key === "ArrowDown" ? from - STEP_TICKS
           : e.key === "ArrowRight" || e.key === "ArrowUp" ? from + STEP_TICKS
@@ -385,6 +403,9 @@ function MetronomeToggle() {
 function WindowToggles() {
   return (
     <>
+      <WindowButton onOpen={() => openPlaylist()} label="Playlist" title="Playlist: the song's arrangement (F5)">
+        <PiListDashes />
+      </WindowButton>
       <WindowButton onOpen={() => openPianoRoll()} label="Piano roll" title="Piano roll: the selected channel's notes (F7)">
         <PiPianoKeys />
       </WindowButton>

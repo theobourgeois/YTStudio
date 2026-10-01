@@ -4,6 +4,7 @@ import { MASTER_TRACK_ID } from "@shared/music/project";
 import type { MusicProject } from "@shared/music/types";
 import type { MediaAsset } from "@shared/types";
 import { trackLabel } from "./mixer/tool-edits";
+import { playlistSummary } from "./playlist/tool-edits";
 import { describeChannel, describeLength } from "./tool-edits";
 
 /** The song in a line, for the chat's label and the sidebar. */
@@ -21,12 +22,12 @@ export function describeSong(song: MusicProject, assets: MediaAsset[], patternId
     `Song: "${song.name}", ${songTiming(song)}, swing ${Math.round(song.settings.swing * 100)}%.`,
     "",
     song.channels.length ? "Channels (in the rack's order):" : "No channels yet (add_channel makes one).",
-    ...song.channels.map((c) => `- ${describeChannel(c, sampleName(c.sampleId))}`),
+    ...song.channels.map((c) => `- ${describeChannel(c, sampleName(c.sampleId))}${c.kind === "audio" ? " (an audio clip: it plays from the playlist)" : ""}`),
     "",
     "Patterns (x = a step on, - = off; a step is a sixteenth note):",
     ...song.patterns.flatMap((p) => [
       `- "${p.name}" (id ${p.id}, ${describeLength(song, p)})${p === shown ? ", shown in the rack: it's the one that plays" : ""}`,
-      ...song.channels.map((c) => `    ${stepString(p, c.id, lengthOf(song, p))}  ${c.name}`),
+      ...song.channels.filter((c) => c.kind !== "audio").map((c) => `    ${stepString(p, c.id, lengthOf(song, p))}  ${c.name}`),
     ]),
   ];
   // Where each channel's sound goes, in short (get_mixer has the rest).
@@ -38,6 +39,7 @@ export function describeSong(song: MusicProject, assets: MediaAsset[], patternId
       ? `Mixer: ${routed.map((c) => `"${c.name}" → ${trackLabel(song, getMixerTrack(song, c.mixerTrack)!)}`).join(", ")}; the other channels play into the master.`
       : "Mixer: every channel plays into the master.",
     `${effects ? `${effects} effect${effects === 1 ? "" : "s"} in the mixer. ` : ""}get_mixer has every track's level, effects and sends.`,
+    playlistSummary(song),
   );
   const spare = assets.filter((a) => a.hasAudio && !used.has(a.id));
   if (spare.length) lines.push("", "Audio files in the project that no channel uses:", ...spare.map((a) => `- ${a.name} (mediaId ${a.id})`));
