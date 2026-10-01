@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import { addChannels, addPluginChannel, getChannel, updateChannel } from "@shared/music/edits";
+import { addAudioClips } from "@shared/music/playlist";
 import { createId } from "@shared/ids";
 import type { MusicProject, Pattern, PluginRef } from "@shared/music/types";
 import type { MediaAsset } from "@shared/types";
@@ -10,6 +11,7 @@ import { createAutosaver } from "@/lib/autosaver";
 import { DocumentGesture, type DocumentHistory, commit, historyOf, redo, rewrite, undo } from "@/lib/document-history";
 import { useProjects } from "@/stores/projects";
 import { musicApi } from "./api";
+import { useTransport } from "./transport";
 import { type DraftPattern, draftAsPattern, editWithDraft, stepPattern } from "./patterns";
 
 /**
@@ -31,6 +33,8 @@ interface MusicState {
   draftPattern: DraftPattern | null;
 
   open: (projectId: string) => Promise<void>;
+  /** Read the project's media again (a file's waveform is made after it's added). */
+  refreshAssets: () => Promise<void>;
   close: () => Promise<void>;
   rename: (name: string) => Promise<void>;
   /** Apply an edit as one undo step. */
@@ -40,6 +44,12 @@ interface MusicState {
   selectPattern: (id: string) => void;
   /** Show the pattern a step up or down the selector (past the last one, a draft). */
   stepPattern: (direction: 1 | -1) => void;
+  /**
+   * Audio files (the Browser's, by path, or from Finder) as audio clips on the playlist (FL's): a channel of
+   * its own for each, in the rack's Audio group, and a clip as long as the file, the first at `start` on
+   * `track`, the next ones on the tracks below (`after`: one after another on that track). Returns the clips' ids.
+   */
+  addAudioClips: (source: { paths: string[] } | { files: File[] }, at: { start: number; track: number; after?: boolean }) => Promise<number[]>;
   /** Bring audio files into the project and add a channel for each, at the end of the rack or before channel `at`. */
   addSamples: (files: File[], at?: number) => Promise<void>;
   /** Add a channel playing an instrument plugin, or an empty sampler. Returns its id. */
@@ -132,10 +142,20 @@ export const useMusic = create<MusicState>((set, get) => {
       set({ projectId, history: null, assets: [], loading: true, loadError: null, patternId: null, draftPattern: null });
       try {
         const [song, assets] = await Promise.all([api.getDocument("music", projectId), api.listMedia(projectId)]);
-        if (token === openToken) set({ history: historyOf(song), assets, loading: false, patternId: song.patterns[0].id });
+        if (token !== openToken) return;
+        // A song with clips on its playlist opens in song mode (Théo); the mode isn't saved.
+        useTransport.getState().setMode(song.playlist.clips.length ? "song" : "pattern");
+        set({ history: historyOf(song), assets, loading: false, patternId: song.patterns[0].id });
       } catch (err) {
         if (token === openToken) set({ loading: false, loadError: errorMessage(err) });
       }
+    },
+
+    async refreshAssets() {
+      const { projectId } = get();
+      if (!projectId) return;
+      const assets = await api.listMedia(projectId).catch(() => null);
+      if (assets && get().projectId === projectId) set({ assets });
     },
 
     async close() {
@@ -202,6 +222,22 @@ export const useMusic = create<MusicState>((set, get) => {
       } catch (err) {
         toast.error("Couldn't add the starter kit", { description: errorMessage(err) });
       }
+    },
+
+    async addAudioClips(source, at) {
+      const assets = "paths" in source ? await fromBrowser(source.paths) : await upload(source.files);
+      if (!assets.length || !get().history) return [];
+      let clipIds: number[] = [];
+      get().commit((song) => {
+        const result = addAudioClips(
+          song,
+          assets.map((a) => ({ name: channelName(a.name), sampleId: a.id, seconds: a.duration })),
+          at,
+        );
+        clipIds = result.clipIds;
+        return result.song;
+      });
+      return clipIds;
     },
 
     async addBrowserSamples(paths, at) {

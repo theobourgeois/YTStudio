@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { PlayMode } from "@shared/music/compile";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import type { EngineChannels, EngineEffects, EngineMeters, EnginePreview } from "@shared/music/engine";
@@ -28,6 +29,13 @@ interface TransportState {
   loop: { start: number; ticks: number };
   /** Where in the pattern play starts (a click on the Piano roll's ruler), in ticks. */
   startTick: number;
+  /** Where in the song play starts in song mode (a click on the Playlist's ruler), in ticks. */
+  songStartTick: number;
+  /**
+   * What play plays (the toolbar's PAT / SONG): the pattern shown, looped, or the playlist. Not saved: a
+   * song with clips on its playlist opens in song mode (Théo).
+   */
+  mode: PlayMode;
   /** Channels whose sample the engine couldn't read. */
   unreadable: string[];
   /** The song's plugin channels as the engine has them: loaded (and whose window is open), loading, failed. */
@@ -52,8 +60,14 @@ interface TransportState {
   /** Hold a key on a channel, or let it go (the Piano roll's keyboard, a note being drawn). `key` is a MIDI note. */
   preview: (channelId: string, key: number, on: boolean, velocity?: number) => void;
   setStartTick: (tick: number) => void;
-  /** Set where play starts, and if it's playing, go there now. */
+  /** Set where play starts in the pattern, and if it's playing, go there now. In song mode, it switches to pattern mode. */
   jumpTo: (tick: number) => void;
+  setSongStartTick: (tick: number) => void;
+  /** Set where play starts in the song, and if it's playing, go there now. In pattern mode, it switches to song mode. */
+  jumpSongTo: (tick: number) => void;
+  /** Where play starts in the mode playing. */
+  startOf: () => number;
+  setMode: (mode: PlayMode) => void;
 }
 
 export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: [] };
@@ -92,6 +106,8 @@ export const useTransport = create<TransportState>((set, get) => {
     sampleRate: 48000,
     loop: { start: 0, ticks: 0 },
     startTick: 0,
+    songStartTick: 0,
+    mode: "pattern" as PlayMode,
     unreadable: [],
     channels: NO_CHANNELS,
     effects: NO_EFFECTS,
@@ -100,8 +116,8 @@ export const useTransport = create<TransportState>((set, get) => {
 
     // From where the ruler was clicked, if that's inside what loops; the engine counts from the loop's start.
     play() {
-      const { startTick, loop } = get();
-      const from = startTick - loop.start;
+      const { loop } = get();
+      const from = get().startOf() - loop.start;
       void run("play", { from: from > 0 && from < loop.ticks ? from : 0 });
     },
     stop: () => void run("stop", {}),
@@ -119,8 +135,17 @@ export const useTransport = create<TransportState>((set, get) => {
     setStartTick: (tick) => set({ startTick: Math.max(0, Math.round(tick)) }),
     jumpTo(tick) {
       get().setStartTick(tick);
+      if (get().mode !== "pattern") return switchMode("pattern");
       if (get().playing) get().play();
     },
+    setSongStartTick: (tick) => set({ songStartTick: Math.max(0, Math.round(tick)) }),
+    jumpSongTo(tick) {
+      get().setSongStartTick(tick);
+      if (get().mode !== "song") return switchMode("song");
+      if (get().playing) get().play();
+    },
+    startOf: () => (get().mode === "song" ? get().songStartTick : get().startTick),
+    setMode: (mode) => get().mode !== mode && set({ mode }),
     showPlugin(channelId, open) {
       musicApi.engine("channelEditor", { channel: channelId, open }).then(
         (status) => set({ channels: status.channels }),
@@ -137,6 +162,30 @@ export const useTransport = create<TransportState>((set, get) => {
 });
 
 /**
+ * Switch between pattern and song mode (the toolbar's PAT / SONG, L). Playing, it goes on in the other mode
+ * from where play starts there, once the engine has the song for it (`engine-sync.ts` sends it, then plays).
+ */
+export function switchMode(mode: PlayMode, thenPlay = false) {
+  const transport = useTransport.getState();
+  if (transport.mode === mode) {
+    if (thenPlay) transport.play();
+    return;
+  }
+  pendingRestart = transport.playing || thenPlay;
+  transport.setMode(mode);
+}
+
+/** Set when the mode changes while playing: play starts again once the engine has the new song. */
+let pendingRestart = false;
+
+/** Called by `engine-sync.ts` once the engine has the song for the mode: a switch made while playing carries on. */
+export function afterSongSent() {
+  if (!pendingRestart) return;
+  pendingRestart = false;
+  useTransport.getState().play();
+}
+
+/**
  * Where a playing loop is now, in ticks: the engine's last word, moved on by the time since and held
  * back by the output's latency. Null when it isn't playing (or nothing of it has been heard yet).
  */
@@ -147,7 +196,7 @@ export function tickNow(state: Pick<TransportState, "playing" | "tick" | "at" | 
   return tick % loopTicks;
 }
 
-/** Where the song is playing now in the pattern's own ticks (the loop may be only a part of it), or null. */
+/** Where it's playing now in the pattern's own ticks, or the song's in song mode (the loop may be only a part of it), or null. */
 export function patternTickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs" | "loop">, now: number, tempo: number, ppq: number): number | null {
   const tick = tickNow(state, now, tempo, ppq, state.loop.ticks);
   return tick === null ? null : state.loop.start + tick;

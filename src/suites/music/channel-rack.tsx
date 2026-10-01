@@ -1,11 +1,11 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning } from "react-icons/pi";
+import { PiCaretDownBold, PiCaretRightFill, PiChartBar, PiPlugs, PiSpinnerGap, PiWarning, PiWaveform } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { soundingChannels } from "@shared/music/compile";
 import { type StepPatch, drawSteps, fillSteps, lengthOf, setPatternLength, setStepNotes, setSteps, setSwing, stepNotes, updateChannel } from "@shared/music/edits";
 import { DEFAULT_VELOCITY, DEFAULT_VOLUME, MAX_STEPS, stepsPerBar } from "@shared/music/project";
-import { type Channel, type MusicProject, type Note, PPQ, ROOT_PITCH, STEP_TICKS } from "@shared/music/types";
+import { type Channel, type MusicProject, type Note, ROOT_PITCH, STEP_TICKS } from "@shared/music/types";
 import {
   ContextMenu,
   ContextMenuCell,
@@ -22,6 +22,8 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
@@ -52,8 +54,10 @@ import {
   toggleMute,
 } from "./rack-actions";
 import { currentPattern, songGesture, useCurrentPattern, useMusic, useSong } from "./store";
-import { patternTickNow, useTransport } from "./transport";
-import { MIN_RACK_STEPS, selectedIn, useMusicUi } from "./ui";
+import { patternPositionNow } from "./playhead";
+import { useTransport } from "./transport";
+import { MIN_RACK_STEPS, type RackGroup, inRackGroup, selectedIn, useMusicUi } from "./ui";
+import { chooseSource, openPlaylist } from "./playlist/actions";
 import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow } from "./window";
 
@@ -127,7 +131,7 @@ function useSoundingChannels(): ReadonlySet<string> {
       const { history, patternId } = useMusic.getState();
       if (!history) return;
       const song = history.doc;
-      const tick = patternTickNow(useTransport.getState(), performance.now(), song.settings.tempo, PPQ);
+      const tick = patternPositionNow();
       const next = tick === null ? NONE_SOUNDING : soundingChannels(song, currentPattern(song, patternId), tick);
       const nextKey = [...next].join(",");
       if (nextKey !== key) {
@@ -155,7 +159,9 @@ function useShownSteps(): number {
  * when dragged. Its right edge is dragged to show more steps.
  */
 export function ChannelRack() {
-  const channels = useSong((song) => song.channels);
+  const allChannels = useSong((song) => song.channels);
+  const group = useMusicUi((s) => s.rackGroup);
+  const channels = allChannels.filter((c) => inRackGroup(c, group));
   const steps = useShownSteps();
   const graph = useMusicUi((s) => s.graphOpen);
   const selectedIdsNow = useMusicUi((s) => s.selectedChannelIds);
@@ -173,6 +179,7 @@ export function ChannelRack() {
       onClose={() => useMusicUi.getState().setRackOpen(false)}
       menu={<RackMenu onAddSamples={() => file.current?.click()} />}
       controls={<RackControls graph={graph} />}
+      heading={<GroupMenu group={group} />}
     >
       <div
         className="relative flex flex-col gap-1.5 px-2.5 pt-1.5 pb-2 pr-3.5"
@@ -217,10 +224,14 @@ export function ChannelRack() {
           <div className="ml-1.5 max-w-[min(62vw,1180px)] overflow-x-auto pb-1" data-testid="rack-steps">
             <div className="flex flex-col" style={{ gap: ROW_GAP, width: stepsWidth(steps) }}>
               <StepLights steps={steps} />
-              {channels.map((channel) => (
-                <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
-              ))}
-              {graph && (selected[0] ?? channels[0]) && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
+              {channels.map((channel) =>
+                channel.kind === "audio" ? (
+                  <AudioRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
+                ) : (
+                  <StepRow key={channel.id} channelId={channel.id} name={channel.name} steps={steps} />
+                ),
+              )}
+              {graph && (selected[0] ?? channels[0]) && (selected[0] ?? channels[0]).kind !== "audio" && <GraphEditor channel={selected[0] ?? channels[0]} steps={steps} />}
             </div>
           </div>
         </div>
@@ -244,6 +255,65 @@ export function ChannelRack() {
         {channels.length > 0 && <ResizeEdge steps={steps} />}
       </div>
     </MusicWindow>
+  );
+}
+
+const GROUPS: { id: RackGroup; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "unsorted", label: "Unsorted" },
+  { id: "audio", label: "Audio" },
+];
+
+/**
+ * The title, "Channel rack - group", is FL Studio's group filter: Unsorted (every channel but the audio
+ * clips', the default), Audio (theirs), or All (Théo).
+ */
+function GroupMenu({ group }: { group: RackGroup }) {
+  const label = GROUPS.find((g) => g.id === group)!.label;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Channel group"
+          title="Which channels the rack shows: Unsorted (instruments and samples), Audio (the playlist's audio clips), or All"
+          className="flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-medium hover:bg-surface-2 data-[state=open]:bg-surface-2"
+        >
+          <span className="truncate">Channel rack - {label}</span>
+          <PiCaretDownBold className="size-2.5 shrink-0 text-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuRadioGroup value={group} onValueChange={(value) => useMusicUi.getState().setRackGroup(value as RackGroup)}>
+          {GROUPS.map((g) => (
+            <DropdownMenuRadioItem key={g.id} value={g.id}>
+              {g.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** An audio clip's channel in the rack: no steps (it plays from the playlist), a strip that shows its clips there. */
+function AudioRow({ channelId, name, steps }: { channelId: string; name: string; steps: number }) {
+  return (
+    <button
+      type="button"
+      aria-label={`${name}: an audio clip, played from the playlist`}
+      title="An audio clip: it plays from the playlist. Click to draw it there"
+      data-audio-row={channelId}
+      className="sunken flex shrink-0 items-center gap-1.5 rounded-[2px] px-2 text-[11px] text-muted-foreground hover:text-foreground"
+      style={{ width: stepsWidth(steps), height: ROW_H }}
+      onClick={() => {
+        chooseSource({ kind: "audio", ref: channelId });
+        openPlaylist();
+      }}
+    >
+      <PiWaveform className="size-3.5 shrink-0" />
+      <span className="truncate">Audio clip: plays from the playlist</span>
+    </button>
   );
 }
 
@@ -388,7 +458,7 @@ function StepLights({ steps }: { steps: number }) {
     }
     let frame = 0;
     const draw = () => {
-      const tick = patternTickNow(useTransport.getState(), performance.now(), tempo, PPQ);
+      const tick = patternPositionNow();
       setStep(tick === null ? null : Math.floor(tick / STEP_TICKS));
       frame = requestAnimationFrame(draw);
     };
@@ -500,7 +570,10 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
             onClick={(e) => {
               if (e.metaKey || e.ctrlKey) useTransport.getState().audition(id);
               else if (isPlugin) useTransport.getState().showPlugin(id, !pluginOpen);
-              else useMusicUi.getState().toggleChannelWindow(id, e.altKey);
+              else if (channel.kind === "audio") {
+                chooseSource({ kind: "audio", ref: id });
+                openPlaylist();
+              } else useMusicUi.getState().toggleChannelWindow(id, e.altKey);
             }}
             onWheel={(e) => e.shiftKey && e.deltaY !== 0 && moveChannel(id, e.deltaY < 0 ? -1 : 1)}
             // A file dropped on the button replaces this channel's sample.
@@ -826,7 +899,7 @@ function PreviewPlayhead({ width, span }: { width: number; span: number }) {
       frame = requestAnimationFrame(draw);
       const el = line.current;
       if (!el) return;
-      const tick = patternTickNow(useTransport.getState(), performance.now(), tempo, PPQ);
+      const tick = patternPositionNow();
       el.style.display = tick === null ? "none" : "";
       if (tick !== null) el.style.transform = `translateX(${((tick % span) * width) / span}px)`;
     };
