@@ -707,3 +707,44 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   await page.getByRole("menuitem", { name: "Delete" }).click();
   await expect.poll(async () => (await slots()).every((s) => s === null)).toBe(true);
 });
+
+test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separation, colour, cables, its state copied to another track", async ({ page }) => {
+  const id = await openNewSong(page, "Strips");
+  await page.keyboard.press("F9");
+  const mixer = page.getByTestId("mixer");
+  const strip = (name: string) => mixer.locator(`[data-track-name="${name}"]`);
+  const track = async (n: number) => (await savedSong(page, id)).mixer.tracks[n];
+
+  // Invert phase and swap sides are switches; stereo separation is a knob (Alt+click resets it).
+  await strip("Insert 1").getByRole("button", { name: "Invert Insert 1's phase" }).click();
+  await strip("Insert 1").getByRole("button", { name: "Swap Insert 1's left and right" }).click();
+  await expect.poll(async () => [(await track(1)).invert, (await track(1)).swap]).toEqual([true, true]);
+  const separation = strip("Insert 1").getByRole("slider", { name: "Insert 1 stereo separation" });
+  await drag(page, separation, separation, { dy: -40 });
+  await expect.poll(async () => (await track(1)).stereo).toBeGreaterThan(0.2);
+
+  // A colour from its menu tints its number.
+  await strip("Insert 1").locator("span").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Colour" }).click();
+  await page.getByRole("menuitem", { name: "Blue" }).click();
+  await expect.poll(async () => (await track(1)).color).toBe("#4a89dc");
+
+  // Sending to insert 3 draws a cable from it.
+  await strip("Insert 1").locator("canvas").click();
+  await expect(page.getByTestId("cables").locator("path")).toHaveCount(1);
+  await strip("Insert 3").getByRole("button", { name: "Send to Insert 3" }).click();
+  await expect(page.getByTestId("cables").locator("path")).toHaveCount(2);
+
+  // Its state (an effect, its controls) copied onto insert 2: a copy of the effect, with an id of its own; not its colour or sends.
+  await page.getByTestId("mixer-inspector").getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByRole("menuitem", { name: /Fake Delay/ }).click();
+  await expect.poll(async () => (await track(1)).effects[0]?.plugin.name).toBe("Fake Delay");
+  await strip("Insert 1").locator("span").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Copy track state" }).click();
+  await strip("Insert 2").locator("span").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Paste track state" }).click();
+  await expect.poll(async () => (await track(2)).effects[0]?.plugin.name).toBe("Fake Delay");
+  const [one, two] = [await track(1), await track(2)];
+  expect(two).toMatchObject({ invert: true, swap: true, stereo: one.stereo, color: null, sends: [{ to: "master", level: 1 }] });
+  expect(two.effects[0].id).not.toBe(one.effects[0].id);
+});

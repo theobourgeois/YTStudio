@@ -152,6 +152,16 @@ export interface SetSongResponse {
   loop: { start: number; ticks: number };
 }
 
+/**
+ * Copy plugins' settings files beside a project (`POST /api/engine/states/copy`): what's turned in each
+ * plugin's window is saved first, then `from`'s file becomes `to`'s (a channel's or an effect's id), so a
+ * copy of a plugin (a track's effects pasted onto another) starts as the original is now.
+ */
+export interface CopyStatesRequest {
+  projectId: string;
+  copies: { from: string; to: string }[];
+}
+
 /** The audio device and what it could be instead (`GET` and `POST /api/engine/devices`). */
 export interface EngineDevices {
   outputs: string[];

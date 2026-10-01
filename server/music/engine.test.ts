@@ -77,6 +77,17 @@ describe("AudioEngine", () => {
     await engine.saveStates();
   });
 
+  it("copies plugins' settings files beside a project, for a track's effects pasted onto another", async () => {
+    const states = path.join(dir, "projects", "proj_0123456789ab", "plugins");
+    await fs.mkdir(states, { recursive: true });
+    await fs.writeFile(path.join(states, "fx_eq.bin"), "settings");
+    const answer = await engine.copyStates({ projectId: "proj_0123456789ab", copies: [{ from: "fx_eq", to: "fx_eq_2" }, { from: "fx_never_saved", to: "fx_new" }] });
+    expect(answer).toEqual({ copied: 1 });
+    expect(await fs.readFile(path.join(states, "fx_eq_2.bin"), "utf8")).toBe("settings");
+    await expect(engine.copyStates({ projectId: "proj_0123456789ab", copies: [{ from: "../x", to: "y" }] })).rejects.toMatchObject({ status: 400 });
+    await expect(engine.copyStates({ copies: [] })).rejects.toMatchObject({ status: 400 });
+  });
+
   it("runs the mixer's effects: loaded by their ids, their windows opened", async () => {
     const delay = (await engine.plugins()).find((p) => !p.isInstrument)!;
     const song = setEffect(createMusicProject("Effects"), "insert_1", 0, delay, "fx_delay");

@@ -1,5 +1,6 @@
 /** The music suite's own endpoints (the platform's are in `@/lib/api`). */
 import type {
+  CopyStatesRequest,
   EngineCommand,
   EngineCommands,
   EngineDevices,
@@ -21,6 +22,7 @@ export const musicApi = {
   setSong: (body: SetSongRequest) => request<SetSongResponse>("/api/engine/song", { method: "POST", body: JSON.stringify(body) }),
   /** Write the song's plugins' states now (they're written every few seconds anyway). */
   saveStates: () => request<void>("/api/engine/states", { method: "POST" }),
+  copyStates: (body: CopyStatesRequest) => request<{ copied: number }>("/api/engine/states/copy", { method: "POST", body: JSON.stringify(body) }),
   devices: () => request<EngineDevices>("/api/engine/devices"),
   setDevice: (body: SetDeviceRequest) => request<EngineDevices>("/api/engine/devices", { method: "POST", body: JSON.stringify(body) }),
   /** What the engine says on its own (where the song is, the meter). Returns how to stop listening. */

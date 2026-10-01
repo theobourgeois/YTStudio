@@ -148,11 +148,22 @@ export interface MixerTrack {
   id: string;
   /** Null until it's renamed: then it's called by its number ("Insert 3"), as in FL Studio. */
   name: string | null;
+  /** Its colour ("#rrggbb", one of `TRACK_COLORS` from the menu), or null for none. */
+  color: string | null;
   /** 0..1, the fader; `DEFAULT_FADER` leaves the sound as it is. */
   volume: number;
   /** -1 (left) .. 1 (right). */
   pan: number;
   muted: boolean;
+  /** Its sound's sign flipped (FL's invert phase): a kick recorded out of phase with another, say. */
+  invert: boolean;
+  /** Its left and right swapped. */
+  swap: boolean;
+  /**
+   * FL's stereo separation, -1..1: 0 leaves it as it is, towards 1 narrows it to mono, towards -1
+   * widens it (the difference between the sides is raised, up to twice).
+   */
+  stereo: number;
   /**
    * Milliseconds added to the delay its plugins report, for one that reports it wrong (FL's manual
    * delay compensation): positive when its sound is later than they say (the other tracks wait for

@@ -4,10 +4,13 @@
  * shortcut can't drift apart.
  */
 import { createId } from "@shared/ids";
+import { toast } from "sonner";
+import { errorMessage } from "@shared/errors";
 import {
   addMixerTracks,
   getMixerTrack,
   moveMixerTracks,
+  pasteTrackState,
   removeMixerTracks,
   routeChannels,
   routeChannelsFrom,
@@ -15,10 +18,12 @@ import {
   sendOnly,
   setSend,
   soloMixerTrack,
+  trackState,
   updateMixerTrack,
 } from "@shared/music/mixer";
 import { MASTER_TRACK_ID } from "@shared/music/project";
 import type { MusicProject } from "@shared/music/types";
+import { musicApi } from "../api";
 import { selectedIds as selectedChannelIds } from "../rack-actions";
 import { useMusic } from "../store";
 import { currentTrackId, useMusicUi } from "../ui";
@@ -130,4 +135,31 @@ export function routeSelectedTracksTo(to: string, how: "send" | "only" | "sidech
   const from = selectedTracks().filter((id) => id !== to);
   if (!from.length) return;
   commit((doc) => from.reduce((next, id) => (how === "only" ? sendOnly(next, id, to) : setSend(next, id, to, how === "sidechain" ? 0 : 1)), doc));
+}
+
+/** Copy a track's state: its effects (as their settings are now) and its controls (FL's "Save mixer track state"). */
+export function copyTrackState(id = currentTrack()) {
+  const { projectId, history } = useMusic.getState();
+  const state = history && trackState(history.doc, id);
+  if (projectId && state) useMusicUi.getState().copyTrack({ projectId, state });
+}
+
+/**
+ * Paste the copied state onto a track: its effects become copies of the copied ones, their plugins'
+ * settings files copied first (by the server), so they start as the originals are.
+ */
+export async function pasteTrackStateOnto(id = currentTrack()) {
+  const copied = useMusicUi.getState().copiedTrack;
+  const projectId = useMusic.getState().projectId;
+  if (!copied || !projectId) return;
+  const ids = new Map(copied.state.effects.flatMap((effect) => (effect ? [[effect.id, createId("fx")] as const] : [])));
+  // Settings only carry over within a song (another song's plugins folder isn't this one's).
+  if (ids.size && copied.projectId === projectId) {
+    try {
+      await musicApi.copyStates({ projectId, copies: [...ids].map(([from, to]) => ({ from, to })) });
+    } catch (err) {
+      toast.error("Couldn't copy the effects' settings", { description: errorMessage(err) });
+    }
+  }
+  if (useMusic.getState().projectId === projectId) commit((doc) => pasteTrackState(doc, id, copied.state, ids));
 }

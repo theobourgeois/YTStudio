@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileSong, faderGain, levelGain, mixerPanGains, panGains, soundingChannels, swungTick, trackOrder } from "./compile.ts";
+import { compileSong, faderGain, levelGain, mixerPanGains, panGains, soundingChannels, stereoGains, swungTick, trackOrder } from "./compile.ts";
 import { addChannels, addPattern, addPluginChannel, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
 import { editNotes, setNoteProps } from "./notes.ts";
 import { addMixerTracks, routeChannels, sendOnly, setEffect, setSend, updateEffect, updateMixerTrack } from "./mixer.ts";
@@ -169,6 +169,24 @@ describe("the mixer, compiled", () => {
     expect(one.gains.map((g) => Math.round(g * 1000) / 1000)).toEqual([0, 0, 0.125, 0.125]);
     expect(one.sends.map((s) => s.gain)).toEqual([1, 0.25]);
     expect(track("insert_2").gains).toEqual([0, 0, 0, 0]);
+  });
+
+  it("inverts, swaps and narrows or widens a track's sound before its fader and pan", () => {
+    const plain = { invert: false, swap: false, stereo: 0 };
+    expect(stereoGains(plain)).toEqual([1, 0, 0, 1]);
+    expect(stereoGains({ ...plain, invert: true })).toEqual([-1, 0, 0, -1]);
+    expect(stereoGains({ ...plain, swap: true })).toEqual([0, 1, 1, 0]);
+    // Narrowed all the way: both sides are their average (mono); widened all the way, the difference doubles.
+    expect(stereoGains({ ...plain, stereo: 1 })).toEqual([0.5, 0.5, 0.5, 0.5]);
+    expect(stereoGains({ ...plain, stereo: -1 })).toEqual([1.5, -0.5, -0.5, 1.5]);
+    // Swapped, then narrowed halfway.
+    expect(stereoGains({ ...plain, swap: true, stereo: 0.5 })).toEqual([0.25, 0.75, 0.75, 0.25]);
+
+    // Then the pan: swapped and panned hard right, the left side (now on the right) and the right both end up right.
+    const song = updateMixerTrack(updateMixerTrack(rack(), "insert_1", { swap: true, pan: 1 }), "insert_2", { invert: true });
+    const tracks = compileSong(song, P).tracks;
+    expect(tracks[0].gains.map((g) => Math.round(g * 1000) / 1000)).toEqual([0, 0, 1, 1]);
+    expect(tracks[1].gains.map((g) => g + 0)).toEqual([-1, 0, 0, -1]);
   });
 
   it("lists each track's effects in order, bypassed ones too, without empty slots", () => {

@@ -107,7 +107,10 @@ their windows from the slot's name; tested offline with our test effect (`engine
 Delay compensation: automatic, from what the plugins report (instruments and effects), along
 sends and chains of tracks, with a manual offset per track; the inspector shows a track's plugin delay
 and the strip a clock; tested to the sample offline (`server/music/latency.integration.test.ts`).
-Next: the track EQ, the assistant's tools.
+The strips' finishing touches: invert phase, swap sides and stereo separation, track colours, routing
+cables, copying a track's state (effects with their settings) to another, and only the strips in view
+drawn (500 tracks open as fast as 16). Next: the assistant's tools, then Théo's feedback pass. **The track EQ is put off** (Théo, 2026-09-30): he EQs
+with Pro-Q in a slot; a stock EQ can come later if the assistant or shared songs need one.
 
 What Théo needs: his effect plugins (Pro-Q, Pro-R, EchoBoy) on channels and on the master, levels, and a
 stock EQ.
@@ -127,7 +130,7 @@ stock EQ.
   and plan plugin delay compensation (FL does it automatically) even if it comes later. Meters: a peak per
   insert in `EngineStatus` (the tab polls it). Keep the audio thread free of allocation: buffers are sized
   in `prepare`.
-- **The stock EQ**: in C++ with JUCE's `dsp::IIR` (a few bands: low shelf, peaks, high shelf, cut filters),
+- **The stock EQ** (put off, see above): in C++ with JUCE's `dsp::IIR` (a few bands: low shelf, peaks, high shelf, cut filters),
   its parameters from the document. Test its response offline (render a sweep or noise and measure bands).
 - **The UI**: the Mixer window (F9), in FL's layout (inserts as strips, the selected insert's effect slots on
   the right), the insert selector on the rack and in channel settings, an effect slot's menu (choose a plugin

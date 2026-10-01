@@ -188,7 +188,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                 }
             if (const auto* gains = item["gains"].getArray(); gains != nullptr && gains->size() == 4)
                 for (size_t g = 0; g < 4; ++g)
-                    track.gains[g] = (float) number ((*gains)[(int) g], 0, 0, 64);
+                    track.gains[g] = (float) number ((*gains)[(int) g], 0, -64, 64);
             if (const auto* sends = item["sends"].getArray())
                 for (const auto& send : *sends)
                 {

@@ -1,8 +1,8 @@
-import { memo, useEffect, useMemo, useRef } from "react";
-import { PiArrowFatDownFill, PiCaretRightFill, PiCaretUpBold, PiClock, PiPlus } from "react-icons/pi";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
-import { setMixerVolumes, setSend, updateMixerTrack } from "@shared/music/mixer";
-import { MASTER_TRACK_ID } from "@shared/music/project";
+import { type MixerTrackPatch, setMixerVolumes, setSend, updateMixerTrack } from "@shared/music/mixer";
+import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
 import type { Mixer, MixerTrack, MusicProject } from "@shared/music/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,8 +25,10 @@ import { currentTrackId, useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import {
   addTrackAfterCurrent,
+  copyTrackState,
   deleteTracks,
   moveSelectedTracks,
+  pasteTrackStateOnto,
   renameTrack,
   routeSelectedChannels,
   routeSelectedTracksTo,
@@ -38,6 +40,7 @@ import {
   toggleSend,
   toggleTrackMute,
 } from "./actions";
+import { Cables } from "./cables";
 import { Fader } from "./fader";
 import { faderDb } from "./meter";
 import { useMeters } from "./meters";
@@ -58,6 +61,35 @@ type SendState =
   | { kind: "available" }
   /** Its sound reaches the current track already (a send would make a loop), or the current track is the master. */
   | { kind: "unavailable" };
+
+/** Strips drawn past each edge of the view, so a scroll doesn't show an empty one before they're drawn. */
+const OVERSCAN = 4;
+
+/** The inserts in view in the scrolling strip area, as `[first, last)` indexes into them. */
+function useVisibleStrips(scroller: React.RefObject<HTMLDivElement | null>, count: number): [number, number] {
+  const [view, setView] = useState({ left: 0, width: 1200 });
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => setView((v) => (v.left === element.scrollLeft && v.width === element.clientWidth ? v : { left: element.scrollLeft, width: element.clientWidth })));
+    };
+    setView({ left: element.scrollLeft, width: element.clientWidth });
+    element.addEventListener("scroll", measure);
+    const resize = new ResizeObserver(measure);
+    resize.observe(element);
+    return () => {
+      cancelAnimationFrame(frame);
+      element.removeEventListener("scroll", measure);
+      resize.disconnect();
+    };
+  }, [scroller]);
+  const first = Math.max(0, Math.floor(view.left / STRIP_W) - OVERSCAN);
+  const last = Math.min(count, Math.ceil((view.left + view.width) / STRIP_W) + OVERSCAN);
+  return [first, Math.max(first, last)];
+}
 
 /** The tracks whose sound reaches `id` (through sends), `id` included. */
 function feeding(mixer: Mixer, id: string): Set<string> {
@@ -81,6 +113,7 @@ export function MixerWindow() {
   const current = currentTrackId({ mixer } as MusicProject, selectedIds);
   const meterRef = useMeters();
   const scroller = useRef<HTMLDivElement>(null);
+  const area = useRef<HTMLDivElement>(null);
   const revealing = useMixerView((s) => s.revealing);
 
   const sendStates = useMemo(() => {
@@ -99,9 +132,16 @@ export function MixerWindow() {
   // A track just added, or selected by a key, scrolls into view.
   useEffect(() => {
     if (!revealing) return;
-    scroller.current?.querySelector(`[data-track="${CSS.escape(revealing)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
     useMixerView.getState().reveal(null);
-  }, [revealing]);
+    const element = scroller.current;
+    const index = mixer.tracks.findIndex((t) => t.id === revealing) - 1;
+    if (!element || index < 0) return;
+    // By its place (it may not be drawn yet): just into view, at whichever edge it's past.
+    const left = index * STRIP_W;
+    if (left < element.scrollLeft) element.scrollLeft = left;
+    else if (left + STRIP_W > element.scrollLeft + element.clientWidth) element.scrollLeft = left + STRIP_W - element.clientWidth;
+  }, [revealing, mixer.tracks]);
+  const [first, last] = useVisibleStrips(scroller, mixer.tracks.length - 1);
 
   const [master, ...inserts] = mixer.tracks;
   const strip = (track: MixerTrack, number: number) => (
@@ -132,11 +172,15 @@ export function MixerWindow() {
       }
     >
       <div className="flex min-h-0 flex-1" data-testid="mixer">
-        <div className="flex min-w-0 flex-1 bg-surface-0" role="list" aria-label="Mixer tracks">
+        <div ref={area} className="relative flex min-w-0 flex-1 overflow-hidden bg-surface-0" role="list" aria-label="Mixer tracks">
           <div className="flex shrink-0 border-r-2 border-line">{strip(master, 0)}</div>
           <div ref={scroller} className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-            {inserts.map((track, i) => strip(track, i + 1))}
+            {/* Only the strips in view (and a few either side) are drawn: a mixer can have hundreds. */}
+            <div className="flex shrink-0" style={{ paddingLeft: first * STRIP_W, paddingRight: Math.max(0, inserts.length - last) * STRIP_W }}>
+              {inserts.slice(first, last).map((track, i) => strip(track, first + i + 1))}
+            </div>
           </div>
+          <Cables area={area} mixer={mixer} current={current} />
         </div>
         <Inspector trackId={current} />
       </div>
@@ -207,7 +251,10 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="flex w-full flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)}>
-            <div className={cn("relative w-full py-0.5 text-center font-mono text-[11px] tabular-nums", current ? "text-brand" : "text-muted-foreground")}>
+            <div
+              className={cn("relative w-full py-0.5 text-center font-mono text-[11px] tabular-nums", track.color ? "font-semibold text-white" : current ? "text-brand" : "text-muted-foreground")}
+              style={track.color ? { background: track.color, textShadow: "0 1px 1px rgb(0 0 0 / 0.35)" } : undefined}
+            >
               {isMaster ? "M" : number}
               <DelayMark track={track} />
             </div>
@@ -223,7 +270,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
             </div>
           </div>
         </ContextMenuTrigger>
-        <TrackMenu id={id} isMaster={isMaster} />
+        <TrackMenu id={id} isMaster={isMaster} color={track.color} />
       </ContextMenu>
 
       <button
@@ -251,6 +298,15 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       <div className="text-[9px] tabular-nums text-muted-foreground" title="Level">
         {faderDb(track.volume).replace(" dB", "")}
       </div>
+      <div className="flex gap-0.5">
+        <StripToggle label={`Invert ${name}'s phase`} on={track.invert} onChange={(invert) => commitTrack(id, { invert })}>
+          <PiArrowsDownUp />
+        </StripToggle>
+        <StripToggle label={`Swap ${name}'s left and right`} on={track.swap} onChange={(swap) => commitTrack(id, { swap })}>
+          <PiArrowsLeftRight />
+        </StripToggle>
+      </div>
+      <SongKnob size={20} label={`${name} stereo separation`} value={track.stereo} min={-1} max={1} defaultValue={0} bipolar format={stereoText} unit={PERCENT} edit={(song, stereo) => updateMixerTrack(song, id, { stereo })} />
       <SendSwitch to={id} name={name} state={sendKind === "sending" ? { kind: "sending", level: sendLevel } : { kind: sendKind }} />
     </div>
   );
@@ -308,14 +364,34 @@ function RenameField({ track, name }: { track: MixerTrack; name: string }) {
 }
 
 /** A track's right-click menu (on its number and name), FL Studio's. */
-function TrackMenu({ id, isMaster }: { id: string; isMaster: boolean }) {
+function TrackMenu({ id, isMaster, color }: { id: string; isMaster: boolean; color: string | null }) {
   const channelsSelected = useMusicUi((s) => s.selectedChannelIds.length > 0);
   const others = useMusicUi((s) => s.selectedTrackIds.some((t) => t !== id));
+  const canPaste = useMusicUi((s) => s.copiedTrack !== null);
   return (
     <ContextMenuContent>
       <ContextMenuItem onSelect={() => setTimeout(() => useMixerView.getState().rename(id), 0)}>
         Rename… <ContextMenuShortcut>F2</ContextMenuShortcut>
       </ContextMenuItem>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>Colour</ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-40">
+          <div className="grid grid-cols-6 gap-1 p-1">
+            {TRACK_COLORS.map((swatch, i) => (
+              <ContextMenuItem
+                key={swatch}
+                aria-label={COLOR_NAMES[i]}
+                className={cn("size-5 rounded-sm p-0 focus:ring-2 focus:ring-ring", color === swatch && "ring-2 ring-foreground")}
+                style={{ background: swatch }}
+                onSelect={() => commitTrack(id, { color: swatch })}
+              />
+            ))}
+          </div>
+          <ContextMenuItem disabled={!color} onSelect={() => commitTrack(id, { color: null })}>
+            No colour
+          </ContextMenuItem>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
       <ContextMenuSeparator />
       <ContextMenuSub>
         <ContextMenuSubTrigger>Channel routing</ContextMenuSubTrigger>
@@ -342,6 +418,11 @@ function TrackMenu({ id, isMaster }: { id: string; isMaster: boolean }) {
           </ContextMenuItem>
         </ContextMenuSubContent>
       </ContextMenuSub>
+      <ContextMenuItem onSelect={() => copyTrackState(id)}>Copy track state</ContextMenuItem>
+      <ContextMenuItem disabled={!canPaste} onSelect={() => void pasteTrackStateOnto(id)}>
+        Paste track state
+      </ContextMenuItem>
+      <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => selectChannelsOn(id)}>
         Select channels routed here <ContextMenuShortcut>⌥L</ContextMenuShortcut>
       </ContextMenuItem>
@@ -382,8 +463,8 @@ function TrackMenu({ id, isMaster }: { id: string; isMaster: boolean }) {
 function SendSwitch({ to, name, state }: { to: string; name: string; state: SendState }) {
   if (state.kind === "source") {
     return (
-      <div className="grid h-11 place-items-center text-brand" title="The selected track: its sends are shown">
-        <PiArrowFatDownFill className="size-4" />
+      <div className="grid h-14 place-items-center pb-3 text-brand" title="The selected track: its sends are shown">
+        <PiArrowFatDownFill className="size-4" data-send-point />
       </div>
     );
   }
@@ -403,10 +484,12 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild disabled={state.kind === "unavailable"}>
-        <div className="flex h-11 flex-col items-center justify-end gap-0.5" data-send>
+        <div className="flex h-14 flex-col items-center justify-end gap-0.5 pb-3" data-send>
           {arrow(state.kind === "sending")}
           {state.kind === "sending" ? (
-            <SongKnob size={20} label={`Send to ${name}`} value={state.level} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, level) => setSend(song, currentTrackId(song, useMusicUi.getState().selectedTrackIds), to, level)} />
+            <div data-send-point>
+              <SongKnob size={20} label={`Send to ${name}`} value={state.level} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, level) => setSend(song, currentTrackId(song, useMusicUi.getState().selectedTrackIds), to, level)} />
+            </div>
           ) : (
             <div className="size-5" />
           )}
@@ -428,8 +511,32 @@ function DelayMark({ track }: { track: MixerTrack }) {
   if (delay === 0 && track.latencyOffset === 0) return null;
   const parts = [delay > 0 ? `its plugins delay it ${delayText(delay, sampleRate)}` : "", track.latencyOffset !== 0 ? `offset ${offsetText(track.latencyOffset)}` : ""].filter(Boolean);
   return (
-    <span className="absolute top-1/2 right-0.5 -translate-y-1/2 text-brand" title={`Delay compensated: ${parts.join("; ")}`} data-testid="delay-mark">
+    <span className={cn("absolute top-1/2 right-0.5 -translate-y-1/2", track.color ? "text-white" : "text-brand")} title={`Delay compensated: ${parts.join("; ")}`} data-testid="delay-mark">
       <PiClock className="size-2.5" />
     </span>
   );
 }
+
+const commitTrack = (id: string, patch: MixerTrackPatch) => useMusic.getState().commit((song) => updateMixerTrack(song, id, patch));
+
+/** What the stereo separation knob says: FL's, narrower to the right, wider to the left. */
+const stereoText = (v: number) => (Math.abs(v) < 0.005 ? "As it is" : v > 0 ? `${Math.round(v * 100)}% narrower` : `${Math.round(-v * 100)}% wider`);
+
+/** A strip's small switch (invert phase, swap sides): lit with the accent while it's on. */
+function StripToggle({ label, on, onChange, children }: { label: string; on: boolean; onChange: (on: boolean) => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={on}
+      title={label}
+      className={cn("grid size-4.5 place-items-center rounded-sm text-[11px]", on ? "text-brand" : "text-muted-foreground hover:text-foreground")}
+      onClick={() => onChange(!on)}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** The track colours' names, in `TRACK_COLORS`'s order (for the menu's swatches). */
+const COLOR_NAMES = ["Red", "Orange", "Yellow", "Lime", "Green", "Teal", "Blue", "Indigo", "Purple", "Pink", "Brown", "Grey"];

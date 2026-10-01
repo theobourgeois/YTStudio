@@ -435,6 +435,15 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
       expect((await engine.render(STEP)).meters).toEqual({});
     });
 
+    it("inverts a track's phase: the same hit on two tracks, one inverted, cancels out; swapped, it's on the other side", async () => {
+      let song = addChannels(kickOn("insert_1"), [{ id: "chan_twin", name: "Twin", sampleId: "hit" }]);
+      song = routeChannels(setSteps(song, P, "chan_twin", [0], true), ["chan_twin"], "insert_2");
+      expect((await hit(song))[0]).toBeCloseTo(1, 4);
+      expect(await hit(updateMixerTrack(song, "insert_2", { invert: true }))).toEqual([expect.closeTo(0, 5), expect.closeTo(0, 5)]);
+      const swapped = updateMixerTrack(updateChannel(kickOn("insert_1"), "chan_kick", { pan: -1 }), "insert_1", { swap: true });
+      expect(await hit(swapped)).toEqual([expect.closeTo(0, 5), expect.closeTo(0.5, 4)]);
+    });
+
     it("glides to a fader's new level as it moves while playing, rather than jumping (a click)", async () => {
       const song = routeChannels(setSteps(rack(), P, "chan_pad", [0], true), ["chan_pad"], "insert_1");
       await play(song);

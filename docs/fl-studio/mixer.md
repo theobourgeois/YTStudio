@@ -257,8 +257,14 @@ Delay compensation is automatic, as FL's is by default (always on: no Mixer menu
 instruments, effects, sends and chains; the manual offset is in ms (FL's also takes samples and beats,
 and "Set from" another track). The inspector shows the track's plugin delay; the strip, a clock.
 
-Not yet, or different: the routing cables, docks, colours and icons, the Current track, the track EQ,
-stereo separation, phase and swap, "Compensate automations" (no automation yet), recording, the slot's presets and Patcher, the
+Each strip also has FL's invert phase and swap sides switches and stereo separation knob (folded into
+the track's gains by `compileSong`); a colour from the track's menu tints its number; cables are drawn
+from the selected track to where it sends (faint for a sidechain); Copy / Paste track state carries a
+track's effects (their plugins' settings copied too) and its controls to another. Only the strips in
+view are drawn, so 500 tracks open as fast as 16.
+
+Not yet, or different: docks, icons, the Current track, the track EQ (put off), "Compensate automations"
+(no automation yet), recording, the slot's presets and Patcher, the
 "glide" when the groove is clicked (the handle goes there at once). Choices made, to check with Théo:
 
 - **The fader** is cubed: 0.8 of its travel is 0 dB, the top about +5.8 dB (FL's own curve is unverified).

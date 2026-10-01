@@ -296,6 +296,10 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   while its length stays the same, so edits don't empty it), and `songLatency` (in `outputLatencyMs` too)
   keeps the playhead in time. A plugin changing its delay makes the song again (`checkLatencies`). A track's
   `latencyOffset` (ms) is FL's manual compensation, added to what its plugins report.
+  A track's invert, swap and stereo separation are folded into its gains in TypeScript (`stereoGains`), so
+  the engine knows nothing of them. Copying a track's state copies its plugins' settings files on the server
+  (`POST /api/engine/states/copy`) before the pasted effects (new ids) reach the engine. The Mixer window
+  draws only the strips in view (`useVisibleStrips`): don't rely on off-screen strips being in the DOM.
   The Mixer window is `src/suites/music/mixer/` (F9): `mixer-window.tsx` (strips, the send row, menus),
   `inspector.tsx` (effect slots), `fader.tsx`, `meters.ts` (one animation loop draws every strip's meter from
   `useTransport().meters`; the falling in `meter.ts`, tested), `actions.ts` (what menus and keys do), `keys.ts`

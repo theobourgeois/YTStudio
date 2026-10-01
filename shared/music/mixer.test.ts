@@ -7,6 +7,7 @@ import {
   isFreeTrack,
   moveEffect,
   moveMixerTracks,
+  pasteTrackState,
   removeMixerTracks,
   routeChannels,
   routeChannelsFrom,
@@ -20,6 +21,7 @@ import {
   soloMixerTrack,
   trackName,
   trackNumber,
+  trackState,
   updateEffect,
   updateMixerTrack,
 } from "./mixer.ts";
@@ -88,6 +90,10 @@ describe("mixer tracks", () => {
     expect(updateMixerTrack(song, "insert_1", { volume: 0.8 })).toBe(song);
     expect(updateMixerTrack(song, "insert_1", { latencyOffset: -2000 }).mixer.tracks[1].latencyOffset).toBe(-1000);
     expect(updateMixerTrack(song, "insert_1", { latencyOffset: 0 })).toBe(song);
+    expect(updateMixerTrack(song, "insert_1", { invert: true, swap: true, stereo: -3 }).mixer.tracks[1]).toMatchObject({ invert: true, swap: true, stereo: -1 });
+    expect(updateMixerTrack(song, "insert_1", { invert: false, stereo: 0 })).toBe(song);
+    expect(updateMixerTrack(song, "insert_1", { color: "#4A89DC" }).mixer.tracks[1].color).toBe("#4a89dc");
+    expect(updateMixerTrack(song, "insert_1", { color: "blue" }).mixer.tracks[1].color).toBeNull();
     const both = setMixerVolumes(song, new Map([["insert_1", 0.5], ["insert_2", 0.3]]));
     expect(both.mixer.tracks.slice(1, 4).map((t) => t.volume)).toEqual([0.5, 0.3, 0.8]);
     expect(setMixerVolumes(song, new Map([["insert_1", NaN]]))).toBe(song);
@@ -195,5 +201,23 @@ describe("effect slots", () => {
     expect(slots(song)).toEqual([null, null, "fx_echo"]);
     expect(setEffect(song, "insert_1", 0, null)).toBe(song);
     expect(setEffect(song, "insert_1", 10, PRO_Q)).toBe(song);
+  });
+});
+
+describe("a track's state", () => {
+  it("is copied (effects and controls, not name, colour or routing) and pasted with new effect ids", () => {
+    let song = setEffect(rack(), "insert_1", 2, PRO_Q, "fx_eq");
+    song = updateMixerTrack(song, "insert_1", { name: "Lead", color: "#4a89dc", volume: 0.5, pan: -0.25, stereo: 0.5, invert: true });
+    song = setSend(song, "insert_1", "insert_3", 0.5);
+    const state = trackState(song, "insert_1")!;
+    const pasted = pasteTrackState(song, "insert_2", state, new Map([["fx_eq", "fx_eq_copy"]]));
+    const [, one, two] = pasted.mixer.tracks;
+    expect(two).toMatchObject({ name: null, color: null, volume: 0.5, pan: -0.25, stereo: 0.5, invert: true, sends: [{ to: M, level: 1 }] });
+    expect(two.effects[2]).toEqual({ ...one.effects[2], id: "fx_eq_copy" });
+    expect(two.effects.filter(Boolean)).toHaveLength(1);
+    // Without ids given, its effects get new ones (never the original's: their settings files are their own).
+    expect(pasteTrackState(song, "insert_2", state).mixer.tracks[2].effects[2]!.id).not.toBe("fx_eq");
+    expect(trackState(song, "insert_404")).toBeNull();
+    expect(pasteTrackState(song, "insert_404", state)).toBe(song);
   });
 });

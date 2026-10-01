@@ -54,6 +54,10 @@ export const DEFAULT_INSERTS = 16;
 export const MAX_INSERTS = 500;
 /** Effect slots on each mixer track, as in FL Studio. */
 export const EFFECT_SLOTS = 10;
+/** The colours a mixer track can be given from its menu (content colours, the same in every theme). */
+export const TRACK_COLORS = ["#d9534f", "#e8833a", "#e5c449", "#8cc152", "#3fb27f", "#3bafda", "#4a89dc", "#7b68d9", "#c25fc9", "#e0679f", "#a0806a", "#8a96a3"] as const;
+const isColor = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
+
 /** How far a track's manual delay compensation reaches either way, in ms. */
 export const MAX_LATENCY_OFFSET = 1000;
 /** Where a mixer track's fader leaves its sound as it is (0 dB). */
@@ -130,7 +134,20 @@ const emptySlots = (): null[] => Array.from({ length: EFFECT_SLOTS }, () => null
 
 /** An insert track as FL Studio adds one: unnamed, at 0 dB, no effects, sending to the master. */
 export function createMixerTrack(id = createId("insert")): MixerTrack {
-  return { id, name: null, volume: DEFAULT_FADER, pan: 0, muted: false, latencyOffset: 0, effects: emptySlots(), sends: [{ to: MASTER_TRACK_ID, level: 1 }] };
+  return {
+    id,
+    name: null,
+    color: null,
+    volume: DEFAULT_FADER,
+    pan: 0,
+    muted: false,
+    invert: false,
+    swap: false,
+    stereo: 0,
+    latencyOffset: 0,
+    effects: emptySlots(),
+    sends: [{ to: MASTER_TRACK_ID, level: 1 }],
+  };
 }
 
 /** A new song's mixer: the master and `DEFAULT_INSERTS` insert tracks (fixed ids, so an empty song is always the same document). */
@@ -306,9 +323,13 @@ function normalizeMixer(input: unknown): Mixer {
     return {
       id,
       name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, MAX_NAME) : null,
+      color: isColor(raw.color) ? raw.color.toLowerCase() : null,
       volume: number(raw.volume, 0, 1, DEFAULT_FADER),
       pan: number(raw.pan, -1, 1, 0),
       muted: raw.muted === true,
+      invert: raw.invert === true,
+      swap: raw.swap === true,
+      stereo: number(raw.stereo, -1, 1, 0),
       latencyOffset: Math.round(number(raw.latencyOffset, -MAX_LATENCY_OFFSET, MAX_LATENCY_OFFSET, 0) * 100) / 100,
       effects: Array.from({ length: EFFECT_SLOTS }, (_, slot) => normalizeEffect(effects[slot], effectIds)),
       sends: [],

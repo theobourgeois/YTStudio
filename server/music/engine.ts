@@ -155,6 +155,27 @@ export class AudioEngine {
     if (this.child) await this.request("saveStates", {});
   }
 
+  /**
+   * Copy plugins' settings files (`CopyStatesRequest`), after having the engine write what's changed. A
+   * plugin that has never saved any has no file: there's nothing to copy, and its copy starts afresh.
+   */
+  async copyStates(body: unknown): Promise<{ copied: number }> {
+    if (!isObject(body) || !isValidId(body.projectId)) throw new HttpError(400, '"projectId" must be the song\'s project id.');
+    const isOwner = (v: unknown): v is string => typeof v === "string" && /^[\w-]{1,64}$/.test(v);
+    const copies = Array.isArray(body.copies) ? body.copies : [];
+    if (!copies.every((c) => isObject(c) && isOwner(c.from) && isOwner(c.to))) throw new HttpError(400, '"copies" must be a list of { from, to } plugin owners\' ids.');
+    await this.saveStates();
+    const states = path.join(this.paths.projectDir(body.projectId), "plugins");
+    let copied = 0;
+    for (const { from, to } of copies as { from: string; to: string }[]) {
+      const source = path.join(states, `${from}.bin`);
+      if (!existsSync(source)) continue;
+      await fs.copyFile(source, path.join(states, `${to}.bin`));
+      copied++;
+    }
+    return { copied };
+  }
+
   /** While the song has plugins, have their states written every few seconds. */
   private keepStates(hasPlugins: boolean) {
     if (hasPlugins === (this.stateTimer !== null)) return;

@@ -25,6 +25,9 @@ export function engineRoutes(engine: AudioEngine): Router {
     await engine.saveStates();
     res.sendStatus(204);
   });
+  router.post("/states/copy", json(), async (req, res) => {
+    res.json(await engine.copyStates(req.body));
+  });
   router.get("/events", (req, res) => {
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
     res.write(": connected\n\n");

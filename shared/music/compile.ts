@@ -139,6 +139,29 @@ export function mixerPanGains(pan: number): [number, number, number, number] {
   return pan >= 0 ? [stay, 0, cross, 1] : [1, cross, 0, stay];
 }
 
+/** A stereo matrix, `[left→left, right→left, left→right, right→right]`. */
+type Matrix = [number, number, number, number];
+
+/** `a` after `b`: the sound through `b`, then through `a`. */
+const after = (a: Matrix, b: Matrix): Matrix => [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3], a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3]];
+
+/**
+ * What FL's track does to its sound after its effects, before its fader and pan: invert phase, swap the
+ * sides, stereo separation (the sides' difference scaled: 0 at full narrowing, mono; twice at full widening).
+ */
+export function stereoGains(track: Pick<MixerTrack, "invert" | "swap" | "stereo">): Matrix {
+  const sign = track.invert ? -1 : 1;
+  let gains: Matrix = track.swap ? [0, sign, sign, 0] : [sign, 0, 0, sign];
+  if (track.stereo !== 0) {
+    // 1 as it is, 0 mono (narrowed all the way), 2 twice as wide.
+    const width = 1 - track.stereo;
+    const same = (1 + width) / 2;
+    const cross = (1 - width) / 2;
+    gains = after([same, cross, cross, same], gains);
+  }
+  return gains;
+}
+
 /**
  * The mixer's tracks in an order to run them: each after every track that sends to it (the sends never
  * make a loop: `normalizeMusicProject` and the edits see to that), otherwise as the mixer has them, and
@@ -175,7 +198,7 @@ function engineTracks(song: MusicProject): { tracks: EngineTrack[]; index: Map<s
       id: track.id,
       name: track.name ?? (number === 0 ? "Master" : `Insert ${number}`),
       effects: track.effects.flatMap((e) => (e ? [{ id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix }] : [])),
-      gains: mixerPanGains(track.pan).map((g) => g * gain) as EngineTrack["gains"],
+      gains: after(mixerPanGains(track.pan), stereoGains(track)).map((g) => g * gain) as EngineTrack["gains"],
       latencyOffset: track.latencyOffset,
       sends: track.sends.flatMap((send) => {
         const to = index.get(send.to);

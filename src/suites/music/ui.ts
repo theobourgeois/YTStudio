@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { TrackState } from "@shared/music/mixer";
 import type { MusicProject, Note } from "@shared/music/types";
 import { useMusic } from "./store";
 import type { WindowSnap } from "./window-geometry";
@@ -45,6 +46,8 @@ interface MusicUiState {
   selectedTrackIds: string[];
   /** The rack shows each channel's mixer track (Alt+M). */
   trackSelectorsShown: boolean;
+  /** A mixer track's state, copied to paste onto another (its effects, with the project their settings are in). */
+  copiedTrack: { projectId: string; state: TrackState } | null;
   /** The rack's Transpose selected window. */
   transposeOpen: boolean;
   /** The channels whose settings windows are open. */
@@ -71,6 +74,7 @@ interface MusicUiState {
   selectTrack: (id: string, mode?: "only" | "add") => void;
   setTrackSelection: (ids: string[]) => void;
   setTrackSelectorsShown: (shown: boolean) => void;
+  copyTrack: (copied: { projectId: string; state: TrackState }) => void;
   setTransposeOpen: (open: boolean) => void;
   /**
    * Open a channel's settings window (or close it, if it's open). Only one is open at a time, as in
@@ -102,6 +106,7 @@ const INITIAL = {
   mixerOpen: false,
   selectedTrackIds: [] as string[],
   trackSelectorsShown: true,
+  copiedTrack: null as { projectId: string; state: TrackState } | null,
   transposeOpen: false,
   openChannelIds: [] as string[],
   places: {},
@@ -138,6 +143,7 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   },
   setTrackSelection: (selectedTrackIds) => set({ selectedTrackIds }),
   setTrackSelectorsShown: (trackSelectorsShown) => set({ trackSelectorsShown }),
+  copyTrack: (copiedTrack) => set({ copiedTrack }),
 
   setTransposeOpen: (transposeOpen) => set({ transposeOpen, order: transposeOpen ? toFront(get().order, "transpose") : get().order }),
 

@@ -129,7 +129,7 @@ export function moveMixerTracks(song: MusicProject, ids: readonly string[], dire
   return any ? withTracks(song, tracks) : song;
 }
 
-export type MixerTrackPatch = Partial<Pick<MixerTrack, "name" | "volume" | "pan" | "muted" | "latencyOffset">>;
+export type MixerTrackPatch = Partial<Pick<MixerTrack, "name" | "color" | "volume" | "pan" | "muted" | "invert" | "swap" | "stereo" | "latencyOffset">>;
 
 function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
   // An empty name goes back to the track's number.
@@ -137,16 +137,19 @@ function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
   const next = {
     ...track,
     name,
+    color: patch.color === undefined ? track.color : patch.color && /^#[0-9a-f]{6}$/i.test(patch.color) ? patch.color.toLowerCase() : null,
     volume: clamp(patch.volume ?? track.volume, 0, 1),
     pan: clamp(patch.pan ?? track.pan, -1, 1),
     muted: patch.muted ?? track.muted,
+    invert: patch.invert ?? track.invert,
+    swap: patch.swap ?? track.swap,
+    stereo: patch.stereo === undefined || !Number.isFinite(patch.stereo) ? track.stereo : clamp(patch.stereo, -1, 1),
     latencyOffset:
       patch.latencyOffset === undefined || !Number.isFinite(patch.latencyOffset)
         ? track.latencyOffset
         : Math.round(clamp(patch.latencyOffset, -MAX_LATENCY_OFFSET, MAX_LATENCY_OFFSET) * 100) / 100,
   };
-  const same = next.name === track.name && next.volume === track.volume && next.pan === track.pan && next.muted === track.muted && next.latencyOffset === track.latencyOffset;
-  return same ? track : next;
+  return (Object.keys(next) as (keyof MixerTrack)[]).every((key) => next[key] === track[key]) ? track : next;
 }
 
 export const updateMixerTrack = (song: MusicProject, id: string, patch: MixerTrackPatch) => updateTracks(song, [id], (t) => patchedTrack(t, patch));
@@ -311,4 +314,35 @@ export function moveEffect(song: MusicProject, trackId: string, slot: number, di
     [next[slot], next[to]] = [next[to], next[slot]];
     return next;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Track state (copy and paste)
+// ---------------------------------------------------------------------------
+
+/**
+ * What FL's "Save mixer track state" keeps of a track: its effects and its own controls (not its name,
+ * colour or routing). Pasted onto another track, its effects are copies with ids of their own.
+ */
+export type TrackState = Pick<MixerTrack, "effects" | "volume" | "pan" | "invert" | "swap" | "stereo" | "latencyOffset">;
+
+export function trackState(song: MusicProject, id: string): TrackState | null {
+  const track = getMixerTrack(song, id);
+  if (!track) return null;
+  const { effects, volume, pan, invert, swap, stereo, latencyOffset } = track;
+  return { effects, volume, pan, invert, swap, stereo, latencyOffset };
+}
+
+/**
+ * Put a copied state on a track. Each effect gets the id `newIds` has for it (by the copied effect's
+ * id; their settings files are copied by the server, `CopyStatesRequest`), or a new one.
+ */
+export function pasteTrackState(song: MusicProject, id: string, state: TrackState, newIds: ReadonlyMap<string, string> = new Map()): MusicProject {
+  if (!getMixerTrack(song, id)) return song;
+  const effects = Array.from({ length: EFFECT_SLOTS }, (_, slot) => {
+    const effect = state.effects[slot];
+    return effect ? { ...effect, id: newIds.get(effect.id) ?? createId("fx") } : null;
+  });
+  const pasted = updateMixerTrack(song, id, { volume: state.volume, pan: state.pan, invert: state.invert, swap: state.swap, stereo: state.stereo, latencyOffset: state.latencyOffset });
+  return updateTracks(pasted, [id], (track) => ({ ...track, effects }));
 }
