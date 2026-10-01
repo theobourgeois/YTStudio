@@ -389,8 +389,10 @@ swing), the Piano roll, the Playlist and song mode, the transport and the metron
   length needs, and each audio clip channel's speed: a pitched one plays its file faster, FL's Resample,
   so an audio clip's ticks become file seconds through `fileSecondsPerTick(ref)`, never `secondsPerTick`), and the window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
   through `applyDrag` and committed once, maths in `geometry.ts`, mouse in `pointer.ts`, keys in `keys.ts`,
-  commands in `actions.ts`. An audio clip's channel is `Channel.kind: "audio"`: no notes, in the rack's
-  Audio group (`RackGroup`), not in the Piano roll, with a cut-down settings window. Deleting a pattern or
+  commands in `actions.ts`. An audio clip's channel is `Channel.kind: "audio"`, in the rack's
+  Audio group (`RackGroup`), with a cut-down settings window; it has steps and notes too, as FL's (the
+  engine reads its file into memory once notes play it, `playsNotes`, or it has precomputed effects;
+  otherwise its clips stream it). Deleting a pattern or
   a channel takes its clips. A clip's colour is its source's (`Pattern.color`, `Channel.color`), else its
   track's; every clip colour is derived from one (`clipColours` in `draw.ts`). The clip menu's Preview
   sends the engine a song of that clip alone while it's held (`playlist/preview.ts`).

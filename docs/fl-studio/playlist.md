@@ -381,8 +381,8 @@ dropped from the Browser or the Finder (Shift: one after another on the track), 
 | Zoom tool | Z | Not yet (Ctrl+wheel, Page Up / Down and Shift+1…5 zoom). Fully zoomed out shows the whole song and some room after it (an eighth, four bars at least), never fewer than 32 bars (Théo) |
 | Slice with Shift | Slices without dragging (Left-Shift: diagonal) | Cuts every track at once: a line the whole height, shown while Shift is held (Théo) |
 | Clip menu | On each clip's corner: preview, source, rename, colour, make unique, chop, select similar, delete… | The arrow at the start of its title: Preview (held: the engine plays the clip alone), Edit pattern / Channel settings, Rename and color…, Change color, make unique, split by channel, Chop (every bar, beat, step or the snap), select all similar, mute, delete. No Select source yet |
-| Audio clips | Fades, gain, pitch, reverse, stretch, crossfades, zero-crossing slices | Make unique as sample (a channel of its own, the same file); their channel's pitch, as FL's Resample (faster and higher together: the clip goes through its file at that speed); a 64-sample fade where a clip cuts its file off or starts inside it (FL's declicking). Their waveform decoded in the tab, sharp at any zoom. No fades, gain, stretch or precomputed effects yet |
-| Audio clip in the rack | Its channel, playable from steps | Its channel in the Audio group, with no steps: a click on it draws it on the playlist |
+| Audio clips | Fades, gain, pitch, reverse, stretch, crossfades, zero-crossing slices | Make unique as sample (a channel of its own, the same file); their channel's pitch, as FL's Resample (faster and higher together: the clip goes through its file at that speed); a 64-sample fade where a clip cuts its file off or starts inside it (FL's declicking). Their waveform decoded in the tab, sharp at any zoom. Their channel's precomputed effects (normalize, reverse, start, length, fades): prepared in memory, as FL does, the clips playing that. No clip fades, gain or stretch yet |
+| Audio clip in the rack | Its channel, playable from steps | Its channel in the Audio group, with steps and notes (the Piano roll) as a sampler's: the engine has its file in memory once notes play it (Théo, 2026-10-01) |
 | Double-click an audio clip | Its channel's settings | Its channel's settings: a cut-down sampler window (ON, PAN, VOL, PITCH in cents, TRACK, the file; its waveform pressed plays the file). No precomputed effects or time stretching yet |
 | Dragging files in | Shown where they'd land | Shown where they'd land, see-through, as long as the files (the Browser's; Finder files show a bar each until dropped) |
 | Deleting clips | They go | They shrink and fade out where they were, as the Piano roll's notes do |
@@ -411,8 +411,8 @@ it's let go.
 8. **Double-click a pattern clip**: the Piano roll if it has notes off the step grid, the rack if it's only
    steps.
 9. **Audio clips are channels** in the rack, in an Audio group: the rack's group filter shows Unsorted (the
-   default: every other channel), Audio, or All. In the rack, a strip where steps would be says it plays from
-   the playlist (a click draws it there); not a waveform yet.
+   default: every other channel), Audio, or All. They have steps and notes too, as FL's do (changed by Théo
+   later the same day: at first a strip stood where the steps are).
 10. **The order of work**: the document, song mode in `compileSong`, the engine (audio clips streamed),
     the transport, the window, split by channel, the assistant, e2e. A commit after each step.
 
