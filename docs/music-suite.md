@@ -67,8 +67,7 @@ The tab (src/suites/music/)                 The server (server/music/)          
 
 The detailed lists are at the end of each reference doc. The main ones:
 
-- **No delay compensation yet**: an effect that delays its sound (a linear-phase EQ, a look-ahead
-  limiter) puts its track late against the others. The engine reports each plugin's latency already. No effect plugins on channels (the bench in the
+- **The mixer has no track EQ yet**, and the assistant can't use the mixer yet. No effect plugins on channels (the bench in the
   audio dialog can load one, for testing only).
 - **No playlist**: only the current pattern plays, looped (FL's pattern mode). No song mode, no
   arrangement, no audio clips.
@@ -105,7 +104,10 @@ effect slots, FL's keys; the track selector on the rack, Alt+M, and TRACK in a c
 Effect plugins: the engine hosts what the slots hold (a second `PluginHost`, by effect id), runs them
 on the track before its fader with bypass and mix, keeps their states beside the project, and opens
 their windows from the slot's name; tested offline with our test effect (`engine/test-plugin/`).
-Next: latency (and its compensation), the track EQ, the assistant's tools.
+Delay compensation: automatic, from what the plugins report (instruments and effects), along
+sends and chains of tracks, with a manual offset per track; the inspector shows a track's plugin delay
+and the strip a clock; tested to the sample offline (`server/music/latency.integration.test.ts`).
+Next: the track EQ, the assistant's tools.
 
 What Théo needs: his effect plugins (Pro-Q, Pro-R, EchoBoy) on channels and on the master, levels, and a
 stock EQ.

@@ -46,8 +46,10 @@ export interface EngineStatus {
   dropouts: number;
   sampleRate: number;
   bufferSize: number;
-  /** From a note reaching the engine to its sound leaving the device, at worst. */
+  /** From a note reaching the engine to its sound leaving the device, at worst (the song's own delay included). */
   outputLatencyMs: number;
+  /** Samples the song's sound comes out late by: its plugins' delays, compensated so everything lines up (`Song::compensate`). */
+  songLatency: number;
   tone: boolean;
   /** The output's level (0..1+), falling back slowly: a meter. */
   peak: number;

@@ -156,7 +156,8 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      notes, the metronome. Host.cpp: the song's plugin channels (instances, state files,
                      windows). Plugins.cpp: plugin scanning and the bench's two slots. Protocol.cpp:
                      the JSON lines. One file per job: split a file rather than let it grow past a few hundred
-                     lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain).
+                     lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
+                     can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
 electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
                      main process and shows the page in a window; packaged, data is in userData, in development ./data.
                      gl-window.ts: the export's compositor page in a hidden window (`setGlPageOpener`), so no Playwright.
@@ -289,7 +290,12 @@ swing), the Piano roll, the transport and the metronome. Where it is and every s
   are in `shared/music/mixer.ts`. An effect's settings are a file like a plugin channel's, by the effect's id:
   the engine has a second `PluginHost` for the mixer's effects (keyed by effect id, `EngineStatus.effects`,
   the `effectEditor` command), and each track runs its loaded, enabled effects in order before its fader,
-  blending by its mix (`Sequencer::runEffect`).
+  blending by its mix (`Sequencer::runEffect`). Plugin delay compensation is the engine's (only it knows the
+  plugins' delays): `Song::compensate` walks the tracks in order, every path into a track (a channel through
+  its instrument, a send) waits for the latest one in a `DelayLine` (`Delay.h`, handed on to the next song
+  while its length stays the same, so edits don't empty it), and `songLatency` (in `outputLatencyMs` too)
+  keeps the playhead in time. A plugin changing its delay makes the song again (`checkLatencies`). A track's
+  `latencyOffset` (ms) is FL's manual compensation, added to what its plugins report.
   The Mixer window is `src/suites/music/mixer/` (F9): `mixer-window.tsx` (strips, the send row, menus),
   `inspector.tsx` (effect slots), `fader.tsx`, `meters.ts` (one animation loop draws every strip's meter from
   `useTransport().meters`; the falling in `meter.ts`, tested), `actions.ts` (what menus and keys do), `keys.ts`

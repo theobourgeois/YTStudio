@@ -1,6 +1,7 @@
 #include "Song.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace
 {
@@ -95,7 +96,7 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, juce::StringArray& unreadable, int capacity)
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate)
 {
     auto song = std::make_unique<Song>();
     song->tempo = number (json["tempo"], 120, 1, 2000);
@@ -171,6 +172,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
         {
             Track track;
             track.id = item["id"].toString();
+            track.latencyOffsetMs = number (item["latencyOffset"], 0, -1000, 1000);
             if (const auto* slots = item["effects"].getArray())
                 for (const auto& slot : *slots)
                 {
@@ -193,7 +195,12 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                     const auto to = (int) number (send["track"], -1, -1, 1e6);
                     // Only later tracks: a song that doesn't keep to it can't make a loop here.
                     if (to > (int) song->tracks.size() && to < list->size())
-                        track.sends.push_back ({ to, (float) number (send["gain"], 1, 0, 64) });
+                    {
+                        Track::Send made;
+                        made.track = to;
+                        made.gain = (float) number (send["gain"], 1, 0, 64);
+                        track.sends.push_back (std::move (made));
+                    }
                 }
             song->tracks.push_back (std::move (track));
         }
@@ -226,6 +233,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     song->audio.setSize (buffers * 2, song->capacity);
     for (auto& track : song->tracks)
         track.from = track.gains;
+    song->compensate (sampleRate);
 
     juce::StringArray channelIds;
     for (const auto& channel : song->channels)
@@ -235,4 +243,38 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
 
     std::stable_sort (song->notes.begin(), song->notes.end(), [] (const Note& a, const Note& b) { return a.tick < b.tick; });
     return song;
+}
+
+void Song::compensate (double sampleRate)
+{
+    // When each track's input arrives, and when its output leaves, in samples late. A track's input is
+    // its latest arrival (nothing yet: the lowest number); the others wait for it.
+    constexpr int nothing = std::numeric_limits<int>::min();
+    std::vector<int> arrival (tracks.size(), nothing), out (tracks.size(), 0);
+    const auto instrumentDelay = [] (const Channel& channel) { return channel.plugin != nullptr ? channel.plugin->instance->getLatencySamples() : 0; };
+    for (const auto& channel : channels)
+        arrival[(size_t) channel.track] = juce::jmax (arrival[(size_t) channel.track], instrumentDelay (channel));
+
+    for (size_t t = 0; t < tracks.size(); ++t)
+    {
+        const auto& track = tracks[t];
+        if (track.buffer < 0)
+            continue;
+        if (arrival[t] == nothing)
+            arrival[t] = 0;
+        auto delay = (int) std::lround (track.latencyOffsetMs * sampleRate / 1000.0);
+        for (const auto& effect : track.effects)
+            if (effect.enabled && effect.plugin != nullptr)
+                delay += effect.plugin->instance->getLatencySamples();
+        out[t] = arrival[t] + delay;
+        for (const auto& send : track.sends)
+            arrival[(size_t) send.track] = juce::jmax (arrival[(size_t) send.track], out[t]);
+    }
+
+    for (auto& channel : channels)
+        channel.delay = juce::jmax (0, arrival[(size_t) channel.track] - instrumentDelay (channel));
+    for (size_t t = 0; t < tracks.size(); ++t)
+        for (auto& send : tracks[t].sends)
+            send.delay = tracks[t].buffer < 0 ? 0 : juce::jmax (0, arrival[(size_t) send.track] - out[t]);
+    latency = juce::jmax (0, out.back());
 }

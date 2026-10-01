@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { PiCaretRightFill, PiSpinnerGap, PiWarning } from "react-icons/pi";
+import { PiCaretRightFill, PiClock, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
 import { errorMessage } from "@shared/errors";
 import type { EnginePlugin } from "@shared/music/engine";
-import { moveEffect, setEffect, trackName, updateEffect } from "@shared/music/mixer";
+import { moveEffect, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
 import type { MixerEffect } from "@shared/music/types";
 import {
   DropdownMenu,
@@ -20,6 +20,8 @@ import { musicApi } from "../api";
 import { PERCENT, SongKnob, percent } from "../knob";
 import { useMusic, useSong } from "../store";
 import { useTransport } from "../transport";
+import { Input } from "@/components/ui/input";
+import { delayText, pluginDelay } from "./latency";
 
 /** The effect plugins found on this computer, read once and kept between openings of a slot's menu. */
 let found: EnginePlugin[] | null = null;
@@ -57,6 +59,7 @@ export function Inspector({ trackId }: { trackId: string }) {
           <Slot key={slot} trackId={trackId} slot={slot} effect={effect} />
         ))}
       </ol>
+      <DelayCompensation trackId={trackId} />
     </aside>
   );
 }
@@ -166,5 +169,65 @@ function EffectName({ effect }: { effect: MixerEffect }) {
       {loading && <PiSpinnerGap className="size-3 shrink-0 animate-spin" aria-label="Loading the plugin" />}
       {error && <PiWarning className="size-3 shrink-0" aria-label="The plugin couldn't be loaded" />}
     </button>
+  );
+}
+
+/**
+ * The track's delay, FL's track delay panel: what its plugins delay its sound by (the engine waits for
+ * it on every other path, so it all lines up), and a manual offset in ms for plugins that say it wrong.
+ */
+function DelayCompensation({ trackId }: { trackId: string }) {
+  const track = useSong((song) => song.mixer.tracks.find((t) => t.id === trackId));
+  const delay = useTransport((s) => (track ? pluginDelay(track, s.effects.loaded) : 0));
+  const sampleRate = useTransport((s) => s.sampleRate);
+  const [typing, setTyping] = useState<string | null>(null);
+  if (!track) return null;
+  const commitTyped = () => {
+    const ms = Number((typing ?? "").replace(",", ".").replace("−", "-"));
+    if (typing !== null && Number.isFinite(ms)) useMusic.getState().commit((song) => updateMixerTrack(song, trackId, { latencyOffset: ms }));
+    setTyping(null);
+  };
+  return (
+    <section className="mt-auto border-t border-line px-2 py-1.5 text-[11px]" aria-label="Delay compensation" data-testid="delay-compensation">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        <PiClock className={cn("size-3.5", (delay > 0 || track.latencyOffset !== 0) && "text-brand")} aria-hidden />
+        <span>Plugin delay</span>
+        <span className="ml-auto text-foreground tabular-nums" data-testid="plugin-delay">
+          {delay > 0 ? delayText(delay, sampleRate) : "none"}
+        </span>
+      </div>
+      <label className="mt-1 flex items-center gap-1.5 text-muted-foreground" title="Added to what its plugins say: positive when its sound is later than that (the other tracks wait), negative when it's earlier">
+        <span>Offset</span>
+        <Input
+          aria-label="Manual delay offset in ms"
+          inputMode="decimal"
+          className="ml-auto h-6 w-16 text-right text-[11px] tabular-nums"
+          value={typing ?? String(track.latencyOffset)}
+          onFocus={(e) => {
+            setTyping(String(track.latencyOffset));
+            e.currentTarget.select();
+          }}
+          onChange={(e) => setTyping(e.target.value)}
+          onBlur={commitTyped}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") {
+              setTyping(null);
+              e.currentTarget.blur();
+            }
+          }}
+        />
+        ms
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground disabled:opacity-40"
+          disabled={track.latencyOffset === 0}
+          onClick={() => useMusic.getState().commit((song) => updateMixerTrack(song, trackId, { latencyOffset: 0 }))}
+        >
+          Reset
+        </button>
+      </label>
+    </section>
   );
 }

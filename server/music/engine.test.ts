@@ -81,7 +81,7 @@ describe("AudioEngine", () => {
     const delay = (await engine.plugins()).find((p) => !p.isInstrument)!;
     const song = setEffect(createMusicProject("Effects"), "insert_1", 0, delay, "fx_delay");
     const answer = await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
-    expect(answer.effects.loaded).toEqual([{ effect: "fx_delay", name: "Fake Delay", editorOpen: false, latency: 0 }]);
+    expect(answer.effects.loaded).toEqual([{ effect: "fx_delay", name: "Fake Delay", editorOpen: false, latency: 480 }]);
     expect((await engine.command("effectEditor", { effect: "fx_delay", open: true })).effects.loaded[0].editorOpen).toBe(true);
     await expect(engine.command("effectEditor", { effect: "fx_none", open: true })).rejects.toMatchObject({ status: 409 });
     await expect(engine.command("effectEditor", { open: true })).rejects.toMatchObject({ status: 400 });

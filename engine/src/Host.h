@@ -71,6 +71,8 @@ public:
      * minimised or hidden), and move when it moves. Without it (a browser tab) they're ordinary windows.
      */
     void setHost (const juce::var& host);
+    /** A fingerprint of the loaded plugins' reported delays, to notice one changing (a linear-phase EQ switched on). */
+    juce::int64 latencySignature() const;
     /** Try again the plugins that couldn't be loaded (a scan may have found them since). */
     void forgetFailures() { failed.clear(); }
 

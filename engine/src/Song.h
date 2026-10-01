@@ -4,6 +4,7 @@
 // a fader's move ramps from (`Track::from`), which only the audio thread touches once it's handed over.
 #pragma once
 
+#include "Delay.h"
 #include "Host.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -77,6 +78,12 @@ struct Song
         Envelope envelope;
         /** Index into `tracks`: the mixer track it plays into. */
         int track = 0;
+        /**
+         * Samples its sound waits before its track (delay compensation: its track's other inputs are
+         * later), and the delay line that does it (`Sequencer::setSong` gives it one when it's > 0).
+         */
+        int delay = 0;
+        std::shared_ptr<DelayLine> delayLine;
     };
 
     /**
@@ -94,6 +101,9 @@ struct Song
             float from = 1;
             /** Index into the previous song's track's sends (-1: a new send, it ramps from silence). */
             int previous = -1;
+            /** Samples it waits before its track (delay compensation), and the delay line that does it. */
+            int delay = 0;
+            std::shared_ptr<DelayLine> delayLine;
         };
 
         /** An effect in one of its slots. */
@@ -117,6 +127,8 @@ struct Song
         int buffer = -1;
         /** Index into the previous song's tracks (-1: a new track). */
         int previous = -1;
+        /** Its manual delay compensation (`MixerTrack.latencyOffset`), in ms. */
+        double latencyOffsetMs = 0;
     };
 
     struct Note
@@ -146,6 +158,11 @@ struct Song
     juce::AudioBuffer<float> audio;
     /** The longest block the song can play (a longer one plays silence). */
     int capacity = 0;
+    /**
+     * Samples the song's sound comes out late by (its plugins' delays, compensated): what's played is
+     * heard this much after it's scheduled, so the playhead is shown that much later too.
+     */
+    int latency = 0;
     /** Tells songs apart, so the next one knows whether its `previous` indexes are into this one. */
     juce::uint64 serial = 0, previousSerial = 0;
 
@@ -155,5 +172,12 @@ struct Song
      * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the
      * mixer's; `unreadable` gets the ids of channels whose sample couldn't be read.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, juce::StringArray& unreadable, int capacity);
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate);
+
+    /**
+     * Plugin delay compensation (FL Studio's automatic PDC): every path into a track waits until the
+     * latest of them arrives (`Channel::delay`, `Track::Send::delay`), so everything lines up at the
+     * master; `latency` is how late that is. From the plugins' reported delays and the tracks' offsets.
+     */
+    void compensate (double sampleRate);
 };

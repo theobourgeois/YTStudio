@@ -22,6 +22,8 @@ interface TransportState {
   metronome: boolean;
   /** How long after the engine computes a sound it's heard: the playhead is shown that much late. */
   latencyMs: number;
+  /** The engine's sample rate (plugins' delays are in samples). */
+  sampleRate: number;
   /** What the engine loops, in the pattern's ticks: the whole pattern, or the Piano roll's time selection. */
   loop: { start: number; ticks: number };
   /** Where in the pattern play starts (a click on the Piano roll's ruler), in ticks. */
@@ -67,6 +69,7 @@ export const useTransport = create<TransportState>((set, get) => {
         at: performance.now(),
         metronome: status.transport.metronome,
         latencyMs: status.outputLatencyMs,
+        sampleRate: status.sampleRate,
         error: null,
       });
     } catch (err) {
@@ -84,6 +87,7 @@ export const useTransport = create<TransportState>((set, get) => {
     meters: NO_METERS,
     metronome: false,
     latencyMs: 0,
+    sampleRate: 48000,
     loop: { start: 0, ticks: 0 },
     startTick: 0,
     unreadable: [],

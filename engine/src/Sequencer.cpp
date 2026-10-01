@@ -1,6 +1,7 @@
 #include "Sequencer.h"
 
 #include <cmath>
+#include <map>
 
 namespace
 {
@@ -57,6 +58,24 @@ void Sequencer::setSong (std::unique_ptr<Song> next)
     }
     trackIds = std::move (ids);
     sendIds = std::move (sends);
+
+    // Delay compensation's delay lines: the last song's, where a path waits as long as it did (so what's
+    // in them carries on), or new ones.
+    std::map<juce::String, std::shared_ptr<DelayLine>> lines;
+    const auto lineFor = [&] (const juce::String& key, int length) -> std::shared_ptr<DelayLine> {
+        if (length <= 0)
+            return nullptr;
+        auto line = delayLines[key];
+        if (line == nullptr || line->length() != length || line->capacity() != next->capacity)
+            line = std::make_shared<DelayLine> (length, next->capacity);
+        return lines[key] = line;
+    };
+    for (auto& channel : next->channels)
+        channel.delayLine = lineFor ("c" + channel.id, channel.delay);
+    for (auto& track : next->tracks)
+        for (auto& send : track.sends)
+            send.delayLine = lineFor ("s" + track.id + ">" + next->tracks[(size_t) send.track].id, send.delay);
+    delayLines = std::move (lines);
 
     // One still waiting was never played: it's ours to delete.
     delete pending.exchange (next.release());
@@ -251,10 +270,18 @@ void Sequencer::process (float* left, float* right, int numSamples)
                     juce::FloatVectorOperations::clear (song->audio.getWritePointer (track.buffer * 2), numSamples);
                     juce::FloatVectorOperations::clear (song->audio.getWritePointer (track.buffer * 2 + 1), numSamples);
                 }
+            for (auto& channel : song->channels)
+                if (channel.delayLine != nullptr)
+                    channel.delayLine->clearInput (numSamples);
             for (auto& voice : voices)
                 if (voice.active)
                     render (voice, numSamples);
             renderPlugins (numSamples);
+            // Channels that wait for their track's later inputs come out of their delay lines into it.
+            for (auto& channel : song->channels)
+                if (channel.delayLine != nullptr)
+                    if (const auto buffer = song->tracks[(size_t) channel.track].buffer; buffer >= 0)
+                        channel.delayLine->flushInto (song->audio.getWritePointer (buffer * 2), song->audio.getWritePointer (buffer * 2 + 1), numSamples);
             mixTracks (left, right, numSamples);
         }
     }
@@ -359,6 +386,8 @@ void Sequencer::startVoice (int channelIndex, float pitch, float gain, double le
 
 std::pair<float*, float*> Sequencer::trackAudio (int channel)
 {
+    if (auto* line = song->channels[(size_t) channel].delayLine.get())
+        return { line->inputLeft(), line->inputRight() };
     const auto buffer = song->tracks[(size_t) song->channels[(size_t) channel].track].buffer;
     if (buffer < 0)
         return { nullptr, nullptr };
@@ -426,10 +455,23 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
                 continue;
             auto* toLeft = song->audio.getWritePointer (target.buffer * 2);
             auto* toRight = song->audio.getWritePointer (target.buffer * 2 + 1);
+            // A send that waits for the track's later inputs goes in through its delay line.
+            auto* line = send.delayLine.get();
+            if (line != nullptr)
+            {
+                line->clearInput (numSamples);
+                toLeft = line->inputLeft();
+                toRight = line->inputRight();
+            }
+            const auto flush = [&] {
+                if (line != nullptr)
+                    line->flushInto (song->audio.getWritePointer (target.buffer * 2), song->audio.getWritePointer (target.buffer * 2 + 1), numSamples);
+            };
             if (! glide || juce::exactlyEqual (send.from, send.gain))
             {
                 juce::FloatVectorOperations::addWithMultiply (toLeft, l, send.gain, numSamples);
                 juce::FloatVectorOperations::addWithMultiply (toRight, r, send.gain, numSamples);
+                flush();
                 continue;
             }
             for (int i = 0; i < numSamples; ++i)
@@ -438,6 +480,7 @@ void Sequencer::mixTracks (float* left, float* right, int numSamples)
                 toLeft[i] += l[i] * gain;
                 toRight[i] += r[i] * gain;
             }
+            flush();
         }
     }
 }

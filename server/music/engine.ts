@@ -40,6 +40,8 @@ export interface EngineOptions {
   onlyPluginPaths?: boolean;
   /** Finds a song's samples (default: no song has any). */
   samplePath?: SamplePath;
+  /** More environment for the engine's process (tests: the test plugins' settings). */
+  env?: Record<string, string>;
 }
 
 /** How often the song's plugins' states are written, if they've changed (what's turned in a plugin's window isn't an edit of the song). */
@@ -80,6 +82,7 @@ export class AudioEngine {
   private readonly pluginPaths: string[];
   private readonly flags: string[];
   private readonly samplePath: SamplePath;
+  private readonly env: Record<string, string> | undefined;
   private readonly listeners = new Set<(event: EngineEvent) => void>();
   /** The song the engine was last given, to give it again if it restarts. */
   private song: Record<string, unknown> | null = null;
@@ -94,6 +97,7 @@ export class AudioEngine {
     this.argv = options.command ?? [ENGINE];
     this.pluginPaths = options.pluginPaths ?? ENGINE_PLUGIN_PATHS;
     this.samplePath = options.samplePath ?? (() => null);
+    this.env = options.env;
     this.flags = [...(options.offline ? ["--offline"] : []), ...(options.onlyPluginPaths ? ["--only-plugin-paths"] : [])];
   }
 
@@ -322,7 +326,7 @@ export class AudioEngine {
     await fs.mkdir(this.paths.engine, { recursive: true });
     const args = ["--data", this.paths.engine, ...this.pluginPaths.filter((dir) => existsSync(dir)).flatMap((dir) => ["--plugin-path", dir])];
     args.push(...this.flags);
-    const { child, done } = spawnStreaming([...this.argv, ...args], "pipe", "pipe");
+    const { child, done } = spawnStreaming([...this.argv, ...args], "pipe", "pipe", { env: this.env });
     // A write to an engine that just died must not take the server down with it.
     child.stdin!.on("error", () => {});
 

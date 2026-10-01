@@ -55,6 +55,8 @@ private:
     juce::StringArray applySong();
     /** A song's plugin has loaded, failed or had its window closed. */
     void pluginChanged();
+    /** A plugin's reported delay has changed since the song was made: make it again, compensated anew. */
+    void checkLatencies();
     void sendStatus() const;
 
     const bool offline;
@@ -80,6 +82,9 @@ private:
     double tonePhase = 0.0;
     double sampleRate = 0.0;
     int blockSize = 0;
+    /** How late the song's sound comes out (its compensated plugin delays), in samples, and the plugins' delays it was worked out from. */
+    int songLatency = 0;
+    juce::int64 latencies = 0;
     /** What the last transport event said, to say it again only when it changes. */
     bool saidPlaying = false;
     bool saidQuiet = true;

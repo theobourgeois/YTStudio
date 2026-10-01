@@ -62,6 +62,8 @@ export interface EngineTrack {
   gains: [number, number, number, number];
   /** Indexes into `EngineSong.tracks` (always later ones) and the gain of each. */
   sends: { track: number; gain: number }[];
+  /** Milliseconds added to its plugins' reported delay (`MixerTrack.latencyOffset`); the engine compensates for both. */
+  latencyOffset: number;
 }
 
 export interface EngineNote {
@@ -174,6 +176,7 @@ function engineTracks(song: MusicProject): { tracks: EngineTrack[]; index: Map<s
       name: track.name ?? (number === 0 ? "Master" : `Insert ${number}`),
       effects: track.effects.flatMap((e) => (e ? [{ id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix }] : [])),
       gains: mixerPanGains(track.pan).map((g) => g * gain) as EngineTrack["gains"],
+      latencyOffset: track.latencyOffset,
       sends: track.sends.flatMap((send) => {
         const to = index.get(send.to);
         return to !== undefined && to > index.get(track.id)! ? [{ track: to, gain: levelGain(send.level, 1) }] : [];

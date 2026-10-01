@@ -61,6 +61,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       // Its status changed on its own: a plugin finished loading, or its window was closed by hand.
       useTransport.setState({
         latencyMs: event.status.outputLatencyMs,
+        sampleRate: event.status.sampleRate,
         metronome: event.status.transport.metronome,
         channels: event.status.channels,
         effects: event.status.effects ?? NO_EFFECTS,
@@ -81,6 +82,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         at: performance.now(),
         metronome: status.transport.metronome,
         latencyMs: status.outputLatencyMs,
+        sampleRate: status.sampleRate,
         error: null,
       }),
     )

@@ -5,7 +5,7 @@
  */
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
-import { EFFECT_SLOTS, MASTER_TRACK_ID, MAX_INSERTS, MAX_NAME, createMixerTrack, reaches } from "./project.ts";
+import { EFFECT_SLOTS, MASTER_TRACK_ID, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, reaches } from "./project.ts";
 import type { Channel, MixerEffect, MixerSend, MixerTrack, MusicProject, PluginRef } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ export function moveMixerTracks(song: MusicProject, ids: readonly string[], dire
   return any ? withTracks(song, tracks) : song;
 }
 
-export type MixerTrackPatch = Partial<Pick<MixerTrack, "name" | "volume" | "pan" | "muted">>;
+export type MixerTrackPatch = Partial<Pick<MixerTrack, "name" | "volume" | "pan" | "muted" | "latencyOffset">>;
 
 function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
   // An empty name goes back to the track's number.
@@ -140,8 +140,13 @@ function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
     volume: clamp(patch.volume ?? track.volume, 0, 1),
     pan: clamp(patch.pan ?? track.pan, -1, 1),
     muted: patch.muted ?? track.muted,
+    latencyOffset:
+      patch.latencyOffset === undefined || !Number.isFinite(patch.latencyOffset)
+        ? track.latencyOffset
+        : Math.round(clamp(patch.latencyOffset, -MAX_LATENCY_OFFSET, MAX_LATENCY_OFFSET) * 100) / 100,
   };
-  return next.name === track.name && next.volume === track.volume && next.pan === track.pan && next.muted === track.muted ? track : next;
+  const same = next.name === track.name && next.volume === track.volume && next.pan === track.pan && next.muted === track.muted && next.latencyOffset === track.latencyOffset;
+  return same ? track : next;
 }
 
 export const updateMixerTrack = (song: MusicProject, id: string, patch: MixerTrackPatch) => updateTracks(song, [id], (t) => patchedTrack(t, patch));

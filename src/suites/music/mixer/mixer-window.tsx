@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef } from "react";
-import { PiArrowFatDownFill, PiCaretRightFill, PiCaretUpBold, PiPlus } from "react-icons/pi";
+import { PiArrowFatDownFill, PiCaretRightFill, PiCaretUpBold, PiClock, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { setMixerVolumes, setSend, updateMixerTrack } from "@shared/music/mixer";
 import { MASTER_TRACK_ID } from "@shared/music/project";
@@ -20,6 +20,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from "@/components/ui/input";
 import { PERCENT, SongKnob, panText, percent } from "../knob";
 import { songGesture, useMusic, useSong } from "../store";
+import { useTransport } from "../transport";
 import { currentTrackId, useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import {
@@ -41,6 +42,7 @@ import { Fader } from "./fader";
 import { faderDb } from "./meter";
 import { useMeters } from "./meters";
 import { Inspector } from "./inspector";
+import { delayText, offsetText, pluginDelay } from "./latency";
 import { useMixerView } from "./view";
 
 /** A strip's width (px). */
@@ -205,7 +207,10 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="flex w-full flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)}>
-            <div className={cn("w-full py-0.5 text-center font-mono text-[11px] tabular-nums", current ? "text-brand" : "text-muted-foreground")}>{isMaster ? "M" : number}</div>
+            <div className={cn("relative w-full py-0.5 text-center font-mono text-[11px] tabular-nums", current ? "text-brand" : "text-muted-foreground")}>
+              {isMaster ? "M" : number}
+              <DelayMark track={track} />
+            </div>
             <div className="flex h-24 w-full justify-center gap-1 px-1">
               {renaming ? (
                 <RenameField track={track} name={name} />
@@ -413,5 +418,18 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
         <ContextMenuItem onSelect={() => sidechainTo(to)}>Sidechain to this track</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** A clock on a strip whose sound is delayed (its plugins', or a manual offset), as FL's track delay icon; the delay on hover. */
+function DelayMark({ track }: { track: MixerTrack }) {
+  const delay = useTransport((s) => pluginDelay(track, s.effects.loaded));
+  const sampleRate = useTransport((s) => s.sampleRate);
+  if (delay === 0 && track.latencyOffset === 0) return null;
+  const parts = [delay > 0 ? `its plugins delay it ${delayText(delay, sampleRate)}` : "", track.latencyOffset !== 0 ? `offset ${offsetText(track.latencyOffset)}` : ""].filter(Boolean);
+  return (
+    <span className="absolute top-1/2 right-0.5 -translate-y-1/2 text-brand" title={`Delay compensated: ${parts.join("; ")}`} data-testid="delay-mark">
+      <PiClock className="size-2.5" />
+    </span>
   );
 }

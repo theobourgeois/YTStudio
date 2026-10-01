@@ -54,6 +54,8 @@ export const DEFAULT_INSERTS = 16;
 export const MAX_INSERTS = 500;
 /** Effect slots on each mixer track, as in FL Studio. */
 export const EFFECT_SLOTS = 10;
+/** How far a track's manual delay compensation reaches either way, in ms. */
+export const MAX_LATENCY_OFFSET = 1000;
 /** Where a mixer track's fader leaves its sound as it is (0 dB). */
 export const DEFAULT_FADER = 0.8;
 
@@ -128,7 +130,7 @@ const emptySlots = (): null[] => Array.from({ length: EFFECT_SLOTS }, () => null
 
 /** An insert track as FL Studio adds one: unnamed, at 0 dB, no effects, sending to the master. */
 export function createMixerTrack(id = createId("insert")): MixerTrack {
-  return { id, name: null, volume: DEFAULT_FADER, pan: 0, muted: false, effects: emptySlots(), sends: [{ to: MASTER_TRACK_ID, level: 1 }] };
+  return { id, name: null, volume: DEFAULT_FADER, pan: 0, muted: false, latencyOffset: 0, effects: emptySlots(), sends: [{ to: MASTER_TRACK_ID, level: 1 }] };
 }
 
 /** A new song's mixer: the master and `DEFAULT_INSERTS` insert tracks (fixed ids, so an empty song is always the same document). */
@@ -307,6 +309,7 @@ function normalizeMixer(input: unknown): Mixer {
       volume: number(raw.volume, 0, 1, DEFAULT_FADER),
       pan: number(raw.pan, -1, 1, 0),
       muted: raw.muted === true,
+      latencyOffset: Math.round(number(raw.latencyOffset, -MAX_LATENCY_OFFSET, MAX_LATENCY_OFFSET, 0) * 100) / 100,
       effects: Array.from({ length: EFFECT_SLOTS }, (_, slot) => normalizeEffect(effects[slot], effectIds)),
       sends: [],
     };

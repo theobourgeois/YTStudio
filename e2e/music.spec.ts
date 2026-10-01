@@ -686,9 +686,20 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   await inspector.getByRole("button", { name: /Fake Delay: close its window/ }).click();
   await expect(name).toHaveAttribute("aria-pressed", "false");
 
-  // Its light bypasses it; its menu moves it up, and deletes it.
+  // It delays its track (the stand-in says 10 ms): the inspector says so, and the strip has a clock. A manual offset is typed in ms.
+  const compensation = page.getByTestId("delay-compensation");
+  await expect(compensation.getByTestId("plugin-delay")).toHaveText("10.0 ms (480 samples)");
+  await expect(page.getByTestId("mixer").locator('[data-track-name="Master"]').getByTestId("delay-mark")).toBeVisible();
+  await compensation.getByRole("textbox", { name: "Manual delay offset in ms" }).fill("-2.5");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await savedSong(page, id)).mixer.tracks[0].latencyOffset).toBe(-2.5);
+  await compensation.getByRole("button", { name: "Reset" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).mixer.tracks[0].latencyOffset).toBe(0);
+
+  // Its light bypasses it (and with it, its delay); its menu moves it up, and deletes it.
   await inspector.getByRole("button", { name: "Bypass Fake Delay" }).click();
   await expect.poll(async () => (await slots())[1]).toBe("Fake Delay (off)");
+  await expect(compensation.getByTestId("plugin-delay")).toHaveText("none");
   await inspector.getByRole("button", { name: "Slot 2 menu" }).click();
   await page.getByRole("menuitem", { name: "Move up" }).click();
   await expect.poll(async () => (await slots()).slice(0, 2)).toEqual(["Fake Delay (off)", null]);

@@ -84,7 +84,8 @@ juce::var Engine::status() const
         { "bufferSize", device != nullptr ? device->getCurrentBufferSizeSamples() : blockSize },
         { "cpu", devices.getCpuUsage() },
         { "dropouts", juce::jmax (0, devices.getXRunCount()) },
-        { "outputLatencyMs", device != nullptr && rate > 0 ? 1000.0 * (device->getOutputLatencyInSamples() + device->getCurrentBufferSizeSamples()) / rate : 0.0 },
+        { "outputLatencyMs", rate > 0 ? 1000.0 * ((device != nullptr ? device->getOutputLatencyInSamples() + device->getCurrentBufferSizeSamples() : 0) + songLatency) / rate : 0.0 },
+        { "songLatency", songLatency },
         { "tone", tone.load() },
         { "peak", peak.load() },
         { "transport", transport() },
@@ -280,8 +281,23 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
 juce::StringArray Engine::applySong()
 {
     juce::StringArray unreadable;
-    sequencer.setSong (Song::parse (lastSong, samples, plugins, effects, unreadable, mix.getNumSamples()));
+    auto song = Song::parse (lastSong, samples, plugins, effects, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
+    latencies = plugins.latencySignature() * 7 + effects.latencySignature();
+    const auto latency = song->latency;
+    sequencer.setSong (std::move (song));
+    // The playhead is shown late by the output's latency, which this is part of.
+    if (latency != songLatency)
+    {
+        songLatency = latency;
+        sendStatus();
+    }
     return unreadable;
+}
+
+void Engine::checkLatencies()
+{
+    if (! lastSong.isVoid() && plugins.latencySignature() * 7 + effects.latencySignature() != latencies)
+        applySong();
 }
 
 void Engine::pluginChanged()
@@ -295,6 +311,7 @@ void Engine::pluginChanged()
 void Engine::timerCallback()
 {
     sequencer.collectGarbage();
+    checkLatencies();
     // Where the song is, while it plays or anything sounds, and once more when that ends.
     const auto playing = sequencer.isPlaying();
     const auto level = peak.load();
@@ -337,6 +354,7 @@ void Engine::start (double rate, int block)
 void Engine::render (int frames, const juce::File& file, Reply reply)
 {
     frames = juce::jlimit (0, (int) offlineSampleRate * 600, frames);
+    checkLatencies();
     juce::AudioBuffer<float> rendered (2, frames);
     for (int done = 0; done < frames; done += blockSize)
     {

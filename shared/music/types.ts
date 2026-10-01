@@ -153,6 +153,12 @@ export interface MixerTrack {
   /** -1 (left) .. 1 (right). */
   pan: number;
   muted: boolean;
+  /**
+   * Milliseconds added to the delay its plugins report, for one that reports it wrong (FL's manual
+   * delay compensation): positive when its sound is later than they say (the other tracks wait for
+   * it), negative when it's earlier (it waits for them).
+   */
+  latencyOffset: number;
   /** Its `EFFECT_SLOTS` slots, in the order the sound goes through them; null is an empty slot. */
   effects: (MixerEffect | null)[];
   /**

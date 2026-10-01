@@ -254,3 +254,11 @@ juce::var PluginHost::describe() const
         broken.add (protocol::object ({ { ownerKey.toRawUTF8(), id }, { "error", error } }));
     return protocol::object ({ { "loaded", ready }, { "loading", busy }, { "failed", broken } });
 }
+
+juce::int64 PluginHost::latencySignature() const
+{
+    juce::int64 signature = 17;
+    for (const auto& [id, hosted] : loaded)
+        signature = signature * 31 + id.hashCode64() * 7 + hosted->instance->getLatencySamples();
+    return signature;
+}

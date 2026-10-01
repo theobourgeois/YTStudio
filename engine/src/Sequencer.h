@@ -11,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <map>
 #include <utility>
 #include <juce_audio_basics/juce_audio_basics.h>
 
@@ -128,6 +129,8 @@ private:
     juce::StringArray trackIds;
     std::vector<juce::StringArray> sendIds;
     juce::uint64 serials = 0;
+    /** The last song's delay lines (message thread), by path: "c<channel>", "s<track>><track>". */
+    std::map<juce::String, std::shared_ptr<DelayLine>> delayLines;
     /** Set when a song is adopted: its first block ramps from the last song's gains to its own. */
     bool ramping = false;
 

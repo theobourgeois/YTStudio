@@ -86,6 +86,8 @@ describe("mixer tracks", () => {
     const song = rack();
     expect(updateMixerTrack(song, "insert_1", { volume: 3, pan: -2 }).mixer.tracks[1]).toMatchObject({ volume: 1, pan: -1 });
     expect(updateMixerTrack(song, "insert_1", { volume: 0.8 })).toBe(song);
+    expect(updateMixerTrack(song, "insert_1", { latencyOffset: -2000 }).mixer.tracks[1].latencyOffset).toBe(-1000);
+    expect(updateMixerTrack(song, "insert_1", { latencyOffset: 0 })).toBe(song);
     const both = setMixerVolumes(song, new Map([["insert_1", 0.5], ["insert_2", 0.3]]));
     expect(both.mixer.tracks.slice(1, 4).map((t) => t.volume)).toEqual([0.5, 0.3, 0.8]);
     expect(setMixerVolumes(song, new Map([["insert_1", NaN]]))).toBe(song);
