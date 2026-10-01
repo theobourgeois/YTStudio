@@ -74,6 +74,11 @@ struct HostedPlugin
     // Any thread's -------------------------------------------------------------
     /** Its parameters being touched in its window: the one held (automation leaves it alone), the last touched. */
     ParameterWatcher watcher;
+    /**
+     * Automation is moving its parameters (the song plays): its state isn't saved meanwhile, or an
+     * automated value would be kept as its own. Set by the audio thread, cleared when it lets go.
+     */
+    std::atomic<bool> automating { false };
     /** The message thread's: the touches already said. */
     juce::uint32 touchesSaid = 0;
 };

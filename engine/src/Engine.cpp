@@ -70,13 +70,15 @@ Engine::~Engine()
     exportTicker.stopTimer();
     exportJob.reset();
     stopTimer();
-    plugins.saveStates();
-    effects.saveStates();
+    // Nothing plays any more, and automation gives the plugins their own values back before they're saved.
     if (! offline)
     {
         devices.removeAudioCallback (this);
         devices.closeAudioDevice();
     }
+    sequencer.release();
+    plugins.saveStates();
+    effects.saveStates();
 }
 
 juce::var Engine::transport() const

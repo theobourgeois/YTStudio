@@ -158,7 +158,8 @@ void PluginHost::keepOnly (const juce::StringArray& ownerIds)
 
 void PluginHost::save (HostedPlugin& hosted)
 {
-    if (hosted.stateFile == juce::File())
+    // Its automated values aren't its own: it's saved once automation has given them back.
+    if (hosted.stateFile == juce::File() || hosted.automating.load())
         return;
     juce::MemoryBlock state;
     hosted.instance->getStateInformation (state);

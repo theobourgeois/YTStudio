@@ -235,7 +235,10 @@ void Sequencer::adopt (Song* next)
                 for (const auto& other : next->lanes)
                     kept = kept || (other.kind == Song::Lane::Kind::param && other.key == lane.key);
                 if (! kept)
+                {
                     lane.parameter->setValue (lane.own);
+                    lane.plugin->automating.store (false);
+                }
             }
 
     if (song != nullptr)
@@ -483,6 +486,7 @@ void Sequencer::applyLanes (int numSamples)
                     lane.lastSet = -2.0f;
                     break;
                 }
+                lane.plugin->automating.store (true, std::memory_order_relaxed);
                 // Set at a slice's start (or straight away, the first time).
                 if (into != 0 && lane.lastSet > -2.0f)
                     break;
@@ -533,6 +537,7 @@ void Sequencer::restoreLanes (Song& from)
                 if (lane.lastSet > -2.0f)
                     lane.parameter->setValue (lane.own);
                 lane.lastSet = -2.0f;
+                lane.plugin->automating.store (false);
                 break;
         }
     lanesLive = false;

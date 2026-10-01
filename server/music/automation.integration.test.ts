@@ -203,4 +203,25 @@ describe.skipIf(!built)("automation, offline", () => {
     // And after it, the plugin is as it was.
     expect((await engine.parameters("effect", "fx_gain")).find((p) => p.id === gain.id)!.value).toBe(0.5);
   });
+
+  it("doesn't save a plugin's automated value as its own: its settings are written once automation has let go", async () => {
+    let song = setEffect(pad(), "insert_1", 0, { id: effectId, name: "Vaudio Test Effect", format: "VST3" }, "fx_saved");
+    await playSong(song);
+    await engine.command("stop", {});
+    const gain = (await engine.parameters("effect", "fx_saved")).find((p) => p.name === "Gain")!;
+    song = automate(song, { kind: "plugin", owner: "effect", id: "fx_saved", param: gain.id, index: gain.index, name: "Gain" }, 0, TICKS, [point(0, 0.9)]);
+    await playSong(song);
+    await hear(BAR / 2);
+    // Saved while it plays: nothing is written for it (its own value isn't what it is now).
+    const file = path.join(dir, "projects", PROJECT, "plugins", "fx_saved.bin");
+    await fs.rm(file, { force: true });
+    await engine.saveStates();
+    expect(existsSync(file)).toBe(false);
+    // Stopped, it is, with its own half back.
+    await engine.command("stop", {});
+    await hear(RATE / 10);
+    expect((await engine.parameters("effect", "fx_saved")).find((p) => p.id === gain.id)!.value).toBe(0.5);
+    await engine.saveStates();
+    expect(existsSync(file)).toBe(true);
+  });
 });
