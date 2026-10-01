@@ -3,7 +3,7 @@ import { PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
 import { type ClipContext, clipContext, songTicks } from "@shared/music/playlist";
-import { TRACK_COLORS } from "@shared/music/project";
+import { MAX_PLAYLIST_TRACKS, TRACK_COLORS } from "@shared/music/project";
 import { type MusicProject, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import {
   DropdownMenu,
@@ -747,29 +747,39 @@ function dropPoint(box: Element, ev: { clientX: number; clientY: number; altKey:
   };
 }
 
-/** A clip being dragged from the Picker, shown where it would land: an "add" drag, drawn as a clip. */
-function showCarried(source: ClipSource, box: Element, ev: { clientX: number; clientY: number; altKey: boolean }) {
+/**
+ * Clips being dragged from the Picker, shown where they'd land: an "add" drag, drawn as clips. Several
+ * start together, a track under each other from the one under the pointer.
+ */
+function showCarried(sources: readonly ClipSource[], box: Element, ev: { clientX: number; clientY: number; altKey: boolean }) {
   const song = useMusic.getState().history?.doc;
   const at = dropPoint(box, ev);
-  if (!song || !at) return;
+  if (!song || !at || !sources.length) return;
   const drag = usePlaylist.getState().drag;
-  const shown = drag?.kind === "add" && drag.clips.length === 1 ? drag.clips[0] : null;
-  if (shown?.start === at.start && shown.track === at.track && shown.ref === source.ref) return;
-  usePlaylist.getState().setDrag({ kind: "add", clips: [newClip(song, source, at.start, at.track)] });
+  const shown = drag?.kind === "add" ? drag.clips : null;
+  if (shown?.length === sources.length && shown[0].start === at.start && shown[0].track === at.track && shown.every((c, i) => c.ref === sources[i].ref)) return;
+  usePlaylist.getState().setDrag({ kind: "add", clips: sources.map((source, i) => newClip(song, source, at.start, Math.min(at.track + i, MAX_PLAYLIST_TRACKS - 1))) });
 }
 
-/** A clip dragged from the Picker, dropped: it's added where it was shown, and becomes the clip source. */
-function dropClip(data: string, box: Element, ev: { clientX: number; clientY: number; altKey: boolean }) {
-  let source: ClipSource;
+/** What a drag from the Picker carries: one source, or a list (several selected). */
+function carriedSources(data: string): ClipSource[] | null {
   try {
-    source = JSON.parse(data) as ClipSource;
+    const parsed = JSON.parse(data) as unknown;
+    const list = (Array.isArray(parsed) ? parsed : [parsed]) as ClipSource[];
+    return list.length && list.every((s) => s && (s.kind === "pattern" || s.kind === "audio") && typeof s.ref === "string") ? list : null;
   } catch {
-    return cancelDrag(); // Not one of ours.
+    return null;
   }
-  if (source.kind !== "pattern" && source.kind !== "audio") return cancelDrag();
+}
+
+/** Clips dragged from the Picker, dropped: they're added where they were shown, and the first becomes the clip source. */
+function dropClip(data: string, box: Element, ev: { clientX: number; clientY: number; altKey: boolean }) {
+  const sources = carriedSources(data);
+  if (!sources) return cancelDrag(); // Not one of ours.
+  const [source] = sources;
   usePlaylist.setState({ source, carried: null });
   if (source.kind === "pattern") useMusic.getState().selectPattern(source.ref);
-  showCarried(source, box, ev);
+  showCarried(sources, box, ev);
   commitDrag();
 }
 

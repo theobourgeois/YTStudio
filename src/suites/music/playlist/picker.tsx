@@ -27,7 +27,7 @@ import { pickMode } from "./picks";
 import { usePlaylist } from "./store";
 import { clipPeaks, onWaveform } from "./waveforms";
 
-/** What a drag from the Picker carries: the clip source, as JSON (`ClipSource`). */
+/** What a drag from the Picker carries: the clip sources, as JSON (`ClipSource[]`). */
 export const CLIP_DRAG_TYPE = "application/x-vaudio-clip";
 
 /** An item's preview, under its name: as wide as the item, this tall. */
@@ -46,6 +46,7 @@ export function Picker() {
   const patterns = useSong((song) => song.patterns);
   const channels = useSong((song) => song.channels);
   const audio = channels.filter((c) => c.kind === "audio");
+  useDeselectAway();
   return (
     <div className="flex w-48 shrink-0 flex-col border-r border-line bg-surface-1" data-testid="picker" aria-label="Picker panel">
       <div className="flex h-7 shrink-0 items-end gap-0.5 border-b border-line px-1.5" role="tablist" aria-label="What the Picker shows">
@@ -61,6 +62,24 @@ export function Picker() {
       </div>
     </div>
   );
+}
+
+/**
+ * A press anywhere but on the Picker's items (or a menu opened from one, which acts on them) lets go of
+ * the patterns and audio clips selected there, as a list's selection goes when it's clicked away from.
+ */
+function useDeselectAway() {
+  useEffect(() => {
+    const press = (e: PointerEvent) => {
+      const { patternSelection, audioSelection } = usePlaylist.getState();
+      if (!patternSelection.size && !audioSelection.size) return;
+      const target = e.target as Element | null;
+      if (target?.closest?.("[data-picker-item], [data-radix-popper-content-wrapper], [role=menu], [role=dialog], [data-window='transpose']")) return;
+      usePlaylist.setState({ patternSelection: new Set(), audioSelection: new Set() });
+    };
+    window.addEventListener("pointerdown", press, true);
+    return () => window.removeEventListener("pointerdown", press, true);
+  }, []);
 }
 
 /** One of the Picker's tabs: a quiet icon, lit when it's the one shown. */
@@ -130,6 +149,7 @@ function PatternItems({ patterns }: { patterns: readonly Pattern[] }) {
             chosen={source.kind === "pattern" && source.ref === ref}
             title={`${pattern.name}: click to draw it, drag it onto a track, double-click to show it in the rack; ⌘-click or Shift+click to select several`}
             onClick={(e) => clickPattern(ref, pickMode(e))}
+            carries={picked.includes(ref) ? picked : [ref]}
             draw={(c, w, h, colour) => drawPatternPreview(c, pattern, ctx.patternTicks(ref), w, h, colour)}
             drawKey={pattern.notes}
           />
@@ -182,6 +202,7 @@ function AudioItems({ audio }: { audio: readonly Channel[] }) {
             chosen={source.kind === "audio" && source.ref === channel.id}
             title={`${channel.name}: click to draw it, drag it onto a track; ⌘-click or Shift+click to select several`}
             onClick={(e) => clickAudio(channel.id, pickMode(e))}
+            carries={picked.includes(channel.id) ? picked : [channel.id]}
             draw={(c, w, h, colour) => {
               const peaks = url ? clipPeaks(url, channel.precomputed) : null;
               if (peaks) drawWaveformPreview(c, peaks, w, h, colour);
@@ -212,6 +233,8 @@ interface PickerItemProps extends Omit<React.ComponentProps<"button">, "onClick"
   /** It's the clip source: what Draw and Paint add (FL's red marker on its left). */
   chosen: boolean;
   onClick: (e: React.MouseEvent) => void;
+  /** What a drag from it takes: itself, or every item selected with it (in the list's order). */
+  carries: readonly string[];
   /** Draw its preview on a canvas `w` by `h` CSS pixels, in its content colour. */
   draw: (ctx: CanvasRenderingContext2D, w: number, h: number, colour: string) => void;
   /** When this changes, the preview is drawn again. */
@@ -219,7 +242,7 @@ interface PickerItemProps extends Omit<React.ComponentProps<"button">, "onClick"
 }
 
 /** An item of the Picker, as FL shows one: a small clip, its name on its title strip, its preview under it. */
-function PickerItem({ kind, id, name, color, selected, chosen, onClick, draw, drawKey, ...rest }: PickerItemProps) {
+function PickerItem({ kind, id, name, color, selected, chosen, onClick, carries, draw, drawKey, ...rest }: PickerItemProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const colours = color ? clipColours(color) : kind === "audio" ? AUDIO : PATTERN;
   const drawRef = useRef(draw);
@@ -251,9 +274,10 @@ function PickerItem({ kind, id, name, color, selected, chosen, onClick, draw, dr
       onClick={onClick}
       onDoubleClick={(e) => pickMode(e) === "only" && showInRack(kind, id)}
       onDragStart={(e) => {
-        e.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify({ kind, ref: id }));
+        const sources = carries.map((ref) => ({ kind, ref }));
+        e.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify(sources));
         e.dataTransfer.effectAllowed = "copy";
-        usePlaylist.setState({ carried: { kind, ref: id } });
+        usePlaylist.setState({ carried: sources });
       }}
       onDragEnd={() => {
         // Dropped elsewhere, or called off (Esc): the clip shown on the tracks goes.

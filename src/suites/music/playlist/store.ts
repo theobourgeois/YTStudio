@@ -97,8 +97,11 @@ interface PlaylistState {
   /** The audio clips selected in the Picker (by channel id) and where a Shift+click's range starts, as for patterns. */
   audioSelection: ReadonlySet<string>;
   audioAnchor: string | null;
-  /** What's being dragged from the Picker, while it's dragged (a drag's data can't be read until it's dropped). */
-  carried: ClipSource | null;
+  /**
+   * What's being dragged from the Picker, while it's dragged (a drag's data can't be read until it's
+   * dropped): the item, or every one selected with it, stacked a track apart from where it's dropped.
+   */
+  carried: readonly ClipSource[] | null;
   /** The patterns the Transpose window moves, while it's open for the Picker (null: the rack's channels). */
   transposing: readonly string[] | null;
 
@@ -133,7 +136,7 @@ const INITIAL = {
   pickerTab: "patterns" as "patterns" | "audio",
   audioSelection: new Set<string>() as ReadonlySet<string>,
   audioAnchor: null as string | null,
-  carried: null as ClipSource | null,
+  carried: null as readonly ClipSource[] | null,
   transposing: null as readonly string[] | null,
 };
 
