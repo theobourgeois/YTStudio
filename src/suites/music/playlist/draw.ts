@@ -12,7 +12,7 @@ import { type ClipContext, clipEnd, clipLength, visibleClips } from "@shared/mus
 import type { Pattern, PlaylistClip, PlaylistTrack } from "@shared/music/types";
 import type { WaveformData } from "@shared/types";
 import { gridTicks } from "../piano/geometry";
-import type { Palette } from "../piano/draw";
+import { type Palette, rulerMarks } from "../piano/draw";
 import { MENU_FROM, MENU_TO, TITLE_HEIGHT, type TrackLayout, tickToX, trackTop, visibleTracks, xToTick } from "./geometry";
 import type { PlaylistDrag, PlaylistView, TimeRange } from "./store";
 
@@ -377,25 +377,12 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: PlaylistScene, s
     ctx.globalAlpha = 1;
     ctx.fillRect(x, height - 6, w, 6);
   }
-  const barPx = barTicks * view.pxPerTick;
-  const every = Math.max(1, 2 ** Math.ceil(Math.log2(Math.max(1, 28 / barPx))));
-  ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
-  ctx.textBaseline = "top";
-  for (const [tick, weight] of gridLines(view, width, barTicks, beatTicks)) {
-    const x = Math.round(tickToX(view, tick));
-    const bar = tick / barTicks;
-    ctx.fillStyle = palette.rulerText;
-    ctx.globalAlpha = weight === 2 ? 0.8 : weight === 1 ? 0.5 : 0.28;
-    const tall = weight === 2 ? height : weight === 1 ? 7 : 4;
-    ctx.fillRect(x, height - tall, 1, tall);
-    if (weight === 2 && bar % every === 0) {
-      ctx.globalAlpha = 1;
-      ctx.fillText(String(bar + 1), x + 4, 4);
-    }
-  }
-  ctx.globalAlpha = 1;
+  rulerMarks(ctx, palette, height, barTicks, beatTicks, view.pxPerTick, (tick) => tickToX(view, tick), xToTick(view, 0), xToTick(view, width));
+  // Where the song ends (and goes round).
   ctx.fillStyle = palette.tool;
-  ctx.fillRect(Math.round(end) - 1, 0, 2, height);
+  ctx.globalAlpha = 0.7;
+  ctx.fillRect(Math.round(end) - 1, 0, 1, height);
+  ctx.globalAlpha = 1;
   // Where play starts: FL Studio's marker.
   const start = Math.round(tickToX(view, startTick));
   ctx.fillStyle = palette.start;
@@ -406,7 +393,6 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: PlaylistScene, s
   ctx.lineTo(start, 12);
   ctx.closePath();
   ctx.fill();
-  ctx.fillRect(start, 0, 1.5, height);
 }
 
 /** Each audio file's waveform peaks, fetched once (media never changes), and who's waiting for them. */
