@@ -29,6 +29,8 @@ export default defineConfig({
         EDITOR_TRANSCRIPTION_ENGINE: "fake",
         CLAUDE_PATH: path.resolve(import.meta.dirname, "e2e/fake-claude.mjs"),
         CODEX_PATH: path.resolve(import.meta.dirname, "e2e/fake-codex.mjs"),
+        // And for the music suite's audio engine: no sound, no plugins of this computer.
+        EDITOR_ENGINE_PATH: path.resolve(import.meta.dirname, "server/music/fake-engine.mjs"),
       },
       url: `http://127.0.0.1:${SERVER_PORT}/api/health`,
       reuseExistingServer: false,

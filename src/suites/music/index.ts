@@ -1,33 +1,40 @@
 import { lazy } from "react";
 import { PiWaveform } from "react-icons/pi";
 import type { ClientSuite } from "../types";
-import { songContext } from "./context";
-import { useMusic } from "./store";
+import { songContext, songTiming } from "./context";
+import { discardSong, flushSongs, useMusic } from "./store";
 import { runMusicTool } from "./tools";
 
-/** The music suite (a DAW). A shell for now: an empty song with its own assistant. */
+/** The music suite (a DAW, after FL Studio): the channel rack so far, with its own assistant. */
 export const musicSuite: ClientSuite<"music"> = {
   id: "music",
   icon: PiWaveform,
   tint: "bg-violet-500/12 text-violet-600 dark:text-violet-400",
   open: (projectId) => useMusic.getState().open(projectId),
   close: () => useMusic.getState().close(),
-  // Songs aren't edited yet, so there's never anything unsaved.
-  flush: async () => {},
-  discard: () => {},
+  flush: () => flushSongs(),
+  discard: (projectId) => discardSong(projectId),
   Workspace: lazy(() => import("./workspace")),
+  settings: {
+    title: "Music",
+    description: "The music editor (the DAW): where its sound goes, and your plugins.",
+    Panel: lazy(() => import("./settings")),
+  },
   describe: (p) => `${p.tempo} BPM`,
-  useLiveName: (projectId) => useMusic((s) => (s.projectId === projectId ? (s.song?.name ?? null) : null)),
+  useLiveName: (projectId) => useMusic((s) => (s.projectId === projectId ? (s.history?.doc.name ?? null) : null)),
   chat: {
-    pitch: "can read your song. The music editor is new, so there's not much it can change yet.",
-    useSuggestions: () => ["What can you do?"],
+    pitch: "can read your song and program its drums: channels, steps, patterns, tempo and swing.",
+    useSuggestions() {
+      const hasChannels = useMusic((s) => (s.history?.doc.channels.length ?? 0) > 0);
+      return hasChannels ? ["Make a four-on-the-floor house beat", "Add swing and soften every other hat", "Make a second pattern with a fill"] : ["Start a drum beat with the starter kit", "What can you do?"];
+    },
     ask: "help with your song",
-    useContextLabel: () => useMusic((s) => (s.song ? songContext(s.song).label : "")),
+    useContextLabel: () => useMusic((s) => (s.history ? songTiming(s.history.doc) : "")),
     contextHint: "Sent with your message, so the assistant knows the song",
   },
   messageContext() {
-    const { song } = useMusic.getState();
-    return song ? songContext(song) : null;
+    const { history, patternId } = useMusic.getState();
+    return history ? songContext(history.doc, patternId) : null;
   },
   runTool: runMusicTool,
 };

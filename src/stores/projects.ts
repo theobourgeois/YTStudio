@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { DEFAULT_SUITE, SUITE_IDS, type SuiteId, suiteNoun } from "@shared/suites";
-import type { ProjectStatus, ProjectSummary } from "@shared/types";
+import type { ProjectStatus, ProjectSummary, ProjectTemplates } from "@shared/types";
 import { errorMessage } from "@shared/errors";
 import { api } from "@/lib/api";
 import { projectIdFromUrl, setUrlProject } from "@/lib/route";
@@ -19,12 +19,21 @@ interface ProjectsState {
   loadError: string | null;
   /** The open project, of any suite (its suite may still be loading it). */
   openId: string | null;
+  /** Each suite's starting point, if it has one: new projects start as a copy of it. */
+  templates: ProjectTemplates;
 
   /** Load the list and open the project from the URL (or the most recent active one). */
   init: () => Promise<void>;
   open: (projectId: string) => Promise<void>;
-  /** Create a new project of a suite (video by default), open it, and optionally import files into it. */
-  create: (options?: { suite?: SuiteId; files?: File[] }) => Promise<void>;
+  /**
+   * Create a new project of a suite (video by default), from its starting point unless `blank`, open it,
+   * and optionally import files into it.
+   */
+  create: (options?: { suite?: SuiteId; files?: File[]; blank?: boolean }) => Promise<void>;
+  /** Make (a copy of) a project what new projects of its suite start as. */
+  saveTemplate: (projectId: string) => Promise<void>;
+  /** New projects of the suite start blank again. */
+  clearTemplate: (suite: SuiteId) => Promise<void>;
   settle: (projectId: string) => Promise<void>;
   unsettle: (projectId: string) => Promise<void>;
   /** Copy a project (and its media) into a new active one. */
@@ -106,6 +115,7 @@ export const useProjects = create<ProjectsState>((set, get) => {
     loaded: false,
     loadError: null,
     openId: null,
+    templates: {},
 
     async init() {
       if (initStarted) return;
@@ -119,6 +129,10 @@ export const useProjects = create<ProjectsState>((set, get) => {
         return;
       }
       onProjectSaved(upsert);
+      api.getTemplates().then(
+        (templates) => set({ templates }),
+        () => {}, // Without them, new projects start blank.
+      );
       window.addEventListener("popstate", () => {
         const id = projectIdFromUrl();
         void show(id && get().projects.some((p) => p.id === id) ? id : null);
@@ -137,10 +151,10 @@ export const useProjects = create<ProjectsState>((set, get) => {
       await show(projectId);
     },
 
-    async create({ suite = DEFAULT_SUITE, files } = {}) {
+    async create({ suite = DEFAULT_SUITE, files, blank } = {}) {
       let summary: ProjectSummary;
       try {
-        summary = await api.createProject({ suite });
+        summary = await api.createProject({ suite, ...(blank && { blank }) });
       } catch (err) {
         toast.error(`Couldn't create a new ${suiteNoun(suite)}`, { description: errorMessage(err) });
         return;
@@ -186,6 +200,30 @@ export const useProjects = create<ProjectsState>((set, get) => {
       toast.success(`Duplicated as “${summary.name}”`, {
         action: { label: "Open", onClick: () => void get().open(summary.id) },
       });
+    },
+
+    async saveTemplate(projectId) {
+      const suite = projectSuite(projectId);
+      if (!suite) return;
+      try {
+        // The latest edits, not the last autosave.
+        if (get().openId === projectId) await clientSuite(suite).flush();
+        set({ templates: await api.saveTemplate(projectId) });
+      } catch (err) {
+        toast.error("Couldn't save the starting point", { description: errorMessage(err) });
+        return;
+      }
+      toast.success(`New ${suiteNoun(suite, 2)} will start as “${get().templates[suite]?.name ?? "this"}”`, {
+        description: "Change it any time; start blank from the New project picker.",
+      });
+    },
+
+    async clearTemplate(suite) {
+      try {
+        set({ templates: await api.clearTemplate(suite) });
+      } catch (err) {
+        toast.error("Couldn't clear the starting point", { description: errorMessage(err) });
+      }
     },
 
     async remove(projectId) {

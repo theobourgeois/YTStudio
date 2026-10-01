@@ -19,6 +19,7 @@ import type {
   MediaAsset,
   Project,
   ProjectSummary,
+  ProjectTemplates,
   SaveClipsToLibraryRequest,
   SaveMediaToLibraryRequest,
   MusicAnalysis,
@@ -67,7 +68,8 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   return res;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** A JSON request. Suites build their own endpoints' clients on it (`src/suites/<suite>/api.ts`). */
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await send(path, init);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -88,6 +90,9 @@ export const api = {
   getProject: (id: string) => request<Project>(`/api/projects/${id}`),
   /** Any suite's document (`suite` says which, for its type). */
   getDocument: <S extends SuiteId>(_suite: S, id: string) => request<SuiteDocument<S>>(`/api/projects/${id}`),
+  /** Save any suite's document. Returns the refreshed summary. */
+  saveDocument: <S extends SuiteId>(_suite: S, id: string, doc: SuiteDocument<S>, keepalive = false) =>
+    request<ProjectSummary>(`/api/projects/${id}`, { method: "PUT", body: JSON.stringify(doc), keepalive }),
   /** Save the project document. Returns the refreshed summary (void for keepalive saves on unload). */
   saveProject: (id: string, project: Project, keepalive = false) =>
     request<ProjectSummary>(`/api/projects/${id}`, {
@@ -100,6 +105,10 @@ export const api = {
   duplicateProject: (id: string) =>
     request<ProjectSummary>(`/api/projects/${id}/duplicate`, { method: "POST" }),
   deleteProject: (id: string) => request<void>(`/api/projects/${id}`, { method: "DELETE" }),
+  /** Each suite's starting point (what new projects start as). */
+  getTemplates: () => request<ProjectTemplates>("/api/projects/templates"),
+  saveTemplate: (id: string) => request<ProjectTemplates>(`/api/projects/${id}/template`, { method: "POST" }),
+  clearTemplate: (suite: SuiteId) => request<ProjectTemplates>(`/api/projects/templates/${suite}`, { method: "DELETE" }),
 
   listMedia: (projectId: string) =>
     request<MediaAsset[]>(`/api/media?projectId=${encodeURIComponent(projectId)}`),

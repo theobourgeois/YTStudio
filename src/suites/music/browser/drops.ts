@@ -1,0 +1,46 @@
+/**
+ * Samples dropped onto the song's windows: files from Finder, or the Browser's (dragged as their paths,
+ * `BROWSER_DRAG_TYPE`). Where they land decides what they become (`docs/fl-studio/browser.md`): the rack
+ * makes a channel of each, a channel's button or window gives that channel the first one, the Piano roll
+ * gives it to the channel it shows.
+ */
+import { useMusic } from "../store";
+
+/** What a drag of the Browser's files carries: their paths, as JSON (`BrowserDrag`). */
+export const BROWSER_DRAG_TYPE = "application/x-vaudio-browser";
+export interface BrowserDrag {
+  paths: string[];
+}
+
+const isAudio = (file: File) => file.type.startsWith("audio/") || /\.(wav|aiff?|flac|mp3|ogg|m4a)$/i.test(file.name);
+export const audioFiles = (files: FileList | null | undefined) => [...(files ?? [])].filter(isAudio);
+
+/** Whether a drag carries samples (while it's over something, only the kinds of what it carries are known). */
+export const carriesSamples = (data: DataTransfer) => data.types.includes("Files") || data.types.includes(BROWSER_DRAG_TYPE);
+
+/** The Browser's files a drop carries (none if it isn't the Browser's). */
+export function browserPaths(data: DataTransfer): string[] {
+  try {
+    const parsed = JSON.parse(data.getData(BROWSER_DRAG_TYPE) || "null") as Partial<BrowserDrag> | null;
+    return Array.isArray(parsed?.paths) ? parsed.paths.filter((p): p is string => typeof p === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** A drop as new channels, before channel `at` (default: at the end). Returns their ids. */
+export async function dropAsChannels(data: DataTransfer, at?: number): Promise<string[]> {
+  const paths = browserPaths(data);
+  if (paths.length) return useMusic.getState().addBrowserSamples(paths, at);
+  const files = audioFiles(data.files);
+  if (files.length) await useMusic.getState().addSamples(files, at);
+  return [];
+}
+
+/** A drop onto a sampler channel: its first sample becomes the channel's. */
+export function dropOnChannel(data: DataTransfer, channelId: string) {
+  const [path] = browserPaths(data);
+  if (path) return void useMusic.getState().replaceSampleFromBrowser(channelId, path);
+  const [file] = audioFiles(data.files);
+  if (file) void useMusic.getState().replaceSample(channelId, file);
+}

@@ -1,0 +1,59 @@
+/*
+ * What a theme other than Light and Dark (Studio) gets from its own values, so its file only has to say its
+ * surfaces, lines, text, accent and the canvases' colours. Studio spells everything out (it's the base: `studio.css`); this
+ * works the rest out for every other theme, which can still set any of it itself (its file comes later).
+ *
+ * `:where()` keeps these no more specific than a theme's own rules (`.theme.theme-<id>`), which come later
+ * and so win. Only CSS reads these: values a canvas reads (`--piano-*`, `--meter-*`, `--brand`, `--line`)
+ * must be plain colours, never `color-mix()`, so each theme sets those itself.
+ */
+.theme:where(:not(.theme-light, .theme-dark)) {
+  /* A control's face: lit above its surface, a touch darker below. */
+  --raised: linear-gradient(to bottom, color-mix(in oklab, var(--surface-3), white 45%), color-mix(in oklab, var(--surface-3), black 4%));
+  --raised-hover: linear-gradient(to bottom, white, color-mix(in oklab, var(--surface-3), black 2%));
+  --pressed: linear-gradient(to bottom, color-mix(in oklab, var(--sunken), black 4%), var(--sunken));
+
+  --raised-brand: linear-gradient(to bottom, color-mix(in oklab, var(--brand), white 16%), color-mix(in oklab, var(--brand), black 6%));
+  --raised-brand-hover: linear-gradient(to bottom, color-mix(in oklab, var(--brand), white 24%), color-mix(in oklab, var(--brand), white 2%));
+  --pressed-brand: linear-gradient(to bottom, color-mix(in oklab, var(--brand), black 16%), color-mix(in oklab, var(--brand), black 4%));
+  --brand-edge: color-mix(in oklab, var(--brand), black 28%);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+  --ring: var(--brand);
+
+  --step-off-top: var(--surface-2);
+  --step-off-bottom: var(--surface-0);
+  --step-off-hover: var(--surface-3);
+  --step-on-top: color-mix(in oklab, var(--muted-foreground), white 12%);
+  --step-on-bottom: var(--muted-foreground);
+  --step-on-edge: var(--foreground);
+
+  --knob-well: var(--sunken);
+  --knob-well-edge: var(--line);
+  --fader-groove: var(--line-strong);
+  --mixer-tint-base: var(--surface-2);
+  --meter-off: var(--surface-0);
+  --piano-keys: var(--line-strong);
+}
+
+.theme.dark:where(:not(.theme-light, .theme-dark)) {
+  --raised: linear-gradient(to bottom, color-mix(in oklab, var(--surface-3), white 6%), color-mix(in oklab, var(--surface-3), black 6%));
+  --raised-hover: linear-gradient(to bottom, color-mix(in oklab, var(--surface-3), white 12%), color-mix(in oklab, var(--surface-3), white 2%));
+  --pressed: linear-gradient(to bottom, color-mix(in oklab, var(--surface-0), white 3%), var(--surface-2));
+
+  --brand-edge: color-mix(in oklab, var(--brand), black 55%);
+
+  --step-off-top: color-mix(in oklab, var(--surface-3), white 6%);
+  --step-off-bottom: var(--surface-3);
+  --step-off-hover: color-mix(in oklab, var(--surface-3), white 12%);
+  --step-on-top: var(--foreground);
+  --step-on-bottom: color-mix(in oklab, var(--foreground), black 18%);
+  --step-on-edge: var(--bevel-shadow);
+
+  --knob-well: color-mix(in oklab, var(--sunken), black 10%);
+  --knob-well-edge: var(--surface-3);
+  --fader-groove: var(--surface-0);
+  --mixer-tint-base: var(--surface-0);
+  --meter-off: var(--surface-3);
+  --piano-keys: var(--surface-0);
+}

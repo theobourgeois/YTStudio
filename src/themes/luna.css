@@ -1,0 +1,48 @@
+/*
+ * Luna: Windows XP's look. Cream windows (#ECE9D8), white fields and menus, buttons that are glossy white
+ * going to cream with a dark blue outline, and the accent the blue of its title bars and selections.
+ * Only what differs from Studio (`studio.css`) is here; `derived.css` works out the rest.
+ */
+.theme.theme-luna {
+  --radius: 4px;
+  --surface-0: #d6d2c2;
+  --surface-1: #ece9d8;
+  --surface-2: #f3f1e7;
+  --surface-3: #fbfaf5;
+  --sunken: #ffffff;
+  --line: #aca899;
+  --line-strong: #716f64;
+
+  --foreground: #000000;
+  --muted-foreground: #4b4940;
+
+  --bevel-highlight: rgb(255 255 255 / 1);
+  --bevel-shadow: #003c74;
+  --raised: linear-gradient(to bottom, #ffffff, #f4f3ee 45%, #dcd8cb);
+  --raised-hover: linear-gradient(to bottom, #fffdf6, #fdf3dc 45%, #f2dfb4);
+  --pressed: linear-gradient(to bottom, #d9d6c8, #e8e5d8 40%, #f2f0e6);
+  /* Its title bars' blue, glossy. */
+  --raised-brand: linear-gradient(to bottom, #3d8bf2, #1c5fd8 45%, #0a4bc4 55%, #1d63dc);
+  --raised-brand-hover: linear-gradient(to bottom, #5a9ff6, #2f70e2 45%, #1a59cf 55%, #2a6fe4);
+  --pressed-brand: linear-gradient(to bottom, #0b3f9e, #164fb8);
+  --brand-edge: #002d6e;
+  --brand-highlight: rgb(255 255 255 / 0.45);
+  --inset: inset 1px 1px 1px rgb(0 40 100 / 0.18);
+  --float-shadow: 2px 3px 8px rgb(0 0 0 / 0.35);
+
+  --popover: #ffffff;
+  /* XP highlighted menu items with its blue; under dark text, a pale one. */
+  --accent: #c2d5f2;
+  --brand: #1c5fd8;
+  --brand-foreground: #ffffff;
+  --playhead: #e0301e;
+  --knob-arc: #2e9b2e;
+
+  --piano-row: #ffffff;
+  --piano-black-row: #f0eee5;
+  --piano-line: #dedad0;
+  --piano-beat-line: #bdb9aa;
+  --piano-bar-line: #7f9db9;
+  --piano-ruler: #ece9d8;
+  --piano-ruler-text: #000000;
+}

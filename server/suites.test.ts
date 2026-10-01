@@ -1,9 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createMusicProject } from "../shared/music/project.ts";
+import { MUSIC_TOOLS } from "../shared/music/tools.ts";
 import type { MusicProject } from "../shared/music/types.ts";
 import { createDefaultProject } from "../shared/timeline.ts";
 import type { Project, ProjectSummary } from "../shared/types.ts";
@@ -49,12 +51,12 @@ describe("suites", () => {
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ suite: "music", name: "Demo", status: "active", tempo: 120, duration: 0, thumbnail: null });
     const id = created.body.id;
-    expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body).toEqual({ version: 1, name: "Demo", settings: { tempo: 120, timeSignature: [4, 4] } });
+    expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body).toEqual(createMusicProject("Demo"));
 
     // Saved through its own normalisation (not a video's).
     const saved = await send<ProjectSummary>("PUT", `/api/projects/${id}`, { version: 1, name: "Demo", settings: { tempo: 5000, timeSignature: [6, 8] } });
     expect(saved.body).toMatchObject({ suite: "music", tempo: 999 });
-    expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body.settings).toEqual({ tempo: 999, timeSignature: [6, 8] });
+    expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body.settings).toEqual({ tempo: 999, timeSignature: [6, 8], swing: 0 });
 
     await send("PATCH", `/api/projects/${id}`, { name: "Anthem" });
     expect((await send<MusicProject>("GET", `/api/projects/${id}`)).body.name).toBe("Anthem");
@@ -66,6 +68,40 @@ describe("suites", () => {
     await start();
     const list = (await send<ProjectSummary[]>("GET", "/api/projects")).body;
     expect(list.map((p) => [p.name, p.suite])).toEqual([["Anthem copy", "music"], ["Anthem", "music"]]);
+  });
+
+  it("starts new projects from their suite's starting point, a hidden copy", async () => {
+    await start();
+    const beat = (await send<ProjectSummary>("POST", "/api/projects", { suite: "music", name: "My setup" })).body;
+    await send("PUT", `/api/projects/${beat.id}`, { ...createMusicProject("My setup"), settings: { tempo: 142, timeSignature: [4, 4], swing: 0 } });
+    // A plugin's settings beside the document go with it.
+    mkdirSync(path.join(dataDir, "projects", beat.id, "plugins"), { recursive: true });
+    writeFileSync(path.join(dataDir, "projects", beat.id, "plugins", "chan_serum.bin"), "state");
+
+    expect((await send("GET", "/api/projects/templates")).body).toEqual({});
+    const templates = (await send<Record<string, { name: string }>>("POST", `/api/projects/${beat.id}/template`)).body;
+    expect(templates).toMatchObject({ music: { name: "My setup" } });
+    // Changing the project afterwards doesn't change its starting point.
+    await send("PUT", `/api/projects/${beat.id}`, { ...createMusicProject("My setup"), settings: { tempo: 90, timeSignature: [4, 4], swing: 0 } });
+
+    const next = (await send<ProjectSummary>("POST", "/api/projects", { suite: "music" })).body;
+    expect(next).toMatchObject({ suite: "music", name: "Untitled", tempo: 142 });
+    expect(readFileSync(path.join(dataDir, "projects", next.id, "plugins", "chan_serum.bin"), "utf8")).toBe("state");
+    expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "music", blank: true })).body).toMatchObject({ tempo: 120 });
+    // Other suites start blank; the starting point itself isn't listed.
+    expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "video" })).body).toMatchObject({ suite: "video", clipCount: 0 });
+    const list = (await send<ProjectSummary[]>("GET", "/api/projects")).body;
+    expect(list).toHaveLength(4);
+
+    // Saving another replaces it; clearing it, and new ones start blank.
+    await send("POST", `/api/projects/${next.id}/template`);
+    expect(Object.keys((await send<object>("GET", "/api/projects/templates")).body)).toEqual(["music"]);
+    await stop();
+    await start();
+    expect((await send("GET", "/api/projects/templates")).body).toMatchObject({ music: { name: "Untitled" } });
+    expect((await send("DELETE", "/api/projects/templates/music")).body).toEqual({});
+    expect((await send<ProjectSummary>("POST", "/api/projects", { suite: "music" })).body).toMatchObject({ tempo: 120 });
+    expect((await send("DELETE", "/api/projects/templates/spreadsheet")).status).toBe(400);
   });
 
   it("refuses unknown suites, and makes videos by default", async () => {
@@ -93,8 +129,8 @@ describe("suites", () => {
     const video = (await send<ProjectSummary>("POST", "/api/projects", {})).body;
     const names = async (query: string) => (await mcp(query, "tools/list")).tools!.map((t) => t.name);
 
-    expect(await names(`?chat=${song.id}`)).toEqual(["get_song"]);
-    expect(await names("?suite=music")).toEqual(["get_song"]);
+    expect(await names(`?chat=${song.id}`)).toEqual(MUSIC_TOOLS.map((t) => t.name));
+    expect(await names("?suite=music")).toContain("set_steps");
     expect(await names(`?chat=${video.id}`)).toContain("split_clips");
     // Outside clients (no chat) get the video editor's, as before suites.
     expect(await names("")).toContain("split_clips");

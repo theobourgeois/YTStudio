@@ -1,0 +1,34 @@
+/*
+ * Ultraviolet: deep purple, with a hot pink accent. Dark; only what differs from Studio's Dark is here.
+ */
+.theme.theme-ultraviolet {
+  --surface-0: #170b2e;
+  --surface-1: #20103d;
+  --surface-2: #2a164d;
+  --surface-3: #391f63;
+  --sunken: #12082a;
+  --line: #0d051f;
+  --line-strong: #06020f;
+
+  --foreground: #f5edff;
+  --muted-foreground: #c7b3ea;
+
+  --bevel-highlight: rgb(255 210 255 / 0.12);
+  --bevel-shadow: #0a0418;
+  --inset: inset 0 1px 2px rgb(5 0 15 / 0.6);
+  --float-shadow: 0 8px 24px -6px rgb(10 0 30 / 0.75), 0 0 0 1px rgb(255 79 216 / 0.08);
+  --popover: #2f1957;
+  --accent: #46296f;
+  --brand: #ff5cdc;
+  --brand-foreground: #2a0026;
+  --playhead: #ffd166;
+
+  --piano-row: #2c1850;
+  --piano-black-row: #25133f;
+  --piano-line: #1d0e33;
+  --piano-beat-line: #170a29;
+  --piano-bar-line: #0c0517;
+  --piano-ruler: #20103d;
+  --piano-ruler-text: #dccaf7;
+  --piano-ghost: rgb(230 200 255 / 0.16);
+}

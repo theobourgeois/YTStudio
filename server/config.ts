@@ -29,3 +29,14 @@ export const CLAUDE = process.env.CLAUDE_PATH || null;
 export const TRANSCRIPTION_ENGINE = process.env.EDITOR_TRANSCRIPTION_ENGINE || null;
 /** Codex's command line tool, which can run the in-app assistant instead (default: on the PATH, else its usual homes). */
 export const CODEX = process.env.CODEX_PATH || null;
+/**
+ * The music suite's audio engine (`engine/`, built by `pnpm engine:build`), and extra folders it looks for
+ * VST3 plugins in, separated by ":" (default: the engine's own test synth and test effect, when they've been built).
+ */
+const ENGINE_BUILD = path.join(REPO_ROOT, "engine", "build");
+export const ENGINE =
+  process.env.EDITOR_ENGINE_PATH ||
+  path.join(ENGINE_BUILD, "VaudioEngine_artefacts", "Release", "Vaudio Engine.app", "Contents", "MacOS", "Vaudio Engine");
+export const ENGINE_PLUGIN_PATHS = process.env.EDITOR_PLUGIN_PATHS
+  ? process.env.EDITOR_PLUGIN_PATHS.split(path.delimiter).filter(Boolean)
+  : ["VaudioTestSynth", "VaudioTestEffect"].map((name) => path.join(ENGINE_BUILD, "test-plugin", `${name}_artefacts`, "Release", "VST3"));

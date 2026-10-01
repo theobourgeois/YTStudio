@@ -37,7 +37,7 @@ import { suiteToolSpec, toolSuite } from "../../shared/suite-tools.ts";
 import { type ToolResult, bareToolName, errorResult } from "../../shared/tool-spec.ts";
 import { errorMessage } from "../../shared/errors.ts";
 import type { AssistantProviderStatus, AssistantStatus, SendChatMessageRequest } from "../../shared/types.ts";
-import { createId } from "../../shared/timeline.ts";
+import { createId } from "../../shared/ids.ts";
 import { CLAUDE, CODEX } from "../config.ts";
 import { firstThatRuns, run } from "../process.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";

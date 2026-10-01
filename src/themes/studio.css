@@ -1,0 +1,276 @@
+/*
+ * Studio, the app's own look and the Light and Dark themes: FL Studio's idea (not its artwork) in a blue-grey
+ * family. Mid-tone surfaces in clear steps, lines darker than what they divide, a little depth on what can be
+ * pressed (a lit top edge, a slight gradient, a dark outline) and sunken fields. `docs/ui-redesign.md` says why.
+ *
+ * It's also the base every other theme starts from: its values are on `.theme` (the class every themed
+ * element has, with `theme-<id>` beside it), its dark ones on `.theme.dark` (the dark themes have `dark`).
+ * Another theme's file only says what it changes, and `derived.css` works out the rest. The list of themes
+ * is `src/themes/index.ts`.
+ *
+ *   surface-0 < surface-1 < surface-2 < popover < surface-3     (the desktop, panels, cards, menus, controls)
+ *   sunken: fields, darker than what they sit on.
+ */
+.theme {
+  color-scheme: light;
+  --radius: 4px;
+
+  /* Surfaces, from the desktop behind everything up to a raised control's face. */
+  --surface-0: #c9d0d9;
+  --surface-1: #dde2e8;
+  --surface-2: #e8ecf0;
+  --surface-3: #f4f6f8;
+  --sunken: #d3d9e0;
+  --line: #b3bcc6;
+  --line-strong: #8f99a5;
+
+  --foreground: #1c2127;
+  --muted-foreground: #4f5863;
+
+  /* Depth: the lit top edge, the outline, a control's face and pushed-in face, a field's inner shadow. */
+  --bevel-highlight: rgb(255 255 255 / 0.9);
+  --bevel-shadow: #9ea8b4;
+  --raised: linear-gradient(to bottom, #fbfcfd, #e6eaef);
+  --raised-hover: linear-gradient(to bottom, #ffffff, #eef1f4);
+  --pressed: linear-gradient(to bottom, #cdd4dc, #d9dee4);
+  --raised-brand: linear-gradient(to bottom, #5592f1, #336fdb);
+  --raised-brand-hover: linear-gradient(to bottom, #679ef4, #3d79e2);
+  --pressed-brand: linear-gradient(to bottom, #2b63c9, #3571dc);
+  --brand-edge: #2257b8;
+  --brand-highlight: rgb(255 255 255 / 0.3);
+  --inset: inset 0 1px 2px rgb(28 38 52 / 0.2);
+  --float-shadow: 0 8px 20px -6px rgb(24 34 48 / 0.3), 0 2px 5px rgb(24 34 48 / 0.14);
+
+  /* Everything else is an alias of the above, for the names components already use. */
+  --background: var(--surface-1);
+  --card: var(--surface-2);
+  --card-foreground: var(--foreground);
+  --popover: #f0f3f6;
+  --popover-foreground: var(--foreground);
+  --primary: #2c67d0;
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface-3);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--surface-2);
+  --accent: #d0d7df;
+  --accent-foreground: var(--foreground);
+  --destructive: #cf3a47;
+  /* Behind white text (a Delete button): darker than the red that's text itself. */
+  --destructive-solid: #cf3a47;
+  --border: var(--line);
+  --input: var(--bevel-shadow);
+  --ring: #2c67d0;
+
+  --brand: #2c67d0;
+  --brand-foreground: #ffffff;
+  --playhead: #e0414d;
+  --clip-video: #5a86d6;
+  --clip-audio: #3b9c7c;
+  --clip-graphic: #9a6fd0;
+  --clip-adjustment: #c86b8c;
+  --clip-solid: #7c8594;
+  --clip-camera: #b8923a;
+  --clip-null: #8f96a3;
+  --timeline: var(--surface-2);
+  --stage: var(--surface-0);
+  --sidebar: var(--surface-1);
+
+  /* The channel rack's steps (`step-*` in index.css): the two beat colours, off and on. */
+  --step-off-top: #e3e7ec;
+  --step-off-bottom: #ccd3db;
+  --step-off-hover: #eef1f4;
+  --step-alt-top: #ecdcdf;
+  --step-alt-bottom: #d9c2c6;
+  --step-alt-hover: #f4e6e8;
+  --step-on-top: #6a7888;
+  --step-on-bottom: #4c5867;
+  --step-on-edge: #36404c;
+  --step-on-alt-top: #e56b77;
+  --step-on-alt-bottom: #c84b58;
+  --step-on-alt-edge: #963440;
+
+  /* The Piano roll's canvases (`piano/draw.ts` reads these). */
+  --piano-row: #eef1f5;
+  --piano-black-row: #e2e7ed;
+  --piano-line: #d3d9e1;
+  --piano-beat-line: #bcc4ce;
+  --piano-bar-line: #949eaa;
+  --piano-outside: rgb(40 52 66 / 0.1);
+  --piano-ruler: #e3e7ec;
+  --piano-ruler-text: #4b535d;
+  --piano-ghost: rgb(60 76 94 / 0.14);
+
+  /* The mixer's meters (`mixer/meters.ts` reads these): low levels, nearing 0 dB, and over it. */
+  --meter-low: #2f9e54;
+  --meter-mid: #d99a1e;
+  --meter-high: #d6403c;
+  --meter-off: #c5ccd5;
+
+  /* Knobs (`knob.tsx`), FL Studio's: a cap in a well, the value an arc round it (the accent, for now: its own setting). */
+  --knob-well: #c8ced6;
+  --knob-well-edge: #b3bac4;
+  --knob-cap-light: #7a808b;
+  --knob-cap: #4e535d;
+  --knob-cap-dark: #343841;
+  --knob-cap-edge: #2a2d34;
+  --knob-notch: #e9edf2;
+  --knob-arc: var(--brand);
+  --knob-track: rgb(30 40 52 / 0.16);
+
+  /* The mixer's faders (`mixer/fader.tsx`), FL Studio's metal caps; the accent on the selected track. */
+  --fader-groove: #8e96a2;
+  --fader-tick: rgb(40 50 62 / 0.12);
+  --fader-tick-strong: rgb(40 50 62 / 0.3);
+  --fader-cap-light: #ffffff;
+  --fader-cap: #d6d9df;
+  --fader-cap-dark: #9da2ab;
+  --fader-cap-edge: #6a707b;
+  --fader-cap-on-light: color-mix(in oklab, var(--brand) 55%, #fff);
+  --fader-cap-on: var(--brand);
+  --fader-cap-on-dark: color-mix(in oklab, var(--brand) 70%, #000);
+  --fader-cap-on-edge: var(--brand-edge);
+
+  /*
+   * The mixer's look (`mixer/mixer-window.tsx`): the theme's own surfaces, with FL Studio's shading (darker
+   * from the top down to the knob, a darker slot behind each fader). A coloured track is a rich tint of its
+   * colour over `--mixer-tint-base`.
+   */
+  --mixer-bg: var(--surface-0);
+  --mixer-strip: var(--surface-1);
+  --mixer-strip-selected: var(--surface-2);
+  --mixer-upper-shade: rgb(30 40 52 / 0.045);
+  --mixer-muted-opacity: 0.7;
+  --mixer-line: var(--line);
+  --mixer-header: var(--surface-0);
+  --mixer-header-text: var(--muted-foreground);
+  --mixer-name: var(--muted-foreground);
+  /* A coloured track: its colour mixed into this (the strip), and with this (its name). */
+  --mixer-tint-base: #e3e7ec;
+  --mixer-name-tint: #14171c;
+  --mixer-well: var(--sunken);
+  --mixer-led: var(--brand);
+  --mixer-led-edge: var(--brand-edge);
+  --mixer-on: var(--brand);
+  --mixer-delay: var(--brand);
+  --fader-slot: rgb(30 40 52 / 0.05);
+  /* The mixer's lights (`mixer/led.tsx`): their bezel, and their lens when off. */
+  --led-bezel-light: #a9b0b9;
+  --led-bezel-dark: #6f7680;
+  --led-off-light: #6a717b;
+  --led-off-dark: #3a4048;
+  --piano-time: #e5484d;
+  --piano-start: #e08a12;
+  --piano-tool: #2f7be5;
+  --piano-keys: #8b929b;
+}
+
+.theme.dark {
+  color-scheme: dark;
+
+  --surface-0: #15181c;
+  --surface-1: #1e2227;
+  --surface-2: #262b31;
+  --surface-3: #323841;
+  --sunken: #121519;
+  --line: #111417;
+  --line-strong: #08090b;
+
+  --foreground: #e2e5e9;
+  --muted-foreground: #9ba4af;
+
+  --bevel-highlight: rgb(255 255 255 / 0.09);
+  --bevel-shadow: #0b0d10;
+  --raised: linear-gradient(to bottom, #3a4049, #2e343c);
+  --raised-hover: linear-gradient(to bottom, #424953, #343a43);
+  --pressed: linear-gradient(to bottom, #1c2025, #252a30);
+  --raised-brand: linear-gradient(to bottom, #7cb7f3, #5a9de6);
+  --raised-brand-hover: linear-gradient(to bottom, #8dc1f5, #68a7eb);
+  --pressed-brand: linear-gradient(to bottom, #4a88cf, #5896dd);
+  --brand-edge: #1c4f86;
+  --brand-highlight: rgb(255 255 255 / 0.35);
+  --inset: inset 0 1px 2px rgb(0 0 0 / 0.55);
+  --float-shadow: 0 8px 20px -6px rgb(0 0 0 / 0.7), 0 2px 5px rgb(0 0 0 / 0.45);
+
+  --popover: #2b3037;
+  --primary: #6aacf0;
+  --primary-foreground: #0d1117;
+  --accent: #363d46;
+  --destructive: #e8636d;
+  --destructive-solid: #bf3f4a;
+  --ring: #6aacf0;
+
+  --brand: #6aacf0;
+  --brand-foreground: #0d1117;
+  --playhead: #ef4d55;
+  --clip-video: #4169ac;
+  --clip-audio: #2d7661;
+  --clip-graphic: #6d4fa3;
+  --clip-adjustment: #975069;
+  --clip-solid: #586070;
+  --clip-camera: #8a6b27;
+  --clip-null: #4a505b;
+
+  --step-off-top: #3a4049;
+  --step-off-bottom: #2d3239;
+  --step-off-hover: #454c56;
+  --step-alt-top: #4b353b;
+  --step-alt-bottom: #3a2a2f;
+  --step-alt-hover: #573f45;
+  --step-on-top: #eef2f6;
+  --step-on-bottom: #bcc6d1;
+  --step-on-edge: #0b0d10;
+  --step-on-alt-top: #ffd9dd;
+  --step-on-alt-bottom: #f09aa3;
+  --step-on-alt-edge: #0b0d10;
+
+  --piano-row: #2c333c;
+  --piano-black-row: #262c34;
+  --piano-line: #20252c;
+  --piano-beat-line: #1a1e24;
+  --piano-bar-line: #12151a;
+  --piano-outside: rgb(8 10 13 / 0.42);
+  --piano-ruler: #1d2127;
+  --piano-ruler-text: #aeb6c0;
+  --piano-ghost: rgb(190 205 222 / 0.16);
+  --piano-time: #ef4d55;
+  --piano-start: #f2a93b;
+  --piano-tool: #6fb6ff;
+  --piano-keys: #101215;
+
+  --meter-low: #4cc46c;
+  --meter-mid: #f2b33d;
+  --meter-high: #ef4d55;
+  --meter-off: #353b45;
+
+  --knob-well: #17191d;
+  --knob-well-edge: #3a3d45;
+  --knob-cap-light: #4d515b;
+  --knob-cap: #3b3e47;
+  --knob-cap-dark: #2b2d34;
+  --knob-cap-edge: #17191e;
+  --knob-notch: #d9dee6;
+  --knob-arc: var(--brand);
+  --knob-track: rgb(255 255 255 / 0.09);
+
+  --fader-groove: #15171b;
+  --fader-tick: rgb(255 255 255 / 0.05);
+  --fader-tick-strong: rgb(255 255 255 / 0.13);
+  --fader-cap-light: #d4d5dc;
+  --fader-cap: #aaacb5;
+  --fader-cap-dark: #61636d;
+  --fader-cap-edge: #3c4048;
+  --fader-cap-on-light: color-mix(in oklab, var(--brand) 55%, #fff);
+  --fader-cap-on: var(--brand);
+  --fader-cap-on-dark: color-mix(in oklab, var(--brand) 70%, #000);
+  --fader-cap-on-edge: var(--brand-edge);
+
+  --mixer-upper-shade: rgb(0 0 0 / 0.1);
+  --mixer-muted-opacity: 0.65;
+  --mixer-tint-base: #16181c;
+  --mixer-name-tint: #ffffff;
+  --fader-slot: rgb(0 0 0 / 0.12);
+  --led-bezel-light: #8b8f97;
+  --led-bezel-dark: #4c5058;
+  --led-off-light: #3d424b;
+  --led-off-dark: #22262c;
+}

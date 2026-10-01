@@ -1,11 +1,12 @@
 /**
- * Vaudio's app icon: a V drawn as a row of level-meter pills (video + audio) raised out of a soft, neumorphic
- * macOS tile. Drawn as SVG on Apple's icon grid (an 824 px continuous-corner tile on a 1024 px canvas, with room
- * for its shadow), rendered to PNG by headless Chromium.
+ * Vaudio's app icon: the YT collective's banner (a yen inside a tressure of fleurs-de-lis), or the earlier design,
+ * three translucent ribbons of sound waving through a V. Drawn as SVG on Apple's icon grid (an 824 px
+ * continuous-corner tile on a 1024 px canvas), rendered to PNG by headless Chromium.
  *
- *   pnpm tsx scripts/make-icon.ts [--variant light|dark] [--out dir]
+ *   pnpm tsx scripts/make-icon.ts [--design yt|wave] [--variant light|dark] [--out dir]
  *
- * Writes icon.svg and icon.png (1024 px, what electron-builder turns into .icns/.ico) into resources/ by default.
+ * Writes icon.svg and icon.png (1024 px, what electron-builder turns into .icns/.ico) into resources/ by default,
+ * and the light one as the web app's favicon (public/favicon.png).
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -17,8 +18,8 @@ const arg = (name: string) => {
   return i > 0 ? process.argv[i + 1] : undefined;
 };
 const variant = (arg("variant") ?? "light") as "light" | "dark";
-/** What the pills rise from: nothing (the tile itself), a round well, or a screen-shaped one. */
-const wellShape = (arg("well") ?? "circle") as "none" | "circle" | "rect";
+/** yt: the YT collective's banner, the app's icon. wave: the ribbons it had before. */
+const design = (arg("design") ?? "yt") as "yt" | "wave";
 const outDir = path.resolve(arg("out") ?? path.join(ROOT, "resources"));
 
 const SIZE = 1024;
@@ -29,8 +30,13 @@ const INSET = (SIZE - TILE) / 2;
  * A macOS tile: a rounded square whose corners ease into the sides (Apple's continuous corners), drawn as a
  * superellipse in each corner only, so the sides stay straight.
  */
-function squircle(x: number, y: number, size: number, radius = size * 0.2237, n = 4.2, steps = 48): string {
-  const points: string[] = [];
+function squircle(x: number, y: number, size: number): string {
+  return `M${squirclePoints(x, y, size).map(([px, py]) => `${px.toFixed(2)},${py.toFixed(2)}`).join("L")}Z`;
+}
+
+/** The squircle's outline as points, clockwise from the top of its right-hand corner. */
+function squirclePoints(x: number, y: number, size: number, radius = size * 0.2237, n = 4.2, steps = 48): [number, number][] {
+  const points: [number, number][] = [];
   // Each corner is a quarter superellipse of 1.6x the radius, which looks like a circle of `radius` but smoother.
   const r = Math.min(radius * 1.6, size / 2);
   const corners = [
@@ -44,114 +50,139 @@ function squircle(x: number, y: number, size: number, radius = size * 0.2237, n 
       const t = from + (i / steps) * (Math.PI / 2);
       const c = Math.cos(t);
       const s = Math.sin(t);
-      points.push(`${(cx + r * Math.sign(c) * Math.abs(c) ** (2 / n)).toFixed(2)},${(cy + r * Math.sign(s) * Math.abs(s) ** (2 / n)).toFixed(2)}`);
+      points.push([cx + r * Math.sign(c) * Math.abs(c) ** (2 / n), cy + r * Math.sign(s) * Math.abs(s) ** (2 / n)]);
     }
   }
-  return `M${points.join("L")}Z`;
+  return points;
 }
+
+/** A ribbon's colours, back to front, and how it mixes with what's behind it. */
+type Ribbon = { light: string; deep: string; opacity: number };
 
 const PALETTES = {
   light: {
-    tileTop: "#f8fafc",
-    tileBottom: "#dfe4ec",
-    well: "#e6eaf0",
-    lightShadow: "#ffffff",
-    darkShadow: "#a7b1c2",
-    pillTop: "#6fa8f7",
-    pillBottom: "#2f6be0",
-    rim: "#ffffff",
+    tileTop: "#ffffff",
+    tileBottom: "#dfe5ef",
+    rimTop: "#ffffff",
+    rimBottom: "#b9c3d4",
+    glow: "#3d7bff",
+    sheen: 0.7,
+    blend: "multiply",
+    ribbons: [
+      { light: "#cfeaff", deep: "#7cc0ff", opacity: 0.85 },
+      { light: "#8fd0ff", deep: "#2f7dff", opacity: 0.82 },
+      { light: "#5aa2ff", deep: "#0b3ff0", opacity: 0.9 },
+    ] as Ribbon[],
   },
   dark: {
-    tileTop: "#2a2f37",
-    tileBottom: "#16191d",
-    well: "#1d2127",
-    lightShadow: "#343a44",
-    darkShadow: "#07080a",
-    pillTop: "#8cc0f7",
-    pillBottom: "#3b7ae8",
-    rim: "#4a5260",
+    tileTop: "#2b313b",
+    tileBottom: "#12151a",
+    rimTop: "#5b6575",
+    rimBottom: "#0b0d10",
+    glow: "#2f6bff",
+    sheen: 0.1,
+    blend: "screen",
+    ribbons: [
+      { light: "#2a64b0", deep: "#1a3f86", opacity: 0.9 },
+      { light: "#4aa6ff", deep: "#1f5fe0", opacity: 0.85 },
+      { light: "#9ad8ff", deep: "#3f7dff", opacity: 0.9 },
+    ] as Ribbon[],
   },
 } as const;
 
+/**
+ * One ribbon of the wave: a cosine under a bell, so it dips deepest in the middle (the V) and rises either side,
+ * settling towards the edges. Its height is vertical, so it thins on the slopes like a ribbon turning.
+ */
+type Wave = { amplitude: number; halfPeriod: number; spread: number; thickness: number; shift: number };
+
+const WAVES: Wave[] = [
+  { amplitude: 175, halfPeriod: 0.36, spread: 0.68, thickness: 84, shift: -30 },
+  { amplitude: 230, halfPeriod: 0.44, spread: 0.66, thickness: 118, shift: 0 },
+  { amplitude: 185, halfPeriod: 0.54, spread: 0.72, thickness: 100, shift: 34 },
+];
+
+const WAVE_LEFT = 116;
+const WAVE_RIGHT = SIZE - WAVE_LEFT;
+/** Where the waves settle: above the middle, since the V hangs below it. */
+const BASELINE = 470;
+
+function ribbonPath(w: Wave, steps = 480): string {
+  const top: string[] = [];
+  const bottom: string[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const x = WAVE_LEFT + ((WAVE_RIGHT - WAVE_LEFT) * i) / steps;
+    const u = (x - SIZE / 2) / ((WAVE_RIGHT - WAVE_LEFT) / 2); // -1..1
+    const bell = Math.exp(-(Math.abs(u / w.spread) ** 3));
+    const y = BASELINE + w.shift * bell + w.amplitude * bell * Math.cos((Math.PI * u) / w.halfPeriod);
+    // Thick through the V, tapering to a thread at the edges.
+    const h = w.thickness * (0.18 + 0.82 * Math.exp(-((u / 0.62) ** 2)));
+    top.push(`${x.toFixed(2)},${(y - h / 2).toFixed(2)}`);
+    bottom.push(`${x.toFixed(2)},${(y + h / 2).toFixed(2)}`);
+  }
+  return `M${top.join("L")}L${bottom.reverse().join("L")}Z`;
+}
+
 function iconSvg(p: (typeof PALETTES)[keyof typeof PALETTES]): string {
   const tile = squircle(INSET, INSET, TILE);
-  // The V: seven pills stepping down to the middle and back up, like a level meter.
-  const count = 5;
-  const pillWidth = 78;
-  const gap = 32;
-  const pillHeight = 212;
-  const drop = 100; // how far each pill sits below the previous one, towards the middle
-  const total = count * pillWidth + (count - 1) * gap;
-  const left = SIZE / 2 - total / 2;
-  const middle = (count - 1) / 2;
-  // A V is heavier at the top, so it sits a little low to look centred.
-  const top = SIZE / 2 - (pillHeight + middle * drop) / 2 + 18;
-  const pills = Array.from({ length: count }, (_, i) => {
-    const x = left + i * (pillWidth + gap);
-    const y = top + (middle - Math.abs(i - middle)) * drop;
-    return `<rect x="${x}" y="${y}" width="${pillWidth}" height="${pillHeight}" rx="${pillWidth / 2}"/>`;
-  }).join("");
-  // The well the pills rise from, pressed into the tile.
-  const wellPad = 60;
-  const box = { x: left - wellPad, y: top - wellPad, w: total + wellPad * 2, h: pillHeight + middle * drop + wellPad * 2 };
-  const wellRadius = 330;
-  const well =
-    wellShape === "circle"
-      ? `<circle cx="${SIZE / 2}" cy="${SIZE / 2}" r="${wellRadius}" fill="${p.well}" filter="url(#inset)"/>`
-      : wellShape === "rect"
-        ? `<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="${Math.min(box.h, box.w) * 0.26}" fill="${p.well}" filter="url(#inset)"/>`
-        : "";
+  const ribbons = WAVES.map((w) => ribbonPath(w));
+  const gradients = p.ribbons
+    .map(
+      (r, i) => `<linearGradient id="ribbon${i}" gradientUnits="userSpaceOnUse" x1="0" y1="270" x2="0" y2="740">
+      <stop offset="0" stop-color="${r.light}"/>
+      <stop offset="1" stop-color="${r.deep}"/>
+    </linearGradient>`,
+    )
+    .join("\n    ");
+  const drawn = ribbons
+    .map((d, i) => `<path d="${d}" fill="url(#ribbon${i})" fill-opacity="${p.ribbons[i].opacity}" style="mix-blend-mode:${p.blend}"/>`)
+    .join("\n      ");
+  // Each ribbon's top edge catches the light, which is what makes it read as glass rather than paint.
+  const shine = ribbons.map((d) => `<path d="${d}" fill="url(#shine)"/>`).join("");
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0.35" y2="1">
+    <linearGradient id="tile" x1="0" y1="0" x2="0.2" y2="1">
       <stop offset="0" stop-color="${p.tileTop}"/>
+      <stop offset="0.55" stop-color="${p.tileTop}" stop-opacity="0.96"/>
       <stop offset="1" stop-color="${p.tileBottom}"/>
     </linearGradient>
-    <linearGradient id="pill" x1="0" y1="0" x2="0.3" y2="1">
-      <stop offset="0" stop-color="${p.pillTop}"/>
-      <stop offset="1" stop-color="${p.pillBottom}"/>
-    </linearGradient>
+    <!-- Light falling on the tile from above: a soft sheen over its top half. -->
+    <radialGradient id="sheen" cx="0.5" cy="0" r="0.9">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="${p.sheen}"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Its edge: lit along the top, shaded along the bottom (Tahoe's glass rim). -->
     <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${p.rim}" stop-opacity="0.9"/>
-      <stop offset="0.5" stop-color="${p.rim}" stop-opacity="0"/>
+      <stop offset="0" stop-color="${p.rimTop}" stop-opacity="1"/>
+      <stop offset="0.35" stop-color="${p.rimTop}" stop-opacity="0"/>
+      <stop offset="0.7" stop-color="${p.rimBottom}" stop-opacity="0"/>
+      <stop offset="1" stop-color="${p.rimBottom}" stop-opacity="0.8"/>
     </linearGradient>
-    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
-      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
+    ${gradients}
+    <linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="270" x2="0" y2="520">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
-    <!-- The tile floating over the desktop (Big Sur icons carry their own shadow). -->
+    <!-- The ribbons fade into the tile at either end. -->
+    <linearGradient id="fade" gradientUnits="userSpaceOnUse" x1="${WAVE_LEFT}" y1="0" x2="${WAVE_RIGHT}" y2="0">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.16" stop-color="#fff" stop-opacity="1"/>
+      <stop offset="0.84" stop-color="#fff" stop-opacity="1"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="ends" maskUnits="userSpaceOnUse" x="0" y="0" width="${SIZE}" height="${SIZE}">
+      <rect width="${SIZE}" height="${SIZE}" fill="url(#fade)"/>
+    </mask>
+    <!-- The tile floating over the desktop (macOS icons carry their own shadow). -->
     <filter id="drop" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
-      <feOffset dy="12"/>
-      <feComponentTransfer><feFuncA type="linear" slope="0.32"/></feComponentTransfer>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="16"/>
+      <feOffset dy="14"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
       <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <!-- Neumorphic: light from the top left, soft shade to the bottom right. -->
-    <filter id="raised" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="16" result="blur"/>
-      <feOffset in="blur" dx="14" dy="16" result="down"/>
-      <feFlood flood-color="${p.darkShadow}" flood-opacity="0.85"/>
-      <feComposite in2="down" operator="in" result="dark"/>
-      <feOffset in="blur" dx="-12" dy="-12" result="up"/>
-      <feFlood flood-color="${p.lightShadow}" flood-opacity="0.9"/>
-      <feComposite in2="up" operator="in" result="light"/>
-      <feMerge><feMergeNode in="dark"/><feMergeNode in="light"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <!-- Pressed in: shade inside the top left edge, light inside the bottom right. -->
-    <filter id="inset" x="-10%" y="-10%" width="120%" height="120%">
-      <feFlood flood-color="${p.darkShadow}" flood-opacity="0.9"/>
-      <feComposite in2="SourceAlpha" operator="out" result="outside"/>
-      <feGaussianBlur in="outside" stdDeviation="14" result="blurDark"/>
-      <feOffset in="blurDark" dx="12" dy="14" result="darkOff"/>
-      <feComposite in="darkOff" in2="SourceAlpha" operator="in" result="darkIn"/>
-      <feFlood flood-color="${p.lightShadow}" flood-opacity="1"/>
-      <feComposite in2="SourceAlpha" operator="out" result="outsideLight"/>
-      <feGaussianBlur in="outsideLight" stdDeviation="12" result="blurLight"/>
-      <feOffset in="blurLight" dx="-10" dy="-10" result="lightOff"/>
-      <feComposite in="lightOff" in2="SourceAlpha" operator="in" result="lightIn"/>
-      <feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="darkIn"/><feMergeNode in="lightIn"/></feMerge>
-    </filter>
+    <filter id="blur-glow" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="34"/></filter>
+    <filter id="blur-shadow" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="14"/></filter>
     <clipPath id="tileClip"><path d="${tile}"/></clipPath>
   </defs>
 
@@ -159,17 +190,138 @@ function iconSvg(p: (typeof PALETTES)[keyof typeof PALETTES]): string {
     <path d="${tile}" fill="url(#tile)"/>
   </g>
   <g clip-path="url(#tileClip)">
-    <path d="${tile}" fill="none" stroke="url(#rim)" stroke-width="6"/>
-    ${well}
-    <g filter="url(#raised)" fill="url(#pill)">${pills}</g>
-    <g fill="url(#gloss)">${pills}</g>
+    <path d="${tile}" fill="url(#sheen)"/>
+    <!-- Light the ribbons cast on the tile, then the shade under them, so they float a little above it. -->
+    <ellipse cx="${SIZE / 2}" cy="730" rx="130" ry="56" fill="${p.glow}" opacity="0.3" filter="url(#blur-glow)"/>
+    <g mask="url(#ends)">
+      <g transform="translate(0 22)" opacity="0.28" filter="url(#blur-shadow)" fill="${p.glow}">${ribbons.map((d) => `<path d="${d}"/>`).join("")}</g>
+      <g style="isolation:isolate">
+      ${drawn}
+      </g>
+      ${shine}
+    </g>
+    <path d="${tile}" fill="none" stroke="url(#rim)" stroke-width="5"/>
   </g>
 </svg>`;
 }
 
+const YT_PALETTES = {
+  light: { tile: "#ffffff", line: "#000000", yen: "#8418f5" },
+  dark: { tile: "#000000", line: "#ffffff", yen: "#8418f5" },
+} as const;
+
+/**
+ * The banner's lily, traced from it (each piece is a region its outline encloses, out to the middle of the line), so
+ * it's drawn as the banner draws it: outlines filled with the field. The head stands on the origin pointing up, 100
+ * tall; the foot is what shows on the tressure's other side, also turned to point up.
+ */
+const FLEUR_HEAD = [
+  "M16.04,-0.97C18.98,-4.24 28.60,-30.84 30.88,-42.06C33.93,-56.98 31.83,-65.84 22.55,-77.38C16.92,-84.38 1.20,-98.56 -0.09,-97.82C-2.94,-96.18 -15.92,-84.09 -20.14,-79.15C-27.87,-70.10 -30.73,-64.03 -31.13,-55.89C-31.65,-45.28 -27.35,-28.48 -19.31,-9.65C-14.60,1.39 -16.55,0.39 0.28,0.39C13.15,0.39 14.96,0.23 16.04,-0.97Z",
+  "M-56.25,-0.42C-55.69,-0.99 -55.90,-2.16 -56.96,-4.29C-58.82,-8.05 -58.29,-12.28 -55.80,-13.61C-49.55,-16.96 -35.02,-12.06 -25.57,-3.42C-23.28,-1.33 -20.71,0.39 -19.87,0.39C-16.34,0.39 -16.51,-1.22 -21.27,-13.34C-23.80,-19.78 -25.87,-25.38 -25.87,-25.78C-25.87,-27.61 -35.87,-35.35 -42.39,-38.57C-66.96,-50.71 -92.98,-43.98 -93.03,-25.48C-93.05,-15.90 -82.18,-4.05 -70.00,-0.36C-66.96,0.55 -57.19,0.51 -56.25,-0.42Z",
+  "M24.76,-2.01C27.99,-5.42 35.09,-10.13 39.86,-12.01C54.11,-17.62 62.61,-13.83 57.64,-4.07C55.69,-0.25 56.57,0.39 63.77,0.39C69.17,0.39 70.27,0.10 76.00,-2.77C96.88,-13.22 100.17,-33.14 82.47,-42.00C65.46,-50.51 30.73,-38.33 25.45,-22.01C24.70,-19.67 22.59,-14.13 20.76,-9.70C18.28,-3.69 17.64,-1.38 18.27,-0.62C19.68,1.08 22.38,0.51 24.76,-2.01Z",
+  "M-25.94,-0.69C-23.53,-3.59 -40.13,-13.42 -48.54,-14.08C-57.43,-14.78 -60.52,-9.11 -54.74,-2.70L-51.94,0.39L-39.39,0.39C-29.59,0.39 -26.63,0.15 -25.94,-0.69Z",
+  "M54.90,-1.55C61.76,-8.41 58.63,-14.95 48.92,-14.07C43.48,-13.58 34.86,-9.52 29.51,-4.93C23.87,-0.10 24.85,0.39 40.28,0.39C52.79,0.39 52.99,0.36 54.90,-1.55Z",
+];
+const FLEUR_FOOT = [
+  "M3.87,-62.82C9.51,-56.58 13.51,-44.13 13.51,-32.84L13.51,-27.39L17.95,-29.63C26.91,-34.14 39.46,-36.99 41.19,-34.89C41.96,-33.97 41.26,-33.08 37.20,-29.78C28.68,-22.87 24.68,-16.36 22.73,-6.25C21.55,-0.09 22.67,-0.39 0.39,-0.39C-21.69,-0.39 -20.71,-0.15 -21.63,-5.79C-23.12,-14.97 -28.55,-23.79 -36.59,-30.11C-40.44,-33.13 -41.14,-34.02 -40.40,-34.92C-38.69,-36.97 -26.09,-34.12 -17.30,-29.69L-12.97,-27.51L-12.48,-34.99C-11.92,-43.51 -10.40,-49.92 -7.52,-55.81C-5.51,-59.91 -0.80,-66.02 0.36,-66.02C0.70,-66.02 2.28,-64.58 3.87,-62.82Z",
+];
+
+/** Arial's ¥ (the banner's), in font units: 2048 to the em, y up, 1466 tall. */
+const ARIAL_YEN =
+  "M477 0V325H62V464H477V607H62V755H403L-3 1466H197L487 950Q536 862 563 796Q586 849 645 959L919 1466H1133L728 755H1069V607H657V464H1069V325H657V0Z";
+
+/** Where along a closed outline (0..1 of its length) a point is, and the way out of it there. */
+function alongOutline(points: [number, number][], fraction: number): { x: number; y: number; nx: number; ny: number } {
+  const lengths = [0];
+  for (let i = 1; i <= points.length; i++) {
+    const [ax, ay] = points[i - 1];
+    const [bx, by] = points[i % points.length];
+    lengths.push(lengths[i - 1] + Math.hypot(bx - ax, by - ay));
+  }
+  const at = (((fraction % 1) + 1) % 1) * lengths[points.length];
+  let i = 1;
+  while (lengths[i] < at) i++;
+  const [ax, ay] = points[i - 1];
+  const [bx, by] = points[i % points.length];
+  const t = (at - lengths[i - 1]) / (lengths[i] - lengths[i - 1] || 1);
+  const len = Math.hypot(bx - ax, by - ay) || 1;
+  // Clockwise on screen, so outward is the tangent turned left.
+  return { x: ax + (bx - ax) * t, y: ay + (by - ay) * t, nx: (by - ay) / len, ny: -(bx - ax) / len };
+}
+
+/** A squircle's outline measured from the middle of its top, so what's spaced along it falls symmetrically. */
+function outlineFromTop(inset: number): [number, number][] {
+  const points = squirclePoints(INSET + inset, INSET + inset, TILE - inset * 2);
+  return [[SIZE / 2, points[0][1]], ...points];
+}
+
+/**
+ * The YT collective's banner (the Royal Banner of Scotland with Arial's ¥ for its lion) on a flat tile: a tressure
+ * of four lines following the tile's corners, flory-counter-flory, and the yen in the middle. No shading: the
+ * banner is line art, and so is this.
+ */
+function ytSvg(p: (typeof YT_PALETTES)[keyof typeof YT_PALETTES], LINES: number): string {
+  const tile = squircle(INSET, INSET, TILE);
+  const weight = 5;
+  const first = 96; // the outermost line, in from the tile's edge
+  // The banner has four lines; two, further apart, read better at the Dock's size.
+  const spacing = ({ 2: 20, 3: 17 } as Record<number, number>)[LINES] ?? 13;
+  const last = first + spacing * (LINES - 1);
+  const ring = (inset: number) => squircle(INSET + inset, INSET + inset, TILE - inset * 2);
+  const lines = Array.from({ length: LINES }, (_, i) => {
+    const inset = first + i * spacing;
+    return `<path d="${ring(inset)}"/>`;
+  }).join("");
+
+  // Lilies through the tressure at the corners and the sides' middles: the head outside, the foot inside.
+  const outer = outlineFromTop(first);
+  const inner = outlineFromTop(last);
+  const scale = 0.62;
+  // Half the head's width: where the corners' curve falls away from under its lobes.
+  const reach = 56 * scale;
+  const draw = (shapes: string[], outline: [number, number][], fraction: number, outwards: boolean) => {
+    let { x, y, nx, ny } = alongOutline(outline, fraction);
+    if (outwards) {
+      // A head stands on a straight base; on a corner the line curves away under it, so it sinks into the tressure
+      // until its lobes reach the line again (what sinks in is hidden between the lines).
+      let sink = 0;
+      for (const [qx, qy] of outline) {
+        const along = (qx - x) * -ny + (qy - y) * nx;
+        if (Math.abs(along) <= reach && Math.hypot(qx - x, qy - y) < reach * 2) sink = Math.max(sink, -((qx - x) * nx + (qy - y) * ny));
+      }
+      x -= nx * sink;
+      y -= ny * sink;
+    }
+    const [dx, dy] = outwards ? [nx, ny] : [-nx, -ny];
+    const angle = (Math.atan2(dx, -dy) * 180) / Math.PI;
+    const transform = `translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${angle.toFixed(2)}) scale(${scale})`;
+    return `<g transform="${transform}" stroke-width="${(weight / scale).toFixed(2)}">${shapes.map((d) => `<path d="${d}"/>`).join("")}</g>`;
+  };
+  const COUNT = 8;
+  const fleurs = Array.from({ length: COUNT }, (_, i) => draw(FLEUR_HEAD, outer, i / COUNT, true) + draw(FLEUR_FOOT, inner, i / COUNT, false)).join(
+    "\n    ",
+  );
+
+  // The yen, centred on its box, as tall as half the tile.
+  const yenScale = 410 / 1466;
+  const yenX = SIZE / 2 - ((1133 - 3) / 2) * yenScale - -3 * yenScale;
+  const yenY = SIZE / 2 + (1466 / 2) * yenScale;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}">
+  <path d="${tile}" fill="${p.tile}"/>
+  <g fill="${p.tile}" stroke="${p.line}" stroke-linejoin="round">
+    ${fleurs}
+  </g>
+  <path d="${ring(first)} ${ring(last)}" fill="${p.tile}" fill-rule="evenodd"/>
+  <g fill="none" stroke="${p.line}" stroke-width="${weight}">${lines}</g>
+  <path d="${ARIAL_YEN}" transform="translate(${yenX.toFixed(2)} ${yenY.toFixed(2)}) scale(${yenScale.toFixed(5)} ${(-yenScale).toFixed(5)})"
+    fill="${p.yen}" stroke="${p.line}" stroke-width="${((weight * 2) / yenScale).toFixed(2)}" stroke-linejoin="miter" paint-order="stroke"/>
+</svg>`;
+}
+
 mkdirSync(outDir, { recursive: true });
-const svg = iconSvg(PALETTES[variant]);
-const suffix = variant === "light" ? "" : `-${variant}`;
+const svg = design === "yt" ? ytSvg(YT_PALETTES[variant], Number(arg("lines") ?? 2)) : iconSvg(PALETTES[variant]);
+const suffix = (design === "yt" ? "" : `-${design}`) + (variant === "light" ? "" : `-${variant}`);
 writeFileSync(path.join(outDir, `icon${suffix}.svg`), svg);
 
 let browser;
@@ -181,5 +333,14 @@ try {
 const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE } });
 await page.setContent(`<html><body style="margin:0;background:transparent">${svg}</body></html>`);
 await page.screenshot({ path: path.join(outDir, `icon${suffix}.png`), omitBackground: true, clip: { x: 0, y: 0, width: SIZE, height: SIZE } });
-await browser.close();
 console.log(`Wrote ${path.relative(process.cwd(), path.join(outDir, `icon${suffix}.png`))}`);
+// The web app's favicon is the light icon too, drawn small rather than scaled down from the PNG.
+if (design === "yt" && variant === "light" && !arg("out")) {
+  const FAVICON = 128;
+  const small = svg.replace(`width="${SIZE}" height="${SIZE}"`, `width="${FAVICON}" height="${FAVICON}"`);
+  await page.setViewportSize({ width: FAVICON, height: FAVICON });
+  await page.setContent(`<html><body style="margin:0;background:transparent">${small}</body></html>`);
+  await page.screenshot({ path: path.join(ROOT, "public", "favicon.png"), omitBackground: true, clip: { x: 0, y: 0, width: FAVICON, height: FAVICON } });
+  console.log("Wrote public/favicon.png");
+}
+await browser.close();

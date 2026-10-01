@@ -1,14 +1,15 @@
 import { useMemo, useState } from "react";
-import { PiCaretRight, PiMagnifyingGlass, PiNotePencil } from "react-icons/pi";
+import { PiCaretRight, PiGearSix, PiMagnifyingGlass, PiNotePencil, PiSidebarSimple } from "react-icons/pi";
 import type { ProjectSummary } from "@shared/types";
 import { useNow } from "@/hooks/use-now";
-import { LogoMark } from "@/components/brand/logo-mark";
+import { SETTINGS_KEYS } from "@/components/settings/settings-page";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHORTCUT_KEYS } from "@/hooks/shortcuts";
 import { cn } from "cn";
 import { useLayout } from "@/stores/layout";
-import { activeProjects, settledProjects, useProjects } from "@/stores/projects";
+import { activeProjects, projectSuite, settledProjects, useProjects } from "@/stores/projects";
+import { useSettings } from "@/stores/settings";
 import { ProjectItem } from "./project-item";
 
 const SETTLED_OPEN_KEY = "editor-settled-open";
@@ -48,12 +49,26 @@ export function Sidebar() {
       )}
     >
       <div className="flex h-full w-76 flex-col">
-        <div data-titlebar="sidebar" className="flex h-13 shrink-0 items-center gap-2.5 px-3">
-          <SidebarToggle />
+        {/* The toggle floats over this bar's left end (SidebarToggle); New project is at its right. */}
+        <div data-titlebar="sidebar" className="flex h-13 shrink-0 items-center justify-end px-2.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground [&_svg:not([class*='size-'])]:size-4.5"
+                aria-label="New project"
+                onClick={() => useLayout.getState().setNewProjectOpen(true)}
+              >
+                <PiNotePencil />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">New project</TooltipContent>
+          </Tooltip>
         </div>
 
-        <div className="flex items-center gap-1 px-2.5 pb-3">
-          <label className="flex h-9 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 text-muted-foreground transition-colors focus-within:bg-accent hover:bg-accent/60">
+        <div className="px-2.5 pb-3">
+          <label className="flex h-9 min-w-0 items-center gap-2.5 rounded-lg px-2.5 text-muted-foreground transition-colors focus-within:bg-accent hover:bg-accent/60">
             <PiMagnifyingGlass className="size-4.5 shrink-0" />
             <input
               type="search"
@@ -65,20 +80,6 @@ export function Sidebar() {
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-9 text-muted-foreground hover:text-foreground [&_svg:not([class*='size-'])]:size-4.5"
-                aria-label="New project"
-                onClick={() => useLayout.getState().setNewProjectOpen(true)}
-              >
-                <PiNotePencil />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">New project</TooltipContent>
-          </Tooltip>
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2" aria-label="In progress">
@@ -120,31 +121,44 @@ export function Sidebar() {
             )}
           </div>
         )}
+
+        <div className="shrink-0 border-t border-line px-2.5 py-2">
+          <button
+            type="button"
+            onClick={() => useSettings.getState().show(projectSuite(openId) ?? "general")}
+            className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          >
+            <PiGearSix className="size-4.5 shrink-0" />
+            Settings
+            <kbd className="ml-auto font-sans text-xs">{SETTINGS_KEYS}</kbd>
+          </button>
+        </div>
       </div>
     </aside>
   );
 }
 
-/** The logo doubles as the show/hide toggle. Rendered in the sidebar and, when it's hidden, in the header. */
-export function SidebarToggle({ className }: { className?: string }) {
+/**
+ * Shows and hides the sidebar. One button for the whole window, pinned to its top-left corner (beside a Mac's
+ * window buttons in the desktop app, `.sidebar-toggle` in index.css), so it stays put whether the sidebar is
+ * open or not and whichever suite's header is below it; headers leave it room while the sidebar is hidden.
+ */
+export function SidebarToggle() {
   const open = useLayout((s) => s.sidebarOpen);
   const label = open ? "Hide sidebar" : "Show sidebar";
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           aria-label={label}
           aria-expanded={open}
-          className={cn(
-            "grid shrink-0 cursor-pointer place-items-center rounded-lg outline-none transition-[filter,transform]",
-            "hover:brightness-110 active:scale-95 focus-visible:ring-[3px] focus-visible:ring-ring/40",
-            className,
-          )}
+          className="sidebar-toggle fixed top-3 z-40 text-muted-foreground hover:text-foreground [&_svg:not([class*='size-'])]:size-4.5"
           onClick={() => useLayout.getState().toggleSidebar()}
         >
-          <LogoMark />
-        </button>
+          <PiSidebarSimple />
+        </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {label}

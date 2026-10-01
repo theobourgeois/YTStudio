@@ -1,0 +1,36 @@
+/*
+ * Synthwave: an '80s night drive. Night blue surfaces, magenta grooves, a neon pink accent and a cyan
+ * playhead. Dark; only what differs from Studio's Dark is here.
+ */
+.theme.theme-synthwave {
+  --surface-0: #090b24;
+  --surface-1: #10133a;
+  --surface-2: #171b4a;
+  --surface-3: #22275f;
+  --sunken: #07081b;
+  --line: #3a1650;
+  --line-strong: #6b2483;
+
+  --foreground: #f4f5ff;
+  --muted-foreground: #aab3f2;
+
+  --bevel-highlight: rgb(120 240 255 / 0.12);
+  --bevel-shadow: #05061a;
+  --float-shadow: 0 8px 24px -6px rgb(0 0 10 / 0.8), 0 0 14px -4px rgb(255 62 165 / 0.35);
+  --popover: #1a1e52;
+  --accent: #2e3278;
+  --brand: #ff4fa3;
+  --brand-foreground: #22000f;
+  --playhead: #2de2e6;
+  --knob-arc: #2de2e6;
+
+  --piano-row: #161a48;
+  --piano-black-row: #11143b;
+  --piano-line: #1f2358;
+  --piano-beat-line: #2a2f6e;
+  --piano-bar-line: #6b2483;
+  --piano-ruler: #10133a;
+  --piano-ruler-text: #cdd3ff;
+  --piano-time: #2de2e6;
+  --piano-ghost: rgb(45 226 230 / 0.16);
+}

@@ -27,6 +27,19 @@ export interface SuiteChat {
   contextHint: string;
 }
 
+/** A suite's section of Settings (`components/settings/`). */
+export interface SuiteSettings {
+  /** The section's name ("Video editor"). */
+  title: string;
+  /** One line under it, on what's there. */
+  description: string;
+  /**
+   * Its groups of settings (`SettingsGroup` from `components/settings/settings-ui.tsx`); Settings adds where
+   * new projects start from after them. Suites other than video load theirs on first use (`lazy`).
+   */
+  Panel: ComponentType;
+}
+
 /**
  * A suite in the tab: its store behind `open`/`close`, its workspace, and its assistant's side (the
  * context sent with each message, and the handlers of its tools). `useProjects` decides which
@@ -53,6 +66,8 @@ export interface ClientSuite<S extends SuiteId = SuiteId> {
    * other than video load theirs on first use (`lazy`), so nobody downloads an app they don't open.
    */
   Workspace: ComponentType;
+  /** Its section of Settings (⌘, opens on it while one of its projects is open). */
+  settings: SuiteSettings;
   /** The sidebar's line under a project's name. */
   describe(summary: SuiteProjectSummary<S>): string;
   /** Hook: the project's name while it's open and being edited (before it's saved), else null. */

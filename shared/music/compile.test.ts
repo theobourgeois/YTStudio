@@ -1,0 +1,223 @@
+import { describe, expect, it } from "vitest";
+import { compileSong, faderGain, levelGain, mixerPanGains, panGains, soundingChannels, stereoGains, swungTick, trackOrder } from "./compile.ts";
+import { addChannels, addPattern, addPluginChannel, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
+import { editNotes, setNoteProps } from "./notes.ts";
+import { addMixerTracks, routeChannels, sendOnly, setEffect, setSend, updateEffect, updateMixerTrack } from "./mixer.ts";
+import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "./project.ts";
+
+const P = FIRST_PATTERN_ID;
+const rack = () =>
+  addChannels(createMusicProject("Beat"), [
+    { id: "chan_kick", name: "Kick", sampleId: "media_kick" },
+    { id: "chan_hat", name: "Hat", sampleId: "media_hat" },
+  ]);
+
+describe("compileSong", () => {
+  it("gives the engine the loop: tempo, length, and every note in order", () => {
+    let song = setTempo(rack(), 140);
+    song = setSteps(song, P, "chan_hat", [2, 0], true);
+    song = setSteps(song, P, "chan_kick", [0, 8], true);
+    const compiled = compileSong(song, P);
+    expect(compiled).toMatchObject({ tempo: 140, ppq: 96, loopTicks: 384, beatTicks: 96, barTicks: 384 });
+    expect(compiled.channels.map((c) => c.sample)).toEqual(["media_kick", "media_hat"]);
+    expect(compiled.notes.map((n) => [n.tick, n.channel])).toEqual([
+      [0, 0],
+      [0, 1],
+      [48, 1],
+      [192, 0],
+    ]);
+    expect(compiled.notes[0]).toEqual({ channel: 0, tick: 0, length: 24, pitch: 0, gain: 1, key: 60, velocity: 0.78, pan: 0 });
+  });
+
+  it("plays the pattern asked for, or the first", () => {
+    let song = addPattern(rack(), { id: "pat_2" });
+    song = setSteps(song, "pat_2", "chan_kick", [20], true);
+    expect(compileSong(song, "pat_2")).toMatchObject({ loopTicks: 768, notes: [{ tick: 480 }] });
+    expect(compileSong(song, "pat_none").notes).toEqual([]);
+    expect(compileSong(song, null).loopTicks).toBe(384);
+  });
+
+  it("loops a pattern over its length: automatic (the bars with notes), or set, but never leaving notes out", () => {
+    const song = setSteps(rack(), P, "chan_kick", [0, 20, 40], true);
+    expect(compileSong(song, P)).toMatchObject({ loopTicks: 48 * 24, notes: [{ tick: 0 }, { tick: 480 }, { tick: 960 }] });
+    const short = compileSong(setPatternLength(song, P, 24), P);
+    expect(short.loopTicks).toBe(48 * 24);
+    expect(short.notes.map((n) => n.tick)).toEqual([0, 480, 960]);
+    expect(compileSong(setPatternLength(setSteps(rack(), P, "chan_kick", [0, 20], true), P, 24), P).loopTicks).toBe(24 * 24);
+    expect(compileSong(setPatternLength(song, P, 64), P).loopTicks).toBe(64 * 24);
+  });
+
+  it("plays only a part of the pattern when asked (the time selection), counting from its start", () => {
+    const song = setSteps(rack(), P, "chan_kick", [0, 4, 8, 12], true);
+    const part = compileSong(song, P, { start: 96, end: 288 });
+    expect(part).toMatchObject({ loopTicks: 192, offsetTicks: 96 });
+    expect(part.notes.map((n) => n.tick)).toEqual([0, 96]);
+    // A range that's no range plays the whole pattern.
+    expect(compileSong(song, P, { start: 96, end: 96 })).toMatchObject({ loopTicks: 384, offsetTicks: 0 });
+  });
+
+  it("leaves muted notes out, and passes each note's pan on", () => {
+    let song = setSteps(rack(), P, "chan_kick", [0, 4], true);
+    song = editNotes(song, P, "chan_kick", (notes) => setNoteProps(setNoteProps(notes, new Set([notes[0].id]), { muted: true }), new Set([notes[1].id]), { pan: -0.5 }));
+    expect(compileSong(song, P).notes).toMatchObject([{ tick: 96, pan: -0.5 }]);
+  });
+
+  it("passes on cut self and what's done to the sample, when anything is", () => {
+    const song = rack();
+    expect(compileSong(song, P).channels[0]).toMatchObject({ cutSelf: false, precomputed: null });
+    const edited = updateChannel(song, "chan_kick", { cutSelf: true, precomputed: { reverse: true, fadeOut: 0.5 } });
+    expect(compileSong(edited, P).channels[0]).toMatchObject({
+      cutSelf: true,
+      precomputed: { normalize: false, reverse: true, start: 0, length: 1, fadeIn: 0, fadeOut: 0.5 },
+    });
+  });
+
+  it("plays a plugin channel's notes as MIDI notes with a velocity", () => {
+    let song = addPluginChannel(rack(), { id: "VST3-Synth-1", name: "Synth", format: "VST3" }, "chan_synth");
+    song = setSteps(song, P, "chan_synth", [4], true);
+    song = setStepNote(song, P, "chan_synth", 4, { pitch: 64, velocity: 0.5 });
+    const compiled = compileSong(song, P);
+    expect(compiled.channels[2]).toMatchObject({ id: "chan_synth", sample: null, plugin: { id: "VST3-Synth-1", state: "" }, gainLeft: 1, gainRight: 1 });
+    expect(compiled.channels[0].plugin).toBeNull();
+    expect(compiled.notes[0]).toMatchObject({ channel: 2, tick: 96, length: 24, key: 64, velocity: 0.5 });
+  });
+
+  it("turns volume, pan, mute and velocity into gains", () => {
+    expect(levelGain(0.78, 0.78)).toBe(1);
+    expect(levelGain(0, 0.78)).toBe(0);
+    expect(levelGain(1, 0.78)).toBeCloseTo(1.64, 2);
+    expect(panGains(0)).toEqual([1, 1]);
+    expect(panGains(-1)).toEqual([1, 0]);
+    expect(panGains(0.5)).toEqual([0.5, 1]);
+
+    let song = setSteps(rack(), P, "chan_kick", [0], true);
+    song = setStepNote(song, P, "chan_kick", 0, { velocity: 0.39, pitch: 67 });
+    song = updateChannel(song, "chan_kick", { pan: 1, pitch: -12, envelope: { enabled: true, release: 0.3 } });
+    song = updateChannel(song, "chan_hat", { muted: true });
+    const compiled = compileSong(song, P);
+    expect(compiled.channels[0]).toMatchObject({ gainLeft: 0, gainRight: 1, pitch: -12, envelope: { attack: 0, decay: 0.2, sustain: 1, release: 0.3 } });
+    expect(compiled.channels[1]).toMatchObject({ gainLeft: 0, gainRight: 0, envelope: null });
+    expect(compiled.notes[0]).toMatchObject({ pitch: 7, gain: 0.25 });
+  });
+
+  it("swings every second step late, up to half a step", () => {
+    expect(swungTick(24, 1)).toBe(36);
+    expect(swungTick(24, 0)).toBe(24);
+    expect(swungTick(48, 1)).toBe(48);
+    const song = setSwing(setSteps(rack(), P, "chan_hat", [0, 1, 2, 3], true), 0.5);
+    expect(compileSong(song, P).notes.map((n) => n.tick)).toEqual([0, 30, 48, 78]);
+  });
+
+  it("counts beats and bars by the time signature", () => {
+    expect(compileSong(setTimeSignature(rack(), [6, 8]), P)).toMatchObject({ beatTicks: 48, barTicks: 288 });
+    expect(compileSong(setTimeSignature(rack(), [3, 4]), P)).toMatchObject({ beatTicks: 96, barTicks: 288 });
+  });
+});
+
+describe("the mixer, compiled", () => {
+  const order = (song: ReturnType<typeof rack>) => compileSong(song, P).tracks.map((t) => t.id);
+
+  it("runs every track after those sending to it, otherwise in the mixer's order, and the master last", () => {
+    const song = rack();
+    expect(order(song)).toEqual([...song.mixer.tracks.slice(1).map((t) => t.id), MASTER_TRACK_ID]);
+    // 1 → 3 → 2: 2 has to wait for 3, which waits for 1.
+    let routed = sendOnly(song, "insert_1", "insert_3");
+    routed = sendOnly(routed, "insert_3", "insert_2");
+    expect(order(routed).slice(0, 3)).toEqual(["insert_1", "insert_3", "insert_2"]);
+    const compiled = compileSong(routed, P);
+    const at = (id: string) => compiled.tracks.findIndex((t) => t.id === id);
+    expect(compiled.tracks[at("insert_1")].sends).toEqual([{ track: at("insert_3"), gain: 1 }]);
+    expect(compiled.tracks[at("insert_2")].sends).toEqual([{ track: at(MASTER_TRACK_ID), gain: 1 }]);
+    expect(compiled.tracks.at(-1)).toMatchObject({ id: MASTER_TRACK_ID, name: "Master", sends: [] });
+    // Every send goes to a later track.
+    for (const [i, track] of compiled.tracks.entries()) for (const send of track.sends) expect(send.track).toBeGreaterThan(i);
+  });
+
+  it("orders 500 tracks in a long chain quickly", () => {
+    let song = addMixerTracks(rack(), null, 484);
+    const tracks = song.mixer.tracks;
+    for (let i = tracks.length - 1; i > 1; i--) song = sendOnly(song, tracks[i].id, tracks[i - 1].id);
+    const started = performance.now();
+    const ordered = trackOrder(song.mixer.tracks);
+    expect(performance.now() - started).toBeLessThan(100);
+    expect(ordered.map((t) => t.id)).toEqual([...tracks.slice(1).reverse().map((t) => t.id), MASTER_TRACK_ID]);
+  });
+
+  it("sends each channel into its track", () => {
+    const song = routeChannels(rack(), ["chan_hat"], "insert_2");
+    const compiled = compileSong(song, P);
+    expect(compiled.channels.map((c) => compiled.tracks[c.track].id)).toEqual([MASTER_TRACK_ID, "insert_2"]);
+  });
+
+  it("turns the fader, pan and mute into a track's gains, and a send's level into its gain", () => {
+    expect(faderGain(0.8)).toBe(1);
+    expect(faderGain(0)).toBe(0);
+    expect(20 * Math.log10(faderGain(1))).toBeCloseTo(5.8, 1);
+    expect(mixerPanGains(0)).toEqual([1, 0, 0, 1]);
+    // Fully right: both sides on the right.
+    expect(mixerPanGains(1).map((g) => Math.round(g * 1000) / 1000)).toEqual([0, 0, 1, 1]);
+    expect(mixerPanGains(-1).map((g) => Math.round(g * 1000) / 1000)).toEqual([1, 1, 0, 0]);
+    // Halfway: the left side is a centred mono sound, -3 dB on each side.
+    expect(mixerPanGains(0.5)[0]).toBeCloseTo(Math.SQRT1_2, 6);
+
+    let song = updateMixerTrack(rack(), "insert_1", { volume: 0.4, pan: 1 });
+    song = updateMixerTrack(song, "insert_2", { muted: true });
+    song = setSend(song, "insert_1", "insert_3", 0.5);
+    const compiled = compileSong(song, P);
+    const track = (id: string) => compiled.tracks.find((t) => t.id === id)!;
+    const one = track("insert_1");
+    expect(one.gains.map((g) => Math.round(g * 1000) / 1000)).toEqual([0, 0, 0.125, 0.125]);
+    expect(one.sends.map((s) => s.gain)).toEqual([1, 0.25]);
+    expect(track("insert_2").gains).toEqual([0, 0, 0, 0]);
+  });
+
+  it("inverts, swaps and narrows or widens a track's sound before its fader and pan", () => {
+    const plain = { invert: false, swap: false, stereo: 0 };
+    expect(stereoGains(plain)).toEqual([1, 0, 0, 1]);
+    expect(stereoGains({ ...plain, invert: true })).toEqual([-1, 0, 0, -1]);
+    expect(stereoGains({ ...plain, swap: true })).toEqual([0, 1, 1, 0]);
+    // Narrowed all the way: both sides are their average (mono); widened all the way, the difference doubles.
+    expect(stereoGains({ ...plain, stereo: 1 })).toEqual([0.5, 0.5, 0.5, 0.5]);
+    expect(stereoGains({ ...plain, stereo: -1 })).toEqual([1.5, -0.5, -0.5, 1.5]);
+    // Swapped, then narrowed halfway.
+    expect(stereoGains({ ...plain, swap: true, stereo: 0.5 })).toEqual([0.25, 0.75, 0.75, 0.25]);
+
+    // Then the pan: swapped and panned hard right, the left side (now on the right) and the right both end up right.
+    const song = updateMixerTrack(updateMixerTrack(rack(), "insert_1", { swap: true, pan: 1 }), "insert_2", { invert: true });
+    const tracks = compileSong(song, P).tracks;
+    expect(tracks[0].gains.map((g) => Math.round(g * 1000) / 1000)).toEqual([0, 0, 1, 1]);
+    expect(tracks[1].gains.map((g) => g + 0)).toEqual([-1, 0, 0, -1]);
+  });
+
+  it("lists each track's effects in order, bypassed ones too, without empty slots", () => {
+    let song = setEffect(rack(), "insert_1", 3, { id: "VST3-Pro-Q", name: "Pro-Q", format: "VST3" }, "fx_eq");
+    song = setEffect(song, "insert_1", 1, { id: "AU-EchoBoy", name: "EchoBoy", format: "AudioUnit" }, "fx_echo");
+    song = updateEffect(song, "insert_1", 1, { enabled: false, mix: 0.4 });
+    song = updateMixerTrack(song, "insert_1", { name: "Lead" });
+    expect(compileSong(song, P).tracks[0]).toMatchObject({
+      id: "insert_1",
+      name: "Lead",
+      effects: [
+        { id: "fx_echo", plugin: { id: "AU-EchoBoy", state: "" }, enabled: false, mix: 0.4 },
+        { id: "fx_eq", plugin: { id: "VST3-Pro-Q", state: "" }, enabled: true, mix: 1 },
+      ],
+    });
+  });
+});
+
+describe("soundingChannels", () => {
+  it("are the unmuted channels with a note sounding at a tick, at least a step long, swung", () => {
+    let song = setSteps(rack(), P, "chan_kick", [0, 4], true);
+    song = setSteps(song, P, "chan_hat", [1], true);
+    const at = (tick: number, s = song) => [...soundingChannels(s, s.patterns[0], tick)].sort();
+    expect(at(0)).toEqual(["chan_kick"]);
+    expect(at(30)).toEqual(["chan_hat"]);
+    expect(at(60)).toEqual([]);
+    expect(at(100)).toEqual(["chan_kick"]);
+    // Swing moves the hat later.
+    const swung = setSwing(song, 1);
+    expect(at(30, swung)).toEqual([]);
+    expect(at(50, swung)).toEqual(["chan_hat"]);
+    expect(at(0, updateChannel(song, "chan_kick", { muted: true }))).toEqual([]);
+  });
+});

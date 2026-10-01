@@ -9,7 +9,7 @@
  * packaged app ships no node_modules: just that bundle, the preload script and the built web app.
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type BuildOptions, build, context } from "esbuild";
 import { BASE_WEB_PORT, pickPorts } from "./ports.ts";
@@ -18,6 +18,8 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 const STAGE = path.join(ROOT, "build", "desktop");
 const pkg = (await import("../package.json", { with: { type: "json" } })).default as { version: string };
 const electronPkg = (await import("electron/package.json", { with: { type: "json" } })).default as { version: string };
+/** The music suite's audio engine (`pnpm engine:build`), shipped beside the app when it's been built. */
+const ENGINE_APP = path.join(ROOT, "engine", "build", "VaudioEngine_artefacts", "Release", "Vaudio Engine.app");
 const ELECTRON = path.join(ROOT, "node_modules", ".bin", "electron");
 
 /**
@@ -180,6 +182,8 @@ async function pack(targets: "dir" | "installers") {
       // Everything is bundled: electron-builder would otherwise copy in the repo's dependencies.
       files: ["**/*", "!**/*.map", "!node_modules/**"],
       npmRebuild: false,
+      // electron/main.ts points the server at it (EDITOR_ENGINE_PATH).
+      extraResources: existsSync(ENGINE_APP) ? [{ from: ENGINE_APP, to: "Vaudio Engine.app" }] : [],
       // Not signed yet (that needs an Apple Developer ID): macOS asks to confirm the first launch.
       mac: {
         category: "public.app-category.video",

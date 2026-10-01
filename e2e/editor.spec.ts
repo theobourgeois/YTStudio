@@ -945,6 +945,72 @@ test("auto captions: makes captions from the speech, edits one's words and style
   await expect.poll(async () => (await captions()).length).toBe(made.length);
 });
 
+test("settings: ⌘, opens on the video editor's section; themes and fonts change the whole app and last", async ({ page }) => {
+  await page.goto("/");
+  // Nothing picked yet: the theme follows the computer's (this browser's) light or dark.
+  await expect(page.locator("html")).toHaveClass(/\btheme-light\b/);
+  await newVideo(page);
+  await expect(page).toHaveURL(/\/p\/[\w-]+$/);
+  await page.keyboard.press("ControlOrMeta+Comma");
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings.getByRole("heading", { level: 1 })).toHaveText("Video editor");
+  // The editor's shortcuts are off underneath: Space doesn't play.
+  await page.keyboard.press("Space");
+
+  // The timeline's own toggle, here too.
+  const ripple = settings.getByRole("switch", { name: "Auto ripple" });
+  await expect(ripple).not.toBeChecked();
+  await ripple.click();
+  await expect(ripple).toBeChecked();
+  // New layers start as long as asked.
+  const length = settings.getByLabel("Length of new text and layers, in seconds");
+  await length.fill("3");
+  await length.press("Enter");
+
+  await settings.getByRole("button", { name: "General" }).click();
+  await expect(settings.getByRole("heading", { level: 1 })).toHaveText("General");
+  await expect(settings.getByRole("radio", { name: "System" })).toHaveAttribute("aria-checked", "true");
+  await settings.getByRole("radio", { name: "Ultraviolet" }).click();
+  await expect(settings.getByRole("radio", { name: "Ultraviolet" })).toHaveAttribute("aria-checked", "true");
+  // A dark theme is dark everywhere (`dark:` styles, the canvases).
+  await expect(page.locator("html")).toHaveClass(/\btheme-ultraviolet\b.*\bdark\b|\bdark\b.*\btheme-ultraviolet\b/);
+  await settings.getByRole("combobox", { name: "Interface font" }).click();
+  await page.getByRole("option", { name: "Inter", exact: true }).click();
+  await expect(page.getByRole("listbox")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain("Inter Variable");
+
+  // Esc goes back to the video, where they all hold.
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-settings]")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Auto ripple", exact: true })).toHaveAttribute("aria-pressed", "true");
+  type Layer = SavedClip & { adjustment?: boolean };
+  const before = new Set(((await savedProject(page)).clips as Layer[]).filter((c) => c.adjustment).map((c) => c.id));
+  await page.getByRole("button", { name: "New layer" }).click();
+  await page.getByRole("menuitem", { name: /Adjustment layer/ }).click();
+  await expect
+    .poll(async () => {
+      const layer = ((await savedProject(page)).clips as Layer[]).find((c) => c.adjustment && !before.has(c.id));
+      return layer ? layer.out - layer.in : null;
+    })
+    .toBe(3);
+
+  // And after a reload.
+  await page.reload();
+  await expect(page.locator("html")).toHaveClass(/\btheme-ultraviolet\b/);
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain("Inter Variable");
+  // ⌘, opens and closes it; the gear does too, on the open project's section.
+  await page.keyboard.press("ControlOrMeta+Comma");
+  await expect(settings).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+Comma");
+  await expect(settings).toBeHidden();
+  await page.locator("header").getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(settings.getByRole("heading", { level: 1 })).toHaveText("Video editor");
+
+  // The tests after this one expect only the videos they made.
+  const id = new URL(page.url()).pathname.split("/").pop();
+  expect((await page.request.delete(`/api/projects/${id}`)).ok()).toBe(true);
+});
+
 test("settles a video, starts the next one, and unsettles it again", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/p\/[\w-]+$/);
@@ -1795,7 +1861,7 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await page.keyboard.press("Enter");
   await expect(picker).toHaveCount(0);
   await expect.poll(() => page.url()).not.toBe(videoUrl);
-  await expect(page.getByRole("heading", { name: "An empty song" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
   const song = (await projectList(page)).find((p: { suite: string }) => p.suite === "music");
   expect(song).toMatchObject({ name: "Untitled", tempo: 120, status: "active" });
   await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("120 BPM");
@@ -1825,5 +1891,5 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   const clips = (await savedProject(page)).clips.length;
   await expect.poll(async () => (await timelineClips(page)).length).toBe(clips);
   await page.goto(`/p/${song.id}`);
-  await expect(page.getByRole("heading", { name: "An empty song" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
 });

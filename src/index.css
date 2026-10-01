@@ -2,91 +2,32 @@
 @import "tw-animate-css";
 @import "@fontsource-variable/dm-sans/opsz.css";
 @import "@fontsource-variable/geist-mono";
+/* The fonts Settings offers (`FONTS` in `src/stores/theme.ts`): only declared here, each downloads when it's picked. */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/ibm-plex-sans";
+@import "@fontsource-variable/figtree";
+@import "@fontsource-variable/manrope";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/fira-code";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+/*
+ * The theme's values (classes on <html>: `theme`, `theme-<id>`, plus `dark` for a dark one); `src/themes/index.ts`
+ * lists them. Studio (Light and Dark) is the base, `derived.css` fills in what the others leave out, and they
+ * come last to win.
+ */
+@import "./themes/studio.css";
+@import "./themes/derived.css";
+@import "./themes/luna.css";
+@import "./themes/ultraviolet.css";
+@import "./themes/synthwave.css";
+@import "./themes/terminal.css";
+@import "./themes/bubblegum.css";
+@import "./themes/contrast.css";
 
 @custom-variant dark (&:is(.dark *));
-
-/*
- * Palette: cool-tinted neutrals (One Light / One Dark "darker") with a single
- * blue accent. Surfaces step by lightness only; the hue stays put so every
- * panel reads as the same material.
- *
- *   stage < timeline < background < sidebar < card < popover   (dark)
- */
-:root {
-  color-scheme: light;
-  --radius: 0.625rem;
-
-  --background: #fafafb;
-  --foreground: #1e2127;
-  --card: #ffffff;
-  --card-foreground: #1e2127;
-  --popover: #ffffff;
-  --popover-foreground: #1e2127;
-  --primary: #3b7ae8;
-  --primary-foreground: #ffffff;
-  --secondary: #f0f1f4;
-  --secondary-foreground: #1e2127;
-  --muted: #f0f1f4;
-  --muted-foreground: #6b717d;
-  --accent: #ebecf0;
-  --accent-foreground: #1e2127;
-  --destructive: #d8434f;
-  --border: #e4e6ea;
-  --input: #dcdfe4;
-  --ring: #3b7ae8;
-
-  /* Editor-specific tokens */
-  --brand: #3b7ae8;
-  --brand-foreground: #ffffff;
-  --playhead: #e0505b;
-  --clip-video: #5a86d6;
-  --clip-audio: #3b9c7c;
-  --clip-graphic: #9a6fd0;
-  --clip-adjustment: #c86b8c;
-  --clip-solid: #7c8594;
-  --clip-camera: #b8923a;
-  --clip-null: #8f96a3;
-  --timeline: #f4f5f7;
-  --stage: #eceef1;
-  --sidebar: #f4f5f7;
-}
-
-.dark {
-  color-scheme: dark;
-
-  --background: #16191d;
-  --foreground: #d5d9e0;
-  --card: #1b1e23;
-  --card-foreground: #d5d9e0;
-  --popover: #1e2126;
-  --popover-foreground: #d5d9e0;
-  --primary: #6aacf0;
-  --primary-foreground: #0f1216;
-  --secondary: #2a2d33;
-  --secondary-foreground: #d5d9e0;
-  --muted: #1f2227;
-  --muted-foreground: #878d98;
-  --accent: #23262c;
-  --accent-foreground: #e4e7ec;
-  --destructive: #e06c75;
-  --border: #25282e;
-  --input: #30343a;
-  --ring: #6aacf0;
-
-  --brand: #6aacf0;
-  --brand-foreground: #0f1216;
-  --playhead: #e06c75;
-  --clip-video: #4169ac;
-  --clip-audio: #2d7661;
-  --clip-graphic: #6d4fa3;
-  --clip-adjustment: #975069;
-  --clip-solid: #586070;
-  --clip-camera: #8a6b27;
-  --clip-null: #4a505b;
-  --timeline: #131519;
-  --stage: #0f1114;
-  --sidebar: #181b1f;
-}
 
 @theme {
   --font-sans: "DM Sans Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -94,10 +35,22 @@
 }
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: calc(var(--radius) - 1px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 1px);
+  --radius-2xl: calc(var(--radius) + 2px);
+  --radius-3xl: calc(var(--radius) + 4px);
+  --shadow-float: var(--float-shadow);
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand-edge: var(--brand-edge);
+  --color-destructive-solid: var(--destructive-solid);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -129,6 +82,25 @@
   --color-timeline: var(--timeline);
   --color-stage: var(--stage);
   --color-sidebar: var(--sidebar);
+}
+
+/* The music Browser (browser-panel.tsx): everything in it that can be clicked shows it. */
+[data-browser] :is(button, a, label, summary, [role="button"], [role="treeitem"], [role="menuitem"], [role="checkbox"], [role="slider"]):not(:disabled) {
+  cursor: pointer;
+}
+
+/* The music Browser's waveform (browser-panel.tsx): it opens out from its middle as a file's peaks arrive. */
+@keyframes browser-wave-in {
+  from { opacity: 0; transform: scaleY(0.15); }
+  60% { opacity: 1; }
+  to { opacity: 1; transform: scaleY(1); }
+}
+.browser-wave {
+  transform-origin: center;
+  animation: browser-wave-in 320ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-wave { animation-duration: 1ms; }
 }
 
 /* The assistant: its mark breathing while it works, the typing dots, and clips it just changed. */
@@ -165,14 +137,136 @@
   ::selection {
     background: color-mix(in srgb, var(--brand) 30%, transparent);
   }
-  /* Quiet, thin scrollbars that only show their thumb. */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--foreground) 14%, transparent) transparent;
+  /* What can be clicked shows a hand (Tailwind's reset leaves buttons with the arrow). Utilities win, so a
+     control with a cursor of its own (a knob's, a canvas tool's) keeps it. */
+  :is(button, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [role="combobox"], select, summary, a[href], input:is([type="checkbox"], [type="radio"], [type="color"], [type="file"])):not(:disabled, [aria-disabled="true"], [data-disabled]) {
+    cursor: pointer;
+  }
+  /* Scrollbars as the Piano roll's: a sunken track and a raised thumb you can see. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--sunken);
+  }
+  ::-webkit-scrollbar-corner {
+    background: var(--sunken);
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius);
+    background: var(--raised) padding-box;
+    box-shadow: inset 0 0 0 1px var(--bevel-shadow), inset 0 2px 0 -1px var(--bevel-highlight);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--raised-hover) padding-box;
   }
   kbd {
     @apply font-sans;
   }
+}
+
+/*
+ * Depth, the theme's way (its values are the theme's): `raised` for what can be pressed (a lit top edge, a
+ * face, an outline), `pressed` for it pushed in or on, `raised-brand`/`pressed-brand` for the accent's,
+ * `sunken` for fields. They draw on `box-shadow` through Tailwind's inset-shadow slot, so focus rings still
+ * add to them, and on a 1px border (give a control that turns raised on hover `border border-transparent`
+ * so it doesn't move). Cheap on purpose: a gradient and a shadow, no filters, for hundreds of steps.
+ */
+@utility raised {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--bevel-shadow);
+  background-color: var(--surface-3);
+  background-image: var(--raised);
+  --tw-inset-shadow: inset 0 1px 0 var(--bevel-highlight);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
+}
+@utility raised-hover {
+  background-image: var(--raised-hover);
+}
+@utility raised-brand-hover {
+  background-image: var(--raised-brand-hover);
+}
+@utility pressed {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--bevel-shadow);
+  background-color: var(--sunken);
+  background-image: var(--pressed);
+  --tw-inset-shadow: var(--inset);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
+}
+@utility raised-brand {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--brand-edge);
+  background-color: var(--brand);
+  background-image: var(--raised-brand);
+  color: var(--brand-foreground);
+  --tw-inset-shadow: inset 0 1px 0 var(--brand-highlight);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
+}
+@utility pressed-brand {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--brand-edge);
+  background-color: var(--brand);
+  background-image: var(--pressed-brand);
+  color: var(--brand-foreground);
+  --tw-inset-shadow: inset 0 1px 3px rgb(0 0 0 / 0.35);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
+}
+@utility sunken {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--bevel-shadow);
+  background-color: var(--sunken);
+  --tw-inset-shadow: var(--inset);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
+}
+/*
+ * The channel rack's step keys (FL Studio's): the beats alternate two colours (`-alt` is the second), dark
+ * when off and pale when on, each a small raised key. Colours are the theme's `--step-*`.
+ */
+@utility step-off {
+  border: 1px solid var(--bevel-shadow);
+  background-image: linear-gradient(to bottom, var(--step-off-top), var(--step-off-bottom));
+  box-shadow: inset 0 1px 0 var(--bevel-highlight);
+  &:hover {
+    background-image: linear-gradient(to bottom, var(--step-off-hover), var(--step-off-top));
+  }
+}
+@utility step-off-alt {
+  border: 1px solid var(--bevel-shadow);
+  background-image: linear-gradient(to bottom, var(--step-alt-top), var(--step-alt-bottom));
+  box-shadow: inset 0 1px 0 var(--bevel-highlight);
+  &:hover {
+    background-image: linear-gradient(to bottom, var(--step-alt-hover), var(--step-alt-top));
+  }
+}
+@utility step-on {
+  border: 1px solid var(--step-on-edge);
+  background-image: linear-gradient(to bottom, var(--step-on-top), var(--step-on-bottom));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55);
+}
+@utility step-on-alt {
+  border: 1px solid var(--step-on-alt-edge);
+  background-image: linear-gradient(to bottom, var(--step-on-alt-top), var(--step-on-alt-bottom));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55);
+}
+
+/* A floating surface (menus, popovers, dialogs, windows): a step lighter, outlined, a short dark shadow. */
+@utility floating {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--bevel-shadow);
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+  --tw-inset-shadow: inset 0 1px 0 var(--bevel-highlight);
+  --tw-shadow: var(--float-shadow);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000);
 }
 
 /*
@@ -183,12 +277,40 @@
 html.desktop [data-titlebar] {
   -webkit-app-region: drag;
 }
-html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [role="button"], [contenteditable]) {
+/* Controls take their own presses (a slider or a scrolled value would otherwise move the window). */
+html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [role="button"], [role="slider"], [role="spinbutton"], [contenteditable], [data-no-drag]) {
   -webkit-app-region: no-drag;
 }
-html.desktop-darwin:not(.fullscreen) [data-titlebar="sidebar"],
+/*
+ * The sidebar's toggle (sidebar.tsx) is pinned to the window's top-left corner, after a Mac's window buttons
+ * in the desktop app; while the sidebar is hidden, the header starts after it.
+ *
+ * The window buttons (electron/main.ts: 18 points in, centred 26 points down) don't zoom with the page, so
+ * beside them lengths are window points divided by the page's zoom (`--desktop-zoom`, electron/preload.ts):
+ * zoomed out, the toggle would otherwise slide under them.
+ */
+.sidebar-toggle {
+  left: 12px;
+  -webkit-app-region: no-drag;
+}
+html.desktop-darwin:not(.fullscreen) {
+  /* Where what follows the window buttons starts, and the middle of the buttons' row, in the page's px. */
+  --traffic-lights-end: calc(80px / var(--desktop-zoom, 1));
+  --traffic-lights-middle: calc(26px / var(--desktop-zoom, 1));
+}
+html.desktop-darwin:not(.fullscreen) .sidebar-toggle {
+  left: var(--traffic-lights-end);
+  /* Level with the buttons (it's 28px tall). */
+  top: max(4px, calc(var(--traffic-lights-middle) - 14px));
+}
+[data-titlebar="header"] {
+  transition: padding-left 200ms ease-out;
+}
+body:has(aside[aria-label="Projects"][inert]) [data-titlebar="header"] {
+  padding-left: 48px;
+}
 html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert]) [data-titlebar="header"] {
-  padding-left: 84px;
+  padding-left: calc(var(--traffic-lights-end) + 36px);
 }
 
 /* The clip under the pick-whip while parenting (properties/parent-row.tsx). */
@@ -196,4 +318,22 @@ html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert
   outline: 2px solid var(--brand);
   outline-offset: 1px;
   border-radius: 6px;
+}
+
+/* A tooltip never takes a click from what's under it (Radix wraps it in a positioned box of its own). */
+[data-radix-popper-content-wrapper]:has(> [data-slot="tooltip-content"]) {
+  pointer-events: none;
+}
+
+/*
+ * The music editor's controls (knobs, faders, LCDs, buttons, strips) show no focus outline after they're
+ * clicked or used from the keyboard (Théo): its windows are full of them. Text fields keep theirs.
+ */
+[data-suite="music"] :is(button, [role="slider"], [role="spinbutton"], [role="option"], [role="listitem"], [role="tab"], [role="switch"], [tabindex]):not(input, textarea):focus-visible {
+  outline: none;
+}
+
+/* Settings' top bars (components/settings/settings-page.tsx) leave a Mac's window buttons room, as the sidebar does. */
+html.desktop-darwin:not(.fullscreen) .settings-titlebar {
+  padding-left: var(--traffic-lights-end);
 }

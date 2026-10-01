@@ -1,5 +1,6 @@
 import path from "node:path";
 import express, { type ErrorRequestHandler, type Express, type Response } from "express";
+import type { HostWindow } from "../shared/music/engine.ts";
 import type { HealthResponse } from "../shared/types.ts";
 import { Bridge } from "./assistant/bridge.ts";
 import { mcpHandler } from "./assistant/mcp.ts";
@@ -11,6 +12,9 @@ import { listFonts } from "./fonts.ts";
 import { LibraryStore } from "./library.ts";
 import { MediaLibrary } from "./media.ts";
 import { migrateLegacyData } from "./migrate.ts";
+import { AudioEngine, type EngineOptions } from "./music/engine.ts";
+import { SampleBrowser } from "./music/browser.ts";
+import { browserRoutes, engineRoutes } from "./music/routes.ts";
 import { ProjectStore } from "./projects.ts";
 import { assistantRoutes } from "./routes/assistant.ts";
 import { exportRoutes } from "./routes/exports.ts";
@@ -36,12 +40,16 @@ export interface AppOptions {
   claudeCommand?: string;
   /** Codex's command (default: found on this computer). */
   codexCommand?: string;
+  /** The music suite's audio engine (default: the one built in `engine/`). */
+  engine?: EngineOptions;
 }
 
 export interface EditorApp {
   app: Express;
   /** Stop background processing and kill running renders. */
   shutdown(): void;
+  /** The desktop app's window changed: the audio engine's plugin windows follow it (`HostWindow`). */
+  setHostWindow(host: HostWindow): void;
 }
 
 /** Content types `mime-types` gets wrong (or too exotic) for browsers. */
@@ -65,6 +73,7 @@ export async function createApp({
   transcription: transcriptionOptions,
   claudeCommand,
   codexCommand,
+  engine: engineOptions,
 }: AppOptions): Promise<EditorApp> {
   const paths = new DataPaths(dataDir);
   await paths.init();
@@ -90,6 +99,16 @@ export async function createApp({
     suiteOf: (id) => projects.suiteOf(id),
   });
   await assistant.init();
+  const engine = new AudioEngine(paths, {
+    samplePath(projectId, mediaId) {
+      const asset = library.find(mediaId);
+      return asset && asset.projectId === projectId && asset.hasAudio ? library.sourcePath(asset) : null;
+    },
+    ...engineOptions,
+  });
+
+  const browser = new SampleBrowser(paths);
+  await browser.load();
 
   const app = express();
   app.disable("x-powered-by");
@@ -112,6 +131,12 @@ export async function createApp({
   app.use("/api/exports", exportRoutes(exports));
   app.use("/api/transcription", transcriptionRoutes(transcription));
   app.use("/api/assistant", assistantRoutes(assistant, bridge));
+  app.use("/api/engine", engineRoutes(engine));
+  app.use("/api/browser", browserRoutes(browser, engine, {
+      hasProject: (id) => projects.has(id),
+      find: (projectId, origin) => library.list(projectId).find((a) => a.origin === origin),
+      importFile: (file, projectId, origin) => library.importFile(file, projectId, () => projects.has(projectId), origin),
+    }),);
   app.all(
     "/mcp",
     express.json({ limit: "4mb" }),
@@ -157,6 +182,7 @@ export async function createApp({
 
   return {
     app,
+    setHostWindow: (host) => engine.setHost(host),
     shutdown() {
       library.shutdown();
       libraryMedia.shutdown();
@@ -165,6 +191,8 @@ export async function createApp({
       transcription.shutdown();
       assistant.shutdown();
       bridge.shutdown();
+      engine.shutdown();
+      browser.close();
     },
   };
 }
