@@ -1,5 +1,5 @@
 import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFolders, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRecordFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFolders, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { lengthOf, setMainVolume, setTempo } from "@shared/music/edits";
@@ -231,8 +231,8 @@ function PlayButtons() {
 }
 
 /**
- * FL Studio's Record (R): while it's on (lit red), Play records the armed mixer tracks, after the
- * count-in. It glows while recording. Its right-click menu has FL's recording options: the count-in,
+ * FL Studio's Record (R), a round button with a red dot: while it's on (all red), Play records the armed
+ * mixer tracks, after the count-in. It pulses while recording. Its right-click menu has FL's recording options: the count-in,
  * Loop record (a take each pass round the loop), Blend (hear earlier passes) and Disarm on stop.
  */
 function RecordButton() {
@@ -247,14 +247,19 @@ function RecordButton() {
       aria-label="Record"
       aria-pressed={on}
       data-recording={recording || undefined}
-      className={cn(
-        "raised hover:raised-hover active:pressed grid h-7 w-8 place-items-center rounded-[4px] transition-colors",
-        on ? "text-destructive" : "text-foreground/80 hover:text-foreground",
-        recording && "animate-pulse",
-      )}
+      className={cn("grid size-7 place-items-center rounded-full transition-colors", on ? "active:brightness-90" : "raised hover:raised-hover active:pressed", recording && "animate-pulse")}
+      // On, the whole button is red, its dot a brighter red in it; off, a round button with a red dot.
+      style={on ? { background: "var(--destructive-solid)", boxShadow: "inset 0 1px 0 rgb(255 255 255 / 0.25), 0 0 0 1px color-mix(in oklab, var(--destructive-solid) 70%, #000)" } : undefined}
       onClick={() => useRecording.getState().setOn(!on)}
     >
-      <PiRecordFill className="size-[15px]" />
+      <span
+        aria-hidden
+        className="size-3 rounded-full"
+        style={{
+          background: on ? "color-mix(in oklab, var(--destructive-solid) 55%, #fff)" : "var(--destructive)",
+          boxShadow: on ? "0 0 0 1px rgb(0 0 0 / 0.15)" : "inset 0 1px 1px rgb(0 0 0 / 0.25)",
+        }}
+      />
     </button>
   );
   return (
