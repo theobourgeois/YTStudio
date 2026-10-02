@@ -137,8 +137,8 @@ export interface Pattern {
 
 /**
  * An effect in a mixer track's slot: an effect plugin, or one of ours, whose settings are in the song
- * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; EchoBoy:
- * `ECHO_BOY_PLUGIN` and `echoBoy`).
+ * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
+ * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -152,6 +152,89 @@ export interface MixerEffect {
   grossBeat?: GrossBeat;
   /** EchoBoy's settings, on an EchoBoy (absent on a plugin). */
   echoBoy?: EchoBoy;
+  /** Auto-Tune's settings, on an Auto-Tune (absent on a plugin). */
+  autoTune?: AutoTune;
+}
+
+/**
+ * Auto-Tune's Input Type (`docs/antares/auto-tune.md`): the voice's range, which is where it listens for a
+ * pitch (and, the lower it reaches, the more it looks ahead: its latency).
+ */
+export const AUTO_TUNE_INPUTS = ["soprano", "altoTenor", "lowMale", "instrument", "bass"] as const;
+export type AutoTuneInput = (typeof AUTO_TUNE_INPUTS)[number];
+/** Auto-Tune Pro's scales (its "modern" set). */
+export const AUTO_TUNE_SCALES = [
+  "chromatic",
+  "major",
+  "minor",
+  "harmonicMinor",
+  "melodicMinor",
+  "dorian",
+  "phrygian",
+  "lydian",
+  "mixolydian",
+  "locrian",
+  "majorPentatonic",
+  "minorPentatonic",
+  "blues",
+  "wholeTone",
+  "diminished",
+] as const;
+export type AutoTuneScale = (typeof AUTO_TUNE_SCALES)[number];
+/** A note of the scale: tuned to (On), passed as it's sung (Bypass), or never a target (Remove). */
+export type AutoTuneNote = "tune" | "bypass" | "remove";
+export const VIBRATO_SHAPES = ["none", "sine", "square", "saw"] as const;
+export type VibratoShape = (typeof VIBRATO_SHAPES)[number];
+
+/** Auto-Tune's Create Vibrato: a vibrato it adds to the tuned note, started again on each new note. */
+export interface AutoTuneVibrato {
+  shape: VibratoShape;
+  /** Hz, 0.1..10. */
+  rate: number;
+  /** Milliseconds from the note's start before it begins (Onset Delay), and to come in fully (Onset Rate): 0..1500. */
+  delay: number;
+  onset: number;
+  /** 0..1: how much its rate and depth wander, note to note. */
+  variation: number;
+  /** Cents, 0..100: its depth (Pitch Amount). */
+  pitch: number;
+  /** 0..0.3: how much its level moves with it (Amplitude Amount). */
+  amplitude: number;
+  /** 0..1: how much its formants move with it (Formant Amount). */
+  formant: number;
+}
+
+/** Auto-Tune's settings (Antares Auto-Tune Pro's Auto mode). */
+export interface AutoTune {
+  input: AutoTuneInput;
+  /** The scale's first note, 0 (C) .. 11 (B). */
+  key: number;
+  scale: AutoTuneScale;
+  /** Each pitch class's note (C first): the scale's, as `key` and `scale` make it, until edited. */
+  notes: AutoTuneNote[];
+  /** Cents, -100..100: the tuning's reference moved from A4 = 440 Hz (Detune). */
+  detune: number;
+  /** Milliseconds, 0..400: how long a note takes to be pulled to its target; 0 is instant (the hard-tuned sound). */
+  retuneSpeed: number;
+  /** 0..1: Retune Speed slowed on the sustain of long notes, so short ones snap and long ones keep their life. */
+  humanize: number;
+  /** 0..1: only what's sung near a note is tuned; 0 tunes everything. */
+  flexTune: number;
+  /** dB, -12..12: the singer's own vibrato made narrower or wider. */
+  naturalVibrato: number;
+  /** 0..1: how unclear a pitch may be and still be tracked, from Choosy (0) to Relaxed (1). */
+  tracking: number;
+  /** Semitones, -12..12, added to the tuned note. */
+  transpose: number;
+  /** The voice's formants kept where they are when its pitch moves (off, they move with it). */
+  formant: boolean;
+  /** 0.5..1.8: the throat modelled longer (deeper, above 1) or shorter (brighter); with Formant on. */
+  throat: number;
+  /** The Auto-Tune 5 sound: sharper between notes; Formant, Throat, Transpose and Flex-Tune are off. */
+  classic: boolean;
+  /** The target is chosen from the sung pitch's centre, so a wide vibrato doesn't switch notes. */
+  ignoreVibrato: boolean;
+  vibrato: AutoTuneVibrato;
 }
 
 /**
@@ -508,6 +591,7 @@ export type AutomationTarget =
   | { kind: "send"; track: string; to: string }
   | { kind: "effect"; effect: string }
   | { kind: "grossBeat"; effect: string; control: GrossControl }
+  | { kind: "autoTune"; effect: string; control: AutoTuneControl }
   | { kind: "echoBoy"; effect: string; control: EchoControl }
   | { kind: "main" }
   | {
@@ -523,6 +607,10 @@ export type AutomationTarget =
 
 /** Gross Beat's controls an automation clip can drive: the slots playing and the two mix knobs. */
 export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";
+
+/** Auto-Tune's controls an automation clip can drive (the key too, for a song that changes key). */
+export const AUTO_TUNE_CONTROLS = ["retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key"] as const;
+export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
 
 /** How a segment of an automation clip's curve goes from one point to the next: FL Studio's curve types. */
 export const CURVE_TYPES = ["single", "double", "altSingle", "altDouble", "hold", "stairs", "smoothStairs", "pulse", "wave", "halfSine", "smooth"] as const;

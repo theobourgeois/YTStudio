@@ -119,8 +119,22 @@ export interface EngineTransport {
   preview?: EnginePreview | null;
   /** Each Gross Beat in the song (by effect id): what it's playing (absent from engines that don't say). */
   grossBeats?: Record<string, EngineGrossState>;
+  /** Each Auto-Tune in the song (by effect id): the pitches it heard and played lately (absent from engines that don't say). */
+  autoTunes?: Record<string, EngineAutoTuneState>;
   /** Each EchoBoy in the song (by effect id): its levels in and out, for its LEDs (absent from engines that don't say). */
   echoBoys?: Record<string, EngineEchoLevels>;
+}
+
+/**
+ * What an Auto-Tune heard and played lately: its latest pitch readings, oldest first, each
+ * `[number, sung, tuned, target]` (MIDI notes, fractions are cents; -1 where there was no pitch), numbered
+ * so a reading said twice is seen once, `step` seconds apart. `latency`: samples it looks ahead (its sound
+ * is that much late, compensated).
+ */
+export interface EngineAutoTuneState {
+  latency: number;
+  step: number;
+  points: [number, number, number, number][];
 }
 
 /** What an EchoBoy hears: the peaks (each side, 1 full scale, falling) into its echo and out of it. */

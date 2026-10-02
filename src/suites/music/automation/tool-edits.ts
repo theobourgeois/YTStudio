@@ -22,7 +22,7 @@ import {
 } from "@shared/music/automation";
 import { clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
-import { type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject } from "@shared/music/types";
+import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
 import { type EditResult, findChannel } from "../tool-edits";
 
@@ -41,7 +41,27 @@ export function findAutomation(song: MusicProject, ref: unknown): Automation {
   return found;
 }
 
-export const CONTROLS = ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix", ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"]] as const;
+export const CONTROLS = [
+  "volume",
+  "pan",
+  "stereo",
+  "send",
+  "mix",
+  "main volume",
+  "parameter",
+  "time slot",
+  "volume slot",
+  "time mix",
+  "volume mix",
+  "retune speed",
+  "humanize",
+  "flex-tune",
+  "natural vibrato",
+  "transpose",
+  "throat",
+  "key",
+  ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
+] as const;
 
 /** An EchoBoy's controls, as the tool names them. */
 const ECHO_CONTROL_NAMES: Record<string, EchoControl> = {
@@ -61,6 +81,18 @@ const ECHO_CONTROL_NAMES: Record<string, EchoControl> = {
 
 /** A Gross Beat's controls, as the tool names them. */
 const GROSS_CONTROLS = { "time slot": "timeSlot", "volume slot": "volumeSlot", "time mix": "timeMix", "volume mix": "volumeMix" } as const;
+/** An Auto-Tune's controls, as the tool names them. */
+const TUNE_CONTROLS = {
+  "retune speed": "retuneSpeed",
+  humanize: "humanize",
+  "flex-tune": "flexTune",
+  "natural vibrato": "naturalVibrato",
+  transpose: "transpose",
+  throat: "throat",
+  key: "key",
+} as const satisfies Record<string, AutoTuneControl>;
+/** Auto-Tune's controls the model gives as 0 to 100 (Auto-Tune's own numbers), kept as 0..1 (throat 0.5..1.8). */
+const HUNDREDTHS: readonly AutoTuneControl[] = ["humanize", "flexTune", "throat"];
 
 /** A mixer effect's slot, 1 to 10, on a track: the effect there, or an error saying which slots hold one. */
 function effectAt(song: MusicProject, input: Input) {
@@ -110,6 +142,17 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (!effect.grossBeat) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Gross Beat: a "${control}" is Gross Beat's.`);
       return { kind: "grossBeat", effect: effect.id, control: GROSS_CONTROLS[control] };
     }
+    case "retune speed":
+    case "humanize":
+    case "flex-tune":
+    case "natural vibrato":
+    case "transpose":
+    case "throat":
+    case "key": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.autoTune) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an Auto-Tune: "${control}" is Auto-Tune's.`);
+      return { kind: "autoTune", effect: effect.id, control: TUNE_CONTROLS[control] };
+    }
     case "echo mix":
     case "echo feedback":
     case "echo time 1":
@@ -156,12 +199,23 @@ function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, le
     // slots are numbered from 1 for the model, from 0 inside.
     const slots = target.kind === "grossBeat" && (target.control === "timeSlot" || target.control === "volumeSlot");
     const span = range.max - range.min;
-    const fraction = span === 0 ? 0 : (info.fromControl(slots ? p.value - 1 : p.value) - range.min) / span;
+    const own = slots ? p.value - 1 : target.kind === "autoTune" && HUNDREDTHS.includes(target.control) ? p.value / 100 : p.value;
+    const fraction = span === 0 ? 0 : (info.fromControl(own) - range.min) / span;
     return { tick: Math.round(p.at * barTicks), value: Math.min(1, Math.max(0, fraction)), tension: (p.tension as number | undefined) ?? 0, curve: (p.curve as CurveType | undefined) ?? "single" };
   });
   if (points.some((p) => p.tick > length)) throw new Error(`A point is past the clip's end (${round(length / barTicks)} bars): give a longer "length".`);
   return normalizePoints(points, length);
 }
+
+const TUNE_HINTS: Record<AutoTuneControl, string> = {
+  retuneSpeed: "milliseconds, 0 to 400",
+  humanize: "0 to 100",
+  flexTune: "0 to 100",
+  naturalVibrato: "dB, -12 to 12",
+  transpose: "semitones, -12 to 12",
+  throat: "50 to 180",
+  key: "0 (C) to 11 (B)",
+};
 
 /** An EchoBoy control's values, said for the model. */
 const ECHO_HINTS: Record<EchoControl, string> = {
@@ -186,6 +240,8 @@ const valueHint = (target: AutomationTarget) =>
     ? "0 to 1 of the parameter's range"
     : target.kind === "grossBeat" && target.control.endsWith("Slot")
       ? "a slot, 1 to 36"
+    : target.kind === "autoTune"
+      ? TUNE_HINTS[target.control]
     : target.kind === "channel" && target.control === "pan"
       ? "a pan, -1 left to 1 right"
       : target.kind === "mixer" && target.control !== "volume"

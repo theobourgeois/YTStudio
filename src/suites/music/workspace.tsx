@@ -36,6 +36,8 @@ import { useMixerView } from "./mixer/view";
 import { type WindowId, useMusicUi, useMusicWindows } from "./ui";
 import { MusicDesktop } from "./window";
 import { AutomationWindow } from "./automation/automation-window";
+import { AutoTuneWindow } from "./auto-tune/auto-tune-window";
+import { useTuneUi } from "./auto-tune/store";
 import { EchoBoyWindow } from "./echo-boy/echo-boy-window";
 import { useEchoUi } from "./echo-boy/store";
 import { GrossBeatWindow } from "./gross-beat/gross-beat-window";
@@ -86,6 +88,7 @@ function Windows() {
   const openAutomations = useAutomationUi((s) => s.openIds);
   const chooserOpen = useAutomationUi((s) => s.chooserOpen);
   const openGrossBeats = useGrossUi((s) => s.openIds);
+  const openAutoTunes = useTuneUi((s) => s.openIds);
   const openEchoBoys = useEchoUi((s) => s.openIds);
   return (
     <MusicDesktop
@@ -113,6 +116,9 @@ function Windows() {
       {openGrossBeats.map((effectId, index) => (
         <GrossBeatWindow key={effectId} effectId={effectId} index={index} />
       ))}
+      {openAutoTunes.map((effectId, index) => (
+        <AutoTuneWindow key={effectId} effectId={effectId} index={index} />
+      ))}
       {openEchoBoys.map((effectId, index) => (
         <EchoBoyWindow key={effectId} effectId={effectId} index={index} />
       ))}
@@ -135,6 +141,7 @@ function frontWindow(): WindowId | null {
     : id === "automate" ? useAutomationUi.getState().chooserOpen
     : id.startsWith("automation:") ? useAutomationUi.getState().openIds.includes(id.slice("automation:".length))
     : id.startsWith("gross:") ? useGrossUi.getState().openIds.includes(id.slice("gross:".length))
+    : id.startsWith("tune:") ? useTuneUi.getState().openIds.includes(id.slice("tune:".length))
     : id.startsWith("echo:") ? useEchoUi.getState().openIds.includes(id.slice("echo:".length))
     : ui.openChannelIds.includes(id.slice("channel:".length));
   return [...useMusicWindows.getState().order].reverse().find(open) ?? null;

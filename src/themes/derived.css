@@ -23,6 +23,8 @@
   /* Gross Beat's time envelope is the theme's accent (its volume one stays orange). */
   --gross-time: var(--brand);
   --gross-time-foreground: var(--brand-foreground);
+  /* Auto-Tune's tuned voice too. */
+  --tune-tuned: var(--brand);
 
   --step-off-top: var(--surface-2);
   --step-off-bottom: var(--surface-0);

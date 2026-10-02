@@ -123,7 +123,7 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, echo::Registry& echoBoys, juce::StringArray& unreadable,
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, juce::StringArray& unreadable,
                                   int capacity, double sampleRate, bool keepOnly)
 {
     auto song = std::make_unique<Song>();
@@ -238,7 +238,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     std::stable_sort (song->audioClips.begin(), song->audioClips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.tick < b.tick; });
 
     // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
-    juce::StringArray effectIds, grossIds, echoIds;
+    juce::StringArray effectIds, grossIds, tuneIds, echoIds;
     if (const auto* list = json["tracks"].getArray())
         for (const auto& item : *list)
         {
@@ -269,6 +269,16 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.grossSettings = gross::Settings::parse (slot["grossBeat"], capacity);
                         effect.gross = grossBeats.get (id, sampleRate, effect.grossSettings->depth * 60.0 / song->tempo + 0.6);
                         grossIds.add (id);
+                        track.effects.push_back (std::move (effect));
+                        continue;
+                    }
+                    // Auto-Tune is ours too. Its sound is made for the voice's lowest pitch (its latency follows).
+                    if (plugin["id"].toString() == "vaudio:auto-tune")
+                    {
+                        Track::Effect effect { id, nullptr, (bool) slot["enabled"], (float) number (slot["mix"], 1, 0, 1) };
+                        effect.tuneSettings = tune::Settings::parse (slot["autoTune"]);
+                        effect.tune = autoTunes.get (id, sampleRate, effect.tuneSettings->minHz, capacity);
+                        tuneIds.add (id);
                         track.effects.push_back (std::move (effect));
                         continue;
                     }
@@ -367,6 +377,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
         plugins.keepOnly (channelIds);
         effects.keepOnly (effectIds);
         grossBeats.keepOnly (grossIds);
+        autoTunes.keepOnly (tuneIds);
         echoBoys.keepOnly (echoIds);
     }
 
@@ -440,6 +451,25 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.control = control;
             const auto& settings = *track.effects[(size_t) lane.index].grossSettings;
             lane.base[0] = control == 0 ? (float) settings.timeSlot : control == 1 ? (float) settings.volumeSlot : control == 2 ? settings.timeMix : settings.volumeMix;
+        }
+        else if (kind == "tune")
+        {
+            // An Auto-Tune's control, in its own units (`AutoTuneControl`).
+            lane.kind = Lane::Kind::tune;
+            lane.track = (int) number (target["track"], -1, -1, 1e6);
+            if (lane.track < 0 || lane.track >= (int) song.tracks.size())
+                continue;
+            const auto& track = song.tracks[(size_t) lane.track];
+            lane.index = (int) number (target["effect"], -1, -1, 1e6);
+            if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].tuneSettings == nullptr)
+                continue;
+            const auto control = juce::StringArray { "retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key" }.indexOf (target["control"].toString());
+            if (control < 0)
+                continue;
+            lane.control = control;
+            const auto& s = *track.effects[(size_t) lane.index].tuneSettings;
+            const double base[] = { s.retune, s.humanize, s.flexTune, s.vibratoGain, s.transpose, s.throat, (double) s.key };
+            lane.base[0] = (float) base[control];
         }
         else if (kind == "echo")
         {
@@ -525,6 +555,8 @@ void Song::compensate (double sampleRate)
         for (const auto& effect : track.effects)
             if (effect.enabled && effect.plugin != nullptr)
                 delay += effect.plugin->instance->getLatencySamples();
+            else if (effect.enabled && effect.tune != nullptr)
+                delay += effect.tune->latency();
         out[t] = arrival[t] + delay;
         tracks[t].latency = out[t];
         for (const auto& send : track.sends)

@@ -516,7 +516,7 @@ void Sequencer::applyLanes (int numSamples)
     for (auto& lane : song->lanes)
     {
         lane.valueAt (sliceStart, start.data());
-        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::echo && lane.kind != Song::Lane::Kind::param)
+        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::tune && lane.kind != Song::Lane::Kind::echo && lane.kind != Song::Lane::Kind::param)
         {
             lane.valueAt (sliceEnd, end.data());
             for (int c = 0; c < lane.size; ++c)
@@ -563,6 +563,10 @@ void Sequencer::applyLanes (int numSamples)
             case Song::Lane::Kind::gross:
                 // A Gross Beat's slot or mix, likewise (a slot picked starts on its sync point).
                 setGrossControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].grossSettings, lane.control, start[0]);
+                break;
+            case Song::Lane::Kind::tune:
+                // An Auto-Tune's control, likewise.
+                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].tuneSettings->setControl (lane.control, start[0]);
                 break;
             case Song::Lane::Kind::echo:
                 // An EchoBoy's, likewise (its delays glide or crossfade there, its gains glide).
@@ -625,6 +629,9 @@ void Sequencer::restoreLanes (Song& from)
                 break;
             case Song::Lane::Kind::gross:
                 setGrossControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].grossSettings, lane.control, lane.base[0]);
+                break;
+            case Song::Lane::Kind::tune:
+                from.tracks[(size_t) lane.track].effects[(size_t) lane.index].tuneSettings->setControl (lane.control, lane.base[0]);
                 break;
             case Song::Lane::Kind::echo:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].echoSettings->set ((echo::Control) lane.control, lane.base.data(), lane.size);
@@ -912,6 +919,14 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
                 runGrossBeat (effect, l, r, numSamples);
             else
                 effect.gross->skipped();
+        }
+        else if (effect.tune != nullptr)
+        {
+            // Its mix is its own: the dry sound must wait as long as the tuned one.
+            if (effect.enabled)
+                effect.tune->process (*effect.tuneSettings, l, r, numSamples, effect.mix);
+            else
+                effect.tune->skipped();
         }
         else if (effect.echo != nullptr)
         {

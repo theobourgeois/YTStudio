@@ -20,6 +20,12 @@ const grossRef = {
 } as const;
 const grossKind = oneOf(["time", "volume"], "A time slot or a volume slot.");
 const grossSlot = { description: "A slot: its number, 1 to 36, or its name (\"1/2 Speed\").", anyOf: [{ type: "string" }, { type: "integer" }] } as const;
+/** Which Auto-Tune a tool acts on. */
+const tuneRef = {
+  effect: str("The Auto-Tune: its effect id (from get_mixer or get_auto_tune). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
 /** Which EchoBoy a tool acts on. */
 const echoRef = {
   effect: str("The EchoBoy: its effect id (from get_mixer or get_echo_boy). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
@@ -34,10 +40,32 @@ const automationRef = str("An automation clip: its id or its name (from get_auto
 /** What names a control to automate (`add_automation`, `list_controls`). */
 const controlFields = {
   control: oneOf(
-    ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix", ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"]],
+    [
+      "volume",
+      "pan",
+      "stereo",
+      "send",
+      "mix",
+      "main volume",
+      "parameter",
+      "time slot",
+      "volume slot",
+      "time mix",
+      "volume mix",
+      "retune speed",
+      "humanize",
+      "flex-tune",
+      "natural vibrato",
+      "transpose",
+      "throat",
+      "key",
+      ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
+    ],
     "Which control: a channel's or mixer track's volume or pan, a track's stereo separation, a send's level, an effect slot's mix, the main volume, " +
-      "a plugin's own parameter, or a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
-      "use hold curves, so each bar plays a slot: that's how chops are arranged), or its time or volume knob; or an EchoBoy's (\"echo ...\": " +
+      "a plugin's own parameter, a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
+      "use hold curves, so each bar plays a slot: that's how chops are arranged), or its time or volume knob; an Auto-Tune's (likewise): " +
+      "its retune speed (ms, 0 to 400), humanize and flex-tune (0 to 100), natural vibrato (dB, -12 to 12), transpose (semitones, -12 to 12), " +
+      "throat (50 to 180) or key (0 C .. 11 B, with hold curves: a key change); or an EchoBoy's (\"echo ...\": " +
       "mix and feedback 0 to 1, cuts in Hz, saturation 0 to 1, input and output dB, groove and feel -1 to 1, width 0 to 1, an echo time's " +
       "knob 0 to 1: automating a Time echo bends its pitch like tape, a note value steps through 1/2 .. 1/64).",
   ),
@@ -494,12 +522,14 @@ export const MUSIC_TOOLS = [
     kind: "action",
     description:
       "Put an effect in a mixer track's slot: the first empty one, or the slot given (replacing what's there). Its sound goes through the track's " +
-      "effects in slot order, before its fader. Either EchoBoy, ours (plugin \"EchoBoy\": Soundtoys' echo: tape, analogue, digital, radio, " +
-      "chorus and diffused echoes in 31 styles, Single, Dual, Ping-Pong and Rhythm Echo, which you set with update_echo_boy), Gross Beat, ours (plugin \"Gross Beat\": chops, repeats, stutters, half speed, tape " +
-      "stops, scratches, gates and sidechain pumping in time with the song, which you set with update_gross_beat and set_gross_beat_slot), or " +
+      "effects in slot order, before its fader. Either one of ours, whose settings you set: EchoBoy (plugin \"EchoBoy\": Soundtoys' echo: " +
+      "tape, analogue, digital, radio, chorus and diffused echoes in 31 styles, Single, Dual, Ping-Pong and Rhythm Echo, set with " +
+      "update_echo_boy), Gross Beat (plugin \"Gross Beat\": chops, repeats, stutters, half speed, tape stops, scratches, gates and " +
+      "sidechain pumping in time with the song, set with update_gross_beat and set_gross_beat_slot) or Auto-Tune (plugin \"Auto-Tune\": " +
+      "pitch correction for vocals, from the hard-tuned sound to natural, set with update_auto_tune; put it on the vocal's track), or " +
       "an effect plugin installed on this computer (list_plugins with kind \"effect\"), whose settings are its own, in its window, which the " +
       "user opens from the mixer: you can't set them.",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"EchoBoy", "Gross Beat", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"EchoBoy", "Gross Beat", "Auto-Tune", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -709,6 +739,69 @@ export const MUSIC_TOOLS = [
       },
       ["kind", "slot"],
     ),
+  }),
+  tool({
+    name: "get_auto_tune",
+    title: "Read an Auto-Tune",
+    kind: "look",
+    description:
+      "An Auto-Tune (Antares Auto-Tune Pro's Auto mode, ours, in a mixer track's slot): its input type, key and scale and each note's state " +
+      "(tuned to, bypassed: left as sung, removed: never a target), detune, retune speed, humanize, flex-tune, natural vibrato, tracking, " +
+      "transpose, formant and throat, classic mode, created vibrato, the preset its sound matches and the presets there are, the key the song's " +
+      "notes suggest, and what it heard lately (the notes sung and how far they were corrected) while sound went through it.",
+    inputSchema: obj({ ...tuneRef }),
+  }),
+  tool({
+    name: "update_auto_tune",
+    title: "Change an Auto-Tune",
+    kind: "edit",
+    description:
+      "Set an Auto-Tune. Retune speed is how fast a note is pulled to its target: 0 ms is the hard-tuned, robotic sound (T-Pain, modern rap), " +
+      "10 to 20 tight modern pop, 30 to 80 natural, more is barely there. Humanize slows it on long notes only; flex-tune only corrects what's " +
+      "sung near a note (0 corrects everything). Set the key and scale to the song's (or `detectKey`: from the song's notes): a note not in " +
+      "the scale is never a target. A preset sets the sound (retune, humanize, flex-tune, vibrato, transpose, formant...) and leaves the key, " +
+      "scale and input type; other fields given with it apply after it. A new key or scale resets edited notes, unless `notes` is given.",
+    inputSchema: obj({
+      ...tuneRef,
+      preset: str("A preset's name, applied first (get_auto_tune lists them: Hard Tune, Classic Hard Tune, Robot, Modern Pop, Natural Vocal, Gentle Fix, Ballad, Vibrato Lead, Octave Up, Octave Down, Chipmunk, Monster)."),
+      input: oneOf(["soprano", "altoTenor", "lowMale", "instrument", "bass"], "The input type: the voice's range (where pitch is listened for). Alto/Tenor by default."),
+      key: { description: 'The key: a note name ("A", "F#", "Bb") or 0 (C) to 11 (B).', anyOf: [{ type: "string" }, { type: "integer" }] },
+      scale: oneOf(
+        ["chromatic", "major", "minor", "harmonicMinor", "melodicMinor", "dorian", "phrygian", "lydian", "mixolydian", "locrian", "majorPentatonic", "minorPentatonic", "blues", "wholeTone", "diminished"],
+        "The scale (chromatic: every note a target).",
+      ),
+      detectKey: bool("Set the key and scale (major or minor) from the song's notes."),
+      notes: {
+        type: "object",
+        description: 'Notes of the scale to change, by name: { "C#": "remove", "E": "bypass", "G": "tune" }. tune: a target; bypass: passed as sung; remove: never a target. Or "all": "tune" | "bypass" | "remove".',
+        additionalProperties: { type: "string", enum: ["tune", "bypass", "remove"] },
+      },
+      detune: num("Cents, -100 to 100: the tuning reference moved from A4 = 440 Hz."),
+      retuneSpeed: num("Milliseconds, 0 to 400 (0: instant, the hard-tuned sound)."),
+      humanize: num("0 to 100: retune slowed on sustained notes."),
+      flexTune: num("0 to 100: only what's near a note is corrected (0: everything)."),
+      naturalVibrato: num("dB, -12 to 12: the singer's vibrato narrower or wider."),
+      tracking: num("0 (choosy) to 100 (relaxed): how unclear a pitch may be and still be tracked (50 by default; relax it for breathy or noisy takes)."),
+      transpose: int("Semitones, -12 to 12."),
+      formant: bool("Keep the voice's formants (its character) when its pitch moves (on by default); off, they move with it (a chipmunk up, a giant down)."),
+      throat: num("50 to 180 (100 as sung): the throat modelled longer (deeper) or shorter (brighter). Needs formant on."),
+      classic: bool("Classic mode: the Auto-Tune 5 sound, sharper steps between notes (no formant, throat, transpose or flex-tune)."),
+      ignoreVibrato: bool("The target note is chosen from the sung pitch's centre, so a wide vibrato doesn't flip between notes."),
+      vibrato: obj(
+        {
+          shape: oneOf(["none", "sine", "square", "saw"], "Its shape (none: off)."),
+          rate: num("Hz, 0.1 to 10."),
+          delay: num("Milliseconds, 0 to 1500, from a note's start before it begins."),
+          onset: num("Milliseconds, 0 to 1500, to come in fully."),
+          variation: num("0 to 100: how much its rate and depth wander."),
+          pitch: num("Cents, 0 to 100: its depth."),
+          amplitude: num("0 to 30: how much the level moves with it."),
+          formant: num("0 to 100: how much the formants move with it."),
+        },
+        [],
+        "Create Vibrato: a vibrato added to each tuned note (restarted on every new note).",
+      ),
+    }),
   }),
   tool({
     name: "list_samples",

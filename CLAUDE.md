@@ -60,8 +60,9 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      and recorded takes into the song (recording.ts: where they land, the latency left out),
                      Gross Beat (gross-beat.ts: its slots, edits and envelopes for the engine; its presets in
                      gross-beat-presets.ts), EchoBoy (echo-boy.ts: its edits, controls and delay lines for the
-                     engine; echo-boy-styles.ts its 31 styles, echo-boy-library.ts its presets), and drawing
-                     anything over time as lines for the engine (sampling.ts).
+                     engine; echo-boy-styles.ts its 31 styles, echo-boy-library.ts its presets), Auto-Tune
+                     (auto-tune.ts: its edits, Detect key, what the engine plays; scales, presets and ranges in
+                     auto-tune-presets.ts), and drawing anything over time as lines for the engine (sampling.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -174,8 +175,9 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      (Workers.h runs its plugins on every core). GrossBeat.cpp: Gross Beat, a native effect
                      (its rolling buffer, envelopes, sync, HOLD). EchoBoy.cpp: EchoBoy, a native echo (its
                      lines, the style on each repeat; its filters, saturations, diffusers, LFOs in EchoDsp.h).
-                     Resampling.h: reading between samples (linear, Hermite, sinc), centred so nothing is
-                     delayed. Protocol.cpp: the JSON lines. One file per job: split a file rather than let it grow past a few hundred
+                     AutoTune.cpp: Auto-Tune, native too (YIN pitch tracking, Antares' correction,
+                     formant-keeping PSOLA). Resampling.h: reading between samples (linear, Hermite, sinc),
+                     centred so nothing is delayed. Protocol.cpp: the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
 electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
@@ -196,6 +198,7 @@ src/
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
                      pattern-picker.tsx, gross-beat/ (Gross Beat's window, its mapping panel and tools), echo-boy/
                      (EchoBoy's window, Tweak, the Style Editor, Rhythm Echo's editor, its tools),
+                     auto-tune/ (Auto-Tune's window, its live pitch graph and tools),
                      toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
                      tempo and position LCDs, the hint bar; its maths in position.ts), recording.ts (armed
                      tracks, Record, takes into the song) and inputs.ts (the input device's channels), playlist/ (the
@@ -313,7 +316,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, Gross Beat, EchoBoy. Where it is and every step still to come, in order:
+the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
@@ -493,6 +496,17 @@ the export, automation, recording, Gross Beat, EchoBoy. Where it is and every st
   (`echo::Registry`), so edits don't cut the echoes off; Time glides, note values crossfade. Its knobs
   automate (`AutomationTarget` `echoBoy`; lanes `kind: "echo"` in the engine's units). Keep its sound tested
   offline (`echo-boy.integration.test.ts`).
+- **Auto-Tune** (`docs/antares/auto-tune.md`, Antares Auto-Tune Pro's Auto mode; `shared/music/auto-tune*.ts`,
+  `engine/src/AutoTune.cpp`, `src/suites/music/auto-tune/`): ours as Gross Beat is, `AUTO_TUNE_PLUGIN`, its
+  settings in the song (`MixerEffect.autoTune`). What its knobs mean (Tracking as YIN's threshold, Natural
+  Vibrato's dB, the input type's Hz) is decided in `engineAutoTune`; the engine hears the pitch, decides the
+  note per ~2.7 ms frame and moves it by TD-PSOLA with sub-sample marks (whole samples drift cents), the
+  grains stretched for Throat (or with the pitch, Formant off). It looks ahead by a latency fixed by the input
+  type, reported to `Song::compensate` (an enabled one only); its mix's dry sound is read as late. Its state
+  is kept by effect id (`tune::Registry`). It says its latest pitch readings in each transport event
+  (`EngineTransport.autoTunes`), which `pitch-history.ts` keeps outside React for the window's graph. Seven
+  controls automate (`AutomationTarget` `autoTune`, lanes `kind: "tune"`). Keep its sound tested offline to the
+  cent (`auto-tune.integration.test.ts`).
 - **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).
