@@ -123,6 +123,8 @@ export interface EngineTransport {
   autoTunes?: Record<string, EngineAutoTuneState>;
   /** Each EchoBoy in the song (by effect id): its levels in and out, for its LEDs (absent from engines that don't say). */
   echoBoys?: Record<string, EngineEchoLevels>;
+  /** Each OTT in the song (by effect id): its bands' levels and gains, for its display (absent from engines that don't say). */
+  otts?: Record<string, EngineOttState>;
   /** Each Pro-Q being watched (`eqWatch`), by effect id: its spectra and its dynamic bands (absent from engines that don't say). */
   eq?: Record<string, EngineEqState>;
 }
@@ -141,6 +143,16 @@ export interface EngineAutoTuneState {
 
 /** What an EchoBoy hears: the peaks (each side, 1 full scale, falling) into its echo and out of it. */
 export interface EngineEchoLevels {
+  input: [number, number];
+  output: [number, number];
+}
+
+/**
+ * What an OTT hears: each band's level (dB of its mean square, as its compressors hear it) and the gain
+ * it gives it now (dB, its H / M / L gain in), low, mid, high; and the peaks in and out (falling).
+ */
+export interface EngineOttState {
+  bands: { level: number; gain: number }[];
   input: [number, number];
   output: [number, number];
 }

@@ -123,7 +123,7 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, juce::StringArray& unreadable,
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, ott::Registry& otts, juce::StringArray& unreadable,
                                   int capacity, double sampleRate, bool keepOnly)
 {
     auto song = std::make_unique<Song>();
@@ -238,7 +238,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     std::stable_sort (song->audioClips.begin(), song->audioClips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.tick < b.tick; });
 
     // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
-    juce::StringArray effectIds, grossIds, tuneIds, echoIds, eqIds;
+    juce::StringArray effectIds, grossIds, tuneIds, echoIds, eqIds, ottIds;
     if (const auto* list = json["tracks"].getArray())
         for (const auto& item : *list)
         {
@@ -299,6 +299,16 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.eq = eqs.get (id, sampleRate);
                         effect.eqSettings = eq::Settings::parse (slot["eq"], capacity, *effect.eq);
                         eqIds.add (id);
+                        track.effects.push_back (std::move (effect));
+                        continue;
+                    }
+                    // And OTT: its crossovers and envelopes are kept across songs, so a knob turned glides.
+                    if (plugin["id"].toString() == "vaudio:ott")
+                    {
+                        Track::Effect effect { id, nullptr, (bool) slot["enabled"], (float) number (slot["mix"], 1, 0, 1) };
+                        effect.ottSettings = ott::Settings::parse (slot["ott"], capacity);
+                        effect.ott = otts.get (id, sampleRate);
+                        ottIds.add (id);
                         track.effects.push_back (std::move (effect));
                         continue;
                     }
@@ -390,6 +400,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
         autoTunes.keepOnly (tuneIds);
         echoBoys.keepOnly (echoIds);
         eqs.keepOnly (eqIds);
+        otts.keepOnly (ottIds);
     }
 
     std::stable_sort (song->notes.begin(), song->notes.end(), [] (const Note& a, const Note& b) { return a.tick < b.tick; });
@@ -522,6 +533,23 @@ void Song::parseLanes (Song& song, const juce::var& json)
                                     : lane.control == 2 ? std::log2 (band->shape.q)
                                                         : band->range);
         }
+        else if (kind == "ott")
+        {
+            // An OTT's lane (`OttLane`): its gains, or a value a band.
+            lane.kind = Lane::Kind::ott;
+            lane.track = (int) number (target["track"], -1, -1, 1e6);
+            if (lane.track < 0 || lane.track >= (int) song.tracks.size())
+                continue;
+            const auto& track = song.tracks[(size_t) lane.track];
+            lane.index = (int) number (target["effect"], -1, -1, 1e6);
+            if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].ottSettings == nullptr)
+                continue;
+            const auto control = juce::StringArray { "input", "output", "makeup", "upward", "downward", "upKnee", "downKnee", "release", "gains" }.indexOf (target["control"].toString());
+            if (control < 0)
+                continue;
+            lane.control = control;
+            track.effects[(size_t) lane.index].ottSettings->get ((ott::Lane) control, lane.base.data(), lane.size);
+        }
         else if (kind == "param")
         {
             lane.kind = Lane::Kind::param;
@@ -560,8 +588,8 @@ void Song::parseLanes (Song& song, const juce::var& json)
         auto last = 0.0;
         for (const auto& tick : *ticks)
             lane.ticks.push_back (last = juce::jmax (last, number (tick, last, 0, 1e9)));
-        // (An EchoBoy's cuts are in Hz.)
-        const auto most = lane.kind == Lane::Kind::echo ? 1e5 : 64.0;
+        // (An EchoBoy's cuts are in Hz, an OTT's knees down to -200 dB.)
+        const auto most = lane.kind == Lane::Kind::echo ? 1e5 : lane.kind == Lane::Kind::ott ? 1e3 : 64.0;
         for (const auto& value : *values)
             lane.values.push_back ((float) number (value, 0, -most, most));
         song.lanes.push_back (std::move (lane));

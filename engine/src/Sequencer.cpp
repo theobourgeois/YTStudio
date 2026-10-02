@@ -516,7 +516,8 @@ void Sequencer::applyLanes (int numSamples)
     for (auto& lane : song->lanes)
     {
         lane.valueAt (sliceStart, start.data());
-        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::tune && lane.kind != Song::Lane::Kind::echo && lane.kind != Song::Lane::Kind::eq && lane.kind != Song::Lane::Kind::param)
+        // Gains glide along the slice here; everything else is set at its start (and glides, if it does, in its effect).
+        if (lane.kind == Song::Lane::Kind::channel || lane.kind == Song::Lane::Kind::track || lane.kind == Song::Lane::Kind::send)
         {
             lane.valueAt (sliceEnd, end.data());
             for (int c = 0; c < lane.size; ++c)
@@ -575,6 +576,10 @@ void Sequencer::applyLanes (int numSamples)
             case Song::Lane::Kind::eq:
                 // A Pro-Q's band (or output): set at the slice's start, and glided to by its filters.
                 setEqControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].eqSettings, lane.band, lane.control, start[0]);
+                break;
+            case Song::Lane::Kind::ott:
+                // An OTT's, likewise (its values glide there over a few ms).
+                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, start.data(), lane.size);
                 break;
             case Song::Lane::Kind::param:
             {
@@ -642,6 +647,9 @@ void Sequencer::restoreLanes (Song& from)
                 break;
             case Song::Lane::Kind::eq:
                 setEqControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].eqSettings, lane.band, lane.control, lane.base[0]);
+                break;
+            case Song::Lane::Kind::ott:
+                from.tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, lane.base.data(), lane.size);
                 break;
             case Song::Lane::Kind::param:
                 if (lane.lastSet > -2.0f)
@@ -949,6 +957,13 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
             else
                 effect.echo->skipped();
         }
+        else if (effect.ott != nullptr)
+        {
+            if (effect.enabled)
+                runOtt (effect, l, r, numSamples);
+            else
+                effect.ott->skipped();
+        }
 
     // The fader, pan and mute: each side out from both sides in (gliding after a new song, or automated).
     glide = glide || track.automated;
@@ -1009,6 +1024,26 @@ void Sequencer::runEchoBoy (const Song::Track::Effect& effect, float* left, floa
     }
     effect.echo->process (*effect.echoSettings, left, right, numSamples);
     if (mix >= 1.0f || numSamples > dry.getNumSamples())
+        return;
+    juce::FloatVectorOperations::multiply (left, mix, numSamples);
+    juce::FloatVectorOperations::multiply (right, mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (left, dry.getReadPointer (0), 1.0f - mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
+}
+
+void Sequencer::runOtt (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
+{
+    // The slot's mix is heard against the sound coming in, as a plugin's (OTT has no latency to wait for).
+    const auto mix = effect.mix;
+    auto& dry = effect.ottSettings->dryBuffer;
+    const auto blend = mix < 1.0f && numSamples <= dry.getNumSamples();
+    if (blend)
+    {
+        dry.copyFrom (0, 0, left, numSamples);
+        dry.copyFrom (1, 0, right, numSamples);
+    }
+    effect.ott->process (*effect.ottSettings, left, right, numSamples);
+    if (! blend)
         return;
     juce::FloatVectorOperations::multiply (left, mix, numSamples);
     juce::FloatVectorOperations::multiply (right, mix, numSamples);

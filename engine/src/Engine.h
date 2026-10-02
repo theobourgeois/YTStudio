@@ -97,6 +97,8 @@ private:
     echo::Registry echoBoys;
     /** Its Pro-Qs' sounds, likewise. */
     eq::Registry eqs;
+    /** Its OTTs' sounds, likewise. */
+    ott::Registry otts;
     Sequencer sequencer;
     /** The Browser's preview of a file, outside the song. */
     FilePreview preview;

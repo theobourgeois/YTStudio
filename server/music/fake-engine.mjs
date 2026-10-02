@@ -134,8 +134,23 @@ const echoBoys = () =>
       }),
   );
 
+/** OTT is ours as well. Each in the song: its bands at a level while the song plays (squashed towards its knees, as the real one). */
+const OTT = "vaudio:ott";
+const otts = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.ott)
+      .map((e) => {
+        const sounding = playingSince !== null;
+        const bands = e.ott.bands.map((b) => (sounding ? { level: -30, gain: b.makeup - 4 } : { level: -120, gain: 0 }));
+        const level = sounding ? 0.3 : 0;
+        return [e.id, { bands, input: [level, level], output: [level, level] }];
+      }),
+  );
+
 const effects = () => {
-  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PRO_Q);
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PRO_Q && e.plugin.id !== OTT);
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
@@ -265,7 +280,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), echoBoys: echoBoys() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), echoBoys: echoBoys(), otts: otts() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -305,6 +320,7 @@ const sendTransport = () =>
     grossBeats: grossBeats(),
     autoTunes: autoTunes(),
     echoBoys: echoBoys(),
+    otts: otts(),
     eq: eqs(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
