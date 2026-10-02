@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { type MixerTrackPatch, setMixerVolumes, setSend, trackName, updateMixerTrack } from "@shared/music/mixer";
+import { setMixerVolumes, setSend, trackName, updateMixerTrack } from "@shared/music/mixer";
 import { SELECTION_METER } from "@shared/music/engine";
 import { type Hearing, cutOffBy, hearing } from "@shared/music/solo";
 import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
@@ -62,6 +62,8 @@ import {
   soloAlone,
   toggleSolo,
   toggleSoloSafe,
+  groupKnob,
+  setTrackSwitch,
   toggleSend,
   toggleTrackMute,
   assignAudioTracksTo,
@@ -422,8 +424,8 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         if ((e.ctrlKey || e.metaKey) && e.shiftKey) ui.selectTrack(id, "add");
         // Cmd (or Ctrl) alone: it joins the selection (dragging on adds the tracks passed over).
         else if (e.ctrlKey || e.metaKey) ui.includeTracks([id]);
-        // Dragging one of several selected faders moves them all: they stay selected.
-        else if (!selected || !(e.target as HTMLElement).closest("[aria-orientation=vertical]")) ui.selectTrack(id);
+        // A control of one of several selected tracks acts on all of them: they stay selected.
+        else if (!selected || !(e.target as HTMLElement).closest("button, [role=slider]")) ui.selectTrack(id);
       }}
     >
       {banded && <GroupBand track={track} groupName={groupName} />}
@@ -502,7 +504,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         format={panText}
         unit={PERCENT}
         target={{ kind: "mixer", track: id, control: "pan" }}
-        edit={(song, pan) => updateMixerTrack(song, id, { pan })}
+        edit={groupKnob(id, "pan")}
       />
       </div>
       <TrackFader track={track} name={name} selected={selected} />
@@ -512,10 +514,10 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       {/* FL's arm switch, under the fader: the master never records. */}
       {isMaster ? <span className="size-[11px]" aria-hidden /> : <ArmButton trackId={id} name={name} />}
       <div className="flex gap-0.5">
-        <StripToggle label={`Invert ${name}'s phase`} on={track.invert} onChange={(invert) => commitTrack(id, { invert })}>
+        <StripToggle label={`Invert ${name}'s phase`} on={track.invert} onChange={(invert) => setTrackSwitch(id, { invert })}>
           <PiArrowsDownUp />
         </StripToggle>
-        <StripToggle label={`Swap ${name}'s left and right`} on={track.swap} onChange={(swap) => commitTrack(id, { swap })}>
+        <StripToggle label={`Swap ${name}'s left and right`} on={track.swap} onChange={(swap) => setTrackSwitch(id, { swap })}>
           <PiArrowsLeftRight />
         </StripToggle>
       </div>
@@ -530,7 +532,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         format={stereoText}
         unit={PERCENT}
         target={{ kind: "mixer", track: id, control: "stereo" }}
-        edit={(song, stereo) => updateMixerTrack(song, id, { stereo })}
+        edit={groupKnob(id, "stereo")}
       />
       {view === "extra" && <StripEffects track={track} />}
       <SendSwitch to={id} name={name} state={sendKind === "sending" ? { kind: "sending", level: sendLevel } : { kind: sendKind }} />
@@ -861,8 +863,6 @@ function DelayMark({ track }: { track: MixerTrack }) {
     </span>
   );
 }
-
-const commitTrack = (id: string, patch: MixerTrackPatch) => useMusic.getState().commit((song) => updateMixerTrack(song, id, patch));
 
 /** What the stereo separation knob says: FL's, narrower to the right, wider to the left. */
 const stereoText = (v: number) => (Math.abs(v) < 0.005 ? "As it is" : v > 0 ? `${Math.round(v * 100)}% narrower` : `${Math.round(-v * 100)}% wider`);

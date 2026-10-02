@@ -16,6 +16,9 @@ import {
   pasteTrackState,
   removeMixerTracks,
   renameGroup,
+  setMixerControls,
+  setMixerMuted,
+  type MixerTrackPatch,
   routeChannels,
   routeChannelsFrom,
   routeToFreeTracks,
@@ -27,7 +30,6 @@ import {
   toggleMixerSolo,
   trackState,
   ungroup,
-  updateMixerTrack,
   updateMixerTracks,
 } from "@shared/music/mixer";
 import { MASTER_TRACK_ID } from "@shared/music/project";
@@ -56,13 +58,37 @@ export function selectedTracks(): string[] {
   return doc.mixer.tracks.filter((t) => selected.has(t.id)).map((t) => t.id);
 }
 
-export const toggleTrackMute = (id: string) => commit((doc) => updateMixerTrack(doc, id, { muted: !getMixerTrack(doc, id)?.muted }));
-/** S: the track joins the solo, or leaves it (the other solos kept). */
-export const toggleSolo = (id: string) => commit((doc) => toggleMixerSolo(doc, [id]));
-/** Alt+S, Alt+click, a right-click on the mute light: the track soloed alone (again: no solo). */
-export const soloAlone = (id: string) => commit((doc) => soloMixerTrack(doc, id));
-/** Shift+click on S: another track's solo never silences it. */
-export const toggleSoloSafe = (id: string) => commit((doc) => setSoloSafe(doc, [id], !getMixerTrack(doc, id)?.soloSafe));
+/*
+ * A strip's switches act on every selected track when it's one of them (Logic's, Reaper's, Bitwig's way),
+ * and on it alone when it isn't, so a click on an unselected strip never surprises. Each takes its state
+ * from the strip clicked: muting a muted track unmutes all of them.
+ */
+
+/** The mute light: the track (and the selected tracks with it) muted, or unmuted if it's muted. */
+export const toggleTrackMute = (id: string) => commit((doc) => setMixerMuted(doc, menuTargets(id), !getMixerTrack(doc, id)?.muted));
+/** S: the tracks join the solo, or leave it (the other solos kept). */
+export const toggleSolo = (id: string) => commit((doc) => toggleMixerSolo(doc, menuTargets(id)));
+/** Alt+S, Alt+click, a right-click on the mute light: the tracks soloed alone (again: no solo). */
+export const soloAlone = (id: string) => commit((doc) => soloMixerTrack(doc, menuTargets(id)));
+/** Shift+click on S: another track's solo never silences them. */
+export const toggleSoloSafe = (id: string) => commit((doc) => setSoloSafe(doc, menuTargets(id), !getMixerTrack(doc, id)?.soloSafe));
+/** A strip's switch (invert phase, swap sides) set on it and the selected tracks with it. */
+export const setTrackSwitch = (id: string, patch: Pick<MixerTrackPatch, "invert" | "swap">) => commit((doc) => updateMixerTracks(doc, menuTargets(id), patch));
+
+/**
+ * A strip's knob (pan, stereo separation) as an edit of the tracks it acts on (`menuTargets`). Dragged,
+ * every one moves by as much as this one from where it started, so their offsets are kept; set outright
+ * (a reset, a typed value), they all take the value.
+ */
+export function groupKnob(id: string, control: "pan" | "stereo") {
+  return (doc: MusicProject, value: number): MusicProject => {
+    const targets = menuTargets(id);
+    const base = useMusic.getState().history?.gestureBase ?? null;
+    if (!base || targets.length < 2) return updateMixerTracks(doc, targets, { [control]: value });
+    const delta = value - (getMixerTrack(base, id)?.[control] ?? value);
+    return setMixerControls(doc, control, new Map(targets.map((t) => [t, (getMixerTrack(base, t)?.[control] ?? 0) + delta])));
+  };
+}
 export const clearSolo = () => commit(clearMixerSolo);
 
 /** The rack's selected channels to a track (Ctrl+L), or to it and the tracks after it, one each (Ctrl+Shift+L). */

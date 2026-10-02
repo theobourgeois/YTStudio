@@ -187,12 +187,15 @@ export const updateMixerTrack = (song: MusicProject, id: string, patch: MixerTra
 /** The same change to several tracks at once (a colour or a name given to every selected track). */
 export const updateMixerTracks = (song: MusicProject, ids: readonly string[], patch: MixerTrackPatch) => updateTracks(song, ids, (t) => patchedTrack(t, patch));
 
-/** Set several tracks' faders at once, each to its own level (FL moves every selected track's fader together). */
-export const setMixerVolumes = (song: MusicProject, volumes: ReadonlyMap<string, number>) =>
-  updateTracks(song, [...volumes.keys()], (t) => {
-    const volume = volumes.get(t.id)!;
-    return Number.isFinite(volume) ? patchedTrack(t, { volume }) : t;
+/** Set a control of several tracks at once, each to its own value (the selected tracks' pans moved together). */
+export const setMixerControls = (song: MusicProject, control: "volume" | "pan" | "stereo", values: ReadonlyMap<string, number>) =>
+  updateTracks(song, [...values.keys()], (t) => {
+    const value = values.get(t.id)!;
+    return Number.isFinite(value) ? patchedTrack(t, { [control]: value }) : t;
   });
+
+/** Set several tracks' faders at once, each to its own level (FL moves every selected track's fader together). */
+export const setMixerVolumes = (song: MusicProject, volumes: ReadonlyMap<string, number>) => setMixerControls(song, "volume", volumes);
 
 export const setMixerMuted = (song: MusicProject, ids: readonly string[], muted: boolean) => updateTracks(song, ids, (t) => patchedTrack(t, { muted }));
 

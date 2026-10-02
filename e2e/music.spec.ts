@@ -1192,6 +1192,23 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await page.getByRole("textbox", { name: "Track name" }).fill("Pads");
   await page.keyboard.press("Enter");
   await expect.poll(async () => [(await track(5)).name, (await track(6)).name]).toEqual(["Pads", "Pads"]);
+  // Their controls act on both: a click on one's mute light, phase switch or S; a drag of one's pan moves both by as much.
+  await strip("Pads").nth(1).getByRole("button", { name: "Mute Pads" }).click();
+  await expect.poll(async () => [(await track(5)).muted, (await track(6)).muted]).toEqual([true, true]);
+  await strip("Pads").nth(0).getByRole("button", { name: "Unmute Pads" }).click();
+  await strip("Pads").nth(0).getByRole("button", { name: "Invert Pads's phase" }).click();
+  await strip("Pads").nth(1).getByRole("button", { name: "Solo Pads" }).click();
+  await expect.poll(async () => [(await track(5)).invert, (await track(6)).invert, (await track(5)).solo, (await track(6)).solo, (await track(5)).muted]).toEqual([true, true, true, true, false]);
+  await strip("Pads").nth(1).getByRole("button", { name: "Unsolo Pads" }).click();
+  const pan = strip("Pads").nth(1).getByRole("slider", { name: "Pads pan" });
+  await drag(page, pan, pan, { dy: -30 });
+  await expect.poll(async () => (await track(6)).pan).toBeGreaterThan(0.1);
+  expect((await track(5)).pan).toBe((await track(6)).pan);
+  await expect(strip("Pads").nth(0)).toHaveAttribute("aria-selected", "true");
+  // A control of a track that isn't selected acts on it alone.
+  await strip("Insert 4").getByRole("button", { name: "Mute Insert 4" }).click();
+  await expect.poll(async () => [(await track(4)).muted, (await track(5)).muted]).toEqual([true, false]);
+  await strip("Insert 4").getByRole("button", { name: "Unmute Insert 4" }).click();
 
   // The views: Compact, Wide, Extra large (its strips list their effects), from the title bar; kept for next time.
   const width = async () => (await strip("Insert 1").boundingBox())!.width;
