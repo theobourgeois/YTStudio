@@ -2168,3 +2168,99 @@ test("the assistant chops with Gross Beat: puts one on a track, draws a slot, ar
   expect(automation.target).toEqual({ kind: "grossBeat", effect: effect.id, control: "timeSlot" });
   expect(automation.points.map((p) => Math.round(p.value * 35) + 1)).toEqual([1, 36]);
 });
+
+/** The song's Auto-Tune (the effect `effectId`) as saved; until it's saved, nothing (a poll waits for it). */
+type SavedTune = { key: number; scale: string; notes: string[]; retuneSpeed: number; humanize: number; formant: boolean; vibrato: { shape: string } };
+async function savedTune(page: Page, id: string, effectId: string): Promise<SavedTune | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.autoTune;
+  return null;
+}
+
+test("Auto-Tune: chosen for a slot, hard-tuned, its key and scale set, notes edited, presets, its graph and meter while it plays", async ({ page }) => {
+  const id = await openNewSong(page, "Vocals");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, in the effect picker's Built in; its window opens at once, hard-tuned.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Auto-Tune/ }).click();
+  const window = page.getByTestId("auto-tune");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.retuneSpeed).toBe(0);
+  await expect(window.getByTestId("tune-retune")).toContainText("0");
+  await expect(window.getByTestId("tune-key-text")).toHaveText("C Chromatic");
+  // Closed (it covers the mixer here), its name in the slot opens it again.
+  await page.getByRole("button", { name: /^Close Auto-Tune/ }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "Auto-Tune: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // The key and scale: A minor; its notes are the scale's.
+  await window.getByTestId("tune-key").click();
+  await page.getByRole("menuitemradio", { name: "A", exact: true }).click();
+  await window.getByTestId("tune-scale").click();
+  await page.getByRole("menuitemradio", { name: "Minor", exact: true }).click();
+  await expect(window.getByTestId("tune-key-text")).toHaveText("A Minor");
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.notes.join(" ")).toBe("tune remove tune remove tune tune remove tune remove tune remove tune");
+  // Edit Scale: G# turned on, E bypassed.
+  const notes = window.getByTestId("tune-scale-notes");
+  await notes.getByRole("button", { name: "G#: Remove" }).click();
+  await notes.locator('[data-note="E"]').getByRole("button", { name: "B" }).click();
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.notes[8]).toBe("tune");
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.notes[4]).toBe("bypass");
+  await expect(window.getByTestId("tune-key-text")).toContainText("(edited)");
+
+  // A preset sets its sound and leaves the key; Retune Speed's knob turns by its keys.
+  await window.getByTestId("tune-preset").click();
+  await page.getByRole("menuitem", { name: /Natural Vocal/ }).click();
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.retuneSpeed).toBe(30);
+  expect((await savedTune(page, id, effectId))?.key).toBe(9);
+  await window.getByRole("slider", { name: "Retune Speed" }).press("ArrowUp");
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.retuneSpeed).toBe(40);
+  await expect(window.getByTestId("tune-preset")).toContainText("Custom");
+  await window.getByRole("button", { name: /Formant/ }).click();
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.formant).toBe(false);
+  await window.getByRole("tab", { name: /Create vibrato/ }).click();
+  await window.getByRole("radio", { name: "Sine" }).click();
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.vibrato.shape).toBe("sine");
+
+  // Detect key with no notes in the song: it says so.
+  await window.getByRole("button", { name: "Detect key from the song" }).click();
+  await expect(page.getByText("No key to hear")).toBeVisible();
+
+  // While it plays, the engine says what it hears: the note it tunes to, the correction on the meter.
+  await page.keyboard.press("Space");
+  await expect(window.getByTestId("tune-note")).toHaveText("A3");
+  await expect(window.getByTestId("tune-correction")).toContainText("cents");
+  await page.keyboard.press("Space");
+});
+
+test("the assistant tunes a vocal: puts Auto-Tune on its track, sets the key and sound, automates its retune speed", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted vocals");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "Auto-Tune"}',
+      'call update_auto_tune {"track": 1, "preset": "Modern Pop", "key": "F#", "scale": "minor", "notes": {"E": "bypass"}, "input": "soprano"}',
+      'call update_auto_tune {"track": 1, "retuneSpeed": 900}',
+      'call add_automation {"control": "retune speed", "track": 1, "slot": 1, "bar": 1, "length": 2, "points": [{"at": 0, "value": 0}, {"at": 1, "value": 50, "curve": "hold"}]}',
+      'call get_auto_tune {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_auto_tune: ok", { timeout: 30_000 });
+  // 900 ms is past its range: refused, saying what is.
+  await expect(panel).toContainText("update_auto_tune: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("Auto-Tune");
+  expect(effect.autoTune).toMatchObject({ key: 6, scale: "minor", input: "soprano", retuneSpeed: 12, humanize: 0.25 });
+  expect(effect.autoTune.notes[4]).toBe("bypass");
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "autoTune", effect: effect.id, control: "retuneSpeed" });
+  expect(automation.points.map((p) => Math.round(p.value * 400))).toEqual([0, 50]);
+});
