@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { controlOf, createAutomation, editPoints } from "./automation.ts";
+import { compileSong } from "./compile.ts";
 import { setEffect } from "./mixer.ts";
+import { addClips, editClips } from "./playlist.ts";
 import { DEFAULT_PRO_Q, MASTER_TRACK_ID, createMusicProject, normalizeMusicProject, normalizeProQ } from "./project.ts";
 import {
   addBand,
@@ -25,7 +28,7 @@ import {
   updateProQ,
 } from "./pro-q.ts";
 import { DEFAULT_BAND, EQ_BANDS, PRO_Q_PLUGIN, PRO_Q_PRESETS } from "./pro-q-presets.ts";
-import type { EqBand, ProQ } from "./types.ts";
+import type { AutomationTarget, EqBand, ProQ } from "./types.ts";
 
 const EQ = "fx_eq";
 const song = () => setEffect(createMusicProject("EQ", 120), MASTER_TRACK_ID, 0, PRO_Q_PLUGIN, EQ);
@@ -179,5 +182,40 @@ describe("saying and typing values", () => {
     expect(parseTyped("2x", "gain")).toBeCloseTo(6.0206);
     expect(parseTyped("-3.5", "gain")).toBe(-3.5);
     expect(parseTyped("abc", "q")).toBeNull();
+  });
+});
+
+describe("Pro-Q's automation", () => {
+  /** A song in song mode (a pattern clip over two bars), a Pro-Q with a bell at +6 dB, and `target` automated from 0 to 1 over a bar. */
+  function automated(target: AutomationTarget) {
+    let s = editProQ(song(), EQ, () => withBands(band(1, { frequency: 1000, gain: 6 })));
+    s = editClips(s, (clips) => addClips(clips, [{ kind: "pattern", ref: s.patterns[0].id, track: 0, start: 0, length: 768 }]).clips);
+    const made = createAutomation(s, target, { start: 0, length: 384 }, { id: "auto_eq" });
+    s = editPoints(made.song, "auto_eq", () => [
+      { tick: 0, value: 0, tension: 0, curve: "single" },
+      { tick: 384, value: 1, tension: 0, curve: "single" },
+    ]);
+    return compileSong(s, s.patterns[0].id, null, "song").lanes;
+  }
+
+  it("folds Gain Scale into its bands' gain and range lanes (the engine has none of its own)", () => {
+    const lanes = automated({ kind: "proQ", effect: EQ, band: 0, control: "gainScale" });
+    const gain = lanes.find((l) => l.target.kind === "eq" && l.target.control === "gain")!;
+    expect(gain.target).toMatchObject({ band: 1 });
+    // 6 dB scaled from 0% to 200%.
+    expect(gain.values[0]).toBe(0);
+    expect(gain.values[gain.values.length - 1]).toBeCloseTo(12, 6);
+    expect(lanes.some((l) => l.target.kind === "eq" && l.target.control === "range")).toBe(true);
+    expect(lanes.some((l) => l.target.kind === "eq" && l.target.control === "frequency")).toBe(false);
+  });
+
+  it("automates its pan, -1 to 1, and names its own controls", () => {
+    const pan = automated({ kind: "proQ", effect: EQ, band: 0, control: "pan" }).find((l) => l.target.kind === "eq" && l.target.control === "pan")!;
+    expect(pan.values[0]).toBe(-1);
+    expect(pan.values[pan.values.length - 1]).toBe(1);
+    const s = song();
+    expect(controlOf(s, { kind: "proQ", effect: EQ, band: 0, control: "pan" })).toMatchObject({ name: "Pan", own: 0.5 });
+    expect(controlOf(s, { kind: "proQ", effect: EQ, band: 0, control: "gainScale" })).toMatchObject({ name: "Gain Scale", own: 0.5 });
+    expect(controlOf(s, { kind: "proQ", effect: EQ, band: 0, control: "gainScale" }).format(1)).toBe("200%");
   });
 });

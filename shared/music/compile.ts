@@ -163,7 +163,7 @@ export type EngineLaneTarget =
   | { kind: "gross"; track: number; effect: number; control: GrossControl }
   | { kind: "tune"; track: number; effect: number; control: AutoTuneControl }
   | { kind: "echo"; track: number; effect: number; control: EchoLane }
-  /** A Pro-Q band's frequency (log2 Hz), gain or range (dB) or Q (log2), by band number; or its output (dB, band 0). */
+  /** A Pro-Q band's frequency (log2 Hz), gain or range (dB) or Q (log2), by band number; or its output (dB) or pan (-1..1), band 0. */
   | { kind: "eq"; track: number; effect: number; band: number; control: EqControl }
   /** An OTT's lane (`OttLane`): its gains, or a value a band (low, mid, high). */
   | { kind: "ott"; track: number; effect: number; control: OttLane }
@@ -697,21 +697,26 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       const pq = effect.proQ;
       if (pq) {
         // Each band's automated controls, in the engine's units (frequency and Q as log2: lanes keep within ±64).
-        const lane = (band: number, control: EqControl, own: number, toEngine: (v: number) => number) => {
+        // Gain Scale, automated, moves every band's gain and range lane (it's folded into them: the engine has no lane of its own for it).
+        const scaleTarget: AutomationTarget = { kind: "proQ", effect: effect.id, band: 0, control: "gainScale" };
+        const scaleKey = automated(scaleTarget);
+        const scaleAt = valueOf(scaleTarget, pq.gainScale);
+        const lane = (band: number, control: EqControl, own: number, toEngine: (v: number, tick: number) => number, scaled = false) => {
           const target: AutomationTarget = { kind: "proQ", effect: effect.id, band, control };
           const value = valueOf(target, own);
-          add({ kind: "eq", track: t, effect: effectIndex, band, control }, [automated(target)], (tick) => [toEngine(value(tick))]);
+          add({ kind: "eq", track: t, effect: effectIndex, band, control }, [automated(target), scaled ? scaleKey : null], (tick) => [toEngine(value(tick), tick)]);
         };
-        const scale = (b: EqBand) => (hasGain(b.shape) ? pq.gainScale : 1);
+        const scale = (b: EqBand, tick: number) => (hasGain(b.shape) ? scaleAt(tick) : 1);
         for (const b of pq.bands) {
           if (!b.enabled) continue;
           lane(b.id, "frequency", b.frequency, Math.log2);
-          lane(b.id, "gain", b.gain, (v) => v * scale(b));
+          lane(b.id, "gain", b.gain, (v, tick) => v * scale(b, tick), true);
           lane(b.id, "q", b.q, Math.log2);
-          lane(b.id, "range", b.range, (v) => v * scale(b));
+          lane(b.id, "range", b.range, (v, tick) => v * scale(b, tick), true);
         }
         const auto = pq.autoGain ? autoGain(pq) : 0;
         lane(0, "output", pq.output, (v) => v + auto);
+        lane(0, "pan", pq.pan, (v) => v);
       }
       const ott = effect.ott;
       if (ott) {

@@ -65,7 +65,7 @@ export const CONTROLS = [
   "throat",
   "key",
   ...["detune", "tracking", "vibrato rate", "vibrato onset delay", "vibrato onset rate", "vibrato variation", "vibrato pitch", "vibrato amplitude", "vibrato formant"],
-  ...["eq frequency", "eq gain", "eq q", "eq range", "eq output"],
+  ...["eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale"],
   ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
   ...OTT_TOOL_CONTROL_NAMES,
 ] as const;
@@ -87,7 +87,7 @@ const ECHO_CONTROL_NAMES: Record<string, EchoControl> = {
 };
 
 /** A Pro-Q's controls, as the tool names them. */
-const EQ_TOOL_CONTROLS = { "eq frequency": "frequency", "eq gain": "gain", "eq q": "q", "eq range": "range", "eq output": "output" } as const;
+const EQ_TOOL_CONTROLS = { "eq frequency": "frequency", "eq gain": "gain", "eq q": "q", "eq range": "range", "eq output": "output", "eq pan": "pan", "eq gain scale": "gainScale" } as const;
 
 /** A Gross Beat's controls, as the tool names them. */
 const GROSS_CONTROLS = {
@@ -212,10 +212,12 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "eq gain":
     case "eq q":
     case "eq range":
-    case "eq output": {
+    case "eq output":
+    case "eq pan":
+    case "eq gain scale": {
       const { track, effect } = effectAt(song, input);
       if (!effect.proQ) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Pro-Q: an "${control}" is Pro-Q's.`);
-      if (control === "eq output") return { kind: "proQ", effect: effect.id, band: 0, control: "output" };
+      if (control === "eq output" || control === "eq pan" || control === "eq gain scale") return { kind: "proQ", effect: effect.id, band: 0, control: EQ_TOOL_CONTROLS[control] };
       const band = effect.proQ.bands.find((b) => b.id === Number(input.band));
       if (!band) throw new Error(`Give the Pro-Q's "band" (its number): it has ${effect.proQ.bands.map((b) => b.id).join(", ") || "no bands yet (set_pro_q_bands adds them)"}.`);
       return { kind: "proQ", effect: effect.id, band: band.id, control: EQ_TOOL_CONTROLS[control] };
@@ -325,7 +327,11 @@ const valueHint = (target: AutomationTarget) =>
         ? "a frequency in Hz, 10 to 30000"
         : target.control === "q"
           ? "a Q, 0.025 to 40"
-          : "a level in dB"
+          : target.control === "pan"
+            ? "-1 (left, or mid) to 1 (right, or side)"
+            : target.control === "gainScale"
+              ? "0 to 2 (1 is 100%: every band's gain as set)"
+              : "a level in dB"
     : target.kind === "channel" && target.control === "pan"
       ? "a pan, -1 left to 1 right"
       : target.kind === "mixer" && target.control !== "volume"

@@ -76,7 +76,7 @@ const controlFields = {
       "throat",
       "key",
       ...["detune", "tracking", "vibrato rate", "vibrato onset delay", "vibrato onset rate", "vibrato variation", "vibrato pitch", "vibrato amplitude", "vibrato formant"],
-      ...["eq frequency", "eq gain", "eq q", "eq range", "eq output"],
+      ...["eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale"],
       ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
       ...OTT_TOOL_CONTROL_NAMES,
     ],
@@ -91,7 +91,7 @@ const controlFields = {
       "mix and feedback 0 to 1, cuts in Hz, saturation 0 to 1, input and output dB, groove and feel -1 to 1, width 0 to 1, an echo time's " +
       "knob 0 to 1: automating a Time echo bends its pitch like tape, a note value steps through 1/2 .. 1/64); " +
       "or a Pro-Q's (the effect in `track`'s `slot`, \"eq ...\"): a band's (`band`) frequency (values in Hz: a filter sweep), gain or " +
-      "dynamic range (dB) or Q, or its output (dB); or an OTT's (\"ott ...\"): depth 0 to 1, time 0 to 10 (1 is 100%), in and out gain dB, " +
+      "dynamic range (dB) or Q, or its output (dB), pan (-1 to 1) or gain scale (0 to 2, 1 is 100%); or an OTT's (\"ott ...\"): depth 0 to 1, time 0 to 10 (1 is 100%), in and out gain dB, " +
       "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB.",
   ),
   channel: str("A channel (volume, pan), or a plugin channel (its parameters): id or name."),

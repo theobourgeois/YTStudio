@@ -1075,6 +1075,11 @@ void Sequencer::setEqControl (eq::Settings& settings, int band, int control, flo
         settings.output = juce::jlimit (-100.0, 72.0, (double) value);
         return;
     }
+    if (control == 5)
+    {
+        settings.pan = juce::jlimit (-1.0, 1.0, (double) value);
+        return;
+    }
     auto* b = settings.find (band);
     if (b == nullptr)
         return;

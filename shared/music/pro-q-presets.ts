@@ -229,6 +229,8 @@ export const EQ_CONTROL_SCALES = {
   range: { toValue: (v: number) => (v * 2 - 1) * EQ_MAX_GAIN, toFraction: (db: number) => (db / EQ_MAX_GAIN + 1) / 2 },
   q: { toValue: (v: number) => EQ_MIN_Q * (EQ_MAX_Q / EQ_MIN_Q) ** v, toFraction: (q: number) => Math.log(q / EQ_MIN_Q) / Math.log(EQ_MAX_Q / EQ_MIN_Q) },
   output: { toValue: (v: number) => EQ_MIN_OUTPUT + v * (EQ_MAX_OUTPUT - EQ_MIN_OUTPUT), toFraction: (db: number) => (db - EQ_MIN_OUTPUT) / (EQ_MAX_OUTPUT - EQ_MIN_OUTPUT) },
+  pan: { toValue: (v: number) => v * 2 - 1, toFraction: (pan: number) => (pan + 1) / 2 },
+  gainScale: { toValue: (v: number) => v * EQ_MAX_GAIN_SCALE, toFraction: (scale: number) => scale / EQ_MAX_GAIN_SCALE },
 } as const;
 
 /** The frequencies the engine's analyzer reports levels at (`engine/src/Spectrum.h`'s `SpectrumGrid`). */

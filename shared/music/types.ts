@@ -770,8 +770,10 @@ export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
 export const OTT_CONTROLS = ["depth", "time", "input", "output", "upward", "downward", "lowThreshold", "midThreshold", "highThreshold", "lowGain", "midGain", "highGain"] as const;
 export type OttControl = (typeof OTT_CONTROLS)[number];
 
-/** A Pro-Q band's controls an automation clip can drive (band 0 is its output). */
-export type EqControl = "frequency" | "gain" | "q" | "range" | "output";
+/** A Pro-Q band's controls an automation clip can drive; and its own (band 0): its output, pan and Gain Scale. */
+export type EqControl = "frequency" | "gain" | "q" | "range" | "output" | "pan" | "gainScale";
+/** Pro-Q's controls that are its own, not a band's (their targets' band is 0). */
+export const EQ_OWN_CONTROLS = ["output", "pan", "gainScale"] as const satisfies readonly EqControl[];
 
 /** How a segment of an automation clip's curve goes from one point to the next: FL Studio's curve types. */
 export const CURVE_TYPES = ["single", "double", "altSingle", "altDouble", "hold", "stairs", "smoothStairs", "pulse", "wave", "halfSine", "smooth"] as const;

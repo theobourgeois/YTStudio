@@ -513,7 +513,7 @@ void Song::parseLanes (Song& song, const juce::var& json)
         }
         else if (kind == "eq")
         {
-            // A Pro-Q band's frequency (log2 Hz), gain or range (dB), Q (log2), or its output (dB).
+            // A Pro-Q band's frequency (log2 Hz), gain or range (dB), Q (log2), or its output (dB) or pan.
             lane.kind = Lane::Kind::eq;
             lane.track = (int) number (target["track"], -1, -1, 1e6);
             if (lane.track < 0 || lane.track >= (int) song.tracks.size())
@@ -522,13 +522,14 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].eqSettings == nullptr)
                 continue;
-            lane.control = juce::StringArray { "frequency", "gain", "q", "range", "output" }.indexOf (target["control"].toString());
+            lane.control = juce::StringArray { "frequency", "gain", "q", "range", "output", "pan" }.indexOf (target["control"].toString());
             lane.band = (int) number (target["band"], 0, 0, eq::maxBands);
             auto& settings = *track.effects[(size_t) lane.index].eqSettings;
             const auto* band = settings.find (lane.band);
             if (lane.control < 0 || (lane.control < 4 && band == nullptr))
                 continue;
-            lane.base[0] = (float) (lane.control == 4 ? settings.output
+            lane.base[0] = (float) (lane.control == 5 ? settings.pan
+                                    : lane.control == 4 ? settings.output
                                     : lane.control == 0 ? std::log2 (band->shape.frequency)
                                     : lane.control == 1 ? band->shape.gain
                                     : lane.control == 2 ? std::log2 (band->shape.q)

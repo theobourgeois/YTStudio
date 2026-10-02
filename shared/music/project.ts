@@ -682,7 +682,7 @@ const CONTROLS = {
  * An automation clip's target, if it's one. Its control may be gone (a channel deleted): it's kept, and
  * drives nothing, so undoing the deletion brings it all back.
  */
-const EQ_CONTROLS: readonly EqControl[] = ["frequency", "gain", "q", "range", "output"];
+const EQ_CONTROLS: readonly EqControl[] = ["frequency", "gain", "q", "range", "output", "pan", "gainScale"];
 
 export function normalizeTarget(raw: unknown): AutomationTarget | null {
   if (!isObject(raw)) return null;

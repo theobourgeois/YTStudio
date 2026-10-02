@@ -4,7 +4,7 @@
  * effects' mixes, and the plugins whose own parameters the engine lists. Pure, so it's tested.
  */
 import { controlOf, mixerTrackName, targetKey } from "@shared/music/automation";
-import { AUTO_TUNE_CONTROLS, GROSS_CONTROLS, type AutomationTarget, ECHO_CONTROLS, type MixerEffect, type MusicProject, OTT_CONTROLS } from "@shared/music/types";
+import { AUTO_TUNE_CONTROLS, EQ_OWN_CONTROLS, GROSS_CONTROLS, type AutomationTarget, ECHO_CONTROLS, type MixerEffect, type MusicProject, OTT_CONTROLS } from "@shared/music/types";
 
 export interface ControlRow {
   key: string;
@@ -58,10 +58,10 @@ export function songControls(song: MusicProject): ControlGroup[] {
       if (effect.autoTune) for (const control of AUTO_TUNE_CONTROLS) mixer.push(row({ kind: "autoTune", effect: effect.id, control }));
       // EchoBoy's: its knobs.
       if (effect.echoBoy) for (const control of ECHO_CONTROLS) mixer.push(row({ kind: "echoBoy", effect: effect.id, control }));
-      // Pro-Q's: each band's frequency, gain, Q and range, and its output.
+      // Pro-Q's: each band's frequency, gain, Q and range, and its output, pan and Gain Scale.
       if (effect.proQ) {
         for (const band of effect.proQ.bands) for (const control of ["frequency", "gain", "q", "range"] as const) mixer.push(row({ kind: "proQ", effect: effect.id, band: band.id, control }));
-        mixer.push(row({ kind: "proQ", effect: effect.id, band: 0, control: "output" }));
+        for (const control of EQ_OWN_CONTROLS) mixer.push(row({ kind: "proQ", effect: effect.id, band: 0, control }));
       }
       // OTT's: its knobs and each band's threshold and gain.
       if (effect.ott) for (const control of OTT_CONTROLS) mixer.push(row({ kind: "ott", effect: effect.id, control }));

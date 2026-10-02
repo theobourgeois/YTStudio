@@ -294,17 +294,20 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
       const pq = found?.effect?.proQ;
       const owner = found && pq ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Pro-Q";
       const scale = EQ_CONTROL_SCALES[target.control];
-      const band = target.control === "output" ? null : pq?.bands.find((b) => b.id === target.band);
-      const value = !pq ? null : target.control === "output" ? pq.output : band ? band[target.control] : null;
+      const own = target.control === "output" || target.control === "pan" || target.control === "gainScale" ? target.control : null;
+      const band = own ? null : pq?.bands.find((b) => b.id === target.band);
+      const value = !pq ? null : own ? pq[own] : band ? band[target.control as "frequency" | "gain" | "q" | "range"] : null;
       const said = (v: number) => {
         const x = scale.toValue(clamp(v, 0, 1));
         if (target.control === "frequency") return x >= 1000 ? `${(x / 1000).toFixed(2)} kHz` : `${x.toFixed(1)} Hz`;
         if (target.control === "q") return x.toFixed(2);
+        if (target.control === "pan") return Math.abs(x) < 0.005 ? "Centre" : `${Math.round(Math.abs(x) * 100)}% ${x < 0 ? "left" : "right"}`;
+        if (target.control === "gainScale") return `${Math.round(x * 100)}%`;
         return `${x > 0 ? "+" : ""}${x.toFixed(1)} dB`;
       };
-      const names = { frequency: "Frequency", gain: "Gain", q: "Q", range: "Dynamic range", output: "Output" };
+      const names = { frequency: "Frequency", gain: "Gain", q: "Q", range: "Dynamic range", output: "Output", pan: "Pan", gainScale: "Gain Scale" };
       return {
-        name: target.control === "output" ? "Output" : `Band ${target.band} ${names[target.control]}`,
+        name: own ? names[own] : `Band ${target.band} ${names[target.control]}`,
         owner,
         exists: value !== null,
         own: value === null ? null : clamp(scale.toFraction(value), 0, 1),
