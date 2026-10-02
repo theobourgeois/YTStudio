@@ -76,6 +76,17 @@
   --tune-sharp: #d9731f;
   --tune-flat: #2f86e0;
   --tune-bypass: #d9a21f;
+  /* Pitch Wheel: each wheel's glow (pitch the accent, timbre violet), its metal bezel and the band its
+     marks are on, the marks, and the pointer's handle with QuikQuak's orange line. Its screen is the LCD's.
+     Canvases read these: plain colours. */
+  --wheel-pitch: #3a82ee;
+  --wheel-timbre: #8b5cf0;
+  --wheel-bezel-top: #fbfcfd;
+  --wheel-bezel-bottom: #aeb8c4;
+  --wheel-band: #d6dce3;
+  --wheel-tick: #4f5863;
+  --wheel-handle: #ffffff;
+  --wheel-handle-mark: #ee7d1f;
   /* EchoBoy's Rhythm Echo: the "One" (a tap on beat one) is yellow, as in EchoBoy. */
   --echo-one: #e0a91c;
   --clip-video: #5a86d6;
@@ -240,6 +251,14 @@
   --tune-sharp: #f09a4b;
   --tune-flat: #58a8f5;
   --tune-bypass: #e8b84a;
+  --wheel-pitch: #5fa6f5;
+  --wheel-timbre: #a88bff;
+  --wheel-bezel-top: #555b66;
+  --wheel-bezel-bottom: #1f2227;
+  --wheel-band: #2b2f36;
+  --wheel-tick: #a7b1bd;
+  --wheel-handle: #e9edf2;
+  --wheel-handle-mark: #f39a45;
   --echo-one: #f2c94c;
   --clip-video: #4169ac;
   --clip-audio: #2d7661;

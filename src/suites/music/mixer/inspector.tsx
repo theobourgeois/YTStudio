@@ -5,6 +5,7 @@ import { createId } from "@shared/ids";
 import { AUTO_TUNE_PLUGIN, isAutoTune } from "@shared/music/auto-tune-presets";
 import { ECHO_BOY_PLUGIN, isEchoBoy } from "@shared/music/echo-boy-presets";
 import { GROSS_BEAT_PLUGIN, isGrossBeat } from "@shared/music/gross-beat-presets";
+import { PITCH_WHEEL_PLUGIN, isPitchWheel } from "@shared/music/pitch-wheel-presets";
 import { moveEffect, moveEffectTo, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
 import { EFFECT_SLOTS, MASTER_TRACK_ID } from "@shared/music/project";
 import type { InputMonitor, MixerEffect, PluginRef } from "@shared/music/types";
@@ -27,6 +28,8 @@ import { useTuneUi } from "../auto-tune/store";
 import { openEchoBoy, toggleEchoBoy } from "../echo-boy/actions";
 import { useEchoUi } from "../echo-boy/store";
 import { openGrossBeat, toggleGrossBeat } from "../gross-beat/actions";
+import { openPitchWheel, togglePitchWheel } from "../pitch-wheel/actions";
+import { useWheelUi } from "../pitch-wheel/store";
 import { useGrossUi } from "../gross-beat/store";
 import { type PickerItem, pickerItem } from "../plugin-groups";
 import { Led } from "./led";
@@ -71,6 +74,7 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
     if (isGrossBeat(plugin)) openGrossBeat(id);
     if (isAutoTune(plugin)) openAutoTune(id);
     if (isEchoBoy(plugin)) openEchoBoy(id);
+    if (isPitchWheel(plugin)) openPitchWheel(id);
   };
   // After a menu has closed (it gives the focus back first), or the picker would close at once.
   const openPicker = () => setTimeout(() => setChoosing(true), 0);
@@ -197,7 +201,7 @@ function SlotMenuItems({ menu, trackId, slot, effect, openPicker }: { menu: type
   if (!effect) return <Item onSelect={openPicker}>Choose a plugin…</Item>;
   return (
     <>
-      <Item onSelect={() => (effect.grossBeat ? openGrossBeat(effect.id) : effect.echoBoy ? openEchoBoy(effect.id) : effect.autoTune ? openAutoTune(effect.id) : useTransport.getState().showEffect(effect.id, true))}>Open its window</Item>
+      <Item onSelect={() => (effect.grossBeat ? openGrossBeat(effect.id) : effect.echoBoy ? openEchoBoy(effect.id) : effect.autoTune ? openAutoTune(effect.id) : effect.pitchWheel ? openPitchWheel(effect.id) : useTransport.getState().showEffect(effect.id, true))}>Open its window</Item>
       <Item onSelect={openPicker}>Replace…</Item>
       <Item onSelect={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}>{effect.enabled ? "Bypass" : "Enable"}</Item>
       <Separator />
@@ -229,6 +233,7 @@ function EffectName({ effect }: { effect: MixerEffect }) {
   if (effect.grossBeat) return <GrossBeatName effect={effect} />;
   if (effect.echoBoy) return <EchoBoyName effect={effect} />;
   if (effect.autoTune) return <AutoTuneName effect={effect} />;
+  if (effect.pitchWheel) return <PitchWheelName effect={effect} />;
   return <PluginName effect={effect} />;
 }
 
@@ -241,8 +246,11 @@ function EchoBoyName({ effect }: { effect: MixerEffect }) {
 function AutoTuneName({ effect }: { effect: MixerEffect }) {
   return <BuiltInName effect={effect} open={useTuneUi((s) => s.openIds.includes(effect.id))} onToggle={() => toggleAutoTune(effect.id)} />;
 }
+function PitchWheelName({ effect }: { effect: MixerEffect }) {
+  return <BuiltInName effect={effect} open={useWheelUi((s) => s.openIds.includes(effect.id))} onToggle={() => togglePitchWheel(effect.id)} />;
+}
 
-/** One of ours' name (Gross Beat, EchoBoy, Auto-Tune): always ready; a click opens its window (or closes it). */
+/** One of ours' name (Gross Beat, EchoBoy, Auto-Tune, Pitch Wheel): always ready; a click opens its window (or closes it). */
 function BuiltInName({ effect, open, onToggle }: { effect: MixerEffect; open: boolean; onToggle: () => void }) {
   return (
     <button
@@ -475,18 +483,19 @@ function InputOptions({ trackId }: { trackId: string }) {
   );
 }
 
-/** Ours, before the plugins: Gross Beat, EchoBoy, Auto-Tune. */
+/** Ours, before the plugins: Gross Beat, EchoBoy, Auto-Tune, Pitch Wheel. */
 const BUILT_IN = "Built in";
 const GROSS_BEAT_ITEM: PickerItem = { id: GROSS_BEAT_PLUGIN.id, name: GROSS_BEAT_PLUGIN.name, detail: "Chops, repeats, half speed, gates", group: BUILT_IN, plugin: null };
 const ECHO_BOY_ITEM: PickerItem = { id: ECHO_BOY_PLUGIN.id, name: ECHO_BOY_PLUGIN.name, detail: "Tape, analogue and digital echoes, 31 styles", group: BUILT_IN, plugin: null };
 const AUTO_TUNE_ITEM: PickerItem = { id: AUTO_TUNE_PLUGIN.id, name: AUTO_TUNE_PLUGIN.name, detail: "Pitch correction, hard tune to natural", group: BUILT_IN, plugin: null };
+const PITCH_WHEEL_ITEM: PickerItem = { id: PITCH_WHEEL_PLUGIN.id, name: PITCH_WHEEL_PLUGIN.name, detail: "Pitch and formants by hand, swings, harmonies from notes", group: BUILT_IN, plugin: null };
 /** Ours, by their picker item's id. */
-const BUILT_INS = [GROSS_BEAT_PLUGIN, ECHO_BOY_PLUGIN, AUTO_TUNE_PLUGIN];
+const BUILT_INS = [GROSS_BEAT_PLUGIN, ECHO_BOY_PLUGIN, AUTO_TUNE_PLUGIN, PITCH_WHEEL_PLUGIN];
 
 /** The effects to choose from: the big picker, ours first, then the plugins by kind. */
 function EffectPicker({ onChoose }: { onChoose: (plugin: PluginRef) => void }) {
   const { plugins, error } = usePluginList("effect", true);
-  const items = useMemo(() => [GROSS_BEAT_ITEM, ECHO_BOY_ITEM, AUTO_TUNE_ITEM, ...(plugins ?? []).map(pickerItem)], [plugins]);
+  const items = useMemo(() => [GROSS_BEAT_ITEM, ECHO_BOY_ITEM, AUTO_TUNE_ITEM, PITCH_WHEEL_ITEM, ...(plugins ?? []).map(pickerItem)], [plugins]);
   return (
     <PluginPicker
       noun="effect"
