@@ -158,6 +158,12 @@ describe("the assistant's audio tracks", () => {
     // Back to its channel's, and "detect" with what was heard.
     expect(stretchAudioTool(long.song, { ids: [2], follow_channel: true }, files).song.playlist.clips.find((c) => c.id === 2)).not.toHaveProperty("stretch");
     expect(stretchAudioTool(song, { audio: "chan_vox", tempo: "detect" }, { ...files, heard: () => 60 }).song.channels.find((c) => c.id === "chan_vox")?.stretch).toEqual({ mode: "stretch", tempo: 60 });
+    // Resampled twice as fast (an octave up), then back to its own pitch at that speed.
+    const fast = stretchAudioTool(song, { ids: [1], tempo: 60, mode: "resample" }, files).song;
+    const reset = stretchAudioTool(fast, { ids: [1], reset_pitch: true }, files);
+    expect(reset.song.playlist.clips.find((c) => c.id === 1)?.stretch).toEqual({ mode: "stretch", tempo: 60 });
+    expect(length(reset.song, 1)).toBe(length(fast, 1));
+    expect(stretchAudioTool(reset.song, { ids: [1], reset_pitch: true }, files).text).toMatch(/Nothing changed/);
     // What's wrong, said.
     expect(() => stretchAudioTool(song, { tempo: 90 }, files)).toThrow(/either "ids"/);
     expect(() => stretchAudioTool(song, { ids: [1], tempo: 90, bars: 2 }, files)).toThrow(/not "tempo" and "bars"/);

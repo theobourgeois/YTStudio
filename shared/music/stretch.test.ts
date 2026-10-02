@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { setTempo } from "./edits.ts";
+import { setTempo, updateChannel } from "./edits.ts";
 import { createMusicProject, normalizeMusicProject } from "./project.ts";
-import { addAudioClips, clipContext, clipLength, contentAt, editClips, makeUnique, resizeClips, setClipStretch, sliceClips, stretchChannel, stretchClips } from "./playlist.ts";
+import { addAudioClips, clipContext, clipLength, contentAt, editClips, makeUnique, resetPitch, resizeClips, setClipStretch, sliceClips, stretchChannel, stretchClips } from "./playlist.ts";
 import { MAX_AUDIO_SPEED, audioPlayback, fileTempo, normalizeStretch, stretchedTo, tempoForBeats, tempoOfFile } from "./stretch.ts";
 import type { MusicProject } from "./types.ts";
 
@@ -145,6 +145,49 @@ describe("stretching audio clips", () => {
     const { stretch, length } = stretchedTo({ fileSecondsPerTick: 1 / 192, length: 768 }, 1, "stretch", { tempo: 120, secondsPerTick: 1 / 192, pitch: 0 });
     expect(stretch.tempo).toBe(7.5);
     expect(length).toBe(48);
+  });
+});
+
+describe("resetting the pitch, the speed kept", () => {
+  /** How a song's clip plays its file: speed and pitch shift. */
+  const heard = (song: MusicProject, index = 0) => {
+    const clip = song.playlist.clips[index];
+    const ctx = clipContext(song);
+    const playback = audioPlayback(ctx.stretchOf(clip), ctx.pitchOf(clip.ref), ctx.tempo);
+    const semitones = playback.keepPitch ? playback.transpose : Math.round(Math.log2(playback.speed) * 12 * 1000) / 1000;
+    return { speed: Math.round(playback.speed * 1e6) / 1e6, semitones, length: clipLength(clip, ctx) };
+  };
+
+  it("plays a clip sped up the Resample way at the same speed, at its file's pitch", () => {
+    // Dragged shorter in Resample: twice as fast, an octave up.
+    const song = editClips(vocal(), (clips, ctx) => stretchClips(clips, new Set([1]), "end", -BAR, ctx, "resample"));
+    expect(heard(song)).toEqual({ speed: 2, semitones: 12, length: BAR });
+    const reset = resetPitch(song, { clips: new Set([1]) });
+    expect(heard(reset)).toEqual({ speed: 2, semitones: 0, length: BAR });
+    expect(reset.playlist.clips[0].stretch).toEqual({ mode: "stretch", tempo: 60 });
+    // Nothing pitched any more: the same song.
+    expect(resetPitch(reset, { clips: new Set([1]) })).toBe(reset);
+  });
+
+  it("takes a pitched channel's pitch back to 0, with every clip of it, each at its speed", () => {
+    let song = editClips(vocal(), (clips, ctx) => sliceClips(clips, BAR, 0, 0, ctx).clips);
+    // A fifth up (Resample: faster too); the second clip has a Resample stretch of its own on top.
+    song = updateChannel(song, "chan_vox", { pitch: 7 });
+    song = editClips(song, (clips, c) => setClipStretch(clips, new Set([2]), { mode: "resample", tempo: 60 }, c));
+    const was = [heard(song, 0), heard(song, 1)];
+    expect(was.map((h) => h.semitones)).toEqual([7, 19]);
+    // From a clip of it: its channel's pitch is every clip's, so the channel goes back with them.
+    const reset = resetPitch(song, { clips: new Set([1]) });
+    expect(reset.channels.find((c) => c.id === "chan_vox")).toMatchObject({ pitch: 0, stretch: { mode: "stretch" } });
+    expect([heard(reset, 0), heard(reset, 1)]).toEqual(was.map((h) => ({ ...h, semitones: 0 })));
+    expect(resetPitch(song, { channel: "chan_vox" })).toEqual(reset);
+  });
+
+  it("leaves a clip heard at its own pitch alone", () => {
+    const stretched = editClips(vocal(), (clips, ctx) => stretchClips(clips, new Set([1]), "end", BAR, ctx, "stretch"));
+    expect(resetPitch(stretched, { clips: new Set([1]) })).toBe(stretched);
+    const plain = vocal();
+    expect(resetPitch(plain, { channel: "chan_vox" })).toBe(plain);
   });
 });
 

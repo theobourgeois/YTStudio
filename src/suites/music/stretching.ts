@@ -6,7 +6,7 @@
  */
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import { clipContext, editClips, setClipStretch, stretchChannel } from "@shared/music/playlist";
+import { clipContext, editClips, resetPitch, setClipStretch, stretchChannel } from "@shared/music/playlist";
 import { fileTempo, tempoForBeats, tempoOfFile } from "@shared/music/stretch";
 import { type AudioStretch, type MusicProject, PPQ, STEP_TICKS, type StretchMode } from "@shared/music/types";
 import { stepsPerBar } from "@shared/music/project";
@@ -136,6 +136,17 @@ export async function autodetectTempo(target: StretchTarget) {
   const tempi = [...new Set([...heard.values()].filter((t): t is number => t !== null))];
   toast.success(`Tempo detected: ${tempi.map((t) => `${Math.round(t * 10) / 10} BPM`).join(", ")}`, { id: "detect-tempo" });
 }
+
+const pitchTarget = (target: StretchTarget) => (target.kind === "channel" ? { channel: target.id } : { clips: target.ids });
+
+/** Whether a target is heard higher or lower than its file (its channel's pitch, or Resample): what Reset pitch undoes. */
+export const isPitched = (doc: MusicProject, target: StretchTarget) => resetPitch(doc, pitchTarget(target)) !== doc;
+
+/**
+ * Back to the file's own pitch, the speed kept (sped up the Resample way, it stays as fast, at the pitch it
+ * was recorded at): Stretch mode at the speed it plays now (`resetPitch`).
+ */
+export const resetTargetPitch = (target: StretchTarget) => useMusic.getState().commit((doc) => resetPitch(doc, pitchTarget(target)));
 
 /** How a stretch reads (FL's TIME display): its tempo, or "None". */
 export function stretchLabel(stretch: AudioStretch | null): string {

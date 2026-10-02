@@ -21,6 +21,8 @@ import {
   currentStretch,
   followChannel,
   hasOwnStretch,
+  isPitched,
+  resetTargetPitch,
   scaleTime,
   setBeats,
   setProjectTempo,
@@ -36,6 +38,7 @@ export function StretchMenuItems({ target }: { target: StretchTarget }) {
   const stretch = useMusic((s) => (s.history ? currentStretch(s.history.doc, target) : null));
   const own = useMusic((s) => (s.history ? hasOwnStretch(s.history.doc, target) : false));
   const barBeats = useMusic((s) => (s.history ? beatsPerBar(s.history.doc) : 4));
+  const pitched = useMusic((s) => (s.history ? isPitched(s.history.doc, target) : false));
   return (
     <>
       <DropdownMenuLabel>Mode</DropdownMenuLabel>
@@ -47,6 +50,13 @@ export function StretchMenuItems({ target }: { target: StretchTarget }) {
           </DropdownMenuRadioItem>
         ))}
       </DropdownMenuRadioGroup>
+      <DropdownMenuItem
+        disabled={!pitched}
+        title={target.kind === "clips" ? "As fast as it plays now, at the pitch it was recorded at (a pitched channel goes back with all its clips)" : "As fast as it plays now, at the pitch it was recorded at"}
+        onSelect={() => resetTargetPitch(target)}
+      >
+        Reset pitch, keep speed
+      </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuLabel>Time: {stretchLabel(stretch)}</DropdownMenuLabel>
       <DropdownMenuItem onSelect={() => clearStretch(target)}>None</DropdownMenuItem>

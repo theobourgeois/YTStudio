@@ -29,7 +29,7 @@ import {
   stepsPerBar,
   trimTracks,
 } from "./project.ts";
-import { audioPlayback, normalizeStretch, pitchSpeed, sameStretch, stretchedTo } from "./stretch.ts";
+import { audioPlayback, normalizeStretch, pitchSpeed, sameStretch, stretchTempo, stretchedTo } from "./stretch.ts";
 import { type AudioStretch, type Channel, type MusicProject, PPQ, type Pattern, type PlaylistClip, type PlaylistTrack, STEP_TICKS, type StretchMode } from "./types.ts";
 
 export { pitchSpeed };
@@ -475,6 +475,55 @@ export function stretchChannel(song: MusicProject, id: string, stretch: AudioStr
   const after = clipContext(next);
   const following = new Set(song.playlist.clips.filter((c) => c.kind === "audio" && c.ref === id && !c.stretch).map((c) => c.id));
   return editClips(next, (clips) => mapClips(clips, following, (clip) => keepingContent(clip, clip, before, after)));
+}
+
+/**
+ * Back to the file's own pitch, the speed kept: audio clips sped up or slowed down the Resample way (their
+ * channel's pitch, or a Resample stretch: faster is higher) play at the same speed in Stretch mode, at the
+ * pitch they were recorded at, as FL's time-stretch PITCH set back to 0 does. A channel (`channel`) goes
+ * back with all its clips: its pitch to 0. Clips (`clips`) get a stretch of their own, unless their
+ * channel is pitched: its pitch is all its clips', so the channel goes back with them. Each clip keeps its
+ * content and length. The same song when nothing was pitched.
+ */
+export function resetPitch(song: MusicProject, target: { channel?: string; clips?: ClipIds }): MusicProject {
+  const before = clipContext(song);
+  const { tempo } = before;
+  /** Its speed in Stretch mode, the pitch kept: the stretch that plays a file `speed` times as fast at this tempo. */
+  const atSpeed = (speed: number): AudioStretch => ({ mode: "stretch", tempo: stretchTempo(tempo / speed) });
+  /** Its speed, if it's heard higher or lower than its file (else null). */
+  const pitched = (stretch: AudioStretch | null | undefined, pitch: number) => {
+    const playback = audioPlayback(stretch, pitch, tempo);
+    const shifted = playback.keepPitch ? playback.transpose !== 0 : Math.abs(playback.speed - 1) > 1e-9;
+    return shifted ? playback.speed : null;
+  };
+  const clips = target.clips ?? new Set<number>();
+  // The channels whose pitch goes back to 0: the one asked for, and the pitched ones of the clips asked for.
+  const channels = new Set<string>();
+  if (target.channel) channels.add(target.channel);
+  for (const clip of song.playlist.clips) if (clip.kind === "audio" && clips.has(clip.id) && before.pitchOf(clip.ref) !== 0) channels.add(clip.ref);
+
+  let changed = false;
+  const nextChannels = song.channels.map((channel) => {
+    if (channel.kind !== "audio" || !channels.has(channel.id)) return channel;
+    const speed = pitched(channel.stretch, channel.pitch);
+    if (speed === null) return channel;
+    changed = true;
+    return { ...channel, pitch: 0, stretch: atSpeed(speed) };
+  });
+  const nextClips = song.playlist.clips.map((clip) => {
+    if (clip.kind !== "audio" || !(clips.has(clip.id) || (channels.has(clip.ref) && clip.stretch))) return clip;
+    // A clip following its reset channel plays at the speed it did already.
+    if (!clip.stretch && channels.has(clip.ref)) return clip;
+    const speed = pitched(before.stretchOf(clip), before.pitchOf(clip.ref));
+    if (speed === null) return clip;
+    changed = true;
+    return { ...clip, stretch: atSpeed(speed) };
+  });
+  if (!changed) return song;
+  const next = { ...song, channels: nextChannels };
+  const after = clipContext(next);
+  const clipsNow = nextClips.map((clip, i) => (clip.kind === "audio" ? keepingContent(song.playlist.clips[i], clip, before, after) : clip));
+  return { ...next, playlist: { ...song.playlist, clips: clipsNow } };
 }
 
 /**

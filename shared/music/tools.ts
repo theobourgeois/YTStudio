@@ -1436,7 +1436,8 @@ export const MUSIC_TOOLS = [
       'Say how: `tempo` (the tempo the file was made at, e.g. a 90 BPM loop: 90; "detect" to hear it; "project" for as it sounds now; ' +
       '"none" to play it at its own speed), `bars` (the whole file lasts this many bars), or, for clips, `length` (stretch each clip to this ' +
       "many bars, like dragging its end with the Playlist's Stretch on). `mode`: stretch keeps the pitch (the default), resample makes it higher " +
-      "when faster, as a record does.",
+      "when faster, as a record does. `reset_pitch`: clips sped up or slowed down the Resample way (their channel's pitch, or a resample stretch) " +
+      "keep their speed but go back to their file's own pitch (a pitched channel goes back with all its clips).",
     inputSchema: obj({
       ids: clipIds,
       audio: str("An audio clip's channel: its id or its name (instead of `ids`)."),
@@ -1445,6 +1446,7 @@ export const MUSIC_TOOLS = [
       bars: num("The whole file lasts this many bars of the song (1 bar, 2, 4...; 0.25 is a beat in 4/4)."),
       length: num("Clips only: each clip stretched to this many bars, its content kept."),
       follow_channel: bool("Clips only: drop their own stretch, to follow their channel's again."),
+      reset_pitch: bool("Back to the file's own pitch, the speed kept (Stretch mode at the speed it plays now)."),
     }),
   }),
   tool({

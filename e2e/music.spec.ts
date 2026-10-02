@@ -1093,7 +1093,8 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   // Dragged onto another track's strip it moves there (its first empty slot), and the inspector follows it;
   // with Alt a copy goes there (its own id), the effect staying.
   const mixer = page.getByTestId("mixer");
-  const effectsOf = async (n: number) => ((await savedSong(page, id)).mixer.tracks[n].effects as ({ id: string; plugin: { name: string } } | null)[]).filter(Boolean);
+  type Effect = { id: string; plugin: { name: string } };
+  const effectsOf = async (n: number) => ((await savedSong(page, id)).mixer.tracks[n].effects as (Effect | null)[]).filter((e): e is Effect => e !== null);
   const from = (await inspector.locator('[data-slot="1"]').boundingBox())!;
   const to = (await mixer.locator('[data-track-name="Insert 2"]').boundingBox())!;
   await page.mouse.move(from.x + 40, from.y + from.height / 2);

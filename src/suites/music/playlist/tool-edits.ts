@@ -29,6 +29,7 @@ import {
   deleteTrack,
   insertTrack,
   moveTrack,
+  resetPitch,
   setClipStretch,
   stretchChannel,
   stretchClips,
@@ -396,8 +397,8 @@ export function stretchAudioTool(song: MusicProject, input: Input, files: Stretc
   const byClips = input.ids !== undefined;
   if (byClips === (input.audio !== undefined)) throw new Error('Give either "ids" (audio clips: a stretch of their own) or "audio" (an audio clip\'s channel: the stretch its clips follow).');
   if (input.mode !== undefined && !isStretchMode(input.mode)) throw new Error('"mode" must be "stretch" (the pitch kept) or "resample" (faster is higher).');
-  const ways = ["tempo", "bars", "length", "follow_channel"].filter((key) => input[key] !== undefined);
-  if (ways.length > 1) throw new Error(`Give one of "tempo", "bars", "length" or "follow_channel", not ${ways.map((w) => `"${w}"`).join(" and ")}.`);
+  const ways = ["tempo", "bars", "length", "follow_channel", "reset_pitch"].filter((key) => input[key] !== undefined);
+  if (ways.length > 1) throw new Error(`Give one of "tempo", "bars", "length", "follow_channel" or "reset_pitch", not ${ways.map((w) => `"${w}"`).join(" and ")}.`);
   if (!byClips && (input.length !== undefined || input.follow_channel !== undefined)) throw new Error('"length" and "follow_channel" are for clips ("ids"); a channel takes "tempo" or "bars".');
   if (!ways.length && input.mode === undefined) throw new Error('Say how to stretch: "tempo" (the file\'s, or "detect", "project", "none"), "bars", "length" (clips), "follow_channel" (clips) or "mode".');
   const ctx = clipContext(song);
@@ -419,7 +420,9 @@ export function stretchAudioTool(song: MusicProject, input: Input, files: Stretc
     const setTo = (stretch: AudioStretch | null) => {
       next = byClips ? editClips(next, (clips, c) => setClipStretch(clips, ids, stretch, c)) : stretchChannel(next, channelId, stretch);
     };
-    if (input.follow_channel !== undefined) {
+    if (input.reset_pitch !== undefined) {
+      if (input.reset_pitch === true) next = resetPitch(next, byClips ? { clips: ids } : { channel: channelId });
+    } else if (input.follow_channel !== undefined) {
       if (input.follow_channel === true) setTo(null);
     } else if (input.length !== undefined) {
       const length = barsTicks(input.length, ctx, "length", 1 / 64);
