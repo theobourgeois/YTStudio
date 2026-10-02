@@ -453,6 +453,81 @@ From the manuals and reviews:
 - Each style's **internal settings**; the 5.5 **factory preset list**.
 - Which way Accent emphasises in Rhythm Echo (the v5 manual contradicts itself).
 
+## Decided
+
+Not yet talked through with Théo (2026-10-02, built from his request: "an exact clone of EchoBoy… keep it our
+UI": its layout, Gross Beat's look). Where the sources are silent, what was chosen, to check with him:
+
+- **A stock effect of ours**, chosen from an effect slot's picker (Built in → EchoBoy), not a plugin. Its
+  settings are **in the song** (every edit is undone, the assistant sets it), as Gross Beat's are.
+- **The styles are Style Editor settings** (as Soundtoys say theirs are), voiced from what each models and how
+  it's described (`echoboy-dsp.md`): nobody has published EchoBoy's own values. A style left as it's made
+  isn't stored: it's its name (`custom` is null).
+- **Low Cut and High Cut are in the loop**, 12 dB/oct on everything written to the delay (input and
+  feedback), so repeat *n* is cut *n* times: the first repeat is already cut, and each later one darker.
+- **Gain and Decay**: the Gain EQ is on the echo's output (the first repeat); the Decay EQ on the feedback
+  only, so repeat *n* is `Gain + (n - 1) * Decay`. The Decay knob (-40..18) is about ±6 dB a repeat at its
+  ends, fine near 0 (-16 is about -1 dB).
+- **Decay Sat is the record stage** (everything written, so the input drives it too); Out Sat is once on the
+  output. The front Saturation knob moves both drives ±18 dB (12 o'clock: the style as it's made).
+- **Feedback** reaches 115% (past about 87% it runs away, held by the saturation and a soft guard at ±2).
+- **Mix**: two half-ranges, both full at 12 o'clock (below it the echo falls; above it the dry).
+- **Groove** moves every other repeat up to a triplet's feel (Shuffle: later; Swing: earlier); **Feel** moves
+  every echo up to 30 ms either way; **Accent** softens the other repeats (odd ones loud to the right).
+- **Width**: up to 3 o'clock the sides grow to as they are, past it twice as wide (mid / side); L/R Offset
+  delays the right side's echoes, scaled with Width up to 3 o'clock.
+- **Prime Numbers** rounds each line's time to the nearest prime number of ms that's still free.
+- **Time changes**: in Time a new time glides there (200 ms, never faster than 0.75 of a sample a sample:
+  the pitch bends, as tape); a note value crossfades over 40 ms (equal power).
+- **Tap Tempo** averages the last taps (up to 5, a gap over 2 s starts again) and turns MIDI off; MIDI on
+  (the default) keeps EchoBoy to the song's tempo.
+- **Rhythm Echo**: Repeats and the Rhythm knob lay the taps out again evenly (from the One), growing the
+  pattern to hold them; Accent in Rhythm emphasises the odd taps to the right (one of the manual's two
+  readings). Taps past what the delay holds (16.25 s) are grey and silent.
+- **The factory presets** are ours, in v1's folders, the ones the sources show made to their settings.
+- **Defaults**: Single Echo, an eighth note, Studio Tape, Mix 0.4, Feedback 0.35, Width 0.5, L/R Offset 8 ms.
+
+## Where Vaudio differs
+
+| What | EchoBoy | Vaudio |
+| --- | --- | --- |
+| The styles' settings | Soundtoys' own, unpublished | Ours, voiced from the hardware and the descriptions |
+| Hysteresis, BBD clocking, a tape transport | Not stated (likely more modelled) | Curves (tanh, asymmetric, cubic, limiters) with pre- and de-emphasis for Tape; the delay read with Hermite, its length glided |
+| Low Cut / High Cut | Where they sit is not stated | In the loop, 12 dB/oct |
+| Save preset, user presets, Revert | The preset bar | Factory presets; Copy / Paste state (and style) in its menus; the app's undo |
+| Pitch slewing as a parameter | Automatable since Soundtoys 5 | Time mode always glides; note values always crossfade |
+| Automating | Any parameter | Mix, Feedback, Echo 1 / 2, the cuts, Saturation, Input, Output, Groove, Feel, Width |
+| Rhythm Echo's Accent | The manual contradicts itself | Right: odd taps louder |
+| Resizable UI | Since 5.5 | Fixed, as Gross Beat's window (its drawer grows it) |
+
+## How it's built
+
+- **The document**: `MixerEffect.echoBoy` (`shared/music/types.ts`) on an effect whose plugin is
+  `ECHO_BOY_PLUGIN` (`vaudio:echo-boy`): its mode, echo times (`EchoTime`: sync, ms and note kept apart),
+  knobs, Tweak, Rhythm Echo (`EchoRhythm`: taps in beats, the pattern's length...), the style's name and
+  its edit (`custom`, or null). Validated in `normalizeEchoBoy` (`echo-boy-presets.ts`, with the
+  constants); the 31 styles in `echo-boy-styles.ts`; the factory presets in `echo-boy-library.ts`; what
+  its controls mean and its edits in `echo-boy.ts`. All tested.
+- **Compiling** (`engineEchoBoy`, `compile.ts`): every mode becomes delay lines: up to four, what each takes
+  from the input, a feedback matrix between them (`fixed + amount * feedback`), where each is heard, and
+  Rhythm Echo's taps. Groove is a pair of lines a side (T + g and T - g, feeding each other, so the repeats
+  alternate), Ping-Pong two lines in series, Dual's FB Mix the matrix's cross terms. The style goes in the
+  engine's units (Hz, dB, dB a repeat, cents). Automated controls are lanes (`kind: "echo"`): a lane per
+  engine value (the mix's two gains, the lines' delays...), worked out from the settings at each tick.
+- **The engine** (`engine/src/EchoBoy.cpp`, its parts in `EchoDsp.h`): `echo::State` keeps the lines
+  (16.5 s each), their filters, saturations, diffusers and LFOs, kept across songs by the effect's id in an
+  `echo::Registry` (the export has its own), so a knob turned doesn't cut the echoes off. Each sample: the
+  lines read (Hermite; the wobble moving them; a crossfade if a note value changed), each line's feedback
+  through the Decay EQ, a DC blocker and the loop's diffusion, the record stage (input + feedback through
+  Decay Sat, the cuts, a guard), the wet sound through the Gain EQ, Out Sat, the diffusion after the loop,
+  the output's wobble and Width, mixed with the dry. A bypass forgets the echoes. It reports its levels
+  (`EngineTransport.echoBoys`) for the LEDs. Tested offline to the sample: `echo-boy.integration.test.ts`.
+- **The tab** (`src/suites/music/echo-boy/`): `echo-boy-window.tsx` (the window: preset bar, echo section,
+  centre, right), `panels.tsx` (Tweak, the Style Editor), `controls.tsx` (its knobs, keys, LCDs, LEDs, the
+  Mode dial), `rhythm-grid.tsx` (the tap editor; its maths in `rhythm-geometry.ts`, tested), `store.ts`,
+  `actions.ts`, `tool-edits.ts` (the assistant's `get_echo_boy`, `update_echo_boy`; `add_mixer_effect`
+  takes "EchoBoy", `add_automation` its "echo ..." controls). The One's colour is `--echo-one`.
+
 ## Sources
 
 - EchoBoy User's Guide, Version 5: https://www.soundtoys.com/wp-content/uploads/EchoBoy-Manual.pdf
