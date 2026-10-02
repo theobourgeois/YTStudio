@@ -5,7 +5,7 @@
  */
 import { controlOf, mixerTrackName, targetKey } from "@shared/music/automation";
 import { PAN_CONTROL_IDS } from "@shared/music/panman-presets";
-import { AUTO_TUNE_CONTROLS, EQ_OWN_CONTROLS, GROSS_CONTROLS, type AutomationTarget, ECHO_CONTROLS, type MixerEffect, type MusicProject, OTT_CONTROLS, PITCH_WHEEL_CONTROLS } from "@shared/music/types";
+import { AUTO_TUNE_CONTROLS, EQ_OWN_CONTROLS, GROSS_CONTROLS, type AutomationTarget, ECHO_CONTROLS, type MixerEffect, type MusicProject, OTT_CONTROLS, PITCH_WHEEL_CONTROLS, PRO_C_CONTROLS } from "@shared/music/types";
 
 export interface ControlRow {
   key: string;
@@ -70,6 +70,8 @@ export function songControls(song: MusicProject): ControlGroup[] {
       }
       // OTT's: its knobs and each band's threshold and gain.
       if (effect.ott) for (const control of OTT_CONTROLS) mixer.push(row({ kind: "ott", effect: effect.id, control }));
+      // Pro-C's: its knobs (Emphasis only on an Opto 2A, the one style it's in).
+      if (effect.proC) for (const control of PRO_C_CONTROLS) if (control !== "emphasis" || effect.proC.style === "opto2a") mixer.push(row({ kind: "proC", effect: effect.id, control }));
       // PanMan's own: offset, width, rate, input, output.
       if (effect.panMan) for (const control of PAN_CONTROL_IDS) mixer.push(row({ kind: "panMan", effect: effect.id, control }));
       // Pitch Wheel's: both wheels and their knobs.
@@ -86,13 +88,13 @@ export function pluginOwners(song: MusicProject): PluginOwner[] {
     c.kind === "plugin" && c.plugin ? [{ owner: "channel" as const, id: c.id, name: c.plugin.name === c.name ? c.name : `${c.plugin.name} (${c.name})` }] : [],
   );
   for (const track of song.mixer.tracks)
-    // (Gross Beat, Auto-Tune, EchoBoy, Pro-Q, PanMan, Pitch Wheel and OTT are ours: their controls are among the song's, not a plugin's parameters.)
+    // (Gross Beat, Auto-Tune, EchoBoy, Pro-Q, PanMan, Pitch Wheel, OTT and Pro-C are ours: their controls are among the song's, not a plugin's parameters.)
     for (const effect of track.effects) if (effect && !isBuiltIn(effect)) owners.push({ owner: "effect", id: effect.id, name: `${effect.plugin.name} (${mixerTrackName(song, track.id)})` });
   return owners;
 }
 
 /** Whether an effect is one of ours (its settings in the song), not a plugin the engine hosts. */
-export const isBuiltIn = (effect: MixerEffect) => !!(effect.grossBeat || effect.autoTune || effect.echoBoy || effect.proQ || effect.ott || effect.panMan || effect.pitchWheel);
+export const isBuiltIn = (effect: MixerEffect) => !!(effect.grossBeat || effect.autoTune || effect.echoBoy || effect.proQ || effect.ott || effect.proC || effect.panMan || effect.pitchWheel);
 
 /** Whether a row matches what's typed: every word, in its name or its owner's, in any order. */
 export function matches(query: string, ...texts: string[]): boolean {

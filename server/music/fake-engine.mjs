@@ -162,6 +162,88 @@ const otts = () =>
       }),
   );
 
+/** Pro-C is ours too. */
+const PRO_C = "vaudio:pro-c";
+/** A point of its level display every 5 ms, numbered from when the engine started. */
+const PRO_C_STEP = 0.005;
+/** Each Pro-C's gain reduction as it moves, the last point it was told, and Match measuring (`compMatch`): since when, for how long, what it heard. */
+const compStates = new Map();
+const compMatches = new Map();
+/** A voice's level (dB) at `t` seconds: phrases and syllables between −34 and −6 dB, gaps between phrases. */
+const voiceAt = (t) => {
+  const phrase = 0.5 + 0.5 * Math.sin(2 * Math.PI * 0.37 * t);
+  const syllable = Math.abs(Math.sin(2 * Math.PI * 2.3 * t + 0.6 * Math.sin(2 * Math.PI * 0.9 * t))) ** 0.6;
+  const level = -36 + 30 * phrase * syllable + 2 * Math.sin(2 * Math.PI * 11 * t);
+  return Math.max(-60, Math.min(-3, level));
+};
+/** The reduction a level gets from a compiled curve (Giannoulis' soft knee, its range), or a boost for Upward. */
+const curveReduction = (curve, level) => {
+  const o = level - curve.threshold;
+  const w = curve.knee;
+  const over = (x) => (w <= 0 ? Math.max(0, x) : x <= -w / 2 ? 0 : x >= w / 2 ? x : (x + w / 2) ** 2 / (2 * w));
+  if (curve.kind === "upward") return -Math.min(curve.range, curve.slope * over(-o));
+  const slope = curve.kind === "vocal" ? 0.85 : curve.slope;
+  return Math.min(curve.range, slope * over(o));
+};
+/**
+ * Each Pro-C in the song, as the real engine says what it does: while playing, a vocal-like input through
+ * its curve, the reduction gliding at its attack and release, so its display moves; stopped, nothing new.
+ */
+const proCs = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.proC)
+      .map((e) => {
+        const p = e.proC;
+        const state = compStates.get(e.id) ?? { n: -1, gr: 0 };
+        const now = Math.floor((Date.now() - started) / 1000 / PRO_C_STEP);
+        const keyGain = 20 * Math.log10(Math.max(1e-6, p.sidechain.level));
+        const points = [];
+        let input = -120;
+        let key = -120;
+        if (playingSince !== null) {
+          const from = state.n < 0 || now - state.n > 64 ? now - 8 : state.n + 1;
+          for (let n = from; n <= now; n++) {
+            input = voiceAt(n * PRO_C_STEP);
+            key = input + keyGain;
+            const target = curveReduction(p.curve, key);
+            const tau = target > state.gr ? Math.max(0.0005, p.ballistics.attack) : Math.max(0.01, p.ballistics.release);
+            state.gr += (target - state.gr) * (1 - Math.exp(-PRO_C_STEP / tau));
+            points.push([input, input - state.gr + p.makeup, state.gr]);
+          }
+        }
+        state.n = now;
+        compStates.set(e.id, state);
+        const output = input - state.gr + p.makeup;
+        const peak = (db) => (db <= -119 ? 0 : 10 ** ((db + 3) / 20));
+        const result = {
+          step: PRO_C_STEP,
+          points,
+          reduction: playingSince === null ? 0 : state.gr,
+          key,
+          level: key,
+          threshold: p.curve.threshold,
+          input: [peak(input), peak(input)],
+          output: [peak(output), peak(output)],
+          latency: Math.round(p.maxLookahead * 48000),
+        };
+        // Match: what came in and went out, averaged; done after (at most) two seconds here.
+        const match = compMatches.get(e.id);
+        if (match && points.length) {
+          for (const [i, o] of points) (match.input += i), (match.output += o), match.count++;
+          const done = Date.now() - match.since >= Math.min(match.seconds, 2) * 1000;
+          result.match = { input: match.input / match.count, output: match.output / match.count, done };
+          if (done) compMatches.delete(e.id);
+        }
+        lastProCs.set(e.id, { ...result, points: [] });
+        return [e.id, result];
+      }),
+  );
+/** What each said last, without new points (a status mustn't take the next event's). */
+const lastProCs = new Map();
+const proCsNow = () => Object.fromEntries((song?.tracks ?? []).flatMap((t) => t.effects ?? []).flatMap((e) => (e.proC && lastProCs.has(e.id) ? [[e.id, lastProCs.get(e.id)]] : [])));
+
 /** PanMan is ours too. */
 const PANMAN = "vaudio:panman";
 /** Each PanMan's divider count (its Manual Trigger counts). */
@@ -213,7 +295,7 @@ const pitchWheels = () =>
   );
 
 const effects = () => {
-  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PRO_Q && e.plugin.id !== PANMAN && e.plugin.id !== PITCH_WHEEL && e.plugin.id !== OTT);
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PRO_Q && e.plugin.id !== PANMAN && e.plugin.id !== PITCH_WHEEL && e.plugin.id !== OTT && e.plugin.id !== PRO_C);
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
@@ -343,7 +425,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), pitchWheels: pitchWheels(), echoBoys: echoBoys(), panMen: panMen(), otts: otts() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), pitchWheels: pitchWheels(), echoBoys: echoBoys(), panMen: panMen(), otts: otts(), proCs: proCsNow() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -391,6 +473,7 @@ const sendTransport = () =>
     pitchWheels: pitchWheels(),
     echoBoys: echoBoys(),
     otts: otts(),
+    proCs: proCs(),
     eq: eqs(),
     panMen: panMen(),
     peak: playingSince === null ? 0 : 0.3,
@@ -533,6 +616,10 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.eq))) return fail("The song playing has no such Pro-Q.");
     if (params.band) eqSolos.set(params.effect, params.band);
     else eqSolos.delete(params.effect);
+  }
+  if (cmd === "compAudition" || cmd === "compMatch") {
+    if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.proC))) return fail("The song playing has no such Pro-C.");
+    if (cmd === "compMatch") compMatches.set(params.effect, { since: Date.now(), seconds: params.seconds, input: 0, output: 0, count: 0 });
   }
   if (cmd === "grossBeat") {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.grossBeat))) return fail("The song playing has no such Gross Beat.");

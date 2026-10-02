@@ -14,8 +14,9 @@ import { startMidiSync, useMidi } from "./midi";
 import { presetsChanged } from "./plugin-presets";
 import { useMusic } from "./store";
 import { takeAutoTunes } from "./auto-tune/pitch-history";
-import { NO_CHANNELS, NO_ECHO_BOYS, NO_EFFECTS, NO_EQ, NO_GROSS_BEATS, NO_METERS, NO_OTTS, NO_PANMEN, afterSongSent, useTransport } from "./transport";
+import { NO_CHANNELS, NO_ECHO_BOYS, NO_EFFECTS, NO_EQ, NO_GROSS_BEATS, NO_METERS, NO_OTTS, NO_PANMEN, NO_PRO_CS, afterSongSent, useTransport } from "./transport";
 import { takePitchWheels } from "./pitch-wheel/live";
+import { takeProCs } from "./pro-c/history";
 import { currentTrackId, useMusicUi } from "./ui";
 import { automateParameter } from "./automation/actions";
 import { useAutomationUi } from "./automation/store";
@@ -137,6 +138,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         grossBeats: event.grossBeats ?? NO_GROSS_BEATS,
         echoBoys: event.echoBoys ?? NO_ECHO_BOYS,
         otts: event.otts ?? NO_OTTS,
+        proCs: event.proCs ?? NO_PRO_CS,
         eq: event.eq ?? NO_EQ,
         panMen: event.panMen ?? NO_PANMEN,
       });
@@ -144,6 +146,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       takeAutoTunes(event.autoTunes);
       // Where each Pitch Wheel's wheels are as they're heard: its window's rings.
       takePitchWheels(event.pitchWheels);
+      // What each Pro-C did: its level display's points, kept outside React.
+      takeProCs(event.proCs);
     } else if (event.event === "midi") {
       // Played on a MIDI keyboard (or the typing keyboard): lit, and kept while recording.
       useMidi.getState().played(event.notes);

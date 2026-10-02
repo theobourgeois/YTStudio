@@ -3370,6 +3370,97 @@ test("OTT: chosen for a slot, its knobs turned, a band's gap dragged and a compr
   ]);
 });
 
+/** The song's Pro-C (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
+type SavedProC = { preset: string | null; style: string; threshold: number; slope: number; view: { sidechain: boolean; compact: boolean; knee: boolean }; sidechain: { trigger: string; track: string | null; bands: unknown[] } };
+async function savedProC(page: Page, id: string, effectId: string): Promise<SavedProC | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.proC;
+  return null;
+}
+
+test("Pro-C: chosen for a slot, Threshold turned and undone, a Vintage style's face, a preset, the side chain keyed from another track", async ({ page }) => {
+  const id = await openNewSong(page, "Compress");
+  await page.keyboard.press("F9");
+  const mixer = page.getByTestId("mixer");
+  await mixer.locator('[data-track-name="Insert 1"]').locator("span").first().click();
+  const inspector = page.getByTestId("mixer-inspector");
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Pro-C/ }).click();
+  const window = page.getByTestId("pro-c");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  // Vocals first: it starts on the Vocal style's preset.
+  await expect.poll(async () => (await savedProC(page, id, effectId))?.preset).toBe("Vocal – Upfront");
+  await expect(window).toHaveAttribute("data-style", "vocal");
+  // Closed, its name in the slot opens it again.
+  await page.getByRole("button", { name: "Close Pro-C (Insert 1)" }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "Pro-C: open its window" }).click();
+  await expect(window).toBeVisible();
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+
+  // Threshold turned up: the song changes and the preset's name goes; the window's Undo takes it back.
+  const threshold = window.getByTestId("pro-c-knob-threshold");
+  await drag(page, threshold, threshold, { dy: -40 });
+  await expect.poll(async () => (await savedProC(page, id, effectId))?.threshold).toBeGreaterThan(-18);
+  expect((await savedProC(page, id, effectId))?.preset).toBeNull();
+  await window.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => (await savedProC(page, id, effectId))?.threshold).toBe(-18);
+
+  // A Vintage style: FET 76's face, its Input and its ratio buttons.
+  await window.getByTestId("pro-c-style").click();
+  await page.getByRole("menuitem", { name: /Vintage/ }).click();
+  await page.getByRole("menuitem", { name: /^FET 76/ }).click();
+  await expect(window).toHaveAttribute("data-style", "fet");
+  await expect(window.getByRole("slider", { name: "Input" })).toBeVisible();
+  await expect(window.getByTestId("pro-c-vintage-switches")).toBeVisible();
+  await window.getByTestId("pro-c-ratio-buttons").getByRole("radio", { name: "8" }).click();
+  await expect.poll(async () => (await savedProC(page, id, effectId))?.slope).toBe(0.875);
+  // Opto 2A: Peak Reduction and Emphasis.
+  await window.getByTestId("pro-c-style").click();
+  await page.getByRole("menuitem", { name: /Vintage/ }).click();
+  await page.getByRole("menuitem", { name: /^Opto 2A/ }).click();
+  await expect(window.getByRole("slider", { name: "Peak Reduction" })).toBeVisible();
+  await expect(window.getByRole("slider", { name: "Emphasis" })).toBeVisible();
+  await expect.poll(async () => (await savedProC(page, id, effectId))?.style).toBe("opto2a");
+
+  // A preset, from its folder.
+  await window.getByTestId("pro-c-preset").click();
+  await page.getByRole("menuitem", { name: "Vocals" }).click();
+  await page.getByRole("menuitem", { name: /^Vocal – Tracking Opto/ }).click();
+  await expect.poll(async () => (await savedProC(page, id, effectId))?.preset).toBe("Vocal – Tracking Opto");
+  expect((await savedProC(page, id, effectId))?.style).toBe("optoTube");
+  await expect(window.getByTestId("pro-c-preset")).toHaveText("Vocal – Tracking Opto");
+
+  // The side chain: opened, a band double-clicked into its EQ, then keyed from Insert 2 (which gets a 0% send).
+  await window.getByTestId("pro-c-sidechain-toggle").click();
+  await expect(window.getByTestId("pro-c-sidechain")).toBeVisible();
+  await expect.poll(async () => (await savedProC(page, id, effectId))?.view.sidechain).toBe(true);
+  const eq = (await window.getByTestId("pro-c-sidechain-eq").boundingBox())!;
+  await page.mouse.dblclick(eq.x + eq.width * 0.6, eq.y + eq.height * 0.35);
+  await expect.poll(async () => (await savedProC(page, id, effectId))?.sidechain.bands.length).toBe(1);
+  await window.getByRole("radio", { name: "External" }).click();
+  await window.getByTestId("pro-c-sidechain-source").click();
+  await page.getByRole("menuitem", { name: "Insert 2" }).click();
+  await expect.poll(async () => (await savedProC(page, id, effectId))?.sidechain.track).toBe("insert_2");
+  const song = await savedSong(page, id);
+  expect(song.mixer.tracks[2].sends).toContainEqual({ to: "insert_1", level: 0 });
+  expect((await savedProC(page, id, effectId))?.sidechain.trigger).toBe("external");
+
+  // Compact: the displays go, the meters lie across.
+  await window.getByTestId("pro-c-compact").click();
+  await expect(window.getByTestId("pro-c-compact-meters")).toBeVisible();
+  await expect(window.getByTestId("pro-c-display")).toHaveCount(0);
+
+  // Match, while it plays: the loudness in and out measured, Wet Gain set from it (one edit).
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await window.getByTestId("pro-c-match").click();
+  await expect(window.getByTestId("pro-c-match")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => ((await savedSong(page, id)).mixer.tracks[1].effects[0].proC.wet as number), { timeout: 15_000 }).not.toBe(0);
+  await expect(window.getByTestId("pro-c-match")).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+});
+
 test("the assistant squashes a track with OTT: puts one on, sets it, automates its depth", async ({ page }) => {
   const id = await openNewSong(page, "Assisted OTT");
   await page.getByRole("button", { name: "Assistant" }).click();
@@ -3395,6 +3486,35 @@ test("the assistant squashes a track with OTT: puts one on, sets it, automates i
   const [automation] = await savedAutomations(page, id);
   expect(automation.target).toEqual({ kind: "ott", effect: effect.id, control: "depth" });
   expect(automation.points.map((p: { value: number }) => p.value)).toEqual([0, 0.6]);
+});
+
+test("the assistant compresses a vocal with Pro-C: the two-stage chain in one step, a style changed, a key from another track, a threshold automated", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted Pro-C");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_vocal_compression {"track": 1, "amount": "heavy"}',
+      'call update_pro_c {"track": 1, "effectSlot": 2, "options": {"limit": true, "emphasis": 6}}',
+      'call set_pro_c_sidechain {"track": 1, "effectSlot": 1, "source": 2}',
+      'call add_automation {"control": "pro-c threshold", "track": 1, "slot": 1, "bar": 1, "length": 4, "points": [{"at": 0, "value": -30}, {"at": 4, "value": -20}]}',
+      'call get_pro_c {"track": 1, "effectSlot": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_pro_c: ok", { timeout: 30_000 });
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const [fet, opto] = song.mixer.tracks[1].effects;
+  expect(fet.plugin.name).toBe("Pro-C");
+  expect(fet.proC).toMatchObject({ style: "fet", threshold: -28, sidechain: { trigger: "external", track: song.mixer.tracks[2].id } });
+  expect(opto.proC).toMatchObject({ style: "opto2a", options: { limit: true, emphasis: 6 } });
+  // The key's 0% send ("sidechain only") was made.
+  expect(song.mixer.tracks[2].sends).toContainEqual({ to: song.mixer.tracks[1].id, level: 0 });
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "proC", effect: fet.id, control: "threshold" });
+  expect(automation.points.map((p: { value: number }) => p.value)).toEqual([0.5, 2 / 3]);
 });
 
 /**
@@ -3424,7 +3544,7 @@ async function notAutomatable(page: Page, window: Locator): Promise<string[]> {
   return missing;
 }
 
-test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (each mode, Tweak, the Style Editor), Auto-Tune, Pro-Q, OTT, PanMan (each mode, Tweak), Pitch Wheel", async ({ page }) => {
+test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (each mode, Tweak, the Style Editor), Auto-Tune, Pro-Q, OTT, Pro-C, PanMan (each mode, Tweak), Pitch Wheel", async ({ page }) => {
   test.setTimeout(300_000);
   await openNewSong(page, "Automate everything");
   await page.keyboard.press("F9");
@@ -3481,6 +3601,16 @@ test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (
   await page.getByRole("button", { name: "Close Mixer" }).click();
   expect(await notAutomatable(page, window)).toEqual([]);
   await close(/^Close OTT/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/Pro-C/, "pro-c");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  // (Lookahead isn't automatable, as Pro-C's design has it: moving it moves where the gain lands.)
+  expect(await notAutomatable(page, window)).toEqual(["Lookahead"]);
+  await window.getByTestId("pro-c-output").click();
+  expect(await notAutomatable(page, page.getByTestId("pro-c-output-panel"))).toEqual([]);
+  await page.keyboard.press("Escape");
+  await close(/^Close Pro-C/);
 
   await page.keyboard.press("F9");
   window = await choose(/PanMan/, "panman");

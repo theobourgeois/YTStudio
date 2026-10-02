@@ -51,6 +51,8 @@ import { ProQWindow } from "./pro-q/pro-q-window";
 import { useEqUi } from "./pro-q/store";
 import { OttWindow } from "./ott/ott-window";
 import { useOttUi } from "./ott/store";
+import { ProCWindow } from "./pro-c/pro-c-window";
+import { useCompUi } from "./pro-c/store";
 import { PanManWindow } from "./panman/panman-window";
 import { usePanUi } from "./panman/store";
 import { AutomationChooser } from "./automation/chooser";
@@ -105,6 +107,7 @@ function Windows() {
   const openEchoBoys = useEchoUi((s) => s.openIds);
   const openProQs = useEqUi((s) => s.openIds);
   const openOtts = useOttUi((s) => s.openIds);
+  const openProCs = useCompUi((s) => s.openIds);
   const openPanMen = usePanUi((s) => s.openIds);
   const openPitchWheels = useWheelUi((s) => s.openIds);
   return (
@@ -147,6 +150,9 @@ function Windows() {
       {openOtts.map((effectId, index) => (
         <OttWindow key={effectId} effectId={effectId} index={index} />
       ))}
+      {openProCs.map((effectId, index) => (
+        <ProCWindow key={effectId} effectId={effectId} index={index} />
+      ))}
       {openPanMen.map((effectId, index) => (
         <PanManWindow key={effectId} effectId={effectId} index={index} />
       ))}
@@ -178,6 +184,7 @@ function frontWindow(): WindowId | null {
     : id.startsWith("echo:") ? useEchoUi.getState().openIds.includes(id.slice("echo:".length))
     : id.startsWith("proq:") ? useEqUi.getState().openIds.includes(id.slice("proq:".length))
     : id.startsWith("ott:") ? useOttUi.getState().openIds.includes(id.slice("ott:".length))
+    : id.startsWith("proc:") ? useCompUi.getState().openIds.includes(id.slice("proc:".length))
     : id.startsWith("panman:") ? usePanUi.getState().openIds.includes(id.slice("panman:".length))
     : id.startsWith("wheel:") ? useWheelUi.getState().openIds.includes(id.slice("wheel:".length))
     : ui.openChannelIds.includes(id.slice("channel:".length));
