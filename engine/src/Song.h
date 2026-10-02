@@ -6,6 +6,7 @@
 
 #include "Delay.h"
 #include "GrossBeat.h"
+#include "PanMan.h"
 #include "Host.h"
 #include "Resampling.h"
 
@@ -139,6 +140,9 @@ struct Song
             /** A Gross Beat (ours, not a plugin: `plugin` is null): its sound, kept across songs, and this song's settings for it. */
             std::shared_ptr<gross::State> gross;
             std::shared_ptr<gross::Settings> grossSettings;
+            /** A PanMan (ours too): its sound's state, kept across songs, and this song's settings for it. */
+            std::shared_ptr<panman::State> pan;
+            std::shared_ptr<panman::Settings> panSettings;
         };
 
         juce::String id;
@@ -169,9 +173,9 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, track, send, mix, gross, param };
+        enum class Kind { channel, track, send, mix, gross, panman, param };
         Kind kind = Kind::channel;
-        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix). */
+        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix) or a PanMan's (`PanControl`: offset, width, rate, input, output). */
         int channel = -1, track = -1, index = -1, control = 0;
         int size = 1;
         std::vector<double> ticks;
@@ -266,12 +270,12 @@ struct Song
 
     /**
      * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the
-     * mixer's, `grossBeats` keeps its Gross Beats' sounds; `unreadable` gets the ids of channels whose
+     * mixer's, `grossBeats` and `panMen` keep its Gross Beats' and PanMen's sounds; `unreadable` gets the ids of channels whose
      * sample couldn't be read. Unless `keepOnly` is false (a copy for the export), the hosts let go of the
      * plugins the song doesn't have.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, juce::StringArray& unreadable,
-                                        int capacity, double sampleRate, bool keepOnly = true);
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, panman::Registry& panMen,
+                                        juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly = true);
 
     /**
      * Plugin delay compensation (FL Studio's automatic PDC): every path into a track waits until the

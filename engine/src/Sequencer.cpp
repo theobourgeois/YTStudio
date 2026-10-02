@@ -516,7 +516,7 @@ void Sequencer::applyLanes (int numSamples)
     for (auto& lane : song->lanes)
     {
         lane.valueAt (sliceStart, start.data());
-        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::param)
+        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::panman && lane.kind != Song::Lane::Kind::param)
         {
             lane.valueAt (sliceEnd, end.data());
             for (int c = 0; c < lane.size; ++c)
@@ -563,6 +563,10 @@ void Sequencer::applyLanes (int numSamples)
             case Song::Lane::Kind::gross:
                 // A Gross Beat's slot or mix, likewise (a slot picked starts on its sync point).
                 setGrossControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].grossSettings, lane.control, start[0]);
+                break;
+            case Song::Lane::Kind::panman:
+                // A PanMan's control, likewise (its position and gains glide, so a step doesn't click).
+                setPanControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, start[0]);
                 break;
             case Song::Lane::Kind::param:
             {
@@ -621,6 +625,9 @@ void Sequencer::restoreLanes (Song& from)
                 break;
             case Song::Lane::Kind::gross:
                 setGrossControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].grossSettings, lane.control, lane.base[0]);
+                break;
+            case Song::Lane::Kind::panman:
+                setPanControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, lane.base[0]);
                 break;
             case Song::Lane::Kind::param:
                 if (lane.lastSet > -2.0f)
@@ -906,6 +913,13 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
             else
                 effect.gross->skipped();
         }
+        else if (effect.pan != nullptr)
+        {
+            if (effect.enabled)
+                runPanMan (effect, l, r, numSamples);
+            else
+                effect.pan->skipped();
+        }
 
     // The fader, pan and mute: each side out from both sides in (gliding after a new song, or automated).
     glide = glide || track.automated;
@@ -963,6 +977,40 @@ void Sequencer::setGrossControl (gross::Settings& settings, int control, float v
         case 1: settings.volumeSlot = slot; break;
         case 2: settings.timeMix = juce::jlimit (0.0f, 1.0f, value); break;
         default: settings.volumeMix = juce::jlimit (0.0f, 1.0f, value); break;
+    }
+}
+
+void Sequencer::runPanMan (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
+{
+    auto& settings = *effect.panSettings;
+    auto& dry = settings.dry;
+    if (numSamples > dry.getNumSamples())
+        return;
+    const auto mix = effect.mix;
+    if (mix < 1.0f)
+    {
+        dry.copyFrom (0, 0, left, numSamples);
+        dry.copyFrom (1, 0, right, numSamples);
+    }
+    effect.pan->process (settings, grossClock, left, right, numSamples);
+    if (mix >= 1.0f)
+        return;
+    juce::FloatVectorOperations::multiply (left, mix, numSamples);
+    juce::FloatVectorOperations::multiply (right, mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (left, dry.getReadPointer (0), 1.0f - mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
+}
+
+void Sequencer::setPanControl (panman::Settings& settings, int control, float value)
+{
+    switch (control)
+    {
+        // The offset and width as fractions of 105° and 210° (`PAN_LANE_SCALE`).
+        case 0: settings.offset = juce::jlimit (-105.0, 105.0, value * 105.0); break;
+        case 1: settings.width = juce::jlimit (0.0, 210.0, value * 210.0); break;
+        case 2: settings.rate = juce::jlimit (0.001, 100.0, (double) value); break;
+        case 3: settings.input = juce::jlimit (-60.0, 60.0, (double) value); break;
+        default: settings.output = juce::jlimit (-60.0, 60.0, (double) value); break;
     }
 }
 

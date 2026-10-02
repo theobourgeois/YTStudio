@@ -34,7 +34,7 @@ juce_add_gui_app(
   MICROPHONE_PERMISSION_TEXT "Vaudio records your microphone or audio interface when you arm a mixer track."
   PLIST_TO_MERGE "<plist><dict><key>LSUIElement</key><true/></dict></plist>")
 
-target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/ClipPlayer.cpp src/EditorWindow.cpp src/Engine.cpp src/Export.cpp src/FilePreview.cpp src/GrossBeat.cpp src/Host.cpp src/Plugins.cpp src/Protocol.cpp src/Recorder.cpp src/Sequencer.cpp src/Song.cpp)
+target_sources(VaudioEngine PRIVATE src/Main.cpp src/AudioStream.cpp src/ClipPlayer.cpp src/EditorWindow.cpp src/Engine.cpp src/Export.cpp src/FilePreview.cpp src/GrossBeat.cpp src/Host.cpp src/PanMan.cpp src/Plugins.cpp src/Protocol.cpp src/Recorder.cpp src/Sequencer.cpp src/Song.cpp)
 
 target_compile_definitions(
   VaudioEngine

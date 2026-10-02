@@ -145,6 +145,8 @@ export const PAN_CONTROLS: Record<PanControl, { name: string; min: number; max: 
   output: { name: "Output", min: -MAX_PAN_GAIN, max: MAX_PAN_GAIN, format: dbText },
 };
 export const PAN_CONTROL_IDS = Object.keys(PAN_CONTROLS) as PanControl[];
+/** What an automation lane's values are of each control (the engine's lanes hold values within ±64): the offset and width as fractions of their ends. */
+export const PAN_LANE_SCALE: Record<PanControl, number> = { offset: PAN_LIMIT, width: MAX_PAN_WIDTH, rate: 1, input: 1, output: 1 };
 /** A fraction of a control's range (an automation clip's value) as the control's value, and back. */
 export function panControlValue(control: PanControl, fraction: number): number {
   const { min, max, log } = PAN_CONTROLS[control];

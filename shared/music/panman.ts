@@ -376,10 +376,11 @@ export interface EnginePanMan {
   rate: number;
   /**
    * The pattern modes' pattern: its length in beats (the LFO's: one cycle, 1) and its position (-1..1) as
-   * straight lines over it (`ticks` in the pattern's ticks, `PPQ` a beat). Null in the other modes.
+   * straight lines over it (`at`: 0..1 of the pattern; two points at one place are a jump). Null in the
+   * other modes.
    */
   beats: number;
-  shape: { ticks: number[]; values: number[] } | null;
+  shape: { at: number[]; values: number[] } | null;
   /** Random: a new position every this many beats. */
   stepBeats: number;
   /** In time with the song; else at `tempo` BPM from when play starts. */
@@ -433,7 +434,7 @@ export function enginePanMan(pm: PanMan, effectId: string): EnginePanMan {
     smoothing: pm.smoothing,
     rate: pm.rate,
     beats: pattern ? pattern.length / PPQ : 1,
-    shape: shape && { ticks: shape.ticks, values: shape.values },
+    shape: shape && pattern && { at: shape.ticks.map((t) => t / pattern.length), values: shape.values },
     stepBeats: panRhythm(pm.rhythm).beats,
     sync: pm.sync,
     tempo: pm.tempo,

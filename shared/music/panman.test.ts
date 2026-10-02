@@ -235,7 +235,8 @@ describe("PanMan's shapes", () => {
       const pattern = panPattern(p)!;
       const engine = enginePanMan(p, FX);
       expect(engine.beats).toBe(pattern.length / BEAT);
-      const { ticks, values } = engine.shape!;
+      const ticks = engine.shape!.at.map((a) => a * pattern.length);
+      const { values } = engine.shape!;
       for (let t = 0; t < pattern.length; t += pattern.length / 997) {
         let i = 0;
         while (i + 1 < ticks.length && ticks[i + 1] <= t) i++;
@@ -282,8 +283,9 @@ describe("PanMan's sound", () => {
     const compiled = compileSong(song, P, null, "song");
     const lane = compiled.lanes.find((l) => l.target.kind === "panman")!;
     expect(lane.target).toEqual({ kind: "panman", track: compiled.tracks.findIndex((t) => t.id === "insert_1"), effect: 0, control: "offset" });
-    expect(lane.values[0]).toBe(-105);
-    expect(lane.values.at(-1)).toBe(105);
+    // As fractions of 105°.
+    expect(lane.values[0]).toBe(-1);
+    expect(lane.values.at(-1)).toBeCloseTo(1, 5);
   });
 
   it("names its controls for automation clips, the rate along a log scale", () => {

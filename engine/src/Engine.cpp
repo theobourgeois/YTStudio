@@ -89,7 +89,8 @@ juce::var Engine::transport() const
                                { "countIn", sequencer.countInSeconds() },
                                { "metronome", sequencer.metronomeOn() },
                                { "preview", preview.describe() },
-                               { "grossBeats", grossBeats.describe() } });
+                               { "grossBeats", grossBeats.describe() },
+                               { "panMen", panMen.describe() } });
 }
 
 juce::var Engine::status() const
@@ -235,6 +236,16 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             state->hold = (bool) params["hold"];
         if (params.hasProperty ("scratch"))
             state->scratch = (float) juce::jlimit (-64.0, 0.0, (double) params["scratch"]);
+        return ok();
+    }
+    if (command == "panMan")
+    {
+        // A PanMan's Manual Trigger.
+        const auto state = panMen.find (params["effect"].toString());
+        if (state == nullptr)
+            return reply (fail ("The song playing has no such PanMan."), {});
+        if ((bool) params["trigger"])
+            state->manualTrigger = true;
         return ok();
     }
     if (command == "parameters")
@@ -403,7 +414,7 @@ juce::StringArray Engine::applySong()
     // During an export the song waits: it's made when the export ends (its plugins are busy).
     if (exportJob != nullptr)
         return unreadable;
-    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
+    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, panMen, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
     latencies = plugins.latencySignature() * 7 + effects.latencySignature();
     armed.clear();
     for (const auto& track : song->tracks)
@@ -502,6 +513,7 @@ void Engine::timerCallback()
                                                                : juce::var() },
                                             { "preview", preview.describe() },
                                             { "grossBeats", grossBeats.describe() },
+                                            { "panMen", panMen.describe() },
                                             { "peak", level },
                                             { "meters", meters },
                                             { "cpu", devices.getCpuUsage() } }));
@@ -690,7 +702,8 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
     juce::StringArray unreadable;
     // Gross Beats of its own: they start empty, and playback's are left as they are.
     gross::Registry exportGrossBeats;
-    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, unreadable, exportBlockSize, rate(), false);
+    panman::Registry exportPanMen;
+    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportPanMen, unreadable, exportBlockSize, rate(), false);
     if ((plugins.anyLoading() || effects.anyLoading()) && attempt < exportWaits)
     {
         juce::Timer::callAfterDelay (100, [this, stillAlive = alive, params, reply, attempt] {
@@ -706,7 +719,7 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
             missing.add (channel.id);
     for (const auto& track : song->tracks)
         for (const auto& effect : track.effects)
-            if (effect.plugin == nullptr && effect.gross == nullptr)
+            if (effect.plugin == nullptr && effect.gross == nullptr && effect.pan == nullptr)
                 missing.add (effect.id);
 
     // Playback stops and lets go of the plugins; they're prepared for the export.

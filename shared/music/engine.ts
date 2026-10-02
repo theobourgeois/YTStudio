@@ -119,6 +119,23 @@ export interface EngineTransport {
   preview?: EnginePreview | null;
   /** Each Gross Beat in the song (by effect id): what it's playing (absent from engines that don't say). */
   grossBeats?: Record<string, EngineGrossState>;
+  /** Each PanMan in the song (by effect id): where it's put the sound (absent from engines that don't say). */
+  panMen?: Record<string, EnginePanState>;
+}
+
+/**
+ * What a PanMan is doing: the position it's heard at (degrees: ±90 hard left / right, ±105 beyond), the
+ * least and most since the engine last said (the meter's trails), the input's and output's peaks since
+ * (linear, after Input / Output), the level its Threshold or Trigger knob sees (dB), and its divider's count.
+ */
+export interface EnginePanState {
+  position: number;
+  least: number;
+  most: number;
+  input: number;
+  output: number;
+  level: number;
+  count: number;
 }
 
 /**
@@ -443,6 +460,8 @@ export interface EngineCommands {
    * envelope's; 0 lets go).
    */
   grossBeat: { effect: string; hold?: boolean; scratch?: number };
+  /** A PanMan's Manual Trigger (`trigger`: a trigger now, if the sound is under its Trigger's level). Live, not the song's. */
+  panMan: { effect: string; trigger?: boolean };
   /**
    * The tracks the mixer's selection meter adds up (the selected ones, by id): their sound after their
    * faders, together, is measured as the meter "@selection" (`EngineMeters`).

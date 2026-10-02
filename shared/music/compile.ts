@@ -11,7 +11,7 @@ import { LANE_FINEST, sampleLane } from "./sampling.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { type EnginePanMan, enginePanMan } from "./panman.ts";
-import { PAN_CONTROL_IDS } from "./panman-presets.ts";
+import { PAN_CONTROL_IDS, PAN_LANE_SCALE } from "./panman-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { type AutomationTarget, type Channel, type GrossControl, type MixerTrack, type PanControl, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
@@ -141,7 +141,8 @@ export interface EngineAudioClip {
 /**
  * What an automation lane drives in the engine, in the engine's own units: a channel's two gains, a mixer
  * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, a Gross Beat's slot (its
- * number, 0..35) or mix (0..1), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
+ * number, 0..35) or mix (0..1), a PanMan's control (in its units over `PAN_LANE_SCALE`: the offset and width as
+ * fractions of 105° and 210°, the rate in Hz, the gains in dB), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
  * before any clip of it).
  */
 export type EngineLaneTarget =
@@ -658,7 +659,8 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
         for (const control of PAN_CONTROL_IDS) {
           const target: AutomationTarget = { kind: "panMan", effect: effect.id, control };
           const value = valueOf(target, pm[control]);
-          add({ kind: "panman", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [value(tick)]);
+          const scale = PAN_LANE_SCALE[control];
+          add({ kind: "panman", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [value(tick) / scale]);
         }
       effectIndex++;
     }

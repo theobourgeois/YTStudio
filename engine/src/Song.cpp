@@ -123,8 +123,8 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, juce::StringArray& unreadable,
-                                  int capacity, double sampleRate, bool keepOnly)
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, panman::Registry& panMen,
+                                  juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly)
 {
     auto song = std::make_unique<Song>();
     song->tempo = number (json["tempo"], 120, 1, 2000);
@@ -238,7 +238,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     std::stable_sort (song->audioClips.begin(), song->audioClips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.tick < b.tick; });
 
     // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
-    juce::StringArray effectIds, grossIds;
+    juce::StringArray effectIds, grossIds, panIds;
     if (const auto* list = json["tracks"].getArray())
         for (const auto& item : *list)
         {
@@ -269,6 +269,15 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.grossSettings = gross::Settings::parse (slot["grossBeat"], capacity);
                         effect.gross = grossBeats.get (id, sampleRate, effect.grossSettings->depth * 60.0 / song->tempo + 0.6);
                         grossIds.add (id);
+                        track.effects.push_back (std::move (effect));
+                        continue;
+                    }
+                    if (plugin["id"].toString() == "vaudio:panman")
+                    {
+                        Track::Effect effect { id, nullptr, (bool) slot["enabled"], (float) number (slot["mix"], 1, 0, 1) };
+                        effect.panSettings = panman::Settings::parse (slot["panMan"], capacity);
+                        effect.pan = panMen.get (id, sampleRate);
+                        panIds.add (id);
                         track.effects.push_back (std::move (effect));
                         continue;
                     }
@@ -357,6 +366,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
         plugins.keepOnly (channelIds);
         effects.keepOnly (effectIds);
         grossBeats.keepOnly (grossIds);
+        panMen.keepOnly (panIds);
     }
 
     std::stable_sort (song->notes.begin(), song->notes.end(), [] (const Note& a, const Note& b) { return a.tick < b.tick; });
@@ -429,6 +439,26 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.control = control;
             const auto& settings = *track.effects[(size_t) lane.index].grossSettings;
             lane.base[0] = control == 0 ? (float) settings.timeSlot : control == 1 ? (float) settings.volumeSlot : control == 2 ? settings.timeMix : settings.volumeMix;
+        }
+        else if (kind == "panman")
+        {
+            // A PanMan's offset, width, rate, input or output, in its own units.
+            lane.kind = Lane::Kind::panman;
+            lane.track = (int) number (target["track"], -1, -1, 1e6);
+            if (lane.track < 0 || lane.track >= (int) song.tracks.size())
+                continue;
+            const auto& track = song.tracks[(size_t) lane.track];
+            lane.index = (int) number (target["effect"], -1, -1, 1e6);
+            if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].panSettings == nullptr)
+                continue;
+            const auto control = juce::StringArray { "offset", "width", "rate", "input", "output" }.indexOf (target["control"].toString());
+            if (control < 0)
+                continue;
+            lane.control = control;
+            const auto& settings = *track.effects[(size_t) lane.index].panSettings;
+            // The offset and width come as fractions of 105° and 210° (`PAN_LANE_SCALE`).
+            const double own[] = { settings.offset / 105.0, settings.width / 210.0, settings.rate, settings.input, settings.output };
+            lane.base[0] = (float) own[control];
         }
         else if (kind == "param")
         {
