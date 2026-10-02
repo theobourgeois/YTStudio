@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { updateMixerTrack } from "./mixer.ts";
 import { addClips, updateTrack } from "./playlist.ts";
 import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "./project.ts";
-import { type Take, addTakes, assignAudioTracks, audioTrackOf, linkAudioTracks, takeWindow } from "./recording.ts";
+import { type Take, addTakes, assignAudioTracks, audioTrackOf, linkAudioTracks, liveTakeTracks, takeWindow } from "./recording.ts";
 import type { MusicProject } from "./types.ts";
 
 /** At 120 BPM a tick is 1/192 s: a bar (384 ticks) is two seconds. */
@@ -97,3 +97,16 @@ describe("audio tracks", () => {
     expect(assignAudioTracks(assigned, ["insert_1"])).toBe(assigned);
   });
 });
+
+describe("liveTakeTracks", () => {
+  it("shows takes still recording where addTakes will put them, each on a track of its own", () => {
+    let song = updateTrack(song120(), 2, { mixerTrack: "insert_1" });
+    song = { ...song, playlist: { ...song.playlist, clips: addClips([], [{ kind: "pattern", ref: FIRST_PATTERN_ID, track: 0, start: BAR, length: BAR }]).clips } };
+    // Insert 1 on its audio track; insert 2 on track 0 while it's short of the pattern clip, then below it.
+    expect(liveTakeTracks(song, [{ track: "insert_1", start: 0, end: BAR }, { track: "insert_2", start: 0, end: BAR / 2 }])).toEqual([2, 0]);
+    expect(liveTakeTracks(song, [{ track: "insert_2", start: 0, end: BAR * 2 }, { track: "insert_3", start: 0, end: BAR }])).toEqual([1, 0]);
+    const placed = addTakes(song, [take({ track: "insert_2", skip: 0, seconds: 4 })], { blend: false }, nextId).song;
+    expect(placed.playlist.clips.find((c) => c.kind === "audio")!.track).toBe(1);
+  });
+});
+

@@ -1129,11 +1129,13 @@ test("records as FL Studio does: an input device, a track's input arms it, Recor
   await strip.getByRole("button", { name: "Disarm Insert 1" }).click();
   await strip.getByRole("button", { name: "Arm Insert 1 to record" }).click();
 
-  // Record (R), no count-in; Space records (the song's: song mode), the button glows; Space again stops.
+  // Record (R), the count-in switched off (it's on until then); Space records (the song's: song mode),
+  // the button glows; Space again stops.
   const record = page.getByRole("button", { name: "Record", exact: true });
-  await record.click({ button: "right" });
-  await page.getByRole("menuitemradio", { name: "None" }).click();
-  await page.keyboard.press("Escape");
+  const countIn = page.getByRole("button", { name: "Count-in", exact: true });
+  await expect(countIn).toHaveAttribute("aria-pressed", "true");
+  await countIn.click();
+  await expect(countIn).toHaveAttribute("aria-pressed", "false");
   await page.keyboard.press("r");
   await expect(record).toHaveAttribute("aria-pressed", "true");
   // (Nothing focused: Space on a focused button would press it.)
@@ -1169,14 +1171,19 @@ test("records as FL Studio does: an input device, a track's input arms it, Recor
 
   // Loop record: a take each pass round the song (a bar), on the audio track and below it, all but the last muted.
   await record.click({ button: "right" });
+  // (Choosing it closes the menu; Escape now would close the Playlist, the window in front.)
   await page.getByRole("menuitemcheckbox", { name: "Loop record" }).click();
-  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("playlist-grid")).toBeVisible();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("Space");
+  // The take is drawn as it records (after the count-in, which is off here), where it'll land: the audio track.
+  await expect(page.getByTestId("playlist-grid")).toHaveAttribute("data-live-takes", "1");
   // At 140 BPM a bar is 1.7 s: two passes and part of a third.
   await page.waitForTimeout(4200);
   await page.keyboard.press("Space");
   await expect.poll(async () => (await saved()).playlist.clips.length, { timeout: 10_000 }).toBe(4);
+  // Their files in, the clips take the place of what was drawn.
+  await expect(page.getByTestId("playlist-grid")).toHaveAttribute("data-live-takes", "");
   song = await saved();
   const takes = song.playlist.clips.filter((c) => c.track > 0).sort((a, b) => a.track - b.track);
   expect(takes.map((c) => [c.track, c.start, c.muted])).toEqual([

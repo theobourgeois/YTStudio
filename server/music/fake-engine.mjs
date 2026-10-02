@@ -139,6 +139,8 @@ function startExport(params) {
 const elapsed = () => (playingSince === null || !song ? 0 : Math.max(0, ((Date.now() - playingSince) / 60000) * song.tempo * song.ppq));
 const tick = () => {
   if (playingSince === null || !song) return 0;
+  // Held where it starts while a recording counts in.
+  if (recording && countInLeft() > 0) return recording.from;
   // Recording without Loop record goes on past the loop's end.
   return recording && !recording.loop ? elapsed() : elapsed() % song.loopTicks;
 };
@@ -190,7 +192,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), metronome, preview: previewNow() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -212,11 +214,17 @@ const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 /** The tracks the selection meter adds up (`meterTracks`). */
 let metered = [];
 // While it plays, the master's meter moves (as if every channel were on it), and the selection's if it has tracks.
+/** Seconds of a recording's count-in left: play begins when `playingSince` (moved back by `from`) comes. */
+const countInLeft = () => (recording && song ? Math.max(0, (playingSince + (recording.from * 60000) / (song.tempo * song.ppq) - Date.now()) / 1000) : 0);
+/** Each recording track's input level since the last event: a voice coming and going. */
+const levels = () => (recording && !countInLeft() ? Object.fromEntries(recording.tracks.map((t, i) => [t.id, 0.3 + 0.25 * Math.sin(Date.now() / 150 + i)])) : {});
 const sendTransport = () =>
   send({
     event: "transport",
     playing: playingSince !== null,
     tick: tick(),
+    countIn: countInLeft(),
+    recording: recording && { id: recording.id, levels: levels() },
     preview: previewNow(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },

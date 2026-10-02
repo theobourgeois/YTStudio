@@ -45,7 +45,7 @@ import { switchMode, useTransport } from "./transport";
 import { armedIn, takesOf, useRecording } from "./recording";
 import { inputChoices, inputKey, useInputs } from "./inputs";
 import { inputText } from "./mixer/tool-edits";
-import { COUNT_IN_BARS, useMusicPreferences } from "./preferences";
+import { COUNT_IN_BARS, countInBars, useMusicPreferences } from "./preferences";
 import { addAudioClips, clipContext } from "@shared/music/playlist";
 import {
   chopClipsTool,
@@ -264,8 +264,9 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     if (!armed.length) throw new Error("No mixer track is armed: give one an input (update_mixer_track) and arm it (arm_tracks).");
     const options: Partial<ReturnType<typeof useMusicPreferences.getState>["recording"]> = {};
     if (input.countIn !== undefined) {
-      if (!COUNT_IN_BARS.includes(input.countIn as (typeof COUNT_IN_BARS)[number])) throw new Error(`"countIn" must be one of ${COUNT_IN_BARS.join(", ")} (bars).`);
-      options.countIn = input.countIn as number;
+      if (input.countIn !== 0 && !COUNT_IN_BARS.includes(input.countIn as (typeof COUNT_IN_BARS)[number])) throw new Error(`"countIn" must be 0 (none) or ${COUNT_IN_BARS.join(", ")} (bars).`);
+      options.countIn = input.countIn !== 0;
+      if (input.countIn !== 0) options.countInBars = input.countIn as number;
     }
     if (typeof input.loop === "boolean") options.loop = input.loop;
     if (typeof input.blend === "boolean") options.blend = input.blend;
@@ -282,7 +283,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     if (!useRecording.getState().active) throw new Error("Recording didn't start (the audio engine may have refused: see the editor).");
     const prefs = useMusicPreferences.getState().recording;
     return textResult(
-      `Recording ${armed.map((id) => trackLabel(target.song, findTrack(target.song, id))).join(", ")}${prefs.countIn ? ` after ${prefs.countIn} bar${prefs.countIn === 1 ? "" : "s"} of count-in` : ""}${prefs.loop ? ", looping (a take each pass)" : ""}. ` +
+      `Recording ${armed.map((id) => trackLabel(target.song, findTrack(target.song, id))).join(", ")}${countInBars(prefs) ? ` after ${countInBars(prefs)} bar${countInBars(prefs) === 1 ? "" : "s"} of count-in` : ""}${prefs.loop ? ", looping (a take each pass)" : ""}. ` +
         "The user performs now; call record_audio with action \"stop\" when they're done (or they press Stop).",
     );
   },

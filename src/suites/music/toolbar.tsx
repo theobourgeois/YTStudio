@@ -84,6 +84,7 @@ export function MusicToolbar() {
                 <PlayButtons />
               </div>
               <RecordButton />
+              <CountInToggle />
               <MetronomeToggle />
             </div>
             <TempoLcd />
@@ -262,14 +263,10 @@ function RecordButton() {
         <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
       </Tip>
       <ContextMenuContent>
-        <ContextMenuLabel className="text-[11px] font-normal text-muted-foreground">Count-in</ContextMenuLabel>
-        <ContextMenuRadioGroup value={String(options.countIn)} onValueChange={(value) => set({ countIn: Number(value) })}>
-          {COUNT_IN_BARS.map((bars) => (
-            <ContextMenuRadioItem key={bars} value={String(bars)}>
-              {bars === 0 ? "None" : bars === 1 ? "1 bar" : `${bars} bars`}
-            </ContextMenuRadioItem>
-          ))}
-        </ContextMenuRadioGroup>
+        <ContextMenuCheckboxItem checked={options.countIn} onCheckedChange={(countIn) => set({ countIn })}>
+          Count-in
+        </ContextMenuCheckboxItem>
+        <CountInBars />
         <ContextMenuSeparator />
         <ContextMenuCheckboxItem checked={options.loop} onCheckedChange={(loop) => set({ loop })}>
           Loop record
@@ -282,6 +279,45 @@ function RecordButton() {
         </ContextMenuCheckboxItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** How many bars the count-in is, in a menu (Record's and the count-in switch's). */
+function CountInBars() {
+  const bars = useMusicPreferences((s) => s.recording.countInBars);
+  const set = useMusicPreferences((s) => s.setRecording);
+  return (
+    <>
+      <ContextMenuLabel className="text-[11px] font-normal text-muted-foreground">Count-in length</ContextMenuLabel>
+      <ContextMenuRadioGroup value={String(bars)} onValueChange={(value) => set({ countInBars: Number(value), countIn: true })}>
+        {COUNT_IN_BARS.map((n) => (
+          <ContextMenuRadioItem key={n} value={String(n)}>
+            {n === 1 ? "1 bar" : `${n} bars`}
+          </ContextMenuRadioItem>
+        ))}
+      </ContextMenuRadioGroup>
+    </>
+  );
+}
+
+/**
+ * FL Studio's count-in switch, beside Record: on (the default), recording starts after the metronome
+ * counts in (its length on the right-click); off, it starts at once. Kept in this browser, so it's the
+ * same in every song.
+ */
+function CountInToggle() {
+  const options = useMusicPreferences((s) => s.recording);
+  const bars = options.countInBars;
+  return (
+    <TransportButton
+      label="Count-in"
+      title={options.countIn ? `Count-in: ${bars} bar${bars === 1 ? "" : "s"} of clicks before recording (right-click for how long)` : "Count-in is off: recording starts at once"}
+      on={options.countIn}
+      onClick={() => useMusicPreferences.getState().setRecording({ countIn: !options.countIn })}
+      menu={<CountInBars />}
+    >
+      <span className="text-[10px] leading-none font-semibold tracking-tight tabular-nums">3·2·1</span>
+    </TransportButton>
   );
 }
 

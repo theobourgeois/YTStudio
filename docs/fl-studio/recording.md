@@ -242,8 +242,9 @@ the engine moves samples and says where they were.
   audio track). Validated in `normalizeMusicProject`; the master never has an input, and an audio track
   linked to an insert that's removed is an ordinary one again.
 - **Arming, Record and the recording in progress are the tab's** (`src/suites/music/recording.ts`, not
-  saved, not undone; cleared when another song opens). Record's options (count-in 0/1/2/4 bars, 1 by
-  default; Loop record; Blend; Disarm on stop) are kept in the browser (`preferences.ts`). The transport
+  saved, not undone; cleared when another song opens). Record's options (the count-in, on and 1 bar by
+  default; Loop record; Blend; Disarm on stop) are kept in the browser (`preferences.ts`), so they're the
+  same in every song (Théo: turned off, the count-in stays off). The transport
   doesn't import the recording store (that made a cycle through the song's store): it registers itself
   (`setRecorder`), and Play records while Record is on.
 
@@ -283,8 +284,10 @@ the engine moves samples and says where they were.
   that recorded it, a clip where it was recorded: on the track's audio track, else the first track it
   fits on; loop passes stack below, all but the last muted unless Blend. A recording's takes are one undo
   step (each take arriving undoes the last and commits them all, while nothing else was edited).
-- **The toolbar**: Record (R) beside Stop, red while on, pulsing while recording; its right-click menu has
-  the count-in, Loop record, Blend and Disarm on stop. Pressed in pattern mode, Play switches to song mode
+- **The toolbar**: Record (R) beside Stop, red while on, pulsing while recording; then FL's count-in
+  switch ("3·2·1", on by default; its right-click picks 1, 2 or 4 bars). Record's right-click menu has
+  the count-in too, Loop record, Blend and Disarm on stop. While it counts in, the engine says how long is
+  left (`EngineTransport.countIn`) and the playhead holds where play starts (`tickNow`). Pressed in pattern mode, Play switches to song mode
   and records there. While recording, a ruler click only moves where the next play starts.
 - **The Mixer**: the inspector's Input row (the arm light; the Input menu, FL's: stereo pairs, then mono
   inputs, then (none) and the device's settings; choosing one arms the track; and a sliders button for
@@ -293,8 +296,11 @@ the engine moves samples and says where they were.
   track menu's Assign to new audio track.
 - **The Playlist**: the track menu's Audio track (an insert, or none); an audio track's header has the
   insert's arm light and, if it's tall enough, its insert and input. While recording, the playhead is red
-  and what's been recorded is shaded red behind it. (Not a growing waveform per track, as planned: the
-  clip and its waveform appear when the take is in.)
+  and **each take is drawn as it records** (Théo): a red clip on the track it'll land on
+  (`liveTakeTracks`, the same placement as `addTakes`), growing to the playhead with the input's level as
+  its waveform. The engine sends each recording track's loudest input since its last transport event
+  (`Recorder::levels`, about 25 a second); the tab keeps them (`liveTakes`) until the take's file is in,
+  when the clip takes its place.
 - **Settings**: the input device, its inputs and their latency, and the microphone's permission.
 - **The assistant**: `update_mixer_track` takes `input` ("1", "1-2", "none"), `monitor` and
   `inputOffset`; `update_playlist_track` takes `audioTrack`; `list_audio_inputs`, `arm_tracks`,
@@ -318,7 +324,7 @@ the engine moves samples and says where they were.
 | File names chosen on the arm's right-click; files in a Recorded folder | Takes are the project's media, named after the track and when |
 | AutoMap, low-latency monitoring (Bypass track latency compensation) | Not yet |
 | Undone takes go to the trash | Undone takes stay in the project's media |
-| The take's waveform appears as it's dumped | The same: the clip and its waveform appear when each take is in; the recording is shaded red while it goes |
+| The take's waveform appears as it's dumped | Each take is drawn as it records, its waveform from the input's level; the clip, with the file's waveform, replaces it when the take is in |
 
 Still to come: a take's file repaired if the engine dies mid-recording (its WAV header is written when it
 closes), punch in/out, recording in pattern mode, and an input level meter for an armed track that isn't

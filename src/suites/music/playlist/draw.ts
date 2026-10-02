@@ -93,10 +93,24 @@ export interface PlaylistScene {
   songTicks: number;
   time: TimeRange | null;
   drag: PlaylistDrag | null;
+  /** Takes being recorded, drawn as they grow (until their clips come): on which track, and their levels. */
+  recording: readonly LiveTakeDrawing[];
   /** The slice tool's line (tick and tracks, or `all` of them), while it's dragged or Shift shows it. */
   slice: { tick: number; top: number; bottom: number; all: boolean } | null;
   palette: Palette;
 }
+
+/** A take being recorded, as the Playlist draws it: from `from` (ticks), each level up to its tick. */
+export interface LiveTakeDrawing {
+  track: number;
+  label: string;
+  from: number;
+  ticks: readonly number[];
+  levels: readonly number[];
+}
+
+/** A take being recorded: FL's recording red. */
+const RECORDING = clipColours("#c0453c");
 
 /** The grid lines in view: `[tick, weight]`, weight 2 for bars, 1 for beats, 0 for the rest. */
 function gridLines(view: PlaylistView, width: number, barTicks: number, beatTicks: number): [number, number][] {
@@ -287,6 +301,7 @@ export function drawTracks(ctx: CanvasRenderingContext2D, scene: PlaylistScene) 
   }
 
   drawClips(ctx, scene, firstTrack, lastTrack);
+  for (const take of scene.recording) if (take.track >= firstTrack && take.track <= lastTrack) drawLiveTake(ctx, scene, take);
 
   if (drag?.kind === "rect") {
     const x = Math.round(tickToX(view, Math.min(drag.from, drag.to)));
@@ -452,6 +467,54 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
   ctx.strokeRect(left + 0.5, y + 0.5, across - 1, h - 1);
   ctx.globalAlpha = 1;
+}
+
+/**
+ * A take as it's recorded (the clip it'll be, growing): a red clip from where it began to where it's got
+ * to, its title the track recording it, and the input's level drawn as a waveform as it comes.
+ */
+function drawLiveTake(ctx: CanvasRenderingContext2D, scene: PlaylistScene, take: LiveTakeDrawing) {
+  const { view, layout, palette } = scene;
+  const end = take.ticks.at(-1) ?? take.from;
+  const left = Math.round(tickToX(view, take.from));
+  const right = Math.round(tickToX(view, end));
+  if (right < 0 || left > scene.width) return;
+  const across = Math.max(2, right - left);
+  const y = Math.round(trackTop(layout, view, take.track));
+  const h = Math.round(trackTop(layout, view, take.track + 1)) - y - 1;
+  ctx.globalAlpha = palette.dark ? BODY_ALPHA.dark : BODY_ALPHA.light;
+  ctx.fillStyle = RECORDING.body;
+  ctx.fillRect(left, y, across, h);
+  ctx.globalAlpha = 1;
+  const title = Math.min(TITLE_HEIGHT, h);
+  ctx.fillStyle = RECORDING.title;
+  ctx.fillRect(left, y, across, title);
+  // The levels so far: each from the last one's tick to its own, mirrored about the middle.
+  const bodyY = y + title;
+  const bodyH = h - title - 1;
+  if (bodyH >= 4 && take.levels.length) {
+    const mid = bodyY + bodyH / 2;
+    const half = bodyH / 2 - 1.5;
+    ctx.fillStyle = RECORDING.content;
+    let from = take.from;
+    for (let i = 0; i < take.ticks.length; i++) {
+      const x = tickToX(view, from);
+      const w = Math.max(1, tickToX(view, take.ticks[i]) - x);
+      from = take.ticks[i];
+      if (x + w < 0 || x > scene.width) continue;
+      const level = Math.max(0.5, take.levels[i] * half);
+      ctx.fillRect(x, mid - level, w, level * 2);
+    }
+  }
+  if (across > 16 && title >= 9) {
+    ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = RECORDING.text;
+    const textX = Math.max(left, 0) + 4;
+    ctx.fillText(ellipsize(ctx, `● ${take.label}`, right - textX - 3), textX, y + title / 2 + 0.5);
+  }
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
+  ctx.strokeRect(left + 0.5, y + 0.5, across - 1, h - 1);
 }
 
 /** The ruler: bar numbers, the time selection in red, where the song ends, and where play starts. */

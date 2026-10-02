@@ -99,6 +99,8 @@ public:
     bool isPlaying() const { return playingNow; }
     /** Where the loop is, in ticks. */
     double position() const { return positionNow; }
+    /** Seconds of count-in left (the transport holds meanwhile), or 0. */
+    double countInSeconds() const { return (double) countInNow.load() / sampleRate; }
 
     // Audio thread -----------------------------------------------------------
     /**
@@ -260,6 +262,7 @@ private:
     juce::uint32 generation = 0, pass = 0;
     std::atomic<bool> playingNow { false };
     std::atomic<double> positionNow { 0.0 };
+    std::atomic<juce::int64> countInNow { 0 };
     std::atomic<juce::uint32> generationNow { 0 }, passNow { 0 };
 
     /** The meters: two per track of the song `meterSerial` names, by its tracks' order. The audio thread raises them, `takeMeters` takes them back to 0. */

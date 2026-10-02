@@ -401,7 +401,7 @@ export const MUSIC_TOOLS = [
       {
         action: oneOf(["start", "stop"], "What to do."),
         bar: num("Where to start, a bar (1 is the start; default: where play starts)."),
-        countIn: int("Bars of count-in: 0, 1, 2 or 4 (default: the user's choice, at first 1)."),
+        countIn: int("Bars of count-in: 0 (none), 1, 2 or 4 (default: the user's choice, at first 1). It's kept as the user's choice (the toolbar's count-in switch)."),
         loop: bool("Loop record: a take each pass round the loop (default: the user's choice)."),
         blend: bool("With loop: hear (and keep unmuted) the earlier passes (default: the user's choice)."),
       },

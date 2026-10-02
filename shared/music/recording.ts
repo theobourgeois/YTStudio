@@ -55,6 +55,45 @@ function isFree(clips: readonly PlaylistClip[], track: number, start: number, en
 }
 
 /**
+ * The playlist track a take of `mixerTrackId` from `start`, `length` ticks long, lands on among `clips`:
+ * its audio track if it has one, else the first track; then down to the first where it fits that isn't
+ * another insert's audio track (`linked`: the inserts that have one).
+ */
+function takeTrack(song: MusicProject, clips: readonly PlaylistClip[], linked: ReadonlySet<string>, mixerTrackId: string, start: number, length: number): number {
+  const ctx = clipContext(song);
+  let track = Math.max(0, audioTrackOf(song, mixerTrackId));
+  const taken = (t: number) => {
+    const other = song.playlist.tracks[t]?.mixerTrack;
+    return other !== undefined && other !== null && other !== mixerTrackId && linked.has(other);
+  };
+  while (track < MAX_PLAYLIST_TRACKS - 1 && (taken(track) || !isFree(clips, track, start, start + length, ctx))) track++;
+  return track;
+}
+
+/** A take still being recorded: which mixer track, and where it is so far (ticks). */
+export interface LiveTake {
+  track: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * Where takes still being recorded show on the playlist, as they grow: the tracks `addTakes` would put
+ * them on if they ended now (each after the others, so two don't share a track).
+ */
+export function liveTakeTracks(song: MusicProject, takes: readonly LiveTake[]): number[] {
+  const linked = new Set(song.playlist.tracks.flatMap((t) => (t.mixerTrack ? [t.mixerTrack] : [])));
+  let clips: PlaylistClip[] = song.playlist.clips;
+  return takes.map((take) => {
+    const length = Math.max(1, Math.round(take.end - take.start));
+    const start = Math.max(0, Math.round(take.start));
+    const track = takeTrack(song, clips, linked, take.track, start, length);
+    clips = addClips(clips, [{ kind: "audio", ref: "@live", track, start, length }]).clips;
+    return track;
+  });
+}
+
+/**
  * Takes as audio clips (FL's Auto-create audio clips): a channel of its own for each, in the rack's
  * Audio group, routed into the mixer track that recorded it, and a clip where it was recorded. The
  * clip goes on the track's audio track if it has one, else on the first playlist track it fits on
@@ -81,14 +120,7 @@ export function addTakes(
     const channel = { ...createAudioChannel(take.pass > 0 ? `${label} take ${take.pass + 1}` : label, take.sampleId, channelIds()), mixerTrack: take.track };
     channels.push(channel);
     const { start, offset, length } = takeWindow(take, mixerTrack.inputOffset, ctx.secondsPerTick);
-    const own = audioTrackOf(song, take.track);
-    let track = Math.max(0, own);
-    // Another insert's audio track is that insert's.
-    const taken = (t: number) => {
-      const other = song.playlist.tracks[t]?.mixerTrack;
-      return other !== undefined && other !== null && other !== take.track && linked.has(other);
-    };
-    while (track < MAX_PLAYLIST_TRACKS - 1 && (taken(track) || !isFree(clips, track, start, start + length, ctx))) track++;
+    const track = takeTrack(song, clips, linked, take.track, start, length);
     const clip: NewClip = { kind: "audio", ref: channel.id, track, start, length, offset, muted: !options.blend && !take.final };
     const added = addClips(clips, [clip]);
     clips = added.clips;

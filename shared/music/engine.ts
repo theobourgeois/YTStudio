@@ -108,6 +108,8 @@ export interface EngineTransport {
   playing: boolean;
   /** Where the loop is, in ticks from its start (what the engine is computing: it's heard `outputLatencyMs` later). */
   tick: number;
+  /** Seconds of count-in left before a recording's play moves (the transport holds at `tick` meanwhile); 0 or absent: none. */
+  countIn?: number;
   /** The Browser's preview playing, if one is (absent from engines that don't say). */
   preview?: EnginePreview | null;
 }
@@ -189,7 +191,14 @@ export interface PluginParameter {
  * window ("touch"), or its Automate button pressed ("automate"); and that it has (re)started.
  */
 export type EngineEvent =
-  | ({ event: "transport"; peak: number; meters: EngineMeters; cpu: number } & EngineTransport)
+  | ({
+      event: "transport";
+      peak: number;
+      meters: EngineMeters;
+      cpu: number;
+      /** A recording in progress: each recording track's loudest input since the last event (the take drawn as it grows). */
+      recording?: { id: string; levels: Record<string, number> } | null;
+    } & EngineTransport)
   | { event: "status"; status: EngineStatus }
   | ({ event: "key" } & EngineKey)
   | ({ event: "touch" | "automate" } & PluginParameter)
