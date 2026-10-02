@@ -14,6 +14,7 @@ import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { type EngineEq, engineProQ } from "./pro-q.ts";
 import { type EngineOtt, OTT_CONTROL_SPECS, OTT_LANES, OTT_LANES_OF, type OttLane, engineOtt } from "./ott.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
+import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { autoGain } from "./pro-q-filters.ts";
 import { hasGain } from "./pro-q-presets.ts";
@@ -675,7 +676,7 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       if (at)
         for (const control of AUTO_TUNE_CONTROLS) {
           const target: AutomationTarget = { kind: "autoTune", effect: effect.id, control };
-          const value = valueOf(target, at[control]);
+          const value = valueOf(target, AUTO_TUNE_CONTROL_INFO[control].get(at));
           add({ kind: "tune", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineControlValue(control, value(tick))]);
         }
       const eb = effect.echoBoy;

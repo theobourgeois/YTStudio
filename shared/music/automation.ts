@@ -360,7 +360,7 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         name: info.name,
         owner,
         exists: !!at,
-        own: at ? clamp((at[target.control] - info.min) / span, 0, 1) : null,
+        own: at ? clamp((info.get(at) - info.min) / span, 0, 1) : null,
         toControl,
         fromControl: (x) => clamp((x - info.min) / span, 0, 1),
         format: (v) => info.format(toControl(v)),

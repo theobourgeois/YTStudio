@@ -64,6 +64,7 @@ export const CONTROLS = [
   "transpose",
   "throat",
   "key",
+  ...["detune", "tracking", "vibrato rate", "vibrato onset delay", "vibrato onset rate", "vibrato variation", "vibrato pitch", "vibrato amplitude", "vibrato formant"],
   ...["eq frequency", "eq gain", "eq q", "eq range", "eq output"],
   ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
   ...OTT_TOOL_CONTROL_NAMES,
@@ -107,9 +108,18 @@ const TUNE_CONTROLS = {
   transpose: "transpose",
   throat: "throat",
   key: "key",
+  detune: "detune",
+  tracking: "tracking",
+  "vibrato rate": "vibratoRate",
+  "vibrato onset delay": "vibratoDelay",
+  "vibrato onset rate": "vibratoOnset",
+  "vibrato variation": "vibratoVariation",
+  "vibrato pitch": "vibratoPitch",
+  "vibrato amplitude": "vibratoAmplitude",
+  "vibrato formant": "vibratoFormant",
 } as const satisfies Record<string, AutoTuneControl>;
 /** Auto-Tune's controls the model gives as 0 to 100 (Auto-Tune's own numbers), kept as 0..1 (throat 0.5..1.8). */
-const HUNDREDTHS: readonly AutoTuneControl[] = ["humanize", "flexTune", "throat"];
+const HUNDREDTHS: readonly AutoTuneControl[] = ["humanize", "flexTune", "throat", "tracking", "vibratoVariation", "vibratoAmplitude", "vibratoFormant"];
 
 /** A mixer effect's slot, 1 to 10, on a track: the effect there, or an error saying which slots hold one. */
 function effectAt(song: MusicProject, input: Input) {
@@ -168,7 +178,16 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "natural vibrato":
     case "transpose":
     case "throat":
-    case "key": {
+    case "key":
+    case "detune":
+    case "tracking":
+    case "vibrato rate":
+    case "vibrato onset delay":
+    case "vibrato onset rate":
+    case "vibrato variation":
+    case "vibrato pitch":
+    case "vibrato amplitude":
+    case "vibrato formant": {
       const { track, effect } = effectAt(song, input);
       if (!effect.autoTune) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an Auto-Tune: "${control}" is Auto-Tune's.`);
       return { kind: "autoTune", effect: effect.id, control: TUNE_CONTROLS[control] };
@@ -263,6 +282,15 @@ const TUNE_HINTS: Record<AutoTuneControl, string> = {
   transpose: "semitones, -12 to 12",
   throat: "50 to 180",
   key: "0 (C) to 11 (B)",
+  detune: "cents, -100 to 100",
+  tracking: "0 (choosy) to 100 (relaxed)",
+  vibratoRate: "Hz, 0.1 to 10",
+  vibratoDelay: "milliseconds, 0 to 1500",
+  vibratoOnset: "milliseconds, 0 to 1500",
+  vibratoVariation: "0 to 100",
+  vibratoPitch: "cents, 0 to 100",
+  vibratoAmplitude: "0 to 30",
+  vibratoFormant: "0 to 100",
 };
 
 /** An EchoBoy control's values, said for the model. */

@@ -198,13 +198,22 @@ export const AUTO_TUNE_PRESETS: readonly AutoTunePreset[] = [
 // Its controls, as automation and the knobs say them
 // ---------------------------------------------------------------------------
 
-/** Each automatable control: its name, range (in its own units) and how it reads. */
-export const AUTO_TUNE_CONTROL_INFO: Record<AutoTuneControl, { name: string; min: number; max: number; whole?: boolean; format: (v: number) => string }> = {
-  retuneSpeed: { name: "Retune Speed", min: 0, max: MAX_RETUNE, format: (v) => `${Math.round(v)} ms` },
-  humanize: { name: "Humanize", min: 0, max: 1, format: (v) => `${Math.round(v * 100)}` },
-  flexTune: { name: "Flex-Tune", min: 0, max: 1, format: (v) => `${Math.round(v * 100)}` },
-  naturalVibrato: { name: "Natural Vibrato", min: -MAX_NATURAL_VIBRATO, max: MAX_NATURAL_VIBRATO, format: (v) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB` },
-  transpose: { name: "Transpose", min: -MAX_TRANSPOSE, max: MAX_TRANSPOSE, whole: true, format: (v) => `${v > 0 ? "+" : ""}${Math.round(v)} st` },
-  throat: { name: "Throat Length", min: MIN_THROAT, max: MAX_THROAT, format: (v) => `${Math.round(v * 100)}` },
-  key: { name: "Key", min: 0, max: 11, whole: true, format: (v) => NOTE_NAMES[clamp(Math.round(v), 0, 11)] },
+/** Each automatable control: its name, range (in its own units), how it reads, and where it is in the settings (`get`: Create Vibrato's are inside `vibrato`). */
+export const AUTO_TUNE_CONTROL_INFO: Record<AutoTuneControl, { name: string; min: number; max: number; whole?: boolean; format: (v: number) => string; get: (at: AutoTune) => number }> = {
+  retuneSpeed: { name: "Retune Speed", min: 0, max: MAX_RETUNE, format: (v) => `${Math.round(v)} ms`, get: (at) => at.retuneSpeed },
+  humanize: { name: "Humanize", min: 0, max: 1, format: (v) => `${Math.round(v * 100)}`, get: (at) => at.humanize },
+  flexTune: { name: "Flex-Tune", min: 0, max: 1, format: (v) => `${Math.round(v * 100)}`, get: (at) => at.flexTune },
+  naturalVibrato: { name: "Natural Vibrato", min: -MAX_NATURAL_VIBRATO, max: MAX_NATURAL_VIBRATO, format: (v) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`, get: (at) => at.naturalVibrato },
+  transpose: { name: "Transpose", min: -MAX_TRANSPOSE, max: MAX_TRANSPOSE, whole: true, format: (v) => `${v > 0 ? "+" : ""}${Math.round(v)} st`, get: (at) => at.transpose },
+  throat: { name: "Throat Length", min: MIN_THROAT, max: MAX_THROAT, format: (v) => `${Math.round(v * 100)}`, get: (at) => at.throat },
+  key: { name: "Key", min: 0, max: 11, whole: true, format: (v) => NOTE_NAMES[clamp(Math.round(v), 0, 11)], get: (at) => at.key },
+  detune: { name: "Detune", min: -MAX_DETUNE, max: MAX_DETUNE, format: (v) => `${v > 0 ? "+" : ""}${Math.round(v)} cents`, get: (at) => at.detune },
+  tracking: { name: "Tracking", min: 0, max: 1, format: (v) => `${Math.round(v * 100)}`, get: (at) => at.tracking },
+  vibratoRate: { name: "Vibrato Rate", min: 0.1, max: 10, format: (v) => `${v.toFixed(1)} Hz`, get: (at) => at.vibrato.rate },
+  vibratoDelay: { name: "Vibrato Onset Delay", min: 0, max: MAX_ONSET, format: (v) => `${Math.round(v)} ms`, get: (at) => at.vibrato.delay },
+  vibratoOnset: { name: "Vibrato Onset Rate", min: 0, max: MAX_ONSET, format: (v) => `${Math.round(v)} ms`, get: (at) => at.vibrato.onset },
+  vibratoVariation: { name: "Vibrato Variation", min: 0, max: 1, format: (v) => `${Math.round(v * 100)}`, get: (at) => at.vibrato.variation },
+  vibratoPitch: { name: "Vibrato Pitch Amount", min: 0, max: 100, format: (v) => `${Math.round(v)} cents`, get: (at) => at.vibrato.pitch },
+  vibratoAmplitude: { name: "Vibrato Amplitude Amount", min: 0, max: MAX_VIBRATO_AMPLITUDE, format: (v) => `${Math.round(v * 100)}`, get: (at) => at.vibrato.amplitude },
+  vibratoFormant: { name: "Vibrato Formant Amount", min: 0, max: 1, format: (v) => `${Math.round(v * 100)}`, get: (at) => at.vibrato.formant },
 };

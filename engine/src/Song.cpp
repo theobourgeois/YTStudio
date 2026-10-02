@@ -486,12 +486,12 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].tuneSettings == nullptr)
                 continue;
-            const auto control = juce::StringArray { "retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key" }.indexOf (target["control"].toString());
+            const auto control = juce::StringArray { "retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key", "detune", "tracking", "vibratoRate", "vibratoDelay", "vibratoOnset", "vibratoVariation", "vibratoPitch", "vibratoAmplitude", "vibratoFormant" }.indexOf (target["control"].toString());
             if (control < 0)
                 continue;
             lane.control = control;
             const auto& s = *track.effects[(size_t) lane.index].tuneSettings;
-            const double base[] = { s.retune, s.humanize, s.flexTune, s.vibratoGain, s.transpose, s.throat, (double) s.key };
+            const double base[] = { s.retune, s.humanize, s.flexTune, s.vibratoGain, s.transpose, s.throat, (double) s.key, s.reference, s.threshold, s.rate, s.delay, s.onset, s.variation, s.depth, s.amplitude, s.formantDepth };
             lane.base[0] = (float) base[control];
         }
         else if (kind == "echo")
@@ -589,8 +589,8 @@ void Song::parseLanes (Song& song, const juce::var& json)
         auto last = 0.0;
         for (const auto& tick : *ticks)
             lane.ticks.push_back (last = juce::jmax (last, number (tick, last, 0, 1e9)));
-        // (An EchoBoy's cuts are in Hz, an OTT's knees down to -200 dB.)
-        const auto most = lane.kind == Lane::Kind::echo ? 1e5 : lane.kind == Lane::Kind::ott ? 1e3 : 64.0;
+        // (An EchoBoy's cuts are in Hz, an Auto-Tune's A4 too, an OTT's knees down to -200 dB.)
+        const auto most = lane.kind == Lane::Kind::echo ? 1e5 : lane.kind == Lane::Kind::ott || lane.kind == Lane::Kind::tune ? 1e3 : 64.0;
         for (const auto& value : *values)
             lane.values.push_back ((float) number (value, 0, -most, most));
         song.lanes.push_back (std::move (lane));

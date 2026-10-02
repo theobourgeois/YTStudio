@@ -745,8 +745,25 @@ export type AutomationTarget =
 export const GROSS_CONTROLS = ["timeSlot", "volumeSlot", "timeMix", "volumeMix", "attack", "release", "tension"] as const;
 export type GrossControl = (typeof GROSS_CONTROLS)[number];
 
-/** Auto-Tune's controls an automation clip can drive (the key too, for a song that changes key). */
-export const AUTO_TUNE_CONTROLS = ["retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key"] as const;
+/** Auto-Tune's controls an automation clip can drive: every knob (the key too, for a song that changes key), Create Vibrato's included. */
+export const AUTO_TUNE_CONTROLS = [
+  "retuneSpeed",
+  "humanize",
+  "flexTune",
+  "naturalVibrato",
+  "transpose",
+  "throat",
+  "key",
+  "detune",
+  "tracking",
+  "vibratoRate",
+  "vibratoDelay",
+  "vibratoOnset",
+  "vibratoVariation",
+  "vibratoPitch",
+  "vibratoAmplitude",
+  "vibratoFormant",
+] as const;
 export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
 
 /** OTT's controls an automation clip can drive: every knob, and each band's threshold (its row's gap). */
