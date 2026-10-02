@@ -239,3 +239,58 @@ export function paintClipStarts(from: number, to: number, length: number, grid: 
   for (let at = from; at <= Math.max(from, to); at += every) starts.push(at);
   return starts;
 }
+
+/**
+ * The overview along the top (FL's mini playlist, its zoom and scroll bar): how many ticks it spans, the
+ * whole song and the room after it that zooming out shows (`minPxPerTick`), or as far as the view goes
+ * when it's scrolled past that.
+ */
+export function overviewSpan(view: PlaylistView, width: number, songEnd: number, barTicks: number): number {
+  return Math.max(width / minPxPerTick(songEnd, barTicks, width), view.scrollTick + width / view.pxPerTick);
+}
+
+/** The narrowest the overview's window onto the view gets (px), so its ends can still be taken. */
+export const OVERVIEW_MIN_THUMB = 16;
+/** How far into each end of the window (px) a press zooms rather than scrolls. */
+export const OVERVIEW_EDGE = 5;
+
+/** Where the view's window is on the overview, in px across its `width`. */
+export function overviewThumb(view: PlaylistView, width: number, span: number): { left: number; width: number } {
+  const across = Math.max(OVERVIEW_MIN_THUMB, (width / view.pxPerTick / span) * width);
+  const left = Math.min((view.scrollTick / span) * width, width - across);
+  return { left: Math.max(0, left), width: Math.min(across, width) };
+}
+
+/**
+ * The view as a drag on the overview leaves it, from the view it started with (`start`) and how far it's
+ * gone (`dx`, px): the window moved along (`move`, never before the song's start or past the span), or
+ * one of its ends taken, which zooms with the other end staying put (no further out than `min`, no
+ * further in than `MAX_PX_PER_TICK`). `span` is the overview's when the drag started, so the mapping holds still.
+ */
+export function overviewDrag(start: PlaylistView, part: "move" | "start" | "end", dx: number, width: number, span: number, min = MIN_PX_PER_TICK): PlaylistView {
+  const perPx = span / Math.max(1, width);
+  const visible = width / start.pxPerTick;
+  if (part === "move") {
+    const last = Math.max(span - visible, start.scrollTick);
+    const scrollTick = clamp(start.scrollTick + dx * perPx, 0, last);
+    return scrollTick === start.scrollTick ? start : { ...start, scrollTick };
+  }
+  const zoomTo = (ticks: number) => clamp(width / Math.max(1, ticks), min, MAX_PX_PER_TICK);
+  if (part === "end") {
+    const pxPerTick = zoomTo(visible + dx * perPx);
+    return { ...start, pxPerTick };
+  }
+  const right = start.scrollTick + visible;
+  const pxPerTick = zoomTo(right - Math.max(0, start.scrollTick + dx * perPx));
+  return { ...start, pxPerTick, scrollTick: Math.max(0, right - width / pxPerTick) };
+}
+
+/**
+ * The tracks' height as a drag on an end of the vertical scrollbar leaves it (FL's: its ends zoom too):
+ * the window `thumb` px tall grown or shrunk by `dy`, the tracks shorter or taller by as much, with the
+ * opposite end's track staying put (the top one for the bottom end, the bottom one for the top end).
+ */
+export function trackZoomDrag(start: PlaylistView, edge: "start" | "end", dy: number, thumb: number, height: number): PlaylistView {
+  const grown = Math.max(8, edge === "end" ? thumb + dy : thumb - dy);
+  return zoomTracksAt(start, edge === "end" ? 0 : height, (start.trackHeight * thumb) / grown);
+}

@@ -1806,6 +1806,38 @@ test("the Playlist, as FL Studio's: patterns drawn, painted, moved, cloned, resi
   await expect.poll(async () => (await savedClips(page, id)).length).toBe(0);
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await savedClips(page, id)).length).toBe(before);
+
+  // The overview along the top (FL's mini playlist): its window's right end dragged out zooms out, the
+  // left staying put; the window dragged along scrolls. (The rack, over it, closed first.)
+  await page.keyboard.press("F6");
+  await expect(page.getByTestId("channel-rack")).toBeHidden();
+  const overview = page.getByTestId("playlist-overview-window");
+  const ruler = page.getByTestId("playlist").getByLabel("Ruler");
+  const shown = (await overview.boundingBox())!;
+  const rulerShot = await ruler.screenshot();
+  await page.mouse.move(shown.x + shown.width - 2, shown.y + shown.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(shown.x + shown.width + 120, shown.y + shown.height / 2, { steps: 5 });
+  await page.mouse.up();
+  const zoomed = (await overview.boundingBox())!;
+  expect(zoomed.x).toBeCloseTo(shown.x, 0);
+  expect(zoomed.width).toBeGreaterThan(shown.width + 100);
+  expect(await ruler.screenshot()).not.toEqual(rulerShot);
+  await page.mouse.move(zoomed.x + zoomed.width / 2, zoomed.y + zoomed.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(zoomed.x + zoomed.width / 2 + 60, zoomed.y + zoomed.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await overview.boundingBox())!.x).toBeGreaterThan(zoomed.x + 50);
+  // The vertical scrollbar's bottom end pulled up: taller tracks, so its window is shorter.
+  const vertical = page.getByTestId("playlist-vertical-window");
+  const tall = (await vertical.boundingBox())!;
+  const trackY = async (name: string) => (await playlist.getByRole("button", { name, exact: true }).boundingBox())!.y;
+  const spacing = (await trackY("Track 2")) - (await trackY("Track 1"));
+  await page.mouse.move(tall.x + tall.width / 2, tall.y + tall.height - 2);
+  await page.mouse.down();
+  await page.mouse.move(tall.x + tall.width / 2, tall.y + tall.height - 120, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await trackY("Track 2")) - (await trackY("Track 1"))).toBeGreaterThan(spacing + 15);
 });
 
 test("song mode plays the playlist: PAT / SONG, the ruler sets where it plays from, a time selection loops", async ({ page }) => {
