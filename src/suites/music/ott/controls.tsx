@@ -32,7 +32,7 @@ interface OttKnobProps {
 export function OttKnob({ caption, size = 40, inline, label, ...knob }: OttKnobProps) {
   return (
     <div className={cn("flex items-center", inline ? "flex-row gap-1" : "flex-col gap-1")} data-testid={`ott-knob-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
-      <Caption className="text-foreground/80">{caption ?? label}</Caption>
+      {caption !== "" && <Caption className="text-foreground/80">{caption ?? label}</Caption>}
       <SongKnob size={size} label={label} {...knob} />
     </div>
   );

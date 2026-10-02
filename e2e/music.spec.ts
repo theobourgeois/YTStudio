@@ -2539,3 +2539,99 @@ test("the assistant shapes a Pro-Q: puts one on a track, adds bands, sets its mo
   const [automation] = await savedAutomations(page, id);
   expect(automation.target).toEqual({ kind: "proQ", effect: effect.id, band: 2, control: "frequency" });
 });
+
+/** The song's OTT (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
+type SavedOtt = { preset: string | null; depth: number; time: number; input: number; output: number; upward: number; downward: number; bands: { threshold: number; gain: number; upward: boolean; downward: boolean }[] };
+async function savedOtt(page: Page, id: string, effectId: string): Promise<SavedOtt | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.ott;
+  return null;
+}
+
+test("OTT: chosen for a slot, its knobs turned, a band's gap dragged and a compressor switched off, a preset; its controls automated from a knob and from the title bar", async ({ page }) => {
+  const id = await openNewSong(page, "Squash");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /OTT/ }).click();
+  const window = page.getByTestId("ott");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.preset).toBe("Default");
+  // Closed, its name in the slot opens it again.
+  await page.getByRole("button", { name: "Close OTT (Master)" }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "OTT: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // Depth dragged down: less of it, and the preset's name goes.
+  await drag(page, window.getByRole("slider", { name: "Depth" }), window.getByRole("slider", { name: "Depth" }), { dy: 60 });
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.depth).toBeLessThan(0.8);
+  expect((await savedOtt(page, id, effectId))?.preset).toBeNull();
+
+  // The mid row's gap dragged right: its threshold up. Ctrl+click on its brown (far left): its upward compressor off.
+  const mid = window.getByTestId("ott-row-mid");
+  await drag(page, mid, mid, { dx: 40 });
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.bands[1].threshold).toBeGreaterThan(1.1);
+  const box = (await mid.boundingBox())!;
+  await page.keyboard.down("Control");
+  await page.mouse.click(box.x + 8, box.y + box.height / 2);
+  await page.keyboard.up("Control");
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.bands[1].upward).toBe(false);
+  await expect(mid).toHaveAttribute("data-upward", "false");
+  // Its menu turns it back on; a double-click resets its threshold.
+  await mid.click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "Upward compression" }).click();
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.bands[1].upward).toBe(true);
+  await mid.dblclick();
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.bands[1].threshold).toBe(1);
+
+  // A preset sets it all.
+  await window.getByTestId("ott-preset").click();
+  await page.getByRole("menuitem", { name: "Drum smash" }).click();
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.preset).toBe("Drum smash");
+  expect((await savedOtt(page, id, effectId))?.time).toBe(0.4);
+
+  // Automated: Time from its knob's menu, then the last knob touched (Out Gain) from the title bar.
+  await window.getByRole("slider", { name: "Time" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Create automation clip" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  // (The Playlist opens on the new clip, over the window.)
+  await page.getByRole("button", { name: "Close Playlist" }).click();
+  await drag(page, window.getByRole("slider", { name: "Out Gain" }), window.getByRole("slider", { name: "Out Gain" }), { dy: -10 });
+  await expect(page.getByTestId("automate-touched")).toContainText("Automate “Out Gain”");
+  await page.getByTestId("automate-touched").click();
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(2);
+  const targets = (await savedSong(page, id)).automations.map((a: { target: unknown }) => a.target);
+  expect(targets).toEqual([
+    { kind: "ott", effect: effectId, control: "time" },
+    { kind: "ott", effect: effectId, control: "output" },
+  ]);
+});
+
+test("the assistant squashes a track with OTT: puts one on, sets it, automates its depth", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted OTT");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "OTT"}',
+      'call update_ott {"track": 1, "depth": 0.35, "time": 2, "bands": [{"band": "high", "gain": 2}, {"band": "low", "downward": false}]}',
+      'call add_automation {"control": "ott depth", "track": 1, "slot": 1, "bar": 1, "length": 4, "points": [{"at": 0, "value": 0}, {"at": 4, "value": 0.6}]}',
+      'call get_ott {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_ott: ok", { timeout: 30_000 });
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("OTT");
+  expect(effect.ott).toMatchObject({ depth: 0.35, time: 2, preset: null });
+  expect(effect.ott.bands[2].gain).toBe(2);
+  expect(effect.ott.bands[0].downward).toBe(false);
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "ott", effect: effect.id, control: "depth" });
+  expect(automation.points.map((p: { value: number }) => p.value)).toEqual([0, 0.6]);
+});

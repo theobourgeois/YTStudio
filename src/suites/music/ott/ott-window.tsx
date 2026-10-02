@@ -45,7 +45,7 @@ export function OttWindow({ effectId, index }: { effectId: string; index: number
   }, [gone, effectId]);
   if (!effect || !ott) return null;
   /** A knob of OTT's: what it is, how it turns, and its edit, from its control's spec. */
-  const knob = (control: OttControl, label: string, size = 40, opts: { bipolar?: boolean } = {}) => {
+  const knob = (control: OttControl, label: string, size = 40) => {
     const spec = OTT_CONTROL_SPECS[control];
     const tapered = control === "time";
     const linear = control === "input" || control === "output";
@@ -53,7 +53,6 @@ export function OttWindow({ effectId, index }: { effectId: string; index: number
       <OttKnob
         label={label}
         size={size}
-        bipolar={opts.bipolar}
         value={tapered ? spec.fromControl(spec.get(ott)) : spec.get(ott)}
         min={tapered ? 0 : linear ? OTT_GAIN_RANGE[0] : 0}
         max={tapered ? 1 : linear ? OTT_GAIN_RANGE[1] : spec.toControl(1)}
@@ -74,14 +73,14 @@ export function OttWindow({ effectId, index }: { effectId: string; index: number
           <Plate className="grid grid-cols-4 items-end justify-items-center gap-2">
             {knob("depth", "Depth", 44)}
             {knob("time", "Time", 44)}
-            {knob("input", "In Gain", 36, { bipolar: true })}
-            {knob("output", "Out Gain", 36, { bipolar: true })}
+            {knob("input", "In Gain", 36)}
+            {knob("output", "Out Gain", 36)}
           </Plate>
           <Plate className="items-start">
             <OttDisplay effectId={effectId} ott={ott} />
             <div className="mt-1 flex w-[340px] justify-between px-0.5">
-              <Caption className="text-[8px]">Upward ◂</Caption>
-              <Caption className="text-[8px]">▸ Downward</Caption>
+              <Caption className="text-[8px] text-[color:var(--ott-up-edge)]">Upward</Caption>
+              <Caption className="text-[8px] text-[color:var(--ott-down-edge)]">Downward</Caption>
             </div>
           </Plate>
           <Plate className="grid grid-cols-2 items-end justify-items-center gap-2">
@@ -126,7 +125,7 @@ function PresetBar({ effectId, ott }: { effectId: string; ott: Ott }) {
       </DropdownMenu>
       <span className="ml-auto flex items-baseline gap-1.5 pr-1">
         <span className="text-[14px] font-black tracking-tight">OTT</span>
-        <span className="text-[10px] text-muted-foreground">Multiband Upward / Downward</span>
+        <span className="text-[10px] whitespace-nowrap text-muted-foreground">Multiband Compressor</span>
       </span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

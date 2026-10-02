@@ -39,7 +39,7 @@ export function OttDisplay({ effectId, ott }: { effectId: string; ott: Ott }) {
           <BandRow effectId={effectId} ott={ott} band={band} row={row} />
           <OttKnob
             label={`${ROW_LABELS[row]} gain`}
-            caption={ROW_LABELS[row]}
+            caption=""
             size={26}
             value={ott.bands[band].gain}
             min={OTT_BAND_GAIN_RANGE[0]}
@@ -61,6 +61,8 @@ export function OttDisplay({ effectId, ott }: { effectId: string; ott: Ott }) {
 function BandRow({ effectId, ott, band, row }: { effectId: string; ott: Ott; band: number; row: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const hot = useRef(false);
+  /** A Ctrl+click just switched a compressor: the context menu the Mac makes of it isn't opened. */
+  const switched = useRef(false);
   const settings = useRef(ott);
   settings.current = ott;
   const target = useMemo((): AutomationTarget => ({ kind: "ott", effect: effectId, control: OTT_BAND_CONTROLS[band].threshold }), [effectId, band]);
@@ -115,12 +117,19 @@ function BandRow({ effectId, ott, band, row }: { effectId: string; ott: Ott; ban
           onPointerEnter={() => (hot.current = true)}
           onPointerLeave={() => (hot.current = false)}
           onDoubleClick={resetThreshold}
+          onContextMenu={(e) => {
+            if (!switched.current) return;
+            switched.current = false;
+            e.preventDefault();
+          }}
           onPointerDown={(e) => {
+            switched.current = false;
             if (e.button !== 0) return;
             if (e.altKey) return resetThreshold();
             if (e.ctrlKey || e.metaKey) {
               const zone = zoneAt(at(e), knees.upKnee, knees.downKnee);
               if (zone !== "gap") toggle(zone === "up" ? "upward" : "downward");
+              switched.current = true;
               return;
             }
             const gesture = songGesture();
