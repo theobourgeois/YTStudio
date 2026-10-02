@@ -142,7 +142,8 @@ export interface EngineTrack {
    */
   gains: [number, number, number, number];
   /** Indexes into `EngineSong.tracks` (always later ones) and the gain of each. */
-  sends: { track: number; gain: number }[];
+  /** `preFader`: taken before `gains` (silent while the track is muted). */
+  sends: { track: number; gain: number; preFader?: boolean }[];
   /** Milliseconds added to its plugins' reported delay (`MixerTrack.latencyOffset`); the engine compensates for both. */
   latencyOffset: number;
   /**
@@ -460,7 +461,10 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
       input: engineInput(track, armed.has(track.id)),
       sends: track.sends.flatMap((send) => {
         const to = index.get(send.to);
-        return to !== undefined && to > index.get(track.id)! ? [{ track: to, gain: levelGain(send.level, 1) }] : [];
+        if (to === undefined || to <= index.get(track.id)!) return [];
+        // Before the fader, but not past the mute (nor a solo that silences the track).
+        if (send.preFader) return [{ track: to, gain: track.muted ? 0 : levelGain(send.level, 1), preFader: true }];
+        return [{ track: to, gain: levelGain(send.level, 1) }];
       }),
     };
   });
@@ -830,7 +834,8 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       if (to === undefined || to <= t) continue;
       const target: AutomationTarget = { kind: "send", track: track.id, to: send.to };
       const level = valueOf(target, send.level);
-      add({ kind: "send", track: t, send: sendIndex++ }, [automated(target)], (tick) => [levelGain(level(tick), 1)]);
+      const silent = send.preFader && track.muted;
+      add({ kind: "send", track: t, send: sendIndex++ }, [automated(target)], (tick) => [silent ? 0 : levelGain(level(tick), 1)]);
     }
     let effectIndex = 0;
     for (const effect of track.effects) {

@@ -23,6 +23,7 @@ import {
   setMixerControls,
   setMixerMuted,
   setMixerSolo,
+  setSendPreFader,
   type MixerTrackPatch,
   routeChannels,
   routeChannelsFrom,
@@ -409,6 +410,9 @@ export function plugCable(e: ReactPointerEvent<Element>) {
     onCancel: () => view.plug(null),
   });
 }
+
+/** The selected tracks' sends to `to` taken before their faders (a parallel bus, a headphone mix), or after. */
+export const setSendsPreFader = (to: string, preFader: boolean) => commit((doc) => sendSources().reduce((next, from) => setSendPreFader(next, from, to, preFader), doc));
 
 /** "Sidechain to this track": sends at 0, which plugins on `to` can hear but the track doesn't. */
 export const sidechainTo = (to: string) => commit((doc) => sendSources().reduce((next, from) => setSend(next, from, to, 0), doc));

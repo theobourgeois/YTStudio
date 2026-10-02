@@ -75,6 +75,7 @@ import {
   setTrackSwitch,
   toggleSend,
   groupSend,
+  setSendsPreFader,
   toggleTrackMute,
   assignAudioTracksTo,
 } from "./actions";
@@ -206,6 +207,7 @@ export function MixerWindow() {
       sendLevel={(sends.get(track.id) as { level?: number }).level ?? 0}
       sendOwner={(sends.get(track.id) as { owner?: string }).owner ?? null}
       sendPartial={(sends.get(track.id) as { partial?: boolean }).partial ?? false}
+      sendPre={(sends.get(track.id) as { preFader?: boolean }).preFader ?? false}
       meterRef={meterRef(track.id)}
       output={outputs.get(track.id)!}
       soloedOut={heard.get(track.id)!.soloedOut}
@@ -370,6 +372,8 @@ interface StripProps {
   sendOwner: string | null;
   /** Only some of the selected tracks that could send to it do. */
   sendPartial: boolean;
+  /** The send its knob shows is taken before the fader. */
+  sendPre: boolean;
   meterRef: (canvas: HTMLCanvasElement | null) => void;
   /** Where its sound goes, by number ("M", "12", "3, 5"; "" for nowhere). */
   output: string;
@@ -389,7 +393,7 @@ interface StripProps {
 }
 
 /** A track's strip, top to bottom: its number, its name beside its meter, mute, pan, fader, send switch. */
-const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, sendOwner, sendPartial, meterRef, output, soloedOut, implied, unheard, view, separator, groupName, banded }: StripProps) {
+const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, sendOwner, sendPartial, sendPre, meterRef, output, soloedOut, implied, unheard, view, separator, groupName, banded }: StripProps) {
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
@@ -556,7 +560,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       {view === "extra" && <StripEffects track={track} />}
       {/* The master goes to the speakers: room kept, so the strips' rows line up. */}
       {isMaster ? <span className="h-3.5 shrink-0" aria-hidden /> : <OutputLabel id={id} name={name} output={output} />}
-      <SendSwitch to={id} name={name} state={sendKind === "sending" ? { kind: "sending", level: sendLevel, owner: sendOwner!, partial: sendPartial } : { kind: sendKind }} />
+      <SendSwitch to={id} name={name} state={sendKind === "sending" ? { kind: "sending", level: sendLevel, owner: sendOwner!, partial: sendPartial, preFader: sendPre } : { kind: sendKind }} />
     </div>
   );
 });
@@ -811,7 +815,12 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
             <PiCaretUpBold className="size-3" />
           </button>
           {sending ? (
-            <div data-send-point>
+            <div data-send-point className="relative">
+              {state.preFader && (
+                <span className="pointer-events-none absolute -top-1 -right-2.5 z-10 font-mono text-[7px] font-bold" style={{ color: "var(--mixer-on)" }} title="Pre-fader" data-testid="pre-fader">
+                  PRE
+                </span>
+              )}
               <SongKnob
                 size={28}
                 label={`Send to ${name}`}
@@ -834,6 +843,14 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
         <ContextMenuItem onSelect={() => toggleSend(to)}>{sending && !partial ? "Remove the sends" : "Route to this track"}</ContextMenuItem>
         <ContextMenuItem onSelect={() => sendOnlyTo(to)}>Route to this track only</ContextMenuItem>
         <ContextMenuItem onSelect={() => sidechainTo(to)}>Sidechain to this track</ContextMenuItem>
+        {sending && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuCheckboxItem checked={state.preFader} onSelect={() => setSendsPreFader(to, !state.preFader)}>
+              Pre-fader
+            </ContextMenuCheckboxItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, setPatternLength, setStepNote, setSteps, setSwing, setTempo, updateChannel } from "../../shared/music/edits.ts";
-import { routeChannels, sendOnly, setMixerMuted, setSend, updateMixerTrack } from "../../shared/music/mixer.ts";
+import { routeChannels, sendOnly, setMixerMuted, setSend, setSendPreFader, updateMixerTrack } from "../../shared/music/mixer.ts";
 import { editNotes, setNoteProps } from "../../shared/music/notes.ts";
 import { METRONOME_SOUNDS } from "../../shared/music/engine.ts";
 import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject as newSong } from "../../shared/music/project.ts";
@@ -426,6 +426,18 @@ describe.skipIf(!existsSync(ENGINE))("the sequencer, offline", () => {
       expect((await hit(setMixerMuted(sendOnly(both, "insert_1", "insert_2"), ["insert_2"], true)))[0]).toBe(0);
       // Sending nowhere, it's not heard.
       expect((await hit(setSend(setSend(both, "insert_1", "insert_2", null), "insert_1", MASTER_TRACK_ID, null)))[0]).toBe(0);
+    });
+
+    it("takes a pre-fader send before the track's fader and pan, but not past its mute", async () => {
+      // Insert 1's fader all the way down, panned left: only its send to insert 2 is heard, taken as it was before both.
+      let song = setSend(kickOn("insert_1"), "insert_1", "insert_2", 1);
+      song = updateMixerTrack(updateMixerTrack(song, "insert_1", { volume: 0 }), "insert_1", { pan: -1 });
+      expect(await hit(song)).toEqual([0, 0]);
+      const pre = setSendPreFader(song, "insert_1", "insert_2", true);
+      expect(await hit(pre)).toEqual([expect.closeTo(0.5, 4), expect.closeTo(0.5, 4)]);
+      // Insert 2's own fader still counts.
+      expect((await hit(updateMixerTrack(pre, "insert_2", { volume: 0.4 })))[0]).toBeCloseTo(0.0625, 4);
+      expect(await hit(setMixerMuted(pre, ["insert_1"], true))).toEqual([0, 0]);
     });
 
     it("runs a chain of tracks in order, whatever their numbers: 1 → 3 → 2 → the master", async () => {

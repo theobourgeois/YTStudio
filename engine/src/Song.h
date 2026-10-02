@@ -178,6 +178,8 @@ struct Song
             std::shared_ptr<DelayLine> delayLine;
             /** Automated: it glides from `from` to `gain` across each block. */
             bool automated = false;
+            /** Taken before the track's gains (its fader and pan), from `preBuffer`. */
+            bool preFader = false;
         };
 
         /** An effect in one of its slots. */
@@ -222,6 +224,8 @@ struct Song
         std::vector<Send> sends;
         /** Its channel pair in `audio`, or -1: nothing can reach it, so it's skipped. */
         int buffer = -1;
+        /** A pair holding its sound before its gains, for its pre-fader sends (-1: it has none). */
+        int preBuffer = -1;
         /** Index into the previous song's tracks (-1: a new track). */
         int previous = -1;
         /** Its manual delay compensation (`MixerTrack.latencyOffset`), in ms. */

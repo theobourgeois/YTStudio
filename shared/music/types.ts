@@ -596,6 +596,11 @@ export interface MixerSend {
   to: string;
   /** 0..1, as a knob: 1 sends it as it is. At 0 the link is kept but silent (FL's sidechain-only send). */
   level: number;
+  /**
+   * Taken before the track's fader and pan (a parallel compression bus, a headphone mix), rather than after
+   * them (absent: after, FL's only way). Still silenced when the track is muted.
+   */
+  preFader?: true;
 }
 
 /**

@@ -14,7 +14,7 @@ export type SendState =
    * Selected tracks send to it. `level` is `owner`'s send (the current track's if it's one of them, else
    * the first sending), the one its knob shows; `partial`: some that could send here don't.
    */
-  | { kind: "sending"; level: number; owner: string; partial: boolean }
+  | { kind: "sending"; level: number; owner: string; partial: boolean; preFader: boolean }
   /** A click makes the selected tracks send to it. */
   | { kind: "available" }
   /** No selected track can send to it: its sound reaches them already (a loop), or they're the master. */
@@ -36,7 +36,7 @@ export function sendStates(mixer: Mixer, sources: readonly string[]): Map<string
   const from = sources.filter((id) => tracks.has(id));
   const isSource = new Set(from);
   // The master sends nowhere; a track can't send to one that feeds it.
-  const senders = from.filter((id) => id !== MASTER_TRACK_ID).map((id) => ({ id, feeds: feeding(mixer, id), sends: new Map(tracks.get(id)!.sends.map((s) => [s.to, s.level])) }));
+  const senders = from.filter((id) => id !== MASTER_TRACK_ID).map((id) => ({ id, feeds: feeding(mixer, id), sends: new Map(tracks.get(id)!.sends.map((s) => [s.to, s])) }));
   return new Map(
     mixer.tracks.map((t): [string, SendState] => {
       if (isSource.has(t.id)) return [t.id, { kind: "source" }];
@@ -44,7 +44,8 @@ export function sendStates(mixer: Mixer, sources: readonly string[]): Map<string
       const sending = allowed.filter((s) => s.sends.has(t.id));
       if (!sending.length) return [t.id, allowed.length ? { kind: "available" } : { kind: "unavailable" }];
       const owner = sending[0];
-      return [t.id, { kind: "sending", level: owner.sends.get(t.id)!, owner: owner.id, partial: sending.length < allowed.length }];
+      const send = owner.sends.get(t.id)!;
+      return [t.id, { kind: "sending", level: send.level, owner: owner.id, partial: sending.length < allowed.length, preFader: !!send.preFader }];
     }),
   );
 }

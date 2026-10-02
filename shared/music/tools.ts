@@ -680,6 +680,7 @@ export const MUSIC_TOOLS = [
         level: num("0 to 1 (1, the default, sends it as it is; 0 keeps the link silent: a sidechain)."),
         remove: bool("Remove the send instead."),
         only: bool("Send to this track alone, removing its other sends (the master's too)."),
+        preFader: bool("Take the send before the track's fader and pan (true: a parallel compression bus, a headphone mix) or after them (false, the default for a new send). Still silent while the track is muted."),
       },
       ["from", "to"],
     ),

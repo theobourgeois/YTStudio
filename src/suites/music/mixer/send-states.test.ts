@@ -10,8 +10,8 @@ describe("the send row, for the selected tracks", () => {
     const song = setSend(createMusicProject(), "insert_1", "insert_3", 0.5);
     const states = sendStates(song.mixer, ["insert_1"]);
     expect(states.get("insert_1")).toEqual({ kind: "source" });
-    expect(states.get("insert_3")).toEqual({ kind: "sending", level: 0.5, owner: "insert_1", partial: false });
-    expect(states.get(M)).toEqual({ kind: "sending", level: 1, owner: "insert_1", partial: false });
+    expect(states.get("insert_3")).toEqual({ kind: "sending", level: 0.5, owner: "insert_1", partial: false, preFader: false });
+    expect(states.get(M)).toEqual({ kind: "sending", level: 1, owner: "insert_1", partial: false, preFader: false });
     expect(states.get("insert_2")).toEqual({ kind: "available" });
     // Insert 3 now gets insert 1's sound: it can't send back.
     expect(sendStates(song.mixer, ["insert_3"]).get("insert_1")).toEqual({ kind: "unavailable" });
@@ -20,16 +20,16 @@ describe("the send row, for the selected tracks", () => {
   it("says when only some of them send there, and shows the current track's level first", () => {
     let song = setSend(createMusicProject(), "insert_2", "insert_5", 0.3);
     song = setSend(song, "insert_1", "insert_5", 0.8);
-    expect(sendStates(song.mixer, ["insert_1", "insert_2", "insert_3"]).get("insert_5")).toEqual({ kind: "sending", level: 0.8, owner: "insert_1", partial: true });
-    expect(sendStates(song.mixer, ["insert_3", "insert_2", "insert_1"]).get("insert_5")).toEqual({ kind: "sending", level: 0.3, owner: "insert_2", partial: true });
-    expect(sendStates(song.mixer, ["insert_1", "insert_2"]).get("insert_5")).toMatchObject({ partial: false });
+    expect(sendStates(song.mixer, ["insert_1", "insert_2", "insert_3"]).get("insert_5")).toEqual({ kind: "sending", level: 0.8, owner: "insert_1", partial: true, preFader: false });
+    expect(sendStates(song.mixer, ["insert_3", "insert_2", "insert_1"]).get("insert_5")).toEqual({ kind: "sending", level: 0.3, owner: "insert_2", partial: true, preFader: false });
+    expect(sendStates(song.mixer, ["insert_1", "insert_2"]).get("insert_5")).toMatchObject({ partial: false, preFader: false });
   });
 
   it("leaves out the ones that can't send there: a loop isn't partial", () => {
     // Insert 4 feeds insert 2: insert 2 can't send to it, so insert 1 sending there is all that can.
     let song = sendOnly(createMusicProject(), "insert_4", "insert_2");
     song = setSend(song, "insert_1", "insert_4", 1);
-    expect(sendStates(song.mixer, ["insert_1", "insert_2"]).get("insert_4")).toMatchObject({ kind: "sending", partial: false });
+    expect(sendStates(song.mixer, ["insert_1", "insert_2"]).get("insert_4")).toMatchObject({ kind: "sending", partial: false, preFader: false });
     expect(sendStates(song.mixer, ["insert_2", M]).get("insert_4")).toEqual({ kind: "unavailable" });
   });
 

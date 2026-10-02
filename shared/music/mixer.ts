@@ -317,7 +317,7 @@ export function setSend(song: MusicProject, from: string, to: string, level: num
   if (level === null) return current ? updateTracks(song, [from], (t) => ({ ...t, sends: t.sends.filter((s) => s !== current) })) : song;
   if (!Number.isFinite(level)) return song;
   const value = clamp(level, 0, 1);
-  if (current) return current.level === value ? song : updateTracks(song, [from], (t) => ({ ...t, sends: t.sends.map((s) => (s === current ? { to, level: value } : s)) }));
+  if (current) return current.level === value ? song : updateTracks(song, [from], (t) => ({ ...t, sends: t.sends.map((s) => (s === current ? { ...s, level: value } : s)) }));
   if (!canSend(song, from, to)) return song;
   return updateTracks(song, [from], (t) => ({ ...t, sends: [...t.sends, { to, level: value }] }));
 }
@@ -355,9 +355,16 @@ export function routeToNewBus(song: MusicProject, ids: readonly string[], busId 
 export function sendOnly(song: MusicProject, from: string, to: string): MusicProject {
   const track = getMixerTrack(song, from);
   if (!track || (!track.sends.some((s) => s.to === to) && !canSend(song, from, to))) return song;
-  const level = track.sends.find((s) => s.to === to)?.level ?? 1;
+  const kept = track.sends.find((s) => s.to === to) ?? { to, level: 1 };
   if (track.sends.length === 1 && track.sends[0].to === to) return song;
-  return updateTracks(song, [from], (t) => ({ ...t, sends: [{ to, level }] }));
+  return updateTracks(song, [from], (t) => ({ ...t, sends: [kept] }));
+}
+
+/** A send taken before the track's fader and pan (`preFader`), or after them as usual. */
+export function setSendPreFader(song: MusicProject, from: string, to: string, preFader: boolean): MusicProject {
+  const send = getMixerTrack(song, from)?.sends.find((s) => s.to === to);
+  if (!send || !!send.preFader === preFader) return song;
+  return updateTracks(song, [from], (t) => ({ ...t, sends: t.sends.map((s) => (s === send ? (preFader ? { ...s, preFader: true as const } : { to: s.to, level: s.level }) : s)) }));
 }
 
 // ---------------------------------------------------------------------------

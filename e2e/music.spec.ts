@@ -1306,6 +1306,11 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await strip("Insert 1").locator("canvas").click();
   await strip("Insert 3").getByRole("button", { name: "Send to Insert 3" }).click();
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(2);
+  // Its menu takes the send before the fader.
+  await strip("Insert 3").getByRole("button", { name: "Stop sending to Insert 3" }).click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "Pre-fader" }).click();
+  await expect.poll(async () => (await track(1)).sends[1]).toEqual({ to: "insert_3", level: 1, preFader: true });
+  await expect(strip("Insert 3").getByTestId("pre-fader")).toBeVisible();
   // Scrolled (Wide, so the strips overflow), a cable's end is on its track's send knob as soon as the scroll is (it doesn't lag a frame behind the strips).
   await page.getByRole("button", { name: "Mixer view: Compact" }).click();
   const offBy = () =>

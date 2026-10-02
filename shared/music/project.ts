@@ -702,7 +702,7 @@ function normalizeMixer(input: unknown): Mixer {
     for (const send of list) {
       if (!isObject(send) || typeof send.to !== "string" || !byId.has(send.to)) continue;
       if (track.sends.some((s) => s.to === send.to) || reaches(sendsOf, send.to, track.id)) continue;
-      track.sends.push({ to: send.to, level: number(send.level, 0, 1, 1) });
+      track.sends.push({ to: send.to, level: number(send.level, 0, 1, 1), ...(send.preFader === true && { preFader: true as const }) });
     }
   }
   // A group no track is in any more goes.

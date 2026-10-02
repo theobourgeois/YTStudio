@@ -27,6 +27,7 @@ import {
   clearMixerSolo,
   routeToNewBus,
   setMixerSolo,
+  setSendPreFader,
   setSoloSafe,
   trackName,
   trackNumber,
@@ -160,7 +161,7 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
       lines.push(`    slot ${slot + 1}: ${effect.plugin.name} (${effect.plugin.format})${effect.enabled ? "" : ", bypassed"}${effect.mix < 1 ? `, mix ${percent(effect.mix)}` : ""}${state ? `, ${state}` : ""}${gross || ""}`);
     });
     if (number > 0) {
-      const sends = track.sends.map((s) => `${label(song, getMixerTrack(song, s.to)!)}${s.level < 1 ? ` at ${percent(s.level)}` : ""}${s.level === 0 ? " (sidechain only)" : ""}`);
+      const sends = track.sends.map((s) => `${label(song, getMixerTrack(song, s.to)!)}${s.level < 1 ? ` at ${percent(s.level)}` : ""}${s.level === 0 ? " (sidechain only)" : ""}${s.preFader ? " (pre-fader)" : ""}`);
       lines.push(`    sends to: ${sends.length ? sends.join(", ") : "nothing (it isn't heard)"}`);
     }
   });
@@ -272,6 +273,7 @@ export const setSendTool: SongEdit = (song, input) => {
   }
   let next = setSend(song, from.id, to.id, level);
   if (input.only === true) next = sendOnly(next, from.id, to.id);
+  if (typeof input.preFader === "boolean") next = setSendPreFader(next, from.id, to.id, input.preFader);
   return { song: next, text: `${label(next, from)} sends to ${sends(next)}.` };
 };
 

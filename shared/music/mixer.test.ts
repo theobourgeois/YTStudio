@@ -27,6 +27,7 @@ import {
   setMixerSolo,
   setMixerVolumes,
   setSend,
+  setSendPreFader,
   setSoloSafe,
   soloMixerTrack,
   toggleMixerSolo,
@@ -39,7 +40,8 @@ import {
   updateMixerTracks,
 } from "./mixer.ts";
 import { updateTrack } from "./playlist.ts";
-import { MASTER_TRACK_ID, MAX_INSERTS, createMusicProject } from "./project.ts";
+import { compileSong } from "./compile.ts";
+import { MASTER_TRACK_ID, MAX_INSERTS, createMusicProject, normalizeMusicProject } from "./project.ts";
 import type { MusicProject } from "./types.ts";
 
 const M = MASTER_TRACK_ID;
@@ -385,5 +387,31 @@ describe("tracks dragged to another place", () => {
   it("take the dock they're dropped in", () => {
     const moved = moveMixerTracksTo(rack(), ["insert_3"], "insert_9", "right");
     expect(moved.mixer.tracks.find((t) => t.id === "insert_3")!.dock).toBe("right");
+  });
+});
+
+describe("pre-fader sends", () => {
+  it("are switched on a send, and kept as its level changes or it becomes the only one", () => {
+    const song = setSend(rack(), "insert_1", "insert_4", 0.5);
+    const pre = setSendPreFader(song, "insert_1", "insert_4", true);
+    expect(sends(pre, "insert_1")).toEqual([{ to: M, level: 1 }, { to: "insert_4", level: 0.5, preFader: true }]);
+    expect(setSendPreFader(pre, "insert_1", "insert_4", true)).toBe(pre);
+    expect(sends(setSend(pre, "insert_1", "insert_4", 0.8), "insert_1")[1]).toEqual({ to: "insert_4", level: 0.8, preFader: true });
+    expect(sends(sendOnly(pre, "insert_1", "insert_4"), "insert_1")).toEqual([{ to: "insert_4", level: 0.5, preFader: true }]);
+    expect(sends(setSendPreFader(pre, "insert_1", "insert_4", false), "insert_1")[1]).toEqual({ to: "insert_4", level: 0.5 });
+    expect(setSendPreFader(song, "insert_1", "insert_9", true)).toBe(song);
+  });
+
+  it("survive a save and load", () => {
+    const pre = setSendPreFader(setSend(rack(), "insert_1", "insert_4", 0.5), "insert_1", "insert_4", true);
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(pre))).mixer).toEqual(pre.mixer);
+  });
+
+  it("are compiled to be taken before the fader, and silent while the track is muted", () => {
+    const pre = setSendPreFader(setSend(rack(), "insert_1", "insert_4", 1), "insert_1", "insert_4", true);
+    const sendOf = (song: MusicProject) => compileSong(song, null).tracks.find((t) => t.id === "insert_1")!.sends.find((s) => s.preFader);
+    expect(sendOf(pre)).toMatchObject({ gain: 1, preFader: true });
+    expect(sendOf(setMixerMuted(pre, ["insert_1"], true))).toMatchObject({ gain: 0, preFader: true });
+    expect(sendOf(setMixerSolo(pre, ["insert_2"], true))).toMatchObject({ gain: 0 });
   });
 });
