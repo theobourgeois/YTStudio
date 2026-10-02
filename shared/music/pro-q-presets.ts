@@ -4,7 +4,8 @@
  *
  * Only types and constants are imported, so `project.ts` can use this to normalise a song.
  */
-import type { EqBand, EqShape, EqSlope, PluginRef, ProQAnalyzer, ProQState } from "./types.ts";
+import { clamp, isFiniteNumber } from "../math.ts";
+import { EQ_PLACEMENTS, EQ_SHAPES, type EqBand, type EqPlacement, type EqShape, type EqSlope, type PluginRef, type ProQAnalyzer, type ProQState } from "./types.ts";
 
 /** What a Pro-Q is, as a slot's plugin: one of ours, run by the engine itself. */
 export const PRO_Q_PLUGIN: PluginRef = { id: "vaudio:pro-q", name: "Pro-Q", format: "Vaudio" };
@@ -238,3 +239,31 @@ export const EQ_SPECTRUM_POINTS = 480;
 export const EQ_SPECTRUM_LOW = 10;
 export const EQ_SPECTRUM_HIGH = 30_000;
 export const spectrumFrequency = (i: number) => EQ_SPECTRUM_LOW * (EQ_SPECTRUM_HIGH / EQ_SPECTRUM_LOW) ** (i / (EQ_SPECTRUM_POINTS - 1));
+
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const inRange = (v: unknown, min: number, max: number, fallback: number) => (isFiniteNumber(v) ? clamp(v, min, max) : fallback);
+const oneOfList = <T>(list: readonly T[], v: unknown, fallback: T): T => (list.includes(v as T) ? (v as T) : fallback);
+
+/** A Pro-Q band (or Pro-C's side chain's), or null if it isn't one. Its number must be free (`seen`) and at most `most`. */
+export function normalizeEqBand(raw: unknown, seen: Set<number>, most: number = EQ_BANDS): EqBand | null {
+  if (!isRecord(raw) || !Number.isInteger(raw.id) || (raw.id as number) < 1 || (raw.id as number) > most || seen.has(raw.id as number)) return null;
+  const id = raw.id as number;
+  seen.add(id);
+  const d = DEFAULT_BAND;
+  const shape: EqShape = oneOfList(EQ_SHAPES, raw.shape, d.shape);
+  const slopes = shapeSlopes(shape);
+  return {
+    id,
+    enabled: raw.enabled !== false,
+    shape,
+    frequency: inRange(raw.frequency, EQ_MIN_FREQUENCY, EQ_MAX_FREQUENCY, d.frequency),
+    gain: inRange(raw.gain, -EQ_MAX_GAIN, EQ_MAX_GAIN, d.gain),
+    q: inRange(raw.q, EQ_MIN_Q, EQ_MAX_Q, d.q),
+    slope: slopes.includes(raw.slope as EqSlope) ? (raw.slope as EqSlope) : slopes.includes(d.slope) ? d.slope : slopes[0],
+    placement: oneOfList<EqPlacement>(EQ_PLACEMENTS, raw.placement, d.placement),
+    range: inRange(raw.range, -EQ_MAX_GAIN, EQ_MAX_GAIN, 0),
+    dynamics: raw.dynamics !== false,
+    threshold: isFiniteNumber(raw.threshold) ? clamp(raw.threshold, EQ_MIN_THRESHOLD, 0) : null,
+  };
+}
+

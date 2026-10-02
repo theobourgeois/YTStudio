@@ -179,7 +179,7 @@ export interface Pattern {
  * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
  * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pro-Q: `PRO_Q_PLUGIN` and
  * `proQ`; PanMan: `PANMAN_PLUGIN` and `panMan`; Pitch Wheel: `PITCH_WHEEL_PLUGIN` and `pitchWheel`; OTT:
- * `OTT_PLUGIN` and `ott`).
+ * `OTT_PLUGIN` and `ott`; Pro-C: `PRO_C_PLUGIN` and `proC`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -199,6 +199,8 @@ export interface MixerEffect {
   proQ?: ProQ;
   /** OTT's settings, on an OTT (absent on a plugin). */
   ott?: Ott;
+  /** Pro-C's settings, on a Pro-C (absent on a plugin). */
+  proC?: ProC;
   /** PanMan's settings, on a PanMan (absent on a plugin). */
   panMan?: PanMan;
   /** Pitch Wheel's settings, on a Pitch Wheel (absent on a plugin). */
@@ -239,6 +241,159 @@ export interface Ott {
   downward: number;
   /** Low, mid and high (`OTT_BANDS`' order). */
   bands: [OttBand, OttBand, OttBand];
+}
+
+/**
+ * Pro-C's styles (`docs/fabfilter/pro-c.md` 2.4, 4): each one compressor, the same knobs, its own
+ * topology, detector, curve, times and colour. In the menu's groups: Pro-C 3's Modern, Classic and
+ * Utility (with our Vox, after Waves' RVox), and our Vintage group after the hardware vocal engineers name.
+ */
+export const PRO_C_STYLES = [
+  "clean",
+  "versatile",
+  "smooth",
+  "punch",
+  "upward",
+  "ttm",
+  "opEl",
+  "variMu",
+  "classic",
+  "opto",
+  "vocal",
+  "vox",
+  "mastering",
+  "bus",
+  "pumping",
+  "fet",
+  "opto2a",
+  "optoTube",
+  "distress",
+  "vca160",
+  "diode609",
+] as const;
+export type ProCStyle = (typeof PRO_C_STYLES)[number];
+/** Pro-C's saturations (Pro-C 3's Character), on its own Drive, before or after the compression. */
+export const PRO_C_CHARACTERS = ["off", "tube", "diode", "bright"] as const;
+export type ProCCharacter = (typeof PRO_C_CHARACTERS)[number];
+/** What it listens to: its own input, another mixer track (that sends to this one), or pulses on the song's beat. */
+export const PRO_C_TRIGGERS = ["internal", "external", "sync"] as const;
+export type ProCTrigger = (typeof PRO_C_TRIGGERS)[number];
+/** Past 100% link: the mid alone, the side alone, the mid's level on the side, or the side's on the mid. */
+export const PRO_C_LINK_MODES = ["mid", "side", "midToSide", "sideToMid"] as const;
+export type ProCLinkMode = (typeof PRO_C_LINK_MODES)[number];
+/** Host Sync's note values (a whole note to a 32nd), as their denominators. */
+export const PRO_C_SYNC_NOTES = [1, 2, 4, 8, 16, 32] as const;
+export type ProCSyncNote = (typeof PRO_C_SYNC_NOTES)[number];
+/** Opto Tube's (the CL 1B's) time modes: fixed 1 ms / 50 ms, the knobs, or both (a fast release after short peaks). */
+export const PRO_C_TIME_MODES = ["fixed", "manual", "fixMan"] as const;
+export type ProCTimeMode = (typeof PRO_C_TIME_MODES)[number];
+/** Distress's detector: as it is, its high-pass, its 6 kHz emphasis, or both. */
+export const PRO_C_DETECTORS = ["norm", "hp", "band", "hpBand"] as const;
+export type ProCDetector = (typeof PRO_C_DETECTORS)[number];
+/** Distress's audio path: clean, its 80 Hz high-pass, Dist 2 (2nd harmonic), Dist 3 (tape-like), each with or without the high-pass. */
+export const PRO_C_AUDIO_MODES = ["norm", "hp", "dist2", "dist2hp", "dist3", "dist3hp"] as const;
+export type ProCAudioMode = (typeof PRO_C_AUDIO_MODES)[number];
+/** Diode 609's recovery: the knob's, or its two program-dependent ones (a1: 100 ms to 2 s, a2: 50 ms to 5 s). */
+export const PRO_C_RECOVERIES = ["manual", "a1", "a2"] as const;
+export type ProCRecovery = (typeof PRO_C_RECOVERIES)[number];
+
+/** Pro-C's side chain: what triggers it, how loud, linked how, and its EQ (Pro-Q's bands: stereo, mid or side). */
+export interface ProCSidechain {
+  trigger: ProCTrigger;
+  /** External: the mixer track whose sound (after its fader) is the key. It must send to this track (at 0%, FL's "sidechain only"). */
+  track: string | null;
+  /** dB, -36..36: the key's level (in Vari-Mu, the drive into the tubes). */
+  level: number;
+  /** 0..2: 0..1 the stereo link (unlinked to fully linked), 1..2 on towards `linkMode`. */
+  link: number;
+  linkMode: ProCLinkMode;
+  /** Up to `PRO_C_BANDS`, numbered as Pro-Q's (their dynamics unused). */
+  bands: EqBand[];
+  /** Host Sync's pulse: a note value, its period scaled (0.5..2: dotted, triplet), and how long each pulse is (0..1 of the period). */
+  sync: { note: ProCSyncNote; offset: number; length: number };
+}
+
+/** The style's own switches (`docs/fabfilter/pro-c.md` 4.1): only the style they belong to reads them. */
+export interface ProCOptions {
+  /** Vintage styles: Output follows Input, so driving harder compresses harder without getting louder. */
+  link: boolean;
+  /** FET 76: all buttons in. */
+  allButtons: boolean;
+  /** Opto 2A: Limit (a higher ratio) rather than Compress; and its HF emphasis (R37), 0..10 dB. */
+  limit: boolean;
+  emphasis: number;
+  /** Opto Tube's time mode. */
+  timeMode: ProCTimeMode;
+  /** Distress's detector and audio paths, and British Mode (the FET's all buttons on any ratio). */
+  detector: ProCDetector;
+  audio: ProCAudioMode;
+  british: boolean;
+  /** VCA 160: Over Easy (a soft knee), and Auto (the RMS detector's own times, its knobs unused). */
+  overEasy: boolean;
+  auto: boolean;
+  /** Diode 609's recovery, and its limiter's threshold (dB, relative to 0 dBFS; null is off). */
+  recovery: ProCRecovery;
+  limiter: number | null;
+  /** Vox: its gate's threshold (dB, null off) and its output ceiling (dB): RVox's Gate and Gain. */
+  gate: number | null;
+  ceiling: number;
+}
+
+/** What Pro-C's A/B swaps: everything that's heard. Its knobs in their own units (`docs/fabfilter/pro-c.md` 8.1). */
+export interface ProCState {
+  style: ProCStyle;
+  /** dB, -60..0. A Vintage style's Input is its negative (`threshold = -input`); Vox's Compression fader is it. */
+  threshold: number;
+  /** The threshold follows the key's long-term level (Pro-C 3's Auto Threshold). */
+  autoThreshold: boolean;
+  /** The ratio as its slope: 1 - 1/ratio, 0 (1:1) .. 1 (∞:1). */
+  slope: number;
+  /** dB, 0 (hard) .. 72 (soft). */
+  knee: number;
+  /** dB, 0..60: the most it turns down (or, in Upward, up). */
+  range: number;
+  /** Seconds: attack 0.000005..0.25, release 0.005..5, lookahead 0..`maxLookahead`, hold 0..0.5. */
+  attack: number;
+  release: number;
+  autoRelease: boolean;
+  lookahead: number;
+  hold: number;
+  /** dB, -36..36: the make-up after the compression; its pan ring (-1 mid .. 1 side). */
+  wet: number;
+  wetPan: number;
+  /** The make-up worked out from the settings (an estimate: Pro-C's "educated guess"). */
+  autoGain: boolean;
+  /** dB of the dry sound added back (parallel compression), or null for none; its pan (-1 left .. 1 right). */
+  dry: number | null;
+  dryPan: number;
+  character: { mode: ProCCharacter; drive: number; post: boolean };
+  sidechain: ProCSidechain;
+  /** dB, -36..36, before anything and after everything; their pans (-1..1, left / right). */
+  input: number;
+  inputPan: number;
+  output: number;
+  outputPan: number;
+  /** 0..2: how much of the gain change is heard (above 1, more of it). */
+  mix: number;
+  options: ProCOptions;
+  /** How much faster the gain path runs (1: not oversampled). */
+  oversampling: 1 | 2 | 4 | 8 | 16;
+  /** Seconds, 0 (Off: no latency) or 0.001..0.02: the most lookahead can be, and so the latency. */
+  maxLookahead: number;
+}
+
+/**
+ * Pro-C's settings (`docs/fabfilter/pro-c.md`, `pro-c-vocals.md`): FabFilter's Pro-C 3 compressor, ours,
+ * with our Vox and Vintage styles. What a style means to the sound is `engineProC`'s.
+ */
+export interface ProC extends ProCState {
+  /** The preset last chosen (`PRO_C_PRESETS` by name), null once it's been changed by hand. */
+  preset: string | null;
+  /** A/B: the other state, and which one this is. */
+  other: ProCState | null;
+  slot: "a" | "b";
+  /** How its window shows it (kept with the song, as Pro-Q's display range is). */
+  view: { knee: boolean; scale: number; compact: boolean; sidechain: boolean };
 }
 
 /** What a Pitch Wheel's dial spans, in semitones, from one end to the other (QuikQuak's Range). */
@@ -972,6 +1127,7 @@ export type AutomationTarget =
   | { kind: "echoBoy"; effect: string; control: EchoControl }
   | { kind: "proQ"; effect: string; band: number; control: EqControl }
   | { kind: "ott"; effect: string; control: OttControl }
+  | { kind: "proC"; effect: string; control: ProCControl }
   | { kind: "panMan"; effect: string; control: PanControl }
   | { kind: "pitchWheel"; effect: string; control: PitchWheelControl }
   | { kind: "main" }
@@ -1038,6 +1194,10 @@ export type PanControl =
 /** OTT's controls an automation clip can drive: every knob, and each band's threshold (its row's gap). */
 export const OTT_CONTROLS = ["depth", "time", "input", "output", "upward", "downward", "lowThreshold", "midThreshold", "highThreshold", "lowGain", "midGain", "highGain"] as const;
 export type OttControl = (typeof OTT_CONTROLS)[number];
+
+/** Pro-C's controls an automation clip can drive: every continuous knob (not Lookahead: moving it moves where the gain lands). */
+export const PRO_C_CONTROLS = ["threshold", "ratio", "knee", "range", "attack", "release", "hold", "wet", "dry", "mix", "sidechainLevel", "drive", "input", "output", "emphasis"] as const;
+export type ProCControl = (typeof PRO_C_CONTROLS)[number];
 
 /** A Pro-Q band's controls an automation clip can drive; and its own (band 0): its output, pan and Gain Scale. */
 export type EqControl = "frequency" | "gain" | "q" | "range" | "output" | "pan" | "gainScale";
