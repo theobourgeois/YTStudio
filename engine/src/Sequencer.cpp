@@ -594,7 +594,10 @@ void Sequencer::applyLanes (int numSamples)
                 break;
             case Song::Lane::Kind::panman:
                 // A PanMan's control, likewise (its position and gains glide, so a step doesn't click).
-                setPanControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, start[0]);
+                if (lane.control == panman::shapeControl)
+                    song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings->setShape (start.data(), lane.size);
+                else
+                    setPanControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, start[0]);
                 break;
             case Song::Lane::Kind::param:
             {
@@ -671,7 +674,10 @@ void Sequencer::restoreLanes (Song& from)
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, lane.base.data(), lane.size);
                 break;
             case Song::Lane::Kind::panman:
-                setPanControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, lane.base[0]);
+                if (lane.control == panman::shapeControl)
+                    from.tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings->restoreShape();
+                else
+                    setPanControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, lane.base[0]);
                 break;
             case Song::Lane::Kind::param:
                 if (lane.lastSet > -2.0f)
@@ -1178,7 +1184,20 @@ void Sequencer::setPanControl (panman::Settings& settings, int control, float va
         case 1: settings.width = juce::jlimit (0.0, 210.0, value * 210.0); break;
         case 2: settings.rate = juce::jlimit (0.001, 100.0, (double) value); break;
         case 3: settings.input = juce::jlimit (-60.0, 60.0, (double) value); break;
-        default: settings.output = juce::jlimit (-60.0, 60.0, (double) value); break;
+        case 4: settings.output = juce::jlimit (-60.0, 60.0, (double) value); break;
+        case 5: settings.smoothing = juce::jlimit (0.0, 1.0, (double) value); break;
+        case 6: settings.trigger = juce::jlimit (-60.0, 0.0, (double) value); break;
+        case 7: settings.divider = juce::jlimit (1, 12, (int) std::lround (value)); break;
+        // The cutoff in kHz; the mods as fractions of 105° and 210°.
+        case 8: settings.cutoff = juce::jlimit (10.0, 40000.0, value * 1000.0); break;
+        case 9: settings.filterGain = juce::jlimit (-40.0, 40.0, (double) value); break;
+        case 10: settings.threshold = juce::jlimit (-60.0, 0.0, (double) value); break;
+        case 11: settings.attack = juce::jlimit (0.0, 5.0, (double) value); break;
+        case 12: settings.release = juce::jlimit (0.0, 5.0, (double) value); break;
+        case 13: settings.offsetMod = juce::jlimit (-105.0, 105.0, value * 105.0); break;
+        case 14: settings.widthMod = juce::jlimit (-210.0, 210.0, value * 210.0); break;
+        case 15: settings.rateMod = juce::jlimit (-4.0, 4.0, (double) value); break;
+        default: break;
     }
 }
 

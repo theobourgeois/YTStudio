@@ -606,13 +606,18 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].panSettings == nullptr)
                 continue;
-            const auto control = juce::StringArray { "offset", "width", "rate", "input", "output" }.indexOf (target["control"].toString());
+            const auto control = juce::StringArray { "offset", "width", "rate", "input", "output", "smoothing", "trigger", "divider", "cutoff", "filterGain", "threshold", "attack", "release", "offsetMod", "widthMod", "rateMod", "shape" }
+                                     .indexOf (target["control"].toString());
             if (control < 0)
                 continue;
             lane.control = control;
             const auto& settings = *track.effects[(size_t) lane.index].panSettings;
-            // The offset and width come as fractions of 105° and 210° (`PAN_LANE_SCALE`).
-            const double own[] = { settings.offset / 105.0, settings.width / 210.0, settings.rate, settings.input, settings.output };
+            // Its pattern (Smoothing, Feel or Groove automated): `shapePoints` positions; the song's comes back when it stops.
+            if (control == panman::shapeControl)
+                lane.size = panman::Settings::shapePoints;
+            // The offset and width (and their mods) come as fractions of 105° and 210°, the cutoff in kHz (`PAN_LANE_SCALE`).
+            const double own[] = { settings.offset / 105.0, settings.width / 210.0, settings.rate, settings.input, settings.output, settings.smoothing, settings.trigger, (double) settings.divider,
+                                   settings.cutoff / 1000.0, settings.filterGain, settings.threshold, settings.attack, settings.release, settings.offsetMod / 105.0, settings.widthMod / 210.0, settings.rateMod, 0.0 };
             lane.base[0] = (float) own[control];
         }
         else if (kind == "param")

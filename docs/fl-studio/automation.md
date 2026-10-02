@@ -182,7 +182,7 @@ The manual doesn't say. What FL Studio does, from Théo and from using it:
   the window's title bar (`EditorWindow::setTouched`), whose click is `EngineEvent` "automate"; a
   parameter held in its window isn't driven by its lane meanwhile. `GET /api/engine/parameters` lists a
   plugin's automatable parameters.
-- **Our built-in effects** (Gross Beat, EchoBoy, Auto-Tune, Pro-Q, OTT): every knob is a control of its
+- **Our built-in effects** (Gross Beat, EchoBoy, Auto-Tune, Pro-Q, OTT, PanMan, Pitch Wheel): every knob is a control of its
   effect's `AutomationTarget` kind, so its menu has Create automation clip; touching one shows **Automate
   "…"** in the effect's title bar (`touched.tsx`, `useAutomationUi.touchedControl`), and the Automate…
   window lists it first, as a plugin's parameter is. `e2e/music.spec.ts` checks every slider of every

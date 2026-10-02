@@ -49,9 +49,12 @@ enum class Filter
     lpf
 };
 
+/** An automation lane's control that is the pattern itself (after the knobs: `PanControl`'s order, then "shape"). */
+constexpr int shapeControl = 16;
+
 /**
- * A PanMan's settings in a song (`EnginePanMan`), made on the message thread. Automation lanes change the
- * five automatable ones (offset, width, rate, input, output) on the audio thread.
+ * A PanMan's settings in a song (`EnginePanMan`), made on the message thread. Automation lanes change
+ * its knobs (`PanControl`) and its pattern on the audio thread.
  */
 struct Settings
 {
@@ -63,6 +66,9 @@ struct Settings
     bool sync = true;
     /** The pattern modes' pattern over 0..1 of it: positions -1..1 (`gross::Envelope`'s lookup, on phases). */
     gross::Envelope shape;
+    /** The pattern as the song has it, put back when an automation lane of it lets go; `shape` has room for a lane's (`shapePoints`) without allocating. */
+    gross::Envelope songShape;
+    static constexpr int shapePoints = 128;
     juce::uint32 seed = 0;
     /** dB (0: the sound doesn't trigger); triggers to a move; the trigger's filter (Hz, dB) and Monitor. */
     double trigger = -20;
@@ -80,6 +86,11 @@ struct Settings
     juce::AudioBuffer<float> dry;
 
     static std::shared_ptr<Settings> parse (const juce::var& json, int capacity);
+    /** A lane's pattern: `count` positions evenly over it. Audio thread (no allocation: `shape` has the room). */
+    void setShape (const float* values, int count);
+    /** The song's pattern back. Audio thread. */
+    void restoreShape();
+
     bool patterned() const { return mode == Mode::lfo || mode == Mode::rhythmStep || mode == Mode::rhythmShape; }
     bool triggered() const { return mode == Mode::pingPong || mode == Mode::step; }
 };

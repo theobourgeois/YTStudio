@@ -16,8 +16,8 @@ import { type EngineOtt, OTT_CONTROL_SPECS, OTT_LANES, OTT_LANES_OF, type OttLan
 import { type EnginePitchWheel, controlValue as pitchWheelValue, engineControlValue as engineWheelValue, enginePitchWheel } from "./pitch-wheel.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
-import { type EnginePanMan, enginePanMan } from "./panman.ts";
-import { PAN_CONTROL_IDS, PAN_LANE_SCALE } from "./panman-presets.ts";
+import { type EnginePanMan, enginePanMan, isPatternMode, panShape } from "./panman.ts";
+import { PAN_ENGINE_CONTROLS, PAN_LANE_SCALE, PAN_SHAPING_CONTROLS } from "./panman-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { autoGain } from "./pro-q-filters.ts";
 import { hasGain } from "./pro-q-presets.ts";
@@ -176,7 +176,8 @@ export type EngineLaneTarget =
   | { kind: "eq"; track: number; effect: number; band: number; control: EqControl }
   /** An OTT's lane (`OttLane`): its gains, or a value a band (low, mid, high). */
   | { kind: "ott"; track: number; effect: number; control: OttLane }
-  | { kind: "panman"; track: number; effect: number; control: PanControl }
+  /** A PanMan's control; or its pattern (`shape`: `PAN_SHAPE_POINTS` positions evenly over it), Smoothing, Feel or Groove automated. */
+  | { kind: "panman"; track: number; effect: number; control: PanControl | "shape" }
   | { kind: "wheel"; track: number; effect: number; control: PitchWheelControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
@@ -760,13 +761,25 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
         }
       }
       const pm = effect.panMan;
-      if (pm)
-        for (const control of PAN_CONTROL_IDS) {
+      if (pm) {
+        for (const control of PAN_ENGINE_CONTROLS) {
           const target: AutomationTarget = { kind: "panMan", effect: effect.id, control };
           const value = valueOf(target, pm[control]);
           const scale = PAN_LANE_SCALE[control];
           add({ kind: "panman", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [value(tick) / scale]);
         }
+        // Smoothing, Feel and Groove reshape a pattern mode's pattern: automated, it's sent whole, evenly sampled.
+        if (isPatternMode(pm.mode)) {
+          const shaping = PAN_SHAPING_CONTROLS.map((control) => {
+            const target: AutomationTarget = { kind: "panMan", effect: effect.id, control };
+            return { control, key: automated(target), value: valueOf(target, pm[control]) };
+          });
+          add({ kind: "panman", track: t, effect: effectIndex, control: "shape" }, shaping.map((c) => c.key), (tick) => {
+            const at = shaping.reduce((settings, c) => (c.key ? { ...settings, [c.control]: c.value(tick) } : settings), pm);
+            return panShape(at);
+          });
+        }
+      }
       effectIndex++;
     }
   }

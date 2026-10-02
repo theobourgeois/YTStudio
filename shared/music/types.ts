@@ -938,7 +938,25 @@ export const AUTO_TUNE_CONTROLS = [
 ] as const;
 export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
 /** PanMan's controls an automation clip can drive. */
-export type PanControl = "offset" | "width" | "rate" | "input" | "output";
+export type PanControl =
+  | "offset"
+  | "width"
+  | "rate"
+  | "input"
+  | "output"
+  | "smoothing"
+  | "feel"
+  | "groove"
+  | "trigger"
+  | "divider"
+  | "cutoff"
+  | "filterGain"
+  | "threshold"
+  | "attack"
+  | "release"
+  | "offsetMod"
+  | "widthMod"
+  | "rateMod";
 
 /** OTT's controls an automation clip can drive: every knob, and each band's threshold (its row's gap). */
 export const OTT_CONTROLS = ["depth", "time", "input", "output", "upward", "downward", "lowThreshold", "midThreshold", "highThreshold", "lowGain", "midGain", "highGain"] as const;

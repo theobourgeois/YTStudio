@@ -24,7 +24,7 @@ import { clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
 import { ECHO_TOOL_CONTROLS, ECHO_TOOL_CONTROL_NAMES, type EchoToolControl } from "@shared/music/echo-boy-presets";
 import { OTT_HINTS, OTT_TOOL_CONTROLS, OTT_TOOL_CONTROL_NAMES, type OttToolControl } from "@shared/music/ott-presets";
-import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject, type PitchWheelControl } from "@shared/music/types";
+import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject, type PanControl, type PitchWheelControl } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
 import { type EditResult, findChannel } from "../tool-edits";
 
@@ -74,6 +74,19 @@ export const CONTROLS = [
   "panman rate",
   "panman input",
   "panman output",
+  "panman smoothing",
+  "panman feel",
+  "panman groove",
+  "panman trigger",
+  "panman divider",
+  "panman cutoff",
+  "panman filter gain",
+  "panman threshold",
+  "panman attack",
+  "panman release",
+  "panman offset mod",
+  "panman width mod",
+  "panman rate mod",
   ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
 ] as const;
 
@@ -125,7 +138,26 @@ const TUNE_CONTROLS = {
 /** Auto-Tune's controls the model gives as 0 to 100 (Auto-Tune's own numbers), kept as 0..1 (throat 0.5..1.8). */
 const HUNDREDTHS: readonly AutoTuneControl[] = ["humanize", "flexTune", "throat", "tracking", "vibratoVariation", "vibratoAmplitude", "vibratoFormant"];
 /** A PanMan's controls, likewise. */
-const PAN_CONTROLS_BY_NAME = { "panman offset": "offset", "panman width": "width", "panman rate": "rate", "panman input": "input", "panman output": "output" } as const;
+const PAN_CONTROLS_BY_NAME = {
+  "panman offset": "offset",
+  "panman width": "width",
+  "panman rate": "rate",
+  "panman input": "input",
+  "panman output": "output",
+  "panman smoothing": "smoothing",
+  "panman feel": "feel",
+  "panman groove": "groove",
+  "panman trigger": "trigger",
+  "panman divider": "divider",
+  "panman cutoff": "cutoff",
+  "panman filter gain": "filterGain",
+  "panman threshold": "threshold",
+  "panman attack": "attack",
+  "panman release": "release",
+  "panman offset mod": "offsetMod",
+  "panman width mod": "widthMod",
+  "panman rate mod": "rateMod",
+} as const satisfies Record<string, PanControl>;
 
 /** A mixer effect's slot, 1 to 10, on a track: the effect there, or an error saying which slots hold one. */
 function effectAt(song: MusicProject, input: Input) {
@@ -274,7 +306,20 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "panman width":
     case "panman rate":
     case "panman input":
-    case "panman output": {
+    case "panman output":
+    case "panman smoothing":
+    case "panman feel":
+    case "panman groove":
+    case "panman trigger":
+    case "panman divider":
+    case "panman cutoff":
+    case "panman filter gain":
+    case "panman threshold":
+    case "panman attack":
+    case "panman release":
+    case "panman offset mod":
+    case "panman width mod":
+    case "panman rate mod": {
       const { track, effect } = effectAt(song, input);
       if (!effect.panMan) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a PanMan: a "${control}" is PanMan's.`);
       return { kind: "panMan", effect: effect.id, control: PAN_CONTROLS_BY_NAME[control] };
@@ -423,7 +468,26 @@ const valueHint = (target: AutomationTarget) =>
         ? "-1 to 1"
         : "0 to 1, as its knob or fader has it";
 /** What a PanMan control's points are in. */
-const PAN_HINTS = { offset: "degrees, -105 (left) to 105 (right)", width: "degrees, 0 to 210", rate: "Hz, 0.01 to 10", input: "dB, -24 to 24", output: "dB, -24 to 24" } as const;
+const PAN_HINTS: Record<PanControl, string> = {
+  offset: "degrees, -105 (left) to 105 (right)",
+  width: "degrees, 0 to 210",
+  rate: "Hz, 0.01 to 10",
+  input: "dB, -24 to 24",
+  output: "dB, -24 to 24",
+  smoothing: "0 (hard) to 1 (soft)",
+  feel: "-1 (rush) to 1 (drag)",
+  groove: "-1 (shuffle) to 1 (swing)",
+  trigger: "dB, -40 to 0 (0: off)",
+  divider: "1 to 12 triggers a move",
+  cutoff: "Hz, 100 to 15000",
+  filterGain: "dB, -20 to 20",
+  threshold: "dB, -40 to 0",
+  attack: "seconds, 0 to 5",
+  release: "seconds, 0 to 5",
+  offsetMod: "degrees, -105 to 105",
+  widthMod: "degrees, -210 to 210",
+  rateMod: "octaves, -4 to 4",
+};
 
 /**
  * add_automation: an automation clip of a control over `bar` .. `bar + length` (default: the time the

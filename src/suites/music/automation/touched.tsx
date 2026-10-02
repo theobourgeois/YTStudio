@@ -9,7 +9,7 @@ import { useAutomationUi } from "./store";
 export const effectOfTarget = (target: AutomationTarget): string | null => ("effect" in target ? target.effect : target.kind === "plugin" && target.owner === "effect" ? target.id : null);
 
 /**
- * **Automate "…"** in a built-in effect's title bar (Gross Beat, EchoBoy, Auto-Tune, Pro-Q, OTT), as a
+ * **Automate "…"** in a built-in effect's title bar (Gross Beat, EchoBoy, Auto-Tune, Pro-Q, OTT, PanMan, Pitch Wheel), as a
  * plugin's window has it (`docs/fl-studio/automation.md`): once one of its controls has been touched, a
  * click makes an automation clip of it.
  */

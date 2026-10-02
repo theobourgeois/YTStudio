@@ -2866,7 +2866,8 @@ test("the assistant squashes a track with OTT: puts one on, sets it, automates i
  * don't. (Each is right-clicked, its menu read, and closed.)
  */
 async function notAutomatable(page: Page, window: Locator): Promise<string[]> {
-  const sliders = window.getByRole("slider");
+  // (By their role attribute: while a menu closes, the page is hidden from role queries for a moment.)
+  const sliders = window.locator('[role="slider"]');
   const missing: string[] = [];
   const count = await sliders.count();
   expect(count).toBeGreaterThan(0);
@@ -2887,7 +2888,7 @@ async function notAutomatable(page: Page, window: Locator): Promise<string[]> {
   return missing;
 }
 
-test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (each mode, Tweak, the Style Editor), Auto-Tune, Pro-Q, OTT", async ({ page }) => {
+test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (each mode, Tweak, the Style Editor), Auto-Tune, Pro-Q, OTT, PanMan (each mode, Tweak), Pitch Wheel", async ({ page }) => {
   test.setTimeout(300_000);
   await openNewSong(page, "Automate everything");
   await page.keyboard.press("F9");
@@ -2941,6 +2942,24 @@ test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (
 
   await page.keyboard.press("F9");
   window = await choose(/OTT/, "ott");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  expect(await notAutomatable(page, window)).toEqual([]);
+  await close(/^Close OTT/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/PanMan/, "panman");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  await window.getByRole("button", { name: /Tweak/ }).click();
+  for (const mode of ["LFO", "Rhythm Step", "Rhythm Shape", "PingPong", "Random", "Step"]) {
+    await window.getByTestId("panman-mode").click();
+    await page.getByRole("menuitemradio", { name: mode, exact: true }).click();
+    await expect(page.locator('[role="menu"]')).toHaveCount(0);
+    expect(await notAutomatable(page, window), `PanMan's ${mode}, with Tweak`).toEqual([]);
+  }
+  await close(/^Close PanMan/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/Pitch Wheel/, "pitch-wheel");
   await page.getByRole("button", { name: "Close Mixer" }).click();
   expect(await notAutomatable(page, window)).toEqual([]);
 });

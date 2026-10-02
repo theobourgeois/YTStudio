@@ -202,8 +202,8 @@ struct Song
         int size = 1;
         std::vector<double> ticks;
         std::vector<float> values;
-        /** The most values a point has (an EchoBoy's taps: four each). */
-        static constexpr int maxSize = 64;
+        /** The most values a point has (a PanMan's pattern; an EchoBoy's taps, four each). */
+        static constexpr int maxSize = 128;
         /** What it drives as the song has it, unautomated: put back when the song stops. */
         std::array<float, maxSize> base {};
 

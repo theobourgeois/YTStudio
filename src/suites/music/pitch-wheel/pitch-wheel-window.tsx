@@ -27,6 +27,7 @@ import { Dial } from "./dial";
 import { Keyboard } from "./keyboard";
 import { freshWheel } from "./live";
 import { useWheelUi } from "./store";
+import { AutomateTouched } from "../automation/touched";
 
 /** The dials' size: QuikQuak's are big, to be played. */
 const DIAL = 232;
@@ -67,7 +68,7 @@ export function PitchWheelWindow({ effectId, index }: { effectId: string; index:
   }, [gone, effectId]);
   if (!effect || !pw) return null;
   return (
-    <MusicWindow id={pitchWheelWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} onClose={() => closePitchWheel(effectId)}>
+    <MusicWindow id={pitchWheelWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} onClose={() => closePitchWheel(effectId)} controls={<AutomateTouched effectId={effectId} />}>
       <div className="flex flex-col text-xs select-none" data-testid="pitch-wheel" data-effect={effectId}>
         <TopBar effectId={effectId} pw={pw} />
         <div className="flex border-b border-line bg-surface-1">

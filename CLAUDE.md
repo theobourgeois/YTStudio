@@ -558,9 +558,9 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   included) are decided in TypeScript (`panPattern`) and sent as lines over the pattern's phase; Random's
   chance (repeatable, seeded by the effect's id), the triggers, the dynamics, the pan law (sine / cosine to
   ±105°, unity at the centre) and the Analog Styles are the engine's (`panman::State`, kept by effect id in
-  `panman::Registry`), in time with `gross::Clock`. Its offset, width, rate and gains automate
-  (`AutomationTarget` `panMan`; the offset and width travel as fractions, `PAN_LANE_SCALE`: lanes hold
-  values within ±64). The Manual Trigger is live (`panMan` command). Keep its sound tested offline
+  `panman::Registry`), in time with `gross::Clock`. Every knob automates (`AutomationTarget` `panMan`;
+  values travel scaled, `PAN_LANE_SCALE`: lanes hold values within ±64; Feel, Groove and the pattern
+  modes' Smoothing as the pattern itself, a `shape` lane). The Manual Trigger is live (`panMan` command). Keep its sound tested offline
   (`panman.integration.test.ts`).
 - **Pitch Wheel** (`docs/quikquak/pitchwheel.md`, QuikQuak Pitchwheel; `shared/music/pitch-wheel*.ts`,
   `engine/src/PitchWheel.cpp`, `src/suites/music/pitch-wheel/`): ours as Gross Beat is, `PITCH_WHEEL_PLUGIN`,
