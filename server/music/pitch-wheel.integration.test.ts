@@ -26,7 +26,10 @@ const WHEEL = "fx_wheel";
 /** At 60 BPM a beat is a second and the pattern's bar four: the sample (3.5 s) plays once. */
 const TEMPO = 60;
 const LENGTH = Math.round(3.5 * RATE);
+/** The default (Wide) window's latency, and Tight's. */
+const WIDE = 4096;
 const TIGHT = 2048;
+const CHORD = [261.63, 329.63, 415.3];
 
 /** A 10 ms fade at each end: no click. */
 function faded(out: Float32Array): Float32Array {
@@ -91,6 +94,23 @@ function rms(samples: Float32Array, from: number, to: number): number {
 }
 const db = (x: number) => 20 * Math.log10(x);
 
+/**
+ * How much of `[from, from + size)` isn't the partials at `frequencies` (dB of its power): what a shift
+ * smeared or added. Powers Hann-weighted, as `amount`'s are, so partials' beats don't count.
+ */
+function impurity(samples: Float32Array, frequencies: number[], from: number, size: number): number {
+  let total = 0;
+  let windowSum = 0;
+  for (let n = 0; n < size; n++) {
+    const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * n) / size);
+    total += w * samples[from + n] ** 2;
+    windowSum += w;
+  }
+  total /= windowSum;
+  const partials = frequencies.reduce((sum, f) => sum + amount(samples, f, from, size) ** 2 / 2, 0);
+  return 10 * Math.log10(Math.max(1e-12, total - partials) / total);
+}
+
 describe.skipIf(!existsSync(ENGINE))("Pitch Wheel, offline", () => {
   let dir: string;
   let engine: AudioEngine;
@@ -140,6 +160,8 @@ describe.skipIf(!existsSync(ENGINE))("Pitch Wheel, offline", () => {
     for (let start = RATE / 4; start + 2000 < LENGTH; start += RATE / 2) for (let i = 0; i < 1500; i++) clicks[start + i] = 0.6 * Math.exp(-i / 120) * Math.sin((2 * Math.PI * 1800 * i) / RATE);
     const made: Record<string, Float32Array | [Float32Array, Float32Array]> = {
       a440: sine(440),
+      // A chord of three notes, each with three harmonics (none of them near another's): C4 E4 G#4.
+      chord: faded(Float32Array.from({ length: LENGTH }, (_, i) => CHORD.reduce((sum, f) => sum + [1, 0.5, 0.3].reduce((h, a, k) => h + 0.1 * a * Math.sin((2 * Math.PI * f * (k + 1) * i) / RATE), 0), 0))),
       ah: vowel(220),
       clicks,
       // Stereo: the right side upside down and quieter.
@@ -169,8 +191,8 @@ describe.skipIf(!existsSync(ENGINE))("Pitch Wheel, offline", () => {
   it("is transparent at 0: the sound exactly as it came, a window late (compensated)", async () => {
     const [left] = await play(song("a440"));
     const delay = await latency();
-    expect(delay).toBe(TIGHT);
-    expect((await engine.command("status", {})).transport.pitchWheels?.[WHEEL]?.latency).toBe(TIGHT);
+    expect(delay).toBe(WIDE);
+    expect((await engine.command("status", {})).transport.pitchWheels?.[WHEEL]?.latency).toBe(WIDE);
     const source = samples.get("a440") as Float32Array;
     let error = 0;
     for (let i = 0; i < RATE * 3; i++) error = Math.max(error, Math.abs(left[i + delay] - source[i]));
@@ -200,7 +222,7 @@ describe.skipIf(!existsSync(ENGINE))("Pitch Wheel, offline", () => {
   });
 
   it("keeps the formants with the Timbre tab open, moves them with it closed, and moves them alone with the Timbre wheel", async () => {
-    const at = TIGHT + RATE;
+    const at = WIDE + RATE;
     /** The loudest harmonic of `f0` under 2 kHz: where the first formant (700 Hz in the vowel) puts it. */
     const loudest = (sound: Float32Array, f0: number) => {
       let best = 0;
@@ -218,7 +240,7 @@ describe.skipIf(!existsSync(ENGINE))("Pitch Wheel, offline", () => {
     // (Its odd harmonics are new: 550 and 770 are no harmonics of 220.)
     expect(amount(kept, 550, at)).toBeGreaterThan(0.03);
     expect(Math.abs(loudest(kept, 110) - 700)).toBeLessThanOrEqual(80);
-    expect(amount(kept, 770, at) / amount(kept, 330, at)).toBeGreaterThan(2);
+    expect(amount(kept, 770, at) / amount(kept, 330, at)).toBeGreaterThan(2.5);
     // As loud as it was.
     expect(Math.abs(db(rms(kept, at, at + RATE) / rms(plain, at, at + RATE)))).toBeLessThan(1);
     // Closed: the formant comes down with it (a tape slowed down): by 350 Hz.
@@ -276,7 +298,7 @@ describe.skipIf(!existsSync(ENGINE))("Pitch Wheel, offline", () => {
       all.set(second.channels[0], RATE);
       return all;
     }
-    const delay = TIGHT;
+    const delay = WIDE;
     /** Semitones heard every 20 ms from the move on. */
     const track = (sound: Float32Array) => Array.from({ length: 80 }, (_, i) => semitones(frequency(sound, delay + RATE + i * 960, delay + RATE + (i + 1) * 960) / 440));
 
@@ -339,9 +361,22 @@ describe.skipIf(!existsSync(ENGINE))("Pitch Wheel, offline", () => {
     expect(heard(2.2, 3)).toBeCloseTo(-3, 1);
   });
 
-  it("is late by its window: Wide is 4096", async () => {
-    await play(song("a440", { resolution: "wide", pitch: { value: 3 } }), 0.2);
-    expect(await latency()).toBe(4096);
+  it("is late by its window: Tight is 2048", async () => {
+    await play(song("a440", { resolution: "tight", pitch: { value: 3 } }), 0.2);
+    expect(await latency()).toBe(TIGHT);
+  });
+
+  it("keeps a chord clean: its partials moved, little else (Wide tells notes 45 Hz apart apart; Tight blurs them)", async () => {
+    const partialsOf = (shift: number) => CHORD.flatMap((f) => [1, 2, 3].map((k) => f * k * 2 ** (shift / 12)));
+    for (const shift of [0.3, 5, -7, 12]) {
+      const [wide] = await play(song("chord", { pitch: { value: shift, snap: "off" }, timbreOn: false }));
+      expect(impurity(wide, partialsOf(shift), WIDE + RATE, RATE)).toBeLessThan(-48);
+    }
+    const [tight] = await play(song("chord", { pitch: { value: 5 }, timbreOn: false, resolution: "tight" }));
+    expect(impurity(tight, partialsOf(5), TIGHT + RATE, RATE)).toBeLessThan(-15);
+    // Formants kept, the chord still its notes.
+    const [kept] = await play(song("chord", { pitch: { value: -7 } }));
+    expect(impurity(kept, partialsOf(-7), WIDE + RATE, RATE)).toBeLessThan(-40);
   });
 
   it("passes the sound untouched when bypassed, and mixes the dry sound in time", async () => {
@@ -352,7 +387,7 @@ describe.skipIf(!existsSync(ENGINE))("Pitch Wheel, offline", () => {
     // Half mixed at 0: dry and wet are the same sound, as late: it's the sound, exactly.
     const [mixed] = await play(song("a440", {}, (s) => updateEffect(s, MASTER_TRACK_ID, 0, { mix: 0.5 })));
     let error = 0;
-    for (let i = 0; i < 2 * RATE; i++) error = Math.max(error, Math.abs(mixed[i + TIGHT] - source[i]));
+    for (let i = 0; i < 2 * RATE; i++) error = Math.max(error, Math.abs(mixed[i + WIDE] - source[i]));
     expect(error).toBeLessThan(1e-4);
   });
 
@@ -363,7 +398,7 @@ describe.skipIf(!existsSync(ENGINE))("Pitch Wheel, offline", () => {
     // Held at +7 and jumped there: no swing, at once.
     await engine.command("pitchWheel", { effect: WHEEL, pitch: 7, jump: true });
     const held = (await hear(RATE / 5)).channels[0];
-    expect(Math.abs(cents(frequency(held, TIGHT + 2000, held.length), 440 * 2 ** (7 / 12)))).toBeLessThan(2);
+    expect(Math.abs(cents(frequency(held, WIDE + 2000, held.length), 440 * 2 ** (7 / 12)))).toBeLessThan(2);
     expect((await engine.command("status", {})).transport.pitchWheels?.[WHEEL]?.pitch).toBeCloseTo(7, 3);
     await expect(engine.command("pitchWheel", { effect: "fx_none", pitch: 1 })).rejects.toMatchObject({ status: 409 });
   });

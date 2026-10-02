@@ -42,7 +42,8 @@ export const DEFAULT_TIMBRE: Wheel = { value: 0, range: 12, snap: "semitone", gr
 
 /**
  * A new Pitch Wheel: nothing shifted, the Timbre tab open (so turning Pitch keeps a voice's character, as
- * in Théo's screenshot), Single (the sound always heard), C5 the origin, Tight.
+ * in Théo's screenshot), Single (the sound always heard), C5 the origin, Wide (chords and low notes stay
+ * clean: notes 45 Hz apart are told apart; its 85 ms are compensated; Tight is for playing it live).
  */
 export const DEFAULT_PITCH_WHEEL: PitchWheel = {
   pitch: DEFAULT_PITCH,
@@ -51,7 +52,7 @@ export const DEFAULT_PITCH_WHEEL: PitchWheel = {
   midiMode: "single",
   notesFrom: null,
   origin: DEFAULT_ORIGIN,
-  resolution: "tight",
+  resolution: "wide",
 };
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);

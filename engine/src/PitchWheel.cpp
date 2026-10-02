@@ -19,6 +19,8 @@ constexpr double holdSeconds = 0.25;
 constexpr double resetAboveHz = 250;
 /** The band whose energy jumping says a drum hit. */
 constexpr double onsetAboveHz = 1500;
+/** How many times the true envelope is raised onto the peaks it passed under (sharp harmonics, deep valleys: it takes a few). */
+constexpr int envelopeIterations = 8;
 /** An envelope moves a bin's level by this much at most (24 dB either way). */
 constexpr double maxEnvelopeLog = 2.7631; // ln 15.85
 
@@ -606,7 +608,8 @@ void State::envelope()
     float loudest = 0;
     for (int k = 0; k <= half; ++k)
         loudest = juce::jmax (loudest, power[(size_t) (2 * k)]);
-    const auto floor = loudest * 1e-10f + 1e-30f;
+    // Valleys no deeper than 60 dB under the loudest: the envelope rises onto the peaks in a few passes.
+    const auto floor = loudest * 1e-6f + 1e-30f;
     for (int k = 0; k <= half; ++k)
         logSpectrum[(size_t) k] = 0.5f * std::log (power[(size_t) (2 * k)] * 0.5f + floor);
 
@@ -655,7 +658,7 @@ void State::envelope()
             to[(size_t) k] = cepstrum[(size_t) k];
     };
     smooth (logSpectrum, logEnvelope, true);
-    for (int iteration = 0; iteration < 4; ++iteration)
+    for (int iteration = 0; iteration < envelopeIterations; ++iteration)
     {
         for (int k = 0; k <= half; ++k)
             logSpectrum[(size_t) k] = juce::jmax (logSpectrum[(size_t) k], logEnvelope[(size_t) k]);
@@ -725,24 +728,38 @@ void State::synthesise (Voice& voice, bool timbreOn, double timbreRatio)
             const auto k0 = peaks[i];
             const auto omega = peakOmega[i];
             const auto frequency = omega * fftSize / twoPi;
-            // Moved by whole bins to as near its new frequency as they go; turned so its phase advances at
-            // that frequency exactly (from where its region was turned to last frame).
-            const auto shift = (int) std::lround ((ratio - 1) * frequency);
+            // Moved to its new frequency, exactly: the window's lobe around it rebuilt there between the
+            // bins (cubic, on the padded spectrum, which is smooth enough for it), so what's in each frame
+            // and how its phase advances agree (moved by whole bins, they'd beat at the hop's rate); turned
+            // so its phase advances at that frequency (from where its region was turned last frame).
+            const auto shift = (ratio - 1) * frequency;
             const auto reset = onset && k0 >= resetFrom;
             const auto theta = reset ? 0.0 : wrap ((double) voice.thetaPrev[(size_t) k0] + hop * (ratio - 1) * omega);
             const auto gain = timbreOn && ! transparent ? regionGains[i] * loudness : 1.0f;
             const auto cg = (float) std::cos (theta) * gain, sg = (float) std::sin (theta) * gain;
             const auto low = regionLow[i], high = regionHigh[i];
             for (int k = low; k <= high; ++k)
-            {
                 voice.theta[(size_t) k] = (float) theta;
-                const auto j = k + shift;
-                if (j < 0 || j > top)
-                    continue;
-                yl[(size_t) (2 * j)] += xl[2 * k] * cg - xl[2 * k + 1] * sg;
-                yl[(size_t) (2 * j + 1)] += xl[2 * k] * sg + xl[2 * k + 1] * cg;
-                yr[(size_t) (2 * j)] += xr[2 * k] * cg - xr[2 * k + 1] * sg;
-                yr[(size_t) (2 * j + 1)] += xr[2 * k] * sg + xr[2 * k + 1] * cg;
+            const auto from = juce::jmax (0, (int) std::ceil (low + shift - 1e-9)), to = juce::jmin (top, (int) std::floor (high + shift + 1e-9));
+            for (int j = from; j <= to; ++j)
+            {
+                const auto source = j - shift;
+                auto k = (int) std::floor (source);
+                auto t = (float) (source - k);
+                if (t > 0.9999f)
+                    ++k, t = 0;
+                // Catmull-Rom through the four bins around it (the region's edges read their neighbours).
+                const auto c0 = -0.5f * t * (1 - t) * (1 - t), c1 = 1 + t * t * (1.5f * t - 2.5f), c2 = t * (0.5f + t * (2 - 1.5f * t)), c3 = -0.5f * t * t * (1 - t);
+                const auto bin = [top] (int n) { return 2 * juce::jlimit (0, top, n); };
+                const auto b0 = bin (k - 1), b1 = bin (k), b2 = bin (k + 1), b3 = bin (k + 2);
+                const auto lr = c0 * xl[b0] + c1 * xl[b1] + c2 * xl[b2] + c3 * xl[b3];
+                const auto li = c0 * xl[b0 + 1] + c1 * xl[b1 + 1] + c2 * xl[b2 + 1] + c3 * xl[b3 + 1];
+                const auto rr = c0 * xr[b0] + c1 * xr[b1] + c2 * xr[b2] + c3 * xr[b3];
+                const auto ri = c0 * xr[b0 + 1] + c1 * xr[b1 + 1] + c2 * xr[b2 + 1] + c3 * xr[b3 + 1];
+                yl[(size_t) (2 * j)] += lr * cg - li * sg;
+                yl[(size_t) (2 * j + 1)] += lr * sg + li * cg;
+                yr[(size_t) (2 * j)] += rr * cg - ri * sg;
+                yr[(size_t) (2 * j + 1)] += rr * sg + ri * cg;
             }
         }
     std::swap (voice.theta, voice.thetaPrev);

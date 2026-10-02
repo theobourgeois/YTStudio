@@ -112,8 +112,8 @@ function TopBar({ effectId, pw }: { effectId: string; pw: PitchWheel }) {
         label="Resolution"
         value={pw.resolution}
         options={[
-          { value: "tight", text: "Tight", title: "Tight: a 43 ms window, for drums and voices (QuikQuak's)" },
-          { value: "wide", text: "Wide", title: "Wide: an 85 ms window, smoother for bass and pads (later by as much: compensated)" },
+          { value: "tight", text: "Tight", title: "Tight: a 43 ms window (QuikQuak's): less late, for playing it live; notes closer than about 90 Hz blur together" },
+          { value: "wide", text: "Wide", title: "Wide: an 85 ms window, the cleanest: chords and low notes stay apart, drums still sharp (as late: compensated)" },
         ]}
         onChange={(resolution) => setPitchWheel(effectId, { resolution })}
       />

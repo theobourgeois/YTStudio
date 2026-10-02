@@ -864,7 +864,7 @@ export const MUSIC_TOOLS = [
       midiMode: oneOf(["single", "multi"], "Single: one voice, the sound always heard, the latest note setting the shift. Multi: a voice per note held (8 at most), silent without notes."),
       notesFrom: str('The channel whose notes play it: its id or name. "none" (or "") for none: only the wheel.'),
       origin: { description: 'The note that shifts nothing: a note name ("C5" is MIDI 60, FL\'s octaves) or a MIDI number 0 to 127.', anyOf: [{ type: "string" }, { type: "integer" }] },
-      resolution: oneOf(["tight", "wide"], "Its analysis window: tight (about 43 ms late, compensated: drums, voices) or wide (about 85 ms: bass and pads, cleaner low notes)."),
+      resolution: oneOf(["tight", "wide"], "Its analysis window: wide (the default and the cleanest: chords and low notes stay apart, drums still sharp; about 85 ms late, compensated) or tight (about 43 ms: for playing it live, monitoring an input)."),
     }),
   }),
   tool({

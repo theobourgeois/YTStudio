@@ -44,10 +44,10 @@ function run(physics: ReturnType<typeof wheelPhysics>, goal: number, seconds: nu
 }
 
 describe("a new Pitch Wheel", () => {
-  it("shifts nothing, Timbre open, Single, C5 the origin, Tight", () => {
+  it("shifts nothing, Timbre open, Single, C5 the origin, Wide", () => {
     const song = withWheel();
     expect(pw(song)).toEqual(DEFAULT_PITCH_WHEEL);
-    expect(pw(song)).toMatchObject({ timbreOn: true, midiMode: "single", origin: 60, resolution: "tight", notesFrom: null });
+    expect(pw(song)).toMatchObject({ timbreOn: true, midiMode: "single", origin: 60, resolution: "wide", notesFrom: null });
     expect(pw(song).pitch).toMatchObject({ value: 0, range: 24, snap: "semitone" });
     expect(pitchWheels(song)).toHaveLength(1);
   });
@@ -58,7 +58,7 @@ describe("a new Pitch Wheel", () => {
     const repaired = normalizePitchWheel({ pitch: { value: 99, range: 7, snap: true, gravity: -1 }, timbre: "no", midiMode: "poly", origin: 300, resolution: "huge" });
     expect(repaired.pitch).toMatchObject({ value: 12, range: 24, snap: "semitone", gravity: 0 });
     expect(repaired.timbre).toEqual(DEFAULT_PITCH_WHEEL.timbre);
-    expect(repaired).toMatchObject({ midiMode: "single", origin: 127, resolution: "tight" });
+    expect(repaired).toMatchObject({ midiMode: "single", origin: 127, resolution: "wide" });
   });
 });
 
@@ -166,14 +166,14 @@ describe("the physics", () => {
 
 describe("in the engine", () => {
   it("goes with its effect, its wheels snapped", () => {
-    const song = updatePitchWheel(withWheel(), FX, { pitch: { value: 4.4 }, timbre: { value: 2.6, snap: "off" }, notesFrom: "chan_keys", midiMode: "multi", resolution: "wide" });
+    const song = updatePitchWheel(withWheel(), FX, { pitch: { value: 4.4 }, timbre: { value: 2.6, snap: "off" }, notesFrom: "chan_keys", midiMode: "multi", resolution: "tight" });
     const track = compileSong(song, P).tracks.find((t) => t.id === "insert_1")!;
     expect(track.effects[0]).toMatchObject({
       id: FX,
       plugin: { id: PITCH_WHEEL_PLUGIN.id },
-      pitchWheel: { pitch: { target: 4, gravity: 0.75 }, timbre: { target: 2.6 }, timbreOn: true, multi: true, notesFrom: "chan_keys", origin: 60, window: 4096 },
+      pitchWheel: { pitch: { target: 4, gravity: 0.75 }, timbre: { target: 2.6 }, timbreOn: true, multi: true, notesFrom: "chan_keys", origin: 60, window: 2048 },
     });
-    expect(enginePitchWheel(DEFAULT_PITCH_WHEEL).window).toBe(2048);
+    expect(enginePitchWheel(DEFAULT_PITCH_WHEEL).window).toBe(4096);
   });
 
   it("forgets a channel the song no longer has", () => {

@@ -186,7 +186,7 @@ export interface Wheel {
 /** How notes play a Pitch Wheel: one at a time, the sound always heard (Single), or a voice each, silent without (Multi). */
 export const WHEEL_MIDI_MODES = ["single", "multi"] as const;
 export type WheelMidiMode = (typeof WHEEL_MIDI_MODES)[number];
-/** The analysis window: Tight (drums, voices; ~43 ms late at 48 kHz) or Wide (bass and pads; ~85 ms). */
+/** The analysis window: Wide (the cleanest: chords and low notes stay apart; ~85 ms late at 48 kHz, compensated) or Tight (~43 ms: for playing it live). */
 export const WHEEL_RESOLUTIONS = ["tight", "wide"] as const;
 export type WheelResolution = (typeof WHEEL_RESOLUTIONS)[number];
 
