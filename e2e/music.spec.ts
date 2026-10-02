@@ -2635,3 +2635,87 @@ test("the assistant squashes a track with OTT: puts one on, sets it, automates i
   expect(automation.target).toEqual({ kind: "ott", effect: effect.id, control: "depth" });
   expect(automation.points.map((p: { value: number }) => p.value)).toEqual([0, 0.6]);
 });
+
+/**
+ * Every knob and slider in `window` offers Create automation clip on its menu: the names of any that
+ * don't. (Each is right-clicked, its menu read, and closed.)
+ */
+async function notAutomatable(page: Page, window: Locator): Promise<string[]> {
+  const sliders = window.getByRole("slider");
+  const missing: string[] = [];
+  const count = await sliders.count();
+  expect(count).toBeGreaterThan(0);
+  for (let i = 0; i < count; i++) {
+    const slider = sliders.nth(i);
+    if (!(await slider.isVisible())) continue;
+    await slider.scrollIntoViewIfNeeded();
+    await slider.click({ button: "right" });
+    const item = page.getByRole("menuitem", { name: "Create automation clip" });
+    const offered = await item.waitFor({ state: "visible", timeout: 1500 }).then(
+      () => true,
+      () => false,
+    );
+    if (!offered) missing.push((await slider.getAttribute("aria-label")) ?? `slider ${i}`);
+    await page.keyboard.press("Escape");
+    await expect(item).toHaveCount(0);
+  }
+  return missing;
+}
+
+test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (each mode, Tweak, the Style Editor), Auto-Tune, Pro-Q, OTT", async ({ page }) => {
+  test.setTimeout(300_000);
+  await openNewSong(page, "Automate everything");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  let slot = 0;
+  /** Put `name` in the next empty slot, its window open. */
+  async function choose(name: RegExp, testId: string) {
+    await inspector.getByRole("button", { name: `Slot ${++slot} menu` }).click();
+    await page.getByTestId("effect-picker").getByRole("option", { name }).click();
+    const window = page.getByTestId(testId);
+    await expect(window).toBeVisible();
+    return window;
+  }
+  // (The mixer's window over them is closed: each effect's window is checked alone.)
+  const close = async (title: RegExp) => page.getByRole("button", { name: title }).click();
+
+  let window = await choose(/Gross Beat/, "gross-beat");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  // (The scratching clock is played live, as HOLD is: a performance, not the song's.)
+  expect(await notAutomatable(page, window)).toEqual(["Scratching clock: drag up and down to scratch"]);
+  await close(/^Close Gross Beat/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/EchoBoy/, "echo-boy");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  for (const mode of ["Single Echo", "Dual Echo", "Ping-Pong", "Rhythm Echo"]) {
+    await window.getByRole("radio", { name: mode }).click();
+    if (!(await window.getByTestId("echo-tweak").count())) await window.getByRole("button", { name: "Tweak" }).click();
+    await expect(window.getByTestId("echo-tweak")).toBeVisible();
+    expect(await notAutomatable(page, window), `${mode} with Tweak`).toEqual([]);
+  }
+  await window.getByRole("button", { name: "Style Edit" }).click();
+  expect(await notAutomatable(page, window.getByTestId("echo-style-editor")), "the Style Editor").toEqual([]);
+  await close(/^Close EchoBoy/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/Auto-Tune/, "auto-tune");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  expect(await notAutomatable(page, window)).toEqual([]);
+  await close(/^Close Auto-Tune/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/Pro-Q/, "pro-q");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  // A band, so its controls show; and the output options.
+  const display = (await page.getByTestId("pro-q-display").boundingBox())!;
+  await page.mouse.dblclick(display.x + display.width * 0.5, display.y + display.height * 0.3);
+  await expect(page.getByTestId("pro-q-band-controls")).toBeVisible();
+  expect(await notAutomatable(page, window)).toEqual([]);
+  await close(/^Close Pro-Q/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/OTT/, "ott");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  expect(await notAutomatable(page, window)).toEqual([]);
+});
