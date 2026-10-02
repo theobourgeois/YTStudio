@@ -14,6 +14,7 @@ import { Led } from "./mixer/led";
 import { ModeLights } from "./mode-switch";
 import { EqKnob } from "./pro-q/knob";
 import { ShapeIcon } from "./pro-q/shape-icon";
+import { type OttRow, drawRow, ottColours } from "./ott/draw";
 
 /** A knob with a value of its own (nothing in the song). */
 function LooseKnob(props: Omit<React.ComponentProps<typeof Knob>, "value" | "onBegin" | "onDrag" | "onEnd" | "onCancel" | "onSet"> & { initial: number }) {
@@ -192,9 +193,33 @@ function EqControls() {
   );
 }
 
+/** One of OTT's display rows, as it's drawn (`ott/draw.ts`). */
+function OttRowSample({ row, label }: { row: OttRow; label: string }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const element = canvas.current;
+    const ctx = element && prepare(element, 340, 36);
+    if (element && ctx) drawRow(ctx, 340, 36, row, label, ottColours(element));
+  }, [row, label]);
+  return <canvas ref={canvas} className="block rounded-sm" style={{ width: 340, height: 36 }} />;
+}
+
+/** OTT's display rows: at rest, with sound (the level in white, what comes out in yellow), hot, and with a compressor off. */
+function OttRows() {
+  const knees = { upKnee: -46, downKnee: -39 };
+  return (
+    <div className="flex flex-col gap-1">
+      <OttRowSample label="H" row={{ ...knees, upward: true, downward: true, level: null, output: null, hot: false }} />
+      <OttRowSample label="M" row={{ ...knees, upward: true, downward: true, level: -24, output: -12, hot: true }} />
+      <OttRowSample label="L" row={{ upKnee: -60, downKnee: -52, upward: false, downward: true, level: -50, output: -40, hot: false }} />
+    </div>
+  );
+}
+
 /** The music suite's controls, for the component gallery (`src/gallery/`). */
 export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-controls", title: "Music: knobs, LCDs, PAT / SONG, faders and the arm light", source: "suites/music/knob.tsx, lcd.tsx, mode-switch.tsx, mixer/fader.tsx, mixer/arm-button.tsx", render: () => <Controls /> },
   { id: "music-curves", title: "Music: automation curve types (FL's), with points and tension handles", source: "suites/music/automation/draw-curve.ts", render: () => <Curves /> },
   { id: "music-pro-q", title: "Music: Pro-Q's knobs (the dynamic ring on GAIN) and its shapes", source: "suites/music/pro-q/knob.tsx, shape-icon.tsx", render: () => <EqControls /> },
+  { id: "music-ott", title: "Music: OTT's display rows (upward brown, downward green; a band at rest, sounding and hot, its upward off)", source: "suites/music/ott/draw.ts", render: () => <OttRows /> },
 ];
