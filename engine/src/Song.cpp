@@ -123,8 +123,8 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, panman::Registry& panMen,
-                                  wheel::Registry& pitchWheels, juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly)
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, ott::Registry& otts,
+                                  panman::Registry& panMen, wheel::Registry& pitchWheels, juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly)
 {
     auto song = std::make_unique<Song>();
     song->tempo = number (json["tempo"], 120, 1, 2000);
@@ -238,7 +238,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     std::stable_sort (song->audioClips.begin(), song->audioClips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.tick < b.tick; });
 
     // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
-    juce::StringArray effectIds, grossIds, tuneIds, echoIds, eqIds, panIds, wheelIds;
+    juce::StringArray effectIds, grossIds, tuneIds, echoIds, eqIds, ottIds, panIds, wheelIds;
     if (const auto* list = json["tracks"].getArray())
         for (const auto& item : *list)
         {
@@ -312,6 +312,16 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.eq = eqs.get (id, sampleRate);
                         effect.eqSettings = eq::Settings::parse (slot["eq"], capacity, *effect.eq);
                         eqIds.add (id);
+                        track.effects.push_back (std::move (effect));
+                        continue;
+                    }
+                    // And OTT: its crossovers and envelopes are kept across songs, so a knob turned glides.
+                    if (plugin["id"].toString() == "vaudio:ott")
+                    {
+                        Track::Effect effect { id, nullptr, (bool) slot["enabled"], (float) number (slot["mix"], 1, 0, 1) };
+                        effect.ottSettings = ott::Settings::parse (slot["ott"], capacity);
+                        effect.ott = otts.get (id, sampleRate);
+                        ottIds.add (id);
                         track.effects.push_back (std::move (effect));
                         continue;
                     }
@@ -413,6 +423,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
         pitchWheels.keepOnly (wheelIds);
         echoBoys.keepOnly (echoIds);
         eqs.keepOnly (eqIds);
+        otts.keepOnly (ottIds);
         panMen.keepOnly (panIds);
     }
 
@@ -450,7 +461,7 @@ void Song::parseLanes (Song& song, const juce::var& json)
             {
                 lane.kind = Lane::Kind::track;
                 lane.size = 4;
-                lane.base = track.gains;
+                std::copy (track.gains.begin(), track.gains.end(), lane.base.begin());
             }
             else if (kind == "send")
             {
@@ -480,12 +491,13 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].grossSettings == nullptr)
                 continue;
-            const auto control = juce::StringArray { "timeSlot", "volumeSlot", "timeMix", "volumeMix" }.indexOf (target["control"].toString());
+            const auto control = juce::StringArray { "timeSlot", "volumeSlot", "timeMix", "volumeMix", "attack", "release", "tension" }.indexOf (target["control"].toString());
             if (control < 0)
                 continue;
             lane.control = control;
             const auto& settings = *track.effects[(size_t) lane.index].grossSettings;
-            lane.base[0] = control == 0 ? (float) settings.timeSlot : control == 1 ? (float) settings.volumeSlot : control == 2 ? settings.timeMix : settings.volumeMix;
+            const double base[] = { (double) settings.timeSlot, (double) settings.volumeSlot, settings.timeMix, settings.volumeMix, settings.attack, settings.release, settings.tension };
+            lane.base[0] = (float) base[control];
         }
         else if (kind == "tune")
         {
@@ -498,12 +510,12 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].tuneSettings == nullptr)
                 continue;
-            const auto control = juce::StringArray { "retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key" }.indexOf (target["control"].toString());
+            const auto control = juce::StringArray { "retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key", "detune", "tracking", "vibratoRate", "vibratoDelay", "vibratoOnset", "vibratoVariation", "vibratoPitch", "vibratoAmplitude", "vibratoFormant" }.indexOf (target["control"].toString());
             if (control < 0)
                 continue;
             lane.control = control;
             const auto& s = *track.effects[(size_t) lane.index].tuneSettings;
-            const double base[] = { s.retune, s.humanize, s.flexTune, s.vibratoGain, s.transpose, s.throat, (double) s.key };
+            const double base[] = { s.retune, s.humanize, s.flexTune, s.vibratoGain, s.transpose, s.throat, (double) s.key, s.reference, s.threshold, s.rate, s.delay, s.onset, s.variation, s.depth, s.amplitude, s.formantDepth };
             lane.base[0] = (float) base[control];
         }
         else if (kind == "wheel")
@@ -536,7 +548,7 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].echoSettings == nullptr)
                 continue;
-            const auto control = juce::StringArray { "mix", "feedback", "delays", "lowCut", "highCut", "saturation", "input", "output", "feel", "side" }.indexOf (target["control"].toString());
+            const auto control = juce::StringArray { "mix", "feedback", "delays", "lowCut", "highCut", "saturation", "input", "output", "feel", "side", "outs", "matrix", "taps", "eq", "diffusion", "wobble" }.indexOf (target["control"].toString());
             if (control < 0)
                 continue;
             lane.control = control;
@@ -544,7 +556,7 @@ void Song::parseLanes (Song& song, const juce::var& json)
         }
         else if (kind == "eq")
         {
-            // A Pro-Q band's frequency (log2 Hz), gain or range (dB), Q (log2), or its output (dB).
+            // A Pro-Q band's frequency (log2 Hz), gain or range (dB), Q (log2), or its output (dB) or pan.
             lane.kind = Lane::Kind::eq;
             lane.track = (int) number (target["track"], -1, -1, 1e6);
             if (lane.track < 0 || lane.track >= (int) song.tracks.size())
@@ -553,17 +565,35 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].eqSettings == nullptr)
                 continue;
-            lane.control = juce::StringArray { "frequency", "gain", "q", "range", "output" }.indexOf (target["control"].toString());
+            lane.control = juce::StringArray { "frequency", "gain", "q", "range", "output", "pan" }.indexOf (target["control"].toString());
             lane.band = (int) number (target["band"], 0, 0, eq::maxBands);
             auto& settings = *track.effects[(size_t) lane.index].eqSettings;
             const auto* band = settings.find (lane.band);
             if (lane.control < 0 || (lane.control < 4 && band == nullptr))
                 continue;
-            lane.base[0] = (float) (lane.control == 4 ? settings.output
+            lane.base[0] = (float) (lane.control == 5 ? settings.pan
+                                    : lane.control == 4 ? settings.output
                                     : lane.control == 0 ? std::log2 (band->shape.frequency)
                                     : lane.control == 1 ? band->shape.gain
                                     : lane.control == 2 ? std::log2 (band->shape.q)
                                                         : band->range);
+        }
+        else if (kind == "ott")
+        {
+            // An OTT's lane (`OttLane`): its gains, or a value a band.
+            lane.kind = Lane::Kind::ott;
+            lane.track = (int) number (target["track"], -1, -1, 1e6);
+            if (lane.track < 0 || lane.track >= (int) song.tracks.size())
+                continue;
+            const auto& track = song.tracks[(size_t) lane.track];
+            lane.index = (int) number (target["effect"], -1, -1, 1e6);
+            if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].ottSettings == nullptr)
+                continue;
+            const auto control = juce::StringArray { "input", "output", "makeup", "upward", "downward", "upKnee", "downKnee", "release", "gains" }.indexOf (target["control"].toString());
+            if (control < 0)
+                continue;
+            lane.control = control;
+            track.effects[(size_t) lane.index].ottSettings->get ((ott::Lane) control, lane.base.data(), lane.size);
         }
         else if (kind == "panman")
         {
@@ -576,13 +606,18 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].panSettings == nullptr)
                 continue;
-            const auto control = juce::StringArray { "offset", "width", "rate", "input", "output" }.indexOf (target["control"].toString());
+            const auto control = juce::StringArray { "offset", "width", "rate", "input", "output", "smoothing", "trigger", "divider", "cutoff", "filterGain", "threshold", "attack", "release", "offsetMod", "widthMod", "rateMod", "shape" }
+                                     .indexOf (target["control"].toString());
             if (control < 0)
                 continue;
             lane.control = control;
             const auto& settings = *track.effects[(size_t) lane.index].panSettings;
-            // The offset and width come as fractions of 105° and 210° (`PAN_LANE_SCALE`).
-            const double own[] = { settings.offset / 105.0, settings.width / 210.0, settings.rate, settings.input, settings.output };
+            // Its pattern (Smoothing, Feel or Groove automated): `shapePoints` positions; the song's comes back when it stops.
+            if (control == panman::shapeControl)
+                lane.size = panman::Settings::shapePoints;
+            // The offset and width (and their mods) come as fractions of 105° and 210°, the cutoff in kHz (`PAN_LANE_SCALE`).
+            const double own[] = { settings.offset / 105.0, settings.width / 210.0, settings.rate, settings.input, settings.output, settings.smoothing, settings.trigger, (double) settings.divider,
+                                   settings.cutoff / 1000.0, settings.filterGain, settings.threshold, settings.attack, settings.release, settings.offsetMod / 105.0, settings.widthMod / 210.0, settings.rateMod, 0.0 };
             lane.base[0] = (float) own[control];
         }
         else if (kind == "param")
@@ -616,15 +651,15 @@ void Song::parseLanes (Song& song, const juce::var& json)
 
         const auto* ticks = item["ticks"].getArray();
         const auto* values = item["values"].getArray();
-        if (ticks == nullptr || values == nullptr || ticks->isEmpty() || values->size() != ticks->size() * lane.size)
+        if (ticks == nullptr || values == nullptr || ticks->isEmpty() || lane.size > Lane::maxSize || values->size() != ticks->size() * lane.size)
             continue;
         lane.ticks.reserve ((size_t) ticks->size());
         lane.values.reserve ((size_t) values->size());
         auto last = 0.0;
         for (const auto& tick : *ticks)
             lane.ticks.push_back (last = juce::jmax (last, number (tick, last, 0, 1e9)));
-        // (An EchoBoy's cuts are in Hz.)
-        const auto most = lane.kind == Lane::Kind::echo ? 1e5 : 64.0;
+        // (An EchoBoy's cuts are in Hz, an Auto-Tune's A4 too, an OTT's knees down to -200 dB.)
+        const auto most = lane.kind == Lane::Kind::echo ? 1e5 : lane.kind == Lane::Kind::ott || lane.kind == Lane::Kind::tune ? 1e3 : 64.0;
         for (const auto& value : *values)
             lane.values.push_back ((float) number (value, 0, -most, most));
         song.lanes.push_back (std::move (lane));

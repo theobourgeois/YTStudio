@@ -92,6 +92,7 @@ juce::var Engine::transport() const
                                { "grossBeats", grossBeats.describe() },
                                { "autoTunes", autoTunes.describe() },
                                { "echoBoys", echoBoys.describe() },
+                               { "otts", otts.describe() },
                                { "panMen", panMen.describe() },
                                { "pitchWheels", pitchWheels.describe() } });
 }
@@ -453,7 +454,7 @@ juce::StringArray Engine::applySong()
     // During an export the song waits: it's made when the export ends (its plugins are busy).
     if (exportJob != nullptr)
         return unreadable;
-    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, autoTunes, echoBoys, eqs, panMen, pitchWheels, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
+    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, autoTunes, echoBoys, eqs, otts, panMen, pitchWheels, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
     latencies = plugins.latencySignature() * 7 + effects.latencySignature();
     armed.clear();
     for (const auto& track : song->tracks)
@@ -555,6 +556,7 @@ void Engine::timerCallback()
                                             { "grossBeats", grossBeats.describe() },
                                             { "autoTunes", autoTunes.describe() },
                                             { "echoBoys", echoBoys.describe() },
+                                            { "otts", otts.describe() },
                                             { "eq", eqs.describe() },
                                             { "panMen", panMen.describe() },
                                             { "pitchWheels", pitchWheels.describe() },
@@ -753,8 +755,9 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
     echo::Registry exportEchoBoys;
     panman::Registry exportPanMen;
     eq::Registry exportEqs;
+    ott::Registry exportOtts;
     wheel::Registry exportPitchWheels;
-    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportAutoTunes, exportEchoBoys, exportEqs, exportPanMen, exportPitchWheels, unreadable, exportBlockSize, rate(), false);
+    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportAutoTunes, exportEchoBoys, exportEqs, exportOtts, exportPanMen, exportPitchWheels, unreadable, exportBlockSize, rate(), false);
     if ((plugins.anyLoading() || effects.anyLoading()) && attempt < exportWaits)
     {
         juce::Timer::callAfterDelay (100, [this, stillAlive = alive, params, reply, attempt] {
@@ -770,7 +773,7 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
             missing.add (channel.id);
     for (const auto& track : song->tracks)
         for (const auto& effect : track.effects)
-            if (effect.plugin == nullptr && effect.gross == nullptr && effect.tune == nullptr && effect.echo == nullptr && effect.eq == nullptr && effect.pan == nullptr && effect.wheel == nullptr)
+            if (effect.plugin == nullptr && effect.gross == nullptr && effect.tune == nullptr && effect.echo == nullptr && effect.eq == nullptr && effect.ott == nullptr && effect.pan == nullptr && effect.wheel == nullptr)
                 missing.add (effect.id);
 
     // Playback stops and lets go of the plugins; they're prepared for the export.

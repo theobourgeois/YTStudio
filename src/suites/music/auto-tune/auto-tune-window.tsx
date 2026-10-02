@@ -40,6 +40,7 @@ import { drawGraph, tuneColours } from "./draw";
 import { type GraphView, KEYS_WIDTH, followCentre, meterFraction, noteAt, pitchClass } from "./geometry";
 import { latestPitch, pitchHistory } from "./pitch-history";
 import { useTuneUi, useTuneView } from "./store";
+import { AutomateTouched } from "../automation/touched";
 
 const WIDTH = 900;
 const HEIGHT = 640;
@@ -84,7 +85,7 @@ export function AutoTuneWindow({ effectId, index }: { effectId: string; index: n
   }, [gone, effectId]);
   if (!effect || !at) return null;
   return (
-    <MusicWindow id={autoTuneWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} resizable={{ minWidth: MIN_WIDTH, minHeight: 560 }} onClose={() => closeAutoTune(effectId)}>
+    <MusicWindow id={autoTuneWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} resizable={{ minWidth: MIN_WIDTH, minHeight: 560 }} onClose={() => closeAutoTune(effectId)} controls={<AutomateTouched effectId={effectId} />}>
       <div className="flex h-full min-h-0 flex-col text-xs select-none" data-testid="auto-tune" data-effect={effectId}>
         <TopBar effectId={effectId} at={at} />
         <Display effectId={effectId} at={at} />
@@ -176,6 +177,7 @@ function TopBar({ effectId, at }: { effectId: string; at: AutoTune }) {
           bipolar
           format={(v) => `${signed(v, 0)} cents (A4 ${(440 * 2 ** (v / 1200)).toFixed(1)} Hz)`}
           unit={CENTS_UNIT}
+          target={target(effectId, "detune")}
           edit={(s, detune) => editTune(s, effectId, { detune })}
         />
       </LabelledKnob>
@@ -189,6 +191,7 @@ function TopBar({ effectId, at }: { effectId: string; at: AutoTune }) {
           defaultValue={0.5}
           format={(v) => `${amount(v)} (${v < 0.35 ? "choosy" : v > 0.65 ? "relaxed" : "balanced"})`}
           unit={AMOUNT}
+          target={target(effectId, "tracking")}
           edit={(s, tracking) => editTune(s, effectId, { tracking })}
         />
       </LabelledKnob>
@@ -688,25 +691,25 @@ function CreateVibrato({ effectId, at }: { effectId: string; at: AutoTune }) {
       </div>
       <div className={cn("flex flex-1 items-start justify-around", off && "opacity-50")}>
         <LabelledKnob label="Rate" value={`${v.rate.toFixed(1)} Hz`}>
-          <SongKnob size={34} label="Vibrato rate" value={v.rate} min={0.1} max={10} defaultValue={5.5} format={(x) => `${x.toFixed(1)} Hz`} unit={HZ} edit={(s, rate) => vib({ rate })(s)} />
+          <SongKnob size={34} label="Vibrato rate" value={v.rate} min={0.1} max={10} defaultValue={5.5} format={(x) => `${x.toFixed(1)} Hz`} unit={HZ} target={target(effectId, "vibratoRate")} edit={(s, rate) => vib({ rate })(s)} />
         </LabelledKnob>
         <LabelledKnob label="Onset delay" value={`${Math.round(v.delay)} ms`}>
-          <SongKnob size={34} label="Onset delay" value={v.delay} min={0} max={MAX_ONSET} defaultValue={500} format={(x) => `${Math.round(x)} ms`} unit={MS} edit={(s, delay) => vib({ delay })(s)} />
+          <SongKnob size={34} label="Onset delay" value={v.delay} min={0} max={MAX_ONSET} defaultValue={500} format={(x) => `${Math.round(x)} ms`} unit={MS} target={target(effectId, "vibratoDelay")} edit={(s, delay) => vib({ delay })(s)} />
         </LabelledKnob>
         <LabelledKnob label="Onset rate" value={`${Math.round(v.onset)} ms`}>
-          <SongKnob size={34} label="Onset rate" value={v.onset} min={0} max={MAX_ONSET} defaultValue={500} format={(x) => `${Math.round(x)} ms`} unit={MS} edit={(s, onset) => vib({ onset })(s)} />
+          <SongKnob size={34} label="Onset rate" value={v.onset} min={0} max={MAX_ONSET} defaultValue={500} format={(x) => `${Math.round(x)} ms`} unit={MS} target={target(effectId, "vibratoOnset")} edit={(s, onset) => vib({ onset })(s)} />
         </LabelledKnob>
         <LabelledKnob label="Variation" value={amount(v.variation)}>
-          <SongKnob size={34} label="Variation" value={v.variation} min={0} max={1} defaultValue={0.2} format={amount} unit={AMOUNT} edit={(s, variation) => vib({ variation })(s)} />
+          <SongKnob size={34} label="Variation" value={v.variation} min={0} max={1} defaultValue={0.2} format={amount} unit={AMOUNT} target={target(effectId, "vibratoVariation")} edit={(s, variation) => vib({ variation })(s)} />
         </LabelledKnob>
         <LabelledKnob label="Pitch" value={`${Math.round(v.pitch)}¢`}>
-          <SongKnob size={34} label="Pitch amount" value={v.pitch} min={0} max={100} defaultValue={18} format={(x) => `${Math.round(x)} cents`} unit={CENTS_UNIT} edit={(s, pitch) => vib({ pitch })(s)} />
+          <SongKnob size={34} label="Pitch amount" value={v.pitch} min={0} max={100} defaultValue={18} format={(x) => `${Math.round(x)} cents`} unit={CENTS_UNIT} target={target(effectId, "vibratoPitch")} edit={(s, pitch) => vib({ pitch })(s)} />
         </LabelledKnob>
         <LabelledKnob label="Amplitude" value={amount(v.amplitude)}>
-          <SongKnob size={34} label="Amplitude amount" value={v.amplitude} min={0} max={MAX_VIBRATO_AMPLITUDE} defaultValue={0.1} format={amount} unit={AMOUNT} edit={(s, amplitude) => vib({ amplitude })(s)} />
+          <SongKnob size={34} label="Amplitude amount" value={v.amplitude} min={0} max={MAX_VIBRATO_AMPLITUDE} defaultValue={0.1} format={amount} unit={AMOUNT} target={target(effectId, "vibratoAmplitude")} edit={(s, amplitude) => vib({ amplitude })(s)} />
         </LabelledKnob>
         <LabelledKnob label="Formant" value={amount(v.formant)}>
-          <SongKnob size={34} label="Formant amount" value={v.formant} min={0} max={1} defaultValue={0.7} format={amount} unit={AMOUNT} edit={(s, formant) => vib({ formant })(s)} />
+          <SongKnob size={34} label="Formant amount" value={v.formant} min={0} max={1} defaultValue={0.7} format={amount} unit={AMOUNT} target={target(effectId, "vibratoFormant")} edit={(s, formant) => vib({ formant })(s)} />
         </LabelledKnob>
       </div>
     </div>

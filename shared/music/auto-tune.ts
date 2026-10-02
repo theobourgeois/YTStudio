@@ -284,6 +284,15 @@ export function engineControlValue(control: AutoTuneControl, value: number): num
     case "transpose":
     case "key":
       return Math.round(value);
+    case "detune":
+      return referenceHz(value);
+    case "tracking":
+      return trackingThreshold(value);
+    case "vibratoDelay":
+    case "vibratoOnset":
+      return value / 1000;
+    case "vibratoPitch":
+      return value / 100;
     default:
       return value;
   }

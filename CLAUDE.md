@@ -210,6 +210,7 @@ src/
                      (EchoBoy's window, Tweak, the Style Editor, Rhythm Echo's editor, its tools),
                      auto-tune/ (Auto-Tune's window, its live pitch graph and tools),
                      pro-q/ (Pro-Q's window: its display, gestures, band controls, analyzer, EQ Match, tools),
+                     ott/ (OTT's window: its knobs, its display of a row a band, tools),
                      panman/ (PanMan's window, its editors, meters and tools),
                      pitch-wheel/ (Pitch Wheel's window: its dials and keyboard on canvases, what the engine
                      says in live.ts, its tools),
@@ -330,7 +331,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel. Where it is and every step still to come, in order:
+the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel, OTT. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
@@ -473,8 +474,15 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   same whatever the blocks: keep any new lane kind on that grid. A control held by the hand is left out
   (`SetSongRequest.held`, from `useAutomatedControl`'s hold/release); a plugin's own value is taken when play
   starts and given back when it stops. A knob or fader that can be automated takes a `target`
-  (`SongKnob`'s), which gives it Create automation clip and has it follow the curve in song mode. Its curve
-  is edited on its clips in the Playlist (`curve-pointer.ts`, a `curve` drag committed once).
+  (`SongKnob`'s), which gives it Create automation clip and has it follow the curve in song mode (a knob
+  that turns by its automation's fraction, a tapered one, says `fraction`). Its curve is edited on its
+  clips in the Playlist (`curve-pointer.ts`, a `curve` drag committed once). **Every knob of our built-in
+  effects is automatable**, as a plugin's every parameter is: a new knob in one gets a `target` (its
+  control in the effect's `AutomationTarget` kind, a spec saying its range, taper and text, the engine
+  lanes it moves), and `e2e/music.spec.ts` right-clicks every slider of every built-in's window to check
+  it. Touching one shows **Automate "…"** in its window's title bar (`AutomateTouched`,
+  `useAutomationUi.touchedControl`), as a plugin window's does. An engine lane holds up to
+  `Song::Lane::maxSize` (64) values a point.
 - **Recording** (`docs/fl-studio/recording.md`, FL's through mixer tracks): a track's `input` (a device
   channel or a pair), `monitor` and `inputOffset` are the song's; **which tracks are armed, Record (R) and a
   recording in progress are the tab's** (`recording.ts`), sent with the song (`SetSongRequest.armed`). Settings
@@ -518,8 +526,9 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   grains stretched for Throat (or with the pitch, Formant off). It looks ahead by a latency fixed by the input
   type, reported to `Song::compensate` (an enabled one only); its mix's dry sound is read as late. Its state
   is kept by effect id (`tune::Registry`). It says its latest pitch readings in each transport event
-  (`EngineTransport.autoTunes`), which `pitch-history.ts` keeps outside React for the window's graph. Seven
-  controls automate (`AutomationTarget` `autoTune`, lanes `kind: "tune"`). Keep its sound tested offline to the
+  (`EngineTransport.autoTunes`), which `pitch-history.ts` keeps outside React for the window's graph. Every
+  knob automates, the key and Create Vibrato's too (`AutomationTarget` `autoTune`, `AUTO_TUNE_CONTROL_INFO`,
+  lanes `kind: "tune"`). Keep its sound tested offline to the
   cent (`auto-tune.integration.test.ts`).
 - **Pro-Q** (`docs/fabfilter/pro-q.md`, and FabFilter's `pro-q-3-manual.md` and `pro-q-3-dsp.md` beside
   it): FabFilter's Pro-Q 3, ours, as Gross Beat is: a `MixerEffect` whose plugin is `PRO_Q_PLUGIN`, its
@@ -532,6 +541,16 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   them to the audio thread by atomic exchange (`Convolver::offer`); keep it so. Its latency is in delay
   compensation. The analyzer is measured only for the Pro-Qs `eqWatch` names (open windows); its fall,
   tilt and range are the tab's. Its window's look is its own (`--eq-*` tokens, dark in every theme).
+  Its band controls, output, pan and Gain Scale automate (Gain Scale folded into the bands' gain lanes).
+- **OTT** (`docs/xfer/ott.md`; `shared/music/ott*.ts`, `engine/src/Ott.cpp`, `src/suites/music/ott/`): Xfer's
+  multiband upward/downward compressor, ours, as Gross Beat is: `OTT_PLUGIN`, its settings in the song
+  (`MixerEffect.ott`). Its sound is David Braun's measured model of OTT 1.3.1 (`co.xfer_ott`): what its
+  knobs mean is decided in TypeScript (`engineOtt`: each band's makeup, slopes, knees, release) and the
+  engine runs the law (`ottGainDb`) after LR4 crossovers at 88.3 Hz and 2.5 kHz; **keep the law in step**
+  in both, `ott.integration.test.ts` measures the engine against it (within 0.25 dB). Every knob and band
+  threshold automates (`AutomationTarget` `ott`, `OTT_CONTROL_SPECS`, lanes `kind: "ott"` per `OTT_LANES`,
+  as EchoBoy's). Its state is kept by effect id (`ott::Registry`); its bands' levels come in each transport
+  event (`EngineTransport.otts`) for its display. Its display's colours are `--ott-*` (a screen in every theme).
 - **PanMan** (`docs/soundtoys/panman.md`; `shared/music/panman*.ts`, `engine/src/PanMan.cpp`,
   `src/suites/music/panman/`): Soundtoys' auto-panner, ours, built as Gross Beat is (when in doubt about it,
   do what Soundtoys' does: the doc is from its manual). `MixerEffect.panMan` on an effect whose plugin is
@@ -539,9 +558,9 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   included) are decided in TypeScript (`panPattern`) and sent as lines over the pattern's phase; Random's
   chance (repeatable, seeded by the effect's id), the triggers, the dynamics, the pan law (sine / cosine to
   ±105°, unity at the centre) and the Analog Styles are the engine's (`panman::State`, kept by effect id in
-  `panman::Registry`), in time with `gross::Clock`. Its offset, width, rate and gains automate
-  (`AutomationTarget` `panMan`; the offset and width travel as fractions, `PAN_LANE_SCALE`: lanes hold
-  values within ±64). The Manual Trigger is live (`panMan` command). Keep its sound tested offline
+  `panman::Registry`), in time with `gross::Clock`. Every knob automates (`AutomationTarget` `panMan`;
+  values travel scaled, `PAN_LANE_SCALE`: lanes hold values within ±64; Feel, Groove and the pattern
+  modes' Smoothing as the pattern itself, a `shape` lane). The Manual Trigger is live (`panMan` command). Keep its sound tested offline
   (`panman.integration.test.ts`).
 - **Pitch Wheel** (`docs/quikquak/pitchwheel.md`, QuikQuak Pitchwheel; `shared/music/pitch-wheel*.ts`,
   `engine/src/PitchWheel.cpp`, `src/suites/music/pitch-wheel/`): ours as Gross Beat is, `PITCH_WHEEL_PLUGIN`,

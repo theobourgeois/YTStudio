@@ -346,6 +346,16 @@ describe.skipIf(!existsSync(ENGINE))("Auto-Tune, offline", () => {
     expect(rms(mix, 0.015 * RATE, 0.05 * RATE)).toBeGreaterThan(0.05);
   });
 
+  it("follows its automated Detune: the tuning moved up 50 cents, the voice tuned to it", async () => {
+    let s = song("sharp");
+    s = editClips(s, (clips) => addClips(clips, [{ kind: "pattern" as const, ref: P, track: 0, start: 0, length: null }]).clips);
+    s = createAutomation(s, { kind: "autoTune", effect: TUNE, control: "detune" }, { start: 0, length: 384 }, { value: 0.75 }).song;
+    await engine.setSong({ projectId: PROJECT, song: s, patternId: P, mode: "song" });
+    await engine.command("play", {});
+    const sound = (await hear(Math.round(1.9 * RATE))).channels[0];
+    expect(Math.abs(cents(steady(sound, await latency()), 220 * 2 ** (50 / 1200)))).toBeLessThan(3);
+  });
+
   it("transposes, keeping the formants (Formant) or moving them with the pitch; Throat moves them", async () => {
     const input = samples.get("high")!;
     const inputCentroid = centroid(input, 0.5 * RATE);

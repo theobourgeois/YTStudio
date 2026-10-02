@@ -15,6 +15,7 @@ import {
   PANMAN_PRESETS,
   PAN_FEEL_TICKS,
   PAN_LIMIT,
+  PAN_SHAPE_POINTS,
   normalizePanMan,
   normalizeShapeEvents,
   normalizeStepPoints,
@@ -206,6 +207,13 @@ export function panPattern(pm: PanMan): PanPattern | null {
     };
   }
   return null;
+}
+
+/** A pattern mode's pattern as `PAN_SHAPE_POINTS` positions evenly over it, its last at its end (an automation lane's: Smoothing, Feel or Groove moving). */
+export function panShape(pm: PanMan): number[] {
+  const pattern = panPattern(pm);
+  if (!pattern) return new Array<number>(PAN_SHAPE_POINTS).fill(0);
+  return Array.from({ length: PAN_SHAPE_POINTS }, (_, i) => pattern.value((i / (PAN_SHAPE_POINTS - 1)) * pattern.length));
 }
 
 /** Degrees for a position (-1..1) around the offset over the width, held to ±105 (`docs/soundtoys/panman.md`). */

@@ -12,9 +12,10 @@ import { useAutomationUi } from "./store";
  * A control that can be automated (a knob, a fader), as it shows (`docs/fl-studio/automation.md`): in song
  * mode, an automated one follows its curve where the song is (playing or not), unless the hand holds it;
  * elsewhere, and in pattern mode, it's its own value. `hold` and `release` go round a drag, so the engine
- * leaves its automation out while it's held.
+ * leaves its automation out while it's held. A control that turns by its automation's fraction (`scale`
+ * "fraction": a tapered knob, as OTT's Time or EchoBoy's cuts) is followed in that rather than its own units.
  */
-export function useAutomatedControl(target: AutomationTarget | undefined, own: number) {
+export function useAutomatedControl(target: AutomationTarget | undefined, own: number, scale: "control" | "fraction" = "control") {
   const key = target ? targetKey(target) : null;
   const targetRef = useRef(target);
   targetRef.current = target;
@@ -34,19 +35,23 @@ export function useAutomatedControl(target: AutomationTarget | undefined, own: n
       if (song && control) {
         const at = positionNow() ?? useTransport.getState().songStartTick;
         const fraction = controlAt(song, control, at);
-        const value = fraction === null ? null : controlOf(song, control).toControl(fraction);
+        const value = fraction === null ? null : scale === "fraction" ? fraction : controlOf(song, control).toControl(fraction);
         if (value !== last) setShown((last = value));
       }
       frame = requestAnimationFrame(update);
     };
     update();
     return () => cancelAnimationFrame(frame);
-  }, [following, key]);
+  }, [following, key, scale]);
 
   return {
     value: following && shown !== null ? shown : own,
     automated,
-    hold: () => key && useAutomationUi.getState().hold(key),
+    hold: () => {
+      if (!key || !targetRef.current) return;
+      useAutomationUi.getState().hold(key);
+      useAutomationUi.getState().touch(targetRef.current);
+    },
     release: () => key && useAutomationUi.getState().release(key),
   };
 }

@@ -5,6 +5,8 @@
 import { type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { CHOP_PATTERNS } from "./chop.ts";
 import { EXPORT_FORMATS } from "./export.ts";
+import { ECHO_TOOL_CONTROL_NAMES } from "./echo-boy-presets.ts";
+import { OTT_TOOL_CONTROL_NAMES } from "./ott-presets.ts";
 import { PANMAN_PRESETS, PAN_CURVES, PAN_MODES, PAN_RHYTHMS, PAN_STYLES } from "./panman-presets.ts";
 import { CURVE_TYPES } from "./types.ts";
 
@@ -30,6 +32,12 @@ const grossSlot = { description: "A slot: its number, 1 to 36, or its name (\"1/
 /** Which Auto-Tune a tool acts on. */
 const tuneRef = {
   effect: str("The Auto-Tune: its effect id (from get_mixer or get_auto_tune). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+/** Which OTT a tool acts on. */
+const ottRef = {
+  effect: str("The OTT: its effect id (from get_mixer or get_ott). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
@@ -85,6 +93,9 @@ const controlFields = {
       "volume slot",
       "time mix",
       "volume mix",
+      "gross attack",
+      "gross release",
+      "gross tension",
       "retune speed",
       "humanize",
       "flex-tune",
@@ -92,21 +103,32 @@ const controlFields = {
       "transpose",
       "throat",
       "key",
-      ...["eq frequency", "eq gain", "eq q", "eq range", "eq output"],
-      ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
+      ...["detune", "tracking", "vibrato rate", "vibrato onset delay", "vibrato onset rate", "vibrato variation", "vibrato pitch", "vibrato amplitude", "vibrato formant"],
+      ...["eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale"],
+      ...ECHO_TOOL_CONTROL_NAMES,
+      ...OTT_TOOL_CONTROL_NAMES,
       ...["panman offset", "panman width", "panman rate", "panman input", "panman output"],
+      ...["panman smoothing", "panman feel", "panman groove", "panman trigger", "panman divider", "panman cutoff", "panman filter gain", "panman threshold", "panman attack", "panman release", "panman offset mod", "panman width mod", "panman rate mod"],
       ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
     ],
     "Which control: a channel's or mixer track's volume or pan, a track's stereo separation, a send's level, an effect slot's mix, the main volume, " +
       "a plugin's own parameter, a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
-      "use hold curves, so each bar plays a slot: that's how chops are arranged), or its time or volume knob; an Auto-Tune's (likewise): " +
+      "use hold curves, so each bar plays a slot: that's how chops are arranged), its time or volume knob, or its attack and release " +
+      "(\"gross attack\", \"gross release\": seconds, 0 to 0.5 and 0 to 1) or tension (\"gross tension\", -1 to 1); an Auto-Tune's (likewise): " +
       "its retune speed (ms, 0 to 400), humanize and flex-tune (0 to 100), natural vibrato (dB, -12 to 12), transpose (semitones, -12 to 12), " +
-      "throat (50 to 180) or key (0 C .. 11 B, with hold curves: a key change); or an EchoBoy's (\"echo ...\": " +
+      "throat (50 to 180), key (0 C .. 11 B, with hold curves: a key change), detune (cents, -100 to 100), tracking (0 to 100), or " +
+      "Create Vibrato's (\"vibrato ...\": rate Hz 0.1 to 10, onset delay and onset rate ms 0 to 1500, variation 0 to 100, pitch cents 0 to 100, " +
+      "amplitude 0 to 30, formant 0 to 100); or an EchoBoy's (\"echo ...\": " +
       "mix and feedback 0 to 1, cuts in Hz, saturation 0 to 1, input and output dB, groove and feel -1 to 1, width 0 to 1, an echo time's " +
-      "knob 0 to 1: automating a Time echo bends its pitch like tape, a note value steps through 1/2 .. 1/64); " +
+      "knob 0 to 1: automating a Time echo bends its pitch like tape, a note value steps through 1/2 .. 1/64; and Tweak's, Rhythm Echo's and " +
+      "the Style Editor's knobs: offset, balance, accent, fb mix, fb balance, rhythm, rhythm shape, rhythm accent, low/mid/high freq, gain " +
+      "and decay, mid res, diffusion, diffusion size, wobble depth, rate and sync, decay sat, out sat, in their knobs' units); " +
       "or a Pro-Q's (the effect in `track`'s `slot`, \"eq ...\"): a band's (`band`) frequency (values in Hz: a filter sweep), gain or " +
-      "dynamic range (dB) or Q, or its output (dB); or a PanMan's (\"panman ...\": " +
-      "offset in degrees, -105 left to 105 right, width in degrees 0 to 210, LFO rate in Hz 0.01 to 10, input and output in dB -24 to 24); or a Pitch Wheel's (\"wheel ...\": " +
+      "dynamic range (dB) or Q, or its output (dB), pan (-1 to 1) or gain scale (0 to 2, 1 is 100%); or an OTT's (\"ott ...\"): depth 0 to 1, time 0 to 10 (1 is 100%), in and out gain dB, " +
+      "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB; or a PanMan's (\"panman ...\": " +
+      "offset in degrees, -105 left to 105 right, width in degrees 0 to 210, LFO rate in Hz 0.01 to 10, input and output in dB -24 to 24, " +
+      "smoothing 0 to 1, feel and groove -1 to 1, trigger and threshold dB -40 to 0, divider 1 to 12, cutoff Hz, filter gain dB, attack and " +
+      "release seconds, offset mod and width mod degrees, rate mod octaves); or a Pitch Wheel's (\"wheel ...\": " +
       "its pitch or timbre wheel in semitones, -24 to 24, snapped as the wheel snaps, its gravity, inertia and smooth followed as it moves, so a " +
       "jump with low gravity swings; or a wheel's gravity, inertia or smooth, 0 to 1).",
   ),
@@ -577,8 +599,9 @@ export const MUSIC_TOOLS = [
       "channel's notes, helium or giant voices with its Timbre wheel, tape slow-downs and swinging, springy pitch moves; set with " +
       "update_pitch_wheel), or " +
       "an effect plugin installed on this computer (list_plugins with kind \"effect\"), whose settings are its own, in its window, which the " +
-      "user opens from the mixer: you can't set them.",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"Pro-Q", "EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", "Pitch Wheel", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+      "user opens from the mixer: you can't set them. OTT (plugin \"OTT\": Xfer's multiband upward/downward compressor, the squashed, " +
+      "bright, loud sound; set with update_ott) is ours as well.",
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"Pro-Q", "OTT", "EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", "Pitch Wheel", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -682,6 +705,51 @@ export const MUSIC_TOOLS = [
       displayRange: int("±dB the display shows: 3, 6, 12 or 30."),
       preset: str("A factory preset's name (it replaces the bands): Default Setting, Flat 7 Bands, Equalize, Clean Low End, Kick Punch, Snare Crack, Overheads, Bass Definition, Mono Lows, Vocal Presence, De-Ess, Telephone, Radio, Lo-Fi, Air, Gentle Tilt, Mastering Clean-Up, Wide Highs."),
       ab: oneOf(["switch", "copy"], "Switch to the other A/B state, or copy this one to it."),
+    }),
+  }),
+  tool({
+    name: "get_ott",
+    title: "Read an OTT",
+    kind: "look",
+    description:
+      "An OTT (Xfer's multiband upward and downward compressor, ours, in a mixer track's slot): its depth, time, in and out gain, upward " +
+      "and downward strength, each band's (low below 88 Hz, mid, high above 2.5 kHz) threshold, gain and which compressors are on, where " +
+      "each band's upward and downward ranges start, and what it does to a band at a few levels; the presets.",
+    inputSchema: obj({ ...ottRef }),
+  }),
+  tool({
+    name: "update_ott",
+    title: "Change an OTT",
+    kind: "edit",
+    description:
+      "Set an OTT's knobs or load a preset. Depth is how much of it there is (0 leaves the sound alone; 0.2 to 0.5 is a common amount, " +
+      "1 is OTT's over-the-top default). Time scales the release (1 is OTT's own, 100%; lower pumps faster). In gain pushes the sound into " +
+      "the downward compression (more squash), out gain makes up level after. Upward lifts quiet sound, downward pushes loud sound down " +
+      "(each 0 to 2, 1 is 100%). Each band (low, mid, high) has a threshold (0 to 2, 1 is 100%: higher moves both its thresholds up, more " +
+      "lift for quiet sound and less push on loud), a gain (dB, -24 to 6), and its upward and downward compressors on or off.",
+    inputSchema: obj({
+      ...ottRef,
+      preset: str("A preset's name (it sets everything): Default, Gentle, Half, Upward only, Downward only, Bright, Sub tamer, Vocal glue, Drum smash, Pad bloom."),
+      depth: num("0 to 1."),
+      time: num("0 to 10 (1 is 100%, OTT's own)."),
+      input: num("In gain, dB, -24 to 19.1."),
+      output: num("Out gain, dB, -24 to 19.1."),
+      upward: num("Upward strength, 0 to 2 (1 is 100%)."),
+      downward: num("Downward strength, 0 to 2 (1 is 100%)."),
+      bands: arr(
+        obj(
+          {
+            band: oneOf(["low", "mid", "high"], "Which band."),
+            threshold: num("0 to 2 (1 is 100%)."),
+            gain: num("dB, -24 to 6."),
+            upward: bool("Its upward compressor on."),
+            downward: bool("Its downward compressor on."),
+          },
+          ["band"],
+          "A band's changes.",
+        ),
+        "Bands to change.",
+      ),
     }),
   }),
   tool({

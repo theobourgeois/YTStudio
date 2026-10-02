@@ -275,6 +275,36 @@ describe.skipIf(!existsSync(ENGINE))("PanMan, offline", () => {
     expect(degreesAt(sound, BAR / 2)).toBeCloseTo(0, 0);
   });
 
+  it("follows its automated Feel: the pattern played late (draggin'), sent whole", async () => {
+    let s = song({ mode: "rhythmStep", rhythm: "1/4", steps: 3, direction: "down", smoothing: 0 }, "long", [0, 4, 8, 12]);
+    s = editClips(s, (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: 384 }]).clips);
+    // Feel at its most (a sixteenth late) all through.
+    s = createAutomation(s, { kind: "panMan", effect: PAN, control: "feel" }, { start: 0, length: 384 }, { value: 1 }).song;
+    await play(s, "song");
+    await engine.command("play", {});
+    const sound = await hear(BAR);
+    // Each step a sixteenth late: just after the beat it's still the last one, then the next.
+    expect(Math.round(degreesAt(sound, BEAT + BEAT / 8))).toBe(90);
+    expect(Math.round(degreesAt(sound, BEAT + BEAT / 2))).toBe(0);
+    expect(Math.round(degreesAt(sound, 2 * BEAT + BEAT / 2))).toBe(-90);
+  });
+
+  it("follows its automated Threshold (the dynamics, gated): the automation's threshold is heard, not its own", async () => {
+    // The sound at -6 dBFS; its own threshold says one thing, the automation (all through) the other.
+    const at = async (own: number, automated: number) => {
+      let s = song({ width: 0, offsetMod: 90, gate: true, threshold: own, attack: 0, release: 0 });
+      s = editClips(s, (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: 384 }]).clips);
+      s = createAutomation(s, { kind: "panMan", effect: PAN, control: "threshold" }, { start: 0, length: 384 }, { value: (automated + 40) / 40 }).song;
+      await engine.command("stop", {});
+      await hear(RATE / 10);
+      await play(s, "song");
+      await engine.command("play", {});
+      return Math.round(degreesAt(await hear(BEAT / 4), 2000));
+    };
+    expect(await at(-3, -20)).toBe(90);
+    expect(await at(-20, -3)).toBe(0);
+  });
+
   it("colours the sound by its Analog Style: near the sound itself when quiet, each its own when driven", async () => {
     const levels: Record<string, number> = {};
     const peaks: Record<string, number> = {};

@@ -36,6 +36,8 @@ interface EchoKnobProps {
   bipolar?: boolean;
   size?: number;
   target?: AutomationTarget;
+  /** It turns by its automation's fraction (a tapered knob: the cuts). */
+  fraction?: boolean;
   edit: (song: MusicProject, value: number) => MusicProject;
   className?: string;
 }

@@ -144,7 +144,7 @@ Beat is", in our UI style). What was chosen, to check with him:
 | --- | --- | --- |
 | Triggering slots from MIDI notes, Key-held | Yes | Not yet: there's no MIDI routing to effects (MIDI input is step 5). Slots are picked by a click or automated |
 | Time and Volume knobs | The envelopes' mix levels | The same (how far each envelope moves things: 50% time is half the offset) |
-| Automating | Any knob or slot, an automation clip with Hold | The time and volume slots and the two mix knobs: Create automation clip from their menus |
+| Automating | Any knob or slot, an automation clip with Hold | The time and volume slots, the two mix knobs and ATT / REL / TNS: Create automation clip from their menus. The scratching clock is played live, not automated |
 | HOLD and the scratching clock | Parameters too | Live only (held by the hand, not recorded or exported) |
 | Open / Save state file, Undo history, Last reset | In the options menu | Copy / Paste state (between Gross Beats, and slots); the app's undo does the rest |
 | Create sequence, Analyze audio file | Yes | Not yet |

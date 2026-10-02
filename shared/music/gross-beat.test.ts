@@ -22,6 +22,7 @@ import {
   updateGrossBeat,
 } from "./gross-beat.ts";
 import { GROSS_BEAT_PLUGIN, GROSS_SLOTS, GROSS_TICKS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS, offsetValue } from "./gross-beat-presets.ts";
+import { MAX_GROSS_RELEASE } from "./gross-beat-presets.ts";
 import { setEffect } from "./mixer.ts";
 import { addClips, editClips } from "./playlist.ts";
 import { DEFAULT_GROSS_BEAT, FIRST_PATTERN_ID, createMusicProject, normalizeGrossBeat, normalizeMusicProject, normalizePoints } from "./project.ts";
@@ -253,6 +254,24 @@ describe("compiling", () => {
     expect(lane.values[lane.values.length - 1]).toBe(7);
     // In pattern mode, only the picked slot.
     expect(compileSong(song, P).tracks.find((t) => t.id === "insert_1")!.effects[0].grossBeat!.time.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("automates ATT, REL and TNS in their own units (seconds, -1..1)", () => {
+    let song = withGrossBeat();
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: BAR * 2 }]).clips);
+    const made = createAutomation(song, { kind: "grossBeat", effect: "fx_gross", control: "release" }, { start: 0, length: BAR }, { id: "auto_rel" });
+    song = editPoints(made.song, "auto_rel", () => [
+      { tick: 0, value: 0, tension: 0, curve: "single" },
+      { tick: BAR, value: 0.5, tension: 0, curve: "single" },
+    ]);
+    const lane = compileSong(song, P, null, "song").lanes.find((l) => l.target.kind === "gross")!;
+    expect(lane.target).toMatchObject({ kind: "gross", control: "release" });
+    expect(lane.values[0]).toBe(0);
+    expect(lane.values[lane.values.length - 1]).toBeCloseTo(0.5 * MAX_GROSS_RELEASE, 6);
+    const tension = controlOf(song, { kind: "grossBeat", effect: "fx_gross", control: "tension" });
+    expect(tension.own).toBe(0.5);
+    expect(tension.toControl(1)).toBe(1);
+    expect(controlOf(song, { kind: "grossBeat", effect: "fx_gross", control: "attack" }).format(1)).toBe("500 ms");
   });
 
   it("names its controls for automation clips", () => {

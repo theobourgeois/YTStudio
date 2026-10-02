@@ -56,6 +56,7 @@ import { drawMeter, drawShapeEditor, drawStepEditor, panColours } from "./draw";
 import { IO_LEDS, METER_LEDS, PAN_GRIDS, editorBox, gridTicks, hitEvent, hitPoint, ioLit, meterLeds } from "./geometry";
 import { type EditorTarget, shapeCursor, shapePointerDown, stepCursor, stepPointerDown } from "./pointer";
 import { usePanUi, usePanView } from "./store";
+import { AutomateTouched } from "../automation/touched";
 
 /** The window's width (it fits its content's height: the Tweak panel makes it taller). */
 const WIDTH = 720;
@@ -97,7 +98,7 @@ export function PanManWindow({ effectId, index }: { effectId: string; index: num
   }, [gone, effectId]);
   if (!effect || !pm) return null;
   return (
-    <MusicWindow id={panManWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} onClose={() => closePanMan(effectId)}>
+    <MusicWindow id={panManWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} onClose={() => closePanMan(effectId)} controls={<AutomateTouched effectId={effectId} />}>
       <div className="flex select-none flex-col text-xs" style={{ width: WIDTH }} data-testid="panman" data-effect={effectId} data-mode={pm.mode}>
         <PresetBar effectId={effectId} pm={pm} />
         <div className="flex items-stretch gap-2 bg-surface-1 p-2">
@@ -281,10 +282,10 @@ function CommonSection({ effectId, pm }: { effectId: string; pm: PanMan }) {
     <Section label="Position" className="flex-1 gap-2">
       <div className="flex items-start justify-around">
         {pm.mode === "rhythmStep" && (
-          <PanKnob name="Feel" ends={["Rush", "Drag"]} label="Feel" value={pm.feel} min={-1} max={1} defaultValue={0} bipolar format={feelText} unit={PERCENT} edit={(s, feel) => updatePanMan(s, effectId, { feel })} />
+          <PanKnob name="Feel" ends={["Rush", "Drag"]} label="Feel" value={pm.feel} min={-1} max={1} defaultValue={0} bipolar format={feelText} unit={PERCENT} target={{ kind: "panMan", effect: effectId, control: "feel" }} edit={(s, feel) => updatePanMan(s, effectId, { feel })} />
         )}
         {pm.mode === "rhythmShape" && (
-          <PanKnob name="Groove" ends={["Shuf", "Swng"]} label="Groove" value={pm.groove} min={-1} max={1} defaultValue={0} bipolar format={grooveText} unit={PERCENT} edit={(s, groove) => updatePanMan(s, effectId, { groove })} />
+          <PanKnob name="Groove" ends={["Shuf", "Swng"]} label="Groove" value={pm.groove} min={-1} max={1} defaultValue={0} bipolar format={grooveText} unit={PERCENT} target={{ kind: "panMan", effect: effectId, control: "groove" }} edit={(s, groove) => updatePanMan(s, effectId, { groove })} />
         )}
         <PanKnob
           name="Offset"
@@ -313,7 +314,7 @@ function CommonSection({ effectId, pm }: { effectId: string; pm: PanMan }) {
           target={{ kind: "panMan", effect: effectId, control: "width" }}
           edit={(s, width) => updatePanMan(s, effectId, { width })}
         />
-        <PanKnob name="Smoothing" ends={["Hard", "Soft"]} label="Smoothing" value={pm.smoothing} min={0} max={1} defaultValue={0.5} format={percent} unit={PERCENT} edit={(s, smoothing) => updatePanMan(s, effectId, { smoothing })} />
+        <PanKnob name="Smoothing" ends={["Hard", "Soft"]} label="Smoothing" value={pm.smoothing} min={0} max={1} defaultValue={0.5} format={percent} unit={PERCENT} target={{ kind: "panMan", effect: effectId, control: "smoothing" }} edit={(s, smoothing) => updatePanMan(s, effectId, { smoothing })} />
       </div>
       <PanMeter effectId={effectId} />
     </Section>
@@ -490,7 +491,7 @@ function TriggerControls({ effectId, pm }: { effectId: string; pm: PanMan }) {
   return (
     <div className="flex items-start gap-3">
       <div className="flex flex-col items-center gap-1">
-        <PanKnob name="Trigger" ends={["-40", "Off"]} label="Trigger" value={pm.trigger} min={MIN_PAN_LEVEL} max={0} defaultValue={-20} format={(v) => (v >= -0.01 ? "Off" : dbText(v))} unit={DB} edit={(s, trigger) => updatePanMan(s, effectId, { trigger })} />
+        <PanKnob name="Trigger" ends={["-40", "Off"]} label="Trigger" value={pm.trigger} min={MIN_PAN_LEVEL} max={0} defaultValue={-20} format={(v) => (v >= -0.01 ? "Off" : dbText(v))} unit={DB} target={{ kind: "panMan", effect: effectId, control: "trigger" }} edit={(s, trigger) => updatePanMan(s, effectId, { trigger })} />
         <LevelStrip effectId={effectId} at={pm.trigger} />
         <button type="button" className="h-6 rounded-sm px-2 text-[10px] font-semibold tracking-wider uppercase raised hover:raised-hover active:pressed" title="Manual Trigger: a trigger now (only while the sound is under the Trigger's level)" onClick={() => void manualTrigger(effectId)}>
           Trigger
@@ -507,6 +508,7 @@ function TriggerControls({ effectId, pm }: { effectId: string; pm: PanMan }) {
           defaultValue={1}
           format={(v) => `Every ${Math.round(v) === 1 ? "trigger" : `${Math.round(v)} triggers`}`}
           unit={WHOLE}
+          target={{ kind: "panMan", effect: effectId, control: "divider" }}
           edit={(s, divider) => updatePanMan(s, effectId, { divider: Math.round(divider) })}
         />
         <div className="flex gap-0.5" aria-label={`Count: ${count} of ${pm.divider}`} data-testid="panman-count">
@@ -639,14 +641,14 @@ function Dynamics({ effectId, pm }: { effectId: string; pm: PanMan }) {
   return (
     <Group title="Dynamics" className="flex-1">
       <div className="flex flex-col items-center gap-1">
-        <PanKnob name="Threshold" ends={["-40 dB", "0 dB"]} label="Threshold" value={pm.threshold} min={MIN_PAN_LEVEL} max={0} defaultValue={-20} format={dbText} unit={DB} edit={(s, threshold) => edit({ threshold })(s)} />
+        <PanKnob name="Threshold" ends={["-40 dB", "0 dB"]} label="Threshold" value={pm.threshold} min={MIN_PAN_LEVEL} max={0} defaultValue={-20} format={dbText} unit={DB} target={{ kind: "panMan", effect: effectId, control: "threshold" }} edit={(s, threshold) => edit({ threshold })(s)} />
         <LevelStrip effectId={effectId} at={pm.threshold} />
       </div>
-      <PanKnob name="Attack" ends={["Min", "Max"]} label="Attack" value={pm.attack} min={0} max={MAX_PAN_TIME} defaultValue={0.01} format={seconds} unit={MILLISECONDS} edit={(s, attack) => edit({ attack })(s)} />
-      <PanKnob name="Release" ends={["Min", "Max"]} label="Release" value={pm.release} min={0} max={MAX_PAN_TIME} defaultValue={0.2} format={seconds} unit={MILLISECONDS} edit={(s, release) => edit({ release })(s)} />
+      <PanKnob name="Attack" ends={["Min", "Max"]} label="Attack" value={pm.attack} min={0} max={MAX_PAN_TIME} defaultValue={0.01} format={seconds} unit={MILLISECONDS} target={{ kind: "panMan", effect: effectId, control: "attack" }} edit={(s, attack) => edit({ attack })(s)} />
+      <PanKnob name="Release" ends={["Min", "Max"]} label="Release" value={pm.release} min={0} max={MAX_PAN_TIME} defaultValue={0.2} format={seconds} unit={MILLISECONDS} target={{ kind: "panMan", effect: effectId, control: "release" }} edit={(s, release) => edit({ release })(s)} />
       <LedChoice label="Mode" value={pm.gate ? "gate" : "env"} options={[{ id: "env", name: "Env" }, { id: "gate", name: "Gate" }]} onChange={(v) => set(effectId, { gate: v === "gate" })} />
-      <PanKnob name="OffsetMod" ends={["Left", "Right"]} label="Offset Mod" value={pm.offsetMod} min={-PAN_LIMIT} max={PAN_LIMIT} defaultValue={0} bipolar format={signedDegrees} unit={DEGREES} edit={(s, offsetMod) => edit({ offsetMod })(s)} />
-      <PanKnob name="WidthMod" ends={["Slim", "Wide"]} label="Width Mod" value={pm.widthMod} min={-MAX_PAN_WIDTH} max={MAX_PAN_WIDTH} defaultValue={0} bipolar format={signedDegrees} unit={DEGREES} edit={(s, widthMod) => edit({ widthMod })(s)} />
+      <PanKnob name="OffsetMod" ends={["Left", "Right"]} label="Offset Mod" value={pm.offsetMod} min={-PAN_LIMIT} max={PAN_LIMIT} defaultValue={0} bipolar format={signedDegrees} unit={DEGREES} target={{ kind: "panMan", effect: effectId, control: "offsetMod" }} edit={(s, offsetMod) => edit({ offsetMod })(s)} />
+      <PanKnob name="WidthMod" ends={["Slim", "Wide"]} label="Width Mod" value={pm.widthMod} min={-MAX_PAN_WIDTH} max={MAX_PAN_WIDTH} defaultValue={0} bipolar format={signedDegrees} unit={DEGREES} target={{ kind: "panMan", effect: effectId, control: "widthMod" }} edit={(s, widthMod) => edit({ widthMod })(s)} />
       <PanKnob
         name="RateMod"
         ends={["Slow", "Fast"]}
@@ -658,7 +660,8 @@ function Dynamics({ effectId, pm }: { effectId: string; pm: PanMan }) {
         bipolar
         format={(v) => `${v > 0 ? "+" : ""}${v.toFixed(2)} oct`}
         unit={OCTAVES}
-        edit={(s, rateMod) => edit({ rateMod })(s)}
+        target={{ kind: "panMan", effect: effectId, control: "rateMod" }}
+          edit={(s, rateMod) => edit({ rateMod })(s)}
       />
     </Group>
   );
@@ -690,8 +693,8 @@ function TriggerFilter({ effectId, pm }: { effectId: string; pm: PanMan }) {
         ]}
         onChange={(filter) => set(effectId, { filter })}
       />
-      <PanKnob name="Cutoff" ends={["100Hz", "15kHz"]} label="Cutoff" value={pm.cutoff} min={MIN_PAN_CUTOFF} max={MAX_PAN_CUTOFF} defaultValue={1000} taper="log" format={(v) => (v < 1000 ? `${Math.round(v)} Hz` : `${(v / 1000).toFixed(1)} kHz`)} unit={{ scale: 1, unit: "Hz" }} edit={(s, cutoff) => edit({ cutoff })(s)} />
-      <PanKnob name="Gain" ends={["-20dB", "20dB"]} label="Filter gain" value={pm.filterGain} min={-MAX_PAN_FILTER_GAIN} max={MAX_PAN_FILTER_GAIN} defaultValue={0} bipolar format={dbText} unit={DB} edit={(s, filterGain) => edit({ filterGain })(s)} />
+      <PanKnob name="Cutoff" ends={["100Hz", "15kHz"]} label="Cutoff" value={pm.cutoff} min={MIN_PAN_CUTOFF} max={MAX_PAN_CUTOFF} defaultValue={1000} taper="log" format={(v) => (v < 1000 ? `${Math.round(v)} Hz` : `${(v / 1000).toFixed(1)} kHz`)} unit={{ scale: 1, unit: "Hz" }} target={{ kind: "panMan", effect: effectId, control: "cutoff" }} edit={(s, cutoff) => edit({ cutoff })(s)} />
+      <PanKnob name="Gain" ends={["-20dB", "20dB"]} label="Filter gain" value={pm.filterGain} min={-MAX_PAN_FILTER_GAIN} max={MAX_PAN_FILTER_GAIN} defaultValue={0} bipolar format={dbText} unit={DB} target={{ kind: "panMan", effect: effectId, control: "filterGain" }} edit={(s, filterGain) => edit({ filterGain })(s)} />
       <LedChoice label="Monitor" value={pm.monitor ? "on" : "off"} options={[{ id: "off", name: "Off" }, { id: "on", name: "On" }]} onChange={(v) => set(effectId, { monitor: v === "on" })} />
       <svg viewBox="0 0 120 48" className="h-12 w-[120px] self-center rounded-sm bg-surface-1 sunken" role="img" aria-label="The trigger filter's curve">
         <path d={`${curve} L120,48 L0,48 Z`} className="fill-brand/25 stroke-brand" strokeWidth={1.5} />

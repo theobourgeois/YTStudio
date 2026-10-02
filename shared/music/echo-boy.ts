@@ -11,7 +11,30 @@
  */
 import { clamp } from "../math.ts";
 import { findEffect } from "./automation.ts";
-import { HIGH_CUT_RANGE, LOW_CUT_RANGE, MAX_ECHO_BPM, MAX_ECHO_GAIN, MAX_ECHO_MS, MAX_RHYTHM_BEATS, MAX_TAPS, MIN_ECHO_BPM, evenTaps, maxTapSeconds, noteBeats, normalizeEchoBoy, normalizeTaps } from "./echo-boy-presets.ts";
+import {
+  EQ_GAIN_RANGE,
+  HIGH_CUT_RANGE,
+  HIGH_FREQ_RANGE,
+  LOW_CUT_RANGE,
+  LOW_FREQ_RANGE,
+  MAX_DIFFUSION_SIZE,
+  MAX_ECHO_BPM,
+  MAX_ECHO_GAIN,
+  MAX_ECHO_MS,
+  MAX_OFFSET,
+  MAX_RHYTHM_BEATS,
+  MAX_TAPS,
+  MAX_WOBBLE_DEPTH,
+  MID_FREQ_RANGE,
+  MID_RES_RANGE,
+  MIN_ECHO_BPM,
+  WOBBLE_RATE_RANGE,
+  evenTaps,
+  maxTapSeconds,
+  noteBeats,
+  normalizeEchoBoy,
+  normalizeTaps,
+} from "./echo-boy-presets.ts";
 import { ECHO_STYLES, decayDb, styleNamed } from "./echo-boy-styles.ts";
 import {
   ECHO_SATURATIONS,
@@ -547,6 +570,17 @@ export const ECHO_LANES = {
   output: (e: EngineEchoBoy) => [e.output],
   feel: (e: EngineEchoBoy) => [e.feel],
   side: (e: EngineEchoBoy) => [e.side],
+  outs: (e: EngineEchoBoy) => e.lines.flatMap((l) => l.out),
+  matrix: (e: EngineEchoBoy) => e.feedback,
+  // Every tap the engine can play, the unused silent (at the last one's delay, so one coming in doesn't sweep from nothing).
+  taps: (e: EngineEchoBoy) =>
+    Array.from({ length: MAX_TAPS }, (_, i) => {
+      const tap = e.taps[i];
+      return tap ? [tap.delay, tap.left, tap.right, tap.offset] : [e.taps[e.taps.length - 1]?.delay ?? 0, 0, 0, 0];
+    }).flat(),
+  eq: (e: EngineEchoBoy) => [...e.eq.low, ...e.eq.mid, ...e.eq.high],
+  diffusion: (e: EngineEchoBoy) => [e.diffusion.amount, e.diffusion.size],
+  wobble: (e: EngineEchoBoy) => [e.wobble.depth, e.wobble.rate, e.wobble.sync],
 } as const;
 export type EchoLane = keyof typeof ECHO_LANES;
 
@@ -556,8 +590,34 @@ export const LANES_OF: Record<EchoControl, readonly EchoLane[]> = {
   feedback: ["feedback"],
   echo1: ["delays"],
   echo2: ["delays"],
-  groove: ["delays"],
+  groove: ["delays", "taps"],
   width: ["side", "delays"],
+  offset: ["delays", "taps"],
+  balance: ["outs", "taps"],
+  accent: ["outs"],
+  accent2: ["outs"],
+  feedbackMix: ["matrix"],
+  feedbackBalance: ["matrix"],
+  rhythmTime: ["delays", "taps"],
+  rhythmShape: ["taps"],
+  rhythmAccent: ["taps"],
+  lowFreq: ["eq"],
+  lowGain: ["eq"],
+  lowDecay: ["eq"],
+  midFreq: ["eq"],
+  midRes: ["eq"],
+  midGain: ["eq"],
+  midDecay: ["eq"],
+  highFreq: ["eq"],
+  highGain: ["eq"],
+  highDecay: ["eq"],
+  diffusionAmount: ["diffusion"],
+  diffusionSize: ["diffusion"],
+  wobbleDepth: ["wobble"],
+  wobbleRate: ["wobble"],
+  wobbleSync: ["wobble"],
+  decaySat: ["saturation"],
+  outSat: ["saturation"],
   lowCut: ["lowCut"],
   highCut: ["highCut"],
   saturation: ["saturation"],
@@ -577,7 +637,8 @@ export const LANES_OF: Record<EchoControl, readonly EchoLane[]> = {
 export interface EchoControlSpec {
   name: string;
   get: (eb: EchoBoy) => number;
-  set: (eb: EchoBoy, value: number) => EchoBoy;
+  /** (The song's tempo: the Rhythm knob lays its taps out at it.) */
+  set: (eb: EchoBoy, value: number, songTempo?: number) => EchoBoy;
   toControl: (fraction: number) => number;
   fromControl: (value: number) => number;
   format: (value: number, eb: EchoBoy | null) => string;
@@ -592,6 +653,16 @@ const pct = (v: number) => `${Math.round(v * 100)}%`;
 const hz = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10_000 ? 1 : 2)} kHz` : `${Math.round(v)} Hz`);
 const db = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
 const sided = (left: string, right: string) => (v: number) => (Math.abs(v) < 0.005 ? "Centre" : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? left : right}`);
+
+/** The Rhythm knob's time at a fraction of its travel (as an echo's knob turns: ms, or a note value's step). */
+const rhythmKnobTime = (time: EchoTime, v: number): EchoTime =>
+  time.sync === "time" ? { ...time, ms: knobToMs(v) } : { ...time, note: NOTE_STEPS[Math.round(clamp(v, 0, 1) * (NOTE_STEPS.length - 1))] };
+const decayText = (v: number) => `${v.toFixed(0)} (${decayDb(v) > 0 ? "+" : ""}${decayDb(v).toFixed(2)} dB a repeat)`;
+
+/** A Style Editor knob: the style as it plays (`styleOf`), edited into the EchoBoy's own (`custom`). */
+function styleControl(name: string, get: (s: EchoStyle) => number, change: (s: EchoStyle, v: number) => EchoStyle, taper: Pick<EchoControlSpec, "toControl" | "fromControl">, format: (v: number) => string): EchoControlSpec {
+  return { name, get: (eb) => get(styleOf(eb)), set: (eb, v) => ({ ...eb, custom: change(styleOf(eb), v) }), ...taper, format };
+}
 
 /** An echo's knob (0..1): in Time, the log taper of its ms; in Note, Dot and Trip, its note value's step. */
 function echoKnob(key: "echo1" | "echo2"): Pick<EchoControlSpec, "get" | "set" | "format"> {
@@ -621,4 +692,36 @@ export const ECHO_CONTROL_SPECS: Record<EchoControl, EchoControlSpec> = {
   groove: { name: "Groove", get: (eb) => eb.groove, set: (eb, groove) => ({ ...eb, groove }), ...linear(-1, 1), format: sided("shuffle", "swing") },
   feel: { name: "Feel", get: (eb) => eb.feel, set: (eb, feel) => ({ ...eb, feel }), ...linear(-1, 1), format: sided("rushin'", "draggin'") },
   width: { name: "Width", get: (eb) => eb.width, set: (eb, width) => ({ ...eb, width }), ...linear(0, 1), format: pct },
+  offset: { name: "L/R Offset", get: (eb) => eb.offset, set: (eb, offset) => ({ ...eb, offset }), ...linear(0, MAX_OFFSET), format: (v) => `${v.toFixed(1)} ms` },
+  balance: { name: "Balance", get: (eb) => eb.balance, set: (eb, balance) => ({ ...eb, balance }), ...linear(-1, 1), format: sided("left", "right") },
+  accent: { name: "Accent", get: (eb) => eb.accent, set: (eb, accent) => ({ ...eb, accent }), ...linear(-1, 1), format: sided("even repeats", "odd repeats") },
+  accent2: { name: "Accent 2", get: (eb) => eb.accent2, set: (eb, accent2) => ({ ...eb, accent2 }), ...linear(-1, 1), format: sided("even repeats", "odd repeats") },
+  feedbackMix: { name: "FB Mix", get: (eb) => eb.feedbackMix, set: (eb, feedbackMix) => ({ ...eb, feedbackMix }), ...linear(0, 1), format: pct },
+  feedbackBalance: { name: "FB Bal", get: (eb) => eb.feedbackBalance, set: (eb, feedbackBalance) => ({ ...eb, feedbackBalance }), ...linear(-1, 1), format: sided("left", "right") },
+  rhythmTime: {
+    name: "Rhythm",
+    get: (eb) => (eb.rhythm.time.sync === "time" ? msToKnob(eb.rhythm.time.ms) : NOTE_STEPS.indexOf(eb.rhythm.time.note) / (NOTE_STEPS.length - 1)),
+    set: (eb, v, songTempo = 120) => ({ ...eb, rhythm: layOutRhythm(eb.rhythm, echoTempo(eb, songTempo), { time: rhythmKnobTime(eb.rhythm.time, v) }) }),
+    ...linear(0, 1),
+    format: (v, eb) => timeText(rhythmKnobTime(eb?.rhythm.time ?? { sync: "time", ms: 250, note: 8 }, v)),
+  },
+  rhythmShape: { name: "Shape", get: (eb) => eb.rhythm.shapeAmount, set: (eb, shapeAmount) => ({ ...eb, rhythm: { ...eb.rhythm, shapeAmount } }), ...linear(0, 1), format: pct },
+  rhythmAccent: { name: "Rhythm Accent", get: (eb) => eb.rhythm.accent, set: (eb, accent) => ({ ...eb, rhythm: { ...eb.rhythm, accent } }), ...linear(-1, 1), format: sided("even taps", "odd taps") },
+  lowFreq: styleControl("Low Freq", (s) => s.low.freq, (s, freq) => ({ ...s, low: { ...s.low, freq } }), logScale(LOW_FREQ_RANGE[0], LOW_FREQ_RANGE[1]), hz),
+  lowGain: styleControl("Low Gain", (s) => s.low.gain, (s, gain) => ({ ...s, low: { ...s.low, gain } }), linear(EQ_GAIN_RANGE[0], EQ_GAIN_RANGE[1]), db),
+  lowDecay: styleControl("Low Decay", (s) => s.low.decay, (s, decay) => ({ ...s, low: { ...s.low, decay } }), linear(EQ_GAIN_RANGE[0], EQ_GAIN_RANGE[1]), decayText),
+  midFreq: styleControl("Mid Freq", (s) => s.mid.freq, (s, freq) => ({ ...s, mid: { ...s.mid, freq } }), logScale(MID_FREQ_RANGE[0], MID_FREQ_RANGE[1]), hz),
+  midRes: styleControl("Mid Res", (s) => s.mid.res, (s, res) => ({ ...s, mid: { ...s.mid, res } }), linear(MID_RES_RANGE[0], MID_RES_RANGE[1]), (v) => v.toFixed(1)),
+  midGain: styleControl("Mid Gain", (s) => s.mid.gain, (s, gain) => ({ ...s, mid: { ...s.mid, gain } }), linear(EQ_GAIN_RANGE[0], EQ_GAIN_RANGE[1]), db),
+  midDecay: styleControl("Mid Decay", (s) => s.mid.decay, (s, decay) => ({ ...s, mid: { ...s.mid, decay } }), linear(EQ_GAIN_RANGE[0], EQ_GAIN_RANGE[1]), decayText),
+  highFreq: styleControl("High Freq", (s) => s.high.freq, (s, freq) => ({ ...s, high: { ...s.high, freq } }), logScale(HIGH_FREQ_RANGE[0], HIGH_FREQ_RANGE[1]), hz),
+  highGain: styleControl("High Gain", (s) => s.high.gain, (s, gain) => ({ ...s, high: { ...s.high, gain } }), linear(EQ_GAIN_RANGE[0], EQ_GAIN_RANGE[1]), db),
+  highDecay: styleControl("High Decay", (s) => s.high.decay, (s, decay) => ({ ...s, high: { ...s.high, decay } }), linear(EQ_GAIN_RANGE[0], EQ_GAIN_RANGE[1]), decayText),
+  diffusionAmount: styleControl("Diffusion", (s) => s.diffusion.amount, (s, amount) => ({ ...s, diffusion: { ...s.diffusion, amount } }), linear(0, 1), pct),
+  diffusionSize: styleControl("Diffusion Size", (s) => s.diffusion.size, (s, size) => ({ ...s, diffusion: { ...s.diffusion, size } }), linear(0, MAX_DIFFUSION_SIZE), (v) => v.toFixed(1)),
+  wobbleDepth: styleControl("Wobble Depth", (s) => s.wobble.depth, (s, depth) => ({ ...s, wobble: { ...s.wobble, depth } }), linear(0, MAX_WOBBLE_DEPTH), (v) => `${v.toFixed(1)} cents`),
+  wobbleRate: styleControl("Wobble Rate", (s) => s.wobble.rate, (s, rate) => ({ ...s, wobble: { ...s.wobble, rate } }), logScale(WOBBLE_RATE_RANGE[0], WOBBLE_RATE_RANGE[1]), (v) => `${v.toFixed(2)} Hz`),
+  wobbleSync: styleControl("Wobble Sync", (s) => s.wobble.sync, (s, sync) => ({ ...s, wobble: { ...s.wobble, sync } }), linear(-1, 1), sided("rates apart", "phases apart")),
+  decaySat: styleControl("Decay Sat", (s) => s.saturation.decay, (s, decay) => ({ ...s, saturation: { ...s.saturation, decay } }), linear(-MAX_ECHO_GAIN, MAX_ECHO_GAIN), db),
+  outSat: styleControl("Out Sat", (s) => s.saturation.out, (s, out) => ({ ...s, saturation: { ...s.saturation, out } }), linear(-MAX_ECHO_GAIN, MAX_ECHO_GAIN), db),
 };

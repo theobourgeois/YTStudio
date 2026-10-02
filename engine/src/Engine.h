@@ -97,6 +97,8 @@ private:
     echo::Registry echoBoys;
     /** Its Pro-Qs' sounds, likewise. */
     eq::Registry eqs;
+    /** Its OTTs' sounds, likewise. */
+    ott::Registry otts;
     /** Its PanMen's sounds, likewise. */
     panman::Registry panMen;
     /** Its Pitch Wheels' sounds, by effect id. */

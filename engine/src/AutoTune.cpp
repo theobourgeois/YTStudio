@@ -94,7 +94,17 @@ void Settings::setControl (int control, float value)
         case 3: vibratoGain = juce::jlimit (0.0, 4.0, (double) value); break;
         case 4: transpose = juce::jlimit (-24.0, 24.0, (double) value); break;
         case 5: throat = juce::jlimit (minStretch, maxStretch, (double) value); break;
-        default: keyNow = juce::jlimit (0, 11, (int) std::lround (value)); break;
+        case 6: keyNow = juce::jlimit (0, 11, (int) std::lround (value)); break;
+        // Detune (A4 in Hz), Tracking (YIN's threshold), and Create Vibrato's (`AutoTuneControl`'s order).
+        case 7: reference = juce::jlimit (400.0, 480.0, (double) value); break;
+        case 8: threshold = juce::jlimit (0.01, 0.6, (double) value); break;
+        case 9: rate = juce::jlimit (0.1, 10.0, (double) value); break;
+        case 10: delay = juce::jlimit (0.0, 1.5, (double) value); break;
+        case 11: onset = juce::jlimit (0.0, 1.5, (double) value); break;
+        case 12: variation = juce::jlimit (0.0, 1.0, (double) value); break;
+        case 13: depth = juce::jlimit (0.0, 1.0, (double) value); break;
+        case 14: amplitude = juce::jlimit (0.0, 1.0, (double) value); break;
+        default: formantDepth = juce::jlimit (0.0, 1.0, (double) value); break;
     }
 }
 

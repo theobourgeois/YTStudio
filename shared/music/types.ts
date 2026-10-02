@@ -139,9 +139,8 @@ export interface Pattern {
  * An effect in a mixer track's slot: an effect plugin, or one of ours, whose settings are in the song
  * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
  * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pro-Q: `PRO_Q_PLUGIN` and
- * `proQ`; PanMan: `PANMAN_PLUGIN` and `panMan`).
- * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pitch Wheel:
- * `PITCH_WHEEL_PLUGIN` and `pitchWheel`).
+ * `proQ`; PanMan: `PANMAN_PLUGIN` and `panMan`; Pitch Wheel: `PITCH_WHEEL_PLUGIN` and `pitchWheel`; OTT:
+ * `OTT_PLUGIN` and `ott`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -159,10 +158,48 @@ export interface MixerEffect {
   autoTune?: AutoTune;
   /** Pro-Q's settings, on a Pro-Q (absent on a plugin). */
   proQ?: ProQ;
+  /** OTT's settings, on an OTT (absent on a plugin). */
+  ott?: Ott;
   /** PanMan's settings, on a PanMan (absent on a plugin). */
   panMan?: PanMan;
   /** Pitch Wheel's settings, on a Pitch Wheel (absent on a plugin). */
   pitchWheel?: PitchWheel;
+}
+
+/** OTT's bands (`docs/xfer/ott.md`), low to high: split at 88.3 Hz and 2.5 kHz. Its display shows them high first (H, M, L). */
+export const OTT_BANDS = ["low", "mid", "high"] as const;
+export type OttBandName = (typeof OTT_BANDS)[number];
+
+/** One of OTT's bands: its threshold (the gap dragged in its row), its gain, and its two compressors' switches. */
+export interface OttBand {
+  /** 0..2 (100% at 1): moves both of its thresholds together, ±23 to 24 dB. */
+  threshold: number;
+  /** dB, after it (the H / M / L gains). */
+  gain: number;
+  /** Its upward compressor (brown) and downward one (green) on: Ctrl+click turns either off. */
+  upward: boolean;
+  downward: boolean;
+}
+
+/**
+ * OTT's settings (`docs/xfer/ott.md`), Xfer's multiband upward and downward compressor, ours. Its
+ * knobs in their own units; what they mean to the sound is `engineOtt`'s.
+ */
+export interface Ott {
+  /** The preset last chosen (`OTT_PRESETS` by name), null once it's been changed by hand. */
+  preset: string | null;
+  /** 0..1: how much of it there is (its slopes and makeup, not a dry / wet). */
+  depth: number;
+  /** 0..10 (OTT's 0..1000%): the bands' release, 1 is OTT's own. */
+  time: number;
+  /** dB: In Gain (into the bands) and Out Gain (after them). */
+  input: number;
+  output: number;
+  /** 0..2 (100% at 1): the upward compressors' and downward ones' strength (Upwd%, Dnwd%). */
+  upward: number;
+  downward: number;
+  /** Low, mid and high (`OTT_BANDS`' order). */
+  bands: [OttBand, OttBand, OttBand];
 }
 
 /** What a Pitch Wheel's dial spans, in semitones, from one end to the other (QuikQuak's Range). */
@@ -804,7 +841,47 @@ export interface EchoBoy {
 }
 
 /** EchoBoy's controls an automation clip can drive. */
-export const ECHO_CONTROLS = ["mix", "feedback", "echo1", "echo2", "lowCut", "highCut", "saturation", "input", "output", "groove", "feel", "width"] as const;
+/** EchoBoy's controls an automation clip can drive: every knob, the front's, Tweak's, Rhythm Echo's and the Style Editor's. */
+export const ECHO_CONTROLS = [
+  "mix",
+  "feedback",
+  "echo1",
+  "echo2",
+  "lowCut",
+  "highCut",
+  "saturation",
+  "input",
+  "output",
+  "groove",
+  "feel",
+  "width",
+  "offset",
+  "balance",
+  "accent",
+  "accent2",
+  "feedbackMix",
+  "feedbackBalance",
+  "rhythmTime",
+  "rhythmShape",
+  "rhythmAccent",
+  "lowFreq",
+  "lowGain",
+  "lowDecay",
+  "midFreq",
+  "midRes",
+  "midGain",
+  "midDecay",
+  "highFreq",
+  "highGain",
+  "highDecay",
+  "diffusionAmount",
+  "diffusionSize",
+  "wobbleDepth",
+  "wobbleRate",
+  "wobbleSync",
+  "decaySat",
+  "outSat",
+] as const;
 export type EchoControl = (typeof ECHO_CONTROLS)[number];
 
 /**
@@ -821,6 +898,7 @@ export type AutomationTarget =
   | { kind: "autoTune"; effect: string; control: AutoTuneControl }
   | { kind: "echoBoy"; effect: string; control: EchoControl }
   | { kind: "proQ"; effect: string; band: number; control: EqControl }
+  | { kind: "ott"; effect: string; control: OttControl }
   | { kind: "panMan"; effect: string; control: PanControl }
   | { kind: "pitchWheel"; effect: string; control: PitchWheelControl }
   | { kind: "main" }
@@ -835,17 +913,59 @@ export type AutomationTarget =
       name: string;
     };
 
-/** Gross Beat's controls an automation clip can drive: the slots playing and the two mix knobs. */
-export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";
+/** Gross Beat's controls an automation clip can drive: the slots playing, the two mix knobs, and ATT, REL and TNS. */
+export const GROSS_CONTROLS = ["timeSlot", "volumeSlot", "timeMix", "volumeMix", "attack", "release", "tension"] as const;
+export type GrossControl = (typeof GROSS_CONTROLS)[number];
 
-/** Auto-Tune's controls an automation clip can drive (the key too, for a song that changes key). */
-export const AUTO_TUNE_CONTROLS = ["retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key"] as const;
+/** Auto-Tune's controls an automation clip can drive: every knob (the key too, for a song that changes key), Create Vibrato's included. */
+export const AUTO_TUNE_CONTROLS = [
+  "retuneSpeed",
+  "humanize",
+  "flexTune",
+  "naturalVibrato",
+  "transpose",
+  "throat",
+  "key",
+  "detune",
+  "tracking",
+  "vibratoRate",
+  "vibratoDelay",
+  "vibratoOnset",
+  "vibratoVariation",
+  "vibratoPitch",
+  "vibratoAmplitude",
+  "vibratoFormant",
+] as const;
 export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
 /** PanMan's controls an automation clip can drive. */
-export type PanControl = "offset" | "width" | "rate" | "input" | "output";
+export type PanControl =
+  | "offset"
+  | "width"
+  | "rate"
+  | "input"
+  | "output"
+  | "smoothing"
+  | "feel"
+  | "groove"
+  | "trigger"
+  | "divider"
+  | "cutoff"
+  | "filterGain"
+  | "threshold"
+  | "attack"
+  | "release"
+  | "offsetMod"
+  | "widthMod"
+  | "rateMod";
 
-/** A Pro-Q band's controls an automation clip can drive (band 0 is its output). */
-export type EqControl = "frequency" | "gain" | "q" | "range" | "output";
+/** OTT's controls an automation clip can drive: every knob, and each band's threshold (its row's gap). */
+export const OTT_CONTROLS = ["depth", "time", "input", "output", "upward", "downward", "lowThreshold", "midThreshold", "highThreshold", "lowGain", "midGain", "highGain"] as const;
+export type OttControl = (typeof OTT_CONTROLS)[number];
+
+/** A Pro-Q band's controls an automation clip can drive; and its own (band 0): its output, pan and Gain Scale. */
+export type EqControl = "frequency" | "gain" | "q" | "range" | "output" | "pan" | "gainScale";
+/** Pro-Q's controls that are its own, not a band's (their targets' band is 0). */
+export const EQ_OWN_CONTROLS = ["output", "pan", "gainScale"] as const satisfies readonly EqControl[];
 
 /** Pitch Wheel's controls an automation clip can drive: both wheels, and each one's knobs. */
 export const PITCH_WHEEL_CONTROLS = ["pitch", "timbre", "pitchGravity", "pitchInertia", "pitchSmooth", "timbreGravity", "timbreInertia", "timbreSmooth"] as const;

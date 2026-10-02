@@ -11,7 +11,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, setSteps } from "../../shared/music/edits.ts";
+import { createAutomation, editPoints } from "../../shared/music/automation.ts";
 import { setEffect } from "../../shared/music/mixer.ts";
+import { addClips, editClips } from "../../shared/music/playlist.ts";
 import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "../../shared/music/project.ts";
 import { editProQ } from "../../shared/music/pro-q.ts";
 import { bandSections, playedBand, responseAt } from "../../shared/music/pro-q-filters.ts";
@@ -270,5 +272,32 @@ describe.skipIf(!existsSync(ENGINE))("Pro-Q, offline", () => {
     expect(measure(sound.channels[0], 1000).db).toBeCloseTo(0, 0);
     expect(measure(sound.channels[0], 60).db).toBeLessThan(-20);
     await engine.command("eqSolo", { effect: EQ, band: null });
+  });
+
+  it("plays its automated Gain Scale and pan in song mode", async () => {
+    // A bell +12 dB at 1 kHz on the quiet sine; Gain Scale automated from 0% (flat) for half a second, then 100%; pan hard left after a second.
+    let s = song((pq) => ({ ...pq, bands: [band(1, { frequency: 1000, gain: 12, q: 1 })] }), "quiet");
+    s = editClips(s, (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: 384 }]).clips);
+    const scale = createAutomation(s, { kind: "proQ", effect: EQ, band: 0, control: "gainScale" }, { start: 0, length: 384 });
+    s = editPoints(scale.song, scale.automationId, () => [
+      { tick: 0, value: 0, tension: 0, curve: "single" },
+      { tick: 96, value: 0, tension: 0, curve: "single" },
+      { tick: 96, value: 0.5, tension: 0, curve: "single" },
+    ]);
+    const pan = createAutomation(s, { kind: "proQ", effect: EQ, band: 0, control: "pan" }, { start: 0, length: 384 });
+    s = editPoints(pan.song, pan.automationId, () => [
+      { tick: 0, value: 0.5, tension: 0, curve: "single" },
+      { tick: 192, value: 0.5, tension: 0, curve: "single" },
+      { tick: 192, value: 0, tension: 0, curve: "single" },
+    ]);
+    await engine.setSong({ projectId: PROJECT, song: s, patternId: P, mode: "song" });
+    await hear(RATE / 5);
+    await engine.command("play", {});
+    const sound = await hear(RATE * 1.5);
+    const rms = (ch: number, from: number, to: number) => Math.sqrt(sound.channels[ch].slice(from * RATE, to * RATE).reduce((sum, v) => sum + v * v, 0) / ((to - from) * RATE));
+    // Flat, then 12 dB up at 1 kHz.
+    expect(20 * Math.log10(rms(0, 0.6, 0.95) / rms(0, 0.1, 0.45))).toBeCloseTo(12, 0);
+    // Panned hard left: the right silent.
+    expect(rms(1, 1.1, 1.45)).toBeLessThan(rms(0, 1.1, 1.45) / 100);
   });
 });

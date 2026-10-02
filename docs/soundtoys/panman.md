@@ -230,7 +230,7 @@ researched closely, in our UI). What was chosen, to check with him:
 | --- | --- | --- |
 | Look | Black panel, walnut cheeks, red LCDs, amber buttons | The app's surfaces, knobs and LCDs; the meter's LEDs in its colours |
 | Manual Trigger from MIDI | Yes | A click on its button (live: not recorded or exported). There's no MIDI routing to effects |
-| Automation | Any parameter (the host's) | Offset, Width, Rate, Input and Output: Create automation clip from their menus |
+| Automation | Any parameter (the host's) | Every knob (Offset, Width, Smoothing, Feel, Groove, Rate, Trigger, Divider, the filter's Cutoff and Gain, the dynamics' Threshold, Attack, Release and mods, Input, Output): Create automation clip from their menus. Not the switches and menus |
 | Saving shape presets and plugin presets (the floppy) | Files | Not yet: the factory presets, and Copy / Paste of the whole PanMan |
 | Shape presets | Factory files | The rhythms: picking one makes the pattern the knobs make for it |
 | Undo | Host's | The app's: every change is one step |
@@ -250,9 +250,12 @@ researched closely, in our UI). What was chosen, to check with him:
   the pattern (`enginePanMan`, `sampleLane`, within a 500th of the width). The edits (`updatePanMan`,
   `loadPanPreset`, `editStepPoints` and `editShapeEvents`, which make the knobs' pattern the PanMan's own
   the first time, and the editors' pure point and event edits) all return the same song when nothing changes.
-- **Automation**: `AutomationTarget` `panMan` (offset, width, rate along a log scale, input, output); lanes of
-  kind `panman` set at each slice's start, the offset and width as fractions of 105° and 210°
-  (`PAN_LANE_SCALE`: the engine's lanes hold values within ±64).
+- **Automation**: `AutomationTarget` `panMan`, every knob (`PAN_CONTROLS`: ranges, the rate's and cutoff's
+  log scales); lanes of kind `panman` set at each slice's start, the offset, width and mods as fractions of
+  105° and 210°, the cutoff in kHz (`PAN_LANE_SCALE`: lanes hold values within ±64). Feel and Groove only
+  shape the pattern, as Smoothing does in the pattern modes: automated, the pattern itself is a lane
+  (`shape`, `PAN_SHAPE_POINTS` evenly over it, `panShape`), and the song's comes back when it stops
+  (`panman::Settings::setShape`, `restoreShape`, in room made when the song is parsed).
 - **The engine** (`engine/src/PanMan.cpp`): a native effect in its slot (bypass, the slot's mix; no delay).
   `panman::State`, kept across songs by the effect's id (`panman::Registry`; the export has its own), runs
   per sample: Input, the mono sum, the dynamics' follower and amount, the trigger's filter (RBJ) and
@@ -269,5 +272,5 @@ researched closely, in our UI). What was chosen, to check with him:
   and the meters', tested), `actions.ts` (presets, Revert, Copy / Paste state, Tap Tempo, the Manual
   Trigger), `store.ts` (open windows, each one's Tweak, bar and grid), `tool-edits.ts` (the assistant's
   `get_panman`, `update_panman`, `set_panman_pattern`; `add_mixer_effect` takes "PanMan", and
-  `add_automation` its "panman offset", "panman width", "panman rate", "panman input", "panman output").
+  `add_automation` its "panman ..." controls, every knob).
   The Rate and Cutoff knobs turn along a log scale (`Knob`'s `taper`).

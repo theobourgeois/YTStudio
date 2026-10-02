@@ -57,7 +57,19 @@ enum class Control
     input,
     output,
     feel,
-    side
+    side,
+    /** Each line's gains to the output's sides (two a line): Balance and Accent. */
+    outs,
+    /** The feedback matrix (lines × lines): FB Mix and FB Bal. */
+    matrix,
+    /** Every tap (four each: delay, left, right, offset), all `maxTaps` of them, the unused silent. */
+    taps,
+    /** The Style Editor's EQ: low freq, gain, decay; mid freq, Q, gain, decay; high freq, gain, decay. */
+    eq,
+    /** Diffusion's amount and size. */
+    diffusion,
+    /** Wobble's depth, rate and sync. */
+    wobble
 };
 
 /**

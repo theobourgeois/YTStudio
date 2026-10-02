@@ -8,6 +8,7 @@ import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import { AUTO_TUNE_PLUGIN, isAutoTune, normalizeAutoTune } from "./auto-tune-presets.ts";
 import { ECHO_BOY_PLUGIN, isEchoBoy, normalizeEchoBoy } from "./echo-boy-presets.ts";
+import { OTT_PLUGIN, isOtt, normalizeOtt } from "./ott-presets.ts";
 import {
   DEFAULT_ANALYZER,
   DEFAULT_BAND,
@@ -43,6 +44,8 @@ import {
   type Channel,
   type CurveType,
   ECHO_CONTROLS,
+  OTT_CONTROLS,
+  type OttControl,
   type EchoControl,
   type Envelope,
   EQ_MODES,
@@ -61,6 +64,7 @@ import {
   type ProQState,
   type GrossBeat,
   type GrossBeatSlot,
+  GROSS_CONTROLS,
   type GrossControl,
   type GrossHold,
   type PanControl,
@@ -451,6 +455,7 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   if (isAutoTune(plugin)) return { ...effect, plugin: AUTO_TUNE_PLUGIN, autoTune: normalizeAutoTune(input.autoTune) };
   if (isEchoBoy(plugin)) return { ...effect, plugin: ECHO_BOY_PLUGIN, echoBoy: normalizeEchoBoy(input.echoBoy) };
   if (isProQ(plugin)) return { ...effect, plugin: PRO_Q_PLUGIN, proQ: normalizeProQ(input.proQ) };
+  if (isOtt(plugin)) return { ...effect, plugin: OTT_PLUGIN, ott: normalizeOtt(input.ott) };
   if (isPanMan(plugin)) return { ...effect, plugin: PANMAN_PLUGIN, panMan: normalizePanMan(input.panMan) };
   if (isPitchWheel(plugin)) return { ...effect, plugin: PITCH_WHEEL_PLUGIN, pitchWheel: normalizePitchWheel(input.pitchWheel) };
   return effect;
@@ -684,8 +689,7 @@ const CONTROLS = {
  * An automation clip's target, if it's one. Its control may be gone (a channel deleted): it's kept, and
  * drives nothing, so undoing the deletion brings it all back.
  */
-const GROSS_CONTROLS: readonly GrossControl[] = ["timeSlot", "volumeSlot", "timeMix", "volumeMix"];
-const EQ_CONTROLS: readonly EqControl[] = ["frequency", "gain", "q", "range", "output"];
+const EQ_CONTROLS: readonly EqControl[] = ["frequency", "gain", "q", "range", "output", "pan", "gainScale"];
 
 export function normalizeTarget(raw: unknown): AutomationTarget | null {
   if (!isObject(raw)) return null;
@@ -708,6 +712,8 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.effect) && AUTO_TUNE_CONTROLS.includes(raw.control as AutoTuneControl) ? { kind: "autoTune", effect: raw.effect, control: raw.control as AutoTuneControl } : null;
     case "echoBoy":
       return isId(raw.effect) && ECHO_CONTROLS.includes(raw.control as EchoControl) ? { kind: "echoBoy", effect: raw.effect, control: raw.control as EchoControl } : null;
+    case "ott":
+      return isId(raw.effect) && OTT_CONTROLS.includes(raw.control as OttControl) ? { kind: "ott", effect: raw.effect, control: raw.control as OttControl } : null;
     case "panMan":
       return isId(raw.effect) && PAN_CONTROL_IDS.includes(raw.control as PanControl) ? { kind: "panMan", effect: raw.effect, control: raw.control as PanControl } : null;
     case "pitchWheel":

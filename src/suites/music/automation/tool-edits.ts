@@ -22,7 +22,9 @@ import {
 } from "@shared/music/automation";
 import { clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
-import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject, type PitchWheelControl } from "@shared/music/types";
+import { ECHO_TOOL_CONTROLS, ECHO_TOOL_CONTROL_NAMES, type EchoToolControl } from "@shared/music/echo-boy-presets";
+import { OTT_HINTS, OTT_TOOL_CONTROLS, OTT_TOOL_CONTROL_NAMES, type OttToolControl } from "@shared/music/ott-presets";
+import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject, type PanControl, type PitchWheelControl } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
 import { type EditResult, findChannel } from "../tool-edits";
 
@@ -53,6 +55,9 @@ export const CONTROLS = [
   "volume slot",
   "time mix",
   "volume mix",
+  "gross attack",
+  "gross release",
+  "gross tension",
   "retune speed",
   "humanize",
   "flex-tune",
@@ -60,13 +65,28 @@ export const CONTROLS = [
   "transpose",
   "throat",
   "key",
-  ...["eq frequency", "eq gain", "eq q", "eq range", "eq output"],
-  ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
+  ...["detune", "tracking", "vibrato rate", "vibrato onset delay", "vibrato onset rate", "vibrato variation", "vibrato pitch", "vibrato amplitude", "vibrato formant"],
+  ...["eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale"],
+  ...ECHO_TOOL_CONTROL_NAMES,
+  ...OTT_TOOL_CONTROL_NAMES,
   "panman offset",
   "panman width",
   "panman rate",
   "panman input",
   "panman output",
+  "panman smoothing",
+  "panman feel",
+  "panman groove",
+  "panman trigger",
+  "panman divider",
+  "panman cutoff",
+  "panman filter gain",
+  "panman threshold",
+  "panman attack",
+  "panman release",
+  "panman offset mod",
+  "panman width mod",
+  "panman rate mod",
   ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
 ] as const;
 
@@ -82,27 +102,20 @@ const WHEEL_CONTROL_NAMES: Record<string, PitchWheelControl> = {
   "wheel timbre smooth": "timbreSmooth",
 };
 
-/** An EchoBoy's controls, as the tool names them. */
-const ECHO_CONTROL_NAMES: Record<string, EchoControl> = {
-  "echo mix": "mix",
-  "echo feedback": "feedback",
-  "echo time 1": "echo1",
-  "echo time 2": "echo2",
-  "echo low cut": "lowCut",
-  "echo high cut": "highCut",
-  "echo saturation": "saturation",
-  "echo input": "input",
-  "echo output": "output",
-  "echo groove": "groove",
-  "echo feel": "feel",
-  "echo width": "width",
-};
 
 /** A Pro-Q's controls, as the tool names them. */
-const EQ_TOOL_CONTROLS = { "eq frequency": "frequency", "eq gain": "gain", "eq q": "q", "eq range": "range", "eq output": "output" } as const;
+const EQ_TOOL_CONTROLS = { "eq frequency": "frequency", "eq gain": "gain", "eq q": "q", "eq range": "range", "eq output": "output", "eq pan": "pan", "eq gain scale": "gainScale" } as const;
 
 /** A Gross Beat's controls, as the tool names them. */
-const GROSS_CONTROLS = { "time slot": "timeSlot", "volume slot": "volumeSlot", "time mix": "timeMix", "volume mix": "volumeMix" } as const;
+const GROSS_CONTROLS = {
+  "time slot": "timeSlot",
+  "volume slot": "volumeSlot",
+  "time mix": "timeMix",
+  "volume mix": "volumeMix",
+  "gross attack": "attack",
+  "gross release": "release",
+  "gross tension": "tension",
+} as const;
 /** An Auto-Tune's controls, as the tool names them. */
 const TUNE_CONTROLS = {
   "retune speed": "retuneSpeed",
@@ -112,11 +125,39 @@ const TUNE_CONTROLS = {
   transpose: "transpose",
   throat: "throat",
   key: "key",
+  detune: "detune",
+  tracking: "tracking",
+  "vibrato rate": "vibratoRate",
+  "vibrato onset delay": "vibratoDelay",
+  "vibrato onset rate": "vibratoOnset",
+  "vibrato variation": "vibratoVariation",
+  "vibrato pitch": "vibratoPitch",
+  "vibrato amplitude": "vibratoAmplitude",
+  "vibrato formant": "vibratoFormant",
 } as const satisfies Record<string, AutoTuneControl>;
 /** Auto-Tune's controls the model gives as 0 to 100 (Auto-Tune's own numbers), kept as 0..1 (throat 0.5..1.8). */
-const HUNDREDTHS: readonly AutoTuneControl[] = ["humanize", "flexTune", "throat"];
+const HUNDREDTHS: readonly AutoTuneControl[] = ["humanize", "flexTune", "throat", "tracking", "vibratoVariation", "vibratoAmplitude", "vibratoFormant"];
 /** A PanMan's controls, likewise. */
-const PAN_CONTROLS_BY_NAME = { "panman offset": "offset", "panman width": "width", "panman rate": "rate", "panman input": "input", "panman output": "output" } as const;
+const PAN_CONTROLS_BY_NAME = {
+  "panman offset": "offset",
+  "panman width": "width",
+  "panman rate": "rate",
+  "panman input": "input",
+  "panman output": "output",
+  "panman smoothing": "smoothing",
+  "panman feel": "feel",
+  "panman groove": "groove",
+  "panman trigger": "trigger",
+  "panman divider": "divider",
+  "panman cutoff": "cutoff",
+  "panman filter gain": "filterGain",
+  "panman threshold": "threshold",
+  "panman attack": "attack",
+  "panman release": "release",
+  "panman offset mod": "offsetMod",
+  "panman width mod": "widthMod",
+  "panman rate mod": "rateMod",
+} as const satisfies Record<string, PanControl>;
 
 /** A mixer effect's slot, 1 to 10, on a track: the effect there, or an error saying which slots hold one. */
 function effectAt(song: MusicProject, input: Input) {
@@ -161,7 +202,10 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "time slot":
     case "volume slot":
     case "time mix":
-    case "volume mix": {
+    case "volume mix":
+    case "gross attack":
+    case "gross release":
+    case "gross tension": {
       const { track, effect } = effectAt(song, input);
       if (!effect.grossBeat) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Gross Beat: a "${control}" is Gross Beat's.`);
       return { kind: "grossBeat", effect: effect.id, control: GROSS_CONTROLS[control] };
@@ -172,7 +216,16 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "natural vibrato":
     case "transpose":
     case "throat":
-    case "key": {
+    case "key":
+    case "detune":
+    case "tracking":
+    case "vibrato rate":
+    case "vibrato onset delay":
+    case "vibrato onset rate":
+    case "vibrato variation":
+    case "vibrato pitch":
+    case "vibrato amplitude":
+    case "vibrato formant": {
       const { track, effect } = effectAt(song, input);
       if (!effect.autoTune) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an Auto-Tune: "${control}" is Auto-Tune's.`);
       return { kind: "autoTune", effect: effect.id, control: TUNE_CONTROLS[control] };
@@ -188,28 +241,85 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "echo output":
     case "echo groove":
     case "echo feel":
-    case "echo width": {
+    case "echo width":
+    case "echo offset":
+    case "echo balance":
+    case "echo accent":
+    case "echo accent 2":
+    case "echo fb mix":
+    case "echo fb balance":
+    case "echo rhythm":
+    case "echo rhythm shape":
+    case "echo rhythm accent":
+    case "echo low freq":
+    case "echo low gain":
+    case "echo low decay":
+    case "echo mid freq":
+    case "echo mid res":
+    case "echo mid gain":
+    case "echo mid decay":
+    case "echo high freq":
+    case "echo high gain":
+    case "echo high decay":
+    case "echo diffusion":
+    case "echo diffusion size":
+    case "echo wobble depth":
+    case "echo wobble rate":
+    case "echo wobble sync":
+    case "echo decay sat":
+    case "echo out sat": {
       const { track, effect } = effectAt(song, input);
       if (!effect.echoBoy) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an EchoBoy: an "${control}" is EchoBoy's.`);
-      return { kind: "echoBoy", effect: effect.id, control: ECHO_CONTROL_NAMES[control] };
+      return { kind: "echoBoy", effect: effect.id, control: ECHO_TOOL_CONTROLS[control as EchoToolControl] };
     }
     case "eq frequency":
     case "eq gain":
     case "eq q":
     case "eq range":
-    case "eq output": {
+    case "eq output":
+    case "eq pan":
+    case "eq gain scale": {
       const { track, effect } = effectAt(song, input);
       if (!effect.proQ) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Pro-Q: an "${control}" is Pro-Q's.`);
-      if (control === "eq output") return { kind: "proQ", effect: effect.id, band: 0, control: "output" };
+      if (control === "eq output" || control === "eq pan" || control === "eq gain scale") return { kind: "proQ", effect: effect.id, band: 0, control: EQ_TOOL_CONTROLS[control] };
       const band = effect.proQ.bands.find((b) => b.id === Number(input.band));
       if (!band) throw new Error(`Give the Pro-Q's "band" (its number): it has ${effect.proQ.bands.map((b) => b.id).join(", ") || "no bands yet (set_pro_q_bands adds them)"}.`);
       return { kind: "proQ", effect: effect.id, band: band.id, control: EQ_TOOL_CONTROLS[control] };
+    }
+    case "ott depth":
+    case "ott time":
+    case "ott in gain":
+    case "ott out gain":
+    case "ott upward":
+    case "ott downward":
+    case "ott low threshold":
+    case "ott mid threshold":
+    case "ott high threshold":
+    case "ott low gain":
+    case "ott mid gain":
+    case "ott high gain": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.ott) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an OTT: an "${control}" is OTT's.`);
+      return { kind: "ott", effect: effect.id, control: OTT_TOOL_CONTROLS[control as OttToolControl] };
     }
     case "panman offset":
     case "panman width":
     case "panman rate":
     case "panman input":
-    case "panman output": {
+    case "panman output":
+    case "panman smoothing":
+    case "panman feel":
+    case "panman groove":
+    case "panman trigger":
+    case "panman divider":
+    case "panman cutoff":
+    case "panman filter gain":
+    case "panman threshold":
+    case "panman attack":
+    case "panman release":
+    case "panman offset mod":
+    case "panman width mod":
+    case "panman rate mod": {
       const { track, effect } = effectAt(song, input);
       if (!effect.panMan) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a PanMan: a "${control}" is PanMan's.`);
       return { kind: "panMan", effect: effect.id, control: PAN_CONTROLS_BY_NAME[control] };
@@ -272,6 +382,15 @@ const TUNE_HINTS: Record<AutoTuneControl, string> = {
   transpose: "semitones, -12 to 12",
   throat: "50 to 180",
   key: "0 (C) to 11 (B)",
+  detune: "cents, -100 to 100",
+  tracking: "0 (choosy) to 100 (relaxed)",
+  vibratoRate: "Hz, 0.1 to 10",
+  vibratoDelay: "milliseconds, 0 to 1500",
+  vibratoOnset: "milliseconds, 0 to 1500",
+  vibratoVariation: "0 to 100",
+  vibratoPitch: "cents, 0 to 100",
+  vibratoAmplitude: "0 to 30",
+  vibratoFormant: "0 to 100",
 };
 
 /** An EchoBoy control's values, said for the model. */
@@ -288,11 +407,39 @@ const ECHO_HINTS: Record<EchoControl, string> = {
   groove: "-1 (shuffle) to 1 (swing)",
   feel: "-1 (rushin') to 1 (draggin')",
   width: "0 to 1",
+  offset: "ms, 0 to 25",
+  balance: "-1 (left) to 1 (right)",
+  accent: "-1 (even repeats) to 1 (odd repeats)",
+  accent2: "-1 (even repeats) to 1 (odd repeats)",
+  feedbackMix: "0 to 1 (each side's feedback crossed into the other)",
+  feedbackBalance: "-1 (left) to 1 (right)",
+  rhythmTime: "the Rhythm knob, 0 to 1 (as an echo time's knob; it lays the taps out again)",
+  rhythmShape: "0 to 1",
+  rhythmAccent: "-1 to 1",
+  lowFreq: "Hz, 20 to 2000",
+  lowGain: "dB, -40 to 18",
+  lowDecay: "-40 to 18 (dB of change a repeat, scaled)",
+  midFreq: "Hz, 20 to 5000",
+  midRes: "-12 to 24",
+  midGain: "dB, -40 to 18",
+  midDecay: "-40 to 18",
+  highFreq: "Hz, 500 to 12000",
+  highGain: "dB, -40 to 18",
+  highDecay: "-40 to 18",
+  diffusionAmount: "0 to 1",
+  diffusionSize: "0 to 50",
+  wobbleDepth: "cents, 0 to 1200",
+  wobbleRate: "Hz, 0.01 to 50",
+  wobbleSync: "-1 (rates apart) to 1 (phases apart)",
+  decaySat: "dB, -24 to 24",
+  outSat: "dB, -24 to 24",
 };
 
 const valueHint = (target: AutomationTarget) =>
   target.kind === "echoBoy"
     ? ECHO_HINTS[target.control]
+    : target.kind === "ott"
+    ? OTT_HINTS[target.control]
     : target.kind === "pitchWheel"
     ? target.control === "pitch" || target.control === "timbre"
       ? "semitones, -24 to 24"
@@ -308,7 +455,11 @@ const valueHint = (target: AutomationTarget) =>
         ? "a frequency in Hz, 10 to 30000"
         : target.control === "q"
           ? "a Q, 0.025 to 40"
-          : "a level in dB"
+          : target.control === "pan"
+            ? "-1 (left, or mid) to 1 (right, or side)"
+            : target.control === "gainScale"
+              ? "0 to 2 (1 is 100%: every band's gain as set)"
+              : "a level in dB"
     : target.kind === "panMan"
       ? PAN_HINTS[target.control]
     : target.kind === "channel" && target.control === "pan"
@@ -317,7 +468,26 @@ const valueHint = (target: AutomationTarget) =>
         ? "-1 to 1"
         : "0 to 1, as its knob or fader has it";
 /** What a PanMan control's points are in. */
-const PAN_HINTS = { offset: "degrees, -105 (left) to 105 (right)", width: "degrees, 0 to 210", rate: "Hz, 0.01 to 10", input: "dB, -24 to 24", output: "dB, -24 to 24" } as const;
+const PAN_HINTS: Record<PanControl, string> = {
+  offset: "degrees, -105 (left) to 105 (right)",
+  width: "degrees, 0 to 210",
+  rate: "Hz, 0.01 to 10",
+  input: "dB, -24 to 24",
+  output: "dB, -24 to 24",
+  smoothing: "0 (hard) to 1 (soft)",
+  feel: "-1 (rush) to 1 (drag)",
+  groove: "-1 (shuffle) to 1 (swing)",
+  trigger: "dB, -40 to 0 (0: off)",
+  divider: "1 to 12 triggers a move",
+  cutoff: "Hz, 100 to 15000",
+  filterGain: "dB, -20 to 20",
+  threshold: "dB, -40 to 0",
+  attack: "seconds, 0 to 5",
+  release: "seconds, 0 to 5",
+  offsetMod: "degrees, -105 to 105",
+  widthMod: "degrees, -210 to 210",
+  rateMod: "octaves, -4 to 4",
+};
 
 /**
  * add_automation: an automation clip of a control over `bar` .. `bar + length` (default: the time the

@@ -496,7 +496,7 @@ UI": its layout, Gross Beat's look). Where the sources are silent, what was chos
 | Low Cut / High Cut | Where they sit is not stated | In the loop, 12 dB/oct |
 | Save preset, user presets, Revert | The preset bar | Factory presets; Copy / Paste state (and style) in its menus; the app's undo |
 | Pitch slewing as a parameter | Automatable since Soundtoys 5 | Time mode always glides; note values always crossfade |
-| Automating | Any parameter | Mix, Feedback, Echo 1 / 2, the cuts, Saturation, Input, Output, Groove, Feel, Width |
+| Automating | Any parameter | Every knob: Mix, Feedback, Echo 1 / 2, the cuts, Saturation, Input, Output, Groove, Feel, Width; Tweak's (L/R Offset, Balance, Accents, FB Mix, FB Bal), Rhythm Echo's (Rhythm, Shape, Accent: the Rhythm knob lays the taps out again as it moves) and the Style Editor's seventeen. Not the switches and menus (mode, sync, style, saturation type, wobble shape) |
 | Rhythm Echo's Accent | The manual contradicts itself | Right: odd taps louder |
 | Resizable UI | Since 5.5 | Fixed, as Gross Beat's window (its drawer grows it) |
 

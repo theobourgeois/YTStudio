@@ -518,11 +518,13 @@ void Sequencer::applyLanes (int numSamples)
         sliceEnd = sliceStart + span;
     }
     const auto a = (float) into / (float) sliceSamples, b = (float) (into + numSamples) / (float) sliceSamples;
-    std::array<float, 4> start {}, end {}, from {}, to {};
+    std::array<float, Song::Lane::maxSize> start {};
+    std::array<float, 4> end {}, from {}, to {};
     for (auto& lane : song->lanes)
     {
         lane.valueAt (sliceStart, start.data());
-        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::tune && lane.kind != Song::Lane::Kind::echo && lane.kind != Song::Lane::Kind::eq && lane.kind != Song::Lane::Kind::panman && lane.kind != Song::Lane::Kind::wheel && lane.kind != Song::Lane::Kind::param)
+        // Gains glide along the slice here; everything else is set at its start (and glides, if it does, in its effect).
+        if (lane.kind == Song::Lane::Kind::channel || lane.kind == Song::Lane::Kind::track || lane.kind == Song::Lane::Kind::send)
         {
             lane.valueAt (sliceEnd, end.data());
             for (int c = 0; c < lane.size; ++c)
@@ -586,9 +588,16 @@ void Sequencer::applyLanes (int numSamples)
                 // A Pro-Q's band (or output): set at the slice's start, and glided to by its filters.
                 setEqControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].eqSettings, lane.band, lane.control, start[0]);
                 break;
+            case Song::Lane::Kind::ott:
+                // An OTT's, likewise (its values glide there over a few ms).
+                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, start.data(), lane.size);
+                break;
             case Song::Lane::Kind::panman:
                 // A PanMan's control, likewise (its position and gains glide, so a step doesn't click).
-                setPanControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, start[0]);
+                if (lane.control == panman::shapeControl)
+                    song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings->setShape (start.data(), lane.size);
+                else
+                    setPanControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, start[0]);
                 break;
             case Song::Lane::Kind::param:
             {
@@ -631,7 +640,8 @@ void Sequencer::restoreLanes (Song& from)
             case Song::Lane::Kind::track:
             {
                 auto& track = from.tracks[(size_t) lane.track];
-                track.gains = track.from = lane.base;
+                std::copy_n (lane.base.begin(), 4, track.gains.begin());
+                track.from = track.gains;
                 track.automated = false;
                 break;
             }
@@ -660,8 +670,14 @@ void Sequencer::restoreLanes (Song& from)
             case Song::Lane::Kind::eq:
                 setEqControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].eqSettings, lane.band, lane.control, lane.base[0]);
                 break;
+            case Song::Lane::Kind::ott:
+                from.tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, lane.base.data(), lane.size);
+                break;
             case Song::Lane::Kind::panman:
-                setPanControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, lane.base[0]);
+                if (lane.control == panman::shapeControl)
+                    from.tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings->restoreShape();
+                else
+                    setPanControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, lane.base[0]);
                 break;
             case Song::Lane::Kind::param:
                 if (lane.lastSet > -2.0f)
@@ -981,6 +997,13 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
             else
                 effect.echo->skipped();
         }
+        else if (effect.ott != nullptr)
+        {
+            if (effect.enabled)
+                runOtt (effect, l, r, numSamples);
+            else
+                effect.ott->skipped();
+        }
         else if (effect.pan != nullptr)
         {
             if (effect.enabled)
@@ -1055,6 +1078,26 @@ void Sequencer::runEchoBoy (const Song::Track::Effect& effect, float* left, floa
     juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
 }
 
+void Sequencer::runOtt (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
+{
+    // The slot's mix is heard against the sound coming in, as a plugin's (OTT has no latency to wait for).
+    const auto mix = effect.mix;
+    auto& dry = effect.ottSettings->dryBuffer;
+    const auto blend = mix < 1.0f && numSamples <= dry.getNumSamples();
+    if (blend)
+    {
+        dry.copyFrom (0, 0, left, numSamples);
+        dry.copyFrom (1, 0, right, numSamples);
+    }
+    effect.ott->process (*effect.ottSettings, left, right, numSamples);
+    if (! blend)
+        return;
+    juce::FloatVectorOperations::multiply (left, mix, numSamples);
+    juce::FloatVectorOperations::multiply (right, mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (left, dry.getReadPointer (0), 1.0f - mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
+}
+
 void Sequencer::runProQ (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
 {
     auto& settings = *effect.eqSettings;
@@ -1079,6 +1122,11 @@ void Sequencer::setEqControl (eq::Settings& settings, int band, int control, flo
         settings.output = juce::jlimit (-100.0, 72.0, (double) value);
         return;
     }
+    if (control == 5)
+    {
+        settings.pan = juce::jlimit (-1.0, 1.0, (double) value);
+        return;
+    }
     auto* b = settings.find (band);
     if (b == nullptr)
         return;
@@ -1099,7 +1147,10 @@ void Sequencer::setGrossControl (gross::Settings& settings, int control, float v
         case 0: settings.timeSlot = slot; break;
         case 1: settings.volumeSlot = slot; break;
         case 2: settings.timeMix = juce::jlimit (0.0f, 1.0f, value); break;
-        default: settings.volumeMix = juce::jlimit (0.0f, 1.0f, value); break;
+        case 3: settings.volumeMix = juce::jlimit (0.0f, 1.0f, value); break;
+        case 4: settings.attack = juce::jlimit (0.0, 0.5, (double) value); break;
+        case 5: settings.release = juce::jlimit (0.0, 1.0, (double) value); break;
+        default: settings.tension = juce::jlimit (-1.0, 1.0, (double) value); break;
     }
 }
 
@@ -1133,7 +1184,20 @@ void Sequencer::setPanControl (panman::Settings& settings, int control, float va
         case 1: settings.width = juce::jlimit (0.0, 210.0, value * 210.0); break;
         case 2: settings.rate = juce::jlimit (0.001, 100.0, (double) value); break;
         case 3: settings.input = juce::jlimit (-60.0, 60.0, (double) value); break;
-        default: settings.output = juce::jlimit (-60.0, 60.0, (double) value); break;
+        case 4: settings.output = juce::jlimit (-60.0, 60.0, (double) value); break;
+        case 5: settings.smoothing = juce::jlimit (0.0, 1.0, (double) value); break;
+        case 6: settings.trigger = juce::jlimit (-60.0, 0.0, (double) value); break;
+        case 7: settings.divider = juce::jlimit (1, 12, (int) std::lround (value)); break;
+        // The cutoff in kHz; the mods as fractions of 105° and 210°.
+        case 8: settings.cutoff = juce::jlimit (10.0, 40000.0, value * 1000.0); break;
+        case 9: settings.filterGain = juce::jlimit (-40.0, 40.0, (double) value); break;
+        case 10: settings.threshold = juce::jlimit (-60.0, 0.0, (double) value); break;
+        case 11: settings.attack = juce::jlimit (0.0, 5.0, (double) value); break;
+        case 12: settings.release = juce::jlimit (0.0, 5.0, (double) value); break;
+        case 13: settings.offsetMod = juce::jlimit (-105.0, 105.0, value * 105.0); break;
+        case 14: settings.widthMod = juce::jlimit (-210.0, 210.0, value * 210.0); break;
+        case 15: settings.rateMod = juce::jlimit (-4.0, 4.0, (double) value); break;
+        default: break;
     }
 }
 

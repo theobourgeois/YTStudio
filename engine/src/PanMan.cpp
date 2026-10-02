@@ -117,8 +117,33 @@ std::shared_ptr<Settings> Settings::parse (const juce::var& json, int capacity)
         for (const auto& value : *values)
             s->shape.values.push_back ((float) number (value, 0, -1, 1));
     }
+    // Room for an automation lane's pattern, and the song's to go back to (made here, not on the audio thread).
+    s->songShape = s->shape;
+    s->shape.ticks.reserve ((size_t) juce::jmax (shapePoints, (int) s->shape.ticks.size()));
+    s->shape.values.reserve ((size_t) juce::jmax (shapePoints, (int) s->shape.values.size()));
     s->dry.setSize (2, juce::jmax (1, capacity));
     return s;
+}
+
+void Settings::setShape (const float* values, int count)
+{
+    count = juce::jlimit (0, shapePoints, count);
+    if (count < 2 || (int) shape.ticks.capacity() < count)
+        return;
+    shape.ticks.resize ((size_t) count);
+    shape.values.resize ((size_t) count);
+    for (int i = 0; i < count; ++i)
+    {
+        shape.ticks[(size_t) i] = (double) i / (count - 1);
+        shape.values[(size_t) i] = juce::jlimit (-1.0f, 1.0f, values[i]);
+    }
+}
+
+void Settings::restoreShape()
+{
+    // Within the room made for it: no allocation.
+    shape.ticks.assign (songShape.ticks.begin(), songShape.ticks.end());
+    shape.values.assign (songShape.values.begin(), songShape.values.end());
 }
 
 void Biquad::design (Filter type, double cutoff, double sampleRate)

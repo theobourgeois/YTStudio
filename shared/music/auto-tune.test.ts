@@ -177,6 +177,22 @@ describe("what the engine plays", () => {
     expect(compileSong(key.song, P).lanes).toEqual([]);
   });
 
+  it("automates Detune, Tracking and Create Vibrato's knobs too, in the engine's units", () => {
+    let song = withAutoTune();
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern" as const, ref: P, track: 0, start: 0, length: null }]).clips);
+    const detune = createAutomation(song, { kind: "autoTune", effect: FX, control: "detune" }, { start: 0, length: 384 }, { value: 1 });
+    const delay = createAutomation(detune.song, { kind: "autoTune", effect: FX, control: "vibratoDelay" }, { start: 0, length: 384 }, { value: 0.5 });
+    const lanes = compileSong(delay.song, P, null, "song").lanes;
+    // +100 cents: A4 a semitone up; half of 1500 ms, in seconds.
+    expect(lanes.find((l) => l.target.kind === "tune" && l.target.control === "detune")!.values[0]).toBeCloseTo(440 * 2 ** (1 / 12), 3);
+    expect(lanes.find((l) => l.target.kind === "tune" && l.target.control === "vibratoDelay")!.values[0]).toBeCloseTo(0.75, 6);
+    const rate = controlOf(song, { kind: "autoTune", effect: FX, control: "vibratoRate" });
+    expect(rate).toMatchObject({ name: "Vibrato Rate", exists: true });
+    expect(rate.toControl(rate.own!)).toBeCloseTo(5.5, 6);
+    expect(engineControlValue("tracking", 0)).toBeCloseTo(0.07, 6);
+    expect(engineControlValue("vibratoPitch", 18)).toBeCloseTo(0.18, 6);
+  });
+
   it("names its controls for automation", () => {
     const song = withAutoTune();
     expect(targetKey({ kind: "autoTune", effect: FX, control: "flexTune" })).toBe("tune:fx_tune:flexTune");

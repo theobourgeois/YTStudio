@@ -12,14 +12,16 @@ import { type EngineAutoTune, engineAutoTune, engineControlValue } from "./auto-
 import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANES_OF, engineEchoBoy } from "./echo-boy.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { type EngineEq, engineProQ } from "./pro-q.ts";
+import { type EngineOtt, OTT_CONTROL_SPECS, OTT_LANES, OTT_LANES_OF, type OttLane, engineOtt } from "./ott.ts";
 import { type EnginePitchWheel, controlValue as pitchWheelValue, engineControlValue as engineWheelValue, enginePitchWheel } from "./pitch-wheel.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
-import { type EnginePanMan, enginePanMan } from "./panman.ts";
-import { PAN_CONTROL_IDS, PAN_LANE_SCALE } from "./panman-presets.ts";
+import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
+import { type EnginePanMan, enginePanMan, isPatternMode, panShape } from "./panman.ts";
+import { PAN_ENGINE_CONTROLS, PAN_LANE_SCALE, PAN_SHAPING_CONTROLS } from "./panman-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { autoGain } from "./pro-q-filters.ts";
 import { hasGain } from "./pro-q-presets.ts";
-import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, type MusicProject, type PanControl, PITCH_WHEEL_CONTROLS, type PitchWheelControl, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, type MusicProject, OTT_CONTROLS, type PanControl, PITCH_WHEEL_CONTROLS, type PitchWheelControl, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -78,6 +80,8 @@ export interface EngineEffect {
   echoBoy?: EngineEchoBoy;
   /** A Pro-Q (ours, run by the engine itself: its `plugin.id` is `PRO_Q_PLUGIN`'s): its bands and settings. */
   eq?: EngineEq;
+  /** An OTT (ours, `OTT_PLUGIN`): its gains and its bands' laws, in the engine's units. */
+  ott?: EngineOtt;
   /** A PanMan (ours, likewise: `PANMAN_PLUGIN`'s id): its settings and pattern. */
   panMan?: EnginePanMan;
   /** A Pitch Wheel (ours too, `PITCH_WHEEL_PLUGIN`): its wheels, and where its notes come from. */
@@ -155,7 +159,7 @@ export interface EngineAudioClip {
 /**
  * What an automation lane drives in the engine, in the engine's own units: a channel's two gains, a mixer
  * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, a Gross Beat's slot (its
- * number, 0..35) or mix (0..1), an Auto-Tune's control (`engineControlValue`), a PanMan's control (in its units
+ * number, 0..35), mix (0..1), attack or release (seconds) or tension (-1..1), an Auto-Tune's control (`engineControlValue`), a PanMan's control (in its units
  * over `PAN_LANE_SCALE`: the offset and width as fractions of 105° and 210°, the rate in Hz, the gains in dB), or a
  * plugin's parameter (0..1, or -1 where the plugin keeps its own value:
  * before any clip of it).
@@ -168,9 +172,12 @@ export type EngineLaneTarget =
   | { kind: "gross"; track: number; effect: number; control: GrossControl }
   | { kind: "tune"; track: number; effect: number; control: AutoTuneControl }
   | { kind: "echo"; track: number; effect: number; control: EchoLane }
-  /** A Pro-Q band's frequency (log2 Hz), gain or range (dB) or Q (log2), by band number; or its output (dB, band 0). */
+  /** A Pro-Q band's frequency (log2 Hz), gain or range (dB) or Q (log2), by band number; or its output (dB) or pan (-1..1), band 0. */
   | { kind: "eq"; track: number; effect: number; band: number; control: EqControl }
-  | { kind: "panman"; track: number; effect: number; control: PanControl }
+  /** An OTT's lane (`OttLane`): its gains, or a value a band (low, mid, high). */
+  | { kind: "ott"; track: number; effect: number; control: OttLane }
+  /** A PanMan's control; or its pattern (`shape`: `PAN_SHAPE_POINTS` positions evenly over it), Smoothing, Feel or Groove automated. */
+  | { kind: "panman"; track: number; effect: number; control: PanControl | "shape" }
   | { kind: "wheel"; track: number; effect: number; control: PitchWheelControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
@@ -380,6 +387,7 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         if (e.autoTune) return [{ ...effect, autoTune: engineAutoTune(e.autoTune) }];
         if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
         if (e.proQ) return [{ ...effect, eq: engineProQ(e.proQ) }];
+        if (e.ott) return [{ ...effect, ott: engineOtt(e.ott) }];
         if (e.panMan) return [{ ...effect, panMan: enginePanMan(e.panMan, e.id) }];
         if (e.pitchWheel) {
           // Notes from a channel the song no longer has: none.
@@ -670,7 +678,7 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       const gb = effect.grossBeat;
       if (gb) {
         const gross = (control: GrossControl): AutomationTarget => ({ kind: "grossBeat", effect: effect.id, control });
-        for (const control of ["timeMix", "volumeMix"] as const) {
+        for (const control of ["timeMix", "volumeMix", "attack", "release", "tension"] as const) {
           const value = valueOf(gross(control), gb[control]);
           add({ kind: "gross", track: t, effect: effectIndex, control }, [automated(gross(control))], (tick) => [value(tick)]);
         }
@@ -686,7 +694,7 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       if (at)
         for (const control of AUTO_TUNE_CONTROLS) {
           const target: AutomationTarget = { kind: "autoTune", effect: effect.id, control };
-          const value = valueOf(target, at[control]);
+          const value = valueOf(target, AUTO_TUNE_CONTROL_INFO[control].get(at));
           add({ kind: "tune", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineControlValue(control, value(tick))]);
         }
       const pw = effect.pitchWheel;
@@ -704,9 +712,11 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
           return { control, key: automated(target), value: valueOf(target, ECHO_CONTROL_SPECS[control].get(eb)) };
         });
         for (const lane of Object.keys(ECHO_LANES) as EchoLane[]) {
+          // (Only Rhythm Echo has taps.)
+          if (lane === "taps" && eb.mode !== "rhythm") continue;
           const moving = controls.filter((c) => LANES_OF[c.control].includes(lane));
           add({ kind: "echo", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
-            const at = moving.reduce((settings, c) => (c.key ? ECHO_CONTROL_SPECS[c.control].set(settings, c.value(tick)) : settings), eb);
+            const at = moving.reduce((settings, c) => (c.key ? ECHO_CONTROL_SPECS[c.control].set(settings, c.value(tick), song.settings.tempo) : settings), eb);
             return ECHO_LANES[lane](engineEchoBoy(at, song.settings.tempo));
           });
         }
@@ -714,30 +724,62 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       const pq = effect.proQ;
       if (pq) {
         // Each band's automated controls, in the engine's units (frequency and Q as log2: lanes keep within ±64).
-        const lane = (band: number, control: EqControl, own: number, toEngine: (v: number) => number) => {
+        // Gain Scale, automated, moves every band's gain and range lane (it's folded into them: the engine has no lane of its own for it).
+        const scaleTarget: AutomationTarget = { kind: "proQ", effect: effect.id, band: 0, control: "gainScale" };
+        const scaleKey = automated(scaleTarget);
+        const scaleAt = valueOf(scaleTarget, pq.gainScale);
+        const lane = (band: number, control: EqControl, own: number, toEngine: (v: number, tick: number) => number, scaled = false) => {
           const target: AutomationTarget = { kind: "proQ", effect: effect.id, band, control };
           const value = valueOf(target, own);
-          add({ kind: "eq", track: t, effect: effectIndex, band, control }, [automated(target)], (tick) => [toEngine(value(tick))]);
+          add({ kind: "eq", track: t, effect: effectIndex, band, control }, [automated(target), scaled ? scaleKey : null], (tick) => [toEngine(value(tick), tick)]);
         };
-        const scale = (b: EqBand) => (hasGain(b.shape) ? pq.gainScale : 1);
+        const scale = (b: EqBand, tick: number) => (hasGain(b.shape) ? scaleAt(tick) : 1);
         for (const b of pq.bands) {
           if (!b.enabled) continue;
           lane(b.id, "frequency", b.frequency, Math.log2);
-          lane(b.id, "gain", b.gain, (v) => v * scale(b));
+          lane(b.id, "gain", b.gain, (v, tick) => v * scale(b, tick), true);
           lane(b.id, "q", b.q, Math.log2);
-          lane(b.id, "range", b.range, (v) => v * scale(b));
+          lane(b.id, "range", b.range, (v, tick) => v * scale(b, tick), true);
         }
         const auto = pq.autoGain ? autoGain(pq) : 0;
         lane(0, "output", pq.output, (v) => v + auto);
+        lane(0, "pan", pq.pan, (v) => v);
+      }
+      const ott = effect.ott;
+      if (ott) {
+        // As EchoBoy's: each engine lane from the controls that move it, the settings at the tick as the engine has them.
+        const controls = OTT_CONTROLS.map((control) => {
+          const target: AutomationTarget = { kind: "ott", effect: effect.id, control };
+          return { control, key: automated(target), value: valueOf(target, OTT_CONTROL_SPECS[control].get(ott)) };
+        });
+        for (const lane of Object.keys(OTT_LANES) as OttLane[]) {
+          const moving = controls.filter((c) => OTT_LANES_OF[c.control].includes(lane));
+          add({ kind: "ott", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
+            const at = moving.reduce((settings, c) => (c.key ? OTT_CONTROL_SPECS[c.control].set(settings, c.value(tick)) : settings), ott);
+            return OTT_LANES[lane](engineOtt(at));
+          });
+        }
       }
       const pm = effect.panMan;
-      if (pm)
-        for (const control of PAN_CONTROL_IDS) {
+      if (pm) {
+        for (const control of PAN_ENGINE_CONTROLS) {
           const target: AutomationTarget = { kind: "panMan", effect: effect.id, control };
           const value = valueOf(target, pm[control]);
           const scale = PAN_LANE_SCALE[control];
           add({ kind: "panman", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [value(tick) / scale]);
         }
+        // Smoothing, Feel and Groove reshape a pattern mode's pattern: automated, it's sent whole, evenly sampled.
+        if (isPatternMode(pm.mode)) {
+          const shaping = PAN_SHAPING_CONTROLS.map((control) => {
+            const target: AutomationTarget = { kind: "panMan", effect: effect.id, control };
+            return { control, key: automated(target), value: valueOf(target, pm[control]) };
+          });
+          add({ kind: "panman", track: t, effect: effectIndex, control: "shape" }, shaping.map((c) => c.key), (tick) => {
+            const at = shaping.reduce((settings, c) => (c.key ? { ...settings, [c.control]: c.value(tick) } : settings), pm);
+            return panShape(at);
+          });
+        }
+      }
       effectIndex++;
     }
   }

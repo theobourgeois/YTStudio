@@ -24,16 +24,17 @@ import {
   panMans,
   panPattern,
   panSeed,
+  panShape,
   setPatternLayout,
   setShapeEvent,
   stepValue,
   ungroove,
   updatePanMan,
 } from "./panman.ts";
-import { DEFAULT_PANMAN, PANMAN_PLUGIN, PANMAN_PRESETS, PAN_CURVES, normalizePanMan, panControlFraction, panControlValue } from "./panman-presets.ts";
+import { DEFAULT_PANMAN, PANMAN_PLUGIN, PANMAN_PRESETS, PAN_CURVES, PAN_SHAPE_POINTS, normalizePanMan, panControlFraction, panControlValue } from "./panman-presets.ts";
 import { addClips, editClips } from "./playlist.ts";
 import { FIRST_PATTERN_ID, createMusicProject, normalizeMusicProject } from "./project.ts";
-import type { PanMan } from "./types.ts";
+import type { PanControl, PanMan } from "./types.ts";
 
 const BEAT = 96;
 const BAR = 384;
@@ -286,6 +287,35 @@ describe("PanMan's sound", () => {
     // As fractions of 105°.
     expect(lane.values[0]).toBe(-1);
     expect(lane.values.at(-1)).toBeCloseTo(1, 5);
+  });
+
+  it("automates every knob: the engine's own as lanes, Smoothing, Feel and Groove as its pattern sent whole", () => {
+    let song = withPanMan({ mode: "rhythmStep" });
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: BAR * 2 }]).clips);
+    const automate = (s: typeof song, control: PanControl) => {
+      const made = createAutomation(s, { kind: "panMan", effect: FX, control }, { start: 0, length: BAR });
+      return editPoints(made.song, made.automationId, () => [
+        { tick: 0, value: 0, tension: 0, curve: "single" },
+        { tick: BAR, value: 1, tension: 0, curve: "single" },
+      ]);
+    };
+    song = automate(automate(song, "cutoff"), "feel");
+    const lanes = compileSong(song, P, null, "song").lanes.filter((l) => l.target.kind === "panman");
+    expect(lanes.map((l) => (l.target.kind === "panman" ? l.target.control : "")).sort()).toEqual(["cutoff", "shape"]);
+    // The cutoff in kHz, 100 Hz to 15 kHz.
+    const cutoff = lanes.find((l) => l.target.kind === "panman" && l.target.control === "cutoff")!;
+    expect(cutoff.values[0]).toBeCloseTo(0.1, 6);
+    expect(cutoff.values.at(-1)).toBeCloseTo(15, 3);
+    // The pattern, evenly sampled, Feel moving it from rushed to dragged.
+    const shape = lanes.find((l) => l.target.kind === "panman" && l.target.control === "shape")!;
+    expect(shape.values.length % PAN_SHAPE_POINTS).toBe(0);
+    const felt = (feel: number) => ({ ...pm(withPanMan({ mode: "rhythmStep" })), feel });
+    const rounded = (values: number[]) => values.map((v) => Math.round(v * 1000) / 1000);
+    expect(rounded(shape.values.slice(0, PAN_SHAPE_POINTS))).toEqual(rounded(panShape(felt(-1))));
+    expect(rounded(shape.values.slice(-PAN_SHAPE_POINTS))).toEqual(rounded(panShape(felt(1))));
+    expect(rounded(panShape(felt(-1)))).not.toEqual(rounded(panShape(felt(1))));
+    // The trigger modes have no pattern: Feel moves nothing there.
+    expect(compileSong(automate(withPanMan({ mode: "pingPong" }), "feel"), P, null, "song").lanes).toEqual([]);
   });
 
   it("names its controls for automation clips, the rate along a log scale", () => {

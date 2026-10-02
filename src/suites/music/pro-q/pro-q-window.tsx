@@ -7,7 +7,7 @@ import { MODE_NAMES, RESOLUTION_NAMES, findProQ, frequencyText, proQState, proQs
 import { applyPreset } from "@shared/music/pro-q";
 import { EQ_CONTROL_SCALES, EQ_MAX_GAIN_SCALE, LINEAR_PHASE_LATENCY, PRO_Q_PRESETS, dynamicsInLinearPhase } from "@shared/music/pro-q-presets";
 import { DEFAULT_PRO_Q } from "@shared/music/project";
-import { EQ_MODES, EQ_RESOLUTIONS, type MixerEffect, type MusicProject, type ProQ, type ProQAnalyzer } from "@shared/music/types";
+import { type AutomationTarget, EQ_MODES, EQ_RESOLUTIONS, type MixerEffect, type MusicProject, type ProQ, type ProQAnalyzer } from "@shared/music/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +31,9 @@ import { Display } from "./display";
 import { startMatch } from "./match-panel";
 import { SongEqKnob } from "./knob";
 import { useEqUi, useEqView } from "./store";
+import { AutomateTouched } from "../automation/touched";
+import { AutomationMenuItems, useAutomatedControl } from "../automation/control";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 
 /** As it opens (smaller if the desktop is), and the least it can be: about Pro-Q's Medium. */
 const WIDTH = 980;
@@ -69,7 +72,7 @@ export function ProQWindow({ effectId, index }: { effectId: string; index: numbe
   useEqKeys(effectId);
   if (!effect || !pq) return null;
   return (
-    <MusicWindow id={proQWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} resizable={MIN} onClose={() => closeProQ(effectId)}>
+    <MusicWindow id={proQWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} resizable={MIN} onClose={() => closeProQ(effectId)} controls={<AutomateTouched effectId={effectId} />}>
       <div className="flex h-full min-h-0 flex-col bg-[var(--eq-bg-top)] text-xs text-[var(--eq-text)] select-none" data-testid="pro-q" data-effect={effectId}>
         <TopBar effectId={effectId} pq={pq} />
         <Display effectId={effectId} pq={pq} bypassed={!effect.enabled} />
@@ -434,24 +437,46 @@ function OutputButton({ effectId, pq }: { effectId: string; pq: ProQ }) {
             format={(v) => (Math.abs(v - 0.5) < 0.005 ? "Centre" : `${Math.round(Math.abs(v * 2 - 1) * 100)}% ${v < 0.5 ? (pq.panMode === "lr" ? "left" : "mid") : pq.panMode === "lr" ? "right" : "side"}`)}
             typed={(v) => String(Math.round((v * 2 - 1) * 100))}
             parse={(t) => (Number.isFinite(Number(t)) ? (Number(t) / 100 + 1) / 2 : null)}
+            target={{ kind: "proQ", effect: effectId, band: 0, control: "pan" }}
+            automation={{ own: pq.pan, toFraction: (pan) => (pan + 1) / 2 }}
             edit={(s, v) => updateProQ(s, effectId, { pan: Math.round((v * 2 - 1) * 100) / 100 })}
           />
         </div>
-        <label className="mt-2 flex items-center gap-2">
+        <GainScale effectId={effectId} gainScale={pq.gainScale} set={(gainScale) => set({ gainScale })} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Gain Scale's slider: automatable (its menu), following its automation in song mode, the hand winning while it holds it. */
+function GainScale({ effectId, gainScale, set }: { effectId: string; gainScale: number; set: (gainScale: number) => void }) {
+  const target: AutomationTarget = { kind: "proQ", effect: effectId, band: 0, control: "gainScale" };
+  const control = useAutomatedControl(target, gainScale);
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <label className="mt-2 flex items-center gap-2" data-automated={control.automated || undefined}>
           <span className="w-16 text-[var(--eq-label)]">Gain Scale</span>
           <input
             type="range"
             aria-label="Gain Scale"
             min={0}
             max={EQ_MAX_GAIN_SCALE * 100}
-            value={Math.round(pq.gainScale * 100)}
-            onChange={(e) => set({ gainScale: Number(e.target.value) / 100 })}
-            className="flex-1 accent-[var(--eq-curve)]"
+            value={Math.round(control.value * 100)}
+            onPointerDown={() => control.hold()}
+            onPointerUp={() => control.release()}
+            onPointerCancel={() => control.release()}
+            onChange={(e) => set(Number(e.target.value) / 100)}
+            className={cn("flex-1 accent-[var(--eq-curve)]", control.automated && "accent-[var(--brand)]")}
           />
-          <span className="w-9 text-right tabular-nums">{Math.round(pq.gainScale * 100)}%</span>
+          <span className="w-9 text-right tabular-nums">{Math.round(control.value * 100)}%</span>
         </label>
-      </PopoverContent>
-    </Popover>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => set(1)}>Reset</ContextMenuItem>
+        <AutomationMenuItems target={target} />
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

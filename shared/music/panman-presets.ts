@@ -128,6 +128,10 @@ export const DEFAULT_PANMAN: PanMan = {
   shapePattern: { bars: 1, beatsPerBar: 4, events: [] },
 };
 
+const percentText = (v: number) => `${Math.round(v * 100)}%`;
+const sidedText = (low: string, high: string) => (v: number) => (Math.abs(v) < 0.005 ? "None" : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? low : high}`);
+const secondsText = (v: number) => (v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`);
+
 /** A position said the way the Offset knob says it: "Centre", "45° L", "105° R". */
 export const degreesText = (v: number) => (Math.abs(v) < 0.5 ? "Centre" : `${Math.round(Math.abs(v))}° ${v < 0 ? "L" : "R"}`);
 export const rateText = (hz: number) => (hz < 0.1 ? `${hz.toFixed(2)} Hz` : hz < 1 ? `${hz.toFixed(2)} Hz` : `${hz.toFixed(1)} Hz`);
@@ -143,10 +147,52 @@ export const PAN_CONTROLS: Record<PanControl, { name: string; min: number; max: 
   rate: { name: "Rate", min: MIN_PAN_RATE, max: MAX_PAN_RATE, log: true, format: rateText },
   input: { name: "Input", min: -MAX_PAN_GAIN, max: MAX_PAN_GAIN, format: dbText },
   output: { name: "Output", min: -MAX_PAN_GAIN, max: MAX_PAN_GAIN, format: dbText },
+  smoothing: { name: "Smoothing", min: 0, max: 1, format: percentText },
+  feel: { name: "Feel", min: -1, max: 1, format: sidedText("rush", "drag") },
+  groove: { name: "Groove", min: -1, max: 1, format: sidedText("shuffle", "swing") },
+  trigger: { name: "Trigger", min: MIN_PAN_LEVEL, max: 0, format: (v) => (v >= -0.01 ? "Off" : dbText(v)) },
+  divider: { name: "Divider", min: 1, max: MAX_PAN_DIVIDER, format: (v) => `Every ${Math.round(v)}` },
+  cutoff: { name: "Cutoff", min: MIN_PAN_CUTOFF, max: MAX_PAN_CUTOFF, log: true, format: (v) => (v < 1000 ? `${Math.round(v)} Hz` : `${(v / 1000).toFixed(1)} kHz`) },
+  filterGain: { name: "Filter gain", min: -MAX_PAN_FILTER_GAIN, max: MAX_PAN_FILTER_GAIN, format: dbText },
+  threshold: { name: "Threshold", min: MIN_PAN_LEVEL, max: 0, format: dbText },
+  attack: { name: "Attack", min: 0, max: MAX_PAN_TIME, format: secondsText },
+  release: { name: "Release", min: 0, max: MAX_PAN_TIME, format: secondsText },
+  offsetMod: { name: "Offset Mod", min: -PAN_LIMIT, max: PAN_LIMIT, format: (v) => `${v > 0 ? "+" : ""}${Math.round(v)}°` },
+  widthMod: { name: "Width Mod", min: -MAX_PAN_WIDTH, max: MAX_PAN_WIDTH, format: (v) => `${v > 0 ? "+" : ""}${Math.round(v)}°` },
+  rateMod: { name: "Rate Mod", min: -MAX_PAN_RATE_MOD, max: MAX_PAN_RATE_MOD, format: (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)} oct` },
 };
 export const PAN_CONTROL_IDS = Object.keys(PAN_CONTROLS) as PanControl[];
 /** What an automation lane's values are of each control (the engine's lanes hold values within ±64): the offset and width as fractions of their ends. */
-export const PAN_LANE_SCALE: Record<PanControl, number> = { offset: PAN_LIMIT, width: MAX_PAN_WIDTH, rate: 1, input: 1, output: 1 };
+export const PAN_LANE_SCALE: Record<PanControl, number> = {
+  offset: PAN_LIMIT,
+  width: MAX_PAN_WIDTH,
+  rate: 1,
+  input: 1,
+  output: 1,
+  smoothing: 1,
+  feel: 1,
+  groove: 1,
+  trigger: 1,
+  divider: 1,
+  // (kHz)
+  cutoff: 1000,
+  filterGain: 1,
+  threshold: 1,
+  attack: 1,
+  release: 1,
+  offsetMod: PAN_LIMIT,
+  widthMod: MAX_PAN_WIDTH,
+  rateMod: 1,
+};
+/**
+ * The controls that are the engine's own (a lane each); Feel and Groove only shape the pattern, and so does
+ * Smoothing in the pattern modes: automated, the pattern itself goes to the engine as a lane (`PAN_SHAPE_POINTS`).
+ */
+export const PAN_ENGINE_CONTROLS: readonly PanControl[] = ["offset", "width", "rate", "input", "output", "smoothing", "trigger", "divider", "cutoff", "filterGain", "threshold", "attack", "release", "offsetMod", "widthMod", "rateMod"];
+/** The controls that reshape a pattern mode's pattern. */
+export const PAN_SHAPING_CONTROLS: readonly PanControl[] = ["smoothing", "feel", "groove"];
+/** How many evenly spaced points a pattern sent as an automation lane has (the engine's lanes hold up to 128). */
+export const PAN_SHAPE_POINTS = 128;
 /** A fraction of a control's range (an automation clip's value) as the control's value, and back. */
 export function panControlValue(control: PanControl, fraction: number): number {
   const { min, max, log } = PAN_CONTROLS[control];

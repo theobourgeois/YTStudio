@@ -12,7 +12,7 @@ import { armedIn, useRecording } from "./recording";
 import { useInputs } from "./inputs";
 import { useMusic } from "./store";
 import { takeAutoTunes } from "./auto-tune/pitch-history";
-import { NO_CHANNELS, NO_ECHO_BOYS, NO_EFFECTS, NO_EQ, NO_GROSS_BEATS, NO_METERS, NO_PANMEN, afterSongSent, useTransport } from "./transport";
+import { NO_CHANNELS, NO_ECHO_BOYS, NO_EFFECTS, NO_EQ, NO_GROSS_BEATS, NO_METERS, NO_OTTS, NO_PANMEN, afterSongSent, useTransport } from "./transport";
 import { takePitchWheels } from "./pitch-wheel/live";
 import { currentTrackId, useMusicUi } from "./ui";
 import { automateParameter } from "./automation/actions";
@@ -128,6 +128,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         filePreview: event.preview ?? null,
         grossBeats: event.grossBeats ?? NO_GROSS_BEATS,
         echoBoys: event.echoBoys ?? NO_ECHO_BOYS,
+        otts: event.otts ?? NO_OTTS,
         eq: event.eq ?? NO_EQ,
         panMen: event.panMen ?? NO_PANMEN,
       });
