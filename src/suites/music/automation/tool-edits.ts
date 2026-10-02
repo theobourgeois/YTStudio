@@ -54,6 +54,9 @@ export const CONTROLS = [
   "volume slot",
   "time mix",
   "volume mix",
+  "gross attack",
+  "gross release",
+  "gross tension",
   "retune speed",
   "humanize",
   "flex-tune",
@@ -86,7 +89,15 @@ const ECHO_CONTROL_NAMES: Record<string, EchoControl> = {
 const EQ_TOOL_CONTROLS = { "eq frequency": "frequency", "eq gain": "gain", "eq q": "q", "eq range": "range", "eq output": "output" } as const;
 
 /** A Gross Beat's controls, as the tool names them. */
-const GROSS_CONTROLS = { "time slot": "timeSlot", "volume slot": "volumeSlot", "time mix": "timeMix", "volume mix": "volumeMix" } as const;
+const GROSS_CONTROLS = {
+  "time slot": "timeSlot",
+  "volume slot": "volumeSlot",
+  "time mix": "timeMix",
+  "volume mix": "volumeMix",
+  "gross attack": "attack",
+  "gross release": "release",
+  "gross tension": "tension",
+} as const;
 /** An Auto-Tune's controls, as the tool names them. */
 const TUNE_CONTROLS = {
   "retune speed": "retuneSpeed",
@@ -143,7 +154,10 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "time slot":
     case "volume slot":
     case "time mix":
-    case "volume mix": {
+    case "volume mix":
+    case "gross attack":
+    case "gross release":
+    case "gross tension": {
       const { track, effect } = effectAt(song, input);
       if (!effect.grossBeat) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Gross Beat: a "${control}" is Gross Beat's.`);
       return { kind: "grossBeat", effect: effect.id, control: GROSS_CONTROLS[control] };

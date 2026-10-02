@@ -40,6 +40,7 @@ import { drawGraph, tuneColours } from "./draw";
 import { type GraphView, KEYS_WIDTH, followCentre, meterFraction, noteAt, pitchClass } from "./geometry";
 import { latestPitch, pitchHistory } from "./pitch-history";
 import { useTuneUi, useTuneView } from "./store";
+import { AutomateTouched } from "../automation/touched";
 
 const WIDTH = 900;
 const HEIGHT = 640;
@@ -84,7 +85,7 @@ export function AutoTuneWindow({ effectId, index }: { effectId: string; index: n
   }, [gone, effectId]);
   if (!effect || !at) return null;
   return (
-    <MusicWindow id={autoTuneWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} resizable={{ minWidth: MIN_WIDTH, minHeight: 560 }} onClose={() => closeAutoTune(effectId)}>
+    <MusicWindow id={autoTuneWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} resizable={{ minWidth: MIN_WIDTH, minHeight: 560 }} onClose={() => closeAutoTune(effectId)} controls={<AutomateTouched effectId={effectId} />}>
       <div className="flex h-full min-h-0 flex-col text-xs select-none" data-testid="auto-tune" data-effect={effectId}>
         <TopBar effectId={effectId} at={at} />
         <Display effectId={effectId} at={at} />

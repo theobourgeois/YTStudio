@@ -187,7 +187,7 @@ struct Song
     {
         enum class Kind { channel, track, send, mix, gross, tune, echo, eq, ott, param };
         Kind kind = Kind::channel;
-        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`), an OTT's (`ott::Lane`). */
+        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix, attack, release, tension), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`), an OTT's (`ott::Lane`). */
         int channel = -1, track = -1, index = -1, control = 0;
         /** A Pro-Q's band (its number; 0 its output) and control (frequency, gain, Q, range, output). */
         int band = 0;

@@ -32,6 +32,7 @@ import { drawPanel, grossColours } from "./draw";
 import { GROSS_SNAPS, type GrossSnap, panelBox, pointHint, snapLabel } from "./geometry";
 import { type PanelTarget, panelCursor, panelPointerDown } from "./pointer";
 import { useGrossUi, useGrossView } from "./store";
+import { AutomateTouched } from "../automation/touched";
 
 /** The window's size as it opens (narrower if the desktop is), and the least it can be. */
 const WIDTH = 840;
@@ -81,6 +82,7 @@ export function GrossBeatWindow({ effectId, index }: { effectId: string; index: 
       initial={initial}
       resizable={{ minWidth: MIN_WIDTH, minHeight: 500 }}
       onClose={() => closeGrossBeat(effectId)}
+      controls={<AutomateTouched effectId={effectId} />}
     >
       <div className="flex h-full min-h-0 select-none text-xs" data-testid="gross-beat" data-effect={effectId}>
         <aside className="flex w-[330px] shrink-0 flex-col gap-2 overflow-y-auto border-r border-line bg-surface-1 p-2">
@@ -397,13 +399,13 @@ function VolumeControls({ effectId, gb }: { effectId: string; gb: GrossBeat }) {
         <PiSpeakerSimpleHigh className="size-3.5 text-gross-volume" />
       </div>
       <Labelled label="ATT">
-        <SongKnob size={26} label="Attack" value={gb.attack} min={0} max={MAX_GROSS_ATTACK} defaultValue={0} format={seconds} unit={MILLISECONDS} edit={(s, attack) => updateGrossBeat(s, effectId, { attack })} />
+        <SongKnob size={26} label="Attack" value={gb.attack} min={0} max={MAX_GROSS_ATTACK} defaultValue={0} format={seconds} unit={MILLISECONDS} target={{ kind: "grossBeat", effect: effectId, control: "attack" }} edit={(s, attack) => updateGrossBeat(s, effectId, { attack })} />
       </Labelled>
       <Labelled label="REL">
-        <SongKnob size={26} label="Release" value={gb.release} min={0} max={MAX_GROSS_RELEASE} defaultValue={0} format={seconds} unit={MILLISECONDS} edit={(s, release) => updateGrossBeat(s, effectId, { release })} />
+        <SongKnob size={26} label="Release" value={gb.release} min={0} max={MAX_GROSS_RELEASE} defaultValue={0} format={seconds} unit={MILLISECONDS} target={{ kind: "grossBeat", effect: effectId, control: "release" }} edit={(s, release) => updateGrossBeat(s, effectId, { release })} />
       </Labelled>
       <Labelled label="TNS">
-        <SongKnob size={26} label="Tension" value={gb.tension} min={-1} max={1} defaultValue={0} bipolar format={percent} unit={PERCENT} edit={(s, tension) => updateGrossBeat(s, effectId, { tension })} />
+        <SongKnob size={26} label="Tension" value={gb.tension} min={-1} max={1} defaultValue={0} bipolar format={percent} unit={PERCENT} target={{ kind: "grossBeat", effect: effectId, control: "tension" }} edit={(s, tension) => updateGrossBeat(s, effectId, { tension })} />
       </Labelled>
     </div>
   );

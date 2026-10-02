@@ -30,6 +30,7 @@ import { Caption, EchoKnob, EchoTimeControl, Key, LcdMenu, Leds, ModeDial, SyncK
 import { StyleEditor, TweakPanel } from "./panels";
 import { RhythmGrid } from "./rhythm-grid";
 import { useEchoDrawer, useEchoUi } from "./store";
+import { AutomateTouched } from "../automation/touched";
 
 /** The window's width (Gross Beat's): the three sections side by side, the drawer under them. */
 const WIDTH = 840;
@@ -66,7 +67,7 @@ export function EchoBoyWindow({ effectId, index }: { effectId: string; index: nu
   }, [gone, effectId]);
   if (!effect || !eb) return null;
   return (
-    <MusicWindow id={echoBoyWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} onClose={() => closeEchoBoy(effectId)}>
+    <MusicWindow id={echoBoyWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} onClose={() => closeEchoBoy(effectId)} controls={<AutomateTouched effectId={effectId} />}>
       <div className="flex flex-col bg-surface-0 text-xs select-none" style={{ width: WIDTH }} data-testid="echo-boy" data-effect={effectId} data-mode={eb.mode}>
         <PresetBar effectId={effectId} eb={eb} />
         <div className="flex items-stretch gap-2 p-2">

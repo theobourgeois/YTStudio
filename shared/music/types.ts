@@ -741,8 +741,9 @@ export type AutomationTarget =
       name: string;
     };
 
-/** Gross Beat's controls an automation clip can drive: the slots playing and the two mix knobs. */
-export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";
+/** Gross Beat's controls an automation clip can drive: the slots playing, the two mix knobs, and ATT, REL and TNS. */
+export const GROSS_CONTROLS = ["timeSlot", "volumeSlot", "timeMix", "volumeMix", "attack", "release", "tension"] as const;
+export type GrossControl = (typeof GROSS_CONTROLS)[number];
 
 /** Auto-Tune's controls an automation clip can drive (the key too, for a song that changes key). */
 export const AUTO_TUNE_CONTROLS = ["retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key"] as const;

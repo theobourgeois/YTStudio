@@ -151,7 +151,7 @@ export interface EngineAudioClip {
 /**
  * What an automation lane drives in the engine, in the engine's own units: a channel's two gains, a mixer
  * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, a Gross Beat's slot (its
- * number, 0..35) or mix (0..1), an Auto-Tune's control (`engineControlValue`), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
+ * number, 0..35), mix (0..1), attack or release (seconds) or tension (-1..1), an Auto-Tune's control (`engineControlValue`), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
  * before any clip of it).
  */
 export type EngineLaneTarget =
@@ -659,7 +659,7 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       const gb = effect.grossBeat;
       if (gb) {
         const gross = (control: GrossControl): AutomationTarget => ({ kind: "grossBeat", effect: effect.id, control });
-        for (const control of ["timeMix", "volumeMix"] as const) {
+        for (const control of ["timeMix", "volumeMix", "attack", "release", "tension"] as const) {
           const value = valueOf(gross(control), gb[control]);
           add({ kind: "gross", track: t, effect: effectIndex, control }, [automated(gross(control))], (tick) => [value(tick)]);
         }

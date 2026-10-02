@@ -1095,7 +1095,10 @@ void Sequencer::setGrossControl (gross::Settings& settings, int control, float v
         case 0: settings.timeSlot = slot; break;
         case 1: settings.volumeSlot = slot; break;
         case 2: settings.timeMix = juce::jlimit (0.0f, 1.0f, value); break;
-        default: settings.volumeMix = juce::jlimit (0.0f, 1.0f, value); break;
+        case 3: settings.volumeMix = juce::jlimit (0.0f, 1.0f, value); break;
+        case 4: settings.attack = juce::jlimit (0.0, 0.5, (double) value); break;
+        case 5: settings.release = juce::jlimit (0.0, 1.0, (double) value); break;
+        default: settings.tension = juce::jlimit (-1.0, 1.0, (double) value); break;
     }
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PiCaretRightFill, PiChartLine, PiCursorClick, PiMagnifyingGlass, PiPlug, PiSpinnerGap } from "react-icons/pi";
 import { cn } from "cn";
 import { errorMessage } from "@shared/errors";
+import { targetKey } from "@shared/music/automation";
 import type { EngineParameter, PluginParameter } from "@shared/music/engine";
 import { Input } from "@/components/ui/input";
 import { musicApi } from "../api";
@@ -27,6 +28,7 @@ const H = 460;
 export function AutomationChooser() {
   const song = useSong((s) => s);
   const touched = useAutomationUi((s) => s.touched);
+  const touchedControl = useAutomationUi((s) => s.touchedControl);
   const [query, setQuery] = useState("");
   const field = useRef<HTMLInputElement>(null);
   const groups = useMemo(() => songControls(song), [song]);
@@ -43,6 +45,8 @@ export function AutomationChooser() {
     if (automateParameter(p)) close();
   };
   const touchedOwner = touched && owners.find((o) => o.owner === touched.owner && o.id === touched.id);
+  // The editor's own control last touched (a knob, one of our effects'), if it's still there.
+  const lastControl = useMemo(() => (touchedControl ? groups.flatMap((g) => g.rows).find((r) => r.key === targetKey(touchedControl)) ?? null : null), [groups, touchedControl]);
 
   return (
     <MusicWindow id="automate" title="Automate" initial={{ ...centredOnDesktop(W, H), width: W, height: H }} onClose={close} resizable={{ minWidth: 300, minHeight: 240 }}>
@@ -66,6 +70,11 @@ export function AutomationChooser() {
           {touched && touchedOwner && matches(query, touched.name, touchedOwner.name) && (
             <Section title="Last touched in a plugin's window" icon={<PiCursorClick className="size-3" />}>
               <Row name={touched.name} owner={touchedOwner.name} detail={touched.text} onPick={() => pickParameter(touched)} />
+            </Section>
+          )}
+          {lastControl && matches(query, lastControl.name, lastControl.owner) && (
+            <Section title="Last touched" icon={<PiCursorClick className="size-3" />}>
+              <Row name={lastControl.name} owner={lastControl.owner} automated={lastControl.automated} onPick={() => pick(lastControl)} />
             </Section>
           )}
           {groups.map((group) => {

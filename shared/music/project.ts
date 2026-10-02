@@ -60,6 +60,7 @@ import {
   type ProQState,
   type GrossBeat,
   type GrossBeatSlot,
+  GROSS_CONTROLS,
   type GrossControl,
   type GrossHold,
   type Mixer,
@@ -681,7 +682,6 @@ const CONTROLS = {
  * An automation clip's target, if it's one. Its control may be gone (a channel deleted): it's kept, and
  * drives nothing, so undoing the deletion brings it all back.
  */
-const GROSS_CONTROLS: readonly GrossControl[] = ["timeSlot", "volumeSlot", "timeMix", "volumeMix"];
 const EQ_CONTROLS: readonly EqControl[] = ["frequency", "gain", "q", "range", "output"];
 
 export function normalizeTarget(raw: unknown): AutomationTarget | null {

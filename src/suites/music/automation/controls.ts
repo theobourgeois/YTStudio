@@ -4,7 +4,7 @@
  * effects' mixes, and the plugins whose own parameters the engine lists. Pure, so it's tested.
  */
 import { controlOf, mixerTrackName, targetKey } from "@shared/music/automation";
-import { AUTO_TUNE_CONTROLS, type AutomationTarget, ECHO_CONTROLS, type MixerEffect, type MusicProject, OTT_CONTROLS } from "@shared/music/types";
+import { AUTO_TUNE_CONTROLS, GROSS_CONTROLS, type AutomationTarget, ECHO_CONTROLS, type MixerEffect, type MusicProject, OTT_CONTROLS } from "@shared/music/types";
 
 export interface ControlRow {
   key: string;
@@ -52,8 +52,8 @@ export function songControls(song: MusicProject): ControlGroup[] {
     for (const effect of track.effects) {
       if (!effect) continue;
       mixer.push(row({ kind: "effect", effect: effect.id }));
-      // Gross Beat's own: the slots playing and its two knobs.
-      if (effect.grossBeat) for (const control of ["timeSlot", "volumeSlot", "timeMix", "volumeMix"] as const) mixer.push(row({ kind: "grossBeat", effect: effect.id, control }));
+      // Gross Beat's own: the slots playing and its knobs.
+      if (effect.grossBeat) for (const control of GROSS_CONTROLS) mixer.push(row({ kind: "grossBeat", effect: effect.id, control }));
       // Auto-Tune's: its knobs and its key.
       if (effect.autoTune) for (const control of AUTO_TUNE_CONTROLS) mixer.push(row({ kind: "autoTune", effect: effect.id, control }));
       // EchoBoy's: its knobs.

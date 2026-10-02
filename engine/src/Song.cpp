@@ -467,12 +467,13 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].grossSettings == nullptr)
                 continue;
-            const auto control = juce::StringArray { "timeSlot", "volumeSlot", "timeMix", "volumeMix" }.indexOf (target["control"].toString());
+            const auto control = juce::StringArray { "timeSlot", "volumeSlot", "timeMix", "volumeMix", "attack", "release", "tension" }.indexOf (target["control"].toString());
             if (control < 0)
                 continue;
             lane.control = control;
             const auto& settings = *track.effects[(size_t) lane.index].grossSettings;
-            lane.base[0] = control == 0 ? (float) settings.timeSlot : control == 1 ? (float) settings.volumeSlot : control == 2 ? settings.timeMix : settings.volumeMix;
+            const double base[] = { (double) settings.timeSlot, (double) settings.volumeSlot, settings.timeMix, settings.volumeMix, settings.attack, settings.release, settings.tension };
+            lane.base[0] = (float) base[control];
         }
         else if (kind == "tune")
         {

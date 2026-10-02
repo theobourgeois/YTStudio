@@ -11,7 +11,7 @@ import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
 import { ECHO_CONTROL_SPECS } from "./echo-boy.ts";
-import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
+import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE } from "./gross-beat-presets.ts";
 import { EQ_CONTROL_SCALES } from "./pro-q-presets.ts";
 import { OTT_CONTROL_SPECS } from "./ott.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
@@ -320,6 +320,14 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
       const control = target.control;
       if (control === "timeMix" || control === "volumeMix")
         return { name: control === "timeMix" ? "Time" : "Volume", owner, exists: !!gb, own: gb ? gb[control] : null, ...unit, format: percent };
+      // ATT and REL (seconds, up to their most) and TNS (-1..1).
+      if (control === "attack" || control === "release") {
+        const most = control === "attack" ? MAX_GROSS_ATTACK : MAX_GROSS_RELEASE;
+        const seconds = { toControl: (v: number) => clamp(v, 0, 1) * most, fromControl: (v: number) => clamp(v / most, 0, 1) };
+        const said = (v: number) => (v * most < 1 ? `${Math.round(v * most * 1000)} ms` : `${(v * most).toFixed(2)} s`);
+        return { name: control === "attack" ? "Attack" : "Release", owner, exists: !!gb, own: gb ? gb[control] / most : null, ...seconds, format: said };
+      }
+      if (control === "tension") return { name: "Tension", owner, exists: !!gb, own: gb ? signed.fromControl(gb.tension) : null, ...signed, format: (v) => percent(signed.toControl(v)) };
       // A slot: its number from the fraction (36 of them across the range), said with its name.
       const kind = control === "timeSlot" ? "time" : "volume";
       const last = GROSS_SLOTS - 1;

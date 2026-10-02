@@ -31,6 +31,7 @@ import { Display } from "./display";
 import { startMatch } from "./match-panel";
 import { SongEqKnob } from "./knob";
 import { useEqUi, useEqView } from "./store";
+import { AutomateTouched } from "../automation/touched";
 
 /** As it opens (smaller if the desktop is), and the least it can be: about Pro-Q's Medium. */
 const WIDTH = 980;
@@ -69,7 +70,7 @@ export function ProQWindow({ effectId, index }: { effectId: string; index: numbe
   useEqKeys(effectId);
   if (!effect || !pq) return null;
   return (
-    <MusicWindow id={proQWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} resizable={MIN} onClose={() => closeProQ(effectId)}>
+    <MusicWindow id={proQWindow(effectId)} title={`${effect.plugin.name} (${owner})`} initial={initial} resizable={MIN} onClose={() => closeProQ(effectId)} controls={<AutomateTouched effectId={effectId} />}>
       <div className="flex h-full min-h-0 flex-col bg-[var(--eq-bg-top)] text-xs text-[var(--eq-text)] select-none" data-testid="pro-q" data-effect={effectId}>
         <TopBar effectId={effectId} pq={pq} />
         <Display effectId={effectId} pq={pq} bypassed={!effect.enabled} />
