@@ -9,6 +9,8 @@
  */
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
+import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
+import { ECHO_CONTROL_SPECS } from "./echo-boy.ts";
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
 import { PAN_CONTROLS, panControlFraction, panControlValue } from "./panman-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
@@ -188,6 +190,10 @@ export function targetKey(target: AutomationTarget): string {
       return `effect:${target.effect}`;
     case "grossBeat":
       return `gross:${target.effect}:${target.control}`;
+    case "autoTune":
+      return `tune:${target.effect}:${target.control}`;
+    case "echoBoy":
+      return `echo:${target.effect}:${target.control}`;
     case "panMan":
       return `panman:${target.effect}:${target.control}`;
     case "main":
@@ -318,6 +324,40 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         toControl: (v) => panControlValue(target.control, v),
         fromControl: (v) => panControlFraction(target.control, v),
         format: (v) => control.format(panControlValue(target.control, v)),
+      };
+    }
+    case "autoTune": {
+      const found = findEffect(song, target.effect);
+      const at = found?.effect?.autoTune;
+      const owner = found && at ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Auto-Tune";
+      const info = AUTO_TUNE_CONTROL_INFO[target.control];
+      const span = info.max - info.min;
+      const toControl = (v: number) => {
+        const x = info.min + clamp(v, 0, 1) * span;
+        return info.whole ? Math.round(x) : x;
+      };
+      return {
+        name: info.name,
+        owner,
+        exists: !!at,
+        own: at ? clamp((at[target.control] - info.min) / span, 0, 1) : null,
+        toControl,
+        fromControl: (x) => clamp((x - info.min) / span, 0, 1),
+        format: (v) => info.format(toControl(v)),
+      };
+    }
+    case "echoBoy": {
+      const found = findEffect(song, target.effect);
+      const eb = found?.effect?.echoBoy ?? null;
+      const spec = ECHO_CONTROL_SPECS[target.control];
+      return {
+        name: spec.name,
+        owner: found && eb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted EchoBoy",
+        exists: !!eb,
+        own: eb ? spec.fromControl(spec.get(eb)) : null,
+        toControl: spec.toControl,
+        fromControl: spec.fromControl,
+        format: (v) => spec.format(spec.toControl(v), eb),
       };
     }
     case "main":

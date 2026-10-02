@@ -22,7 +22,7 @@ import {
 } from "@shared/music/automation";
 import { clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
-import { type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type MusicProject } from "@shared/music/types";
+import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
 import { type EditResult, findChannel } from "../tool-edits";
 
@@ -53,6 +53,14 @@ export const CONTROLS = [
   "volume slot",
   "time mix",
   "volume mix",
+  "retune speed",
+  "humanize",
+  "flex-tune",
+  "natural vibrato",
+  "transpose",
+  "throat",
+  "key",
+  ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
   "panman offset",
   "panman width",
   "panman rate",
@@ -60,8 +68,36 @@ export const CONTROLS = [
   "panman output",
 ] as const;
 
+/** An EchoBoy's controls, as the tool names them. */
+const ECHO_CONTROL_NAMES: Record<string, EchoControl> = {
+  "echo mix": "mix",
+  "echo feedback": "feedback",
+  "echo time 1": "echo1",
+  "echo time 2": "echo2",
+  "echo low cut": "lowCut",
+  "echo high cut": "highCut",
+  "echo saturation": "saturation",
+  "echo input": "input",
+  "echo output": "output",
+  "echo groove": "groove",
+  "echo feel": "feel",
+  "echo width": "width",
+};
+
 /** A Gross Beat's controls, as the tool names them. */
 const GROSS_CONTROLS = { "time slot": "timeSlot", "volume slot": "volumeSlot", "time mix": "timeMix", "volume mix": "volumeMix" } as const;
+/** An Auto-Tune's controls, as the tool names them. */
+const TUNE_CONTROLS = {
+  "retune speed": "retuneSpeed",
+  humanize: "humanize",
+  "flex-tune": "flexTune",
+  "natural vibrato": "naturalVibrato",
+  transpose: "transpose",
+  throat: "throat",
+  key: "key",
+} as const satisfies Record<string, AutoTuneControl>;
+/** Auto-Tune's controls the model gives as 0 to 100 (Auto-Tune's own numbers), kept as 0..1 (throat 0.5..1.8). */
+const HUNDREDTHS: readonly AutoTuneControl[] = ["humanize", "flexTune", "throat"];
 /** A PanMan's controls, likewise. */
 const PAN_CONTROLS_BY_NAME = { "panman offset": "offset", "panman width": "width", "panman rate": "rate", "panman input": "input", "panman output": "output" } as const;
 
@@ -113,6 +149,33 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (!effect.grossBeat) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Gross Beat: a "${control}" is Gross Beat's.`);
       return { kind: "grossBeat", effect: effect.id, control: GROSS_CONTROLS[control] };
     }
+    case "retune speed":
+    case "humanize":
+    case "flex-tune":
+    case "natural vibrato":
+    case "transpose":
+    case "throat":
+    case "key": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.autoTune) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an Auto-Tune: "${control}" is Auto-Tune's.`);
+      return { kind: "autoTune", effect: effect.id, control: TUNE_CONTROLS[control] };
+    }
+    case "echo mix":
+    case "echo feedback":
+    case "echo time 1":
+    case "echo time 2":
+    case "echo low cut":
+    case "echo high cut":
+    case "echo saturation":
+    case "echo input":
+    case "echo output":
+    case "echo groove":
+    case "echo feel":
+    case "echo width": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.echoBoy) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an EchoBoy: an "${control}" is EchoBoy's.`);
+      return { kind: "echoBoy", effect: effect.id, control: ECHO_CONTROL_NAMES[control] };
+    }
     case "panman offset":
     case "panman width":
     case "panman rate":
@@ -152,25 +215,56 @@ function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, le
     // slots are numbered from 1 for the model, from 0 inside.
     const slots = target.kind === "grossBeat" && (target.control === "timeSlot" || target.control === "volumeSlot");
     const span = range.max - range.min;
-    const fraction = span === 0 ? 0 : (info.fromControl(slots ? p.value - 1 : p.value) - range.min) / span;
+    const own = slots ? p.value - 1 : target.kind === "autoTune" && HUNDREDTHS.includes(target.control) ? p.value / 100 : p.value;
+    const fraction = span === 0 ? 0 : (info.fromControl(own) - range.min) / span;
     return { tick: Math.round(p.at * barTicks), value: Math.min(1, Math.max(0, fraction)), tension: (p.tension as number | undefined) ?? 0, curve: (p.curve as CurveType | undefined) ?? "single" };
   });
   if (points.some((p) => p.tick > length)) throw new Error(`A point is past the clip's end (${round(length / barTicks)} bars): give a longer "length".`);
   return normalizePoints(points, length);
 }
 
+const TUNE_HINTS: Record<AutoTuneControl, string> = {
+  retuneSpeed: "milliseconds, 0 to 400",
+  humanize: "0 to 100",
+  flexTune: "0 to 100",
+  naturalVibrato: "dB, -12 to 12",
+  transpose: "semitones, -12 to 12",
+  throat: "50 to 180",
+  key: "0 (C) to 11 (B)",
+};
+
+/** An EchoBoy control's values, said for the model. */
+const ECHO_HINTS: Record<EchoControl, string> = {
+  mix: "0 (dry) to 1 (echo only)",
+  feedback: "0 to 1",
+  echo1: "the knob, 0 to 1 (ms: 0.5 is about 120 ms; a note value: 0 is 1/2, 1 is 1/64)",
+  echo2: "the knob, 0 to 1 (ms: 0.5 is about 120 ms; a note value: 0 is 1/2, 1 is 1/64)",
+  lowCut: "Hz, 20 (off) to 2000",
+  highCut: "Hz, 500 to 20000 (off)",
+  saturation: "0 to 1 (0.5 the style as made)",
+  input: "dB, -24 to 24",
+  output: "dB, -24 to 24",
+  groove: "-1 (shuffle) to 1 (swing)",
+  feel: "-1 (rushin') to 1 (draggin')",
+  width: "0 to 1",
+};
+
 const valueHint = (target: AutomationTarget) =>
-  target.kind === "plugin"
+  target.kind === "echoBoy"
+    ? ECHO_HINTS[target.control]
+    : target.kind === "plugin"
     ? "0 to 1 of the parameter's range"
     : target.kind === "grossBeat" && target.control.endsWith("Slot")
       ? "a slot, 1 to 36"
-      : target.kind === "panMan"
-        ? PAN_HINTS[target.control]
-        : target.kind === "channel" && target.control === "pan"
-          ? "a pan, -1 left to 1 right"
-          : target.kind === "mixer" && target.control !== "volume"
-            ? "-1 to 1"
-            : "0 to 1, as its knob or fader has it";
+    : target.kind === "autoTune"
+      ? TUNE_HINTS[target.control]
+    : target.kind === "panMan"
+      ? PAN_HINTS[target.control]
+    : target.kind === "channel" && target.control === "pan"
+      ? "a pan, -1 left to 1 right"
+      : target.kind === "mixer" && target.control !== "volume"
+        ? "-1 to 1"
+        : "0 to 1, as its knob or fader has it";
 /** What a PanMan control's points are in. */
 const PAN_HINTS = { offset: "degrees, -105 (left) to 105 (right)", width: "degrees, 0 to 210", rate: "Hz, 0.01 to 10", input: "dB, -24 to 24", output: "dB, -24 to 24" } as const;
 

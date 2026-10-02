@@ -5,7 +5,7 @@
  */
 import { controlOf, mixerTrackName, targetKey } from "@shared/music/automation";
 import { PAN_CONTROL_IDS } from "@shared/music/panman-presets";
-import type { AutomationTarget, MusicProject } from "@shared/music/types";
+import { AUTO_TUNE_CONTROLS, type AutomationTarget, ECHO_CONTROLS, type MusicProject } from "@shared/music/types";
 
 export interface ControlRow {
   key: string;
@@ -55,6 +55,10 @@ export function songControls(song: MusicProject): ControlGroup[] {
       mixer.push(row({ kind: "effect", effect: effect.id }));
       // Gross Beat's own: the slots playing and its two knobs.
       if (effect.grossBeat) for (const control of ["timeSlot", "volumeSlot", "timeMix", "volumeMix"] as const) mixer.push(row({ kind: "grossBeat", effect: effect.id, control }));
+      // Auto-Tune's: its knobs and its key.
+      if (effect.autoTune) for (const control of AUTO_TUNE_CONTROLS) mixer.push(row({ kind: "autoTune", effect: effect.id, control }));
+      // EchoBoy's: its knobs.
+      if (effect.echoBoy) for (const control of ECHO_CONTROLS) mixer.push(row({ kind: "echoBoy", effect: effect.id, control }));
       // PanMan's own: offset, width, rate, input, output.
       if (effect.panMan) for (const control of PAN_CONTROL_IDS) mixer.push(row({ kind: "panMan", effect: effect.id, control }));
     }
@@ -69,8 +73,8 @@ export function pluginOwners(song: MusicProject): PluginOwner[] {
     c.kind === "plugin" && c.plugin ? [{ owner: "channel" as const, id: c.id, name: c.plugin.name === c.name ? c.name : `${c.plugin.name} (${c.name})` }] : [],
   );
   for (const track of song.mixer.tracks)
-    // (Gross Beat and PanMan are ours: their controls are among the song's, not a plugin's parameters.)
-    for (const effect of track.effects) if (effect && !effect.grossBeat && !effect.panMan) owners.push({ owner: "effect", id: effect.id, name: `${effect.plugin.name} (${mixerTrackName(song, track.id)})` });
+    // (Gross Beat, Auto-Tune, EchoBoy and PanMan are ours: their controls are among the song's, not a plugin's parameters.)
+    for (const effect of track.effects) if (effect && !effect.grossBeat && !effect.autoTune && !effect.echoBoy && !effect.panMan) owners.push({ owner: "effect", id: effect.id, name: `${effect.plugin.name} (${mixerTrackName(song, track.id)})` });
   return owners;
 }
 

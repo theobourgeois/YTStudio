@@ -17,7 +17,7 @@ import { carriesSamples, dropOnChannel } from "./browser/drops";
 import { loadSamples, waveformColumns } from "./waveform";
 import { routeToFreeTrack } from "./mixer/actions";
 import { TrackSelector } from "./mixer/track-selector";
-import { MusicWindow } from "./window";
+import { MusicWindow, cascadedOnDesktop } from "./window";
 
 /** The envelope's knobs go to 3 s; the document allows more (for the assistant, or typed values later). */
 const ENVELOPE_MAX = 3;
@@ -38,12 +38,14 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
   // An audio clip's channel (FL's cut-down sampler): its file streams from the Playlist, so it has no
   // envelope; its pitch plays the file faster or slower (FL's Resample).
   const audio = channel.kind === "audio";
+  // Cascaded by its place in the rack, but always in view: an audio clip's channel can be far down it.
+  const [initial] = useState(() => cascadedOnDesktop(index, { x: 120, y: 190 }, 28, { width: 440, height: WINDOW_HEIGHT }));
 
   return (
     <MusicWindow
       id={channelWindow(id)}
       title={channel.name}
-      initial={{ x: 120 + index * 28, y: 190 + index * 28 }}
+      initial={initial}
       onClose={() => useMusicUi.getState().closeChannelWindow(id)}
       className="w-[440px]"
     >
@@ -312,6 +314,8 @@ function EnvelopeTab({ channel }: { channel: Channel }) {
   );
 }
 
+/** About as tall as the window is (its sample tab), to open it where it fits. */
+const WINDOW_HEIGHT = 480;
 const WAVE_W = 414;
 const WAVE_H = 84;
 

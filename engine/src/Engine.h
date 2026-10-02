@@ -91,6 +91,10 @@ private:
     PluginHost effects;
     /** Its Gross Beats' sounds, by effect id (the songs hold them too, so it doesn't matter where this is). */
     gross::Registry grossBeats;
+    /** Its Auto-Tunes' sounds, by effect id, likewise. */
+    tune::Registry autoTunes;
+    /** Its EchoBoys' sounds, by effect id. */
+    echo::Registry echoBoys;
     /** Its PanMen's sounds, likewise. */
     panman::Registry panMen;
     Sequencer sequencer;

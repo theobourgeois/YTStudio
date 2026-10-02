@@ -59,7 +59,10 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      export's settings, file names and ffmpeg arguments (export.ts) and MIDI file (midi.ts),
                      and recorded takes into the song (recording.ts: where they land, the latency left out),
                      Gross Beat (gross-beat.ts: its slots, edits and envelopes for the engine; its presets in
-                     gross-beat-presets.ts), PanMan (panman.ts: its patterns, edits and what the engine plays;
+                     gross-beat-presets.ts), EchoBoy (echo-boy.ts: its edits, controls and delay lines for the
+                     engine; echo-boy-styles.ts its 31 styles, echo-boy-library.ts its presets), Auto-Tune
+                     (auto-tune.ts: its edits, Detect key, what the engine plays; scales, presets and ranges in
+                     auto-tune-presets.ts), PanMan (panman.ts: its patterns, edits and what the engine plays;
                      its constants, validation and presets in panman-presets.ts), and drawing anything over
                      time as lines for the engine (sampling.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
@@ -172,10 +175,12 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      thread, a lock-free ring), and ClipPlayer.cpp plays the playlist's audio clips with it,
                      each started on its sample. Export.cpp: the export, rendered on a thread of its own
                      (Workers.h runs its plugins on every core). GrossBeat.cpp: Gross Beat, a native effect
-                     (its rolling buffer, envelopes, sync, HOLD). PanMan.cpp: PanMan, another (its pattern,
-                     chance, triggers, dynamics, pan law, Analog Styles). Resampling.h: reading between samples
-                     (linear, Hermite, sinc), centred so nothing is delayed. Protocol.cpp:
-                     the JSON lines. One file per job: split a file rather than let it grow past a few hundred
+                     (its rolling buffer, envelopes, sync, HOLD). EchoBoy.cpp: EchoBoy, a native echo (its
+                     lines, the style on each repeat; its filters, saturations, diffusers, LFOs in EchoDsp.h).
+                     AutoTune.cpp: Auto-Tune, native too (YIN pitch tracking, Antares' correction,
+                     formant-keeping PSOLA). PanMan.cpp: PanMan, another (its pattern, chance, triggers,
+                     dynamics, pan law, Analog Styles). Resampling.h: reading between samples (linear, Hermite, sinc),
+                     centred so nothing is delayed. Protocol.cpp: the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
 electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
@@ -194,7 +199,9 @@ src/
                      channel-settings.tsx (a sampler's window), channel-picker.tsx (the +: choose an
                      instrument), knob.tsx, lcd.tsx, waveform.ts, browser/ (the Browser, Alt+F8: a panel
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
-                     pattern-picker.tsx, gross-beat/ (Gross Beat's window, its mapping panel and tools),
+                     pattern-picker.tsx, gross-beat/ (Gross Beat's window, its mapping panel and tools), echo-boy/
+                     (EchoBoy's window, Tweak, the Style Editor, Rhythm Echo's editor, its tools),
+                     auto-tune/ (Auto-Tune's window, its live pitch graph and tools),
                      panman/ (PanMan's window, its editors, meters and tools),
                      toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
                      tempo and position LCDs, the hint bar; its maths in position.ts), recording.ts (armed
@@ -313,7 +320,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, Gross Beat, PanMan. Where it is and every step still to come, in order:
+the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, PanMan. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
@@ -483,6 +490,27 @@ the export, automation, recording, Gross Beat, PanMan. Where it is and every ste
   automate (`AutomationTarget` `grossBeat`); HOLD and the scratching clock are live (`grossBeat` command),
   not the song's. Its window is `gross-beat-window.tsx`; keep its sound tested offline
   (`gross-beat.integration.test.ts`).
+- **EchoBoy** (`docs/soundtoys/echoboy-manual.md`, its DSP in `echoboy-dsp.md`; `shared/music/echo-boy*.ts`,
+  `engine/src/EchoBoy.cpp`, `src/suites/music/echo-boy/`): Soundtoys' echo, ours, as Gross Beat is: a
+  `MixerEffect` whose plugin is `ECHO_BOY_PLUGIN`, its settings in the song (`MixerEffect.echoBoy`). Its
+  modes are decided in TypeScript (`engineEchoBoy`): delay lines, a feedback matrix between them and Rhythm
+  Echo's taps; the engine knows no mode. A style is the Style Editor's settings (`EchoStyle`, null in the
+  song while it's as made); what makes the repeats change is in the loop (the Decay EQ, the record stage's
+  saturation, the cuts, loop diffusion and wobble). The lines are kept across songs by effect id
+  (`echo::Registry`), so edits don't cut the echoes off; Time glides, note values crossfade. Its knobs
+  automate (`AutomationTarget` `echoBoy`; lanes `kind: "echo"` in the engine's units). Keep its sound tested
+  offline (`echo-boy.integration.test.ts`).
+- **Auto-Tune** (`docs/antares/auto-tune.md`, Antares Auto-Tune Pro's Auto mode; `shared/music/auto-tune*.ts`,
+  `engine/src/AutoTune.cpp`, `src/suites/music/auto-tune/`): ours as Gross Beat is, `AUTO_TUNE_PLUGIN`, its
+  settings in the song (`MixerEffect.autoTune`). What its knobs mean (Tracking as YIN's threshold, Natural
+  Vibrato's dB, the input type's Hz) is decided in `engineAutoTune`; the engine hears the pitch, decides the
+  note per ~2.7 ms frame and moves it by TD-PSOLA with sub-sample marks (whole samples drift cents), the
+  grains stretched for Throat (or with the pitch, Formant off). It looks ahead by a latency fixed by the input
+  type, reported to `Song::compensate` (an enabled one only); its mix's dry sound is read as late. Its state
+  is kept by effect id (`tune::Registry`). It says its latest pitch readings in each transport event
+  (`EngineTransport.autoTunes`), which `pitch-history.ts` keeps outside React for the window's graph. Seven
+  controls automate (`AutomationTarget` `autoTune`, lanes `kind: "tune"`). Keep its sound tested offline to the
+  cent (`auto-tune.integration.test.ts`).
 - **PanMan** (`docs/soundtoys/panman.md`; `shared/music/panman*.ts`, `engine/src/PanMan.cpp`,
   `src/suites/music/panman/`): Soundtoys' auto-panner, ours, built as Gross Beat is (when in doubt about it,
   do what Soundtoys' does: the doc is from its manual). `MixerEffect.panMan` on an effect whose plugin is

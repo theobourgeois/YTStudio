@@ -90,6 +90,8 @@ juce::var Engine::transport() const
                                { "metronome", sequencer.metronomeOn() },
                                { "preview", preview.describe() },
                                { "grossBeats", grossBeats.describe() },
+                               { "autoTunes", autoTunes.describe() },
+                               { "echoBoys", echoBoys.describe() },
                                { "panMen", panMen.describe() } });
 }
 
@@ -414,7 +416,7 @@ juce::StringArray Engine::applySong()
     // During an export the song waits: it's made when the export ends (its plugins are busy).
     if (exportJob != nullptr)
         return unreadable;
-    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, panMen, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
+    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, autoTunes, echoBoys, panMen, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
     latencies = plugins.latencySignature() * 7 + effects.latencySignature();
     armed.clear();
     for (const auto& track : song->tracks)
@@ -513,6 +515,8 @@ void Engine::timerCallback()
                                                                : juce::var() },
                                             { "preview", preview.describe() },
                                             { "grossBeats", grossBeats.describe() },
+                                            { "autoTunes", autoTunes.describe() },
+                                            { "echoBoys", echoBoys.describe() },
                                             { "panMen", panMen.describe() },
                                             { "peak", level },
                                             { "meters", meters },
@@ -700,10 +704,12 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
 
     // Its plugins are the song's own instances. One still loading is waited for, or it'd be missing.
     juce::StringArray unreadable;
-    // Gross Beats of its own: they start empty, and playback's are left as they are.
+    // Gross Beats and EchoBoys of its own: they start empty, and playback's are left as they are.
     gross::Registry exportGrossBeats;
+    tune::Registry exportAutoTunes;
+    echo::Registry exportEchoBoys;
     panman::Registry exportPanMen;
-    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportPanMen, unreadable, exportBlockSize, rate(), false);
+    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportAutoTunes, exportEchoBoys, exportPanMen, unreadable, exportBlockSize, rate(), false);
     if ((plugins.anyLoading() || effects.anyLoading()) && attempt < exportWaits)
     {
         juce::Timer::callAfterDelay (100, [this, stillAlive = alive, params, reply, attempt] {
@@ -719,7 +725,7 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
             missing.add (channel.id);
     for (const auto& track : song->tracks)
         for (const auto& effect : track.effects)
-            if (effect.plugin == nullptr && effect.gross == nullptr && effect.pan == nullptr)
+            if (effect.plugin == nullptr && effect.gross == nullptr && effect.tune == nullptr && effect.echo == nullptr && effect.pan == nullptr)
                 missing.add (effect.id);
 
     // Playback stops and lets go of the plugins; they're prepared for the export.
