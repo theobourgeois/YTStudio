@@ -175,6 +175,10 @@ private:
     void runEffect (HostedPlugin&, float mix, float* left, float* right, int numSamples);
     /** Put a track's sound through a Gross Beat (`mix` of it heard against the dry sound), following `grossClock`. */
     void runGrossBeat (const Song::Track::Effect&, float* left, float* right, int numSamples);
+    /** Put a track's sound through a Pro-Q (`mix` of it heard against the dry sound, held back by its latency). */
+    void runProQ (const Song::Track::Effect&, float* left, float* right, int numSamples);
+    /** An automation lane's value for a Pro-Q's band control (`Song::Lane::band`, `control`). */
+    static void setEqControl (eq::Settings&, int band, int control, float value);
     /** An automation lane's value for a Gross Beat's control (`Song::Lane::control`). */
     static void setGrossControl (gross::Settings&, int control, float value);
     /** Run the mixer's tracks in order and add the master's sound to `left` and `right`. */

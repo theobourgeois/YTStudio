@@ -237,6 +237,26 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             state->scratch = (float) juce::jlimit (-64.0, 0.0, (double) params["scratch"]);
         return ok();
     }
+    if (command == "eqWatch")
+    {
+        // The Pro-Qs whose windows are open: their sound is measured for the analyzer.
+        std::map<juce::String, int> sizes;
+        if (const auto* list = params["effects"].getArray())
+            for (const auto& item : *list)
+                sizes[item["effect"].toString()] = juce::jlimit (256, 32768, (int) item["size"]);
+        eqs.watch (sizes);
+        return ok();
+    }
+    if (command == "eqSolo")
+    {
+        // A band soloed while its solo button is held.
+        const auto state = eqs.find (params["effect"].toString());
+        if (state == nullptr)
+            return reply (fail ("The song playing has no such Pro-Q."), {});
+        state->soloBand.store (params["band"].isVoid() ? 0 : juce::jlimit (0, eq::maxBands, (int) params["band"]));
+        state->soloGain.store ((float) std::pow (10.0, juce::jlimit (-30.0, 30.0, (double) params["gain"]) / 20));
+        return ok();
+    }
     if (command == "parameters")
     {
         // A plugin channel's (or an effect's) parameters that can be automated.
@@ -403,7 +423,7 @@ juce::StringArray Engine::applySong()
     // During an export the song waits: it's made when the export ends (its plugins are busy).
     if (exportJob != nullptr)
         return unreadable;
-    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
+    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, eqs, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
     latencies = plugins.latencySignature() * 7 + effects.latencySignature();
     armed.clear();
     for (const auto& track : song->tracks)
@@ -478,6 +498,7 @@ void Engine::timerCallback()
     sequencer.collectGarbage();
     sequencer.prepareClips();
     preview.collectGarbage();
+    eqs.collect();
     reportTakes();
     checkLatencies();
     // A parameter touched in a plugin's window: the tab can offer to automate it.
@@ -502,6 +523,7 @@ void Engine::timerCallback()
                                                                : juce::var() },
                                             { "preview", preview.describe() },
                                             { "grossBeats", grossBeats.describe() },
+                                            { "eq", eqs.describe() },
                                             { "peak", level },
                                             { "meters", meters },
                                             { "cpu", devices.getCpuUsage() } }));
@@ -577,6 +599,7 @@ void Engine::render (int frames, const juce::File& file, const juce::String& inp
     }
     sequencer.collectGarbage();
     preview.collectGarbage();
+    eqs.collect();
     reportTakes();
 
     if (file != juce::File())
@@ -690,7 +713,8 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
     juce::StringArray unreadable;
     // Gross Beats of its own: they start empty, and playback's are left as they are.
     gross::Registry exportGrossBeats;
-    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, unreadable, exportBlockSize, rate(), false);
+    eq::Registry exportEqs;
+    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportEqs, unreadable, exportBlockSize, rate(), false);
     if ((plugins.anyLoading() || effects.anyLoading()) && attempt < exportWaits)
     {
         juce::Timer::callAfterDelay (100, [this, stillAlive = alive, params, reply, attempt] {
@@ -706,7 +730,7 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
             missing.add (channel.id);
     for (const auto& track : song->tracks)
         for (const auto& effect : track.effects)
-            if (effect.plugin == nullptr && effect.gross == nullptr)
+            if (effect.plugin == nullptr && effect.gross == nullptr && effect.eq == nullptr)
                 missing.add (effect.id);
 
     // Playback stops and lets go of the plugins; they're prepared for the export.
