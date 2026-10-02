@@ -7,6 +7,11 @@ import { pitchSpeed } from "@shared/music/playlist";
 import { DEFAULT_ENVELOPE, DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH, precomputedUntouched } from "@shared/music/project";
 import type { Channel, Envelope, Precomputed } from "@shared/music/types";
 import { Input } from "@/components/ui/input";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { STRETCH_MODE_NAMES } from "@shared/music/stretch";
+import { STRETCH_MODES } from "@shared/music/types";
+import { StretchMenuItems } from "./stretch-menu";
+import { clearStretch, setStretchMode, stretchLabel } from "./stretching";
 import { CENTS, MILLISECONDS, PERCENT, SongKnob, type ValueUnit, cents, panText, percent, seconds } from "./knob";
 import { solo, toggleMute } from "./rack-actions";
 import { musicApi } from "./api";
@@ -273,8 +278,42 @@ function SampleTab({ channel }: { channel: Channel }) {
         </div>
       </Section>
 
+      {channel.kind === "audio" && <TimeStretching channel={channel} />}
+
       <Waveform url={asset?.src ?? null} precomputed={channel.precomputed} onPlay={() => hearChannel(channel)} />
     </div>
+  );
+}
+
+/**
+ * FL's Time stretching (an audio clip channel's): its MODE, and its TIME with FL's menu (none,
+ * Autodetect, Project tempo, beats and bars, twice or half as long). Its clips that have no stretch of
+ * their own play by it.
+ */
+function TimeStretching({ channel }: { channel: Channel }) {
+  const target = { kind: "channel" as const, id: channel.id };
+  const stretch = channel.stretch ?? null;
+  return (
+    <Section title="Time stretching">
+      <div className="flex items-center gap-5">
+        {STRETCH_MODES.map((mode) => (
+          <Light key={mode} label={STRETCH_MODE_NAMES[mode]} on={stretch?.mode === mode} onChange={(on) => (on ? setStretchMode(target, mode) : clearStretch(target))} />
+        ))}
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-[9px] font-medium tracking-wide text-muted-foreground">TIME</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" aria-label="Time" title="How long the file lasts (FL's TIME): its menu" className="sunken flex h-6 min-w-20 items-center justify-end rounded px-1.5 font-mono text-xs tabular-nums">
+                {stretchLabel(stretch)}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <StretchMenuItems target={target} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </Section>
   );
 }
 

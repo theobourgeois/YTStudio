@@ -389,6 +389,13 @@ function ellipsize(ctx: CanvasRenderingContext2D, text: string, width: number): 
   return low ? `${text.slice(0, low).trimEnd()}…` : "";
 }
 
+/** A stretched audio clip's title says how fast it plays its file (" · 1.33×"); others say nothing more. */
+function stretchMark(scene: PlaylistScene, clip: PlaylistClip): string {
+  if (clip.kind !== "audio" || !scene.ctx.stretchOf(clip)?.tempo) return "";
+  const speed = scene.ctx.fileSecondsPerTick(clip) / scene.ctx.secondsPerTick;
+  return ` · ${Math.round(speed * 100) / 100}×`;
+}
+
 /** One clip: its body, title strip and content (`alpha`: how much of it shows, for one fading out). */
 function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: PlaylistClip, isSelected: boolean, alpha: number) {
   const { view, width, layout, palette } = scene;
@@ -461,7 +468,7 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   if (w > 16 && title >= 9) {
     ctx.fillStyle = colours.text;
     const textX = Math.max(x + (arrow ? MENU_TO : 0), 0) + 4;
-    ctx.fillText(ellipsize(ctx, scene.names.get(clip.ref) ?? "", right - textX - 3), textX, y + title / 2 + 0.5);
+    ctx.fillText(ellipsize(ctx, (scene.names.get(clip.ref) ?? "") + stretchMark(scene, clip), right - textX - 3), textX, y + title / 2 + 0.5);
   }
   ctx.globalAlpha = alpha;
   ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";

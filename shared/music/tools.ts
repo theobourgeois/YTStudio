@@ -8,7 +8,7 @@ import { EXPORT_FORMATS } from "./export.ts";
 import { ECHO_TOOL_CONTROL_NAMES } from "./echo-boy-presets.ts";
 import { OTT_TOOL_CONTROL_NAMES } from "./ott-presets.ts";
 import { PANMAN_PRESETS, PAN_CURVES, PAN_MODES, PAN_RHYTHMS, PAN_STYLES } from "./panman-presets.ts";
-import { CURVE_TYPES } from "./types.ts";
+import { CURVE_TYPES, STRETCH_MODES } from "./types.ts";
 
 const channel = str('A channel: its id (from get_song) or its name ("Kick").');
 const pattern = str("A pattern: its id or its name. Default: the pattern shown in the channel rack.");
@@ -1233,6 +1233,35 @@ export const MUSIC_TOOLS = [
       },
       ["ids"],
     ),
+  }),
+  tool({
+    name: "stretch_audio",
+    title: "Stretch audio clips",
+    kind: "edit",
+    description:
+      "Time-stretch audio clips (FL Studio's Time stretching): played faster or slower so they sit on the song's tempo, each keeping its " +
+      "content (the same part of its file), its length changing to fit. Either `ids` (audio clips: a stretch of their own, FL's variants) or " +
+      "`audio` (an audio clip's channel: the stretch its clips without their own follow). A stretched clip follows the song's tempo from then on. " +
+      'Say how: `tempo` (the tempo the file was made at, e.g. a 90 BPM loop: 90; "detect" to hear it; "project" for as it sounds now; ' +
+      '"none" to play it at its own speed), `bars` (the whole file lasts this many bars), or, for clips, `length` (stretch each clip to this ' +
+      "many bars, like dragging its end with the Playlist's Stretch on). `mode`: stretch keeps the pitch (the default), resample makes it higher " +
+      "when faster, as a record does.",
+    inputSchema: obj({
+      ids: clipIds,
+      audio: str("An audio clip's channel: its id or its name (instead of `ids`)."),
+      mode: oneOf(STRETCH_MODES, "stretch: the pitch kept; resample: faster is higher, slower lower. Default: the mode it has, else stretch."),
+      tempo: { description: 'The file\'s own tempo in BPM (it\'s played at the song\'s), or "detect", "project" or "none".', anyOf: [{ type: "number" }, { type: "string", enum: ["detect", "project", "none"] }] },
+      bars: num("The whole file lasts this many bars of the song (1 bar, 2, 4...; 0.25 is a beat in 4/4)."),
+      length: num("Clips only: each clip stretched to this many bars, its content kept."),
+      follow_channel: bool("Clips only: drop their own stretch, to follow their channel's again."),
+    }),
+  }),
+  tool({
+    name: "detect_tempo",
+    title: "Detect a file's tempo",
+    kind: "look",
+    description: "Listen to an audio clip's file and say its tempo (BPM, rounded so a loop is a whole number of beats), how sure, and how long it is. stretch_audio with that tempo puts it on the song's.",
+    inputSchema: obj({ audio: str("An audio clip's channel: its id or its name.") }, ["audio"]),
   }),
   tool({
     name: "remove_clips",

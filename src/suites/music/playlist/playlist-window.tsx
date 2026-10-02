@@ -34,6 +34,8 @@ import { useMusic } from "../store";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
+import { StretchMenuItems } from "../stretch-menu";
+import { autodetectTempo } from "../stretching";
 import {
   cancelDrag,
   chopClip,
@@ -605,6 +607,8 @@ function ClipMenu() {
   if (!menu || !clip) return null;
   const close = () => usePlaylist.setState({ clipMenu: null });
   const only = new Set([clip.id]);
+  const selected = usePlaylist.getState().selected;
+  const stretchTarget = { kind: "clips" as const, ids: selected.has(clip.id) ? selected : only };
   const commit = (update: Parameters<typeof editClips>[1]) => useMusic.getState().commit((song) => editClips(song, update));
   const source = { kind: clip.kind, ref: clip.ref };
   const color = useMusic.getState().history?.doc && sourceColor(useMusic.getState().history!.doc, source);
@@ -667,6 +671,14 @@ function ClipMenu() {
           <>
             {/* A channel of its own for this clip (the same file), so its pitch or volume changes it alone. */}
             <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique as sample</DropdownMenuItem>
+            {/* Its own stretch (FL 2025's variant), the selection's with it if it's selected. */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Stretch</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <StretchMenuItems target={stretchTarget} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuItem onSelect={() => void autodetectTempo(stretchTarget)}>Detect tempo</DropdownMenuItem>
             {/* FL's Automate: an automation clip of its channel's volume or pan, over the clip. */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Automate</DropdownMenuSubTrigger>

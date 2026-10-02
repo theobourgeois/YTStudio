@@ -62,9 +62,12 @@ import {
   removeClipsTool,
   sliceClipsTool,
   splitByChannelTool,
+  findAudio,
+  stretchAudioTool,
   updateClipsTool,
   updatePlaylistTrackTool,
 } from "./playlist/tool-edits";
+import { fileTempo } from "@shared/music/stretch";
 import { describeBrowser, describeFolder, describeSearch, loadSampleEdit, sampleChannel } from "./browser/describe";
 import { addAutomationEdit, describeAutomations, resolveControl, updateAutomationTool } from "./automation/tool-edits";
 import { matches, pluginOwners, songControls } from "./automation/controls";
@@ -663,6 +666,43 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   split_by_channel: edit(splitByChannelTool),
   make_clip_unique: edit(makeClipUniqueTool),
   update_playlist_track: edit(updatePlaylistTrackTool),
+  async stretch_audio(input, ctx) {
+    const target = await targetOf(ctx);
+    const channelOf = (id: string) => target.song.channels.find((c) => c.id === id);
+    const seconds = (channelId: string) => target.assets.find((a) => a.id === channelOf(channelId)?.sampleId)?.duration || null;
+    // "detect": every file named is heard first (the edit itself stays pure).
+    const heard = new Map<string, number | null>();
+    if (input.tempo === "detect") {
+      const refs = input.ids !== undefined ? target.song.playlist.clips.filter((c) => c.kind === "audio" && Array.isArray(input.ids) && input.ids.includes(c.id)).map((c) => c.ref) : [findAudio(target.song, input.audio).id];
+      for (const channelId of new Set(refs)) {
+        const sampleId = channelOf(channelId)?.sampleId;
+        if (!sampleId) continue;
+        const detected = await musicApi.detectTempo({ projectId: target.projectId, sampleId });
+        heard.set(channelId, fileTempo(detected.seconds, detected.bpm));
+      }
+    }
+    let text = "";
+    await apply(target, (song) => {
+      const result = stretchAudioTool(song, input, { seconds, heard: (id) => heard.get(id) ?? null });
+      text = result.text;
+      return result.song;
+    });
+    return textResult(text);
+  },
+  async detect_tempo(input, ctx) {
+    const target = await targetOf(ctx);
+    const channel = findAudio(target.song, input.audio);
+    if (!channel.sampleId) throw new Error(`"${channel.name}" has no file.`);
+    const detected = await musicApi.detectTempo({ projectId: target.projectId, sampleId: channel.sampleId });
+    const tempo = fileTempo(detected.seconds, detected.bpm);
+    const length = `${Math.round(detected.seconds * 100) / 100} s long`;
+    if (detected.bpm === null)
+      return textResult(`No steady beat heard in "${channel.name}" (${length}).${tempo ? ` As a loop of a whole number of beats, it would be ${tempo} BPM.` : ""} Ask the user its tempo, or stretch it by "bars".`);
+    return textResult(
+      `"${channel.name}": ${tempo} BPM (heard ${detected.bpm}, ${Math.round(detected.confidence * 100)}% sure), ${length}. The song is at ${target.song.settings.tempo} BPM; ` +
+        `stretch_audio with tempo ${tempo} (or "detect") puts it on the song's.`,
+    );
+  },
   async add_audio_clip(input, ctx) {
     const target = await targetOf(ctx);
     const track = input.track;

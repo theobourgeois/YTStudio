@@ -3,7 +3,8 @@ import { addChannels, setSteps, setTempo } from "@shared/music/edits";
 import { addAudioClips } from "@shared/music/playlist";
 import { createMusicProject } from "@shared/music/project";
 import type { MusicProject } from "@shared/music/types";
-import { chopClipsTool, describePlaylist, makeClipUniqueTool, placeClipsTool, playlistSummary, removeClipsTool, sliceClipsTool, splitByChannelTool, updateClipsTool, updatePlaylistTrackTool } from "./tool-edits";
+import { chopClipsTool, describePlaylist, makeClipUniqueTool, placeClipsTool, playlistSummary, removeClipsTool, sliceClipsTool, splitByChannelTool, stretchAudioTool, updateClipsTool, updatePlaylistTrackTool } from "./tool-edits";
+import { clipContext, clipLength } from "@shared/music/playlist";
 
 const BAR = 384;
 const env = { patternId: null };
@@ -122,5 +123,37 @@ describe("the assistant's audio tracks", () => {
     expect(updatePlaylistTrackTool(song, { track: 3, audioTrack: "none" }).song.playlist.tracks).toEqual([]);
     expect(() => updatePlaylistTrackTool(beat(), { track: 1, audioTrack: "master" })).toThrow(/master/);
   });
-});
 
+  it("stretch audio clips by their file's tempo, its length in bars or a clip's new length, keeping their content", () => {
+    // A four-second vocal (two bars at 120 BPM), in two clips of a bar each.
+    let song = addAudioClips(beat(), [{ name: "Vocal", sampleId: "m3", seconds: 4, channelId: "chan_vox" }], { start: 0, track: 0 }).song;
+    song = sliceClipsTool(song, { bar: 2, track: 1 }).song;
+    const files = { seconds: () => 4 };
+    const length = (s: MusicProject, id: number) => clipLength(s.playlist.clips.find((c) => c.id === id)!, clipContext(s)) / BAR;
+    // Made at 90 BPM: played a third faster in a 120 song, its first second-of-two lasts three quarters of a bar.
+    const tempo = stretchAudioTool(song, { ids: [1], tempo: 90 }, files);
+    expect(tempo.song.playlist.clips.find((c) => c.id === 1)?.stretch).toEqual({ mode: "stretch", tempo: 90 });
+    expect(length(tempo.song, 1)).toBe(0.75);
+    expect(tempo.text).toContain("its file's tempo 90 BPM: 1.333× its speed; its own");
+    // The whole file in four bars, Resample, on the channel: both clips follow, each twice as long.
+    const bars = stretchAudioTool(song, { audio: "Vocal", bars: 4, mode: "resample" }, files);
+    expect(bars.song.channels.find((c) => c.id === "chan_vox")?.stretch).toEqual({ mode: "resample", tempo: 240 });
+    expect([length(bars.song, 1), length(bars.song, 2)]).toEqual([2, 2]);
+    expect(bars.text).toContain("in Resample mode");
+    // A clip's length: its content in that many bars.
+    const long = stretchAudioTool(song, { ids: [2], length: 3 }, files);
+    expect(length(long.song, 2)).toBe(3);
+    expect(long.song.playlist.clips.find((c) => c.id === 2)?.stretch).toEqual({ mode: "stretch", tempo: 360 });
+    // Back to its channel's, and "detect" with what was heard.
+    expect(stretchAudioTool(long.song, { ids: [2], follow_channel: true }, files).song.playlist.clips.find((c) => c.id === 2)).not.toHaveProperty("stretch");
+    expect(stretchAudioTool(song, { audio: "chan_vox", tempo: "detect" }, { ...files, heard: () => 60 }).song.channels.find((c) => c.id === "chan_vox")?.stretch).toEqual({ mode: "stretch", tempo: 60 });
+    // What's wrong, said.
+    expect(() => stretchAudioTool(song, { tempo: 90 }, files)).toThrow(/either "ids"/);
+    expect(() => stretchAudioTool(song, { ids: [1], tempo: 90, bars: 2 }, files)).toThrow(/not "tempo" and "bars"/);
+    expect(() => stretchAudioTool(song, { audio: "Vocal", length: 2 }, files)).toThrow(/for clips/);
+    expect(() => stretchAudioTool(song, { audio: "Vocal", tempo: "detect" }, files)).toThrow(/No steady beat/);
+    expect(() => stretchAudioTool(song, { audio: "Snare", tempo: 90 }, files)).toThrow(/no audio clip "Snare"/);
+    const withPattern = placeClipsTool(song, { clips: [{ pattern: "Beat", track: 3, bar: 1 }] }, env).song;
+    expect(() => stretchAudioTool(withPattern, { ids: [3], tempo: 90 }, files)).toThrow(/Only audio clips stretch/);
+  });
+});
