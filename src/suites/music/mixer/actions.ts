@@ -142,6 +142,38 @@ export function selectNeighbourTrack(direction: -1 | 1) {
   useMixerView.getState().reveal(next.id);
 }
 
+/** Only the current track stays selected (Escape, a click on the mixer's empty space). */
+export function selectOnlyCurrent() {
+  const ui = useMusicUi.getState();
+  if (ui.selectedTrackIds.length > 1) ui.setTrackSelection([currentTrack()]);
+}
+
+/**
+ * Shift+click: the tracks from the current one to `id`, in the mixer's order, selected (the current one
+ * stays first, so the inspector keeps showing it).
+ */
+export function selectTrackRange(id: string) {
+  const doc = song();
+  if (!doc) return;
+  const from = currentTrack();
+  const a = doc.mixer.tracks.findIndex((t) => t.id === from);
+  const b = doc.mixer.tracks.findIndex((t) => t.id === id);
+  if (a < 0 || b < 0) return;
+  const range = doc.mixer.tracks.slice(Math.min(a, b), Math.max(a, b) + 1).map((t) => t.id);
+  useMusicUi.getState().setTrackSelection([from, ...range.filter((t) => t !== from)]);
+}
+
+/** A click on a group's band: its tracks selected (with Cmd, added to the selection). */
+export function selectGroup(groupId: string, add: boolean) {
+  const doc = song();
+  if (!doc) return;
+  const members = doc.mixer.tracks.filter((t) => t.group === groupId).map((t) => t.id);
+  if (!members.length) return;
+  const ui = useMusicUi.getState();
+  if (add) ui.includeTracks(members);
+  else ui.setTrackSelection(members);
+}
+
 export function selectAllTracks() {
   const doc = song();
   if (!doc) return;

@@ -62,6 +62,9 @@ import {
   soloAlone,
   toggleSolo,
   toggleSoloSafe,
+  selectGroup,
+  selectOnlyCurrent,
+  selectTrackRange,
   groupKnob,
   setTrackSwitch,
   toggleSend,
@@ -254,7 +257,13 @@ export function MixerWindow() {
           <div className="flex shrink-0 border-r-2" style={{ borderColor: "var(--mixer-line)" }} data-dock="left">
             {docked.left.map((track) => strip(track))}
           </div>
-          <div ref={scroller} className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden" data-testid="mixer-strips">
+          <div
+            ref={scroller}
+            className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
+            data-testid="mixer-strips"
+            // A press on the empty space past the strips: only the current track stays selected.
+            onPointerDown={(e) => e.currentTarget.contains(e.target as Node) && !(e.target as HTMLElement).closest("[data-track], button") && selectOnlyCurrent()}
+          >
             {/* Only the strips in view (and a few either side) are drawn: a mixer can have hundreds. */}
             <div className="flex shrink-0" style={{ paddingLeft: first * stripWidth, paddingRight: Math.max(0, inserts.length - last) * stripWidth }}>
               {inserts.slice(first, last).map((track) => strip(track))}
@@ -416,16 +425,26 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         ...(dropTarget && { "--tw-ring-color": "var(--mixer-on)" }),
       }}
       onPointerDownCapture={(e) => {
-        // The send switch acts for the selected track: pressing it doesn't select this one.
-        if ((e.target as HTMLElement).closest("[data-send]")) return;
+        const target = e.target as HTMLElement;
+        // A press in one of its menus (drawn elsewhere on the page, its events bubbling through here) isn't the strip's.
+        if (!e.currentTarget.contains(target)) return;
+        // The send switch acts for the selected tracks: pressing it doesn't select this one.
+        if (target.closest("[data-send]")) return;
         // A right-click on a selected track keeps the selection: its menu acts on all of them.
         if (e.button === 2 && selected) return;
         const ui = useMusicUi.getState();
+        // A control of one of several selected tracks acts on all of them: they stay selected. Pressed on
+        // a track that isn't selected, it selects that one alone (whatever the keys held: they're the control's).
+        if (target.closest("button, [role=slider]")) {
+          if (!selected) ui.selectTrack(id);
+          return;
+        }
         if ((e.ctrlKey || e.metaKey) && e.shiftKey) ui.selectTrack(id, "add");
         // Cmd (or Ctrl) alone: it joins the selection (dragging on adds the tracks passed over).
         else if (e.ctrlKey || e.metaKey) ui.includeTracks([id]);
-        // A control of one of several selected tracks acts on all of them: they stay selected.
-        else if (!selected || !(e.target as HTMLElement).closest("button, [role=slider]")) ui.selectTrack(id);
+        // Shift: every track from the current one to this one.
+        else if (e.shiftKey) selectTrackRange(id);
+        else ui.selectTrack(id);
       }}
     >
       {banded && <GroupBand track={track} groupName={groupName} />}
@@ -1037,7 +1056,9 @@ function GroupBand({ track, groupName }: { track: MixerTrack; groupName: string 
     <div
       className="relative h-4 w-full shrink-0"
       style={{ background: track.group ? "var(--mixer-header)" : "transparent", borderBottom: track.group ? "1px solid var(--mixer-line)" : undefined }}
+      onClick={(e) => track.group && selectGroup(track.group, e.metaKey || e.ctrlKey)}
       onDoubleClick={() => track.group && useMixerView.getState().renameGroup(track.group)}
+      title={track.group ? "Click to select the group's tracks, double-click to rename it" : undefined}
       data-group={track.group ?? undefined}
     >
       {renaming ? (

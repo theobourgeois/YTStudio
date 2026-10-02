@@ -327,6 +327,8 @@ function runMixerKey(action: MixerKeyAction) {
       return mixer.selectNeighbourTrack(action.direction);
     case "selectAll":
       return mixer.selectAllTracks();
+    case "deselect":
+      return mixer.selectOnlyCurrent();
     case "rename":
       return useMixerView.getState().rename(mixer.currentTrack());
     case "delete":

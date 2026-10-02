@@ -1240,6 +1240,14 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await expect.poll(async () => (await savedSong(page, id)).mixer.groups.map((g: { name: string }) => g.name)).toEqual(["Drums"]);
   await expect(mixer.locator("[data-group]").first()).toContainText("Drums");
   expect([(await track(11)).group, (await track(12)).group]).toEqual([(await savedSong(page, id)).mixer.groups[0].id, (await savedSong(page, id)).mixer.groups[0].id]);
+  // Shift+click selects every track from the current one; Escape leaves the current one; a click on a group's band selects its tracks.
+  await strip("Insert 9").locator("canvas").click();
+  await strip("Insert 12").locator("canvas").click({ modifiers: ["Shift"] });
+  expect(await selectedNames()).toEqual(["Insert 9", "Insert 10", "Insert 11", "Insert 12"]);
+  await page.keyboard.press("Escape");
+  expect(await selectedNames()).toEqual(["Insert 9"]);
+  await mixer.locator('[data-group]').first().click();
+  expect(await selectedNames()).toEqual(["Insert 11", "Insert 12"]);
 
   // Sending to insert 3 draws a cable from it.
   await strip("Insert 1").locator("canvas").click();

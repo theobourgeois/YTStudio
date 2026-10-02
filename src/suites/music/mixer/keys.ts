@@ -15,6 +15,8 @@ export type MixerKeyAction =
   /** ← / →: select the track before or after. */
   | { type: "select"; direction: -1 | 1 }
   | { type: "selectAll" | "rename" }
+  /** Escape: only the current track stays selected. */
+  | { type: "deselect" }
   /** Alt+Delete (or Alt+Backspace): delete the selected tracks (never the master). */
   | { type: "delete" };
 
@@ -27,6 +29,7 @@ export function resolveMixerKey(e: KeyLike): MixerKeyAction | null {
   const horizontal = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : null;
 
   if (e.key === "F2" && !command && !e.altKey && !e.shiftKey) return { type: "rename" };
+  if (e.key === "Escape" && !command && !e.altKey && !e.shiftKey) return { type: "deselect" };
   if ((e.key === "Delete" || e.key === "Backspace") && e.altKey && !command && !e.shiftKey) return { type: "delete" };
   if (horizontal !== null && !command && !e.shiftKey) return e.altKey ? { type: "move", direction: horizontal } : { type: "select", direction: horizontal };
   if (letter === "S" && !command && !e.shiftKey) return { type: "solo", alone: e.altKey };
