@@ -10,6 +10,7 @@ import {
   type ExportSettings,
   type MusicExportJob,
   exportEstimate,
+  exportSelection,
   isAudioFormat,
 } from "@shared/music/export";
 import { formatTime } from "@shared/format";
@@ -129,6 +130,9 @@ function ExportForm({ failed }: { failed: string | null }) {
             </ToggleGroupItem>
             <ToggleGroupItem value="ring" className={toggleItem}>
               Let it ring out
+            </ToggleGroupItem>
+            <ToggleGroupItem value="wrap" className={toggleItem} title="For loops: what rings past the end is mixed back onto the start">
+              Wrap
             </ToggleGroupItem>
           </ToggleGroup>
         </Row>
@@ -261,21 +265,26 @@ function Estimate({ settings }: { settings: ExportSettings }) {
   const playlistTime = usePlaylist((s) => s.time);
   const pianoTime = usePiano((s) => s.time);
   const sampleRate = useTransport((s) => s.sampleRate);
-  const selection = settings.mode === "song" ? playlistTime : pianoTime;
   const estimate = useMemo(() => {
     if (!doc) return null;
+    // Up to the last time marker past the song's end, when there's one (FL's).
+    const selection = exportSelection(doc, settings.mode, settings.mode === "song" ? playlistTime : pianoTime);
     const compiled = compileSong(doc, patternId, selection, settings.mode);
     const master = compiled.tracks.length - 1;
     const stems = new Set(compiled.channels.map((c) => c.track).filter((t) => t !== master)).size;
-    return exportEstimate(compiled.loopTicks, compiled.tempo, compiled.barTicks, settings, sampleRate, stems);
-  }, [doc, patternId, selection, settings, sampleRate]);
+    return { ...exportEstimate(compiled.loopTicks, compiled.tempo, compiled.barTicks, settings, sampleRate, stems), toMarker: selection !== null };
+  }, [doc, patternId, playlistTime, pianoTime, settings, sampleRate]);
   if (!estimate) return null;
   return (
     <dl className="flex items-center justify-between rounded bg-muted/60 px-2.5 py-1.5 text-xs" data-testid="export-estimate">
       <Stat label="Length" value={`${Math.round(estimate.bars * 100) / 100} bar${estimate.bars === 1 ? "" : "s"}`} />
       <Stat label="Time" value={formatTime(estimate.seconds)} />
       <Stat label="Disk" value={`~${megabytes(estimate.bytes)}`} />
-      {selection && <span className="text-muted-foreground">Time selection</span>}
+      {(settings.mode === "song" ? playlistTime : pianoTime) ? (
+        <span className="text-muted-foreground">Time selection</span>
+      ) : estimate.toMarker ? (
+        <span className="text-muted-foreground">To the last marker</span>
+      ) : null}
     </dl>
   );
 }

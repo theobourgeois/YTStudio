@@ -869,6 +869,35 @@ export const MUSIC_TOOLS = [
     ),
   }),
   tool({
+    name: "set_time_markers",
+    title: "Time markers",
+    kind: "edit",
+    description:
+      "The Playlist's time markers (FL's): `action` \"add\" one at `bar` (named `name`, or \"Marker N\"), \"update\" one (by `id` or name: its bar, name or kind) " +
+      'or "remove" one. `kind`: "marker" (a named place; an export of the song ends at the last one past its end), "punchIn" or "punchOut" (Record only ' +
+      "records between a start and a stop recording marker). get_playlist lists them.",
+    inputSchema: obj(
+      {
+        action: oneOf(["add", "update", "remove"], "What to do."),
+        id: { description: "The marker: its number or its name.", anyOf: [{ type: "integer" }, { type: "string" }] },
+        bar: num("Where it is: a bar, 1 for the first (fractions are inside the bar)."),
+        name: str("Its name."),
+        kind: oneOf(["marker", "punchIn", "punchOut"], "What it does."),
+      },
+      ["action"],
+    ),
+  }),
+  tool({
+    name: "render_clips",
+    title: "Render clips to audio",
+    kind: "action",
+    description:
+      "FL's Render as audio clip and Consolidate: pattern and audio clips (`ids`, or every unmuted one on `track`) rendered through the mixer, as an " +
+      "export renders, into an audio clip (a new audio file of the project) from where they start, with their tail. Without `consolidate`, it goes on " +
+      "the first free track below them; with it, on the first one's track, and they're muted. Takes a few seconds; answers with the new clip.",
+    inputSchema: obj({ ids: clipIds, track: playlistTrack, consolidate: bool("Put it in their place and mute them (FL's Consolidate).") }),
+  }),
+  tool({
     name: "remove_clips",
     title: "Remove clips from the playlist",
     kind: "edit",

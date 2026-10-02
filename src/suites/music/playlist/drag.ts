@@ -52,6 +52,7 @@ export function applyDrag(clips: PlaylistClip[], drag: PlaylistDrag | null, ctx:
     case "playback":
     case "curve":
     case "zoom":
+    case "marker":
       return same(clips);
   }
 }

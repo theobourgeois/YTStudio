@@ -47,6 +47,7 @@ import {
 import { switchMode, useTransport } from "./transport";
 import { armedIn, notesKept, takesOf, useRecording } from "./recording";
 import { midiTarget, useMidi } from "./midi";
+import { bounceClips } from "./playlist/bounce";
 import { inputChoices, inputKey, useInputs } from "./inputs";
 import { findEffect, inputText } from "./mixer/tool-edits";
 import { COUNT_IN_BARS, countInBars, useMusicPreferences } from "./preferences";
@@ -60,6 +61,7 @@ import {
   sliceClipsTool,
   splitByChannelTool,
   updateClipsTool,
+  setMarkersTool,
   updatePlaylistTrackTool,
 } from "./playlist/tool-edits";
 import { describeBrowser, describeFolder, describeSearch, loadSampleEdit, sampleChannel } from "./browser/describe";
@@ -620,6 +622,26 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   place_clips: edit(placeClipsTool),
   update_clips: edit(updateClipsTool),
   remove_clips: edit(removeClipsTool),
+  set_time_markers: edit(setMarkersTool),
+  async render_clips(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Rendering clips");
+    const song = target.song;
+    let ids: number[];
+    if (Array.isArray(input.ids) && input.ids.length) {
+      ids = input.ids.filter((id): id is number => typeof id === "number" && song.playlist.clips.some((c) => c.id === id));
+      if (!ids.length) throw new Error("None of those clips is on the playlist: get_playlist has their ids.");
+    } else if (typeof input.track === "number") {
+      const track = input.track - 1;
+      ids = song.playlist.clips.filter((c) => c.track === track && !c.muted && c.kind !== "automation").map((c) => c.id);
+      if (!ids.length) throw new Error(`Track ${input.track} has no unmuted pattern or audio clips.`);
+    } else throw new Error('Give "ids" (clips) or "track" (a track number, 1 for the first).');
+    const result = await bounceClips(new Set(ids), { replace: input.consolidate === true });
+    if ("error" in result) throw new Error(result.error);
+    return textResult(
+      `Rendered into "${result.name}" (${result.seconds.toFixed(1)} s): clip ${result.clipId} on track ${result.track + 1} from bar ${(result.start / clipContext(useMusic.getState().history!.doc).barTicks + 1).toFixed(2).replace(/\.00$/, "")}${input.consolidate === true ? "; the clips it replaces are muted" : ""}.`,
+    );
+  },
   slice_clips: edit(sliceClipsTool),
   chop_clips: edit(chopClipsTool),
   split_by_channel: edit(splitByChannelTool),

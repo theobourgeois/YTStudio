@@ -20,6 +20,7 @@ import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine, type RenderExportRequest } from "./engine.ts";
 import { type WavData, onsets, peakOf, readWav, writeWav } from "./wav.ts";
+import { wrapTail } from "./wrap.ts";
 
 const createMusicProject = (name: string) => newSong(name, 120);
 
@@ -111,6 +112,23 @@ describe.skipIf(!built)("the export, offline", () => {
     const short = await exportSong(song, { tail: "ring", maxTail: 0.5 });
     expect(short.files.mix.channels[0].length).toBeGreaterThanOrEqual(BAR + RATE / 2);
     expect(short.files.mix.channels[0].length).toBeLessThan(BAR + RATE / 2 + 2048);
+  });
+
+  it("wraps what rings past the end onto the start (Wrap remainder): a loop that plays round seamlessly", async () => {
+    // Two seconds of sample from the bar's last step: it rings 1.75 s past the end.
+    const song = setSteps(addChannels(createMusicProject("Test"), [{ id: "chan_pad", name: "Pad", sampleId: "long" }]), P, "chan_pad", [15], true);
+    const { result } = await exportSong(song, { tail: "ring" });
+    expect(result.state === "done" && result.frames).toBeGreaterThan(BAR);
+    const mix = result.state === "done" ? result.files[0].file : "";
+    await wrapTail(mix, BAR);
+    const left = (await readWav(mix)).channels[0];
+    expect(left.length).toBe(BAR);
+    // The tail from the start: the last step's two seconds go round, filling the bar's first 1.875 s (to a
+    // sample: a sampler stops a sample short of its file's end), so the loop is one even sound, nowhere doubled.
+    expect(left[0]).toBeCloseTo(0.5, 3);
+    expect(left[BAR - 6010]).toBeCloseTo(0.5, 3);
+    expect(left[BAR - 1]).toBeCloseTo(0.5, 3);
+    expect(peakOf(left)).toBeLessThan(0.5001);
   });
 
   it("trims the plugins' delay, lines each stem up with the mix to the sample, and renders plugins in their offline mode", async () => {

@@ -5,6 +5,7 @@ import type { EngineTakeEvent, MidiPlayed } from "@shared/music/engine";
 import { trackName, updateMixerTrack } from "@shared/music/mixer";
 import { stepsPerBar } from "@shared/music/project";
 import { type PlayedEvent, type Take, addRecordedNotes, addTakes, recordedNotes } from "@shared/music/recording";
+import { punchRange } from "@shared/music/markers";
 import { type MixerInput, type MusicProject, PPQ, STEP_TICKS } from "@shared/music/types";
 import { commit, undo } from "@/lib/document-history";
 import { musicApi } from "./api";
@@ -34,6 +35,8 @@ export interface ActiveRecording {
   loopTicks: number;
   /** The pattern shown when it started: notes played go into it (or a new one, `addRecordedNotes`). */
   patternId: string | null;
+  /** Where its Start and Stop recording markers punch it in and out (`punchRange`), or null: all of it. */
+  punch: { start: number; end: number | null } | null;
 }
 
 /**
@@ -79,7 +82,7 @@ interface RecordingState {
 }
 
 /** Each recording's loop start (the engine's ticks count from it), for takes that come after it stopped. */
-const recordings = new Map<string, { loopStart: number; projectId: string }>();
+const recordings = new Map<string, { loopStart: number; projectId: string; punch: { start: number; end: number | null } | null }>();
 /** The last takes committed, to make the next of the same recording the same undo step. */
 let lastTakes: { recordingId: string; takes: Take[]; doc: MusicProject } | null = null;
 /** Each recording's final takes come in one per track: who's waiting for them (`takesOf`). */
@@ -179,7 +182,7 @@ export const useRecording = create<RecordingState>((set, get) => ({
     useTransport.setState({ pausedAt: null });
     try {
       const { recordingId, status } = await musicApi.record({ projectId, from, countIn, loop: options.loop, names, notes: true });
-      recordings.set(recordingId, { loopStart: loop.start, projectId });
+      recordings.set(recordingId, { loopStart: loop.start, projectId, punch: punchRange(song, loop.start + from) });
       const msPerTick = 60_000 / (song.settings.tempo * PPQ);
       live.clear();
       clearTimeout(lingering);
@@ -196,6 +199,7 @@ export const useRecording = create<RecordingState>((set, get) => ({
           loopStart: loop.start,
           loopTicks: loop.ticks,
           patternId: useMusic.getState().patternId,
+          punch: punchRange(song, loop.start + from),
         },
       });
       // The engine may not have taken the play yet: it's playing from here, after the whole count-in.
@@ -254,7 +258,8 @@ export const useRecording = create<RecordingState>((set, get) => ({
     // The recording's earlier takes, taken back and made again with this one: one undo step for it all.
     const same = lastTakes?.recordingId === event.recordingId && lastTakes.doc === history.doc && history.gestureBase === null;
     const takes = same ? [...lastTakes!.takes, take] : [take];
-    const next = commit(same ? undo(history) : history, (song) => addTakes(song, takes, { blend }).song);
+    const punch = meta?.punch ?? null;
+    const next = commit(same ? undo(history) : history, (song) => addTakes(song, takes, { blend, punch }).song);
     if (next === history) return;
     useMusic.setState({ history: next });
     lastTakes = { recordingId: event.recordingId, takes, doc: next.doc };
@@ -307,6 +312,7 @@ function keepNotes(active: ActiveRecording) {
     stop: position,
     quantize: useMusicPreferences.getState().recording.quantize,
     grid,
+    punch: active.punch,
   });
   const at = { patternId: active.patternId ?? patternId ?? song.patterns[0].id, startTick: active.startTick };
   let into: string | null = null;

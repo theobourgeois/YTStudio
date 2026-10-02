@@ -54,6 +54,17 @@ describe("addTakes", () => {
     expect(song.playlist.clips).toEqual([]);
   });
 
+  it("keeps only what's between the Start and Stop recording markers (punched in and out)", () => {
+    // Two bars recorded from bar 1, punched in at bar 1.5 and out at bar 2.
+    const punched = addTakes(song120(), [take({ seconds: 4, skip: 0 })], { blend: false, punch: { start: BAR / 2, end: BAR } }, nextId).song;
+    expect(punched.playlist.clips).toEqual([expect.objectContaining({ start: BAR / 2, length: BAR / 2 })]);
+    expect(punched.playlist.clips[0].offset).toBeCloseTo(1, 5);
+    // A take wholly outside: nothing, and no channel left behind.
+    const outside = addTakes(song120(), [take({ seconds: 1, skip: 0 })], { blend: false, punch: { start: BAR * 3, end: null } }, nextId).song;
+    expect(outside.playlist.clips).toEqual([]);
+    expect(outside.channels).toHaveLength(song120().channels.length);
+  });
+
   it("puts a take on the first playlist track it fits on (FL's), the next ones below", () => {
     let song = song120();
     song = { ...song, playlist: { ...song.playlist, clips: addClips([], [{ kind: "pattern", ref: FIRST_PATTERN_ID, track: 0, start: 0, length: BAR }]).clips } };
@@ -163,6 +174,12 @@ describe("recordedNotes", () => {
       [64, 364, 20],
       [62, 380, 4],
     ]);
+  });
+
+  it("keeps only the notes started between the Start and Stop recording markers", () => {
+    const events = [ev(60, true, 10), ev(60, false, 20), ev(62, true, 200), ev(62, false, 220), ev(64, true, 500), ev(64, false, 520)];
+    expect(recordedNotes(events, options({ punch: { start: 100, end: 400 } })).map((n) => n.pitch)).toEqual([62]);
+    expect(recordedNotes(events, options({ punch: { start: 100, end: null } })).map((n) => n.pitch)).toEqual([62, 64]);
   });
 
   it("quantizes as Record's menu says", () => {

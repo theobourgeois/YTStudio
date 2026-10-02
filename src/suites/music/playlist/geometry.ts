@@ -7,7 +7,7 @@
 import { clamp } from "@shared/math";
 import { type ClipContext, clipAt, clipEnd, fadeShape, lastUsedTrack } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, MAX_SONG_TICKS } from "@shared/music/project";
-import type { PlaylistClip, PlaylistTrack } from "@shared/music/types";
+import type { PlaylistClip, PlaylistTrack, TimeMarker } from "@shared/music/types";
 import { STEP_TICKS } from "@shared/music/types";
 import type { PlaylistView } from "./store";
 
@@ -28,6 +28,22 @@ export const SPARE_TRACKS = 8;
 export const MIN_TRACKS = 16;
 /** The strip at the top of a clip with its name. */
 export const TITLE_HEIGHT = 13;
+/** The ruler's height, and the band along its bottom where the time markers are. */
+export const RULER_HEIGHT = 32;
+export const MARKER_BAND = 12;
+
+/** How wide a marker's label is on the ruler (its flag and its name, about), in px. */
+export const markerWidth = (marker: Pick<TimeMarker, "name">) => 12 + Math.ceil(marker.name.length * 5.6);
+
+/** The time marker under a point of the ruler (in its band along the bottom), the later one where two overlap. */
+export function markerAt(markers: readonly TimeMarker[], view: PlaylistView, x: number, y: number, height = RULER_HEIGHT): TimeMarker | null {
+  if (y < height - MARKER_BAND) return null;
+  for (let i = markers.length - 1; i >= 0; i--) {
+    const left = tickToX(view, markers[i].tick);
+    if (x >= left - 3 && x <= left + markerWidth(markers[i])) return markers[i];
+  }
+  return null;
+}
 
 export const tickToX = (view: PlaylistView, tick: number) => (tick - view.scrollTick) * view.pxPerTick;
 export const xToTick = (view: PlaylistView, x: number) => x / view.pxPerTick + view.scrollTick;

@@ -19,6 +19,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { bounceWithToast } from "./bounce";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { songGesture, useMusic } from "../store";
 import {
@@ -172,6 +173,15 @@ function TrackHeader({ index, top, height }: { index: number; top: number; heigh
         <ContextMenuItem onSelect={() => selectTrackClips(index)}>Select its clips</ContextMenuItem>
         <ContextMenuItem onSelect={() => muteTrackClips(index, true)}>Mute all clips</ContextMenuItem>
         <ContextMenuItem onSelect={() => muteTrackClips(index, false)}>Unmute all clips</ContextMenuItem>
+        <ContextMenuItem
+          title="Render its clips into one audio clip on it, and mute them (FL's Consolidate)"
+          onSelect={() => {
+            const clips = useMusic.getState().history?.doc.playlist.clips ?? [];
+            void bounceWithToast(new Set(clips.filter((c) => c.track === index && !c.muted && c.kind !== "automation").map((c) => c.id)), true);
+          }}
+        >
+          Consolidate this track
+        </ContextMenuItem>
         <ContextMenuItem onSelect={() => soloPlaylistTrack(index)}>Solo</ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => insertPlaylistTrack(index)}>Insert one</ContextMenuItem>

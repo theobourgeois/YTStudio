@@ -316,8 +316,10 @@ the engine moves samples and says where they were.
 | Pickup: EXT, MIX, FX, EQ, LVL, POST | The dry input only (EXT), heard through the track (Théo) |
 | A track can be armed with no input, recording what's routed into it | Only a track with an input can be armed |
 | Recording filter (notes, automation, clips), Edison, One-click, Wait for input, the Audio Logger | Audio only, into the Playlist |
-| Start/Stop recording markers (punch in/out) | Not yet (Théo): the time selection loops |
-| Recording in pattern mode makes an audio clip channel | Record switches to song mode (Théo) |
+| Start/Stop recording markers (punch in/out) | The same, as the Playlist's time markers' kind (their menu): only what's recorded between the first Start marker at or after where play started and the next Stop marker is kept (audio takes cut to it, notes started in it); with none, everything is |
+| Recording in pattern mode makes an audio clip channel | Record switches to song mode (Théo, again on 2026-10-02) |
+| Input meter on an armed track | Yes | The same: an armed track's meter shows its input even when it isn't monitored |
+| The engine crashing mid-recording | The files are lost or unreadable | Takes are kept: when the engine dies, the server mends each take's WAV header (`server/music/take-repair.ts`) and hands it in as the engine would have, said to be repaired (its first pass's latency isn't known, so it may sit a few ms late) |
 | Loop takes as child tracks under the audio track (Group loop recorded takes) | On the tracks below it (no child tracks yet) |
 | A glitch may come at each loop's wrap (FL saves and makes a channel there) | Files are opened ahead: none |
 | Input delay compensation per input, in ms, samples or beats | Per track, in ms |
@@ -328,6 +330,4 @@ the engine moves samples and says where they were.
 | Undone takes go to the trash | Undone takes stay in the project's media |
 | The take's waveform appears as it's dumped | Each take is drawn as it records, its waveform from the input's level; the clip, with the file's waveform, replaces it when the take is in |
 
-Still to come: a take's file repaired if the engine dies mid-recording (its WAV header is written when it
-closes), punch in/out, recording in pattern mode, and an input level meter for an armed track that isn't
-monitored.
+Still to come: nothing planned; recording in pattern mode stays out (Théo).

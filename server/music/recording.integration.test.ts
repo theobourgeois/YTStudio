@@ -138,6 +138,17 @@ describe.skipIf(!existsSync(ENGINE))("recording, offline", () => {
     expect(slice(file.channels[1], 0, BEAT)).toEqual(slice(input.channels[1], 0, BEAT));
   });
 
+  it("shows an armed track's input level on its meter even when it isn't heard, so the level can be set first", async () => {
+    await play(withInput(createMusicProject("Test", 120), false, "off"));
+    const file = path.join(dir, `render-${render++}.wav`);
+    const measured = await engine.render(BEAT / 4, file, inputFile);
+    expect(measured.peak).toBe(0);
+    expect(measured.meters.insert_1?.[0]).toBeGreaterThan(0.1);
+    // Disarmed: nothing.
+    await play(withInput(createMusicProject("Test", 120), false, "off"), []);
+    expect((await engine.render(BEAT / 4)).meters.insert_1).toBeUndefined();
+  });
+
   it("only records tracks that are armed, and refuses when none is", async () => {
     await play(withInput(createMusicProject("Test", 120)), []);
     await expect(record()).rejects.toThrow(/armed/);

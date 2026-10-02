@@ -424,7 +424,11 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   otherwise its clips stream it). Deleting a pattern or
   a channel takes its clips. A clip's colour is its source's (`Pattern.color`, `Channel.color`), else its
   track's; every clip colour is derived from one (`clipColours` in `draw.ts`). The clip menu's Preview
-  sends the engine a song of that clip alone while it's held (`playlist/preview.ts`).
+  sends the engine a song of that clip alone while it's held (`playlist/preview.ts`). Time markers
+  (`Playlist.markers`, `shared/music/markers.ts`; Alt+T, in a band along the ruler) are named ticks, or Start /
+  Stop recording markers (`punchRange`: recording keeps only what's between). Render as audio clip and
+  Consolidate (`playlist/bounce.ts`) are an export with `bounce`: the server adopts its mix as the project's
+  media and the tab places it.
 - **Song mode** (PAT / SONG, L): `useTransport.mode` (not saved: a song with clips opens in song mode),
   with a start tick per mode; `switchMode` sends the engine the other song and carries on playing.
   `compileSong(..., "song")` flattens the arrangement into notes (a clip plays nothing past its pattern;
@@ -455,6 +459,7 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   it so: a stage's tracks touch only their own buffers, sends are added in order after. The mix is floating
   point and can go over full scale and still sound clean live (the system volume turns it down first); a
   file would clip, so a render that goes over is turned down as a whole (`exportGain`, `preventClipping`).
+  Wrap remainder renders ringing out, then adds the tail onto the start (`server/music/wrap.ts`).
 - **Automation** (`docs/fl-studio/automation.md`; `shared/music/automation.ts`, `src/suites/music/automation/`):
   an automation clip (`MusicProject.automations`) is a curve for one control (`AutomationTarget`: a
   channel's volume or pan, a mixer track's fader, pan or stereo separation, a send, an effect's mix, the
@@ -483,7 +488,8 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   undo step. A Playlist track can be an insert's audio track (`PlaylistTrack.mixerTrack`): its takes land
   on it. The transport doesn't import the recording store (a cycle through the song's store): recording
   registers itself with it (`setRecorder`). Offline tests feed a WAV as the device's inputs (`render`'s
-  `input`).
+  `input`). If the engine dies mid-recording, the server mends the takes it was writing
+  (`server/music/take-repair.ts`) and hands them in itself (`AudioEngine.salvage`).
 - **MIDI input** (`docs/fl-studio/midi.md`): the engine listens to every MIDI input not turned off
   (`MidiInputs`, `midi.json` in its data folder) and plays it on the **MIDI target**, the rack's selected
   channel (`midiTarget`, sent by `src/suites/music/midi.ts`; packed with the song's serial so a song

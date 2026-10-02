@@ -23,9 +23,10 @@ import {
   playFrom,
   playlistContext,
   zoomFloor,
+  markersOf,
   selectTime,
 } from "./actions";
-import { type ClipHandle, paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack, zoomAt, zoomToRange } from "./geometry";
+import { type ClipHandle, markerAt, paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack, zoomAt, zoomToRange } from "./geometry";
 import { fadeOutClips } from "./fades";
 import { usePlaylist } from "./store";
 import { curveCursor, curvePointerDown } from "../automation/curve-pointer";
@@ -493,6 +494,25 @@ export function rulerPointerDown(e: Press) {
   const element = e.currentTarget;
   const { view } = usePlaylist.getState();
   const tickAt = (ev: { clientX: number; clientY: number; altKey: boolean }) => snapTick(xToTick(view, local(element, ev).x), ev.altKey ? 1 : p.grid, "line");
+  // A time marker (in the band along the ruler's bottom): dragged along it, clicked to play from it, its
+  // menu on a right-click, renamed with a double-click.
+  const q = local(element, e);
+  const marker = markerAt(markersOf(p.song), view, q.x, q.y, element.clientHeight);
+  if (marker) {
+    const x = Math.max(0, (marker.tick - view.scrollTick) * view.pxPerTick);
+    if (e.button === 2) return usePlaylist.setState({ markerMenu: { id: marker.id, x } });
+    if (e.button !== 0) return;
+    if (isDouble(e)) return usePlaylist.setState({ renamingMarker: { id: marker.id, x } });
+    startPointerDrag(e, {
+      threshold: 3,
+      cursor: "ew-resize",
+      onMove: (ev) => usePlaylist.getState().setDrag({ kind: "marker", id: marker.id, tick: Math.max(0, marker.tick + tickAt(ev) - tickAt(e)) }),
+      onEnd: commitDrag,
+      onClick: () => useTransport.getState().jumpSongTo(marker.tick),
+      onCancel: cancelDrag,
+    });
+    return;
+  }
   if (e.button === 2) {
     usePlaylist.setState({ time: null });
     return;

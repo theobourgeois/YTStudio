@@ -3,14 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, addPluginChannel, setSteps } from "../../shared/music/edits.ts";
-import { setEffect } from "../../shared/music/mixer.ts";
+import { setEffect, updateMixerTrack } from "../../shared/music/mixer.ts";
 import type { EngineEvent } from "../../shared/music/engine.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
 import { createAutomation } from "../../shared/music/automation.ts";
 import { addClips, editClips } from "../../shared/music/playlist.ts";
+import type { MediaAsset } from "../../shared/types.ts";
 import { DataPaths } from "../storage.ts";
+import { readWav, writeWav } from "./wav.ts";
 import { AudioEngine, engineOutdated } from "./engine.ts";
 
+const PROJECT = "proj_0123456789ab";
 const FAKE = [process.execPath, path.join(import.meta.dirname, "fake-engine.mjs")];
 
 describe("AudioEngine", () => {
@@ -207,6 +210,39 @@ describe("AudioEngine", () => {
     const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
     await expect(request("crash", {})).rejects.toMatchObject({ status: 503 });
     expect(await engine.command("status", {})).toMatchObject({ device: "Fake Output" });
+  });
+
+  it("saves what a recording had written when the engine dies mid-way: each take's file mended and handed in", async () => {
+    const takes: EngineEvent[] = [];
+    const recorder = new AudioEngine(new DataPaths(dir), {
+      command: FAKE,
+      pluginPaths: [],
+      adoptTake: async (_project, file, name, origin) => ({ id: origin, name, src: file }) as MediaAsset,
+    });
+    recorder.onEvent((event) => event.event === "take" && takes.push(event));
+    try {
+      const song = updateMixerTrack(createMusicProject("Vox"), "insert_1", { input: { channel: 0, stereo: false } });
+      await recorder.setSong({ projectId: PROJECT, song, patternId: null, armed: ["insert_1"] });
+      const { recordingId } = await recorder.record({ projectId: PROJECT, from: 192, names: { insert_1: "Vox" } });
+      // What the engine had written of two passes, their headers still saying nothing was.
+      const folder = path.join(new DataPaths(dir).projectDir(PROJECT), "recordings");
+      for (const [pass, frames] of [[1, 4800], [2, 2400]]) {
+        await writeWav(path.join(folder, `${recordingId}-insert_1-${pass}.wav`), new Float32Array(frames).fill(0.25), 48_000);
+        const file = await fs.open(path.join(folder, `${recordingId}-insert_1-${pass}.wav`), "r+");
+        await file.write(Buffer.alloc(4), 0, 4, 40);
+        await file.close();
+      }
+      const request = (recorder as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(recorder);
+      await expect(request("crash", {})).rejects.toMatchObject({ status: 503 });
+      for (let waited = 0; takes.length < 2 && waited < 3000; waited += 20) await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(takes).toMatchObject([
+        { recordingId, track: "insert_1", startTick: 192, frames: 4800, pass: 0, final: false, error: expect.stringMatching(/stopped mid-recording/) },
+        { recordingId, track: "insert_1", startTick: 0, frames: 2400, pass: 1, final: true },
+      ]);
+      expect((await readWav(path.join(folder, `${recordingId}-insert_1-2.wav`))).channels[0].length).toBe(2400);
+    } finally {
+      recorder.shutdown();
+    }
   });
 
   it("says how to build the engine when it's missing", async () => {

@@ -3,7 +3,7 @@ import { addChannels, setSteps, setTempo } from "@shared/music/edits";
 import { addAudioClips } from "@shared/music/playlist";
 import { createMusicProject } from "@shared/music/project";
 import type { MusicProject } from "@shared/music/types";
-import { chopClipsTool, describePlaylist, makeClipUniqueTool, placeClipsTool, playlistSummary, removeClipsTool, sliceClipsTool, splitByChannelTool, updateClipsTool, updatePlaylistTrackTool } from "./tool-edits";
+import { setMarkersTool, chopClipsTool, describePlaylist, makeClipUniqueTool, placeClipsTool, playlistSummary, removeClipsTool, sliceClipsTool, splitByChannelTool, updateClipsTool, updatePlaylistTrackTool } from "./tool-edits";
 
 const BAR = 384;
 const env = { patternId: null };
@@ -142,3 +142,22 @@ describe("the assistant's audio tracks", () => {
   });
 });
 
+
+describe("time markers, for the assistant", () => {
+  it("adds, renames, moves, gives kinds to and removes markers, by number or name", () => {
+    let song = setMarkersTool(beat(), { action: "add", bar: 9, name: "Drop" }).song;
+    song = setMarkersTool(song, { action: "add", bar: 5, kind: "punchIn" }).song;
+    expect(song.playlist.markers?.map((m) => [m.tick, m.name, m.kind])).toEqual([
+      [BAR * 4, "Start recording", "punchIn"],
+      [BAR * 8, "Drop", "marker"],
+    ]);
+    song = setMarkersTool(song, { action: "update", id: "drop", bar: 17 }).song;
+    expect(song.playlist.markers?.[1].tick).toBe(BAR * 16);
+    const { text } = setMarkersTool(song, { action: "remove", id: 2 });
+    expect(text).toBe('Time markers: 1. "Drop" at bar 17 (marker).');
+    expect(setMarkersTool(song, { action: "remove", id: 2 }).song.playlist.markers).toHaveLength(1);
+    expect(() => setMarkersTool(song, { action: "update", id: "nope" })).toThrow(/no marker/);
+    expect(() => setMarkersTool(song, { action: "add", bar: 0 })).toThrow(/bar number/);
+    expect(describePlaylist(song, "song")).toContain('"Drop" at bar 17');
+  });
+});

@@ -35,6 +35,7 @@ import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import { ColorSwatches } from "../color-swatches";
+import { bounceWithToast } from "./bounce";
 import {
   cancelDrag,
   chopClip,
@@ -55,10 +56,12 @@ import {
   sourceName,
   splitPattern,
   zoomFloor,
+  markersOf,
 } from "./actions";
 import { CURVE_NAMES, controlOf, deletePoint, editPoints, updatePoint } from "@shared/music/automation";
-import { CURVE_TYPES, type CurveType } from "@shared/music/types";
+import { CURVE_TYPES, type CurveType, type MarkerKind } from "@shared/music/types";
 import { AUTOMATION_TOOLS, type AutomationTool, createAutomationClip, openAutomationWindow, runTool } from "../automation/actions";
+import { markerName, removeMarker, updateMarker } from "@shared/music/markers";
 import { editClips, removeClips, setClipFades, setClipGain, setClipProps, setClipStretch, stretchForTempo, tempoInName } from "@shared/music/playlist";
 import { fadeOutClips, onClipFade, vanishingClips } from "./fades";
 import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
@@ -68,11 +71,12 @@ import { CLIP_DRAG_TYPE, Picker } from "./picker";
 import { clearIncoming, showIncoming } from "./incoming";
 import { holdClipPreview } from "./preview";
 import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
+import { RULER_HEIGHT } from "./geometry";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
 import { TrackHeaders } from "./track-headers";
 
 const HEADERS_W = 128;
-const RULER_H = 22;
+const RULER_H = RULER_HEIGHT;
 const SCROLLBAR = 12;
 const MIN_W = 520;
 const MIN_H = 260;
@@ -390,6 +394,8 @@ function PlaylistBody() {
         songTicks: songTicks(song),
         time: playlist.time,
         drag,
+        // A marker being dragged is drawn where it'd be left.
+        markers: drag?.kind === "marker" ? markersOf(song).map((m) => (m.id === drag.id ? { ...m, tick: drag.tick } : m)) : markersOf(song),
         slice:
           drag?.kind === "slice"
             ? { tick: drag.tick, top: drag.top, bottom: drag.bottom, all: drag.all }
@@ -519,6 +525,8 @@ function PlaylistBody() {
       <div className="border-r border-b bg-muted" />
       <div className="relative border-b">
         <canvas ref={ruler} className="absolute inset-0 size-full cursor-pointer" aria-label="Ruler" onPointerDown={rulerPointerDown} />
+        <MarkerMenu />
+        <MarkerRename />
       </div>
       <div className="border-b bg-muted" />
 
@@ -711,6 +719,14 @@ function ClipMenu() {
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        {clip.kind !== "automation" && (
+          <DropdownMenuItem
+            title="Render it (and the clips selected with it) into an audio clip, on the first free track below (FL's Render as audio clip)"
+            onSelect={() => void bounceWithToast(usePlaylist.getState().selected.has(clip.id) ? usePlaylist.getState().selected : only, false)}
+          >
+            Render as audio clip
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onSelect={() => {
             usePlaylist.getState().select([clip.id]);
@@ -765,6 +781,75 @@ function StretchToTempo({ clip, onDone }: { clip: PlaylistClip; onDone: () => vo
         Stretch to {song.settings.tempo}
       </button>
     </form>
+  );
+}
+
+/** A time marker's menu (a right-click on it, FL's): rename it, what it does (a marker, or where a recording starts or stops), delete it. */
+function MarkerMenu() {
+  const menu = usePlaylist((s) => s.markerMenu);
+  const marker = useMusic((s) => (menu && s.history ? (s.history.doc.playlist.markers ?? []).find((m) => m.id === menu.id) : undefined));
+  if (!menu || !marker) return null;
+  const close = () => usePlaylist.setState({ markerMenu: null });
+  const commit = (update: (song: MusicProject) => MusicProject) => useMusic.getState().commit(update);
+  return (
+    <DropdownMenu open onOpenChange={(open) => !open && close()}>
+      <DropdownMenuTrigger asChild>
+        <span aria-hidden className="pointer-events-none absolute bottom-0 size-px" style={{ left: menu.x }} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" data-testid="marker-menu" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <DropdownMenuLabel>{marker.name}</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => setTimeout(() => usePlaylist.setState({ renamingMarker: { id: marker.id, x: menu.x } }))}>Rename…</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup
+          value={marker.kind}
+          onValueChange={(kind) =>
+            commit((song) => {
+              // Named for what it does when it's still called what it was.
+              const was = markerName(song, marker.kind);
+              const named = marker.name === was || marker.name === "Start recording" || marker.name === "Stop recording";
+              return updateMarker(song, marker.id, { kind: kind as MarkerKind, ...(named && { name: markerName(song, kind as MarkerKind) }) });
+            })
+          }
+        >
+          <DropdownMenuRadioItem value="marker">Marker</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="punchIn">Start recording</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="punchOut">Stop recording</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={() => commit((song) => removeMarker(song, marker.id))}>
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** A time marker's name being typed, in place on the ruler (Enter or leaving it keeps it, Escape doesn't). */
+function MarkerRename() {
+  const renaming = usePlaylist((s) => s.renamingMarker);
+  const marker = useMusic((s) => (renaming && s.history ? (s.history.doc.playlist.markers ?? []).find((m) => m.id === renaming.id) : undefined));
+  if (!renaming || !marker) return null;
+  const done = (name: string | null) => {
+    usePlaylist.setState({ renamingMarker: null });
+    if (name !== null) useMusic.getState().commit((song) => updateMarker(song, marker.id, { name }));
+  };
+  return (
+    <input
+      aria-label="Marker name"
+      defaultValue={marker.name}
+      autoFocus
+      onFocus={(e) => e.currentTarget.select()}
+      className="sunken absolute bottom-0 z-10 h-[13px] w-36 rounded-sm px-1 text-[10px] outline-none"
+      style={{ left: renaming.x + 7 }}
+      onBlur={(e) => done(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          usePlaylist.setState({ renamingMarker: null });
+        }
+      }}
+    />
   );
 }
 

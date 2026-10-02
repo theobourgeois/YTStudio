@@ -531,6 +531,26 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
                         if (const auto* in = source (1))
                             juce::FloatVectorOperations::add (song->audio.getWritePointer (track.buffer * 2 + 1), in, numSamples);
                     }
+            // An armed track that isn't heard still shows its input's level on its meter (FL's), so the
+            // level can be set before recording.
+            if (inputs != nullptr)
+                for (size_t t = 0; t < song->tracks.size() && t < (size_t) maxMeters; ++t)
+                {
+                    const auto& track = song->tracks[t];
+                    if (! track.armed || track.monitor || track.input.empty())
+                        continue;
+                    for (size_t side = 0; side < 2; ++side)
+                    {
+                        const auto channel = track.input[juce::jmin (side, track.input.size() - 1)];
+                        if (channel < 0 || channel >= numInputs || inputs[channel] == nullptr)
+                            continue;
+                        const auto range = juce::FloatVectorOperations::findMinAndMax (inputs[channel], numSamples);
+                        const auto loudest = juce::jmax (-range.getStart(), range.getEnd());
+                        auto& meter = meters[t * 2 + side];
+                        if (loudest > meter.load (std::memory_order_relaxed))
+                            meter.store (loudest, std::memory_order_relaxed);
+                    }
+                }
             for (auto& voice : voices)
                 if (voice.active)
                     render (voice, numSamples);

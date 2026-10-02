@@ -27,6 +27,8 @@ export type PlaylistKeyAction =
         | "picker"
         /** FL's Shift+M: stretch mode on or off (an audio clip's edge stretches it). */
         | "stretchMode"
+        /** FL's Alt+T: a time marker where play is. */
+        | "addMarker"
         | "centre"
         | "home"
         | "close";
@@ -83,6 +85,7 @@ export function resolvePlaylistKey(e: KeyLike): PlaylistKeyAction | null {
   if (alt && !command) {
     if (letter === "M") return { type: shift ? "unmute" : "mute" };
     if (letter === "P" && !shift) return { type: "picker" };
+    if (letter === "T" && !shift) return { type: "addMarker" };
     return null;
   }
   if (shift) {

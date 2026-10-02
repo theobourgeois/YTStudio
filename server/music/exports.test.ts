@@ -100,6 +100,27 @@ describe("MusicExports", () => {
     expect(() => exports.file(job.id, "../../secrets")).toThrow(/no such file/);
   });
 
+  it("bounces the mix into the project's media (Render as audio clip), its formats and stems left out", async () => {
+    const adopted: { projectId: string; name: string; origin: string; bytes: number }[] = [];
+    const paths = new DataPaths(dir);
+    const bouncing = new MusicExports(paths, engine, {
+      samplePath: () => null,
+      adopt: async (projectId, file, name, origin) => {
+        adopted.push({ projectId, name, origin, bytes: (await fs.stat(file)).size });
+        return { id: "media_bounce", name: `${name}.wav` } as never;
+      },
+    });
+    const started = await bouncing.start({ projectId: PROJECT, song: song(), patternId: P, selection: { start: 0, end: 384 }, settings: { ...DEFAULT_EXPORT_SETTINGS, formats: ["mp3"], stems: true }, destination: "/tmp/x.wav", bounce: { name: "Beat (rendered)" } });
+    let job = bouncing.get(started.id);
+    while (job.state === "rendering" || job.state === "encoding") {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      job = bouncing.get(started.id);
+    }
+    expect(job).toMatchObject({ state: "done", files: [], media: { id: "media_bounce" } });
+    expect(adopted).toEqual([{ projectId: PROJECT, name: "Beat (rendered)", origin: `bounce:${job.id}`, bytes: 44 + 96_000 * 8 }]);
+    bouncing.shutdown();
+  });
+
   it("writes beside the save dialog's file, named after it, and shows it in Finder", async () => {
     const chosen = path.join(dir, "Desktop", "Final mix.wav");
     await fs.mkdir(path.dirname(chosen));

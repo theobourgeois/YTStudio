@@ -10,12 +10,12 @@
  */
 import { type ClipContext, clipEnd, clipEnvelope, clipLength, clipSecondsPerTick, fadeShape, visibleClips } from "@shared/music/playlist";
 import { AUTOMATION_COLOR } from "@shared/music/automation";
-import type { Automation, Pattern, PlaylistClip, PlaylistTrack } from "@shared/music/types";
+import type { Automation, Pattern, PlaylistClip, PlaylistTrack, TimeMarker } from "@shared/music/types";
 import { CURVE_PAD } from "../automation/curve-geometry";
 import { drawCurve } from "../automation/draw-curve";
 import { gridTicks } from "../piano/geometry";
 import { type Palette, rulerMarks } from "../piano/draw";
-import { MENU_FROM, MENU_TO, TITLE_HEIGHT, type TrackLayout, clipHandles, tickToX, trackTop, visibleTracks, xToTick } from "./geometry";
+import { MARKER_BAND, MENU_FROM, MENU_TO, TITLE_HEIGHT, type TrackLayout, clipHandles, markerWidth, tickToX, trackTop, visibleTracks, xToTick } from "./geometry";
 import type { VanishingClip } from "./fades";
 import { type WavePeaks, peakRange } from "./waveforms";
 import type { PlaylistDrag, PlaylistView, TimeRange } from "./store";
@@ -95,6 +95,8 @@ export interface PlaylistScene {
   drag: PlaylistDrag | null;
   /** Takes being recorded, drawn as they grow (until their clips come): on which track, and their levels. */
   recording: readonly LiveTakeDrawing[];
+  /** The song's time markers, on the ruler. */
+  markers: readonly TimeMarker[];
   /** The slice tool's line (tick and tracks, or `all` of them), while it's dragged or Shift shows it. */
   slice: { tick: number; top: number; bottom: number; all: boolean } | null;
   palette: Palette;
@@ -631,7 +633,28 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: PlaylistScene, s
     ctx.globalAlpha = 1;
     ctx.fillRect(x, height - 6, w, 6);
   }
-  rulerMarks(ctx, palette, height, barTicks, beatTicks, view.pxPerTick, (tick) => tickToX(view, tick), xToTick(view, 0), xToTick(view, width));
+  // The bars above, the time markers in the band along the bottom.
+  const marks = height - MARKER_BAND;
+  rulerMarks(ctx, palette, marks, barTicks, beatTicks, view.pxPerTick, (tick) => tickToX(view, tick), xToTick(view, 0), xToTick(view, width));
+  ctx.fillStyle = "rgba(0, 0, 0, 0.12)";
+  ctx.fillRect(0, marks, width, MARKER_BAND);
+  ctx.font = "500 9.5px ui-sans-serif, system-ui, sans-serif";
+  ctx.textBaseline = "middle";
+  for (const marker of scene.markers) {
+    const x = Math.round(tickToX(view, marker.tick));
+    if (x > width || x + markerWidth(marker) < 0) continue;
+    // A flag on its tick: the accent for a marker, red for where a recording starts and stops.
+    ctx.fillStyle = marker.kind === "marker" ? palette.start : palette.time;
+    ctx.fillRect(x, marks, 1, MARKER_BAND);
+    ctx.beginPath();
+    ctx.moveTo(x, marks + 1);
+    ctx.lineTo(x + 6, marks + 4);
+    ctx.lineTo(x, marks + 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = palette.rulerText;
+    ctx.fillText(marker.name, x + 8, marks + MARKER_BAND / 2 + 0.5);
+  }
   // Where the song ends (and goes round).
   ctx.fillStyle = palette.tool;
   ctx.globalAlpha = 0.7;

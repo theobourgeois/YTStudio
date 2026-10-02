@@ -379,6 +379,24 @@ export interface Playlist {
   tracks: PlaylistTrack[];
   /** In order of `start` (then track, then id). */
   clips: PlaylistClip[];
+  /** Time markers on its ruler (FL's Alt+T), in order of `tick`. Absent: none. */
+  markers?: TimeMarker[];
+}
+
+/**
+ * FL's time markers: "marker" names a place ("Chorus"; the export can end at the last one); "punchIn" and
+ * "punchOut" are its Start and Stop recording markers, between which Record records (punch in and out).
+ */
+export const MARKER_KINDS = ["marker", "punchIn", "punchOut"] as const;
+export type MarkerKind = (typeof MARKER_KINDS)[number];
+
+export interface TimeMarker {
+  /** Tells it from the others (a small whole number, as clips' ids are). */
+  id: number;
+  /** Ticks, in the song. */
+  tick: number;
+  name: string;
+  kind: MarkerKind;
 }
 
 /**

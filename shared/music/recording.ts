@@ -31,6 +31,8 @@ export interface Take {
 /** What to do with takes: hear earlier passes of a loop recording (FL's Blend), or mute all but the last. */
 export interface TakeOptions {
   blend: boolean;
+  /** Punched in and out (FL's Start and Stop recording markers, `punchRange`): only what's between is kept. */
+  punch?: { start: number; end: number | null } | null;
 }
 
 /**
@@ -119,9 +121,18 @@ export function addTakes(
     const mixerTrack = song.mixer.tracks.find((t) => t.id === take.track);
     if (!mixerTrack || mixerTrack.id === MASTER_TRACK_ID) continue;
     const label = mixerTrackName(song, take.track);
+    let { start, offset, length } = takeWindow(take, mixerTrack.inputOffset, ctx.secondsPerTick);
+    // Punched in and out: the take from the start marker to the stop marker; none of it outside them.
+    if (options.punch) {
+      const from = Math.max(start, options.punch.start);
+      const to = Math.min(start + length, options.punch.end ?? Infinity);
+      if (to <= from) continue;
+      offset += (from - start) * ctx.secondsPerTick;
+      length = to - from;
+      start = from;
+    }
     const channel = { ...createAudioChannel(take.pass > 0 ? `${label} take ${take.pass + 1}` : label, take.sampleId, channelIds()), mixerTrack: take.track };
     channels.push(channel);
-    const { start, offset, length } = takeWindow(take, mixerTrack.inputOffset, ctx.secondsPerTick);
     const track = takeTrack(song, clips, linked, take.track, start, length);
     const clip: NewClip = { kind: "audio", ref: channel.id, track, start, length, offset, muted: !options.blend && !take.final };
     const added = addClips(clips, [clip]);
@@ -227,6 +238,8 @@ export interface RecordedNotesOptions {
   quantize: NoteQuantize;
   /** The grid quantizing uses, in ticks (below 1: none). */
   grid: number;
+  /** Punched in and out (FL's Start and Stop recording markers): only notes starting between them are kept. */
+  punch?: { start: number; end: number | null } | null;
 }
 
 /**
@@ -266,7 +279,8 @@ export function recordedNotes(events: readonly PlayedEvent[], options: RecordedN
     }
   }
   for (const open of held.values()) close(open, options.stop ? along(options.stop) : null);
-  const quantized = options.quantize === "none" || !(grid >= 1) ? notes : notes.map((note) => quantizeRecorded(note, options.quantize, grid));
+  const punched = options.punch ? notes.filter((n) => n.start >= options.punch!.start && (options.punch!.end === null || n.start < options.punch!.end)) : notes;
+  const quantized = options.quantize === "none" || !(grid >= 1) ? punched : punched.map((note) => quantizeRecorded(note, options.quantize, grid));
   return quantized.sort((a, b) => a.start - b.start || a.pitch - b.pitch);
 }
 

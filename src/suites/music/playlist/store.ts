@@ -65,6 +65,8 @@ export type PlaylistDrag =
   | { kind: "fade"; ids: ReadonlySet<number>; patch: FadePatch }
   /** An audio clip's gain handle dragged: the gain as it'd be. */
   | { kind: "gain"; ids: ReadonlySet<number>; gain: number }
+  /** A time marker dragged along the ruler: where it'd be left. */
+  | { kind: "marker"; id: number; tick: number }
   /** The zoom tool's rectangle (FL's Z), in ticks and tracks: what the view zooms to when it's let go. */
   | { kind: "zoom"; from: number; to: number; top: number; bottom: number };
 
@@ -129,6 +131,9 @@ interface PlaylistState {
   stretching: boolean;
   /** The view before the zoom tool last zoomed in: its right-click goes back (and forth). */
   zoomBack: PlaylistView | null;
+  /** A time marker's menu, open (a right-click on it), and where on the ruler; or one being renamed there. */
+  markerMenu: { id: number; x: number } | null;
+  renamingMarker: { id: number; x: number } | null;
 
   setTool: (tool: PlaylistTool) => void;
   setView: (view: PlaylistView) => void;
@@ -168,6 +173,8 @@ const INITIAL = {
   transposing: null as readonly string[] | null,
   stretching: false,
   zoomBack: null as PlaylistView | null,
+  markerMenu: null as { id: number; x: number } | null,
+  renamingMarker: null as { id: number; x: number } | null,
 };
 
 export const usePlaylist = create<PlaylistState>((set) => ({

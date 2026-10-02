@@ -4,6 +4,7 @@
  * old documents upgraded here), or it's dropped.
  */
 import { createId } from "../ids.ts";
+import { normalizeMarkers } from "./markers.ts";
 import { normalizeSamplerFields } from "./sampler.ts";
 import { isScaleId } from "./scales.ts";
 import { clamp, isFiniteNumber } from "../math.ts";
@@ -732,7 +733,8 @@ function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channe
   let next = 0;
   for (const id of ids) next = Math.max(next, id);
   for (const clip of unnamed) clip.id = ++next;
-  return { tracks, clips: clips.sort(byClipStart) };
+  const markers = normalizeMarkers(input.markers);
+  return { tracks, clips: clips.sort(byClipStart), ...(markers && { markers }) };
 }
 
 /**

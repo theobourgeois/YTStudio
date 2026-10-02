@@ -1997,6 +1997,57 @@ test("an audio clip's own fades and gain are dragged on it, stretch mode stretch
   await expect.poll(async () => (await clip()).fadeIn).toBeUndefined();
 });
 
+test("time markers on the ruler (Alt+T): named, dragged, made a Start recording marker; clips rendered as an audio clip and a track consolidated", async ({ page }) => {
+  const id = await openNewSong(page, "Markers and bounces");
+  await addStarterKit(page);
+  for (const n of [1, 5, 9, 13]) await step(page, "Kick", n).click();
+  await page.keyboard.press("F5");
+  const at = await playlistPoint(page, 0, 0);
+  await page.mouse.click(at.x, at.y);
+  await expect.poll(() => clipsAt(page, id)).toEqual([[0, 0, null]]);
+  type SavedMarker = { tick: number; name: string; kind: string };
+  const markers = async (): Promise<SavedMarker[]> => (await savedSong(page, id)).playlist.markers ?? [];
+
+  // Alt+T: a marker where the song plays from, named as it's added.
+  await page.keyboard.press("Alt+t");
+  await page.getByRole("textbox", { name: "Marker name" }).fill("Chorus");
+  await page.keyboard.press("Enter");
+  await expect.poll(markers).toEqual([{ id: expect.any(Number), tick: 0, name: "Chorus", kind: "marker" }]);
+  // Dragged along the band at the ruler's bottom.
+  const ruler = (await page.getByTestId("playlist").getByLabel("Ruler").boundingBox())!;
+  const band = ruler.y + ruler.height - 4;
+  await page.mouse.move(ruler.x + 6, band);
+  await page.mouse.down();
+  await page.mouse.move(ruler.x + 6 + BAR_TICKS * 0.15, band, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await markers())[0].tick).toBe(BAR_TICKS);
+  // Its right-click menu: a Start recording marker (punch in).
+  await page.mouse.click(ruler.x + BAR_TICKS * 0.15 + 6, band, { button: "right" });
+  await page.getByTestId("marker-menu").getByRole("menuitemradio", { name: "Start recording" }).click();
+  await expect.poll(async () => (await markers())[0].kind).toBe("punchIn");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await markers())[0].kind).toBe("marker");
+
+  // The clip menu's Render as audio clip: an audio clip of it on the track below, the pattern left as it was.
+  const grid = (await page.getByTestId("playlist-grid").boundingBox())!;
+  await page.mouse.click(grid.x + 10, grid.y + 6);
+  await page.getByTestId("clip-menu").getByRole("menuitem", { name: "Render as audio clip" }).click();
+  await expect.poll(async () => (await savedClips(page, id)).map((c) => [c.kind, c.track, c.start, c.muted])).toEqual([
+    ["pattern", 0, 0, false],
+    ["audio", 1, 0, false],
+  ]);
+  // Consolidate this track (its header's menu): rendered onto it, its clips muted.
+  await page.getByTestId("track-headers").locator('[data-track="0"]').click({ button: "right", position: { x: 40, y: 30 } });
+  await page.getByRole("menuitem", { name: "Consolidate this track" }).click();
+  await expect.poll(async () => (await savedClips(page, id)).filter((c) => c.track === 0).map((c) => [c.kind, c.muted])).toEqual([
+    ["pattern", true],
+    ["audio", false],
+  ]);
+  // One undo step: back as it was.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedClips(page, id)).filter((c) => c.track === 0).map((c) => [c.kind, c.muted])).toEqual([["pattern", false]]);
+});
+
 test("the assistant arranges the song with the playlist's tools", async ({ page }) => {
   const id = await openNewSong(page, "Assisted arrangement");
   await page.getByRole("button", { name: "Assistant" }).click();

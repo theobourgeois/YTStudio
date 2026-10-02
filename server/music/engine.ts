@@ -37,6 +37,7 @@ import type { MediaAsset } from "../../shared/types.ts";
 import { createId } from "../../shared/ids.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS, ENGINE_SOURCE } from "../config.ts";
 import { spawnStreaming } from "../process.ts";
+import { repairWav } from "./take-repair.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
 
 /** What `renderExport` renders: a song as `SetSongRequest` has it, and where the files go and what they are. */
@@ -90,6 +91,11 @@ interface Recording {
   names: Record<string, string>;
   /** When it started, for its files' names. */
   started: Date;
+  /** Where its files are written, and where play started (the engine's ticks): what's needed to save them if the engine dies. */
+  folder: string;
+  from: number;
+  /** The tracks whose last take is in: once every recording track's is, it's over. */
+  finals: Set<string>;
 }
 
 /** The engine's own word that a take's file is finished (`Recorder::Take`). */
@@ -104,6 +110,8 @@ interface RawTake {
   pass: number;
   final: boolean;
   dropped: boolean;
+  /** Saved after the engine died mid-recording (`salvage`): its timing is a guess. */
+  repaired?: boolean;
 }
 
 /** How often the song's plugins' states are written, if they've changed (what's turned in a plugin's window isn't an edit of the song). */
@@ -418,12 +426,13 @@ export class AudioEngine {
     const recordingId = createId("rec");
     const folder = path.join(this.paths.projectDir(body.projectId), "recordings");
     await fs.mkdir(folder, { recursive: true });
-    this.recordings.set(recordingId, { projectId: body.projectId, names, started: new Date() });
+    const from = isFiniteNumber(body.from) ? Math.max(0, body.from) : 0;
+    this.recordings.set(recordingId, { projectId: body.projectId, names, started: new Date(), folder, from, finals: new Set() });
     try {
       const status = (await this.request("record", {
         recordingId,
         folder,
-        from: isFiniteNumber(body.from) ? Math.max(0, body.from) : 0,
+        from,
         countIn: isFiniteNumber(body.countIn) ? clamp(body.countIn, 0, 96 * 4 * 16) : 0,
         loop: body.loop === true,
         notes: body.notes === true,
@@ -440,7 +449,11 @@ export class AudioEngine {
     this.takes = this.takes.then(async () => {
       const recording = this.recordings.get(raw.recordingId);
       if (!recording) return;
-      if (raw.final) this.recordings.delete(raw.recordingId);
+      // Over once every track it records has had its last take (one track's last isn't the others').
+      if (raw.final) {
+        recording.finals.add(raw.track);
+        if (recording.finals.size >= Math.max(1, Object.keys(recording.names).length)) this.recordings.delete(raw.recordingId);
+      }
       const name = `${recording.names[raw.track] || "Recording"} ${takeTime(recording.started)}${raw.pass > 0 ? ` take ${raw.pass + 1}` : ""}`;
       let media: MediaAsset | null = null;
       let error: string | undefined;
@@ -451,6 +464,7 @@ export class AudioEngine {
         error = err instanceof Error ? err.message : String(err);
       }
       if (raw.dropped && !error) error = "The disk didn't keep up: some of this take is missing.";
+      if (raw.repaired && !error) error = "The audio engine stopped mid-recording: this take was saved as far as it got (its timing may be off by the latency).";
       const event: EngineTakeEvent = {
         event: "take",
         recordingId: raw.recordingId,
@@ -467,6 +481,42 @@ export class AudioEngine {
       };
       this.emit(event);
     });
+  }
+
+  /**
+   * The engine died while recording (a plugin crashed it): the takes it was writing are on the disk, their
+   * headers unfinished. Each is mended (`repairWav`) and handed in as the engine would have: a pass's take
+   * from the loop's start (the first from where play started), the latency at its head unknown.
+   */
+  private async salvage(recordingId: string) {
+    const recording = this.recordings.get(recordingId);
+    if (!recording) return;
+    const files = (await fs.readdir(recording.folder).catch(() => [] as string[]))
+      .flatMap((name) => {
+        const match = new RegExp(`^${recordingId}-(.+)-(\\d+)\\.wav$`).exec(name);
+        return match ? [{ file: path.join(recording.folder, name), track: match[1], pass: Number(match[2]) - 1 }] : [];
+      })
+      .sort((a, b) => a.pass - b.pass);
+    const lastPass = new Map<string, number>();
+    for (const f of files) lastPass.set(f.track, Math.max(lastPass.get(f.track) ?? 0, f.pass));
+    if (!files.length) return void this.recordings.delete(recordingId);
+    for (const f of files) {
+      const repaired = await repairWav(f.file).catch(() => null);
+      if (!repaired || repaired.frames === 0) continue;
+      this.take({
+        recordingId,
+        track: f.track,
+        file: f.file,
+        startTick: f.pass === 0 ? recording.from : 0,
+        skip: 0,
+        frames: repaired.frames,
+        sampleRate: repaired.sampleRate,
+        pass: f.pass,
+        final: f.pass === lastPass.get(f.track),
+        dropped: false,
+        repaired: true,
+      });
+    }
   }
 
   shutdown() {
@@ -683,6 +733,8 @@ export class AudioEngine {
           clearTimeout(timer);
           if (this.child === child) this.child = null;
           if (!this.stopping) this.emit({ event: "stopped" });
+          // Recordings it was making: what they'd written is saved as takes.
+          if (!this.stopping) for (const id of [...this.recordings.keys()]) void this.salvage(id);
           for (const pending of this.pending.values()) {
             clearTimeout(pending.timer);
             pending.reject(new HttpError(503, "The audio engine stopped (a plugin may have crashed it). Try again."));

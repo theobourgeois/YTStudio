@@ -337,12 +337,13 @@ From the first version (most of it for good):
 
 - **Arrangements** (several arrangements of one song), **performance mode** and live marker jumps,
   **track mode** (instrument / audio tracks linked to channels and mixer tracks), **lock to content**,
-  **consolidate / render as audio clip** (needs export, step 4), **merge pattern clips**, **clip
+  **merge pattern clips**, **clip
   groups**, the magic lasso, background pictures, icons, the View menu's styles.
 - **Automation clips**: built since ([automation.md](automation.md)).
 - **Audio clips' time stretching, pitch and reverse, zero-crossing slicing, crossfades**: the clip plays
   its file at its own speed. Fades and gain on the clip can come soon after, if wanted.
-- **Time markers and time signature changes**, Slip's ripple mode.
+- **Time signature changes** and markers' other actions (loop, skip, pause), Slip's ripple mode.
+- Consolidate, render as audio clip and time markers: built since (below).
 
 ## Where Vaudio differs
 
@@ -387,7 +388,9 @@ dropped from the Browser or the Finder (Shift: one after another on the track), 
 | Dragging files in | Shown where they'd land | Shown where they'd land, see-through, as long as the files (the Browser's; Finder files show a bar each until dropped) |
 | Deleting clips | They go | They shrink and fade out where they were, as the Piano roll's notes do |
 | Picker | Sorting, unused, groups, render; patterns reordered by dragging; tabs for patterns, audio and automation clips | Its tabs, as FL's (patterns, audio clips, automation clips, the last with an Automate… button: every control of the song to pick from). Each item drawn as its clips are, in its colour, with its notes or its file's waveform; the clip source marked on its left. Items select as a list does (⌘-click toggles, Shift+click a range) for the menu: patterns' Transpose selected…, Rename, Clone, Move up / down, Delete (every one: an empty Pattern 1 is left); audio clips' Channel settings and Delete. A double-click shows it in the Channel rack. Alt+↑ / ↓ reorders patterns (Théo) |
-| Merge, group, consolidate, lock to content, track mode, arrangements, markers, performance mode | Yes | No (see what we'll leave out) |
+| Merge, group, lock to content, track mode, arrangements, performance mode | Yes | No (see what we'll leave out) |
+| Render as audio clip, Consolidate | Clip menu, track menu | The same ([export.md](export.md)) |
+| Time markers | Alt+T, named, with actions | Alt+T adds one where the song is (or plays from), named as it's added; drawn in a band along the ruler's bottom, dragged along it, clicked to play from it, double-clicked to rename; their right-click menu renames, deletes and sets their kind: a marker, Start recording or Stop recording (punch in / out, [recording.md](recording.md)). The export ends at the last one. No loop, skip or pause actions, no Alt+/ jumps; the assistant's `set_time_markers` |
 | The Piano roll's ruler in song mode | Moves the song | Switches to pattern mode, from there |
 | The playhead | In every window | The Playlist's in song mode; the rack's lights and the Piano roll's follow the pattern shown inside the song |
 | Look | FL's artwork | Its layout in our look; the grid in the Piano roll's theme colours (`--piano-*`); the ruler FL's (numbers along the top, short ticks along the bottom) |
