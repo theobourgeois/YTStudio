@@ -77,17 +77,23 @@ pitch logic and engineering better than the actual Pitchwheel"). To check with h
   the harmonies. The window's keyboard plays it too: hold keys with the mouse while the song plays.
 - **Better than Pitchwheel** (Théo asked for it), each one tested offline:
   - **Phase-locked shifting** (Laroche and Dolson's): each spectral peak and the bins around it move as
-    one, at the exact new frequency; the transparent sound of a sine shifted is a sine, to the cent.
+    one, at the exact new frequency (by a fraction of a bin: the window's lobe rebuilt between bins, not
+    rounded to whole ones, so glides don't step and nothing beats at the hop's rate). A sine shifted is a
+    sine, to the cent; at 0 the sound comes out exactly as it went in.
   - **Stereo stays put**: both sides share one set of phase decisions, so the image doesn't smear.
   - **Transients kept**: a drum hit resets the phases, so it lands as sharply as it came.
-  - **A true spectral envelope** for the Timbre wheel (an iterated cepstrum), so formants don't pick up
-    the harmonics.
+  - **A true spectral envelope** for the Timbre wheel (an iterated cepstrum whose detail follows the
+    pitch it hears: half its period), so formants close together stay apart and don't pick up the
+    harmonics; one gain per partial, and the loudness kept (the wheel changes the colour, not the level).
   - **Sample-accurate moves**: the physics run every sample and each frame's phase advance is the integral
     of the pitch over its hop, so glides and swings don't step.
   - **Sample-accurate notes**: in Multi each note is its own shifted copy, gated on its very sample with
     a 3 ms fade (no clicks), velocity as its level.
-  - **Snap to octaves** as well as semitones (DJ jumps); **Resolution**: Tight (2048, ~43 ms at
-    48 kHz, for drums and voices, Pitchwheel's) or Wide (4096, for bass and pads).
+  - **Snap to octaves** as well as semitones (DJ jumps); **Resolution**: **Wide by default** (4096
+    samples, ~85 ms at 48 kHz, compensated: notes 45 Hz apart stay apart, a shifted chord's other sound
+    55 dB down, drum hits still 38 dB clean ahead) or Tight (Pitchwheel's 2048, ~43 ms: for playing it
+    live; close notes blur, about 18 dB down).
+  - **Seamless modes**: Single's voice is always made, so Single and Multi change over at once.
   - **Presets**.
 - **How the physics are modelled** (ours; the guide only describes them): Smooth is a one-pole follower
   of the target (0 to 1.5 s); the actual pitch is a mass on a spring towards it. Inertia sets the spring's
@@ -101,7 +107,7 @@ pitch logic and engineering better than the actual Pitchwheel"). To check with h
 | --- | --- | --- |
 | MIDI | Notes and pitch bend sent to the plug-in | A channel's notes (`notesFrom`), and the window's keyboard; no pitch bend (effects hear no MIDI yet) |
 | Snap | On / Off | Off, Semitone, Octave |
-| Latency | Fixed by the sample rate | Tight (Pitchwheel's) or Wide |
+| Latency | Fixed by the sample rate | Wide (twice Pitchwheel's, the default) or Tight (Pitchwheel's) |
 | info | Help over the controls | Hover hints (every control has a title) |
 | Stereo | (unverified) | One set of phase decisions for both sides |
 | Automation | Every parameter (host) | Both wheels and their gravity, inertia, smooth (song mode, as all automation) |
@@ -113,7 +119,7 @@ pitch logic and engineering better than the actual Pitchwheel"). To check with h
 - **The document**: `MixerEffect.pitchWheel` (`shared/music/types.ts`) on an effect whose plugin is
   `PITCH_WHEEL_PLUGIN` (`vaudio:pitch-wheel`): `pitch` and `timbre` (each a `Wheel`: value, range, snap,
   gravity, inertia, smooth), `timbreOn`, `midiMode`, `notesFrom`, `origin`, `resolution`. Validated by
-  `normalizePitchWheel`; constants, defaults, presets and the controls' ranges in `pitch-wheel-presets.ts`;
+  `normalizePitchWheel`; constants, defaults (Wide), presets and the controls' ranges in `pitch-wheel-presets.ts`;
   edits, presets, the physics (`stepWheel`, also run by the window when the engine is silent) and what the
   engine gets (`enginePitchWheel`) in `pitch-wheel.ts`. Tested.
 - **Compiling** (`compile.ts`): `EngineEffect.pitchWheel` (its notes' channel by id); its automatable
@@ -125,22 +131,34 @@ pitch logic and engineering better than the actual Pitchwheel"). To check with h
     voice's pitch per sample, which frames read.
   - **Analysis**: a Hann-windowed, zero-phase FFT of each side every hop (an eighth of the window); peaks
     of the two sides' summed power; each peak's true frequency from its phase advance.
-  - **Shifting**: each peak's region moves by whole bins to the new frequency, turned by a phase that
-    advances by the hop's integral of (ratio − 1) × the peak's frequency, carried from the region the peak
-    was in last frame (Laroche and Dolson's identity phase locking). The same turn on both sides. Onsets
-    (a jump in the high bins' energy) reset the phases.
-  - **Timbre**: the envelope of the two sides' power (cepstrum, liftered at 1 ms, iterated towards the
-    peaks: a true envelope); each moved bin scaled by the envelope where the Timbre wheel wants it over
-    the envelope it brought (±24 dB at most). Closed, nothing is done: the formants move with the pitch.
-  - **Voices**: Single is one, always heard; Multi one a note (eight at most), each synthesised on its own
-    and gated on its sample after the frames.
+  - **Shifting**: each peak's region moves to the new frequency by its exact (fractional) number of bins,
+    the complex spectrum read between bins by Catmull-Rom (the padding makes it smooth), turned by a phase
+    that advances by the hop's integral of (ratio − 1) × the peak's frequency, carried from the region the
+    peak was in last frame (Laroche and Dolson's identity phase locking). The same turn on both sides.
+    Onsets (the energy above 1.5 kHz up 4 dB on the last frame, at most once a window) reset the phases
+    of what's above 250 Hz.
+  - **Timbre**: the envelope of the two sides' power on a 60 dB floor, a true envelope (Röbel and
+    Rodet's: cepstrum, liftered, raised to the peaks, eight times); the lifter at 0.55 of the pitch period
+    the cepstrum shows (1 to 8 ms; 1 ms with no clear pitch), gliding frame to frame. Each partial's region
+    scaled by the envelope where the Timbre wheel wants it at its new frequency over the envelope it
+    brought (±24 dB at most), then all of them back to the frame's loudness (gliding). Closed, nothing is
+    done: the formants move with the pitch.
+  - **Voices**: the first is Single's, always made (gated shut in Multi, so the modes change over at
+    once); Multi has one a note (eight held at most, twelve slots for their tails), each synthesised from
+    the same analysis and gated on its sample (3 ms fades) after the frames. A new voice starts where it's
+    going (a chord's notes don't scoop in).
   - **Latency**: the window (2048 or 4096 samples at 48 kHz, scaled with the rate), reported to
     `Song::compensate`; the dry sound for the mix is read as late.
   - **Live**: `pitchWheel` commands hold the wheels where the hand is while it drags (renewed, they lapse
     a quarter-second after the last), jump, and play the keyboard's notes.
   - **What it says**: the actual pitch and timbre, each note's voice, whether sound comes in, in each
     transport event (`EngineTransport.pitchWheels`).
-  - Tested offline (`server/music/pitch-wheel.integration.test.ts`).
+  - Tested offline (`server/music/pitch-wheel.integration.test.ts`): exact at 0 (to -80 dB), shifts to
+    a cent with the level kept, snapping, formants kept, moved and moved alone, stereo correlation kept
+    (-0.999), drum hits 20 dB clean ahead, a chord's other sound under -48 dB (Wide), the physics as
+    `stepWheel` says (the swing's peak within a semitone and 40 ms), Multi's voices on their sample and
+    silent without notes, Single following notes and holding, latency, bypass and the mix in time, the
+    hand's hold and jump. It runs at about 70 times real time (Multi with four notes, 40).
 - **The tab** (`src/suites/music/pitch-wheel/`): `pitch-wheel-window.tsx` (the window), `dial.tsx` (a
   wheel), `geometry.ts` (angles, ticks; tested), `live.ts` (what the rings show: the engine's readings,
   or the physics run here when it's silent), `actions.ts`, `store.ts`, `tool-edits.ts`

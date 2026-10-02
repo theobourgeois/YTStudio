@@ -2406,3 +2406,125 @@ test("the assistant tunes a vocal: puts Auto-Tune on its track, sets the key and
   expect(automation.target).toEqual({ kind: "autoTune", effect: effect.id, control: "retuneSpeed" });
   expect(automation.points.map((p) => Math.round(p.value * 400))).toEqual([0, 50]);
 });
+
+/** The song's Pitch Wheel (the effect `effectId`) as saved; until it's saved, nothing (a poll waits for it). */
+type SavedWheel = { value: number; range: number; snap: string; gravity: number };
+type SavedPitchWheel = { pitch: SavedWheel; timbre: SavedWheel; timbreOn: boolean; midiMode: string; notesFrom: string | null; origin: number; resolution: string };
+async function savedWheel(page: Page, id: string, effectId: string): Promise<SavedPitchWheel | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.pitchWheel;
+  return null;
+}
+
+test("Pitch Wheel: chosen for a slot, its wheels turned, ranged and snapped, the Timbre tab, presets, notes from a channel, its keyboard heard while it plays", async ({ page }) => {
+  const id = await openNewSong(page, "Wheels");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, in the effect picker's Built in; its window opens at once, nothing shifted.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Pitch Wheel/ }).click();
+  const window = page.getByTestId("pitch-wheel");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.resolution).toBe("wide");
+  expect(await savedWheel(page, id, effectId)).toMatchObject({ pitch: { value: 0, range: 24, snap: "semitone" }, timbreOn: true, midiMode: "single", origin: 60 });
+  // Closed, its name in the slot opens it again.
+  await page.getByRole("button", { name: /^Close Pitch Wheel/ }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "Pitch Wheel: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // The wheel by its keys: a semitone a press (snapped).
+  const pitch = window.getByTestId("wheel-pitch");
+  await pitch.press("ArrowUp");
+  await pitch.press("ArrowUp");
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.pitch.value).toBe(2);
+  // Turned by dragging round it: from the top a quarter-turn clockwise, at range 24, is 8 semitones more.
+  const box = (await pitch.boundingBox())!;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy - 80);
+  await page.mouse.down();
+  for (let deg = 5; deg <= 90; deg += 5) await page.mouse.move(cx + 80 * Math.sin((deg * Math.PI) / 180), cy - 80 * Math.cos((deg * Math.PI) / 180));
+  await page.mouse.up();
+  await expect.poll(async () => Math.round((await savedWheel(page, id, effectId))!.pitch.value)).toBe(10);
+  // What's heard swings there (here, while the engine is silent, by the same physics).
+  await expect.poll(async () => Number(await pitch.getAttribute("data-heard"))).toBeCloseTo(10, 1);
+
+  // Range 12: the pointer comes in to +6. Snap to octaves.
+  await window.getByTestId("wheel-pitch-range").click();
+  await page.getByRole("menuitemradio", { name: /^12 semitones/ }).click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.pitch).toMatchObject({ range: 12, value: 6 });
+  await window.getByTestId("wheel-pitch-snap").click();
+  await page.getByRole("menuitemradio", { name: "Octaves" }).click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.pitch.snap).toBe("octave");
+
+  // The Timbre tab closed: formants with the pitch; its wheel greyed out.
+  await window.getByTestId("wheel-timbre-tab").click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.timbreOn).toBe(false);
+  await expect(window.getByTestId("wheel-timbre-tab")).toHaveAttribute("aria-pressed", "false");
+
+  // A preset: both wheels and the tab.
+  await window.getByTestId("wheel-preset").click();
+  await page.getByRole("menuitem", { name: /Helium/ }).click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.timbre.value).toBe(4);
+  expect(await savedWheel(page, id, effectId)).toMatchObject({ timbreOn: true, pitch: { value: 0, snap: "semitone", range: 24 } });
+  await expect(window.getByTestId("wheel-preset")).toContainText("Helium");
+  // A knob: gravity down, the preset now Custom.
+  await window.getByRole("slider", { name: "Pitch gravity" }).press("ArrowDown");
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.pitch.gravity).toBeLessThan(0.75);
+  await expect(window.getByTestId("wheel-preset")).toContainText("Custom");
+
+  // Multi, its notes from the rack's channel; a right-click on the keyboard makes a key the origin.
+  await window.getByTestId("wheel-midi-mode").getByRole("radio", { name: "Multi" }).click();
+  await window.getByTestId("wheel-notes-from").click();
+  await page.getByRole("menuitemradio", { name: /Sampler/ }).click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.midiMode).toBe("multi");
+  const song = await savedSong(page, id);
+  expect((await savedWheel(page, id, effectId))?.notesFrom).toBe(song.channels[0].id);
+  const keyboard = window.getByTestId("wheel-keyboard");
+  const keys = (await keyboard.boundingBox())!;
+  // The keyboard is C2..B6: 35 white keys. The 17th (E5, MIDI 64), low down (a white key's own part).
+  const whiteKey = (index: number) => ({ x: keys.x + ((index + 0.5) / 35) * keys.width, y: keys.y + keys.height - 6 });
+  await page.mouse.click(whiteKey(16).x, whiteKey(16).y, { button: "right" });
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.origin).toBe(64);
+
+  // Back to Single; while it plays, a key held moves what's heard: G5 (67) is 3 over the origin E5.
+  await window.getByTestId("wheel-midi-mode").getByRole("radio", { name: "Single" }).click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.midiMode).toBe("single");
+  await page.keyboard.press("Space");
+  await expect.poll(async () => Number(await pitch.getAttribute("data-heard"))).toBeCloseTo(0, 1);
+  await page.mouse.move(whiteKey(18).x, whiteKey(18).y);
+  await page.mouse.down();
+  await expect.poll(async () => Number(await pitch.getAttribute("data-heard"))).toBeCloseTo(3, 1);
+  await page.mouse.up();
+  await page.keyboard.press("Space");
+});
+
+test("the assistant pitches a vocal: puts a Pitch Wheel on its track, sets it for harmonies, automates its pitch", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted wheel");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "Pitch Wheel"}',
+      'call update_pitch_wheel {"track": 1, "preset": "Fifth Up", "midiMode": "multi", "notesFrom": "Sampler", "origin": "A4", "timbre": {"value": -2}}',
+      'call update_pitch_wheel {"track": 1, "midiMode": "chords"}',
+      'call add_automation {"control": "wheel pitch", "track": 1, "slot": 1, "bar": 1, "length": 2, "points": [{"at": 0, "value": 0}, {"at": 1, "value": 12}]}',
+      'call get_pitch_wheel {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_pitch_wheel: ok", { timeout: 30_000 });
+  // A mode that isn't one is refused, saying which are.
+  await expect(panel).toContainText("update_pitch_wheel: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("Pitch Wheel");
+  expect(effect.pitchWheel).toMatchObject({ pitch: { value: 7 }, timbre: { value: -2 }, midiMode: "multi", notesFrom: song.channels[0].id, origin: 57 });
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "pitchWheel", effect: effect.id, control: "pitch" });
+  expect(automation.points.map((p) => Math.round(p.value * 48 - 24))).toEqual([0, 12]);
+});

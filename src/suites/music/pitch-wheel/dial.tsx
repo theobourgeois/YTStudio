@@ -69,6 +69,8 @@ export function Dial({ effectId, wheel, settings, closed, size }: { effectId: st
       const key = `${motion.actual.toFixed(4)}|${pointer.toFixed(4)}|${goal}|${trail.length}|${voices.join()}|${input.toFixed(2)}|${shut}|${held}|${w.range}|${document.documentElement.className}`;
       if (key === drawn) return;
       drawn = key;
+      // What's heard, for whoever reads the page (tests, assistive tech).
+      element.dataset.heard = motion.actual.toFixed(2);
       const ctx = prepare(element, size, size);
       if (!ctx) return;
       drawDial(ctx, {
