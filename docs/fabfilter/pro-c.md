@@ -1118,6 +1118,25 @@ that come in a later phase (section 7) come with them.
 
 ## 7. Proposed for Vaudio
 
+> **Built (2026-10-02)**, everything in one pass at Théo's request ("a very versatile, all-in-one
+> compressor"): all 21 styles (Pro-C 3's 14, Vox, the six Vintage ones), Character, the side chain EQ, the
+> external key and Host Sync, lookahead, oversampling, Auto Threshold / Release / Gain, Match, the
+> assistant's tools with `add_vocal_compression`. Where the build differs from this plan, found by
+> measuring it (`scripts/pro-c-sheet.ts` draws every style's curve, gain over a phrase and colour):
+>
+> - **A feedback style's detector branches** (one state, the attack rising and the release falling: the
+>   detector's capacitor), solved each sample. The decoupled follower of 5.5, holding the loop's target,
+>   held an onset's first, loud moment and overshot.
+> - **Opto styles run feedforward** at the loop's ratio: a cell (light, fast part, slow part) inside a
+>   loop with a gain up to 30 would ring.
+> - **Upward and Vox's gate hear RMS**: sample by sample, a waveform's zero crossings dip under Upward's
+>   floor and collapsed its boost.
+> - **VCA 160's attack time is set by the step it starts on**, not by what's left of it (which made its last
+>   dB take seconds).
+> - The internal key is the input before Character Pre; drift isn't built; Match measures RMS, not LUFS.
+>   MIDI triggering and 32× are still out (as planned).
+> - Cost, measured: 0.3–0.5% of a core a stereo instance at 48 kHz, 1.6% at 4×, 5.5% at 16×.
+
 ### Decided (to check with Théo)
 
 Not talked through with Théo yet (2026-10-02, planned at his request: "really deep research … everything"). What
