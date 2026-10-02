@@ -1098,6 +1098,11 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   const moving = (await mixerOf())[11].id;
   await drag(page, strip("Insert 11").locator("[data-reorder]"), strip("Insert 13").locator("canvas"), { dx: -10 });
   await expect.poll(async () => (await mixerOf())[12].id).toBe(moving);
+  // The track menu's Route to the master only undoes any routing (of the selected tracks, if it's one of them).
+  await strip("Insert 9").locator("span").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Track routing" }).click();
+  await page.getByRole("menuitem", { name: "Route to the master only" }).click();
+  await expect.poll(async () => (await mixerOf())[9].sends).toEqual([{ to: "master", level: 1 }]);
   await expect(page.getByTestId("reorder-line")).toHaveCount(0);
 });
 

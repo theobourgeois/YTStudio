@@ -689,6 +689,9 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
             Sidechain selected to this track
           </ContextMenuItem>
           <ContextMenuSeparator />
+          <ContextMenuItem disabled={isMaster} onSelect={() => sendOnlyFrom(id, MASTER_TRACK_ID)}>
+            Route to the master only
+          </ContextMenuItem>
           <ContextMenuItem disabled={isMaster} onSelect={() => setTimeout(() => routeSelectedToNewBus(id), 0)}>
             Route selected to a new bus <ContextMenuShortcut>⌘G</ContextMenuShortcut>
           </ContextMenuItem>
