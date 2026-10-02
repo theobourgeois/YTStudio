@@ -22,6 +22,7 @@ pnpm samples      # test media into ./samples
 pnpm tsx scripts/transition-sheet.ts [type|tag ...] [--out f.png]   # render + check transitions
 pnpm tsx scripts/effect-sheet.ts [type|tag ...] [--out f.png]       # render + check video effects
 pnpm tsx scripts/preset-sheet.ts [type|tag ...] [--out f.png]       # render + check presets
+pnpm tsx scripts/pro-c-sheet.ts [style ...] [--out f.png]           # Pro-C's styles measured on the engine: curves, gain, colour
 pnpm tsx scripts/perf.ts [clips] [--profile <scenario>]              # time a long edit in the real app
 pnpm tsx scripts/ui-sheet.ts [name ...] [--light|--dark]            # screenshot the gallery + screens, every theme
 pnpm dev:desktop  # the desktop app (Electron): Vite + a window; restarts when electron/ or server/ change

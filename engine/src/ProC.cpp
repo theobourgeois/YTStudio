@@ -391,6 +391,21 @@ Linear decoupled (double y1, double mid, double yL, bool attack, bool holding, d
     return { aA * yL + (1 - aA) * stage.a, (1 - aA) * stage.b };
 }
 
+/** A branching follower's step as `a + b·t` (a feedback loop's detector): it rises at the attack, falls at the release, or holds. */
+Linear branching (double yL, bool attack, bool holding, double aR, double aA)
+{
+    if (attack)
+        return { aA * yL, 1 - aA };
+    if (holding)
+        return { yL, 0 };
+    return { aR * yL, 1 - aR };
+}
+double branched (double yL, double t, bool attack, bool holding, double aR, double aA)
+{
+    const auto l = branching (yL, attack, holding, aR, aA);
+    return l.a + l.b * t;
+}
+
 /** Its state moved on for the target it got. */
 void advance (double& y1, double& mid, double& yL, double t, bool attack, bool holding, double aR, double aA, bool second)
 {
@@ -507,6 +522,8 @@ double State::follow (const Settings& s, const Ballistics& b, Path& p, const Tar
 
     // The smooth decoupled follower (and Second's two attack poles, Dual's slower second follower), with hold,
     // program dependency and Auto Release; in a feedback loop, solved for the reduction it settles on this sample.
+    // In a loop the follower branches (one state, rising at the attack and falling at the release: the
+    // detector's capacitor): a peak stage there would hold the loud output of an onset's first moment.
     auto attackTime = b.attack;
     if (b.attackDelay > 0 && (double) p.attackAge < b.attackDelay * coreRate)
         attackTime *= 8;
@@ -516,20 +533,21 @@ double State::follow (const Settings& s, const Ballistics& b, Path& p, const Tar
     const auto second = b.shape == Shape::second;
     const auto dual = b.shape == Shape::dual;
     const auto aA = second ? alpha (0.87 * attackTime / 2, coreRate) : alpha (attackTime, coreRate);
-    const auto releaseStage = juce::jmax (release - attackTime, release / 2);
+    // The decoupled follower's release measures about its stage's plus the attack's, so its stage is that much shorter.
+    const auto releaseStage = feedback ? release : juce::jmax (release - attackTime, release / 2);
     const auto aR = alpha (releaseStage, coreRate), aRb = alpha (releaseStage * b.dualFactor, coreRate);
     const auto holding = p.holdLeft > 0;
     const auto w = dual ? b.dualWeight : 1.0;
 
     auto t = target (feedback ? p.gr : 0.0);
-    auto attackA = t >= p.y1, attackB = t >= p.y1b;
+    auto attackA = t >= (feedback ? p.yL : p.y1), attackB = t >= (feedback ? p.yLb : p.y1b);
     auto g = 0.0;
     for (int pass = 0; pass < 2; ++pass)
     {
-        auto l = decoupled (p.y1, p.mid, p.yL, attackA, holding && ! attackA, aR, aA, second);
+        auto l = feedback ? branching (p.yL, attackA, holding && ! attackA, aR, aA) : decoupled (p.y1, p.mid, p.yL, attackA, holding && ! attackA, aR, aA, second);
         if (dual)
         {
-            const auto lb = decoupled (p.y1b, p.midB, p.yLb, attackB, holding && ! attackB, aRb, aA, second);
+            const auto lb = feedback ? branching (p.yLb, attackB, holding && ! attackB, aRb, aA) : decoupled (p.y1b, p.midB, p.yLb, attackB, holding && ! attackB, aRb, aA, second);
             l = { w * l.a + (1 - w) * lb.a, w * l.b + (1 - w) * lb.b };
         }
         if (! feedback)
@@ -562,16 +580,26 @@ double State::follow (const Settings& s, const Ballistics& b, Path& p, const Tar
             }
         }
         t = target (g);
-        const auto nowA = t >= p.y1, nowB = t >= p.y1b;
+        const auto nowA = t >= (feedback ? p.yL : p.y1), nowB = t >= (feedback ? p.yLb : p.y1b);
         if (nowA == attackA && (! dual || nowB == attackB))
             break;
         attackA = nowA, attackB = nowB;
     }
 
-    advance (p.y1, p.mid, p.yL, t, attackA, holding && ! attackA, aR, aA, second);
+    if (feedback)
+    {
+        p.yL = branched (p.yL, t, attackA, holding && ! attackA, aR, aA);
+        if (dual)
+            p.yLb = branched (p.yLb, t, attackB, holding && ! attackB, aRb, aA);
+    }
+    else
+    {
+        advance (p.y1, p.mid, p.yL, t, attackA, holding && ! attackA, aR, aA, second);
+        if (dual)
+            advance (p.y1b, p.midB, p.yLb, t, attackB, holding && ! attackB, aRb, aA, second);
+    }
     if (dual)
     {
-        advance (p.y1b, p.midB, p.yLb, t, attackB, holding && ! attackB, aRb, aA, second);
         g = w * p.yL + (1 - w) * p.yLb;
     }
     else
@@ -739,8 +767,10 @@ void State::runCore (const Settings& s, float* const* audio, const float* const*
                     p.average += (g - p.average) * cAverage;
                 if (s.gate)
                 {
-                    // Vox's gate: a downward expander under its threshold, opening fast and closing slowly.
-                    const auto want = std::min (s.gateRange, kneeOver (s.gateThreshold - levels[(size_t) k], 6) * (s.gateRatio - 1));
+                    // Vox's gate: a downward expander under its threshold, opening fast and closing slowly, on
+                    // the key's RMS (sample by sample a waveform would close it at every zero crossing).
+                    const auto heard = 10 * std::log10 (std::max (2 * std::max (detect[0].ms, detect[1].ms), 1e-12));
+                    const auto want = std::min (s.gateRange, kneeOver (s.gateThreshold - heard, 6) * (s.gateRatio - 1));
                     p.gate += (want - p.gate) * (want > p.gate ? cGateClose : cGateOpen);
                     g += p.gate;
                 }

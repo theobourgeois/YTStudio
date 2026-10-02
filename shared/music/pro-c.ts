@@ -452,7 +452,8 @@ export function engineProC(p: ProCState): EngineProC {
       detector = "linear";
       break;
     case "upward":
-      rms = 0.5;
+      // Its boost hears an RMS level: sample by sample a waveform dips under its floor at every zero crossing.
+      rms = 1;
       rmsTime = 0.01;
       curve = { ...curve, kind: "upward" };
       ballistics = { ...ballistics, program: 1 };

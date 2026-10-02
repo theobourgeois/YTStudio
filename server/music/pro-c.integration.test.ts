@@ -310,9 +310,8 @@ describe.skipIf(!existsSync(ENGINE))("Pro-C, offline", () => {
 
   it("turns quiet sound up in Upward, and leaves loud sound alone", async () => {
     const quiet = await played(song("sq40", { style: "upward", threshold: -30, slope: 0.5, knee: 0, range: 12, autoGain: false }), 1.2);
-    // 10 dB under at a slope of a half: 5 dB up (its RMS reads the square 1.5 dB hot: 8.5 dB under, 4.25 up).
-    expect(gainOver(quiet, 0.8, 1.1, -40)).toBeGreaterThan(3.5);
-    expect(gainOver(quiet, 0.8, 1.1, -40)).toBeLessThan(5.5);
+    // It hears RMS, which reads the square 3 dB hot: 7 dB under at a slope of a half, 3.5 dB up.
+    expect(gainOver(quiet, 0.8, 1.1, -40)).toBeCloseTo(3.5, 1);
     const loud = await played(song("sq10", { style: "upward", threshold: -30, slope: 0.5, knee: 0, range: 12, autoGain: false }), 1.2);
     expect(gainOver(loud, 0.8, 1.1, -10)).toBeCloseTo(0, 1);
   });
