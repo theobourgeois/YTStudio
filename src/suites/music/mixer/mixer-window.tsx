@@ -73,7 +73,7 @@ import { Fader } from "./fader";
 import { Led } from "./led";
 import { ArmButton } from "./arm-button";
 import { useRecording } from "../recording";
-import { faderDb, meterScale } from "./meter";
+import { faderDb, meterScale, moveFadersTogether } from "./meter";
 import { useMeters } from "./meters";
 import { Inspector } from "./inspector";
 import { delayText, offsetText, pluginDelay } from "./latency";
@@ -540,7 +540,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
   );
 });
 
-/** A strip's fader: one undo step a drag, moving every selected track's fader by as much when it's one of them. */
+/** A strip's fader: one undo step a drag, moving every selected track's fader by as many dB when it's one of them. */
 function TrackFader({ track, name, selected }: { track: MixerTrack; name: string; selected: boolean }) {
   const gesture = useRef(songGesture()).current;
   const armed = useRecording((s) => s.armed.includes(track.id));
@@ -565,10 +565,7 @@ function TrackFader({ track, name, selected }: { track: MixerTrack; name: string
         start.current = new Map(song.mixer.tracks.filter((t) => group.includes(t.id) || t.id === id).map((t) => [t.id, t.volume]));
         gesture.begin();
       }}
-      onDrag={(value) => {
-        const delta = value - start.current.get(id)!;
-        gesture.apply((song) => setMixerVolumes(song, new Map([...start.current].map(([t, v]) => [t, v + delta]))));
-      }}
+      onDrag={(value) => gesture.apply((song) => setMixerVolumes(song, moveFadersTogether(start.current, start.current.get(id)!, value)))}
       onEnd={() => {
         gesture.end();
         control.release();
