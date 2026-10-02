@@ -75,6 +75,12 @@ private:
     juce::Result setDevice (const juce::var& params);
     /** Hand the song to the sequencer, with whichever of its plugins are loaded by now. */
     juce::StringArray applySong();
+    /**
+     * Every sound stops, tails too (FL's Stop pressed while stopped, and its "Reset plugins on
+     * transport"): playback stops, the device is let go of while every plugin is reset and our
+     * effects' sounds are dropped, then the song is made again from silence.
+     */
+    void silence();
     /** A song's plugin has loaded, failed or had its window closed. */
     void pluginChanged();
     /** A plugin's reported delay has changed since the song was made: make it again, compensated anew. */

@@ -20,6 +20,10 @@ Two rows, left to right. Each group is a panel of its own (they can be rearrange
 
 - **Play** plays the pattern (PAT) or the song (SONG); pressed while playing it pauses. **Stop** stops and
   goes back to where play started. **Space** is play/stop.
+- **Stop pressed again** while stopped silences what's still ringing: delays, reverbs and every other
+  effect's tail, which a first press leaves to ring out (FL's users: "press stop a second time, all reverbs,
+  delays and other plugins are completely muted"). Audio settings' **Reset plugins on transport** makes
+  every stop do it.
 - The tempo and position LCDs look like the rest of FL's number displays: dark, recessed, with a small
   label (BPM, M:S:CS).
 - Everything is small (a row is about 24 px), and the groups are separated by thin grooves.
@@ -34,7 +38,7 @@ Vaudio shows only what it can do. What's there follows FL's layout (`src/suites/
 | Menus | None yet. The project's name (click to rename) is in their place, as the title |
 | Hint bar | Yes: the name of what's under the pointer (its title) |
 | PAT / SONG | Yes (L): two lights, the lit one is what plays (Théo's colours: PAT in the accent, SONG in FL's orange; the lit play and metronome icons are the accent too, without FL's glow). Not saved: a song with clips on its playlist opens in song mode |
-| Play / Pause, Stop | Yes, joined as FL's: playing, Play shows Pause (lit); pressed it stops where it is and the next play goes on from there. Stop (and a jump, or the other mode) forgets where it paused. Space plays and stops |
+| Play / Pause, Stop | Yes, joined as FL's: playing, Play shows Pause (lit); pressed it stops where it is and the next play goes on from there. Stop (and a jump, or the other mode) forgets where it paused. Space plays and stops. Stop pressed while stopped resets every plugin and our effects (`stop { reset }`, `Engine::silence`: the device let go of meanwhile, as for an export), and Settings' "Reset plugins on stop" makes every stop do it |
 | Record, countdown, typing keyboard | Not yet (recording) |
 | Tempo LCD | Yes, FL's look ("140.000", the decimals smaller, light digits on a dark display in every theme): drag it up and down (the pointer is locked, so it goes on past the screen's edge), or click it to type. Its menu has Tap tempo… (tap along to a song; any key taps too), Make it the default (new songs start at it; 140 BPM until it's set, kept in the browser) and Reset the default; no presets yet |
 | Position LCD | Yes (where the pattern or the song is, where it paused, or where play starts), in B:S:T or M:S:CS: a click switches (kept in the browser). Its last part is drawn smaller, as FL's |

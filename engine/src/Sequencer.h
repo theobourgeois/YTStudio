@@ -111,6 +111,11 @@ public:
      * (done with it, or set aside for the export). Only while `process` isn't running.
      */
     void release();
+    /**
+     * Delay compensation's delay lines start empty with the next song, rather than carrying on what's in
+     * them (the transport's reset, `Engine::silence`). Only while `process` isn't running.
+     */
+    void forgetDelayLines() { delayLines.clear(); }
     /** The song playing (only on the thread that calls `process`, after it has once). */
     const Song* current() const { return song; }
 

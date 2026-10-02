@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import type { EngineChannels, EngineCommands, EngineEchoLevels, EngineEffects, EngineEqState, EngineGrossState, EngineMeters, EngineOttState, EnginePanState, EnginePreview, MetronomeSound } from "@shared/music/engine";
 import { musicApi } from "./api";
+import { useMusicPreferences } from "./preferences";
 
 /**
  * What the audio engine is doing, as it tells us (`engine-sync.ts` feeds this from its event
@@ -125,7 +126,7 @@ export const NO_PANMEN: Record<string, EnginePanState> = {};
 
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
-  async function run(command: "play" | "stop" | "metronome", body: EngineCommands["metronome"] | { from?: number }) {
+  async function run(command: "play" | "stop" | "metronome", body: EngineCommands["metronome"] | EngineCommands["stop"] | { from?: number }) {
     try {
       const status = await musicApi.engine(command, body as never);
       set({
@@ -187,10 +188,13 @@ export const useTransport = create<TransportState>((set, get) => {
       set({ pausedAt: null });
       void run("play", { from: from > 0 && from < loop.ticks ? from : 0 });
     },
+    // Pressed while stopped (FL's second press of Stop), or always with Settings' "Reset plugins on stop":
+    // the effects' tails stop too.
     stop() {
+      const reset = !get().playing || useMusicPreferences.getState().resetOnStop;
       set({ pausedAt: null });
       recorder?.stopped();
-      void run("stop", {});
+      void run("stop", reset ? { reset: true } : {});
     },
     pause(tick) {
       set({ pausedAt: Math.max(0, Math.round(tick)) });

@@ -118,6 +118,8 @@ class Registry
 public:
     std::shared_ptr<State> get (const juce::String& effectId, double sampleRate);
     void keepOnly (const juce::StringArray& ids);
+    /** Let go of them all: the next song starts each one silent (the transport's reset, `Engine::silence`). */
+    void clear() { states.clear(); }
     /** `{ <effect id>: State::describe() }`. */
     juce::var describe() const;
 

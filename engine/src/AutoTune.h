@@ -203,6 +203,8 @@ public:
     /** The effect's state, kept if it's at this rate, for this voice and block size; else a new one. */
     std::shared_ptr<State> get (const juce::String& effectId, double sampleRate, double minHz, int capacity);
     void keepOnly (const juce::StringArray& ids);
+    /** Let go of them all: the next song starts each one silent (the transport's reset, `Engine::silence`). */
+    void clear() { states.clear(); }
     /** `{ <effect id>: EngineAutoTuneState }`. */
     juce::var describe() const;
 

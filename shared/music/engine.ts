@@ -578,7 +578,11 @@ export interface EngineCommands {
   status: Record<string, never>;
   /** Play the song from `from` ticks into its loop, or its start (nothing happens if it's playing); or stop and go back to the start. */
   play: { from?: number };
-  stop: Record<string, never>;
+  /**
+   * Stop. `reset`: every sound stops, the effects' tails too (FL's Stop pressed while stopped): each plugin
+   * is reset and our effects (EchoBoy's lines, Gross Beat's buffer...) start again from silence.
+   */
+  stop: { reset?: boolean };
   /** The metronome on or off, in `sound` (default: the one it has). `audition`: one click of it now (a bar's), playing or not. */
   metronome: { on: boolean; sound?: MetronomeSound; audition?: boolean };
   /** Stop the Browser's preview (it's started by `POST /api/browser/preview`, which checks the file). */

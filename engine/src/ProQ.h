@@ -219,6 +219,8 @@ class Registry
 public:
     std::shared_ptr<State> get (const juce::String& effectId, double sampleRate);
     void keepOnly (const juce::StringArray& ids);
+    /** Let go of them all: the next song starts each one silent (the transport's reset, `Engine::silence`). */
+    void clear() { states.clear(); }
     std::shared_ptr<State> find (const juce::String& effectId) const;
     /** Watch these (by id, with their FFT lengths); the rest not. */
     void watch (const std::map<juce::String, int>& sizes);

@@ -1603,7 +1603,8 @@ export const MUSIC_TOOLS = [
     kind: "action",
     description:
       "Start playing or stop, so the user hears it (you can't hear it yourself). `mode` chooses what plays, as the toolbar's PAT / SONG does: " +
-      "the pattern shown, looped (\"pattern\"), or the playlist (\"song\", from `bar`, going round at its end). Default: as the editor is.",
+      "the pattern shown, looped (\"pattern\"), or the playlist (\"song\", from `bar`, going round at its end). Default: as the editor is. " +
+      "\"stop\" while already stopped silences every effect's tail too (delays, reverbs still ringing), as FL Studio's Stop pressed twice does.",
     inputSchema: obj({ action: oneOf(["play", "stop"], "What to do."), mode: oneOf(["pattern", "song"], "What plays."), bar: num("In song mode, the bar to play from (1 is the start).") }, ["action"]),
   }),
   tool({
