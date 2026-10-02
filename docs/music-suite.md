@@ -14,8 +14,7 @@ put together and how we use its manual).
   devices needed are the sampler and an EQ.
 - **His workflow**, which the order of work serves: a melody first (Serum 2 in the piano roll), then drums
   (the rack), then the playlist, split by track, to arrange the song; mixing after that.
-- **Recording audio** (vocals over a song): built (step 6). **Later, but designed for now**: a MIDI
-  keyboard.
+- **Recording audio** (vocals over a song): built (step 6). A MIDI keyboard: built (step 5).
 - **The look** is FL's too (decided after the Piano roll): 3D-ish but modern, the accent blue, in dark and
   light. The whole app is being restyled that way: `docs/ui-redesign.md`.
 - **How to build each panel**: talk the phase through with Théo first; write its FL Studio reference in
@@ -32,18 +31,19 @@ put together and how we use its manual).
 | --- | --- | --- |
 | The engine | A native C++/JUCE program the server runs: the audio device (choice of output, buffer, rate), hosting VST3 and Audio Unit instruments, plugin windows, plugin scanning, an offline mode that renders to a WAV for tests | CLAUDE.md "The audio engine" |
 | Channel rack | Sampler and plugin channels; the step sequencer (left on, right off, painting); the graph editor; patterns; swing; mute and solo; selecting, moving, cloning and deleting channels by mouse and FL's keys; FL's knobs and LCDs; a file dropped on a channel replaces its sample; the + picks the Sampler or an instrument plugin; the starter kit | `docs/fl-studio/channel-rack.md` |
-| Channel settings | A sampler's window: its waveform, volume, pan, pitch, the ADSR envelope, cut self, normalize, reverse, sample start and length, fades | same |
+| Channel settings | A sampler's window: its waveform, volume, pan, pitch, swing mix, cut self, normalize, reverse, sample start and length, fades, its loop (crossfaded); the Envelope tab: a filter, and an envelope (delay, attack, hold, decay, sustain, release, tensions) and LFO for each of pan, cutoff, resonance and pitch, the volume's LFO. The rack's menu renames and colours a channel | same |
 | Plugin channels | One plugin instance per channel, loaded in the background, played from the pattern's notes as MIDI; its own window from the channel's button; its state kept beside the project and restored; FL's wrapper: its settings window (ON, PAN, VOL, PITCH in semitones, TRACK, the plugin shown or hidden, its programs and the user's presets for it, saved for every song), the preset arrows and the wrapper button in its window's title bar; `plugin_presets` | `docs/fl-studio/plugin-window.md` |
-| Piano roll | Every tool (draw, paint, delete, mute, slice, select, playback), selecting, the time selection that loops, Ctrl+B, quantize, glue, chop, legato, the event editor (velocity, pan), note properties, ghost notes, the target channel, FL's keys; FL's look; tested with 20 000 notes | `docs/fl-studio/piano-roll.md` |
-| Playlist | The song's arrangement: tracks bound to nothing, pattern clips (following their pattern's length until resized, playing nothing past it) and audio clips (channels of their own, streamed from disk, started on their sample), FL's tools and keys, the Picker panel, track headers, the time selection, split by channel, song mode (PAT / SONG, L) | `docs/fl-studio/playlist.md` |
+| Piano roll | Every tool (draw, paint, delete, mute, slice, select, playback, zoom), selecting, the time selection that loops, Ctrl+B, quantize and the Quantizer (Alt+Q), glue, chop, legato, the event editor (velocity, pan), note properties, ghost notes, the target channel, the song's scale (lit, snapped to), the Stamp's chords, FL's keys; FL's look; tested with 20 000 notes | `docs/fl-studio/piano-roll.md` |
+| Mixer | FL's mixer (F9): the master and insert tracks, channels routed to them, faders, pan, mute and solo, sends that never loop, meters, ten effect slots (any effect plugin, bypass, mix, Gross Beat), automatic plugin delay compensation, invert, swap, stereo separation, colours, cables, a track's state copied; inputs for recording | `docs/fl-studio/mixer.md` |
+| Playlist | The song's arrangement: tracks bound to nothing, pattern clips (following their pattern's length until resized, playing nothing past it) and audio clips (channels of their own, streamed from disk, started on their sample; their own fades, gain and time stretching), FL's tools and keys, the Picker panel, track headers, the time selection, time markers (Alt+T; Start / Stop recording ones), split by channel, render as audio clip and consolidate, song mode (PAT / SONG, L) | `docs/fl-studio/playlist.md` |
 | Browser | The user's sample folders for every song (dropped from Finder): the tree, favourites, a search that forgives typos, previews streamed from disk with a waveform, files dragged onto the rack, a channel or the Piano roll, sent to the selected channel (Enter, Shift+Up/Down to try them in the beat) | `docs/fl-studio/browser.md` |
 | Windows | Every panel is a floating window on a desktop: dragged, stuck to edges and other windows, resized, maximised (double-click the title), snapped to fill the desktop or half | CLAUDE.md |
 | Transport | Play and stop the current pattern or the song (PAT / SONG), tempo, the metronome, where play starts (the Piano roll's ruler in pattern mode, the Playlist's in song mode, both also moving a playing song) | |
-| Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song`; the Browser's: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`, `star_sample`; the Playlist's: `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`, `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` in song mode | `shared/music/tools.ts` |
-| Automation | FL's automation clips, in one pass: a knob's or fader's Create automation clip (channels' volume and pan, mixer faders, pans, stereo separation, sends, effects' mixes, the main volume), a plugin's parameters (Automate "…" in its window's title bar, or the Picker's Automate… window listing every control), the curve shaped on its clips in the Playlist (points, tension handles, FL's eleven curve types, Alt+click deletes), its window (Min / Max, the LFO, the Tools), shared curves and Make unique, an audio clip's Automate volume / pan. Song mode only; a control is its own value before its first clip and holds the last value after one; the hand wins while it's held. In the engine, slices of 256 samples from where play started: the same live and exported. `get_automation`, `list_controls`, `add_automation`, `update_automation` | `docs/fl-studio/automation.md` |
-| Export | ⌘R / ⌘⇧R: the save dialog, then FL's export window. Song or pattern, cut or ring out, WAV / MP3 / FLAC / OGG / M4A / MIDI from one render, stems in time with the mix, the plugin delay trimmed, plugins in their offline mode, every core (45× real time with 24 Serums). The song can be edited while it renders. Resampling (linear, Hermite, sinc) chosen in Settings. `export_song` for the assistant | `docs/fl-studio/export.md` |
+| Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song`; the Browser's: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`, `star_sample`; the Playlist's: `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`, `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, `set_time_markers`, `render_clips`, and `play_song` in song mode; `plugin_presets`, `quantize_notes`, `list_midi_inputs`, `select_channel` | `shared/music/tools.ts` |
+| Automation | FL's automation clips, in one pass: a knob's or fader's Create automation clip (channels' volume, pan and pitch, the tempo, mixer faders, pans, stereo separation, sends, effects' mixes, the main volume), a plugin's parameters (Automate "…" in its window's title bar, or the Picker's Automate… window listing every control), the curve shaped on its clips in the Playlist (points, tension handles, FL's eleven curve types, Alt+click deletes, the Step and Slide modes), its window (Min / Max, the LFO, the Tools), shared curves and Make unique, an audio clip's Automate volume / pan. Song mode only; a control is its own value before its first clip and holds the last value after one; the hand wins while it's held. In the engine, slices of 256 samples from where play started: the same live and exported. `get_automation`, `list_controls`, `add_automation`, `update_automation` | `docs/fl-studio/automation.md` |
+| Export | ⌘R / ⌘⇧R: the save dialog, then FL's export window. Song or pattern (to the last time marker), cut, ring out or wrap, WAV / MP3 / FLAC / OGG / M4A / MIDI from one render, stems in time with the mix, the plugin delay trimmed, plugins in their offline mode, every core (45× real time with 24 Serums). The song can be edited while it renders. Resampling (linear, Hermite, sinc) chosen in Settings. `export_song` for the assistant | `docs/fl-studio/export.md` |
 | MIDI input | Every MIDI keyboard plays the selected channel (plugins get velocity, the pedal, pitch bend and controllers; samplers end in their release, held by the pedal), the typing keyboard (Ctrl+T), the Piano roll's keys lit, Record keeps what's played in a pattern on the Playlist (quantized as Record's menu says); `list_midi_inputs`, `select_channel` | `docs/fl-studio/midi.md` |
-| Recording | FL's: an input device (an interface, or the Mac's mic), a mixer track's input (choosing it arms the track), monitoring through the track's effects, Record (R) and its count-in, a take per armed track placed where it was recorded (on the track's audio track, or the first free one), Loop record (a take each pass, the earlier muted unless Blend), latency left out; `list_audio_inputs`, `arm_tracks`, `record_audio` for the assistant | `docs/fl-studio/recording.md` |
+| Recording | FL's: an input device (an interface, or the Mac's mic), a mixer track's input (choosing it arms the track), monitoring through the track's effects, Record (R) and its count-in, a take per armed track placed where it was recorded (on the track's audio track, or the first free one), Loop record (a take each pass, the earlier muted unless Blend), latency left out, punch in / out by markers, an armed track's input on its meter, takes kept when the engine dies; `list_audio_inputs`, `arm_tracks`, `record_audio` for the assistant | `docs/fl-studio/recording.md` |
 | Gross Beat | FL's time and volume effect, ours, in any effect slot: 36 time and 36 volume slots (FL's preset names), the mapping panel edited FL's way (points, tension, the curve types, Pitch ±1 semitone, snap, step editing, slide, freeze, the tools), trig and pos sync, one-shot, link slots, HOLD (Last / Next), the scratching clock, ATT / REL / TNS, click reduction, HQ; its slots automated for chop arrangements; native in the engine, tested to the sample; `get_gross_beat`, `update_gross_beat`, `set_gross_beat_slot` | `docs/fl-studio/gross-beat.md` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
 
@@ -77,9 +77,10 @@ The detailed lists are at the end of each reference doc. The main ones:
 - **The mixer has no track EQ yet** (put off: Théo uses Pro-Q). No effect plugins on channels (the bench in the
   audio settings can load one, for testing only).
 - Audio clips don't crossfade on their own when they overlap, or reverse one at a time.
-- Automation has no tempo, channel pitch or other channel controls yet, no Step and Slide modes, and one
-  control per clip (`docs/fl-studio/automation.md` ends with the rest). Exports have no time markers,
-  wrap remainder or bouncing (render as audio clip, consolidate) yet.
+- Automation has one control per clip, and a channel's other controls (filter, swing mix...) can't be
+  automated yet; with tempo clips, the count-in, Gross Beat's sync and synced LFOs keep the song's own
+  tempo (`docs/fl-studio/automation.md` ends with the rest). No recording in pattern mode (Théo: Record
+  switches to song mode). No effect plugins on channels themselves (Théo: dropped; they go on mixer tracks).
 - Per-note pan is heard on samplers but not sent to plugins (Théo: not for now). Knob menus lack "Link to
   controller".
 - A sampler's loop, filter, full envelopes and LFOs, a channel's swing mix and colour came on 2026-10-02
@@ -99,7 +100,7 @@ window title bars are part of it. New panels below should be built in the new lo
 
 ### 1. The mixer
 
-**In progress.** The reference is `docs/fl-studio/mixer.md`. Done: the document and its logic (`mixer`
+**Built** (before the playlist). The reference is `docs/fl-studio/mixer.md`. What was done: the document and its logic (`mixer`
 in `MusicProject`, `Channel.mixerTrack`, the edits in `shared/music/mixer.ts`, the tracks compiled in an
 order with their gains in `compileSong`), and routing in the engine (channels play into their track's
 buffer, tracks run in that order through their gains and sends into the master; a changed gain glides
@@ -118,11 +119,11 @@ cables, copying a track's state (effects with their settings) to another, and on
 drawn (500 tracks open as fast as 16). The assistant's mixer tools (`get_mixer`, `route_channels`,
 `update_mixer_track`, `set_send`, `solo_mixer_track`, `add_`/`remove_`/`move_mixer_track`,
 `add_`/`update_`/`remove_mixer_effect`, `copy_track_state`; `list_plugins` lists effects too; `get_song`
-sums up the routing). Next: Théo's feedback pass, then the playlist. **The track EQ is put off** (Théo, 2026-09-30): he EQs
+sums up the routing). **The track EQ is put off** (Théo, 2026-09-30): he EQs
 with Pro-Q in a slot; a stock EQ can come later if the assistant or shared songs need one.
 
-What Théo needs: his effect plugins (Pro-Q, Pro-R, EchoBoy) on channels and on the master, levels, and a
-stock EQ.
+What Théo needed (what follows was the plan): his effect plugins (Pro-Q, Pro-R, EchoBoy) on channels and
+on the master, levels, and a stock EQ.
 
 - **FL's model**: numbered insert tracks plus the master. Each channel is routed to an insert (the rack's
   mixer track selector, and TRACK in the channel's window). Each insert has 10 effect slots, volume, pan,
@@ -241,16 +242,22 @@ assistant; `record_audio` records notes too.
 ### 6. Audio recording
 
 **Built** (2026-10-01, in one pass, while automation was built on another branch). The reference,
-Théo's decisions, how it's built and where it differs are in `docs/fl-studio/recording.md`. Still to
-come for it: punch in/out, recording in pattern mode, repairing a take's file if the engine dies
-mid-recording, an input meter for an armed track that isn't monitored.
+Théo's decisions, how it's built and where it differs are in `docs/fl-studio/recording.md`. Punch in /
+out, the input meter of an armed track that isn't monitored, and takes saved when the engine dies came on
+2026-10-02. Recording in pattern mode stays out (Théo).
 
 ### Also on the list, when they fit
 
-From the reference docs' tables, roughly in order of use: channel colours; FL's wrapper around a plugin's
-window (volume, pan, presets); the Piano roll's scale highlighting and stamp (chords); per-channel swing;
-the full sampler envelope and LFO; loop points in the sampler; channel groups; per-note pan and the other
-note properties sent to plugins (MPE, or per-note controllers); tempo automation.
+Built on 2026-10-02, in one pass with MIDI input: channel colours and renaming, FL's plugin wrapper, the
+Piano roll's scale, Stamp, Quantizer and Zoom tool, per-channel swing, the full sampler envelope, LFOs,
+filter and loop, audio clips' fades, gain and time stretching, automation of channel pitch and tempo with
+the Step and Slide modes, time markers, wrap remainder, render as audio clip and consolidate, punch in /
+out, an armed track's input meter, takes kept when the engine dies.
+
+Still on the list, from the reference docs' tables: channel groups; the sampler waveform's loop handles;
+a channel's other controls automated; Analyze audio file and Create sequence for automation clips;
+audio clips' crossfades and reverse; per-note pan and the other note properties sent to plugins (MPE, or
+per-note controllers: Théo, not for now).
 
 ## Working on it
 
