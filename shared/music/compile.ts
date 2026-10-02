@@ -11,7 +11,8 @@ import { LANE_FINEST, sampleLane } from "./sampling.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
-import { type AutomationTarget, type Channel, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { type Lfo, MOD_TARGETS, type ModEnvelope, type SampleLoop, type SamplerFilter, samplerOf } from "./sampler.ts";
+import { type AutomationTarget, type Channel, type Envelope, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -37,8 +38,12 @@ export interface EngineChannel {
   gainRight: number;
   /** Semitones added to every note. */
   pitch: number;
-  /** Null: every note plays its whole sample. */
-  envelope: { attack: number; decay: number; sustain: number; release: number } | null;
+  /** Null: every note plays its whole sample. Its delay, hold and tensions as `Envelope`'s (absent: 0). */
+  envelope: Omit<Envelope, "enabled"> | null;
+  /** A sampler's loop (fractions of its prepared sample), filter, and the envelopes and LFOs that are on (`shared/music/sampler.ts`). */
+  loop?: SampleLoop;
+  filter?: SamplerFilter;
+  mods?: EngineMods;
   /** A new note silences the channel's notes still sounding. */
   cutSelf: boolean;
   /** How the sample is prepared before it plays, or null to play it as it is. */
@@ -50,6 +55,15 @@ export interface EngineChannel {
   plugin: { id: string; state: string } | null;
   /** Index into `EngineSong.tracks`: the mixer track it plays into. */
   track: number;
+}
+
+/** A sampler's envelopes and LFOs that are on, by target: what the engine plays. */
+export interface EngineMods {
+  volumeLfo?: Lfo;
+  pan?: { envelope?: ModEnvelope; lfo?: Lfo };
+  cutoff?: { envelope?: ModEnvelope; lfo?: Lfo };
+  resonance?: { envelope?: ModEnvelope; lfo?: Lfo };
+  pitch?: { envelope?: ModEnvelope; lfo?: Lfo };
 }
 
 /** An effect in a mixer track's slot. */
@@ -393,6 +407,7 @@ function engineChannel(channel: Channel, track: number): Omit<EngineChannel, "pl
     gainRight,
     pitch: channel.pitch,
     envelope: enabled && !stream ? envelope : null,
+    ...(!stream && channel.kind === "sampler" ? samplerForEngine(channel) : {}),
     cutSelf: channel.cutSelf,
     // An audio clip channel's too: prepared in memory, its clips play that instead of streaming the file.
     precomputed: untouched ? null : channel.precomputed,
@@ -400,6 +415,27 @@ function engineChannel(channel: Channel, track: number): Omit<EngineChannel, "pl
     track,
   };
 }
+
+/** A sampler's loop, filter and modulation as the engine takes them: only what's on. */
+function samplerForEngine(channel: Channel): Pick<EngineChannel, "loop" | "filter" | "mods"> {
+  const { loop, filter, mods } = samplerOf(channel);
+  const out: Pick<EngineChannel, "loop" | "filter" | "mods"> = {};
+  if (loop.enabled) out.loop = loop;
+  if (filter.type !== "off") out.filter = filter;
+  const engineMods: EngineMods = {};
+  if (mods.volumeLfo.enabled) engineMods.volumeLfo = mods.volumeLfo;
+  for (const target of MOD_TARGETS) {
+    // The filter's targets do nothing without the filter.
+    if ((target === "cutoff" || target === "resonance") && filter.type === "off") continue;
+    const { envelope, lfo } = mods[target];
+    if (envelope.enabled || lfo.enabled) engineMods[target] = { ...(envelope.enabled && { envelope }), ...(lfo.enabled && { lfo }) };
+  }
+  if (Object.keys(engineMods).length) out.mods = engineMods;
+  return out;
+}
+
+/** The swing a channel's notes play with: the song's, times the channel's mix (FL's Swing mix). */
+const channelSwing = (song: MusicProject, channel: Channel | undefined) => song.settings.swing * (channel?.swingMix ?? 1);
 
 /**
  * The song as the engine should play it. In pattern mode, `patternId` (or the first pattern) on a loop: the
@@ -479,7 +515,7 @@ function patternNotes(song: MusicProject, pattern: Pattern, from: number, to: nu
       // Past the end (of the loop, or of a set length): kept in the song, not played.
       if (note.start >= to) break;
       if (note.start < from || note.muted) continue;
-      notes.push(engineNote(index, note, swungTick(note.start, song.settings.swing) - from, note.length));
+      notes.push(engineNote(index, note, swungTick(note.start, channelSwing(song, song.channels[index])) - from, note.length));
     }
   }
   return notes;
@@ -513,7 +549,7 @@ function songNotes(song: MusicProject, from: number, to: number): EngineNote[] {
         if (note.start >= contentEnd) break;
         if (note.muted || note.start + note.length <= windowStart) continue;
         const truncated = note.start < windowStart;
-        const at = truncated ? windowStart : swungTick(note.start, song.settings.swing);
+        const at = truncated ? windowStart : swungTick(note.start, channelSwing(song, song.channels[index]));
         const tick = clip.start + at - clip.offset;
         if (tick < from || tick >= to) continue;
         const end = Math.min(note.start + note.length, windowEnd);
@@ -563,7 +599,7 @@ export function soundingChannels(song: MusicProject, pattern: Pattern, tick: num
     for (const note of pattern.notes[channel.id] ?? []) {
       // Sorted by start: nothing later can have started (swing moves a note later by less than a step).
       if (note.start > tick) break;
-      const start = swungTick(note.start, song.settings.swing);
+      const start = swungTick(note.start, channelSwing(song, channel));
       if (!note.muted && tick >= start && tick < start + Math.max(note.length, STEP_TICKS)) {
         sounding.add(channel.id);
         break;

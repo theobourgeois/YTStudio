@@ -16,8 +16,12 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { ColorSwatches } from "./color-swatches";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -537,6 +541,9 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
   const trackSelectorShown = useMusicUi((s) => s.trackSelectorsShown);
   const [dropping, setDropping] = useState(false);
   const [replacing, setReplacing] = useState(false);
+  /** Rename… was chosen (FL's F2): the button is a box to type the name in until Enter or leaving it. */
+  const [renaming, setRenaming] = useState(false);
+  const renamingNext = useRef(false);
   /**
    * Replace… was chosen: the picker opens once the menu has let go of the focus (while it closes it
    * keeps the focus in itself, which would close the picker), and the focus isn't given back to the button.
@@ -606,6 +613,28 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
       />
 
       {trackSelectorShown && <TrackSelector channel={channel} className="ml-0.5 h-[22px] min-w-8 px-1 text-[11px]" />}
+      {renaming && (
+        <input
+          aria-label="Channel name"
+          defaultValue={channel.name}
+          // Its keys are its own (the rack's shortcuts aren't run while typing).
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          className="sunken ml-0.5 h-[22px] min-w-0 flex-1 rounded-sm px-2 text-center text-[11px] outline-none"
+          onBlur={(e) => {
+            const name = e.currentTarget.value;
+            setRenaming(false);
+            commit((song) => updateChannel(song, id, { name }));
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") {
+              e.currentTarget.value = channel.name;
+              e.currentTarget.blur();
+            }
+          }}
+        />
+      )}
       <Popover open={replacing} onOpenChange={setReplacing}>
       <ContextMenu>
         <PopoverPrimitive.Anchor asChild>
@@ -614,8 +643,11 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
             type="button"
             aria-expanded={open}
             // FL Studio's channel button: wide, the name in the middle, pushed in while its window is open,
-            // red when it has nothing to play.
+            // red when it has nothing to play; its colour a stripe down its left edge.
+            style={channel.color ? { boxShadow: `inset 3px 0 0 ${channel.color}` } : undefined}
+            data-color={channel.color ?? undefined}
             className={cn(
+              renaming && "hidden",
               "relative ml-0.5 flex h-[22px] min-w-0 flex-1 items-center justify-center gap-1 rounded-sm px-5 text-[11px] font-medium",
               silent
                 ? "border border-black/40 bg-destructive-solid text-white inset-shadow-[0_1px_0_rgb(255_255_255/0.25)]"
@@ -675,6 +707,13 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
           className="p-0"
           data-testid="channel-menu"
           onCloseAutoFocus={(e) => {
+            // Rename…: the box takes the focus, not the button.
+            if (renamingNext.current) {
+              e.preventDefault();
+              renamingNext.current = false;
+              setRenaming(true);
+              return;
+            }
             if (!replacingNext.current) return;
             e.preventDefault();
             replacingNext.current = false;
@@ -703,6 +742,16 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               <ContextMenuItem inset onSelect={() => useMusicUi.getState().openChannelWindow(id)}>
                 Channel settings…
               </ContextMenuItem>
+              {/* Once the menu has gone, so its closing doesn't take the focus from the box. */}
+              <ContextMenuItem inset onSelect={() => (renamingNext.current = true)}>
+                Rename…
+              </ContextMenuItem>
+              <ContextMenuSub>
+                <ContextMenuSubTrigger inset>Color</ContextMenuSubTrigger>
+                <ContextMenuSubContent className="w-auto">
+                  <ColorSwatches value={channel.color} onPick={(color) => commit((song) => updateChannel(song, id, { color }))} />
+                </ContextMenuSubContent>
+              </ContextMenuSub>
             </ContextMenuCell>
             <ContextMenuCell>
               <ContextMenuItem inset onSelect={() => cutSteps(id)}>

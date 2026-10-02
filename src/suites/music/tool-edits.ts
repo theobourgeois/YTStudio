@@ -32,6 +32,7 @@ import {
 import { CHOP_PATTERNS, chopPattern, chopPieces, chopToPattern } from "@shared/music/chop";
 import { QUANTIZE_ENDS, type QuantizeEnds, addNotes, editNotes, quantizeWith } from "@shared/music/notes";
 import { NOTE_NAMES, SCALES, type SongScale, scaleName } from "@shared/music/scales";
+import { FILTER_TYPES, type FilterType, LFO_SHAPES, type Lfo, type LfoShape, MOD_TARGETS, type ModEnvelope, type ModTarget, type SamplerPatch, cutoffHz, samplerOf } from "@shared/music/sampler";
 import { BEAT_UNITS, DEFAULT_VELOCITY, MAX_PATTERN_TICKS, MAX_STEPS, MAX_TEMPO, MIN_TEMPO } from "@shared/music/project";
 import { pitchFromName, pitchName } from "./piano/geometry";
 import { type Channel, type MusicProject, type Pattern, ROOT_PITCH } from "@shared/music/types";
@@ -181,7 +182,42 @@ export const updateChannelTool: SongEdit = (song, input) => {
         return value === undefined ? all : { ...all, [key]: value };
       }, {}),
       ...(number(envelope, "sustain", 0, 1) !== undefined && { sustain: number(envelope, "sustain", 0, 1) }),
+      ...(["delay", "hold"] as const).reduce<Record<string, number>>((all, key) => {
+        const value = number(envelope, key, 0, 10);
+        return value === undefined ? all : { ...all, [key]: value };
+      }, {}),
+      ...(["attackTension", "decayTension", "releaseTension"] as const).reduce<Record<string, number>>((all, key) => {
+        const value = number(envelope, key, -1, 1);
+        return value === undefined ? all : { ...all, [key]: value };
+      }, {}),
     };
+  }
+  const swingMix = number(input, "swingMix", 0, 1);
+  if (swingMix !== undefined) patch.swingMix = swingMix;
+  if (input.loop !== undefined || input.filter !== undefined || input.modulation !== undefined) {
+    if (channel.kind !== "sampler") throw new Error(`"${channel.name}" isn't a sampler: only a sampler has a loop, a filter, and envelopes and LFOs of its own.`);
+  }
+  // The sampler's own (the edit checks the values: what's out of range is brought in).
+  if (input.loop && typeof input.loop === "object") patch.loop = input.loop as SamplerPatch["loop"];
+  if (input.filter && typeof input.filter === "object") {
+    const filter = input.filter as Input;
+    if (filter.type !== undefined && !FILTER_TYPES.includes(filter.type as FilterType)) throw new Error(`"filter.type" must be one of ${FILTER_TYPES.join(", ")}.`);
+    patch.filter = filter as SamplerPatch["filter"];
+  }
+  if (input.modulation !== undefined) {
+    if (!Array.isArray(input.modulation)) throw new Error('"modulation" must be a list of { target, envelope?, lfo? }.');
+    const mods: NonNullable<SamplerPatch["mods"]> = {};
+    for (const item of input.modulation as Input[]) {
+      const target = item?.target;
+      if (target === "volume") {
+        if (item.envelope) throw new Error('The volume\'s envelope is "envelope", not a modulation\'s.');
+        if (item.lfo) mods.volumeLfo = item.lfo as Partial<Lfo>;
+      } else if (MOD_TARGETS.includes(target as ModTarget)) {
+        mods[target as ModTarget] = { ...(item.envelope ? { envelope: item.envelope as Partial<ModEnvelope> } : {}), ...(item.lfo ? { lfo: item.lfo as Partial<Lfo> } : {}) };
+      } else throw new Error('Each modulation\'s "target" must be "volume", "pan", "cutoff", "resonance" or "pitch".');
+      if (item.lfo && (item.lfo as Input).shape !== undefined && !LFO_SHAPES.includes((item.lfo as Input).shape as LfoShape)) throw new Error(`An LFO's "shape" must be one of ${LFO_SHAPES.join(", ")}.`);
+    }
+    patch.mods = mods;
   }
   const next = updateChannel(song, channel.id, patch);
   const now = next.channels.find((c) => c.id === channel.id)!;
@@ -379,10 +415,29 @@ export function describeChannel(channel: Channel, sampleName?: string | null): s
     channel.cutSelf ? "cut self" : null,
     describeSample(channel),
     channel.envelope.enabled
-      ? `envelope A ${channel.envelope.attack}s D ${channel.envelope.decay}s S ${percent(channel.envelope.sustain)} R ${channel.envelope.release}s`
+      ? `envelope ${channel.envelope.delay ? `delay ${channel.envelope.delay}s ` : ""}A ${channel.envelope.attack}s ${channel.envelope.hold ? `H ${channel.envelope.hold}s ` : ""}D ${channel.envelope.decay}s S ${percent(channel.envelope.sustain)} R ${channel.envelope.release}s`
       : null,
+    channel.swingMix !== undefined ? `swing mix ${percent(channel.swingMix)}` : null,
+    describeSampler(channel),
   ];
   return parts.filter(Boolean).join(", ");
+}
+
+/** A sampler's loop, filter, and envelopes and LFOs that are on, for the model. */
+function describeSampler(channel: Channel): string | null {
+  if (channel.kind !== "sampler") return null;
+  const { loop, filter, mods } = samplerOf(channel);
+  const lfo = (l: Lfo) => `${l.shape} LFO ${l.sync ? `a cycle per ${l.speed} beats` : `${l.speed} Hz`} amount ${l.amount}`;
+  const parts = [
+    loop.enabled ? `loops ${percent(loop.start)} to ${percent(loop.end)}${loop.crossfade ? ` (crossfade ${percent(loop.crossfade)})` : ""}` : null,
+    filter.type !== "off" ? `${filter.type} filter at ${Math.round(cutoffHz(filter.cutoff))} Hz, resonance ${percent(filter.resonance)}` : null,
+    mods.volumeLfo.enabled ? `volume ${lfo(mods.volumeLfo)}` : null,
+    ...MOD_TARGETS.flatMap((t) => [
+      mods[t].envelope.enabled ? `${t} envelope amount ${mods[t].envelope.amount}` : null,
+      mods[t].lfo.enabled ? `${t} ${lfo(mods[t].lfo)}` : null,
+    ]),
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
 }
 
 /** What's done to the channel's sample before it plays, or null when nothing is. */

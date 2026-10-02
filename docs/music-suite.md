@@ -80,10 +80,10 @@ The detailed lists are at the end of each reference doc. The main ones:
 - Automation has no tempo, channel pitch or other channel controls yet, no Step and Slide modes, and one
   control per clip (`docs/fl-studio/automation.md` ends with the rest). Exports have no time markers,
   wrap remainder or bouncing (render as audio clip, consolidate) yet.
-- Per-note pan is heard on samplers but not sent to plugins. Channels have no colours. Knob menus lack
-  "Link to controller".
-- The channel settings window lacks FL's other tabs (loop points, time stretching, the full envelope and
-  LFO page).
+- Per-note pan is heard on samplers but not sent to plugins (Théo: not for now). Knob menus lack "Link to
+  controller".
+- A sampler's loop, filter, full envelopes and LFOs, a channel's swing mix and colour came on 2026-10-02
+  (`docs/fl-studio/channel-rack.md`); its waveform's loop handles aren't draggable yet.
 
 ## What's next, in order
 

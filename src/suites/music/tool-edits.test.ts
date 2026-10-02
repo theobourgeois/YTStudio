@@ -221,3 +221,32 @@ describe("the song's scale and the Quantizer, for the assistant", () => {
     expect(() => quantizeNotesTool(written, { channel: "Kick", ends: "whatever" }, env)).toThrow(/leaveDuration/);
   });
 });
+
+describe("a sampler's own settings, for the assistant", () => {
+  it("sets its loop, filter, swing mix, envelope stages and envelopes and LFOs by target", () => {
+    const { song, text } = updateChannelTool(
+      rack(),
+      {
+        channel: "Kick",
+        swingMix: 0.25,
+        envelope: { enabled: true, hold: 0.2, attackTension: 0.5 },
+        loop: { enabled: true, start: 0.2, end: 0.7 },
+        filter: { type: "lowpass", cutoff: 0.5, resonance: 0.3 },
+        modulation: [
+          { target: "cutoff", envelope: { enabled: true, amount: 0.8, decay: 0.4 } },
+          { target: "volume", lfo: { enabled: true, shape: "square", speed: 2 } },
+        ],
+      },
+      env,
+    );
+    const kick = song.channels.find((c) => c.name === "Kick")!;
+    expect(kick).toMatchObject({ swingMix: 0.25, loop: { enabled: true, start: 0.2, end: 0.7 }, filter: { type: "lowpass", cutoff: 0.5, resonance: 0.3 } });
+    expect(kick.envelope).toMatchObject({ enabled: true, hold: 0.2, attackTension: 0.5 });
+    expect(kick.mods?.cutoff?.envelope).toMatchObject({ enabled: true, amount: 0.8, decay: 0.4 });
+    expect(kick.mods?.volumeLfo).toMatchObject({ enabled: true, shape: "square", speed: 2 });
+    expect(text).toContain("lowpass filter at 632 Hz");
+    expect(text).toContain("swing mix 25%");
+    expect(() => updateChannelTool(rack(), { channel: "Kick", filter: { type: "notch" } }, env)).toThrow(/lowpass/);
+    expect(() => updateChannelTool(rack(), { channel: "Kick", modulation: [{ target: "volume", envelope: {} }] }, env)).toThrow(/"envelope"/);
+  });
+});

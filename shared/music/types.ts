@@ -1,3 +1,4 @@
+import type { SampleLoop, SamplerFilter, SamplerMods } from "./sampler.ts";
 import type { SongScale } from "./scales.ts";
 /**
  * The music suite's document (a DAW project), modelled on FL Studio: the channel rack's channels
@@ -43,6 +44,12 @@ export interface Envelope {
   sustain: number;
   /** Seconds, after the note ends. */
   release: number;
+  /** FL's DEL and HOLD (seconds before the attack, and at the peak after it), and each stage's bend (-1..1). Absent: 0. */
+  delay?: number;
+  hold?: number;
+  attackTension?: number;
+  decayTension?: number;
+  releaseTension?: number;
 }
 
 /**
@@ -101,6 +108,12 @@ export interface Channel {
   mixerTrack: string;
   /** "#rrggbb", or null for the usual: an audio clip channel's clips take it (FL's Rename and recolor). */
   color: string | null;
+  /** 0..1 of the song's swing its notes take (FL's Swing mix). Absent: all of it. */
+  swingMix?: number;
+  /** A sampler's loop, filter, and envelopes and LFOs for its other targets (`shared/music/sampler.ts`). Absent: their defaults (none). */
+  loop?: SampleLoop;
+  filter?: SamplerFilter;
+  mods?: Partial<SamplerMods>;
 }
 
 export type ChannelKind = "sampler" | "plugin" | "audio";

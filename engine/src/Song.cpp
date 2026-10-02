@@ -115,6 +115,92 @@ void Song::Lane::valueAt (double tick, float* out)
         out[c] = from[c] + (to[c] - from[c]) * f;
 }
 
+Song::Envelope Song::parseEnvelope (const juce::var& json)
+{
+    Envelope envelope;
+    if (! json.isObject())
+        return envelope;
+    envelope.enabled = ! json.hasProperty ("enabled") || (bool) json["enabled"];
+    envelope.attack = (float) number (json["attack"], 0, 0, 60);
+    envelope.decay = (float) number (json["decay"], 0, 0, 60);
+    envelope.sustain = (float) number (json["sustain"], 1, 0, 1);
+    envelope.release = (float) number (json["release"], 0, 0, 60);
+    envelope.delay = (float) number (json["delay"], 0, 0, 60);
+    envelope.hold = (float) number (json["hold"], 0, 0, 60);
+    envelope.attackTension = (float) number (json["attackTension"], 0, -1, 1);
+    envelope.decayTension = (float) number (json["decayTension"], 0, -1, 1);
+    envelope.releaseTension = (float) number (json["releaseTension"], 0, -1, 1);
+    envelope.amount = (float) number (json["amount"], 1, -1, 1);
+    return envelope;
+}
+
+Song::Lfo Song::parseLfo (const juce::var& json)
+{
+    Lfo lfo;
+    if (! json.isObject())
+        return lfo;
+    lfo.enabled = (bool) json["enabled"];
+    const auto shape = json["shape"].toString();
+    lfo.shape = shape == "triangle" ? 1 : shape == "square" ? 2 : shape == "saw" ? 3 : 0;
+    lfo.sync = (bool) json["sync"];
+    lfo.speed = number (json["speed"], 4, 0.001, 100);
+    lfo.amount = (float) number (json["amount"], 0.5, -1, 1);
+    lfo.delay = number (json["delay"], 0, 0, 60);
+    lfo.attack = number (json["attack"], 0, 0, 60);
+    return lfo;
+}
+
+namespace
+{
+/** A stage's shape at `x` (0..1), bent by `tension`: `tensionCurve` in shared/music/sampler.ts. */
+float tensionCurve (double x, float tension)
+{
+    return (float) std::pow (juce::jlimit (0.0, 1.0, x), std::exp2 (-2.0 * (double) tension));
+}
+}
+
+float Song::Envelope::level (double t, double released) const
+{
+    const auto held = [this] (double at) -> float {
+        if (at < delay)
+            return 0.0f;
+        at -= delay;
+        if (at < attack)
+            return tensionCurve (at / attack, attackTension);
+        at -= attack;
+        if (at < hold)
+            return 1.0f;
+        at -= hold;
+        if (at < decay)
+            return 1.0f - (1.0f - sustain) * tensionCurve (at / decay, decayTension);
+        return sustain;
+    };
+    if (released < 0 || t < released)
+        return held (t);
+    const auto after = t - released;
+    if (after >= release)
+        return 0.0f;
+    return held (released) * (1.0f - tensionCurve (after / release, releaseTension));
+}
+
+float Song::Lfo::value (double t, double tempo) const
+{
+    if (! enabled || t < delay)
+        return 0.0f;
+    const auto at = t - delay;
+    const auto hz = sync ? tempo / 60.0 / speed : speed;
+    const auto phase = std::fmod (at * hz, 1.0);
+    float wave;
+    switch (shape)
+    {
+        case 1: wave = (float) (phase < 0.25 ? 4 * phase : phase < 0.75 ? 2 - 4 * phase : 4 * phase - 4); break;
+        case 2: wave = phase < 0.5 ? 1.0f : -1.0f; break;
+        case 3: wave = (float) (2 * phase - 1); break;
+        default: wave = (float) std::sin (juce::MathConstants<double>::twoPi * phase);
+    }
+    return wave * (attack > 0 ? (float) juce::jmin (1.0, at / attack) : 1.0f);
+}
+
 int Song::channelIndex (const juce::String& id) const
 {
     for (size_t i = 0; i < channels.size(); ++i)
@@ -147,11 +233,40 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
             if (const auto envelope = item["envelope"]; envelope.isObject())
             {
                 channel.hasEnvelope = true;
-                channel.envelope = { (float) number (envelope["attack"], 0, 0, 60),
-                                     (float) number (envelope["decay"], 0, 0, 60),
-                                     (float) number (envelope["sustain"], 1, 0, 1),
-                                     (float) number (envelope["release"], 0, 0, 60) };
+                channel.envelope = parseEnvelope (envelope);
             }
+            // A sampler's loop, filter, and other envelopes and LFOs.
+            if (const auto loop = item["loop"]; loop.isObject())
+            {
+                channel.loop = true;
+                channel.loopStart = number (loop["start"], 0, 0, 1);
+                channel.loopEnd = juce::jmax (channel.loopStart + 0.0001, number (loop["end"], 1, 0, 1));
+                channel.loopCrossfade = number (loop["crossfade"], 0, 0, 0.5);
+            }
+            if (const auto filter = item["filter"]; filter.isObject())
+            {
+                const auto type = filter["type"].toString();
+                channel.filterType = type == "lowpass" ? 1 : type == "bandpass" ? 2 : type == "highpass" ? 3 : 0;
+                channel.filterCutoff = (float) number (filter["cutoff"], 1, 0, 1);
+                channel.filterResonance = (float) number (filter["resonance"], 0, 0, 1);
+            }
+            if (const auto mods = item["mods"]; mods.isObject())
+            {
+                channel.volumeLfo = parseLfo (mods["volumeLfo"]);
+                const auto modulation = [&] (const juce::var& target) {
+                    Modulation m;
+                    m.envelope = parseEnvelope (target["envelope"]);
+                    m.lfo = parseLfo (target["lfo"]);
+                    return m;
+                };
+                channel.pan = modulation (mods["pan"]);
+                channel.cutoff = modulation (mods["cutoff"]);
+                channel.resonance = modulation (mods["resonance"]);
+                channel.pitchMod = modulation (mods["pitch"]);
+            }
+            channel.shaped = channel.loop || channel.filterType != 0 || channel.volumeLfo.enabled || channel.pan.any() || channel.cutoff.any() || channel.resonance.any()
+                             || channel.pitchMod.any() || channel.envelope.delay > 0 || channel.envelope.hold > 0 || channel.envelope.attackTension != 0
+                             || channel.envelope.decayTension != 0 || channel.envelope.releaseTension != 0;
             channel.cutSelf = (bool) item["cutSelf"];
             if (const auto plugin = item["plugin"]; plugin.isObject())
             {

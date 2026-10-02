@@ -382,6 +382,12 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   fade out (`fades.ts`: call `fadeOut` wherever notes are deleted). The song's `scale` (`shared/music/scales.ts`)
   lights its rows and snaps notes drawn, stamped and moved (Alt: not); the Stamp places its chords, and the
   Quantizer (Alt+Q, `quantizeWith`) is previewed live as the Chopper is (both through the engine's song too).
+- **A sampler's own settings** (`shared/music/sampler.ts`, the channel window's Envelope tab, `instrument-tab.tsx`):
+  its loop, filter, swing mix and an envelope and LFO per target (pan, cutoff, resonance, pitch; the volume's
+  LFO), each absent from the channel at its default (`samplerOf` fills them in; `samplerFields` checks a patch).
+  The maths (`envelopeLevel`, `lfoValue`, `tensionCurve`, `cutoffHz`) is what the engine plays in
+  `Sequencer::renderShaped`, the voices of a channel with any of it (others keep the plain path): keep the two
+  the same, and test sounds in `server/music/sampler.integration.test.ts`.
 - The tab sends the whole song to the engine on every change, even mid-drag (`engine-sync.ts` →
   `POST /api/engine/song`: the server normalises it, compiles it and turns sample ids into paths). The engine
   swaps songs without a gap. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a

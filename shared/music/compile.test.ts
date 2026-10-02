@@ -494,3 +494,32 @@ describe("automation", () => {
     }
   });
 });
+
+describe("a sampler's own settings, compiled", () => {
+  it("swings each channel by its share of the song's swing", () => {
+    let song = setSwing(setSteps(rack(), P, "chan_kick", [1], true), 1);
+    song = setSteps(song, P, "chan_hat", [1], true);
+    song = updateChannel(song, "chan_hat", { swingMix: 0.5 });
+    const ticks = compileSong(song, P).notes.map((n) => [n.channel, n.tick]);
+    expect(ticks).toContainEqual([0, 24 + 12]);
+    expect(ticks).toContainEqual([1, 24 + 6]);
+  });
+
+  it("sends a sampler's loop, filter and the envelopes and LFOs that are on; the filter's targets only with the filter", () => {
+    let song = updateChannel(rack(), "chan_kick", {
+      loop: { enabled: true, start: 0.1, end: 0.6 },
+      mods: { cutoff: { envelope: { enabled: true } }, pitch: { lfo: { enabled: true, speed: 5 } }, volumeLfo: { enabled: true } },
+    });
+    let engine = compileSong(song, P).channels[0];
+    expect(engine.loop).toMatchObject({ enabled: true, start: 0.1, end: 0.6 });
+    expect(engine.filter).toBeUndefined();
+    expect(Object.keys(engine.mods ?? {}).sort()).toEqual(["pitch", "volumeLfo"]);
+    expect(engine.mods?.pitch).toEqual({ lfo: expect.objectContaining({ speed: 5 }) });
+    song = updateChannel(song, "chan_kick", { filter: { type: "lowpass" } });
+    engine = compileSong(song, P).channels[0];
+    expect(engine.filter).toMatchObject({ type: "lowpass" });
+    expect(engine.mods?.cutoff?.envelope).toMatchObject({ enabled: true });
+    // A channel with none of it sends none of it.
+    expect(compileSong(rack(), P).channels[0]).not.toHaveProperty("loop");
+  });
+});

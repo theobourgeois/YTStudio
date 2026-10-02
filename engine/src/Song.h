@@ -58,9 +58,47 @@ private:
 
 struct Song
 {
+    /**
+     * A sampler's envelope (FL's DAHDSR with tensions): its volume's, or another target's, which moves it
+     * by `amount`. `level` is `envelopeLevel` in shared/music/sampler.ts: keep the two the same.
+     */
     struct Envelope
     {
         float attack = 0, decay = 0, sustain = 1, release = 0;
+        float delay = 0, hold = 0, attackTension = 0, decayTension = 0, releaseTension = 0;
+        float amount = 1;
+        bool enabled = false;
+        /** Its level (0..1) `t` seconds into its note, the note let go at `released` seconds (negative: still held). */
+        float level (double t, double released) const;
+        /** Whether it has gone quiet for good, `t` seconds in (let go at `released`). */
+        bool over (double t, double released) const { return released >= 0 && t - released >= release; }
+    };
+
+    /** An LFO (FL's): `value` is `lfoValue` in shared/music/sampler.ts, -1..1 before its amount. */
+    struct Lfo
+    {
+        bool enabled = false;
+        /** 0 sine, 1 triangle, 2 square, 3 saw. */
+        int shape = 0;
+        /** Cycles a second; with `sync`, beats a cycle. */
+        double speed = 4;
+        bool sync = false;
+        float amount = 0.5f;
+        double delay = 0, attack = 0;
+        float value (double t, double tempo) const;
+    };
+
+    /** A sampler target's envelope and LFO (pan, cutoff, resonance, pitch). */
+    struct Modulation
+    {
+        Envelope envelope;
+        Lfo lfo;
+        bool any() const { return envelope.enabled || lfo.enabled; }
+        /** How far it moves its target `t` seconds in (-1..1 each, added). */
+        float at (double t, double released, double tempo) const
+        {
+            return (envelope.enabled ? envelope.level (t, released) * envelope.amount : 0.0f) + (lfo.enabled ? lfo.value (t, tempo) * lfo.amount : 0.0f);
+        }
     };
 
     struct Channel
@@ -87,6 +125,17 @@ struct Song
         /** Without one, a note plays its whole sample whatever its length. */
         bool hasEnvelope = false;
         Envelope envelope;
+        /** A sampler's volume LFO, its other targets' envelopes and LFOs, its filter and its loop (`shared/music/sampler.ts`). */
+        Lfo volumeLfo;
+        Modulation pan, cutoff, resonance, pitchMod;
+        /** 0 none, 1 low pass, 2 band pass, 3 high pass; its cutoff and resonance 0..1 (`cutoffHz`, `resonanceQ`). */
+        int filterType = 0;
+        float filterCutoff = 1, filterResonance = 0;
+        /** Its loop, in fractions of its prepared sample, going round while a note is held. */
+        bool loop = false;
+        double loopStart = 0, loopEnd = 1, loopCrossfade = 0;
+        /** Any of these is on: its voices go the long way round (`Sequencer::render`). */
+        bool shaped = false;
         /** Index into `tracks`: the mixer track it plays into. */
         int track = 0;
         /**
@@ -270,6 +319,10 @@ struct Song
     int midiChannel = -1;
 
     int channelIndex (const juce::String& id) const;
+
+    /** An envelope or an LFO from an `EngineSong`'s JSON (`shared/music/compile.ts`). */
+    static Envelope parseEnvelope (const juce::var& json);
+    static Lfo parseLfo (const juce::var& json);
 
     /**
      * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the

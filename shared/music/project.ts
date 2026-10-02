@@ -4,6 +4,7 @@
  * old documents upgraded here), or it's dropped.
  */
 import { createId } from "../ids.ts";
+import { normalizeSamplerFields } from "./sampler.ts";
 import { isScaleId } from "./scales.ts";
 import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
@@ -320,7 +321,22 @@ function normalizeEnvelope(input: unknown): Envelope {
     decay: number(input.decay, 0, MAX_ENVELOPE_TIME, DEFAULT_ENVELOPE.decay),
     sustain: number(input.sustain, 0, 1, DEFAULT_ENVELOPE.sustain),
     release: number(input.release, 0, MAX_ENVELOPE_TIME, DEFAULT_ENVELOPE.release),
+    ...envelopeExtras(input),
   };
+}
+
+/** A volume envelope's delay, hold and tensions, each only when it isn't 0. */
+export function envelopeExtras(input: Record<string, unknown>): Pick<Envelope, "delay" | "hold" | "attackTension" | "decayTension" | "releaseTension"> {
+  const out: Pick<Envelope, "delay" | "hold" | "attackTension" | "decayTension" | "releaseTension"> = {};
+  for (const key of ["delay", "hold"] as const) {
+    const value = number(input[key], 0, MAX_ENVELOPE_TIME, 0);
+    if (value) out[key] = value;
+  }
+  for (const key of ["attackTension", "decayTension", "releaseTension"] as const) {
+    const value = number(input[key], -1, 1, 0);
+    if (value) out[key] = value;
+  }
+  return out;
 }
 
 export function normalizePrecomputed(input: unknown): Precomputed {
@@ -367,6 +383,7 @@ function normalizeChannels(input: unknown, isSample: (id: string) => boolean, is
       precomputed: normalizePrecomputed(raw.precomputed),
       mixerTrack: isId(raw.mixerTrack) && isTrack(raw.mixerTrack) ? raw.mixerTrack : MASTER_TRACK_ID,
       color: isColor(raw.color) ? raw.color.toLowerCase() : null,
+      ...normalizeSamplerFields(raw),
     });
   }
   return channels.length ? channels : emptyRack();

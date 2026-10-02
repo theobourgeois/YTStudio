@@ -590,7 +590,10 @@ void Sequencer::playMidi()
                     startNote (*channel.plugin, sentKeys[(size_t) key], velocity, keyHeld, 0);
             }
             else if (auto* voice = startVoice (target, (float) (key - 60), velocity * velocity / (0.78f * 0.78f), -1, 0))
+            {
                 voice->key = key;
+                voice->loops = channel.loop;
+            }
             report (target, key, velocity, true);
         }
         else if (message.isNoteOff())
@@ -956,6 +959,9 @@ Sequencer::Voice* Sequencer::startVoice (int channelIndex, float pitch, float ga
     voice->gain = gain;
     voice->panLeft = juce::jmin (1.0f, 1.0f - pan);
     voice->panRight = juce::jmin (1.0f, 1.0f + pan);
+    voice->notePan = pan;
+    // A note goes round its loop while it's held; a one-off hearing (no length) plays through.
+    voice->loops = channel.loop && lengthTicks >= 0;
     voice->delay = delay;
     voice->age = ++voiceCount;
     voice->level = channel.hasEnvelope && channel.envelope.attack > 0 ? 0.0f : 1.0f;
@@ -1170,6 +1176,8 @@ void Sequencer::runEffect (HostedPlugin& plugin, float mix, float* left, float* 
 
 void Sequencer::render (Voice& voice, int numSamples)
 {
+    if (song->channels[(size_t) voice.channel].shaped)
+        return renderShaped (voice, numSamples);
     const auto [left, right] = trackAudio (voice.channel);
     if (left == nullptr)
         return;
@@ -1262,6 +1270,128 @@ void Sequencer::render (Voice& voice, int numSamples)
         left[i] += resampling::read (sourceLeft, length, voice.position, rate, quality) * gainLeft * level;
         right[i] += resampling::read (sourceRight, length, voice.position, rate, quality) * gainRight * level;
         voice.position += rate;
+    }
+}
+
+void Sequencer::renderShaped (Voice& voice, int numSamples)
+{
+    const auto [left, right] = trackAudio (voice.channel);
+    if (left == nullptr)
+        return;
+    const auto& channel = song->channels[(size_t) voice.channel];
+    const auto& audio = voice.sample->audio;
+    const auto* sourceLeft = audio.getReadPointer (0);
+    const auto* sourceRight = audio.getReadPointer (audio.getNumChannels() > 1 ? 1 : 0);
+    const auto length = audio.getNumSamples();
+    const auto last = length - 1;
+    const auto quality = song->resampling;
+    const auto baseRate = voice.baseRate * std::pow (2.0, (double) (voice.pitch + channel.pitch) / 12.0);
+    const auto perSecond = 1.0 / sampleRate;
+    const auto tempo = song->tempo;
+    const auto fromLeft = channel.ramp ? channel.fromLeft : channel.gainLeft, fromRight = channel.ramp ? channel.fromRight : channel.gainRight;
+    const auto stepLeft = (channel.gainLeft - fromLeft) / (float) numSamples, stepRight = (channel.gainRight - fromRight) / (float) numSamples;
+    const auto fadeLength = (float) juce::jmax (1, (int) (fadeSeconds * sampleRate));
+    // Its loop, in the sample's samples; the crossfade over its last part, from as far back before its start.
+    const auto loopStart = channel.loopStart * (double) length, loopEnd = juce::jmin ((double) last, channel.loopEnd * (double) length);
+    const auto loopLength = juce::jmax (1.0, loopEnd - loopStart);
+    const auto crossfade = channel.loopCrossfade * loopLength;
+    // What changes with time (the envelopes, the LFOs, the filter's coefficients) is worked out every few samples.
+    constexpr int chunk = 32;
+
+    auto i = voice.delay;
+    voice.delay = 0;
+    while (i < numSamples)
+    {
+        auto n = juce::jmin (chunk, numSamples - i);
+        if (voice.untilRelease > 0)
+            n = (int) juce::jmin ((juce::int64) n, voice.untilRelease);
+        if (voice.untilRelease == 0 && voice.released < 0)
+            voice.released = (double) voice.elapsed * perSecond;
+        const auto t0 = (double) voice.elapsed * perSecond, t1 = (double) (voice.elapsed + n) * perSecond, middle = (t0 + t1) / 2;
+        const auto released = voice.released;
+        if (channel.hasEnvelope && channel.envelope.over (t0, released))
+        {
+            voice.active = false;
+            return;
+        }
+        auto level0 = channel.hasEnvelope ? channel.envelope.level (t0, released) : 1.0f;
+        auto level1 = channel.hasEnvelope ? channel.envelope.level (t1, released) : 1.0f;
+        // The volume's LFO dips it by up to its amount.
+        if (channel.volumeLfo.enabled)
+        {
+            const auto depth = juce::jlimit (0.0f, 1.0f, channel.volumeLfo.amount);
+            level0 *= 1.0f - depth * (1.0f - channel.volumeLfo.value (t0, tempo)) / 2.0f;
+            level1 *= 1.0f - depth * (1.0f - channel.volumeLfo.value (t1, tempo)) / 2.0f;
+        }
+        const auto pan = juce::jlimit (-1.0f, 1.0f, voice.notePan + (channel.pan.any() ? channel.pan.at (middle, released, tempo) : 0.0f));
+        const auto panLeft = juce::jmin (1.0f, 1.0f - pan), panRight = juce::jmin (1.0f, 1.0f + pan);
+        const auto rate = channel.pitchMod.any() ? baseRate * std::exp2 ((double) channel.pitchMod.at (middle, released, tempo) * 24.0 / 12.0) : baseRate;
+        // The filter (TPT state variable): its cutoff and resonance where their envelopes and LFOs have them now.
+        float a1 = 0, a2 = 0, a3 = 0, k = 0;
+        if (channel.filterType != 0)
+        {
+            const auto cutoff = juce::jlimit (0.0f, 1.0f, channel.filterCutoff + (channel.cutoff.any() ? channel.cutoff.at (middle, released, tempo) : 0.0f));
+            const auto resonance = juce::jlimit (0.0f, 1.0f, channel.filterResonance + (channel.resonance.any() ? channel.resonance.at (middle, released, tempo) : 0.0f));
+            const auto hz = juce::jmin (20.0 * std::pow (1000.0, (double) cutoff), 0.45 * sampleRate);
+            const auto q = juce::MathConstants<double>::sqrt2 / 2.0 * std::exp2 (5.0 * (double) resonance);
+            const auto g = (float) std::tan (juce::MathConstants<double>::pi * hz / sampleRate);
+            k = (float) (1.0 / q);
+            a1 = 1.0f / (1.0f + g * (g + k));
+            a2 = g * a1;
+            a3 = g * a2;
+        }
+        // It goes round its loop while held (and, with an envelope, through its release).
+        const auto looping = voice.loops && (released < 0 || channel.hasEnvelope);
+
+        for (int j = 0; j < n; ++j, ++i)
+        {
+            if (looping)
+                while (voice.position >= loopEnd)
+                    voice.position -= loopLength;
+            if ((int) voice.position >= last)
+            {
+                voice.active = false;
+                return;
+            }
+            float sample[2] = { resampling::read (sourceLeft, length, voice.position, rate, quality), resampling::read (sourceRight, length, voice.position, rate, quality) };
+            if (looping && crossfade > 0 && voice.position > loopEnd - crossfade)
+            {
+                const auto w = (float) ((voice.position - (loopEnd - crossfade)) / crossfade);
+                const auto back = juce::jmax (0.0, voice.position - loopLength);
+                sample[0] = sample[0] * (1.0f - w) + resampling::read (sourceLeft, length, back, rate, quality) * w;
+                sample[1] = sample[1] * (1.0f - w) + resampling::read (sourceRight, length, back, rate, quality) * w;
+            }
+            if (channel.filterType != 0)
+                for (int side = 0; side < 2; ++side)
+                {
+                    const auto v0 = sample[side];
+                    const auto v3 = v0 - voice.filterB[side];
+                    const auto v1 = a1 * voice.filterA[side] + a2 * v3;
+                    const auto v2 = voice.filterB[side] + a2 * voice.filterA[side] + a3 * v3;
+                    voice.filterA[side] = 2.0f * v1 - voice.filterA[side];
+                    voice.filterB[side] = 2.0f * v2 - voice.filterB[side];
+                    sample[side] = channel.filterType == 1 ? v2 : channel.filterType == 2 ? v1 : v0 - k * v1 - v2;
+                }
+            auto level = level0 + (level1 - level0) * (float) (j + 1) / (float) n;
+            if (voice.fade >= 0 && voice.fadeWait > 0)
+                --voice.fadeWait;
+            else if (voice.fade >= 0)
+            {
+                if (voice.fade == 0)
+                {
+                    voice.active = false;
+                    return;
+                }
+                level *= (float) voice.fade-- / fadeLength;
+            }
+            const auto gainLeft = voice.gain * panLeft * (fromLeft + stepLeft * (float) (i + 1)), gainRight = voice.gain * panRight * (fromRight + stepRight * (float) (i + 1));
+            left[i] += sample[0] * gainLeft * level;
+            right[i] += sample[1] * gainRight * level;
+            voice.position += rate;
+        }
+        voice.elapsed += n;
+        if (voice.untilRelease > 0)
+            voice.untilRelease -= n;
     }
 }
 

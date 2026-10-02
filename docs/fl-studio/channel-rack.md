@@ -277,11 +277,11 @@ Shift+click, which select a range.
 | Knob menu | Also Edit events, Create automation clip, Link to controller | Reset, Copy, Paste, Type in value, Create automation clip (volume and pan; `automation.md`) | Edit events, Link to controller |
 | Windows | Snap to each other; can be detached; Esc closes; remembered | Float, drag, close, stick to edges and each other; resizable ones maximise and snap to half the desktop; positions are forgotten with the page | Detaching later |
 | Channel menu | Two columns: the channel (Piano roll, Rename/color/icon, Insert, Replace, Clone, Delete…) and its steps (Cut/Copy/Paste, Fill, Rotate, Burn…) | The same two columns, rows lined up: Piano roll, Graph editor, settings · Load sample, Cut itself, Hear it · Replace… (the instrument picker: a plugin or the Sampler, in the channel's place with its notes, volume, pan and mixer track), Clone, Delete, beside Cut/Copy/Paste · Fill each 2/4/8, Clear · Rotate | Color later; the rest with their phases |
-| Rack menu | Sort, group, zip, colour, swing mix, auto resize… | Add, clone, delete, move, mute/unmute selected | Later |
+| Rack menu | Sort, group, zip, colour, swing mix, auto resize… | Add, clone, delete, move, mute/unmute selected; a channel's own menu has Rename… (its button becomes a box) and Color (a stripe down its button) | Sort, group, zip, auto resize |
 | Graph editor | Also Release, Fine, Pan, Mod X/Y, Shift, Rep | Note and Velocity | With the piano roll's note properties |
-| Channel Settings | Content, Playback (loop points), Time stretching, declicking, the other precomputed effects | File, the six precomputed effects asked for, the waveform | Later |
-| Waveform | Draggable start/loop handles, zoom, drag the sample out | Shows the prepared sample; click to hear | Later |
-| Envelope | ADSR + LFO for volume, pan, filter, pitch | Volume ADSR only | Later |
+| Channel Settings | Content, Playback (loop points), Time stretching, declicking, the other precomputed effects | File, the six precomputed effects asked for, the loop (on while held, START, END, XFADE), the waveform; a SWING knob (FL's Misc tab's Swing mix) beside PITCH | Time stretching per channel (it's the audio clip's), declicking |
+| Waveform | Draggable start/loop handles, zoom, drag the sample out | Shows the prepared sample and its loop; click to hear | Draggable handles, zoom |
+| Envelope | DAHDSR with tensions + LFO for volume, pan, Mod X / Y (the filter), pitch | The same targets (VOL, PAN, CUT, RES, PITCH), each an envelope (DEL, ATT, HOLD, DEC, SUS, REL, its three tensions; AMT for all but the volume) and an LFO (sine, triangle, square, saw; speed in Hz or beats with Tempo; AMT, DEL, ATT), and the filter (low, band or high pass, CUT, RES), all per voice in the engine (`renderShaped`) | FL's other filter kinds, LFO tension and skew, envelope global mode |
 | Cut groups, polyphony, arpeggiator, echo | Misc tab | Cut self only | Later |
 | Mute light, selector | Green | Lit with the app's accent (blue): FL's green isn't ours | Keep |
 | Pattern selector | On the toolbar, with + and a menu | On our toolbar, a popover | Keep; menu items with the playlist |

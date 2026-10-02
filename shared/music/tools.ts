@@ -117,7 +117,9 @@ export const MUSIC_TOOLS = [
     name: "update_channel",
     title: "Change a channel",
     kind: "edit",
-    description: "Rename a channel, or set its volume, pan, pitch, mute, colour or volume envelope. Only what's given changes.",
+    description:
+      "Rename a channel, or set its volume, pan, pitch, mute, colour, swing mix, and a sampler's volume envelope, loop, filter, and the envelopes " +
+      "and LFOs that move its volume, pan, filter cutoff and resonance and pitch (FL's Channel settings). Only what's given changes.",
     inputSchema: obj(
       {
         channel,
@@ -147,9 +149,70 @@ export const MUSIC_TOOLS = [
             decay: num("Seconds to fall to the sustain level."),
             sustain: num("0 to 1: the level held until the note ends."),
             release: num("Seconds to fade after the note ends."),
+            delay: num("Seconds of silence before the attack."),
+            hold: num("Seconds held at full level after the attack."),
+            attackTension: num("-1 to 1: how the attack bends (0 straight, above 0 quick at first)."),
+            decayTension: num("-1 to 1: how the decay bends."),
+            releaseTension: num("-1 to 1: how the release bends."),
           },
           [],
           "The volume envelope.",
+        ),
+        swingMix: num("0 to 1: how much of the song's swing this channel's notes take (1, the default: all of it)."),
+        loop: obj(
+          {
+            enabled: bool("On: while a note is held, the sample goes round between start and end."),
+            start: num("Where the loop starts, 0 to 1 of the (prepared) sample."),
+            end: num("Where it ends, 0 to 1."),
+            crossfade: num("0 to 0.5 of the loop's length crossfaded, so it goes round smoothly."),
+          },
+          [],
+          "A sampler's loop.",
+        ),
+        filter: obj(
+          {
+            type: oneOf(["off", "lowpass", "bandpass", "highpass"], "The filter (off: none)."),
+            cutoff: num("0 to 1: 20 Hz to 20 kHz, evenly by octave (0.5 is about 630 Hz)."),
+            resonance: num("0 to 1."),
+          },
+          [],
+          "A sampler's filter.",
+        ),
+        modulation: arr(
+          obj(
+            {
+              target: oneOf(["volume", "pan", "cutoff", "resonance", "pitch"], "What it moves (the filter's cutoff and resonance need the filter on)."),
+              envelope: obj(
+                {
+                  enabled: bool("On or off."),
+                  delay: num("Seconds."),
+                  attack: num("Seconds."),
+                  hold: num("Seconds."),
+                  decay: num("Seconds."),
+                  sustain: num("0 to 1."),
+                  release: num("Seconds."),
+                  amount: num("-1 to 1: how far it moves its target (pitch: 1 is +24 semitones; pan: -1 all left). Not for volume (its envelope is `envelope`)."),
+                },
+                [],
+                "The target's envelope (not volume's).",
+              ),
+              lfo: obj(
+                {
+                  enabled: bool("On or off."),
+                  shape: oneOf(["sine", "triangle", "square", "saw"], "Its wave."),
+                  speed: num("Cycles a second (0.01 to 30); with sync, beats a cycle (1/16 to 32)."),
+                  sync: bool("Follow the tempo."),
+                  amount: num("-1 to 1 (volume: 0 to 1, how deep it dips)."),
+                  delay: num("Seconds before it starts."),
+                  attack: num("Seconds it takes to reach its amount."),
+                },
+                [],
+                "The target's LFO.",
+              ),
+            },
+            ["target"],
+          ),
+          "A sampler's envelopes and LFOs, by target. Only what's given changes.",
         ),
       },
       ["channel"],

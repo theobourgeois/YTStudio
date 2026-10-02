@@ -151,6 +151,16 @@ private:
         /** Started by a MIDI key (`key`), it plays until the key is let go; held by the sustain pedal meanwhile. */
         int key = -1;
         bool sustained = false;
+        // A shaped channel's (`renderShaped`) ------------------------------------------------------
+        /** Samples since it started, and when its note was let go (seconds; negative: held). */
+        juce::int64 elapsed = 0;
+        double released = -1;
+        /** Its note's own pan (-1..1), moved by the channel's pan envelope and LFO. */
+        float notePan = 0;
+        /** It goes round its channel's loop while held (a note's or a key's, not a one-off hearing). */
+        bool loops = false;
+        /** Its filter's state, each side. */
+        float filterA[2] {}, filterB[2] {};
     };
 
     /** A MIDI message as it came, waiting for the audio thread. */
@@ -217,6 +227,8 @@ private:
     void silencePlugins();
     void renderPlugins (int numSamples);
     void render (Voice& voice, int numSamples);
+    /** A voice of a channel with a loop, a filter, or envelopes and LFOs beyond its volume's (`Song::Channel::shaped`). */
+    void renderShaped (Voice& voice, int numSamples);
     /** Put a track's sound through an effect, `mix` of it heard against the dry sound. */
     void runEffect (HostedPlugin&, float mix, float* left, float* right, int numSamples);
     /** Put a track's sound through a Gross Beat (`mix` of it heard against the dry sound), following `grossClock`. */

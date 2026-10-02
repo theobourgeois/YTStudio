@@ -516,7 +516,7 @@ test("knobs work as in FL Studio, and a channel opens its settings window", asyn
   await snare.getByLabel("Channel name").press("Enter");
   await expect(row(page, "Rim")).toBeVisible();
   await page.getByRole("region", { name: "Rim" }).getByRole("tab", { name: "Envelope" }).click();
-  await page.getByRole("region", { name: "Rim" }).getByRole("switch", { name: "Use the envelope" }).click();
+  await page.getByRole("region", { name: "Rim" }).getByRole("switch", { name: "Envelope", exact: true }).click();
   await expect
     .poll(async () => (await savedSong(page, id)).channels[3])
     .toMatchObject({ name: "Rim", envelope: { enabled: true }, precomputed: { reverse: true, normalize: true, fadeOut: expect.closeTo(0.2, 5) } });
@@ -528,6 +528,55 @@ test("knobs work as in FL Studio, and a channel opens its settings window", asyn
   await expect(page.getByTestId("channel-rack")).toHaveCount(0);
   await page.keyboard.press("F6");
   await expect(page.getByTestId("channel-rack")).toBeVisible();
+});
+
+test("a channel is renamed and coloured from its menu; a sampler's loop, filter, envelopes, LFOs and swing mix are in its settings", async ({ page }) => {
+  const id = await openNewSong(page, "Channel settings");
+  await addStarterKit(page);
+  type Saved = { channels: { name: string; color: string | null; swingMix?: number; loop?: { enabled: boolean }; filter?: { type: string }; mods?: Record<string, { envelope?: { enabled: boolean }; lfo?: { enabled: boolean } }> }[] };
+  const kick = async () => ((await savedSong(page, id)) as Saved).channels.find((c) => c.name === "Big kick")!;
+
+  // Its menu: Rename… makes its button a box to type in; Color tints it.
+  await channelButton(page, "Kick").click({ button: "right" });
+  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Rename…" }).click();
+  const box = page.getByRole("textbox", { name: "Channel name" });
+  await box.fill("Big kick");
+  await box.press("Enter");
+  await expect(row(page, "Big kick")).toBeVisible();
+  await channelButton(page, "Big kick").click({ button: "right" });
+  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Color" }).hover();
+  await page.getByRole("radio", { name: "#3f5ea8" }).click();
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await kick())?.color).toBe("#3f5ea8");
+  await expect(channelButton(page, "Big kick")).toHaveAttribute("data-color", "#3f5ea8");
+
+  // Its settings: the loop, on the Sample tab, drawn on its waveform.
+  await channelButton(page, "Big kick").click();
+  const settings = page.locator('[data-testid="channel-settings"][data-channel-name="Big kick"]');
+  await settings.getByRole("switch", { name: "Loop while held" }).click();
+  await expect.poll(async () => (await kick()).loop?.enabled).toBe(true);
+  await expect(settings.getByTestId("loop-region")).toHaveCount(1);
+  // Its swing mix, beside its pitch.
+  await settings.getByRole("slider", { name: "Swing mix" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Type in value…" }).click();
+  await page.getByRole("textbox", { name: "Swing mix value" }).fill("50");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await kick()).swingMix).toBe(0.5);
+
+  // The Envelope tab: a target, its envelope and LFO, and the filter they move.
+  await settings.getByRole("tab", { name: "Envelope" }).click();
+  const instrument = settings.getByTestId("instrument-tab");
+  await instrument.getByRole("radio", { name: "Filter cutoff" }).click();
+  await instrument.getByRole("radio", { name: "Low pass" }).click();
+  await instrument.getByRole("switch", { name: "Envelope" }).click();
+  await instrument.getByRole("switch", { name: "LFO" }).click();
+  await instrument.getByRole("radio", { name: "Square" }).click();
+  await expect.poll(async () => (await kick()).filter?.type).toBe("lowpass");
+  await expect.poll(async () => (await kick()).mods?.cutoff).toMatchObject({ envelope: { enabled: true }, lfo: { enabled: true, shape: "square" } });
+  // The volume's own envelope is the same switch on its target.
+  await instrument.getByRole("radio", { name: "Volume" }).click();
+  await instrument.getByRole("switch", { name: "Envelope" }).click();
+  await expect.poll(async () => ((await savedSong(page, id)) as { channels: { name: string; envelope: { enabled: boolean } }[] }).channels.find((c) => c.name === "Big kick")!.envelope.enabled).toBe(true);
 });
 
 test("Transpose selected moves the selected channels' notes by the semitones typed, in a small window", async ({ page }) => {
