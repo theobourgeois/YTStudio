@@ -110,7 +110,8 @@ export const useRecording = create<RecordingState>((set, get) => ({
       recordings.set(recordingId, { loopStart: loop.start, projectId });
       const msPerTick = 60_000 / (song.settings.tempo * PPQ);
       set({ active: { id: recordingId, startTick: loop.start + from, tracks, loop: options.loop, movesAt: performance.now() + countIn * msPerTick, confirmed: false } });
-      useTransport.setState({ playing: status.transport.playing, tick: status.transport.tick, at: performance.now(), through: !options.loop, error: null });
+      // The engine may not have taken the play yet: it's playing from here, after the whole count-in.
+      useTransport.setState({ playing: true, tick: status.transport.playing ? status.transport.tick : from, countIn: status.transport.countIn || (countIn * msPerTick) / 1000, at: performance.now(), through: !options.loop, error: null });
     } catch (err) {
       toast.error("Couldn't record", { description: errorMessage(err) });
     }

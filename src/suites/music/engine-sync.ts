@@ -115,6 +115,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       useTransport.setState({
         playing: event.playing,
         tick: event.tick,
+        countIn: event.countIn ?? 0,
         at: performance.now(),
         peak: event.peak,
         meters: event.meters ?? NO_METERS,
@@ -159,6 +160,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       useTransport.setState({
         playing: status.transport.playing,
         tick: status.transport.tick,
+        countIn: status.transport.countIn ?? 0,
         at: performance.now(),
         metronome: status.transport.metronome,
         latencyMs: status.outputLatencyMs,

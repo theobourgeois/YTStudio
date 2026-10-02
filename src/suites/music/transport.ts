@@ -20,6 +20,8 @@ interface TransportState {
   /** Where the loop was (ticks) at `at` (`performance.now()`): the position now is worked out from these. */
   tick: number;
   at: number;
+  /** Seconds of a recording's count-in left at `at`: the position holds at `tick` until it's over. */
+  countIn: number;
   /** The output's level (0..1+) and the audio thread's load (0..1). */
   peak: number;
   cpu: number;
@@ -114,6 +116,7 @@ export const useTransport = create<TransportState>((set, get) => {
       set({
         playing: status.transport.playing,
         tick: status.transport.tick,
+        countIn: status.transport.countIn ?? 0,
         at: performance.now(),
         metronome: status.transport.metronome,
         latencyMs: status.outputLatencyMs,
@@ -131,6 +134,7 @@ export const useTransport = create<TransportState>((set, get) => {
     exporting: false,
     tick: 0,
     at: 0,
+    countIn: 0,
     peak: 0,
     cpu: 0,
     meters: NO_METERS,
@@ -272,7 +276,7 @@ export function afterSongSent() {
   if (pendingPreview) {
     pendingPreview = false;
     void musicApi.engine("play", { from: 0 }).then(
-      (status) => useTransport.setState({ playing: status.transport.playing, tick: status.transport.tick, at: performance.now() }),
+      (status) => useTransport.setState({ playing: status.transport.playing, tick: status.transport.tick, countIn: status.transport.countIn ?? 0, at: performance.now() }),
       () => {},
     );
     return;
@@ -289,16 +293,24 @@ export const cancelPlayWhenSent = () => (pendingPreview = false);
  * Where a playing loop is now, in ticks: the engine's last word, moved on by the time since and held
  * back by the output's latency. Null when it isn't playing (or nothing of it has been heard yet).
  */
-export function tickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs"> & { through?: boolean }, now: number, tempo: number, ppq: number, loopTicks: number): number | null {
+export function tickNow(
+  state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs"> & { through?: boolean; countIn?: number },
+  now: number,
+  tempo: number,
+  ppq: number,
+  loopTicks: number,
+): number | null {
   if (!state.playing || loopTicks <= 0) return null;
-  const tick = state.tick + ((now - state.at - state.latencyMs) / 60_000) * tempo * ppq;
+  // A count-in holds the position where play starts until it's over (then it moves on from there).
+  const moving = now - state.at - state.latencyMs - (state.countIn ?? 0) * 1000;
+  const tick = state.tick + (Math.max(0, moving) / 60_000) * tempo * ppq;
   if (tick < 0) return null;
   // Recording past the loop's end, it doesn't go round.
   return state.through ? tick : tick % loopTicks;
 }
 
 /** Where it's playing now in the pattern's own ticks, or the song's in song mode (the loop may be only a part of it), or null. */
-export function patternTickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs" | "loop"> & { through?: boolean }, now: number, tempo: number, ppq: number): number | null {
+export function patternTickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs" | "loop"> & { through?: boolean; countIn?: number }, now: number, tempo: number, ppq: number): number | null {
   const tick = tickNow(state, now, tempo, ppq, state.loop.ticks);
   return tick === null ? null : state.loop.start + tick;
 }

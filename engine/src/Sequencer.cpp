@@ -357,6 +357,7 @@ void Sequencer::process (float* left, float* right, int numSamples, const float*
 
     playingNow = playing;
     positionNow = position_;
+    countInNow = playing ? countInLeft : 0;
     generationNow = generation;
     passNow = pass;
 }

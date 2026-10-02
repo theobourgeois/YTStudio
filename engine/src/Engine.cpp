@@ -86,6 +86,7 @@ juce::var Engine::transport() const
 {
     return protocol::object ({ { "playing", sequencer.isPlaying() },
                                { "tick", sequencer.position() },
+                               { "countIn", sequencer.countInSeconds() },
                                { "metronome", sequencer.metronomeOn() },
                                { "preview", preview.describe() } });
 }
@@ -480,6 +481,12 @@ void Engine::timerCallback()
         protocol::send (protocol::object ({ { "event", "transport" },
                                             { "playing", playing },
                                             { "tick", sequencer.position() },
+                                            // Held while it counts in: the tab doesn't move the playhead on meanwhile.
+                                            { "countIn", sequencer.countInSeconds() },
+                                            // Recording: each track's input level since the last event, for the take drawn as it grows.
+                                            { "recording", sequencer.recorder().recording().isNotEmpty()
+                                                               ? protocol::object ({ { "id", sequencer.recorder().recording() }, { "levels", sequencer.recorder().levels() } })
+                                                               : juce::var() },
                                             { "preview", preview.describe() },
                                             { "peak", level },
                                             { "meters", meters },

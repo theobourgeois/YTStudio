@@ -39,6 +39,8 @@ struct Recorder::Track
     juce::int64 frames = 0, skip = 0;
     double startTick = 0;
     bool dropped = false;
+    /** The loudest sample written since the message thread last took it (`levels`): the live take's waveform. */
+    std::atomic<float> level { 0.0f };
 };
 
 struct Recorder::Session
@@ -149,6 +151,16 @@ juce::Result Recorder::start (const juce::String& id, const juce::File& folder, 
     }
     live.push_back (made.release());
     return juce::Result::ok();
+}
+
+juce::var Recorder::levels()
+{
+    auto* result = new juce::DynamicObject();
+    for (auto* each : live)
+        if (! each->ended.load())
+            for (auto& track : each->tracks)
+                result->setProperty (track->source.track, track->level.exchange (0.0f));
+    return juce::var (result);
 }
 
 void Recorder::cancel()
@@ -306,6 +318,14 @@ void Recorder::write (const float* const* inputs, int numInputs, int numSamples)
                     const auto channel = track->source.channels[c];
                     data[c] = channel >= 0 && channel < numInputs && inputs[channel] != nullptr ? inputs[channel] + from + written : silence.data();
                 }
+                // How loud it is, for the clip drawn as it records.
+                auto loudest = track->level.load (std::memory_order_relaxed);
+                for (size_t c = 0; c < (size_t) track->current->channels; ++c)
+                {
+                    const auto range = juce::FloatVectorOperations::findMinAndMax (data[c], count);
+                    loudest = juce::jmax (loudest, -range.getStart(), range.getEnd());
+                }
+                track->level.store (loudest, std::memory_order_relaxed);
                 if (track->current->write (data.data(), count))
                     track->frames += count;
                 else

@@ -64,6 +64,11 @@ public:
     void service (const std::function<void (const Take&)>& onTake);
     /** The recording in progress (asked for, or writing), or empty. */
     juce::String recording() const;
+    /**
+     * Each recording track's loudest input since the last call, by track id (`{ trackId: level }`): what
+     * the tab draws the take with while it records. Message thread.
+     */
+    juce::var levels();
     /** Play stopped before a recording asked for began (in its count-in): it's dropped. */
     void cancel();
 
