@@ -3,6 +3,7 @@
  * makes one edit of the song, with the operations of `shared/music/playlist.ts`. As in FL Studio, a command
  * acts on the selected clips, or on all of them when none are selected.
  */
+import { addMarker, markersOf, updateMarker } from "@shared/music/markers";
 import { clamp } from "@shared/math";
 import { clonePattern, movePatterns, removeChannels, removePatterns, renamePattern, setPatternColor, updateChannel } from "@shared/music/edits";
 import {
@@ -38,7 +39,7 @@ import { editPoints, updateAutomation } from "@shared/music/automation";
 import { openAutomationWindow } from "../automation/actions";
 import { type MusicProject, PPQ, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import { openPianoRoll } from "../piano/actions";
-import { snapTicks } from "../piano/geometry";
+import { snapTick, snapTicks } from "../piano/geometry";
 import { positionNow } from "../playhead";
 import { currentPattern, useMusic } from "../store";
 import { switchMode, useTransport } from "../transport";
@@ -107,6 +108,7 @@ export function commitDrag(selectAdded = false) {
   usePlaylist.setState({ drag: null });
   if (!drag || !p) return;
   if (drag.kind === "rect") return playlist.select(rectSelection(p.clips, drag, p.selected, p.ctx));
+  if (drag.kind === "marker") return useMusic.getState().commit((song) => updateMarker(song, drag.id, { tick: drag.tick }));
   if (drag.kind === "playback") return;
   // An automation clip's curve: its points as they were left.
   if (drag.kind === "curve") return useMusic.getState().commit((song) => editPoints(song, drag.automationId, () => drag.points));
@@ -608,3 +610,24 @@ export function playFrom(tick: number) {
   useTransport.getState().setSongStartTick(tick);
   switchMode("song", true);
 }
+
+/**
+ * FL's Alt+T: a time marker where play is (playing, where it's heard; else where it starts), named the
+ * next "Marker N", then renamed in place on the ruler.
+ */
+export function addTimeMarker() {
+  const p = playlistContext();
+  if (!p) return;
+  const transport = useTransport.getState();
+  const tick = transport.playing && transport.mode === "song" ? (positionNow() ?? transport.songStartTick) : transport.songStartTick;
+  let id: number | null = null;
+  useMusic.getState().commit((song) => {
+    const added = addMarker(song, snapTick(tick, p.grid, "cell"));
+    id = added.id;
+    return added.song;
+  });
+  const { view } = usePlaylist.getState();
+  if (id !== null) usePlaylist.setState({ renamingMarker: { id, x: Math.max(0, (tick - view.scrollTick) * view.pxPerTick) } });
+}
+
+export { markersOf };

@@ -38,9 +38,10 @@ public:
     /**
      * Audio thread: add up to `numSamples` from the ring to `left` and `right`, from `offset` in them, times
      * the gains, ramped by `fadeIn` (samples since the stream began, 0 to the fade's length) or out over
-     * `fadeOutLength` samples (0: none). Returns how many it had.
+     * `fadeOutLength` samples (0: none), and by `envelope` (a gain per sample from `offset`; null: none).
+     * Returns how many it had.
      */
-    int pull (float* left, float* right, int offset, int numSamples, float gainLeft, float gainRight, int fadeInLength, int fadeOutLength);
+    int pull (float* left, float* right, int offset, int numSamples, float gainLeft, float gainRight, int fadeInLength, int fadeOutLength, const float* envelope = nullptr);
     /** Audio thread: drop up to `numSamples` without playing them (a stream that started late). Returns how many. */
     int skip (int numSamples);
 

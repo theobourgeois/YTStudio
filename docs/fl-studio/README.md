@@ -30,6 +30,8 @@ about to touch before changing it, and correct it when you learn it's wrong.
 - [recording.md](recording.md): recording audio: a mixer track's input and arm, monitoring, the Record
   button and count-in, loop recording and takes, audio tracks, latency. Ends with what was decided with
   Théo, how it's built and where Vaudio differs.
+- [midi.md](midi.md): MIDI keyboards and the typing keyboard: which channel they play, recording notes
+  into the song. Ends with what was decided with Théo, how it's built and where Vaudio differs.
 - [gross-beat.md](gross-beat.md): Gross Beat, the time and volume effect (chops, repeats, half speed, tape
   stops, gates): its envelopes, slots, sync and options. Ends with what was chosen, where Vaudio differs
   and how it's built.

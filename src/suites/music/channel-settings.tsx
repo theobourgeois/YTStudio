@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { PiFolderOpen, PiWaveform, PiWaveSine } from "react-icons/pi";
+import { PiFolderOpen, PiPlug, PiWaveform, PiWaveSine } from "react-icons/pi";
 import { cn } from "cn";
 import { levelGain, panGains } from "@shared/music/compile";
 import { updateChannel } from "@shared/music/edits";
 import { pitchSpeed } from "@shared/music/playlist";
-import { DEFAULT_ENVELOPE, DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH, precomputedUntouched } from "@shared/music/project";
-import type { Channel, Envelope, Precomputed } from "@shared/music/types";
+import { DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH, PITCH_KNOB_RANGE, precomputedUntouched } from "@shared/music/project";
+import type { Channel, Precomputed } from "@shared/music/types";
+import { type SampleLoop, samplerOf } from "@shared/music/sampler";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { STRETCH_MODE_NAMES } from "@shared/music/stretch";
 import { STRETCH_MODES } from "@shared/music/types";
 import { StretchMenuItems } from "./stretch-menu";
 import { clearStretch, setStretchMode, stretchLabel } from "./stretching";
-import { CENTS, MILLISECONDS, PERCENT, SongKnob, type ValueUnit, cents, panText, percent, seconds } from "./knob";
+import { CENTS, PERCENT, SongKnob, type ValueUnit, cents, panText, percent } from "./knob";
 import { solo, toggleMute } from "./rack-actions";
 import { musicApi } from "./api";
 import { useMusic } from "./store";
@@ -23,11 +24,12 @@ import { loadSamples, waveformColumns } from "./waveform";
 import { routeToFreeTrack } from "./mixer/actions";
 import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow, cascadedOnDesktop } from "./window";
+import { PluginTab } from "./plugin-tab";
+import { InstrumentTab } from "./instrument-tab";
 
-/** The envelope's knobs go to 3 s; the document allows more (for the assistant, or typed values later). */
-const ENVELOPE_MAX = 3;
-/** The pitch knob's reach, in semitones. */
-const PITCH_RANGE = 24;
+/** A plugin channel's PITCH: whole semitones its keys are moved by. */
+const SEMITONES: ValueUnit = { scale: 1, unit: "semitones" };
+const semitones = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v)} semitone${Math.abs(Math.round(v)) === 1 ? "" : "s"}`;
 
 type Tab = "sample" | "envelope";
 
@@ -35,7 +37,8 @@ type Tab = "sample" | "envelope";
  * A sampler channel's settings, FL Studio's Channel Settings window (`docs/fl-studio/channel-rack.md`):
  * along the top its tabs and the channel's own ON, PAN, VOL and PITCH; under them the sample tab
  * (the file, the precomputed effects, the waveform) or the envelope tab. An audio clip's channel has a
- * cut-down one (a double-click on one of its clips opens it).
+ * cut-down one (a double-click on one of its clips opens it); a plugin channel's is FL's wrapper: the
+ * same controls over the plugin and its presets (`plugin-tab.tsx`).
  */
 export function ChannelSettingsWindow({ channel, index }: { channel: Channel; index: number }) {
   const [tab, setTab] = useState<Tab>("sample");
@@ -43,6 +46,7 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
   // An audio clip's channel (FL's cut-down sampler): its file streams from the Playlist, so it has no
   // envelope; its pitch plays the file faster or slower (FL's Resample).
   const audio = channel.kind === "audio";
+  const plugin = channel.kind === "plugin";
   // Cascaded by its place in the rack, but always in view: an audio clip's channel can be far down it.
   const [initial] = useState(() => cascadedOnDesktop(index, { x: 120, y: 190 }, 28, { width: 440, height: WINDOW_HEIGHT }));
 
@@ -59,12 +63,12 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
         data-channel-name={channel.name}
         // A sample dropped anywhere on its window becomes the channel's.
         onDragOver={(e) => {
-          if (!carriesSamples(e.dataTransfer)) return;
+          if (plugin || !carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
         }}
         onDrop={(e) => {
-          if (!carriesSamples(e.dataTransfer)) return;
+          if (plugin || !carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
           dropOnChannel(e.dataTransfer, id);
@@ -72,10 +76,16 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
       >
         <div className="flex items-end gap-3 border-b px-3 pt-2 pb-2">
           <div className="flex gap-1" role="tablist" aria-label="Settings">
-            <TabButton label="Sample" selected={tab === "sample"} onSelect={() => setTab("sample")}>
-              <PiWaveform />
-            </TabButton>
-            {!audio && (
+            {plugin ? (
+              <TabButton label="Plugin" selected onSelect={() => {}}>
+                <PiPlug />
+              </TabButton>
+            ) : (
+              <TabButton label="Sample" selected={tab === "sample"} onSelect={() => setTab("sample")}>
+                <PiWaveform />
+              </TabButton>
+            )}
+            {!audio && !plugin && (
               <TabButton label="Envelope" selected={tab === "envelope"} onSelect={() => setTab("envelope")}>
                 <PiWaveSine />
               </TabButton>
@@ -125,16 +135,34 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
                 size={26}
                 label="Pitch"
                 value={clampPitch(channel.pitch)}
-                min={-PITCH_RANGE}
-                max={PITCH_RANGE}
+                min={-PITCH_KNOB_RANGE}
+                max={PITCH_KNOB_RANGE}
                 defaultValue={0}
                 bipolar
-                format={cents}
-                unit={CENTS}
+                // A plugin's keys are moved by whole semitones (ours: FL's wrapper bends within the plugin's range).
+                format={plugin ? semitones : cents}
+                unit={plugin ? SEMITONES : CENTS}
+                // Automated, a sampler's notes bend as they sound; a plugin channel's move by whole semitones. An audio clip's channel's clips can't follow it.
+                target={audio ? undefined : { kind: "channel", channel: id, control: "pitch" }}
                 // Whole semitones as it turns; cents are typed in. An audio clip plays faster pitched up (FL's Resample).
-                edit={(song, pitch) => updateChannel(song, id, { pitch: Number.isInteger(pitch * 100) && !Number.isInteger(pitch) ? pitch : Math.round(pitch) })}
+                edit={(song, pitch) => updateChannel(song, id, { pitch: !plugin && Number.isInteger(pitch * 100) && !Number.isInteger(pitch) ? pitch : Math.round(pitch) })}
               />
             </Labelled>
+            {!audio && (
+              <Labelled label="SWING">
+                <SongKnob
+                  size={26}
+                  label="Swing mix"
+                  value={channel.swingMix ?? 1}
+                  min={0}
+                  max={1}
+                  defaultValue={1}
+                  format={(v) => `${Math.round(v * 100)}% of the song's swing`}
+                  unit={PERCENT}
+                  edit={(song, swingMix) => updateChannel(song, id, { swingMix })}
+                />
+              </Labelled>
+            )}
             <div className="flex flex-col items-center gap-0.5">
               <TrackSelector channel={channel} className="my-0.5 h-[22px] min-w-9 text-[11px]" />
               {/* A click on its name gives the channel a free track of its own, as in FL Studio. */}
@@ -145,13 +173,13 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
           </div>
         </div>
 
-        {tab === "sample" || audio ? <SampleTab channel={channel} /> : <EnvelopeTab channel={channel} />}
+        {plugin ? <PluginTab channel={channel} /> : tab === "sample" || audio ? <SampleTab channel={channel} /> : <InstrumentTab channel={channel} />}
       </div>
     </MusicWindow>
   );
 }
 
-const clampPitch = (pitch: number) => Math.min(PITCH_RANGE, Math.max(-PITCH_RANGE, pitch));
+const clampPitch = (pitch: number) => Math.min(PITCH_KNOB_RANGE, Math.max(-PITCH_KNOB_RANGE, pitch));
 
 function TabButton({ label, selected, onSelect, children }: { label: string; selected: boolean; onSelect: () => void; children: React.ReactNode }) {
   return (
@@ -278,9 +306,10 @@ function SampleTab({ channel }: { channel: Channel }) {
         </div>
       </Section>
 
+      {channel.kind === "sampler" && <LoopSection channel={channel} />}
       {channel.kind === "audio" && <TimeStretching channel={channel} />}
 
-      <Waveform url={asset?.src ?? null} precomputed={channel.precomputed} onPlay={() => hearChannel(channel)} />
+      <Waveform url={asset?.src ?? null} precomputed={channel.precomputed} loop={channel.kind === "sampler" ? samplerOf(channel).loop : null} onPlay={() => hearChannel(channel)} />
     </div>
   );
 }
@@ -317,39 +346,27 @@ function TimeStretching({ channel }: { channel: Channel }) {
   );
 }
 
-const ENVELOPE_KNOBS: { key: Exclude<keyof Envelope, "enabled">; label: string; name: string; max: number; format: (v: number) => string; unit: ValueUnit }[] = [
-  { key: "attack", label: "ATT", name: "Attack", max: ENVELOPE_MAX, format: seconds, unit: MILLISECONDS },
-  { key: "decay", label: "DEC", name: "Decay", max: ENVELOPE_MAX, format: seconds, unit: MILLISECONDS },
-  { key: "sustain", label: "SUS", name: "Sustain", max: 1, format: percent, unit: PERCENT },
-  { key: "release", label: "REL", name: "Release", max: ENVELOPE_MAX, format: seconds, unit: MILLISECONDS },
-];
-
-function EnvelopeTab({ channel }: { channel: Channel }) {
-  const { enabled } = channel.envelope;
+/** FL's sample loop: while a note is held, the sample goes round between its points (on the waveform below), crossfaded. */
+function LoopSection({ channel }: { channel: Channel }) {
+  const { loop } = samplerOf(channel);
+  const id = channel.id;
   return (
-    <div className="p-3">
-      <Section title="Volume envelope">
-        <Light label="Use the envelope" on={enabled} onChange={(on) => useMusic.getState().commit((song) => updateChannel(song, channel.id, { envelope: { enabled: on } }))} />
-        <p className="mt-1.5 text-xs text-muted-foreground">{enabled ? "A note sounds for its own length, then fades." : "Off: every note plays the whole sample."}</p>
-        <div className={cn("mt-3 flex gap-5", !enabled && "pointer-events-none opacity-40")}>
-          {ENVELOPE_KNOBS.map(({ key, label, name, max, format, unit }) => (
-            <Labelled key={key} label={label}>
-              <SongKnob
-                size={30}
-                label={name}
-                value={Math.min(channel.envelope[key], max)}
-                min={0}
-                max={max}
-                defaultValue={DEFAULT_ENVELOPE[key]}
-                format={format}
-                unit={unit}
-                edit={(song, value) => updateChannel(song, channel.id, { envelope: { [key]: value } })}
-              />
-            </Labelled>
-          ))}
+    <Section title="Loop">
+      <div className="flex items-end gap-5">
+        <Light label="Loop while held" on={loop.enabled} onChange={(enabled) => useMusic.getState().commit((song) => updateChannel(song, id, { loop: { enabled } }))} />
+        <div className={cn("flex gap-4", !loop.enabled && "pointer-events-none opacity-40")}>
+          <Labelled label="START">
+            <SongKnob size={26} label="Loop start" value={loop.start} min={0} max={1} defaultValue={0} format={percent} unit={PERCENT} edit={(song, start) => updateChannel(song, id, { loop: { start } })} />
+          </Labelled>
+          <Labelled label="END">
+            <SongKnob size={26} label="Loop end" value={loop.end} min={0} max={1} defaultValue={1} format={percent} unit={PERCENT} edit={(song, end) => updateChannel(song, id, { loop: { end } })} />
+          </Labelled>
+          <Labelled label="XFADE">
+            <SongKnob size={26} label="Loop crossfade" value={loop.crossfade} min={0} max={0.5} defaultValue={0} format={percent} unit={PERCENT} edit={(song, crossfade) => updateChannel(song, id, { loop: { crossfade } })} />
+          </Labelled>
         </div>
-      </Section>
-    </div>
+      </div>
+    </Section>
   );
 }
 
@@ -376,7 +393,7 @@ function hearChannel(channel: Channel) {
 }
 
 /** The sample as it will play, after the precomputed effects: its real waveform. Press it to hear the channel. */
-function Waveform({ url, precomputed, onPlay }: { url: string | null; precomputed: Precomputed; onPlay: () => void }) {
+function Waveform({ url, precomputed, loop, onPlay }: { url: string | null; precomputed: Precomputed; loop: SampleLoop | null; onPlay: () => void }) {
   const [samples, setSamples] = useState<Float32Array | null>(null);
   useEffect(() => {
     setSamples(null);
@@ -419,6 +436,14 @@ function Waveform({ url, precomputed, onPlay }: { url: string | null; precompute
       <svg width={WAVE_W} height={WAVE_H} viewBox={`0 0 ${WAVE_W} ${WAVE_H}`} className="block" aria-hidden>
         <line x1={0} x2={WAVE_W} y1={mid} y2={mid} className="stroke-border" />
         <path d={path} className="fill-brand" />
+        {/* Its loop, while it has one: the part that goes round, between its points. */}
+        {loop?.enabled && (
+          <g data-testid="loop-region">
+            <rect x={loop.start * WAVE_W} y={0} width={(loop.end - loop.start) * WAVE_W} height={WAVE_H} className="fill-foreground/10" />
+            <line x1={loop.start * WAVE_W} x2={loop.start * WAVE_W} y1={0} y2={WAVE_H} className="stroke-foreground" strokeWidth={1.5} />
+            <line x1={loop.end * WAVE_W} x2={loop.end * WAVE_W} y1={0} y2={WAVE_H} className="stroke-foreground" strokeWidth={1.5} />
+          </g>
+        )}
       </svg>
     </button>
   );

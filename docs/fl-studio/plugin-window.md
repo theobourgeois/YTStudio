@@ -25,6 +25,22 @@ A slim strip in FL's own style, above the plugin's interface, left to right:
    interface.
 5. **Minimise** and **Close**.
 
+## Presets
+
+From the manual (`plugins/wrapper.htm`):
+
+- The **preset browser arrows** "step through presets"; a right-click opens the preset menu. The list
+  is the plugin's own programs and the FL presets (`.fst` files) saved for it.
+- The plugin menu's **Save preset as** saves "the current preset as a single preset file in the
+  Browser", and **Browse presets** opens them there. Also Randomize, Hybridize (between the previous and
+  next preset), and a spare state (Store in spare state, Flip with spare state).
+
+## The channel's settings
+
+A plugin channel's window has FL's channel settings around the plugin (the wrapper's tabs): the same
+volume, pan, pitch and mixer track a sampler's has, and the plugin's own interface. **PITCH** bends the
+plugin's notes within a range (its pitch bend), which should match the plugin's own range.
+
 ## The keyboard
 
 A plugin window with the focus doesn't stop FL's shortcuts working: **Space still plays and stops**
@@ -47,6 +63,10 @@ plugin's window is the engine's, made to act like part of the app (`engine/src/E
 | FL Studio | Vaudio |
 | --- | --- |
 | Inside FL's window | A window of its own that floats above the app's window while the app (or the plugin) is in use, hides when you switch to another app, and comes back with it. In the desktop app it's also hidden while the app's window is minimised or hidden, and moves along when that window moves. In a browser tab (`pnpm dev`) it's an ordinary window |
-| FL's title bar | Ours, in the studio theme's dark colours: "Serum 2 (Chorus)" and a close button. No plugin menu, presets, keyboard priority or wrapper settings yet |
+| FL's title bar | Ours, in the studio theme's dark colours: "Serum 2 (Chorus)", the preset browser (arrows and the preset's name: the plugin's programs if it has several, else the user's presets), Automate "…" once a parameter is touched, the wrapper button (the channel's settings, in the app) and a close button. No plugin menu or keyboard priority |
+| The wrapper's tabs inside the plugin's window | The channel's settings are an app window (Channel settings… on the channel's menu, or the wrapper button): ON, PAN, VOL, PITCH, TRACK over the plugin (shown or hidden from there) and its presets |
+| Presets: the plugin's programs and FL's `.fst` files, in the Browser | Its programs (when it has more than one: most VST3s keep theirs in their own window) and the user's presets: its whole state saved under a name in the engine's data folder (`presets/<format>/<plugin>/<name>.preset`), the same in every song, listed in the channel's settings, loaded, deleted. Not in the Browser |
+| Randomize, Hybridize, spare state | Not yet |
+| PITCH bends within a range | Moves the keys it's sent by whole semitones (ours): the same whatever the plugin's bend range |
 | FL's shortcuts first (typing keyboard priority off) | The plugin first, then ours: what the plugin doesn't use (Space, F6, F7, ⌘Z, ⌘⇧Z) is sent to the app (FL's priority *on*). Taking keys before the plugin needs each system's own code, which the engine avoids |
 | Detached | Not needed: it's always a window of its own |

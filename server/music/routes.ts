@@ -17,6 +17,13 @@ export function engineRoutes(engine: AudioEngine): Router {
   router.get("/parameters", async (req, res) => {
     res.json(await engine.parameters(req.query.owner, req.query.id));
   });
+  // A song's plugin's presets (FL's preset browser): its programs and the user's own.
+  router.get("/presets", async (req, res) => {
+    res.json(await engine.presets(req.query.owner, req.query.id));
+  });
+  router.post("/presets", json(), async (req, res) => {
+    res.json(await engine.preset(req.body));
+  });
   router.get("/devices", async (_req, res) => {
     res.json(await engine.devices());
   });

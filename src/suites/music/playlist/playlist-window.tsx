@@ -1,9 +1,9 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiArrowsOutLineHorizontal, PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
+import { PiArrowLineRight, PiArrowsOutLineHorizontal, PiCaretDownBold, PiMagnet, PiMagnifyingGlass, PiSidebarSimple, PiStairs } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
 import { type ClipContext, clipContext, clipLength, songTicks } from "@shared/music/playlist";
-import { MAX_PLAYLIST_TRACKS, TRACK_COLORS } from "@shared/music/project";
+import { MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import { type MusicProject, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import {
   DropdownMenu,
@@ -34,6 +34,8 @@ import { useMusic } from "../store";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
+import { ColorSwatches } from "../color-swatches";
+import { bounceWithToast } from "./bounce";
 import { StretchMenuItems } from "../stretch-menu";
 import { autodetectTempo } from "../stretching";
 import {
@@ -56,11 +58,13 @@ import {
   sourceName,
   splitPattern,
   zoomFloor,
+  markersOf,
 } from "./actions";
 import { CURVE_NAMES, controlOf, deletePoint, editPoints, updatePoint } from "@shared/music/automation";
-import { CURVE_TYPES, type CurveType } from "@shared/music/types";
+import { CURVE_TYPES, type CurveType, type MarkerKind } from "@shared/music/types";
 import { AUTOMATION_TOOLS, type AutomationTool, createAutomationClip, openAutomationWindow, runTool } from "../automation/actions";
-import { editClips, removeClips, setClipProps } from "@shared/music/playlist";
+import { markerName, removeMarker, updateMarker } from "@shared/music/markers";
+import { editClips, removeClips, setClipFades, setClipGain, setClipProps } from "@shared/music/playlist";
 import { fadeOutClips, onClipFade, vanishingClips } from "./fades";
 import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
 import { type WavePeaks, clipPeaks, onWaveform } from "./waveforms";
@@ -69,11 +73,12 @@ import { CLIP_DRAG_TYPE, Picker } from "./picker";
 import { clearIncoming, showIncoming } from "./incoming";
 import { holdClipPreview } from "./preview";
 import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "./pointer";
+import { RULER_HEIGHT } from "./geometry";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
 import { TrackHeaders } from "./track-headers";
 
 const HEADERS_W = 128;
-const RULER_H = 22;
+const RULER_H = RULER_HEIGHT;
 const SCROLLBAR = 12;
 const MIN_W = 520;
 const MIN_H = 260;
@@ -96,6 +101,7 @@ const TOOLS: { tool: PlaylistTool; label: string; key: string; icon: (props: { c
   { tool: "slip", label: "Slip", key: "S", icon: SlipIcon },
   { tool: "slice", label: "Slice", key: "C", icon: SliceIcon },
   { tool: "select", label: "Select", key: "E", icon: SelectIcon },
+  { tool: "zoom", label: "Zoom", key: "Z", icon: ({ className }) => <PiMagnifyingGlass className={className} /> },
   { tool: "playback", label: "Playback", key: "Y", icon: PlaybackIcon },
 ];
 
@@ -145,6 +151,8 @@ function PlaylistControls() {
   const snap = usePlaylist((s) => s.snap);
   const pickerOpen = usePlaylist((s) => s.pickerOpen);
   const stretch = usePlaylist((s) => s.stretch);
+  const curveStep = usePlaylist((s) => s.curveStep);
+  const curveSlide = usePlaylist((s) => s.curveSlide);
   return (
     <>
       <EditMenu />
@@ -182,6 +190,27 @@ function PlaylistControls() {
         onClick={() => usePlaylist.setState({ stretch: !stretch })}
       >
         <PiArrowsOutLineHorizontal className="size-4" />
+      </button>
+      {/* FL's automation editing modes: how a drag on an automation clip's curve edits it. */}
+      <button
+        type="button"
+        aria-label="Step mode"
+        aria-pressed={curveStep}
+        title="Step mode: a drag on an automation curve paints steps, one per grid cell"
+        className={cn("grid size-5.5 place-items-center rounded-sm", curveStep ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
+        onClick={() => usePlaylist.setState({ curveStep: !curveStep })}
+      >
+        <PiStairs className="size-4" />
+      </button>
+      <button
+        type="button"
+        aria-label="Slide mode"
+        aria-pressed={curveSlide}
+        title="Slide mode: moving an automation point moves every point after it"
+        className={cn("grid size-5.5 place-items-center rounded-sm", curveSlide ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
+        onClick={() => usePlaylist.setState({ curveSlide: !curveSlide })}
+      >
+        <PiArrowLineRight className="size-4" />
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -390,6 +419,8 @@ function PlaylistBody() {
         songTicks: songTicks(song),
         time: playlist.time,
         drag,
+        // A marker being dragged is drawn where it'd be left.
+        markers: drag?.kind === "marker" ? markersOf(song).map((m) => (m.id === drag.id ? { ...m, tick: drag.tick } : m)) : markersOf(song),
         slice:
           drag?.kind === "slice"
             ? { tick: drag.tick, top: drag.top, bottom: drag.bottom, all: drag.all }
@@ -519,6 +550,8 @@ function PlaylistBody() {
       <div className="border-r border-b bg-muted" />
       <div className="relative border-b">
         <canvas ref={ruler} className="absolute inset-0 size-full cursor-pointer" aria-label="Ruler" onPointerDown={rulerPointerDown} />
+        <MarkerMenu />
+        <MarkerRename />
       </div>
       <div className="border-b bg-muted" />
 
@@ -693,6 +726,12 @@ function ClipMenu() {
                 ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            <DropdownMenuItem
+              disabled={clip.fadeIn === undefined && clip.fadeOut === undefined && clip.gain === undefined}
+              onSelect={() => commit((clips) => setClipGain(setClipFades(clips, only, { fadeIn: 0, fadeOut: 0 }), only, 1))}
+            >
+              Reset fades and gain
+            </DropdownMenuItem>
           </>
         )}
         <DropdownMenuSub>
@@ -705,6 +744,14 @@ function ClipMenu() {
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        {clip.kind !== "automation" && (
+          <DropdownMenuItem
+            title="Render it (and the clips selected with it) into an audio clip, on the first free track below (FL's Render as audio clip)"
+            onSelect={() => void bounceWithToast(usePlaylist.getState().selected.has(clip.id) ? usePlaylist.getState().selected : only, false)}
+          >
+            Render as audio clip
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onSelect={() => {
             usePlaylist.getState().select([clip.id]);
@@ -726,6 +773,75 @@ function ClipMenu() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** A time marker's menu (a right-click on it, FL's): rename it, what it does (a marker, or where a recording starts or stops), delete it. */
+function MarkerMenu() {
+  const menu = usePlaylist((s) => s.markerMenu);
+  const marker = useMusic((s) => (menu && s.history ? (s.history.doc.playlist.markers ?? []).find((m) => m.id === menu.id) : undefined));
+  if (!menu || !marker) return null;
+  const close = () => usePlaylist.setState({ markerMenu: null });
+  const commit = (update: (song: MusicProject) => MusicProject) => useMusic.getState().commit(update);
+  return (
+    <DropdownMenu open onOpenChange={(open) => !open && close()}>
+      <DropdownMenuTrigger asChild>
+        <span aria-hidden className="pointer-events-none absolute bottom-0 size-px" style={{ left: menu.x }} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" data-testid="marker-menu" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <DropdownMenuLabel>{marker.name}</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => setTimeout(() => usePlaylist.setState({ renamingMarker: { id: marker.id, x: menu.x } }))}>Rename…</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup
+          value={marker.kind}
+          onValueChange={(kind) =>
+            commit((song) => {
+              // Named for what it does when it's still called what it was.
+              const was = markerName(song, marker.kind);
+              const named = marker.name === was || marker.name === "Start recording" || marker.name === "Stop recording";
+              return updateMarker(song, marker.id, { kind: kind as MarkerKind, ...(named && { name: markerName(song, kind as MarkerKind) }) });
+            })
+          }
+        >
+          <DropdownMenuRadioItem value="marker">Marker</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="punchIn">Start recording</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="punchOut">Stop recording</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={() => commit((song) => removeMarker(song, marker.id))}>
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** A time marker's name being typed, in place on the ruler (Enter or leaving it keeps it, Escape doesn't). */
+function MarkerRename() {
+  const renaming = usePlaylist((s) => s.renamingMarker);
+  const marker = useMusic((s) => (renaming && s.history ? (s.history.doc.playlist.markers ?? []).find((m) => m.id === renaming.id) : undefined));
+  if (!renaming || !marker) return null;
+  const done = (name: string | null) => {
+    usePlaylist.setState({ renamingMarker: null });
+    if (name !== null) useMusic.getState().commit((song) => updateMarker(song, marker.id, { name }));
+  };
+  return (
+    <input
+      aria-label="Marker name"
+      defaultValue={marker.name}
+      autoFocus
+      onFocus={(e) => e.currentTarget.select()}
+      className="sunken absolute bottom-0 z-10 h-[13px] w-36 rounded-sm px-1 text-[10px] outline-none"
+      style={{ left: renaming.x + 7 }}
+      onBlur={(e) => done(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          usePlaylist.setState({ renamingMarker: null });
+        }
+      }}
+    />
   );
 }
 
@@ -804,37 +920,6 @@ function PointMenu() {
         <DropdownMenuItem onSelect={() => openAutomationWindow(automation.id)}>Automation settings…</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-/** The colours a clip's source can be given (the tracks' too), and the usual. */
-function ColorSwatches({ value, onPick }: { value: string | null; onPick: (color: string | null) => void }) {
-  return (
-    <div className="grid grid-cols-7 gap-1 p-1" role="radiogroup" aria-label="Color">
-      <button
-        type="button"
-        role="radio"
-        aria-checked={value === null}
-        aria-label="The usual color"
-        title="The usual color"
-        className={cn("grid size-5 place-items-center rounded-sm border border-line bg-surface-2 text-[10px] text-muted-foreground", value === null && "ring-2 ring-brand")}
-        onClick={() => onPick(null)}
-      >
-        ∅
-      </button>
-      {TRACK_COLORS.map((c) => (
-        <button
-          key={c}
-          type="button"
-          role="radio"
-          aria-checked={value === c}
-          aria-label={c}
-          className={cn("size-5 rounded-sm border border-black/30", value === c && "ring-2 ring-brand")}
-          style={{ background: c }}
-          onClick={() => onPick(c)}
-        />
-      ))}
-    </div>
   );
 }
 

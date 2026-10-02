@@ -382,7 +382,7 @@ describe("automation clips", () => {
           lfo: { enabled: true, speed: 1000, skew: 2 },
         },
         { id: "auto_a", target: { kind: "main" } },
-        { id: "auto_b", target: { kind: "channel", channel: "chan_kick", control: "pitch" } },
+        { id: "auto_b", target: { kind: "channel", channel: "chan_kick", control: "swing" } },
         { id: "auto_c", target: { kind: "plugin", owner: "channel", id: "chan_gone", param: "7", index: 2 } },
         { id: "auto_d", target: { kind: "main" }, points: [] },
       ],

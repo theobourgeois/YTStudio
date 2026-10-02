@@ -1,6 +1,10 @@
 #include "Sequencer.h"
 
+#include "Protocol.h"
+
 #include <cmath>
+#include <cstring>
+#include <limits>
 #include <map>
 
 namespace
@@ -11,6 +15,10 @@ constexpr double fadeSeconds = 0.004;
 constexpr double auditionSeconds = 0.4;
 /** The longest a held key sounds if it's never let go (the tab went away mid-press). */
 constexpr double heldSeconds = 30.0;
+/** A MIDI keyboard's note: it sounds until the key is let go, however long that is. */
+constexpr juce::int64 keyHeld = std::numeric_limits<juce::int64>::max() / 4;
+/** How the MIDI target is packed (`midiTarget`): the song's serial above these bits, the channel + 1 in them. */
+constexpr int targetBits = 20;
 /**
  * Ticks (a fraction of a millionth of a sample's worth): a note that falls exactly on the edge of a
  * block must land in one block or the other, not in whichever the rounding of the position picks.
@@ -18,7 +26,7 @@ constexpr double heldSeconds = 30.0;
 constexpr double tickSlack = 1e-6;
 }
 
-Sequencer::Sequencer (bool offline) : clips (offline), recording (offline) {}
+Sequencer::Sequencer (bool offline) : clips (offline), recording (offline) { heldKeys.fill (-1); }
 
 Sequencer::~Sequencer()
 {
@@ -40,6 +48,7 @@ void Sequencer::setSong (std::unique_ptr<Song> next)
     channelIds.clear();
     for (const auto& channel : next->channels)
         channelIds.add (channel.id);
+    next->midiChannel = channelIds.indexOf (midiTargetId);
 
     // Which of the last song's tracks and sends each of this one's was, so a fader that moved glides
     // there (the audio thread only copies by these indexes).
@@ -139,6 +148,55 @@ bool Sequencer::preview (const juce::String& channelId, int key, float velocity,
         triggers[(size_t) scope.startIndex1] = { channel, (float) (key - 60), velocity * velocity / (0.78f * 0.78f), on ? Trigger::Kind::hold : Trigger::Kind::release, key, velocity };
     return true;
 }
+void Sequencer::setMidiTarget (const juce::String& channelId)
+{
+    midiTargetId = channelId;
+    // For the song last handed over (`serials`): the audio thread uses it once it has that song, and the
+    // song's own `midiChannel` (from this id too) until then.
+    midiTarget = (serials << targetBits) | (juce::uint64) (channelIds.indexOf (channelId) + 1);
+}
+
+int Sequencer::midiChannel() const
+{
+    const auto packed = midiTarget.load();
+    if ((packed >> targetBits) == song->serial)
+        return (int) (packed & ((1u << targetBits) - 1)) - 1;
+    return song->midiChannel;
+}
+
+void Sequencer::midiIn (const juce::MidiMessage& message)
+{
+    // Notes and controllers only (no SysEx): three bytes at most.
+    const auto size = message.getRawDataSize();
+    if (size < 1 || size > 3 || message.isSysEx())
+        return;
+    const juce::SpinLock::ScopedLockType lock (midiWriting);
+    const auto scope = midiQueue.write (1);
+    if (scope.blockSize1 <= 0)
+        return;
+    auto& event = midiEvents[(size_t) scope.startIndex1];
+    event.size = size;
+    std::memcpy (event.bytes, message.getRawData(), (size_t) size);
+}
+
+juce::Array<juce::var> Sequencer::takePlayed()
+{
+    juce::Array<juce::var> list;
+    const auto scope = playedQueue.read (playedQueue.getNumReady());
+    for (int i = 0; i < scope.blockSize1 + scope.blockSize2; ++i)
+    {
+        const auto& note = played[(size_t) (i < scope.blockSize1 ? scope.startIndex1 + i : scope.startIndex2 + i - scope.blockSize1)];
+        list.add (protocol::object ({ { "channel", note.channel >= 0 && note.channel < channelIds.size() ? juce::var (channelIds[note.channel]) : juce::var() },
+                                      { "key", note.key },
+                                      { "velocity", note.velocity },
+                                      { "on", note.on },
+                                      { "tick", note.playing ? juce::var (note.tick) : juce::var() },
+                                      { "counting", note.counting },
+                                      { "pass", (int) note.pass } }));
+    }
+    return list;
+}
+
 void Sequencer::stop()
 {
     nextGeneration();
@@ -416,6 +474,8 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
             else
                 startVoice (trigger.channel, trigger.pitch, trigger.gain, -1, 0);
         }
+        // MIDI keyboards: their notes start now, on the target channel.
+        playMidi();
 
         clips.receive (*song);
         // Where the song is over this block, for its Gross Beats (before `schedule` moves it on).
@@ -477,6 +537,26 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
                         if (const auto* in = source (1))
                             juce::FloatVectorOperations::add (song->audio.getWritePointer (track.buffer * 2 + 1), in, numSamples);
                     }
+            // An armed track that isn't heard still shows its input's level on its meter (FL's), so the
+            // level can be set before recording.
+            if (inputs != nullptr)
+                for (size_t t = 0; t < song->tracks.size() && t < (size_t) maxMeters; ++t)
+                {
+                    const auto& track = song->tracks[t];
+                    if (! track.armed || track.monitor || track.input.empty())
+                        continue;
+                    for (size_t side = 0; side < 2; ++side)
+                    {
+                        const auto channel = track.input[juce::jmin (side, track.input.size() - 1)];
+                        if (channel < 0 || channel >= numInputs || inputs[channel] == nullptr)
+                            continue;
+                        const auto range = juce::FloatVectorOperations::findMinAndMax (inputs[channel], numSamples);
+                        const auto loudest = juce::jmax (-range.getStart(), range.getEnd());
+                        auto& meter = meters[t * 2 + side];
+                        if (loudest > meter.load (std::memory_order_relaxed))
+                            meter.store (loudest, std::memory_order_relaxed);
+                    }
+                }
             for (auto& voice : voices)
                 if (voice.active)
                     render (voice, numSamples);
@@ -490,8 +570,126 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
             mixTracks (left, right, numSamples);
         }
     }
+    else
+    {
+        // No song: what keyboards sent has nowhere to go.
+        midiQueue.read (midiQueue.getNumReady());
+    }
     renderClick (left, right, numSamples);
     recording.write (inputs, numInputs, numSamples);
+}
+
+void Sequencer::playMidi()
+{
+    const auto scope = midiQueue.read (midiQueue.getNumReady());
+    const auto count = scope.blockSize1 + scope.blockSize2;
+    if (count == 0)
+        return;
+    const auto target = midiChannel();
+    const auto channels = (int) song->channels.size();
+    const auto report = [&] (int channel, int key, float velocity, bool on) {
+        const auto out = playedQueue.write (1);
+        if (out.blockSize1 > 0)
+            played[(size_t) out.startIndex1] = { channel, key, velocity, on, playing, playing && countInLeft > 0, position_, pass };
+    };
+    for (int i = 0; i < count; ++i)
+    {
+        const auto& event = midiEvents[(size_t) (i < scope.blockSize1 ? scope.startIndex1 + i : scope.startIndex2 + i - scope.blockSize1)];
+        auto message = juce::MidiMessage (event.bytes, event.size);
+        if (message.isNoteOn())
+        {
+            const auto key = message.getNoteNumber();
+            const auto velocity = message.getFloatVelocity();
+            // The same key again before it was let go: the last one ends first.
+            if (heldKeys[(size_t) key] >= 0)
+                releaseKey (heldKeys[(size_t) key], key);
+            heldKeys[(size_t) key] = -1;
+            if (target < 0 || target >= channels)
+                continue;
+            heldKeys[(size_t) key] = target;
+            auto& channel = song->channels[(size_t) target];
+            if (channel.isPlugin)
+            {
+                // Its PITCH moves the keys it's sent (whole semitones), as its pattern's notes are (`compile.ts`).
+                sentKeys[(size_t) key] = juce::jlimit (0, 127, key + (int) std::lround (channel.pitch));
+                if (channel.plugin != nullptr)
+                    startNote (*channel.plugin, sentKeys[(size_t) key], velocity, keyHeld, 0);
+            }
+            else if (auto* voice = startVoice (target, (float) (key - 60), velocity * velocity / (0.78f * 0.78f), -1, 0))
+            {
+                voice->key = key;
+                voice->loops = channel.loop;
+            }
+            report (target, key, velocity, true);
+        }
+        else if (message.isNoteOff())
+        {
+            const auto key = message.getNoteNumber();
+            const auto channel = heldKeys[(size_t) key];
+            heldKeys[(size_t) key] = -1;
+            if (channel < 0 || channel >= channels)
+                continue;
+            releaseKey (channel, key);
+            report (channel, key, 0, false);
+        }
+        else if (message.isSustainPedalOn() || message.isSustainPedalOff())
+        {
+            // A sampler's notes let go of meanwhile end with the pedal; a plugin keeps its own.
+            pedal = message.isSustainPedalOn();
+            if (! pedal)
+                for (auto& voice : voices)
+                    if (voice.active && voice.sustained)
+                    {
+                        voice.sustained = false;
+                        voice.untilRelease = 0;
+                    }
+            if (target >= 0 && target < channels)
+                if (auto* plugin = song->channels[(size_t) target].plugin.get())
+                {
+                    message.setChannel (1);
+                    plugin->midi.addEvent (message, 0);
+                }
+        }
+        else if (message.isPitchWheel() || message.isController() || message.isChannelPressure() || message.isAftertouch())
+        {
+            // The mod wheel, pitch bend and the rest are the plugin's to use.
+            if (target >= 0 && target < channels)
+                if (auto* plugin = song->channels[(size_t) target].plugin.get())
+                {
+                    message.setChannel (1);
+                    plugin->midi.addEvent (message, 0);
+                }
+        }
+    }
+}
+
+void Sequencer::releaseKey (int channelIndex, int key)
+{
+    if (channelIndex < 0 || channelIndex >= (int) song->channels.size())
+        return;
+    auto& channel = song->channels[(size_t) channelIndex];
+    if (auto* plugin = channel.plugin.get())
+    {
+        const auto sent = sentKeys[(size_t) key];
+        for (int n = 0; n < plugin->numPending; ++n)
+            if (plugin->pending[(size_t) n].key == sent)
+            {
+                plugin->midi.addEvent (juce::MidiMessage::noteOff (1, sent), 0);
+                plugin->pending[(size_t) n] = plugin->pending[(size_t) --plugin->numPending];
+                break;
+            }
+        return;
+    }
+    for (auto& voice : voices)
+        if (voice.active && voice.channel == channelIndex && voice.key == key)
+        {
+            voice.key = -1;
+            // Held by the pedal: it ends when the pedal's let go.
+            if (pedal)
+                voice.sustained = true;
+            else
+                voice.untilRelease = 0;
+        }
 }
 
 
@@ -564,6 +762,10 @@ void Sequencer::applyLanes (int numSamples)
                 send.automated = true;
                 break;
             }
+            case Song::Lane::Kind::pitch:
+                // A sampler's pitch: as it is at the slice's start, all through it (voices work out their rate from it each block).
+                song->channels[(size_t) lane.channel].pitch = start[0];
+                break;
             case Song::Lane::Kind::mix:
                 // An effect's mix and a plugin's parameter: as they are at the slice's start, all through it.
                 song->tracks[(size_t) lane.track].effects[(size_t) lane.index].mix = juce::jlimit (0.0f, 1.0f, start[0]);
@@ -637,6 +839,9 @@ void Sequencer::restoreLanes (Song& from)
                 channel.ramp = false;
                 break;
             }
+            case Song::Lane::Kind::pitch:
+                from.channels[(size_t) lane.channel].pitch = lane.base[0];
+                break;
             case Song::Lane::Kind::track:
             {
                 auto& track = from.tracks[(size_t) lane.track];
@@ -796,7 +1001,16 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
                 listener.state->noteOn (note->key, note->velocity, at (note->tick), (juce::int64) (note->length / ticksPerSample));
     }
 
-    if (metronome)
+    if (metronome && ! song->clicks.empty())
+    {
+        // Tempo clips: the beats as listed.
+        for (auto beat = std::lower_bound (song->clicks.begin(), song->clicks.end(), from); beat != song->clicks.end() && *beat < to; ++beat)
+        {
+            click.delay = at (*beat);
+            click.bar = std::binary_search (song->barClicks.begin(), song->barClicks.end(), *beat);
+        }
+    }
+    else if (metronome)
         for (auto beat = std::ceil (from / song->beatTicks) * song->beatTicks; beat < to; beat += song->beatTicks)
         {
             click.delay = at (beat);
@@ -804,13 +1018,13 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
         }
 }
 
-void Sequencer::startVoice (int channelIndex, float pitch, float gain, double lengthTicks, int delay, float pan)
+Sequencer::Voice* Sequencer::startVoice (int channelIndex, float pitch, float gain, double lengthTicks, int delay, float pan)
 {
     if (channelIndex < 0 || channelIndex >= (int) song->channels.size())
-        return;
+        return nullptr;
     const auto& channel = song->channels[(size_t) channelIndex];
     if (channel.sample == nullptr || channel.sample->audio.getNumSamples() == 0)
-        return;
+        return nullptr;
 
     if (channel.cutSelf)
         for (auto& sounding : voices)
@@ -842,11 +1056,15 @@ void Sequencer::startVoice (int channelIndex, float pitch, float gain, double le
     voice->gain = gain;
     voice->panLeft = juce::jmin (1.0f, 1.0f - pan);
     voice->panRight = juce::jmin (1.0f, 1.0f + pan);
+    voice->notePan = pan;
+    // A note goes round its loop while it's held; a one-off hearing (no length) plays through.
+    voice->loops = channel.loop && lengthTicks >= 0;
     voice->delay = delay;
     voice->age = ++voiceCount;
     voice->level = channel.hasEnvelope && channel.envelope.attack > 0 ? 0.0f : 1.0f;
     if (lengthTicks >= 0)
         voice->untilRelease = (juce::int64) (lengthTicks * 60.0 * sampleRate / (song->tempo * song->ppq));
+    return voice;
 }
 
 std::pair<float*, float*> Sequencer::trackAudio (int channel)
@@ -1229,6 +1447,8 @@ void Sequencer::runEffect (HostedPlugin& plugin, float mix, float* left, float* 
 
 void Sequencer::render (Voice& voice, int numSamples)
 {
+    if (song->channels[(size_t) voice.channel].shaped)
+        return renderShaped (voice, numSamples);
     const auto [left, right] = trackAudio (voice.channel);
     if (left == nullptr)
         return;
@@ -1321,6 +1541,128 @@ void Sequencer::render (Voice& voice, int numSamples)
         left[i] += resampling::read (sourceLeft, length, voice.position, rate, quality) * gainLeft * level;
         right[i] += resampling::read (sourceRight, length, voice.position, rate, quality) * gainRight * level;
         voice.position += rate;
+    }
+}
+
+void Sequencer::renderShaped (Voice& voice, int numSamples)
+{
+    const auto [left, right] = trackAudio (voice.channel);
+    if (left == nullptr)
+        return;
+    const auto& channel = song->channels[(size_t) voice.channel];
+    const auto& audio = voice.sample->audio;
+    const auto* sourceLeft = audio.getReadPointer (0);
+    const auto* sourceRight = audio.getReadPointer (audio.getNumChannels() > 1 ? 1 : 0);
+    const auto length = audio.getNumSamples();
+    const auto last = length - 1;
+    const auto quality = song->resampling;
+    const auto baseRate = voice.baseRate * std::pow (2.0, (double) (voice.pitch + channel.pitch) / 12.0);
+    const auto perSecond = 1.0 / sampleRate;
+    const auto tempo = song->tempo;
+    const auto fromLeft = channel.ramp ? channel.fromLeft : channel.gainLeft, fromRight = channel.ramp ? channel.fromRight : channel.gainRight;
+    const auto stepLeft = (channel.gainLeft - fromLeft) / (float) numSamples, stepRight = (channel.gainRight - fromRight) / (float) numSamples;
+    const auto fadeLength = (float) juce::jmax (1, (int) (fadeSeconds * sampleRate));
+    // Its loop, in the sample's samples; the crossfade over its last part, from as far back before its start.
+    const auto loopStart = channel.loopStart * (double) length, loopEnd = juce::jmin ((double) last, channel.loopEnd * (double) length);
+    const auto loopLength = juce::jmax (1.0, loopEnd - loopStart);
+    const auto crossfade = channel.loopCrossfade * loopLength;
+    // What changes with time (the envelopes, the LFOs, the filter's coefficients) is worked out every few samples.
+    constexpr int chunk = 32;
+
+    auto i = voice.delay;
+    voice.delay = 0;
+    while (i < numSamples)
+    {
+        auto n = juce::jmin (chunk, numSamples - i);
+        if (voice.untilRelease > 0)
+            n = (int) juce::jmin ((juce::int64) n, voice.untilRelease);
+        if (voice.untilRelease == 0 && voice.released < 0)
+            voice.released = (double) voice.elapsed * perSecond;
+        const auto t0 = (double) voice.elapsed * perSecond, t1 = (double) (voice.elapsed + n) * perSecond, middle = (t0 + t1) / 2;
+        const auto released = voice.released;
+        if (channel.hasEnvelope && channel.envelope.over (t0, released))
+        {
+            voice.active = false;
+            return;
+        }
+        auto level0 = channel.hasEnvelope ? channel.envelope.level (t0, released) : 1.0f;
+        auto level1 = channel.hasEnvelope ? channel.envelope.level (t1, released) : 1.0f;
+        // The volume's LFO dips it by up to its amount.
+        if (channel.volumeLfo.enabled)
+        {
+            const auto depth = juce::jlimit (0.0f, 1.0f, channel.volumeLfo.amount);
+            level0 *= 1.0f - depth * (1.0f - channel.volumeLfo.value (t0, tempo)) / 2.0f;
+            level1 *= 1.0f - depth * (1.0f - channel.volumeLfo.value (t1, tempo)) / 2.0f;
+        }
+        const auto pan = juce::jlimit (-1.0f, 1.0f, voice.notePan + (channel.pan.any() ? channel.pan.at (middle, released, tempo) : 0.0f));
+        const auto panLeft = juce::jmin (1.0f, 1.0f - pan), panRight = juce::jmin (1.0f, 1.0f + pan);
+        const auto rate = channel.pitchMod.any() ? baseRate * std::exp2 ((double) channel.pitchMod.at (middle, released, tempo) * 24.0 / 12.0) : baseRate;
+        // The filter (TPT state variable): its cutoff and resonance where their envelopes and LFOs have them now.
+        float a1 = 0, a2 = 0, a3 = 0, k = 0;
+        if (channel.filterType != 0)
+        {
+            const auto cutoff = juce::jlimit (0.0f, 1.0f, channel.filterCutoff + (channel.cutoff.any() ? channel.cutoff.at (middle, released, tempo) : 0.0f));
+            const auto resonance = juce::jlimit (0.0f, 1.0f, channel.filterResonance + (channel.resonance.any() ? channel.resonance.at (middle, released, tempo) : 0.0f));
+            const auto hz = juce::jmin (20.0 * std::pow (1000.0, (double) cutoff), 0.45 * sampleRate);
+            const auto q = juce::MathConstants<double>::sqrt2 / 2.0 * std::exp2 (5.0 * (double) resonance);
+            const auto g = (float) std::tan (juce::MathConstants<double>::pi * hz / sampleRate);
+            k = (float) (1.0 / q);
+            a1 = 1.0f / (1.0f + g * (g + k));
+            a2 = g * a1;
+            a3 = g * a2;
+        }
+        // It goes round its loop while held (and, with an envelope, through its release).
+        const auto looping = voice.loops && (released < 0 || channel.hasEnvelope);
+
+        for (int j = 0; j < n; ++j, ++i)
+        {
+            if (looping)
+                while (voice.position >= loopEnd)
+                    voice.position -= loopLength;
+            if ((int) voice.position >= last)
+            {
+                voice.active = false;
+                return;
+            }
+            float sample[2] = { resampling::read (sourceLeft, length, voice.position, rate, quality), resampling::read (sourceRight, length, voice.position, rate, quality) };
+            if (looping && crossfade > 0 && voice.position > loopEnd - crossfade)
+            {
+                const auto w = (float) ((voice.position - (loopEnd - crossfade)) / crossfade);
+                const auto back = juce::jmax (0.0, voice.position - loopLength);
+                sample[0] = sample[0] * (1.0f - w) + resampling::read (sourceLeft, length, back, rate, quality) * w;
+                sample[1] = sample[1] * (1.0f - w) + resampling::read (sourceRight, length, back, rate, quality) * w;
+            }
+            if (channel.filterType != 0)
+                for (int side = 0; side < 2; ++side)
+                {
+                    const auto v0 = sample[side];
+                    const auto v3 = v0 - voice.filterB[side];
+                    const auto v1 = a1 * voice.filterA[side] + a2 * v3;
+                    const auto v2 = voice.filterB[side] + a2 * voice.filterA[side] + a3 * v3;
+                    voice.filterA[side] = 2.0f * v1 - voice.filterA[side];
+                    voice.filterB[side] = 2.0f * v2 - voice.filterB[side];
+                    sample[side] = channel.filterType == 1 ? v2 : channel.filterType == 2 ? v1 : v0 - k * v1 - v2;
+                }
+            auto level = level0 + (level1 - level0) * (float) (j + 1) / (float) n;
+            if (voice.fade >= 0 && voice.fadeWait > 0)
+                --voice.fadeWait;
+            else if (voice.fade >= 0)
+            {
+                if (voice.fade == 0)
+                {
+                    voice.active = false;
+                    return;
+                }
+                level *= (float) voice.fade-- / fadeLength;
+            }
+            const auto gainLeft = voice.gain * panLeft * (fromLeft + stepLeft * (float) (i + 1)), gainRight = voice.gain * panRight * (fromRight + stepRight * (float) (i + 1));
+            left[i] += sample[0] * gainLeft * level;
+            right[i] += sample[1] * gainRight * level;
+            voice.position += rate;
+        }
+        voice.elapsed += n;
+        if (voice.untilRelease > 0)
+            voice.untilRelease -= n;
     }
 }
 

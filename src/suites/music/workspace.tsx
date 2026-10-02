@@ -14,6 +14,7 @@ import { assignFreeTracks, cloneSelected, copySteps, cutSteps, deleteSelected, m
 import { useMusic, useSong } from "./store";
 import { MusicToolbar } from "./toolbar";
 import { useRecording } from "./recording";
+import { typingKey, useMidi } from "./midi";
 import { switchMode, useTransport } from "./transport";
 import * as playlist from "./playlist/actions";
 import { type PlaylistKeyAction, resolvePlaylistKey } from "./playlist/keys";
@@ -23,6 +24,7 @@ import { resolvePianoKey, type PianoKeyAction } from "./piano/keys";
 import * as piano from "./piano/actions";
 import { openPianoRoll } from "./piano/actions";
 import { Chopper } from "./piano/chopper";
+import { Quantizer } from "./piano/quantizer";
 import { NoteProperties } from "./piano/note-properties";
 import { PianoRoll } from "./piano/piano-roll";
 import { usePiano } from "./piano/store";
@@ -90,6 +92,7 @@ function Windows() {
   const exportOpen = useMusicUi((s) => s.exportOpen);
   const editingNote = usePiano((s) => s.editing);
   const chopping = usePiano((s) => s.chopping);
+  const quantizing = usePiano((s) => s.quantizing);
   const openIds = useMusicUi((s) => s.openChannelIds);
   const channels = useSong((song) => song.channels);
   const automations = useSong((song) => song.automations);
@@ -122,7 +125,8 @@ function Windows() {
       {exportOpen && <ExportWindow />}
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {pianoOpen && chopping && <Chopper />}
-      {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind !== "plugin" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
+      {pianoOpen && quantizing && <Quantizer />}
+      {channels.map((channel, index) => (openIds.includes(channel.id) ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
       {automations.map((automation, index) => (openAutomations.includes(automation.id) ? <AutomationWindow key={automation.id} automation={automation} index={index} /> : null))}
       {chooserOpen && <AutomationChooser />}
       {openGrossBeats.map((effectId, index) => (
@@ -162,6 +166,7 @@ function frontWindow(): WindowId | null {
     : id === "export" ? ui.exportOpen
     : id === "note" ? usePiano.getState().editing !== null
     : id === "chopper" ? usePiano.getState().chopping
+    : id === "quantizer" ? usePiano.getState().quantizing
     : id === "automate" ? useAutomationUi.getState().chooserOpen
     : id.startsWith("automation:") ? useAutomationUi.getState().openIds.includes(id.slice("automation:".length))
     : id.startsWith("gross:") ? useGrossUi.getState().openIds.includes(id.slice("gross:".length))
@@ -201,6 +206,8 @@ function runPianoKey(action: PianoKeyAction) {
       return piano.chop();
     case "chopper":
       return piano.openChopper();
+    case "quantizer":
+      return piano.openQuantizer();
     case "quantize":
       return piano.quantize("both");
     case "quantizeStarts":
@@ -277,6 +284,8 @@ function runPlaylistKey(action: PlaylistKeyAction) {
       return playlist.insertTimeSpace(true);
     case "deleteSpace":
       return playlist.deleteTimeSpace();
+    case "addMarker":
+      return playlist.addTimeMarker();
     case "picker":
       return usePlaylist.setState({ pickerOpen: !usePlaylist.getState().pickerOpen });
     case "stretch":
@@ -344,6 +353,8 @@ function runKey(action: MusicKeyAction) {
       return switchMode(useTransport.getState().mode === "song" ? "pattern" : "song");
     case "toggleRecord":
       return useRecording.getState().setOn(!useRecording.getState().on);
+    case "toggleTyping":
+      return useMidi.getState().setTyping(!useMidi.getState().typing);
     case "toggleMixer":
       return ui.setMixerOpen(!ui.mixerOpen);
     case "toggleBrowser":
@@ -395,6 +406,12 @@ function useMusicKeys(enabled: boolean) {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || isTyping(e.target) || keptByWindow(e.target) || dialogOpen()) return;
+      // The typing keyboard, while it's on: its keys play notes, before any window's shortcut.
+      if (typingKey(e, true)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       // The Browser's list has keys of its own (`browser/keys.ts`): only the editor-wide ones pass it.
       const inBrowser = e.target instanceof HTMLElement && e.target.closest("[data-browser]") !== null;
       // The Piano roll's own keys, while it's the window in front.
@@ -439,8 +456,16 @@ function useMusicKeys(enabled: boolean) {
       e.stopPropagation();
       runKey(action);
     };
+    // A typing keyboard key let go: its note ends (wherever the focus went meanwhile).
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (typingKey(e, false)) e.stopPropagation();
+    };
     // Before the page's own handlers, for the same reason.
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
   }, [enabled]);
 }

@@ -110,7 +110,7 @@ export async function createApp({
   // A take recorded is moved into the project's media (the music suite doesn't reach into the media library itself).
   const adoptTake = (projectId: string, file: string, name: string, origin: string) => library.add(file, `${name}.wav`, projectId, () => projects.has(projectId), origin);
   const engine = new AudioEngine(paths, { samplePath, adoptTake, ...engineOptions });
-  const musicExports = new MusicExports(paths, engine, { samplePath: engineOptions?.samplePath ?? samplePath, ...musicExportOptions });
+  const musicExports = new MusicExports(paths, engine, { samplePath: engineOptions?.samplePath ?? samplePath, adopt: adoptTake, ...musicExportOptions });
 
   const browser = new SampleBrowser(paths);
   await browser.load();

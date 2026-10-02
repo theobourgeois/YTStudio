@@ -85,7 +85,10 @@ private:
     void retire (Stream* stream);
     void discard (Stream* stream);
     /** One stream's part of a block (audio thread). */
-    void renderStream (Stream& stream, float fromLeft, float fromRight, float gainLeft, float gainRight, float* left, float* right, int numSamples);
+    void renderStream (Stream& stream, const Song::AudioClip* clip, double ticksPerSample, float fromLeft, float fromRight, float gainLeft, float gainRight, float* left, float* right, int numSamples);
+    /** Each sample's gain from a clip's own gain and fades, for `renderStream` (the audio thread's). */
+    static constexpr int maxEnvelope = 8192;
+    std::array<float, maxEnvelope> envelope {};
 
     const bool offline;
     double sampleRate = 48000.0;
@@ -141,8 +144,8 @@ struct ClipPlayer::Stream final : AudioStream
     const bool fadesIn;
 
     // The audio thread's.
-    /** Its clip's channel in the song playing, or -1 (it's gone: fade out). */
-    int channel = -1;
+    /** Its clip's channel in the song playing, or -1 (it's gone: fade out), and the clip (index into `Song::audioClips`). */
+    int channel = -1, clip = -1;
     bool started = false;
     /** Samples into this block where it starts. */
     int delay = 0;
@@ -163,6 +166,7 @@ void ClipPlayer::render (const Song& song, int numSamples, Target&& target)
             stream.fill();
         float gainLeft = 0, gainRight = 0, fromLeft = 0, fromRight = 0;
         std::pair<float*, float*> buffers { nullptr, nullptr };
+        const auto* clip = stream.clip >= 0 && stream.clip < (int) song.audioClips.size() ? &song.audioClips[(size_t) stream.clip] : nullptr;
         if (stream.channel >= 0)
         {
             const auto& channel = song.channels[(size_t) stream.channel];
@@ -180,7 +184,7 @@ void ClipPlayer::render (const Song& song, int numSamples, Target&& target)
             stream.remaining = 0;
         }
         else
-            renderStream (stream, fromLeft, fromRight, gainLeft, gainRight, buffers.first, buffers.second, numSamples);
+            renderStream (stream, clip, song.tempo * song.ppq / (60.0 * sampleRate), fromLeft, fromRight, gainLeft, gainRight, buffers.first, buffers.second, numSamples);
     }
     // Those that have ended go back to be deleted.
     for (int i = 0; i < numActive;)

@@ -28,6 +28,8 @@ import { midiFile } from "../../shared/music/midi.ts";
 import { trackName } from "../../shared/music/mixer.ts";
 import { normalizeMusicProject } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
+import type { MediaAsset } from "../../shared/types.ts";
+import { wrapTail } from "./wrap.ts";
 import { errorMessage } from "../../shared/errors.ts";
 import { isFiniteNumber } from "../../shared/math.ts";
 import { FFMPEG } from "../config.ts";
@@ -37,6 +39,8 @@ import type { AudioEngine, SamplePath } from "./engine.ts";
 
 export interface MusicExportOptions {
   samplePath: SamplePath;
+  /** Make a rendered file the project's media (a bounce: Render as audio clip, Consolidate), moving it. */
+  adopt?: (projectId: string, file: string, name: string, origin: string) => Promise<MediaAsset>;
   ffmpeg?: string;
   /** Show a file in Finder (the default opens Finder; tests pass nothing that does). */
   reveal?: (file: string) => Promise<void>;
@@ -73,7 +77,10 @@ export class MusicExports {
     const projectId = body.projectId;
     if (!isObject(body.song)) throw new HttpError(400, '"song" must be the song to export.');
     if ([...this.jobs.values()].some((j) => j.view.state === "rendering" || j.view.state === "encoding")) throw new HttpError(409, "A song is being exported already: wait for it, or stop it.");
-    const settings = normalizeExportSettings(body.settings);
+    const bounce = isObject(body.bounce) && typeof body.bounce.name === "string" && body.bounce.name.trim() ? { name: body.bounce.name.trim().slice(0, 80) } : null;
+    if (bounce && !this.options.adopt) throw new HttpError(409, "Rendering into the song can't be done here.");
+    // A bounce is the mix alone, as a WAV that becomes the project's media.
+    const settings = bounce ? { ...normalizeExportSettings(body.settings), formats: ["wav" as const], stems: false, includeMix: true, preventClipping: false } : normalizeExportSettings(body.settings);
     const song = normalizeMusicProject(body.song, (id) => this.options.samplePath(projectId, id) !== null);
     const patternId = typeof body.patternId === "string" ? body.patternId : null;
     const selection = isObject(body.selection) && isFiniteNumber(body.selection.start) && isFiniteNumber(body.selection.end) && body.selection.end > body.selection.start ? { start: body.selection.start, end: body.selection.end } : null;
@@ -83,7 +90,7 @@ export class MusicExports {
     let folder: string;
     let base: string;
     let kept: string | null = null;
-    if (typeof body.destination === "string" && body.destination) {
+    if (typeof body.destination === "string" && body.destination && !bounce) {
       if (!path.isAbsolute(body.destination)) throw new HttpError(400, '"destination" must be an absolute path.');
       folder = path.dirname(body.destination);
       const stat = await fs.stat(folder).catch(() => null);
@@ -98,7 +105,7 @@ export class MusicExports {
     const view: MusicExportJob = { id, projectId, state: "rendering", rendered: 0, encoded: 0, toEncode: 0, files: [], missing: [], error: null, renderSeconds: null, seconds: null, length: null, peakDb: null, gainDb: 0 };
     const job: Job = { view, abort: new AbortController(), folder: kept };
     this.jobs.set(id, job);
-    void this.run(job, { projectId, song, patternId, selection, settings, folder, base, keep: kept !== null });
+    void this.run(job, { projectId, song, patternId, selection, settings, folder, base, keep: kept !== null, bounce });
     return { ...view };
   }
 
@@ -149,7 +156,20 @@ export class MusicExports {
     return this.encoders;
   }
 
-  private async run(job: Job, plan: { projectId: string; song: MusicProject; patternId: string | null; selection: { start: number; end: number } | null; settings: ExportSettings; folder: string; base: string; keep: boolean }) {
+  private async run(
+    job: Job,
+    plan: {
+      projectId: string;
+      song: MusicProject;
+      patternId: string | null;
+      selection: { start: number; end: number } | null;
+      settings: ExportSettings;
+      folder: string;
+      base: string;
+      keep: boolean;
+      bounce: { name: string } | null;
+    },
+  ) {
     const { song, settings, folder, base } = plan;
     const view = job.view;
     const began = performance.now();
@@ -172,7 +192,8 @@ export class MusicExports {
             folder: temp,
             mix: !settings.stems || settings.includeMix,
             stems: settings.stems,
-            tail: settings.tail,
+            // Wrap remainder rings out, then folds the tail back onto the start (below).
+            tail: settings.tail === "cut" ? "cut" : "ring",
             maxTail: MAX_TAIL_SECONDS,
           },
           (done, frames) => (view.rendered = frames > 0 ? done / frames : 0),
@@ -183,6 +204,22 @@ export class MusicExports {
         view.renderSeconds = result.seconds;
         view.length = result.frames / result.sampleRate;
         rendered = result;
+        if (settings.tail === "wrap") {
+          // The song's own length, as the engine counts it (`SongExport`): what rings past it goes onto its start.
+          const compiled = compileSong(song, plan.patternId, plan.selection, settings.mode);
+          const frames = Math.ceil((compiled.loopTicks * 60 * result.sampleRate) / (compiled.tempo * compiled.ppq));
+          await Promise.all(result.files.map((file) => wrapTail(file.file, frames)));
+          view.length = Math.min(result.frames, frames) / result.sampleRate;
+        }
+      }
+      // A bounce: its mix is the project's media now; no files to encode.
+      if (plan.bounce) {
+        const mix = rendered.files.find((f) => f.id === "mix");
+        if (!mix || !this.options.adopt) throw new HttpError(500, "Nothing was rendered.");
+        view.media = await this.options.adopt(plan.projectId, mix.file, plan.bounce.name, `bounce:${view.id}`);
+        view.state = "done";
+        view.seconds = (performance.now() - began) / 1000;
+        return;
       }
       // Over full scale (the mix is floating point, a file isn't): every file turned down alike, if asked.
       const peak = Math.max(0, ...rendered.files.map((f) => f.peak));

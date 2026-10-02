@@ -84,10 +84,12 @@ const controlFields = {
     [
       "volume",
       "pan",
+      "pitch",
       "stereo",
       "send",
       "mix",
       "main volume",
+      "tempo",
       "parameter",
       "time slot",
       "volume slot",
@@ -111,7 +113,7 @@ const controlFields = {
       ...["panman smoothing", "panman feel", "panman groove", "panman trigger", "panman divider", "panman cutoff", "panman filter gain", "panman threshold", "panman attack", "panman release", "panman offset mod", "panman width mod", "panman rate mod"],
       ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
     ],
-    "Which control: a channel's or mixer track's volume or pan, a track's stereo separation, a send's level, an effect slot's mix, the main volume, " +
+    "Which control: a channel's or mixer track's volume or pan, a channel's pitch (semitones: a sampler's notes bend as they sound, a plugin channel's move by whole semitones), a track's stereo separation, the song's tempo (in BPM; it plays in song mode only, like all automation), a send's level, an effect slot's mix, the main volume, " +
       "a plugin's own parameter, a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
       "use hold curves, so each bar plays a slot: that's how chops are arranged), its time or volume knob, or its attack and release " +
       "(\"gross attack\", \"gross release\": seconds, 0 to 0.5 and 0 to 1) or tension (\"gross tension\", -1 to 1); an Auto-Tune's (likewise): " +
@@ -132,7 +134,7 @@ const controlFields = {
       "its pitch or timbre wheel in semitones, -24 to 24, snapped as the wheel snaps, its gravity, inertia and smooth followed as it moves, so a " +
       "jump with low gravity swings; or a wheel's gravity, inertia or smooth, 0 to 1).",
   ),
-  channel: str("A channel (volume, pan), or a plugin channel (its parameters): id or name."),
+  channel: str("A channel (volume, pan, pitch), or a plugin channel (its parameters): id or name."),
   track: mixerTrack("A mixer track (its volume, pan, stereo separation; a send from it; an effect in it)"),
   to: mixerTrack("The track a send goes to"),
   slot: int("An effect slot of the track, 1 to 10 (its mix, or its plugin's parameters)."),
@@ -170,12 +172,15 @@ export const MUSIC_TOOLS = [
     name: "update_song",
     title: "Change the song's settings",
     kind: "edit",
-    description: "Set the tempo, the swing, the time signature or the main volume (the toolbar's knob). Only what's given changes.",
+    description:
+      "Set the tempo, the swing, the time signature, the main volume (the toolbar's knob) or the song's scale (the Piano roll lights its notes " +
+      "and snaps notes drawn and moved to them). Only what's given changes.",
     inputSchema: obj({
       volume: num("0 to 1: the main volume, everything the song puts out (after the master track). 0.78 leaves it as it is; 1 is about +4 dB."),
       tempo: num("Beats per minute (20 to 999)."),
       swing: num("0 to 1: how late every second sixteenth step plays. 0 is straight; about 0.66 is a triplet feel."),
       timeSignature: arr(int("A number"), "[beats per bar, the note that gets the beat]: [4, 4], [3, 4], [6, 8].", { minItems: 2, maxItems: 2 }),
+      scale: str('The song\'s scale: a root and a scale, "A minor", "C# dorian", "Eb major pentatonic", "F harmonic minor"...; or "none".'),
     }),
   }),
   tool({
@@ -215,7 +220,9 @@ export const MUSIC_TOOLS = [
     name: "update_channel",
     title: "Change a channel",
     kind: "edit",
-    description: "Rename a channel, or set its volume, pan, pitch, mute, colour or volume envelope. Only what's given changes.",
+    description:
+      "Rename a channel, or set its volume, pan, pitch, mute, colour, swing mix, and a sampler's volume envelope, loop, filter, and the envelopes " +
+      "and LFOs that move its volume, pan, filter cutoff and resonance and pitch (FL's Channel settings). Only what's given changes.",
     inputSchema: obj(
       {
         channel,
@@ -245,9 +252,70 @@ export const MUSIC_TOOLS = [
             decay: num("Seconds to fall to the sustain level."),
             sustain: num("0 to 1: the level held until the note ends."),
             release: num("Seconds to fade after the note ends."),
+            delay: num("Seconds of silence before the attack."),
+            hold: num("Seconds held at full level after the attack."),
+            attackTension: num("-1 to 1: how the attack bends (0 straight, above 0 quick at first)."),
+            decayTension: num("-1 to 1: how the decay bends."),
+            releaseTension: num("-1 to 1: how the release bends."),
           },
           [],
           "The volume envelope.",
+        ),
+        swingMix: num("0 to 1: how much of the song's swing this channel's notes take (1, the default: all of it)."),
+        loop: obj(
+          {
+            enabled: bool("On: while a note is held, the sample goes round between start and end."),
+            start: num("Where the loop starts, 0 to 1 of the (prepared) sample."),
+            end: num("Where it ends, 0 to 1."),
+            crossfade: num("0 to 0.5 of the loop's length crossfaded, so it goes round smoothly."),
+          },
+          [],
+          "A sampler's loop.",
+        ),
+        filter: obj(
+          {
+            type: oneOf(["off", "lowpass", "bandpass", "highpass"], "The filter (off: none)."),
+            cutoff: num("0 to 1: 20 Hz to 20 kHz, evenly by octave (0.5 is about 630 Hz)."),
+            resonance: num("0 to 1."),
+          },
+          [],
+          "A sampler's filter.",
+        ),
+        modulation: arr(
+          obj(
+            {
+              target: oneOf(["volume", "pan", "cutoff", "resonance", "pitch"], "What it moves (the filter's cutoff and resonance need the filter on)."),
+              envelope: obj(
+                {
+                  enabled: bool("On or off."),
+                  delay: num("Seconds."),
+                  attack: num("Seconds."),
+                  hold: num("Seconds."),
+                  decay: num("Seconds."),
+                  sustain: num("0 to 1."),
+                  release: num("Seconds."),
+                  amount: num("-1 to 1: how far it moves its target (pitch: 1 is +24 semitones; pan: -1 all left). Not for volume (its envelope is `envelope`)."),
+                },
+                [],
+                "The target's envelope (not volume's).",
+              ),
+              lfo: obj(
+                {
+                  enabled: bool("On or off."),
+                  shape: oneOf(["sine", "triangle", "square", "saw"], "Its wave."),
+                  speed: num("Cycles a second (0.01 to 30); with sync, beats a cycle (1/16 to 32)."),
+                  sync: bool("Follow the tempo."),
+                  amount: num("-1 to 1 (volume: 0 to 1, how deep it dips)."),
+                  delay: num("Seconds before it starts."),
+                  attack: num("Seconds it takes to reach its amount."),
+                },
+                [],
+                "The target's LFO.",
+              ),
+            },
+            ["target"],
+          ),
+          "A sampler's envelopes and LFOs, by target. Only what's given changes.",
         ),
       },
       ["channel"],
@@ -323,6 +391,30 @@ export const MUSIC_TOOLS = [
         mode: oneOf(["replace", "add"], "Replace the channel's notes (the default), or add to them."),
       },
       ["channel", "notes"],
+    ),
+  }),
+  tool({
+    name: "quantize_notes",
+    title: "Quantize notes",
+    kind: "edit",
+    description:
+      "The Piano roll's Quantizer: pull a channel's notes in a pattern (or those `from`/`to` pick) towards a grid. `strength` (0 to 1, default " +
+      "1) is how far each start goes; `sensitivity` (0 to 1, default 1) moves only notes that near a line; `swing` (0 to 1) delays every second " +
+      'line; `ends`: "leaveDuration" (default), "leaveEnd", "quantizeEnd" or "quantizeDuration" (by `duration_strength`).',
+    inputSchema: obj(
+      {
+        channel,
+        pattern,
+        grid: num("The grid, in steps (default 1, a sixteenth; 4 a beat; 0.5 a 32nd; 2/3 a sixteenth triplet)."),
+        strength: num("0 to 1: how far starts go to the grid."),
+        sensitivity: num("0 to 1: only notes within this share of half a grid of a line move."),
+        swing: num("0 to 1: every second line of the grid later, up to half a grid."),
+        ends: oneOf(["leaveDuration", "leaveEnd", "quantizeEnd", "quantizeDuration"], "What happens to each note's end."),
+        duration_strength: num("0 to 1: how far ends or lengths go to the grid, with quantizeEnd or quantizeDuration."),
+        from: num("Only notes from this step on."),
+        to: num("Only notes before this step."),
+      },
+      ["channel"],
     ),
   }),
   tool({
@@ -493,6 +585,45 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({}),
   }),
   tool({
+    name: "plugin_presets",
+    title: "A plugin's presets",
+    kind: "action",
+    description:
+      "A plugin's presets (FL's preset browser): a plugin channel's instrument (`channel`), or an effect in a mixer track's slot (`track` and `slot`). " +
+      '`action`: "list" its own programs (many VST3s have none: they keep presets in their own window) and the user\'s presets for it (saved from ' +
+      'it, the same in every song); "program" switches to one of its programs (`program`: its number from 1, or its name); "load", "save" (its ' +
+      'settings now, as `name`) or "delete" one of the user\'s presets. It\'s the plugin\'s own state: not an undo step.',
+    inputSchema: obj(
+      {
+        channel: str("A plugin channel: its id or name (get_song lists them)."),
+        track: mixerTrack(),
+        slot,
+        action: oneOf(["list", "program", "load", "save", "delete"], "What to do."),
+        program: str('With "program": its number from 1, or its name.'),
+        name: str('With "load", "save" and "delete": the preset\'s name.'),
+      },
+      ["action"],
+    ),
+  }),
+  tool({
+    name: "list_midi_inputs",
+    title: "List the MIDI keyboards",
+    kind: "look",
+    description:
+      "The MIDI keyboards on this computer (each plays unless the user turned it off in Settings), the channel they play now (the one " +
+      "selected in the rack: select_channel changes it), and whether the typing keyboard to piano (Ctrl+T) is on. record_audio records what's played.",
+    inputSchema: obj({}),
+  }),
+  tool({
+    name: "select_channel",
+    title: "Select a channel",
+    kind: "action",
+    description:
+      "Select a channel in the rack, as a click on its button does (the editor's state, not the song's): MIDI keyboards and the typing keyboard " +
+      "play it, and record_audio records notes on it.",
+    inputSchema: obj({ channel: str("The channel: its id or name (get_song lists them).") }, ["channel"]),
+  }),
+  tool({
     name: "arm_tracks",
     title: "Arm tracks to record",
     kind: "action",
@@ -506,11 +637,13 @@ export const MUSIC_TOOLS = [
     title: "Record",
     kind: "action",
     description:
-      "Start or stop recording the armed mixer tracks (the user plays or sings: you can't hear it). It records the song (song mode) from " +
+      "Start or stop recording the armed mixer tracks, and the notes the user plays on a MIDI keyboard (or the typing keyboard) on the channel " +
+      "selected in the rack (the user plays or sings: you can't hear it). With no track armed, it records notes alone. It records the song (song mode) from " +
       "`bar`, after a count-in of the metronome's clicks; with `loop` it goes round the Playlist's time selection (or the song), a take each " +
       "pass, until stopped. Stopping puts each take on the Playlist as an audio clip where it was recorded (on the track's audio track if it " +
       "has one, else the first track it fits on), on a channel of its own routed back into the track that recorded it; with `loop` all but the " +
-      "last pass are muted unless `blend`. Answers, on stop, with the clips made.",
+      "last pass are muted unless `blend`. Notes go into the pattern shown if it isn't on the Playlist yet (else a new one), its clip placed at " +
+      "the bar recording started in. Answers, on stop, with the clips and notes made.",
     inputSchema: obj(
       {
         action: oneOf(["start", "stop"], "What to do."),
@@ -1219,7 +1352,8 @@ export const MUSIC_TOOLS = [
     kind: "edit",
     description:
       "Move clips (to another bar or track: `move_bars` and `move_tracks` move them all together, or `bar` and `track` put one clip there), resize " +
-      "them, slip their content, or mute and unmute them. Only what's given changes.",
+      "them, slip their content, or mute and unmute them. Audio clips also have their own gain and fades (each with a curve); stretch_audio " +
+      "stretches them. Only what's given changes.",
     inputSchema: obj(
       {
         ids: clipIds,
@@ -1230,9 +1364,43 @@ export const MUSIC_TOOLS = [
         length: num("Their length in bars."),
         offset: num("How far into their content they start, in bars."),
         muted: bool("Muted, or not."),
+        gain_db: num("Audio clips: their own gain in dB, -48 (silent) to +36; 0 leaves them as they are."),
+        fade_in: num("Audio clips: beats they fade in over from their start (0: none)."),
+        fade_out: num("Audio clips: beats they fade out over before their end (0: none)."),
+        fade_in_curve: num("Audio clips: how their fade in bends, -1 (slow at first) to 1 (quick at first); 0 straight."),
+        fade_out_curve: num("Audio clips: how their fade out bends, -1 to 1 likewise."),
       },
       ["ids"],
     ),
+  }),
+  tool({
+    name: "set_time_markers",
+    title: "Time markers",
+    kind: "edit",
+    description:
+      "The Playlist's time markers (FL's): `action` \"add\" one at `bar` (named `name`, or \"Marker N\"), \"update\" one (by `id` or name: its bar, name or kind) " +
+      'or "remove" one. `kind`: "marker" (a named place; an export of the song ends at the last one past its end), "punchIn" or "punchOut" (Record only ' +
+      "records between a start and a stop recording marker). get_playlist lists them.",
+    inputSchema: obj(
+      {
+        action: oneOf(["add", "update", "remove"], "What to do."),
+        id: { description: "The marker: its number or its name.", anyOf: [{ type: "integer" }, { type: "string" }] },
+        bar: num("Where it is: a bar, 1 for the first (fractions are inside the bar)."),
+        name: str("Its name."),
+        kind: oneOf(["marker", "punchIn", "punchOut"], "What it does."),
+      },
+      ["action"],
+    ),
+  }),
+  tool({
+    name: "render_clips",
+    title: "Render clips to audio",
+    kind: "action",
+    description:
+      "FL's Render as audio clip and Consolidate: pattern and audio clips (`ids`, or every unmuted one on `track`) rendered through the mixer, as an " +
+      "export renders, into an audio clip (a new audio file of the project) from where they start, with their tail. Without `consolidate`, it goes on " +
+      "the first free track below them; with it, on the first one's track, and they're muted. Takes a few seconds; answers with the new clip.",
+    inputSchema: obj({ ids: clipIds, track: playlistTrack, consolidate: bool("Put it in their place and mute them (FL's Consolidate).") }),
   }),
   tool({
     name: "stretch_audio",

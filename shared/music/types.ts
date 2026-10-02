@@ -1,3 +1,5 @@
+import type { SampleLoop, SamplerFilter, SamplerMods } from "./sampler.ts";
+import type { SongScale } from "./scales.ts";
 /**
  * The music suite's document (a DAW project), modelled on FL Studio: the channel rack's channels
  * (instruments), patterns (notes for any of the channels), the playlist (the song's arrangement: clips
@@ -28,6 +30,8 @@ export interface MusicSettings {
    * master track (`DEFAULT_VOLUME` leaves it as it is).
    */
   volume: number;
+  /** The song's scale (FL's scale highlighting: the Piano roll shades it, and snaps notes to it), or absent for none. */
+  scale?: SongScale;
 }
 
 /** A sampler's volume envelope. Off, a note plays its whole sample whatever its length. */
@@ -40,6 +44,12 @@ export interface Envelope {
   sustain: number;
   /** Seconds, after the note ends. */
   release: number;
+  /** FL's DEL and HOLD (seconds before the attack, and at the peak after it), and each stage's bend (-1..1). Absent: 0. */
+  delay?: number;
+  hold?: number;
+  attackTension?: number;
+  decayTension?: number;
+  releaseTension?: number;
 }
 
 /**
@@ -98,6 +108,12 @@ export interface Channel {
   mixerTrack: string;
   /** "#rrggbb", or null for the usual: an audio clip channel's clips take it (FL's Rename and recolor). */
   color: string | null;
+  /** 0..1 of the song's swing its notes take (FL's Swing mix). Absent: all of it. */
+  swingMix?: number;
+  /** A sampler's loop, filter, and envelopes and LFOs for its other targets (`shared/music/sampler.ts`). Absent: their defaults (none). */
+  loop?: SampleLoop;
+  filter?: SamplerFilter;
+  mods?: Partial<SamplerMods>;
   /**
    * An audio clip channel's time stretching (FL's TIME and MODE, in its settings' sample tab): what its clips
    * that have no stretch of their own play by. Absent: none (the file at its own speed, pitched by Resample).
@@ -716,6 +732,17 @@ export interface PlaylistClip {
   /** Kept, but not played (the playlist's mute tool). */
   muted: boolean;
   /**
+   * Audio clips (FL's clip fades, `docs/fl-studio/playlist.md`): ticks its sound fades in over from its
+   * start, and out over before its end, and how each bends (-1..1: 0 straight, below slow at first,
+   * above quick; `fadeShape`). Absent: no fade, straight.
+   */
+  fadeIn?: number;
+  fadeOut?: number;
+  fadeInTension?: number;
+  fadeOutTension?: number;
+  /** Audio clips: its own gain (FL's half-circle on its bottom edge), a factor: absent is 1, `MAX_CLIP_GAIN` +36 dB, 0 silent. */
+  gain?: number;
+  /**
    * An audio clip's own stretch (FL 2025's variant of its channel: stretched in the Playlist). Absent: its
    * channel's (`Channel.stretch`).
    */
@@ -728,6 +755,24 @@ export interface Playlist {
   tracks: PlaylistTrack[];
   /** In order of `start` (then track, then id). */
   clips: PlaylistClip[];
+  /** Time markers on its ruler (FL's Alt+T), in order of `tick`. Absent: none. */
+  markers?: TimeMarker[];
+}
+
+/**
+ * FL's time markers: "marker" names a place ("Chorus"; the export can end at the last one); "punchIn" and
+ * "punchOut" are its Start and Stop recording markers, between which Record records (punch in and out).
+ */
+export const MARKER_KINDS = ["marker", "punchIn", "punchOut"] as const;
+export type MarkerKind = (typeof MARKER_KINDS)[number];
+
+export interface TimeMarker {
+  /** Tells it from the others (a small whole number, as clips' ids are). */
+  id: number;
+  /** Ticks, in the song. */
+  tick: number;
+  name: string;
+  kind: MarkerKind;
 }
 
 /** EchoBoy's modes (`docs/soundtoys/echoboy-manual.md`): its four echo algorithms. */
@@ -918,7 +963,7 @@ export type EchoControl = (typeof ECHO_CONTROLS)[number];
  * or one of a plugin's own parameters (a plugin channel's instrument's, or an effect's).
  */
 export type AutomationTarget =
-  | { kind: "channel"; channel: string; control: "volume" | "pan" }
+  | { kind: "channel"; channel: string; control: ChannelControl }
   | { kind: "mixer"; track: string; control: "volume" | "pan" | "stereo" }
   | { kind: "send"; track: string; to: string }
   | { kind: "effect"; effect: string }
@@ -930,6 +975,7 @@ export type AutomationTarget =
   | { kind: "panMan"; effect: string; control: PanControl }
   | { kind: "pitchWheel"; effect: string; control: PitchWheelControl }
   | { kind: "main" }
+  | { kind: "tempo" }
   | {
       kind: "plugin";
       /** Whose plugin: a plugin channel's (by channel id) or a mixer effect's (by effect id). */
@@ -940,6 +986,9 @@ export type AutomationTarget =
       index: number;
       name: string;
     };
+
+/** A channel's controls an automation clip can drive: its volume, pan and pitch (a sampler's notes bend; a plugin channel's are moved by whole semitones). */
+export type ChannelControl = "volume" | "pan" | "pitch";
 
 /** Gross Beat's controls an automation clip can drive: the slots playing, the two mix knobs, and ATT, REL and TNS. */
 export const GROSS_CONTROLS = ["timeSlot", "volumeSlot", "timeMix", "volumeMix", "attack", "release", "tension"] as const;

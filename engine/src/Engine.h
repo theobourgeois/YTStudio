@@ -7,6 +7,7 @@
 
 #include "Export.h"
 #include "FilePreview.h"
+#include "MidiInputs.h"
 #include "Plugins.h"
 #include "Sequencer.h"
 #include "Song.h"
@@ -55,6 +56,8 @@ private:
     juce::Result record (const juce::var& params);
     /** Tell the server of the takes finished since last time. */
     void reportTakes();
+    /** Tell the server what was played on MIDI keyboards since last time. */
+    void reportPlayed();
     /** A device, or the offline engine, (re)starts at this rate and block size. */
     void start (double rate, int block);
     /**
@@ -106,6 +109,8 @@ private:
     Sequencer sequencer;
     /** The Browser's preview of a file, outside the song. */
     FilePreview preview;
+    /** MIDI keyboards (none offline: `midiIn` stands in). After the sequencer, which they play. */
+    std::unique_ptr<MidiInputs> midiInputs;
     /** The song as it was last given, to build it again when one of its plugins has finished loading. */
     juce::var lastSong;
     /** Its armed tracks with an input: what a recording records. */

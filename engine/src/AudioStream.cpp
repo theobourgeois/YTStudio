@@ -155,7 +155,7 @@ void AudioStream::produce()
         ended.store (true, std::memory_order_release);
 }
 
-int AudioStream::pull (float* left, float* right, int offset, int numSamples, float gainLeft, float gainRight, int fadeInLength, int fadeOutLength)
+int AudioStream::pull (float* left, float* right, int offset, int numSamples, float gainLeft, float gainRight, int fadeInLength, int fadeOutLength, const float* envelope)
 {
     const auto count = juce::jmin (numSamples, fifo.getNumReady());
     const auto scope = fifo.read (count);
@@ -180,6 +180,8 @@ int AudioStream::pull (float* left, float* right, int offset, int numSamples, fl
                     g *= at < fadeOutLength ? 1.0f - (float) at / (float) fadeOutLength : 0.0f;
                 else if (before + at < fadeInLength)
                     g *= (float) (before + at) / (float) fadeInLength;
+                if (envelope != nullptr)
+                    g *= envelope[at];
                 out[ch][at] += source[i] * g;
             }
         }

@@ -8,6 +8,9 @@
  * GET `/:id` says how it's going, POST `/:id/abort` stops it, GET `/:id/files/:name` downloads a file it
  * made (in the browser, where there's no save dialog), POST `/:id/reveal` shows its files in Finder.
  */
+import type { MediaAsset } from "../types.ts";
+import { lastMarkerAfter } from "./markers.ts";
+import { songTicks } from "./playlist.ts";
 import { clamp, isFiniteNumber } from "../math.ts";
 import type { PlayMode } from "./compile.ts";
 import { type Resampling, isResampling } from "./engine.ts";
@@ -32,7 +35,8 @@ export const BITRATES: Record<"mp3" | "ogg" | "m4a", readonly number[]> = {
 };
 
 /** What happens to sound still ringing at the end: stop on the last sample, or let it ring out until it's quiet. */
-export type ExportTail = "cut" | "ring";
+/** What happens to sound ringing past the end: cut off, rung out (FL's Leave remainder), or folded onto the start (Wrap remainder, for loops). */
+export type ExportTail = "cut" | "ring" | "wrap";
 /** The longest a tail rings, in seconds. */
 export const MAX_TAIL_SECONDS = 30;
 
@@ -110,7 +114,7 @@ export function normalizeExportSettings(raw: unknown): ExportSettings {
     preventClipping: typeof input.preventClipping === "boolean" ? input.preventClipping : d.preventClipping,
     stems: typeof input.stems === "boolean" ? input.stems : d.stems,
     includeMix: typeof input.includeMix === "boolean" ? input.includeMix : d.includeMix,
-    tail: input.tail === "ring" ? "ring" : input.tail === "cut" ? "cut" : d.tail,
+    tail: input.tail === "ring" || input.tail === "cut" || input.tail === "wrap" ? input.tail : d.tail,
     resampling: isResampling(input.resampling) ? input.resampling : d.resampling,
     reveal: typeof input.reveal === "boolean" ? input.reveal : d.reveal,
   };
@@ -130,6 +134,23 @@ export interface ExportSongRequest {
    * browser, which has no save dialog: they're kept on the server and downloaded.
    */
   destination: string | null;
+  /**
+   * Render as audio clip / Consolidate (`docs/fl-studio/export.md`): the mix becomes the project's media
+   * (named `name`) instead of files, given back as the job's `media`. Its settings' formats and stems are
+   * ignored.
+   */
+  bounce?: { name: string } | null;
+}
+
+/**
+ * What a song export plays, in ticks: the time selection if there is one; else, in song mode, up to the
+ * last named time marker past the song's end, if there's one (FL's); else all of it (null).
+ */
+export function exportSelection(song: MusicProject, mode: "song" | "pattern", time: { start: number; end: number } | null): { start: number; end: number } | null {
+  if (time) return time;
+  if (mode !== "song") return null;
+  const end = lastMarkerAfter(song, songTicks(song));
+  return end === null ? null : { start: 0, end };
 }
 
 /** A file an export made. */
@@ -166,6 +187,8 @@ export interface MusicExportJob {
   peakDb: number | null;
   /** How far it was turned down so as not to clip (`preventClipping`), in dB; 0 if it wasn't. */
   gainDb: number;
+  /** A bounce's mix, made the project's media (`ExportSongRequest.bounce`), once it's done. */
+  media?: MediaAsset | null;
 }
 
 /** A name a file can have on any system: no slashes, colons or the like, not too long. */

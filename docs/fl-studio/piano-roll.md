@@ -297,19 +297,20 @@ shows a miniature of them in the rack, which opens them.
 | --- | --- | --- |
 | Backspace | Toggles the global snap | Deletes the selection too (a Mac keyboard has no Delete key) |
 | Paint | Monophonic: replaces the notes it overlaps | Lays notes over what's there |
-| Quantize | Also a dialog (Alt+Q) with strength and swing | Quick quantize only (Ctrl+Q, Shift+Q) |
+| Quantize | Quick quantize, and the Quantizer (Alt+Q): a groove template, Start time and Duration strength, Sensitivity, what's done with the ends | Quick quantize (Ctrl+Q, Shift+Q) and the Quantizer (Alt+Q, the Tools menu): its grid (the Piano roll's snap, or one of its own), START, SENS and DUR strengths, FL's four end choices, and a SWING of ours (every second line later); shown and heard live until it's accepted, as the Chopper. No groove templates |
 | Chopper | Patterns are score files (its own, or yours from the browser); six levels; Group notes | A set of patterns of ours (Default, triplets, dotted, gallop, rolls, gates...); VEL and PAN only, since notes have no others; no groups yet |
 | Slice + Shift | Slices without dragging, in the row under the pointer | Slices the whole column: every note across that time, at any pitch (a line the grid's height shows where, before and while pressing) |
 | Event editor | Release, fine pitch, Mod X / Y, repeat, automation | Velocity and pan; a note's tail can be grabbed too (selecting it and dragging its value alone) |
-| Zoom tool | Z | Not yet (Ctrl+wheel and the keys zoom) |
+| Zoom tool | Z | The same (Z): a rectangle zooms to its time and rows, a click zooms out, a right-click back and forth |
 | Look | FL Studio's artwork | Its layout and colours (pale blue notes, Théo's choice where FL's are green; red selected, a blue-grey grid, real piano keys), drawn our way, in a dark and a light version |
 | Scrollbars | Drag their ends to zoom | Drag to scroll only |
 | Snap | Main, Events, Markers | Not those three |
 | Notes | Colour groups (MIDI channels), slide and portamento | None |
 | Per-note pan | Sent to plugins as the note's pan | Heard on samplers; plugins ignore it for now |
 | Time markers, time signatures per pattern, key markers | Yes | No |
-| Scale highlighting, snap to scale, stamp | Yes | Later |
-| Typing keyboard (Ctrl+T), MIDI keyboard, recording | Yes | Later |
+| Scale highlighting, snap to scale | Per Piano roll, a root and a scale | The song's scale (`MusicSettings.scale`, undone, the assistant's `update_song`): its rows lit, the root's more; notes drawn, painted, stamped and moved land on its nearest notes (Alt: anywhere). Fourteen scales |
+| Stamp | Chords, scales, percussion patterns; top-down or bottom-up | Chords (23) and the song's scale's triad and seventh, from the note pressed (bottom-up), placed by Draw and moved until let go; no percussion patterns or top-down |
+| Typing keyboard (Ctrl+T), MIDI keyboard, recording | Yes | Yes: `midi.md` |
 
 Performance, measured in the browser (the grid is one canvas; only what's in view is drawn): with
 4 000 notes a frame takes about 1 ms, dragging all of them too, Ctrl+B on all of them 44 ms; with

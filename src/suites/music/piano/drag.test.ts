@@ -62,3 +62,20 @@ describe("applyDrag", () => {
     expect([...rectSelection(notes, { ...rect, add: true }, ids(1))].sort()).toEqual([1, 2, 3]);
   });
 });
+
+describe("moving notes with the song's scale", () => {
+  it("lands each on its nearest note of the scale when it's moved up or down, not along", () => {
+    const notes = make([0, 96, 60], [96, 96, 64]);
+    const cMajor = { root: 0, type: "major" as const };
+    // Up a semitone: C to C# (B... no: C# isn't in C major: to C) and E to F.
+    expect(shape(applyDrag(notes, { kind: "move", ids: ids(1, 2), ticks: 0, semitones: 1, clone: false, scale: cMajor }).notes)).toEqual([
+      [1, 0, 96, 60],
+      [2, 96, 96, 65],
+    ]);
+    // Along only: they stay as they are.
+    const along = make([0, 96, 61]);
+    expect(shape(applyDrag(along, { kind: "move", ids: ids(1), ticks: 24, semitones: 0, clone: false, scale: cMajor }).notes)).toEqual([[1, 24, 96, 61]]);
+    // Without a scale (Alt): anywhere.
+    expect(shape(applyDrag(notes, { kind: "move", ids: ids(1), ticks: 0, semitones: 1, clone: false, scale: null }).notes)[0]).toEqual([1, 0, 96, 61]);
+  });
+});

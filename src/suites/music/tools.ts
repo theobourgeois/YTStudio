@@ -14,6 +14,7 @@ import { PITCH_WHEEL_PLUGIN } from "@shared/music/pitch-wheel-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import { EXPORT_FORMATS, type ExportFormat, type ExportSettings } from "@shared/music/export";
+import type { PluginPresets } from "@shared/music/engine";
 import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
 import type { MusicProject } from "@shared/music/types";
@@ -47,11 +48,14 @@ import {
   updateChannelTool,
   updatePatternTool,
   updateSong,
+  quantizeNotesTool,
 } from "./tool-edits";
 import { switchMode, useTransport } from "./transport";
-import { armedIn, takesOf, useRecording } from "./recording";
+import { armedIn, notesKept, takesOf, useRecording } from "./recording";
+import { midiTarget, useMidi } from "./midi";
+import { bounceClips } from "./playlist/bounce";
 import { inputChoices, inputKey, useInputs } from "./inputs";
-import { inputText } from "./mixer/tool-edits";
+import { findEffect, inputText } from "./mixer/tool-edits";
 import { COUNT_IN_BARS, countInBars, useMusicPreferences } from "./preferences";
 import { addAudioClips, clipContext } from "@shared/music/playlist";
 import {
@@ -65,6 +69,7 @@ import {
   findAudio,
   stretchAudioTool,
   updateClipsTool,
+  setMarkersTool,
   updatePlaylistTrackTool,
 } from "./playlist/tool-edits";
 import { fileTempo } from "@shared/music/stretch";
@@ -161,6 +166,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(describeSong(target.song, target.assets, target.patternId));
   },
   update_song: edit(updateSong),
+  quantize_notes: edit(quantizeNotesTool),
   async list_plugins(input) {
     const effects = input.kind === "effect";
     const plugins = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument !== effects);
@@ -246,6 +252,61 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     if (device && taking.some((t) => !channels.length || !inputChoices(channels).some((c) => inputKey(c.input) === inputKey(t.input)))) lines.push("Some of those inputs aren't on this device: they record silence.");
     return textResult(lines.join("\n"));
   },
+  async plugin_presets(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "A plugin's presets");
+    let owner: "channel" | "effect";
+    let id: string;
+    let label: string;
+    if (input.channel !== undefined) {
+      const channel = findChannel(target.song, input.channel);
+      if (channel.kind !== "plugin" || !channel.plugin) throw new Error(`${channel.name} isn't a plugin channel: only plugins have presets.`);
+      [owner, id, label] = ["channel", channel.id, `${channel.plugin.name} on ${channel.name}`];
+    } else {
+      const { track, effect } = findEffect(target.song, input);
+      [owner, id, label] = ["effect", effect.id, `${effect.plugin.name} on ${trackLabel(target.song, track)}`];
+    }
+    const describe = (p: PluginPresets) =>
+      [
+        p.programs.length ? `${label}'s programs: ${p.programs.map((name, i) => `${i + 1}. ${name || `Program ${i + 1}`}${i === p.program ? " (on)" : ""}`).join(", ")}.` : `${label} has no programs to choose (its presets are in its own window).`,
+        p.presets.length ? `Your presets for it: ${p.presets.map((name) => `"${name}"${name === p.preset ? " (loaded)" : ""}`).join(", ")}.` : "No presets of the user's for it yet.",
+      ].join("\n");
+    if (input.action === "list") return textResult(describe(await musicApi.presets(owner, id)));
+    if (input.action === "program") {
+      const now = await musicApi.presets(owner, id);
+      const wanted = String(input.program ?? "").trim();
+      const byNumber = /^\d+$/.test(wanted) ? Number(wanted) - 1 : -1;
+      const index = byNumber >= 0 ? byNumber : now.programs.findIndex((p) => p.toLowerCase() === wanted.toLowerCase());
+      if (index < 0 || index >= now.programs.length)
+        throw new Error(now.programs.length ? `"program" must be a number from 1 to ${now.programs.length}, or one of: ${now.programs.join(", ")}.` : `${label} has no programs to choose.`);
+      return textResult(`Switched. ${describe(await musicApi.preset({ owner, id, action: "setProgram", index }))}`);
+    }
+    const name = String(input.name ?? "").trim();
+    if (!name) throw new Error('"name" must be the preset\'s name.');
+    const action = input.action === "save" ? "savePreset" : input.action === "load" ? "loadPreset" : input.action === "delete" ? "deletePreset" : null;
+    if (!action) throw new Error('"action" must be "list", "program", "load", "save" or "delete".');
+    return textResult(`Done. ${describe(await musicApi.preset({ owner, id, action, name }))}`);
+  },
+  async list_midi_inputs(_input, ctx) {
+    const target = await targetOf(ctx);
+    const { midiInputs } = await musicApi.devices();
+    const on = target.open ? midiTarget(target.song) : null;
+    const lines = [
+      midiInputs?.length
+        ? `MIDI keyboards: ${midiInputs.map((m) => `"${m.name}" (${m.enabled ? (m.open ? "playing" : "couldn't be opened") : "turned off in Settings"})`).join(", ")}.`
+        : "No MIDI keyboard is plugged in.",
+      on ? `They play ${target.song.channels.find((c) => c.id === on)?.name} (${on}), the channel selected in the rack.` : "No channel is selected in the rack, so they play nothing: select_channel picks one.",
+      `The typing keyboard to piano (Ctrl+T) is ${useMidi.getState().typing ? `on (octave ${useMidi.getState().octave})` : "off"}.`,
+    ];
+    return textResult(lines.join("\n"));
+  },
+  async select_channel(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Selecting a channel");
+    const channel = findChannel(target.song, input.channel);
+    useMusicUi.getState().setSelection([channel.id]);
+    return textResult(`Selected ${channel.name} (${channel.id}): MIDI keyboards play it, and record_audio records notes on it.`);
+  },
   async arm_tracks(input, ctx) {
     const target = await targetOf(ctx);
     requireOpen(target, "Arming tracks");
@@ -265,22 +326,29 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
       const active = recording.active;
       useTransport.getState().stop();
       if (!active) return textResult("Nothing was recording; stopped.");
-      const takes = await takesOf(active.id, active.tracks.length);
-      if (!takes.length) return textResult("Stopped. Nothing was recorded (it was stopped in its count-in, or the takes couldn't be kept).");
+      const takes = active.tracks.length ? await takesOf(active.id, active.tracks.length) : [];
       const song = useMusic.getState().history!.doc;
+      const notes = notesKept(active.id);
+      const notesLine = notes
+        ? `${notes.count} note${notes.count === 1 ? "" : "s"} recorded into ${song.patterns.find((p) => p.id === notes.patternId)?.name ?? "a pattern"} (get_notes has them).`
+        : null;
+      if (!takes.length) return textResult(notesLine ? `Stopped. ${notesLine}` : "Stopped. Nothing was recorded (it was stopped in its count-in, nothing was played, or the takes couldn't be kept).");
       const ctxClip = clipContext(song);
       return textResult(
         [
           `Stopped. ${takes.length} take${takes.length === 1 ? "" : "s"} placed on the Playlist:`,
           ...takes.map((t) => `- ${trackLabel(song, findTrack(song, t.track))}${t.pass ? ` pass ${t.pass + 1}` : ""}: ${t.seconds.toFixed(1)} s from bar ${(t.startTick / ctxClip.barTicks + 1).toFixed(2).replace(/\.00$/, "")}`),
           "get_playlist has the clips (each on its own audio clip channel, routed back into the track that recorded it).",
+          ...(notesLine ? [notesLine] : []),
         ].join("\n"),
       );
     }
     if (input.action !== "start") throw new Error('"action" must be "start" or "stop".');
     if (recording.active) throw new Error("It's recording already: stop it first.");
     const armed = armedIn(target.song, recording.armed);
-    if (!armed.length) throw new Error("No mixer track is armed: give one an input (update_mixer_track) and arm it (arm_tracks).");
+    const notesOn = midiTarget(target.song);
+    if (!armed.length && !notesOn)
+      throw new Error("Nothing to record: arm a mixer track (update_mixer_track gives it an input, arm_tracks arms it), or select a channel (select_channel) to record notes on.");
     const options: Partial<ReturnType<typeof useMusicPreferences.getState>["recording"]> = {};
     if (input.countIn !== undefined) {
       if (input.countIn !== 0 && !COUNT_IN_BARS.includes(input.countIn as (typeof COUNT_IN_BARS)[number])) throw new Error(`"countIn" must be 0 (none) or ${COUNT_IN_BARS.join(", ")} (bars).`);
@@ -302,7 +370,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     if (!useRecording.getState().active) throw new Error("Recording didn't start (the audio engine may have refused: see the editor).");
     const prefs = useMusicPreferences.getState().recording;
     return textResult(
-      `Recording ${armed.map((id) => trackLabel(target.song, findTrack(target.song, id))).join(", ")}${countInBars(prefs) ? ` after ${countInBars(prefs)} bar${countInBars(prefs) === 1 ? "" : "s"} of count-in` : ""}${prefs.loop ? ", looping (a take each pass)" : ""}. ` +
+      `Recording ${[...armed.map((id) => trackLabel(target.song, findTrack(target.song, id))), ...(notesOn ? [`notes on ${target.song.channels.find((c) => c.id === notesOn)?.name}`] : [])].join(", ")}${countInBars(prefs) ? ` after ${countInBars(prefs)} bar${countInBars(prefs) === 1 ? "" : "s"} of count-in` : ""}${prefs.loop ? ", looping (a take each pass)" : ""}. ` +
         "The user performs now; call record_audio with action \"stop\" when they're done (or they press Stop).",
     );
   },
@@ -661,6 +729,26 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   place_clips: edit(placeClipsTool),
   update_clips: edit(updateClipsTool),
   remove_clips: edit(removeClipsTool),
+  set_time_markers: edit(setMarkersTool),
+  async render_clips(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "Rendering clips");
+    const song = target.song;
+    let ids: number[];
+    if (Array.isArray(input.ids) && input.ids.length) {
+      ids = input.ids.filter((id): id is number => typeof id === "number" && song.playlist.clips.some((c) => c.id === id));
+      if (!ids.length) throw new Error("None of those clips is on the playlist: get_playlist has their ids.");
+    } else if (typeof input.track === "number") {
+      const track = input.track - 1;
+      ids = song.playlist.clips.filter((c) => c.track === track && !c.muted && c.kind !== "automation").map((c) => c.id);
+      if (!ids.length) throw new Error(`Track ${input.track} has no unmuted pattern or audio clips.`);
+    } else throw new Error('Give "ids" (clips) or "track" (a track number, 1 for the first).');
+    const result = await bounceClips(new Set(ids), { replace: input.consolidate === true });
+    if ("error" in result) throw new Error(result.error);
+    return textResult(
+      `Rendered into "${result.name}" (${result.seconds.toFixed(1)} s): clip ${result.clipId} on track ${result.track + 1} from bar ${(result.start / clipContext(useMusic.getState().history!.doc).barTicks + 1).toFixed(2).replace(/\.00$/, "")}${input.consolidate === true ? "; the clips it replaces are muted" : ""}.`,
+    );
+  },
   slice_clips: edit(sliceClipsTool),
   chop_clips: edit(chopClipsTool),
   split_by_channel: edit(splitByChannelTool),

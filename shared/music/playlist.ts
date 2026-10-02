@@ -23,6 +23,7 @@ import {
   MAX_TRACK_SIZE,
   MIN_TRACK_SIZE,
   byClipStart,
+  clipExtras,
   createAudioChannel,
   patternSteps,
   stepsPerBar,
@@ -128,6 +129,32 @@ export const clipEnd = (clip: PlaylistClip, ctx: ClipContext) => clip.start + cl
 
 /** A move of `ticks` along the song, in the clip's content's unit (ticks of a pattern, seconds of audio). */
 export const contentDelta = (clip: Pick<PlaylistClip, "kind" | "ref" | "stretch">, ticks: number, ctx: ClipContext) => (clip.kind === "audio" ? ticks * ctx.fileSecondsPerTick(clip) : ticks);
+
+/**
+ * An audio clip's fade at `x` (0..1 of the way through it), bent by `tension` (-1..1: below 0 slow at
+ * first, above quick): what the engine plays (`fadeShape` in `engine/src/ClipPlayer.cpp`) and the
+ * Playlist draws.
+ */
+export const fadeShape = (x: number, tension = 0) => clamp(x, 0, 1) ** (2 ** (-2 * tension));
+
+/** The gain an audio clip's own gain and fades give its sound `into` ticks after its start (`length` long). */
+export function clipEnvelope(clip: Pick<PlaylistClip, "gain" | "fadeIn" | "fadeOut" | "fadeInTension" | "fadeOutTension">, length: number, into: number): number {
+  let gain = clip.gain ?? 1;
+  if (clip.fadeIn && into < clip.fadeIn) gain *= fadeShape(into / clip.fadeIn, clip.fadeInTension);
+  if (clip.fadeOut && length - into < clip.fadeOut) gain *= fadeShape((length - into) / clip.fadeOut, clip.fadeOutTension);
+  return gain;
+}
+
+/** A clip with its own gain and fades as `extras` says (an audio clip's; others have none), checked for its length. */
+function withExtras(clip: PlaylistClip, extras: Partial<PlaylistClip>): PlaylistClip {
+  const { fadeIn: _fi, fadeOut: _fo, fadeInTension: _ti, fadeOutTension: _to, gain: _g, ...rest } = clip;
+  if (clip.kind !== "audio" || clip.length === null) return rest;
+  return { ...rest, ...clipExtras({ ...clip, ...extras }, clip.length) };
+}
+
+/** Whether two clips' own gain and fades are the same. */
+const sameExtras = (a: PlaylistClip, b: PlaylistClip) =>
+  a.fadeIn === b.fadeIn && a.fadeOut === b.fadeOut && a.fadeInTension === b.fadeInTension && a.fadeOutTension === b.fadeOutTension && a.gain === b.gain;
 
 /** Where a clip's content is at a tick of the song: ticks into its pattern, or seconds into its file. */
 export const contentAt = (clip: PlaylistClip, tick: number, ctx: ClipContext) => clip.offset + contentDelta(clip, tick - clip.start, ctx);
@@ -259,7 +286,8 @@ export function patternTickInSong(song: Pick<MusicProject, "patterns" | "setting
 // Adding and removing
 // ---------------------------------------------------------------------------
 
-export type NewClip = Pick<PlaylistClip, "kind" | "ref" | "track" | "start"> & Partial<Pick<PlaylistClip, "length" | "offset" | "muted" | "stretch">>;
+export type NewClip = Pick<PlaylistClip, "kind" | "ref" | "track" | "start"> &
+  Partial<Pick<PlaylistClip, "length" | "offset" | "muted" | "fadeIn" | "fadeOut" | "fadeInTension" | "fadeOutTension" | "gain" | "stretch">>;
 
 /** A new clip list, and the ids of the clips it gained. */
 export interface CreatedClips {
@@ -278,7 +306,7 @@ export function nextClipId(clips: readonly PlaylistClip[]): number {
 
 function tidy(clip: NewClip, id: number): PlaylistClip {
   const start = clamp(Math.round(clip.start), 0, MAX_SONG_TICKS - 1);
-  return {
+  const tidied: PlaylistClip = {
     id,
     kind: clip.kind,
     ref: clip.ref,
@@ -289,6 +317,8 @@ function tidy(clip: NewClip, id: number): PlaylistClip {
     muted: clip.muted ?? false,
     ...(clip.kind === "audio" && clip.stretch ? { stretch: clip.stretch } : {}),
   };
+  // An audio clip's own gain, fades and stretch go with it (copied, pasted, sliced).
+  return tidied.kind === "audio" && tidied.length !== null ? { ...tidied, ...clipExtras(clip, tidied.length) } : tidied;
 }
 
 /** Add clips, with ids of their own. Past `MAX_CLIPS`, no more are added. */
@@ -364,14 +394,15 @@ export function resizeClips(clips: PlaylistClip[], ids: ClipIds, edge: "start" |
     const length = clipLength(clip, ctx);
     if (edge === "end") {
       const next = clamp(length + by, least, MAX_SONG_TICKS - clip.start);
-      return next === length && clip.length !== null ? clip : { ...clip, length: next };
+      // (Its fades stay within it.)
+      return next === length && clip.length !== null ? clip : withExtras({ ...clip, length: next }, {});
     }
     // How far back the start can go: to the content's start, and the song's.
     const back = clip.kind === "audio" ? Math.floor(clip.offset / ctx.fileSecondsPerTick(clip) + 1e-9) : clip.offset;
     const dt = clamp(by, -Math.min(back, clip.start), length - least);
     if (!dt) return clip;
     const offset = clip.kind === "audio" ? Math.max(0, clip.offset + dt * ctx.fileSecondsPerTick(clip)) : clip.offset + dt;
-    return { ...clip, start: clip.start + dt, length: length - dt, offset };
+    return withExtras({ ...clip, start: clip.start + dt, length: length - dt, offset }, {});
   });
 }
 
@@ -474,8 +505,9 @@ export function sliceClips(clips: PlaylistClip[], at: number, top: number, botto
     if (clip.track < low || clip.track > high || (ids?.size && !ids.has(clip.id))) return clip;
     const end = clipEnd(clip, ctx);
     if (cut <= clip.start || cut >= end) return clip;
-    tails.push({ ...clip, start: cut, length: end - cut, offset: contentAt(clip, cut, ctx) });
-    return { ...clip, length: cut - clip.start };
+    // The first part keeps the clip's fade in, the second its fade out.
+    tails.push({ ...clip, start: cut, length: end - cut, offset: contentAt(clip, cut, ctx), fadeIn: 0 });
+    return withExtras({ ...clip, length: cut - clip.start }, { fadeOut: 0 });
   });
   if (!tails.length) return nothing(clips);
   return addClips(next, tails);
@@ -496,9 +528,10 @@ export function chopClips(clips: PlaylistClip[], ids: ClipIds, every: number, ct
     const first = (Math.floor(clip.start / step) + 1) * step;
     if (first >= end) return clip;
     for (let cut = first; cut < end; cut += step) {
-      pieces.push({ ...clip, start: cut, length: Math.min(step, end - cut), offset: contentAt(clip, cut, ctx) });
+      // Its fade out goes with its last piece.
+      pieces.push({ ...clip, start: cut, length: Math.min(step, end - cut), offset: contentAt(clip, cut, ctx), fadeIn: 0, ...(cut + step < end && { fadeOut: 0 }) });
     }
-    return { ...clip, length: first - clip.start };
+    return withExtras({ ...clip, length: first - clip.start }, { fadeOut: 0 });
   });
   if (!pieces.length) return nothing(clips);
   return addClips(next, pieces);
@@ -506,6 +539,35 @@ export function chopClips(clips: PlaylistClip[], ids: ClipIds, every: number, ct
 
 /** Slice every track at `at` (Shift with the slice tool: a line the whole height of the Playlist). */
 export const sliceAll = (clips: PlaylistClip[], at: number, ctx: ClipContext): CreatedClips => sliceClips(clips, at, 0, MAX_PLAYLIST_TRACKS - 1, ctx);
+
+/** An audio clip's fades: ticks and tensions (`PlaylistClip`). */
+export type FadePatch = Partial<Pick<PlaylistClip, "fadeIn" | "fadeOut" | "fadeInTension" | "fadeOutTension">>;
+
+/** Set audio clips' fades (FL's corner handles and their curves): within each clip, the other fade making room. */
+export function setClipFades(clips: PlaylistClip[], ids: ClipIds, patch: FadePatch): PlaylistClip[] {
+  return mapClips(clips, ids, (clip) => {
+    if (clip.kind !== "audio" || clip.length === null) return clip;
+    const length = clip.length;
+    let fadeIn = Math.round(clamp(patch.fadeIn ?? clip.fadeIn ?? 0, 0, length));
+    let fadeOut = Math.round(clamp(patch.fadeOut ?? clip.fadeOut ?? 0, 0, length));
+    // The fade being set wins: the other gives way.
+    if (fadeIn + fadeOut > length) {
+      if (patch.fadeIn !== undefined) fadeOut = length - fadeIn;
+      else fadeIn = length - fadeOut;
+    }
+    const next = withExtras(clip, { ...patch, fadeIn, fadeOut });
+    return sameExtras(next, clip) ? clip : next;
+  });
+}
+
+/** Set audio clips' own gain (a factor: 1 as it is, up to `MAX_CLIP_GAIN`, 0 silent). */
+export function setClipGain(clips: PlaylistClip[], ids: ClipIds, gain: number): PlaylistClip[] {
+  return mapClips(clips, ids, (clip) => {
+    if (clip.kind !== "audio") return clip;
+    const next = withExtras(clip, { gain });
+    return sameExtras(next, clip) ? clip : next;
+  });
+}
 
 export type ClipPatch = Partial<Pick<PlaylistClip, "muted">>;
 

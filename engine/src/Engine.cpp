@@ -41,6 +41,8 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
       preview (isOffline)
 {
     dataDir.createDirectory();
+    plugins.setPresetsFolder (dataDir.getChildFile ("presets"));
+    effects.setPresetsFolder (dataDir.getChildFile ("presets"));
     // The sinc's table, made now rather than by the audio thread the first time it's needed.
     resampling::Kernel::get();
     if (offline)
@@ -62,6 +64,7 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
         devices.setAudioDeviceSetup (setup, true);
     }
     devices.addAudioCallback (this);
+    midiInputs = std::make_unique<MidiInputs> (dataDir.getChildFile ("midi.json"), [this] (const juce::MidiMessage& message) { sequencer.midiIn (message); });
     startTimer (transportIntervalMs);
 }
 
@@ -71,6 +74,7 @@ Engine::~Engine()
     exportTicker.stopTimer();
     exportJob.reset();
     stopTimer();
+    midiInputs.reset();
     // Nothing plays any more, and automation gives the plugins their own values back before they're saved.
     if (! offline)
     {
@@ -158,6 +162,7 @@ juce::var Engine::deviceOptions() const
                                { "inputChannels", inputChannels },
                                { "bufferSizes", bufferSizes },
                                { "sampleRates", sampleRates },
+                               { "midiInputs", midiInputs != nullptr ? midiInputs->describe() : juce::var (juce::Array<juce::var>()) },
                                { "status", status() } });
 }
 
@@ -165,6 +170,14 @@ juce::Result Engine::setDevice (const juce::var& params)
 {
     if (offline)
         return fail ("An offline engine has no device.");
+    // A MIDI input turned on or off.
+    if (const auto& midi = params["midiInput"]; midi.isObject())
+    {
+        if (const auto result = midiInputs->setEnabled (midi["name"].toString(), (bool) midi["enabled"]); result.failed())
+            return result;
+        if (! params.hasProperty ("output") && ! params.hasProperty ("input") && ! params.hasProperty ("bufferSize") && ! params.hasProperty ("sampleRate"))
+            return juce::Result::ok();
+    }
     auto setup = devices.getAudioDeviceSetup();
     if (params["output"].isString())
         setup.outputDeviceName = params["output"].toString();
@@ -197,7 +210,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         return ok();
 
     // While the song is exported, its plugins are the export's: nothing else may play them.
-    static const juce::StringArray busy { "play", "record", "preview", "trigger", "previewFile", "render", "setDevice", "tone", "note", "load", "unload", "editor" };
+    static const juce::StringArray busy { "play", "record", "preview", "midiIn", "trigger", "previewFile", "render", "setDevice", "tone", "note", "load", "unload", "editor" };
     if (exportJob != nullptr && (busy.contains (command) || ((command == "channelEditor" || command == "effectEditor") && (bool) params["open"])))
         return reply (fail ("The song is being exported: wait for it to finish."), {});
     if (command == "export")
@@ -297,6 +310,26 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             return reply (fail ("That plugin isn't loaded (yet): its parameters can't be listed."), {});
         return reply (juce::Result::ok(), protocol::object ({ { "parameters", list } }));
     }
+    if (command == "presets" || command == "setProgram" || command == "savePreset" || command == "loadPreset" || command == "deletePreset")
+    {
+        // A song's plugin's presets (a plugin channel's, or an effect's).
+        auto& host = params["owner"].toString() == "effect" ? effects : plugins;
+        const auto id = params["ownerId"].toString();
+        if (command == "presets")
+        {
+            const auto list = host.presets (id);
+            if (! list.isObject())
+                return reply (fail ("That plugin isn't loaded (yet): its presets can't be listed."), {});
+            return reply (juce::Result::ok(), list);
+        }
+        const auto result = command == "setProgram" ? host.setProgram (id, (int) params["index"])
+                          : command == "savePreset" ? host.savePreset (id, params["name"].toString())
+                          : command == "loadPreset" ? host.loadPreset (id, params["name"].toString())
+                                                    : host.deletePreset (id, params["name"].toString());
+        if (result.failed())
+            return reply (result, {});
+        return reply (juce::Result::ok(), host.presets (id));
+    }
     if (command == "meterTracks")
     {
         juce::StringArray ids;
@@ -334,6 +367,26 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
     {
         const auto result = record (params);
         return result.wasOk() ? ok() : reply (result, {});
+    }
+    if (command == "midiTarget")
+    {
+        sequencer.setMidiTarget (params["channel"].isString() ? params["channel"].toString() : juce::String());
+        return ok();
+    }
+    if (command == "midiIn")
+    {
+        // Messages as a keyboard would send them: the typing keyboard's notes, and the tests'.
+        if (const auto* messages = params["messages"].getArray())
+            for (const auto& bytes : *messages)
+                if (const auto* list = bytes.getArray(); list != nullptr && ! list->isEmpty() && list->size() <= 3)
+                {
+                    juce::uint8 raw[3] {};
+                    for (int i = 0; i < list->size(); ++i)
+                        raw[i] = (juce::uint8) juce::jlimit (0, 255, (int) (*list)[i]);
+                    if ((raw[0] & 0x80) != 0)
+                        sequencer.midiIn (juce::MidiMessage (raw, list->size()));
+                }
+        return ok();
     }
     if (command == "preview")
     {
@@ -479,16 +532,17 @@ juce::Result Engine::record (const juce::var& params)
         return fail ("A recording needs a \"recordingId\" and an absolute \"folder\".");
     if (sequencer.recorder().recording().isNotEmpty())
         return fail ("It's recording already: stop it first.");
-    if (armed.empty())
+    // With nothing armed, it only records notes (the tab keeps what's played: `midi` events).
+    if (armed.empty() && ! (bool) params["notes"])
         return fail ("No mixer track is armed with an input: choose a track's input in the Mixer, which arms it.");
     // What's heard comes out late by the output's latency and the song's plugin delay, and what's
     // played along to it reaches the engine late by the input's: the recording leaves that out.
     auto* device = devices.getCurrentAudioDevice();
     const auto latency = (juce::int64) songLatency + (device != nullptr ? device->getInputLatencyInSamples() + device->getOutputLatencyInSamples() : 0);
     const auto loop = (bool) params["loop"];
-    const auto result = sequencer.recorder().start (id, juce::File (folder), armed, rate(), latency, loop);
-    if (result.failed())
-        return result;
+    if (! armed.empty())
+        if (const auto result = sequencer.recorder().start (id, juce::File (folder), armed, rate(), latency, loop); result.failed())
+            return result;
     sequencer.record ((double) params["from"], juce::jmax (0.0, (double) params["countIn"]), loop);
     return juce::Result::ok();
 }
@@ -508,6 +562,12 @@ void Engine::reportTakes()
                                             { "final", take.final },
                                             { "dropped", take.dropped } }));
     });
+}
+
+void Engine::reportPlayed()
+{
+    if (auto notes = sequencer.takePlayed(); ! notes.isEmpty())
+        protocol::send (protocol::object ({ { "event", "midi" }, { "notes", notes } }));
 }
 
 void Engine::checkLatencies()
@@ -531,6 +591,7 @@ void Engine::timerCallback()
     preview.collectGarbage();
     eqs.collect();
     reportTakes();
+    reportPlayed();
     checkLatencies();
     // A parameter touched in a plugin's window: the tab can offer to automate it.
     plugins.reportTouches();
@@ -637,6 +698,7 @@ void Engine::render (int frames, const juce::File& file, const juce::String& inp
     preview.collectGarbage();
     eqs.collect();
     reportTakes();
+    reportPlayed();
 
     if (file != juce::File())
     {

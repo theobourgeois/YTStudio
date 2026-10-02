@@ -12,6 +12,8 @@ import {
   moveClips,
   removeClips,
   resizeClips,
+  setClipFades,
+  setClipGain,
   setClipProps,
   sliceAll,
   sliceClips,
@@ -34,6 +36,10 @@ export function applyDrag(clips: PlaylistClip[], drag: PlaylistDrag | null, ctx:
       return same(stretchClips(clips, drag.ids, drag.edge, drag.ticks, ctx, drag.mode));
     case "slip":
       return same(slipClips(clips, drag.ids, drag.ticks, ctx));
+    case "fade":
+      return same(setClipFades(clips, drag.ids, drag.patch));
+    case "gain":
+      return same(setClipGain(clips, drag.ids, drag.gain));
     case "add":
       return addClips(clips, drag.clips);
     case "erase":
@@ -45,6 +51,8 @@ export function applyDrag(clips: PlaylistClip[], drag: PlaylistDrag | null, ctx:
     case "rect":
     case "playback":
     case "curve":
+    case "zoom":
+    case "marker":
       return same(clips);
   }
 }

@@ -7,6 +7,7 @@ import {
   type ExportFormat,
   type ExportSettings,
   type MusicExportJob,
+  exportSelection,
   normalizeExportSettings,
   safeFileName,
 } from "@shared/music/export";
@@ -115,7 +116,7 @@ export const useSongExport = create<SongExportState>((set, get) => {
     if (!history || !projectId) throw new Error("No song is open.");
     if (get().starting || busy(get().job)) throw new Error("A song is being exported already.");
     const settings = { ...get().settings, resampling: useMusicPreferences.getState().exportResampling };
-    const selection = settings.mode === "song" ? usePlaylist.getState().time : usePiano.getState().time;
+    const selection = exportSelection(history.doc, settings.mode, settings.mode === "song" ? usePlaylist.getState().time : usePiano.getState().time);
     set({ starting: true });
     try {
       const job = await musicApi.startExport({ projectId, song: history.doc, patternId, selection, settings, destination: get().destination });

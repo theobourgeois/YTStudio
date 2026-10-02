@@ -10,6 +10,7 @@
  * darker the quieter a note is.
  */
 import type { Note } from "@shared/music/types";
+import { type SongScale, inScale, isRoot } from "@shared/music/scales";
 import { BLACK_KEY_WIDTH, LANE_PAD, type PianoView, type Snap, isBlackKey, laneY, lineTicks, pitchName, pitchToY, tailWidth, tickToX, visibleRange, whiteKeys, xToTick, yToPitch } from "./geometry";
 import { MUTED, NOTE, type NoteColours, SELECTED, velocityColours } from "./note-colours";
 import type { LaneProperty, PianoDrag, TimeRange } from "./store";
@@ -111,6 +112,8 @@ export interface Scene {
   drag: PianoDrag | null;
   /** The slice tool's cut, as a line on screen, while it's dragged; `full`: through the whole column (Shift). */
   slice: { x: number; y1: number; y2: number; full: boolean } | null;
+  /** The song's scale: its notes' rows are lit (FL's scale highlighting), its root's more. */
+  scale: SongScale | null;
   palette: Palette;
 }
 
@@ -259,6 +262,13 @@ export function drawGrid(ctx: CanvasRenderingContext2D, scene: Scene) {
       ctx.fillStyle = palette.blackRow;
       ctx.fillRect(0, y, width, Math.round(view.rowHeight));
     }
+    // The song's scale: its notes lit, its root more (FL's scale highlighting).
+    if (scene.scale && inScale(scene.scale, pitch)) {
+      ctx.globalAlpha = (isRoot(scene.scale, pitch) ? 0.16 : 0.08) * (palette.dark ? 1 : 0.8);
+      ctx.fillStyle = palette.note.top;
+      ctx.fillRect(0, y, width, Math.round(view.rowHeight));
+      ctx.globalAlpha = 1;
+    }
     ctx.fillStyle = pitch % 12 === 0 ? palette.beatLine : palette.line;
     ctx.fillRect(0, Math.round(pitchToY(view, pitch - 1)) - 1, width, 1);
   }
@@ -301,6 +311,17 @@ export function drawGrid(ctx: CanvasRenderingContext2D, scene: Scene) {
     ctx.strokeStyle = palette.time;
     ctx.lineWidth = 1;
     ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+  }
+  if (drag?.kind === "zoom") {
+    const x = Math.round(tickToX(view, Math.min(drag.from, drag.to)));
+    const y = Math.round(pitchToY(view, Math.max(drag.low, drag.high)));
+    const w = Math.round(Math.abs(drag.to - drag.from) * view.pxPerTick);
+    const h = Math.round((Math.abs(drag.high - drag.low) + 1) * view.rowHeight);
+    ctx.strokeStyle = palette.foreground;
+    ctx.setLineDash([4, 3]);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    ctx.setLineDash([]);
   }
   if (scene.slice) drawCutLine(ctx, scene.slice.x, scene.slice.y1, scene.slice.y2, palette.tool, !scene.slice.full);
   if (drag?.kind === "playback") {
@@ -442,9 +463,9 @@ export function rulerMarks(
 /**
  * The keyboard, drawn as a piano: white keys at their true sizes (three to the five rows from C to E,
  * four to the seven from F to B), black keys over them. Every white key is named when the rows are
- * tall enough to read, else only the Cs.
+ * tall enough to read, else only the Cs. Keys `held` (by the mouse, or played on a keyboard) are lit.
  */
-export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: number, height: number, palette: Palette, held: number | null) {
+export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: number, height: number, palette: Palette, held: ReadonlySet<number>) {
   ctx.fillStyle = palette.keys;
   ctx.fillRect(0, 0, width, height);
   const top = yToPitch(view, 0) + 1;
@@ -470,7 +491,7 @@ export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: 
   for (const key of whiteKeys(view, bottom, top)) {
     const y = Math.round(key.top);
     const h = Math.round(key.bottom) - y;
-    ctx.fillStyle = key.pitch === held ? pressed : key.pitch % 12 === 0 ? shaded : white;
+    ctx.fillStyle = held.has(key.pitch) ? pressed : key.pitch % 12 === 0 ? shaded : white;
     ctx.fillRect(0, y, width - 1, h - 1);
     ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
     ctx.fillRect(0, y + h - 1, width - 1, 1);
@@ -486,12 +507,12 @@ export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: 
     // Its shadow on the white keys, its body, then its lit front face.
     ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
     ctx.fillRect(blackWidth, y + 1, 3, h);
-    ctx.fillStyle = pitch === held ? "#2a4d82" : "#16181c";
+    ctx.fillStyle = held.has(pitch) ? "#2a4d82" : "#16181c";
     ctx.fillRect(0, y, blackWidth, h);
     if (h >= 6) {
       const face = ctx.createLinearGradient(0, 0, blackWidth, 0);
-      face.addColorStop(0, pitch === held ? "#3a66a6" : "#24272c");
-      face.addColorStop(1, pitch === held ? "#5d90d8" : "#454951");
+      face.addColorStop(0, held.has(pitch) ? "#3a66a6" : "#24272c");
+      face.addColorStop(1, held.has(pitch) ? "#5d90d8" : "#454951");
       ctx.fillStyle = face;
       ctx.fillRect(1, y + 1, blackWidth - 6, h - 3);
       ctx.fillStyle = "rgba(255, 255, 255, 0.18)";

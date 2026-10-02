@@ -263,8 +263,8 @@ trimmed; plugins told they're rendering offline; Show in Finder when done; Stop.
 | --- | --- | --- |
 | While it renders | The song is locked | The song can be edited: it's exported as it was at Start. Playing waits, and says why; plugin windows hide until it's done |
 | Speed | One thread, as fast as it goes | Every core: 45× real time with 24 Serums on an M5 Pro, against 4.3× played |
-| Tail | Leave, wrap or cut remainder | Ring out or cut (no wrap yet). Ringing stops after half a second under −80 dB, 30 s at most |
-| Length | Also the last time marker | No time markers yet |
+| Tail | Leave, wrap or cut remainder | Ring out, cut, or wrap: the song rendered ringing out, then what rang past its end added onto its start, so it loops seamlessly (`server/music/wrap.ts`). Ringing stops after half a second under −80 dB, 30 s at most |
+| Length | Also the last time marker | The same: in song mode with no time selection, a song with time markers ends at its last one (Start / Stop recording markers don't count); the window says so |
 | Stems | WAV only; named mixer tracks | Any of the formats; every track something plays into (silent ones are left out), named "<song> - <track>" |
 | Formats | Picked in the dialog | The same, and remembered across songs |
 | OGG | Vorbis | libvorbis if ffmpeg has it, else ffmpeg's own Vorbis encoder (quality from the bitrate) |
@@ -272,6 +272,7 @@ trimmed; plugins told they're rendering offline; Show in Finder when done; Stop.
 | Quality switches | HQ for all plugins, max polyphony | Plugins always told they're offline; no polyphony limit to lift |
 | Markers, tempo in WAVs, mono, sample rate in the dialog | Yes | Not yet (the sample rate is the engine's) |
 | Upload to SoundCloud, FL Cloud mastering | Yes | No |
-| Export all playlist tracks, consolidate, render as audio clip | Yes | Not yet |
+| Export all playlist tracks | Yes | Not yet |
+| Render as audio clip, Consolidate this track | Yes | The same, from the clip menu and the track header's menu: the clips (pattern and audio; the song's automation still plays) rendered through the mixer from the first one's start, ringing out, into a WAV that becomes the project's media (`bounce` export: no file chosen, nothing encoded, not turned down). Render as audio clip puts it on the first free track below them; Consolidate on the track itself, its clips muted. One undo step (`playlist/bounce.ts`); the assistant's `render_clips` |
 | In a browser | — | No save dialog: the files are downloaded |
 | A mix over full scale | Clipped in the file (but 32-bit float); FL's default template has a limiter on the master | **Keep it from clipping** (on by default): the engine mixes in floating point, so a mix can go over full scale and sound clean live (the computer's volume turns it down before the speakers), but a file would clip. A render that goes over is turned down as a whole, every file alike, to −0.3 dB, so it sounds as it played; the window says by how much. Found on Théo's first export: his mix peaked +12.6 dB over and the 808 was clipped flat |

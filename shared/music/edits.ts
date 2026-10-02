@@ -2,11 +2,14 @@
  * Edits of a song: pure `(MusicProject) => MusicProject`, returning **the same instance** when nothing
  * changed (so no-ops skip the undo stack and autosave), like the video editor's in `shared/timeline.ts`.
  */
+import { type SamplerPatch, sameSampler, samplerFields } from "./sampler.ts";
+import { type SongScale, isScaleId } from "./scales.ts";
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import {
   DEFAULT_VELOCITY,
   MAX_ENVELOPE_TIME,
+  envelopeExtras,
   MAX_NAME,
   MAX_PITCH,
   MAX_SAMPLE_START,
@@ -93,6 +96,19 @@ export const setMainVolume = (song: MusicProject, volume: number) => (Number.isF
 
 export const setTimeSignature = (song: MusicProject, timeSignature: [number, number]) => setSettings(song, { timeSignature });
 
+/** The song's scale (FL's scale highlighting), or none. */
+export function setScale(song: MusicProject, scale: SongScale | null): MusicProject {
+  const now = song.settings.scale;
+  if (scale === null) {
+    if (!now) return song;
+    const { scale: _gone, ...settings } = song.settings;
+    return { ...song, settings };
+  }
+  const root = ((Math.round(scale.root) % 12) + 12) % 12;
+  if (!isScaleId(scale.type) || (now?.root === root && now.type === scale.type)) return song;
+  return { ...song, settings: { ...song.settings, scale: { root, type: scale.type } } };
+}
+
 // ---------------------------------------------------------------------------
 // Channels
 // ---------------------------------------------------------------------------
@@ -131,14 +147,14 @@ export const addPluginChannel = (song: MusicProject, plugin: PluginRef, id?: str
 export type ChannelPatch = Partial<Pick<Channel, "name" | "sampleId" | "volume" | "pan" | "pitch" | "muted" | "cutSelf" | "color">> & {
   envelope?: Partial<Envelope>;
   precomputed?: Partial<Precomputed>;
-};
+} & SamplerPatch;
 
 /** A colour as the document keeps it ("#rrggbb", lower case), or null for anything else. */
 const validColor = (color: string | null | undefined): string | null => (typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : null);
 
-/** `next` if it differs from `current` in any field, else `current` itself. */
+/** `next` if it differs from `current` in any field (or has other fields), else `current` itself. */
 function changed<T extends object>(current: T, next: T): T {
-  return (Object.keys(next) as (keyof T)[]).every((key) => next[key] === current[key]) ? current : next;
+  return Object.keys(next).length === Object.keys(current).length && (Object.keys(next) as (keyof T)[]).every((key) => next[key] === current[key]) ? current : next;
 }
 
 function patched(channel: Channel, patch: ChannelPatch): Channel {
@@ -148,7 +164,12 @@ function patched(channel: Channel, patch: ChannelPatch): Channel {
     decay: clamp(patch.envelope?.decay ?? channel.envelope.decay, 0, MAX_ENVELOPE_TIME),
     sustain: clamp(patch.envelope?.sustain ?? channel.envelope.sustain, 0, 1),
     release: clamp(patch.envelope?.release ?? channel.envelope.release, 0, MAX_ENVELOPE_TIME),
+    ...envelopeExtras({ ...channel.envelope, ...patch.envelope }),
   });
+  // Its loop, filter, swing mix and other envelopes and LFOs: what's kept of them, the same objects when unchanged.
+  const { swingMix: _s, loop: _l, filter: _f, mods: _m, ...rest } = channel;
+  const sampler = samplerFields(channel, patch);
+  const samplerSame = sameSampler(sampler, channel);
   const precomputed = changed(channel.precomputed, {
     normalize: patch.precomputed?.normalize ?? channel.precomputed.normalize,
     reverse: patch.precomputed?.reverse ?? channel.precomputed.reverse,
@@ -157,8 +178,9 @@ function patched(channel: Channel, patch: ChannelPatch): Channel {
     fadeIn: clamp(patch.precomputed?.fadeIn ?? channel.precomputed.fadeIn, 0, 1),
     fadeOut: clamp(patch.precomputed?.fadeOut ?? channel.precomputed.fadeOut, 0, 1),
   });
-  return changed(channel, {
-    ...channel,
+  const next = {
+    ...rest,
+    ...(samplerSame ? { swingMix: channel.swingMix, loop: channel.loop, filter: channel.filter, mods: channel.mods } : sampler),
     name: patch.name?.trim().slice(0, MAX_NAME) || channel.name,
     sampleId: patch.sampleId === undefined ? channel.sampleId : patch.sampleId,
     volume: clamp(patch.volume ?? channel.volume, 0, 1),
@@ -169,7 +191,10 @@ function patched(channel: Channel, patch: ChannelPatch): Channel {
     color: patch.color === undefined ? channel.color : validColor(patch.color),
     envelope,
     precomputed,
-  });
+  };
+  // Absent fields stay absent (an untouched channel keeps no sampler fields).
+  for (const key of ["swingMix", "loop", "filter", "mods"] as const) if (next[key] === undefined) delete next[key];
+  return changed(channel, next);
 }
 
 /** Apply `update` to the channels in `ids` (in one pass), keeping the song if none changes. */

@@ -17,7 +17,7 @@ import { EQ_CONTROL_SCALES } from "./pro-q-presets.ts";
 import { OTT_CONTROL_SPECS } from "./ott.ts";
 import { PAN_CONTROLS, panControlFraction, panControlValue } from "./panman-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
-import { DEFAULT_LFO, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
+import { DEFAULT_LFO, MAX_TEMPO, MIN_TEMPO, PITCH_KNOB_RANGE, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
 import { type Automation, type AutomationLfo, type AutomationPoint, type AutomationTarget, type CurveType, type MusicProject, type PlaylistClip, STEP_TICKS } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -207,6 +207,8 @@ export function targetKey(target: AutomationTarget): string {
       return `wheel:${target.effect}:${target.control}`;
     case "main":
       return "main";
+    case "tempo":
+      return "tempo";
     case "plugin":
       return `plugin:${target.owner}:${target.id}:${target.param}`;
   }
@@ -256,6 +258,22 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
   switch (target.kind) {
     case "channel": {
       const channel = song.channels.find((c) => c.id === target.channel);
+      if (target.control === "pitch") {
+        // Semitones either way of the knob's reach; a plugin channel's keys move by whole ones.
+        const toControl = (v: number) => (clamp(v, 0, 1) * 2 - 1) * PITCH_KNOB_RANGE;
+        return {
+          name: "Pitch",
+          owner: channel?.name ?? "A deleted channel",
+          exists: !!channel,
+          own: channel ? clamp((channel.pitch / PITCH_KNOB_RANGE + 1) / 2, 0, 1) : null,
+          toControl,
+          fromControl: (value) => clamp((value / PITCH_KNOB_RANGE + 1) / 2, 0, 1),
+          format: (v) => {
+            const semitones = toControl(v);
+            return channel?.kind === "plugin" ? `${semitones > 0 ? "+" : ""}${Math.round(semitones)} st` : `${semitones > 0 ? "+" : ""}${Math.round(semitones * 100)} cents`;
+          },
+        };
+      }
       const pan = target.control === "pan";
       return {
         name: pan ? "Pan" : "Volume",
@@ -438,6 +456,12 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
     }
     case "main":
       return { name: "Main volume", owner: "Song", exists: true, own: song.settings.volume, ...unit, format: percent };
+    case "tempo": {
+      // BPM across the song's whole range (a clip's Min / Max narrow it: `TEMPO_CLIP_RANGE`).
+      const toControl = (v: number) => MIN_TEMPO + clamp(v, 0, 1) * (MAX_TEMPO - MIN_TEMPO);
+      const fromControl = (bpm: number) => clamp((bpm - MIN_TEMPO) / (MAX_TEMPO - MIN_TEMPO), 0, 1);
+      return { name: "Tempo", owner: "Song", exists: true, own: fromControl(song.settings.tempo), toControl, fromControl, format: (v) => `${Math.round(toControl(v) * 100) / 100} BPM` };
+    }
     case "plugin": {
       let owner: string | null = null;
       if (target.owner === "channel") {
@@ -583,6 +607,48 @@ export function movePoint(points: AutomationPoint[], index: number, tick: number
   return points.map((p, i) => (i === index ? next : p));
 }
 
+/**
+ * Move a point in FL's Slide mode: every point after it moves along with it (by as many ticks), so what
+ * follows keeps its shape. It can't pass the point before, nor push the last past the curve's end.
+ */
+export function slidePoint(points: AutomationPoint[], index: number, tick: number, value: number, length: number): AutomationPoint[] {
+  const point = points[index];
+  if (!point) return points;
+  const last = points[points.length - 1].tick;
+  const delta = index === 0 ? 0 : clamp(Math.round(tick) - point.tick, points[index - 1].tick - point.tick, length - last);
+  const moved = tidyPoint({ ...point, tick: point.tick + delta, value });
+  if (delta === 0 && moved.value === point.value) return points;
+  return points.map((p, i) => (i < index ? p : i === index ? moved : { ...p, tick: p.tick + delta }));
+}
+
+/**
+ * FL's Step mode: steps painted onto a curve, `cells` (a step's start → its value, in ticks of the curve),
+ * each `cell` ticks long. A step is a held value: what was in it goes, it jumps to its value at its start
+ * and back to what the curve was at its end (unless another step follows). Points beyond the most a curve
+ * may have aren't added.
+ */
+export function paintSteps(points: AutomationPoint[], cells: ReadonlyMap<number, number>, cell: number, length: number): AutomationPoint[] {
+  let next = points;
+  for (const [from, value] of [...cells].sort((a, b) => a[0] - b[0])) {
+    const start = Math.round(clamp(from, 0, length));
+    const end = Math.round(Math.min(from + cell, length));
+    if (end <= start) continue;
+    const after = curveValue(next, end);
+    // The curve up to the step keeps its shape: a point where it starts, on the segment it cuts (a held one needs none).
+    const arriving = next.find((p) => p.tick >= start);
+    const lead = start > 0 && arriving && arriving.curve !== "hold" ? { ...arriving, tick: start, value: arriving.tick === start ? arriving.value : curveValue(next, start) } : null;
+    const before = next.filter((p) => p.tick < start);
+    const rest = next.filter((p) => p.tick >= end);
+    // Held to its end, then the curve as it was there: onto the point already there, or a new one.
+    const close: AutomationPoint[] =
+      rest[0]?.tick === end ? [{ ...rest[0], curve: "hold", tension: 0 }, ...rest.slice(1)] : end < length ? [{ tick: end, value: after, tension: 0, curve: "hold" }, ...rest] : rest;
+    const painted = [...before, ...(lead ? [lead] : []), { tick: start, value: clamp(value, 0, 1), tension: 0, curve: "hold" as const }, ...close];
+    if (painted.length > MAX_AUTOMATION_POINTS) break;
+    next = painted;
+  }
+  return next;
+}
+
 /** Delete a point. The first stays (a curve always starts somewhere). */
 export function deletePoint(points: AutomationPoint[], index: number): AutomationPoint[] {
   if (index <= 0 || index >= points.length) return points;
@@ -719,6 +785,12 @@ export function createAutomation(
   if (!info.exists) return none;
   const length = Math.round(clamp(place.length, STEP_TICKS, MAX_PATTERN_TICKS));
   const value = clamp(options.value ?? info.own ?? 0.5, 0, 1);
+  // A tempo clip shows FL's range (60 to 180 BPM), taking in the tempo it starts at; the others, all of theirs.
+  const range =
+    target.kind === "tempo"
+      ? { min: info.fromControl(Math.min(TEMPO_CLIP_RANGE.min, info.toControl(value) - 10)), max: info.fromControl(Math.max(TEMPO_CLIP_RANGE.max, info.toControl(value) + 10)) }
+      : { min: 0, max: 1 };
+  const start = range.max > range.min ? clamp((value - range.min) / (range.max - range.min), 0, 1) : value;
   const automation: Automation = {
     id: options.id ?? createId("auto"),
     name: (options.name ?? controlName(info)).slice(0, MAX_NAME),
@@ -726,17 +798,20 @@ export function createAutomation(
     target,
     length,
     points: [
-      { tick: 0, value, tension: 0, curve: "single" },
-      { tick: length, value, tension: 0, curve: "single" },
+      { tick: 0, value: start, tension: 0, curve: "single" },
+      { tick: length, value: start, tension: 0, curve: "single" },
     ],
-    min: 0,
-    max: 1,
+    min: range.min,
+    max: range.max,
     lfo: DEFAULT_LFO,
   };
   const track = place.track ?? Math.min(lastUsedTrack(song.playlist.clips) + 1, MAX_PLAYLIST_TRACKS - 1);
   const { clips, created } = addClips(song.playlist.clips, [{ kind: "automation", ref: automation.id, track, start: place.start, length: null, offset: 0 }]);
   return { song: { ...song, automations: [...song.automations, automation], playlist: { ...song.playlist, clips } }, automationId: automation.id, clipId: created[0] ?? -1 };
 }
+
+/** The tempo range a new tempo automation clip's Min / Max cover (FL's default), widened to take in the song's own tempo. */
+export const TEMPO_CLIP_RANGE = { min: 60, max: 180 };
 
 /** The automation clips of a control (every one, playing or not). */
 export const automationsOf = (song: MusicProject, target: AutomationTarget) => {

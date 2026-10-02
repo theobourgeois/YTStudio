@@ -1,11 +1,12 @@
 import { create } from "zustand";
-import type { NewNote, NotePatch } from "@shared/music/notes";
+import type { NewNote, NotePatch, QuantizeEnds } from "@shared/music/notes";
+import type { SongScale, StampId } from "@shared/music/scales";
 import type { Note } from "@shared/music/types";
 import { useMusic } from "../store";
 import { selectInRack } from "../ui";
 import type { PianoView, Snap } from "./geometry";
 
-export const PIANO_TOOLS = ["draw", "paint", "delete", "mute", "slice", "select", "playback"] as const;
+export const PIANO_TOOLS = ["draw", "paint", "delete", "mute", "slice", "select", "zoom", "playback"] as const;
 /** The Piano roll's tool: what the left button does on the grid (FL Studio's, with its keys). */
 export type PianoTool = (typeof PIANO_TOOLS)[number];
 
@@ -26,6 +27,18 @@ export interface ChopperSettings {
 
 export const DEFAULT_CHOPPER: ChopperSettings = { patternId: "default", timeMul: 1, velocity: 0, pan: 0, absolute: true };
 
+/** The Quantizer's settings (Alt+Q): its grid (a snap; "line", "cell" and none: the Piano roll's snap, else a step), and `QuantizeOptions`' others. Kept between openings. */
+export interface QuantizerSettings {
+  snap: Snap;
+  start: number;
+  duration: number;
+  sensitivity: number;
+  swing: number;
+  ends: QuantizeEnds;
+}
+
+export const DEFAULT_QUANTIZER: QuantizerSettings = { snap: "line", start: 1, duration: 1, sensitivity: 1, swing: 0, ends: "leaveDuration" };
+
 export interface TimeRange {
   start: number;
   end: number;
@@ -38,7 +51,8 @@ export interface TimeRange {
  * sent to the engine per mouse move; and it's one undo step.
  */
 export type PianoDrag =
-  | { kind: "move"; ids: ReadonlySet<number>; ticks: number; semitones: number; clone: boolean }
+  /** `scale`: the song's, the notes landing on its nearest notes (FL's Snap to scale; Alt: none). */
+  | { kind: "move"; ids: ReadonlySet<number>; ticks: number; semitones: number; clone: boolean; scale?: SongScale | null }
   | { kind: "resize"; ids: ReadonlySet<number>; ticks: number }
   | { kind: "stretch"; ids: ReadonlySet<number>; factor: number; anchor: number }
   /** Notes being drawn or painted, not yet in the song. */
@@ -56,7 +70,9 @@ export type PianoDrag =
   /** The playback tool (scrubbing): the notes at `tick` sound. Changes no notes. */
   | { kind: "playback"; tick: number }
   /** Values being drawn in the event editor. */
-  | { kind: "values"; values: ReadonlyMap<number, NotePatch> };
+  | { kind: "values"; values: ReadonlyMap<number, NotePatch> }
+  /** The zoom tool's rectangle (FL's Z): what the view zooms to when it's let go. */
+  | { kind: "zoom"; from: number; to: number; low: number; high: number };
 
 interface PianoState {
   /** The channel whose notes it shows, or null (it then shows the first). */
@@ -86,6 +102,13 @@ interface PianoState {
   /** The Chopper's window is open: the notes are drawn chopped until it's accepted or closed. */
   chopping: boolean;
   chopper: ChopperSettings;
+  /** The Quantizer's window is open (Alt+Q): the notes are drawn quantized until it's accepted or closed. */
+  quantizing: boolean;
+  quantizer: QuantizerSettings;
+  /** FL's Stamp: what Draw places with a click (a chord, or the scale's own), or null for a note. */
+  stamp: StampId | null;
+  /** The view before the zoom tool last zoomed in: its right-click goes back (and forth). */
+  zoomBack: PianoView | null;
   /** The key held down on the keyboard, lit while it sounds. */
   heldKey: number | null;
   /** Where the slice tool would cut if pressed now (the pointer over the grid, no button down, Shift held: the whole column). */
@@ -125,6 +148,10 @@ const INITIAL = {
   editing: null,
   chopping: false,
   chopper: DEFAULT_CHOPPER,
+  quantizing: false,
+  quantizer: DEFAULT_QUANTIZER,
+  stamp: null as StampId | null,
+  zoomBack: null as PianoView | null,
   heldKey: null,
   sliceHover: null as { tick: number; pitch: number } | null,
 };

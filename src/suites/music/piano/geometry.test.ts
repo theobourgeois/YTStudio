@@ -3,6 +3,7 @@ import { byStart } from "@shared/music/project";
 import type { Note } from "@shared/music/types";
 import {
   wheelZoomFactor,
+  zoomToRect,
   EDGE_SPEED,
   edgeSpeed,
   scrollViewBy,
@@ -284,5 +285,15 @@ describe("edge scrolling", () => {
     expect(scrollViewBy(top, 0, -8, 320)).toBe(top);
     const bottom = { ...view, topPitch: 19 };
     expect(scrollViewBy(bottom, 0, 8, 320)).toBe(bottom);
+  });
+});
+
+describe("the zoom tool's rectangle", () => {
+  it("fills the grid with the time and the rows it covers", () => {
+    const view: PianoView = { scrollTick: 0, pxPerTick: 0.5, topPitch: 84, rowHeight: 16 };
+    const zoomed = zoomToRect(view, 384, 192, 60, 71, 800, 360);
+    expect(zoomed).toMatchObject({ scrollTick: 192, pxPerTick: 800 / 192, rowHeight: 30 });
+    // Twelve rows of 30 px: from B5 (71) at the top.
+    expect(zoomed.topPitch).toBeCloseTo(72, 5);
   });
 });

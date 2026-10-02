@@ -64,9 +64,47 @@ private:
 
 struct Song
 {
+    /**
+     * A sampler's envelope (FL's DAHDSR with tensions): its volume's, or another target's, which moves it
+     * by `amount`. `level` is `envelopeLevel` in shared/music/sampler.ts: keep the two the same.
+     */
     struct Envelope
     {
         float attack = 0, decay = 0, sustain = 1, release = 0;
+        float delay = 0, hold = 0, attackTension = 0, decayTension = 0, releaseTension = 0;
+        float amount = 1;
+        bool enabled = false;
+        /** Its level (0..1) `t` seconds into its note, the note let go at `released` seconds (negative: still held). */
+        float level (double t, double released) const;
+        /** Whether it has gone quiet for good, `t` seconds in (let go at `released`). */
+        bool over (double t, double released) const { return released >= 0 && t - released >= release; }
+    };
+
+    /** An LFO (FL's): `value` is `lfoValue` in shared/music/sampler.ts, -1..1 before its amount. */
+    struct Lfo
+    {
+        bool enabled = false;
+        /** 0 sine, 1 triangle, 2 square, 3 saw. */
+        int shape = 0;
+        /** Cycles a second; with `sync`, beats a cycle. */
+        double speed = 4;
+        bool sync = false;
+        float amount = 0.5f;
+        double delay = 0, attack = 0;
+        float value (double t, double tempo) const;
+    };
+
+    /** A sampler target's envelope and LFO (pan, cutoff, resonance, pitch). */
+    struct Modulation
+    {
+        Envelope envelope;
+        Lfo lfo;
+        bool any() const { return envelope.enabled || lfo.enabled; }
+        /** How far it moves its target `t` seconds in (-1..1 each, added). */
+        float at (double t, double released, double tempo) const
+        {
+            return (envelope.enabled ? envelope.level (t, released) * envelope.amount : 0.0f) + (lfo.enabled ? lfo.value (t, tempo) * lfo.amount : 0.0f);
+        }
     };
 
     struct Channel
@@ -93,6 +131,17 @@ struct Song
         /** Without one, a note plays its whole sample whatever its length. */
         bool hasEnvelope = false;
         Envelope envelope;
+        /** A sampler's volume LFO, its other targets' envelopes and LFOs, its filter and its loop (`shared/music/sampler.ts`). */
+        Lfo volumeLfo;
+        Modulation pan, cutoff, resonance, pitchMod;
+        /** 0 none, 1 low pass, 2 band pass, 3 high pass; its cutoff and resonance 0..1 (`cutoffHz`, `resonanceQ`). */
+        int filterType = 0;
+        float filterCutoff = 1, filterResonance = 0;
+        /** Its loop, in fractions of its prepared sample, going round while a note is held. */
+        bool loop = false;
+        double loopStart = 0, loopEnd = 1, loopCrossfade = 0;
+        /** Any of these is on: its voices go the long way round (`Sequencer::render`). */
+        bool shaped = false;
         /** Index into `tracks`: the mixer track it plays into. */
         int track = 0;
         /**
@@ -193,7 +242,7 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, track, send, mix, gross, tune, echo, eq, ott, panman, wheel, param };
+        enum class Kind { channel, pitch, track, send, mix, gross, tune, echo, eq, ott, panman, wheel, param };
         Kind kind = Kind::channel;
         /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix, attack, release, tension), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`), an OTT's (`ott::Lane`), a Pitch Wheel's (`PitchWheelControl`, by index), or a PanMan's (`PanControl`: offset, width, rate, input, output). */
         int channel = -1, track = -1, index = -1, control = 0;
@@ -246,6 +295,9 @@ struct Song
         /** Stretch mode: `speed` stretches it in time, its pitch kept and shifted by `transpose` semitones. */
         bool keepPitch = false;
         double transpose = 0;
+        /** Its own gain, and its fades (ticks from its start and before its end) and how they bend (-1..1). Not in its key: they change as it plays. */
+        float gain = 1, fadeInTension = 0, fadeOutTension = 0;
+        double fadeIn = 0, fadeOut = 0;
         /** Its channel's file. */
         juce::String path;
         /** Its channel's sound prepared by its precomputed effects, in memory: played instead of the file. */
@@ -261,6 +313,8 @@ struct Song
     double loopTicks = 384, beatTicks = 96, barTicks = 384;
     /** Where the loop starts in the pattern or the song (the engine's ticks count from it): where the bars are. */
     double offsetTicks = 0;
+    /** With tempo clips: the metronome's beats from the loop's start (no longer every `beatTicks`), and those starting bars. Empty: every `beatTicks`. */
+    std::vector<double> clicks, barClicks;
     /** Round and round (playing); or, exported, it plays once and then nothing more is started. */
     bool loops = true;
     std::vector<Channel> channels;
@@ -299,8 +353,14 @@ struct Song
     int latency = 0;
     /** Tells songs apart, so the next one knows whether its `previous` indexes are into this one. */
     juce::uint64 serial = 0, previousSerial = 0;
+    /** The channel a MIDI keyboard plays (index into `channels`), or -1: the rack's selected one, set as it's handed over (`Sequencer::setSong`). */
+    int midiChannel = -1;
 
     int channelIndex (const juce::String& id) const;
+
+    /** An envelope or an LFO from an `EngineSong`'s JSON (`shared/music/compile.ts`). */
+    static Envelope parseEnvelope (const juce::var& json);
+    static Lfo parseLfo (const juce::var& json);
 
     /**
      * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the

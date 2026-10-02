@@ -26,6 +26,14 @@ public:
      */
     void setTouched (int index, const juce::String& name);
     std::function<void (int)> onAutomate;
+    /**
+     * FL's preset browser in the title bar: what it's on (`label`: a preset's or program's name, or empty)
+     * and, with `canStep`, arrows to the previous and next (`onStep` with -1 or 1).
+     */
+    void setPreset (const juce::String& label, bool canStep);
+    std::function<void (int)> onStep;
+    /** Its wrapper button (FL's Wrapper settings): the channel's settings window, in the app. */
+    std::function<void()> onSettings;
     void resized() override;
 
 private:
@@ -36,6 +44,9 @@ private:
     std::function<void()> onClose;
     /** The title bar's Automate button, shown once a parameter has been touched. */
     std::unique_ptr<juce::Button> automate;
+    /** The preset browser (arrows and the preset's name) and the wrapper button. */
+    std::unique_ptr<juce::Component> presetBar;
+    std::unique_ptr<juce::Button> settings;
     int touched = -1;
     /** Its title bar's look; outlives the window's use of it (`setLookAndFeel (nullptr)` first). */
     std::unique_ptr<juce::LookAndFeel> look;

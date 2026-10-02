@@ -17,6 +17,8 @@ export type MusicKeyAction =
         | "toggleMode"
         /** FL's R: Record on or off (Play then records the armed tracks). */
         | "toggleRecord"
+        /** FL's Ctrl+T: the typing keyboard to piano keyboard on or off. */
+        | "toggleTyping"
         | "toggleGraph"
         | "toggleTrackSelectors"
         | "assignFreeTracks"
@@ -89,6 +91,7 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
     if (letter === "R") return { type: e.shiftKey ? "exportMp3" : "exportWav" };
     if (e.shiftKey) return null;
     if (letter === "Y") return { type: "redo" };
+    if (letter === "T") return { type: "toggleTyping" };
     if (letter === "K") return { type: "toggleGraph" };
     if (letter === "L") return { type: "assignFreeTracks" };
     if (letter === "C") return { type: "copy" };
@@ -99,7 +102,21 @@ export function resolveMusicKey(e: KeyLike): MusicKeyAction | null {
 }
 
 /** Keys for the whole editor, whichever window is in front (the Piano roll and the mixer leave only these to the rack). */
-const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set(["togglePlay", "undo", "redo", "toggleRack", "togglePiano", "togglePlaylist", "toggleMixer", "toggleBrowser", "toggleMode", "toggleRecord", "exportWav", "exportMp3"]);
+const GLOBAL_KEYS: ReadonlySet<MusicKeyAction["type"]> = new Set([
+  "togglePlay",
+  "undo",
+  "redo",
+  "toggleRack",
+  "togglePiano",
+  "togglePlaylist",
+  "toggleMixer",
+  "toggleBrowser",
+  "toggleMode",
+  "toggleRecord",
+  "toggleTyping",
+  "exportWav",
+  "exportMp3",
+]);
 
 export const isGlobalKey = (action: MusicKeyAction) => GLOBAL_KEYS.has(action.type);
 

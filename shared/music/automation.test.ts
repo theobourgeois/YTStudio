@@ -15,6 +15,8 @@ import {
   isAutomated,
   lfoAt,
   movePoint,
+  paintSteps,
+  slidePoint,
   normalizePointLevels,
   removeAutomations,
   scalePoints,
@@ -202,6 +204,50 @@ describe("editing a curve", () => {
     expect(movePoint(three, 0, 30, 0.4, 200)[0]).toMatchObject({ tick: 0, value: 0.4 });
     expect(movePoint(three, 2, 300, 0, 200)[2].tick).toBe(200);
     expect(movePoint(three, 1, 50, 0.5, 200)).toBe(three);
+  });
+
+  it("slides a point with every point after it (Slide mode), never past the one before nor the curve's end", () => {
+    const three = [point(0, 0), point(50, 0.5), point(100, 1)];
+    expect(slidePoint(three, 1, 70, 0.25, 200).map((p) => [p.tick, p.value])).toEqual([
+      [0, 0],
+      [70, 0.25],
+      [120, 1],
+    ]);
+    expect(slidePoint(three, 1, -40, 0.5, 200).map((p) => p.tick)).toEqual([0, 0, 50]);
+    expect(slidePoint(three, 1, 500, 0.5, 200).map((p) => p.tick)).toEqual([0, 150, 200]);
+    expect(slidePoint(three, 0, 30, 0.4, 200).map((p) => p.tick)).toEqual([0, 50, 100]);
+    expect(slidePoint(three, 1, 50, 0.5, 200)).toBe(three);
+  });
+
+  it("paints held steps (Step mode): each step its value, the curve as it was after it", () => {
+    const ramp = [point(0, 0), point(96, 1)];
+    const painted = paintSteps(ramp, new Map([[24, 0.8], [48, 0.2]]), 24, 96);
+    expect(curveValue(painted, 10)).toBeCloseTo(10 / 96);
+    expect(curveValue(painted, 24)).toBe(0.8);
+    expect(curveValue(painted, 47)).toBe(0.8);
+    expect(curveValue(painted, 48)).toBe(0.2);
+    expect(curveValue(painted, 71)).toBe(0.2);
+    // Back to the ramp where the steps end.
+    expect(curveValue(painted, 72)).toBeCloseTo(0.75);
+    expect(painted.map((p) => [p.tick, p.curve])).toEqual([
+      [0, "single"],
+      [24, "single"],
+      [24, "hold"],
+      [48, "hold"],
+      [72, "hold"],
+      [96, "single"],
+    ]);
+    // The first step replaces the curve's first point; the last holds to the end.
+    const ends = paintSteps(ramp, new Map([[0, 0.5], [84, 0.1]]), 24, 96);
+    expect(ends.map((p) => [p.tick, p.value])).toEqual([
+      [0, 0.5],
+      [24, 0.25],
+      [84, 0.875],
+      [84, 0.1],
+      [96, 1],
+    ]);
+    expect(curveValue(ends, 95)).toBe(0.1);
+    expect(curveValue(ends, 60)).toBeCloseTo(0.25 + (0.75 * 36) / 72);
   });
 
   it("deletes any point but the first, and changes a segment's curve, tension and value", () => {

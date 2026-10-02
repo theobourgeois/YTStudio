@@ -3,7 +3,7 @@ import { addChannels, setSteps, setTempo } from "@shared/music/edits";
 import { addAudioClips } from "@shared/music/playlist";
 import { createMusicProject } from "@shared/music/project";
 import type { MusicProject } from "@shared/music/types";
-import { chopClipsTool, describePlaylist, makeClipUniqueTool, placeClipsTool, playlistSummary, removeClipsTool, sliceClipsTool, splitByChannelTool, stretchAudioTool, updateClipsTool, updatePlaylistTrackTool } from "./tool-edits";
+import { setMarkersTool, chopClipsTool, describePlaylist, makeClipUniqueTool, placeClipsTool, playlistSummary, removeClipsTool, sliceClipsTool, splitByChannelTool, stretchAudioTool, updateClipsTool, updatePlaylistTrackTool } from "./tool-edits";
 import { clipContext, clipLength } from "@shared/music/playlist";
 
 const BAR = 384;
@@ -21,6 +21,17 @@ function beat(): MusicProject {
 }
 
 describe("the assistant's playlist tools", () => {
+  it("give audio clips their own gain and fades", () => {
+    const song = addAudioClips(beat(), [{ name: "Loop 90bpm", sampleId: "m3", seconds: 4, channelId: "chan_loop" }], { start: 0, track: 2 }).song;
+    const id = song.playlist.clips[0].id;
+    const shaped = updateClipsTool(song, { ids: [id], gain_db: -6, fade_in: 1, fade_out: 2, fade_out_curve: 0.5 });
+    expect(shaped.song.playlist.clips[0]).toMatchObject({ fadeIn: 96, fadeOut: 192, fadeOutTension: 0.5 });
+    expect(shaped.song.playlist.clips[0].gain).toBeCloseTo(0.501, 3);
+    expect(shaped.text).toContain("-6 dB gain, fading in over 1 beat, fading out over 2 beats (curve 0.5)");
+    expect(updateClipsTool(song, { ids: [id], gain_db: -100 }).song.playlist.clips[0].gain).toBe(0);
+    expect(() => updateClipsTool(song, { ids: [id], fade_in_curve: 3 })).toThrow(/-1/);
+  });
+
   it("chop clips into bars or beats, and say when nothing's inside", () => {
     const placed = placeClipsTool(beat(), { clips: [{ pattern: "Beat", track: 1, bar: 1, length: 2 }] }, env).song;
     const { song, text } = chopClipsTool(placed, { ids: [1], every: "beat" });
@@ -155,5 +166,24 @@ describe("the assistant's audio tracks", () => {
     expect(() => stretchAudioTool(song, { audio: "Snare", tempo: 90 }, files)).toThrow(/no audio clip "Snare"/);
     const withPattern = placeClipsTool(song, { clips: [{ pattern: "Beat", track: 3, bar: 1 }] }, env).song;
     expect(() => stretchAudioTool(withPattern, { ids: [3], tempo: 90 }, files)).toThrow(/Only audio clips stretch/);
+  });
+});
+
+describe("time markers, for the assistant", () => {
+  it("adds, renames, moves, gives kinds to and removes markers, by number or name", () => {
+    let song = setMarkersTool(beat(), { action: "add", bar: 9, name: "Drop" }).song;
+    song = setMarkersTool(song, { action: "add", bar: 5, kind: "punchIn" }).song;
+    expect(song.playlist.markers?.map((m) => [m.tick, m.name, m.kind])).toEqual([
+      [BAR * 4, "Start recording", "punchIn"],
+      [BAR * 8, "Drop", "marker"],
+    ]);
+    song = setMarkersTool(song, { action: "update", id: "drop", bar: 17 }).song;
+    expect(song.playlist.markers?.[1].tick).toBe(BAR * 16);
+    const { text } = setMarkersTool(song, { action: "remove", id: 2 });
+    expect(text).toBe('Time markers: 1. "Drop" at bar 17 (marker).');
+    expect(setMarkersTool(song, { action: "remove", id: 2 }).song.playlist.markers).toHaveLength(1);
+    expect(() => setMarkersTool(song, { action: "update", id: "nope" })).toThrow(/no marker/);
+    expect(() => setMarkersTool(song, { action: "add", bar: 0 })).toThrow(/bar number/);
+    expect(describePlaylist(song, "song")).toContain('"Drop" at bar 17');
   });
 });

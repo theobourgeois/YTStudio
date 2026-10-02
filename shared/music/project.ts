@@ -4,6 +4,9 @@
  * old documents upgraded here), or it's dropped.
  */
 import { createId } from "../ids.ts";
+import { normalizeMarkers } from "./markers.ts";
+import { normalizeSamplerFields } from "./sampler.ts";
+import { isScaleId } from "./scales.ts";
 import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import { AUTO_TUNE_PLUGIN, isAutoTune, normalizeAutoTune } from "./auto-tune-presets.ts";
@@ -65,6 +68,7 @@ import {
   type ProQState,
   type GrossBeat,
   type GrossBeatSlot,
+  type ChannelControl,
   GROSS_CONTROLS,
   type GrossControl,
   type GrossHold,
@@ -99,6 +103,8 @@ export const DEFAULT_VOLUME = 0.78;
 export const DEFAULT_VELOCITY = 0.78;
 /** How far a channel can be transposed, in semitones. */
 export const MAX_PITCH = 48;
+/** The channel PITCH knob's reach either way, in semitones (and an automation clip's of it). */
+export const PITCH_KNOB_RANGE = 24;
 /** The step sequencer's limit, as in FL Studio (64 bars of 4/4). */
 export const MAX_STEPS = 512;
 /** How far into a pattern a note can start: 1000 bars of 4/4 (the Piano roll goes well past the step sequencer). */
@@ -155,6 +161,31 @@ export const MAX_SONG_TICKS = MAX_PATTERN_TICKS;
 export const MAX_CLIPS = 50_000;
 /** How far into its file an audio clip's window can start, in seconds (a day). */
 export const MAX_AUDIO_OFFSET = 86_400;
+/** An audio clip's own gain at most: +36 dB, as FL's. */
+export const MAX_CLIP_GAIN = 10 ** (36 / 20);
+/**
+ * An audio clip's own gain and fades (`PlaylistClip`), checked: each only when it isn't its
+ * default, the fades within its `length` (shortened together if they'd overlap).
+ */
+export function clipExtras(raw: Record<string, unknown>, length: number): Pick<PlaylistClip, "fadeIn" | "fadeOut" | "fadeInTension" | "fadeOutTension" | "gain"> {
+  const extras: Pick<PlaylistClip, "fadeIn" | "fadeOut" | "fadeInTension" | "fadeOutTension" | "gain"> = {};
+  let fadeIn = Math.round(number(raw.fadeIn, 0, length, 0));
+  let fadeOut = Math.round(number(raw.fadeOut, 0, length, 0));
+  if (fadeIn + fadeOut > length) {
+    const scale = length / (fadeIn + fadeOut);
+    fadeIn = Math.floor(fadeIn * scale);
+    fadeOut = Math.floor(fadeOut * scale);
+  }
+  if (fadeIn > 0) extras.fadeIn = fadeIn;
+  if (fadeOut > 0) extras.fadeOut = fadeOut;
+  const inTension = number(raw.fadeInTension, -1, 1, 0);
+  const outTension = number(raw.fadeOutTension, -1, 1, 0);
+  if (fadeIn > 0 && inTension !== 0) extras.fadeInTension = inTension;
+  if (fadeOut > 0 && outTension !== 0) extras.fadeOutTension = outTension;
+  const gain = number(raw.gain, 0, MAX_CLIP_GAIN, 1);
+  if (gain !== 1) extras.gain = gain;
+  return extras;
+}
 /** A playlist track's height, as a share of the usual one (FL's track Size). */
 export const MIN_TRACK_SIZE = 0.25;
 export const MAX_TRACK_SIZE = 4;
@@ -337,7 +368,22 @@ function normalizeEnvelope(input: unknown): Envelope {
     decay: number(input.decay, 0, MAX_ENVELOPE_TIME, DEFAULT_ENVELOPE.decay),
     sustain: number(input.sustain, 0, 1, DEFAULT_ENVELOPE.sustain),
     release: number(input.release, 0, MAX_ENVELOPE_TIME, DEFAULT_ENVELOPE.release),
+    ...envelopeExtras(input),
   };
+}
+
+/** A volume envelope's delay, hold and tensions, each only when it isn't 0. */
+export function envelopeExtras(input: Record<string, unknown>): Pick<Envelope, "delay" | "hold" | "attackTension" | "decayTension" | "releaseTension"> {
+  const out: Pick<Envelope, "delay" | "hold" | "attackTension" | "decayTension" | "releaseTension"> = {};
+  for (const key of ["delay", "hold"] as const) {
+    const value = number(input[key], 0, MAX_ENVELOPE_TIME, 0);
+    if (value) out[key] = value;
+  }
+  for (const key of ["attackTension", "decayTension", "releaseTension"] as const) {
+    const value = number(input[key], -1, 1, 0);
+    if (value) out[key] = value;
+  }
+  return out;
 }
 
 export function normalizePrecomputed(input: unknown): Precomputed {
@@ -384,6 +430,7 @@ function normalizeChannels(input: unknown, isSample: (id: string) => boolean, is
       precomputed: normalizePrecomputed(raw.precomputed),
       mixerTrack: isId(raw.mixerTrack) && isTrack(raw.mixerTrack) ? raw.mixerTrack : MASTER_TRACK_ID,
       color: isColor(raw.color) ? raw.color.toLowerCase() : null,
+      ...normalizeSamplerFields(raw),
     });
     const stretch = raw.kind === "audio" ? normalizeStretch(raw.stretch) : undefined;
     if (stretch) channels[channels.length - 1].stretch = stretch;
@@ -684,7 +731,7 @@ function normalizeTrack(raw: unknown, isInsert: (id: string) => boolean): Playli
 }
 
 const CONTROLS = {
-  channel: ["volume", "pan"],
+  channel: ["volume", "pan", "pitch"],
   mixer: ["volume", "pan", "stereo"],
 } as const;
 
@@ -698,13 +745,15 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
   if (!isObject(raw)) return null;
   switch (raw.kind) {
     case "channel":
-      return isId(raw.channel) && CONTROLS.channel.includes(raw.control as never) ? { kind: "channel", channel: raw.channel, control: raw.control as "volume" | "pan" } : null;
+      return isId(raw.channel) && CONTROLS.channel.includes(raw.control as never) ? { kind: "channel", channel: raw.channel, control: raw.control as ChannelControl } : null;
     case "mixer":
       return isId(raw.track) && CONTROLS.mixer.includes(raw.control as never) ? { kind: "mixer", track: raw.track, control: raw.control as "volume" | "pan" | "stereo" } : null;
     case "send":
       return isId(raw.track) && isId(raw.to) ? { kind: "send", track: raw.track, to: raw.to } : null;
     case "effect":
       return isId(raw.effect) ? { kind: "effect", effect: raw.effect } : null;
+    case "tempo":
+      return { kind: "tempo" };
     case "proQ":
       return isId(raw.effect) && Number.isInteger(raw.band) && (raw.band as number) >= 0 && (raw.band as number) <= EQ_BANDS && EQ_CONTROLS.includes(raw.control as EqControl)
         ? { kind: "proQ", effect: raw.effect, band: raw.band as number, control: raw.control as EqControl }
@@ -821,7 +870,18 @@ function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channe
     const offset = kind !== "audio" ? Math.round(number(raw.offset, 0, MAX_PATTERN_TICKS, 0)) : number(raw.offset, 0, MAX_AUDIO_OFFSET, 0);
     const id = Number.isInteger(raw.id) && (raw.id as number) > 0 && !ids.has(raw.id as number) ? (raw.id as number) : 0;
     const stretch = kind === "audio" ? normalizeStretch(raw.stretch) : undefined;
-    const clip: PlaylistClip = { id, kind, ref: raw.ref, track, start, length, offset, muted: raw.muted === true, ...(stretch ? { stretch } : {}) };
+    const clip: PlaylistClip = {
+      id,
+      kind,
+      ref: raw.ref,
+      track,
+      start,
+      length,
+      offset,
+      muted: raw.muted === true,
+      ...(stretch ? { stretch } : {}),
+      ...(kind === "audio" && length !== null ? clipExtras(raw, length) : {}),
+    };
     if (id) ids.add(id);
     else unnamed.push(clip);
     clips.push(clip);
@@ -830,7 +890,8 @@ function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channe
   let next = 0;
   for (const id of ids) next = Math.max(next, id);
   for (const clip of unnamed) clip.id = ++next;
-  return { tracks, clips: clips.sort(byClipStart) };
+  const markers = normalizeMarkers(input.markers);
+  return { tracks, clips: clips.sort(byClipStart), ...(markers && { markers }) };
 }
 
 /**
@@ -856,7 +917,15 @@ export function normalizeMusicProject(input: unknown, isSample: (id: string) => 
   return {
     version: 1,
     name,
-    settings: { tempo, timeSignature, swing: number(settings.swing, 0, 1, 0), volume: number(settings.volume, 0, 1, DEFAULT_VOLUME) },
+    settings: {
+      tempo,
+      timeSignature,
+      swing: number(settings.swing, 0, 1, 0),
+      volume: number(settings.volume, 0, 1, DEFAULT_VOLUME),
+      ...(isObject(settings.scale) && Number.isInteger(settings.scale.root) && (settings.scale.root as number) >= 0 && (settings.scale.root as number) < 12 && isScaleId(settings.scale.type)
+        ? { scale: { root: settings.scale.root as number, type: settings.scale.type } }
+        : {}),
+    },
     channels,
     patterns,
     playlist: normalizePlaylist(input.playlist, patterns, channels, automations, mixer),

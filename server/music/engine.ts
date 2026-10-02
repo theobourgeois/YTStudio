@@ -27,17 +27,20 @@ import {
   type HostWindow,
   type LoadedPlugin,
   METRONOME_SOUNDS,
+  type PluginPresets,
   type Resampling,
   type SetSongResponse,
   isMetronomeSound,
   isResampling,
 } from "../../shared/music/engine.ts";
 import { DEFAULT_VELOCITY, normalizeMusicProject } from "../../shared/music/project.ts";
+import { type SongClock, songClock, tempoMap } from "../../shared/music/tempo.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import type { MediaAsset } from "../../shared/types.ts";
 import { createId } from "../../shared/ids.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS, ENGINE_SOURCE } from "../config.ts";
 import { spawnStreaming } from "../process.ts";
+import { repairWav } from "./take-repair.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
 import { detectTempo } from "./tempo.ts";
 
@@ -92,6 +95,11 @@ interface Recording {
   names: Record<string, string>;
   /** When it started, for its files' names. */
   started: Date;
+  /** Where its files are written, and where play started (the engine's ticks): what's needed to save them if the engine dies. */
+  folder: string;
+  from: number;
+  /** The tracks whose last take is in: once every recording track's is, it's over. */
+  finals: Set<string>;
 }
 
 /** The engine's own word that a take's file is finished (`Recorder::Take`). */
@@ -106,6 +114,8 @@ interface RawTake {
   pass: number;
   final: boolean;
   dropped: boolean;
+  /** Saved after the engine died mid-recording (`salvage`): its timing is a guess. */
+  repaired?: boolean;
 }
 
 /** How often the song's plugins' states are written, if they've changed (what's turned in a plugin's window isn't an edit of the song). */
@@ -180,6 +190,12 @@ export class AudioEngine {
   private outdated = false;
   /** Recordings by id, while their takes may still come. */
   private readonly recordings = new Map<string, Recording>();
+  /**
+   * How the song last sent turns the tab's ticks (the song's, into its loop) into the engine's and back:
+   * with tempo clips in song mode the engine plays a warped song (`shared/music/tempo.ts`), so every tick
+   * crossing over is converted here, and the tab only ever sees the song's.
+   */
+  private clock: SongClock = songClock(null, 0);
   /** Takes are made media one after another, so they reach the tab in the order they were recorded. */
   private takes: Promise<void> = Promise.resolve();
 
@@ -199,6 +215,7 @@ export class AudioEngine {
   async command(name: string, body: unknown): Promise<EngineStatus> {
     const input = isObject(body) ? body : {};
     const params = await this.params(name as EngineCommand, input);
+    if (name === "play" && isFiniteNumber(params.from)) params.from = Math.max(0, this.clock.toEngine(params.from));
     const status = (await this.request(name, params)) as RawStatus;
     if (name === "saveState") await this.remember(slotOf(input), status[slotOf(input)]?.id);
     return this.withSaved(status);
@@ -209,11 +226,12 @@ export class AudioEngine {
    * (`shared/music/compile.ts`) and handed to the engine, which keeps playing through the change.
    */
   async setSong(body: unknown): Promise<SetSongResponse> {
-    const { song, compiled } = this.engineSong(body);
+    const { song, compiled, clock } = this.engineSong(body);
     this.song = song;
+    this.clock = clock;
     this.keepStates(song.channels.some((c) => c.plugin) || song.tracks.some((t) => t.effects.length > 0));
     const answer = (await this.request("song", { song })) as Omit<SetSongResponse, "loop">;
-    return { ...answer, loop: { start: compiled.offsetTicks, ticks: compiled.loopTicks } };
+    return { ...answer, loop: { start: clock.from, ticks: clock.toSong(compiled.loopTicks) } };
   }
 
   /**
@@ -257,7 +275,9 @@ export class AudioEngine {
     const loop = isObject(body.loop) && isFiniteNumber(body.loop.start) && isFiniteNumber(body.loop.end) ? { start: body.loop.start, end: body.loop.end } : null;
     const held = new Set(Array.isArray(body.held) ? body.held.filter((k): k is string => typeof k === "string").slice(0, 64) : []);
     const armed = new Set(Array.isArray(body.armed) ? body.armed.filter((id): id is string => typeof id === "string") : []);
-    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, body.mode === "song" ? "song" : "pattern", held, armed);
+    const mode = body.mode === "song" ? "song" : "pattern";
+    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, mode, held, armed);
+    const clock = songClock(mode === "song" ? tempoMap(doc) : null, loop && loop.end > loop.start ? Math.max(0, loop.start) : 0);
     // A plugin's state is a file of its own beside the project's document: `plugins/<channel id>.bin`, or the effect's id.
     const states = path.join(this.paths.projectDir(projectId), "plugins");
     const song = {
@@ -274,7 +294,7 @@ export class AudioEngine {
         effects: t.effects.map((e) => ({ ...e, plugin: { ...e.plugin, state: path.join(states, `${e.id}.bin`) } })),
       })),
     };
-    return { song, compiled };
+    return { song, compiled, clock };
   }
 
   /**
@@ -361,7 +381,9 @@ export class AudioEngine {
     if (typeof input.input === "string") params.input = input.input;
     if (isFiniteNumber(input.bufferSize) && input.bufferSize > 0) params.bufferSize = Math.round(input.bufferSize);
     if (isFiniteNumber(input.sampleRate) && input.sampleRate > 0) params.sampleRate = input.sampleRate;
-    if (!Object.keys(params).length) throw new HttpError(400, 'Give an "output", an "input", a "bufferSize" or a "sampleRate".');
+    if (isObject(input.midiInput) && typeof input.midiInput.name === "string" && input.midiInput.name)
+      params.midiInput = { name: input.midiInput.name.slice(0, 200), enabled: input.midiInput.enabled !== false };
+    if (!Object.keys(params).length) throw new HttpError(400, 'Give an "output", an "input", a "bufferSize", a "sampleRate" or a "midiInput".');
     return this.withSavedIn((await this.request("setDevice", params)) as RawDevices);
   }
 
@@ -378,6 +400,27 @@ export class AudioEngine {
     if (typeof id !== "string" || !/^[\w-]{1,64}$/.test(id)) throw new HttpError(400, '"id" must be a channel\'s or an effect\'s id.');
     const { parameters } = (await this.request("parameters", { owner, ownerId: id })) as { parameters: EngineParameter[] };
     return parameters;
+  }
+
+  /** A song's plugin's presets (`PluginPresets`): `owner` "channel" or "effect", by its id. */
+  async presets(owner: unknown, id: unknown): Promise<PluginPresets> {
+    const { kind, ownerId } = presetOwner(owner, id);
+    return (await this.request("presets", { owner: kind, ownerId })) as PluginPresets;
+  }
+
+  /** Choose a program, or save, load or delete a preset of the user's (`PresetRequest`): answers with the presets after. */
+  async preset(body: unknown): Promise<PluginPresets> {
+    const input = isObject(body) ? body : {};
+    const { kind, ownerId } = presetOwner(input.owner, input.id);
+    if (input.action === "setProgram") {
+      if (!Number.isInteger(input.index) || (input.index as number) < 0) throw new HttpError(400, '"index" must be a program\'s number (0 is the first).');
+      return (await this.request("setProgram", { owner: kind, ownerId, index: input.index })) as PluginPresets;
+    }
+    if (input.action !== "savePreset" && input.action !== "loadPreset" && input.action !== "deletePreset")
+      throw new HttpError(400, '"action" must be "setProgram", "savePreset", "loadPreset" or "deletePreset".');
+    const name = typeof input.name === "string" ? input.name.trim().slice(0, 100) : "";
+    if (!name) throw new HttpError(400, '"name" must be the preset\'s name.');
+    return (await this.request(input.action, { owner: kind, ownerId, name })) as PluginPresets;
   }
 
   async plugins(): Promise<EnginePlugin[]> {
@@ -405,14 +448,16 @@ export class AudioEngine {
     const recordingId = createId("rec");
     const folder = path.join(this.paths.projectDir(body.projectId), "recordings");
     await fs.mkdir(folder, { recursive: true });
-    this.recordings.set(recordingId, { projectId: body.projectId, names, started: new Date() });
+    const from = Math.max(0, this.clock.toEngine(isFiniteNumber(body.from) ? Math.max(0, body.from) : 0));
+    this.recordings.set(recordingId, { projectId: body.projectId, names, started: new Date(), folder, from, finals: new Set() });
     try {
       const status = (await this.request("record", {
         recordingId,
         folder,
-        from: isFiniteNumber(body.from) ? Math.max(0, body.from) : 0,
+        from,
         countIn: isFiniteNumber(body.countIn) ? clamp(body.countIn, 0, 96 * 4 * 16) : 0,
         loop: body.loop === true,
+        notes: body.notes === true,
       })) as RawStatus;
       return { recordingId, status: await this.withSaved(status) };
     } catch (err) {
@@ -426,7 +471,11 @@ export class AudioEngine {
     this.takes = this.takes.then(async () => {
       const recording = this.recordings.get(raw.recordingId);
       if (!recording) return;
-      if (raw.final) this.recordings.delete(raw.recordingId);
+      // Over once every track it records has had its last take (one track's last isn't the others').
+      if (raw.final) {
+        recording.finals.add(raw.track);
+        if (recording.finals.size >= Math.max(1, Object.keys(recording.names).length)) this.recordings.delete(raw.recordingId);
+      }
       const name = `${recording.names[raw.track] || "Recording"} ${takeTime(recording.started)}${raw.pass > 0 ? ` take ${raw.pass + 1}` : ""}`;
       let media: MediaAsset | null = null;
       let error: string | undefined;
@@ -437,6 +486,7 @@ export class AudioEngine {
         error = err instanceof Error ? err.message : String(err);
       }
       if (raw.dropped && !error) error = "The disk didn't keep up: some of this take is missing.";
+      if (raw.repaired && !error) error = "The audio engine stopped mid-recording: this take was saved as far as it got (its timing may be off by the latency).";
       const event: EngineTakeEvent = {
         event: "take",
         recordingId: raw.recordingId,
@@ -444,7 +494,7 @@ export class AudioEngine {
         track: raw.track,
         media,
         ...(error ? { error } : {}),
-        startTick: raw.startTick,
+        startTick: this.clock.toSong(raw.startTick),
         skip: raw.skip,
         frames: raw.frames,
         sampleRate: raw.sampleRate,
@@ -453,6 +503,42 @@ export class AudioEngine {
       };
       this.emit(event);
     });
+  }
+
+  /**
+   * The engine died while recording (a plugin crashed it): the takes it was writing are on the disk, their
+   * headers unfinished. Each is mended (`repairWav`) and handed in as the engine would have: a pass's take
+   * from the loop's start (the first from where play started), the latency at its head unknown.
+   */
+  private async salvage(recordingId: string) {
+    const recording = this.recordings.get(recordingId);
+    if (!recording) return;
+    const files = (await fs.readdir(recording.folder).catch(() => [] as string[]))
+      .flatMap((name) => {
+        const match = new RegExp(`^${recordingId}-(.+)-(\\d+)\\.wav$`).exec(name);
+        return match ? [{ file: path.join(recording.folder, name), track: match[1], pass: Number(match[2]) - 1 }] : [];
+      })
+      .sort((a, b) => a.pass - b.pass);
+    const lastPass = new Map<string, number>();
+    for (const f of files) lastPass.set(f.track, Math.max(lastPass.get(f.track) ?? 0, f.pass));
+    if (!files.length) return void this.recordings.delete(recordingId);
+    for (const f of files) {
+      const repaired = await repairWav(f.file).catch(() => null);
+      if (!repaired || repaired.frames === 0) continue;
+      this.take({
+        recordingId,
+        track: f.track,
+        file: f.file,
+        startTick: f.pass === 0 ? recording.from : 0,
+        skip: 0,
+        frames: repaired.frames,
+        sampleRate: repaired.sampleRate,
+        pass: f.pass,
+        final: f.pass === lastPass.get(f.track),
+        dropped: false,
+        repaired: true,
+      });
+    }
   }
 
   shutdown() {
@@ -480,6 +566,19 @@ export class AudioEngine {
           on: body.on === true,
           velocity: isFiniteNumber(body.velocity) ? clamp(body.velocity, 0, 1) : DEFAULT_VELOCITY,
         };
+      }
+      case "midiTarget":
+        if (body.channel !== null && (typeof body.channel !== "string" || !/^[\w-]{1,64}$/.test(body.channel)))
+          throw new HttpError(400, '"channel" must be a channel\'s id, or null for none.');
+        return { channel: body.channel ?? null };
+      case "midiIn": {
+        const messages = Array.isArray(body.messages) ? body.messages : [];
+        const valid = messages
+          .filter((m): m is number[] => Array.isArray(m) && m.length >= 1 && m.length <= 3 && m.every((b) => Number.isInteger(b) && b >= 0 && b <= 255))
+          // A status byte first, then data bytes.
+          .filter((m) => m[0] >= 0x80 && m.slice(1).every((b) => b < 0x80));
+        if (!valid.length) throw new HttpError(400, '"messages" must be MIDI messages: arrays of a status byte (128 to 255) and up to two data bytes (0 to 127).');
+        return { messages: valid.slice(0, 256) };
       }
       case "metronome":
         if (body.sound !== undefined && !isMetronomeSound(body.sound))
@@ -589,7 +688,13 @@ export class AudioEngine {
   private async withSaved(status: RawStatus): Promise<EngineStatus> {
     const saved = await this.savedStates();
     const slot = (name: EngineSlot) => status[name] && { ...status[name], hasSavedState: saved[name] === status[name].id };
-    return { ...status, instrument: slot("instrument"), effect: slot("effect"), ...(this.outdated && { outdated: true }) };
+    return {
+      ...status,
+      ...(this.clock.warped && status.transport && { transport: { ...status.transport, tick: this.clock.toSong(status.transport.tick) } }),
+      instrument: slot("instrument"),
+      effect: slot("effect"),
+      ...(this.outdated && { outdated: true }),
+    };
   }
 
   private async withSavedIn(devices: RawDevices): Promise<EngineDevices> {
@@ -609,6 +714,14 @@ export class AudioEngine {
       this.pending.set(id, { resolve, reject, timer });
       child.stdin!.write(`${JSON.stringify({ ...params, id, cmd })}\n`);
     });
+  }
+
+  /** An event as the tab takes it: the engine's ticks turned into the song's (`clock`). */
+  private inSongTicks(event: EngineEvent): EngineEvent {
+    if (!this.clock.warped) return event;
+    if (event.event === "transport") return { ...event, tick: this.clock.toSong(event.tick) };
+    if (event.event === "midi") return { ...event, notes: event.notes.map((n) => (n.tick === null ? n : { ...n, tick: this.clock.toSong(n.tick) })) };
+    return event;
   }
 
   private emit(event: EngineEvent) {
@@ -657,8 +770,17 @@ export class AudioEngine {
           this.emit({ event: "ready" });
         } else if (message.event === "take") {
           this.take(message as unknown as RawTake);
-        } else if (message.event === "transport" || message.event === "key" || message.event === "export" || message.event === "touch" || message.event === "automate") {
-          this.emit(message as unknown as EngineEvent);
+        } else if (
+          message.event === "transport" ||
+          message.event === "key" ||
+          message.event === "export" ||
+          message.event === "touch" ||
+          message.event === "automate" ||
+          message.event === "preset" ||
+          message.event === "wrapper" ||
+          message.event === "midi"
+        ) {
+          this.emit(this.inSongTicks(message as unknown as EngineEvent));
         } else if (message.event === "status" && isObject(message.status)) {
           void this.withSaved(message.status as unknown as RawStatus).then((status) => this.emit({ event: "status", status }));
         }
@@ -675,6 +797,8 @@ export class AudioEngine {
           clearTimeout(timer);
           if (this.child === child) this.child = null;
           if (!this.stopping) this.emit({ event: "stopped" });
+          // Recordings it was making: what they'd written is saved as takes.
+          if (!this.stopping) for (const id of [...this.recordings.keys()]) void this.salvage(id);
           for (const pending of this.pending.values()) {
             clearTimeout(pending.timer);
             pending.reject(new HttpError(503, "The audio engine stopped (a plugin may have crashed it). Try again."));
@@ -684,4 +808,11 @@ export class AudioEngine {
         });
     });
   }
+}
+
+/** Whose presets: a plugin channel's or a mixer effect's, by its id. Throws `HttpError(400)`. */
+function presetOwner(owner: unknown, id: unknown): { kind: "channel" | "effect"; ownerId: string } {
+  if (owner !== "channel" && owner !== "effect") throw new HttpError(400, '"owner" must be "channel" or "effect".');
+  if (typeof id !== "string" || !/^[\w-]{1,64}$/.test(id)) throw new HttpError(400, '"id" must be a channel\'s or an effect\'s id.');
+  return { kind: owner, ownerId: id };
 }

@@ -7,6 +7,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { clamp } from "@shared/math";
 import { DEFAULT_VELOCITY } from "@shared/music/project";
 import { type NewNote, type NotePatch, noteBounds } from "@shared/music/notes";
+import { snapToScale, stampPitches } from "@shared/music/scales";
 import type { Note } from "@shared/music/types";
 import { type DragHandlers, startPointerDrag } from "@/lib/pointer-drag";
 import { useTransport } from "../transport";
@@ -14,7 +15,28 @@ import { type PianoContext, commitDrag, cancelDrag, deselect, pianoContext, sele
 import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR } from "./cursors";
 import { stretchHandle } from "./draw";
 import { fadeOut } from "./fades";
-import { BLACK_KEY_WIDTH, LANE_PAD, type PianoView, RESIZE_REACH, ROW_ZOOM_DRAG, hitNote, keyAt, edgeSpeed, laneTailAt, paintStarts, scrollViewBy, snapDelta, snapTick, tickToX, visibleRange, xToTick, yToPitch, zoomRowsAt } from "./geometry";
+import {
+  BLACK_KEY_WIDTH,
+  LANE_PAD,
+  type PianoView,
+  RESIZE_REACH,
+  ROW_ZOOM_DRAG,
+  hitNote,
+  keyAt,
+  edgeSpeed,
+  laneTailAt,
+  paintStarts,
+  scrollViewBy,
+  snapDelta,
+  snapTick,
+  tickToX,
+  visibleRange,
+  xToTick,
+  yToPitch,
+  zoomAt,
+  zoomRowsAt,
+  zoomToRect,
+} from "./geometry";
 import { usePiano } from "./store";
 
 type Press = ReactPointerEvent<HTMLElement>;
@@ -204,6 +226,12 @@ export function gridPointerDown(e: Press) {
   const tick0 = xToTick(view, p.x);
   const pitch0 = yToPitch(view, p.y);
   const gridOf = (ev: { altKey: boolean }) => (ev.altKey ? 1 : ctx.grid);
+  // The song's scale (FL's Snap to scale): new and moved notes land on its notes. Alt: anywhere.
+  const scaleOf = (ev: { altKey: boolean }) => (ev.altKey ? null : (ctx.song.settings.scale ?? null));
+  const fit = (pitch: number, ev: { altKey: boolean }) => {
+    const scale = scaleOf(ev);
+    return scale ? snapToScale(scale, pitch) : pitch;
+  };
   // The view as it is now: a drag scrolls it (`startGridDrag`).
   const at = (ev: PointerEvent) => {
     const q = local(element, ev);
@@ -234,6 +262,9 @@ export function gridPointerDown(e: Press) {
   }
 
   const hit = hitNote(ctx.notes, view, p.x, p.y, ctx.selected);
+
+  // The zoom tool (FL's Z): a rectangle zooms to it, a click zooms out, a right-click back and forth.
+  if (tool === "zoom" && (e.button === 0 || e.button === 2)) return zoomTool(e, element, tick0, pitch0, at);
 
   // The right button deletes, sweeping; on nothing, it deselects. Twice on a ghost note: to its
   // channel. With Alt: the playback tool.
@@ -385,8 +416,8 @@ export function gridPointerDown(e: Press) {
         // Once it's moving, Shift keeps the pitch and Ctrl keeps the time.
         const ticks = ev.ctrlKey || ev.metaKey ? 0 : snapDelta(q.tick - tick0, gridOf(ev));
         const semitones = ev.shiftKey && !clone ? 0 : q.pitch - pitch0;
-        keys.to(grab.note.pitch + semitones);
-        usePiano.getState().setDrag({ kind: "move", ids, ticks, semitones, clone });
+        keys.to(fit(grab.note.pitch + semitones, ev));
+        usePiano.getState().setDrag({ kind: "move", ids, ticks, semitones, clone, scale: scaleOf(ev) });
       },
       onEnd() {
         keys.release();
@@ -414,10 +445,39 @@ export function gridPointerDown(e: Press) {
   // moves it until it's let go (Shift: drags out its length); Paint lays more along the stroke.
   const length = piano.noteLength;
   const start = snapTick(tick0, gridOf(e), "cell");
-  const draft = (note: Partial<NewNote>): NewNote => ({ start, length, pitch: pitch0, velocity: DEFAULT_VELOCITY, ...note });
+  const draft = (note: Partial<NewNote>): NewNote => ({ start, length, pitch: fit(pitch0, e), velocity: DEFAULT_VELOCITY, ...note });
   piano.setDrag({ kind: "add", notes: [draft({})] });
-  keys.to(pitch0);
+  keys.to(fit(pitch0, e));
   const release = () => keys.release();
+
+  // The Stamp (FL's): a chord from the note pressed, moved with the pointer until it's let go.
+  if (piano.stamp && tool === "draw") {
+    const stamp = piano.stamp;
+    const chord = (startAt: number, pitch: number, ev: { altKey: boolean }) =>
+      stampPitches(stamp, fit(pitch, ev), ctx.song.settings.scale).map((p) => draft({ start: startAt, pitch: p }));
+    piano.setDrag({ kind: "add", notes: chord(start, pitch0, e) });
+    startGridDrag(e, element, {
+      threshold: 0,
+      onMove(ev) {
+        const q = at(ev);
+        keys.to(fit(q.pitch, ev));
+        usePiano.getState().setDrag({ kind: "add", notes: chord(Math.max(0, start + snapDelta(q.tick - tick0, gridOf(ev))), q.pitch, ev) });
+      },
+      onEnd() {
+        release();
+        commitDrag();
+      },
+      onClick() {
+        release();
+        commitDrag();
+      },
+      onCancel() {
+        release();
+        cancelDrag();
+      },
+    });
+    return;
+  }
 
   if (tool === "paint") {
     startGridDrag(e, element, {
@@ -427,8 +487,8 @@ export function gridPointerDown(e: Press) {
         const previous = usePiano.getState().drag;
         const pitches = new Map(previous?.kind === "add" ? previous.notes.map((n) => [n.start, n.pitch]) : []);
         // Shift: each note at the pitch the pointer's at as it's laid.
-        const notes = paintStarts(tick0, q.tick, length, gridOf(ev)).map((at) => draft({ start: at, pitch: pitches.get(at) ?? (ev.shiftKey ? q.pitch : pitch0) }));
-        if (ev.shiftKey) keys.to(q.pitch);
+        const notes = paintStarts(tick0, q.tick, length, gridOf(ev)).map((at) => draft({ start: at, pitch: pitches.get(at) ?? fit(ev.shiftKey ? q.pitch : pitch0, ev) }));
+        if (ev.shiftKey) keys.to(fit(q.pitch, ev));
         usePiano.getState().setDrag({ kind: "add", notes });
       },
       onEnd() {
@@ -458,8 +518,8 @@ export function gridPointerDown(e: Press) {
         usePiano.getState().setDrag({ kind: "add", notes: [draft({ length: end - start })] });
         return;
       }
-      keys.to(q.pitch);
-      usePiano.getState().setDrag({ kind: "add", notes: [draft({ start: Math.max(0, start + snapDelta(q.tick - tick0, gridOf(ev))), pitch: q.pitch })] });
+      keys.to(fit(q.pitch, ev));
+      usePiano.getState().setDrag({ kind: "add", notes: [draft({ start: Math.max(0, start + snapDelta(q.tick - tick0, gridOf(ev))), pitch: fit(q.pitch, ev) })] });
     },
     onEnd() {
       release();
@@ -477,6 +537,38 @@ export function gridPointerDown(e: Press) {
 }
 
 /**
+ * The zoom tool (FL's Z, `docs/fl-studio/piano-roll.md`): a rectangle dragged is what the view zooms to;
+ * a click zooms out about the pointer; a right-click goes back to the view before the last zoom in, and
+ * again forth.
+ */
+function zoomTool(e: Press, element: HTMLElement, tick0: number, pitch0: number, at: (ev: PointerEvent) => { x: number; tick: number; pitch: number }) {
+  const piano = usePiano.getState();
+  const { view } = piano;
+  if (e.button === 2) {
+    if (piano.zoomBack) usePiano.setState({ view: piano.zoomBack, zoomBack: view });
+    return;
+  }
+  const x0 = local(element, e).x;
+  startPointerDrag(e, {
+    threshold: 3,
+    cursor: "zoom-in",
+    onMove(ev) {
+      const q = at(ev);
+      usePiano.getState().setDrag({ kind: "zoom", from: tick0, to: q.tick, low: pitch0, high: q.pitch });
+    },
+    onEnd() {
+      const drag = usePiano.getState().drag;
+      usePiano.setState({ drag: null });
+      if (drag?.kind !== "zoom") return;
+      const { gridWidth, gridHeight } = usePiano.getState();
+      usePiano.setState({ zoomBack: view, view: zoomToRect(view, drag.from, drag.to, drag.low, drag.high, gridWidth, gridHeight) });
+    },
+    onClick: () => usePiano.setState({ zoomBack: view, view: zoomAt(view, x0, view.pxPerTick / 2) }),
+    onCancel: cancelDrag,
+  });
+}
+
+/**
  * The pointer over the grid, for the tool and what's under it: FL Studio's, a pencil or a brush on
  * the background, a hand on a note, ⟷ on its right edge, the delete, mute, slice and playback tools'
  * own; a cross while Ctrl (selecting) is held.
@@ -490,6 +582,7 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   if (tool === "mute") return CURSORS.mute;
   if (tool === "slice") return CURSORS.knife;
   if (tool === "playback") return CURSORS.speaker;
+  if (tool === "zoom") return "zoom-in";
   const p = local(element, ev);
   const bounds = ctx.selected.size > 1 ? noteBounds(ctx.notes, ctx.selected) : null;
   if (bounds) {

@@ -11,7 +11,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, setSteps, updateChannel } from "../../shared/music/edits.ts";
 import { routeChannels, setMixerMuted } from "../../shared/music/mixer.ts";
-import { type NewClip, addAudioClips, addClips, editClips, sliceClips, updateTrack } from "../../shared/music/playlist.ts";
+import { type NewClip, addAudioClips, addClips, editClips, setClipFades, setClipGain, sliceClips, updateTrack } from "../../shared/music/playlist.ts";
 import { FIRST_PATTERN_ID, createMusicProject as newSong } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE } from "../config.ts";
@@ -57,11 +57,13 @@ describe.skipIf(!existsSync(ENGINE))("the playlist, offline", () => {
     // At 44.1 kHz, so the stream resamples it.
     const steps = STEPS.flatMap((value) => Array.from({ length: 44_100 }, () => value));
     await writeWav(path.join(dir, "steps.wav"), steps, 44_100);
+    // Two seconds of a 441 Hz tone, at 44.1 kHz: 100 samples a cycle.
+    await writeWav(path.join(dir, "tone.wav"), Array.from({ length: 88_200 }, (_, i) => 0.5 * Math.sin((2 * Math.PI * i) / 100)), 44_100);
     engine = new AudioEngine(new DataPaths(dir), {
       offline: true,
       onlyPluginPaths: true,
       pluginPaths: [],
-      samplePath: (_project, id) => (["hit", "steps"].includes(id) ? path.join(dir, `${id}.wav`) : null),
+      samplePath: (_project, id) => (["hit", "steps", "tone"].includes(id) ? path.join(dir, `${id}.wav`) : null),
     });
   });
   afterAll(async () => {
@@ -220,6 +222,28 @@ describe.skipIf(!existsSync(ENGINE))("the playlist, offline", () => {
     await play(place(base, [{ kind: "pattern", ref: P, track: 0, start: 4 * BAR_TICKS }]));
     const sound = await hear(RATE);
     expect(level(sound, RATE / 2)).toBe(0.2);
+  });
+
+  it("plays a clip at its own gain, through its fades", async () => {
+    const all = (song: MusicProject) => new Set(song.playlist.clips.filter((c) => c.kind === "audio").map((c) => c.id));
+    let shaped = song();
+    shaped = editClips(shaped, (clips) => setClipGain(clips, all(shaped), 2));
+    // A beat (half a second) fading in, straight; a beat fading out, quick at first.
+    shaped = editClips(shaped, (clips) => setClipFades(clips, all(shaped), { fadeIn: 96, fadeOut: 96, fadeOutTension: 1 }));
+    await play(shaped);
+    await engine.command("play", {});
+    const sound = await hear(5 * BAR);
+    // Doubled: the first second's 0.1 is 0.2, a quarter and half way up its fade.
+    expect(level(sound, BAR + 6_000)).toBeCloseTo(0.05, 2);
+    expect(level(sound, BAR + 12_000)).toBeCloseTo(0.1, 2);
+    expect(level(sound, BAR + 36_000)).toBe(0.2);
+    // The fade out (the clip is the file's six seconds) halfway, bent: higher than half the level there (the last second's 0.6, doubled).
+    const end = 4 * BAR;
+    expect(level(sound, end - 12_000)).toBeGreaterThan(0.6);
+    expect(level(sound, end - 12_000)).toBeLessThan(1.2);
+    // Down to nothing at its end (its last samples declicked).
+    expect(peakOf(sound.channels[0], end - 8, end)).toBeLessThan(0.05);
+    expect(peakOf(sound.channels[0], end + 1, end + 1000)).toBe(0);
   });
 
   it("stops at once, and plays nothing when it's stopped", async () => {

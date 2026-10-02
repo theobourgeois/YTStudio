@@ -19,6 +19,8 @@ export type PianoKeyAction =
         | "glue"
         | "chop"
         | "chopper"
+        /** FL's Alt+Q: the Quantizer. */
+        | "quantizer"
         | "quantize"
         | "quantizeStarts"
         | "legato"
@@ -42,7 +44,7 @@ export type PianoKeyAction =
 
 type KeyLike = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">;
 
-const TOOLS: Record<string, PianoTool> = { P: "draw", B: "paint", D: "delete", T: "mute", C: "slice", E: "select", Y: "playback" };
+const TOOLS: Record<string, PianoTool> = { P: "draw", B: "paint", D: "delete", T: "mute", C: "slice", E: "select", Z: "zoom", Y: "playback" };
 
 export function resolvePianoKey(e: KeyLike): PianoKeyAction | null {
   const command = e.metaKey || e.ctrlKey;
@@ -82,6 +84,7 @@ export function resolvePianoKey(e: KeyLike): PianoKeyAction | null {
     if (letter === "M") return { type: shift ? "unmute" : "mute" };
     if (letter === "V" && !shift) return { type: "ghosts" };
     if (letter === "U" && !shift) return { type: "chopper" };
+    if (letter === "Q" && !shift) return { type: "quantizer" };
     return null;
   }
   if (shift) {

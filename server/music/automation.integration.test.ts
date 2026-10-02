@@ -9,8 +9,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createAutomation, editPoints } from "../../shared/music/automation.ts";
-import { addChannels, setSteps } from "../../shared/music/edits.ts";
+import { createAutomation, editPoints, updateAutomation } from "../../shared/music/automation.ts";
+import { addChannels, setSteps, updateChannel } from "../../shared/music/edits.ts";
 import { routeChannels, setEffect } from "../../shared/music/mixer.ts";
 import { addClips, editClips } from "../../shared/music/playlist.ts";
 import { DEFAULT_VOLUME, FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
@@ -19,7 +19,7 @@ import { levelGain } from "../../shared/music/compile.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
-import { type WavData, peakOf, readWav, writeWav } from "./wav.ts";
+import { type WavData, onsets, peakOf, readWav, writeWav } from "./wav.ts";
 
 const RATE = 48_000;
 const BAR = 96_000;
@@ -40,10 +40,14 @@ describe.skipIf(!built)("automation, offline", () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), "automation-"));
     // Eight seconds (four bars) of a steady half-scale level.
     await writeWav(path.join(dir, "pad.wav"), new Float32Array(RATE * 8).fill(0.5), RATE);
+    // A short hit (10 ms), for where notes land.
+    await writeWav(path.join(dir, "hit.wav"), new Float32Array(480).fill(0.5), RATE);
+    // And eight seconds of 480 Hz (a cycle every 100 samples), whose pitch can be counted.
+    await writeWav(path.join(dir, "tone.wav"), Float32Array.from({ length: RATE * 8 }, (_, i) => 0.5 * Math.sin((2 * Math.PI * 480 * i) / RATE)), RATE);
     engine = new AudioEngine(new DataPaths(dir), {
       offline: true,
       onlyPluginPaths: true,
-      samplePath: (_project, id) => (id === "pad" ? path.join(dir, "pad.wav") : null),
+      samplePath: (_project, id) => (["pad", "tone", "hit"].includes(id) ? path.join(dir, `${id}.wav`) : null),
     });
     await engine.command("scan", {});
     while ((await engine.command("status", {})).scanning) await new Promise((resolve) => setTimeout(resolve, 50));
@@ -109,6 +113,50 @@ describe.skipIf(!built)("automation, offline", () => {
     for (const at of [0.25, 0.5, 0.75]) expect(levelAt(sound, BAR * (1 + at))).toBeCloseTo(0.5 * levelGain(at, DEFAULT_VOLUME), 2);
     // Held at the end's 100% after it.
     expect(levelAt(sound, BAR * 2.5)).toBeCloseTo(0.5 * levelGain(1, DEFAULT_VOLUME), 3);
+  });
+
+  it("bends a sampler's pitch as its note sounds: its own pitch before the clip, the curve's after", async () => {
+    const song = updateChannel(pad(), "chan_pad", { sampleId: "tone" });
+    // An octave up (0.75 of ±24 semitones) from bar 2, held.
+    await playSong(automate(song, { kind: "channel", channel: "chan_pad", control: "pitch" }, TICKS, TICKS, [point(0, 0.75, "hold")]));
+    const sound = await hear(BAR * 2);
+    /** Cycles a second over 4800 samples from `at`: between its first and last upward zero crossings. */
+    const frequency = (at: number) => {
+      const s = sound.channels[0];
+      const crossings: number[] = [];
+      for (let i = at + 1; i < at + 4800; i++) if (s[i - 1] < 0 && s[i] >= 0) crossings.push(i);
+      return ((crossings.length - 1) * RATE) / (crossings[crossings.length - 1] - crossings[0]);
+    };
+    expect(frequency(BAR / 2)).toBeCloseTo(480, 0);
+    expect(frequency(BAR * 1.5)).toBeCloseTo(960, 0);
+  });
+
+  it("changes the tempo: notes land where the tempo clip puts them, to the sample, and the metronome follows", async () => {
+    // A hit on every beat of four bars at 120; from bar 2, 240 (the clip's range the tempo's whole).
+    let song = updateChannel(pad(), "chan_pad", { sampleId: "hit" });
+    song = setSteps(song, P, "chan_pad", [0, 4, 8, 12], true);
+    song = editClips(song, (clips) => addClips(clips.filter((c) => c.kind !== "pattern"), [0, 1, 2, 3].map((bar) => ({ kind: "pattern" as const, ref: P, track: 0, start: TICKS * bar }))).clips);
+    const made = createAutomation(song, { kind: "tempo" }, { start: TICKS, length: TICKS * 3 });
+    song = editPoints(updateAutomation(made.song, made.automationId, { min: 0, max: 1 }), made.automationId, () => [point(0, (240 - 20) / (999 - 20))]);
+    await playSong(song);
+    const sound = await hear(BAR * 2.5);
+    const beat = BAR / 4;
+    expect(onsets(sound.channels[0])).toEqual([0, 1, 2, 3, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5].map((b) => b * beat));
+    // Round the loop (two and a half of the engine's bars): bar 1 again, at 120.
+    const again = await hear(BAR);
+    expect(onsets(again.channels[0])).toEqual([0, 1, 2, 3].map((b) => b * beat));
+
+    // The metronome alone (no hits): its clicks on the same beats.
+    await engine.command("stop", {});
+    await playSong(setSteps(song, P, "chan_pad", [0, 4, 8, 12], false));
+    await engine.command("metronome", { on: true });
+    try {
+      const clicks = await hear(BAR * 2.5);
+      // (A click's first sample is its sine's zero: heard from the next.)
+      expect(onsets(clicks.channels[0], 0.01, 2000).map((at) => Math.round((at / beat) * 100) / 100)).toEqual([0, 1, 2, 3, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5]);
+    } finally {
+      await engine.command("metronome", { on: false });
+    }
   });
 
   it("keeps its place when the song changes as it plays (longer, here)", async () => {

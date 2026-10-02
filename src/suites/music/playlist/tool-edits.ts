@@ -11,6 +11,8 @@ import {
   chopClips,
   clipContext,
   clipLength,
+  setClipFades,
+  setClipGain,
   editClips,
   makeUnique,
   moveClips,
@@ -32,11 +34,12 @@ import {
   stretchClips,
 } from "@shared/music/playlist";
 import { STRETCH_MODE_NAMES, isStretchMode, tempoForBeats, tempoOfFile } from "@shared/music/stretch";
-import { MASTER_TRACK_ID, MAX_PLAYLIST_TRACKS } from "@shared/music/project";
+import { MASTER_TRACK_ID, MAX_CLIP_GAIN, MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import { trackName as mixerTrackName } from "@shared/music/mixer";
 import { linkAudioTracks } from "@shared/music/recording";
+import { addMarker, markersOf, removeMarker, updateMarker } from "@shared/music/markers";
 import { findTrack } from "../mixer/tool-edits";
-import { type AudioStretch, type Channel, type MusicProject, PPQ, type PlaylistClip, STEP_TICKS, type StretchMode } from "@shared/music/types";
+import { type AudioStretch, type Channel, MARKER_KINDS, type MarkerKind, type MusicProject, PPQ, type PlaylistClip, STEP_TICKS, type StretchMode } from "@shared/music/types";
 import { type EditEnv, type EditResult, findPattern } from "../tool-edits";
 import { findAutomation } from "../automation/tool-edits";
 
@@ -91,7 +94,19 @@ function describeClip(song: MusicProject, clip: PlaylistClip, ctx: ClipContext):
   const content = clip.kind === "automation" ? "curve" : "pattern";
   const offset = clip.kind === "audio" ? (clip.offset ? `, from ${round(clip.offset)}s into its file` : "") : clip.offset ? `, from ${barsOf(clip.offset, ctx)} bars into its ${content}` : "";
   const follows = clip.kind !== "audio" && clip.length === null ? ` (its ${content}'s length)` : "";
-  return `- clip ${clip.id}: ${what} at bar ${barOf(clip.start, ctx)}, ${barsOf(length, ctx)} bars${follows}${offset}${stretchNote(clip, ctx)}${clip.muted ? ", muted" : ""}`;
+  return `- clip ${clip.id}: ${what} at bar ${barOf(clip.start, ctx)}, ${barsOf(length, ctx)} bars${follows}${offset}${audioExtras(clip)}${stretchNote(clip, ctx)}${clip.muted ? ", muted" : ""}`;
+}
+
+/** An audio clip's own gain and fades, for the model (", +3 dB, fading in over 1 beat..."). */
+function audioExtras(clip: PlaylistClip): string {
+  if (clip.kind !== "audio") return "";
+  const beats = (ticks: number) => `${round(ticks / PPQ)} beat${ticks === PPQ ? "" : "s"}`;
+  const bend = (tension: number | undefined) => (tension ? ` (curve ${round(tension)})` : "");
+  const parts: string[] = [];
+  if (clip.gain !== undefined) parts.push(clip.gain > 0 ? `${round(20 * Math.log10(clip.gain))} dB gain` : "silent (gain -inf)");
+  if (clip.fadeIn) parts.push(`fading in over ${beats(clip.fadeIn)}${bend(clip.fadeInTension)}`);
+  if (clip.fadeOut) parts.push(`fading out over ${beats(clip.fadeOut)}${bend(clip.fadeOutTension)}`);
+  return parts.length ? `, ${parts.join(", ")}` : "";
 }
 
 /** How an audio clip is stretched, for the model: its mode, the tempo its file plays at its own speed, and whose stretch it is. */
@@ -134,7 +149,38 @@ export function describePlaylist(song: MusicProject, mode: "pattern" | "song" | 
   const audio = song.channels.filter((c) => c.kind === "audio");
   if (audio.length) lines.push("", `Audio clips (their channels): ${audio.map((c) => `"${c.name}" (id ${c.id})`).join(", ")}.`);
   if (song.automations.length) lines.push("", `Automation clips: ${song.automations.map((a) => `"${a.name}" (id ${a.id})`).join(", ")} (get_automation has their curves; they play in song mode).`);
+  const markers = markersOf(song);
+  if (markers.length) lines.push("", `Time markers: ${markers.map((m) => `${m.id}. "${m.name}" at bar ${barOf(m.tick, ctx)}${m.kind === "marker" ? "" : m.kind === "punchIn" ? " (recording starts here)" : " (recording stops here)"}`).join("; ")}.`);
   return lines.join("\n");
+}
+
+/**
+ * The Playlist's time markers, for the assistant (FL's Alt+T): add one at a bar, rename or move one, give
+ * it a kind ("marker"; "punchIn"/"punchOut": where Record starts and stops recording), or remove one.
+ */
+export function setMarkersTool(song: MusicProject, input: Input): EditResult {
+  const ctx = clipContext(song);
+  const action = input.action;
+  const kind = input.kind;
+  if (kind !== undefined && !MARKER_KINDS.includes(kind as MarkerKind)) throw new Error(`"kind" must be one of ${MARKER_KINDS.join(", ")}.`);
+  const tickOf = (bar: unknown) => {
+    if (!isFiniteNumber(bar) || bar < 1) throw new Error('"bar" must be a bar number, 1 or more (fractions are inside the bar: 2.5 is half way through bar 2).');
+    return Math.round((bar - 1) * ctx.barTicks);
+  };
+  const find = () => {
+    const marker = markersOf(song).find((m) => m.id === input.id || (typeof input.id === "string" && m.name.toLowerCase() === input.id.toLowerCase()));
+    if (!marker) throw new Error(`There's no marker ${JSON.stringify(input.id)}. The markers: ${markersOf(song).map((m) => `${m.id} "${m.name}"`).join(", ") || "none"}.`);
+    return marker;
+  };
+  let next = song;
+  if (action === "add") next = addMarker(song, tickOf(input.bar), { name: typeof input.name === "string" ? input.name : undefined, kind: kind as MarkerKind | undefined }).song;
+  else if (action === "update") {
+    const marker = find();
+    next = updateMarker(song, marker.id, { ...(input.bar !== undefined && { tick: tickOf(input.bar) }), ...(typeof input.name === "string" && { name: input.name }), ...(kind !== undefined && { kind: kind as MarkerKind }) });
+  } else if (action === "remove") next = removeMarker(song, find().id);
+  else throw new Error('"action" must be "add", "update" or "remove".');
+  const markers = markersOf(next);
+  return { song: next, text: `Time markers: ${markers.map((m) => `${m.id}. "${m.name}" at bar ${barOf(m.tick, ctx)} (${m.kind})`).join("; ") || "none"}.` };
 }
 
 /** The playlist in short, for get_song. */
@@ -230,6 +276,26 @@ export function updateClipsTool(song: MusicProject, input: Input): EditResult {
     );
   }
   if (typeof input.muted === "boolean") next = editClips(next, (clips) => setClipProps(clips, ids, { muted: input.muted as boolean }));
+  // An audio clip's own fades and gain.
+  const fade = (key: string) => {
+    const value = input[key];
+    if (value === undefined) return undefined;
+    if (!isFiniteNumber(value) || value < 0) throw new Error(`"${key}" must be a number of beats, 0 or more.`);
+    return Math.round(value * PPQ);
+  };
+  const curve = (key: string) => {
+    const value = input[key];
+    if (value === undefined) return undefined;
+    if (!isFiniteNumber(value) || value < -1 || value > 1) throw new Error(`"${key}" must be from -1 (slow at first) to 1 (quick at first); 0 is straight.`);
+    return value;
+  };
+  const fades = { fadeIn: fade("fade_in"), fadeOut: fade("fade_out"), fadeInTension: curve("fade_in_curve"), fadeOutTension: curve("fade_out_curve") };
+  if (Object.values(fades).some((v) => v !== undefined)) next = editClips(next, (clips) => setClipFades(clips, ids, Object.fromEntries(Object.entries(fades).filter(([, v]) => v !== undefined))));
+  if (input.gain_db !== undefined) {
+    if (!isFiniteNumber(input.gain_db) || input.gain_db > 36) throw new Error('"gain_db" must be a number of dB, up to 36 (-48 or below is silent).');
+    const gain = input.gain_db <= -48 ? 0 : Math.min(MAX_CLIP_GAIN, 10 ** (input.gain_db / 20));
+    next = editClips(next, (clips) => setClipGain(clips, ids, gain));
+  }
   const after = clipContext(next);
   const now = next.playlist.clips.filter((c) => ids.has(c.id));
   return { song: next, text: next === song ? "Nothing changed: the clips are already like that." : ["Now:", ...now.map((c) => describeClip(next, c, after))].join("\n") };

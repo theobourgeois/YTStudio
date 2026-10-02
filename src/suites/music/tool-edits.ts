@@ -19,6 +19,7 @@ import {
   setStepNote,
   soloChannel,
   setMainVolume,
+  setScale,
   setSwing,
   setTempo,
   setTimeSignature,
@@ -29,7 +30,9 @@ import {
   updateChannel,
 } from "@shared/music/edits";
 import { CHOP_PATTERNS, chopPattern, chopPieces, chopToPattern } from "@shared/music/chop";
-import { addNotes, editNotes } from "@shared/music/notes";
+import { QUANTIZE_ENDS, type QuantizeEnds, addNotes, editNotes, quantizeWith } from "@shared/music/notes";
+import { NOTE_NAMES, SCALES, type SongScale, scaleName } from "@shared/music/scales";
+import { FILTER_TYPES, type FilterType, LFO_SHAPES, type Lfo, type LfoShape, MOD_TARGETS, type ModEnvelope, type ModTarget, type SamplerPatch, cutoffHz, samplerOf } from "@shared/music/sampler";
 import { BEAT_UNITS, DEFAULT_VELOCITY, MAX_PATTERN_TICKS, MAX_STEPS, MAX_TEMPO, MIN_TEMPO } from "@shared/music/project";
 import { pitchFromName, pitchName } from "./piano/geometry";
 import { type Channel, type MusicProject, type Pattern, ROOT_PITCH } from "@shared/music/types";
@@ -88,8 +91,55 @@ export const updateSong: SongEdit = (song, input) => {
     }
     next = setTimeSignature(next, [beats, unit]);
   }
-  const { tempo: bpm, swing: sw, timeSignature, volume: main } = next.settings;
-  return { song: next, text: `The song is at ${bpm} BPM in ${timeSignature.join("/")}, swing ${Math.round(sw * 100)}%, main volume ${Math.round(main * 100)}%.` };
+  if (input.scale !== undefined) next = setScale(next, parseScale(input.scale));
+  const { tempo: bpm, swing: sw, timeSignature, volume: main, scale } = next.settings;
+  return {
+    song: next,
+    text: `The song is at ${bpm} BPM in ${timeSignature.join("/")}, swing ${Math.round(sw * 100)}%, main volume ${Math.round(main * 100)}%, ${scale ? `in ${scaleName(scale)}` : "with no scale set"}.`,
+  };
+};
+
+/** A scale as a tool gives it: "A minor", "C# dorian", "Eb major pentatonic", or "none". */
+export function parseScale(value: unknown): SongScale | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (text.toLowerCase() === "none") return null;
+  const match = /^([A-Ga-g])([#b]?)\s+(.+)$/.exec(text);
+  const kind = match?.[3].toLowerCase().replace(/[^a-z]/g, "");
+  const scale = SCALES.find((s) => s.id.toLowerCase() === kind || s.name.toLowerCase().replace(/[^a-z]/g, "") === kind || s.name.toLowerCase().split(" (")[0].replace(/[^a-z]/g, "") === kind);
+  if (!match || !scale) {
+    throw new Error(`"scale" must be a root and a scale, like "A minor" or "C# dorian", or "none". The scales are: ${SCALES.map((s) => s.name.split(" (")[0].toLowerCase()).join(", ")}.`);
+  }
+  const natural = NOTE_NAMES.indexOf(match[1].toUpperCase() as (typeof NOTE_NAMES)[number]);
+  const root = (natural + (match[2] === "#" ? 1 : match[2] === "b" ? -1 : 0) + 12) % 12;
+  return { root, type: scale.id };
+}
+
+/**
+ * The Piano roll's Quantizer for the assistant: a channel's notes in a pattern (or those `from`/`to`
+ * pick) pulled to a grid by a strength, on a grid that can swing, their ends as `ends` says.
+ */
+export const quantizeNotesTool: SongEdit = (song, input, env) => {
+  const channel = findChannel(song, input.channel);
+  const pattern = findPattern(song, input.pattern, env);
+  const grid = (number(input, "grid", 1 / 6, 64) ?? 1) * STEP;
+  const ends = input.ends ?? "leaveDuration";
+  if (!QUANTIZE_ENDS.includes(ends as QuantizeEnds)) throw new Error(`"ends" must be one of ${QUANTIZE_ENDS.map((e) => `"${e}"`).join(", ")}.`);
+  const from = (number(input, "from", 0, MAX_PATTERN_TICKS / STEP) ?? 0) * STEP;
+  const to = (number(input, "to", 0, MAX_PATTERN_TICKS / STEP) ?? MAX_PATTERN_TICKS / STEP) * STEP;
+  const notes = pattern.notes[channel.id] ?? [];
+  const picked = new Set(notes.filter((n) => n.start >= from && n.start < to).map((n) => n.id));
+  if (!picked.size) throw new Error(`"${channel.name}" has no notes there in "${pattern.name}". Read them with get_notes.`);
+  const options = {
+    grid,
+    start: number(input, "strength", 0, 1) ?? 1,
+    duration: number(input, "duration_strength", 0, 1) ?? 1,
+    sensitivity: number(input, "sensitivity", 0, 1) ?? 1,
+    swing: number(input, "swing", 0, 1) ?? 0,
+    ends: ends as QuantizeEnds,
+  };
+  const next = editNotes(song, pattern.id, channel.id, (list) => quantizeWith(list, picked, options));
+  if (next === song) return { song, text: "Nothing moved: the notes picked are on that grid already." };
+  return { song: next, text: `Quantized ${picked.size} note${picked.size === 1 ? "" : "s"} of "${channel.name}" in "${pattern.name}" to a ${input.grid ?? 1}-step grid. get_notes has them.` };
 };
 
 /** A colour as a tool gives it: "#rrggbb", or "none" (or null) for the usual. */
@@ -132,7 +182,42 @@ export const updateChannelTool: SongEdit = (song, input) => {
         return value === undefined ? all : { ...all, [key]: value };
       }, {}),
       ...(number(envelope, "sustain", 0, 1) !== undefined && { sustain: number(envelope, "sustain", 0, 1) }),
+      ...(["delay", "hold"] as const).reduce<Record<string, number>>((all, key) => {
+        const value = number(envelope, key, 0, 10);
+        return value === undefined ? all : { ...all, [key]: value };
+      }, {}),
+      ...(["attackTension", "decayTension", "releaseTension"] as const).reduce<Record<string, number>>((all, key) => {
+        const value = number(envelope, key, -1, 1);
+        return value === undefined ? all : { ...all, [key]: value };
+      }, {}),
     };
+  }
+  const swingMix = number(input, "swingMix", 0, 1);
+  if (swingMix !== undefined) patch.swingMix = swingMix;
+  if (input.loop !== undefined || input.filter !== undefined || input.modulation !== undefined) {
+    if (channel.kind !== "sampler") throw new Error(`"${channel.name}" isn't a sampler: only a sampler has a loop, a filter, and envelopes and LFOs of its own.`);
+  }
+  // The sampler's own (the edit checks the values: what's out of range is brought in).
+  if (input.loop && typeof input.loop === "object") patch.loop = input.loop as SamplerPatch["loop"];
+  if (input.filter && typeof input.filter === "object") {
+    const filter = input.filter as Input;
+    if (filter.type !== undefined && !FILTER_TYPES.includes(filter.type as FilterType)) throw new Error(`"filter.type" must be one of ${FILTER_TYPES.join(", ")}.`);
+    patch.filter = filter as SamplerPatch["filter"];
+  }
+  if (input.modulation !== undefined) {
+    if (!Array.isArray(input.modulation)) throw new Error('"modulation" must be a list of { target, envelope?, lfo? }.');
+    const mods: NonNullable<SamplerPatch["mods"]> = {};
+    for (const item of input.modulation as Input[]) {
+      const target = item?.target;
+      if (target === "volume") {
+        if (item.envelope) throw new Error('The volume\'s envelope is "envelope", not a modulation\'s.');
+        if (item.lfo) mods.volumeLfo = item.lfo as Partial<Lfo>;
+      } else if (MOD_TARGETS.includes(target as ModTarget)) {
+        mods[target as ModTarget] = { ...(item.envelope ? { envelope: item.envelope as Partial<ModEnvelope> } : {}), ...(item.lfo ? { lfo: item.lfo as Partial<Lfo> } : {}) };
+      } else throw new Error('Each modulation\'s "target" must be "volume", "pan", "cutoff", "resonance" or "pitch".');
+      if (item.lfo && (item.lfo as Input).shape !== undefined && !LFO_SHAPES.includes((item.lfo as Input).shape as LfoShape)) throw new Error(`An LFO's "shape" must be one of ${LFO_SHAPES.join(", ")}.`);
+    }
+    patch.mods = mods;
   }
   const next = updateChannel(song, channel.id, patch);
   const now = next.channels.find((c) => c.id === channel.id)!;
@@ -330,10 +415,29 @@ export function describeChannel(channel: Channel, sampleName?: string | null): s
     channel.cutSelf ? "cut self" : null,
     describeSample(channel),
     channel.envelope.enabled
-      ? `envelope A ${channel.envelope.attack}s D ${channel.envelope.decay}s S ${percent(channel.envelope.sustain)} R ${channel.envelope.release}s`
+      ? `envelope ${channel.envelope.delay ? `delay ${channel.envelope.delay}s ` : ""}A ${channel.envelope.attack}s ${channel.envelope.hold ? `H ${channel.envelope.hold}s ` : ""}D ${channel.envelope.decay}s S ${percent(channel.envelope.sustain)} R ${channel.envelope.release}s`
       : null,
+    channel.swingMix !== undefined ? `swing mix ${percent(channel.swingMix)}` : null,
+    describeSampler(channel),
   ];
   return parts.filter(Boolean).join(", ");
+}
+
+/** A sampler's loop, filter, and envelopes and LFOs that are on, for the model. */
+function describeSampler(channel: Channel): string | null {
+  if (channel.kind !== "sampler") return null;
+  const { loop, filter, mods } = samplerOf(channel);
+  const lfo = (l: Lfo) => `${l.shape} LFO ${l.sync ? `a cycle per ${l.speed} beats` : `${l.speed} Hz`} amount ${l.amount}`;
+  const parts = [
+    loop.enabled ? `loops ${percent(loop.start)} to ${percent(loop.end)}${loop.crossfade ? ` (crossfade ${percent(loop.crossfade)})` : ""}` : null,
+    filter.type !== "off" ? `${filter.type} filter at ${Math.round(cutoffHz(filter.cutoff))} Hz, resonance ${percent(filter.resonance)}` : null,
+    mods.volumeLfo.enabled ? `volume ${lfo(mods.volumeLfo)}` : null,
+    ...MOD_TARGETS.flatMap((t) => [
+      mods[t].envelope.enabled ? `${t} envelope amount ${mods[t].envelope.amount}` : null,
+      mods[t].lfo.enabled ? `${t} ${lfo(mods[t].lfo)}` : null,
+    ]),
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
 }
 
 /** What's done to the channel's sample before it plays, or null when nothing is. */

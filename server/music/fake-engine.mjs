@@ -46,6 +46,19 @@ const pluginOf = (owner, id) =>
   owner === "channel" ? song?.channels.find((c) => c.id === id && c.plugin)?.plugin : (song?.tracks ?? []).flatMap((t) => t.effects ?? []).find((e) => e.id === id)?.plugin;
 const parameterList = (plugin) => (PARAMETERS[plugin.id] ?? []).map((name, index) => ({ index, id: name.toLowerCase(), name, value: 0.5, text: "50%" }));
 
+/** Each fake plugin's own programs (the synth has some; the delay, one: none to choose). */
+const PROGRAMS = { "VST3-Fake Synth-1": ["Init", "Bass", "Lead", "Pad"] };
+/** Each song plugin's program and preset now (by owner id), and the user's presets (by plugin id: the same in every song). */
+const chosen = new Map();
+const userPresets = new Map();
+const presetsOf = (owner, id) => {
+  const plugin = pluginOf(owner, id);
+  if (!plugin) return null;
+  const programs = PROGRAMS[plugin.id] ?? [];
+  const now = chosen.get(id) ?? { program: programs.length ? 0 : -1, preset: "" };
+  return { programs, program: now.program, presets: [...(userPresets.get(plugin.id) ?? [])].sort(), preset: now.preset };
+};
+
 /** The plugin channels and effects whose window is open. */
 const editors = new Set();
 
@@ -346,8 +359,14 @@ const devices = () => ({
   inputChannels: device.input ? INPUTS[device.input] : [],
   bufferSizes: [64, 128, 256, 512],
   sampleRates: [44100, 48000],
+  midiInputs: MIDI_INPUTS.map((name) => ({ id: name, name, enabled: !midiOff.has(name), open: !midiOff.has(name) })),
   status: status(),
 });
+/** MIDI keyboards: one, as if plugged in. Turned off by name (`setDevice { midiInput }`). */
+const MIDI_INPUTS = ["Fake Keys"];
+const midiOff = new Set();
+/** The channel MIDI plays (`midiTarget`). */
+let midiTarget = null;
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 /** The tracks the selection meter adds up (`meterTracks`). */
 let metered = [];
@@ -392,7 +411,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const { id, cmd, ...params } = JSON.parse(line);
   const fail = (error) => send({ id, ok: false, error });
   if (cmd === "crash") process.exit(3);
-  if (exporting && ["play", "preview", "trigger", "previewFile", "render", "setDevice", "tone", "note", "load", "unload", "editor"].includes(cmd)) return fail("The song is being exported: wait for it to finish.");
+  if (exporting && ["play", "preview", "midiIn", "trigger", "previewFile", "render", "setDevice", "tone", "note", "load", "unload", "editor"].includes(cmd)) return fail("The song is being exported: wait for it to finish.");
   if (cmd === "export") {
     if (exporting) return fail("A song is being exported already.");
     startExport(params);
@@ -423,8 +442,39 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (!parameter) return fail("No such parameter.");
     send({ event: cmd === "touchParameter" ? "touch" : "automate", owner: params.owner, id: params.ownerId, index: parameter.index, param: parameter.id, name: parameter.name, value: params.value ?? 0.5, text: "" });
   }
+  if (["presets", "setProgram", "savePreset", "loadPreset", "deletePreset"].includes(cmd)) {
+    const now = presetsOf(params.owner, params.ownerId);
+    if (!now) return fail("That plugin isn't loaded (yet): its presets can't be listed.");
+    const plugin = pluginOf(params.owner, params.ownerId);
+    const saved = userPresets.get(plugin.id) ?? new Set();
+    if (cmd === "setProgram") {
+      if (params.index >= now.programs.length) return fail(`It has no program ${params.index}: it has ${now.programs.length}.`);
+      chosen.set(params.ownerId, { program: params.index, preset: "" });
+    }
+    if (cmd === "savePreset") {
+      userPresets.set(plugin.id, saved.add(params.name));
+      chosen.set(params.ownerId, { program: now.program, preset: params.name });
+    }
+    if (cmd === "loadPreset" || cmd === "deletePreset") {
+      if (!saved.has(params.name)) return fail(`There's no preset "${params.name}" for ${plugin.name}.`);
+      if (cmd === "loadPreset") chosen.set(params.ownerId, { program: now.program, preset: params.name });
+      else {
+        saved.delete(params.name);
+        if (now.preset === params.name) chosen.set(params.ownerId, { program: now.program, preset: "" });
+      }
+    }
+    if (cmd !== "presets") send({ event: "preset", owner: params.owner, id: params.ownerId });
+    return send({ id, ok: true, result: presetsOf(params.owner, params.ownerId) });
+  }
+  // A plugin window's wrapper button, as if pressed (tests).
+  if (cmd === "pressWrapper") send({ event: "wrapper", owner: params.owner, id: params.ownerId });
   if (cmd === "devices") return send({ id, ok: true, result: devices() });
   if (cmd === "setDevice") {
+    if (params.midiInput) {
+      if (params.midiInput.enabled) midiOff.delete(params.midiInput.name);
+      else midiOff.add(params.midiInput.name);
+      delete params.midiInput;
+    }
     if (typeof params.input === "string") params.input = INPUTS[params.input] ? params.input : null;
     Object.assign(device, params);
     return send({ id, ok: true, result: devices() });
@@ -432,7 +482,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (cmd === "record") {
     if (recording) return fail("It's recording already: stop it first.");
     const tracks = (song?.tracks ?? []).filter((t) => t.input?.armed).map((t) => ({ id: t.id, channels: t.input.channels }));
-    if (!tracks.length) return fail("No mixer track is armed with an input: choose a track's input in the Mixer, which arms it.");
+    if (!tracks.length && !params.notes) return fail("No mixer track is armed with an input: choose a track's input in the Mixer, which arms it.");
     recording = { id: params.recordingId, folder: params.folder, from: params.from ?? 0, loop: params.loop === true, tracks };
     // After the count-in, as if it had begun `from` ticks earlier.
     const msPerTick = song ? 60000 / (song.tempo * song.ppq) : 0;
@@ -450,6 +500,19 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     sendTransport();
   }
   if (cmd === "metronome") metronome = params.on;
+  if (cmd === "midiTarget") midiTarget = params.channel;
+  // Notes as a keyboard sends them: told back as the real engine tells them, on the target channel.
+  if (cmd === "midiIn") {
+    const channel = song?.channels.some((c) => c.id === midiTarget) ? midiTarget : null;
+    const playing = playingSince !== null;
+    const notes = params.messages
+      .filter((m) => (m[0] & 0xe0) === 0x80 && channel)
+      .map((m) => {
+        const on = (m[0] & 0xf0) === 0x90 && (m[2] ?? 0) > 0;
+        return { channel, key: m[1], velocity: on ? m[2] / 127 : 0, on, tick: playing ? tick() : null, counting: playing && countInLeft() > 0, pass: playing && song ? Math.floor(Math.max(0, elapsed()) / song.loopTicks) : 0 };
+      });
+    if (notes.length) send({ event: "midi", notes });
+  }
   if (cmd === "previewFile") preview = { id: params.previewId, start: params.start, since: Date.now() };
   if (cmd === "stopPreview") preview = null;
   if (cmd === "meterTracks") metered = params.tracks;

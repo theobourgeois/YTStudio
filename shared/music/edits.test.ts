@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { addClips, editClips } from "./playlist.ts";
 import {
+  setScale,
   addChannels,
   addPattern,
   addPluginChannel,
@@ -290,5 +291,19 @@ describe("patterns", () => {
     expect(setPatternLength(short, P, null).patterns[0].length).toBeNull();
     expect(setPatternLength(song, P, null)).toBe(song);
     expect(setPatternLength(short, P, 8)).toBe(short);
+  });
+});
+
+describe("the song's scale", () => {
+  it("is set, changed and taken away, kept through a save, and the same song when nothing changes", () => {
+    const song = createMusicProject("Scale");
+    const aMinor = setScale(song, { root: 21, type: "minor" });
+    expect(aMinor.settings.scale).toEqual({ root: 9, type: "minor" });
+    expect(setScale(aMinor, { root: 9, type: "minor" })).toBe(aMinor);
+    expect(setScale(aMinor, null).settings.scale).toBeUndefined();
+    expect(setScale(song, null)).toBe(song);
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(aMinor))).settings.scale).toEqual({ root: 9, type: "minor" });
+    expect(normalizeMusicProject({ ...aMinor, settings: { ...aMinor.settings, scale: { root: 14, type: "minor" } } }).settings.scale).toBeUndefined();
+    expect(normalizeMusicProject({ ...aMinor, settings: { ...aMinor.settings, scale: { root: 2, type: "klingon" } } }).settings.scale).toBeUndefined();
   });
 });

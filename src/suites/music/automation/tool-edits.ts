@@ -46,10 +46,12 @@ export function findAutomation(song: MusicProject, ref: unknown): Automation {
 export const CONTROLS = [
   "volume",
   "pan",
+  "pitch",
   "stereo",
   "send",
   "mix",
   "main volume",
+  "tempo",
   "parameter",
   "time slot",
   "volume slot",
@@ -188,6 +190,12 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (input.track === undefined) throw new Error(`Say whose ${control}: a "channel" or a mixer "track".`);
       return { kind: "mixer", track: findTrack(song, input.track).id, control };
     }
+    case "pitch": {
+      if (input.channel === undefined || input.channel === "") throw new Error('Say whose pitch: a "channel" (mixer tracks have none).');
+      const channel = findChannel(song, input.channel);
+      if (channel.kind === "audio") throw new Error(`"${channel.name}" is an audio clip's channel: its clips play at its pitch, which can't be automated. Automate a sampler's or a plugin channel's.`);
+      return { kind: "channel", channel: channel.id, control: "pitch" };
+    }
     case "send": {
       const from = findTrack(song, input.track);
       const to = findTrack(song, input.to);
@@ -199,6 +207,8 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       return { kind: "effect", effect: effectAt(song, input).effect.id };
     case "main volume":
       return { kind: "main" };
+    case "tempo":
+      return { kind: "tempo" };
     case "time slot":
     case "volume slot":
     case "time mix":
@@ -340,7 +350,7 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (typeof input.parameter !== "string" || !input.parameter.trim()) throw new Error('"parameter" must be the plugin parameter\'s name or id, from list_controls.');
       if (input.channel !== undefined && input.channel !== "") {
         const channel = findChannel(song, input.channel);
-        if (channel.kind !== "plugin") throw new Error(`"${channel.name}" isn't a plugin channel: its controls are its volume and pan.`);
+        if (channel.kind !== "plugin") throw new Error(`"${channel.name}" isn't a plugin channel: its controls are its volume, pan and pitch.`);
         return { owner: "channel", id: channel.id, parameter: input.parameter.trim(), ownerName: channel.name };
       }
       const { track, effect } = effectAt(song, input);
@@ -464,6 +474,10 @@ const valueHint = (target: AutomationTarget) =>
       ? PAN_HINTS[target.control]
     : target.kind === "channel" && target.control === "pan"
       ? "a pan, -1 left to 1 right"
+    : target.kind === "tempo"
+      ? "BPM (20 to 999)"
+    : target.kind === "channel" && target.control === "pitch"
+      ? "semitones, -24 to 24 (a plugin channel's notes move by whole ones)"
       : target.kind === "mixer" && target.control !== "volume"
         ? "-1 to 1"
         : "0 to 1, as its knob or fader has it";
@@ -508,7 +522,12 @@ export function addAutomationEdit(song: MusicProject, input: Input, target: Auto
   const name = typeof input.name === "string" && input.name.trim() ? input.name.trim() : undefined;
   const made = createAutomation(song, target, { start, length, track: playlistTrack !== undefined ? (playlistTrack as number) - 1 : undefined }, { value, name });
   if (made.song === song) throw new Error(info.exists ? "No more automation clips fit in this song." : `${info.owner} isn't in the song.`);
-  const next = points ? editPoints(made.song, made.automationId, () => points) : made.song;
+  // Its curve along the points given, in a range taking them all in (a tempo clip's starts narrower than the whole of it).
+  const created = made.song.automations.find((a) => a.id === made.automationId)!;
+  const range = points
+    ? { min: Math.min(created.min, ...points.map((p) => p.value)), max: Math.max(created.max, ...points.map((p) => p.value)) }
+    : null;
+  const next = points && range ? editPoints(updateAutomation(made.song, made.automationId, range), made.automationId, () => pointsOf(input.points, target, song, length, range)) : made.song;
   const automation = next.automations.find((a) => a.id === made.automationId)!;
   return {
     song: next,

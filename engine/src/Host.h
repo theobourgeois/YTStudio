@@ -58,6 +58,8 @@ struct HostedPlugin
     /** Where its state is kept, and a hash of what was last written there. */
     juce::File stateFile;
     juce::int64 savedHash = 0;
+    /** The user's preset last loaded or saved in it (its name), or empty: what its title bar shows. */
+    juce::String preset;
 
     // The audio thread's ------------------------------------------------------
     juce::MidiBuffer midi;
@@ -142,8 +144,30 @@ public:
      */
     void reportTouches();
 
+    // Presets (FL's preset browser, `docs/fl-studio/plugin-window.md`) ------------------------------
+    /** Where the user's presets are kept: a folder per plugin (by format and name), the same for every song. */
+    void setPresetsFolder (const juce::File& folder) { presetsRoot = folder; }
+    /**
+     * The owner's plugin's presets: its own programs and the one it's on (`programs`, `program`), and the
+     * user's saved for it (`presets`, `preset`: the last loaded or saved, or ""). Void if it isn't loaded.
+     */
+    juce::var presets (const juce::String& ownerId) const;
+    juce::Result setProgram (const juce::String& ownerId, int index);
+    /** Save the plugin's settings now as a preset of the user's (replacing one of that name), or load or delete one. */
+    juce::Result savePreset (const juce::String& ownerId, const juce::String& name);
+    juce::Result loadPreset (const juce::String& ownerId, const juce::String& name);
+    juce::Result deletePreset (const juce::String& ownerId, const juce::String& name);
+    /** The next (1) or previous (-1) preset, the title bar's arrows: the plugin's programs if it has several, else the user's presets. */
+    void stepPreset (const juce::String& ownerId, int direction);
+
 private:
     void save (HostedPlugin&);
+    juce::File presetFolder (const HostedPlugin&) const;
+    juce::StringArray presetNames (const HostedPlugin&) const;
+    /** Its window shows what it's on now, and the tab is told (`EngineEvent` "preset"). */
+    void presetChanged (HostedPlugin&);
+    /** What its title bar says of its presets: the user's preset, else its program's name (if it has several). */
+    static juce::String presetLabel (const HostedPlugin&);
     /** `{ owner, id, index, param, name, value, text }` for one of the owner's plugin's parameters, or void. */
     juce::var describeParameter (const juce::String& ownerId, int index) const;
     /** Shows, hides and floats the windows as the app's window is (`setHost`). */
@@ -155,6 +179,7 @@ private:
     juce::KnownPluginList& known;
     juce::String ownerKey;
     std::function<void()> changed;
+    juce::File presetsRoot;
     std::map<juce::String, std::shared_ptr<HostedPlugin>> loaded;
     /** Owner id -> the plugin id being loaded for it. */
     std::map<juce::String, juce::String> loading;

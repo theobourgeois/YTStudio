@@ -2,7 +2,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import type { EngineKey, EngineStatus } from "@shared/music/engine";
 import { musicApi } from "./api";
-import { withChopPreview } from "./piano/actions";
+import { withChopPreview, withQuantizePreview } from "./piano/actions";
 import { usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusicPreferences } from "./preferences";
@@ -10,6 +10,8 @@ import { clipPreview } from "./playlist/preview";
 import { usePlaylist } from "./playlist/store";
 import { armedIn, useRecording } from "./recording";
 import { useInputs } from "./inputs";
+import { startMidiSync, useMidi } from "./midi";
+import { presetsChanged } from "./plugin-presets";
 import { useMusic } from "./store";
 import { takeAutoTunes } from "./auto-tune/pitch-history";
 import { NO_CHANNELS, NO_ECHO_BOYS, NO_EFFECTS, NO_EQ, NO_GROSS_BEATS, NO_METERS, NO_OTTS, NO_PANMEN, afterSongSent, useTransport } from "./transport";
@@ -43,7 +45,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       try {
         // The time selection is what loops, while there is one: the Piano roll's in pattern mode, the
         // Playlist's in song mode. A draft pattern shown plays (empty), and the Chopper's chop is heard while it's open.
-        const song = withChopPreview(withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern)));
+        const song = withQuantizePreview(withChopPreview(withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern))));
         const loop = playMode === "song" ? usePlaylist.getState().time : usePiano.getState().time;
         // A clip previewed from its menu: the song is only that clip, its time the loop.
         const preview = clipPreview(song);
@@ -89,9 +91,13 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     if ((state.time !== prev.time && useTransport.getState().mode === "song") || state.previewing !== prev.previewing) void send();
   });
   const unsubscribeLoop = usePiano.subscribe((state, prev) => {
-    if ((state.time !== prev.time && useTransport.getState().mode === "pattern") || state.chopping !== prev.chopping) void send();
-    // What the Chopper makes changes with its settings, the selection and the snap (Line's grid follows the zoom).
-    else if (state.chopping && (state.chopper !== prev.chopper || state.selected !== prev.selected || state.snap !== prev.snap || state.view.pxPerTick !== prev.view.pxPerTick || state.channelId !== prev.channelId)) void send();
+    if ((state.time !== prev.time && useTransport.getState().mode === "pattern") || state.chopping !== prev.chopping || state.quantizing !== prev.quantizing) void send();
+    // What the Chopper and the Quantizer make changes with their settings, the selection and the snap (Line's grid follows the zoom).
+    else if (
+      (state.chopping || state.quantizing) &&
+      (state.chopper !== prev.chopper || state.quantizer !== prev.quantizer || state.selected !== prev.selected || state.snap !== prev.snap || state.view.pxPerTick !== prev.view.pxPerTick || state.channelId !== prev.channelId)
+    )
+      void send();
   });
   // The mixer's selection meter adds up the selected tracks (or the one its inspector shows).
   let metered = "";
@@ -111,6 +117,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   meterSelection(true);
   // The input device's channels, for the Input menus and audio tracks' headers.
   void useInputs.getState().load();
+  // The channel MIDI keyboards play.
+  const midi = startMidiSync();
   const stopListening = musicApi.onEngineEvent((event) => {
     if (event.event === "transport") {
       // Play stopped (by the engine, or another tab): a recording is over.
@@ -136,6 +144,24 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       takeAutoTunes(event.autoTunes);
       // Where each Pitch Wheel's wheels are as they're heard: its window's rings.
       takePitchWheels(event.pitchWheels);
+    } else if (event.event === "midi") {
+      // Played on a MIDI keyboard (or the typing keyboard): lit, and kept while recording.
+      useMidi.getState().played(event.notes);
+      useRecording.getState().notesPlayed(event.notes);
+    } else if (event.event === "preset") {
+      // A plugin's preset changed (its window's arrows): what shows its presets asks again.
+      presetsChanged(event.id);
+    } else if (event.event === "wrapper") {
+      // Its window's wrapper button: a channel's settings, or the mixer on the effect's track.
+      const ui = useMusicUi.getState();
+      if (event.owner === "channel") ui.openChannelWindow(event.id);
+      else {
+        const track = useMusic.getState().history?.doc.mixer.tracks.find((t) => t.effects.some((e) => e?.id === event.id));
+        if (track) {
+          ui.setMixerOpen(true);
+          ui.selectTrack(track.id);
+        }
+      }
     } else if (event.event === "take") {
       useRecording.getState().take(event);
     } else if (event.event === "touch") {
@@ -164,6 +190,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       useRecording.getState().stopped();
       useTransport.setState({ playing: false, tick: 0 });
       meterSelection(true);
+      midi.resend();
     }
   });
   void send();
@@ -195,6 +222,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     unsubscribeArmed();
     unsubscribeHeld();
     unsubscribeSelection();
+    midi.stop();
     stopListening();
     if (useTransport.getState().playing) void musicApi.engine("stop", {}).catch(() => {});
     // What's been turned in the plugins' own windows is kept.

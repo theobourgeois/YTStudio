@@ -1,3 +1,4 @@
+import { scaleName } from "@shared/music/scales";
 import { lengthOf, stepString } from "@shared/music/edits";
 import { getMixerTrack } from "@shared/music/mixer";
 import { MASTER_TRACK_ID } from "@shared/music/project";
@@ -8,7 +9,8 @@ import { playlistSummary } from "./playlist/tool-edits";
 import { describeChannel, describeLength } from "./tool-edits";
 
 /** The song in a line, for the chat's label and the sidebar. */
-export const songTiming = (song: MusicProject) => `${song.settings.tempo} BPM, ${song.settings.timeSignature.join("/")}`;
+export const songTiming = (song: MusicProject) =>
+  `${song.settings.tempo} BPM, ${song.settings.timeSignature.join("/")}${song.settings.scale ? `, in ${scaleName(song.settings.scale)}` : ""}`;
 
 /**
  * The whole song as text, for the assistant (`get_song`): settings, the rack's channels, every

@@ -5,6 +5,12 @@ type Mods = Partial<Record<"metaKey" | "ctrlKey" | "shiftKey" | "altKey", boolea
 const press = (key: string, code: string, mods: Mods = {}) => resolvePlaylistKey({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 
 describe("the Playlist's keys", () => {
+  it("picks the zoom tool with Z, and stretch mode with Shift+M", () => {
+    const key = (code: string, mods: Partial<Record<"shiftKey", boolean>> = {}) => resolvePlaylistKey({ key: code.slice(3).toLowerCase(), code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
+    expect(key("KeyZ")).toEqual({ type: "tool", tool: "zoom" });
+    expect(key("KeyM", { shiftKey: true })).toEqual({ type: "stretch" });
+  });
+
   it("pick FL Studio's tools by letter", () => {
     expect(press("p", "KeyP")).toEqual({ type: "tool", tool: "draw" });
     expect(press("b", "KeyB")).toEqual({ type: "tool", tool: "paint" });

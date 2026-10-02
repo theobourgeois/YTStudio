@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  type QuantizeOptions,
+  quantizeWith,
   HIGHEST_PITCH,
   MAX_TICK,
   addNotes,
@@ -396,5 +398,47 @@ describe("with a great many notes", () => {
     const glued = glueNotes(chopped.notes, new Set());
     expect(covered(glued)).toBeLessThanOrEqual(covered(notes));
     expect(unique(glued) && sorted(glued)).toBe(true);
+  });
+});
+
+describe("the Quantizer", () => {
+  const notes = (...list: [number, number][]) => addNotes([], list.map(([start, length]) => ({ start, length, pitch: 60 }))).notes;
+  const at = (list: Note[]) => list.map((n) => [n.start, n.length]);
+  const all = new Set<number>();
+  const options = (over: Partial<QuantizeOptions> = {}): QuantizeOptions => ({ grid: 24, start: 1, duration: 1, sensitivity: 1, swing: 0, ends: "leaveDuration", ...over });
+
+  it("pulls starts to the grid by its strength, the lengths left as they are", () => {
+    expect(at(quantizeWith(notes([5, 30], [40, 10]), all, options()))).toEqual([
+      [0, 30],
+      [48, 10],
+    ]);
+    expect(at(quantizeWith(notes([10, 30]), all, options({ start: 0.5 })))).toEqual([[5, 30]]);
+  });
+
+  it("moves only the notes near enough a line, as its sensitivity says", () => {
+    expect(at(quantizeWith(notes([3, 10], [10, 10]), all, options({ sensitivity: 0.5 })))).toEqual([
+      [0, 10],
+      [10, 10],
+    ]);
+  });
+
+  it("leaves the ends, or quantizes them or the lengths, by the duration's strength", () => {
+    expect(at(quantizeWith(notes([5, 30]), all, options({ ends: "leaveEnd" })))).toEqual([[0, 35]]);
+    expect(at(quantizeWith(notes([5, 40]), all, options({ ends: "quantizeEnd" })))).toEqual([[0, 48]]);
+    expect(at(quantizeWith(notes([5, 30]), all, options({ ends: "quantizeDuration" })))).toEqual([[0, 24]]);
+    expect(at(quantizeWith(notes([5, 30]), all, options({ ends: "quantizeDuration", duration: 0.5 })))).toEqual([[0, 27]]);
+  });
+
+  it("swings every second line later", () => {
+    // Half swing: the off lines 6 ticks late (of a 24-tick grid).
+    expect(at(quantizeWith(notes([26, 10], [47, 10]), all, options({ swing: 0.5 })))).toEqual([
+      [30, 10],
+      [48, 10],
+    ]);
+  });
+
+  it("leaves the list as it is when nothing moves", () => {
+    const already = notes([0, 24], [24, 24]);
+    expect(quantizeWith(already, all, options())).toBe(already);
   });
 });

@@ -5,9 +5,9 @@
  * roll's (`../piano/geometry.ts`).
  */
 import { clamp } from "@shared/math";
-import { type ClipContext, clipAt, clipEnd, lastUsedTrack } from "@shared/music/playlist";
+import { type ClipContext, clipAt, clipEnd, fadeShape, lastUsedTrack } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, MAX_SONG_TICKS } from "@shared/music/project";
-import type { PlaylistClip, PlaylistTrack } from "@shared/music/types";
+import type { PlaylistClip, PlaylistTrack, TimeMarker } from "@shared/music/types";
 import { STEP_TICKS } from "@shared/music/types";
 import type { PlaylistView } from "./store";
 
@@ -28,6 +28,22 @@ export const SPARE_TRACKS = 8;
 export const MIN_TRACKS = 16;
 /** The strip at the top of a clip with its name. */
 export const TITLE_HEIGHT = 13;
+/** The ruler's height, and the band along its bottom where the time markers are. */
+export const RULER_HEIGHT = 32;
+export const MARKER_BAND = 12;
+
+/** How wide a marker's label is on the ruler (its flag and its name, about), in px. */
+export const markerWidth = (marker: Pick<TimeMarker, "name">) => 12 + Math.ceil(marker.name.length * 5.6);
+
+/** The time marker under a point of the ruler (in its band along the bottom), the later one where two overlap. */
+export function markerAt(markers: readonly TimeMarker[], view: PlaylistView, x: number, y: number, height = RULER_HEIGHT): TimeMarker | null {
+  if (y < height - MARKER_BAND) return null;
+  for (let i = markers.length - 1; i >= 0; i--) {
+    const left = tickToX(view, markers[i].tick);
+    if (x >= left - 3 && x <= left + markerWidth(markers[i])) return markers[i];
+  }
+  return null;
+}
 
 export const tickToX = (view: PlaylistView, tick: number) => (tick - view.scrollTick) * view.pxPerTick;
 export const xToTick = (view: PlaylistView, x: number) => x / view.pxPerTick + view.scrollTick;
@@ -89,6 +105,65 @@ export interface ClipHit {
   edge: "start" | "end" | null;
   /** The pointer is on the clip's menu arrow, at the start of its title (FL's clip menu). */
   menu: boolean;
+  /** The pointer is on one of an audio clip's handles (its fades, their curves, its gain). */
+  handle?: ClipHandle | null;
+}
+
+/** An audio clip's handles (FL's clip fades and gain): its fades' corners, the middles of their curves, its gain. */
+export type ClipHandle = "fadeIn" | "fadeOut" | "fadeInTension" | "fadeOutTension" | "gain";
+
+/** How close (px) the pointer must be to a handle to take it, and how far in from a clip's edge a fade's corner sits when it has no fade (past the edge's zone). */
+export const HANDLE_REACH = 5;
+export const HANDLE_INSET = EDGE_ZONE + 2;
+/** The least an audio clip shows its handles at: px wide, and its body px tall. */
+export const HANDLES_MIN_WIDTH = 40;
+export const HANDLES_MIN_HEIGHT = 16;
+
+/** Where an audio clip's body is on screen, under its title, and the px its fades take. */
+export function clipBody(clip: PlaylistClip, ctx: ClipContext, layout: TrackLayout, view: PlaylistView) {
+  const left = tickToX(view, clip.start);
+  const right = tickToX(view, clipEnd(clip, ctx));
+  const y = trackTop(layout, view, clip.track);
+  const bottom = trackTop(layout, view, clip.track + 1) - 2;
+  return { left, right, top: y + TITLE_HEIGHT, bottom, fadeIn: (clip.fadeIn ?? 0) * view.pxPerTick, fadeOut: (clip.fadeOut ?? 0) * view.pxPerTick };
+}
+
+/**
+ * Where an audio clip's handles are (px), or null when it isn't one or it's too small to show them: each
+ * fade's corner at the top of its body, the middle of each fade's curve (when there's room for it), and
+ * the gain's half-circle in the middle of its bottom edge.
+ */
+export function clipHandles(clip: PlaylistClip, ctx: ClipContext, layout: TrackLayout, view: PlaylistView): Partial<Record<ClipHandle, { x: number; y: number }>> | null {
+  if (clip.kind !== "audio") return null;
+  const body = clipBody(clip, ctx, layout, view);
+  const width = body.right - body.left;
+  const height = body.bottom - body.top;
+  if (width < HANDLES_MIN_WIDTH || height < HANDLES_MIN_HEIGHT) return null;
+  const handles: Partial<Record<ClipHandle, { x: number; y: number }>> = {
+    fadeIn: { x: body.left + Math.max(HANDLE_INSET, body.fadeIn), y: body.top + 3 },
+    fadeOut: { x: body.right - Math.max(HANDLE_INSET, body.fadeOut), y: body.top + 3 },
+    gain: { x: (body.left + body.right) / 2, y: body.bottom - 3 },
+  };
+  // The middle of a fade's curve: where dragging up and down bends it.
+  if (body.fadeIn >= 16) handles.fadeInTension = { x: body.left + body.fadeIn / 2, y: body.bottom - fadeShape(0.5, clip.fadeInTension) * height };
+  if (body.fadeOut >= 16) handles.fadeOutTension = { x: body.right - body.fadeOut / 2, y: body.bottom - fadeShape(0.5, clip.fadeOutTension) * height };
+  return handles;
+}
+
+/** The handle of `clip` within reach of a point, if any. */
+export function handleAt(clip: PlaylistClip, ctx: ClipContext, layout: TrackLayout, view: PlaylistView, x: number, y: number): ClipHandle | null {
+  const handles = clipHandles(clip, ctx, layout, view);
+  if (!handles) return null;
+  let best: ClipHandle | null = null;
+  let nearest = HANDLE_REACH;
+  for (const [name, at] of Object.entries(handles) as [ClipHandle, { x: number; y: number }][]) {
+    const distance = Math.hypot(at.x - x, at.y - y);
+    if (distance <= nearest) {
+      nearest = distance;
+      best = name;
+    }
+  }
+  return best;
 }
 
 /** Where a clip's menu arrow is in its title: this many px from its left edge, past the edge's zone. */
@@ -108,9 +183,12 @@ export function hitClip(clips: readonly PlaylistClip[], ctx: ClipContext, layout
   const right = tickToX(view, clipEnd(clip, ctx));
   const zone = Math.min(EDGE_ZONE, (right - left) / 3);
   const edge = x - left <= zone ? "start" : right - x <= zone ? "end" : null;
+  // An audio clip's handles come before its edges (a fade's corner sits just inside one).
+  const handle = handleAt(clip, ctx, layout, view, x, y);
+  if (handle) return { clip, edge: null, menu: false, handle };
   const inTitle = y - trackTop(layout, view, clip.track) < TITLE_HEIGHT;
   const menu = !edge && inTitle && right - left > MENU_TO + 4 && x - left >= MENU_FROM && x - left < MENU_TO;
-  return { clip, edge, menu };
+  return { clip, edge, menu, handle: null };
 }
 
 /**

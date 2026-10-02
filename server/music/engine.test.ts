@@ -3,14 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, addPluginChannel, setSteps } from "../../shared/music/edits.ts";
-import { setEffect } from "../../shared/music/mixer.ts";
+import { setEffect, updateMixerTrack } from "../../shared/music/mixer.ts";
 import type { EngineEvent } from "../../shared/music/engine.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
-import { createAutomation } from "../../shared/music/automation.ts";
+import { createAutomation, editPoints, updateAutomation } from "../../shared/music/automation.ts";
 import { addClips, editClips } from "../../shared/music/playlist.ts";
+import type { MediaAsset } from "../../shared/types.ts";
 import { DataPaths } from "../storage.ts";
+import { readWav, writeWav } from "./wav.ts";
 import { AudioEngine, engineOutdated } from "./engine.ts";
 
+const PROJECT = "proj_0123456789ab";
 const FAKE = [process.execPath, path.join(import.meta.dirname, "fake-engine.mjs")];
 
 describe("AudioEngine", () => {
@@ -167,10 +170,54 @@ describe("AudioEngine", () => {
     expect(((await request("whatSong", {})) as { lanes: unknown[] }).lanes).toEqual([]);
   });
 
+  it("chooses a plugin's programs and keeps the user's presets for it, says when they change, and passes on its wrapper button", async () => {
+    const song = addPluginChannel(createMusicProject("Presets"), { id: "VST3-Fake Synth-1", name: "Fake Synth", format: "VST3" }, "chan_synth");
+    await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
+    const events: EngineEvent[] = [];
+    engine.onEvent((event) => events.push(event));
+    expect(await engine.presets("channel", "chan_synth")).toEqual({ programs: ["Init", "Bass", "Lead", "Pad"], program: 0, presets: [], preset: "" });
+    expect(await engine.preset({ owner: "channel", id: "chan_synth", action: "setProgram", index: 2 })).toMatchObject({ program: 2 });
+    expect(await engine.preset({ owner: "channel", id: "chan_synth", action: "savePreset", name: "  Wide lead " })).toMatchObject({ presets: ["Wide lead"], preset: "Wide lead" });
+    await expect.poll(() => events.filter((e) => e.event === "preset")).toHaveLength(2);
+    await expect(engine.preset({ owner: "channel", id: "chan_synth", action: "setProgram", index: -1 })).rejects.toMatchObject({ status: 400 });
+    await expect(engine.preset({ owner: "channel", id: "chan_synth", action: "savePreset", name: " " })).rejects.toMatchObject({ status: 400 });
+    await expect(engine.preset({ owner: "channel", id: "chan_synth", action: "rename", name: "x" })).rejects.toMatchObject({ status: 400 });
+    await expect(engine.presets("mixer", "chan_synth")).rejects.toMatchObject({ status: 400 });
+
+    const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
+    await request("pressWrapper", { owner: "channel", ownerId: "chan_synth" });
+    await expect.poll(() => events.find((e) => e.event === "wrapper")).toEqual({ event: "wrapper", owner: "channel", id: "chan_synth" });
+  });
+
   it("lists the audio devices and changes them", async () => {
     expect(await engine.devices()).toMatchObject({ output: "Fake Output", bufferSizes: [64, 128, 256, 512] });
     expect((await engine.setDevice({ bufferSize: 128, output: "Fake Headphones" })).status).toMatchObject({ bufferSize: 128, device: "Fake Headphones" });
     await expect(engine.setDevice({ bufferSize: "small" })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("speaks the song's ticks to the tab when tempo clips warp the engine's: the loop, where play starts, where it is", async () => {
+    const BAR = 384;
+    let song = setSteps(addChannels(createMusicProject("Tempo", 120), [{ id: "chan_kick", name: "Kick", sampleId: null }]), FIRST_PATTERN_ID, "chan_kick", [0], true);
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: FIRST_PATTERN_ID, track: 0, start: 0, length: BAR * 4 }]).clips);
+    // Twice as fast from bar 2: the engine's four bars are two and a half of its own.
+    const made = createAutomation(song, { kind: "tempo" }, { start: BAR, length: BAR * 3 });
+    // Its range the whole of the tempo's (20 to 999), so 240 is in it.
+    song = updateAutomation(made.song, made.automationId, { min: 0, max: 1 });
+    song = editPoints(song, made.automationId, () => [{ tick: 0, value: (240 - 20) / (999 - 20), tension: 0, curve: "single" }]);
+    const answer = await engine.setSong({ projectId: PROJECT, song, patternId: null, mode: "song" });
+    expect(answer.loop).toEqual({ start: 0, ticks: BAR * 4 });
+    const status = await engine.command("play", { from: BAR * 3 });
+    // Where it is, back in the song's ticks: bar 4 (not the engine's bar 2.25), a moment on.
+    expect(status.transport.tick).toBeGreaterThanOrEqual(BAR * 3 - 1);
+    expect(status.transport.tick).toBeLessThan(BAR * 3 + 48);
+    // And it moves at 240 BPM there: 0.384 of the song's ticks a millisecond (the engine's go half as fast).
+    const started = Date.now();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const later = await engine.command("status", {});
+    const rate = (later.transport.tick - status.transport.tick) / (Date.now() - started);
+    expect(rate).toBeGreaterThan(0.3);
+    expect(rate).toBeLessThan(0.45);
+    await engine.command("stop", {});
   });
 
   it("gives a restarted engine its song back", async () => {
@@ -188,6 +235,39 @@ describe("AudioEngine", () => {
     const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
     await expect(request("crash", {})).rejects.toMatchObject({ status: 503 });
     expect(await engine.command("status", {})).toMatchObject({ device: "Fake Output" });
+  });
+
+  it("saves what a recording had written when the engine dies mid-way: each take's file mended and handed in", async () => {
+    const takes: EngineEvent[] = [];
+    const recorder = new AudioEngine(new DataPaths(dir), {
+      command: FAKE,
+      pluginPaths: [],
+      adoptTake: async (_project, file, name, origin) => ({ id: origin, name, src: file }) as MediaAsset,
+    });
+    recorder.onEvent((event) => event.event === "take" && takes.push(event));
+    try {
+      const song = updateMixerTrack(createMusicProject("Vox"), "insert_1", { input: { channel: 0, stereo: false } });
+      await recorder.setSong({ projectId: PROJECT, song, patternId: null, armed: ["insert_1"] });
+      const { recordingId } = await recorder.record({ projectId: PROJECT, from: 192, names: { insert_1: "Vox" } });
+      // What the engine had written of two passes, their headers still saying nothing was.
+      const folder = path.join(new DataPaths(dir).projectDir(PROJECT), "recordings");
+      for (const [pass, frames] of [[1, 4800], [2, 2400]]) {
+        await writeWav(path.join(folder, `${recordingId}-insert_1-${pass}.wav`), new Float32Array(frames).fill(0.25), 48_000);
+        const file = await fs.open(path.join(folder, `${recordingId}-insert_1-${pass}.wav`), "r+");
+        await file.write(Buffer.alloc(4), 0, 4, 40);
+        await file.close();
+      }
+      const request = (recorder as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(recorder);
+      await expect(request("crash", {})).rejects.toMatchObject({ status: 503 });
+      for (let waited = 0; takes.length < 2 && waited < 3000; waited += 20) await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(takes).toMatchObject([
+        { recordingId, track: "insert_1", startTick: 192, frames: 4800, pass: 0, final: false, error: expect.stringMatching(/stopped mid-recording/) },
+        { recordingId, track: "insert_1", startTick: 0, frames: 2400, pass: 1, final: true },
+      ]);
+      expect((await readWav(path.join(folder, `${recordingId}-insert_1-2.wav`))).channels[0].length).toBe(2400);
+    } finally {
+      recorder.shutdown();
+    }
   });
 
   it("says how to build the engine when it's missing", async () => {

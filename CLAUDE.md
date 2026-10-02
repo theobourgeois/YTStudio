@@ -176,7 +176,8 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      notes, the metronome. Host.cpp: the song's plugin channels (instances, state files,
                      windows). Plugins.cpp: plugin scanning and the bench's two slots. FilePreview.cpp:
                      the Browser's preview, a file streamed from disk; Recorder.cpp: recording (armed tracks'
-                     inputs to WAVs, through FIFOs a writer thread empties); AudioStream.cpp is that stream (a reader
+                     inputs to WAVs, through FIFOs a writer thread empties); MidiInputs.cpp: MIDI keyboards
+                     (every input not turned off, into the sequencer's queue); AudioStream.cpp is that stream (a reader
                      thread, a lock-free ring; Signalsmith Stretch for stretched clips), and ClipPlayer.cpp plays the playlist's audio clips with it,
                      each started on its sample. Export.cpp: the export, rendered on a thread of its own
                      (Workers.h runs its plugins on every core). GrossBeat.cpp: Gross Beat, a native effect
@@ -218,7 +219,8 @@ src/
                      says in live.ts, its tools),
                      toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
                      tempo and position LCDs, the hint bar; its maths in position.ts), recording.ts (armed
-                     tracks, Record, takes into the song) and inputs.ts (the input device's channels), playlist/ (the
+                     tracks, Record, takes into the song) and inputs.ts (the input device's channels), midi.ts
+                     (MIDI keyboards' target, the keys held, the typing keyboard), playlist/ (the
                      Playlist, F5: see "The music suite"), automation/ (automation clips: see "The music
                      suite"), playhead.ts (where the song and the shown pattern
                      are now), settings.tsx (its section of Settings: the device, and
@@ -333,10 +335,10 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel, OTT. Where it is and every step still to come, in order:
+the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel, OTT. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
-- The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
+- The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume, scale? }, channels,
   patterns, playlist, mixer, automations }` (`volume` is the toolbar's main volume, folded into the master's gain by `compileSong`). A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
   `precomputed` effects (trim, reverse, normalise, fades); a `Pattern` has `notes[channelId]`, sorted by `start`,
   and a `length` that's null for FL's Auto: use `lengthOf`/`patternSteps`, never the field. Solo isn't a field:
@@ -344,8 +346,10 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
 - A channel is a sampler or a **plugin channel** (`kind: "plugin"`, `plugin: { id, name, format }`): an instrument
   plugin (VST3, Audio Unit) the engine hosts for it. The engine keeps one instance per plugin channel across the
   song's edits (`engine/src/Host.cpp`), loads it in the background (the channel is silent until then;
-  `EngineStatus.channels` says loaded, loading or failed), plays the pattern's notes into it as MIDI, and shows
-  its own window when the channel's button is clicked. **A plugin's settings aren't in the document**: they're
+  `EngineStatus.channels` says loaded, loading or failed), plays the pattern's notes into it as MIDI (moved by
+  the channel's PITCH in whole semitones), and shows its own window when the channel's button is clicked. Its
+  settings window is FL's wrapper (`plugin-tab.tsx`): the channel's knobs, and the plugin's presets (its own
+  programs, and the user's saved in the engine's data folder, `PluginHost::savePreset`; `/api/engine/presets`). **A plugin's settings aren't in the document**: they're
   a file beside it (`data/projects/<id>/plugins/<channel id>.bin`), written by the engine every few seconds when
   they've changed, when the channel is removed (so undoing that brings the plugin back as it was) and when the
   engine quits. So what's turned inside a plugin's window isn't an undo step, as in FL Studio. **Musical time is whole ticks, `PPQ` (96) to a quarter note**, never
@@ -399,7 +403,15 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   (`play { from }`; sent while playing, the engine goes there at once). Its look is FL's, in colours of its own
   for each theme (`readPalette`): don't take the page's theme colours for the grid or the notes. Each tool has its
   pointer (`cursors.ts`, picked by `gridCursor`; a drag sets the canvas's own while it lasts), and deleted notes
-  fade out (`fades.ts`: call `fadeOut` wherever notes are deleted).
+  fade out (`fades.ts`: call `fadeOut` wherever notes are deleted). The song's `scale` (`shared/music/scales.ts`)
+  lights its rows and snaps notes drawn, stamped and moved (Alt: not); the Stamp places its chords, and the
+  Quantizer (Alt+Q, `quantizeWith`) is previewed live as the Chopper is (both through the engine's song too).
+- **A sampler's own settings** (`shared/music/sampler.ts`, the channel window's Envelope tab, `instrument-tab.tsx`):
+  its loop, filter, swing mix and an envelope and LFO per target (pan, cutoff, resonance, pitch; the volume's
+  LFO), each absent from the channel at its default (`samplerOf` fills them in; `samplerFields` checks a patch).
+  The maths (`envelopeLevel`, `lfoValue`, `tensionCurve`, `cutoffHz`) is what the engine plays in
+  `Sequencer::renderShaped`, the voices of a channel with any of it (others keep the plain path): keep the two
+  the same, and test sounds in `server/music/sampler.integration.test.ts`.
 - The tab sends the whole song to the engine on every change, even mid-drag (`engine-sync.ts` →
   `POST /api/engine/song`: the server normalises it, compiles it and turns sample ids into paths). The engine
   swaps songs without a gap. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a
@@ -426,7 +438,9 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   `shared/music/playlist.ts` (with a `ClipContext`: the patterns' lengths and the tempo, which a clip's
   length needs, and each audio clip's speed: a pitched one plays its file faster, FL's Resample, and a
   stretched one at its stretch's, so an audio clip's ticks become file seconds through `fileSecondsPerTick(clip)`,
-  never `secondsPerTick`), and the window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
+  never `secondsPerTick`). An audio clip has its own `gain` and fades (`fadeIn`/`fadeOut` in ticks, their
+  tensions: `fadeShape`, the engine's too), each absent at its default (`clipExtras` checks them). The
+  window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
   through `applyDrag` and committed once, maths in `geometry.ts`, mouse in `pointer.ts`, keys in `keys.ts`,
   commands in `actions.ts`. An audio clip's channel is `Channel.kind: "audio"`, in the rack's
   Audio group (`RackGroup`), with a cut-down settings window; it has steps and notes too, as FL's (the
@@ -434,7 +448,11 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   otherwise its clips stream it). Deleting a pattern or
   a channel takes its clips. A clip's colour is its source's (`Pattern.color`, `Channel.color`), else its
   track's; every clip colour is derived from one (`clipColours` in `draw.ts`). The clip menu's Preview
-  sends the engine a song of that clip alone while it's held (`playlist/preview.ts`).
+  sends the engine a song of that clip alone while it's held (`playlist/preview.ts`). Time markers
+  (`Playlist.markers`, `shared/music/markers.ts`; Alt+T, in a band along the ruler) are named ticks, or Start /
+  Stop recording markers (`punchRange`: recording keeps only what's between). Render as audio clip and
+  Consolidate (`playlist/bounce.ts`) are an export with `bounce`: the server adopts its mix as the project's
+  media and the tab places it.
 - **Stretching audio clips** (`docs/fl-studio/playlist.md`, Stretching audio clips; `shared/music/stretch.ts`):
   an `AudioStretch` (`mode`: Resample or Stretch, the pitch kept; `tempo`: the song's tempo at which the file
   plays at its own speed, so a stretched clip follows the tempo) is a clip's own (`PlaylistClip.stretch`, FL
@@ -476,6 +494,7 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   it so: a stage's tracks touch only their own buffers, sends are added in order after. The mix is floating
   point and can go over full scale and still sound clean live (the system volume turns it down first); a
   file would clip, so a render that goes over is turned down as a whole (`exportGain`, `preventClipping`).
+  Wrap remainder renders ringing out, then adds the tail onto the start (`server/music/wrap.ts`).
 - **Automation** (`docs/fl-studio/automation.md`; `shared/music/automation.ts`, `src/suites/music/automation/`):
   an automation clip (`MusicProject.automations`) is a curve for one control (`AutomationTarget`: a
   channel's volume or pan, a mixer track's fader, pan or stereo separation, a send, an effect's mix, the
@@ -496,7 +515,12 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   lanes it moves), and `e2e/music.spec.ts` right-clicks every slider of every built-in's window to check
   it. Touching one shows **Automate "…"** in its window's title bar (`AutomateTouched`,
   `useAutomationUi.touchedControl`), as a plugin window's does. An engine lane holds up to
-  `Song::Lane::maxSize` (64) values a point.
+  `Song::Lane::maxSize` (64) values a point. FL's Step and Slide modes are the
+  Playlist store's `curveStep`/`curveSlide`. **Tempo automation** (`shared/music/tempo.ts`): the engine
+  keeps the song's own tempo and is sent a song warped through the tempo clips (`warpSong`); the server's
+  `SongClock` converts every tick crossing to or from the engine, so the tab and the document only ever
+  hold the song's ticks. Seconds from a tick in song mode: `songSeconds`/`engineTick`, never
+  `secondsPerTick` alone.
 - **Recording** (`docs/fl-studio/recording.md`, FL's through mixer tracks): a track's `input` (a device
   channel or a pair), `monitor` and `inputOffset` are the song's; **which tracks are armed, Record (R) and a
   recording in progress are the tab's** (`recording.ts`), sent with the song (`SetSongRequest.armed`). Settings
@@ -511,7 +535,19 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   undo step. A Playlist track can be an insert's audio track (`PlaylistTrack.mixerTrack`): its takes land
   on it. The transport doesn't import the recording store (a cycle through the song's store): recording
   registers itself with it (`setRecorder`). Offline tests feed a WAV as the device's inputs (`render`'s
-  `input`).
+  `input`). If the engine dies mid-recording, the server mends the takes it was writing
+  (`server/music/take-repair.ts`) and hands them in itself (`AudioEngine.salvage`).
+- **MIDI input** (`docs/fl-studio/midi.md`): the engine listens to every MIDI input not turned off
+  (`MidiInputs`, `midi.json` in its data folder) and plays it on the **MIDI target**, the rack's selected
+  channel (`midiTarget`, sent by `src/suites/music/midi.ts`; packed with the song's serial so a song
+  handed over meanwhile keeps it). Messages reach the audio thread through a lock-free queue (MIDI's
+  threads take a spin lock among themselves only); a key's note off goes to the channel its note on did.
+  `midiIn` puts messages in the same queue: the typing keyboard (Ctrl+T, `typing-keyboard.ts`) and the
+  tests play that way, so everything played is lit and recorded alike. What was played comes back as
+  `midi` events with the engine's tick; while recording (Record with nothing armed records notes alone)
+  the tab keeps them, and on stop `recordedNotes`/`addRecordedNotes` (`shared/music/recording.ts`) make
+  them one undo step in a pattern placed where recording started. Tested offline in
+  `server/music/midi.integration.test.ts`.
 - **Gross Beat** (`docs/fl-studio/gross-beat.md`; `shared/music/gross-beat*.ts`, `engine/src/GrossBeat.cpp`,
   `src/suites/music/gross-beat/`): FL's time and volume effect, ours, not a plugin: a `MixerEffect` whose
   plugin is `GROSS_BEAT_PLUGIN`, its settings **in the song** (`MixerEffect.grossBeat`: undone, read and drawn

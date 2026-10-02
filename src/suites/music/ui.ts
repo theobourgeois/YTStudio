@@ -17,6 +17,7 @@ export type WindowId =
   | "transpose"
   | "note"
   | "chopper"
+  | "quantizer"
   | "export"
   | "automate"
   | `channel:${string}`

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { removeChannels, removePattern, setPatternLength, setSteps, setTempo } from "./edits.ts";
-import { createChannel, createMusicProject, DEFAULT_PLAYLIST_TRACK, MAX_PLAYLIST_TRACKS } from "./project.ts";
+import { createChannel, createMusicProject, DEFAULT_PLAYLIST_TRACK, MAX_CLIP_GAIN, MAX_PLAYLIST_TRACKS, normalizeMusicProject } from "./project.ts";
 import {
   type NewClip,
   addAudioClips,
@@ -31,7 +31,11 @@ import {
   sliceAll,
   sliceClips,
   chopClips,
+  clipEnvelope,
+  fadeShape,
   pitchSpeed,
+  setClipFades,
+  setClipGain,
   slipClips,
   soloTrack,
   songTicks,
@@ -303,6 +307,72 @@ describe("audio clips dropped on the playlist", () => {
       [0, 0],
       [0, BAR],
     ]);
+  });
+});
+
+describe("an audio clip's fades and gain", () => {
+  /** A song with a two-second vocal on the playlist from bar 1, a bar long (at 120 BPM a bar is two seconds). */
+  const vocal = (extra: Partial<NewClip> = {}) => {
+    const song = addAudioClips(makeSong(), [{ name: "Vocal", sampleId: "m_vox", seconds: 2, channelId: "chan_vox" }], { start: BAR, track: 0 }).song;
+    return extra ? editClips(song, (clips) => clips.map((c) => ({ ...c, ...extra }))) : song;
+  };
+  const only = (song: MusicProject) => song.playlist.clips[0];
+
+  it("fade in and out within the clip, the fade being set winning, and keep their curves", () => {
+    const song = vocal();
+    const id = ids(only(song).id);
+    let clips = setClipFades(song.playlist.clips, id, { fadeIn: 96, fadeInTension: 0.5 });
+    expect(clips[0]).toMatchObject({ fadeIn: 96, fadeInTension: 0.5 });
+    expect(clips[0].fadeOut).toBeUndefined();
+    clips = setClipFades(clips, id, { fadeOut: 400 });
+    // The fade out set to more than the clip has left: the fade in gives way.
+    expect(clips[0].fadeIn).toBeUndefined();
+    expect(clips[0].fadeOut).toBe(BAR);
+    expect(setClipFades(clips, id, { fadeOut: BAR })).toBe(clips);
+    // A pattern clip has none.
+    const patterns = addClips([], [clip()]).clips;
+    expect(setClipFades(patterns, ids(1), { fadeIn: 24 })).toBe(patterns);
+  });
+
+  it("have a gain of their own, kept off the clip when it's 1", () => {
+    const song = vocal();
+    const id = ids(only(song).id);
+    const louder = setClipGain(song.playlist.clips, id, 2);
+    expect(louder[0].gain).toBe(2);
+    expect(setClipGain(louder, id, 1)[0].gain).toBeUndefined();
+    expect(setClipGain(louder, id, 1000)[0].gain).toBeCloseTo(MAX_CLIP_GAIN);
+    expect(setClipGain(song.playlist.clips, id, 1)).toBe(song.playlist.clips);
+  });
+
+  it("shape their sound: the gain and both fades", () => {
+    expect(fadeShape(0.5)).toBe(0.5);
+    expect(fadeShape(0.5, 1)).toBeGreaterThan(0.5);
+    expect(fadeShape(0.5, -1)).toBeLessThan(0.5);
+    expect(fadeShape(2)).toBe(1);
+    const shaped = { gain: 2, fadeIn: 100, fadeOut: 50 };
+    expect(clipEnvelope(shaped, 400, 0)).toBe(0);
+    expect(clipEnvelope(shaped, 400, 50)).toBeCloseTo(1);
+    expect(clipEnvelope(shaped, 400, 200)).toBe(2);
+    expect(clipEnvelope(shaped, 400, 375)).toBeCloseTo(1);
+  });
+
+  it("go with the clip when it's resized, sliced, copied and saved", () => {
+    const song = vocal({ fadeIn: 48, fadeOut: 96, gain: 0.5 });
+    const ctx = clipContext(song);
+    const id = only(song).id;
+    // Shorter than its fades: they shrink with it.
+    const short = resizeClips(song.playlist.clips, ids(id), "end", -BAR + 100, ctx);
+    expect(short[0]).toMatchObject({ length: 100, gain: 0.5 });
+    expect((short[0].fadeIn ?? 0) + (short[0].fadeOut ?? 0)).toBeLessThanOrEqual(100);
+    // Sliced: the fade in stays with the first part, the fade out with the second.
+    const { clips } = sliceClips(song.playlist.clips, BAR + 192, 0, 0, ctx);
+    expect(clips.map((c) => [c.start, c.fadeIn, c.fadeOut, c.gain])).toEqual([
+      [BAR, 48, undefined, 0.5],
+      [BAR + 192, undefined, 96, 0.5],
+    ]);
+    // Copied, and through a save.
+    expect(cloneClips(song.playlist.clips, ids(id), BAR, 1, ctx).clips[1]).toMatchObject({ fadeIn: 48, fadeOut: 96, gain: 0.5 });
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(song))).playlist.clips[0]).toMatchObject({ fadeIn: 48, fadeOut: 96, gain: 0.5 });
   });
 });
 

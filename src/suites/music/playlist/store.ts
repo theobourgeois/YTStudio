@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { NewClip } from "@shared/music/playlist";
+import type { FadePatch, NewClip } from "@shared/music/playlist";
 import type { AutomationPoint, PlaylistClip, PlaylistClipKind, StretchMode } from "@shared/music/types";
 import type { Snap } from "../piano/geometry";
 import { DEFAULT_TRACK_HEIGHT } from "./geometry";
@@ -7,7 +7,7 @@ import type { IncomingFile } from "./incoming";
 import { useMusic } from "../store";
 import { useMusicUi } from "../ui";
 
-export const PLAYLIST_TOOLS = ["draw", "paint", "delete", "mute", "slip", "slice", "select", "playback"] as const;
+export const PLAYLIST_TOOLS = ["draw", "paint", "delete", "mute", "slip", "slice", "select", "zoom", "playback"] as const;
 /** The Playlist's tool: what the left button does on the tracks (FL Studio's, with its keys). */
 export type PlaylistTool = (typeof PLAYLIST_TOOLS)[number];
 
@@ -60,7 +60,15 @@ export type PlaylistDrag =
   /** The slice tool's line: straight down at `tick`, across the tracks from `top` to `bottom` (`all`, Shift: every track). */
   | { kind: "slice"; tick: number; top: number; bottom: number; all: boolean }
   /** The playback tool: where it's heard from. Changes no clips. */
-  | { kind: "playback"; tick: number };
+  | { kind: "playback"; tick: number }
+  /** An audio clip's fade handle (or its curve's) dragged: the fades as they'd be. */
+  | { kind: "fade"; ids: ReadonlySet<number>; patch: FadePatch }
+  /** An audio clip's gain handle dragged: the gain as it'd be. */
+  | { kind: "gain"; ids: ReadonlySet<number>; gain: number }
+  /** A time marker dragged along the ruler: where it'd be left. */
+  | { kind: "marker"; id: number; tick: number }
+  /** The zoom tool's rectangle (FL's Z), in ticks and tracks: what the view zooms to when it's let go. */
+  | { kind: "zoom"; from: number; to: number; top: number; bottom: number };
 
 interface PlaylistState {
   tool: PlaylistTool;
@@ -121,6 +129,14 @@ interface PlaylistState {
   carried: readonly ClipSource[] | null;
   /** The patterns the Transpose window moves, while it's open for the Picker (null: the rack's channels). */
   transposing: readonly string[] | null;
+  /** FL's automation editing modes: Step (a left drag on a curve paints held steps on the snap's grid) and Slide (a point moved takes every later one with it). */
+  curveStep: boolean;
+  curveSlide: boolean;
+  /** The view before the zoom tool last zoomed in: its right-click goes back (and forth). */
+  zoomBack: PlaylistView | null;
+  /** A time marker's menu, open (a right-click on it), and where on the ruler; or one being renamed there. */
+  markerMenu: { id: number; x: number } | null;
+  renamingMarker: { id: number; x: number } | null;
 
   setTool: (tool: PlaylistTool) => void;
   setView: (view: PlaylistView) => void;
@@ -159,6 +175,11 @@ const INITIAL = {
   pointMenu: null as { automationId: string; index: number; x: number; y: number } | null,
   carried: null as readonly ClipSource[] | null,
   transposing: null as readonly string[] | null,
+  curveStep: false,
+  curveSlide: false,
+  zoomBack: null as PlaylistView | null,
+  markerMenu: null as { id: number; x: number } | null,
+  renamingMarker: null as { id: number; x: number } | null,
 };
 
 export const usePlaylist = create<PlaylistState>((set) => ({

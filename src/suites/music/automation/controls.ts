@@ -1,6 +1,6 @@
 /**
  * Every control of a song that can be automated, for the Automate window (`chooser.tsx`): the main
- * volume, each channel's volume and pan, each mixer track's fader, pan, stereo separation, sends and
+ * volume, each channel's volume, pan and pitch (an audio clip's channel: no pitch), each mixer track's fader, pan, stereo separation, sends and
  * effects' mixes, and the plugins whose own parameters the engine lists. Pure, so it's tested.
  */
 import { controlOf, mixerTrackName, targetKey } from "@shared/music/automation";
@@ -38,10 +38,14 @@ export function songControls(song: MusicProject): ControlGroup[] {
     const info = controlOf(song, target);
     return { key: targetKey(target), target, name: info.name, owner: info.owner, automated: automated.has(targetKey(target)) };
   };
-  const groups: ControlGroup[] = [{ title: "Song", rows: [row({ kind: "main" })] }];
+  const groups: ControlGroup[] = [{ title: "Song", rows: [row({ kind: "main" }), row({ kind: "tempo" })] }];
   groups.push({
     title: "Channels",
-    rows: song.channels.flatMap((c) => [row({ kind: "channel", channel: c.id, control: "volume" }), row({ kind: "channel", channel: c.id, control: "pan" })]),
+    rows: song.channels.flatMap((c) => [
+      row({ kind: "channel", channel: c.id, control: "volume" }),
+      row({ kind: "channel", channel: c.id, control: "pan" }),
+      ...(c.kind === "audio" ? [] : [row({ kind: "channel", channel: c.id, control: "pitch" })]),
+    ]),
   });
   const used = new Set([...song.channels.map((c) => c.mixerTrack), ...song.mixer.tracks.flatMap((t) => (t.effects.some(Boolean) ? [t.id] : []))]);
   const mixer: ControlRow[] = [];

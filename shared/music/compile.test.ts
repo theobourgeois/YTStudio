@@ -83,6 +83,9 @@ describe("compileSong", () => {
     expect(compiled.channels[2]).toMatchObject({ id: "chan_synth", sample: null, plugin: { id: "VST3-Synth-1", state: "" }, gainLeft: 1, gainRight: 1 });
     expect(compiled.channels[0].plugin).toBeNull();
     expect(compiled.notes[0]).toMatchObject({ channel: 2, tick: 96, length: 24, key: 64, velocity: 0.5 });
+    // Its PITCH moves the keys it's sent, by whole semitones, within MIDI's.
+    expect(compileSong(updateChannel(song, "chan_synth", { pitch: -12.4 }), P).notes[0].key).toBe(52);
+    expect(compileSong(updateChannel(setStepNote(song, P, "chan_synth", 4, { pitch: 120 }), "chan_synth", { pitch: 24 }), P).notes[0].key).toBe(127);
   });
 
   it("turns volume, pan, mute and velocity into gains", () => {
@@ -497,5 +500,101 @@ describe("automation", () => {
       expect(drawn).toBeGreaterThan(Math.min(...near) - 1e-3);
       expect(drawn).toBeLessThan(Math.max(...near) + 1e-3);
     }
+  });
+
+  it("bends a sampler's pitch in semitones, and moves a plugin channel's notes by whole ones where each starts", () => {
+    let song = automated();
+    const kickPitch = createAutomation(song, { kind: "channel", channel: "chan_kick", control: "pitch" }, { start: 0, length: BAR }, { id: "auto_pitch" });
+    // Up an octave across the bar (0.5 is no change: the knob's middle, ±24 semitones either side).
+    song = editPoints(kickPitch.song, "auto_pitch", () => [
+      { tick: 0, value: 0.5, tension: 0, curve: "single" },
+      { tick: BAR, value: 0.75, tension: 0, curve: "single" },
+    ]);
+    const lane = compileSong(song, P, null, "song").lanes.find((l) => l.target.kind === "pitch")!;
+    expect(lane.target).toEqual({ kind: "pitch", channel: 0 });
+    expect(laneAt(lane, 1, 0)[0]).toBeCloseTo(0, 3);
+    expect(laneAt(lane, 1, BAR / 2)[0]).toBeCloseTo(6, 2);
+    expect(laneAt(lane, 1, BAR * 3)[0]).toBeCloseTo(12, 3);
+    // Held by the hand: left out.
+    expect(compileSong(song, P, null, "song", new Set(["channel:chan_kick:pitch"])).lanes.some((l) => l.target.kind === "pitch")).toBe(false);
+
+    // A plugin channel: no lane; its notes' keys moved by what the pitch is where each starts, rounded.
+    song = addPluginChannel(song, { id: "VST3-synth", name: "Synth", format: "VST3" }, "chan_synth");
+    song = setSteps(song, P, "chan_synth", [0, 8], true);
+    // The pattern every bar (a clip plays its pattern once).
+    song = editClips(song, (clips) => addClips(clips, [1, 2, 3].map((bar) => ({ kind: "pattern" as const, ref: P, track: 1, start: BAR * bar }))).clips);
+    const synthPitch = createAutomation(song, { kind: "channel", channel: "chan_synth", control: "pitch" }, { start: BAR, length: BAR }, { id: "auto_synth" });
+    song = editPoints(synthPitch.song, "auto_synth", () => [{ tick: 0, value: 0.5 + 7 / 48, tension: 0, curve: "hold" }]);
+    const compiled = compileSong(song, P, null, "song");
+    expect(compiled.lanes.filter((l) => l.target.kind === "pitch")).toHaveLength(1);
+    const keys = compiled.notes.filter((n) => n.channel === 2).map((n) => [n.tick, n.key]);
+    // Bar 1 before the clip: its own pitch; from bar 2 a fifth up, and held there after.
+    expect(keys.slice(0, 4)).toEqual([
+      [0, 60],
+      [BAR / 2, 60],
+      [BAR, 67],
+      [BAR * 1.5, 67],
+    ]);
+    expect(keys.at(-1)).toEqual([BAR * 3.5, 67]);
+    // In pattern mode, none of it.
+    expect(compileSong(song, P).notes.filter((n) => n.channel === 2).map((n) => n.key)).toEqual([60, 60]);
+  });
+
+  it("moves a song with a tempo clip onto the engine's ticks: notes, their lengths, audio clips, lanes, the loop, the metronome's beats", () => {
+    // Kick on every beat of each bar at 120 BPM; twice as fast from bar 2 on (held).
+    let song = setSteps(setTempo(rack(), 120), P, "chan_kick", [0, 4, 8, 12], true);
+    song = editClips(song, (clips) => addClips(clips, [0, 1, 2, 3].map((bar) => ({ kind: "pattern" as const, ref: P, track: 0, start: BAR * bar }))).clips);
+    song = addAudioClips(song, [{ name: "Loop", sampleId: "media_loop", seconds: 2, channelId: "chan_loop" }], { start: BAR * 2, track: 2 }).song;
+    const made = createAutomation(song, { kind: "tempo" }, { start: BAR, length: BAR }, { id: "auto_tempo" });
+    // 240 BPM: the clip's range the whole of the tempo's (20 to 999).
+    song = editPoints(updateAutomation(made.song, "auto_tempo", { min: 0, max: 1 }), "auto_tempo", () => [{ tick: 0, value: (240 - 20) / (999 - 20), tension: 0, curve: "single" }]);
+    const plain = compileSong(song, P);
+    expect(plain.clicks).toBeUndefined();
+    const compiled = compileSong(song, P, null, "song");
+    expect(compiled.tempo).toBe(120);
+    const kicks = compiled.notes.filter((n) => n.channel === 0);
+    // Bar 1 as it is; then beats half as far apart, each half as long.
+    expect(kicks.map((n) => n.tick)).toEqual([0, 96, 192, 288, 384, 432, 480, 528, 576, 624, 672, 720, 768, 816, 864, 912]);
+    expect(kicks[0].length).toBe(24);
+    expect(kicks[4].length).toBe(12);
+    // The audio clip starts where bar 3 falls; it plays its two seconds in real time (its length kept).
+    expect(compiled.audioClips[0]).toMatchObject({ tick: 576, length: 384 });
+    expect(compiled.loopTicks).toBe(960);
+    expect(compiled.clicks!.slice(0, 7)).toEqual([0, 96, 192, 288, 384, 432, 480]);
+    expect(compiled.barClicks!.slice(0, 3)).toEqual([0, 384, 576]);
+    // A loop from bar 2: counted from there.
+    const looped = compileSong(song, P, { start: BAR, end: BAR * 3 }, "song");
+    expect(looped.loopTicks).toBe(384);
+    expect(looped.offsetTicks).toBe(384);
+    expect(looped.notes.filter((n) => n.channel === 0).map((n) => n.tick).slice(0, 3)).toEqual([0, 48, 96]);
+  });
+});
+
+describe("a sampler's own settings, compiled", () => {
+  it("swings each channel by its share of the song's swing", () => {
+    let song = setSwing(setSteps(rack(), P, "chan_kick", [1], true), 1);
+    song = setSteps(song, P, "chan_hat", [1], true);
+    song = updateChannel(song, "chan_hat", { swingMix: 0.5 });
+    const ticks = compileSong(song, P).notes.map((n) => [n.channel, n.tick]);
+    expect(ticks).toContainEqual([0, 24 + 12]);
+    expect(ticks).toContainEqual([1, 24 + 6]);
+  });
+
+  it("sends a sampler's loop, filter and the envelopes and LFOs that are on; the filter's targets only with the filter", () => {
+    let song = updateChannel(rack(), "chan_kick", {
+      loop: { enabled: true, start: 0.1, end: 0.6 },
+      mods: { cutoff: { envelope: { enabled: true } }, pitch: { lfo: { enabled: true, speed: 5 } }, volumeLfo: { enabled: true } },
+    });
+    let engine = compileSong(song, P).channels[0];
+    expect(engine.loop).toMatchObject({ enabled: true, start: 0.1, end: 0.6 });
+    expect(engine.filter).toBeUndefined();
+    expect(Object.keys(engine.mods ?? {}).sort()).toEqual(["pitch", "volumeLfo"]);
+    expect(engine.mods?.pitch).toEqual({ lfo: expect.objectContaining({ speed: 5 }) });
+    song = updateChannel(song, "chan_kick", { filter: { type: "lowpass" } });
+    engine = compileSong(song, P).channels[0];
+    expect(engine.filter).toMatchObject({ type: "lowpass" });
+    expect(engine.mods?.cutoff?.envelope).toMatchObject({ enabled: true });
+    // A channel with none of it sends none of it.
+    expect(compileSong(rack(), P).channels[0]).not.toHaveProperty("loop");
   });
 });

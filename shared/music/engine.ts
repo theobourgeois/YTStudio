@@ -288,6 +288,25 @@ export interface EngineParameter {
   text: string;
 }
 
+/**
+ * A song's plugin's presets (`GET /api/engine/presets`, FL's preset browser): its own programs and the
+ * one it's on (none and -1 for a plugin with a single program: most VST3s keep their presets to
+ * themselves), and the user's own presets for it (saved from it, the same in every song) and the one
+ * last loaded or saved ("" for none).
+ */
+export interface PluginPresets {
+  programs: string[];
+  program: number;
+  presets: string[];
+  preset: string;
+}
+
+/** What to do with a song's plugin's presets (`POST /api/engine/presets`): choose a program, or save, load or delete a preset of the user's. */
+export type PresetRequest = { owner: "channel" | "effect"; id: string } & (
+  | { action: "setProgram"; index: number }
+  | { action: "savePreset" | "loadPreset" | "deletePreset"; name: string }
+);
+
 /** A parameter of a song's plugin (a plugin channel's, or a mixer effect's), as the engine names it. */
 export interface PluginParameter {
   owner: "channel" | "effect";
@@ -322,11 +341,48 @@ export type EngineEvent =
   | { event: "status"; status: EngineStatus }
   | ({ event: "key" } & EngineKey)
   | ({ event: "touch" | "automate" } & PluginParameter)
+  /**
+   * A plugin's preset changed (its window's arrows, or a request): "preset". Its window's wrapper button
+   * was pressed: "wrapper" (the tab shows the channel's settings).
+   */
+  | { event: "preset" | "wrapper"; owner: "channel" | "effect"; id: string }
+  | EngineMidiEvent
   | EngineExportEvent
   | EngineTakeEvent
   | { event: "ready" }
   /** The engine's process ended without being asked to (a plugin crashed it): the next command starts it again. */
   | { event: "stopped" };
+
+/**
+ * A note played on a MIDI keyboard (or the typing keyboard, `midiIn`), as the engine played it: on the
+ * channel it went to (null: none was selected), and where the song was (`tick`, the engine's: into the
+ * loop; null while stopped; `counting`: in a recording's count-in, held where play starts).
+ */
+export interface MidiPlayed {
+  channel: string | null;
+  key: number;
+  /** 0..1 (0 for a note off). */
+  velocity: number;
+  on: boolean;
+  tick: number | null;
+  counting: boolean;
+  /** Times round the loop since play started. */
+  pass: number;
+}
+
+/** What was played on MIDI keyboards since the engine last said (`docs/fl-studio/midi.md`). */
+export interface EngineMidiEvent {
+  event: "midi";
+  notes: MidiPlayed[];
+}
+
+/** A MIDI input on this computer: listened to unless it's been turned off (`enabled`). `open`: it's being listened to now. */
+export interface EngineMidiInput {
+  id: string;
+  name: string;
+  enabled: boolean;
+  open: boolean;
+}
 
 /** A file an export wrote (32-bit float WAV): the mix, or a mixer track's stem, by the track's id. */
 export interface EngineExportFile {
@@ -433,6 +489,8 @@ export interface EngineDevices {
   inputChannels: string[];
   bufferSizes: number[];
   sampleRates: number[];
+  /** MIDI keyboards (none from an offline engine). */
+  midiInputs: EngineMidiInput[];
   status: EngineStatus;
 }
 
@@ -442,6 +500,8 @@ export interface SetDeviceRequest {
   input?: string;
   bufferSize?: number;
   sampleRate?: number;
+  /** Listen to a MIDI input (by name) or not; remembered by the engine. */
+  midiInput?: { name: string; enabled: boolean };
 }
 
 /**
@@ -456,6 +516,8 @@ export interface RecordRequest {
   countIn: number;
   loop: boolean;
   names: Record<string, string>;
+  /** Notes are recorded too (the tab keeps them from `midi` events): with no armed track, only they are. */
+  notes?: boolean;
 }
 
 export interface RecordResponse {
@@ -530,6 +592,13 @@ export interface EngineCommands {
    * plugin, it sounds until it's turned off. `key` is a MIDI note.
    */
   preview: { channel: string; key: number; on: boolean; velocity?: number };
+  /** The channel MIDI keyboards play (the rack's selected one), or none. */
+  midiTarget: { channel: string | null };
+  /**
+   * MIDI messages as a keyboard would send them (a status byte, then its data: `[0x90, 60, 100]` is a
+   * middle C): played on the MIDI target and told back in `midi` events. The typing keyboard's notes.
+   */
+  midiIn: { messages: number[][] };
   /** Show or close the window of a plugin channel's plugin. */
   channelEditor: { channel: string; open: boolean };
   /** Show or close the window of an effect in the mixer (by `MixerEffect.id`). */
