@@ -10,7 +10,9 @@ import readline from "node:readline";
 import { clamp, isFiniteNumber } from "../../shared/math.ts";
 import { type PlayMode, compileSong, levelGain } from "../../shared/music/compile.ts";
 import { GROSS_DEPTH } from "../../shared/music/gross-beat-presets.ts";
+import { MAX_SWING } from "../../shared/music/pitch-wheel-presets.ts";
 import {
+  type DetectedTempo,
   ENGINE_SLOTS,
   type EngineCommand,
   type EngineDevices,
@@ -40,6 +42,7 @@ import { ENGINE, ENGINE_PLUGIN_PATHS, ENGINE_SOURCE } from "../config.ts";
 import { spawnStreaming } from "../process.ts";
 import { repairWav } from "./take-repair.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
+import { detectTempo } from "./tempo.ts";
 
 /** What `renderExport` renders: a song as `SetSongRequest` has it, and where the files go and what they are. */
 export interface RenderExportRequest {
@@ -323,6 +326,14 @@ export class AudioEngine {
     return this.withSaved((await this.request("previewFile", { file, start, previewId: id, gainLeft: gain(body.gainLeft), gainRight: gain(body.gainRight), speed })) as RawStatus);
   }
 
+  /** A song's media file's tempo, as heard (`DetectTempoRequest`, FL's Autodetect): decoded by ffmpeg, the engine not needed. */
+  async detectTempo(body: unknown): Promise<DetectedTempo> {
+    if (!isObject(body) || !isValidId(body.projectId)) throw new HttpError(400, '"projectId" must be the song\'s project id.');
+    const file = typeof body.sampleId === "string" ? this.samplePath(body.projectId, body.sampleId) : null;
+    if (!file) throw new HttpError(404, '"sampleId" must be one of the song\'s media files.');
+    return detectTempo(file);
+  }
+
   /** Write the song's plugins' states now (the tab asks before it goes). */
   async saveStates(): Promise<void> {
     if (this.child) await this.request("saveStates", {});
@@ -595,6 +606,34 @@ export class AudioEngine {
           effect: body.effect,
           ...(typeof body.hold === "boolean" && { hold: body.hold }),
           ...(isFiniteNumber(body.scratch) && { scratch: clamp(body.scratch, -GROSS_DEPTH, 0) }),
+        };
+      }
+      case "eqWatch": {
+        const list = Array.isArray(body.effects) ? body.effects : [];
+        const effects = list.flatMap((e) =>
+          e && typeof e === "object" && typeof (e as { effect?: unknown }).effect === "string" && /^[\w-]{1,64}$/.test((e as { effect: string }).effect)
+            ? [{ effect: (e as { effect: string }).effect, size: isFiniteNumber((e as { size?: unknown }).size) ? Math.round(clamp((e as { size: number }).size, 256, 32768)) : 4096 }]
+            : [],
+        );
+        return { effects: effects.slice(0, 256) };
+      }
+      case "eqSolo": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a Pro-Q\'s effect id.');
+        const band = isFiniteNumber(body.band) ? Math.round(clamp(body.band, 1, 24)) : null;
+        return { effect: body.effect, band, gain: isFiniteNumber(body.gain) ? clamp(body.gain, -30, 30) : 0 };
+      }
+      case "panMan": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a PanMan\'s effect id.');
+        return { effect: body.effect, ...(body.trigger === true && { trigger: true }) };
+      }
+      case "pitchWheel": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a Pitch Wheel\'s effect id.');
+        return {
+          effect: body.effect,
+          ...(isFiniteNumber(body.pitch) && { pitch: clamp(body.pitch, -MAX_SWING, MAX_SWING) }),
+          ...(isFiniteNumber(body.timbre) && { timbre: clamp(body.timbre, -MAX_SWING, MAX_SWING) }),
+          ...(body.jump === true && { jump: true }),
+          ...(isFiniteNumber(body.key) && { key: Math.round(clamp(body.key, 0, 127)), on: body.on === true }),
         };
       }
       case "trigger": {

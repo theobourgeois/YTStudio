@@ -8,7 +8,7 @@ describe("the Playlist's keys", () => {
   it("picks the zoom tool with Z, and stretch mode with Shift+M", () => {
     const key = (code: string, mods: Partial<Record<"shiftKey", boolean>> = {}) => resolvePlaylistKey({ key: code.slice(3).toLowerCase(), code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
     expect(key("KeyZ")).toEqual({ type: "tool", tool: "zoom" });
-    expect(key("KeyM", { shiftKey: true })).toEqual({ type: "stretchMode" });
+    expect(key("KeyM", { shiftKey: true })).toEqual({ type: "stretch" });
   });
 
   it("pick FL Studio's tools by letter", () => {
@@ -61,6 +61,7 @@ describe("the Playlist's keys", () => {
     expect(press("µ", "KeyM", { altKey: true })).toEqual({ type: "mute" });
     expect(press("M", "KeyM", { altKey: true, shiftKey: true })).toEqual({ type: "unmute" });
     expect(press("π", "KeyP", { altKey: true })).toEqual({ type: "picker" });
+    expect(press("M", "KeyM", { shiftKey: true })).toEqual({ type: "stretch" });
     expect(press("$", "Digit4", { shiftKey: true })).toEqual({ type: "zoomPreset", preset: 4 });
     expect(press(")", "Digit0", { shiftKey: true })).toEqual({ type: "centre" });
     expect(press("PageUp", "PageUp")).toEqual({ type: "zoom", factor: 1.5 });

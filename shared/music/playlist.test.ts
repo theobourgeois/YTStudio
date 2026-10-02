@@ -32,15 +32,10 @@ import {
   sliceClips,
   chopClips,
   clipEnvelope,
-  contentAt,
   fadeShape,
   pitchSpeed,
   setClipFades,
   setClipGain,
-  setClipStretch,
-  stretchClips,
-  stretchForTempo,
-  tempoInName,
   slipClips,
   soloTrack,
   songTicks,
@@ -170,7 +165,7 @@ describe("a playlist's clips", () => {
     let song = withClips([{ kind: "audio", ref: "chan_kick", track: 0, start: 0, length: 2 * BAR, offset: 0 }]);
     song = { ...song, channels: song.channels.map((c) => (c.id === "chan_kick" ? { ...c, kind: "audio" as const, pitch: 12 } : c)) };
     const ctx = clipContext(song);
-    expect(ctx.fileSecondsPerTick("chan_kick")).toBeCloseTo(2 * ctx.secondsPerTick);
+    expect(ctx.fileSecondsPerTick({ ref: "chan_kick" })).toBeCloseTo(2 * ctx.secondsPerTick);
     const { clips } = sliceClips(song.playlist.clips, BAR, 0, 0, ctx);
     expect(clips.map((c) => c.offset)).toEqual([0, 4]);
     expect(pitchSpeed(-12)).toBe(0.5);
@@ -315,7 +310,7 @@ describe("audio clips dropped on the playlist", () => {
   });
 });
 
-describe("an audio clip's fades, gain and stretch", () => {
+describe("an audio clip's fades and gain", () => {
   /** A song with a two-second vocal on the playlist from bar 1, a bar long (at 120 BPM a bar is two seconds). */
   const vocal = (extra: Partial<NewClip> = {}) => {
     const song = addAudioClips(makeSong(), [{ name: "Vocal", sampleId: "m_vox", seconds: 2, channelId: "chan_vox" }], { start: BAR, track: 0 }).song;
@@ -361,52 +356,23 @@ describe("an audio clip's fades, gain and stretch", () => {
     expect(clipEnvelope(shaped, 400, 375)).toBeCloseTo(1);
   });
 
-  it("stretch by an edge: longer or shorter, the same part of the file over it, the fades with it", () => {
-    const song = vocal({ fadeIn: 48 });
-    const ctx = clipContext(song);
-    const id = ids(only(song).id);
-    const longer = stretchClips(song.playlist.clips, id, "end", BAR);
-    expect(longer[0]).toMatchObject({ start: BAR, length: BAR * 2, stretch: 2, fadeIn: 96 });
-    // Its file goes by half as fast: a bar in, it's a second into it.
-    expect(contentAt(longer[0], BAR * 2, ctx)).toBeCloseTo(1);
-    // From the start edge, its end stays where it was.
-    const earlier = stretchClips(song.playlist.clips, id, "start", -BAR / 2);
-    expect(earlier[0]).toMatchObject({ start: BAR / 2, length: BAR * 1.5, stretch: 1.5 });
-    // No further than eight times as long, or an eighth.
-    expect(stretchClips(song.playlist.clips, id, "end", BAR * 100)[0].stretch).toBe(8);
-    expect(stretchClips(song.playlist.clips, id, "end", -BAR)[0].stretch).toBe(0.125);
-    // Set outright (Stretch to tempo): from its start, the same part of its file.
-    const set = setClipStretch(song.playlist.clips, id, 0.5);
-    expect(set[0]).toMatchObject({ start: BAR, length: BAR / 2, stretch: 0.5, fadeIn: 24 });
-    expect(setClipStretch(set, id, 1)[0].stretch).toBeUndefined();
-  });
-
-  it("are stretched to the song's tempo from the loop's, which its name may say", () => {
-    expect(["Drums 128bpm.wav", "keys_92_Cmin.wav", "Loop-140.wav", "BASS (100 BPM).aif", "Vocal take 3.wav", "808 kick.wav"].map(tempoInName)).toEqual([128, 92, 140, 100, null, null]);
-    // At 120 BPM, a loop at 90 plays at three quarters of its length (sped up); pitched up an octave, it already goes twice as fast.
-    const song = vocal();
-    expect(stretchForTempo(song, only(song), 90)).toBe(0.75);
-    const pitched = { ...song, channels: song.channels.map((c) => (c.id === "chan_vox" ? { ...c, pitch: 12 } : c)) };
-    expect(stretchForTempo(pitched, only(song), 90)).toBe(1.5);
-  });
-
   it("go with the clip when it's resized, sliced, copied and saved", () => {
-    const song = vocal({ fadeIn: 48, fadeOut: 96, gain: 0.5, stretch: 1.5 });
+    const song = vocal({ fadeIn: 48, fadeOut: 96, gain: 0.5 });
     const ctx = clipContext(song);
     const id = only(song).id;
     // Shorter than its fades: they shrink with it.
     const short = resizeClips(song.playlist.clips, ids(id), "end", -BAR + 100, ctx);
-    expect(short[0]).toMatchObject({ length: 100, gain: 0.5, stretch: 1.5 });
+    expect(short[0]).toMatchObject({ length: 100, gain: 0.5 });
     expect((short[0].fadeIn ?? 0) + (short[0].fadeOut ?? 0)).toBeLessThanOrEqual(100);
     // Sliced: the fade in stays with the first part, the fade out with the second.
     const { clips } = sliceClips(song.playlist.clips, BAR + 192, 0, 0, ctx);
-    expect(clips.map((c) => [c.start, c.fadeIn, c.fadeOut, c.gain, c.stretch])).toEqual([
-      [BAR, 48, undefined, 0.5, 1.5],
-      [BAR + 192, undefined, 96, 0.5, 1.5],
+    expect(clips.map((c) => [c.start, c.fadeIn, c.fadeOut, c.gain])).toEqual([
+      [BAR, 48, undefined, 0.5],
+      [BAR + 192, undefined, 96, 0.5],
     ]);
     // Copied, and through a save.
-    expect(cloneClips(song.playlist.clips, ids(id), BAR, 1, ctx).clips[1]).toMatchObject({ fadeIn: 48, fadeOut: 96, gain: 0.5, stretch: 1.5 });
-    expect(normalizeMusicProject(JSON.parse(JSON.stringify(song))).playlist.clips[0]).toMatchObject({ fadeIn: 48, fadeOut: 96, gain: 0.5, stretch: 1.5 });
+    expect(cloneClips(song.playlist.clips, ids(id), BAR, 1, ctx).clips[1]).toMatchObject({ fadeIn: 48, fadeOut: 96, gain: 0.5 });
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(song))).playlist.clips[0]).toMatchObject({ fadeIn: 48, fadeOut: 96, gain: 0.5 });
   });
 });
 

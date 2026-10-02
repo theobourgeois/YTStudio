@@ -1939,8 +1939,8 @@ test("tracks are named, coloured, muted and soloed; audio files dropped on the p
   await expect(settings.getByRole("tab", { name: "Envelope" })).toHaveCount(0);
 });
 
-test("an audio clip's own fades and gain are dragged on it, stretch mode stretches it, and Stretch to tempo fits a loop to the song", async ({ page }) => {
-  // A four-second loop at 90 BPM in the user's samples.
+test("an audio clip's own fades and gain are dragged on it, and reset from its menu", async ({ page }) => {
+  // A four-second loop in the user's samples.
   const folder = path.resolve("e2e/.data/My Samples/Loops");
   await fs.mkdir(folder, { recursive: true });
   await writeWav(path.join(folder, "Pad 90bpm.wav"), Array.from({ length: 4 * 48000 }, (_, i) => Math.sin(i / 8) * 0.5), 48000);
@@ -1952,7 +1952,7 @@ test("an audio clip's own fades and gain are dragged on it, stretch mode stretch
   const grid = page.getByTestId("playlist-grid");
   await item("Pad 90bpm.wav").dragTo(grid, { targetPosition: { x: 2, y: 24 } });
   await expect.poll(async () => (await savedClips(page, id)).map((c) => [c.kind, c.track, c.start])).toEqual([["audio", 0, 0]]);
-  type Shaped = SavedClip & { fadeIn?: number; gain?: number; stretch?: number; length: number };
+  type Shaped = SavedClip & { fadeIn?: number; gain?: number; length: number };
   const clip = async () => (await savedClips(page, id))[0] as Shaped;
   const box = (await grid.boundingBox())!;
   const length = (await clip()).length;
@@ -1974,24 +1974,7 @@ test("an audio clip's own fades and gain are dragged on it, stretch mode stretch
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await clip()).gain).toBeUndefined();
 
-  // Stretch mode (Shift+M): its end edge stretches it, its pitch kept.
-  await page.keyboard.press("Shift+m");
-  await expect(page.getByRole("button", { name: "Stretch mode" })).toHaveAttribute("aria-pressed", "true");
-  await drag(width - 2, 30, 60, 0);
-  await expect.poll(async () => (await clip()).stretch ?? 1).toBeGreaterThan(1.2);
-  await page.keyboard.press("Shift+m");
-
-  // Its menu: Stretch to tempo, the loop's tempo read off its name; then back as recorded.
-  await page.mouse.click(box.x + 10, box.y + 6);
-  await page.getByTestId("clip-menu").getByRole("menuitem", { name: "Stretch", exact: true }).hover();
-  await expect(page.getByRole("textbox", { name: "The loop's tempo" })).toHaveValue("90");
-  await page.getByRole("button", { name: /Stretch to/ }).click();
-  const tempo = (await savedSong(page, id)).settings.tempo;
-  await expect.poll(async () => (await clip()).stretch).toBeCloseTo(90 / tempo, 5);
-  await page.mouse.click(box.x + 10, box.y + 6);
-  await page.getByTestId("clip-menu").getByRole("menuitem", { name: "Stretch", exact: true }).hover();
-  await page.getByRole("menuitem", { name: "Reset stretch" }).click();
-  await expect.poll(async () => (await clip()).stretch).toBeUndefined();
+  // Its menu: Reset fades and gain.
   await page.mouse.click(box.x + 10, box.y + 6);
   await page.getByTestId("clip-menu").getByRole("menuitem", { name: "Reset fades and gain" }).click();
   await expect.poll(async () => (await clip()).fadeIn).toBeUndefined();
@@ -2046,6 +2029,73 @@ test("time markers on the ruler (Alt+T): named, dragged, made a Start recording 
   // One undo step: back as it was.
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await savedClips(page, id)).filter((c) => c.track === 0).map((c) => [c.kind, c.muted])).toEqual([["pattern", false]]);
+});
+
+test("audio clips stretch as FL Studio's: with Stretch on (Shift+M) an edge stretches the sound, the clip menu's and the channel's Time stretching", async ({ page }) => {
+  // A song at 120 BPM with a four-second loop on track 1: two bars.
+  const { id } = await (await page.request.post("/api/projects", { data: { suite: "music", name: "Stretched" } })).json();
+  const file = path.resolve("e2e/.data/stretch-loop.wav");
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await writeWav(file, Array.from({ length: 4 * 48000 }, (_, i) => Math.sin(i / 8) * 0.5), 48000);
+  const asset = await (await page.request.post("/api/media/import-file", { data: { projectId: id, path: file } })).json();
+  const song = await savedSong(page, id);
+  song.settings.tempo = 120;
+  song.channels.push({ id: "chan_loop", name: "Loop", kind: "audio", sampleId: asset.id });
+  song.playlist.clips = [{ id: 1, kind: "audio", ref: "chan_loop", track: 0, start: 0, length: 2 * BAR_TICKS, offset: 0, muted: false }];
+  expect((await page.request.put(`/api/projects/${id}`, { data: song })).ok()).toBe(true);
+  await page.goto(`/p/${id}`);
+  await expect(page.getByTestId("playlist")).toBeVisible();
+  await page.getByRole("button", { name: "Close Channel rack" }).click();
+  const clip = async () => (await savedClips(page, id))[0] as SavedClip & { stretch?: { mode: string; tempo: number | null } };
+
+  // The toolbar's Stretch button turns it on (Shift+M too).
+  const stretchButton = page.getByRole("button", { name: "Stretch", exact: true });
+  await stretchButton.click();
+  await expect(stretchButton).toHaveAttribute("aria-pressed", "true");
+  // Its end dragged from bar 3 to bar 5: the same four seconds over four bars, its pitch kept (Settings' Stretch mode).
+  const end = await playlistPoint(page, 2 * BAR_TICKS, 0);
+  const to = await playlistPoint(page, 4 * BAR_TICKS, 0);
+  await page.mouse.move(end.x - 4, end.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x - 10, to.y, { steps: 5 });
+  await page.mouse.move(to.x - 2, to.y, { steps: 2 });
+  await page.mouse.up();
+  await expect.poll(clip).toMatchObject({ length: 4 * BAR_TICKS, offset: 0, stretch: { mode: "stretch", tempo: 240 } });
+  // One undo step takes it back.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await clip()).stretch).toBeUndefined();
+  await expect.poll(async () => (await clip()).length).toBe(2 * BAR_TICKS);
+  // Shift+M turns it off again.
+  await page.keyboard.press("Shift+M");
+  await expect(stretchButton).toHaveAttribute("aria-pressed", "false");
+
+  // The clip menu's Stretch: the file in one bar, twice as fast.
+  const box = (await page.getByTestId("playlist-grid").boundingBox())!;
+  await page.mouse.click(box.x + 10, box.y + 6);
+  const menu = page.getByTestId("clip-menu");
+  await menu.getByRole("menuitem", { name: "Stretch", exact: true }).hover();
+  await page.getByRole("menuitem", { name: "Beats / bars" }).hover();
+  await page.getByRole("menuitem", { name: "1 bar", exact: true }).click();
+  await expect.poll(clip).toMatchObject({ length: BAR_TICKS, stretch: { mode: "stretch", tempo: 60 } });
+
+  // Its channel's Time stretching (a double-click on the clip): Resample, which the clip, with its own, doesn't follow.
+  await page.getByTestId("playlist-grid").dblclick({ position: { x: 30, y: 30 } });
+  const settings = page.locator('[data-testid="channel-settings"][data-channel-name="Loop"]');
+  await settings.getByRole("switch", { name: "Resample" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).channels.find((c: { id: string }) => c.id === "chan_loop")?.stretch).toEqual({ mode: "resample", tempo: null });
+  await settings.getByRole("button", { name: "Time" }).click();
+  await page.getByRole("menuitem", { name: "Project tempo" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).channels.find((c: { id: string }) => c.id === "chan_loop")?.stretch).toEqual({ mode: "resample", tempo: 120 });
+  await expect.poll(clip).toMatchObject({ length: BAR_TICKS, stretch: { tempo: 60 } });
+
+  // The assistant hears its tempo and stretches it (a 90 BPM loop in a 120 BPM song).
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(['call detect_tempo {"audio": "Loop"}', 'call stretch_audio {"ids": [1], "tempo": 90}', 'call stretch_audio {"audio": "Loop", "length": 2}'].join("\n"));
+  await composer.press("Enter");
+  await expect(panel).toContainText("detect_tempo: ok, stretch_audio: ok, stretch_audio: failed", { timeout: 30_000 });
+  await expect.poll(clip).toMatchObject({ stretch: { mode: "stretch", tempo: 90 } });
 });
 
 test("the assistant arranges the song with the playlist's tools", async ({ page }) => {
@@ -2531,4 +2581,799 @@ test("the assistant chops with Gross Beat: puts one on a track, draws a slot, ar
   const [automation] = await savedAutomations(page, id);
   expect(automation.target).toEqual({ kind: "grossBeat", effect: effect.id, control: "timeSlot" });
   expect(automation.points.map((p) => Math.round(p.value * 35) + 1)).toEqual([1, 36]);
+});
+
+/** The song's EchoBoy (the effect `effectId`) as saved; until it's saved, null (a poll waits for it). */
+async function savedEcho(page: Page, id: string, effectId: string) {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.echoBoy;
+  return null;
+}
+
+test("EchoBoy: chosen for a slot, its knobs, times, modes and styles set as Soundtoys' are, Tweak and the Style Editor, Rhythm Echo's taps", async ({ page }) => {
+  const id = await openNewSong(page, "Echoes");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, in the effect picker's Built in; its window opens at once.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /EchoBoy/ }).click();
+  const window = page.getByTestId("echo-boy");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedEcho(page, id, effectId))?.style).toBe("Studio Tape");
+  // Its name in the slot closes and opens its window.
+  await inspector.getByRole("button", { name: "EchoBoy: close its window" }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "EchoBoy: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // Single Echo: an eighth note; Dot makes it dotted; Time goes to ms and the LCD takes a typed time.
+  const echoTime = window.getByTestId("echo-time-echo1");
+  await expect(window.getByTestId("echo-lcd-echo1")).toContainText("1/8");
+  await echoTime.getByRole("button", { name: "Dot", exact: true }).click();
+  await expect(window.getByTestId("echo-lcd-echo1")).toContainText("1/8 dot");
+  await echoTime.getByRole("button", { name: "Time", exact: true }).click();
+  await echoTime.getByRole("button", { name: "Echo Time: up" }).click();
+  await expect.poll(async () => (await savedEcho(page, id, effectId))?.echo1).toEqual({ sync: "time", ms: 251, note: 8 });
+  await window.getByTestId("echo-lcd-echo1").getByRole("spinbutton").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Type in value…" }).click();
+  await page.getByRole("textbox", { name: "Echo Time: type a value" }).fill("126.2");
+  await page.keyboard.press("Enter");
+  await expect(window.getByTestId("echo-lcd-echo1")).toContainText("126.2 ms");
+
+  // A knob dragged up: Feedback.
+  const feedback = window.getByRole("slider", { name: "Feedback" });
+  const before = (await savedEcho(page, id, effectId))!.feedback;
+  await drag(page, feedback, feedback, { dy: -40 });
+  await expect.poll(async () => (await savedEcho(page, id, effectId))!.feedback).toBeGreaterThan(before);
+
+  // The Mode dial: Dual Echo shows Echo 1 and Echo 2; Tweak opens its drawer with FB Mix.
+  await window.getByRole("radio", { name: "Dual Echo" }).click();
+  await expect(window).toHaveAttribute("data-mode", "dual");
+  await expect(window.getByTestId("echo-time-echo2")).toBeVisible();
+  await window.getByRole("button", { name: "Tweak" }).click();
+  await expect(window.getByTestId("echo-tweak")).toContainText("FB Mix");
+  await window.getByRole("button", { name: "Tweak" }).click();
+  await expect(window.getByTestId("echo-tweak")).toHaveCount(0);
+
+  // A style from its menu; the Style Editor's knobs make it Custom.
+  await window.getByTestId("echo-style").click();
+  await page.getByRole("menuitemradio", { name: /Space Echo/ }).click();
+  await expect(window.getByTestId("echo-style")).toContainText("Space Echo");
+  await window.getByRole("button", { name: "Style Edit" }).click();
+  const editor = window.getByTestId("echo-style-editor");
+  await expect(editor).toBeVisible();
+  const decay = editor.getByRole("slider", { name: "Decay", exact: true }).last();
+  await drag(page, decay, decay, { dy: -20 });
+  await expect(window.getByTestId("echo-style")).toContainText("Custom");
+  await expect.poll(async () => (await savedEcho(page, id, effectId))?.custom?.high.decay).toBeGreaterThan(-16);
+
+  // A preset from the bar: everything as it makes it.
+  await window.getByTestId("echo-preset").click();
+  await page.getByRole("menuitem", { name: "Classic" }).click();
+  await page.getByRole("menuitem", { name: "AnaLogged" }).click();
+  await expect(window.getByTestId("echo-preset")).toContainText("AnaLogged");
+  await expect(window.getByTestId("echo-style")).toContainText("DM-2");
+  await expect.poll(async () => (await savedEcho(page, id, effectId))?.primeNumbers).toBe(true);
+
+  // Tap Tempo: two taps half a second apart, EchoBoy on 120 BPM of its own (MIDI off).
+  await window.getByTestId("echo-tap").click();
+  await page.waitForTimeout(500);
+  await window.getByTestId("echo-tap").click();
+  await expect.poll(async () => (await savedEcho(page, id, effectId))?.followTempo).toBe(false);
+  await expect(window.getByRole("switch", { name: "MIDI" })).toHaveAttribute("aria-checked", "false");
+
+  // Rhythm Echo: the editor's grid; a click adds a tap on the grid, ⌥-click deletes it.
+  await window.getByRole("radio", { name: "Rhythm Echo" }).click();
+  const grid = window.getByTestId("echo-rhythm-grid");
+  await expect(grid).toBeVisible();
+  const taps = async () => (await savedEcho(page, id, effectId))!.rhythm.taps.map((t: { beat: number }) => t.beat);
+  const box = (await grid.boundingBox())!;
+  await expect.poll(taps).toEqual([0, 0.5, 1, 1.5]);
+  await page.mouse.click(box.x + box.width * (1.25 / 2), box.y + box.height * 0.3);
+  await expect.poll(taps).toEqual([0, 0.5, 1, 1.25, 1.5]);
+  await expect(window.getByTestId("echo-pattern-name")).toContainText("Custom");
+  await page.keyboard.down("Alt");
+  await page.mouse.click(box.x + box.width * (1.25 / 2), box.y + box.height * 0.5);
+  await page.keyboard.up("Alt");
+  await expect.poll(taps).toEqual([0, 0.5, 1, 1.5]);
+  // Patt: a factory pattern.
+  await window.getByTestId("echo-patt").click();
+  await page.getByRole("menuitem", { name: "Presets" }).click();
+  await page.getByRole("menuitem", { name: "Gallop" }).click();
+  await expect(window.getByTestId("echo-pattern-name")).toContainText("Gallop");
+
+  // Undo takes back the pattern; deleting the effect closes its window.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(window.getByTestId("echo-pattern-name")).toContainText("Custom");
+  // (Its window moved down by its title, off the mixer's slots.)
+  const title = page.getByText("EchoBoy (Master)", { exact: true });
+  const slotButton = inspector.getByRole("button", { name: "Slot 1 menu" });
+  const lift = (await slotButton.boundingBox())!.y + 40 - (await title.boundingBox())!.y;
+  await drag(page, title, title, { dy: lift });
+  await slotButton.click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await expect(window).toHaveCount(0);
+});
+
+test("the assistant sets up EchoBoy: puts one on a track, loads a preset, sets its rhythm and style, automates it", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted echoes");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "EchoBoy"}',
+      'call update_echo_boy {"track": 1, "preset": "Space Echo Dub", "echo1": "1/4 dot", "styleEdit": {"wobble": {"depth": 9}}}',
+      'call update_echo_boy {"track": 1, "mode": "rhythm", "rhythm": {"pattern": "Clave"}}',
+      'call update_echo_boy {"track": 1, "style": "Nope"}',
+      'call add_automation {"control": "echo feedback", "track": 1, "slot": 1, "bar": 1, "length": 2, "points": [{"at": 0, "value": 0.2}, {"at": 2, "value": 0.9}]}',
+      'call get_echo_boy {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_echo_boy: ok", { timeout: 30_000 });
+  // A style that isn't one is refused, saying which are.
+  await expect(panel).toContainText("update_echo_boy: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("EchoBoy");
+  expect(effect.echoBoy).toMatchObject({ mode: "rhythm", echo1: { sync: "dot", note: 4 }, custom: { wobble: { depth: 9 } }, rhythm: { pattern: "Clave" } });
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "echoBoy", effect: effect.id, control: "feedback" });
+  expect(automation.points.map((p) => Math.round(p.value * 10) / 10)).toEqual([0.2, 0.9]);
+});
+
+/** The song's Auto-Tune (the effect `effectId`) as saved; until it's saved, nothing (a poll waits for it). */
+type SavedTune = { key: number; scale: string; notes: string[]; retuneSpeed: number; humanize: number; formant: boolean; vibrato: { shape: string } };
+async function savedTune(page: Page, id: string, effectId: string): Promise<SavedTune | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.autoTune;
+  return null;
+}
+
+test("Auto-Tune: chosen for a slot, hard-tuned, its key and scale set, notes edited, presets, its graph and meter while it plays", async ({ page }) => {
+  const id = await openNewSong(page, "Vocals");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, in the effect picker's Built in; its window opens at once, hard-tuned.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Auto-Tune/ }).click();
+  const window = page.getByTestId("auto-tune");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.retuneSpeed).toBe(0);
+  await expect(window.getByTestId("tune-retune")).toContainText("0");
+  await expect(window.getByTestId("tune-key-text")).toHaveText("C Chromatic");
+  // Closed (it covers the mixer here), its name in the slot opens it again.
+  await page.getByRole("button", { name: /^Close Auto-Tune/ }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "Auto-Tune: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // The key and scale: A minor; its notes are the scale's.
+  await window.getByTestId("tune-key").click();
+  await page.getByRole("menuitemradio", { name: "A", exact: true }).click();
+  await window.getByTestId("tune-scale").click();
+  await page.getByRole("menuitemradio", { name: "Minor", exact: true }).click();
+  await expect(window.getByTestId("tune-key-text")).toHaveText("A Minor");
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.notes.join(" ")).toBe("tune remove tune remove tune tune remove tune remove tune remove tune");
+  // Edit Scale: G# turned on, E bypassed.
+  const notes = window.getByTestId("tune-scale-notes");
+  await notes.getByRole("button", { name: "G#: Remove" }).click();
+  await notes.locator('[data-note="E"]').getByRole("button", { name: "B" }).click();
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.notes[8]).toBe("tune");
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.notes[4]).toBe("bypass");
+  await expect(window.getByTestId("tune-key-text")).toContainText("(edited)");
+
+  // A preset sets its sound and leaves the key; Retune Speed's knob turns by its keys.
+  await window.getByTestId("tune-preset").click();
+  await page.getByRole("menuitem", { name: /Natural Vocal/ }).click();
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.retuneSpeed).toBe(30);
+  expect((await savedTune(page, id, effectId))?.key).toBe(9);
+  await window.getByRole("slider", { name: "Retune Speed" }).press("ArrowUp");
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.retuneSpeed).toBe(40);
+  await expect(window.getByTestId("tune-preset")).toContainText("Custom");
+  await window.getByRole("button", { name: /Formant/ }).click();
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.formant).toBe(false);
+  await window.getByRole("tab", { name: /Create vibrato/ }).click();
+  await window.getByRole("radio", { name: "Sine" }).click();
+  await expect.poll(async () => (await savedTune(page, id, effectId))?.vibrato.shape).toBe("sine");
+
+  // Detect key with no notes in the song: it says so.
+  await window.getByRole("button", { name: "Detect key from the song" }).click();
+  await expect(page.getByText("No key to hear")).toBeVisible();
+
+  // While it plays, the engine says what it hears: the note it tunes to, the correction on the meter.
+  await page.keyboard.press("Space");
+  await expect(window.getByTestId("tune-note")).toHaveText("A3");
+  await expect(window.getByTestId("tune-correction")).toContainText("cents");
+  await page.keyboard.press("Space");
+});
+
+test("the assistant tunes a vocal: puts Auto-Tune on its track, sets the key and sound, automates its retune speed", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted vocals");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "Auto-Tune"}',
+      'call update_auto_tune {"track": 1, "preset": "Modern Pop", "key": "F#", "scale": "minor", "notes": {"E": "bypass"}, "input": "soprano"}',
+      'call update_auto_tune {"track": 1, "retuneSpeed": 900}',
+      'call add_automation {"control": "retune speed", "track": 1, "slot": 1, "bar": 1, "length": 2, "points": [{"at": 0, "value": 0}, {"at": 1, "value": 50, "curve": "hold"}]}',
+      'call get_auto_tune {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_auto_tune: ok", { timeout: 30_000 });
+  // 900 ms is past its range: refused, saying what is.
+  await expect(panel).toContainText("update_auto_tune: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("Auto-Tune");
+  expect(effect.autoTune).toMatchObject({ key: 6, scale: "minor", input: "soprano", retuneSpeed: 12, humanize: 0.25 });
+  expect(effect.autoTune.notes[4]).toBe("bypass");
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "autoTune", effect: effect.id, control: "retuneSpeed" });
+  expect(automation.points.map((p) => Math.round(p.value * 400))).toEqual([0, 50]);
+});
+
+/** The song's Pro-Q (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
+type SavedBand = { id: number; shape: string; frequency: number; gain: number; q: number; range: number; slope: number | string; enabled: boolean };
+type SavedProQ = { bands: SavedBand[]; mode: string; output: number };
+async function savedProQ(page: Page, id: string, effectId: string): Promise<SavedProQ | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.proQ;
+  return null;
+}
+const bandsOf = async (page: Page, id: string, effectId: string) => (await savedProQ(page, id, effectId))?.bands ?? [];
+
+test("Pro-Q: chosen for a slot, bands made where they're double-clicked, dragged, made dynamic, reshaped, inverted, deleted; its mode; undone", async ({ page }) => {
+  const id = await openNewSong(page, "EQ");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, first in the effect picker (Built in); its window opens at once.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Pro-Q/ }).click();
+  const window = page.getByTestId("pro-q");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedProQ(page, id, effectId))?.mode).toBe("zeroLatency");
+  // Closed, its name in the slot opens it again.
+  await page.getByRole("button", { name: "Close Pro-Q (Master)" }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "Pro-Q: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  const display = page.getByTestId("pro-q-display");
+  const box = (await display.boundingBox())!;
+  const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+  // A Bell where it's double-clicked (over 0 dB: a boost), a Low Cut at the far left, a Notch along the bottom.
+  const bell = at(0.4, 0.3);
+  await page.mouse.dblclick(bell.x, bell.y);
+  await page.mouse.dblclick(at(0.02, 0.5).x, at(0.02, 0.5).y);
+  await page.mouse.dblclick(at(0.6, 0.955).x, at(0.6, 0.955).y);
+  await expect.poll(async () => (await bandsOf(page, id, effectId)).map((b) => b.shape)).toEqual(["bell", "lowCut", "notch"]);
+  let bands = await bandsOf(page, id, effectId);
+  expect(bands[0].gain).toBeGreaterThan(3);
+  expect(bands[1].frequency).toBeLessThan(25);
+  // The band controls float under the one just made.
+  await expect(page.getByTestId("pro-q-band-controls")).toBeVisible();
+
+  // Drag the Bell: up and to the right, higher and louder.
+  const was = bands[0];
+  await page.mouse.move(bell.x, bell.y);
+  await page.mouse.down();
+  await page.mouse.move(bell.x + 60, bell.y - 30, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await bandsOf(page, id, effectId))[0].frequency).toBeGreaterThan(was.frequency * 1.2);
+  bands = await bandsOf(page, id, effectId);
+  expect(bands[0].gain).toBeGreaterThan(was.gain);
+  const dot = { x: bell.x + 60, y: bell.y - 30 };
+
+  // Alt+wheel over it: a dynamic band, cutting when loud. The wheel alone narrows it.
+  await page.mouse.move(dot.x, dot.y);
+  await page.keyboard.down("Alt");
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 100);
+  await page.keyboard.up("Alt");
+  await expect.poll(async () => (await bandsOf(page, id, effectId))[0].range).toBeLessThan(-1);
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -100);
+  await expect.poll(async () => (await bandsOf(page, id, effectId))[0].q).toBeGreaterThan(1.2);
+
+  // Its menu: Invert Gain flips its gain and range.
+  const before = (await bandsOf(page, id, effectId))[0];
+  await page.mouse.click(dot.x, dot.y, { button: "right" });
+  await page.getByTestId("pro-q-band-menu").getByRole("menuitem", { name: "Invert Gain" }).click();
+  await expect.poll(async () => (await bandsOf(page, id, effectId))[0].gain).toBeCloseTo(-before.gain, 1);
+  expect((await bandsOf(page, id, effectId))[0].range).toBeCloseTo(-before.range, 1);
+
+  // Selected (a click on its dot, now as far under 0 dB as it was over), the band controls reshape it: a High Shelf.
+  const zero = box.y + 6 + (box.height - 6 - 18) / 2;
+  await page.mouse.click(dot.x, 2 * zero - dot.y);
+  const controls = page.getByTestId("pro-q-band-controls");
+  await controls.getByRole("button", { name: "Shape" }).click();
+  await page.getByRole("menuitemradio", { name: "High Shelf" }).click();
+  await expect.poll(async () => (await bandsOf(page, id, effectId))[0].shape).toBe("highShelf");
+
+  // Delete takes the selected band away.
+  await display.focus();
+  await page.mouse.move(at(0.5, 0.5).x, at(0.5, 0.5).y);
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await bandsOf(page, id, effectId)).map((b) => b.shape)).toEqual(["lowCut", "notch"]);
+
+  // Linear Phase from the bottom bar; undone with the top bar's arrow.
+  await window.getByRole("button", { name: "Processing mode" }).click();
+  await page.getByRole("menuitemradio", { name: "Linear Phase" }).click();
+  await expect.poll(async () => (await savedProQ(page, id, effectId))?.mode).toBe("linearPhase");
+  await expect(window.getByRole("button", { name: "Processing mode" })).toContainText("Linear Phase – Medium");
+  await window.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => (await savedProQ(page, id, effectId))?.mode).toBe("zeroLatency");
+
+  // A preset replaces the bands; the analyzer's panel opens from the bottom bar.
+  await window.getByRole("button", { name: "Presets" }).click();
+  await page.getByTestId("pro-q-presets").getByRole("menuitem", { name: "Flat 7 Bands" }).click();
+  await expect.poll(async () => (await bandsOf(page, id, effectId)).length).toBe(7);
+  await window.getByRole("button", { name: "Analyzer" }).click();
+  await expect(page.getByTestId("pro-q-analyzer")).toBeVisible();
+});
+
+test("the assistant shapes a Pro-Q: puts one on a track, adds bands, sets its mode, sweeps a band by automation", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted EQ");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "Pro-Q"}',
+      'call set_pro_q_bands {"track": 1, "bands": [{"shape": "lowCut", "frequency": 40, "slope": 24}, {"frequency": 300, "gain": -3, "q": 1.5, "range": -4}, {"shape": "highShelf", "frequency": 9000, "gain": 2}]}',
+      'call update_pro_q {"track": 1, "mode": "naturalPhase", "autoGain": true}',
+      'call set_pro_q_bands {"track": 1, "bands": [{"shape": "notch", "frequency": 100, "range": -6}]}',
+      'call add_automation {"control": "eq frequency", "track": 1, "slot": 1, "band": 2, "bar": 1, "length": 2, "points": [{"at": 0, "value": 300}, {"at": 2, "value": 3000}]}',
+      'call get_pro_q {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_pro_q: ok", { timeout: 30_000 });
+  // A Notch can't be dynamic: refused, saying which shapes can.
+  await expect(panel).toContainText("set_pro_q_bands: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("Pro-Q");
+  expect(effect.proQ.mode).toBe("naturalPhase");
+  expect(effect.proQ.autoGain).toBe(true);
+  expect(effect.proQ.bands.map((b: SavedBand) => [b.id, b.shape, b.frequency])).toEqual([
+    [1, "lowCut", 40],
+    [2, "bell", 300],
+    [3, "highShelf", 9000],
+  ]);
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "proQ", effect: effect.id, band: 2, control: "frequency" });
+});
+
+/** The song's PanMan (the effect `effectId`) as saved; until it's saved, null (a poll waits for it). */
+type SavedPan = { preset: string; mode: string; style: string; custom: boolean; rhythm: string; stepPattern: { points: { tick: number; value: number }[] } };
+async function savedPan(page: Page, id: string, effectId: string): Promise<SavedPan | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.panMan;
+  return null;
+}
+
+test("PanMan: chosen for a slot, its presets, modes and style, its step editor, the Manual Trigger and automation", async ({ page }) => {
+  const id = await openNewSong(page, "Pans");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, under Built in; its window opens at once, panning slowly.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /PanMan/ }).click();
+  const window = page.getByTestId("panman");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.preset).toBe("Slow Pan");
+  await inspector.getByRole("button", { name: "PanMan: close its window" }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "PanMan: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // A preset from the preset bar; a change lights Revert, which goes back to it.
+  await window.getByTestId("panman-preset").click();
+  await page.getByRole("menuitem", { name: "Tooo Dang Fast" }).click();
+  await expect.poll(async () => await savedPan(page, id, effectId)).toMatchObject({ preset: "Tooo Dang Fast", mode: "rhythmStep", style: "fat" });
+  await expect(window.getByRole("button", { name: "Revert to Tooo Dang Fast" })).toBeDisabled();
+  await window.getByTestId("panman-mode").click();
+  await page.getByRole("menuitemradio", { name: "Rhythm Shape" }).click();
+  await expect(window).toHaveAttribute("data-mode", "rhythmShape");
+  await window.getByRole("button", { name: "Revert to Tooo Dang Fast" }).click();
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.mode).toBe("rhythmStep");
+
+  // The rhythm from its LCD's menu: quarter notes. Tweak shows the editor; a click on an empty grid line adds a point.
+  await window.getByRole("spinbutton", { name: "Rhythm" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "1/4 note" }).click();
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.rhythm).toBe("1/4");
+  await window.getByRole("button", { name: /Tweak/ }).click();
+  const editor = window.getByTestId("panman-step-editor");
+  await expect(editor).toBeVisible();
+  const box = (await editor.boundingBox())!;
+  // The editor's area: 6 px in, 16 px for R / C / L on the right, 100 px high.
+  const at = (tick: number, value: number) => ({ x: box.x + 6 + (tick / 384) * (box.width - 28), y: box.y + 6 + ((1 - value) / 2) * 100 });
+  let point = at(48, 1);
+  await page.mouse.click(point.x, point.y);
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.custom).toBe(true);
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.stepPattern.points.map((p) => p.tick)).toEqual([0, 48, 96, 192, 288]);
+  await expect(window.getByRole("spinbutton", { name: "Rhythm" })).toHaveText("Custom");
+  // Right-click deletes it; undo brings it back.
+  point = at(48, 1);
+  await page.mouse.click(point.x, point.y, { button: "right" });
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.stepPattern.points.map((p) => p.tick)).toEqual([0, 96, 192, 288]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.stepPattern.points).toHaveLength(5);
+
+  // The Analog Style.
+  await window.getByRole("radio", { name: "Crunch" }).click();
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.style).toBe("crunch");
+
+  // PingPong's Manual Trigger goes to the engine (not the song).
+  await window.getByTestId("panman-mode").click();
+  await page.getByRole("menuitemradio", { name: "PingPong" }).click();
+  const triggered = page.waitForRequest((r) => r.url().endsWith("/api/engine/panMan"));
+  await window.getByRole("button", { name: "Trigger", exact: true }).click();
+  expect((await triggered).postDataJSON()).toEqual({ effect: effectId, trigger: true });
+
+  // Its Offset can be automated, from its knob's menu.
+  await window.getByRole("slider", { name: "Offset", exact: true }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: /Create automation clip/ }).click();
+  await expect.poll(async () => (await savedAutomations(page, id)).map((a) => a.target)).toEqual([{ kind: "panMan", effect: effectId, control: "offset" }]);
+});
+
+test("the assistant pans with PanMan: puts one on a track, loads a preset, draws a rhythm, automates its offset", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted pans");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "PanMan"}',
+      'call update_panman {"track": 1, "preset": "Wiper Panner", "width": 150}',
+      'call set_panman_pattern {"track": 1, "editor": "shape", "events": [{"beat": 0, "length": 1.5}, {"beat": 2, "length": 2}]}',
+      'call update_panman {"track": 1, "width": 400}',
+      'call add_automation {"control": "panman offset", "track": 1, "slot": 1, "bar": 1, "length": 1, "points": [{"at": 0, "value": -90}, {"at": 1, "value": 90}]}',
+      'call get_panman {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_panman: ok", { timeout: 30_000 });
+  // A width of 400° is refused, saying the range.
+  await expect(panel).toContainText("update_panman: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("PanMan");
+  expect(effect.panMan).toMatchObject({ preset: "Wiper Panner", mode: "rhythmShape", width: 150, custom: true, shapePattern: { events: [{ tick: 0, length: 144 }, { tick: 192, length: 192 }] } });
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "panMan", effect: effect.id, control: "offset" });
+  expect(automation.points.map((p) => Math.round(p.value * 210 - 105))).toEqual([-90, 90]);
+});
+
+/** The song's Pitch Wheel (the effect `effectId`) as saved; until it's saved, nothing (a poll waits for it). */
+type SavedWheel = { value: number; range: number; snap: string; gravity: number };
+type SavedPitchWheel = { pitch: SavedWheel; timbre: SavedWheel; timbreOn: boolean; midiMode: string; notesFrom: string | null; origin: number; resolution: string };
+async function savedWheel(page: Page, id: string, effectId: string): Promise<SavedPitchWheel | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.pitchWheel;
+  return null;
+}
+
+test("Pitch Wheel: chosen for a slot, its wheels turned, ranged and snapped, the Timbre tab, presets, notes from a channel, its keyboard heard while it plays", async ({ page }) => {
+  const id = await openNewSong(page, "Wheels");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, in the effect picker's Built in; its window opens at once, nothing shifted.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Pitch Wheel/ }).click();
+  const window = page.getByTestId("pitch-wheel");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.resolution).toBe("wide");
+  expect(await savedWheel(page, id, effectId)).toMatchObject({ pitch: { value: 0, range: 24, snap: "semitone" }, timbreOn: true, midiMode: "single", origin: 60 });
+  // Closed, its name in the slot opens it again.
+  await page.getByRole("button", { name: /^Close Pitch Wheel/ }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "Pitch Wheel: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // The wheel by its keys: a semitone a press (snapped).
+  const pitch = window.getByTestId("wheel-pitch");
+  await pitch.press("ArrowUp");
+  await pitch.press("ArrowUp");
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.pitch.value).toBe(2);
+  // Turned by dragging round it: from the top a quarter-turn clockwise, at range 24, is 8 semitones more.
+  const box = (await pitch.boundingBox())!;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy - 80);
+  await page.mouse.down();
+  for (let deg = 5; deg <= 90; deg += 5) await page.mouse.move(cx + 80 * Math.sin((deg * Math.PI) / 180), cy - 80 * Math.cos((deg * Math.PI) / 180));
+  await page.mouse.up();
+  await expect.poll(async () => Math.round((await savedWheel(page, id, effectId))!.pitch.value)).toBe(10);
+  // What's heard swings there (here, while the engine is silent, by the same physics).
+  await expect.poll(async () => Number(await pitch.getAttribute("data-heard"))).toBeCloseTo(10, 1);
+
+  // Range 12: the pointer comes in to +6. Snap to octaves.
+  await window.getByTestId("wheel-pitch-range").click();
+  await page.getByRole("menuitemradio", { name: /^12 semitones/ }).click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.pitch).toMatchObject({ range: 12, value: 6 });
+  await window.getByTestId("wheel-pitch-snap").click();
+  await page.getByRole("menuitemradio", { name: "Octaves" }).click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.pitch.snap).toBe("octave");
+
+  // The Timbre tab closed: formants with the pitch; its wheel greyed out.
+  await window.getByTestId("wheel-timbre-tab").click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.timbreOn).toBe(false);
+  await expect(window.getByTestId("wheel-timbre-tab")).toHaveAttribute("aria-pressed", "false");
+
+  // A preset: both wheels and the tab.
+  await window.getByTestId("wheel-preset").click();
+  await page.getByRole("menuitem", { name: /Helium/ }).click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.timbre.value).toBe(4);
+  expect(await savedWheel(page, id, effectId)).toMatchObject({ timbreOn: true, pitch: { value: 0, snap: "semitone", range: 24 } });
+  await expect(window.getByTestId("wheel-preset")).toContainText("Helium");
+  // A knob: gravity down, the preset now Custom.
+  await window.getByRole("slider", { name: "Pitch gravity" }).press("ArrowDown");
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.pitch.gravity).toBeLessThan(0.75);
+  await expect(window.getByTestId("wheel-preset")).toContainText("Custom");
+
+  // Multi, its notes from the rack's channel; a right-click on the keyboard makes a key the origin.
+  await window.getByTestId("wheel-midi-mode").getByRole("radio", { name: "Multi" }).click();
+  await window.getByTestId("wheel-notes-from").click();
+  await page.getByRole("menuitemradio", { name: /Sampler/ }).click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.midiMode).toBe("multi");
+  const song = await savedSong(page, id);
+  expect((await savedWheel(page, id, effectId))?.notesFrom).toBe(song.channels[0].id);
+  const keyboard = window.getByTestId("wheel-keyboard");
+  const keys = (await keyboard.boundingBox())!;
+  // The keyboard is C2..B6: 35 white keys. The 17th (E5, MIDI 64), low down (a white key's own part).
+  const whiteKey = (index: number) => ({ x: keys.x + ((index + 0.5) / 35) * keys.width, y: keys.y + keys.height - 6 });
+  await page.mouse.click(whiteKey(16).x, whiteKey(16).y, { button: "right" });
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.origin).toBe(64);
+
+  // Back to Single; while it plays, a key held moves what's heard: G5 (67) is 3 over the origin E5.
+  await window.getByTestId("wheel-midi-mode").getByRole("radio", { name: "Single" }).click();
+  await expect.poll(async () => (await savedWheel(page, id, effectId))?.midiMode).toBe("single");
+  await page.keyboard.press("Space");
+  await expect.poll(async () => Number(await pitch.getAttribute("data-heard"))).toBeCloseTo(0, 1);
+  await page.mouse.move(whiteKey(18).x, whiteKey(18).y);
+  await page.mouse.down();
+  await expect.poll(async () => Number(await pitch.getAttribute("data-heard"))).toBeCloseTo(3, 1);
+  await page.mouse.up();
+  await page.keyboard.press("Space");
+});
+
+test("the assistant pitches a vocal: puts a Pitch Wheel on its track, sets it for harmonies, automates its pitch", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted wheel");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "Pitch Wheel"}',
+      'call update_pitch_wheel {"track": 1, "preset": "Fifth Up", "midiMode": "multi", "notesFrom": "Sampler", "origin": "A4", "timbre": {"value": -2}}',
+      'call update_pitch_wheel {"track": 1, "midiMode": "chords"}',
+      'call add_automation {"control": "wheel pitch", "track": 1, "slot": 1, "bar": 1, "length": 2, "points": [{"at": 0, "value": 0}, {"at": 1, "value": 12}]}',
+      'call get_pitch_wheel {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_pitch_wheel: ok", { timeout: 30_000 });
+  // A mode that isn't one is refused, saying which are.
+  await expect(panel).toContainText("update_pitch_wheel: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("Pitch Wheel");
+  expect(effect.pitchWheel).toMatchObject({ pitch: { value: 7 }, timbre: { value: -2 }, midiMode: "multi", notesFrom: song.channels[0].id, origin: 57 });
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "pitchWheel", effect: effect.id, control: "pitch" });
+  expect(automation.points.map((p) => Math.round(p.value * 48 - 24))).toEqual([0, 12]);
+});
+
+/** The song's OTT (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
+type SavedOtt = { preset: string | null; depth: number; time: number; input: number; output: number; upward: number; downward: number; bands: { threshold: number; gain: number; upward: boolean; downward: boolean }[] };
+async function savedOtt(page: Page, id: string, effectId: string): Promise<SavedOtt | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.ott;
+  return null;
+}
+
+test("OTT: chosen for a slot, its knobs turned, a band's gap dragged and a compressor switched off, a preset; its controls automated from a knob and from the title bar", async ({ page }) => {
+  const id = await openNewSong(page, "Squash");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /OTT/ }).click();
+  const window = page.getByTestId("ott");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.preset).toBe("Default");
+  // Closed, its name in the slot opens it again.
+  await page.getByRole("button", { name: "Close OTT (Master)" }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "OTT: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // Depth dragged down: less of it, and the preset's name goes.
+  await drag(page, window.getByRole("slider", { name: "Depth" }), window.getByRole("slider", { name: "Depth" }), { dy: 60 });
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.depth).toBeLessThan(0.8);
+  expect((await savedOtt(page, id, effectId))?.preset).toBeNull();
+
+  // The mid row's gap dragged right: its threshold up. Ctrl+click on its brown (far left): its upward compressor off.
+  const mid = window.getByTestId("ott-row-mid");
+  await drag(page, mid, mid, { dx: 40 });
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.bands[1].threshold).toBeGreaterThan(1.1);
+  const box = (await mid.boundingBox())!;
+  await page.keyboard.down("Control");
+  await page.mouse.click(box.x + 8, box.y + box.height / 2);
+  await page.keyboard.up("Control");
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.bands[1].upward).toBe(false);
+  await expect(mid).toHaveAttribute("data-upward", "false");
+  // Its menu turns it back on; a double-click resets its threshold.
+  await mid.click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "Upward compression" }).click();
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.bands[1].upward).toBe(true);
+  await mid.dblclick();
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.bands[1].threshold).toBe(1);
+
+  // A preset sets it all.
+  await window.getByTestId("ott-preset").click();
+  await page.getByRole("menuitem", { name: "Drum smash" }).click();
+  await expect.poll(async () => (await savedOtt(page, id, effectId))?.preset).toBe("Drum smash");
+  expect((await savedOtt(page, id, effectId))?.time).toBe(0.4);
+
+  // Automated: Time from its knob's menu, then the last knob touched (Out Gain) from the title bar.
+  await window.getByRole("slider", { name: "Time" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Create automation clip" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  // (The Playlist opens on the new clip, over the window.)
+  await page.getByRole("button", { name: "Close Playlist" }).click();
+  await drag(page, window.getByRole("slider", { name: "Out Gain" }), window.getByRole("slider", { name: "Out Gain" }), { dy: -10 });
+  await expect(page.getByTestId("automate-touched")).toContainText("Automate “Out Gain”");
+  await page.getByTestId("automate-touched").click();
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(2);
+  const targets = (await savedSong(page, id)).automations.map((a: { target: unknown }) => a.target);
+  expect(targets).toEqual([
+    { kind: "ott", effect: effectId, control: "time" },
+    { kind: "ott", effect: effectId, control: "output" },
+  ]);
+});
+
+test("the assistant squashes a track with OTT: puts one on, sets it, automates its depth", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted OTT");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "OTT"}',
+      'call update_ott {"track": 1, "depth": 0.35, "time": 2, "bands": [{"band": "high", "gain": 2}, {"band": "low", "downward": false}]}',
+      'call add_automation {"control": "ott depth", "track": 1, "slot": 1, "bar": 1, "length": 4, "points": [{"at": 0, "value": 0}, {"at": 4, "value": 0.6}]}',
+      'call get_ott {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_ott: ok", { timeout: 30_000 });
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("OTT");
+  expect(effect.ott).toMatchObject({ depth: 0.35, time: 2, preset: null });
+  expect(effect.ott.bands[2].gain).toBe(2);
+  expect(effect.ott.bands[0].downward).toBe(false);
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "ott", effect: effect.id, control: "depth" });
+  expect(automation.points.map((p: { value: number }) => p.value)).toEqual([0, 0.6]);
+});
+
+/**
+ * Every knob and slider in `window` offers Create automation clip on its menu: the names of any that
+ * don't. (Each is right-clicked, its menu read, and closed.)
+ */
+async function notAutomatable(page: Page, window: Locator): Promise<string[]> {
+  // (By their role attribute: while a menu closes, the page is hidden from role queries for a moment.)
+  const sliders = window.locator('[role="slider"]');
+  const missing: string[] = [];
+  const count = await sliders.count();
+  expect(count).toBeGreaterThan(0);
+  for (let i = 0; i < count; i++) {
+    const slider = sliders.nth(i);
+    if (!(await slider.isVisible())) continue;
+    await slider.scrollIntoViewIfNeeded();
+    await slider.click({ button: "right" });
+    const item = page.getByRole("menuitem", { name: "Create automation clip" });
+    const offered = await item.waitFor({ state: "visible", timeout: 1500 }).then(
+      () => true,
+      () => false,
+    );
+    if (!offered) missing.push((await slider.getAttribute("aria-label")) ?? `slider ${i}`);
+    await page.keyboard.press("Escape");
+    await expect(item).toHaveCount(0);
+  }
+  return missing;
+}
+
+test("every knob of our built-in effects can be automated: Gross Beat, EchoBoy (each mode, Tweak, the Style Editor), Auto-Tune, Pro-Q, OTT, PanMan (each mode, Tweak), Pitch Wheel", async ({ page }) => {
+  test.setTimeout(300_000);
+  await openNewSong(page, "Automate everything");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  let slot = 0;
+  /** Put `name` in the next empty slot, its window open. */
+  async function choose(name: RegExp, testId: string) {
+    await inspector.getByRole("button", { name: `Slot ${++slot} menu` }).click();
+    await page.getByTestId("effect-picker").getByRole("option", { name }).click();
+    const window = page.getByTestId(testId);
+    await expect(window).toBeVisible();
+    return window;
+  }
+  // (The mixer's window over them is closed: each effect's window is checked alone.)
+  const close = async (title: RegExp) => page.getByRole("button", { name: title }).click();
+
+  let window = await choose(/Gross Beat/, "gross-beat");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  // (The scratching clock is played live, as HOLD is: a performance, not the song's.)
+  expect(await notAutomatable(page, window)).toEqual(["Scratching clock: drag up and down to scratch"]);
+  await close(/^Close Gross Beat/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/EchoBoy/, "echo-boy");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  for (const mode of ["Single Echo", "Dual Echo", "Ping-Pong", "Rhythm Echo"]) {
+    await window.getByRole("radio", { name: mode }).click();
+    if (!(await window.getByTestId("echo-tweak").count())) await window.getByRole("button", { name: "Tweak" }).click();
+    await expect(window.getByTestId("echo-tweak")).toBeVisible();
+    expect(await notAutomatable(page, window), `${mode} with Tweak`).toEqual([]);
+  }
+  await window.getByRole("button", { name: "Style Edit" }).click();
+  expect(await notAutomatable(page, window.getByTestId("echo-style-editor")), "the Style Editor").toEqual([]);
+  await close(/^Close EchoBoy/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/Auto-Tune/, "auto-tune");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  expect(await notAutomatable(page, window)).toEqual([]);
+  await close(/^Close Auto-Tune/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/Pro-Q/, "pro-q");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  // A band, so its controls show; and the output options.
+  const display = (await page.getByTestId("pro-q-display").boundingBox())!;
+  await page.mouse.dblclick(display.x + display.width * 0.5, display.y + display.height * 0.3);
+  await expect(page.getByTestId("pro-q-band-controls")).toBeVisible();
+  expect(await notAutomatable(page, window)).toEqual([]);
+  await close(/^Close Pro-Q/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/OTT/, "ott");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  expect(await notAutomatable(page, window)).toEqual([]);
+  await close(/^Close OTT/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/PanMan/, "panman");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  await window.getByRole("button", { name: /Tweak/ }).click();
+  for (const mode of ["LFO", "Rhythm Step", "Rhythm Shape", "PingPong", "Random", "Step"]) {
+    await window.getByTestId("panman-mode").click();
+    await page.getByRole("menuitemradio", { name: mode, exact: true }).click();
+    await expect(page.locator('[role="menu"]')).toHaveCount(0);
+    expect(await notAutomatable(page, window), `PanMan's ${mode}, with Tweak`).toEqual([]);
+  }
+  await close(/^Close PanMan/);
+
+  await page.keyboard.press("F9");
+  window = await choose(/Pitch Wheel/, "pitch-wheel");
+  await page.getByRole("button", { name: "Close Mixer" }).click();
+  expect(await notAutomatable(page, window)).toEqual([]);
 });

@@ -160,12 +160,12 @@ export function newClip(song: MusicProject, source: ClipSource, start: number, t
   if (source.kind === "pattern") return { kind: "pattern", ref: source.ref, track, start, length: null };
   // An automation clip as long as its curve (it follows it), as a pattern clip follows its pattern.
   if (source.kind === "automation") return { kind: "automation", ref: source.ref, track, start, length: null };
-  // An audio clip as long as the last one of its channel, or its file.
+  // An audio clip as long as the last one of its channel (stretched as it is), or its file.
   const ctx = clipContext(song);
   const like = song.playlist.clips.find((c) => c.kind === "audio" && c.ref === source.ref);
   const asset = useMusic.getState().assets.find((a) => a.id === song.channels.find((c) => c.id === source.ref)?.sampleId);
-  const length = like ? clipLength(like, ctx) : Math.max(STEP_TICKS, Math.round((asset?.duration ?? 2) / ctx.fileSecondsPerTick(source.ref)));
-  return { kind: "audio", ref: source.ref, track, start, length, offset: like?.offset ?? 0 };
+  const length = like ? clipLength(like, ctx) : Math.max(STEP_TICKS, Math.round((asset?.duration ?? 2) / ctx.fileSecondsPerTick(source)));
+  return { kind: "audio", ref: source.ref, track, start, length, offset: like?.offset ?? 0, stretch: like?.stretch };
 }
 
 // ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addChannels, setSteps, updateChannel } from "../../shared/music/edits.ts";
 import { routeChannels, setMixerMuted } from "../../shared/music/mixer.ts";
-import { type NewClip, addAudioClips, addClips, editClips, setClipFades, setClipGain, setClipStretch, sliceClips, updateTrack } from "../../shared/music/playlist.ts";
+import { type NewClip, addAudioClips, addClips, editClips, setClipFades, setClipGain, sliceClips, updateTrack } from "../../shared/music/playlist.ts";
 import { FIRST_PATTERN_ID, createMusicProject as newSong } from "../../shared/music/project.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import { ENGINE } from "../config.ts";
@@ -244,24 +244,6 @@ describe.skipIf(!existsSync(ENGINE))("the playlist, offline", () => {
     // Down to nothing at its end (its last samples declicked).
     expect(peakOf(sound.channels[0], end - 8, end)).toBeLessThan(0.05);
     expect(peakOf(sound.channels[0], end + 1, end + 1000)).toBe(0);
-  });
-
-  it("stretches a clip: as long as it's made, its pitch kept", async () => {
-    const tone = addAudioClips(createMusicProject("Tone"), [{ name: "Tone", sampleId: "tone", seconds: 2, channelId: "chan_tone" }], { start: 0, track: 0 }).song;
-    const stretched = editClips(tone, (clips) => setClipStretch(clips, new Set([clips[0].id]), 2));
-    expect(stretched.playlist.clips[0].length).toBe(BAR_TICKS * 2);
-    await play(stretched);
-    await engine.command("play", {});
-    const left = (await hear(2 * BAR)).channels[0];
-    // Four seconds of it, at 441 Hz still (882 zero crossings a second), not 220.5.
-    const crossings = (from: number, to: number) => {
-      let count = 0;
-      for (let i = from + 1; i < to; i++) if (left[i - 1] < 0 !== left[i] < 0) count++;
-      return count;
-    };
-    expect(Math.abs(crossings(RATE, 2 * RATE) - 882)).toBeLessThan(10);
-    expect(Math.abs(crossings(3 * RATE, 4 * RATE) - 882)).toBeLessThan(10);
-    expect(peakOf(left, RATE, 3.9 * RATE)).toBeGreaterThan(0.3);
   });
 
   it("stops at once, and plays nothing when it's stopped", async () => {

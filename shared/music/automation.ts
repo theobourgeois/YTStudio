@@ -9,7 +9,13 @@
  */
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
-import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
+import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
+import { ECHO_CONTROL_SPECS } from "./echo-boy.ts";
+import { PITCH_WHEEL_CONTROL_INFO, controlField } from "./pitch-wheel-presets.ts";
+import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE } from "./gross-beat-presets.ts";
+import { EQ_CONTROL_SCALES } from "./pro-q-presets.ts";
+import { OTT_CONTROL_SPECS } from "./ott.ts";
+import { PAN_CONTROLS, panControlFraction, panControlValue } from "./panman-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
 import { DEFAULT_LFO, MAX_TEMPO, MIN_TEMPO, PITCH_KNOB_RANGE, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
 import { type Automation, type AutomationLfo, type AutomationPoint, type AutomationTarget, type CurveType, type MusicProject, type PlaylistClip, STEP_TICKS } from "./types.ts";
@@ -187,6 +193,18 @@ export function targetKey(target: AutomationTarget): string {
       return `effect:${target.effect}`;
     case "grossBeat":
       return `gross:${target.effect}:${target.control}`;
+    case "autoTune":
+      return `tune:${target.effect}:${target.control}`;
+    case "echoBoy":
+      return `echo:${target.effect}:${target.control}`;
+    case "proQ":
+      return `proq:${target.effect}:${target.band}:${target.control}`;
+    case "ott":
+      return `ott:${target.effect}:${target.control}`;
+    case "panMan":
+      return `panman:${target.effect}:${target.control}`;
+    case "pitchWheel":
+      return `wheel:${target.effect}:${target.control}`;
     case "main":
       return "main";
     case "tempo":
@@ -295,6 +313,33 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         format: percent,
       };
     }
+    case "proQ": {
+      const found = findEffect(song, target.effect);
+      const pq = found?.effect?.proQ;
+      const owner = found && pq ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Pro-Q";
+      const scale = EQ_CONTROL_SCALES[target.control];
+      const own = target.control === "output" || target.control === "pan" || target.control === "gainScale" ? target.control : null;
+      const band = own ? null : pq?.bands.find((b) => b.id === target.band);
+      const value = !pq ? null : own ? pq[own] : band ? band[target.control as "frequency" | "gain" | "q" | "range"] : null;
+      const said = (v: number) => {
+        const x = scale.toValue(clamp(v, 0, 1));
+        if (target.control === "frequency") return x >= 1000 ? `${(x / 1000).toFixed(2)} kHz` : `${x.toFixed(1)} Hz`;
+        if (target.control === "q") return x.toFixed(2);
+        if (target.control === "pan") return Math.abs(x) < 0.005 ? "Centre" : `${Math.round(Math.abs(x) * 100)}% ${x < 0 ? "left" : "right"}`;
+        if (target.control === "gainScale") return `${Math.round(x * 100)}%`;
+        return `${x > 0 ? "+" : ""}${x.toFixed(1)} dB`;
+      };
+      const names = { frequency: "Frequency", gain: "Gain", q: "Q", range: "Dynamic range", output: "Output", pan: "Pan", gainScale: "Gain Scale" };
+      return {
+        name: own ? names[own] : `Band ${target.band} ${names[target.control]}`,
+        owner,
+        exists: value !== null,
+        own: value === null ? null : clamp(scale.toFraction(value), 0, 1),
+        toControl: (v) => scale.toValue(clamp(v, 0, 1)),
+        fromControl: (x) => clamp(scale.toFraction(x), 0, 1),
+        format: said,
+      };
+    }
     case "grossBeat": {
       const found = findEffect(song, target.effect);
       const gb = found?.effect?.grossBeat;
@@ -302,6 +347,14 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
       const control = target.control;
       if (control === "timeMix" || control === "volumeMix")
         return { name: control === "timeMix" ? "Time" : "Volume", owner, exists: !!gb, own: gb ? gb[control] : null, ...unit, format: percent };
+      // ATT and REL (seconds, up to their most) and TNS (-1..1).
+      if (control === "attack" || control === "release") {
+        const most = control === "attack" ? MAX_GROSS_ATTACK : MAX_GROSS_RELEASE;
+        const seconds = { toControl: (v: number) => clamp(v, 0, 1) * most, fromControl: (v: number) => clamp(v / most, 0, 1) };
+        const said = (v: number) => (v * most < 1 ? `${Math.round(v * most * 1000)} ms` : `${(v * most).toFixed(2)} s`);
+        return { name: control === "attack" ? "Attack" : "Release", owner, exists: !!gb, own: gb ? gb[control] / most : null, ...seconds, format: said };
+      }
+      if (control === "tension") return { name: "Tension", owner, exists: !!gb, own: gb ? signed.fromControl(gb.tension) : null, ...signed, format: (v) => percent(signed.toControl(v)) };
       // A slot: its number from the fraction (36 of them across the range), said with its name.
       const kind = control === "timeSlot" ? "time" : "volume";
       const last = GROSS_SLOTS - 1;
@@ -318,6 +371,87 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
           const name = gb?.[kind][n]?.name ?? (kind === "time" ? GROSS_TIME_PRESETS : GROSS_VOLUME_PRESETS)[n].name;
           return `${n + 1}: ${name}`;
         },
+      };
+    }
+    case "panMan": {
+      // In its own units (degrees, Hz, dB): the clip's 0..1 is the knob's range.
+      const found = findEffect(song, target.effect);
+      const pm = found?.effect?.panMan;
+      const control = PAN_CONTROLS[target.control];
+      return {
+        name: control.name,
+        owner: found && pm ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted PanMan",
+        exists: !!pm,
+        own: pm ? panControlFraction(target.control, pm[target.control]) : null,
+        toControl: (v) => panControlValue(target.control, v),
+        fromControl: (v) => panControlFraction(target.control, v),
+        format: (v) => control.format(panControlValue(target.control, v)),
+      };
+    }
+    case "autoTune": {
+      const found = findEffect(song, target.effect);
+      const at = found?.effect?.autoTune;
+      const owner = found && at ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Auto-Tune";
+      const info = AUTO_TUNE_CONTROL_INFO[target.control];
+      const span = info.max - info.min;
+      const toControl = (v: number) => {
+        const x = info.min + clamp(v, 0, 1) * span;
+        return info.whole ? Math.round(x) : x;
+      };
+      return {
+        name: info.name,
+        owner,
+        exists: !!at,
+        own: at ? clamp((info.get(at) - info.min) / span, 0, 1) : null,
+        toControl,
+        fromControl: (x) => clamp((x - info.min) / span, 0, 1),
+        format: (v) => info.format(toControl(v)),
+      };
+    }
+    case "pitchWheel": {
+      const found = findEffect(song, target.effect);
+      const pw = found?.effect?.pitchWheel;
+      const owner = found && pw ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Pitch Wheel";
+      const info = PITCH_WHEEL_CONTROL_INFO[target.control];
+      const span = info.max - info.min;
+      const toControl = (v: number) => info.min + clamp(v, 0, 1) * span;
+      const { wheel, field } = controlField(target.control);
+      return {
+        name: info.name,
+        owner,
+        exists: !!pw,
+        own: pw ? clamp((pw[wheel][field] - info.min) / span, 0, 1) : null,
+        toControl,
+        fromControl: (x) => clamp((x - info.min) / span, 0, 1),
+        format: (v) => info.format(toControl(v)),
+      };
+    }
+    case "echoBoy": {
+      const found = findEffect(song, target.effect);
+      const eb = found?.effect?.echoBoy ?? null;
+      const spec = ECHO_CONTROL_SPECS[target.control];
+      return {
+        name: spec.name,
+        owner: found && eb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted EchoBoy",
+        exists: !!eb,
+        own: eb ? spec.fromControl(spec.get(eb)) : null,
+        toControl: spec.toControl,
+        fromControl: spec.fromControl,
+        format: (v) => spec.format(spec.toControl(v), eb),
+      };
+    }
+    case "ott": {
+      const found = findEffect(song, target.effect);
+      const ott = found?.effect?.ott ?? null;
+      const spec = OTT_CONTROL_SPECS[target.control];
+      return {
+        name: spec.name,
+        owner: found && ott ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted OTT",
+        exists: !!ott,
+        own: ott ? spec.fromControl(spec.get(ott)) : null,
+        toControl: spec.toControl,
+        fromControl: spec.fromControl,
+        format: (v) => spec.format(spec.toControl(v)),
       };
     }
     case "main":

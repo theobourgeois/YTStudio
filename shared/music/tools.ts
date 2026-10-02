@@ -5,7 +5,10 @@
 import { type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { CHOP_PATTERNS } from "./chop.ts";
 import { EXPORT_FORMATS } from "./export.ts";
-import { CURVE_TYPES } from "./types.ts";
+import { ECHO_TOOL_CONTROL_NAMES } from "./echo-boy-presets.ts";
+import { OTT_TOOL_CONTROL_NAMES } from "./ott-presets.ts";
+import { PANMAN_PRESETS, PAN_CURVES, PAN_MODES, PAN_RHYTHMS, PAN_STYLES } from "./panman-presets.ts";
+import { CURVE_TYPES, STRETCH_MODES } from "./types.ts";
 
 const channel = str('A channel: its id (from get_song) or its name ("Kick").');
 const pattern = str("A pattern: its id or its name. Default: the pattern shown in the channel rack.");
@@ -19,7 +22,58 @@ const grossRef = {
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
 const grossKind = oneOf(["time", "volume"], "A time slot or a volume slot.");
+/** Which Pro-Q a tool acts on. */
+const eqRef = {
+  effect: str("The Pro-Q: its effect id (from get_mixer or get_pro_q). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
 const grossSlot = { description: "A slot: its number, 1 to 36, or its name (\"1/2 Speed\").", anyOf: [{ type: "string" }, { type: "integer" }] } as const;
+/** Which Auto-Tune a tool acts on. */
+const tuneRef = {
+  effect: str("The Auto-Tune: its effect id (from get_mixer or get_auto_tune). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+/** Which OTT a tool acts on. */
+const ottRef = {
+  effect: str("The OTT: its effect id (from get_mixer or get_ott). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+/** Which EchoBoy a tool acts on. */
+const echoRef = {
+  effect: str("The EchoBoy: its effect id (from get_mixer or get_echo_boy). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+/** Which Pitch Wheel a tool acts on. */
+const wheelRef = {
+  effect: str("The Pitch Wheel: its effect id (from get_mixer or get_pitch_wheel). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+/** One of a Pitch Wheel's two wheels, as update_pitch_wheel sets it. */
+const wheelFields = (what: string, value: string) =>
+  obj(
+    {
+      value: num(value),
+      range: { type: "integer", enum: [2, 4, 6, 12, 24, 48], description: "Semitones the dial spans end to end (the pointer goes half of it either way). A narrower range brings the pointer in." },
+      snap: oneOf(["off", "semitone", "octave"], "Where the pointer lands: anywhere (off: fractions of a semitone), on whole semitones, or on whole octaves."),
+      gravity: num("0 to 1: how hard what's heard is held to the pointer. 1 clamps it there (an instant jump); low, it overshoots and swings past and back before settling (0: a near-endless swing)."),
+      inertia: num("0 to 1: how slowly what's heard heads for the pointer (a heavy wheel at 1). It only shows with gravity low: high gravity overrides it."),
+      smooth: num("0 to 1: how slowly the pointer itself is followed (0 to 1.5 s): glides between values, like a portamento. High, it overrides gravity and inertia."),
+    },
+    [],
+    what,
+  );
+const echoTime = (what: string) => ({ description: `${what}: a note value at the tempo ("1/8", "1/8 dot", "1/16 tri"; 1/2 to 1/64) or milliseconds ("350 ms", or a number), up to 15 s.`, anyOf: [{ type: "string" }, { type: "number" }] }) as const;
+/** Which PanMan a tool acts on. */
+const panRef = {
+  effect: str("The PanMan: its effect id (from get_mixer or get_panman). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
 const playlistTrack = int("A playlist track's number, 1 for the first (as the Playlist numbers them).");
 const clipIds = arr(int("A clip's id"), "Clips, by their ids from get_playlist.");
 
@@ -27,16 +81,65 @@ const automationRef = str("An automation clip: its id or its name (from get_auto
 /** What names a control to automate (`add_automation`, `list_controls`). */
 const controlFields = {
   control: oneOf(
-    ["volume", "pan", "pitch", "stereo", "send", "mix", "main volume", "tempo", "parameter", "time slot", "volume slot", "time mix", "volume mix"],
+    [
+      "volume",
+      "pan",
+      "pitch",
+      "stereo",
+      "send",
+      "mix",
+      "main volume",
+      "tempo",
+      "parameter",
+      "time slot",
+      "volume slot",
+      "time mix",
+      "volume mix",
+      "gross attack",
+      "gross release",
+      "gross tension",
+      "retune speed",
+      "humanize",
+      "flex-tune",
+      "natural vibrato",
+      "transpose",
+      "throat",
+      "key",
+      ...["detune", "tracking", "vibrato rate", "vibrato onset delay", "vibrato onset rate", "vibrato variation", "vibrato pitch", "vibrato amplitude", "vibrato formant"],
+      ...["eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale"],
+      ...ECHO_TOOL_CONTROL_NAMES,
+      ...OTT_TOOL_CONTROL_NAMES,
+      ...["panman offset", "panman width", "panman rate", "panman input", "panman output"],
+      ...["panman smoothing", "panman feel", "panman groove", "panman trigger", "panman divider", "panman cutoff", "panman filter gain", "panman threshold", "panman attack", "panman release", "panman offset mod", "panman width mod", "panman rate mod"],
+      ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
+    ],
     "Which control: a channel's or mixer track's volume or pan, a channel's pitch (semitones: a sampler's notes bend as they sound, a plugin channel's move by whole semitones), a track's stereo separation, the song's tempo (in BPM; it plays in song mode only, like all automation), a send's level, an effect slot's mix, the main volume, " +
-      "a plugin's own parameter, or a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
-      "use hold curves, so each bar plays a slot: that's how chops are arranged), or its time or volume knob.",
+      "a plugin's own parameter, a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
+      "use hold curves, so each bar plays a slot: that's how chops are arranged), its time or volume knob, or its attack and release " +
+      "(\"gross attack\", \"gross release\": seconds, 0 to 0.5 and 0 to 1) or tension (\"gross tension\", -1 to 1); an Auto-Tune's (likewise): " +
+      "its retune speed (ms, 0 to 400), humanize and flex-tune (0 to 100), natural vibrato (dB, -12 to 12), transpose (semitones, -12 to 12), " +
+      "throat (50 to 180), key (0 C .. 11 B, with hold curves: a key change), detune (cents, -100 to 100), tracking (0 to 100), or " +
+      "Create Vibrato's (\"vibrato ...\": rate Hz 0.1 to 10, onset delay and onset rate ms 0 to 1500, variation 0 to 100, pitch cents 0 to 100, " +
+      "amplitude 0 to 30, formant 0 to 100); or an EchoBoy's (\"echo ...\": " +
+      "mix and feedback 0 to 1, cuts in Hz, saturation 0 to 1, input and output dB, groove and feel -1 to 1, width 0 to 1, an echo time's " +
+      "knob 0 to 1: automating a Time echo bends its pitch like tape, a note value steps through 1/2 .. 1/64; and Tweak's, Rhythm Echo's and " +
+      "the Style Editor's knobs: offset, balance, accent, fb mix, fb balance, rhythm, rhythm shape, rhythm accent, low/mid/high freq, gain " +
+      "and decay, mid res, diffusion, diffusion size, wobble depth, rate and sync, decay sat, out sat, in their knobs' units); " +
+      "or a Pro-Q's (the effect in `track`'s `slot`, \"eq ...\"): a band's (`band`) frequency (values in Hz: a filter sweep), gain or " +
+      "dynamic range (dB) or Q, or its output (dB), pan (-1 to 1) or gain scale (0 to 2, 1 is 100%); or an OTT's (\"ott ...\"): depth 0 to 1, time 0 to 10 (1 is 100%), in and out gain dB, " +
+      "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB; or a PanMan's (\"panman ...\": " +
+      "offset in degrees, -105 left to 105 right, width in degrees 0 to 210, LFO rate in Hz 0.01 to 10, input and output in dB -24 to 24, " +
+      "smoothing 0 to 1, feel and groove -1 to 1, trigger and threshold dB -40 to 0, divider 1 to 12, cutoff Hz, filter gain dB, attack and " +
+      "release seconds, offset mod and width mod degrees, rate mod octaves); or a Pitch Wheel's (\"wheel ...\": " +
+      "its pitch or timbre wheel in semitones, -24 to 24, snapped as the wheel snaps, its gravity, inertia and smooth followed as it moves, so a " +
+      "jump with low gravity swings; or a wheel's gravity, inertia or smooth, 0 to 1).",
   ),
   channel: str("A channel (volume, pan, pitch), or a plugin channel (its parameters): id or name."),
   track: mixerTrack("A mixer track (its volume, pan, stereo separation; a send from it; an effect in it)"),
   to: mixerTrack("The track a send goes to"),
   slot: int("An effect slot of the track, 1 to 10 (its mix, or its plugin's parameters)."),
   parameter: str("A plugin's parameter: its name or id, from list_controls."),
+  band: int("A Pro-Q band's number (from get_pro_q), for its eq controls."),
 } as const;
 const automationPoints = arr(
   obj(
@@ -616,11 +719,22 @@ export const MUSIC_TOOLS = [
     kind: "action",
     description:
       "Put an effect in a mixer track's slot: the first empty one, or the slot given (replacing what's there). Its sound goes through the track's " +
-      "effects in slot order, before its fader. Either Gross Beat, ours (plugin \"Gross Beat\": chops, repeats, stutters, half speed, tape " +
-      "stops, scratches, gates and sidechain pumping in time with the song, which you set with update_gross_beat and set_gross_beat_slot), or " +
+      "effects in slot order, before its fader. Either one of ours, whose settings you set: Pro-Q (plugin \"Pro-Q\": FabFilter's " +
+      "Pro-Q 3, a 24-band EQ with dynamic bands, mid/side, zero latency, natural or linear phase, set with set_pro_q_bands and " +
+      "update_pro_q), EchoBoy (plugin \"EchoBoy\": Soundtoys' echo: " +
+      "tape, analogue, digital, radio, chorus and diffused echoes in 31 styles, Single, Dual, Ping-Pong and Rhythm Echo, set with " +
+      "update_echo_boy), Gross Beat (plugin \"Gross Beat\": chops, repeats, stutters, half speed, tape stops, scratches, gates and " +
+      "sidechain pumping in time with the song, set with update_gross_beat and set_gross_beat_slot), Auto-Tune (plugin \"Auto-Tune\": " +
+      "pitch correction for vocals, from the hard-tuned sound to natural, set with update_auto_tune; put it on the vocal's track), PanMan (plugin \"PanMan\": " +
+      "Soundtoys' auto-panner, the sound moved across the stereo field by an LFO, a rhythm in time with the song, at random or on its " +
+      "hits, set with update_panman and set_panman_pattern) or Pitch Wheel " +
+      "(plugin \"Pitch Wheel\": QuikQuak's Pitchwheel, a pitch shifter played like a dial, the length kept: octaves, harmonies played by a " +
+      "channel's notes, helium or giant voices with its Timbre wheel, tape slow-downs and swinging, springy pitch moves; set with " +
+      "update_pitch_wheel), or " +
       "an effect plugin installed on this computer (list_plugins with kind \"effect\"), whose settings are its own, in its window, which the " +
-      "user opens from the mixer: you can't set them.",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"Gross Beat", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+      "user opens from the mixer: you can't set them. OTT (plugin \"OTT\": Xfer's multiband upward/downward compressor, the squashed, " +
+      "bright, loud sound; set with update_ott) is ours as well.",
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"Pro-Q", "OTT", "EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", "Pitch Wheel", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -653,6 +767,219 @@ export const MUSIC_TOOLS = [
       "Copy a mixer track's state onto another track: its effects (copies, with their plugins' settings as they are now) and its level, pan, " +
       "phase, sides, stereo separation and delay offset; not its name, colour, channels or sends. What the other track had is replaced.",
     inputSchema: obj({ from: mixerTrack("The track copied"), to: mixerTrack("The track it's copied onto") }, ["from", "to"]),
+  }),
+  tool({
+    name: "get_pro_q",
+    title: "Read a Pro-Q",
+    kind: "look",
+    description:
+      "A Pro-Q (FabFilter's Pro-Q 3 EQ, ours, in a mixer track's slot): its processing mode and latency, output, Gain Scale and Auto Gain, " +
+      "its bands (shape, frequency, gain, Q, slope, placement, dynamics) and the curve they make, in dB at each octave's centre.",
+    inputSchema: obj({ ...eqRef }),
+  }),
+  tool({
+    name: "set_pro_q_bands",
+    title: "Shape a Pro-Q",
+    kind: "edit",
+    description:
+      "Add, change or remove a Pro-Q's bands (24 at most). A band without `band` is added (give its frequency); with `band` (its number), " +
+      "only what's given changes, or `remove` takes it out. Shapes: bell, lowShelf, lowCut, highShelf, highCut, notch, bandPass, tiltShelf " +
+      "(tilts round its frequency: -gain/2 below, +gain/2 above), flatTilt (a straight tilt over the whole spectrum: gain/5 dB per octave). " +
+      "Q is Pro-Q's: 1 is the default width (a Bell 1.9 octaves wide at half its gain; Q 2 is 1 octave), higher is narrower; on a cut it's " +
+      "resonance (1 is flat Butterworth, 0.71 is -6 dB at the frequency). Slope in dB/oct, 6 to 96 (Bell and Notch from 12), or brickwall on " +
+      "cuts. A dynamic band (`range` not 0, Bell and shelves) moves its gain toward gain + range when the sound in its range is loud " +
+      "(negative: tame a resonance, de-ess; positive: bring out what's loud); its threshold is auto by default. Placement puts a band on " +
+      "the left, right, mid or side only. Returns the new curve.",
+    inputSchema: obj({
+      ...eqRef,
+      clear: bool("Remove every band first (start from flat)."),
+      bands: arr(
+        obj(
+          {
+            band: int("An existing band's number, to change or remove it; leave it out to add a band."),
+            remove: bool("Remove this band."),
+            shape: oneOf(["bell", "lowShelf", "lowCut", "highShelf", "highCut", "notch", "bandPass", "tiltShelf", "flatTilt"], "Its shape (default bell)."),
+            frequency: num("Hz, 10 to 30000."),
+            gain: num("dB, -30 to 30 (bell, shelves, tilts)."),
+            q: num("0.025 to 40 (default 1)."),
+            slope: { description: "dB/oct: 6, 12, 18, 24, 30, 36, 48, 72, 96, or \"brickwall\" (cuts only). Default 12.", anyOf: [{ type: "integer" }, { type: "string" }] },
+            placement: oneOf(["stereo", "left", "right", "mid", "side"], "Which part of the sound (default stereo)."),
+            range: num("dB, -30 to 30: a dynamic band's movement when loud (0: static)."),
+            threshold: { description: 'A dynamic band\'s threshold in dB (-60 to 0), or "auto" (the default: it follows the level in its range).', anyOf: [{ type: "number" }, { type: "string" }] },
+            dynamics: bool("A dynamic band's dynamics on (default) or bypassed."),
+            enabled: bool("On (default), or bypassed."),
+          },
+          [],
+          "A band to add, change or remove.",
+        ),
+        "The bands, in order.",
+      ),
+    }),
+  }),
+  tool({
+    name: "update_pro_q",
+    title: "Change a Pro-Q",
+    kind: "edit",
+    description:
+      "Set a Pro-Q's processing mode (zeroLatency; naturalPhase: analog phase, 7.3 ms late; linearPhase: no phase change, more latency by " +
+      "resolution, and dynamic bands only up to high), output level and pan, phase, Auto Gain, Gain Scale (scales every band's gain), Gain-Q " +
+      "interaction, display range; load a factory preset; or switch or copy A/B.",
+    inputSchema: obj({
+      ...eqRef,
+      mode: oneOf(["zeroLatency", "naturalPhase", "linearPhase"], "The processing mode."),
+      resolution: oneOf(["low", "medium", "high", "veryHigh", "maximum"], "Linear Phase's resolution (Medium is the usual)."),
+      output: num("dB, -60 (silent) to 36."),
+      pan: num("-1 to 1: the output's balance."),
+      panMode: oneOf(["lr", "ms"], "What the pan balances: left/right or mid/side."),
+      invert: bool("Flip the output's phase."),
+      autoGain: bool("Take back the level the curve adds or removes (an estimate from the curve)."),
+      gainScale: num("Percent, 0 to 200: every band's gain (and range) scaled."),
+      gainQ: bool("Gain-Q interaction: a Bell narrows as it's boosted, as an analog EQ's does."),
+      displayRange: int("±dB the display shows: 3, 6, 12 or 30."),
+      preset: str("A factory preset's name (it replaces the bands): Default Setting, Flat 7 Bands, Equalize, Clean Low End, Kick Punch, Snare Crack, Overheads, Bass Definition, Mono Lows, Vocal Presence, De-Ess, Telephone, Radio, Lo-Fi, Air, Gentle Tilt, Mastering Clean-Up, Wide Highs."),
+      ab: oneOf(["switch", "copy"], "Switch to the other A/B state, or copy this one to it."),
+    }),
+  }),
+  tool({
+    name: "get_ott",
+    title: "Read an OTT",
+    kind: "look",
+    description:
+      "An OTT (Xfer's multiband upward and downward compressor, ours, in a mixer track's slot): its depth, time, in and out gain, upward " +
+      "and downward strength, each band's (low below 88 Hz, mid, high above 2.5 kHz) threshold, gain and which compressors are on, where " +
+      "each band's upward and downward ranges start, and what it does to a band at a few levels; the presets.",
+    inputSchema: obj({ ...ottRef }),
+  }),
+  tool({
+    name: "update_ott",
+    title: "Change an OTT",
+    kind: "edit",
+    description:
+      "Set an OTT's knobs or load a preset. Depth is how much of it there is (0 leaves the sound alone; 0.2 to 0.5 is a common amount, " +
+      "1 is OTT's over-the-top default). Time scales the release (1 is OTT's own, 100%; lower pumps faster). In gain pushes the sound into " +
+      "the downward compression (more squash), out gain makes up level after. Upward lifts quiet sound, downward pushes loud sound down " +
+      "(each 0 to 2, 1 is 100%). Each band (low, mid, high) has a threshold (0 to 2, 1 is 100%: higher moves both its thresholds up, more " +
+      "lift for quiet sound and less push on loud), a gain (dB, -24 to 6), and its upward and downward compressors on or off.",
+    inputSchema: obj({
+      ...ottRef,
+      preset: str("A preset's name (it sets everything): Default, Gentle, Half, Upward only, Downward only, Bright, Sub tamer, Vocal glue, Drum smash, Pad bloom."),
+      depth: num("0 to 1."),
+      time: num("0 to 10 (1 is 100%, OTT's own)."),
+      input: num("In gain, dB, -24 to 19.1."),
+      output: num("Out gain, dB, -24 to 19.1."),
+      upward: num("Upward strength, 0 to 2 (1 is 100%)."),
+      downward: num("Downward strength, 0 to 2 (1 is 100%)."),
+      bands: arr(
+        obj(
+          {
+            band: oneOf(["low", "mid", "high"], "Which band."),
+            threshold: num("0 to 2 (1 is 100%)."),
+            gain: num("dB, -24 to 6."),
+            upward: bool("Its upward compressor on."),
+            downward: bool("Its downward compressor on."),
+          },
+          ["band"],
+          "A band's changes.",
+        ),
+        "Bands to change.",
+      ),
+    }),
+  }),
+  tool({
+    name: "get_echo_boy",
+    title: "Read an EchoBoy",
+    kind: "look",
+    description:
+      "An EchoBoy (Soundtoys' echo, ours, in a mixer track's slot): its mode, echo times (and what they are at the tempo), mix, feedback, " +
+      "cuts, saturation and levels, groove and feel, its mode's Tweak controls, Rhythm Echo's taps, its style (and, edited or asked for, " +
+      "the style's settings), and the styles and presets to choose from.",
+    inputSchema: obj({ ...echoRef, style: bool("Say the style's settings even if it hasn't been edited.") }),
+  }),
+  tool({
+    name: "update_echo_boy",
+    title: "Change an EchoBoy",
+    kind: "edit",
+    description:
+      "Set an EchoBoy: load a preset (first, then the rest applies over it), its mode and echo times, its knobs, its style, Rhythm Echo's " +
+      "pattern or taps, and the Style Editor's settings (it then says Custom). How it sounds: each repeat goes round again through the style " +
+      "(its EQ's Decay darkens or thins every repeat, its saturation dirties it), so feedback makes the repeats change, not just repeat. " +
+      "Single Echo is one time (stereo, Width spreads it); Dual is Echo 1 left, Echo 2 right; Ping-Pong is Ping left then Pong right after it; " +
+      "Rhythm Echo is up to 16 taps on a beat grid, the whole pattern fed back. Mix 0.5 is dry and echo both full (above it the dry falls): " +
+      "on a send, use 1. Feedback past about 0.87 runs away (self-oscillation, held by the saturation).",
+    inputSchema: obj({
+      ...echoRef,
+      preset: str("A factory preset's name (get_echo_boy lists them): loaded first."),
+      mode: oneOf(["single", "dual", "pingPong", "rhythm"], "Single Echo, Dual Echo, Ping-Pong or Rhythm Echo."),
+      echo1: echoTime("Single's Echo Time, Dual's Echo 1, Ping-Pong's Ping"),
+      echo2: echoTime("Dual's Echo 2, Ping-Pong's Pong"),
+      mix: num("0 (dry) to 1 (echo only); 0.5: both full."),
+      feedback: num("0 to 1: more repeats; past about 0.87, runaway."),
+      lowCut: { description: 'Hz, 20 to 2000, or "off": the repeats\' lows cut (more each repeat).', anyOf: [{ type: "number" }, { type: "string" }] },
+      highCut: { description: 'Hz, 500 to 20000, or "off": the repeats darkened (more each repeat).', anyOf: [{ type: "number" }, { type: "string" }] },
+      primeNumbers: bool("Times nudged to prime numbers of ms, so lines never ring together (chorus, flange, reverb-like sounds)."),
+      saturation: num("0 to 1: the style's saturation driven less or more (0.5 is the style as made)."),
+      input: num("dB, -24 to 24: into the echo (pushing it dirties it)."),
+      output: num("dB, -24 to 24: the echo's level out (the dry sound is untouched)."),
+      style: str("An Echo Style: Studio Tape, Space Echo, Memory Man, DM-2, TelRay, Telephone, Digital Delay... (get_echo_boy lists all 31)."),
+      tempo: { description: '"song" to follow the song\'s tempo, or EchoBoy\'s own BPM (30 to 300).', anyOf: [{ type: "string" }, { type: "number" }] },
+      groove: num("-1 (shuffle: every other repeat later) to 1 (swing: earlier); 0 straight."),
+      feel: num("-1 (rushin': every echo up to 30 ms early) to 1 (draggin': late)."),
+      width: num("0 (mono echo) to 1 (wider than the speakers); 0.75 is full stereo."),
+      offset: num("ms, 0 to 25: the right side's echoes later (heard with width up)."),
+      accent: num("-1 to 1: odd repeats louder (+) or even ones (-). Dual's Accent 1."),
+      accent2: num("-1 to 1: Dual's Accent 2."),
+      balance: num("-1 (left) to 1 (right): Dual's and Ping-Pong's echoes' balance."),
+      feedbackMix: num("0 (each echo feeds itself) to 1 (each feeds the other): Dual's FB Mix."),
+      feedbackBalance: num("-1 to 1: Dual's feedback shared more to the left or the right."),
+      rhythm: obj(
+        {
+          pattern: str("A factory pattern: 1/8 Notes, 1/16 Triplets, Gallop, Clave, Tresillo, Bounce, Complex Pedal Pattern..."),
+          time: echoTime("The Rhythm knob: taps laid out evenly this far apart"),
+          repeats: int("1 to 16: how many taps the Rhythm knob lays out."),
+          taps: arr(obj({ beat: num("Beats from the pattern's start (0 is the One, heard only as the pattern comes round)."), level: num("0 to 1.") }, ["beat"]), "The taps, replacing them."),
+          length: num("The pattern's length in beats, 1 to 8: fed back whole."),
+          shape: oneOf(["decay", "reverse", "swell", "fade", "nonLin"], "A level shape across the taps."),
+          shapeAmount: num("0 to 1: how much the shape sets the levels."),
+          panShape: oneOf(["double", "center", "alt1", "alt2", "alt3", "sweepL", "sweepR", "pan"], "Where the taps sit left to right (double: 8 stereo pairs)."),
+          accent: num("-1 to 1: Accent (with a note value) or Warp (with ms: taps drawn to the start or end)."),
+          grid: int("The grid's note value: 2, 4, 8, 16, 32 or 64."),
+        },
+        [],
+        "Rhythm Echo's pattern.",
+      ),
+      styleEdit: obj(
+        {
+          low: obj({ freq: num("Hz, 20 to 2000."), gain: num("dB, -40 to 18: the first repeat."), decay: num("-40 to 18: each further repeat (-40 is -6 dB a repeat, -16 about -1 dB).") }, [], "The low shelf."),
+          mid: obj({ freq: num("Hz, 20 to 5000."), res: num("-12 to 24: narrower and deeper."), gain: num("dB, -40 to 18."), decay: num("-40 to 18.") }, [], "The mid peak."),
+          high: obj({ freq: num("Hz, 500 to 12000."), gain: num("dB, -40 to 18."), decay: num("-40 to 18: negative darkens every repeat more.") }, [], "The high shelf."),
+          diffusion: obj({ amount: num("0 to 1."), size: num("0 to 50."), loop: bool("In the loop (each repeat more smeared), or after it.") }, [], "Diffusion."),
+          wobble: obj(
+            {
+              depth: num("Cents, 0 to 1200."),
+              rate: num("Hz, 0.01 to 50."),
+              sync: num("-1 (paths at different rates) to 1 (left and right out of phase)."),
+              shape: oneOf(["triangle", "sine", "square", "randomWalk", "randomHold"], "The wobble's shape."),
+              feedback: bool("On the repeats."),
+              out: bool("On the output."),
+            },
+            [],
+            "Wow and flutter.",
+          ),
+          saturation: obj(
+            {
+              decay: num("dB, -24 to 24: the repeats driven (each again)."),
+              out: num("dB, -24 to 24: the echo's output driven."),
+              type: oneOf(["clean", "tape", "warm", "pump", "dirt", "hardLimit", "softLimit", "warmLimit", "brightLimit"], "The kind of saturation."),
+            },
+            [],
+            "Saturation.",
+          ),
+        },
+        [],
+        "The Style Editor's changes: the style becomes Custom.",
+      ),
+      revertStyle: bool("Drop the Style Editor's edits: the style as it's made."),
+    }),
   }),
   tool({
     name: "get_gross_beat",
@@ -734,6 +1061,186 @@ export const MUSIC_TOOLS = [
       },
       ["kind", "slot"],
     ),
+  }),
+  tool({
+    name: "get_auto_tune",
+    title: "Read an Auto-Tune",
+    kind: "look",
+    description:
+      "An Auto-Tune (Antares Auto-Tune Pro's Auto mode, ours, in a mixer track's slot): its input type, key and scale and each note's state " +
+      "(tuned to, bypassed: left as sung, removed: never a target), detune, retune speed, humanize, flex-tune, natural vibrato, tracking, " +
+      "transpose, formant and throat, classic mode, created vibrato, the preset its sound matches and the presets there are, the key the song's " +
+      "notes suggest, and what it heard lately (the notes sung and how far they were corrected) while sound went through it.",
+    inputSchema: obj({ ...tuneRef }),
+  }),
+  tool({
+    name: "update_auto_tune",
+    title: "Change an Auto-Tune",
+    kind: "edit",
+    description:
+      "Set an Auto-Tune. Retune speed is how fast a note is pulled to its target: 0 ms is the hard-tuned, robotic sound (T-Pain, modern rap), " +
+      "10 to 20 tight modern pop, 30 to 80 natural, more is barely there. Humanize slows it on long notes only; flex-tune only corrects what's " +
+      "sung near a note (0 corrects everything). Set the key and scale to the song's (or `detectKey`: from the song's notes): a note not in " +
+      "the scale is never a target. A preset sets the sound (retune, humanize, flex-tune, vibrato, transpose, formant...) and leaves the key, " +
+      "scale and input type; other fields given with it apply after it. A new key or scale resets edited notes, unless `notes` is given.",
+    inputSchema: obj({
+      ...tuneRef,
+      preset: str("A preset's name, applied first (get_auto_tune lists them: Hard Tune, Classic Hard Tune, Robot, Modern Pop, Natural Vocal, Gentle Fix, Ballad, Vibrato Lead, Octave Up, Octave Down, Chipmunk, Monster)."),
+      input: oneOf(["soprano", "altoTenor", "lowMale", "instrument", "bass"], "The input type: the voice's range (where pitch is listened for). Alto/Tenor by default."),
+      key: { description: 'The key: a note name ("A", "F#", "Bb") or 0 (C) to 11 (B).', anyOf: [{ type: "string" }, { type: "integer" }] },
+      scale: oneOf(
+        ["chromatic", "major", "minor", "harmonicMinor", "melodicMinor", "dorian", "phrygian", "lydian", "mixolydian", "locrian", "majorPentatonic", "minorPentatonic", "blues", "wholeTone", "diminished"],
+        "The scale (chromatic: every note a target).",
+      ),
+      detectKey: bool("Set the key and scale (major or minor) from the song's notes."),
+      notes: {
+        type: "object",
+        description: 'Notes of the scale to change, by name: { "C#": "remove", "E": "bypass", "G": "tune" }. tune: a target; bypass: passed as sung; remove: never a target. Or "all": "tune" | "bypass" | "remove".',
+        additionalProperties: { type: "string", enum: ["tune", "bypass", "remove"] },
+      },
+      detune: num("Cents, -100 to 100: the tuning reference moved from A4 = 440 Hz."),
+      retuneSpeed: num("Milliseconds, 0 to 400 (0: instant, the hard-tuned sound)."),
+      humanize: num("0 to 100: retune slowed on sustained notes."),
+      flexTune: num("0 to 100: only what's near a note is corrected (0: everything)."),
+      naturalVibrato: num("dB, -12 to 12: the singer's vibrato narrower or wider."),
+      tracking: num("0 (choosy) to 100 (relaxed): how unclear a pitch may be and still be tracked (50 by default; relax it for breathy or noisy takes)."),
+      transpose: int("Semitones, -12 to 12."),
+      formant: bool("Keep the voice's formants (its character) when its pitch moves (on by default); off, they move with it (a chipmunk up, a giant down)."),
+      throat: num("50 to 180 (100 as sung): the throat modelled longer (deeper) or shorter (brighter). Needs formant on."),
+      classic: bool("Classic mode: the Auto-Tune 5 sound, sharper steps between notes (no formant, throat, transpose or flex-tune)."),
+      ignoreVibrato: bool("The target note is chosen from the sung pitch's centre, so a wide vibrato doesn't flip between notes."),
+      vibrato: obj(
+        {
+          shape: oneOf(["none", "sine", "square", "saw"], "Its shape (none: off)."),
+          rate: num("Hz, 0.1 to 10."),
+          delay: num("Milliseconds, 0 to 1500, from a note's start before it begins."),
+          onset: num("Milliseconds, 0 to 1500, to come in fully."),
+          variation: num("0 to 100: how much its rate and depth wander."),
+          pitch: num("Cents, 0 to 100: its depth."),
+          amplitude: num("0 to 30: how much the level moves with it."),
+          formant: num("0 to 100: how much the formants move with it."),
+        },
+        [],
+        "Create Vibrato: a vibrato added to each tuned note (restarted on every new note).",
+      ),
+    }),
+  }),
+  tool({
+    name: "get_panman",
+    title: "Read a PanMan",
+    kind: "look",
+    description:
+      "A PanMan (Soundtoys' auto-panner, in a mixer track's slot): its mode, its knobs and options, its pattern, its preset, and where it's " +
+      "putting the sound now. Positions are degrees: 0 the centre, -90 / 90 hard left / right, ±105 beyond the speakers. The sound (summed " +
+      "to mono) moves around Offset over Width.",
+    inputSchema: obj(panRef),
+  }),
+  tool({
+    name: "update_panman",
+    title: "Change a PanMan",
+    kind: "edit",
+    description:
+      "Load a PanMan's factory preset and / or set its controls. Modes: lfo (a shape repeated at `rate` Hz, out of time with the song), " +
+      "rhythmStep (steps between `steps` positions, one a `rhythm` long), rhythmShape (one cycle of the direction's shape a `rhythm` long), " +
+      "pingPong (side to side on the sound's hits over `trigger` dB, every `divider`th), random (a new place every `rhythm`), step (a new " +
+      "random place on the hits). The dynamics (lfo and the rhythms) move the offset, width and rate with the sound's level over " +
+      "`threshold`. To draw your own rhythm, use set_panman_pattern.",
+    inputSchema: obj({
+      ...panRef,
+      preset: oneOf(
+        PANMAN_PRESETS.map((p) => p.name),
+        `A factory preset to load first (all its settings): ${PANMAN_PRESETS.map((p) => `${p.name} (${p.detail})`).join("; ")}.`,
+      ),
+      mode: oneOf(PAN_MODES.map((m) => m.id), "What moves the sound."),
+      offset: num("Degrees, -105 (left) to 105 (right): the base position."),
+      width: num("Degrees, 0 to 210: how far around the offset it moves (180: hard left to hard right)."),
+      smoothing: num("0 (hard: jumps) to 1 (soft: glides)."),
+      feel: num("rhythmStep: -1 (rush) to 1 (drag), up to a 16th note."),
+      groove: num("rhythmShape: -1 (shuffle) to 1 (swing), every second event towards a triplet."),
+      rate: num("lfo: Hz, 0.01 to 10."),
+      direction: oneOf(["down", "both", "up"], "down: right to left (a ramp), both: back and forth, up: left to right."),
+      rhythm: oneOf(PAN_RHYTHMS.map((r) => r.id), `The rhythm modes' note length: ${PAN_RHYTHMS.map((r) => `${r.id} (${r.name})`).join(", ")}.`),
+      steps: int("rhythmStep: 2 to 16 positions before it repeats."),
+      custom: bool("rhythmStep / rhythmShape: true plays the pattern drawn with set_panman_pattern, false the one the knobs make."),
+      sync: bool("In time with the song (default), or false: at `tempo`."),
+      tempo: num("BPM when not in sync, 20 to 999."),
+      trigger: num("pingPong / step: dB, -40 to 0 (0: the sound doesn't trigger)."),
+      divider: int("pingPong / step: 1 to 12 triggers to a move."),
+      filter: oneOf(["hpf", "off", "lpf"], "pingPong / step: what the trigger listens to (a high-pass for hi-hats, a low-pass for kicks)."),
+      cutoff: num("The trigger filter's cutoff, Hz, 100 to 15000."),
+      filterGain: num("The trigger filter's gain, dB, -20 to 20."),
+      monitor: bool("Hear what the trigger hears, unpanned."),
+      threshold: num("Dynamics: dB, -40 to 0."),
+      attack: num("Dynamics: milliseconds, 0 to 5000."),
+      release: num("Dynamics: milliseconds, 0 to 5000."),
+      gate: bool("Dynamics: Gate (all or nothing over the threshold) rather than Env (as far as the level is over it)."),
+      offsetMod: num("Dynamics: degrees, -105 to 105, added to the offset at full level."),
+      widthMod: num("Dynamics: degrees, -210 to 210, added to the width."),
+      rateMod: num("Dynamics: octaves, -4 to 4 (1 doubles the rate)."),
+      style: oneOf(PAN_STYLES.map((s) => s.id), `Analog Style (saturation, driven by input): ${PAN_STYLES.map((s) => `${s.id} (${s.detail})`).join(", ")}.`),
+      input: num("dB, -24 to 24."),
+      output: num("dB, -24 to 24."),
+      smoothingMode: oneOf(PAN_CURVES.map((c) => c.id), "rhythmStep: the shape of the moves between points."),
+    }),
+  }),
+  tool({
+    name: "set_panman_pattern",
+    title: "Draw a PanMan rhythm",
+    kind: "edit",
+    description:
+      "Draw a PanMan's own rhythm, as its editors do, and play it (custom). For rhythmStep, `points`: positions held from their beat until the " +
+      "next point (moving into it over the last Smoothing of the time). For rhythmShape, `events`: each plays one whole cycle of the direction's " +
+      "shape (a sweep, or there and back) over its length. Beats count from the pattern's start (0) across its `bars` of `beatsPerBar` " +
+      "beats; it repeats. Example, a dotted pan: points { beat 0, position -1 } { beat 0.75, position 1 } { beat 1.5, position 0 }.",
+    inputSchema: obj(
+      {
+        ...panRef,
+        editor: oneOf(["step", "shape"], "step: the Rhythm Step Editor's points (and the mode becomes rhythmStep); shape: the Rhythm Editor's events (rhythmShape)."),
+        bars: int("1 to 8 bars (default: as it is)."),
+        beatsPerBar: int("1 to 16 beats a bar (default: as it is)."),
+        points: arr(obj({ beat: num("Where, in beats from the start."), position: num("-1 (L) to 1 (R) of the width around the offset; 0 the offset.") }, ["beat", "position"]), "step: the points."),
+        events: arr(obj({ beat: num("Where it starts, in beats."), length: num("How long, in beats.") }, ["beat", "length"]), "shape: the events."),
+      },
+      ["editor"],
+    ),
+  }),
+  tool({
+    name: "get_pitch_wheel",
+    title: "Read a Pitch Wheel",
+    kind: "look",
+    description:
+      "A Pitch Wheel (QuikQuak's Pitchwheel, ours, in a mixer track's slot): its pitch wheel and Timbre wheel (each: where its pointer is, in " +
+      "semitones, and what that plays once snapped, its range, snap, gravity, inertia and smooth), whether the Timbre tab is on, Single or Multi, " +
+      "the channel whose notes play it and its origin note, its resolution, the preset its sound matches and the presets there are, and what the " +
+      "engine last said it was doing (the pitch and timbre actually heard, which lag and swing behind the pointers; the notes playing it; " +
+      "whether sound comes in).",
+    inputSchema: obj({ ...wheelRef }),
+  }),
+  tool({
+    name: "update_pitch_wheel",
+    title: "Change a Pitch Wheel",
+    kind: "edit",
+    description:
+      "Set a Pitch Wheel: it shifts the pitch of what goes through it without changing its length. The pitch wheel's pointer is the shift in " +
+      "semitones (12 an octave up, -5 a fourth down), within half its range either way; what's heard follows the pointer as its gravity, inertia " +
+      "and smooth say (high gravity: at once; low gravity: it overshoots and swings, the turntable feel; smooth: glides). With the Timbre tab on " +
+      "(`timbreOn`, the default) the voice's formants are the Timbre wheel's: at 0 the character stays as it was while the pitch moves (no " +
+      "chipmunk), up is a smaller, brighter voice (helium), down a bigger, darker one; off, the formants move with the pitch, as a tape's do. " +
+      "Notes play it too: `notesFrom` names a channel whose notes are followed (each note shifts by its distance from `origin`, C5 = 60 by " +
+      "default; the pointer adds on top). Single: the sound is always heard, the latest note setting the shift. Multi: a voice per note (8 at " +
+      "most), silent with no notes: harmonies from one take. Mute that channel (update_channel) to hear only the result. A preset sets both " +
+      "wheels and the Timbre tab (never the notes, origin, mode or resolution) and applies first; other fields given apply after it.",
+    inputSchema: obj({
+      ...wheelRef,
+      preset: str("A preset's name, applied first (get_pitch_wheel lists them: Natural, Octave Up, Octave Down, Fifth Up, Fourth Down, Chipmunk, Helium, Giant, Monster, Slow Tape, Turntable, Springy, Wild Swing, Slow Glide)."),
+      pitch: wheelFields("The pitch wheel.", "Semitones the pitch is shifted (the pointer), within half the range either way (-24 to 24 at range 48). A value past the range widens it."),
+      timbre: wheelFields("The Timbre wheel (the formants, used while timbreOn).", "Semitones the formants are moved, within half the range either way: up, a smaller, brighter voice; down, a bigger, darker one; 0, as it was."),
+      timbreOn: bool("The Timbre tab: on, the formants are the Timbre wheel's (the voice's character kept as the pitch moves); off, they move with the pitch (the chipmunk / tape sound)."),
+      midiMode: oneOf(["single", "multi"], "Single: one voice, the sound always heard, the latest note setting the shift. Multi: a voice per note held (8 at most), silent without notes."),
+      notesFrom: str('The channel whose notes play it: its id or name. "none" (or "") for none: only the wheel.'),
+      origin: { description: 'The note that shifts nothing: a note name ("C5" is MIDI 60, FL\'s octaves) or a MIDI number 0 to 127.', anyOf: [{ type: "string" }, { type: "integer" }] },
+      resolution: oneOf(["tight", "wide"], "Its analysis window: wide (the default and the cleanest: chords and low notes stay apart, drums still sharp; about 85 ms late, compensated) or tight (about 43 ms: for playing it live, monitoring an input)."),
+    }),
   }),
   tool({
     name: "list_samples",
@@ -845,8 +1352,8 @@ export const MUSIC_TOOLS = [
     kind: "edit",
     description:
       "Move clips (to another bar or track: `move_bars` and `move_tracks` move them all together, or `bar` and `track` put one clip there), resize " +
-      "them, slip their content, or mute and unmute them. Audio clips also have their own gain, fades (each with a curve) and time stretch (their " +
-      "pitch kept: `stretch`, or `loop_tempo` to play a loop made at that tempo in time with the song). Only what's given changes.",
+      "them, slip their content, or mute and unmute them. Audio clips also have their own gain and fades (each with a curve); stretch_audio " +
+      "stretches them. Only what's given changes.",
     inputSchema: obj(
       {
         ids: clipIds,
@@ -862,8 +1369,6 @@ export const MUSIC_TOOLS = [
         fade_out: num("Audio clips: beats they fade out over before their end (0: none)."),
         fade_in_curve: num("Audio clips: how their fade in bends, -1 (slow at first) to 1 (quick at first); 0 straight."),
         fade_out_curve: num("Audio clips: how their fade out bends, -1 to 1 likewise."),
-        stretch: num("Audio clips: how many times as long as recorded they play, 0.125 to 8, their pitch kept (1: as recorded). Their length follows."),
-        loop_tempo: num("Audio clips: the tempo (BPM) the loop was made at: they're stretched to play in time with the song (its pitch kept)."),
       },
       ["ids"],
     ),
@@ -896,6 +1401,35 @@ export const MUSIC_TOOLS = [
       "export renders, into an audio clip (a new audio file of the project) from where they start, with their tail. Without `consolidate`, it goes on " +
       "the first free track below them; with it, on the first one's track, and they're muted. Takes a few seconds; answers with the new clip.",
     inputSchema: obj({ ids: clipIds, track: playlistTrack, consolidate: bool("Put it in their place and mute them (FL's Consolidate).") }),
+  }),
+  tool({
+    name: "stretch_audio",
+    title: "Stretch audio clips",
+    kind: "edit",
+    description:
+      "Time-stretch audio clips (FL Studio's Time stretching): played faster or slower so they sit on the song's tempo, each keeping its " +
+      "content (the same part of its file), its length changing to fit. Either `ids` (audio clips: a stretch of their own, FL's variants) or " +
+      "`audio` (an audio clip's channel: the stretch its clips without their own follow). A stretched clip follows the song's tempo from then on. " +
+      'Say how: `tempo` (the tempo the file was made at, e.g. a 90 BPM loop: 90; "detect" to hear it; "project" for as it sounds now; ' +
+      '"none" to play it at its own speed), `bars` (the whole file lasts this many bars), or, for clips, `length` (stretch each clip to this ' +
+      "many bars, like dragging its end with the Playlist's Stretch on). `mode`: stretch keeps the pitch (the default), resample makes it higher " +
+      "when faster, as a record does.",
+    inputSchema: obj({
+      ids: clipIds,
+      audio: str("An audio clip's channel: its id or its name (instead of `ids`)."),
+      mode: oneOf(STRETCH_MODES, "stretch: the pitch kept; resample: faster is higher, slower lower. Default: the mode it has, else stretch."),
+      tempo: { description: 'The file\'s own tempo in BPM (it\'s played at the song\'s), or "detect", "project" or "none".', anyOf: [{ type: "number" }, { type: "string", enum: ["detect", "project", "none"] }] },
+      bars: num("The whole file lasts this many bars of the song (1 bar, 2, 4...; 0.25 is a beat in 4/4)."),
+      length: num("Clips only: each clip stretched to this many bars, its content kept."),
+      follow_channel: bool("Clips only: drop their own stretch, to follow their channel's again."),
+    }),
+  }),
+  tool({
+    name: "detect_tempo",
+    title: "Detect a file's tempo",
+    kind: "look",
+    description: "Listen to an audio clip's file and say its tempo (BPM, rounded so a loop is a whole number of beats), how sure, and how long it is. stretch_audio with that tempo puts it on the song's.",
+    inputSchema: obj({ audio: str("An audio clip's channel: its id or its name.") }, ["audio"]),
   }),
   tool({
     name: "remove_clips",

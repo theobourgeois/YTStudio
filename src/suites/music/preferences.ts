@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { DEFAULT_METRONOME_SOUND, type MetronomeSound, type Resampling, isMetronomeSound, isResampling } from "@shared/music/engine";
 import { DEFAULT_TEMPO, MAX_TEMPO, MIN_TEMPO, type NewSongOptions } from "@shared/music/project";
 import { type NoteQuantize, isNoteQuantize } from "@shared/music/recording";
+import { isStretchMode } from "@shared/music/stretch";
+import type { StretchMode } from "@shared/music/types";
 
 /** This browser's storage, or none (Node, in tests that load the transport): nothing is kept then. */
 const storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> =
@@ -13,6 +15,7 @@ const TIME_FORMAT_KEY = "music-time-format";
 const RESAMPLING_KEY = "music-resampling";
 const EXPORT_RESAMPLING_KEY = "music-export-resampling";
 const RECORDING_KEY = "music-recording";
+const STRETCH_MODE_KEY = "music-stretch-mode";
 
 /** How long a count-in can be, in bars (the count-in switch's menu). */
 export const COUNT_IN_BARS = [1, 2, 4] as const;
@@ -74,7 +77,7 @@ function validTempo(value: unknown): number | null {
  * The music editor's preferences that aren't a song's, kept in this browser: the tempo new songs start
  * at (the tempo display's menu sets it; until then, the starting point's or `DEFAULT_TEMPO`), the
  * metronome's sound, how the position reads, and how samples are read when pitched, playing and
- * exporting (FL's two Resampling settings).
+ * exporting (FL's two Resampling settings), and the mode a clip that had no stretch is stretched in.
  */
 interface MusicPreferencesState {
   /** Null: never set. */
@@ -91,11 +94,23 @@ interface MusicPreferencesState {
   setResampling: (patch: Partial<Pick<MusicPreferencesState, "resampling" | "exportResampling">>) => void;
   recording: RecordingOptions;
   setRecording: (patch: Partial<RecordingOptions>) => void;
+  /**
+   * The mode an audio clip with no stretch of its own (nor its channel's) is stretched in, in the Playlist:
+   * Stretch, its pitch kept (FL always uses Resample, which its users ask to choose).
+   */
+  stretchMode: StretchMode;
+  setStretchMode: (mode: StretchMode) => void;
 }
 
 const storedSound = storage.getItem(METRONOME_SOUND_KEY);
+const storedStretchMode = storage.getItem(STRETCH_MODE_KEY);
 
 export const useMusicPreferences = create<MusicPreferencesState>((set, get) => ({
+  stretchMode: isStretchMode(storedStretchMode) ? storedStretchMode : "stretch",
+  setStretchMode(stretchMode) {
+    storage.setItem(STRETCH_MODE_KEY, stretchMode);
+    set({ stretchMode });
+  },
   recording: storedRecording(),
   setRecording(patch) {
     const recording = { ...get().recording, ...patch };

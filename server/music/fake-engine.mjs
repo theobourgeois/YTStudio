@@ -78,6 +78,23 @@ const channels = () => {
 const GROSS_BEAT = "vaudio:gross-beat";
 /** The Gross Beats whose HOLD is held. */
 const holding = new Set();
+/** Pro-Q is ours as well. The ones whose windows are open (`eqWatch`), and a band soloed in each. */
+const PRO_Q = "vaudio:pro-q";
+let eqWatched = [];
+const eqSolos = new Map();
+/** A watched Pro-Q's spectra while it plays: a falling slope with a bump at 100 Hz, as music has (480 points from 10 Hz). */
+const spectrum = (shift) => Array.from({ length: 480 }, (_, i) => Math.round((-20 - i * 0.08 + 12 * Math.exp(-(((i - 160) / 25) ** 2)) + shift) * 10) / 10);
+const eqs = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.eq && eqWatched.includes(e.id))
+      .map((e) => {
+        const sounding = playingSince !== null;
+        const bands = Object.fromEntries(e.eq.bands.filter((b) => b.range !== 0).map((b) => [String(b.id), { gain: sounding ? b.range / 2 : 0, level: sounding ? -24 : -120 }]));
+        return [e.id, { pre: sounding ? spectrum(0) : null, post: sounding ? spectrum(-2) : null, peak: sounding ? [0.3, 0.3] : [0, 0], bands }];
+      }),
+  );
 /** Each Gross Beat in the song, playing its picked slots in time with the song (as the real engine says). */
 const grossBeats = () =>
   Object.fromEntries(
@@ -90,8 +107,113 @@ const grossBeats = () =>
       }),
   );
 
+/** Auto-Tune is ours too. */
+const AUTO_TUNE = "vaudio:auto-tune";
+/** A reading every 5 ms, numbered from when the engine started. */
+const AUTO_TUNE_STEP = 0.00533;
+const started = Date.now();
+/**
+ * Each Auto-Tune in the song, as the real engine says what it hears: while playing, a voice wandering
+ * around A3 (its target), tuned onto it; stopped, no pitch.
+ */
+const autoTunes = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.autoTune)
+      .map((e) => {
+        const now = Math.floor((Date.now() - started) / 1000 / AUTO_TUNE_STEP);
+        const points = Array.from({ length: 16 }, (_, i) => {
+          const n = now - 15 + i;
+          if (playingSince === null) return [n, -1, -1, -1];
+          const sung = 57 + 0.3 * Math.sin(n * AUTO_TUNE_STEP * 2 * Math.PI * 5);
+          return [n, sung, 57 + e.autoTune.transpose, 57];
+        });
+        return [e.id, { latency: 2395, step: AUTO_TUNE_STEP, points }];
+      }),
+  );
+
+/** EchoBoy is ours too. */
+const ECHO_BOY = "vaudio:echo-boy";
+/** Each EchoBoy in the song: its LEDs' levels (some echo while the song plays). */
+const echoBoys = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.echoBoy)
+      .map((e) => {
+        const level = playingSince === null ? 0 : 0.3;
+        return [e.id, { input: [level, level], output: [level * e.echoBoy.output, level * e.echoBoy.output] }];
+      }),
+  );
+
+/** OTT is ours as well. Each in the song: its bands at a level while the song plays (squashed towards its knees, as the real one). */
+const OTT = "vaudio:ott";
+const otts = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.ott)
+      .map((e) => {
+        const sounding = playingSince !== null;
+        const bands = e.ott.bands.map((b) => (sounding ? { level: -30, gain: b.makeup - 4 } : { level: -120, gain: 0 }));
+        const level = sounding ? 0.3 : 0;
+        return [e.id, { bands, input: [level, level], output: [level, level] }];
+      }),
+  );
+
+/** PanMan is ours too. */
+const PANMAN = "vaudio:panman";
+/** Each PanMan's divider count (its Manual Trigger counts). */
+const panCounts = new Map();
+/** Each PanMan where its settings put it (the offset), its levels silent: there's no sound here. */
+const panMen = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.panMan)
+      .map((e) => [e.id, { position: e.panMan.offset, least: e.panMan.offset, most: e.panMan.offset, input: 0, output: 0, level: -120, count: panCounts.get(e.id) ?? 0 }]),
+  );
+
+/** Pitch Wheel is ours too. */
+const PITCH_WHEEL = "vaudio:pitch-wheel";
+/** What the hand does to each Pitch Wheel (`pitchWheel` commands): where it holds the wheels, the keys it holds. */
+const wheelHands = new Map();
+const wheelHand = (id) => {
+  if (!wheelHands.has(id)) wheelHands.set(id, { pitch: null, timbre: null, at: 0, keys: new Set() });
+  return wheelHands.get(id);
+};
+/**
+ * Each Pitch Wheel in the song, as the real engine says it: its wheels where the hand holds them (for a
+ * quarter of a second) or where the song has them, the keys held and, in Multi, a voice for each.
+ */
+const pitchWheels = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.pitchWheel)
+      .map((e) => {
+        const hand = wheelHand(e.id);
+        const held = Date.now() - hand.at < 250;
+        const pw = e.pitchWheel;
+        const keys = [...hand.keys].sort((a, b) => a - b);
+        const pitch = (held && hand.pitch !== null ? hand.pitch : pw.pitch.target) + (!pw.multi && keys.length ? keys.at(-1) - pw.origin : 0);
+        return [
+          e.id,
+          {
+            latency: pw.window,
+            pitch,
+            timbre: held && hand.timbre !== null ? hand.timbre : pw.timbre.target,
+            voices: pw.multi ? keys.map((key) => ({ key, pitch: pitch + key - pw.origin })) : [],
+            input: playingSince === null ? 0 : 0.3,
+            notes: keys,
+          },
+        ];
+      }),
+  );
+
 const effects = () => {
-  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT);
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PRO_Q && e.plugin.id !== PANMAN && e.plugin.id !== PITCH_WHEEL && e.plugin.id !== OTT);
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
@@ -221,7 +343,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), pitchWheels: pitchWheels(), echoBoys: echoBoys(), panMen: panMen(), otts: otts() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -265,6 +387,12 @@ const sendTransport = () =>
     recording: recording && { id: recording.id, levels: levels() },
     preview: previewNow(),
     grossBeats: grossBeats(),
+    autoTunes: autoTunes(),
+    pitchWheels: pitchWheels(),
+    echoBoys: echoBoys(),
+    otts: otts(),
+    eq: eqs(),
+    panMen: panMen(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
     cpu: 0.02,
@@ -400,10 +528,28 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (params.open) editors.add(params.effect);
     else editors.delete(params.effect);
   }
+  if (cmd === "eqWatch") eqWatched = (params.effects ?? []).map((e) => e.effect);
+  if (cmd === "eqSolo") {
+    if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.eq))) return fail("The song playing has no such Pro-Q.");
+    if (params.band) eqSolos.set(params.effect, params.band);
+    else eqSolos.delete(params.effect);
+  }
   if (cmd === "grossBeat") {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.grossBeat))) return fail("The song playing has no such Gross Beat.");
     if (params.hold === true) holding.add(params.effect);
     if (params.hold === false) holding.delete(params.effect);
+  }
+  if (cmd === "panMan") {
+    const effect = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).find((e) => e.id === params.effect && e.panMan);
+    if (!effect) return fail("The song playing has no such PanMan.");
+    if (params.trigger) panCounts.set(effect.id, ((panCounts.get(effect.id) ?? 0) + 1) % effect.panMan.divider);
+  }
+  if (cmd === "pitchWheel") {
+    if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.pitchWheel))) return fail("The song playing has no such Pitch Wheel.");
+    const hand = wheelHand(params.effect);
+    if (typeof params.pitch === "number") (hand.pitch = params.pitch), (hand.at = Date.now());
+    if (typeof params.timbre === "number") (hand.timbre = params.timbre), (hand.at = Date.now());
+    if (typeof params.key === "number") params.on ? hand.keys.add(params.key) : hand.keys.delete(params.key);
   }
   if ((cmd === "trigger" || cmd === "preview") && !song?.channels.some((c) => c.id === params.channel)) return fail("The song playing has no such channel.");
   if (cmd === "tone") tone = params.on;

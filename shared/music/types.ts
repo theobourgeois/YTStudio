@@ -114,6 +114,29 @@ export interface Channel {
   loop?: SampleLoop;
   filter?: SamplerFilter;
   mods?: Partial<SamplerMods>;
+  /**
+   * An audio clip channel's time stretching (FL's TIME and MODE, in its settings' sample tab): what its clips
+   * that have no stretch of their own play by. Absent: none (the file at its own speed, pitched by Resample).
+   */
+  stretch?: AudioStretch;
+}
+
+/**
+ * How an audio clip's file is stretched (`docs/fl-studio/playlist.md`, Stretching audio clips): Resample
+ * changes its speed and pitch together; Stretch changes its speed with its pitch kept (and the channel's
+ * pitch then shifts it without changing the time, as FL's time-stretch PITCH).
+ */
+export const STRETCH_MODES = ["resample", "stretch"] as const;
+export type StretchMode = (typeof STRETCH_MODES)[number];
+
+export interface AudioStretch {
+  mode: StretchMode;
+  /**
+   * The song's tempo at which the file plays at its own speed (FL's TIME, as a tempo): at another tempo it
+   * plays that much faster or slower, so it stays on its bars. Null: at its own speed, whatever the tempo
+   * (FL's TIME "(none)").
+   */
+  tempo: number | null;
 }
 
 export type ChannelKind = "sampler" | "plugin" | "audio";
@@ -152,8 +175,11 @@ export interface Pattern {
 }
 
 /**
- * An effect in a mixer track's slot: an effect plugin, or one of ours (Gross Beat: its `plugin` is
- * `GROSS_BEAT_PLUGIN`, and its settings are `grossBeat`, in the song).
+ * An effect in a mixer track's slot: an effect plugin, or one of ours, whose settings are in the song
+ * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
+ * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pro-Q: `PRO_Q_PLUGIN` and
+ * `proQ`; PanMan: `PANMAN_PLUGIN` and `panMan`; Pitch Wheel: `PITCH_WHEEL_PLUGIN` and `pitchWheel`; OTT:
+ * `OTT_PLUGIN` and `ott`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -165,6 +191,353 @@ export interface MixerEffect {
   mix: number;
   /** Gross Beat's settings, on a Gross Beat (absent on a plugin). */
   grossBeat?: GrossBeat;
+  /** EchoBoy's settings, on an EchoBoy (absent on a plugin). */
+  echoBoy?: EchoBoy;
+  /** Auto-Tune's settings, on an Auto-Tune (absent on a plugin). */
+  autoTune?: AutoTune;
+  /** Pro-Q's settings, on a Pro-Q (absent on a plugin). */
+  proQ?: ProQ;
+  /** OTT's settings, on an OTT (absent on a plugin). */
+  ott?: Ott;
+  /** PanMan's settings, on a PanMan (absent on a plugin). */
+  panMan?: PanMan;
+  /** Pitch Wheel's settings, on a Pitch Wheel (absent on a plugin). */
+  pitchWheel?: PitchWheel;
+}
+
+/** OTT's bands (`docs/xfer/ott.md`), low to high: split at 88.3 Hz and 2.5 kHz. Its display shows them high first (H, M, L). */
+export const OTT_BANDS = ["low", "mid", "high"] as const;
+export type OttBandName = (typeof OTT_BANDS)[number];
+
+/** One of OTT's bands: its threshold (the gap dragged in its row), its gain, and its two compressors' switches. */
+export interface OttBand {
+  /** 0..2 (100% at 1): moves both of its thresholds together, ±23 to 24 dB. */
+  threshold: number;
+  /** dB, after it (the H / M / L gains). */
+  gain: number;
+  /** Its upward compressor (brown) and downward one (green) on: Ctrl+click turns either off. */
+  upward: boolean;
+  downward: boolean;
+}
+
+/**
+ * OTT's settings (`docs/xfer/ott.md`), Xfer's multiband upward and downward compressor, ours. Its
+ * knobs in their own units; what they mean to the sound is `engineOtt`'s.
+ */
+export interface Ott {
+  /** The preset last chosen (`OTT_PRESETS` by name), null once it's been changed by hand. */
+  preset: string | null;
+  /** 0..1: how much of it there is (its slopes and makeup, not a dry / wet). */
+  depth: number;
+  /** 0..10 (OTT's 0..1000%): the bands' release, 1 is OTT's own. */
+  time: number;
+  /** dB: In Gain (into the bands) and Out Gain (after them). */
+  input: number;
+  output: number;
+  /** 0..2 (100% at 1): the upward compressors' and downward ones' strength (Upwd%, Dnwd%). */
+  upward: number;
+  downward: number;
+  /** Low, mid and high (`OTT_BANDS`' order). */
+  bands: [OttBand, OttBand, OttBand];
+}
+
+/** What a Pitch Wheel's dial spans, in semitones, from one end to the other (QuikQuak's Range). */
+export const WHEEL_RANGES = [2, 4, 6, 12, 24, 48] as const;
+export type WheelRange = (typeof WHEEL_RANGES)[number];
+/** Where a wheel's pointer lands: anywhere, on whole semitones, or on whole octaves. */
+export const WHEEL_SNAPS = ["off", "semitone", "octave"] as const;
+export type WheelSnap = (typeof WHEEL_SNAPS)[number];
+
+/**
+ * One of a Pitch Wheel's two wheels (`docs/quikquak/pitchwheel.md`): where the hand puts it (the
+ * pointer), and how what's heard follows it.
+ */
+export interface Wheel {
+  /** Semitones, within half the range either side of 0: the pointer. */
+  value: number;
+  range: WheelRange;
+  snap: WheelSnap;
+  /** 0..1: how hard the actual pitch is held to the pointer (1 clamps it; low, it swings past and back). */
+  gravity: number;
+  /** 0..1: how slowly the actual pitch heads for the pointer (it shows at low gravity). */
+  inertia: number;
+  /** 0..1: how slowly the pointer itself is followed (high, it overrides gravity and inertia). */
+  smooth: number;
+}
+
+/** How notes play a Pitch Wheel: one at a time, the sound always heard (Single), or a voice each, silent without (Multi). */
+export const WHEEL_MIDI_MODES = ["single", "multi"] as const;
+export type WheelMidiMode = (typeof WHEEL_MIDI_MODES)[number];
+/** The analysis window: Wide (the cleanest: chords and low notes stay apart; ~85 ms late at 48 kHz, compensated) or Tight (~43 ms: for playing it live). */
+export const WHEEL_RESOLUTIONS = ["tight", "wide"] as const;
+export type WheelResolution = (typeof WHEEL_RESOLUTIONS)[number];
+
+/** Pitch Wheel's settings (QuikQuak Pitchwheel's, `docs/quikquak/pitchwheel.md`). */
+export interface PitchWheel {
+  pitch: Wheel;
+  /** The formants (the spectral envelope) moved on their own, in semitones: used while `timbreOn`. */
+  timbre: Wheel;
+  /** The Timbre tab open: the formants are the Timbre wheel's (at 0 they stay as they were). Closed, they move with the pitch, as a tape's do. */
+  timbreOn: boolean;
+  midiMode: WheelMidiMode;
+  /** The channel whose notes play it (by id; it may be muted, to hear only the result), or null: only the window's keyboard. */
+  notesFrom: string | null;
+  /** The note that shifts nothing (0..127; 60, FL's C5): a note plays the sound that many semitones from it. */
+  origin: number;
+  resolution: WheelResolution;
+}
+
+/**
+ * Auto-Tune's Input Type (`docs/antares/auto-tune.md`): the voice's range, which is where it listens for a
+ * pitch (and, the lower it reaches, the more it looks ahead: its latency).
+ */
+export const AUTO_TUNE_INPUTS = ["soprano", "altoTenor", "lowMale", "instrument", "bass"] as const;
+export type AutoTuneInput = (typeof AUTO_TUNE_INPUTS)[number];
+/** Auto-Tune Pro's scales (its "modern" set). */
+export const AUTO_TUNE_SCALES = [
+  "chromatic",
+  "major",
+  "minor",
+  "harmonicMinor",
+  "melodicMinor",
+  "dorian",
+  "phrygian",
+  "lydian",
+  "mixolydian",
+  "locrian",
+  "majorPentatonic",
+  "minorPentatonic",
+  "blues",
+  "wholeTone",
+  "diminished",
+] as const;
+export type AutoTuneScale = (typeof AUTO_TUNE_SCALES)[number];
+/** A note of the scale: tuned to (On), passed as it's sung (Bypass), or never a target (Remove). */
+export type AutoTuneNote = "tune" | "bypass" | "remove";
+export const VIBRATO_SHAPES = ["none", "sine", "square", "saw"] as const;
+export type VibratoShape = (typeof VIBRATO_SHAPES)[number];
+
+/** Auto-Tune's Create Vibrato: a vibrato it adds to the tuned note, started again on each new note. */
+export interface AutoTuneVibrato {
+  shape: VibratoShape;
+  /** Hz, 0.1..10. */
+  rate: number;
+  /** Milliseconds from the note's start before it begins (Onset Delay), and to come in fully (Onset Rate): 0..1500. */
+  delay: number;
+  onset: number;
+  /** 0..1: how much its rate and depth wander, note to note. */
+  variation: number;
+  /** Cents, 0..100: its depth (Pitch Amount). */
+  pitch: number;
+  /** 0..0.3: how much its level moves with it (Amplitude Amount). */
+  amplitude: number;
+  /** 0..1: how much its formants move with it (Formant Amount). */
+  formant: number;
+}
+
+/** Auto-Tune's settings (Antares Auto-Tune Pro's Auto mode). */
+export interface AutoTune {
+  input: AutoTuneInput;
+  /** The scale's first note, 0 (C) .. 11 (B). */
+  key: number;
+  scale: AutoTuneScale;
+  /** Each pitch class's note (C first): the scale's, as `key` and `scale` make it, until edited. */
+  notes: AutoTuneNote[];
+  /** Cents, -100..100: the tuning's reference moved from A4 = 440 Hz (Detune). */
+  detune: number;
+  /** Milliseconds, 0..400: how long a note takes to be pulled to its target; 0 is instant (the hard-tuned sound). */
+  retuneSpeed: number;
+  /** 0..1: Retune Speed slowed on the sustain of long notes, so short ones snap and long ones keep their life. */
+  humanize: number;
+  /** 0..1: only what's sung near a note is tuned; 0 tunes everything. */
+  flexTune: number;
+  /** dB, -12..12: the singer's own vibrato made narrower or wider. */
+  naturalVibrato: number;
+  /** 0..1: how unclear a pitch may be and still be tracked, from Choosy (0) to Relaxed (1). */
+  tracking: number;
+  /** Semitones, -12..12, added to the tuned note. */
+  transpose: number;
+  /** The voice's formants kept where they are when its pitch moves (off, they move with it). */
+  formant: boolean;
+  /** 0.5..1.8: the throat modelled longer (deeper, above 1) or shorter (brighter); with Formant on. */
+  throat: number;
+  /** The Auto-Tune 5 sound: sharper between notes; Formant, Throat, Transpose and Flex-Tune are off. */
+  classic: boolean;
+  /** The target is chosen from the sung pitch's centre, so a wide vibrato doesn't switch notes. */
+  ignoreVibrato: boolean;
+  vibrato: AutoTuneVibrato;
+}
+
+/** Pro-Q's filter shapes (`docs/fabfilter/pro-q.md`), in its own order. */
+export const EQ_SHAPES = ["bell", "lowShelf", "lowCut", "highShelf", "highCut", "notch", "bandPass", "tiltShelf", "flatTilt"] as const;
+export type EqShape = (typeof EQ_SHAPES)[number];
+/** A band's steepness in dB per octave, or Brickwall (cuts only). */
+export const EQ_SLOPES = [6, 12, 18, 24, 30, 36, 48, 72, 96, "brickwall"] as const;
+export type EqSlope = (typeof EQ_SLOPES)[number];
+/** Which part of a stereo sound a band works on. */
+export const EQ_PLACEMENTS = ["stereo", "left", "right", "mid", "side"] as const;
+export type EqPlacement = (typeof EQ_PLACEMENTS)[number];
+export const EQ_MODES = ["zeroLatency", "naturalPhase", "linearPhase"] as const;
+/** Pro-Q's processing modes: analog-matched filters with no delay; their analog phase too; or the phase left alone. */
+export type EqMode = (typeof EQ_MODES)[number];
+export const EQ_RESOLUTIONS = ["low", "medium", "high", "veryHigh", "maximum"] as const;
+/** Linear Phase's resolution: longer filters, more delay, finer in the lows. */
+export type EqResolution = (typeof EQ_RESOLUTIONS)[number];
+
+/**
+ * A Pro-Q band. Its `id` is its number (1..24): bands aren't renumbered when one goes, so its colour and
+ * any automation stay with it.
+ */
+export interface EqBand {
+  id: number;
+  /** Off, it's bypassed (drawn dimmed). */
+  enabled: boolean;
+  shape: EqShape;
+  /** Hz, 10..30000. */
+  frequency: number;
+  /** dB, -30..30: Bell, shelves, Tilt Shelf and Flat Tilt. */
+  gain: number;
+  /** 0.025..40; 1 is the default width. Unused at 6 dB/oct. */
+  q: number;
+  slope: EqSlope;
+  placement: EqPlacement;
+  /**
+   * dB, -30..30: how far its gain moves when the sound in its range is loud (a dynamic band); 0 is a
+   * static band. Negative cuts what's loud (compression), positive boosts it (expansion).
+   */
+  range: number;
+  /** Off, a dynamic band stays at its own gain (its range kept). */
+  dynamics: boolean;
+  /** dB, -60..0, where its dynamics start; null is Auto (it follows the level in its range). */
+  threshold: number | null;
+}
+
+/** What Pro-Q's A/B swaps: everything that changes the sound. */
+export interface ProQState {
+  bands: EqBand[];
+  mode: EqMode;
+  resolution: EqResolution;
+  /** 0..2: every band's gain and range scaled (Bell, shelves, tilts). */
+  gainScale: number;
+  /** dB, -36..36: the level out. */
+  output: number;
+  /** -1..1: the output's balance, between left and right or mid and side (`panMode`). */
+  pan: number;
+  panMode: "lr" | "ms";
+  /** The output's phase flipped. */
+  invert: boolean;
+  /** The output level corrected for what the curve adds or takes (an estimate from the curve). */
+  autoGain: boolean;
+  /** Gain-Q interaction: a Bell narrows as it's boosted, as an analog EQ's does. */
+  gainQ: boolean;
+}
+
+/** Pro-Q's analyzer, as its panel sets it (saved with the song, as Pro-Q's are). */
+export interface ProQAnalyzer {
+  pre: boolean;
+  post: boolean;
+  /** dB shown, from 0 down. */
+  range: 60 | 90 | 120;
+  /** Its FFT's length. */
+  resolution: "low" | "medium" | "high" | "maximum";
+  speed: "verySlow" | "slow" | "medium" | "fast" | "veryFast";
+  /** dB per octave around 1 kHz (4.5: as loudness is heard). */
+  tilt: 0 | 1.5 | 3 | 4.5 | 6;
+  /** Hovering the spectrum a moment grabs its peaks. */
+  grab: boolean;
+  /** Where this sound collides with the external spectrum, a red glow. */
+  collisions: boolean;
+  /** Another Pro-Q's spectrum (its effect id) drawn over this one's, or null. */
+  external: string | null;
+}
+
+/** Pro-Q's settings: its state, the other A/B state, and how it shows. */
+export interface ProQ extends ProQState {
+  /** Which of A/B this is; the other is `other` (null until it's been made). */
+  ab: "a" | "b";
+  other: ProQState | null;
+  analyzer: ProQAnalyzer;
+  /** ±dB the display shows (it grows when a band goes past it). */
+  displayRange: 3 | 6 | 12 | 30;
+}
+
+/** PanMan's modes (`docs/soundtoys/panman.md`): what moves the sound. */
+export type PanManMode = "lfo" | "rhythmStep" | "rhythmShape" | "pingPong" | "random" | "step";
+/** PanMan's Direction buttons: ◀ right to left (a ramp down), ◀▶ back and forth, ▶ left to right (a ramp up). */
+export type PanDirection = "down" | "both" | "up";
+/** The Rhythm Step Editor's Smoothing Mode: the shape of a move from one point to the next. */
+export type PanCurve = "linear" | "sine" | "exp" | "sym" | "rev";
+/** PanMan's Analog Style: its saturation. */
+export type PanStyle = "clean" | "fat" | "squash" | "dirt" | "crunch" | "shred" | "pump";
+
+/** A point of the Rhythm Step Editor: a tick of its bars, and a position, -1 (L) to 1 (R) of the Width around the Offset. */
+export interface PanStepPoint {
+  tick: number;
+  value: number;
+}
+
+/** An event of the Rhythm Editor (Rhythm Shape): one cycle of the direction's shape, from `tick`, `length` ticks long. */
+export interface PanShapeEvent {
+  tick: number;
+  length: number;
+}
+
+/**
+ * PanMan's settings (`docs/soundtoys/panman.md`), Soundtoys' auto-panner, ours. Positions are degrees
+ * (±90 hard left / right, ±105 beyond the speakers), levels dB, times seconds.
+ */
+export interface PanMan {
+  /** The factory preset last chosen (`PANMAN_PRESETS` by name): the preset bar's name, what Revert goes back to. */
+  preset: string;
+  mode: PanManMode;
+  /** -105..105: the base position. */
+  offset: number;
+  /** 0..210: how far around the offset it moves. */
+  width: number;
+  /** 0..1, Hard to Soft. */
+  smoothing: number;
+  /** -1..1: Rhythm Step's Rush to Drag (a 16th note either way). */
+  feel: number;
+  /** -1..1: Rhythm Shape's Shuffle to Swing (every second event, to a triplet). */
+  groove: number;
+  /** Hz, 0.01..10: the LFO's rate. */
+  rate: number;
+  direction: PanDirection;
+  /** A rhythm's id (`PAN_RHYTHMS`): each step, event or random move lasts it. */
+  rhythm: string;
+  /** 2..16: Rhythm Step's positions before it repeats. */
+  steps: number;
+  /** The editor's pattern plays (Rhythm Step's points, Rhythm Shape's events) rather than the one the knobs make. */
+  custom: boolean;
+  /** In time with the song (the MIDI switch); off, at `tempo`. */
+  sync: boolean;
+  /** BPM (Tap Tempo), when not in time with the song. */
+  tempo: number;
+  /** dB, -40..0: PingPong's and Step's trigger level (0: the sound doesn't trigger). */
+  trigger: number;
+  /** 1..12: triggers to a move. */
+  divider: number;
+  /** The trigger's filter (what it listens to): its type, cutoff (Hz) and gain (dB); `monitor` plays it, unpanned. */
+  filter: "hpf" | "off" | "lpf";
+  cutoff: number;
+  filterGain: number;
+  monitor: boolean;
+  /** The dynamics (LFO and the rhythms): threshold (dB), attack and release (s), Env or Gate, and how far the level moves the offset (degrees), width (degrees) and rate (octaves). */
+  threshold: number;
+  attack: number;
+  release: number;
+  gate: boolean;
+  offsetMod: number;
+  widthMod: number;
+  rateMod: number;
+  style: PanStyle;
+  /** dB, -24..24. */
+  input: number;
+  output: number;
+  /** The Rhythm Step Editor: its bars, their beats, its Smoothing Mode, and its points (sorted, one per tick). */
+  stepPattern: { bars: number; beatsPerBar: number; curve: PanCurve; points: PanStepPoint[] };
+  /** The Rhythm Editor (Rhythm Shape): its bars, their beats, and its events (sorted, not overlapping). */
+  shapePattern: { bars: number; beatsPerBar: number; events: PanShapeEvent[] };
 }
 
 /**
@@ -369,8 +742,11 @@ export interface PlaylistClip {
   fadeOutTension?: number;
   /** Audio clips: its own gain (FL's half-circle on its bottom edge), a factor: absent is 1, `MAX_CLIP_GAIN` +36 dB, 0 silent. */
   gain?: number;
-  /** Audio clips: how many times as long as its file it plays it, its pitch kept (FL's time stretching). Absent: 1, as recorded. */
-  stretch?: number;
+  /**
+   * An audio clip's own stretch (FL 2025's variant of its channel: stretched in the Playlist). Absent: its
+   * channel's (`Channel.stretch`).
+   */
+  stretch?: AudioStretch;
 }
 
 /** The song's arrangement: what plays in song mode. */
@@ -399,6 +775,188 @@ export interface TimeMarker {
   kind: MarkerKind;
 }
 
+/** EchoBoy's modes (`docs/soundtoys/echoboy-manual.md`): its four echo algorithms. */
+export const ECHO_MODES = ["single", "dual", "pingPong", "rhythm"] as const;
+export type EchoMode = (typeof ECHO_MODES)[number];
+/** How an echo's time is set: milliseconds, or a note value at the tempo (straight, dotted, triplet). */
+export const ECHO_SYNCS = ["time", "note", "dot", "trip"] as const;
+export type EchoSync = (typeof ECHO_SYNCS)[number];
+/** The note values an echo can be (EchoBoy's 1/2 to 1/64 note), as fractions of a whole note's denominator. */
+export const ECHO_NOTES = [2, 4, 8, 16, 32, 64] as const;
+export type EchoNote = (typeof ECHO_NOTES)[number];
+
+/**
+ * An echo's time: its sync and, kept apart, its milliseconds and its note value (switching between Time
+ * and Note goes back to the last of each, as EchoBoy's separate parameters do).
+ */
+export interface EchoTime {
+  sync: EchoSync;
+  ms: number;
+  note: EchoNote;
+}
+
+/** The Style Editor's saturation types (EchoBoy's nine). */
+export const ECHO_SATURATIONS = ["clean", "tape", "warm", "pump", "dirt", "hardLimit", "softLimit", "warmLimit", "brightLimit"] as const;
+export type EchoSaturation = (typeof ECHO_SATURATIONS)[number];
+/** The Style Editor's wobble shapes. */
+export const ECHO_WOBBLES = ["triangle", "sine", "square", "randomWalk", "randomHold"] as const;
+export type EchoWobble = (typeof ECHO_WOBBLES)[number];
+
+/** A band of the Style Editor's EQ. Gain (dB) is how the first repeat sounds; Decay (dB) what each further repeat gains or loses. */
+export interface EchoBand {
+  /** Hz. */
+  freq: number;
+  gain: number;
+  decay: number;
+}
+
+/**
+ * An Echo Style: the Style Editor's settings, what gives the repeats their colour. The factory styles
+ * are settings of these (`ECHO_STYLES`).
+ */
+export interface EchoStyle {
+  /** A gentle shelf below `freq`, a peak at `mid.freq` (narrowed and deepened by `res`, -12..24), a gentle shelf above `high.freq`. */
+  low: EchoBand;
+  mid: EchoBand & { res: number };
+  high: EchoBand;
+  /** 0..1 of the smear; its size (0..50, ms); in the feedback loop (each repeat more diffused) or after it. */
+  diffusion: { amount: number; size: number; loop: boolean };
+  /** Pitch wobble: depth (cents, 0..1200), rate (Hz), sync (-1 different rates per path .. 0 the same .. 1 phase offsets), shape; on the repeats (in the loop) and / or on the output. */
+  wobble: { depth: number; rate: number; sync: number; shape: EchoWobble; feedback: boolean; out: boolean };
+  /** dB of drive (-24..24) in the loop (each repeat driven again) and on the echo's output, and their kind. */
+  saturation: { decay: number; out: number; type: EchoSaturation };
+}
+
+/** Rhythm Echo's amplitude shapes across its taps. */
+export const RHYTHM_SHAPES = ["decay", "reverse", "swell", "fade", "nonLin"] as const;
+export type RhythmShape = (typeof RHYTHM_SHAPES)[number];
+/** Rhythm Echo's pan shapes. */
+export const PAN_SHAPES = ["double", "center", "alt1", "alt2", "alt3", "sweepL", "sweepR", "pan"] as const;
+export type PanShape = (typeof PAN_SHAPES)[number];
+
+/** A Rhythm Echo tap: where it is in the pattern (beats from its start) and its level (0..1). */
+export interface RhythmTap {
+  beat: number;
+  level: number;
+}
+
+/** Rhythm Echo: one delay line read by up to 16 taps on a beat grid, the whole pattern fed back. */
+export interface EchoRhythm {
+  /** The Rhythm knob: the spacing it lays taps out at. */
+  time: EchoTime;
+  /** In order of `beat`, none past `length`. */
+  taps: RhythmTap[];
+  /** 1..16: how many taps the Rhythm knob lays out. */
+  repeats: number;
+  /** The pattern's name (a factory pattern's, "Custom" once a tap is edited). */
+  pattern: string;
+  shape: RhythmShape;
+  /** 0..1: how much `shape` sets the taps' levels. */
+  shapeAmount: number;
+  panShape: PanShape;
+  /** -1..1: Accent with a synced Rhythm, Warp (taps drawn to the pattern's start or end) with Time. */
+  accent: number;
+  /** A note value: the grid taps snap to. */
+  grid: EchoNote;
+  /** Beats, 1..8. */
+  length: number;
+}
+
+/** EchoBoy's settings (`docs/soundtoys/echoboy-manual.md`): the main panel, each mode's Tweak, the style. */
+export interface EchoBoy {
+  mode: EchoMode;
+  /** Single's Echo Time, Dual's Echo 1, Ping-Pong's Ping. */
+  echo1: EchoTime;
+  /** Dual's Echo 2, Ping-Pong's Pong. */
+  echo2: EchoTime;
+  rhythm: EchoRhythm;
+  /** 0..1: dry to wet; at 0.5 both are full (EchoBoy's 50/50). */
+  mix: number;
+  /** 0..1: Min to Max (past about 0.9 it runs away, held by the saturation). */
+  feedback: number;
+  /** Hz: the repeats' low and high cuts. */
+  lowCut: number;
+  highCut: number;
+  primeNumbers: boolean;
+  /** 0..1, 0.5 the style as it's made: less or more drive in its saturation. */
+  saturation: number;
+  /** dB, -24..24: into the echo and out of it (the dry sound is never touched). */
+  input: number;
+  output: number;
+  /** The Echo Style's name (`ECHO_STYLES`). */
+  style: string;
+  /** The style as edited in the Style Editor (EchoBoy then says Custom), or null: the named style as it is. */
+  custom: EchoStyle | null;
+  /** On (MIDI): the song's tempo; off, EchoBoy's own (`bpm`, typed or tapped). */
+  followTempo: boolean;
+  bpm: number;
+  /** -1 (Shuffle) .. 1 (Swing): every other repeat later or earlier. */
+  groove: number;
+  /** -1 (Rushin') .. 1 (Draggin'): every echo earlier or later. */
+  feel: number;
+  // Tweak
+  /** 0..1: stereo width (past 0.75, wider than the speakers). */
+  width: number;
+  /** ms, 0..25: the right side's echoes this much later (heard with Width up). */
+  offset: number;
+  /** -1..1: odd repeats louder (+) or even ones (-); Dual's Accent 1. */
+  accent: number;
+  /** Dual's Accent 2. */
+  accent2: number;
+  /** -1..1: the echoes' left / right balance (Dual, Ping-Pong). */
+  balance: number;
+  /** 0 (each echo feeds itself) .. 0.5 (both equally) .. 1 (each feeds the other): Dual's FB Mix. */
+  feedbackMix: number;
+  /** -1..1: Dual's FB Bal, more feedback on the left or the right. */
+  feedbackBalance: number;
+  /** The preset last loaded (its name), or null. */
+  preset: string | null;
+}
+
+/** EchoBoy's controls an automation clip can drive. */
+/** EchoBoy's controls an automation clip can drive: every knob, the front's, Tweak's, Rhythm Echo's and the Style Editor's. */
+export const ECHO_CONTROLS = [
+  "mix",
+  "feedback",
+  "echo1",
+  "echo2",
+  "lowCut",
+  "highCut",
+  "saturation",
+  "input",
+  "output",
+  "groove",
+  "feel",
+  "width",
+  "offset",
+  "balance",
+  "accent",
+  "accent2",
+  "feedbackMix",
+  "feedbackBalance",
+  "rhythmTime",
+  "rhythmShape",
+  "rhythmAccent",
+  "lowFreq",
+  "lowGain",
+  "lowDecay",
+  "midFreq",
+  "midRes",
+  "midGain",
+  "midDecay",
+  "highFreq",
+  "highGain",
+  "highDecay",
+  "diffusionAmount",
+  "diffusionSize",
+  "wobbleDepth",
+  "wobbleRate",
+  "wobbleSync",
+  "decaySat",
+  "outSat",
+] as const;
+export type EchoControl = (typeof ECHO_CONTROLS)[number];
+
 /**
  * The control an automation clip drives (`docs/fl-studio/automation.md`): a channel's volume or pan, a
  * mixer track's fader, pan or stereo separation, a send's level, an effect slot's mix, the main volume,
@@ -410,6 +968,12 @@ export type AutomationTarget =
   | { kind: "send"; track: string; to: string }
   | { kind: "effect"; effect: string }
   | { kind: "grossBeat"; effect: string; control: GrossControl }
+  | { kind: "autoTune"; effect: string; control: AutoTuneControl }
+  | { kind: "echoBoy"; effect: string; control: EchoControl }
+  | { kind: "proQ"; effect: string; band: number; control: EqControl }
+  | { kind: "ott"; effect: string; control: OttControl }
+  | { kind: "panMan"; effect: string; control: PanControl }
+  | { kind: "pitchWheel"; effect: string; control: PitchWheelControl }
   | { kind: "main" }
   | { kind: "tempo" }
   | {
@@ -426,8 +990,63 @@ export type AutomationTarget =
 /** A channel's controls an automation clip can drive: its volume, pan and pitch (a sampler's notes bend; a plugin channel's are moved by whole semitones). */
 export type ChannelControl = "volume" | "pan" | "pitch";
 
-/** Gross Beat's controls an automation clip can drive: the slots playing and the two mix knobs. */
-export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";
+/** Gross Beat's controls an automation clip can drive: the slots playing, the two mix knobs, and ATT, REL and TNS. */
+export const GROSS_CONTROLS = ["timeSlot", "volumeSlot", "timeMix", "volumeMix", "attack", "release", "tension"] as const;
+export type GrossControl = (typeof GROSS_CONTROLS)[number];
+
+/** Auto-Tune's controls an automation clip can drive: every knob (the key too, for a song that changes key), Create Vibrato's included. */
+export const AUTO_TUNE_CONTROLS = [
+  "retuneSpeed",
+  "humanize",
+  "flexTune",
+  "naturalVibrato",
+  "transpose",
+  "throat",
+  "key",
+  "detune",
+  "tracking",
+  "vibratoRate",
+  "vibratoDelay",
+  "vibratoOnset",
+  "vibratoVariation",
+  "vibratoPitch",
+  "vibratoAmplitude",
+  "vibratoFormant",
+] as const;
+export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
+/** PanMan's controls an automation clip can drive. */
+export type PanControl =
+  | "offset"
+  | "width"
+  | "rate"
+  | "input"
+  | "output"
+  | "smoothing"
+  | "feel"
+  | "groove"
+  | "trigger"
+  | "divider"
+  | "cutoff"
+  | "filterGain"
+  | "threshold"
+  | "attack"
+  | "release"
+  | "offsetMod"
+  | "widthMod"
+  | "rateMod";
+
+/** OTT's controls an automation clip can drive: every knob, and each band's threshold (its row's gap). */
+export const OTT_CONTROLS = ["depth", "time", "input", "output", "upward", "downward", "lowThreshold", "midThreshold", "highThreshold", "lowGain", "midGain", "highGain"] as const;
+export type OttControl = (typeof OTT_CONTROLS)[number];
+
+/** A Pro-Q band's controls an automation clip can drive; and its own (band 0): its output, pan and Gain Scale. */
+export type EqControl = "frequency" | "gain" | "q" | "range" | "output" | "pan" | "gainScale";
+/** Pro-Q's controls that are its own, not a band's (their targets' band is 0). */
+export const EQ_OWN_CONTROLS = ["output", "pan", "gainScale"] as const satisfies readonly EqControl[];
+
+/** Pitch Wheel's controls an automation clip can drive: both wheels, and each one's knobs. */
+export const PITCH_WHEEL_CONTROLS = ["pitch", "timbre", "pitchGravity", "pitchInertia", "pitchSmooth", "timbreGravity", "timbreInertia", "timbreSmooth"] as const;
+export type PitchWheelControl = (typeof PITCH_WHEEL_CONTROLS)[number];
 
 /** How a segment of an automation clip's curve goes from one point to the next: FL Studio's curve types. */
 export const CURVE_TYPES = ["single", "double", "altSingle", "altDouble", "hold", "stairs", "smoothStairs", "pulse", "wave", "halfSine", "smooth"] as const;

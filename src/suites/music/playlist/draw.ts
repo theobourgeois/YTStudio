@@ -8,7 +8,7 @@
  * file's waveform), their bodies see-through so the grid shows, red when selected, greyed when muted, and
  * darker on a muted track (as a muted mixer track is).
  */
-import { type ClipContext, clipEnd, clipEnvelope, clipLength, clipSecondsPerTick, fadeShape, visibleClips } from "@shared/music/playlist";
+import { type ClipContext, clipEnd, clipEnvelope, clipLength, fadeShape, visibleClips } from "@shared/music/playlist";
 import { AUTOMATION_COLOR } from "@shared/music/automation";
 import type { Automation, Pattern, PlaylistClip, PlaylistTrack, TimeMarker } from "@shared/music/types";
 import { CURVE_PAD } from "../automation/curve-geometry";
@@ -226,7 +226,7 @@ function drawWaveform(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip:
   if (count <= 0) return;
   // Where the file runs out, nothing more is drawn. A stretched clip goes through it more slowly.
   const fileEnd = peaks.samples.length;
-  const perTick = clipSecondsPerTick(clip, scene.ctx);
+  const perTick = scene.ctx.fileSecondsPerTick(clip);
   const sampleAt = (px: number) => (clip.offset + (xToTick(view, px) - clip.start) * perTick) * peaks.rate;
   // Its own gain and fades shape what's drawn, as they shape what's heard (louder than full scale draws full).
   const length = clipLength(clip, scene.ctx);
@@ -407,6 +407,13 @@ function ellipsize(ctx: CanvasRenderingContext2D, text: string, width: number): 
   return low ? `${text.slice(0, low).trimEnd()}…` : "";
 }
 
+/** A stretched audio clip's title says how fast it plays its file (" · 1.33×"); others say nothing more. */
+function stretchMark(scene: PlaylistScene, clip: PlaylistClip): string {
+  if (clip.kind !== "audio" || !scene.ctx.stretchOf(clip)?.tempo) return "";
+  const speed = scene.ctx.fileSecondsPerTick(clip) / scene.ctx.secondsPerTick;
+  return ` · ${Math.round(speed * 100) / 100}×`;
+}
+
 /** One clip: its body, title strip and content (`alpha`: how much of it shows, for one fading out). */
 function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: PlaylistClip, isSelected: boolean, alpha: number) {
   const { view, width, layout, palette } = scene;
@@ -481,7 +488,7 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   if (w > 16 && title >= 9) {
     ctx.fillStyle = colours.text;
     const textX = Math.max(x + (arrow ? MENU_TO : 0), 0) + 4;
-    ctx.fillText(ellipsize(ctx, clipTitle(scene, clip), right - textX - 3), textX, y + title / 2 + 0.5);
+    ctx.fillText(ellipsize(ctx, clipTitle(scene, clip) + stretchMark(scene, clip), right - textX - 3), textX, y + title / 2 + 0.5);
   }
   ctx.globalAlpha = alpha;
   ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
@@ -492,11 +499,8 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
 /** A clip's title: its source's name, and an audio clip's own gain and stretch when it has them ("Vocal · +3.5 dB · 2×"). */
 function clipTitle(scene: PlaylistScene, clip: PlaylistClip): string {
   const name = scene.names.get(clip.ref) ?? "";
-  if (clip.kind !== "audio" || (clip.gain === undefined && clip.stretch === undefined)) return name;
-  const parts = [name];
-  if (clip.gain !== undefined) parts.push(clip.gain > 0 ? `${clip.gain > 1 ? "+" : ""}${(20 * Math.log10(clip.gain)).toFixed(1)} dB` : "-∞ dB");
-  if (clip.stretch !== undefined) parts.push(`${Number(clip.stretch.toFixed(3))}×`);
-  return parts.join(" · ");
+  if (clip.kind !== "audio" || clip.gain === undefined) return name;
+  return `${name} · ${clip.gain > 0 ? `${clip.gain > 1 ? "+" : ""}${(20 * Math.log10(clip.gain)).toFixed(1)} dB` : "-∞ dB"}`;
 }
 
 /** An audio clip's fades (FL's): what each takes off shaded above its curve, and the curve. */

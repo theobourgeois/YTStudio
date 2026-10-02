@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CURVE_NAMES } from "@shared/music/automation";
 import { DEFAULT_LFO } from "@shared/music/project";
-import { type Automation, CURVE_TYPES, type CurveType } from "@shared/music/types";
+import { type Automation, CURVE_TYPES, type CurveType, EQ_SHAPES } from "@shared/music/types";
 import { drawCurve } from "./automation/draw-curve";
 import { prepare } from "./piano/draw";
 import { AUTOMATION } from "./playlist/draw";
@@ -12,6 +12,10 @@ import { Lcd } from "./lcd";
 import { Fader } from "./mixer/fader";
 import { Led } from "./mixer/led";
 import { ModeLights } from "./mode-switch";
+import { EqKnob } from "./pro-q/knob";
+import { ShapeIcon } from "./pro-q/shape-icon";
+import { type OttRow, drawRow, ottColours } from "./ott/draw";
+import { type DialScene, drawDial, wheelColours } from "./pitch-wheel/draw";
 
 /** A knob with a value of its own (nothing in the song). */
 function LooseKnob(props: Omit<React.ComponentProps<typeof Knob>, "value" | "onBegin" | "onDrag" | "onEnd" | "onCancel" | "onSet"> & { initial: number }) {
@@ -145,8 +149,112 @@ function Controls() {
   );
 }
 
+/** A Pro-Q knob that turns (not on a song): its fraction kept here. */
+function LooseEqKnob({ initial, label, ends, size, bipolar, ring, disabled }: { initial: number; label: string; ends?: [string, string]; size?: number; bipolar?: boolean; ring?: boolean; disabled?: boolean }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <EqKnob
+      value={value}
+      defaultValue={initial}
+      label={label}
+      ends={ends}
+      size={size}
+      bipolar={bipolar}
+      disabled={disabled}
+      format={(v) => `${Math.round(v * 100)}%`}
+      typed={(v) => String(Math.round(v * 100))}
+      parse={(t) => (Number.isFinite(Number(t)) ? Number(t) / 100 : null)}
+      onBegin={() => {}}
+      onDrag={setValue}
+      onEnd={() => {}}
+      onCancel={() => {}}
+      onSet={setValue}
+      ring={ring ? { from: value, to: Math.max(0, value - 0.2), live: Math.max(0, value - 0.08), onBegin: () => {}, onDrag: () => {}, onEnd: () => {}, onCancel: () => {} } : undefined}
+    />
+  );
+}
+
+/** Pro-Q's controls on its panel's colours: FREQ, GAIN with the dynamic ring (range in red, where it is now in yellow), Q, a disabled one, the shapes. */
+function EqControls() {
+  return (
+    <div className="flex flex-wrap items-end gap-6 rounded-xl bg-[var(--eq-panel)] p-4 text-[var(--eq-text)]">
+      <LooseEqKnob initial={0.55} label="FREQ" ends={["10 Hz", "30 kHz"]} size={50} />
+      <LooseEqKnob initial={0.7} label="GAIN" ends={["−30", "+30"]} size={58} bipolar ring />
+      <LooseEqKnob initial={0.45} label="Q" ends={["0.025", "40"]} size={50} />
+      <LooseEqKnob initial={0.5} label="OFF" size={50} disabled />
+      <div className="flex gap-3 text-[var(--eq-curve)]">
+        {EQ_SHAPES.map((shape) => (
+          <span key={shape} title={shape} className="flex flex-col items-center gap-1 text-[9px] text-[var(--eq-label)]">
+            <ShapeIcon shape={shape} className="size-5 text-[var(--eq-text)]" />
+            {shape}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** One of OTT's display rows, as it's drawn (`ott/draw.ts`). */
+function OttRowSample({ row, label }: { row: OttRow; label: string }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const element = canvas.current;
+    const ctx = element && prepare(element, 340, 36);
+    if (element && ctx) drawRow(ctx, 340, 36, row, label, ottColours(element));
+  }, [row, label]);
+  return <canvas ref={canvas} className="block rounded-sm" style={{ width: 340, height: 36 }} />;
+}
+
+/** OTT's display rows: at rest, with sound (the level in white, what comes out in yellow), hot, and with a compressor off. */
+function OttRows() {
+  const knees = { upKnee: -46, downKnee: -39 };
+  return (
+    <div className="flex flex-col gap-1">
+      <OttRowSample label="H" row={{ ...knees, upward: true, downward: true, level: null, output: null, hot: false }} />
+      <OttRowSample label="M" row={{ ...knees, upward: true, downward: true, level: -24, output: -12, hot: true }} />
+      <OttRowSample label="L" row={{ upKnee: -60, downKnee: -52, upward: false, downward: true, level: -50, output: -40, hot: false }} />
+    </div>
+  );
+}
+
+/** A Pitch Wheel dial in one state, drawn as its window draws it (`pitch-wheel/draw.ts`). */
+function WheelCard({ label, scene }: { label: string; scene: Omit<DialScene, "size" | "colours" | "now" | "trail"> & { trail?: number[] } }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const size = 180;
+  useEffect(() => {
+    const element = canvas.current;
+    const ctx = element && prepare(element, size, size);
+    if (!element || !ctx) return;
+    const now = performance.now();
+    const trail = (scene.trail ?? []).map((value, i, all) => ({ value, at: now - (all.length - 1 - i) * 20 }));
+    drawDial(ctx, { ...scene, size, now, trail, colours: wheelColours(element, scene.name === "TIMBRE" ? "timbre" : "pitch") });
+  });
+  return (
+    <div className="flex flex-col items-center gap-1 rounded-sm bg-surface-1 p-2">
+      <canvas ref={canvas} style={{ width: size, height: size }} />
+      <span className="text-[10px] text-muted-foreground">{label}</span>
+    </div>
+  );
+}
+
+const WHEEL_AT_REST = { range: 24, name: "PITCH", pointer: 0, target: 0, actual: 0, voices: [], input: 0, closed: false, dragging: false } as const;
+
+function Wheels() {
+  return (
+    <div className="grid grid-cols-4 gap-3">
+      <WheelCard label="at rest" scene={WHEEL_AT_REST} />
+      <WheelCard label="swinging past (low gravity), sound in" scene={{ ...WHEEL_AT_REST, pointer: 5.4, target: 5, actual: 8.6, trail: [2, 4, 6, 7.5, 8.3, 8.6], input: 0.4, dragging: true }} />
+      <WheelCard label="Multi: three voices" scene={{ ...WHEEL_AT_REST, range: 12, pointer: 0, target: 0, actual: 0, voices: [0, 4, 7], input: 0.3 }} />
+      <WheelCard label="Timbre, closed" scene={{ ...WHEEL_AT_REST, name: "TIMBRE", range: 12, closed: true }} />
+    </div>
+  );
+}
+
 /** The music suite's controls, for the component gallery (`src/gallery/`). */
 export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-controls", title: "Music: knobs, LCDs, PAT / SONG, faders and the arm light", source: "suites/music/knob.tsx, lcd.tsx, mode-switch.tsx, mixer/fader.tsx, mixer/arm-button.tsx", render: () => <Controls /> },
+  { id: "music-wheels", title: "Music: Pitch Wheel's dials (at rest, swinging, Multi's voices, closed)", source: "suites/music/pitch-wheel/draw.ts", render: () => <Wheels /> },
   { id: "music-curves", title: "Music: automation curve types (FL's), with points and tension handles", source: "suites/music/automation/draw-curve.ts", render: () => <Curves /> },
+  { id: "music-pro-q", title: "Music: Pro-Q's knobs (the dynamic ring on GAIN) and its shapes", source: "suites/music/pro-q/knob.tsx, shape-icon.tsx", render: () => <EqControls /> },
+  { id: "music-ott", title: "Music: OTT's display rows (upward brown, downward green; a band at rest, sounding and hot, its upward off)", source: "suites/music/ott/draw.ts", render: () => <OttRows /> },
 ];

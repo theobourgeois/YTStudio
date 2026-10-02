@@ -90,6 +90,14 @@
   --color-gross-time-foreground: var(--gross-time-foreground);
   --color-gross-volume: var(--gross-volume);
   --color-gross-volume-foreground: var(--gross-volume-foreground);
+  --color-tune-tuned: var(--tune-tuned);
+  --color-tune-sung: var(--tune-sung);
+  --color-tune-sharp: var(--tune-sharp);
+  --color-tune-flat: var(--tune-flat);
+  --color-tune-bypass: var(--tune-bypass);
+  --color-wheel-pitch: var(--wheel-pitch);
+  --color-wheel-timbre: var(--wheel-timbre);
+  --color-wheel-handle-mark: var(--wheel-handle-mark);
   --color-clip-video: var(--clip-video);
   --color-clip-audio: var(--clip-audio);
   --color-clip-graphic: var(--clip-graphic);

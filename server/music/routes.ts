@@ -49,6 +49,10 @@ export function engineRoutes(engine: AudioEngine): Router {
   router.post("/previewSample", json(), async (req, res) => {
     res.json(await engine.previewSample(req.body));
   });
+  // A song's media file's tempo, as heard (`DetectTempoRequest`).
+  router.post("/tempo", json(), async (req, res) => {
+    res.json(await engine.detectTempo(req.body));
+  });
   router.get("/events", (req, res) => {
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
     res.write(": connected\n\n");

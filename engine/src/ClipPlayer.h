@@ -72,7 +72,10 @@ private:
     {
         juce::uint64 key = 0;
         juce::String path;
-        double tick = 0, length = 0, seconds = 0, speed = 1, stretch = 1;
+        double tick = 0, length = 0, seconds = 0, speed = 1;
+        /** Stretch mode: stretched in time, its pitch kept and shifted by `transpose`. */
+        bool keepPitch = false;
+        double transpose = 0;
         /** Prepared by its channel's precomputed effects: played from memory instead of the file. */
         std::shared_ptr<const Sample> sample;
     };
@@ -121,8 +124,8 @@ private:
 struct ClipPlayer::Stream final : AudioStream
 {
     Stream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 samples, juce::uint64 clipKey, double tick,
-            juce::uint32 playGeneration, juce::uint32 playPass, bool fadeIn, double speed, Resampling resampling, double stretch)
-        : AudioStream (std::move (source), outputRate, startSeconds, samples, 2.0, speed, resampling, stretch),
+            juce::uint32 playGeneration, juce::uint32 playPass, bool fadeIn, double speed, Resampling resampling, bool keepPitch, double transpose)
+        : AudioStream (std::move (source), outputRate, startSeconds, samples, 2.0, speed, resampling, keepPitch, transpose),
           key (clipKey),
           startTick (tick),
           generation (playGeneration),

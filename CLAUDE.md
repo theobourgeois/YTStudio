@@ -59,7 +59,16 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      export's settings, file names and ffmpeg arguments (export.ts) and MIDI file (midi.ts),
                      and recorded takes into the song (recording.ts: where they land, the latency left out),
                      Gross Beat (gross-beat.ts: its slots, edits and envelopes for the engine; its presets in
-                     gross-beat-presets.ts), and drawing anything over time as lines for the engine (sampling.ts).
+                     gross-beat-presets.ts), EchoBoy (echo-boy.ts: its edits, controls and delay lines for the
+                     engine; echo-boy-styles.ts its 31 styles, echo-boy-library.ts its presets), Auto-Tune
+                     (auto-tune.ts: its edits, Detect key, what the engine plays; scales, presets and ranges in
+                     auto-tune-presets.ts), Pro-Q (pro-q.ts: its edits and what the engine plays; pro-q-filters.ts:
+                     its shapes as analog sections, curves, Auto Gain; pro-q-presets.ts), PanMan (panman.ts: its patterns,
+                     edits and what the engine plays; panman-presets.ts: its constants, validation and presets),
+                     Pitch Wheel (pitch-wheel.ts: its edits, the wheels' physics
+                     `stepWheel`, what the engine plays; defaults, presets and ranges in pitch-wheel-presets.ts),
+                     stretching audio clips (stretch.ts: modes, speeds, the tempo a file was made at),
+                     and drawing anything over time as lines for the engine (sampling.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -157,7 +166,8 @@ server/
                      the system prompt around a suite's instructions. A chat's suite picks its prompt and MCP tools.
   media-analysis.ts  ffmpeg looks into media: a frame as JPEG, silences + loudness, shot changes, music (for the assistant).
   beats.ts           Music analysis (pure, tested on synthetic drums): onsets, tempo (with the half/double choice),
-                     beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops.
+                     beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops. The platform's:
+                     beat sync and the music suite's Detect tempo both use it.
   config.ts          Every env var is read here and nowhere else.
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
 engine/            The music suite's audio engine, a C++/JUCE program (CMake; JUCE is fetched into engine/build).
@@ -168,12 +178,19 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      the Browser's preview, a file streamed from disk; Recorder.cpp: recording (armed tracks'
                      inputs to WAVs, through FIFOs a writer thread empties); MidiInputs.cpp: MIDI keyboards
                      (every input not turned off, into the sequencer's queue); AudioStream.cpp is that stream (a reader
-                     thread, a lock-free ring), and ClipPlayer.cpp plays the playlist's audio clips with it,
+                     thread, a lock-free ring; Signalsmith Stretch for stretched clips), and ClipPlayer.cpp plays the playlist's audio clips with it,
                      each started on its sample. Export.cpp: the export, rendered on a thread of its own
                      (Workers.h runs its plugins on every core). GrossBeat.cpp: Gross Beat, a native effect
-                     (its rolling buffer, envelopes, sync, HOLD). Resampling.h: reading between samples
-                     (linear, Hermite, sinc), centred so nothing is delayed. Protocol.cpp:
-                     the JSON lines. One file per job: split a file rather than let it grow past a few hundred
+                     (its rolling buffer, envelopes, sync, HOLD). EchoBoy.cpp: EchoBoy, a native echo (its
+                     lines, the style on each repeat; its filters, saturations, diffusers, LFOs in EchoDsp.h).
+                     AutoTune.cpp: Auto-Tune, native too (YIN pitch tracking, Antares' correction,
+                     formant-keeping PSOLA). ProQ.cpp: Pro-Q, native too (its bands, dynamics, modes);
+                     EqDesign.cpp: its filters (analog sections matched to digital ones, run as SVFs);
+                     Convolver.cpp: FIR filters by FFT; Spectrum.cpp: the analyzer's measurements. PanMan.cpp: PanMan, another (its pattern, chance,
+                     triggers, dynamics, pan law, Analog Styles). PitchWheel.cpp: Pitch Wheel, native too
+                     (phase-locked spectral shifting, a true envelope for the formants, the wheels' physics, notes
+                     as voices). Resampling.h: reading between samples (linear, Hermite, sinc),
+                     centred so nothing is delayed. Protocol.cpp: the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
 electron/          The desktop app (Vaudio). main.ts: runs the server (electron/server.ts, the same createApp) in the
@@ -192,7 +209,14 @@ src/
                      channel-settings.tsx (a sampler's window), channel-picker.tsx (the +: choose an
                      instrument), knob.tsx, lcd.tsx, waveform.ts, browser/ (the Browser, Alt+F8: a panel
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
-                     pattern-picker.tsx, gross-beat/ (Gross Beat's window, its mapping panel and tools),
+                     pattern-picker.tsx, gross-beat/ (Gross Beat's window, its mapping panel and tools), echo-boy/
+                     (EchoBoy's window, Tweak, the Style Editor, Rhythm Echo's editor, its tools),
+                     auto-tune/ (Auto-Tune's window, its live pitch graph and tools),
+                     pro-q/ (Pro-Q's window: its display, gestures, band controls, analyzer, EQ Match, tools),
+                     ott/ (OTT's window: its knobs, its display of a row a band, tools),
+                     panman/ (PanMan's window, its editors, meters and tools),
+                     pitch-wheel/ (Pitch Wheel's window: its dials and keyboard on canvases, what the engine
+                     says in live.ts, its tools),
                      toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
                      tempo and position LCDs, the hint bar; its maths in position.ts), recording.ts (armed
                      tracks, Record, takes into the song) and inputs.ts (the input device's channels), midi.ts
@@ -311,7 +335,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, MIDI input, Gross Beat. Where it is and every step still to come, in order:
+the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel, OTT. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume, scale? }, channels,
@@ -412,11 +436,11 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   its pattern), `offset` into its content (ticks of a pattern, **seconds** of an audio file), `muted`). Clip
   ids are small numbers, like notes'. Its operations are pure functions of a clip list in
   `shared/music/playlist.ts` (with a `ClipContext`: the patterns' lengths and the tempo, which a clip's
-  length needs, and each audio clip channel's speed: a pitched one plays its file faster, FL's Resample,
-  so an audio clip's ticks become file seconds through `clipSecondsPerTick(clip)` (its channel's speed and its own
-  `stretch`), never `secondsPerTick`). An audio clip has its own `gain`, fades (`fadeIn`/`fadeOut` in ticks, their
-  tensions: `fadeShape`, the engine's too) and `stretch` (time stretching, its pitch kept: Signalsmith Stretch in
-  `AudioStream`, seeded so renders repeat), each absent at its default (`clipExtras` checks them). The window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
+  length needs, and each audio clip's speed: a pitched one plays its file faster, FL's Resample, and a
+  stretched one at its stretch's, so an audio clip's ticks become file seconds through `fileSecondsPerTick(clip)`,
+  never `secondsPerTick`). An audio clip has its own `gain` and fades (`fadeIn`/`fadeOut` in ticks, their
+  tensions: `fadeShape`, the engine's too), each absent at its default (`clipExtras` checks them). The
+  window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
   through `applyDrag` and committed once, maths in `geometry.ts`, mouse in `pointer.ts`, keys in `keys.ts`,
   commands in `actions.ts`. An audio clip's channel is `Channel.kind: "audio"`, in the rack's
   Audio group (`RackGroup`), with a cut-down settings window; it has steps and notes too, as FL's (the
@@ -429,6 +453,17 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   Stop recording markers (`punchRange`: recording keeps only what's between). Render as audio clip and
   Consolidate (`playlist/bounce.ts`) are an export with `bounce`: the server adopts its mix as the project's
   media and the tab places it.
+- **Stretching audio clips** (`docs/fl-studio/playlist.md`, Stretching audio clips; `shared/music/stretch.ts`):
+  an `AudioStretch` (`mode`: Resample or Stretch, the pitch kept; `tempo`: the song's tempo at which the file
+  plays at its own speed, so a stretched clip follows the tempo) is a clip's own (`PlaylistClip.stretch`, FL
+  2025's variant) or else its channel's (`Channel.stretch`); `ClipContext.stretchOf` says which, and
+  `audioPlayback` what it means (speed, transpose, keep-pitch: in Stretch mode the channel's pitch shifts
+  without changing the time). Setting one keeps each clip's content (`setClipStretch`, `stretchChannel`); the
+  Playlist's Stretch (Shift+M, `usePlaylist.stretch`) makes an edge a `stretch` drag (`stretchClips`).
+  The engine stretches in `AudioStream` on its reader thread with Signalsmith Stretch (MIT, fetched by
+  CMake, seeded so renders repeat), sought so the first sample out is the file's at its start: nothing is
+  late (`stretch.integration.test.ts`). Detect tempo is `POST /api/engine/tempo` (`server/music/tempo.ts`,
+  on the platform's `server/beats.ts`).
 - **Song mode** (PAT / SONG, L): `useTransport.mode` (not saved: a song with clips opens in song mode),
   with a start tick per mode; `switchMode` sends the engine the other song and carries on playing.
   `compileSong(..., "song")` flattens the arrangement into notes (a clip plays nothing past its pattern;
@@ -472,12 +507,19 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   same whatever the blocks: keep any new lane kind on that grid. A control held by the hand is left out
   (`SetSongRequest.held`, from `useAutomatedControl`'s hold/release); a plugin's own value is taken when play
   starts and given back when it stops. A knob or fader that can be automated takes a `target`
-  (`SongKnob`'s), which gives it Create automation clip and has it follow the curve in song mode. Its curve
-  is edited on its clips in the Playlist (`curve-pointer.ts`, a `curve` drag committed once; FL's Step and
-  Slide modes are the Playlist store's `curveStep`/`curveSlide`). **Tempo automation** (`shared/music/tempo.ts`):
-  the engine keeps the song's own tempo and is sent a song warped through the tempo clips (`warpSong`); the
-  server's `SongClock` converts every tick crossing to or from the engine, so the tab and the document
-  only ever hold the song's ticks. Seconds from a tick in song mode: `songSeconds`/`engineTick`, never
+  (`SongKnob`'s), which gives it Create automation clip and has it follow the curve in song mode (a knob
+  that turns by its automation's fraction, a tapered one, says `fraction`). Its curve is edited on its
+  clips in the Playlist (`curve-pointer.ts`, a `curve` drag committed once). **Every knob of our built-in
+  effects is automatable**, as a plugin's every parameter is: a new knob in one gets a `target` (its
+  control in the effect's `AutomationTarget` kind, a spec saying its range, taper and text, the engine
+  lanes it moves), and `e2e/music.spec.ts` right-clicks every slider of every built-in's window to check
+  it. Touching one shows **Automate "…"** in its window's title bar (`AutomateTouched`,
+  `useAutomationUi.touchedControl`), as a plugin window's does. An engine lane holds up to
+  `Song::Lane::maxSize` (64) values a point. FL's Step and Slide modes are the
+  Playlist store's `curveStep`/`curveSlide`. **Tempo automation** (`shared/music/tempo.ts`): the engine
+  keeps the song's own tempo and is sent a song warped through the tempo clips (`warpSong`); the server's
+  `SongClock` converts every tick crossing to or from the engine, so the tab and the document only ever
+  hold the song's ticks. Seconds from a tick in song mode: `songSeconds`/`engineTick`, never
   `secondsPerTick` alone.
 - **Recording** (`docs/fl-studio/recording.md`, FL's through mixer tracks): a track's `input` (a device
   channel or a pair), `monitor` and `inputOffset` are the song's; **which tracks are armed, Record (R) and a
@@ -516,6 +558,73 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   automate (`AutomationTarget` `grossBeat`); HOLD and the scratching clock are live (`grossBeat` command),
   not the song's. Its window is `gross-beat-window.tsx`; keep its sound tested offline
   (`gross-beat.integration.test.ts`).
+- **EchoBoy** (`docs/soundtoys/echoboy-manual.md`, its DSP in `echoboy-dsp.md`; `shared/music/echo-boy*.ts`,
+  `engine/src/EchoBoy.cpp`, `src/suites/music/echo-boy/`): Soundtoys' echo, ours, as Gross Beat is: a
+  `MixerEffect` whose plugin is `ECHO_BOY_PLUGIN`, its settings in the song (`MixerEffect.echoBoy`). Its
+  modes are decided in TypeScript (`engineEchoBoy`): delay lines, a feedback matrix between them and Rhythm
+  Echo's taps; the engine knows no mode. A style is the Style Editor's settings (`EchoStyle`, null in the
+  song while it's as made); what makes the repeats change is in the loop (the Decay EQ, the record stage's
+  saturation, the cuts, loop diffusion and wobble). The lines are kept across songs by effect id
+  (`echo::Registry`), so edits don't cut the echoes off; Time glides, note values crossfade. Its knobs
+  automate (`AutomationTarget` `echoBoy`; lanes `kind: "echo"` in the engine's units). Keep its sound tested
+  offline (`echo-boy.integration.test.ts`).
+- **Auto-Tune** (`docs/antares/auto-tune.md`, Antares Auto-Tune Pro's Auto mode; `shared/music/auto-tune*.ts`,
+  `engine/src/AutoTune.cpp`, `src/suites/music/auto-tune/`): ours as Gross Beat is, `AUTO_TUNE_PLUGIN`, its
+  settings in the song (`MixerEffect.autoTune`). What its knobs mean (Tracking as YIN's threshold, Natural
+  Vibrato's dB, the input type's Hz) is decided in `engineAutoTune`; the engine hears the pitch, decides the
+  note per ~2.7 ms frame and moves it by TD-PSOLA with sub-sample marks (whole samples drift cents), the
+  grains stretched for Throat (or with the pitch, Formant off). It looks ahead by a latency fixed by the input
+  type, reported to `Song::compensate` (an enabled one only); its mix's dry sound is read as late. Its state
+  is kept by effect id (`tune::Registry`). It says its latest pitch readings in each transport event
+  (`EngineTransport.autoTunes`), which `pitch-history.ts` keeps outside React for the window's graph. Every
+  knob automates, the key and Create Vibrato's too (`AutomationTarget` `autoTune`, `AUTO_TUNE_CONTROL_INFO`,
+  lanes `kind: "tune"`). Keep its sound tested offline to the
+  cent (`auto-tune.integration.test.ts`).
+- **Pro-Q** (`docs/fabfilter/pro-q.md`, and FabFilter's `pro-q-3-manual.md` and `pro-q-3-dsp.md` beside
+  it): FabFilter's Pro-Q 3, ours, as Gross Beat is: a `MixerEffect` whose plugin is `PRO_Q_PLUGIN`, its
+  settings **in the song** (`MixerEffect.proQ`: bands numbered 1..24, never renumbered; A/B; the
+  analyzer's settings), in FabFilter's conventions (Q is the textbook Q × √2, slope is the order). Its
+  shapes are analog sections twice, `bandSections` in TypeScript (what the display draws) and
+  `analogSections` in `EqDesign.cpp`: **keep them in step**; `pro-q.integration.test.ts` measures the
+  engine against the TypeScript curves in every mode (Zero Latency within 0.1 dB, Natural and Linear Phase
+  exact). The engine designs FIR kernels on the message thread (only when the bands change) and hands
+  them to the audio thread by atomic exchange (`Convolver::offer`); keep it so. Its latency is in delay
+  compensation. The analyzer is measured only for the Pro-Qs `eqWatch` names (open windows); its fall,
+  tilt and range are the tab's. Its window's look is its own (`--eq-*` tokens, dark in every theme).
+  Its band controls, output, pan and Gain Scale automate (Gain Scale folded into the bands' gain lanes).
+- **OTT** (`docs/xfer/ott.md`; `shared/music/ott*.ts`, `engine/src/Ott.cpp`, `src/suites/music/ott/`): Xfer's
+  multiband upward/downward compressor, ours, as Gross Beat is: `OTT_PLUGIN`, its settings in the song
+  (`MixerEffect.ott`). Its sound is David Braun's measured model of OTT 1.3.1 (`co.xfer_ott`): what its
+  knobs mean is decided in TypeScript (`engineOtt`: each band's makeup, slopes, knees, release) and the
+  engine runs the law (`ottGainDb`) after LR4 crossovers at 88.3 Hz and 2.5 kHz; **keep the law in step**
+  in both, `ott.integration.test.ts` measures the engine against it (within 0.25 dB). Every knob and band
+  threshold automates (`AutomationTarget` `ott`, `OTT_CONTROL_SPECS`, lanes `kind: "ott"` per `OTT_LANES`,
+  as EchoBoy's). Its state is kept by effect id (`ott::Registry`); its bands' levels come in each transport
+  event (`EngineTransport.otts`) for its display. Its display's colours are `--ott-*` (a screen in every theme).
+- **PanMan** (`docs/soundtoys/panman.md`; `shared/music/panman*.ts`, `engine/src/PanMan.cpp`,
+  `src/suites/music/panman/`): Soundtoys' auto-panner, ours, built as Gross Beat is (when in doubt about it,
+  do what Soundtoys' does: the doc is from its manual). `MixerEffect.panMan` on an effect whose plugin is
+  `PANMAN_PLUGIN`, in the song. The pattern modes (LFO, Rhythm Step, Rhythm Shape: Smoothing, Feel and Groove
+  included) are decided in TypeScript (`panPattern`) and sent as lines over the pattern's phase; Random's
+  chance (repeatable, seeded by the effect's id), the triggers, the dynamics, the pan law (sine / cosine to
+  ±105°, unity at the centre) and the Analog Styles are the engine's (`panman::State`, kept by effect id in
+  `panman::Registry`), in time with `gross::Clock`. Every knob automates (`AutomationTarget` `panMan`;
+  values travel scaled, `PAN_LANE_SCALE`: lanes hold values within ±64; Feel, Groove and the pattern
+  modes' Smoothing as the pattern itself, a `shape` lane). The Manual Trigger is live (`panMan` command). Keep its sound tested offline
+  (`panman.integration.test.ts`).
+- **Pitch Wheel** (`docs/quikquak/pitchwheel.md`, QuikQuak Pitchwheel; `shared/music/pitch-wheel*.ts`,
+  `engine/src/PitchWheel.cpp`, `src/suites/music/pitch-wheel/`): ours as Gross Beat is, `PITCH_WHEEL_PLUGIN`,
+  its settings in the song (`MixerEffect.pitchWheel`). Each wheel's pointer is a target the pitch heard
+  follows by physics (Smooth, then a spring: Gravity, Inertia), defined in `wheelPhysics`/`stepWheel` and
+  mirrored in the engine's `Physics` (change both; an integration test compares them); the window runs the
+  same physics when the engine is silent (it only reports while sound goes through). The engine shifts in
+  the frequency domain, Laroche and Dolson's way (see the doc), one phase decision for both sides; a frame
+  reads each voice's pitch history, so moves are sample-accurate. A channel's notes play it
+  (`notesFrom`: the engine's `Song::wheelListeners`, fed by the sequencer's `scheduleRange` on their
+  sample); the window's keyboard and the hand's drags are `pitchWheel` commands (a drag holds the wheel for a
+  quarter-second, renewed, ahead of the song). It reports `EngineTransport.pitchWheels`, kept outside React
+  by `pitch-wheel/live.ts`. Eight controls automate (`AutomationTarget` `pitchWheel`, lanes `kind:
+  "wheel"`). Keep its sound tested offline (`pitch-wheel.integration.test.ts`).
 - **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).
@@ -828,6 +937,10 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 
 - Terminals inside Electron apps (T3 Code, VS Code) set `ELECTRON_RUN_AS_NODE=1`, which makes Electron a plain Node.js:
   the desktop scripts remove it, but launching the app's binary by hand from such a terminal quits silently.
+- Electron's macOS build (44.5.0) comes with a broken ad-hoc signature, and macOS 26 kills it on launch ("Electron quit
+  unexpectedly", SIGKILL Code Signature Invalid in the crash report). `scripts/desktop.ts` signs it again ad hoc
+  (`adHocSign`): Electron in node_modules before `dev:desktop`, the packaged app after it's packed. By hand:
+  `codesign --force --deep --sign - <Electron.app>`.
 - The desktop app is still the web app: keep features working in the browser (`pnpm dev`); `src/lib/desktop.ts` is
   the only place the page knows it's in the app (it gives the app `flush` to save before closing).
 

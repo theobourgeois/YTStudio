@@ -8,7 +8,8 @@ import { clipEnd, clipLength } from "@shared/music/playlist";
 import { MAX_CLIP_GAIN, MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import type { PlaylistClip } from "@shared/music/types";
 import { type DragHandlers, startPointerDrag } from "@/lib/pointer-drag";
-import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR } from "../piano/cursors";
+import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR, STRETCH_CURSOR } from "../piano/cursors";
+import { useMusicPreferences } from "../preferences";
 import { edgeSpeed, snapDelta, snapTick } from "../piano/geometry";
 import { useTransport } from "../transport";
 import {
@@ -289,16 +290,18 @@ export function gridPointerDown(e: Press) {
     // An audio clip's fade, curve or gain handle (FL's).
     if (hit.handle) return dragHandle(e, element, clip, hit.handle, ids, tick0, q0.y, gridOf, at);
     if (hit.edge) {
-      // Stretch mode: an audio clip's edge time-stretches it.
-      const stretch = playlist.stretching && clip.kind === "audio";
       const edgeTick = hit.edge === "start" ? clip.start : clipEnd(clip, p.ctx);
-      show(element, RESIZE_CURSOR);
+      // With Stretch on, an audio clip's edge stretches its sound (and every selected clip's) to the new length.
+      const stretching = usePlaylist.getState().stretch && clip.kind === "audio";
+      const mode = useMusicPreferences.getState().stretchMode;
+      show(element, stretching ? STRETCH_CURSOR : RESIZE_CURSOR);
       startGridDrag(e, element, {
         threshold: 2,
-        cursor: "ew-resize",
+        cursor: stretching ? STRETCH_CURSOR : "ew-resize",
         onMove(ev) {
           const moved = snapTick(edgeTick + (at(ev).tick - tick0), gridOf(ev), "line");
-          usePlaylist.getState().setDrag({ kind: stretch ? "stretch" : "resize", ids, edge: hit.edge!, ticks: moved - edgeTick });
+          const edge = hit.edge!;
+          usePlaylist.getState().setDrag(stretching ? { kind: "stretch", ids, edge, ticks: moved - edgeTick, mode } : { kind: "resize", ids, edge, ticks: moved - edgeTick });
         },
         ...finish,
       });
@@ -470,7 +473,7 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   if (tool === "slip") return hit ? RESIZE_CURSOR : "default";
   if (tool === "select") return hit ? "pointer" : "default";
   if (hit?.handle) return hit.handle === "fadeIn" || hit.handle === "fadeOut" ? RESIZE_CURSOR : "ns-resize";
-  if (hit) return hit.edge ? RESIZE_CURSOR : MOVE_CURSOR;
+  if (hit) return hit.edge ? (usePlaylist.getState().stretch && hit.clip.kind === "audio" ? STRETCH_CURSOR : RESIZE_CURSOR) : MOVE_CURSOR;
   return tool === "paint" ? CURSORS.brush : CURSORS.pencil;
 }
 

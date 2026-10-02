@@ -8,6 +8,11 @@ import { DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGT
 import type { Channel, Precomputed } from "@shared/music/types";
 import { type SampleLoop, samplerOf } from "@shared/music/sampler";
 import { Input } from "@/components/ui/input";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { STRETCH_MODE_NAMES } from "@shared/music/stretch";
+import { STRETCH_MODES } from "@shared/music/types";
+import { StretchMenuItems } from "./stretch-menu";
+import { clearStretch, setStretchMode, stretchLabel } from "./stretching";
 import { CENTS, PERCENT, SongKnob, type ValueUnit, cents, panText, percent } from "./knob";
 import { solo, toggleMute } from "./rack-actions";
 import { musicApi } from "./api";
@@ -18,7 +23,7 @@ import { carriesSamples, dropOnChannel } from "./browser/drops";
 import { loadSamples, waveformColumns } from "./waveform";
 import { routeToFreeTrack } from "./mixer/actions";
 import { TrackSelector } from "./mixer/track-selector";
-import { MusicWindow } from "./window";
+import { MusicWindow, cascadedOnDesktop } from "./window";
 import { PluginTab } from "./plugin-tab";
 import { InstrumentTab } from "./instrument-tab";
 
@@ -42,12 +47,14 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
   // envelope; its pitch plays the file faster or slower (FL's Resample).
   const audio = channel.kind === "audio";
   const plugin = channel.kind === "plugin";
+  // Cascaded by its place in the rack, but always in view: an audio clip's channel can be far down it.
+  const [initial] = useState(() => cascadedOnDesktop(index, { x: 120, y: 190 }, 28, { width: 440, height: WINDOW_HEIGHT }));
 
   return (
     <MusicWindow
       id={channelWindow(id)}
       title={channel.name}
-      initial={{ x: 120 + index * 28, y: 190 + index * 28 }}
+      initial={initial}
       onClose={() => useMusicUi.getState().closeChannelWindow(id)}
       className="w-[440px]"
     >
@@ -300,9 +307,42 @@ function SampleTab({ channel }: { channel: Channel }) {
       </Section>
 
       {channel.kind === "sampler" && <LoopSection channel={channel} />}
+      {channel.kind === "audio" && <TimeStretching channel={channel} />}
 
       <Waveform url={asset?.src ?? null} precomputed={channel.precomputed} loop={channel.kind === "sampler" ? samplerOf(channel).loop : null} onPlay={() => hearChannel(channel)} />
     </div>
+  );
+}
+
+/**
+ * FL's Time stretching (an audio clip channel's): its MODE, and its TIME with FL's menu (none,
+ * Autodetect, Project tempo, beats and bars, twice or half as long). Its clips that have no stretch of
+ * their own play by it.
+ */
+function TimeStretching({ channel }: { channel: Channel }) {
+  const target = { kind: "channel" as const, id: channel.id };
+  const stretch = channel.stretch ?? null;
+  return (
+    <Section title="Time stretching">
+      <div className="flex items-center gap-5">
+        {STRETCH_MODES.map((mode) => (
+          <Light key={mode} label={STRETCH_MODE_NAMES[mode]} on={stretch?.mode === mode} onChange={(on) => (on ? setStretchMode(target, mode) : clearStretch(target))} />
+        ))}
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-[9px] font-medium tracking-wide text-muted-foreground">TIME</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" aria-label="Time" title="How long the file lasts (FL's TIME): its menu" className="sunken flex h-6 min-w-20 items-center justify-end rounded px-1.5 font-mono text-xs tabular-nums">
+                {stretchLabel(stretch)}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <StretchMenuItems target={target} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </Section>
   );
 }
 
@@ -330,6 +370,8 @@ function LoopSection({ channel }: { channel: Channel }) {
   );
 }
 
+/** About as tall as the window is (its sample tab), to open it where it fits. */
+const WINDOW_HEIGHT = 480;
 const WAVE_W = 414;
 const WAVE_H = 84;
 

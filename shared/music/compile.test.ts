@@ -3,7 +3,7 @@ import { compileSong, faderGain, levelGain, mixerPanGains, panGains, soundingCha
 import { addChannels, addPattern, addPluginChannel, setMainVolume, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
 import { editNotes, setNoteProps } from "./notes.ts";
 import { addMixerTracks, routeChannels, sendOnly, setEffect, setSend, updateEffect, updateMixerTrack } from "./mixer.ts";
-import { type NewClip, addAudioClips, addClips, editClips, sliceClips, soloTrack } from "./playlist.ts";
+import { type NewClip, addAudioClips, addClips, editClips, setClipStretch, sliceClips, soloTrack } from "./playlist.ts";
 import { DEFAULT_VOLUME, FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "./project.ts";
 import { controlAt, createAutomation, editPoints, updateAutomation } from "./automation.ts";
 
@@ -362,6 +362,14 @@ describe("compileSong in song mode", () => {
     // Pitched an octave up, the channel plays its file twice as fast (FL's Resample).
     const up = compileSong(updateChannel(sliced, "chan_vox", { pitch: 12 }), P, null, "song");
     expect(up.audioClips.map((c) => c.speed)).toEqual([2, 2]);
+    // Stretched, a clip goes through its file at the song's tempo over its own; in Stretch mode its pitch is
+    // kept, and the channel's pitch shifts it without changing the time.
+    // (Pitched an octave up it already went twice as fast: it lasts as long as it did.)
+    const stretched = editClips(updateChannel(sliced, "chan_vox", { pitch: 12 }), (clips, ctx) => setClipStretch(clips, new Set([clips[0].id]), { mode: "stretch", tempo: 60 }, ctx));
+    expect(compileSong(stretched, P, null, "song").audioClips).toEqual([
+      { channel: 2, tick: BAR, length: BAR, seconds: 0, speed: 2, keepPitch: true, transpose: 12 },
+      { channel: 2, tick: 2 * BAR, length: BAR, seconds: 2, speed: 2 },
+    ]);
     // Pattern mode plays none.
     expect(compileSong(sliced, P).audioClips).toEqual([]);
   });

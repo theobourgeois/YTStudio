@@ -32,10 +32,10 @@ export function applyDrag(clips: PlaylistClip[], drag: PlaylistDrag | null, ctx:
       return drag.clone ? cloneClips(clips, drag.ids, drag.ticks, drag.tracks, ctx) : same(moveClips(clips, drag.ids, drag.ticks, drag.tracks, ctx));
     case "resize":
       return same(resizeClips(clips, drag.ids, drag.edge, drag.ticks, ctx));
+    case "stretch":
+      return same(stretchClips(clips, drag.ids, drag.edge, drag.ticks, ctx, drag.mode));
     case "slip":
       return same(slipClips(clips, drag.ids, drag.ticks, ctx));
-    case "stretch":
-      return same(stretchClips(clips, drag.ids, drag.edge, drag.ticks));
     case "fade":
       return same(setClipFades(clips, drag.ids, drag.patch));
     case "gain":

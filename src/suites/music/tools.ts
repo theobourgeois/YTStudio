@@ -4,7 +4,13 @@
  * applied to the open song as one undo step, or to a song that isn't open by loading and saving it.
  */
 import { createId } from "@shared/ids";
+import { AUTO_TUNE_PLUGIN } from "@shared/music/auto-tune-presets";
+import { ECHO_BOY_PLUGIN } from "@shared/music/echo-boy-presets";
 import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
+import { PRO_Q_PLUGIN } from "@shared/music/pro-q-presets";
+import { OTT_PLUGIN } from "@shared/music/ott-presets";
+import { PANMAN_PLUGIN } from "@shared/music/panman-presets";
+import { PITCH_WHEEL_PLUGIN } from "@shared/music/pitch-wheel-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import { EXPORT_FORMATS, type ExportFormat, type ExportSettings } from "@shared/music/export";
@@ -60,15 +66,26 @@ import {
   removeClipsTool,
   sliceClipsTool,
   splitByChannelTool,
+  findAudio,
+  stretchAudioTool,
   updateClipsTool,
   setMarkersTool,
   updatePlaylistTrackTool,
 } from "./playlist/tool-edits";
+import { fileTempo } from "@shared/music/stretch";
 import { describeBrowser, describeFolder, describeSearch, loadSampleEdit, sampleChannel } from "./browser/describe";
 import { addAutomationEdit, describeAutomations, resolveControl, updateAutomationTool } from "./automation/tool-edits";
 import { matches, pluginOwners, songControls } from "./automation/controls";
 import { usePlaylist } from "./playlist/store";
+import { pitchHistory } from "./auto-tune/pitch-history";
+import { describeAutoTune, findTune, updateAutoTuneTool } from "./auto-tune/tool-edits";
+import { freshWheel, latestWheelState } from "./pitch-wheel/live";
+import { describePitchWheel, findWheel, updatePitchWheelTool } from "./pitch-wheel/tool-edits";
+import { describeEchoBoy, updateEchoBoyTool } from "./echo-boy/tool-edits";
 import { describeGrossBeat, setGrossBeatSlotTool, updateGrossBeatTool } from "./gross-beat/tool-edits";
+import { describeProQ, setProQBandsTool, updateProQTool } from "./pro-q/tool-edits";
+import { describeOtt, updateOttTool } from "./ott/tool-edits";
+import { describePanMan, findPan, setPanPatternTool, updatePanManTool } from "./panman/tool-edits";
 import { useBrowser } from "./browser/store";
 import {
   addMixerTrackTool,
@@ -370,7 +387,25 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const track = findTrack(target.song, input.track);
     const slot = slotForEffect(target.song, track, input);
     const wanted = String(input.plugin ?? "").trim().toLowerCase();
-    // Ours first: Gross Beat isn't a plugin, and its settings are the song's (the tools set them).
+    // Ours first: Pro-Q and Gross Beat aren't plugins, and their settings are the song's (the tools set them).
+    if (wanted === PRO_Q_PLUGIN.name.toLowerCase() || wanted === PRO_Q_PLUGIN.id || wanted === "proq" || wanted === "pro-q 3" || wanted === "pro q") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, PRO_Q_PLUGIN, id));
+      return textResult(
+        `Put Pro-Q (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. ` +
+          "It has no bands yet (the sound as it is): set_pro_q_bands shapes it, update_pro_q sets its mode and output, get_pro_q reads it.",
+      );
+    }
+    if (wanted === OTT_PLUGIN.name.toLowerCase() || wanted === OTT_PLUGIN.id || wanted === "xfer ott") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, OTT_PLUGIN, id));
+      return textResult(
+        `Put OTT (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}, at OTT's defaults (depth 100%: over the top). ` +
+          "update_ott sets it (a depth of 0.2 to 0.5 is common), get_ott reads it.",
+      );
+    }
     if (wanted === GROSS_BEAT_PLUGIN.name.toLowerCase() || wanted === GROSS_BEAT_PLUGIN.id || wanted === "grossbeat") {
       const replaced = track.effects[slot];
       const id = createId("fx");
@@ -378,6 +413,43 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
       return textResult(
         `Put Gross Beat (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. ` +
           "It plays its Empty slots (the sound as it is) until you pick others: get_gross_beat lists them, update_gross_beat picks them, set_gross_beat_slot draws your own.",
+      );
+    }
+    if (wanted === AUTO_TUNE_PLUGIN.name.toLowerCase() || wanted === AUTO_TUNE_PLUGIN.id || wanted === "autotune" || wanted === "auto tune") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, AUTO_TUNE_PLUGIN, id));
+      return textResult(
+        `Put Auto-Tune (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. ` +
+          "It comes hard-tuned (retune speed 0), Alto/Tenor, C Chromatic: set the song's key with update_auto_tune (key and scale, or detectKey), and its sound (a preset, or retune speed, humanize, flex-tune).",
+      );
+    }
+    if (wanted === ECHO_BOY_PLUGIN.name.toLowerCase() || wanted === ECHO_BOY_PLUGIN.id || wanted === "echo boy") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, ECHO_BOY_PLUGIN, id));
+      return textResult(
+        `Put EchoBoy (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}: Single Echo at an eighth note, Studio Tape. ` +
+          "update_echo_boy sets it (a preset, its mode, times, style...); get_echo_boy reads it.",
+      );
+    }
+    if (wanted === PANMAN_PLUGIN.name.toLowerCase() || wanted === PANMAN_PLUGIN.id || wanted === "pan man") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, PANMAN_PLUGIN, id));
+      return textResult(
+        `Put PanMan (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. ` +
+          "It pans slowly back and forth (its Slow Pan preset) until you change it: get_panman reads it, update_panman sets it (presets, modes, knobs), set_panman_pattern draws your own rhythm.",
+      );
+    }
+    if (wanted === PITCH_WHEEL_PLUGIN.name.toLowerCase() || wanted === PITCH_WHEEL_PLUGIN.id || wanted === "pitchwheel" || wanted === "pitch-wheel") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, PITCH_WHEEL_PLUGIN, id));
+      return textResult(
+        `Put Pitch Wheel (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}: nothing shifted yet, ` +
+          "the Timbre tab on (the voice's character kept as the pitch moves), Single, no channel's notes playing it. update_pitch_wheel sets it " +
+          "(a preset, the pitch and timbre wheels, notesFrom for harmonies played by a channel's notes); get_pitch_wheel reads it.",
       );
     }
     const effects = (await musicApi.listEnginePlugins()).filter((p) => !p.isInstrument);
@@ -390,11 +462,46 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     );
   },
   update_mixer_effect: edit(updateMixerEffectTool),
+  async get_pro_q(input, ctx) {
+    return textResult(describeProQ((await targetOf(ctx)).song, input));
+  },
+  set_pro_q_bands: edit((song, input) => setProQBandsTool(song, input)),
+  update_pro_q: edit((song, input) => updateProQTool(song, input)),
+  async get_ott(input, ctx) {
+    return textResult(describeOtt((await targetOf(ctx)).song, input));
+  },
+  update_ott: edit((song, input) => updateOttTool(song, input)),
+  async get_echo_boy(input, ctx) {
+    return textResult(describeEchoBoy((await targetOf(ctx)).song, input));
+  },
+  update_echo_boy: edit((song, input) => updateEchoBoyTool(song, input)),
   async get_gross_beat(input, ctx) {
     return textResult(describeGrossBeat((await targetOf(ctx)).song, input));
   },
   update_gross_beat: edit((song, input) => updateGrossBeatTool(song, input)),
+  async get_auto_tune(input, ctx) {
+    const song = (await targetOf(ctx)).song;
+    // What it heard in the last few seconds (the engine says it to the open song's tab).
+    const history = pitchHistory(findTune(song, input).effect.id);
+    const recent = history ? history.readings.slice(-Math.ceil(4 / history.step)) : [];
+    return textResult(describeAutoTune(song, input, recent));
+  },
+  update_auto_tune: edit((song, input) => updateAutoTuneTool(song, input)),
+  async get_pitch_wheel(input, ctx) {
+    const song = (await targetOf(ctx)).song;
+    // What the engine last said it was doing (it says it to the open song's tab while sound goes through).
+    const id = findWheel(song, input).effect.id;
+    return textResult(describePitchWheel(song, input, latestWheelState(id), freshWheel(id) !== null));
+  },
+  update_pitch_wheel: edit((song, input) => updatePitchWheelTool(song, input)),
   set_gross_beat_slot: edit((song, input) => setGrossBeatSlotTool(song, input)),
+  async get_panman(input, ctx) {
+    const { song, open } = await targetOf(ctx);
+    // Where it is now, if it's the song playing here.
+    return textResult(describePanMan(song, input, open ? useTransport.getState().panMen[findPan(song, input).effect.id] : undefined));
+  },
+  update_panman: edit((song, input) => updatePanManTool(song, input)),
+  set_panman_pattern: edit((song, input) => setPanPatternTool(song, input)),
   remove_mixer_effect: edit(removeMixerEffectTool),
   async copy_track_state(input, ctx) {
     const target = await targetOf(ctx);
@@ -647,6 +754,43 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   split_by_channel: edit(splitByChannelTool),
   make_clip_unique: edit(makeClipUniqueTool),
   update_playlist_track: edit(updatePlaylistTrackTool),
+  async stretch_audio(input, ctx) {
+    const target = await targetOf(ctx);
+    const channelOf = (id: string) => target.song.channels.find((c) => c.id === id);
+    const seconds = (channelId: string) => target.assets.find((a) => a.id === channelOf(channelId)?.sampleId)?.duration || null;
+    // "detect": every file named is heard first (the edit itself stays pure).
+    const heard = new Map<string, number | null>();
+    if (input.tempo === "detect") {
+      const refs = input.ids !== undefined ? target.song.playlist.clips.filter((c) => c.kind === "audio" && Array.isArray(input.ids) && input.ids.includes(c.id)).map((c) => c.ref) : [findAudio(target.song, input.audio).id];
+      for (const channelId of new Set(refs)) {
+        const sampleId = channelOf(channelId)?.sampleId;
+        if (!sampleId) continue;
+        const detected = await musicApi.detectTempo({ projectId: target.projectId, sampleId });
+        heard.set(channelId, fileTempo(detected.seconds, detected.bpm));
+      }
+    }
+    let text = "";
+    await apply(target, (song) => {
+      const result = stretchAudioTool(song, input, { seconds, heard: (id) => heard.get(id) ?? null });
+      text = result.text;
+      return result.song;
+    });
+    return textResult(text);
+  },
+  async detect_tempo(input, ctx) {
+    const target = await targetOf(ctx);
+    const channel = findAudio(target.song, input.audio);
+    if (!channel.sampleId) throw new Error(`"${channel.name}" has no file.`);
+    const detected = await musicApi.detectTempo({ projectId: target.projectId, sampleId: channel.sampleId });
+    const tempo = fileTempo(detected.seconds, detected.bpm);
+    const length = `${Math.round(detected.seconds * 100) / 100} s long`;
+    if (detected.bpm === null)
+      return textResult(`No steady beat heard in "${channel.name}" (${length}).${tempo ? ` As a loop of a whole number of beats, it would be ${tempo} BPM.` : ""} Ask the user its tempo, or stretch it by "bars".`);
+    return textResult(
+      `"${channel.name}": ${tempo} BPM (heard ${detected.bpm}, ${Math.round(detected.confidence * 100)}% sure), ${length}. The song is at ${target.song.settings.tempo} BPM; ` +
+        `stretch_audio with tempo ${tempo} (or "detect") puts it on the song's.`,
+    );
+  },
   async add_audio_clip(input, ctx) {
     const target = await targetOf(ctx);
     const track = input.track;

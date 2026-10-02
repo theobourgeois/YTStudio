@@ -119,6 +119,88 @@ export interface EngineTransport {
   preview?: EnginePreview | null;
   /** Each Gross Beat in the song (by effect id): what it's playing (absent from engines that don't say). */
   grossBeats?: Record<string, EngineGrossState>;
+  /** Each Auto-Tune in the song (by effect id): the pitches it heard and played lately (absent from engines that don't say). */
+  autoTunes?: Record<string, EngineAutoTuneState>;
+  /** Each EchoBoy in the song (by effect id): its levels in and out, for its LEDs (absent from engines that don't say). */
+  echoBoys?: Record<string, EngineEchoLevels>;
+  /** Each OTT in the song (by effect id): its bands' levels and gains, for its display (absent from engines that don't say). */
+  otts?: Record<string, EngineOttState>;
+  /** Each Pro-Q being watched (`eqWatch`), by effect id: its spectra and its dynamic bands (absent from engines that don't say). */
+  eq?: Record<string, EngineEqState>;
+  /** Each PanMan in the song (by effect id): where it's put the sound (absent from engines that don't say). */
+  panMen?: Record<string, EnginePanState>;
+  /** Each Pitch Wheel in the song (by effect id): where its wheels actually are, and its notes (absent from engines that don't say). */
+  pitchWheels?: Record<string, EnginePitchWheelState>;
+}
+
+/**
+ * What a Pitch Wheel is doing, as it's heard: each voice's actual pitch (semitones; its note, or -1 for
+ * Single's voice when no note plays it), the Timbre wheel's actual shift, how loud what comes in is (0..1,
+ * the input light) and whether notes are held (the MIDI light). `latency`: samples it comes out late by.
+ */
+export interface EnginePitchWheelState {
+  latency: number;
+  pitch: number;
+  timbre: number;
+  voices: { key: number; pitch: number }[];
+  input: number;
+  notes: number[];
+}
+
+/**
+ * What an Auto-Tune heard and played lately: its latest pitch readings, oldest first, each
+ * `[number, sung, tuned, target]` (MIDI notes, fractions are cents; -1 where there was no pitch), numbered
+ * so a reading said twice is seen once, `step` seconds apart. `latency`: samples it looks ahead (its sound
+ * is that much late, compensated).
+ */
+export interface EngineAutoTuneState {
+  latency: number;
+  step: number;
+  points: [number, number, number, number][];
+}
+
+/** What an EchoBoy hears: the peaks (each side, 1 full scale, falling) into its echo and out of it. */
+export interface EngineEchoLevels {
+  input: [number, number];
+  output: [number, number];
+}
+
+/**
+ * What an OTT hears: each band's level (dB of its mean square, as its compressors hear it) and the gain
+ * it gives it now (dB, its H / M / L gain in), low, mid, high; and the peaks in and out (falling).
+ */
+export interface EngineOttState {
+  bands: { level: number; gain: number }[];
+  input: [number, number];
+  output: [number, number];
+}
+
+/**
+ * What a watched Pro-Q hears: its spectra before and after it (dB at `EQ_SPECTRUM_POINTS` log-spaced
+ * frequencies, a full-scale sine reading 0; null when nothing's come through since), its output's peak
+ * per side, and each dynamic band (by number): how far its gain has moved now (dB) and the level of the
+ * sound in its range (dB), which its threshold is set against.
+ */
+export interface EngineEqState {
+  pre: number[] | null;
+  post: number[] | null;
+  peak: [number, number];
+  bands: Record<string, { gain: number; level: number }>;
+}
+
+/**
+ * What a PanMan is doing: the position it's heard at (degrees: ±90 hard left / right, ±105 beyond), the
+ * least and most since the engine last said (the meter's trails), the input's and output's peaks since
+ * (linear, after Input / Output), the level its Threshold or Trigger knob sees (dB), and its divider's count.
+ */
+export interface EnginePanState {
+  position: number;
+  least: number;
+  most: number;
+  input: number;
+  output: number;
+  level: number;
+  count: number;
 }
 
 /**
@@ -158,6 +240,19 @@ export interface PreviewSampleRequest {
   start?: number;
   /** The tab's name for it, given back in `EnginePreview.id`. */
   id?: string;
+}
+
+/** Detect the tempo of one of a song's own media files (`POST /api/engine/tempo`): FL's TIME menu's Autodetect. */
+export interface DetectTempoRequest {
+  projectId: string;
+  sampleId: string;
+}
+
+/** What was heard: the tempo (null when no steady beat was), how sure (0..1), and the file's length. */
+export interface DetectedTempo {
+  bpm: number | null;
+  confidence: number;
+  seconds: number;
 }
 
 /** Preview one of the Browser's files (`POST /api/browser/preview`), cutting off the last one. */
@@ -461,6 +556,8 @@ export interface EngineRender {
   levels?: Record<string, number[]>;
   /** Each mixer track's loudest level over these samples. */
   meters: EngineMeters;
+  /** The watched Pro-Qs' state after these samples (`EngineEqState`, by effect id). */
+  eq?: Record<string, EngineEqState>;
   transport: EngineTransport & { metronome: boolean };
 }
 
@@ -512,6 +609,25 @@ export interface EngineCommands {
    * envelope's; 0 lets go).
    */
   grossBeat: { effect: string; hold?: boolean; scratch?: number };
+  /** A PanMan's Manual Trigger (`trigger`: a trigger now, if the sound is under its Trigger's level). Live, not the song's. */
+  panMan: { effect: string; trigger?: boolean };
+  /**
+   * The Pro-Qs whose sound the engine measures (their windows are open, or another's shows their
+   * spectrum): each with its analyzer's FFT length. The rest aren't measured.
+   */
+  eqWatch: { effects: { effect: string; size: number }[] };
+  /**
+   * A Pro-Q band soloed while its solo button is held (null lets go): only the part of the sound it works
+   * on is heard, `gain` dB louder or softer (the solo's listening level).
+   */
+  eqSolo: { effect: string; band: number | null; gain?: number };
+  /**
+   * A Pitch Wheel's live controls, held by the hand (the song has the wheels where they're let go):
+   * `pitch` and `timbre` hold a wheel's pointer (semitones, snapped) for a quarter of a second (renewed
+   * while it's held); `jump` puts the actual pitch on it at once (a typed value); `key` with `on` plays or
+   * lets go a note of its keyboard.
+   */
+  pitchWheel: { effect: string; pitch?: number; timbre?: number; jump?: boolean; key?: number; on?: boolean };
   /**
    * The tracks the mixer's selection meter adds up (the selected ones, by id): their sound after their
    * faders, together, is measured as the meter "@selection" (`EngineMeters`).

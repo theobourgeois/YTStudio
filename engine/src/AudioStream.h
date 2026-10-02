@@ -1,5 +1,7 @@
 // An audio file streamed from disk: its producer (a reader thread, or the rendering thread offline)
-// decodes it ahead, resampled to the output's rate, into a lock-free ring that the audio thread reads.
+// decodes it ahead, resampled to the output's rate (and, for a stretched audio clip in Stretch mode,
+// time-stretched with its pitch kept by Signalsmith Stretch), into a lock-free ring that the audio
+// thread reads.
 // So a whole song plays in the memory of a few seconds of it (`SampleCache` reads files whole). The
 // Browser's preview (`FilePreview`) and the playlist's audio clips (`ClipPlayer`) both play these.
 #pragma once
@@ -10,12 +12,6 @@
 #include <memory>
 #include <juce_audio_formats/juce_audio_formats.h>
 
-namespace signalsmith::stretch
-{
-template <typename Sample, class RandomEngine>
-struct SignalsmithStretch;
-}
-
 class AudioStream : public juce::TimeSliceClient
 {
 public:
@@ -24,11 +20,12 @@ public:
      * file's end). The ring holds `ringSeconds` of it. `speed` plays it faster (and higher) or slower (and
      * lower), as a sampler's pitch does: an audio clip's channel pitched (FL's Resample). `quality` is
      * how it's read between the file's samples, when it's at another rate or pitched (`Resampling`).
-     * `stretch` plays it that many times as long, its pitch kept (FL's time stretching: an audio clip
-     * stretched), through a phase vocoder (Signalsmith Stretch); 1 reads it as it is.
+     * `keepPitch`: `speed` stretches it in time instead, its pitch kept and shifted by `transpose`
+     * semitones (an audio clip in Stretch mode). Either way its first sample out is the file's at
+     * `startSeconds`: nothing is late.
      */
     AudioStream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 maxSamples = -1, double ringSeconds = 2.0,
-                 double speed = 1.0, Resampling quality = Resampling::hermite, double stretch = 1.0);
+                 double speed = 1.0, Resampling quality = Resampling::hermite, bool keepPitch = false, double transpose = 0.0);
     ~AudioStream() override;
 
     int useTimeSlice() override;
@@ -55,13 +52,18 @@ public:
     std::atomic<juce::int64> played { 0 };
 
 private:
+    struct Stretcher;
+
     void produce();
-    /** The next `n` output samples through the time stretcher, into `output`. */
-    void produceStretched (int n);
+    /** Resampled samples `[index, index + n)` (`index` 0 is the file at `start`; before it, earlier) into `out`. */
+    void resample (juce::int64 index, int n, juce::AudioBuffer<float>& out);
+    /** The stretcher's next `n` samples out into `output` (Stretch mode). */
+    void stretch (int n);
 
     std::unique_ptr<juce::AudioFormatReader> reader;
-    /** File samples per output sample. */
+    /** File samples per resampled sample (per output sample, but in Stretch mode, where the stretcher then takes `speed` of them a sample out). */
     const double ratio;
+    const double speed;
     const Resampling quality;
     /** How many file samples the resampler reads on each side of where it is. */
     const int reach;
@@ -79,11 +81,9 @@ private:
     /** Output samples in all, and decoded so far. */
     juce::int64 total = 0, produced = 0;
     std::atomic<bool> ended { false };
-    /** Stretched: the stretcher, the file samples it takes per output sample, where it reads next and the fraction carried. */
-    std::unique_ptr<signalsmith::stretch::SignalsmithStretch<float, void>> stretcher;
-    double stretchRate = 1, carry = 0;
-    juce::int64 readPosition = 0;
-    juce::AudioBuffer<float> stretchInput;
+    /** Stretch mode's: the stretcher, how far into the resampled sound it's been fed, and how much has come out (its pre-roll, dropped, too). */
+    std::unique_ptr<Stretcher> stretcher;
+    juce::int64 fed = 0, emitted = 0;
 
     JUCE_DECLARE_NON_COPYABLE (AudioStream)
 };

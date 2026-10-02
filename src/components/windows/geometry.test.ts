@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { edgeSnap, magnetise, resizeRect, snappedRect, unsnapAt } from "./geometry";
+import { cascade, edgeSnap, magnetise, resizeRect, snappedRect, unsnapAt } from "./geometry";
 
 const desktop = { width: 1000, height: 700 };
 
@@ -68,5 +68,27 @@ describe("resizeRect", () => {
 describe("unsnapAt", () => {
   it("keeps the pointer at the same fraction across the window", () => {
     expect(unsnapAt({ x: 500, y: 40 }, { fraction: 0.5, dy: 12 }, { width: 400, height: 300 })).toEqual({ x: 300, y: 28, width: 400, height: 300 });
+  });
+});
+
+describe("cascade", () => {
+  const size = { width: 400, height: 300 };
+
+  it("steps down and right from its origin", () => {
+    expect(cascade(0, { x: 120, y: 190 }, 28, size, desktop)).toEqual({ x: 120, y: 190 });
+    expect(cascade(2, { x: 120, y: 190 }, 28, size, desktop)).toEqual({ x: 176, y: 246 });
+  });
+
+  it("starts again from the top rather than open past the desktop's bottom", () => {
+    // Room for 210 / 28 = 7 steps below the first: the 9th window is the cascade's second.
+    expect(cascade(7, { x: 120, y: 190 }, 28, size, desktop)).toEqual({ x: 316, y: 386 });
+    expect(cascade(8, { x: 120, y: 190 }, 28, size, desktop)).toEqual({ x: 120, y: 190 });
+    expect(cascade(9, { x: 120, y: 190 }, 28, size, desktop)).toEqual({ x: 148, y: 218 });
+    for (let i = 0; i < 50; i++) expect(cascade(i, { x: 120, y: 190 }, 28, size, desktop).y + size.height).toBeLessThanOrEqual(desktop.height);
+  });
+
+  it("moves its origin up on a desktop too small for it", () => {
+    expect(cascade(3, { x: 120, y: 190 }, 28, size, { width: 1000, height: 350 })).toEqual({ x: 120, y: 50 });
+    expect(cascade(3, { x: 120, y: 190 }, 28, size, { width: 300, height: 200 })).toEqual({ x: 0, y: 0 });
   });
 });

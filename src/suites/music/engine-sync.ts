@@ -13,7 +13,9 @@ import { useInputs } from "./inputs";
 import { startMidiSync, useMidi } from "./midi";
 import { presetsChanged } from "./plugin-presets";
 import { useMusic } from "./store";
-import { NO_CHANNELS, NO_EFFECTS, NO_GROSS_BEATS, NO_METERS, afterSongSent, useTransport } from "./transport";
+import { takeAutoTunes } from "./auto-tune/pitch-history";
+import { NO_CHANNELS, NO_ECHO_BOYS, NO_EFFECTS, NO_EQ, NO_GROSS_BEATS, NO_METERS, NO_OTTS, NO_PANMEN, afterSongSent, useTransport } from "./transport";
+import { takePitchWheels } from "./pitch-wheel/live";
 import { currentTrackId, useMusicUi } from "./ui";
 import { automateParameter } from "./automation/actions";
 import { useAutomationUi } from "./automation/store";
@@ -133,7 +135,15 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         cpu: event.cpu,
         filePreview: event.preview ?? null,
         grossBeats: event.grossBeats ?? NO_GROSS_BEATS,
+        echoBoys: event.echoBoys ?? NO_ECHO_BOYS,
+        otts: event.otts ?? NO_OTTS,
+        eq: event.eq ?? NO_EQ,
+        panMen: event.panMen ?? NO_PANMEN,
       });
+      // What each Auto-Tune heard: kept outside React, for its window's pitch graph.
+      takeAutoTunes(event.autoTunes);
+      // Where each Pitch Wheel's wheels are as they're heard: its window's rings.
+      takePitchWheels(event.pitchWheels);
     } else if (event.event === "midi") {
       // Played on a MIDI keyboard (or the typing keyboard): lit, and kept while recording.
       useMidi.getState().played(event.notes);

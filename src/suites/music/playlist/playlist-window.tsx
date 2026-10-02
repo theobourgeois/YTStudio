@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiArrowLineRight, PiArrowsHorizontal, PiCaretDownBold, PiMagnet, PiMagnifyingGlass, PiSidebarSimple, PiStairs } from "react-icons/pi";
+import { PiArrowLineRight, PiArrowsOutLineHorizontal, PiCaretDownBold, PiMagnet, PiMagnifyingGlass, PiSidebarSimple, PiStairs } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
 import { type ClipContext, clipContext, clipLength, songTicks } from "@shared/music/playlist";
@@ -36,6 +36,8 @@ import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import { ColorSwatches } from "../color-swatches";
 import { bounceWithToast } from "./bounce";
+import { StretchMenuItems } from "../stretch-menu";
+import { autodetectTempo } from "../stretching";
 import {
   cancelDrag,
   chopClip,
@@ -62,7 +64,7 @@ import { CURVE_NAMES, controlOf, deletePoint, editPoints, updatePoint } from "@s
 import { CURVE_TYPES, type CurveType, type MarkerKind } from "@shared/music/types";
 import { AUTOMATION_TOOLS, type AutomationTool, createAutomationClip, openAutomationWindow, runTool } from "../automation/actions";
 import { markerName, removeMarker, updateMarker } from "@shared/music/markers";
-import { editClips, removeClips, setClipFades, setClipGain, setClipProps, setClipStretch, stretchForTempo, tempoInName } from "@shared/music/playlist";
+import { editClips, removeClips, setClipFades, setClipGain, setClipProps } from "@shared/music/playlist";
 import { fadeOutClips, onClipFade, vanishingClips } from "./fades";
 import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
 import { type WavePeaks, clipPeaks, onWaveform } from "./waveforms";
@@ -148,7 +150,7 @@ function PlaylistControls() {
   const tool = usePlaylist((s) => s.tool);
   const snap = usePlaylist((s) => s.snap);
   const pickerOpen = usePlaylist((s) => s.pickerOpen);
-  const stretching = usePlaylist((s) => s.stretching);
+  const stretch = usePlaylist((s) => s.stretch);
   const curveStep = usePlaylist((s) => s.curveStep);
   const curveSlide = usePlaylist((s) => s.curveSlide);
   return (
@@ -181,13 +183,13 @@ function PlaylistControls() {
       </div>
       <button
         type="button"
-        aria-label="Stretch mode"
-        aria-pressed={stretching}
-        title="Stretch mode (Shift+M): an audio clip's edge stretches it, its pitch kept"
-        className={cn("grid size-5.5 place-items-center rounded-sm", stretching ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
-        onClick={() => usePlaylist.setState({ stretching: !stretching })}
+        aria-label="Stretch"
+        aria-pressed={stretch}
+        title="Stretch: an audio clip's edge stretches its sound instead of resizing it (Shift+M)"
+        className={cn("grid size-5.5 place-items-center rounded-sm", stretch ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
+        onClick={() => usePlaylist.setState({ stretch: !stretch })}
       >
-        <PiArrowsHorizontal className="size-4" />
+        <PiArrowsOutLineHorizontal className="size-4" />
       </button>
       {/* FL's automation editing modes: how a drag on an automation clip's curve edits it. */}
       <button
@@ -638,6 +640,8 @@ function ClipMenu() {
   if (!menu || !clip) return null;
   const close = () => usePlaylist.setState({ clipMenu: null });
   const only = new Set([clip.id]);
+  const selected = usePlaylist.getState().selected;
+  const stretchTarget = { kind: "clips" as const, ids: selected.has(clip.id) ? selected : only };
   const commit = (update: Parameters<typeof editClips>[1]) => useMusic.getState().commit((song) => editClips(song, update));
   const source = { kind: clip.kind, ref: clip.ref };
   const color = useMusic.getState().history?.doc && sourceColor(useMusic.getState().history!.doc, source);
@@ -700,6 +704,14 @@ function ClipMenu() {
           <>
             {/* A channel of its own for this clip (the same file), so its pitch or volume changes it alone. */}
             <DropdownMenuItem onSelect={() => makeClipUnique(clip.id)}>Make unique as sample</DropdownMenuItem>
+            {/* Its own stretch (FL 2025's variant), the selection's with it if it's selected. */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Stretch</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <StretchMenuItems target={stretchTarget} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuItem onSelect={() => void autodetectTempo(stretchTarget)}>Detect tempo</DropdownMenuItem>
             {/* FL's Automate: an automation clip of its channel's volume or pan, over the clip. */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>Automate</DropdownMenuSubTrigger>
@@ -712,16 +724,6 @@ function ClipMenu() {
                     {control === "volume" ? "Volume" : "Panning"}
                   </DropdownMenuItem>
                 ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            {/* FL's time stretching: to the song's tempo from the loop's, or back as recorded. */}
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>Stretch</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                <StretchToTempo clip={clip} onDone={close} />
-                <DropdownMenuItem disabled={clip.stretch === undefined} onSelect={() => commit((clips) => setClipStretch(clips, only, 1))}>
-                  Reset stretch
-                </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuItem
@@ -771,39 +773,6 @@ function ClipMenu() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-/**
- * Stretch to tempo (the clip menu's): the tempo the loop was made at (what its name says, if it does), and
- * the clip is stretched to play it in time with the song.
- */
-function StretchToTempo({ clip, onDone }: { clip: PlaylistClip; onDone: () => void }) {
-  const song = useMusic.getState().history!.doc;
-  const name = song.channels.find((c) => c.id === clip.ref)?.name ?? "";
-  const [tempo, setTempo] = useState(String(tempoInName(name) ?? song.settings.tempo));
-  const apply = () => {
-    const bpm = Number(tempo);
-    if (!(bpm >= 20 && bpm <= 999)) return;
-    useMusic.getState().commit((doc) => editClips(doc, (clips) => setClipStretch(clips, new Set([clip.id]), stretchForTempo(doc, clip, bpm))));
-    onDone();
-  };
-  return (
-    <form
-      className="flex items-center gap-1.5 px-2 py-1.5 text-[13px]"
-      onSubmit={(e) => {
-        e.preventDefault();
-        apply();
-      }}
-      // Its keys are its own, not the menu's (typing a digit mustn't jump to an item).
-      onKeyDown={(e) => e.key !== "Escape" && e.stopPropagation()}
-    >
-      <span className="whitespace-nowrap text-muted-foreground">The loop's tempo</span>
-      <Input value={tempo} onChange={(e) => setTempo(e.target.value)} aria-label="The loop's tempo" className="h-6 w-16 text-[13px]" inputMode="decimal" />
-      <button type="submit" className="raised hover:raised-hover h-6 rounded-sm px-2 text-xs">
-        Stretch to {song.settings.tempo}
-      </button>
-    </form>
   );
 }
 

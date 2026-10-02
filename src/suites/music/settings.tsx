@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { errorMessage } from "@shared/errors";
 import type { EngineDevices, SetDeviceRequest } from "@shared/music/engine";
+import { STRETCH_MODE_NAMES, isStretchMode } from "@shared/music/stretch";
+import { STRETCH_MODES } from "@shared/music/types";
 import { SettingsGroup, SettingsRow } from "@/components/settings/settings-ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -44,7 +46,33 @@ function QualitySettings() {
       <SettingsRow title="Resampling in exports" description="Exports aren't played live, so the cleanest costs only a little time.">
         <ResamplingSelect value={exportResampling} onChange={(value) => set({ exportResampling: value })} label="Resampling in exports" />
       </SettingsRow>
+      <StretchModeRow />
     </SettingsGroup>
+  );
+}
+
+/** The mode a clip with no stretch is stretched in, in the Playlist's Stretch mode (FL always Resamples). */
+function StretchModeRow() {
+  const mode = useMusicPreferences((s) => s.stretchMode);
+  const setMode = useMusicPreferences((s) => s.setStretchMode);
+  return (
+    <SettingsRow
+      title="Stretch mode"
+      description="How an audio clip that isn't stretched yet is stretched when you drag its edge with the Playlist's Stretch on (Shift+M). Stretch keeps its pitch; Resample makes it higher when faster, as a record does."
+    >
+      <Select value={mode} onValueChange={(value) => isStretchMode(value) && setMode(value)}>
+        <SelectTrigger size="sm" className="w-44" aria-label="Stretch mode">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {STRETCH_MODES.map((m) => (
+            <SelectItem key={m} value={m}>
+              {STRETCH_MODE_NAMES[m]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </SettingsRow>
   );
 }
 

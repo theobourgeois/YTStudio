@@ -6,7 +6,9 @@ namespace
 {
 /** How far ahead of the audio thread a stream is decoded. */
 constexpr double ringSeconds = 2.0;
-/** A preview fades in over this (a file started mid-way doesn't click), and a cut-off one fades out. */
+/** What's decoded before a stream is handed over, in seconds: the reader thread does the rest. */
+constexpr double headSeconds = 0.25;
+/** A preview started mid-way fades in over this (so it doesn't click), and a cut-off one fades out. */
 constexpr int fadeSamples = 256;
 }
 
@@ -57,8 +59,9 @@ juce::Result FilePreview::play (const juce::File& file, double startSeconds, con
     if (source == nullptr || source->sampleRate <= 0 || source->lengthInSamples <= 0)
         return juce::Result::fail ("\"" + file.getFileName() + "\" can't be read as audio.");
     auto* stream = new Stream (std::move (source), sampleRate, juce::jmax (0.0, startSeconds), id, gainLeft, gainRight, speed, browserVolume);
-    // Its start is decoded here, so it sounds at the next block rather than when the reader gets to it.
-    stream->fill();
+    // Its start is decoded here, so it sounds at the next block rather than when the reader gets to it;
+    // only its start, so the command is answered (and the next block has it) at once, however long the file.
+    stream->fill (juce::roundToInt (headSeconds * sampleRate));
     if (! offline)
         reader.addTimeSliceClient (stream);
     discard (pending.exchange (stream));
@@ -145,5 +148,7 @@ void FilePreview::process (float* left, float* right, int numSamples)
 int FilePreview::pull (Stream& stream, float* left, float* right, int numSamples, float volume, bool fadeOut)
 {
     const auto gain = stream.browserVolume ? volume : 1.0f;
-    return stream.pull (left, right, 0, numSamples, gain * stream.gainLeft, gain * stream.gainRight, fadeSamples, fadeOut ? fadeSamples : 0);
+    // From the file's start, a hit keeps its attack (it starts from silence anyway); started inside it, it fades in.
+    const auto fadeIn = stream.start > 0 ? fadeSamples : 0;
+    return stream.pull (left, right, 0, numSamples, gain * stream.gainLeft, gain * stream.gainRight, fadeIn, fadeOut ? fadeSamples : 0);
 }

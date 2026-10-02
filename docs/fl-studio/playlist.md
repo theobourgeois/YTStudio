@@ -168,12 +168,49 @@ delete several), and **Ctrl selects** instead.
   clip's gain (+36 dB to silence). Overlapping clips **crossfade** automatically (a project setting, on).
   ![Clip fades and gain](img/playlist_audioclipenvelopes.png)
 - **Slicing** can snap to the nearest zero crossing (an option) so cuts don't click.
-- **Stretch** (Shift+M): dragging an edge time-stretches the clip instead of resizing its window; "Fit to
-  tempo" and "Detect tempo" in its menu. Without stretching, an audio clip plays at its own speed whatever
-  the tempo (a tempo change moves its end, not its sound).
+- **Stretch** (Shift+M): dragging an edge time-stretches the clip instead of resizing its window (see
+  [Stretching audio clips](#stretching-audio-clips)). Without stretching, an audio clip plays at its own
+  speed whatever the tempo (a tempo change moves its end, not its sound).
 - **7 / 8** pitch the selected audio clips a semitone down / up; **9** reverses them.
 - "Make unique as sample" copies the file on disk too; "Extract stems", "Deverb", Edison and NewTone are
   FL's own tools.
+
+### Stretching audio clips
+
+From the manual's Channel Settings page (the sampler's, which an audio clip's channel shares) and its
+Playlist pages, and FL Studio 2025's behaviour as its users describe it on Image-Line's forum.
+
+- **Time stretching is a channel setting**, in the sample tab of the channel's settings:
+  - **PITCH**: "Change sample pitch while preserving its length."
+  - **MUL**: "Use this knob to modify the sample length. For example, you can quickly stretch the sample
+    to twice its original length."
+  - **TIME**: "The time it takes to play the sample from start to end. Depending on the Stretch Mode, the
+    consequences of adjusting 'Time' will be different." Its right-click menu:
+    - **(none)**: "Default (no stretching). The sample is transposed according to Channel pitch as normal."
+    - **Autodetect**: "The sample's tempo (BPM) is autodetected and the Channel stretched accordingly."
+    - **Project tempo**: "The sample duration is set to the original length when the project is at the
+      current tempo."
+    - **Beat/Bar #**: "Use these options when you know the exact number of Beats/Bars the sample is
+      stretched to."
+  - **MODE**: **Resample** ("Standard pitch shifting that varies sample length with sample pitch"),
+    **Stretch** ("Vocals and other rhythmic samples stay in-key and in-time as the project tempo is
+    automated"), Stretch pro (with formant control), and offline élastique and slice modes that keep drums'
+    transients (slice markers).
+- **A stretched sample follows the tempo**: TIME is a length in the song's time (bars, beats), so when the
+  tempo changes the clip still fills the same bars, played faster or slower.
+- **In the Playlist**, the toolbar's **Stretch** toggle ("Stretch audio when resizing", **Shift+M**): while
+  it's on, dragging an audio clip's edge stretches its sound to the new length instead of moving its
+  window's edge. Its content stays the same (the same part of the file, start to end); only its speed
+  changes. With the toggle off, edges resize as usual.
+- **A clip with no stretch mode is stretched by Resample** (faster and higher, slower and lower). Users
+  ask for a default mode instead ("it always defaults to the 'resample' stretch mode which changes the
+  pitch").
+- **Each clip stretches on its own** (FL Studio 2025): stretching one makes it a *variant* of its channel,
+  with its own time; the other clips of the same sample are left as they were. Selecting several clips and
+  stretching one stretches them all by the same amount. (FL 2024 stretched every clip of the sample at
+  once; users of both miss that, and FL 2025 users reach the channel's own setting through the channel
+  settings' Variants list.)
+- The clip menu has **Detect tempo** and **Fit to tempo** for audio clips.
 
 ### Automation clips
 
@@ -340,10 +377,10 @@ From the first version (most of it for good):
   **merge pattern clips**, **clip
   groups**, the magic lasso, background pictures, icons, the View menu's styles.
 - **Automation clips**: built since ([automation.md](automation.md)).
-- **Audio clips' time stretching, pitch and reverse, zero-crossing slicing, crossfades**: the clip plays
-  its file at its own speed. Fades and gain on the clip can come soon after, if wanted.
+- **Audio clips' reverse, zero-crossing slicing, crossfades**, and the élastique and slice stretch
+  modes. (Stretching, fades and gain came on 2026-10-02.)
 - **Time signature changes** and markers' other actions (loop, skip, pause), Slip's ripple mode.
-- Consolidate, render as audio clip and time markers: built since (below).
+- Consolidate, render as audio clip, time markers and the Zoom tool: built since (below).
 
 ## Where Vaudio differs
 
@@ -382,9 +419,10 @@ dropped from the Browser or the Finder (Shift: one after another on the track), 
 | Zoom tool | Z | The same (Z): a rectangle zooms to its time (its top track at the top), a click zooms out, a right-click back and forth; Ctrl+wheel, Page Up / Down and Shift+1…5 zoom too. Fully zoomed out shows the whole song and some room after it (an eighth, four bars at least), never fewer than 32 bars (Théo) |
 | Slice with Shift | Slices without dragging (Left-Shift: diagonal) | Cuts every track at once: a line the whole height, shown while Shift is held (Théo) |
 | Clip menu | On each clip's corner: preview, source, rename, colour, make unique, chop, select similar, delete… | The arrow at the start of its title: Preview (held: the engine plays the clip alone), Edit pattern / Channel settings, Rename and color…, Change color, make unique, split by channel, Chop (every bar, beat, step or the snap), select all similar, mute, delete. No Select source yet |
-| Audio clips | Fades, gain, pitch, reverse, stretch, crossfades, zero-crossing slices | Make unique as sample (a channel of its own, the same file); their channel's pitch, as FL's Resample (faster and higher together: the clip goes through its file at that speed); a 64-sample fade where a clip cuts its file off or starts inside it (FL's declicking). Their waveform decoded in the tab, sharp at any zoom, drawn as their gain and fades shape it. Their channel's precomputed effects (normalize, reverse, start, length, fades): prepared in memory, as FL does, the clips playing that. **Each clip's own fades and gain**, as FL's, always on the clip (no Show fades switch): a triangle at each top corner drags its fade, a dot mid-curve bends it, a half-circle on the bottom edge its gain (+36 dB to silence); slicing keeps the fade in with the first part and the fade out with the second. **Time stretching** (Signalsmith Stretch, its pitch kept): stretch mode (Shift+M, or its button) has an edge stretch the clip; the clip menu's Stretch → Stretch to tempo (the loop's tempo read off its name) and Reset stretch. No reverse per clip, crossfades or zero-crossing slices yet |
+| Audio clips | Fades, gain, pitch, reverse, stretch, crossfades, zero-crossing slices | Make unique as sample (a channel of its own, the same file); their channel's pitch, as FL's Resample (faster and higher together: the clip goes through its file at that speed), or, in Stretch mode, higher or lower in the same time; stretching (below); a 64-sample fade where a clip cuts its file off or starts inside it (FL's declicking). Their waveform decoded in the tab, sharp at any zoom, drawn as their gain and fades shape it. Their channel's precomputed effects (normalize, reverse, start, length, fades): prepared in memory, as FL does, the clips playing that. **Each clip's own fades and gain**, as FL's, always on the clip (no Show fades switch): a triangle at each top corner drags its fade, a dot mid-curve bends it, a half-circle on the bottom edge its gain (+36 dB to silence); slicing keeps the fade in with the first part and the fade out with the second; the clip menu's Reset fades and gain. No reverse per clip, crossfades or zero-crossing slices yet |
+| Stretching | Shift+M or the toolbar's Stretch; the channel's TIME, MUL, PITCH and mode; Resample, Stretch, Stretch pro, élastique and slice modes; each clip a variant (FL 2025) | Shift+M or the Playlist toolbar's Stretch button (its pointer a double arrow over an audio clip's edge); each clip its own stretch, the selected ones stretched together, the others following their channel's (the channel window's Time stretching: mode and time, with FL's TIME menu: none, Autodetect, Project tempo, a beat to 16 bars, half and double for MUL). Resample and Stretch only (Signalsmith Stretch: pitch kept, transients smeared a little); no Stretch pro, élastique or slice modes. A clip with no mode of its own is stretched in Settings' "Stretch mode" (Stretch by default, what FL's users ask for) |
 | Audio clip in the rack | Its channel, playable from steps | Its channel in the Audio group, with steps and notes (the Piano roll) as a sampler's: the engine has its file in memory once notes play it (Théo, 2026-10-01) |
-| Double-click an audio clip | Its channel's settings | Its channel's settings: a cut-down sampler window (ON, PAN, VOL, PITCH in cents, TRACK, the file, its precomputed effects; its waveform pressed plays the file). Time stretching is the clip's (above), not the channel's |
+| Double-click an audio clip | Its channel's settings | Its channel's settings: a cut-down sampler window (ON, PAN, VOL, PITCH in cents, TRACK, the file, its precomputed effects; its waveform pressed plays the file; Time stretching: the mode and the time) |
 | Dragging files in | Shown where they'd land | Shown where they'd land, see-through, as long as the files (the Browser's; Finder files show a bar each until dropped) |
 | Deleting clips | They go | They shrink and fade out where they were, as the Piano roll's notes do |
 | Picker | Sorting, unused, groups, render; patterns reordered by dragging; tabs for patterns, audio and automation clips | Its tabs, as FL's (patterns, audio clips, automation clips, the last with an Automate… button: every control of the song to pick from). Each item drawn as its clips are, in its colour, with its notes or its file's waveform; the clip source marked on its left. Items select as a list does (⌘-click toggles, Shift+click a range) for the menu: patterns' Transpose selected…, Rename, Clone, Move up / down, Delete (every one: an empty Pattern 1 is left); audio clips' Channel settings and Delete. A double-click shows it in the Channel rack. Alt+↑ / ↓ reorders patterns (Théo) |
@@ -419,6 +457,26 @@ it's let go.
 10. **The order of work**: the document, song mode in `compileSong`, the engine (audio clips streamed),
     the transport, the window, split by channel, the assistant, e2e. A commit after each step.
 
+## Decided for stretching (2026-10-02)
+
+Théo asked for stretching "in one pass", doing whatever FL Studio does.
+
+1. **FL 2025's way**: a clip has its own stretch (FL's variant) and the clips selected stretch together;
+   a clip without one follows its channel's (the channel window's Time stretching).
+2. **The time is kept as a tempo** (`AudioStretch.tempo`): the tempo at which the file plays at its own
+   speed, FL's TIME put the other way round. At another tempo it plays proportionally faster or slower,
+   so a stretched clip stays on its bars when the tempo changes, as FL's does. A stretch set from a menu
+   (the clip's, or its channel's for the clips that follow it) keeps each clip's content, the same part
+   of its file, and changes its length to fit: set to two bars, it's two bars long.
+3. **Two modes**: Resample (speed and pitch together, as before) and Stretch (pitch kept, by Signalsmith
+   Stretch, MIT, in the engine). In Stretch mode the channel's PITCH shifts the pitch without changing
+   the time, as FL's time-stretch PITCH does.
+4. **A clip that has no mode is stretched in Stretch mode** by default (what FL's users ask for), a choice
+   in Settings (Music → Stretch mode).
+5. **Detect tempo** uses the video editor's beat tracker (`server/beats.ts`, now the platform's), and
+   rounds the tempo so the file is a whole number of beats when that's within 4%, which is what makes a
+   loop loop.
+
 ## How it's built
 
 - **The document** (`shared/music/types.ts`): `MusicProject.playlist = { tracks, clips }`. Tracks are by
@@ -444,6 +502,15 @@ it's let go.
   something changed (`draw.ts`), a `PlaylistDrag` drawn through `applyDrag` and committed once
   (`drag.ts`), maths in `geometry.ts`, the mouse in `pointer.ts`, keys in `keys.ts`, commands in
   `actions.ts`, the Picker and the track headers as React beside the canvas.
+- **Stretching** (`shared/music/stretch.ts`, `stretchClips` / `setClipStretch` / `stretchChannel` in
+  `playlist.ts`): a stretch is a mode and the tempo the file plays at its own speed; `ClipContext` gives each
+  audio clip its own or its channel's (`stretchOf`) and the speed that makes (`fileSecondsPerTick(clip)`), so
+  every edit already counts in it. `compileSong` sends the engine each clip's speed, and in Stretch mode
+  `keepPitch` and `transpose`; `AudioStream` then decodes through Signalsmith Stretch on its reader thread,
+  sought so its first sample out is the file's at the clip's place (`stretch.integration.test.ts`: hits
+  within a millisecond, the pitch to the cent; 16 stretched clips take about 7% of a core). The Playlist's
+  Stretch is `usePlaylist.stretch`; an edge dragged with it on is a `stretch` drag. The menus are
+  `stretch-menu.tsx` on `stretching.ts`; Autodetect is `POST /api/engine/tempo`.
 - **The assistant**: `transpose_patterns` and `move_pattern` (the Picker's), `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`,
-  `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` with a
+  `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, `stretch_audio`, `detect_tempo`, and `play_song` with a
   mode (`src/suites/music/playlist/tool-edits.ts`).
