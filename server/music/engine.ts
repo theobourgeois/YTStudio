@@ -276,7 +276,8 @@ export class AudioEngine {
     const held = new Set(Array.isArray(body.held) ? body.held.filter((k): k is string => typeof k === "string").slice(0, 64) : []);
     const armed = new Set(Array.isArray(body.armed) ? body.armed.filter((id): id is string => typeof id === "string") : []);
     const mode = body.mode === "song" ? "song" : "pattern";
-    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, mode, held, armed);
+    const listening = isObject(body.listening) ? { mono: body.listening.mono === true, dim: body.listening.dim === true } : {};
+    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, mode, held, armed, listening);
     const clock = songClock(mode === "song" ? tempoMap(doc) : null, loop && loop.end > loop.start ? Math.max(0, loop.start) : 0);
     // A plugin's state is a file of its own beside the project's document: `plugins/<channel id>.bin`, or the effect's id.
     const states = path.join(this.paths.projectDir(projectId), "plugins");

@@ -18,6 +18,7 @@ import { NO_CHANNELS, NO_ECHO_BOYS, NO_EFFECTS, NO_EQ, NO_GROSS_BEATS, NO_METERS
 import { takePitchWheels } from "./pitch-wheel/live";
 import { currentTrackId, useMusicUi } from "./ui";
 import { automateParameter } from "./automation/actions";
+import { useMixerView } from "./mixer/view";
 import { useAutomationUi } from "./automation/store";
 
 /**
@@ -55,7 +56,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         // The tracks armed to record: their inputs are heard (monitored while armed) and recorded.
         const armed = armedIn(song, useRecording.getState().armed);
         const { unreadable, channels, effects, loop: playing } = await musicApi.setSong(
-          preview ? { projectId, patternId, resampling, ...preview } : { projectId, song, patternId, loop, mode: playMode, resampling, held, armed },
+          preview
+            ? { projectId, patternId, resampling, ...preview }
+            : { projectId, song, patternId, loop, mode: playMode, resampling, held, armed, listening: useMixerView.getState().listening },
         );
         useTransport.setState({ unreadable, channels, effects: effects ?? NO_EFFECTS, loop: playing, error: null });
         if (!dirty) afterSongSent();
@@ -83,6 +86,9 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   });
   const unsubscribeArmed = useRecording.subscribe((state, prev) => {
     if (state.armed !== prev.armed) void send();
+  });
+  const unsubscribeListening = useMixerView.subscribe((state, prev) => {
+    if (state.listening !== prev.listening) void send();
   });
   const unsubscribeHeld = useAutomationUi.subscribe((state, prev) => {
     if (state.held !== prev.held && useTransport.getState().mode === "song") void send();
@@ -220,6 +226,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     unsubscribeMode();
     unsubscribeQuality();
     unsubscribeArmed();
+    unsubscribeListening();
     unsubscribeHeld();
     unsubscribeSelection();
     midi.stop();

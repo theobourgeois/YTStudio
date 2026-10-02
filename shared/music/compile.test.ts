@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileSong, faderGain, levelGain, mixerPanGains, panGains, soundingChannels, stereoGains, swungTick, trackOrder } from "./compile.ts";
+import { type Listening, compileSong, faderGain, levelGain, mixerPanGains, panGains, soundingChannels, stereoGains, swungTick, trackOrder } from "./compile.ts";
 import { addChannels, addPattern, addPluginChannel, setMainVolume, setPatternLength, setStepNote, setSteps, setSwing, setTempo, setTimeSignature, updateChannel } from "./edits.ts";
 import { editNotes, setNoteProps } from "./notes.ts";
 import { addMixerTracks, routeChannels, sendOnly, setEffect, setSend, updateEffect, updateMixerTrack } from "./mixer.ts";
@@ -598,5 +598,18 @@ describe("a sampler's own settings, compiled", () => {
     expect(engine.mods?.cutoff?.envelope).toMatchObject({ enabled: true });
     // A channel with none of it sends none of it.
     expect(compileSong(rack(), P).channels[0]).not.toHaveProperty("loop");
+  });
+});
+
+describe("listening to the master", () => {
+  it("sums it to mono after its pan, and Dim turns it down 20 dB, on the master alone", () => {
+    const song = updateMixerTrack(createMusicProject(), MASTER_TRACK_ID, { pan: 1 });
+    const master = (listening: Listening) => compileSong(song, null, null, "pattern", undefined, undefined, listening).tracks.find((t) => t.id === MASTER_TRACK_ID)!.gains;
+    // Fully right: everything on the right; in mono, half of it on each side.
+    expect(master({})).toEqual([0, 0, 1, 1].map((g) => expect.closeTo(g, 6)));
+    expect(master({ mono: true })).toEqual([0.5, 0.5, 0.5, 0.5].map((g) => expect.closeTo(g, 6)));
+    expect(master({ dim: true })).toEqual([0, 0, 0.1, 0.1].map((g) => expect.closeTo(g, 6)));
+    const insert = compileSong(song, null, null, "pattern", undefined, undefined, { mono: true, dim: true }).tracks.find((t) => t.id === "insert_1")!.gains;
+    expect(insert).toEqual([1, 0, 0, 1]);
   });
 });

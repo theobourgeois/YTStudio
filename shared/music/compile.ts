@@ -372,10 +372,25 @@ export function engineInput(track: MixerTrack, armed: boolean): EngineInput | nu
   return { channels: stereo ? [channel, channel + 1] : [channel], monitor: track.monitor === "on" || (track.monitor === "armed" && armed), armed };
 }
 
-/** A mixer track's gain matrix from its fader, pan and stereo separation (and the main volume, for the master). */
-function trackGains(track: Pick<MixerTrack, "invert" | "swap" | "stereo" | "pan" | "volume" | "muted">, main: number): EngineTrack["gains"] {
-  const gain = track.muted ? 0 : faderGain(track.volume) * main;
-  return after(mixerPanGains(track.pan), stereoGains(track)).map((g) => g * gain) as EngineTrack["gains"];
+/**
+ * How the master is listened to while mixing (the tab's switches, never the song's: an export doesn't have
+ * them). `mono` sums it to mono, to check the mix there (Logic's, Studio One's); `dim` turns it down by
+ * `DIM_DB`, to talk over it.
+ */
+export interface Listening {
+  mono?: boolean;
+  dim?: boolean;
+}
+/** How far Dim turns the master down. */
+export const DIM_DB = -20;
+
+/** A mixer track's gain matrix from its fader, pan and stereo separation (and the main volume and the listening switches, for the master). */
+function trackGains(track: Pick<MixerTrack, "invert" | "swap" | "stereo" | "pan" | "volume" | "muted">, main: number, listening: Listening = {}): EngineTrack["gains"] {
+  const gain = track.muted ? 0 : faderGain(track.volume) * main * (listening.dim ? 10 ** (DIM_DB / 20) : 1);
+  const gains = after(mixerPanGains(track.pan), stereoGains(track));
+  // Summed to mono after everything else: each side out is the average of both.
+  const heard = listening.mono ? after(stereoGains({ invert: false, swap: false, stereo: 1 }), gains) : gains;
+  return heard.map((g) => g * gain) as EngineTrack["gains"];
 }
 
 /** A channel's gains on each side, from its volume and pan. */
@@ -428,7 +443,7 @@ function grossSlots(song: MusicProject, mode: PlayMode): Map<string, { time: Set
   return slots;
 }
 
-function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: PlayMode = "pattern"): { tracks: EngineTrack[]; index: Map<string, number> } {
+function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: PlayMode = "pattern", listening: Listening = {}): { tracks: EngineTrack[]; index: Map<string, number> } {
   const gross = grossSlots(song, mode);
   const ordered = trackOrder(song.mixer.tracks);
   const index = new Map(ordered.map((t, i) => [t.id, i]));
@@ -456,7 +471,7 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         }
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
-      gains: trackGains(track, main),
+      gains: trackGains(track, main, track.id === MASTER_TRACK_ID ? listening : {}),
       latencyOffset: track.latencyOffset,
       input: engineInput(track, armed.has(track.id)),
       sends: track.sends.flatMap((send) => {
@@ -534,6 +549,7 @@ export function compileSong(
   mode: PlayMode = "pattern",
   held: ReadonlySet<string> = NONE_HELD,
   armed: ReadonlySet<string> = new Set(),
+  listening: Listening = {},
 ): EngineSong {
   // The solos silence tracks as mutes would.
   const song = heardMixer(written);
@@ -546,7 +562,7 @@ export function compileSong(
   const notes = transposePlugins(song, mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to), mode === "song" ? from : null, held);
   notes.sort((a, b) => a.tick - b.tick || a.channel - b.channel);
   const played = new Set(notes.map((n) => n.channel));
-  const { tracks, index } = engineTracks(song, armed, mode);
+  const { tracks, index } = engineTracks(song, armed, mode, listening);
   const master = index.get(MASTER_TRACK_ID)!;
   const compiled: EngineSong = {
     tempo: song.settings.tempo,
@@ -560,7 +576,7 @@ export function compileSong(
     audioClips: mode === "song" ? audioClips(song, from, to) : [],
     tracks,
     // Automation only plays in song mode (Théo).
-    lanes: mode === "song" ? automationLanes(song, index, from, to, held) : [],
+    lanes: mode === "song" ? automationLanes(song, index, from, to, held, listening) : [],
   };
   // Tempo clips (song mode): the engine keeps the song's own tempo, and every tick goes where it falls in time.
   const map = mode === "song" ? tempoMap(song) : null;
@@ -759,7 +775,7 @@ export function soundingChannels(song: MusicProject, pattern: Pattern, tick: num
  * and pan make one lane of its gains, a track's fader, pan and stereo separation (and the master's main
  * volume) one of its matrix.
  */
-function automationLanes(song: MusicProject, trackIndex: Map<string, number>, from: number, to: number, held: ReadonlySet<string>): EngineLane[] {
+function automationLanes(song: MusicProject, trackIndex: Map<string, number>, from: number, to: number, held: ReadonlySet<string>, listening: Listening): EngineLane[] {
   const index = automationIndex(song);
   if (!index.size || to <= from) return [];
   const { barTicks } = clipContext(song);
@@ -824,7 +840,7 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       const main = valueOf(mainTarget, song.settings.volume);
       const keys = [...controls.map((c) => c.key), master ? automated(mainTarget) : null];
       add({ kind: "track", track: t }, keys, (tick) =>
-        trackGains({ ...track, volume: controls[0].value(tick), pan: controls[1].value(tick), stereo: controls[2].value(tick) }, master ? levelGain(main(tick), DEFAULT_VOLUME) : 1),
+        trackGains({ ...track, volume: controls[0].value(tick), pan: controls[1].value(tick), stereo: controls[2].value(tick) }, master ? levelGain(main(tick), DEFAULT_VOLUME) : 1, master ? listening : {}),
       );
     }
     // Sends as the engine has them (to later tracks), in the same order.

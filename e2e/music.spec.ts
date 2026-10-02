@@ -1017,6 +1017,11 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await strip("Insert 4").getByRole("button", { name: "Solo Insert 4" }).click();
   await strip("Insert 5").getByRole("button", { name: "Solo Insert 5" }).click();
   await expect(page.getByTestId("solo-indicator")).toHaveText("SOLO 2");
+  // Mono and Dim, for listening: switched on the title bar, never in the song.
+  await page.getByRole("button", { name: "Listen in mono" }).click();
+  await expect(page.getByRole("button", { name: "Listen in mono" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Listen in mono" }).click();
+  await expect(page.getByRole("button", { name: "Listen in mono" })).toHaveAttribute("aria-pressed", "false");
   await page.getByTestId("solo-indicator").click();
   await expect.poll(async () => (await mixerOf()).some((t) => t.solo)).toBe(false);
   // A mute light dragged across the strips paints them all (one undo step); the same with S.

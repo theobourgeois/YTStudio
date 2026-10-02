@@ -34,6 +34,9 @@ interface MixerViewState {
   /** Tracks dragged by their numbers to another place: where the line showing it is (the page's px). */
   reordering: { x: number; top: number; height: number } | null;
   reorder: (reordering: MixerViewState["reordering"]) => void;
+  /** The master's Mono and Dim, for listening (sent with the song, never in it: an export doesn't have them). */
+  listening: { mono: boolean; dim: boolean };
+  setListening: (patch: Partial<MixerViewState["listening"]>) => void;
   /** The mixer's view (this computer's: it's kept). */
   view: MixerViewKind;
   setView: (view: MixerViewKind) => void;
@@ -61,6 +64,8 @@ export const useMixerView = create<MixerViewState>((set) => ({
   carry: (carrying) => set({ carrying }),
   plugging: null,
   plug: (plugging) => set({ plugging }),
+  listening: { mono: false, dim: false },
+  setListening: (patch) => set((s) => ({ listening: { ...s.listening, ...patch } })),
   reordering: null,
   reorder: (reordering) => set({ reordering }),
 }));

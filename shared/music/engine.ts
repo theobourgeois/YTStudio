@@ -449,6 +449,8 @@ export interface SetSongRequest {
   song: MusicProject;
   /** The mixer tracks armed to record (the tab's state, not the song's): their inputs are heard and recorded as their monitoring says. */
   armed?: string[];
+  /** The master's Mono and Dim (the tab's, not the song's: `Listening`). */
+  listening?: { mono?: boolean; dim?: boolean };
   /** The pattern to loop (default: the first). */
   patternId: string | null;
   /** Only this part of it, in ticks (the Piano roll's time selection, or in song mode the Playlist's). */

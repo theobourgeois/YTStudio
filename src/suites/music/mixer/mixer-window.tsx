@@ -234,6 +234,8 @@ export function MixerWindow() {
       controls={
         <>
           <SoloIndicator />
+          <ListenSwitch kind="mono" />
+          <ListenSwitch kind="dim" />
           <ViewSwitch />
           <Button variant="ghost" size="icon-xs" aria-label="Add a mixer track" title="Add a mixer track after the selected one" className="text-muted-foreground hover:text-foreground" onClick={addTrackAfterCurrent}>
             <PiPlus />
@@ -341,6 +343,28 @@ function SoloIndicator() {
       onClick={clearSolo}
     >
       SOLO{count > 1 ? ` ${count}` : ""}
+    </button>
+  );
+}
+
+/**
+ * The master's Mono and Dim, on the title bar (Logic's, Studio One's): the mix summed to mono to check it
+ * there, or turned down 20 dB to talk over it. Lit while on; never part of the song (an export hasn't them).
+ */
+function ListenSwitch({ kind }: { kind: "mono" | "dim" }) {
+  const on = useMixerView((s) => s.listening[kind]);
+  const label = kind === "mono" ? "MONO" : "DIM";
+  return (
+    <button
+      type="button"
+      aria-label={kind === "mono" ? "Listen in mono" : "Dim the master"}
+      aria-pressed={on}
+      title={kind === "mono" ? "Mono: the master summed to mono, to check the mix there (not exported)" : "Dim: the master 20 dB down, to talk over it (not exported)"}
+      className="rounded-[3px] px-1.5 py-px font-mono text-[10px] leading-4 font-bold tracking-wide hover:brightness-110"
+      style={on ? { background: "var(--mixer-on)", color: "var(--brand-foreground)" } : { color: "var(--mixer-name)", boxShadow: "inset 0 0 0 1px var(--mixer-line)" }}
+      onClick={() => useMixerView.getState().setListening({ [kind]: !on })}
+    >
+      {label}
     </button>
   );
 }
