@@ -24,6 +24,8 @@ import {
   setMixerMuted,
   setMixerSolo,
   setSendPreFader,
+  setGroupLinked,
+  withLinkedTracks,
   type MixerTrackPatch,
   routeChannels,
   routeChannelsFrom,
@@ -73,13 +75,13 @@ export function selectedTracks(): string[] {
  */
 
 /** The mute light: the track (and the selected tracks with it) muted, or unmuted if it's muted. */
-export const toggleTrackMute = (id: string) => commit((doc) => setMixerMuted(doc, menuTargets(id), !getMixerTrack(doc, id)?.muted));
+export const toggleTrackMute = (id: string) => commit((doc) => setMixerMuted(doc, controlTargets(id), !getMixerTrack(doc, id)?.muted));
 /** S: the tracks join the solo, or leave it (the other solos kept). */
-export const toggleSolo = (id: string) => commit((doc) => toggleMixerSolo(doc, menuTargets(id)));
+export const toggleSolo = (id: string) => commit((doc) => toggleMixerSolo(doc, controlTargets(id)));
 /** Alt+S, Alt+click, a right-click on the mute light: the tracks soloed alone (again: no solo). */
-export const soloAlone = (id: string) => commit((doc) => soloMixerTrack(doc, menuTargets(id)));
+export const soloAlone = (id: string) => commit((doc) => soloMixerTrack(doc, controlTargets(id)));
 /** Shift+click on S: another track's solo never silences them. */
-export const toggleSoloSafe = (id: string) => commit((doc) => setSoloSafe(doc, menuTargets(id), !getMixerTrack(doc, id)?.soloSafe));
+export const toggleSoloSafe = (id: string) => commit((doc) => setSoloSafe(doc, controlTargets(id), !getMixerTrack(doc, id)?.soloSafe));
 /**
  * A plain press on a mute light or an S, painted across the strips (Pro Tools', Reaper's, Ableton's):
  * the press switches its tracks (the selected ones with it) as a click would, and every strip the pointer
@@ -88,7 +90,7 @@ export const toggleSoloSafe = (id: string) => commit((doc) => setSoloSafe(doc, m
 export function paintSwitch(e: ReactPointerEvent<Element>, id: string, kind: "mute" | "solo") {
   const doc = song();
   if (!doc || e.button !== 0) return;
-  const targets = menuTargets(id);
+  const targets = controlTargets(id);
   const tracks = doc.mixer.tracks.filter((t) => targets.includes(t.id) && (kind === "mute" || t.id !== MASTER_TRACK_ID));
   const on = kind === "mute" ? !getMixerTrack(doc, id)?.muted : !tracks.every((t) => t.solo);
   const set = (song: MusicProject, ids: string[]) => (kind === "mute" ? setMixerMuted(song, ids, on) : setMixerSolo(song, ids, on));
@@ -111,7 +113,7 @@ export function paintSwitch(e: ReactPointerEvent<Element>, id: string, kind: "mu
 }
 
 /** A strip's switch (invert phase, swap sides) set on it and the selected tracks with it. */
-export const setTrackSwitch = (id: string, patch: Pick<MixerTrackPatch, "invert" | "swap">) => commit((doc) => updateMixerTracks(doc, menuTargets(id), patch));
+export const setTrackSwitch = (id: string, patch: Pick<MixerTrackPatch, "invert" | "swap">) => commit((doc) => updateMixerTracks(doc, controlTargets(id), patch));
 
 /**
  * A strip's knob (pan, stereo separation) as an edit of the tracks it acts on (`menuTargets`). Dragged,
@@ -120,7 +122,7 @@ export const setTrackSwitch = (id: string, patch: Pick<MixerTrackPatch, "invert"
  */
 export function groupKnob(id: string, control: "pan" | "stereo") {
   return (doc: MusicProject, value: number): MusicProject => {
-    const targets = menuTargets(id);
+    const targets = controlTargets(id);
     const base = useMusic.getState().history?.gestureBase ?? null;
     if (!base || targets.length < 2) return updateMixerTracks(doc, targets, { [control]: value });
     const delta = value - (getMixerTrack(base, id)?.[control] ?? value);
@@ -322,6 +324,15 @@ export function menuTargets(id: string): string[] {
   const selected = selectedTracks();
   return selected.includes(id) ? selected : [id];
 }
+
+/** The tracks a control touched on a strip moves: `menuTargets`, and the rest of any linked group they're in. */
+export function controlTargets(id: string): string[] {
+  const doc = song();
+  return doc ? withLinkedTracks(doc, menuTargets(id)) : [id];
+}
+
+/** Link a group's controls, or unlink them. */
+export const linkGroup = (groupId: string, linked: boolean) => commit((doc) => setGroupLinked(doc, groupId, linked));
 
 /** Rename a track, or every selected track if it's one of them (the same name for all). */
 export const renameTrack = (id: string, name: string) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { name }));

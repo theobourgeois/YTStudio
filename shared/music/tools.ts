@@ -741,8 +741,12 @@ export const MUSIC_TOOLS = [
     kind: "edit",
     description:
       "Put mixer tracks in a named group (FL's Create group: a band with its name across their tops, dividers at its edges), taking them out of any " +
-      "other; or take them out of their groups (`ungroup`). Grouping is only how the mixer shows them: it doesn't route anything (set_send does).",
-    inputSchema: obj({ tracks: arr(mixerTrack(), "The tracks."), name: str("The group's name (default: Group N)."), ungroup: bool("Take them out of their groups instead.") }, ["tracks"]),
+      "other; or take them out of their groups (`ungroup`). Grouping doesn't route anything (set_send and route_to_new_bus do); a `linked` group " +
+      "links its tracks' controls in the mixer (the user moving one's fader, mute, solo or pan moves them all, Pro Tools' mix groups).",
+    inputSchema: obj(
+      { tracks: arr(mixerTrack(), "The tracks."), name: str("The group's name (default: Group N)."), linked: bool("Link their controls."), ungroup: bool("Take them out of their groups instead.") },
+      ["tracks"],
+    ),
   }),
   tool({
     name: "add_mixer_effect",

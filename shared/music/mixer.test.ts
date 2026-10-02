@@ -27,6 +27,7 @@ import {
   setMixerSolo,
   setMixerVolumes,
   setSend,
+  setGroupLinked,
   setSendPreFader,
   setSoloSafe,
   soloMixerTrack,
@@ -38,6 +39,7 @@ import {
   updateEffect,
   updateMixerTrack,
   updateMixerTracks,
+  withLinkedTracks,
 } from "./mixer.ts";
 import { updateTrack } from "./playlist.ts";
 import { compileSong } from "./compile.ts";
@@ -413,5 +415,18 @@ describe("pre-fader sends", () => {
     expect(sendOf(pre)).toMatchObject({ gain: 1, preFader: true });
     expect(sendOf(setMixerMuted(pre, ["insert_1"], true))).toMatchObject({ gain: 0, preFader: true });
     expect(sendOf(setMixerSolo(pre, ["insert_2"], true))).toMatchObject({ gain: 0 });
+  });
+});
+
+describe("linked groups", () => {
+  it("link their tracks' controls: a track touched brings the rest of its group", () => {
+    const grouped = createGroup(rack(), ["insert_2", "insert_3"], "Drums", "drums");
+    expect(withLinkedTracks(grouped, ["insert_2"])).toEqual(["insert_2"]);
+    const linked = setGroupLinked(grouped, "drums", true);
+    expect(linked.mixer.groups).toEqual([{ id: "drums", name: "Drums", linked: true }]);
+    expect(setGroupLinked(linked, "drums", true)).toBe(linked);
+    expect(withLinkedTracks(linked, ["insert_2", "insert_5"])).toEqual(["insert_2", "insert_5", "insert_3"]);
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(linked))).mixer.groups).toEqual(linked.mixer.groups);
+    expect(setGroupLinked(linked, "drums", false).mixer.groups).toEqual([{ id: "drums", name: "Drums" }]);
   });
 });

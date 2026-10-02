@@ -1292,6 +1292,15 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   expect(await selectedNames()).toEqual(["Insert 9"]);
   await mixer.locator('[data-group]').first().click();
   expect(await selectedNames()).toEqual(["Insert 11", "Insert 12"]);
+  // Its controls linked (the track menu), a mute light pressed on one of its tracks mutes both, though only one is selected.
+  await strip("Insert 11").getByTitle("Insert 11 (double-click to rename)").click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "Link the group's controls" }).click();
+  await expect(mixer.getByTestId("group-linked")).toBeVisible();
+  await strip("Insert 9").locator("canvas").click();
+  await strip("Insert 11").getByRole("button", { name: "Mute Insert 11" }).click();
+  await expect.poll(async () => [(await track(11)).muted, (await track(12)).muted, (await track(9)).muted]).toEqual([true, true, false]);
+  await strip("Insert 12").getByRole("button", { name: "Unmute Insert 12" }).click();
+  await expect.poll(async () => [(await track(11)).muted, (await track(12)).muted]).toEqual([false, false]);
 
   // Sending to insert 3 draws a cable from it.
   await strip("Insert 1").locator("canvas").click();

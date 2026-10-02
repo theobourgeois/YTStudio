@@ -687,6 +687,11 @@ export type InputMonitor = "off" | "armed" | "on";
 export interface MixerGroup {
   id: string;
   name: string;
+  /**
+   * Its tracks' controls linked (Pro Tools' mix groups): a fader, mute, solo, pan or switch moved on one
+   * moves them all. Absent: it's only how the mixer shows them.
+   */
+  linked?: true;
 }
 
 export interface Mixer {

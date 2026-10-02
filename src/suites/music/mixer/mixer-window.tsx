@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
+import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiLinkSimpleBold, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { setMixerVolumes, trackName, updateMixerTrack } from "@shared/music/mixer";
@@ -76,6 +76,8 @@ import {
   toggleSend,
   groupSend,
   setSendsPreFader,
+  controlTargets,
+  linkGroup,
   toggleTrackMute,
   assignAudioTracksTo,
 } from "./actions";
@@ -586,7 +588,7 @@ function TrackFader({ track, name, selected }: { track: MixerTrack; name: string
       onBegin={() => {
         control.hold();
         const song = useMusic.getState().history!.doc;
-        const group = selected ? selectedTracks() : [id];
+        const group = controlTargets(id);
         start.current = new Map(song.mixer.tracks.filter((t) => group.includes(t.id) || t.id === id).map((t) => [t.id, t.volume]));
         gesture.begin();
       }}
@@ -637,6 +639,8 @@ function RenameField({ track, name }: { track: MixerTrack; name: string }) {
 
 /** A track's right-click menu (on its number and name), FL Studio's. */
 function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: string; isMaster: boolean; color: string | null; separator: boolean; grouped: boolean; soloSafe: boolean }) {
+  const groupId = useSong((song) => song.mixer.tracks.find((t) => t.id === id)?.group ?? null);
+  const group = useSong((song) => song.mixer.groups.find((g) => g.id === groupId) ?? null);
   const channelsSelected = useMusicUi((s) => s.selectedChannelIds.length > 0);
   const others = useMusicUi((s) => s.selectedTrackIds.some((t) => t !== id));
   const canPaste = useMusicUi((s) => s.copiedTrack !== null);
@@ -745,6 +749,11 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
           </ContextMenuCheckboxItem>
           <ContextMenuItem onSelect={() => setTimeout(() => groupTracks(id), 0)}>Create group…</ContextMenuItem>
           {grouped && <ContextMenuItem onSelect={() => ungroupTracks(id)}>Ungroup</ContextMenuItem>}
+          {group && (
+            <ContextMenuCheckboxItem checked={!!group.linked} onSelect={() => linkGroup(group.id, !group.linked)}>
+              Link the group's controls
+            </ContextMenuCheckboxItem>
+          )}
         </>
       )}
       {!isMaster && (
@@ -1154,6 +1163,7 @@ function stripLook(color: string | null, selected: boolean): React.CSSProperties
  */
 function GroupBand({ track, groupName }: { track: MixerTrack; groupName: string | null }) {
   const renaming = useMixerView((s) => track.group !== null && s.renamingGroup === track.group && groupName !== null);
+  const linked = useSong((song) => track.group !== null && !!song.mixer.groups.find((g) => g.id === track.group)?.linked);
   return (
     <div
       className="relative h-4 w-full shrink-0"
@@ -1167,7 +1177,8 @@ function GroupBand({ track, groupName }: { track: MixerTrack; groupName: string 
         <GroupNameField groupId={track.group!} name={groupName!} />
       ) : (
         groupName && (
-          <span className="pointer-events-none absolute top-0 left-1 z-10 text-[10px] leading-4 font-semibold whitespace-nowrap" style={{ color: "var(--mixer-header-text)" }} title={`${groupName} (double-click to rename)`}>
+          <span className="pointer-events-none absolute top-0 left-1 z-10 flex items-center gap-0.5 text-[10px] leading-4 font-semibold whitespace-nowrap" style={{ color: linked ? "var(--mixer-on)" : "var(--mixer-header-text)" }} title={`${groupName} (double-click to rename)`}>
+            {linked && <PiLinkSimpleBold className="size-2.5" aria-label="Its controls are linked" data-testid="group-linked" />}
             {groupName}
           </span>
         )

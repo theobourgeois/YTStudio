@@ -532,6 +532,22 @@ export function ungroup(song: MusicProject, ids: readonly string[]): MusicProjec
   return next === song ? song : withGroups(next, keptGroups(next));
 }
 
+/** Link a group's controls (a fader moved on one of its tracks moves them all), or unlink them. */
+export function setGroupLinked(song: MusicProject, groupId: string, linked: boolean): MusicProject {
+  const group = song.mixer.groups.find((g) => g.id === groupId);
+  if (!group || !!group.linked === linked) return song;
+  return withGroups(song, song.mixer.groups.map((g) => (g === group ? (linked ? { ...g, linked: true as const } : { id: g.id, name: g.name }) : g)));
+}
+
+/** `ids` and every track in a linked group with one of them: what a control touched on them moves. */
+export function withLinkedTracks(song: MusicProject, ids: readonly string[]): string[] {
+  const linked = new Set(song.mixer.groups.filter((g) => g.linked).map((g) => g.id));
+  if (!linked.size) return [...ids];
+  const wanted = new Set(ids);
+  const groups = new Set(song.mixer.tracks.filter((t) => wanted.has(t.id) && t.group && linked.has(t.group)).map((t) => t.group));
+  return [...ids, ...song.mixer.tracks.filter((t) => !wanted.has(t.id) && t.group && groups.has(t.group)).map((t) => t.id)];
+}
+
 export function renameGroup(song: MusicProject, groupId: string, name: string): MusicProject {
   const trimmed = name.trim().slice(0, MAX_NAME);
   const group = song.mixer.groups.find((g) => g.id === groupId);

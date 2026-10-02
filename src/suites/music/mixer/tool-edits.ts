@@ -28,6 +28,7 @@ import {
   routeToNewBus,
   setMixerSolo,
   setSendPreFader,
+  setGroupLinked,
   setSoloSafe,
   trackName,
   trackNumber,
@@ -117,7 +118,7 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
     track.inputOffset ? `input offset ${track.inputOffset} ms` : null,
     track.dock !== "middle" && track.id !== MASTER_TRACK_ID ? `docked ${track.dock}` : null,
     track.separator ? "a divider before it" : null,
-    track.group ? `in the group "${song.mixer.groups.find((g) => g.id === track.group)?.name ?? track.group}"` : null,
+    track.group ? `in the group "${song.mixer.groups.find((g) => g.id === track.group)?.name ?? track.group}"${song.mixer.groups.find((g) => g.id === track.group)?.linked ? " (its controls linked)" : ""}` : null,
     track.color ? `colour ${COLOR_NAMES[TRACK_COLORS.indexOf(track.color as (typeof TRACK_COLORS)[number])] ?? track.color}` : null,
   ];
   return `${label(song, track)} (id ${track.id}): ${parts.filter(Boolean).join(", ")}`;
@@ -328,9 +329,10 @@ export const groupMixerTracksTool: SongEdit = (song, input) => {
   const list = tracks.map((t) => label(song, t)).join(", ");
   if (input.ungroup === true) return { song: ungroup(song, ids), text: `${list} ${tracks.length === 1 ? "is" : "are"} in no group now.` };
   if (ids.includes(MASTER_TRACK_ID)) throw new Error("The master can't be in a group.");
-  const next = createGroup(song, ids, typeof input.name === "string" ? input.name : undefined);
-  const group = next.mixer.groups[next.mixer.groups.length - 1];
-  return { song: next, text: `Grouped ${list} as "${group.name}".` };
+  const grouped = createGroup(song, ids, typeof input.name === "string" ? input.name : undefined);
+  const group = grouped.mixer.groups[grouped.mixer.groups.length - 1];
+  const next = setGroupLinked(grouped, group.id, input.linked === true);
+  return { song: next, text: `Grouped ${list} as "${group.name}"${input.linked === true ? ", their controls linked" : ""}.` };
 };
 
 export const addMixerTrackTool: SongEdit = (song, input) => {
