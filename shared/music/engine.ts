@@ -58,6 +58,11 @@ export interface EngineStatus {
   inputLatencyMs: number;
   /** A recording in progress (the `record` command), or null. */
   recording: { id: string } | null;
+  /**
+   * The engine was built before its source last changed (a checkout's: run `pnpm engine:build`, then
+   * restart `pnpm dev`, or what the app asks of it may be missing). Absent otherwise.
+   */
+  outdated?: boolean;
   /** Samples the song's sound comes out late by: its plugins' delays, compensated so everything lines up (`Song::compensate`). */
   songLatency: number;
   tone: boolean;

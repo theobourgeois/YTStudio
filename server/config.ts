@@ -37,6 +37,8 @@ const ENGINE_BUILD = path.join(REPO_ROOT, "engine", "build");
 export const ENGINE =
   process.env.EDITOR_ENGINE_PATH ||
   path.join(ENGINE_BUILD, "VaudioEngine_artefacts", "Release", "Vaudio Engine.app", "Contents", "MacOS", "Vaudio Engine");
+/** The engine's own source (a checkout's, not a packaged app's): an engine built before it last changed is out of date. */
+export const ENGINE_SOURCE = path.join(REPO_ROOT, "engine");
 export const ENGINE_PLUGIN_PATHS = process.env.EDITOR_PLUGIN_PATHS
   ? process.env.EDITOR_PLUGIN_PATHS.split(path.delimiter).filter(Boolean)
   : ["VaudioTestSynth", "VaudioTestEffect"].map((name) => path.join(ENGINE_BUILD, "test-plugin", `${name}_artefacts`, "Release", "VST3"));

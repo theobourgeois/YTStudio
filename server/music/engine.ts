@@ -33,7 +33,7 @@ import { DEFAULT_VELOCITY, normalizeMusicProject } from "../../shared/music/proj
 import type { MusicProject } from "../../shared/music/types.ts";
 import type { MediaAsset } from "../../shared/types.ts";
 import { createId } from "../../shared/ids.ts";
-import { ENGINE, ENGINE_PLUGIN_PATHS } from "../config.ts";
+import { ENGINE, ENGINE_PLUGIN_PATHS, ENGINE_SOURCE } from "../config.ts";
 import { spawnStreaming } from "../process.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
 
@@ -125,6 +125,22 @@ type SavedStates = Partial<Record<EngineSlot, string>>;
 
 const isSlot = (v: unknown): v is EngineSlot => ENGINE_SLOTS.includes(v as EngineSlot);
 
+/**
+ * Whether `binary` is a checkout's engine (inside its `engine/build`) built before the engine's source
+ * (`engine/src`, `engine/CMakeLists.txt`) last changed: then it lacks what the app now asks of it.
+ */
+export async function engineOutdated(binary: string, source = ENGINE_SOURCE): Promise<boolean> {
+  if (!path.isAbsolute(binary) || !binary.startsWith(path.join(source, "build") + path.sep)) return false;
+  try {
+    const built = (await fs.stat(binary)).mtimeMs;
+    const sources = (await fs.readdir(path.join(source, "src"))).map((name) => path.join(source, "src", name));
+    const times = await Promise.all([...sources, path.join(source, "CMakeLists.txt")].map((file) => fs.stat(file).then((s) => s.mtimeMs, () => 0)));
+    return times.some((time) => time > built);
+  } catch {
+    return false;
+  }
+}
+
 /** When a recording started, for its takes' names: "2026-10-01 14-03-22", as FL Studio names them. */
 function takeTime(date: Date): string {
   const two = (n: number) => String(n).padStart(2, "0");
@@ -156,6 +172,8 @@ export class AudioEngine {
   /** The desktop app's window, to tell a restarted engine too. */
   private host: HostWindow | null = null;
   private readonly adoptTake: AdoptTake | null;
+  /** The engine running was built before its source last changed (a checkout's, after a pull without `pnpm engine:build`). */
+  private outdated = false;
   /** Recordings by id, while their takes may still come. */
   private readonly recordings = new Map<string, Recording>();
   /** Takes are made media one after another, so they reach the tab in the order they were recorded. */
@@ -523,7 +541,7 @@ export class AudioEngine {
   private async withSaved(status: RawStatus): Promise<EngineStatus> {
     const saved = await this.savedStates();
     const slot = (name: EngineSlot) => status[name] && { ...status[name], hasSavedState: saved[name] === status[name].id };
-    return { ...status, instrument: slot("instrument"), effect: slot("effect") };
+    return { ...status, instrument: slot("instrument"), effect: slot("effect"), ...(this.outdated && { outdated: true }) };
   }
 
   private async withSavedIn(devices: RawDevices): Promise<EngineDevices> {
@@ -562,6 +580,7 @@ export class AudioEngine {
       throw new HttpError(503, "The audio engine isn't built yet: run `pnpm engine:build`.");
     }
     await fs.mkdir(this.paths.engine, { recursive: true });
+    this.outdated = await engineOutdated(this.argv[0]);
     const args = ["--data", this.paths.engine, ...this.pluginPaths.filter((dir) => existsSync(dir)).flatMap((dir) => ["--plugin-path", dir])];
     args.push(...this.flags);
     const { child, done } = spawnStreaming([...this.argv, ...args], "pipe", "pipe", { env: this.env });
