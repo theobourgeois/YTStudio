@@ -22,7 +22,7 @@ import {
 } from "@shared/music/automation";
 import { clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
-import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject } from "@shared/music/types";
+import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject, type PitchWheelControl } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
 import { type EditResult, findChannel } from "../tool-edits";
 
@@ -61,7 +61,20 @@ export const CONTROLS = [
   "throat",
   "key",
   ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
+  ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
 ] as const;
+
+/** A Pitch Wheel's controls, as the tool names them. */
+const WHEEL_CONTROL_NAMES: Record<string, PitchWheelControl> = {
+  "wheel pitch": "pitch",
+  "wheel timbre": "timbre",
+  "wheel pitch gravity": "pitchGravity",
+  "wheel pitch inertia": "pitchInertia",
+  "wheel pitch smooth": "pitchSmooth",
+  "wheel timbre gravity": "timbreGravity",
+  "wheel timbre inertia": "timbreInertia",
+  "wheel timbre smooth": "timbreSmooth",
+};
 
 /** An EchoBoy's controls, as the tool names them. */
 const ECHO_CONTROL_NAMES: Record<string, EchoControl> = {
@@ -169,6 +182,18 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (!effect.echoBoy) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an EchoBoy: an "${control}" is EchoBoy's.`);
       return { kind: "echoBoy", effect: effect.id, control: ECHO_CONTROL_NAMES[control] };
     }
+    case "wheel pitch":
+    case "wheel timbre":
+    case "wheel pitch gravity":
+    case "wheel pitch inertia":
+    case "wheel pitch smooth":
+    case "wheel timbre gravity":
+    case "wheel timbre inertia":
+    case "wheel timbre smooth": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.pitchWheel) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Pitch Wheel: "${control}" is Pitch Wheel's.`);
+      return { kind: "pitchWheel", effect: effect.id, control: WHEEL_CONTROL_NAMES[control] };
+    }
     case "parameter": {
       if (typeof input.parameter !== "string" || !input.parameter.trim()) throw new Error('"parameter" must be the plugin parameter\'s name or id, from list_controls.');
       if (input.channel !== undefined && input.channel !== "") {
@@ -236,6 +261,10 @@ const ECHO_HINTS: Record<EchoControl, string> = {
 const valueHint = (target: AutomationTarget) =>
   target.kind === "echoBoy"
     ? ECHO_HINTS[target.control]
+    : target.kind === "pitchWheel"
+    ? target.control === "pitch" || target.control === "timbre"
+      ? "semitones, -24 to 24"
+      : "0 to 1"
     : target.kind === "plugin"
     ? "0 to 1 of the parameter's range"
     : target.kind === "grossBeat" && target.control.endsWith("Slot")

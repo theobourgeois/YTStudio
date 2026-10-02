@@ -7,6 +7,7 @@ import { createId } from "@shared/ids";
 import { AUTO_TUNE_PLUGIN } from "@shared/music/auto-tune-presets";
 import { ECHO_BOY_PLUGIN } from "@shared/music/echo-boy-presets";
 import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
+import { PITCH_WHEEL_PLUGIN } from "@shared/music/pitch-wheel-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import { EXPORT_FORMATS, type ExportFormat, type ExportSettings } from "@shared/music/export";
@@ -67,6 +68,8 @@ import { matches, pluginOwners, songControls } from "./automation/controls";
 import { usePlaylist } from "./playlist/store";
 import { pitchHistory } from "./auto-tune/pitch-history";
 import { describeAutoTune, findTune, updateAutoTuneTool } from "./auto-tune/tool-edits";
+import { freshWheel, latestWheelState } from "./pitch-wheel/live";
+import { describePitchWheel, findWheel, updatePitchWheelTool } from "./pitch-wheel/tool-edits";
 import { describeEchoBoy, updateEchoBoyTool } from "./echo-boy/tool-edits";
 import { describeGrossBeat, setGrossBeatSlotTool, updateGrossBeatTool } from "./gross-beat/tool-edits";
 import { useBrowser } from "./browser/store";
@@ -335,6 +338,16 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "update_echo_boy sets it (a preset, its mode, times, style...); get_echo_boy reads it.",
       );
     }
+    if (wanted === PITCH_WHEEL_PLUGIN.name.toLowerCase() || wanted === PITCH_WHEEL_PLUGIN.id || wanted === "pitchwheel" || wanted === "pitch-wheel") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, PITCH_WHEEL_PLUGIN, id));
+      return textResult(
+        `Put Pitch Wheel (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}: nothing shifted yet, ` +
+          "the Timbre tab on (the voice's character kept as the pitch moves), Single, no channel's notes playing it. update_pitch_wheel sets it " +
+          "(a preset, the pitch and timbre wheels, notesFrom for harmonies played by a channel's notes); get_pitch_wheel reads it.",
+      );
+    }
     const effects = (await musicApi.listEnginePlugins()).filter((p) => !p.isInstrument);
     const plugin = effects.find((p) => p.id.toLowerCase() === wanted) ?? effects.find((p) => p.name.toLowerCase() === wanted);
     if (!plugin) throw new Error(`There's no effect plugin "${String(input.plugin)}" on this computer. The ones found: ${effects.map((p) => p.name).join(", ") || "none"}.`);
@@ -361,6 +374,13 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(describeAutoTune(song, input, recent));
   },
   update_auto_tune: edit((song, input) => updateAutoTuneTool(song, input)),
+  async get_pitch_wheel(input, ctx) {
+    const song = (await targetOf(ctx)).song;
+    // What the engine last said it was doing (it says it to the open song's tab while sound goes through).
+    const id = findWheel(song, input).effect.id;
+    return textResult(describePitchWheel(song, input, latestWheelState(id), freshWheel(id) !== null));
+  },
+  update_pitch_wheel: edit((song, input) => updatePitchWheelTool(song, input)),
   set_gross_beat_slot: edit((song, input) => setGrossBeatSlotTool(song, input)),
   remove_mixer_effect: edit(removeMixerEffectTool),
   async copy_track_state(input, ctx) {

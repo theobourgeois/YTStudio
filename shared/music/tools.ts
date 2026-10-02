@@ -32,6 +32,26 @@ const echoRef = {
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
+/** Which Pitch Wheel a tool acts on. */
+const wheelRef = {
+  effect: str("The Pitch Wheel: its effect id (from get_mixer or get_pitch_wheel). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+/** One of a Pitch Wheel's two wheels, as update_pitch_wheel sets it. */
+const wheelFields = (what: string, value: string) =>
+  obj(
+    {
+      value: num(value),
+      range: { type: "integer", enum: [2, 4, 6, 12, 24, 48], description: "Semitones the dial spans end to end (the pointer goes half of it either way). A narrower range brings the pointer in." },
+      snap: oneOf(["off", "semitone", "octave"], "Where the pointer lands: anywhere (off: fractions of a semitone), on whole semitones, or on whole octaves."),
+      gravity: num("0 to 1: how hard what's heard is held to the pointer. 1 clamps it there (an instant jump); low, it overshoots and swings past and back before settling (0: a near-endless swing)."),
+      inertia: num("0 to 1: how slowly what's heard heads for the pointer (a heavy wheel at 1). It only shows with gravity low: high gravity overrides it."),
+      smooth: num("0 to 1: how slowly the pointer itself is followed (0 to 1.5 s): glides between values, like a portamento. High, it overrides gravity and inertia."),
+    },
+    [],
+    what,
+  );
 const echoTime = (what: string) => ({ description: `${what}: a note value at the tempo ("1/8", "1/8 dot", "1/16 tri"; 1/2 to 1/64) or milliseconds ("350 ms", or a number), up to 15 s.`, anyOf: [{ type: "string" }, { type: "number" }] }) as const;
 const playlistTrack = int("A playlist track's number, 1 for the first (as the Playlist numbers them).");
 const clipIds = arr(int("A clip's id"), "Clips, by their ids from get_playlist.");
@@ -60,6 +80,7 @@ const controlFields = {
       "throat",
       "key",
       ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
+      ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
     ],
     "Which control: a channel's or mixer track's volume or pan, a track's stereo separation, a send's level, an effect slot's mix, the main volume, " +
       "a plugin's own parameter, a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
@@ -67,7 +88,9 @@ const controlFields = {
       "its retune speed (ms, 0 to 400), humanize and flex-tune (0 to 100), natural vibrato (dB, -12 to 12), transpose (semitones, -12 to 12), " +
       "throat (50 to 180) or key (0 C .. 11 B, with hold curves: a key change); or an EchoBoy's (\"echo ...\": " +
       "mix and feedback 0 to 1, cuts in Hz, saturation 0 to 1, input and output dB, groove and feel -1 to 1, width 0 to 1, an echo time's " +
-      "knob 0 to 1: automating a Time echo bends its pitch like tape, a note value steps through 1/2 .. 1/64).",
+      "knob 0 to 1: automating a Time echo bends its pitch like tape, a note value steps through 1/2 .. 1/64); or a Pitch Wheel's (\"wheel ...\": " +
+      "its pitch or timbre wheel in semitones, -24 to 24, snapped as the wheel snaps, its gravity, inertia and smooth followed as it moves, so a " +
+      "jump with low gravity swings; or a wheel's gravity, inertia or smooth, 0 to 1).",
   ),
   channel: str("A channel (volume, pan), or a plugin channel (its parameters): id or name."),
   track: mixerTrack("A mixer track (its volume, pan, stereo separation; a send from it; an effect in it)"),
@@ -525,11 +548,14 @@ export const MUSIC_TOOLS = [
       "effects in slot order, before its fader. Either one of ours, whose settings you set: EchoBoy (plugin \"EchoBoy\": Soundtoys' echo: " +
       "tape, analogue, digital, radio, chorus and diffused echoes in 31 styles, Single, Dual, Ping-Pong and Rhythm Echo, set with " +
       "update_echo_boy), Gross Beat (plugin \"Gross Beat\": chops, repeats, stutters, half speed, tape stops, scratches, gates and " +
-      "sidechain pumping in time with the song, set with update_gross_beat and set_gross_beat_slot) or Auto-Tune (plugin \"Auto-Tune\": " +
-      "pitch correction for vocals, from the hard-tuned sound to natural, set with update_auto_tune; put it on the vocal's track), or " +
+      "sidechain pumping in time with the song, set with update_gross_beat and set_gross_beat_slot), Auto-Tune (plugin \"Auto-Tune\": " +
+      "pitch correction for vocals, from the hard-tuned sound to natural, set with update_auto_tune; put it on the vocal's track) or Pitch Wheel " +
+      "(plugin \"Pitch Wheel\": QuikQuak's Pitchwheel, a pitch shifter played like a dial, the length kept: octaves, harmonies played by a " +
+      "channel's notes, helium or giant voices with its Timbre wheel, tape slow-downs and swinging, springy pitch moves; set with " +
+      "update_pitch_wheel), or " +
       "an effect plugin installed on this computer (list_plugins with kind \"effect\"), whose settings are its own, in its window, which the " +
       "user opens from the mixer: you can't set them.",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"EchoBoy", "Gross Beat", "Auto-Tune", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"EchoBoy", "Gross Beat", "Auto-Tune", "Pitch Wheel", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -801,6 +827,44 @@ export const MUSIC_TOOLS = [
         [],
         "Create Vibrato: a vibrato added to each tuned note (restarted on every new note).",
       ),
+    }),
+  }),
+  tool({
+    name: "get_pitch_wheel",
+    title: "Read a Pitch Wheel",
+    kind: "look",
+    description:
+      "A Pitch Wheel (QuikQuak's Pitchwheel, ours, in a mixer track's slot): its pitch wheel and Timbre wheel (each: where its pointer is, in " +
+      "semitones, and what that plays once snapped, its range, snap, gravity, inertia and smooth), whether the Timbre tab is on, Single or Multi, " +
+      "the channel whose notes play it and its origin note, its resolution, the preset its sound matches and the presets there are, and what the " +
+      "engine last said it was doing (the pitch and timbre actually heard, which lag and swing behind the pointers; the notes playing it; " +
+      "whether sound comes in).",
+    inputSchema: obj({ ...wheelRef }),
+  }),
+  tool({
+    name: "update_pitch_wheel",
+    title: "Change a Pitch Wheel",
+    kind: "edit",
+    description:
+      "Set a Pitch Wheel: it shifts the pitch of what goes through it without changing its length. The pitch wheel's pointer is the shift in " +
+      "semitones (12 an octave up, -5 a fourth down), within half its range either way; what's heard follows the pointer as its gravity, inertia " +
+      "and smooth say (high gravity: at once; low gravity: it overshoots and swings, the turntable feel; smooth: glides). With the Timbre tab on " +
+      "(`timbreOn`, the default) the voice's formants are the Timbre wheel's: at 0 the character stays as it was while the pitch moves (no " +
+      "chipmunk), up is a smaller, brighter voice (helium), down a bigger, darker one; off, the formants move with the pitch, as a tape's do. " +
+      "Notes play it too: `notesFrom` names a channel whose notes are followed (each note shifts by its distance from `origin`, C5 = 60 by " +
+      "default; the pointer adds on top). Single: the sound is always heard, the latest note setting the shift. Multi: a voice per note (8 at " +
+      "most), silent with no notes: harmonies from one take. Mute that channel (update_channel) to hear only the result. A preset sets both " +
+      "wheels and the Timbre tab (never the notes, origin, mode or resolution) and applies first; other fields given apply after it.",
+    inputSchema: obj({
+      ...wheelRef,
+      preset: str("A preset's name, applied first (get_pitch_wheel lists them: Natural, Octave Up, Octave Down, Fifth Up, Fourth Down, Chipmunk, Helium, Giant, Monster, Slow Tape, Turntable, Springy, Wild Swing, Slow Glide)."),
+      pitch: wheelFields("The pitch wheel.", "Semitones the pitch is shifted (the pointer), within half the range either way (-24 to 24 at range 48). A value past the range widens it."),
+      timbre: wheelFields("The Timbre wheel (the formants, used while timbreOn).", "Semitones the formants are moved, within half the range either way: up, a smaller, brighter voice; down, a bigger, darker one; 0, as it was."),
+      timbreOn: bool("The Timbre tab: on, the formants are the Timbre wheel's (the voice's character kept as the pitch moves); off, they move with the pitch (the chipmunk / tape sound)."),
+      midiMode: oneOf(["single", "multi"], "Single: one voice, the sound always heard, the latest note setting the shift. Multi: a voice per note held (8 at most), silent without notes."),
+      notesFrom: str('The channel whose notes play it: its id or name. "none" (or "") for none: only the wheel.'),
+      origin: { description: 'The note that shifts nothing: a note name ("C5" is MIDI 60, FL\'s octaves) or a MIDI number 0 to 127.', anyOf: [{ type: "string" }, { type: "integer" }] },
+      resolution: oneOf(["tight", "wide"], "Its analysis window: tight (about 43 ms late, compensated: drums, voices) or wide (about 85 ms: bass and pads, cleaner low notes)."),
     }),
   }),
   tool({

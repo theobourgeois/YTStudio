@@ -6,6 +6,7 @@
 import { isFiniteNumber } from "@shared/math";
 import { keyText } from "@shared/music/auto-tune";
 import type { EngineEffects } from "@shared/music/engine";
+import { snapped } from "@shared/music/pitch-wheel";
 import {
   addMixerTracks,
   canSend,
@@ -30,7 +31,7 @@ import {
   type MixerTrackPatch,
 } from "@shared/music/mixer";
 import { EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_CHANNELS, MAX_INPUT_OFFSET, MAX_LATENCY_OFFSET, TRACK_COLORS, createMixerTrack } from "@shared/music/project";
-import type { InputMonitor, MixerInput, MixerTrack, MusicProject } from "@shared/music/types";
+import type { InputMonitor, MixerInput, MixerTrack, MusicProject, PitchWheel } from "@shared/music/types";
 import { type SongEdit, findChannel } from "../tool-edits";
 import { faderAt, faderDb } from "./meter";
 
@@ -115,6 +116,13 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
   return `${label(song, track)} (id ${track.id}): ${parts.filter(Boolean).join(", ")}`;
 }
 
+/** A Pitch Wheel in a few words: the shift it plays, its Timbre, where its notes come from. */
+function wheelSummary(song: MusicProject, pw: PitchWheel): string {
+  const st = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100) / 100} semitones`;
+  const timbre = pw.timbreOn ? (pw.timbre.value ? `, timbre ${st(snapped(pw.timbre.value, pw.timbre.snap))}` : ", formants kept") : ", formants moving with it";
+  return `pitch ${st(snapped(pw.pitch.value, pw.pitch.snap))}${timbre}, ${pw.midiMode}${pw.notesFrom ? `, played by "${song.channels.find((c) => c.id === pw.notesFrom)?.name ?? pw.notesFrom}"'s notes` : ""}`;
+}
+
 /**
  * The mixer as text (`get_mixer`). `effects` is what the engine says of the effects, when it's known (the
  * song open in the editor), and `armed` the tracks armed to record there.
@@ -138,7 +146,8 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
       const gross =
         (effect.grossBeat && `, effect ${effect.id}, playing time slot ${effect.grossBeat.timeSlot + 1} and volume slot ${effect.grossBeat.volumeSlot + 1} (get_gross_beat)`) ||
         (effect.echoBoy && `, effect ${effect.id}, ${effect.echoBoy.mode} echo, ${effect.echoBoy.custom ? "a custom style" : effect.echoBoy.style}${effect.echoBoy.preset ? `, preset "${effect.echoBoy.preset}"` : ""} (get_echo_boy)`) ||
-        (effect.autoTune && `, effect ${effect.id}, ${keyText(effect.autoTune.key, effect.autoTune.scale)}, retune speed ${Math.round(effect.autoTune.retuneSpeed)} ms (get_auto_tune)`);
+        (effect.autoTune && `, effect ${effect.id}, ${keyText(effect.autoTune.key, effect.autoTune.scale)}, retune speed ${Math.round(effect.autoTune.retuneSpeed)} ms (get_auto_tune)`) ||
+        (effect.pitchWheel && `, effect ${effect.id}, ${wheelSummary(song, effect.pitchWheel)} (get_pitch_wheel)`);
       lines.push(`    slot ${slot + 1}: ${effect.plugin.name} (${effect.plugin.format})${effect.enabled ? "" : ", bypassed"}${effect.mix < 1 ? `, mix ${percent(effect.mix)}` : ""}${state ? `, ${state}` : ""}${gross || ""}`);
     });
     if (number > 0) {
