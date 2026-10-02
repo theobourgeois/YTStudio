@@ -17,16 +17,33 @@ import {
   sliceNotes,
   stretchNotes,
 } from "@shared/music/notes";
+import { snapToScale } from "@shared/music/scales";
 import type { Note } from "@shared/music/types";
 import type { PianoDrag } from "./store";
+
+/** The notes in `ids` on the scale's nearest notes (a move with Snap to scale). */
+function ontoScale(result: Created, ids: ReadonlySet<number>, scale: Parameters<typeof snapToScale>[0]): Created {
+  let any = false;
+  const notes = result.notes.map((note) => {
+    if (!ids.has(note.id)) return note;
+    const pitch = snapToScale(scale, note.pitch);
+    if (pitch === note.pitch) return note;
+    any = true;
+    return { ...note, pitch };
+  });
+  return any ? { ...result, notes } : result;
+}
 
 /** The notes after a drag, and the ones it made (to select them). A selection rectangle and scrubbing change no notes. */
 export function applyDrag(notes: Note[], drag: PianoDrag | null): Created {
   const same = (list: Note[]): Created => ({ notes: list, created: [] });
   if (!drag) return same(notes);
   switch (drag.kind) {
-    case "move":
-      return drag.clone ? cloneNotes(notes, drag.ids, drag.ticks, drag.semitones) : same(moveNotes(notes, drag.ids, drag.ticks, drag.semitones));
+    case "move": {
+      const moved = drag.clone ? cloneNotes(notes, drag.ids, drag.ticks, drag.semitones) : same(moveNotes(notes, drag.ids, drag.ticks, drag.semitones));
+      // Moved up or down with a scale: each lands on its nearest note (moved along time only, they stay).
+      return drag.scale && drag.semitones ? ontoScale(moved, drag.clone ? new Set(moved.created) : drag.ids, drag.scale) : moved;
+    }
     case "resize":
       return same(resizeNotes(notes, drag.ids, drag.ticks));
     case "stretch":
@@ -46,6 +63,7 @@ export function applyDrag(notes: Note[], drag: PianoDrag | null): Created {
     }
     case "rect":
     case "playback":
+    case "zoom":
       return same(notes);
   }
 }

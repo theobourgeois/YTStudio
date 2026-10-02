@@ -321,6 +321,17 @@ export function drawTracks(ctx: CanvasRenderingContext2D, scene: PlaylistScene) 
     ctx.lineWidth = 1;
     ctx.strokeRect(x + 0.5, y + 0.5, w, h);
   }
+  if (drag?.kind === "zoom") {
+    const x = Math.round(tickToX(view, Math.min(drag.from, drag.to)));
+    const y = Math.round(trackTop(layout, view, Math.min(drag.top, drag.bottom)));
+    const w = Math.round(Math.abs(drag.to - drag.from) * view.pxPerTick);
+    const h = Math.round(trackTop(layout, view, Math.max(drag.top, drag.bottom) + 1)) - y;
+    ctx.strokeStyle = palette.foreground;
+    ctx.setLineDash([4, 3]);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    ctx.setLineDash([]);
+  }
   if (scene.slice) {
     const x = Math.round(tickToX(view, scene.slice.tick)) + 0.5;
     const y1 = scene.slice.all ? 0 : trackTop(layout, view, Math.min(scene.slice.top, scene.slice.bottom));

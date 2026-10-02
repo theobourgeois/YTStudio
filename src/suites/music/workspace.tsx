@@ -24,6 +24,7 @@ import { resolvePianoKey, type PianoKeyAction } from "./piano/keys";
 import * as piano from "./piano/actions";
 import { openPianoRoll } from "./piano/actions";
 import { Chopper } from "./piano/chopper";
+import { Quantizer } from "./piano/quantizer";
 import { NoteProperties } from "./piano/note-properties";
 import { PianoRoll } from "./piano/piano-roll";
 import { usePiano } from "./piano/store";
@@ -79,6 +80,7 @@ function Windows() {
   const exportOpen = useMusicUi((s) => s.exportOpen);
   const editingNote = usePiano((s) => s.editing);
   const chopping = usePiano((s) => s.chopping);
+  const quantizing = usePiano((s) => s.quantizing);
   const openIds = useMusicUi((s) => s.openChannelIds);
   const channels = useSong((song) => song.channels);
   const automations = useSong((song) => song.automations);
@@ -105,6 +107,7 @@ function Windows() {
       {exportOpen && <ExportWindow />}
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {pianoOpen && chopping && <Chopper />}
+      {pianoOpen && quantizing && <Quantizer />}
       {channels.map((channel, index) => (openIds.includes(channel.id) ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
       {automations.map((automation, index) => (openAutomations.includes(automation.id) ? <AutomationWindow key={automation.id} automation={automation} index={index} /> : null))}
       {chooserOpen && <AutomationChooser />}
@@ -127,6 +130,7 @@ function frontWindow(): WindowId | null {
     : id === "export" ? ui.exportOpen
     : id === "note" ? usePiano.getState().editing !== null
     : id === "chopper" ? usePiano.getState().chopping
+    : id === "quantizer" ? usePiano.getState().quantizing
     : id === "automate" ? useAutomationUi.getState().chooserOpen
     : id.startsWith("automation:") ? useAutomationUi.getState().openIds.includes(id.slice("automation:".length))
     : id.startsWith("gross:") ? useGrossUi.getState().openIds.includes(id.slice("gross:".length))
@@ -160,6 +164,8 @@ function runPianoKey(action: PianoKeyAction) {
       return piano.chop();
     case "chopper":
       return piano.openChopper();
+    case "quantizer":
+      return piano.openQuantizer();
     case "quantize":
       return piano.quantize("both");
     case "quantizeStarts":

@@ -69,12 +69,15 @@ export const MUSIC_TOOLS = [
     name: "update_song",
     title: "Change the song's settings",
     kind: "edit",
-    description: "Set the tempo, the swing, the time signature or the main volume (the toolbar's knob). Only what's given changes.",
+    description:
+      "Set the tempo, the swing, the time signature, the main volume (the toolbar's knob) or the song's scale (the Piano roll lights its notes " +
+      "and snaps notes drawn and moved to them). Only what's given changes.",
     inputSchema: obj({
       volume: num("0 to 1: the main volume, everything the song puts out (after the master track). 0.78 leaves it as it is; 1 is about +4 dB."),
       tempo: num("Beats per minute (20 to 999)."),
       swing: num("0 to 1: how late every second sixteenth step plays. 0 is straight; about 0.66 is a triplet feel."),
       timeSignature: arr(int("A number"), "[beats per bar, the note that gets the beat]: [4, 4], [3, 4], [6, 8].", { minItems: 2, maxItems: 2 }),
+      scale: str('The song\'s scale: a root and a scale, "A minor", "C# dorian", "Eb major pentatonic", "F harmonic minor"...; or "none".'),
     }),
   }),
   tool({
@@ -222,6 +225,30 @@ export const MUSIC_TOOLS = [
         mode: oneOf(["replace", "add"], "Replace the channel's notes (the default), or add to them."),
       },
       ["channel", "notes"],
+    ),
+  }),
+  tool({
+    name: "quantize_notes",
+    title: "Quantize notes",
+    kind: "edit",
+    description:
+      "The Piano roll's Quantizer: pull a channel's notes in a pattern (or those `from`/`to` pick) towards a grid. `strength` (0 to 1, default " +
+      "1) is how far each start goes; `sensitivity` (0 to 1, default 1) moves only notes that near a line; `swing` (0 to 1) delays every second " +
+      'line; `ends`: "leaveDuration" (default), "leaveEnd", "quantizeEnd" or "quantizeDuration" (by `duration_strength`).',
+    inputSchema: obj(
+      {
+        channel,
+        pattern,
+        grid: num("The grid, in steps (default 1, a sixteenth; 4 a beat; 0.5 a 32nd; 2/3 a sixteenth triplet)."),
+        strength: num("0 to 1: how far starts go to the grid."),
+        sensitivity: num("0 to 1: only notes within this share of half a grid of a line move."),
+        swing: num("0 to 1: every second line of the grid later, up to half a grid."),
+        ends: oneOf(["leaveDuration", "leaveEnd", "quantizeEnd", "quantizeDuration"], "What happens to each note's end."),
+        duration_strength: num("0 to 1: how far ends or lengths go to the grid, with quantizeEnd or quantizeDuration."),
+        from: num("Only notes from this step on."),
+        to: num("Only notes before this step."),
+      },
+      ["channel"],
     ),
   }),
   tool({

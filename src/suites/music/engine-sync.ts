@@ -2,7 +2,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import type { EngineKey, EngineStatus } from "@shared/music/engine";
 import { musicApi } from "./api";
-import { withChopPreview } from "./piano/actions";
+import { withChopPreview, withQuantizePreview } from "./piano/actions";
 import { usePiano } from "./piano/store";
 import { activeDraft, withDraftPattern } from "./patterns";
 import { useMusicPreferences } from "./preferences";
@@ -43,7 +43,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       try {
         // The time selection is what loops, while there is one: the Piano roll's in pattern mode, the
         // Playlist's in song mode. A draft pattern shown plays (empty), and the Chopper's chop is heard while it's open.
-        const song = withChopPreview(withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern)));
+        const song = withQuantizePreview(withChopPreview(withDraftPattern(history.doc, activeDraft(history.doc, patternId, draftPattern))));
         const loop = playMode === "song" ? usePlaylist.getState().time : usePiano.getState().time;
         // A clip previewed from its menu: the song is only that clip, its time the loop.
         const preview = clipPreview(song);
@@ -89,9 +89,13 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     if ((state.time !== prev.time && useTransport.getState().mode === "song") || state.previewing !== prev.previewing) void send();
   });
   const unsubscribeLoop = usePiano.subscribe((state, prev) => {
-    if ((state.time !== prev.time && useTransport.getState().mode === "pattern") || state.chopping !== prev.chopping) void send();
-    // What the Chopper makes changes with its settings, the selection and the snap (Line's grid follows the zoom).
-    else if (state.chopping && (state.chopper !== prev.chopper || state.selected !== prev.selected || state.snap !== prev.snap || state.view.pxPerTick !== prev.view.pxPerTick || state.channelId !== prev.channelId)) void send();
+    if ((state.time !== prev.time && useTransport.getState().mode === "pattern") || state.chopping !== prev.chopping || state.quantizing !== prev.quantizing) void send();
+    // What the Chopper and the Quantizer make changes with their settings, the selection and the snap (Line's grid follows the zoom).
+    else if (
+      (state.chopping || state.quantizing) &&
+      (state.chopper !== prev.chopper || state.quantizer !== prev.quantizer || state.selected !== prev.selected || state.snap !== prev.snap || state.view.pxPerTick !== prev.view.pxPerTick || state.channelId !== prev.channelId)
+    )
+      void send();
   });
   // The mixer's selection meter adds up the selected tracks (or the one its inspector shows).
   let metered = "";

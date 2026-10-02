@@ -261,6 +261,62 @@ export function quantizeNotes(notes: Note[], ids: NoteIds, grid: number, mode: "
   });
 }
 
+/** What the Quantizer (Alt+Q) does with a note's end: FL's four choices. */
+export const QUANTIZE_ENDS = ["leaveDuration", "leaveEnd", "quantizeEnd", "quantizeDuration"] as const;
+export type QuantizeEnds = (typeof QUANTIZE_ENDS)[number];
+
+/** The Quantizer's settings (FL's, `docs/fl-studio/piano-roll.md`), all but the grid 0..1. */
+export interface QuantizeOptions {
+  /** The grid's lines, in ticks. */
+  grid: number;
+  /** How far each start goes to its line (FL's Start time strength): 0 not at all, 1 all the way. */
+  start: number;
+  /** How far an end or length goes to the grid, with `quantizeEnd` or `quantizeDuration` (FL's Duration strength). */
+  duration: number;
+  /** Which notes move at all: those within this share of half a grid of a line (1: every one; FL's Sensitivity). */
+  sensitivity: number;
+  /** Every second line later by up to half a grid (ours): quantizing to a swung grid. */
+  swing: number;
+  ends: QuantizeEnds;
+}
+
+/**
+ * The Quantizer (Alt+Q): notes' starts pulled towards the grid by `start`'s strength (those near
+ * enough a line, `sensitivity`), on a grid swung by `swing`, their ends as `ends` says. Quick quantize
+ * is this at full strength.
+ */
+export function quantizeWith(notes: Note[], ids: NoteIds, options: QuantizeOptions): Note[] {
+  const grid = options.grid;
+  if (!(grid >= 1)) return notes;
+  const swing = clamp(options.swing, 0, 1) * grid * 0.5;
+  // The line nearest a tick: every second one swung later.
+  const line = (tick: number) => {
+    const k = Math.round(tick / grid);
+    const candidates = [k - 1, k, k + 1].map((i) => i * grid + (i % 2 !== 0 ? swing : 0));
+    return candidates.reduce((best, at) => (Math.abs(at - tick) < Math.abs(best - tick) ? at : best));
+  };
+  const reach = clamp(options.sensitivity, 0, 1) * grid * 0.5 + 1e-9;
+  const strength = clamp(options.start, 0, 1);
+  const durationStrength = clamp(options.duration, 0, 1);
+  return mapNotes(notes, orAll(notes, ids), (note) => {
+    const target = line(note.start);
+    const near = Math.abs(target - note.start) <= reach;
+    const start = clamp(Math.round(near ? note.start + (target - note.start) * strength : note.start), 0, MAX_TICK - 1);
+    const end = note.start + note.length;
+    let length = note.length;
+    if (options.ends === "leaveEnd") length = end - start;
+    else if (options.ends === "quantizeEnd") {
+      const wanted = Math.max(start + 1, line(end));
+      length = Math.round(end + (wanted - end) * durationStrength) - start;
+    } else if (options.ends === "quantizeDuration") {
+      const wanted = Math.max(grid, Math.round(note.length / grid) * grid);
+      length = Math.round(note.length + (wanted - note.length) * durationStrength);
+    }
+    length = Math.max(1, Math.round(length));
+    return start === note.start && length === note.length ? note : { ...note, start, length };
+  });
+}
+
 /** Quick legato: each note is held until the next one starts (notes that start together are a chord: they all are). */
 export function legatoNotes(notes: Note[], ids: NoteIds): Note[] {
   const chosen = orAll(notes, ids);

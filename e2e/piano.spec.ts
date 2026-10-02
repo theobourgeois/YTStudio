@@ -273,7 +273,9 @@ test("the window fills the desktop, resizes and snaps; the ruler moves a playing
   await expect(win).toHaveAttribute("data-snap", "full");
   expect((await win.boundingBox())!.width).toBeCloseTo(desktop.width, 0);
   const title = win.locator("[data-window-title]");
-  await title.dblclick({ position: { x: 200, y: 10 } });
+  // On the title bar's empty stretch, past its tools and name, short of its buttons.
+  const titleSpace = () => title.boundingBox().then((box) => box!.width - 160);
+  await title.dblclick({ position: { x: await titleSpace(), y: 10 } });
   await expect(win).not.toHaveAttribute("data-snap");
   const floating = (await win.boundingBox())!;
   expect(floating.width).toBeLessThan(desktop.width - 100);
@@ -288,7 +290,7 @@ test("the window fills the desktop, resizes and snaps; the ruler moves a playing
 
   // Dragged to the desktop's top, it fills it again; to its left side, half of it.
   const grab = (await title.boundingBox())!;
-  await page.mouse.move(grab.x + 200, grab.y + 10);
+  await page.mouse.move(grab.x + (await titleSpace()), grab.y + 10);
   await page.mouse.down();
   await page.mouse.move(desktop.x + 400, desktop.y + 150, { steps: 4 });
   await page.mouse.move(desktop.x + 1, desktop.y + 300, { steps: 4 });
@@ -547,4 +549,72 @@ test("a note dragged to the grid's edges scrolls it, along time and down the key
   await page.mouse.up();
   await expect.poll(async () => (await saved(page, id))[0].start).toBeGreaterThan(box.width / PX_PER_TICK);
   expect((await saved(page, id))[0].pitch).toBeLessThan(TOP_PITCH - box.height / ROW);
+});
+
+test("the song's scale is lit and notes land on it; the Stamp places chords; the Quantizer and the zoom tool", async ({ page }) => {
+  const id = await openPiano(page, "Scales and chords");
+  const grid = page.getByTestId("piano-roll");
+
+  // The scale menu: A minor. A note drawn off it (C#5, 61) lands on C5 (60); with Alt, where it's drawn.
+  await page.getByRole("button", { name: "Scale", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Minor (aeolian)" }).hover();
+  await page.getByRole("menuitemradio", { name: "A Minor (aeolian)" }).click();
+  await expect.poll(async () => (await (await page.request.get(`/api/projects/${id}`)).json()).settings.scale).toEqual({ root: 9, type: "minor" });
+  await click(page, 5, 61);
+  await expectNotes(page, id, [[0, 96, 60]]);
+  await holding(page, "Alt", () => click(page, 200, 61));
+  await expectNotes(page, id, [
+    [0, 96, 60],
+    [204, 96, 61],
+  ]);
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Delete");
+  await expectNotes(page, id, []);
+
+  // The Stamp: a minor 7th from A4 (57) with a click; then the scale's triad from B (diminished in A minor).
+  await page.getByRole("button", { name: "Stamp", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "Minor 7th" }).click();
+  await click(page, 5, 57);
+  await expectNotes(page, id, [
+    [0, 96, 57],
+    [0, 96, 60],
+    [0, 96, 64],
+    [0, 96, 67],
+  ]);
+  await page.getByRole("button", { name: "Stamp", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "Triad of the scale" }).click();
+  await page.keyboard.press("ControlOrMeta+d");
+  await click(page, 200, 59);
+  await expect.poll(async () => shape(await saved(page, id)).filter((n) => n[0] === 192).map((n) => n[2])).toEqual([59, 62, 65]);
+  await page.getByRole("button", { name: "Stamp", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "None (a note)" }).click();
+
+  // The Quantizer (Alt+Q): half strength, shown live, an edit once accepted.
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Delete");
+  await expectNotes(page, id, []);
+  await holding(page, "Alt", () => click(page, 40, 72));
+  await expectNotes(page, id, [[44, 96, 72]]);
+  await page.keyboard.press("Alt+q");
+  const quantizer = page.getByTestId("quantizer");
+  await expect(quantizer).toBeVisible();
+  await expect(quantizer.getByTestId("quantizer-summary")).toHaveText("1 of all 1 note moves.");
+  await quantizer.getByRole("slider", { name: "START strength" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Type in value…" }).click();
+  await page.getByRole("textbox", { name: "START strength value" }).fill("50");
+  await page.keyboard.press("Enter");
+  // Not the song's until it's accepted.
+  await expectNotes(page, id, [[44, 96, 72]]);
+  await quantizer.getByRole("button", { name: "Accept" }).click();
+  await expect(quantizer).toHaveCount(0);
+  // Snap Line at this zoom is a step (24): 44 goes half way to 48.
+  await expectNotes(page, id, [[46, 96, 72]]);
+
+  // The zoom tool (Z): a rectangle zooms to it; a right-click goes back.
+  const before = await grid.getAttribute("data-row-height");
+  await page.keyboard.press("z");
+  await drag(page, [0, 74], [192, 70]);
+  await expect(grid).not.toHaveAttribute("data-row-height", before!);
+  await click(page, 50, 72, { button: "right" });
+  await expect(grid).toHaveAttribute("data-row-height", before!);
 });

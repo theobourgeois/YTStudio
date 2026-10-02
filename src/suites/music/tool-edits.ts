@@ -19,6 +19,7 @@ import {
   setStepNote,
   soloChannel,
   setMainVolume,
+  setScale,
   setSwing,
   setTempo,
   setTimeSignature,
@@ -29,7 +30,8 @@ import {
   updateChannel,
 } from "@shared/music/edits";
 import { CHOP_PATTERNS, chopPattern, chopPieces, chopToPattern } from "@shared/music/chop";
-import { addNotes, editNotes } from "@shared/music/notes";
+import { QUANTIZE_ENDS, type QuantizeEnds, addNotes, editNotes, quantizeWith } from "@shared/music/notes";
+import { NOTE_NAMES, SCALES, type SongScale, scaleName } from "@shared/music/scales";
 import { BEAT_UNITS, DEFAULT_VELOCITY, MAX_PATTERN_TICKS, MAX_STEPS, MAX_TEMPO, MIN_TEMPO } from "@shared/music/project";
 import { pitchFromName, pitchName } from "./piano/geometry";
 import { type Channel, type MusicProject, type Pattern, ROOT_PITCH } from "@shared/music/types";
@@ -88,8 +90,55 @@ export const updateSong: SongEdit = (song, input) => {
     }
     next = setTimeSignature(next, [beats, unit]);
   }
-  const { tempo: bpm, swing: sw, timeSignature, volume: main } = next.settings;
-  return { song: next, text: `The song is at ${bpm} BPM in ${timeSignature.join("/")}, swing ${Math.round(sw * 100)}%, main volume ${Math.round(main * 100)}%.` };
+  if (input.scale !== undefined) next = setScale(next, parseScale(input.scale));
+  const { tempo: bpm, swing: sw, timeSignature, volume: main, scale } = next.settings;
+  return {
+    song: next,
+    text: `The song is at ${bpm} BPM in ${timeSignature.join("/")}, swing ${Math.round(sw * 100)}%, main volume ${Math.round(main * 100)}%, ${scale ? `in ${scaleName(scale)}` : "with no scale set"}.`,
+  };
+};
+
+/** A scale as a tool gives it: "A minor", "C# dorian", "Eb major pentatonic", or "none". */
+export function parseScale(value: unknown): SongScale | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (text.toLowerCase() === "none") return null;
+  const match = /^([A-Ga-g])([#b]?)\s+(.+)$/.exec(text);
+  const kind = match?.[3].toLowerCase().replace(/[^a-z]/g, "");
+  const scale = SCALES.find((s) => s.id.toLowerCase() === kind || s.name.toLowerCase().replace(/[^a-z]/g, "") === kind || s.name.toLowerCase().split(" (")[0].replace(/[^a-z]/g, "") === kind);
+  if (!match || !scale) {
+    throw new Error(`"scale" must be a root and a scale, like "A minor" or "C# dorian", or "none". The scales are: ${SCALES.map((s) => s.name.split(" (")[0].toLowerCase()).join(", ")}.`);
+  }
+  const natural = NOTE_NAMES.indexOf(match[1].toUpperCase() as (typeof NOTE_NAMES)[number]);
+  const root = (natural + (match[2] === "#" ? 1 : match[2] === "b" ? -1 : 0) + 12) % 12;
+  return { root, type: scale.id };
+}
+
+/**
+ * The Piano roll's Quantizer for the assistant: a channel's notes in a pattern (or those `from`/`to`
+ * pick) pulled to a grid by a strength, on a grid that can swing, their ends as `ends` says.
+ */
+export const quantizeNotesTool: SongEdit = (song, input, env) => {
+  const channel = findChannel(song, input.channel);
+  const pattern = findPattern(song, input.pattern, env);
+  const grid = (number(input, "grid", 1 / 6, 64) ?? 1) * STEP;
+  const ends = input.ends ?? "leaveDuration";
+  if (!QUANTIZE_ENDS.includes(ends as QuantizeEnds)) throw new Error(`"ends" must be one of ${QUANTIZE_ENDS.map((e) => `"${e}"`).join(", ")}.`);
+  const from = (number(input, "from", 0, MAX_PATTERN_TICKS / STEP) ?? 0) * STEP;
+  const to = (number(input, "to", 0, MAX_PATTERN_TICKS / STEP) ?? MAX_PATTERN_TICKS / STEP) * STEP;
+  const notes = pattern.notes[channel.id] ?? [];
+  const picked = new Set(notes.filter((n) => n.start >= from && n.start < to).map((n) => n.id));
+  if (!picked.size) throw new Error(`"${channel.name}" has no notes there in "${pattern.name}". Read them with get_notes.`);
+  const options = {
+    grid,
+    start: number(input, "strength", 0, 1) ?? 1,
+    duration: number(input, "duration_strength", 0, 1) ?? 1,
+    sensitivity: number(input, "sensitivity", 0, 1) ?? 1,
+    swing: number(input, "swing", 0, 1) ?? 0,
+    ends: ends as QuantizeEnds,
+  };
+  const next = editNotes(song, pattern.id, channel.id, (list) => quantizeWith(list, picked, options));
+  if (next === song) return { song, text: "Nothing moved: the notes picked are on that grid already." };
+  return { song: next, text: `Quantized ${picked.size} note${picked.size === 1 ? "" : "s"} of "${channel.name}" in "${pattern.name}" to a ${input.grid ?? 1}-step grid. get_notes has them.` };
 };
 
 /** A colour as a tool gives it: "#rrggbb", or "none" (or null) for the usual. */

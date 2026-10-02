@@ -1,9 +1,11 @@
 import { type ReactNode, useEffect, useRef } from "react";
-import { PiCaretDownBold, PiGhost, PiMagnet, PiWrench } from "react-icons/pi";
+import { PiCaretDownBold, PiGhost, PiMagnet, PiMagnifyingGlass, PiMusicNotes, PiStamp, PiWrench } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { noteBounds } from "@shared/music/notes";
 import type { Note } from "@shared/music/types";
+import { setScale } from "@shared/music/edits";
+import { CHORDS, NOTE_NAMES, SCALES, SCALE_STAMPS, type ScaleId, type StampId, scaleName, stampName } from "@shared/music/scales";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,6 +15,9 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { startPointerDrag } from "@/lib/pointer-drag";
@@ -21,7 +26,7 @@ import { patternPositionNow } from "../playhead";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
-import { chop, chopperResult, glue, legato, openChopper, pianoChannel, pianoContext, quantize } from "./actions";
+import { chop, chopperResult, glue, legato, openChopper, openQuantizer, pianoChannel, pianoContext, quantize, quantizerResult } from "./actions";
 import { applyDrag, rectSelection } from "./drag";
 import { heldKeys, useMidi } from "../midi";
 import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepare, readPalette, stretchHandle } from "./draw";
@@ -46,6 +51,7 @@ const TOOLS: { tool: PianoTool; label: string; key: string; icon: (props: { clas
   { tool: "mute", label: "Mute", key: "T", icon: MuteIcon },
   { tool: "slice", label: "Slice", key: "C", icon: SliceIcon },
   { tool: "select", label: "Select", key: "E", icon: SelectIcon },
+  { tool: "zoom", label: "Zoom", key: "Z", icon: ({ className }) => <PiMagnifyingGlass className={className} /> },
   { tool: "playback", label: "Playback", key: "Y", icon: PlaybackIcon },
 ];
 
@@ -81,7 +87,7 @@ export function PianoRoll() {
       onClose={() => {
         useMusicUi.getState().setPianoOpen(false);
         // What loops is the time selection only while it can be seen.
-        usePiano.setState({ time: null, drag: null, editing: null, chopping: false });
+        usePiano.setState({ time: null, drag: null, editing: null, chopping: false, quantizing: false });
       }}
       heading={channel ? <ChannelMenu name={channel.name} /> : undefined}
       tools={<PianoControls />}
@@ -122,6 +128,8 @@ function PianoControls() {
   return (
     <>
       <ToolsMenu />
+      <ScaleMenu />
+      <StampMenu />
       <div className="flex items-center gap-0.5" role="toolbar" aria-label="Piano roll tools">
         {TOOLS.map(({ tool: id, label, key, icon: Icon }) => (
           <button
@@ -196,9 +204,95 @@ function ToolsMenu() {
         <DropdownMenuItem onSelect={() => quantize("starts")}>
           Quantize start times <DropdownMenuShortcut>⇧Q</DropdownMenuShortcut>
         </DropdownMenuItem>
+        <DropdownMenuItem onSelect={openQuantizer}>
+          Quantize… <DropdownMenuShortcut>⌥Q</DropdownMenuShortcut>
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={legato}>
           Quick legato <DropdownMenuShortcut>⌘L</DropdownMenuShortcut>
         </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * FL's scale highlighting and Snap to scale (the note in its title bar): the song's scale, its root then
+ * its kind. Its notes' rows are lit, and notes drawn or moved land on them (Alt: anywhere).
+ */
+function ScaleMenu() {
+  const scale = useMusic((s) => s.history?.doc.settings.scale ?? null);
+  const choose = (next: { root: number; type: ScaleId } | null) => useMusic.getState().commit((song) => setScale(song, next));
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Scale"
+          title={scale ? `Scale: ${scaleName(scale)} (its notes lit; notes drawn and moved land on them, Alt: anywhere)` : "Scale highlighting: none"}
+          className={cn("grid size-5.5 place-items-center rounded-sm", scale ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
+        >
+          <PiMusicNotes className="size-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-96 overflow-y-auto">
+        <DropdownMenuLabel>{scale ? scaleName(scale) : "No scale"}</DropdownMenuLabel>
+        <DropdownMenuItem disabled={!scale} onSelect={() => choose(null)}>
+          None
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {SCALES.map(({ id, name }) => (
+          <DropdownMenuSub key={id}>
+            <DropdownMenuSubTrigger>{name}</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup value={scale?.type === id ? String(scale.root) : ""} onValueChange={(root) => choose({ root: Number(root), type: id })}>
+                {NOTE_NAMES.map((note, root) => (
+                  <DropdownMenuRadioItem key={note} value={String(root)}>
+                    {note} {name}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** FL's Stamp: a chord (or the scale's own) that Draw places with one click, from the note pressed. */
+function StampMenu() {
+  const stamp = usePiano((s) => s.stamp);
+  const choose = (next: StampId | null) => usePiano.setState({ stamp: next, ...(next && { tool: "draw" as const }) });
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Stamp"
+          title={stamp ? `Stamp: ${stampName(stamp)} (Draw places it from the note pressed)` : "Stamp: chords placed with one click"}
+          className={cn("grid size-5.5 place-items-center rounded-sm", stamp ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
+        >
+          <PiStamp className="size-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-96 overflow-y-auto">
+        <DropdownMenuRadioGroup value={stamp ?? "none"} onValueChange={(value) => choose(value === "none" ? null : (value as StampId))}>
+          <DropdownMenuRadioItem value="none">None (a note)</DropdownMenuRadioItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>The song's scale</DropdownMenuLabel>
+          {SCALE_STAMPS.map(({ id, name }) => (
+            <DropdownMenuRadioItem key={id} value={id}>
+              {name}
+            </DropdownMenuRadioItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Chords</DropdownMenuLabel>
+          {CHORDS.map(({ id, name }) => (
+            <DropdownMenuRadioItem key={id} value={id}>
+              {name}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -252,6 +346,9 @@ function ChannelMenu({ name }: { name: string }) {
 
 /** The last drag preview worked out, to reuse while neither the notes nor the drag change. */
 let previewCache: { notes: Note[]; drag: unknown; result: Note[]; created: number[]; selected: ReadonlySet<number> | null } | null = null;
+/** The same for the Quantizer's. */
+let quantizeCache: { notes: Note[]; settings: unknown; selected: unknown; grid: number; result: Note[] } | null = null;
+
 /** The same for the Chopper's: what it would make of the notes, while its settings, the selection and the snap stay. */
 let chopCache: { notes: Note[]; settings: unknown; selected: unknown; grid: number; result: Note[]; created: number[] } | null = null;
 
@@ -281,6 +378,13 @@ function PianoBody() {
       const palette = readPalette(box);
       let notes = ctx.notes;
       let selected: ReadonlySet<number> = ctx.selected;
+      // While the Quantizer is open, likewise.
+      if (piano.quantizing && !drag) {
+        if (quantizeCache?.notes !== ctx.notes || quantizeCache.settings !== piano.quantizer || quantizeCache.selected !== piano.selected || quantizeCache.grid !== ctx.grid) {
+          quantizeCache = { notes: ctx.notes, settings: piano.quantizer, selected: piano.selected, grid: ctx.grid, result: quantizerResult(ctx, piano.quantizer) };
+        }
+        notes = quantizeCache.result;
+      }
       // While the Chopper is open, the notes are shown as it would leave them (until a drag starts).
       if (piano.chopping && !drag) {
         if (chopCache?.notes !== ctx.notes || chopCache.settings !== piano.chopper || chopCache.selected !== piano.selected || chopCache.grid !== ctx.grid) {
@@ -323,6 +427,7 @@ function PianoBody() {
         barTicks: ctx.barTicks,
         beatTicks: ctx.beatTicks,
         snap: piano.snap,
+        scale: ctx.song.settings.scale ?? null,
         patternTicks: ctx.patternTicks,
         time: piano.time,
         drag,

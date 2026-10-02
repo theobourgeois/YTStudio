@@ -379,6 +379,20 @@ export function zoomRowsAt(view: PianoView, y: number, rowHeight: number): Piano
   return { ...view, rowHeight: next, topPitch: Math.min(128, under + y / next) };
 }
 
+/**
+ * The zoom tool's rectangle (FL's Z): the view showing ticks `from`..`to` across `width` px and the
+ * pitches `low`..`high` down `height` px, as near as the zoom's limits allow.
+ */
+export function zoomToRect(view: PianoView, from: number, to: number, low: number, high: number, width: number, height: number): PianoView {
+  const ticks = Math.max(STEP_TICKS, Math.abs(to - from));
+  const rows = Math.abs(high - low) + 1;
+  const pxPerTick = clamp(width / ticks, MIN_PX_PER_TICK, MAX_PX_PER_TICK);
+  const rowHeight = clamp(height / rows, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT);
+  // The rows' middle in the middle, when they don't fill it.
+  const middle = (Math.max(low, high) + Math.min(low, high) + 1) / 2;
+  return { ...view, pxPerTick, rowHeight, scrollTick: Math.max(0, Math.min(from, to)), topPitch: Math.min(128, middle + height / rowHeight / 2) };
+}
+
 /** Pixels of vertical drag that double (up) or halve (down) the rows' height, in a zoom drag. */
 export const ROW_ZOOM_DRAG = 120;
 

@@ -10,6 +10,8 @@ const alt = { altKey: true };
 describe("piano roll keys", () => {
   it("picks tools with FL Studio's letters", () => {
     expect(press("p", "KeyP")).toEqual({ type: "tool", tool: "draw" });
+    expect(press("z", "KeyZ")).toEqual({ type: "tool", tool: "zoom" });
+    expect(press("q", "KeyQ", alt)).toEqual({ type: "quantizer" });
     expect(press("b", "KeyB")).toEqual({ type: "tool", tool: "paint" });
     expect(press("d", "KeyD")).toEqual({ type: "tool", tool: "delete" });
     expect(press("t", "KeyT")).toEqual({ type: "tool", tool: "mute" });

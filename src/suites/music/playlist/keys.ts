@@ -41,7 +41,7 @@ export type PlaylistKeyAction =
 
 type KeyLike = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">;
 
-const TOOLS: Record<string, PlaylistTool> = { P: "draw", B: "paint", D: "delete", T: "mute", S: "slip", C: "slice", E: "select", Y: "playback" };
+const TOOLS: Record<string, PlaylistTool> = { P: "draw", B: "paint", D: "delete", T: "mute", S: "slip", C: "slice", E: "select", Z: "zoom", Y: "playback" };
 
 export function resolvePlaylistKey(e: KeyLike): PlaylistKeyAction | null {
   const command = e.metaKey || e.ctrlKey;

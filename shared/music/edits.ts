@@ -2,6 +2,7 @@
  * Edits of a song: pure `(MusicProject) => MusicProject`, returning **the same instance** when nothing
  * changed (so no-ops skip the undo stack and autosave), like the video editor's in `shared/timeline.ts`.
  */
+import { type SongScale, isScaleId } from "./scales.ts";
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import {
@@ -92,6 +93,19 @@ export const setSwing = (song: MusicProject, swing: number) => (Number.isFinite(
 export const setMainVolume = (song: MusicProject, volume: number) => (Number.isFinite(volume) ? setSettings(song, { volume: clamp(volume, 0, 1) }) : song);
 
 export const setTimeSignature = (song: MusicProject, timeSignature: [number, number]) => setSettings(song, { timeSignature });
+
+/** The song's scale (FL's scale highlighting), or none. */
+export function setScale(song: MusicProject, scale: SongScale | null): MusicProject {
+  const now = song.settings.scale;
+  if (scale === null) {
+    if (!now) return song;
+    const { scale: _gone, ...settings } = song.settings;
+    return { ...song, settings };
+  }
+  const root = ((Math.round(scale.root) % 12) + 12) % 12;
+  if (!isScaleId(scale.type) || (now?.root === root && now.type === scale.type)) return song;
+  return { ...song, settings: { ...song.settings, scale: { root, type: scale.type } } };
+}
 
 // ---------------------------------------------------------------------------
 // Channels

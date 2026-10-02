@@ -21,6 +21,7 @@ import {
   orAll,
   pasteNotes,
   quantizeNotes,
+  quantizeWith,
   removeNotes,
   rotateNotes,
   setNoteProps,
@@ -34,7 +35,7 @@ import { selectedIn, useMusicUi, useMusicWindows } from "../ui";
 import { applyDrag, rectSelection } from "./drag";
 import { fadeOut } from "./fades";
 import { MAX_PX_PER_TICK, MIN_PX_PER_TICK, snapTicks, zoomAt, zoomToRange } from "./geometry";
-import { type ChopperSettings, type PianoTool, usePiano } from "./store";
+import { type ChopperSettings, type PianoTool, type QuantizerSettings, usePiano } from "./store";
 
 const EMPTY: Note[] = [];
 
@@ -273,6 +274,40 @@ export function acceptChop() {
   if (!ctx) return;
   const result = chopperResult(ctx, usePiano.getState().chopper);
   if (result) editCreating(ctx, () => result);
+}
+
+/** The Quantizer's grid: its own snap, or (Line, Cell, none) the Piano roll's, else a step. */
+function quantizerGrid(ctx: PianoContext, settings: QuantizerSettings): number {
+  const own = settings.snap === "line" || settings.snap === "cell" || settings.snap === "none" ? 0 : snapTicks(settings.snap, usePiano.getState().view.pxPerTick, ctx.barTicks, ctx.beatTicks);
+  return own > 1 ? own : ctx.grid > 1 ? ctx.grid : STEP_TICKS;
+}
+
+/** What the Quantizer (Alt+Q) would make of the notes now: the selection, or every note. */
+export function quantizerResult(ctx: PianoContext, settings: QuantizerSettings): Note[] {
+  return quantizeWith(ctx.notes, ctx.selected, { ...settings, grid: quantizerGrid(ctx, settings) });
+}
+
+/** The song as the engine should play it while the Quantizer is open: quantized, so what's shown is heard. */
+export function withQuantizePreview(song: MusicProject): MusicProject {
+  const piano = usePiano.getState();
+  if (!piano.quantizing) return song;
+  const ctx = pianoContext();
+  if (!ctx) return song;
+  const notes = quantizerResult(ctx, piano.quantizer);
+  return notes === ctx.notes ? song : editNotes(song, ctx.pattern.id, ctx.channel.id, () => notes);
+}
+
+/** Alt+Q: the Quantizer's window, in front. The Piano roll shows the notes quantized while it's open. */
+export function openQuantizer() {
+  usePiano.setState({ quantizing: true, chopping: false });
+  useMusicWindows.getState().focus("quantizer");
+}
+
+/** The Quantizer's Accept: its quantizing becomes an edit (one undo step). */
+export function acceptQuantize() {
+  const ctx = pianoContext();
+  usePiano.setState({ quantizing: false });
+  if (ctx) edit(ctx, () => quantizerResult(ctx, usePiano.getState().quantizer));
 }
 
 /** Quick quantize: to the snap's grid (a step, when snap is off). */

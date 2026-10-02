@@ -4,6 +4,7 @@
  * old documents upgraded here), or it's dropped.
  */
 import { createId } from "../ids.ts";
+import { isScaleId } from "./scales.ts";
 import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import { GROSS_BEAT_PLUGIN, GROSS_SLOTS, GROSS_SYNCS, GROSS_TICKS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE, isGrossBeat } from "./gross-beat-presets.ts";
@@ -740,7 +741,15 @@ export function normalizeMusicProject(input: unknown, isSample: (id: string) => 
   return {
     version: 1,
     name,
-    settings: { tempo, timeSignature, swing: number(settings.swing, 0, 1, 0), volume: number(settings.volume, 0, 1, DEFAULT_VOLUME) },
+    settings: {
+      tempo,
+      timeSignature,
+      swing: number(settings.swing, 0, 1, 0),
+      volume: number(settings.volume, 0, 1, DEFAULT_VOLUME),
+      ...(isObject(settings.scale) && Number.isInteger(settings.scale.root) && (settings.scale.root as number) >= 0 && (settings.scale.root as number) < 12 && isScaleId(settings.scale.type)
+        ? { scale: { root: settings.scale.root as number, type: settings.scale.type } }
+        : {}),
+    },
     channels,
     patterns,
     playlist: normalizePlaylist(input.playlist, patterns, channels, automations, mixer),

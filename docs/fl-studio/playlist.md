@@ -342,7 +342,7 @@ From the first version (most of it for good):
 - **Automation clips**: built since ([automation.md](automation.md)).
 - **Audio clips' time stretching, pitch and reverse, zero-crossing slicing, crossfades**: the clip plays
   its file at its own speed. Fades and gain on the clip can come soon after, if wanted.
-- **Time markers and time signature changes**, the Zoom tool, Slip's ripple mode.
+- **Time markers and time signature changes**, Slip's ripple mode.
 
 ## Where Vaudio differs
 
@@ -378,7 +378,7 @@ dropped from the Browser or the Finder (Shift: one after another on the track), 
 | Clip kinds | Pattern, audio, automation | Pattern, audio, automation ([automation.md](automation.md)) |
 | Clip colours | The pattern's (or its notes' or channel's) | FL's scheme, from one colour: the title strip that colour, the body a dark shade of it (the grid faint behind), the notes or waveform a light tint (Théo). The colour is the source's (Rename and color), else the track's, else blue-grey for patterns and green for audio; red selected (live, as a selection rectangle covers them). Names too long end in … |
 | Muted track | Its clips dimmed | Its clips greyed and darker, its lane shaded, its header dimmed as a muted mixer track's is; a click on the header around the name mutes too, not only the light (Théo) |
-| Zoom tool | Z | Not yet (Ctrl+wheel, Page Up / Down and Shift+1…5 zoom). Fully zoomed out shows the whole song and some room after it (an eighth, four bars at least), never fewer than 32 bars (Théo) |
+| Zoom tool | Z | The same (Z): a rectangle zooms to its time (its top track at the top), a click zooms out, a right-click back and forth; Ctrl+wheel, Page Up / Down and Shift+1…5 zoom too. Fully zoomed out shows the whole song and some room after it (an eighth, four bars at least), never fewer than 32 bars (Théo) |
 | Slice with Shift | Slices without dragging (Left-Shift: diagonal) | Cuts every track at once: a line the whole height, shown while Shift is held (Théo) |
 | Clip menu | On each clip's corner: preview, source, rename, colour, make unique, chop, select similar, delete… | The arrow at the start of its title: Preview (held: the engine plays the clip alone), Edit pattern / Channel settings, Rename and color…, Change color, make unique, split by channel, Chop (every bar, beat, step or the snap), select all similar, mute, delete. No Select source yet |
 | Audio clips | Fades, gain, pitch, reverse, stretch, crossfades, zero-crossing slices | Make unique as sample (a channel of its own, the same file); their channel's pitch, as FL's Resample (faster and higher together: the clip goes through its file at that speed); a 64-sample fade where a clip cuts its file off or starts inside it (FL's declicking). Their waveform decoded in the tab, sharp at any zoom, drawn as their gain and fades shape it. Their channel's precomputed effects (normalize, reverse, start, length, fades): prepared in memory, as FL does, the clips playing that. **Each clip's own fades and gain**, as FL's, always on the clip (no Show fades switch): a triangle at each top corner drags its fade, a dot mid-curve bends it, a half-circle on the bottom edge its gain (+36 dB to silence); slicing keeps the fade in with the first part and the fade out with the second. **Time stretching** (Signalsmith Stretch, its pitch kept): stretch mode (Shift+M, or its button) has an edge stretch the clip; the clip menu's Stretch → Stretch to tempo (the loop's tempo read off its name) and Reset stretch. No reverse per clip, crossfades or zero-crossing slices yet |

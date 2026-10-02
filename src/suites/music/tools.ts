@@ -42,6 +42,7 @@ import {
   updateChannelTool,
   updatePatternTool,
   updateSong,
+  quantizeNotesTool,
 } from "./tool-edits";
 import { switchMode, useTransport } from "./transport";
 import { armedIn, notesKept, takesOf, useRecording } from "./recording";
@@ -146,6 +147,7 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     return textResult(describeSong(target.song, target.assets, target.patternId));
   },
   update_song: edit(updateSong),
+  quantize_notes: edit(quantizeNotesTool),
   async list_plugins(input) {
     const effects = input.kind === "effect";
     const plugins = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument !== effects);

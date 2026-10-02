@@ -22,9 +22,10 @@ import {
   openClip,
   playFrom,
   playlistContext,
+  zoomFloor,
   selectTime,
 } from "./actions";
-import { type ClipHandle, paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack } from "./geometry";
+import { type ClipHandle, paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack, zoomAt, zoomToRange } from "./geometry";
 import { fadeOutClips } from "./fades";
 import { usePlaylist } from "./store";
 import { curveCursor, curvePointerDown } from "../automation/curve-pointer";
@@ -157,6 +158,9 @@ export function gridPointerDown(e: Press) {
   }
 
   const hit = hitClip(p.clips, p.ctx, p.layout, view, q0.x, q0.y, p.selected);
+
+  // The zoom tool (FL's Z): a rectangle zooms to it, a click zooms out, a right-click back and forth.
+  if (tool === "zoom" && (e.button === 0 || e.button === 2)) return zoomTool(e, tick0, track0, q0.x, at);
 
   // An automation clip's curve, edited on the clip (FL's): its points and tension handles, and a
   // right-click on its line adds a point. (Its title is the clip's: a right-click there deletes it.)
@@ -355,6 +359,38 @@ export function gridPointerDown(e: Press) {
   });
 }
 
+/**
+ * The zoom tool (FL's Z, `docs/fl-studio/playlist.md`): a rectangle dragged is what the view zooms to
+ * (its time across, its top track at the top); a click zooms out about the pointer; a right-click goes
+ * back to the view before the last zoom in, and again forth.
+ */
+function zoomTool(e: Press, tick0: number, track0: number, x0: number, at: (ev: PointerEvent) => { tick: number; track: number }) {
+  const playlist = usePlaylist.getState();
+  const { view } = playlist;
+  if (e.button === 2) {
+    if (playlist.zoomBack) usePlaylist.setState({ view: playlist.zoomBack, zoomBack: view });
+    return;
+  }
+  startPointerDrag(e, {
+    threshold: 3,
+    cursor: "zoom-in",
+    onMove(ev) {
+      const q = at(ev);
+      usePlaylist.getState().setDrag({ kind: "zoom", from: tick0, to: q.tick, top: track0, bottom: q.track });
+    },
+    onEnd() {
+      const drag = usePlaylist.getState().drag;
+      const p = playlistContext();
+      usePlaylist.setState({ drag: null });
+      if (drag?.kind !== "zoom" || !p) return;
+      const zoomed = zoomToRange(view, Math.min(drag.from, drag.to), Math.max(drag.from, drag.to), usePlaylist.getState().gridWidth, zoomFloor());
+      usePlaylist.setState({ zoomBack: view, view: { ...zoomed, scrollY: p.layout[Math.min(drag.top, drag.bottom)] ?? zoomed.scrollY } });
+    },
+    onClick: () => usePlaylist.setState({ zoomBack: view, view: zoomAt(view, x0, view.pxPerTick / 2, zoomFloor()) }),
+    onCancel: cancelDrag,
+  });
+}
+
 /** Decibels a pixel of a gain handle's drag moves it, and below which it's silent. */
 const DB_PER_PX = 0.2;
 const SILENT_DB = -48;
@@ -424,6 +460,7 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   if (tool === "mute") return CURSORS.mute;
   if (tool === "slice") return CURSORS.knife;
   if (tool === "playback") return CURSORS.speaker;
+  if (tool === "zoom") return "zoom-in";
   const q = local(element, ev);
   const hit = hitClip(p.clips, p.ctx, p.layout, view, q.x, q.y, p.selected);
   if (hit?.menu) return "pointer";

@@ -155,8 +155,8 @@ colours and ruler, pitched audio clips, their channel window, sharp waveforms, d
 dropped files shown where they'll land). The reference is `docs/fl-studio/playlist.md`, which ends with
 how it's built and where it differs; Théo's answers to what the manual left open are in its "Decided"
 section. Still to come for it: automation clips (step 4), audio clips' fades, gain, stretch and
-the Zoom tool, Select source, more rack groups. (Audio clips' fades, gain and time stretching came on
-2026-10-02: `docs/fl-studio/playlist.md`.)
+Select source, more rack groups. (Audio clips' fades, gain and time stretching, and the Zoom tool, came
+on 2026-10-02: `docs/fl-studio/playlist.md`.)
 
 What Théo needed: split the song by track and compose the arrangement. What follows was the plan.
 

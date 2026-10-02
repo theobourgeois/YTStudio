@@ -7,7 +7,7 @@ import type { IncomingFile } from "./incoming";
 import { useMusic } from "../store";
 import { useMusicUi } from "../ui";
 
-export const PLAYLIST_TOOLS = ["draw", "paint", "delete", "mute", "slip", "slice", "select", "playback"] as const;
+export const PLAYLIST_TOOLS = ["draw", "paint", "delete", "mute", "slip", "slice", "select", "zoom", "playback"] as const;
 /** The Playlist's tool: what the left button does on the tracks (FL Studio's, with its keys). */
 export type PlaylistTool = (typeof PLAYLIST_TOOLS)[number];
 
@@ -64,7 +64,9 @@ export type PlaylistDrag =
   /** An audio clip's fade handle (or its curve's) dragged: the fades as they'd be. */
   | { kind: "fade"; ids: ReadonlySet<number>; patch: FadePatch }
   /** An audio clip's gain handle dragged: the gain as it'd be. */
-  | { kind: "gain"; ids: ReadonlySet<number>; gain: number };
+  | { kind: "gain"; ids: ReadonlySet<number>; gain: number }
+  /** The zoom tool's rectangle (FL's Z), in ticks and tracks: what the view zooms to when it's let go. */
+  | { kind: "zoom"; from: number; to: number; top: number; bottom: number };
 
 interface PlaylistState {
   tool: PlaylistTool;
@@ -125,6 +127,8 @@ interface PlaylistState {
   transposing: readonly string[] | null;
   /** Stretch mode (FL's, Shift+M): dragging an audio clip's edge time-stretches it rather than resizing its window. */
   stretching: boolean;
+  /** The view before the zoom tool last zoomed in: its right-click goes back (and forth). */
+  zoomBack: PlaylistView | null;
 
   setTool: (tool: PlaylistTool) => void;
   setView: (view: PlaylistView) => void;
@@ -163,6 +167,7 @@ const INITIAL = {
   carried: null as readonly ClipSource[] | null,
   transposing: null as readonly string[] | null,
   stretching: false,
+  zoomBack: null as PlaylistView | null,
 };
 
 export const usePlaylist = create<PlaylistState>((set) => ({

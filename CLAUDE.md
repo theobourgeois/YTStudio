@@ -314,7 +314,7 @@ swing), the Piano roll, the Playlist and song mode, the transport and the metron
 the export, automation, recording, MIDI input, Gross Beat. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
-- The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
+- The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume, scale? }, channels,
   patterns, playlist, mixer, automations }` (`volume` is the toolbar's main volume, folded into the master's gain by `compileSong`). A `Channel` is a sampler playing one of the project's media (`sampleId`), prepared first by its
   `precomputed` effects (trim, reverse, normalise, fades); a `Pattern` has `notes[channelId]`, sorted by `start`,
   and a `length` that's null for FL's Auto: use `lengthOf`/`patternSteps`, never the field. Solo isn't a field:
@@ -379,7 +379,9 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   (`play { from }`; sent while playing, the engine goes there at once). Its look is FL's, in colours of its own
   for each theme (`readPalette`): don't take the page's theme colours for the grid or the notes. Each tool has its
   pointer (`cursors.ts`, picked by `gridCursor`; a drag sets the canvas's own while it lasts), and deleted notes
-  fade out (`fades.ts`: call `fadeOut` wherever notes are deleted).
+  fade out (`fades.ts`: call `fadeOut` wherever notes are deleted). The song's `scale` (`shared/music/scales.ts`)
+  lights its rows and snaps notes drawn, stamped and moved (Alt: not); the Stamp places its chords, and the
+  Quantizer (Alt+Q, `quantizeWith`) is previewed live as the Chopper is (both through the engine's song too).
 - The tab sends the whole song to the engine on every change, even mid-drag (`engine-sync.ts` →
   `POST /api/engine/song`: the server normalises it, compiles it and turns sample ids into paths). The engine
   swaps songs without a gap. Where the song is comes back on an event stream (`/api/engine/events`, about 25 a

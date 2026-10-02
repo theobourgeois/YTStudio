@@ -20,6 +20,8 @@ import {
   updateChannelTool,
   updatePatternTool,
   updateSong,
+  parseScale,
+  quantizeNotesTool,
 } from "./tool-edits";
 
 const env = { patternId: FIRST_PATTERN_ID };
@@ -34,7 +36,7 @@ describe("the assistant's song edits", () => {
   it("set the song's settings, refusing what can't be", () => {
     const { song, text } = updateSong(rack(), { tempo: 140, swing: 0.5, timeSignature: [6, 8], volume: 0.5 }, env);
     expect(song.settings).toEqual({ tempo: 140, swing: 0.5, timeSignature: [6, 8], volume: 0.5 });
-    expect(text).toBe("The song is at 140 BPM in 6/8, swing 50%, main volume 50%.");
+    expect(text).toBe("The song is at 140 BPM in 6/8, swing 50%, main volume 50%, with no scale set.");
     expect(() => updateSong(rack(), { volume: 2 }, env)).toThrow(/from 0 to 1/);
     expect(() => updateSong(rack(), { tempo: 5 }, env)).toThrow(/from 20 to 999/);
     expect(() => updateSong(rack(), { timeSignature: [4, 5] }, env)).toThrow(/unit of 1, 2, 4/);
@@ -192,5 +194,30 @@ describe("the assistant's song edits", () => {
       context: 'Song: "Beat", 120 BPM, 4/4, 2 channels (Kick, Hat). The channel rack shows the pattern "Pattern 1".',
       label: "120 BPM, 4/4",
     });
+  });
+});
+
+describe("the song's scale and the Quantizer, for the assistant", () => {
+  it("sets the scale from its name, or none", () => {
+    expect(parseScale("A minor")).toEqual({ root: 9, type: "minor" });
+    expect(parseScale("c# Dorian")).toEqual({ root: 1, type: "dorian" });
+    expect(parseScale("Eb major pentatonic")).toEqual({ root: 3, type: "majorPentatonic" });
+    expect(parseScale("none")).toBeNull();
+    expect(() => parseScale("H minor")).toThrow(/"A minor"/);
+    const { song, text } = updateSong(rack(), { scale: "F harmonic minor" }, env);
+    expect(song.settings.scale).toEqual({ root: 5, type: "harmonicMinor" });
+    expect(text).toContain("in F Harmonic minor");
+    expect(updateSong(song, { scale: "none" }, env).song.settings.scale).toBeUndefined();
+    expect(describeSong(song, [], env.patternId)).toContain("F Harmonic minor");
+  });
+
+  it("quantizes a channel's notes to a grid, by a strength", () => {
+    const written = setNotesTool(rack(), { channel: "Kick", notes: [{ pitch: "C5", start: 0.25, length: 1 }, { pitch: "E5", start: 2.1, length: 1 }] }, env).song;
+    const { song } = quantizeNotesTool(written, { channel: "Kick", grid: 1 }, env);
+    expect(song.patterns[0].notes.chan_kick.map((n) => n.start)).toEqual([0, 48]);
+    const half = quantizeNotesTool(written, { channel: "Kick", grid: 1, strength: 0.5 }, env).song;
+    expect(half.patterns[0].notes.chan_kick.map((n) => n.start)).toEqual([3, 49]);
+    expect(quantizeNotesTool(song, { channel: "Kick", grid: 1 }, env).text).toContain("Nothing moved");
+    expect(() => quantizeNotesTool(written, { channel: "Kick", ends: "whatever" }, env)).toThrow(/leaveDuration/);
   });
 });

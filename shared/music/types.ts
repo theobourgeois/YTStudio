@@ -1,3 +1,4 @@
+import type { SongScale } from "./scales.ts";
 /**
  * The music suite's document (a DAW project), modelled on FL Studio: the channel rack's channels
  * (instruments), patterns (notes for any of the channels), the playlist (the song's arrangement: clips
@@ -28,6 +29,8 @@ export interface MusicSettings {
    * master track (`DEFAULT_VOLUME` leaves it as it is).
    */
   volume: number;
+  /** The song's scale (FL's scale highlighting: the Piano roll shades it, and snaps notes to it), or absent for none. */
+  scale?: SongScale;
 }
 
 /** A sampler's volume envelope. Off, a note plays its whole sample whatever its length. */

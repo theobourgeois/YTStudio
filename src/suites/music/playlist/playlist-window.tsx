@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiArrowsHorizontal, PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
+import { PiArrowsHorizontal, PiCaretDownBold, PiMagnet, PiMagnifyingGlass, PiSidebarSimple } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
 import { type ClipContext, clipContext, clipLength, songTicks } from "@shared/music/playlist";
@@ -94,6 +94,7 @@ const TOOLS: { tool: PlaylistTool; label: string; key: string; icon: (props: { c
   { tool: "slip", label: "Slip", key: "S", icon: SlipIcon },
   { tool: "slice", label: "Slice", key: "C", icon: SliceIcon },
   { tool: "select", label: "Select", key: "E", icon: SelectIcon },
+  { tool: "zoom", label: "Zoom", key: "Z", icon: ({ className }) => <PiMagnifyingGlass className={className} /> },
   { tool: "playback", label: "Playback", key: "Y", icon: PlaybackIcon },
 ];
 
