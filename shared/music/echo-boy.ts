@@ -11,7 +11,7 @@
  */
 import { clamp } from "../math.ts";
 import { findEffect } from "./automation.ts";
-import { HIGH_CUT_RANGE, LOW_CUT_RANGE, MAX_ECHO_BPM, MAX_ECHO_GAIN, MAX_ECHO_MS, MAX_RHYTHM_BEATS, MAX_TAPS, MIN_ECHO_BPM, evenTaps, noteBeats, normalizeEchoBoy, normalizeTaps } from "./echo-boy-presets.ts";
+import { HIGH_CUT_RANGE, LOW_CUT_RANGE, MAX_ECHO_BPM, MAX_ECHO_GAIN, MAX_ECHO_MS, MAX_RHYTHM_BEATS, MAX_TAPS, MIN_ECHO_BPM, evenTaps, maxTapSeconds, noteBeats, normalizeEchoBoy, normalizeTaps } from "./echo-boy-presets.ts";
 import { ECHO_STYLES, decayDb, styleNamed } from "./echo-boy-styles.ts";
 import {
   ECHO_SATURATIONS,
@@ -101,6 +101,9 @@ export const styleLabel = (eb: EchoBoy) => (eb.custom ? "Custom" : eb.style);
 export const setStyle = (song: MusicProject, effectId: string, name: string) =>
   ECHO_STYLES.some((s) => s.name === name) ? updateEchoBoy(song, effectId, { style: name }) : song;
 
+/** Drop the Style Editor's edit: the named style as it's made. */
+export const revertStyle = (song: MusicProject, effectId: string) => editEchoBoy(song, effectId, (eb) => (eb.custom ? { ...eb, custom: null } : eb));
+
 /** Edit the style in the Style Editor: it becomes Custom (based on the named style). */
 export function editStyle(song: MusicProject, effectId: string, change: (style: EchoStyle) => EchoStyle): MusicProject {
   return editEchoBoy(song, effectId, (eb) => {
@@ -128,6 +131,25 @@ export function echoMs(time: EchoTime, bpm: number): number {
 export function timeText(time: EchoTime): string {
   if (time.sync === "time") return time.ms >= 1000 ? `${(time.ms / 1000).toFixed(2)} s` : `${time.ms < 100 ? time.ms.toFixed(2) : time.ms.toFixed(1)} ms`;
   return `1/${time.note}${time.sync === "dot" ? " dot" : time.sync === "trip" ? " tri" : ""}`;
+}
+
+/**
+ * A time typed (the LCD's Type in value, the assistant): "126.2", "126 ms", "1.5 s" are ms; "1/8",
+ * "1/8 dot" ("1/8d", "1/8."), "1/16 tri" ("1/16t", "triplet") are note values. Null if it's neither.
+ */
+export function parseEchoTime(text: string): Pick<EchoTime, "sync"> & Partial<EchoTime> | null {
+  const t = text.trim().toLowerCase();
+  const fraction = /^1\s*\/\s*(\d+)\s*(n|note|th|nd|st)?\s*(\.|d|dot|dotted|t|tri|trip|triplet|triplets)?$/.exec(t);
+  if (fraction) {
+    const note = Number(fraction[1]) as EchoNote;
+    if (!NOTE_STEPS.includes(note)) return null;
+    const kind = fraction[3];
+    return { sync: !kind ? "note" : kind.startsWith("t") ? "trip" : "dot", note };
+  }
+  const time = /^(\d+(?:\.\d+)?)\s*(ms|s|sec|seconds)?$/.exec(t);
+  if (!time) return null;
+  const value = Number(time[1]) * (time[2] && time[2] !== "ms" ? 1000 : 1);
+  return value <= MAX_ECHO_MS ? { sync: "time", ms: Math.round(value * 10) / 10 } : null;
 }
 
 /** The time knob's place (0..1) for ms, and back: a log taper (1 ms near the bottom, 120 ms at the middle, 15 s at the top). */
@@ -429,15 +451,19 @@ function wiring(eb: EchoBoy, bpm: number): Pick<EngineEchoBoy, "lines" | "feedba
     feedback = [1];
     fixed = [0];
     const double = eb.rhythm.panShape === "double";
-    taps = heardTaps(eb, bpm).map((tap) => {
+    taps = heardTaps(eb, bpm).flatMap((tap) => {
+      // Past what the line holds at this tempo: silent (EchoBoy greys it out).
+      if ((tap.beat * beat) / 1000 > maxTapSeconds) return [];
       const pan = clamp(tap.pan, -1, 1);
-      return {
-        delay: (tap.beat * beat) / 1000,
-        left: tap.level * Math.min(1, 1 - pan) * balance[0],
-        right: tap.level * Math.min(1, 1 + pan) * balance[1],
-        offset: double && !tap.one ? eb.offset / 1000 : 0,
-        one: tap.one,
-      };
+      return [
+        {
+          delay: (tap.beat * beat) / 1000,
+          left: tap.level * Math.min(1, 1 - pan) * balance[0],
+          right: tap.level * Math.min(1, 1 + pan) * balance[1],
+          offset: double && !tap.one ? eb.offset / 1000 : 0,
+          one: tap.one,
+        },
+      ];
     });
   } else {
     // Single and Dual: a pair of lines a side (L-A, L-B, R-A, R-B), A taking the input, A and B feeding

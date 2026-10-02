@@ -40,6 +40,8 @@ export const MAX_OFFSET = 25;
 /** EchoBoy's own tempo (typed or tapped), as its bpm LCD takes it. */
 export const MIN_ECHO_BPM = 30;
 export const MAX_ECHO_BPM = 300;
+/** How far back a Rhythm tap can read (seconds): what the engine's line holds, less the wobble's reach. Later taps are silent. */
+export const maxTapSeconds = 16.25;
 /** Rhythm Echo: at most 16 taps, a pattern 1 to 8 beats long. */
 export const MAX_TAPS = 16;
 export const MAX_RHYTHM_BEATS = 8;

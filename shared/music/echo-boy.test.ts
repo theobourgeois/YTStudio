@@ -17,7 +17,9 @@ import {
   mixGains,
   moveTap,
   msToKnob,
+  parseEchoTime,
   primeTimes,
+  revertStyle,
   setStyle,
   styleLabel,
   styleOf,
@@ -85,6 +87,7 @@ describe("EchoBoy's settings", () => {
     song = editStyle(song, "fx_echo", (s) => ({ ...s, high: { ...s.high, gain: -20 } }));
     expect(styleLabel(eb(song))).toBe("Custom");
     expect(styleOf(eb(song)).high.gain).toBe(-20);
+    expect(eb(revertStyle(song, "fx_echo")).custom).toBeNull();
     // Another style throws the edit away.
     expect(eb(setStyle(song, "fx_echo", "TelRay")).custom).toBeNull();
   });
@@ -120,6 +123,17 @@ describe("EchoBoy's times", () => {
     expect(knobToMs(1)).toBe(15_000);
     expect(Math.round(knobToMs(0.5))).toBe(122);
     for (const ms of [0, 1, 126.2, 500, 15_000]) expect(knobToMs(msToKnob(ms))).toBeCloseTo(ms, 0);
+  });
+
+  it("reads typed times", () => {
+    expect(parseEchoTime("126.2")).toEqual({ sync: "time", ms: 126.2 });
+    expect(parseEchoTime("1.5 s")).toEqual({ sync: "time", ms: 1500 });
+    expect(parseEchoTime("1/8")).toEqual({ sync: "note", note: 8 });
+    expect(parseEchoTime("1/8 dot")).toEqual({ sync: "dot", note: 8 });
+    expect(parseEchoTime("1/16t")).toEqual({ sync: "trip", note: 16 });
+    expect(parseEchoTime("1/3")).toBeNull();
+    expect(parseEchoTime("loud")).toBeNull();
+    expect(parseEchoTime("20000")).toBeNull();
   });
 
   it("taps a tempo from the last few taps, starting again after a pause", () => {
