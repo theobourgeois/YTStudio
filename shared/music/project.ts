@@ -8,10 +8,13 @@ import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import { AUTO_TUNE_PLUGIN, isAutoTune, normalizeAutoTune } from "./auto-tune-presets.ts";
 import { ECHO_BOY_PLUGIN, isEchoBoy, normalizeEchoBoy } from "./echo-boy-presets.ts";
+import { PITCH_WHEEL_PLUGIN, isPitchWheel, normalizePitchWheel } from "./pitch-wheel-presets.ts";
 import { GROSS_BEAT_PLUGIN, GROSS_SLOTS, GROSS_SYNCS, GROSS_TICKS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE, isGrossBeat } from "./gross-beat-presets.ts";
 import {
   AUTO_TUNE_CONTROLS,
   type AutoTuneControl,
+  PITCH_WHEEL_CONTROLS,
+  type PitchWheelControl,
   type Automation,
   type AutomationLfo,
   type AutomationPoint,
@@ -412,6 +415,7 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   if (isGrossBeat(plugin)) return { ...effect, plugin: GROSS_BEAT_PLUGIN, grossBeat: normalizeGrossBeat(input.grossBeat) };
   if (isAutoTune(plugin)) return { ...effect, plugin: AUTO_TUNE_PLUGIN, autoTune: normalizeAutoTune(input.autoTune) };
   if (isEchoBoy(plugin)) return { ...effect, plugin: ECHO_BOY_PLUGIN, echoBoy: normalizeEchoBoy(input.echoBoy) };
+  if (isPitchWheel(plugin)) return { ...effect, plugin: PITCH_WHEEL_PLUGIN, pitchWheel: normalizePitchWheel(input.pitchWheel) };
   return effect;
 }
 
@@ -587,6 +591,8 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.effect) && AUTO_TUNE_CONTROLS.includes(raw.control as AutoTuneControl) ? { kind: "autoTune", effect: raw.effect, control: raw.control as AutoTuneControl } : null;
     case "echoBoy":
       return isId(raw.effect) && ECHO_CONTROLS.includes(raw.control as EchoControl) ? { kind: "echoBoy", effect: raw.effect, control: raw.control as EchoControl } : null;
+    case "pitchWheel":
+      return isId(raw.effect) && PITCH_WHEEL_CONTROLS.includes(raw.control as PitchWheelControl) ? { kind: "pitchWheel", effect: raw.effect, control: raw.control as PitchWheelControl } : null;
     case "main":
       return { kind: "main" };
     case "plugin":

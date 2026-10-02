@@ -138,7 +138,8 @@ export interface Pattern {
 /**
  * An effect in a mixer track's slot: an effect plugin, or one of ours, whose settings are in the song
  * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
- * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`).
+ * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pitch Wheel:
+ * `PITCH_WHEEL_PLUGIN` and `pitchWheel`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -154,6 +155,54 @@ export interface MixerEffect {
   echoBoy?: EchoBoy;
   /** Auto-Tune's settings, on an Auto-Tune (absent on a plugin). */
   autoTune?: AutoTune;
+  /** Pitch Wheel's settings, on a Pitch Wheel (absent on a plugin). */
+  pitchWheel?: PitchWheel;
+}
+
+/** What a Pitch Wheel's dial spans, in semitones, from one end to the other (QuikQuak's Range). */
+export const WHEEL_RANGES = [2, 4, 6, 12, 24, 48] as const;
+export type WheelRange = (typeof WHEEL_RANGES)[number];
+/** Where a wheel's pointer lands: anywhere, on whole semitones, or on whole octaves. */
+export const WHEEL_SNAPS = ["off", "semitone", "octave"] as const;
+export type WheelSnap = (typeof WHEEL_SNAPS)[number];
+
+/**
+ * One of a Pitch Wheel's two wheels (`docs/quikquak/pitchwheel.md`): where the hand puts it (the
+ * pointer), and how what's heard follows it.
+ */
+export interface Wheel {
+  /** Semitones, within half the range either side of 0: the pointer. */
+  value: number;
+  range: WheelRange;
+  snap: WheelSnap;
+  /** 0..1: how hard the actual pitch is held to the pointer (1 clamps it; low, it swings past and back). */
+  gravity: number;
+  /** 0..1: how slowly the actual pitch heads for the pointer (it shows at low gravity). */
+  inertia: number;
+  /** 0..1: how slowly the pointer itself is followed (high, it overrides gravity and inertia). */
+  smooth: number;
+}
+
+/** How notes play a Pitch Wheel: one at a time, the sound always heard (Single), or a voice each, silent without (Multi). */
+export const WHEEL_MIDI_MODES = ["single", "multi"] as const;
+export type WheelMidiMode = (typeof WHEEL_MIDI_MODES)[number];
+/** The analysis window: Tight (drums, voices; ~43 ms late at 48 kHz) or Wide (bass and pads; ~85 ms). */
+export const WHEEL_RESOLUTIONS = ["tight", "wide"] as const;
+export type WheelResolution = (typeof WHEEL_RESOLUTIONS)[number];
+
+/** Pitch Wheel's settings (QuikQuak Pitchwheel's, `docs/quikquak/pitchwheel.md`). */
+export interface PitchWheel {
+  pitch: Wheel;
+  /** The formants (the spectral envelope) moved on their own, in semitones: used while `timbreOn`. */
+  timbre: Wheel;
+  /** The Timbre tab open: the formants are the Timbre wheel's (at 0 they stay as they were). Closed, they move with the pitch, as a tape's do. */
+  timbreOn: boolean;
+  midiMode: WheelMidiMode;
+  /** The channel whose notes play it (by id; it may be muted, to hear only the result), or null: only the window's keyboard. */
+  notesFrom: string | null;
+  /** The note that shifts nothing (0..127; 60, FL's C5): a note plays the sound that many semitones from it. */
+  origin: number;
+  resolution: WheelResolution;
 }
 
 /**
@@ -593,6 +642,7 @@ export type AutomationTarget =
   | { kind: "grossBeat"; effect: string; control: GrossControl }
   | { kind: "autoTune"; effect: string; control: AutoTuneControl }
   | { kind: "echoBoy"; effect: string; control: EchoControl }
+  | { kind: "pitchWheel"; effect: string; control: PitchWheelControl }
   | { kind: "main" }
   | {
       kind: "plugin";
@@ -611,6 +661,10 @@ export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";
 /** Auto-Tune's controls an automation clip can drive (the key too, for a song that changes key). */
 export const AUTO_TUNE_CONTROLS = ["retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key"] as const;
 export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
+
+/** Pitch Wheel's controls an automation clip can drive: both wheels, and each one's knobs. */
+export const PITCH_WHEEL_CONTROLS = ["pitch", "timbre", "pitchGravity", "pitchInertia", "pitchSmooth", "timbreGravity", "timbreInertia", "timbreSmooth"] as const;
+export type PitchWheelControl = (typeof PITCH_WHEEL_CONTROLS)[number];
 
 /** How a segment of an automation clip's curve goes from one point to the next: FL Studio's curve types. */
 export const CURVE_TYPES = ["single", "double", "altSingle", "altDouble", "hold", "stairs", "smoothStairs", "pulse", "wave", "halfSine", "smooth"] as const;

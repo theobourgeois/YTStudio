@@ -11,9 +11,10 @@ import { LANE_FINEST, sampleLane } from "./sampling.ts";
 import { type EngineAutoTune, engineAutoTune, engineControlValue } from "./auto-tune.ts";
 import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANES_OF, engineEchoBoy } from "./echo-boy.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
+import { type EnginePitchWheel, controlValue as pitchWheelValue, engineControlValue as engineWheelValue, enginePitchWheel } from "./pitch-wheel.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
-import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { AUTO_TUNE_CONTROLS, type AutoTuneControl, PITCH_WHEEL_CONTROLS, type PitchWheelControl, type AutomationTarget, type Channel, type EchoControl, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -70,6 +71,8 @@ export interface EngineEffect {
   autoTune?: EngineAutoTune;
   /** An EchoBoy (ours, run by the engine itself: its `plugin.id` is `ECHO_BOY_PLUGIN`'s): its delay lines, style and levels. */
   echoBoy?: EngineEchoBoy;
+  /** A Pitch Wheel (ours too, `PITCH_WHEEL_PLUGIN`): its wheels, and where its notes come from. */
+  pitchWheel?: EnginePitchWheel;
 }
 
 /**
@@ -154,6 +157,7 @@ export type EngineLaneTarget =
   | { kind: "gross"; track: number; effect: number; control: GrossControl }
   | { kind: "tune"; track: number; effect: number; control: AutoTuneControl }
   | { kind: "echo"; track: number; effect: number; control: EchoLane }
+  | { kind: "wheel"; track: number; effect: number; control: PitchWheelControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
 /**
@@ -361,6 +365,11 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         const slots = gross.get(e.id);
         if (e.autoTune) return [{ ...effect, autoTune: engineAutoTune(e.autoTune) }];
         if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
+        if (e.pitchWheel) {
+          // Notes from a channel the song no longer has: none.
+          const wheel = enginePitchWheel(e.pitchWheel);
+          return [{ ...effect, pitchWheel: wheel.notesFrom && !song.channels.some((c) => c.id === wheel.notesFrom) ? { ...wheel, notesFrom: null } : wheel }];
+        }
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
       gains: trackGains(track, main),
@@ -663,6 +672,13 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
           const target: AutomationTarget = { kind: "autoTune", effect: effect.id, control };
           const value = valueOf(target, at[control]);
           add({ kind: "tune", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineControlValue(control, value(tick))]);
+        }
+      const pw = effect.pitchWheel;
+      if (pw)
+        for (const control of PITCH_WHEEL_CONTROLS) {
+          const target: AutomationTarget = { kind: "pitchWheel", effect: effect.id, control };
+          const value = valueOf(target, pitchWheelValue(pw, control));
+          add({ kind: "wheel", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineWheelValue(pw, control, value(tick))]);
         }
       const eb = effect.echoBoy;
       if (eb) {

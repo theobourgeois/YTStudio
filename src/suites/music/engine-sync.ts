@@ -12,6 +12,7 @@ import { armedIn, useRecording } from "./recording";
 import { useInputs } from "./inputs";
 import { useMusic } from "./store";
 import { takeAutoTunes } from "./auto-tune/pitch-history";
+import { takePitchWheels } from "./pitch-wheel/live";
 import { NO_CHANNELS, NO_ECHO_BOYS, NO_EFFECTS, NO_GROSS_BEATS, NO_METERS, afterSongSent, useTransport } from "./transport";
 import { currentTrackId, useMusicUi } from "./ui";
 import { automateParameter } from "./automation/actions";
@@ -130,6 +131,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       });
       // What each Auto-Tune heard: kept outside React, for its window's pitch graph.
       takeAutoTunes(event.autoTunes);
+      // Where each Pitch Wheel's wheels are as they're heard: its window's rings.
+      takePitchWheels(event.pitchWheels);
     } else if (event.event === "take") {
       useRecording.getState().take(event);
     } else if (event.event === "touch") {
