@@ -77,8 +77,48 @@ const grossBeats = () =>
       }),
   );
 
+/** Auto-Tune is ours too. */
+const AUTO_TUNE = "vaudio:auto-tune";
+/** A reading every 5 ms, numbered from when the engine started. */
+const AUTO_TUNE_STEP = 0.00533;
+const started = Date.now();
+/**
+ * Each Auto-Tune in the song, as the real engine says what it hears: while playing, a voice wandering
+ * around A3 (its target), tuned onto it; stopped, no pitch.
+ */
+const autoTunes = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.autoTune)
+      .map((e) => {
+        const now = Math.floor((Date.now() - started) / 1000 / AUTO_TUNE_STEP);
+        const points = Array.from({ length: 16 }, (_, i) => {
+          const n = now - 15 + i;
+          if (playingSince === null) return [n, -1, -1, -1];
+          const sung = 57 + 0.3 * Math.sin(n * AUTO_TUNE_STEP * 2 * Math.PI * 5);
+          return [n, sung, 57 + e.autoTune.transpose, 57];
+        });
+        return [e.id, { latency: 2395, step: AUTO_TUNE_STEP, points }];
+      }),
+  );
+
+/** EchoBoy is ours too. */
+const ECHO_BOY = "vaudio:echo-boy";
+/** Each EchoBoy in the song: its LEDs' levels (some echo while the song plays). */
+const echoBoys = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.echoBoy)
+      .map((e) => {
+        const level = playingSince === null ? 0 : 0.3;
+        return [e.id, { input: [level, level], output: [level * e.echoBoy.output, level * e.echoBoy.output] }];
+      }),
+  );
+
 const effects = () => {
-  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT);
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY);
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
@@ -208,7 +248,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), echoBoys: echoBoys() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -246,6 +286,8 @@ const sendTransport = () =>
     recording: recording && { id: recording.id, levels: levels() },
     preview: previewNow(),
     grossBeats: grossBeats(),
+    autoTunes: autoTunes(),
+    echoBoys: echoBoys(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
     cpu: 0.02,

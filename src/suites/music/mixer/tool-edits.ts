@@ -4,6 +4,7 @@
  * exists and what would work.
  */
 import { isFiniteNumber } from "@shared/math";
+import { keyText } from "@shared/music/auto-tune";
 import type { EngineEffects } from "@shared/music/engine";
 import {
   addMixerTracks,
@@ -134,7 +135,10 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
       const loaded = effects?.loaded.find((e) => e.effect === effect.id);
       const failed = effects?.failed.find((e) => e.effect === effect.id);
       const state = failed ? `couldn't be loaded: ${failed.error}` : effects?.loading.includes(effect.id) ? "loading" : loaded?.latency ? `delays its sound ${loaded.latency} samples` : null;
-      const gross = effect.grossBeat && `, effect ${effect.id}, playing time slot ${effect.grossBeat.timeSlot + 1} and volume slot ${effect.grossBeat.volumeSlot + 1} (get_gross_beat)`;
+      const gross =
+        (effect.grossBeat && `, effect ${effect.id}, playing time slot ${effect.grossBeat.timeSlot + 1} and volume slot ${effect.grossBeat.volumeSlot + 1} (get_gross_beat)`) ||
+        (effect.echoBoy && `, effect ${effect.id}, ${effect.echoBoy.mode} echo, ${effect.echoBoy.custom ? "a custom style" : effect.echoBoy.style}${effect.echoBoy.preset ? `, preset "${effect.echoBoy.preset}"` : ""} (get_echo_boy)`) ||
+        (effect.autoTune && `, effect ${effect.id}, ${keyText(effect.autoTune.key, effect.autoTune.scale)}, retune speed ${Math.round(effect.autoTune.retuneSpeed)} ms (get_auto_tune)`);
       lines.push(`    slot ${slot + 1}: ${effect.plugin.name} (${effect.plugin.format})${effect.enabled ? "" : ", bypassed"}${effect.mix < 1 ? `, mix ${percent(effect.mix)}` : ""}${state ? `, ${state}` : ""}${gross || ""}`);
     });
     if (number > 0) {

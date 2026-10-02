@@ -5,6 +5,8 @@
 #pragma once
 
 #include "Delay.h"
+#include "AutoTune.h"
+#include "EchoBoy.h"
 #include "GrossBeat.h"
 #include "Host.h"
 #include "Resampling.h"
@@ -139,6 +141,12 @@ struct Song
             /** A Gross Beat (ours, not a plugin: `plugin` is null): its sound, kept across songs, and this song's settings for it. */
             std::shared_ptr<gross::State> gross;
             std::shared_ptr<gross::Settings> grossSettings;
+            /** An Auto-Tune (ours, likewise): its sound, kept across songs, and this song's settings for it. */
+            std::shared_ptr<tune::State> tune;
+            std::shared_ptr<tune::Settings> tuneSettings;
+            /** An EchoBoy (ours too): its sound, kept across songs, and this song's settings for it. */
+            std::shared_ptr<echo::State> echo;
+            std::shared_ptr<echo::Settings> echoSettings;
         };
 
         juce::String id;
@@ -169,9 +177,9 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, track, send, mix, gross, param };
+        enum class Kind { channel, track, send, mix, gross, tune, echo, param };
         Kind kind = Kind::channel;
-        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix). */
+        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`). */
         int channel = -1, track = -1, index = -1, control = 0;
         int size = 1;
         std::vector<double> ticks;
@@ -266,11 +274,11 @@ struct Song
 
     /**
      * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the
-     * mixer's, `grossBeats` keeps its Gross Beats' sounds; `unreadable` gets the ids of channels whose
+     * mixer's, `grossBeats` and `echoBoys` keep its Gross Beats' and EchoBoys' sounds; `unreadable` gets the ids of channels whose
      * sample couldn't be read. Unless `keepOnly` is false (a copy for the export), the hosts let go of the
      * plugins the song doesn't have.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, juce::StringArray& unreadable,
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, juce::StringArray& unreadable,
                                         int capacity, double sampleRate, bool keepOnly = true);
 
     /**
