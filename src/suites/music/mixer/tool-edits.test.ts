@@ -78,6 +78,12 @@ describe("the assistant's mixer edits", () => {
     expect(() => setSendTool(song, { from: 2, to: 2 }, env)).toThrow(/can't send to itself/);
   });
 
+  it("group tracks, their controls linked, with a VCA fader", () => {
+    const grouped = groupMixerTracksTool(rack(), { tracks: [1, 2], name: "Drums", linked: true, vca: -6 }, env);
+    expect(grouped.text).toBe('Grouped insert 1 ("Insert 1"), insert 2 ("Insert 2") as "Drums", their controls linked, a VCA fader at −6.0 dB.');
+    expect(grouped.song.mixer.groups[0]).toMatchObject({ name: "Drums", linked: true });
+  });
+
   it("route tracks to a new bus", () => {
     const routed = routeToNewBusTool(rack(), { tracks: [1, "insert_2"], name: "Drums" }, env);
     expect(routed.text).toBe('insert 1 ("Insert 1"), insert 2 ("Insert 2") now go to the new bus insert 3 ("Drums"), which sends to the master.');

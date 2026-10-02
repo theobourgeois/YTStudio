@@ -697,6 +697,11 @@ export interface MixerGroup {
    * moves them all. Absent: it's only how the mixer shows them.
    */
   linked?: true;
+  /**
+   * Its VCA fader (0..1, as a track's: `DEFAULT_FADER` leaves them as they are): it scales every one of its
+   * tracks' levels without mixing their sound (each keeps its own fader, sends and automation). Absent: none.
+   */
+  vca?: number;
 }
 
 export interface Mixer {

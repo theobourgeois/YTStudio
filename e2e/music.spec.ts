@@ -1312,6 +1312,14 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await expect.poll(async () => [(await track(11)).muted, (await track(12)).muted, (await track(9)).muted]).toEqual([true, true, false]);
   await strip("Insert 12").getByRole("button", { name: "Unmute Insert 12" }).click();
   await expect.poll(async () => [(await track(11)).muted, (await track(12)).muted]).toEqual([false, false]);
+  // A VCA fader for the group: a strip after the master whose fader turns its tracks down together, theirs untouched.
+  await strip("Insert 11").getByTitle("Insert 11 (double-click to rename)").click({ button: "right" });
+  await page.getByRole("menuitemcheckbox", { name: "VCA fader for the group" }).click();
+  const vca = mixer.getByRole("slider", { name: "Drums VCA" });
+  await expect(vca).toBeVisible();
+  await drag(page, vca, vca, { dy: 40 });
+  await expect.poll(async () => (await savedSong(page, id)).mixer.groups[0].vca).toBeLessThan(0.75);
+  expect((await track(11)).volume).toBe(0.8);
 
   // Sending to insert 3 draws a cable from it.
   await strip("Insert 1").locator("canvas").click();

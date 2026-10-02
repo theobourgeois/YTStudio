@@ -29,6 +29,7 @@ import {
   setMixerSolo,
   setSendPreFader,
   setGroupLinked,
+  setGroupVca,
   setTrackFolded,
   setSoloSafe,
   trackName,
@@ -120,10 +121,17 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
     track.dock !== "middle" && track.id !== MASTER_TRACK_ID ? `docked ${track.dock}` : null,
     track.separator ? "a divider before it" : null,
     track.folded ? "folded (the tracks going into it are hidden in the mixer)" : null,
-    track.group ? `in the group "${song.mixer.groups.find((g) => g.id === track.group)?.name ?? track.group}"${song.mixer.groups.find((g) => g.id === track.group)?.linked ? " (its controls linked)" : ""}` : null,
+    track.group ? groupText(song, track.group) : null,
     track.color ? `colour ${COLOR_NAMES[TRACK_COLORS.indexOf(track.color as (typeof TRACK_COLORS)[number])] ?? track.color}` : null,
   ];
   return `${label(song, track)} (id ${track.id}): ${parts.filter(Boolean).join(", ")}`;
+}
+
+/** A track's group, as `describeTrack` says it: its name, and whether its controls are linked or it has a VCA fader. */
+function groupText(song: MusicProject, id: string): string {
+  const group = song.mixer.groups.find((g) => g.id === id);
+  const extras = [group?.linked ? "its controls linked" : null, group?.vca !== undefined ? `its VCA fader at ${faderDb(group.vca)}` : null].filter(Boolean);
+  return `in the group "${group?.name ?? id}"${extras.length ? ` (${extras.join(", ")})` : ""}`;
 }
 
 /** A Pitch Wheel in a few words: the shift it plays, its Timbre, where its notes come from. */
@@ -335,8 +343,13 @@ export const groupMixerTracksTool: SongEdit = (song, input) => {
   if (ids.includes(MASTER_TRACK_ID)) throw new Error("The master can't be in a group.");
   const grouped = createGroup(song, ids, typeof input.name === "string" ? input.name : undefined);
   const group = grouped.mixer.groups[grouped.mixer.groups.length - 1];
-  const next = setGroupLinked(grouped, group.id, input.linked === true);
-  return { song: next, text: `Grouped ${list} as "${group.name}"${input.linked === true ? ", their controls linked" : ""}.` };
+  const vca = numberIn(input, "vca", -Infinity, 5.8);
+  const linked = setGroupLinked(grouped, group.id, input.linked === true);
+  const next = vca === undefined ? linked : setGroupVca(linked, group.id, vca <= -60 ? 0 : faderAt(vca));
+  return {
+    song: next,
+    text: `Grouped ${list} as "${group.name}"${input.linked === true ? ", their controls linked" : ""}${vca === undefined ? "" : `, a VCA fader at ${faderDb(next.mixer.groups.find((g) => g.id === group.id)!.vca!)}`}.`,
+  };
 };
 
 export const addMixerTrackTool: SongEdit = (song, input) => {

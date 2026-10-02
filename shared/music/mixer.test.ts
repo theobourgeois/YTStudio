@@ -28,6 +28,7 @@ import {
   setMixerVolumes,
   setSend,
   setGroupLinked,
+  setGroupVca,
   setTrackFolded,
   foldedAway,
   feedersOf,
@@ -450,5 +451,20 @@ describe("folded buses", () => {
     expect(setTrackFolded(folded, [M], true)).toBe(folded);
     expect(normalizeMusicProject(JSON.parse(JSON.stringify(folded))).mixer).toEqual(folded.mixer);
     expect(setTrackFolded(folded, ["insert_3"], false).mixer).toEqual(song.mixer);
+  });
+});
+
+describe("VCA faders", () => {
+  it("are a group's, and scale its tracks' levels in what's played, their own faders untouched", () => {
+    const grouped = createGroup(rack(), ["insert_2", "insert_3"], "Drums", "drums");
+    const vca = setGroupVca(grouped, "drums", 0.4);
+    expect(vca.mixer.groups[0].vca).toBe(0.4);
+    expect(setGroupVca(vca, "drums", 0.4)).toBe(vca);
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(vca))).mixer.groups).toEqual(vca.mixer.groups);
+    expect(setGroupVca(vca, "drums", null).mixer.groups).toEqual(grouped.mixer.groups);
+    // At half of 0 dB's travel, an eighth of the gain, on its tracks alone.
+    const gains = new Map(compileSong(vca, null).tracks.map((t) => [t.id, t.gains[0]]));
+    expect([gains.get("insert_1"), gains.get("insert_2"), gains.get("insert_3")]).toEqual([1, expect.closeTo(0.125, 6), expect.closeTo(0.125, 6)]);
+    expect(vca.mixer.tracks[2].volume).toBe(grouped.mixer.tracks[2].volume);
   });
 });

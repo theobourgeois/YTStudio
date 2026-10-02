@@ -663,7 +663,12 @@ function normalizeMixer(input: unknown): Mixer {
   const ids = [MASTER_TRACK_ID, ...[...raws.keys()].filter((id) => id !== MASTER_TRACK_ID)];
   const groups: MixerGroup[] = [];
   for (const raw of Array.isArray(input.groups) ? input.groups : []) {
-    if (isObject(raw) && isId(raw.id) && !groups.some((g) => g.id === raw.id)) groups.push({ id: raw.id, name: text(raw.name, "Group"), ...(raw.linked === true && { linked: true as const }) });
+    if (isObject(raw) && isId(raw.id) && !groups.some((g) => g.id === raw.id)) groups.push({
+        id: raw.id,
+        name: text(raw.name, "Group"),
+        ...(raw.linked === true && { linked: true as const }),
+        ...(isFiniteNumber(raw.vca) && { vca: clamp(raw.vca, 0, 1) }),
+      });
   }
   const effectIds = new Set<string>();
   const tracks: MixerTrack[] = ids.map((id) => {

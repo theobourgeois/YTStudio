@@ -443,14 +443,23 @@ function grossSlots(song: MusicProject, mode: PlayMode): Map<string, { time: Set
   return slots;
 }
 
+/** Each grouped track's VCA gain (its group's VCA fader), by id: tracks without one aren't listed. */
+function vcaGains(song: MusicProject): Map<string, number> {
+  const groups = new Map(song.mixer.groups.flatMap((g) => (g.vca === undefined ? [] : [[g.id, faderGain(g.vca)] as const])));
+  const gains = new Map<string, number>();
+  if (groups.size) for (const track of song.mixer.tracks) if (track.group && groups.has(track.group)) gains.set(track.id, groups.get(track.group)!);
+  return gains;
+}
+
 function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: PlayMode = "pattern", listening: Listening = {}): { tracks: EngineTrack[]; index: Map<string, number> } {
   const gross = grossSlots(song, mode);
   const ordered = trackOrder(song.mixer.tracks);
   const index = new Map(ordered.map((t, i) => [t.id, i]));
   const numbers = new Map(song.mixer.tracks.map((t, i) => [t.id, i]));
+  const vca = vcaGains(song);
   const tracks = ordered.map((track): EngineTrack => {
-    // The main volume is the master's, after its fader.
-    const main = track.id === MASTER_TRACK_ID ? levelGain(song.settings.volume, DEFAULT_VOLUME) : 1;
+    // The main volume is the master's, after its fader; a group's VCA fader its tracks'.
+    const main = track.id === MASTER_TRACK_ID ? levelGain(song.settings.volume, DEFAULT_VOLUME) : (vca.get(track.id) ?? 1);
     const number = numbers.get(track.id)!;
     return {
       id: track.id,
@@ -779,6 +788,7 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
   const index = automationIndex(song);
   if (!index.size || to <= from) return [];
   const { barTicks } = clipContext(song);
+  const vca = vcaGains(song);
   const automated = (target: AutomationTarget) => {
     const key = targetKey(target);
     return !held.has(key) && index.has(key) ? key : null;
@@ -840,7 +850,7 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       const main = valueOf(mainTarget, song.settings.volume);
       const keys = [...controls.map((c) => c.key), master ? automated(mainTarget) : null];
       add({ kind: "track", track: t }, keys, (tick) =>
-        trackGains({ ...track, volume: controls[0].value(tick), pan: controls[1].value(tick), stereo: controls[2].value(tick) }, master ? levelGain(main(tick), DEFAULT_VOLUME) : 1, master ? listening : {}),
+        trackGains({ ...track, volume: controls[0].value(tick), pan: controls[1].value(tick), stereo: controls[2].value(tick) }, master ? levelGain(main(tick), DEFAULT_VOLUME) : (vca.get(track.id) ?? 1), master ? listening : {}),
       );
     }
     // Sends as the engine has them (to later tracks), in the same order.

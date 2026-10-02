@@ -568,8 +568,21 @@ export function ungroup(song: MusicProject, ids: readonly string[]): MusicProjec
 export function setGroupLinked(song: MusicProject, groupId: string, linked: boolean): MusicProject {
   const group = song.mixer.groups.find((g) => g.id === groupId);
   if (!group || !!group.linked === linked) return song;
-  return withGroups(song, song.mixer.groups.map((g) => (g === group ? (linked ? { ...g, linked: true as const } : { id: g.id, name: g.name }) : g)));
+  return withGroups(song, song.mixer.groups.map((g) => (g === group ? (linked ? { ...g, linked: true as const } : withoutLinked(g)) : g)));
 }
+
+/** Give a group a VCA fader at `vca` (0..1), move it, or take it away (null). */
+export function setGroupVca(song: MusicProject, groupId: string, vca: number | null): MusicProject {
+  const group = song.mixer.groups.find((g) => g.id === groupId);
+  if (!group || (vca !== null && !Number.isFinite(vca))) return song;
+  const value = vca === null ? undefined : clamp(vca, 0, 1);
+  if (group.vca === value) return song;
+  return withGroups(song, song.mixer.groups.map((g) => (g !== group ? g : value === undefined ? withoutVca(g) : { ...g, vca: value })));
+}
+
+const withoutVca = ({ vca: _, ...group }: MixerGroup): MixerGroup => group;
+
+const withoutLinked = ({ linked: _, ...group }: MixerGroup): MixerGroup => group;
 
 /** `ids` and every track in a linked group with one of them: what a control touched on them moves. */
 export function withLinkedTracks(song: MusicProject, ids: readonly string[]): string[] {

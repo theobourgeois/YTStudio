@@ -745,7 +745,13 @@ export const MUSIC_TOOLS = [
       "other; or take them out of their groups (`ungroup`). Grouping doesn't route anything (set_send and route_to_new_bus do); a `linked` group " +
       "links its tracks' controls in the mixer (the user moving one's fader, mute, solo or pan moves them all, Pro Tools' mix groups).",
     inputSchema: obj(
-      { tracks: arr(mixerTrack(), "The tracks."), name: str("The group's name (default: Group N)."), linked: bool("Link their controls."), ungroup: bool("Take them out of their groups instead.") },
+      {
+        tracks: arr(mixerTrack(), "The tracks."),
+        name: str("The group's name (default: Group N)."),
+        linked: bool("Link their controls."),
+        vca: num("Give the group a VCA fader at this level in dB (0 leaves them as they are; -6 turns all of them down 6 dB, each keeping its own fader)."),
+        ungroup: bool("Take them out of their groups instead."),
+      },
       ["tracks"],
     ),
   }),

@@ -2,11 +2,11 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretDownFill, PiCaretRightFill, PiCaretUpBold, PiClock, PiLinkSimpleBold, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { foldedAway, setMixerVolumes, trackName, updateMixerTrack } from "@shared/music/mixer";
+import { foldedAway, setGroupVca, setMixerVolumes, trackName, updateMixerTrack } from "@shared/music/mixer";
 import { SELECTION_METER } from "@shared/music/engine";
 import { type Hearing, cutOffBy, hearing } from "@shared/music/solo";
-import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
-import type { AutomationTarget, Mixer, MixerTrack, MusicProject } from "@shared/music/types";
+import { DEFAULT_FADER, MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
+import type { AutomationTarget, Mixer, MixerGroup, MixerTrack, MusicProject } from "@shared/music/types";
 import { AutomationMenuItems, useAutomatedControl } from "../automation/control";
 import { Button } from "@/components/ui/button";
 import {
@@ -79,6 +79,7 @@ import {
   controlTargets,
   linkGroup,
   toggleFold,
+  toggleVca,
   toggleTrackMute,
   assignAudioTracksTo,
 } from "./actions";
@@ -258,6 +259,7 @@ export function MixerWindow() {
           <SelectionMeter meterRef={meterRef(SELECTION_METER)} />
           <div className="flex shrink-0 border-r-2" style={{ borderColor: "var(--mixer-line)" }} data-dock="left">
             {docked.left.map((track) => strip(track))}
+            {mixer.groups.map((group) => group.vca !== undefined && <VcaStrip key={group.id} group={group} view={view} banded={banded} />)}
           </div>
           <div
             ref={scroller}
@@ -791,6 +793,11 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
               Link the group's controls
             </ContextMenuCheckboxItem>
           )}
+          {group && (
+            <ContextMenuCheckboxItem checked={group.vca !== undefined} onSelect={() => toggleVca(group.id)}>
+              VCA fader for the group
+            </ContextMenuCheckboxItem>
+          )}
         </>
       )}
       {!isMaster && (
@@ -999,6 +1006,68 @@ function SoloButton({ id, name, solo, implied, safe }: { id: string; name: strin
       S
       {safe && <PiLockSimpleFill className="absolute -top-1 -right-1 size-2" style={{ color: "var(--mixer-solo)" }} aria-label="Solo safe" />}
     </button>
+  );
+}
+
+/**
+ * A group's VCA fader (Pro Tools', Logic's), a strip after the master: it scales every one of the group's
+ * tracks' levels without mixing their sound, so each keeps its own fader, sends and automation. Its menu
+ * takes it away.
+ */
+function VcaStrip({ group, view, banded }: { group: MixerGroup; view: MixerViewKind; banded: boolean }) {
+  const gesture = useRef(songGesture()).current;
+  const vca = group.vca ?? DEFAULT_FADER;
+  const set = (value: number) => (song: MusicProject) => setGroupVca(song, group.id, value);
+  return (
+    <div
+      role="listitem"
+      aria-label={`${group.name} VCA`}
+      data-vca={group.id}
+      className="flex shrink-0 flex-col items-center gap-1.5 border-r pb-1"
+      style={{ width: STRIP_WIDTHS[view], background: "var(--mixer-strip)", borderColor: "var(--mixer-line)", borderLeft: "3px solid var(--mixer-bg)" }}
+    >
+      {banded && <div className="h-4 w-full shrink-0" />}
+      {/* The same rows as a track's strip (its mute light and pan knob kept as room), so the faders line up. */}
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1.5 pb-1.5" style={{ background: "var(--mixer-upper-shade)" }}>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className="flex min-h-28 w-full flex-1 flex-col items-center">
+              <div className="w-full py-0.5 text-center font-mono text-[11px] font-bold" style={{ background: "var(--mixer-on)", color: "var(--brand-foreground)" }}>
+                VCA
+              </div>
+              <span className="mt-2 truncate text-[11px] leading-none [writing-mode:vertical-rl] rotate-180" style={{ color: "var(--mixer-name)" }} title={`${group.name}'s VCA: its tracks' levels together`}>
+                {group.name}
+              </span>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onSelect={() => toggleVca(group.id)}>Remove the VCA fader</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+        <span className="h-5 shrink-0" aria-hidden />
+        <span className="size-9 shrink-0" aria-hidden />
+      </div>
+      <Fader
+        className="min-h-20 flex-1"
+        label={`${group.name} VCA`}
+        value={vca}
+        onBegin={() => gesture.begin()}
+        onDrag={(value) => gesture.apply(set(value))}
+        onEnd={() => gesture.end()}
+        onCancel={() => gesture.cancel()}
+        onSet={(value) => useMusic.getState().commit(set(value))}
+      />
+      <div className="text-[9px] tabular-nums" style={{ color: "var(--mixer-name)" }} title="Level">
+        {faderDb(vca).replace(" dB", "")}
+      </div>
+      {/* Room for a track's arm switch, phase and swap switches, stereo knob, output label and send switch. */}
+      <span className="size-[11px] shrink-0" aria-hidden />
+      <span className="h-[18px] shrink-0" aria-hidden />
+      <span className="size-8 shrink-0" aria-hidden />
+      {view === "extra" && <span className="h-[5.5rem] shrink-0" aria-hidden />}
+      <span className="h-3.5 shrink-0" aria-hidden />
+      <span className="h-14 shrink-0" aria-hidden />
+    </div>
   );
 }
 

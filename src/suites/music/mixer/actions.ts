@@ -25,6 +25,7 @@ import {
   setMixerSolo,
   setSendPreFader,
   setGroupLinked,
+  setGroupVca,
   setTrackFolded,
   withLinkedTracks,
   type MixerTrackPatch,
@@ -42,7 +43,7 @@ import {
   ungroup,
   updateMixerTracks,
 } from "@shared/music/mixer";
-import { MASTER_TRACK_ID } from "@shared/music/project";
+import { DEFAULT_FADER, MASTER_TRACK_ID } from "@shared/music/project";
 import { assignAudioTracks } from "@shared/music/recording";
 import type { MixerDock, MusicProject } from "@shared/music/types";
 import { musicApi } from "../api";
@@ -334,6 +335,10 @@ export function controlTargets(id: string): string[] {
 
 /** A bus folded (the tracks going into it hidden), or unfolded. */
 export const toggleFold = (id: string) => commit((doc) => setTrackFolded(doc, [id], !getMixerTrack(doc, id)?.folded));
+
+/** Give a group a VCA fader (at 0 dB), or take it away. */
+export const toggleVca = (groupId: string) =>
+  commit((doc) => setGroupVca(doc, groupId, doc.mixer.groups.find((g) => g.id === groupId)?.vca === undefined ? DEFAULT_FADER : null));
 
 /** Link a group's controls, or unlink them. */
 export const linkGroup = (groupId: string, linked: boolean) => commit((doc) => setGroupLinked(doc, groupId, linked));
