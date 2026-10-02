@@ -239,4 +239,35 @@ researched closely, in our UI). What was chosen, to check with him:
 
 ## How it's built
 
-Filled in as it's built (`shared/music/panman*.ts`, `engine/src/PanMan.*`, `src/suites/music/panman/`).
+- **The document**: `MixerEffect.panMan` (`shared/music/types.ts`, `PanMan`) on an effect whose plugin is
+  `PANMAN_PLUGIN` (`vaudio:panman`): every control in its own units (degrees, Hz, dB, seconds), the preset
+  last loaded, and the two editors' patterns (`stepPattern`: points, a tick and a position -1..1 each;
+  `shapePattern`: events). Validated in `normalizePanMan` (`panman-presets.ts`, with the constants, the
+  rhythms, the automatable controls' ranges `PAN_CONTROLS` and the 27 factory presets).
+- **What it plays** (`shared/music/panman.ts`, tested): the pattern modes are a function of where the
+  pattern is (`panPattern`: `cycleValue` for the shapes, `stepValue` for steps with Smoothing in the
+  Smoothing Mode's `panCurve`, Feel's shift, Groove's `ungroove`), sent to the engine as lines over 0..1 of
+  the pattern (`enginePanMan`, `sampleLane`, within a 500th of the width). The edits (`updatePanMan`,
+  `loadPanPreset`, `editStepPoints` and `editShapeEvents`, which make the knobs' pattern the PanMan's own
+  the first time, and the editors' pure point and event edits) all return the same song when nothing changes.
+- **Automation**: `AutomationTarget` `panMan` (offset, width, rate along a log scale, input, output); lanes of
+  kind `panman` set at each slice's start, the offset and width as fractions of 105° and 210°
+  (`PAN_LANE_SCALE`: the engine's lanes hold values within ±64).
+- **The engine** (`engine/src/PanMan.cpp`): a native effect in its slot (bypass, the slot's mix; no delay).
+  `panman::State`, kept across songs by the effect's id (`panman::Registry`; the export has its own), runs
+  per sample: Input, the mono sum, the dynamics' follower and amount, the trigger's filter (RBJ) and
+  follower (a trigger on the rise, ready again 6 dB under), where the rhythm is (`gross::Clock`: the
+  song's tick while in sync and playing, else counted; RateMod's drift and its return to the beat), the
+  position (the pattern's line, Random's `chance`, a trigger mode's sine glide), the 1 ms de-click, the pan
+  law, the Analog Style (`saturate`; a change of style starts its filters afresh) and Output. It reports
+  where it is and its levels (`EngineTransport.panMen`); the Manual Trigger is the `panMan` command.
+  Tested offline: `server/music/panman.integration.test.ts` (positions read from the two sides of a
+  steady sound, to a fraction of a degree).
+- **The tab** (`src/suites/music/panman/`): `panman-window.tsx` (the window, opened from the slot's name,
+  chosen from an effect slot's picker under Built in), `draw.ts` (the editors' and the meter's canvases),
+  `pointer.ts` (the editors' mouse, a drag drawn through the edit it commits), `geometry.ts` (their maths
+  and the meters', tested), `actions.ts` (presets, Revert, Copy / Paste state, Tap Tempo, the Manual
+  Trigger), `store.ts` (open windows, each one's Tweak, bar and grid), `tool-edits.ts` (the assistant's
+  `get_panman`, `update_panman`, `set_panman_pattern`; `add_mixer_effect` takes "PanMan", and
+  `add_automation` its "panman offset", "panman width", "panman rate", "panman input", "panman output").
+  The Rate and Cutoff knobs turn along a log scale (`Knob`'s `taper`).

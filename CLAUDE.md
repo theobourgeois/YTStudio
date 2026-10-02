@@ -59,7 +59,9 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      export's settings, file names and ffmpeg arguments (export.ts) and MIDI file (midi.ts),
                      and recorded takes into the song (recording.ts: where they land, the latency left out),
                      Gross Beat (gross-beat.ts: its slots, edits and envelopes for the engine; its presets in
-                     gross-beat-presets.ts), and drawing anything over time as lines for the engine (sampling.ts).
+                     gross-beat-presets.ts), PanMan (panman.ts: its patterns, edits and what the engine plays;
+                     its constants, validation and presets in panman-presets.ts), and drawing anything over
+                     time as lines for the engine (sampling.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -170,7 +172,8 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      thread, a lock-free ring), and ClipPlayer.cpp plays the playlist's audio clips with it,
                      each started on its sample. Export.cpp: the export, rendered on a thread of its own
                      (Workers.h runs its plugins on every core). GrossBeat.cpp: Gross Beat, a native effect
-                     (its rolling buffer, envelopes, sync, HOLD). Resampling.h: reading between samples
+                     (its rolling buffer, envelopes, sync, HOLD). PanMan.cpp: PanMan, another (its pattern,
+                     chance, triggers, dynamics, pan law, Analog Styles). Resampling.h: reading between samples
                      (linear, Hermite, sinc), centred so nothing is delayed. Protocol.cpp:
                      the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
@@ -192,6 +195,7 @@ src/
                      instrument), knob.tsx, lcd.tsx, waveform.ts, browser/ (the Browser, Alt+F8: a panel
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
                      pattern-picker.tsx, gross-beat/ (Gross Beat's window, its mapping panel and tools),
+                     panman/ (PanMan's window, its editors, meters and tools),
                      toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
                      tempo and position LCDs, the hint bar; its maths in position.ts), recording.ts (armed
                      tracks, Record, takes into the song) and inputs.ts (the input device's channels), playlist/ (the
@@ -309,7 +313,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, Gross Beat. Where it is and every step still to come, in order:
+the export, automation, recording, Gross Beat, PanMan. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
@@ -479,6 +483,17 @@ the export, automation, recording, Gross Beat. Where it is and every step still 
   automate (`AutomationTarget` `grossBeat`); HOLD and the scratching clock are live (`grossBeat` command),
   not the song's. Its window is `gross-beat-window.tsx`; keep its sound tested offline
   (`gross-beat.integration.test.ts`).
+- **PanMan** (`docs/soundtoys/panman.md`; `shared/music/panman*.ts`, `engine/src/PanMan.cpp`,
+  `src/suites/music/panman/`): Soundtoys' auto-panner, ours, built as Gross Beat is (when in doubt about it,
+  do what Soundtoys' does: the doc is from its manual). `MixerEffect.panMan` on an effect whose plugin is
+  `PANMAN_PLUGIN`, in the song. The pattern modes (LFO, Rhythm Step, Rhythm Shape: Smoothing, Feel and Groove
+  included) are decided in TypeScript (`panPattern`) and sent as lines over the pattern's phase; Random's
+  chance (repeatable, seeded by the effect's id), the triggers, the dynamics, the pan law (sine / cosine to
+  ±105°, unity at the centre) and the Analog Styles are the engine's (`panman::State`, kept by effect id in
+  `panman::Registry`), in time with `gross::Clock`. Its offset, width, rate and gains automate
+  (`AutomationTarget` `panMan`; the offset and width travel as fractions, `PAN_LANE_SCALE`: lanes hold
+  values within ±64). The Manual Trigger is live (`panMan` command). Keep its sound tested offline
+  (`panman.integration.test.ts`).
 - **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).
