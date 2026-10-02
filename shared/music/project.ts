@@ -626,6 +626,8 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.track) && isId(raw.to) ? { kind: "send", track: raw.track, to: raw.to } : null;
     case "effect":
       return isId(raw.effect) ? { kind: "effect", effect: raw.effect } : null;
+    case "tempo":
+      return { kind: "tempo" };
     case "grossBeat":
       return isId(raw.effect) && GROSS_CONTROLS.includes(raw.control as GrossControl) ? { kind: "grossBeat", effect: raw.effect, control: raw.control as GrossControl } : null;
     case "main":

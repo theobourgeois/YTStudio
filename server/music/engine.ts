@@ -32,6 +32,7 @@ import {
   isResampling,
 } from "../../shared/music/engine.ts";
 import { DEFAULT_VELOCITY, normalizeMusicProject } from "../../shared/music/project.ts";
+import { type SongClock, songClock, tempoMap } from "../../shared/music/tempo.ts";
 import type { MusicProject } from "../../shared/music/types.ts";
 import type { MediaAsset } from "../../shared/types.ts";
 import { createId } from "../../shared/ids.ts";
@@ -186,6 +187,12 @@ export class AudioEngine {
   private outdated = false;
   /** Recordings by id, while their takes may still come. */
   private readonly recordings = new Map<string, Recording>();
+  /**
+   * How the song last sent turns the tab's ticks (the song's, into its loop) into the engine's and back:
+   * with tempo clips in song mode the engine plays a warped song (`shared/music/tempo.ts`), so every tick
+   * crossing over is converted here, and the tab only ever sees the song's.
+   */
+  private clock: SongClock = songClock(null, 0);
   /** Takes are made media one after another, so they reach the tab in the order they were recorded. */
   private takes: Promise<void> = Promise.resolve();
 
@@ -205,6 +212,7 @@ export class AudioEngine {
   async command(name: string, body: unknown): Promise<EngineStatus> {
     const input = isObject(body) ? body : {};
     const params = await this.params(name as EngineCommand, input);
+    if (name === "play" && isFiniteNumber(params.from)) params.from = Math.max(0, this.clock.toEngine(params.from));
     const status = (await this.request(name, params)) as RawStatus;
     if (name === "saveState") await this.remember(slotOf(input), status[slotOf(input)]?.id);
     return this.withSaved(status);
@@ -215,11 +223,12 @@ export class AudioEngine {
    * (`shared/music/compile.ts`) and handed to the engine, which keeps playing through the change.
    */
   async setSong(body: unknown): Promise<SetSongResponse> {
-    const { song, compiled } = this.engineSong(body);
+    const { song, compiled, clock } = this.engineSong(body);
     this.song = song;
+    this.clock = clock;
     this.keepStates(song.channels.some((c) => c.plugin) || song.tracks.some((t) => t.effects.length > 0));
     const answer = (await this.request("song", { song })) as Omit<SetSongResponse, "loop">;
-    return { ...answer, loop: { start: compiled.offsetTicks, ticks: compiled.loopTicks } };
+    return { ...answer, loop: { start: clock.from, ticks: clock.toSong(compiled.loopTicks) } };
   }
 
   /**
@@ -263,7 +272,9 @@ export class AudioEngine {
     const loop = isObject(body.loop) && isFiniteNumber(body.loop.start) && isFiniteNumber(body.loop.end) ? { start: body.loop.start, end: body.loop.end } : null;
     const held = new Set(Array.isArray(body.held) ? body.held.filter((k): k is string => typeof k === "string").slice(0, 64) : []);
     const armed = new Set(Array.isArray(body.armed) ? body.armed.filter((id): id is string => typeof id === "string") : []);
-    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, body.mode === "song" ? "song" : "pattern", held, armed);
+    const mode = body.mode === "song" ? "song" : "pattern";
+    const compiled = compileSong(doc, typeof body.patternId === "string" ? body.patternId : null, loop, mode, held, armed);
+    const clock = songClock(mode === "song" ? tempoMap(doc) : null, loop && loop.end > loop.start ? Math.max(0, loop.start) : 0);
     // A plugin's state is a file of its own beside the project's document: `plugins/<channel id>.bin`, or the effect's id.
     const states = path.join(this.paths.projectDir(projectId), "plugins");
     const song = {
@@ -280,7 +291,7 @@ export class AudioEngine {
         effects: t.effects.map((e) => ({ ...e, plugin: { ...e.plugin, state: path.join(states, `${e.id}.bin`) } })),
       })),
     };
-    return { song, compiled };
+    return { song, compiled, clock };
   }
 
   /**
@@ -426,7 +437,7 @@ export class AudioEngine {
     const recordingId = createId("rec");
     const folder = path.join(this.paths.projectDir(body.projectId), "recordings");
     await fs.mkdir(folder, { recursive: true });
-    const from = isFiniteNumber(body.from) ? Math.max(0, body.from) : 0;
+    const from = Math.max(0, this.clock.toEngine(isFiniteNumber(body.from) ? Math.max(0, body.from) : 0));
     this.recordings.set(recordingId, { projectId: body.projectId, names, started: new Date(), folder, from, finals: new Set() });
     try {
       const status = (await this.request("record", {
@@ -472,7 +483,7 @@ export class AudioEngine {
         track: raw.track,
         media,
         ...(error ? { error } : {}),
-        startTick: raw.startTick,
+        startTick: this.clock.toSong(raw.startTick),
         skip: raw.skip,
         frames: raw.frames,
         sampleRate: raw.sampleRate,
@@ -638,7 +649,13 @@ export class AudioEngine {
   private async withSaved(status: RawStatus): Promise<EngineStatus> {
     const saved = await this.savedStates();
     const slot = (name: EngineSlot) => status[name] && { ...status[name], hasSavedState: saved[name] === status[name].id };
-    return { ...status, instrument: slot("instrument"), effect: slot("effect"), ...(this.outdated && { outdated: true }) };
+    return {
+      ...status,
+      ...(this.clock.warped && status.transport && { transport: { ...status.transport, tick: this.clock.toSong(status.transport.tick) } }),
+      instrument: slot("instrument"),
+      effect: slot("effect"),
+      ...(this.outdated && { outdated: true }),
+    };
   }
 
   private async withSavedIn(devices: RawDevices): Promise<EngineDevices> {
@@ -658,6 +675,14 @@ export class AudioEngine {
       this.pending.set(id, { resolve, reject, timer });
       child.stdin!.write(`${JSON.stringify({ ...params, id, cmd })}\n`);
     });
+  }
+
+  /** An event as the tab takes it: the engine's ticks turned into the song's (`clock`). */
+  private inSongTicks(event: EngineEvent): EngineEvent {
+    if (!this.clock.warped) return event;
+    if (event.event === "transport") return { ...event, tick: this.clock.toSong(event.tick) };
+    if (event.event === "midi") return { ...event, notes: event.notes.map((n) => (n.tick === null ? n : { ...n, tick: this.clock.toSong(n.tick) })) };
+    return event;
   }
 
   private emit(event: EngineEvent) {
@@ -716,7 +741,7 @@ export class AudioEngine {
           message.event === "wrapper" ||
           message.event === "midi"
         ) {
-          this.emit(message as unknown as EngineEvent);
+          this.emit(this.inSongTicks(message as unknown as EngineEvent));
         } else if (message.event === "status" && isObject(message.status)) {
           void this.withSaved(message.status as unknown as RawStatus).then((status) => this.emit({ event: "status", status }));
         }

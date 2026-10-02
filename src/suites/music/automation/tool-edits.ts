@@ -41,7 +41,7 @@ export function findAutomation(song: MusicProject, ref: unknown): Automation {
   return found;
 }
 
-export const CONTROLS = ["volume", "pan", "pitch", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix"] as const;
+export const CONTROLS = ["volume", "pan", "pitch", "stereo", "send", "mix", "main volume", "tempo", "parameter", "time slot", "volume slot", "time mix", "volume mix"] as const;
 
 /** A Gross Beat's controls, as the tool names them. */
 const GROSS_CONTROLS = { "time slot": "timeSlot", "volume slot": "volumeSlot", "time mix": "timeMix", "volume mix": "volumeMix" } as const;
@@ -92,6 +92,8 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       return { kind: "effect", effect: effectAt(song, input).effect.id };
     case "main volume":
       return { kind: "main" };
+    case "tempo":
+      return { kind: "tempo" };
     case "time slot":
     case "volume slot":
     case "time mix":
@@ -144,6 +146,8 @@ const valueHint = (target: AutomationTarget) =>
       ? "a slot, 1 to 36"
     : target.kind === "channel" && target.control === "pan"
       ? "a pan, -1 left to 1 right"
+    : target.kind === "tempo"
+      ? "BPM (20 to 999)"
     : target.kind === "channel" && target.control === "pitch"
       ? "semitones, -24 to 24 (a plugin channel's notes move by whole ones)"
       : target.kind === "mixer" && target.control !== "volume"
@@ -169,7 +173,12 @@ export function addAutomationEdit(song: MusicProject, input: Input, target: Auto
   const name = typeof input.name === "string" && input.name.trim() ? input.name.trim() : undefined;
   const made = createAutomation(song, target, { start, length, track: playlistTrack !== undefined ? (playlistTrack as number) - 1 : undefined }, { value, name });
   if (made.song === song) throw new Error(info.exists ? "No more automation clips fit in this song." : `${info.owner} isn't in the song.`);
-  const next = points ? editPoints(made.song, made.automationId, () => points) : made.song;
+  // Its curve along the points given, in a range taking them all in (a tempo clip's starts narrower than the whole of it).
+  const created = made.song.automations.find((a) => a.id === made.automationId)!;
+  const range = points
+    ? { min: Math.min(created.min, ...points.map((p) => p.value)), max: Math.max(created.max, ...points.map((p) => p.value)) }
+    : null;
+  const next = points && range ? editPoints(updateAutomation(made.song, made.automationId, range), made.automationId, () => pointsOf(input.points, target, song, length, range)) : made.song;
   const automation = next.automations.find((a) => a.id === made.automationId)!;
   return {
     song: next,

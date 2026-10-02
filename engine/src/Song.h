@@ -284,6 +284,8 @@ struct Song
     double loopTicks = 384, beatTicks = 96, barTicks = 384;
     /** Where the loop starts in the pattern or the song (the engine's ticks count from it): where the bars are. */
     double offsetTicks = 0;
+    /** With tempo clips: the metronome's beats from the loop's start (no longer every `beatTicks`), and those starting bars. Empty: every `beatTicks`. */
+    std::vector<double> clicks, barClicks;
     /** Round and round (playing); or, exported, it plays once and then nothing more is started. */
     bool loops = true;
     std::vector<Channel> channels;

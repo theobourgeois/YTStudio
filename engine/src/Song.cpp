@@ -219,6 +219,14 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     song->beatTicks = number (json["beatTicks"], song->ppq, 1, 1e9);
     song->barTicks = number (json["barTicks"], song->beatTicks * 4, 1, 1e9);
     song->offsetTicks = number (json["offsetTicks"], 0, 0, 1e9);
+    for (const auto* key : { "clicks", "barClicks" })
+        if (const auto* list = json[key].getArray())
+        {
+            auto& ticks = juce::String (key) == "clicks" ? song->clicks : song->barClicks;
+            ticks.reserve ((size_t) list->size());
+            for (const auto& tick : *list)
+                ticks.push_back (juce::jmax (ticks.empty() ? -1e9 : ticks.back(), number (tick, 0, -1e9, 1e9)));
+        }
     song->resampling = resampling::parse (json["resampling"].toString(), Resampling::hermite);
     song->loops = ! json.hasProperty ("loops") || (bool) json["loops"];
 

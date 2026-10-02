@@ -14,13 +14,14 @@ function song() {
 }
 
 describe("the controls a song can automate", () => {
-  it("are the main volume, every channel's volume and pan, and the mixer tracks in use", () => {
+  it("are the main volume and tempo, every channel's volume, pan and pitch, and the mixer tracks in use", () => {
     const groups = songControls(song());
     expect(groups.map((g) => g.title)).toEqual(["Song", "Channels", "Mixer"]);
-    expect(groups[0].rows.map((r) => r.name)).toEqual(["Main volume"]);
+    expect(groups[0].rows.map((r) => r.name)).toEqual(["Main volume", "Tempo"]);
     const channels = groups[1].rows.map((r) => `${r.name} (${r.owner})${r.automated ? " *" : ""}`);
     expect(channels).toContain("Pan (Kick) *");
     expect(channels).toContain("Volume (Serum 2)");
+    expect(channels).toContain("Pitch (Kick)");
     // The master, insert 1 (the kick plays into it) and insert 2 (an effect), with their sends and the effect's mix.
     const mixer = groups[2].rows.map((r) => `${r.name} (${r.owner})`);
     expect(mixer).toContain("Volume (Master)");

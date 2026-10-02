@@ -2300,6 +2300,31 @@ test("automation, as FL Studio's: a knob makes a clip, its curve is shaped on th
   await expect(volume).not.toHaveAttribute("data-automated");
 });
 
+test("the tempo automates from its LCD's menu: a tempo clip on the Playlist, the LCD showing the curve's tempo in song mode", async ({ page }) => {
+  const id = await openNewSong(page, "Tempo ride");
+  const own = (await savedSong(page, id)).settings.tempo;
+  const tempo = page.getByRole("textbox", { name: "Tempo" });
+  const display = tempo.locator("..");
+  await tempo.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Create automation clip" }).click();
+  await expect.poll(async () => (await savedAutomations(page, id)).map((a) => [a.name, a.target])).toEqual([["Tempo (Song)", { kind: "tempo" }]]);
+  await expect(tempo).toHaveAttribute("data-automated", "true");
+  await expect(page.getByTestId("playlist")).toBeVisible();
+
+  // A point at the top of the clip (FL's range: 180 BPM) at bar 2, then play from there.
+  const top = await curvePoint(page, BAR_TICKS, 1, 0);
+  await page.mouse.click(top.x, top.y, { button: "right" });
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points.map((p) => [p.tick, Math.round(p.value * 100) / 100])).toContainEqual([BAR_TICKS, 1]);
+  const rulerBox = (await page.getByTestId("playlist").getByLabel("Ruler").boundingBox())!;
+  await page.mouse.click(rulerBox.x + BAR_TICKS * 0.15 + 1, rulerBox.y + rulerBox.height / 2);
+  await expect(page.getByRole("radio", { name: "Song mode" })).toHaveAttribute("aria-checked", "true");
+  await expect(display).toContainText("180");
+  // Its own tempo is still the song's, what pattern mode plays.
+  expect((await savedSong(page, id)).settings.tempo).toBe(own);
+  await page.getByRole("radio", { name: "Pattern mode" }).click();
+  await expect(display).toContainText(String(Math.round(own)));
+});
+
 test("Automate… lists every control of the song, a plugin's own parameters too; picking one makes its clip", async ({ page }) => {
   const id = await openNewSong(page, "Automate a plugin");
   await page.getByTestId("channel-rack").getByRole("button", { name: "Add a channel" }).click();

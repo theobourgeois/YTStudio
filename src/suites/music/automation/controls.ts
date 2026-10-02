@@ -37,7 +37,7 @@ export function songControls(song: MusicProject): ControlGroup[] {
     const info = controlOf(song, target);
     return { key: targetKey(target), target, name: info.name, owner: info.owner, automated: automated.has(targetKey(target)) };
   };
-  const groups: ControlGroup[] = [{ title: "Song", rows: [row({ kind: "main" })] }];
+  const groups: ControlGroup[] = [{ title: "Song", rows: [row({ kind: "main" }), row({ kind: "tempo" })] }];
   groups.push({
     title: "Channels",
     rows: song.channels.flatMap((c) => [

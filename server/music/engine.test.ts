@@ -6,7 +6,7 @@ import { addChannels, addPluginChannel, setSteps } from "../../shared/music/edit
 import { setEffect, updateMixerTrack } from "../../shared/music/mixer.ts";
 import type { EngineEvent } from "../../shared/music/engine.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
-import { createAutomation } from "../../shared/music/automation.ts";
+import { createAutomation, editPoints, updateAutomation } from "../../shared/music/automation.ts";
 import { addClips, editClips } from "../../shared/music/playlist.ts";
 import type { MediaAsset } from "../../shared/types.ts";
 import { DataPaths } from "../storage.ts";
@@ -193,6 +193,31 @@ describe("AudioEngine", () => {
     expect(await engine.devices()).toMatchObject({ output: "Fake Output", bufferSizes: [64, 128, 256, 512] });
     expect((await engine.setDevice({ bufferSize: 128, output: "Fake Headphones" })).status).toMatchObject({ bufferSize: 128, device: "Fake Headphones" });
     await expect(engine.setDevice({ bufferSize: "small" })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("speaks the song's ticks to the tab when tempo clips warp the engine's: the loop, where play starts, where it is", async () => {
+    const BAR = 384;
+    let song = setSteps(addChannels(createMusicProject("Tempo", 120), [{ id: "chan_kick", name: "Kick", sampleId: null }]), FIRST_PATTERN_ID, "chan_kick", [0], true);
+    song = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: FIRST_PATTERN_ID, track: 0, start: 0, length: BAR * 4 }]).clips);
+    // Twice as fast from bar 2: the engine's four bars are two and a half of its own.
+    const made = createAutomation(song, { kind: "tempo" }, { start: BAR, length: BAR * 3 });
+    // Its range the whole of the tempo's (20 to 999), so 240 is in it.
+    song = updateAutomation(made.song, made.automationId, { min: 0, max: 1 });
+    song = editPoints(song, made.automationId, () => [{ tick: 0, value: (240 - 20) / (999 - 20), tension: 0, curve: "single" }]);
+    const answer = await engine.setSong({ projectId: PROJECT, song, patternId: null, mode: "song" });
+    expect(answer.loop).toEqual({ start: 0, ticks: BAR * 4 });
+    const status = await engine.command("play", { from: BAR * 3 });
+    // Where it is, back in the song's ticks: bar 4 (not the engine's bar 2.25), a moment on.
+    expect(status.transport.tick).toBeGreaterThanOrEqual(BAR * 3 - 1);
+    expect(status.transport.tick).toBeLessThan(BAR * 3 + 48);
+    // And it moves at 240 BPM there: 0.384 of the song's ticks a millisecond (the engine's go half as fast).
+    const started = Date.now();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const later = await engine.command("status", {});
+    const rate = (later.transport.tick - status.transport.tick) / (Date.now() - started);
+    expect(rate).toBeGreaterThan(0.3);
+    expect(rate).toBeLessThan(0.45);
+    await engine.command("stop", {});
   });
 
   it("gives a restarted engine its song back", async () => {

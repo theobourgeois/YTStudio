@@ -47,6 +47,8 @@ import { switchMode, useTransport } from "./transport";
 import { useMusicUi } from "./ui";
 import { useBrowser } from "./browser/store";
 import { addTap, tappedTempo } from "./tap-tempo";
+import { AutomationMenuItems, useAutomatedControl } from "./automation/control";
+import { TEMPO_TARGET, engineTick, tempoMap } from "@shared/music/tempo";
 import { useWheelValue } from "./wheel";
 
 /** The main volume as an automation target (a constant, so the knob's menu and hook see one target). */
@@ -399,6 +401,8 @@ const TEMPO_DRAG = 4;
  */
 function TempoLcd() {
   const tempo = useSong((song) => song.settings.tempo);
+  // Automated (song mode), it shows the tempo where the song is; what's edited is the song's own.
+  const automated = useAutomatedControl(TEMPO_TARGET, tempo);
   const defaultTempo = useMusicPreferences((s) => s.defaultTempo);
   const [tapping, setTapping] = useState(false);
   /** Tap tempo… was chosen: its popover opens once the menu has let go of the focus (or it would close at once). */
@@ -422,7 +426,7 @@ function TempoLcd() {
     draft === null,
   );
 
-  const [whole, decimals] = splitTail(tempoText(tempo), ".");
+  const [whole, decimals] = splitTail(tempoText(automated.value), ".");
   // The field covers the whole display, on top of everything in it (so the desktop app's window dragging, which
   // the header has, can't come back through the digits), and only shows while it's typed in; otherwise the
   // digits under it do, FL's way.
@@ -432,6 +436,7 @@ function TempoLcd() {
       <input
         ref={input}
         aria-label="Tempo"
+        data-automated={automated.automated || undefined}
         title="Tempo: drag up and down, or click to type it"
         inputMode="decimal"
         className="absolute inset-0 z-10 w-full cursor-ns-resize rounded-[5px] bg-transparent px-2 pt-3 pb-[5px] text-right font-sans text-[22px] leading-none font-medium text-transparent tabular-nums caret-transparent outline-none selection:bg-brand/40 focus:cursor-text focus:text-[var(--lcd-text)] focus:caret-[var(--lcd-text)]"
@@ -496,6 +501,7 @@ function TempoLcd() {
           }}
         >
           <ContextMenuItem onSelect={() => (tappingNext.current = true)}>Tap tempo…</ContextMenuItem>
+          <AutomationMenuItems target={TEMPO_TARGET} />
           <ContextMenuSeparator />
           <ContextMenuItem disabled={tempo === (defaultTempo ?? DEFAULT_TEMPO)} onSelect={() => useMusicPreferences.getState().setDefaultTempo(tempo)}>
             Make {tempo} BPM the default
@@ -652,16 +658,20 @@ function usePlayTick(onTick: (tick: number) => void, deps: unknown[] = []) {
 function PositionLcd() {
   const barSteps = useSong((song) => stepsPerBar(song.settings.timeSignature));
   const tempo = useSong((song) => song.settings.tempo);
+  const mode = useTransport((s) => s.mode);
   const format = useMusicPreferences((s) => s.timeFormat);
   const main = useRef<HTMLSpanElement>(null);
   const tail = useRef<HTMLSpanElement>(null);
   usePlayTick(
     (tick) => {
-      const [a, b] = splitTail(format === "mscs" ? timeText(tick, tempo) : positionText(tick, barSteps), ":");
+      // In song mode, tempo clips change how long the song takes to get there.
+      const song = useMusic.getState().history?.doc;
+      const time = mode === "song" && song ? engineTick(tempoMap(song), tick) : tick;
+      const [a, b] = splitTail(format === "mscs" ? timeText(time, tempo) : positionText(tick, barSteps), ":");
       if (main.current) writeCells(main.current, a);
       if (tail.current) writeCells(tail.current, b);
     },
-    [format, barSteps],
+    [format, barSteps, mode],
   );
   const title =
     format === "mscs"

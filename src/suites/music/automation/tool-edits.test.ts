@@ -25,7 +25,7 @@ describe("the assistant's automation", () => {
     expect(() => resolveControl(s, { control: "send", track: 2, to: 4 })).toThrow(/doesn.t send to.*Insert 4.*sends go to:.*Insert 3/);
     expect(() => resolveControl(s, { control: "mix", track: 2, slot: 5 })).toThrow(/slots 1 \(Pro-Q 4\)/);
     expect(() => resolveControl(s, { control: "parameter", channel: "Kick", parameter: "x" })).toThrow(/isn't a plugin channel/);
-    expect(() => resolveControl(s, { control: "tempo" })).toThrow(/must be one of/);
+    expect(() => resolveControl(s, { control: "swing" })).toThrow(/must be one of/);
   });
 
   it("automates a channel's pitch in semitones: a sampler's or a plugin channel's", () => {
@@ -36,6 +36,16 @@ describe("the assistant's automation", () => {
     const made = addAutomationEdit(s, { control: "pitch", channel: "Kick", bar: 1, length: 1, points: [{ at: 0, value: 0 }, { at: 1, value: 12 }] }, target);
     expect(controlAt(made.song, target, BAR / 2)).toBeCloseTo(0.5 + 6 / 48);
     expect(made.text).toMatch(/Pitch \(Kick\).*\+1200 cents/s);
+  });
+
+  it("automates the tempo in BPM, the clip's range taking in every point", () => {
+    const s = song();
+    expect(resolveControl(s, { control: "tempo" })).toEqual({ kind: "tempo" });
+    const made = addAutomationEdit(s, { control: "tempo", bar: 2, length: 1, points: [{ at: 0, value: 120 }, { at: 1, value: 200 }] }, { kind: "tempo" });
+    const at = (tick: number) => 20 + controlAt(made.song, { kind: "tempo" }, tick)! * (999 - 20);
+    expect(at(BAR)).toBeCloseTo(120);
+    expect(at(BAR * 2)).toBeCloseTo(200);
+    expect(made.text).toMatch(/Tempo \(Song\)/);
   });
 
   it("makes a clip along the points given, in the control's own values, from a bar", () => {

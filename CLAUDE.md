@@ -473,7 +473,12 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   (`SetSongRequest.held`, from `useAutomatedControl`'s hold/release); a plugin's own value is taken when play
   starts and given back when it stops. A knob or fader that can be automated takes a `target`
   (`SongKnob`'s), which gives it Create automation clip and has it follow the curve in song mode. Its curve
-  is edited on its clips in the Playlist (`curve-pointer.ts`, a `curve` drag committed once).
+  is edited on its clips in the Playlist (`curve-pointer.ts`, a `curve` drag committed once; FL's Step and
+  Slide modes are the Playlist store's `curveStep`/`curveSlide`). **Tempo automation** (`shared/music/tempo.ts`):
+  the engine keeps the song's own tempo and is sent a song warped through the tempo clips (`warpSong`); the
+  server's `SongClock` converts every tick crossing to or from the engine, so the tab and the document
+  only ever hold the song's ticks. Seconds from a tick in song mode: `songSeconds`/`engineTick`, never
+  `secondsPerTick` alone.
 - **Recording** (`docs/fl-studio/recording.md`, FL's through mixer tracks): a track's `input` (a device
   channel or a pair), `monitor` and `inputOffset` are the song's; **which tracks are armed, Record (R) and a
   recording in progress are the tab's** (`recording.ts`), sent with the song (`SetSongRequest.armed`). Settings

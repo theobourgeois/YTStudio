@@ -8,6 +8,7 @@
 import { automationIndex, clipAtTick, controlAt, controlBreaks, controlOf, isAutomated, placedValue, targetKey } from "./automation.ts";
 import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
 import { LANE_FINEST, sampleLane } from "./sampling.ts";
+import { type TempoMap, engineTick, tempoMap } from "./tempo.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
@@ -215,6 +216,12 @@ export interface EngineSong {
   tracks: EngineTrack[];
   /** The automated controls (song mode only): what they are over the loop. Without one, a control is as `channels` and `tracks` say. */
   lanes: EngineLane[];
+  /**
+   * With tempo clips (song mode, `warpSong`): the metronome's beats, in order, and those that start a bar,
+   * from the loop's start, as they no longer fall every `beatTicks`. Absent: they do.
+   */
+  clicks?: number[];
+  barClicks?: number[];
 }
 
 /**
@@ -464,7 +471,7 @@ export function compileSong(
   const played = new Set(notes.map((n) => n.channel));
   const { tracks, index } = engineTracks(song, armed, mode);
   const master = index.get(MASTER_TRACK_ID)!;
-  return {
+  const compiled: EngineSong = {
     tempo: song.settings.tempo,
     ppq: PPQ,
     loopTicks: to - from,
@@ -477,6 +484,43 @@ export function compileSong(
     tracks,
     // Automation only plays in song mode (Théo).
     lanes: mode === "song" ? automationLanes(song, index, from, to, held) : [],
+  };
+  // Tempo clips (song mode): the engine keeps the song's own tempo, and every tick goes where it falls in time.
+  const map = mode === "song" ? tempoMap(song) : null;
+  return map ? warpSong(compiled, map, from, to) : compiled;
+}
+
+/** How far past the loop's end the metronome's clicks are listed (a recording going on past it). */
+const CLICKS_PAST = 32;
+
+/**
+ * A song with tempo clips, as the engine plays it (`docs/fl-studio/automation.md`): its ticks (counted
+ * from `from`) moved to the engine's (`engineTick`), each note's end too, so it lasts as long as it
+ * should. An audio clip moves to where it starts and plays its file in real time from there (a tempo
+ * change moves its end, not its sound, as in FL). The metronome's beats are listed, no longer even.
+ */
+function warpSong(compiled: EngineSong, map: TempoMap, from: number, to: number): EngineSong {
+  const origin = engineTick(map, from);
+  const at = (tick: number) => Math.round((engineTick(map, from + tick) - origin) * 1e4) / 1e4;
+  const clicks: number[] = [];
+  const barClicks: number[] = [];
+  const { beatTicks, barTicks } = compiled;
+  for (let beat = Math.ceil(from / beatTicks) * beatTicks; beat < to + CLICKS_PAST * barTicks; beat += beatTicks) {
+    clicks.push(at(beat - from));
+    if (beat % barTicks === 0) barClicks.push(clicks[clicks.length - 1]);
+  }
+  return {
+    ...compiled,
+    loopTicks: at(to - from),
+    offsetTicks: Math.round(origin * 1e4) / 1e4,
+    notes: compiled.notes.map((note) => {
+      const tick = at(note.tick);
+      return { ...note, tick, length: at(note.tick + note.length) - tick };
+    }),
+    audioClips: compiled.audioClips.map((clip) => ({ ...clip, tick: at(clip.tick) })),
+    lanes: compiled.lanes.map((lane) => ({ ...lane, ticks: lane.ticks.map(at) })),
+    clicks,
+    barClicks,
   };
 }
 

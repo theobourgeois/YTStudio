@@ -531,6 +531,35 @@ describe("automation", () => {
     // In pattern mode, none of it.
     expect(compileSong(song, P).notes.filter((n) => n.channel === 2).map((n) => n.key)).toEqual([60, 60]);
   });
+
+  it("moves a song with a tempo clip onto the engine's ticks: notes, their lengths, audio clips, lanes, the loop, the metronome's beats", () => {
+    // Kick on every beat of each bar at 120 BPM; twice as fast from bar 2 on (held).
+    let song = setSteps(setTempo(rack(), 120), P, "chan_kick", [0, 4, 8, 12], true);
+    song = editClips(song, (clips) => addClips(clips, [0, 1, 2, 3].map((bar) => ({ kind: "pattern" as const, ref: P, track: 0, start: BAR * bar }))).clips);
+    song = addAudioClips(song, [{ name: "Loop", sampleId: "media_loop", seconds: 2, channelId: "chan_loop" }], { start: BAR * 2, track: 2 }).song;
+    const made = createAutomation(song, { kind: "tempo" }, { start: BAR, length: BAR }, { id: "auto_tempo" });
+    // 240 BPM: the clip's range the whole of the tempo's (20 to 999).
+    song = editPoints(updateAutomation(made.song, "auto_tempo", { min: 0, max: 1 }), "auto_tempo", () => [{ tick: 0, value: (240 - 20) / (999 - 20), tension: 0, curve: "single" }]);
+    const plain = compileSong(song, P);
+    expect(plain.clicks).toBeUndefined();
+    const compiled = compileSong(song, P, null, "song");
+    expect(compiled.tempo).toBe(120);
+    const kicks = compiled.notes.filter((n) => n.channel === 0);
+    // Bar 1 as it is; then beats half as far apart, each half as long.
+    expect(kicks.map((n) => n.tick)).toEqual([0, 96, 192, 288, 384, 432, 480, 528, 576, 624, 672, 720, 768, 816, 864, 912]);
+    expect(kicks[0].length).toBe(24);
+    expect(kicks[4].length).toBe(12);
+    // The audio clip starts where bar 3 falls; it plays its two seconds in real time (its length kept).
+    expect(compiled.audioClips[0]).toMatchObject({ tick: 576, length: 384 });
+    expect(compiled.loopTicks).toBe(960);
+    expect(compiled.clicks!.slice(0, 7)).toEqual([0, 96, 192, 288, 384, 432, 480]);
+    expect(compiled.barClicks!.slice(0, 3)).toEqual([0, 384, 576]);
+    // A loop from bar 2: counted from there.
+    const looped = compileSong(song, P, { start: BAR, end: BAR * 3 }, "song");
+    expect(looped.loopTicks).toBe(384);
+    expect(looped.offsetTicks).toBe(384);
+    expect(looped.notes.filter((n) => n.channel === 0).map((n) => n.tick).slice(0, 3)).toEqual([0, 48, 96]);
+  });
 });
 
 describe("a sampler's own settings, compiled", () => {

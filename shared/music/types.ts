@@ -411,6 +411,7 @@ export type AutomationTarget =
   | { kind: "effect"; effect: string }
   | { kind: "grossBeat"; effect: string; control: GrossControl }
   | { kind: "main" }
+  | { kind: "tempo" }
   | {
       kind: "plugin";
       /** Whose plugin: a plugin channel's (by channel id) or a mixer effect's (by effect id). */

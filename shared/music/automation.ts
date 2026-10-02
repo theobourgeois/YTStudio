@@ -11,7 +11,7 @@ import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
-import { DEFAULT_LFO, PITCH_KNOB_RANGE, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
+import { DEFAULT_LFO, MAX_TEMPO, MIN_TEMPO, PITCH_KNOB_RANGE, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
 import { type Automation, type AutomationLfo, type AutomationPoint, type AutomationTarget, type CurveType, type MusicProject, type PlaylistClip, STEP_TICKS } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -189,6 +189,8 @@ export function targetKey(target: AutomationTarget): string {
       return `gross:${target.effect}:${target.control}`;
     case "main":
       return "main";
+    case "tempo":
+      return "tempo";
     case "plugin":
       return `plugin:${target.owner}:${target.id}:${target.param}`;
   }
@@ -320,6 +322,12 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
     }
     case "main":
       return { name: "Main volume", owner: "Song", exists: true, own: song.settings.volume, ...unit, format: percent };
+    case "tempo": {
+      // BPM across the song's whole range (a clip's Min / Max narrow it: `TEMPO_CLIP_RANGE`).
+      const toControl = (v: number) => MIN_TEMPO + clamp(v, 0, 1) * (MAX_TEMPO - MIN_TEMPO);
+      const fromControl = (bpm: number) => clamp((bpm - MIN_TEMPO) / (MAX_TEMPO - MIN_TEMPO), 0, 1);
+      return { name: "Tempo", owner: "Song", exists: true, own: fromControl(song.settings.tempo), toControl, fromControl, format: (v) => `${Math.round(toControl(v) * 100) / 100} BPM` };
+    }
     case "plugin": {
       let owner: string | null = null;
       if (target.owner === "channel") {
@@ -643,6 +651,12 @@ export function createAutomation(
   if (!info.exists) return none;
   const length = Math.round(clamp(place.length, STEP_TICKS, MAX_PATTERN_TICKS));
   const value = clamp(options.value ?? info.own ?? 0.5, 0, 1);
+  // A tempo clip shows FL's range (60 to 180 BPM), taking in the tempo it starts at; the others, all of theirs.
+  const range =
+    target.kind === "tempo"
+      ? { min: info.fromControl(Math.min(TEMPO_CLIP_RANGE.min, info.toControl(value) - 10)), max: info.fromControl(Math.max(TEMPO_CLIP_RANGE.max, info.toControl(value) + 10)) }
+      : { min: 0, max: 1 };
+  const start = range.max > range.min ? clamp((value - range.min) / (range.max - range.min), 0, 1) : value;
   const automation: Automation = {
     id: options.id ?? createId("auto"),
     name: (options.name ?? controlName(info)).slice(0, MAX_NAME),
@@ -650,17 +664,20 @@ export function createAutomation(
     target,
     length,
     points: [
-      { tick: 0, value, tension: 0, curve: "single" },
-      { tick: length, value, tension: 0, curve: "single" },
+      { tick: 0, value: start, tension: 0, curve: "single" },
+      { tick: length, value: start, tension: 0, curve: "single" },
     ],
-    min: 0,
-    max: 1,
+    min: range.min,
+    max: range.max,
     lfo: DEFAULT_LFO,
   };
   const track = place.track ?? Math.min(lastUsedTrack(song.playlist.clips) + 1, MAX_PLAYLIST_TRACKS - 1);
   const { clips, created } = addClips(song.playlist.clips, [{ kind: "automation", ref: automation.id, track, start: place.start, length: null, offset: 0 }]);
   return { song: { ...song, automations: [...song.automations, automation], playlist: { ...song.playlist, clips } }, automationId: automation.id, clipId: created[0] ?? -1 };
 }
+
+/** The tempo range a new tempo automation clip's Min / Max cover (FL's default), widened to take in the song's own tempo. */
+export const TEMPO_CLIP_RANGE = { min: 60, max: 180 };
 
 /** The automation clips of a control (every one, playing or not). */
 export const automationsOf = (song: MusicProject, target: AutomationTarget) => {

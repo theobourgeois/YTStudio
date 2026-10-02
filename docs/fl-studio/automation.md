@@ -100,7 +100,7 @@ The manual doesn't say. What FL Studio does, from Théo and from using it:
 - **Automation only plays in song mode.** In pattern mode every control is its own value.
 - **Shared curves**: a clip's copies share it; Make unique splits one off.
 - **No tempo automation** in this pass: it changes how ticks become seconds everywhere (audio clips, the
-  export, the position display). It gets a pass of its own.
+  export, the position display). It gets a pass of its own. (Built on 2026-10-02: see below.)
 - **Not built**: Analyze audio file, the Time knob, Create sequence, Filter, Target links to several
   controls, Convert to events. (The Step and Slide modes and channel pitch came on 2026-10-02.)
 - **What an automated control does** (the manual doesn't say; Théo asked for it to be predictable and to
@@ -143,7 +143,7 @@ The manual doesn't say. What FL Studio does, from Théo and from using it:
 | One clip, several controls | Target links | One control per automation clip |
 | Step and Slide modes | Yes | The same, as two toggles in the Playlist's toolbar (2026-10-02). **Step**: a left drag on a curve paints held steps, a cell of the snap's grid each (Alt: a step's), at the pointer's height, cells skipped by a fast drag filled in between; the curve keeps its shape before and after them. **Slide**: a point dragged takes every later point with it (none passes the one before; the last stays inside the curve) |
 | Filter, Create sequence, Analyze audio file, Time, Convert to events | Yes | Not yet |
-| Tempo | Automatable | Not yet |
+| Tempo | Automatable | The same (2026-10-02): the tempo LCD's menu makes a tempo clip (or Automate…, or the assistant's `add_automation`); in song mode the LCD shows the curve's tempo where the song is, and what it edits is the song's own (pattern mode's, and the song's before any tempo clip). A new clip's Min / Max are FL's 60 to 180 BPM, widened to take in the song's tempo; the control's whole range is 20 to 999. Notes, automation and the metronome follow it to the sample. An audio clip starts where its tick falls and plays its file in real time from there (FL's: a tempo change moves its end, not its sound), so its length on the Playlist is at the song's own tempo. Not followed yet: the count-in (the song's own tempo), Gross Beat's sync and samplers' tempo-synced LFOs (the song's own tempo, as the engine's), a MIDI export (one tempo, the notes where they're heard) |
 | Channel pitch | Automatable | The same (2026-10-02), ±24 semitones as its knob: a sampler's notes bend as they sound (set every 256 samples, the lanes' grid); a plugin channel's notes move by whole semitones, by what the pitch is where each starts (ours: FL bends within the plugin's range). An audio clip's channel has none to automate (its clips' length follows its pitch). Other channel controls (filter, swing mix...) aren't automatable yet |
 | An audio clip's Automate | Volume, Panning | The same: an automation clip of its channel's volume or pan, over the clip |
 | Precision | Per buffer (FL's "smooth" options) | Slices of 256 samples counted from where play started, the same live and exported: gains glide along each slice, an effect's mix and a plugin's parameter are set at its start |
@@ -179,6 +179,14 @@ The manual doesn't say. What FL Studio does, from Théo and from using it:
   path). A plugin's own value is taken when play starts (or carried from the last song) and given back
   when it stops, a lane goes, or the export ends. A song arriving mid-play re-anchors the slices where play
   is. Parameters are found by the id the plugin gives them (`parameterId`), their index as a hint.
+- **Tempo** (`shared/music/tempo.ts`): the engine keeps one tempo, the song's own. In song mode with a
+  tempo clip, `tempoMap` draws the tempo over the song as straight lines (within 0.01 BPM) and
+  `engineTick` integrates them exactly (a logarithm per line), so `compileSong` (`warpSong`) moves every
+  tick it sends (notes and their ends, audio clips' starts, lanes, the loop) to where it falls in time at
+  that tempo, and lists the metronome's beats (`clicks`, `barClicks`: the engine's only change). The server
+  converts every tick crossing to and from the engine (`AudioEngine.clock`, a `SongClock`: play's and
+  record's `from`, the transport's tick, MIDI notes' ticks, takes' start), so the tab and the document
+  only ever see the song's ticks; the playhead moves on between the engine's words at `tempoAt`.
 - **Plugin windows**: each hosted plugin has a `ParameterWatcher` (gestures, any thread, in atomics); the
   engine's timer reports the parameter last touched (`EngineEvent` "touch") and shows **Automate "…"** in
   the window's title bar (`EditorWindow::setTouched`), whose click is `EngineEvent` "automate"; a

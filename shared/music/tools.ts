@@ -27,8 +27,8 @@ const automationRef = str("An automation clip: its id or its name (from get_auto
 /** What names a control to automate (`add_automation`, `list_controls`). */
 const controlFields = {
   control: oneOf(
-    ["volume", "pan", "pitch", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix"],
-    "Which control: a channel's or mixer track's volume or pan, a channel's pitch (semitones: a sampler's notes bend as they sound, a plugin channel's move by whole semitones), a track's stereo separation, a send's level, an effect slot's mix, the main volume, " +
+    ["volume", "pan", "pitch", "stereo", "send", "mix", "main volume", "tempo", "parameter", "time slot", "volume slot", "time mix", "volume mix"],
+    "Which control: a channel's or mixer track's volume or pan, a channel's pitch (semitones: a sampler's notes bend as they sound, a plugin channel's move by whole semitones), a track's stereo separation, the song's tempo (in BPM; it plays in song mode only, like all automation), a send's level, an effect slot's mix, the main volume, " +
       "a plugin's own parameter, or a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
       "use hold curves, so each bar plays a slot: that's how chops are arranged), or its time or volume knob.",
   ),

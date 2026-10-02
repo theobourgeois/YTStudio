@@ -940,7 +940,16 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
             startNote (*channel.plugin, note->key, note->velocity, (juce::int64) (note->length / ticksPerSample), at (note->tick));
     }
 
-    if (metronome)
+    if (metronome && ! song->clicks.empty())
+    {
+        // Tempo clips: the beats as listed.
+        for (auto beat = std::lower_bound (song->clicks.begin(), song->clicks.end(), from); beat != song->clicks.end() && *beat < to; ++beat)
+        {
+            click.delay = at (*beat);
+            click.bar = std::binary_search (song->barClicks.begin(), song->barClicks.end(), *beat);
+        }
+    }
+    else if (metronome)
         for (auto beat = std::ceil (from / song->beatTicks) * song->beatTicks; beat < to; beat += song->beatTicks)
         {
             click.delay = at (beat);

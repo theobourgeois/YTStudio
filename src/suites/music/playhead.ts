@@ -1,4 +1,5 @@
 import { patternTickInSong } from "@shared/music/playlist";
+import { tempoAt } from "@shared/music/tempo";
 import { PPQ } from "@shared/music/types";
 import { currentPattern, useMusic } from "./store";
 import { patternTickNow, useTransport } from "./transport";
@@ -9,7 +10,11 @@ import { patternTickNow, useTransport } from "./transport";
  */
 export function positionNow(now = performance.now()): number | null {
   const song = useMusic.getState().history?.doc;
-  return song ? patternTickNow(useTransport.getState(), now, song.settings.tempo, PPQ) : null;
+  if (!song) return null;
+  const transport = useTransport.getState();
+  // Moved on from the engine's last word at the tempo there (tempo clips change it in song mode).
+  const tempo = transport.mode === "song" ? tempoAt(song, transport.loop.start + transport.tick) : song.settings.tempo;
+  return patternTickNow(transport, now, tempo, PPQ);
 }
 
 /**
