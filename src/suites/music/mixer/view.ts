@@ -22,7 +22,7 @@ interface MixerViewState {
   revealing: string | null;
   /**
    * A track's state being dragged (from its menu's Copy track state) to drop on another, or one of its
-   * effects (`effect`: from the inspector's slots, moved, or copied with Alt): where, and the track under it.
+   * effects (`effect`: from the inspector's slots, moved, or copied with ⌘): where, and the track under it.
    */
   carrying: { from: string; x: number; y: number; over: string | null; effect?: { name: string; copy: boolean } } | null;
   /** The mixer's view (this computer's: it's kept). */
