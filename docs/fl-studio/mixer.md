@@ -281,7 +281,7 @@ Théo's first pass (2026-09-30), all built:
 - Effect slots: a click anywhere on an empty one opens the plugins; a loaded one's name opens its
   window; the arrow and a right-click give its menu; drag to reorder (it swaps with what's there).
   Dragged onto another track's strip, an effect moves there (its first empty slot), its plugin, settings
-  and automation with it, and the inspector follows it; with Alt a copy goes there instead (Théo,
+  and automation with it, and the inspector follows it; with ⌘ (Ctrl) a copy goes there instead, onto a slot of its own track too (Théo,
   2026-10-02; `effectToTrack`, `move_mixer_effect`).
 - Copy track state can be dragged from the menu onto another track. Track state is FL's: effects and
   controls, not routing.

@@ -381,7 +381,7 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   plugin's reported category, pins in localStorage) for the rack's + and the effect slots. It lists our
   built-in ones and the plugins starred in the Plugin manager (`plugin-manager.tsx`, its More plugins…;
   the stars are `plugin-favourites.ts`, this computer's), FL's favourites. An effect slot dragged onto
-  another strip moves the effect there, Alt copies it (`effectToTrack`).
+  another strip moves the effect there, ⌘-drag copies it (onto a slot too; `effectToTrack`).
   The mixer's look is its own theme tokens (`--mixer-*`, `--fader-*`; knobs everywhere use `--knob-*`), FL
   Studio's colours: use them in the mixer rather than the app's surfaces. A track's `dock`, `separator` and
   `group` (`Mixer.groups`) are only how the mixer shows it; they route nothing.

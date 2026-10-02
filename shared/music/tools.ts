@@ -769,7 +769,7 @@ export const MUSIC_TOOLS = [
     description:
       "Move an effect from a mixer track's slot to another track, as dragging its slot onto that track's strip does: the same effect (its plugin as it is, " +
       "its settings and automation) goes into `toSlot` if that's empty, else the track's first empty slot. With `copy`, a copy goes there instead (its settings as " +
-      "they are now) and the effect stays, as Alt+drag does; a copy can go on the same track. update_mixer_effect moves one between slots of its track.",
+      "they are now) and the effect stays, as ⌘-drag does; a copy can go on the same track. update_mixer_effect moves one between slots of its track.",
     inputSchema: obj(
       { track: mixerTrack("The track it's on"), slot, to: mixerTrack("The track it goes to"), toSlot: int("A slot of that track, 1 to 10 (default: its first empty one)."), copy: bool("Copy it there, leaving it where it is.") },
       ["track", "slot", "to"],
