@@ -123,8 +123,8 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, panman::Registry& panMen, juce::StringArray& unreadable,
-                                  int capacity, double sampleRate, bool keepOnly)
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, panman::Registry& panMen,
+                                  wheel::Registry& pitchWheels, juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly)
 {
     auto song = std::make_unique<Song>();
     song->tempo = number (json["tempo"], 120, 1, 2000);
@@ -238,7 +238,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     std::stable_sort (song->audioClips.begin(), song->audioClips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.tick < b.tick; });
 
     // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
-    juce::StringArray effectIds, grossIds, tuneIds, echoIds, eqIds, panIds;
+    juce::StringArray effectIds, grossIds, tuneIds, echoIds, eqIds, panIds, wheelIds;
     if (const auto* list = json["tracks"].getArray())
         for (const auto& item : *list)
         {
@@ -279,6 +279,19 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.tuneSettings = tune::Settings::parse (slot["autoTune"]);
                         effect.tune = autoTunes.get (id, sampleRate, effect.tuneSettings->minHz, capacity);
                         tuneIds.add (id);
+                        track.effects.push_back (std::move (effect));
+                        continue;
+                    }
+                    // Pitch Wheel is ours too: its wheels and voices carry on through edits (its window, its latency, follow the resolution).
+                    if (plugin["id"].toString() == "vaudio:pitch-wheel")
+                    {
+                        Track::Effect effect { id, nullptr, (bool) slot["enabled"], (float) number (slot["mix"], 1, 0, 1) };
+                        effect.wheelSettings = wheel::Settings::parse (slot["pitchWheel"]);
+                        effect.wheel = pitchWheels.get (id, sampleRate, effect.wheelSettings->window, capacity);
+                        // The channel whose notes play it (the song's own channels, parsed first).
+                        if (const auto channel = song->channelIndex (effect.wheelSettings->notesFrom); channel >= 0 && effect.wheelSettings->notesFrom.isNotEmpty())
+                            song->wheelListeners.push_back ({ channel, effect.wheel.get() });
+                        wheelIds.add (id);
                         track.effects.push_back (std::move (effect));
                         continue;
                     }
@@ -397,6 +410,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
         effects.keepOnly (effectIds);
         grossBeats.keepOnly (grossIds);
         autoTunes.keepOnly (tuneIds);
+        pitchWheels.keepOnly (wheelIds);
         echoBoys.keepOnly (echoIds);
         eqs.keepOnly (eqIds);
         panMen.keepOnly (panIds);
@@ -490,6 +504,25 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.control = control;
             const auto& s = *track.effects[(size_t) lane.index].tuneSettings;
             const double base[] = { s.retune, s.humanize, s.flexTune, s.vibratoGain, s.transpose, s.throat, (double) s.key };
+            lane.base[0] = (float) base[control];
+        }
+        else if (kind == "wheel")
+        {
+            // A Pitch Wheel's control, in its own units (`PitchWheelControl`: the wheels snapped, the knobs 0..1).
+            lane.kind = Lane::Kind::wheel;
+            lane.track = (int) number (target["track"], -1, -1, 1e6);
+            if (lane.track < 0 || lane.track >= (int) song.tracks.size())
+                continue;
+            const auto& track = song.tracks[(size_t) lane.track];
+            lane.index = (int) number (target["effect"], -1, -1, 1e6);
+            if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].wheelSettings == nullptr)
+                continue;
+            const auto control = juce::StringArray { "pitch", "timbre", "pitchGravity", "pitchInertia", "pitchSmooth", "timbreGravity", "timbreInertia", "timbreSmooth" }.indexOf (target["control"].toString());
+            if (control < 0)
+                continue;
+            lane.control = control;
+            const auto& s = *track.effects[(size_t) lane.index].wheelSettings;
+            const double base[] = { s.pitch.target, s.timbre.target, s.pitch.gravity, s.pitch.inertia, s.pitch.smooth, s.timbre.gravity, s.timbre.inertia, s.timbre.smooth };
             lane.base[0] = (float) base[control];
         }
         else if (kind == "echo")
@@ -623,6 +656,8 @@ void Song::compensate (double sampleRate)
                 delay += effect.tune->latency();
             else if (effect.enabled && effect.eqSettings != nullptr)
                 delay += effect.eqSettings->latency;
+            else if (effect.enabled && effect.wheel != nullptr)
+                delay += effect.wheel->latency();
         out[t] = arrival[t] + delay;
         tracks[t].latency = out[t];
         for (const auto& send : track.sends)

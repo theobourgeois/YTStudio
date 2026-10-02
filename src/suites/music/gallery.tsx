@@ -14,6 +14,7 @@ import { Led } from "./mixer/led";
 import { ModeLights } from "./mode-switch";
 import { EqKnob } from "./pro-q/knob";
 import { ShapeIcon } from "./pro-q/shape-icon";
+import { type DialScene, drawDial, wheelColours } from "./pitch-wheel/draw";
 
 /** A knob with a value of its own (nothing in the song). */
 function LooseKnob(props: Omit<React.ComponentProps<typeof Knob>, "value" | "onBegin" | "onDrag" | "onEnd" | "onCancel" | "onSet"> & { initial: number }) {
@@ -192,9 +193,43 @@ function EqControls() {
   );
 }
 
+/** A Pitch Wheel dial in one state, drawn as its window draws it (`pitch-wheel/draw.ts`). */
+function WheelCard({ label, scene }: { label: string; scene: Omit<DialScene, "size" | "colours" | "now" | "trail"> & { trail?: number[] } }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const size = 180;
+  useEffect(() => {
+    const element = canvas.current;
+    const ctx = element && prepare(element, size, size);
+    if (!element || !ctx) return;
+    const now = performance.now();
+    const trail = (scene.trail ?? []).map((value, i, all) => ({ value, at: now - (all.length - 1 - i) * 20 }));
+    drawDial(ctx, { ...scene, size, now, trail, colours: wheelColours(element, scene.name === "TIMBRE" ? "timbre" : "pitch") });
+  });
+  return (
+    <div className="flex flex-col items-center gap-1 rounded-sm bg-surface-1 p-2">
+      <canvas ref={canvas} style={{ width: size, height: size }} />
+      <span className="text-[10px] text-muted-foreground">{label}</span>
+    </div>
+  );
+}
+
+const WHEEL_AT_REST = { range: 24, name: "PITCH", pointer: 0, target: 0, actual: 0, voices: [], input: 0, closed: false, dragging: false } as const;
+
+function Wheels() {
+  return (
+    <div className="grid grid-cols-4 gap-3">
+      <WheelCard label="at rest" scene={WHEEL_AT_REST} />
+      <WheelCard label="swinging past (low gravity), sound in" scene={{ ...WHEEL_AT_REST, pointer: 5.4, target: 5, actual: 8.6, trail: [2, 4, 6, 7.5, 8.3, 8.6], input: 0.4, dragging: true }} />
+      <WheelCard label="Multi: three voices" scene={{ ...WHEEL_AT_REST, range: 12, pointer: 0, target: 0, actual: 0, voices: [0, 4, 7], input: 0.3 }} />
+      <WheelCard label="Timbre, closed" scene={{ ...WHEEL_AT_REST, name: "TIMBRE", range: 12, closed: true }} />
+    </div>
+  );
+}
+
 /** The music suite's controls, for the component gallery (`src/gallery/`). */
 export const MUSIC_SECTIONS: GallerySection[] = [
   { id: "music-controls", title: "Music: knobs, LCDs, PAT / SONG, faders and the arm light", source: "suites/music/knob.tsx, lcd.tsx, mode-switch.tsx, mixer/fader.tsx, mixer/arm-button.tsx", render: () => <Controls /> },
+  { id: "music-wheels", title: "Music: Pitch Wheel's dials (at rest, swinging, Multi's voices, closed)", source: "suites/music/pitch-wheel/draw.ts", render: () => <Wheels /> },
   { id: "music-curves", title: "Music: automation curve types (FL's), with points and tension handles", source: "suites/music/automation/draw-curve.ts", render: () => <Curves /> },
   { id: "music-pro-q", title: "Music: Pro-Q's knobs (the dynamic ring on GAIN) and its shapes", source: "suites/music/pro-q/knob.tsx, shape-icon.tsx", render: () => <EqControls /> },
 ];
