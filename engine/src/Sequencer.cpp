@@ -281,6 +281,12 @@ void Sequencer::silenceVoices()
     click.level = 0;
     click.delay = -1;
     silencing = true;
+    // The Pitch Wheels' notes end too (Single's offset back to none).
+    if (song != nullptr)
+        for (auto& track : song->tracks)
+            for (auto& effect : track.effects)
+                if (effect.wheel != nullptr)
+                    effect.wheel->notesOff();
 }
 
 void Sequencer::takeRequests()
@@ -570,6 +576,10 @@ void Sequencer::applyLanes (int numSamples)
                 // An Auto-Tune's control, likewise.
                 song->tracks[(size_t) lane.track].effects[(size_t) lane.index].tuneSettings->setControl (lane.control, start[0]);
                 break;
+            case Song::Lane::Kind::wheel:
+                // A Pitch Wheel's wheel or knob, likewise (the physics smooth a wheel's steps).
+                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].wheelSettings->setControl (lane.control, start[0]);
+                break;
             case Song::Lane::Kind::echo:
                 // An EchoBoy's, likewise (its delays glide or crossfade there, its gains glide).
                 song->tracks[(size_t) lane.track].effects[(size_t) lane.index].echoSettings->set ((echo::Control) lane.control, start.data(), lane.size);
@@ -581,6 +591,10 @@ void Sequencer::applyLanes (int numSamples)
             case Song::Lane::Kind::ott:
                 // An OTT's, likewise (its values glide there over a few ms).
                 song->tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, start.data(), lane.size);
+                break;
+            case Song::Lane::Kind::panman:
+                // A PanMan's control, likewise (its position and gains glide, so a step doesn't click).
+                setPanControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, start[0]);
                 break;
             case Song::Lane::Kind::param:
             {
@@ -644,6 +658,9 @@ void Sequencer::restoreLanes (Song& from)
             case Song::Lane::Kind::tune:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].tuneSettings->setControl (lane.control, lane.base[0]);
                 break;
+            case Song::Lane::Kind::wheel:
+                from.tracks[(size_t) lane.track].effects[(size_t) lane.index].wheelSettings->setControl (lane.control, lane.base[0]);
+                break;
             case Song::Lane::Kind::echo:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].echoSettings->set ((echo::Control) lane.control, lane.base.data(), lane.size);
                 break;
@@ -652,6 +669,9 @@ void Sequencer::restoreLanes (Song& from)
                 break;
             case Song::Lane::Kind::ott:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, lane.base.data(), lane.size);
+                break;
+            case Song::Lane::Kind::panman:
+                setPanControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, lane.base[0]);
                 break;
             case Song::Lane::Kind::param:
                 if (lane.lastSet > -2.0f)
@@ -764,6 +784,10 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
             startVoice (note->channel, note->pitch, note->gain, note->length, at (note->tick), note->pan);
         else if (channel.plugin != nullptr)
             startNote (*channel.plugin, note->key, note->velocity, (juce::int64) (note->length / ticksPerSample), at (note->tick));
+        // Pitch Wheels this channel's notes play, on their sample.
+        for (const auto& listener : song->wheelListeners)
+            if (listener.channel == note->channel)
+                listener.state->noteOn (note->key, note->velocity, at (note->tick), (juce::int64) (note->length / ticksPerSample));
     }
 
     if (metronome)
@@ -952,6 +976,14 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
             else
                 effect.tune->skipped();
         }
+        else if (effect.wheel != nullptr)
+        {
+            // Its mix is its own too: the dry sound waits as long as the shifted one.
+            if (effect.enabled)
+                effect.wheel->process (*effect.wheelSettings, l, r, numSamples, effect.mix);
+            else
+                effect.wheel->skipped();
+        }
         else if (effect.echo != nullptr)
         {
             if (effect.enabled)
@@ -965,6 +997,13 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
                 runOtt (effect, l, r, numSamples);
             else
                 effect.ott->skipped();
+        }
+        else if (effect.pan != nullptr)
+        {
+            if (effect.enabled)
+                runPanMan (effect, l, r, numSamples);
+            else
+                effect.pan->skipped();
         }
 
     // The fader, pan and mute: each side out from both sides in (gliding after a new song, or automated).
@@ -1106,6 +1145,40 @@ void Sequencer::setGrossControl (gross::Settings& settings, int control, float v
         case 4: settings.attack = juce::jlimit (0.0, 0.5, (double) value); break;
         case 5: settings.release = juce::jlimit (0.0, 1.0, (double) value); break;
         default: settings.tension = juce::jlimit (-1.0, 1.0, (double) value); break;
+    }
+}
+
+void Sequencer::runPanMan (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
+{
+    auto& settings = *effect.panSettings;
+    auto& dry = settings.dry;
+    if (numSamples > dry.getNumSamples())
+        return;
+    const auto mix = effect.mix;
+    if (mix < 1.0f)
+    {
+        dry.copyFrom (0, 0, left, numSamples);
+        dry.copyFrom (1, 0, right, numSamples);
+    }
+    effect.pan->process (settings, grossClock, left, right, numSamples);
+    if (mix >= 1.0f)
+        return;
+    juce::FloatVectorOperations::multiply (left, mix, numSamples);
+    juce::FloatVectorOperations::multiply (right, mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (left, dry.getReadPointer (0), 1.0f - mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
+}
+
+void Sequencer::setPanControl (panman::Settings& settings, int control, float value)
+{
+    switch (control)
+    {
+        // The offset and width as fractions of 105° and 210° (`PAN_LANE_SCALE`).
+        case 0: settings.offset = juce::jlimit (-105.0, 105.0, value * 105.0); break;
+        case 1: settings.width = juce::jlimit (0.0, 210.0, value * 210.0); break;
+        case 2: settings.rate = juce::jlimit (0.001, 100.0, (double) value); break;
+        case 3: settings.input = juce::jlimit (-60.0, 60.0, (double) value); break;
+        default: settings.output = juce::jlimit (-60.0, 60.0, (double) value); break;
     }
 }
 

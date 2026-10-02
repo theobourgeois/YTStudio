@@ -8,8 +8,10 @@
 #include "AutoTune.h"
 #include "EchoBoy.h"
 #include "GrossBeat.h"
+#include "PanMan.h"
 #include "ProQ.h"
 #include "Ott.h"
+#include "PitchWheel.h"
 #include "Host.h"
 #include "Resampling.h"
 
@@ -155,6 +157,12 @@ struct Song
             /** An OTT (ours too): its sound, kept across songs, and this song's settings for it. */
             std::shared_ptr<ott::State> ott;
             std::shared_ptr<ott::Settings> ottSettings;
+            /** A PanMan (ours too): its sound's state, kept across songs, and this song's settings for it. */
+            std::shared_ptr<panman::State> pan;
+            std::shared_ptr<panman::Settings> panSettings;
+            /** A Pitch Wheel (ours too): its sound, kept across songs, and this song's settings for it. */
+            std::shared_ptr<wheel::State> wheel;
+            std::shared_ptr<wheel::Settings> wheelSettings;
         };
 
         juce::String id;
@@ -185,9 +193,9 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, track, send, mix, gross, tune, echo, eq, ott, param };
+        enum class Kind { channel, track, send, mix, gross, tune, echo, eq, ott, panman, wheel, param };
         Kind kind = Kind::channel;
-        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix, attack, release, tension), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`), an OTT's (`ott::Lane`). */
+        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix, attack, release, tension), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`), an OTT's (`ott::Lane`), a Pitch Wheel's (`PitchWheelControl`, by index), or a PanMan's (`PanControl`: offset, width, rate, input, output). */
         int channel = -1, track = -1, index = -1, control = 0;
         /** A Pro-Q's band (its number; 0 its output) and control (frequency, gain, Q, range, output). */
         int band = 0;
@@ -261,6 +269,13 @@ struct Song
     std::vector<Track> tracks;
     /** The automated controls (song mode). */
     std::vector<Lane> lanes;
+    /** The Pitch Wheels that a channel's notes play (`notesFrom`): the channel's index and the wheel's sound (its effect holds it). */
+    struct WheelListener
+    {
+        int channel = -1;
+        wheel::State* state = nullptr;
+    };
+    std::vector<WheelListener> wheelListeners;
     /**
      * The tracks something reaches, in stages: none in a stage sends to another in it, and each stage's
      * senders are all in earlier ones. So a stage's tracks can be run at once (the export does).
@@ -286,12 +301,12 @@ struct Song
 
     /**
      * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the
-     * mixer's, `grossBeats` and `echoBoys` keep its Gross Beats' and EchoBoys' sounds; `unreadable` gets the ids of channels whose
+     * mixer's, `grossBeats`, `echoBoys` and `panMen` keep its Gross Beats', EchoBoys' and PanMen's sounds; `unreadable` gets the ids of channels whose
      * sample couldn't be read. Unless `keepOnly` is false (a copy for the export), the hosts let go of the
      * plugins the song doesn't have.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, ott::Registry& otts, juce::StringArray& unreadable,
-                                        int capacity, double sampleRate, bool keepOnly = true);
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, ott::Registry& otts,
+                                        panman::Registry& panMen, wheel::Registry& pitchWheels, juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly = true);
 
     /**
      * Plugin delay compensation (FL Studio's automatic PDC): every path into a track waits until the

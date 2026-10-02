@@ -24,7 +24,7 @@ import { clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
 import { ECHO_TOOL_CONTROLS, ECHO_TOOL_CONTROL_NAMES, type EchoToolControl } from "@shared/music/echo-boy-presets";
 import { OTT_HINTS, OTT_TOOL_CONTROLS, OTT_TOOL_CONTROL_NAMES, type OttToolControl } from "@shared/music/ott-presets";
-import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject } from "@shared/music/types";
+import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject, type PitchWheelControl } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
 import { type EditResult, findChannel } from "../tool-edits";
 
@@ -69,8 +69,25 @@ export const CONTROLS = [
   ...["eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale"],
   ...ECHO_TOOL_CONTROL_NAMES,
   ...OTT_TOOL_CONTROL_NAMES,
+  "panman offset",
+  "panman width",
+  "panman rate",
+  "panman input",
+  "panman output",
+  ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
 ] as const;
 
+/** A Pitch Wheel's controls, as the tool names them. */
+const WHEEL_CONTROL_NAMES: Record<string, PitchWheelControl> = {
+  "wheel pitch": "pitch",
+  "wheel timbre": "timbre",
+  "wheel pitch gravity": "pitchGravity",
+  "wheel pitch inertia": "pitchInertia",
+  "wheel pitch smooth": "pitchSmooth",
+  "wheel timbre gravity": "timbreGravity",
+  "wheel timbre inertia": "timbreInertia",
+  "wheel timbre smooth": "timbreSmooth",
+};
 
 
 /** A Pro-Q's controls, as the tool names them. */
@@ -107,6 +124,8 @@ const TUNE_CONTROLS = {
 } as const satisfies Record<string, AutoTuneControl>;
 /** Auto-Tune's controls the model gives as 0 to 100 (Auto-Tune's own numbers), kept as 0..1 (throat 0.5..1.8). */
 const HUNDREDTHS: readonly AutoTuneControl[] = ["humanize", "flexTune", "throat", "tracking", "vibratoVariation", "vibratoAmplitude", "vibratoFormant"];
+/** A PanMan's controls, likewise. */
+const PAN_CONTROLS_BY_NAME = { "panman offset": "offset", "panman width": "width", "panman rate": "rate", "panman input": "input", "panman output": "output" } as const;
 
 /** A mixer effect's slot, 1 to 10, on a track: the effect there, or an error saying which slots hold one. */
 function effectAt(song: MusicProject, input: Input) {
@@ -251,6 +270,27 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (!effect.ott) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an OTT: an "${control}" is OTT's.`);
       return { kind: "ott", effect: effect.id, control: OTT_TOOL_CONTROLS[control as OttToolControl] };
     }
+    case "panman offset":
+    case "panman width":
+    case "panman rate":
+    case "panman input":
+    case "panman output": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.panMan) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a PanMan: a "${control}" is PanMan's.`);
+      return { kind: "panMan", effect: effect.id, control: PAN_CONTROLS_BY_NAME[control] };
+    }
+    case "wheel pitch":
+    case "wheel timbre":
+    case "wheel pitch gravity":
+    case "wheel pitch inertia":
+    case "wheel pitch smooth":
+    case "wheel timbre gravity":
+    case "wheel timbre inertia":
+    case "wheel timbre smooth": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.pitchWheel) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Pitch Wheel: "${control}" is Pitch Wheel's.`);
+      return { kind: "pitchWheel", effect: effect.id, control: WHEEL_CONTROL_NAMES[control] };
+    }
     case "parameter": {
       if (typeof input.parameter !== "string" || !input.parameter.trim()) throw new Error('"parameter" must be the plugin parameter\'s name or id, from list_controls.');
       if (input.channel !== undefined && input.channel !== "") {
@@ -355,6 +395,10 @@ const valueHint = (target: AutomationTarget) =>
     ? ECHO_HINTS[target.control]
     : target.kind === "ott"
     ? OTT_HINTS[target.control]
+    : target.kind === "pitchWheel"
+    ? target.control === "pitch" || target.control === "timbre"
+      ? "semitones, -24 to 24"
+      : "0 to 1"
     : target.kind === "plugin"
     ? "0 to 1 of the parameter's range"
     : target.kind === "grossBeat" && target.control.endsWith("Slot")
@@ -371,11 +415,15 @@ const valueHint = (target: AutomationTarget) =>
             : target.control === "gainScale"
               ? "0 to 2 (1 is 100%: every band's gain as set)"
               : "a level in dB"
+    : target.kind === "panMan"
+      ? PAN_HINTS[target.control]
     : target.kind === "channel" && target.control === "pan"
       ? "a pan, -1 left to 1 right"
       : target.kind === "mixer" && target.control !== "volume"
         ? "-1 to 1"
         : "0 to 1, as its knob or fader has it";
+/** What a PanMan control's points are in. */
+const PAN_HINTS = { offset: "degrees, -105 (left) to 105 (right)", width: "degrees, 0 to 210", rate: "Hz, 0.01 to 10", input: "dB, -24 to 24", output: "dB, -24 to 24" } as const;
 
 /**
  * add_automation: an automation clip of a control over `bar` .. `bar + length` (default: the time the

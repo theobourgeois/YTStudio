@@ -127,6 +127,24 @@ export interface EngineTransport {
   otts?: Record<string, EngineOttState>;
   /** Each Pro-Q being watched (`eqWatch`), by effect id: its spectra and its dynamic bands (absent from engines that don't say). */
   eq?: Record<string, EngineEqState>;
+  /** Each PanMan in the song (by effect id): where it's put the sound (absent from engines that don't say). */
+  panMen?: Record<string, EnginePanState>;
+  /** Each Pitch Wheel in the song (by effect id): where its wheels actually are, and its notes (absent from engines that don't say). */
+  pitchWheels?: Record<string, EnginePitchWheelState>;
+}
+
+/**
+ * What a Pitch Wheel is doing, as it's heard: each voice's actual pitch (semitones; its note, or -1 for
+ * Single's voice when no note plays it), the Timbre wheel's actual shift, how loud what comes in is (0..1,
+ * the input light) and whether notes are held (the MIDI light). `latency`: samples it comes out late by.
+ */
+export interface EnginePitchWheelState {
+  latency: number;
+  pitch: number;
+  timbre: number;
+  voices: { key: number; pitch: number }[];
+  input: number;
+  notes: number[];
 }
 
 /**
@@ -168,6 +186,21 @@ export interface EngineEqState {
   post: number[] | null;
   peak: [number, number];
   bands: Record<string, { gain: number; level: number }>;
+}
+
+/**
+ * What a PanMan is doing: the position it's heard at (degrees: ±90 hard left / right, ±105 beyond), the
+ * least and most since the engine last said (the meter's trails), the input's and output's peaks since
+ * (linear, after Input / Output), the level its Threshold or Trigger knob sees (dB), and its divider's count.
+ */
+export interface EnginePanState {
+  position: number;
+  least: number;
+  most: number;
+  input: number;
+  output: number;
+  level: number;
+  count: number;
 }
 
 /**
@@ -494,6 +527,8 @@ export interface EngineCommands {
    * envelope's; 0 lets go).
    */
   grossBeat: { effect: string; hold?: boolean; scratch?: number };
+  /** A PanMan's Manual Trigger (`trigger`: a trigger now, if the sound is under its Trigger's level). Live, not the song's. */
+  panMan: { effect: string; trigger?: boolean };
   /**
    * The Pro-Qs whose sound the engine measures (their windows are open, or another's shows their
    * spectrum): each with its analyzer's FFT length. The rest aren't measured.
@@ -504,6 +539,13 @@ export interface EngineCommands {
    * on is heard, `gain` dB louder or softer (the solo's listening level).
    */
   eqSolo: { effect: string; band: number | null; gain?: number };
+  /**
+   * A Pitch Wheel's live controls, held by the hand (the song has the wheels where they're let go):
+   * `pitch` and `timbre` hold a wheel's pointer (semitones, snapped) for a quarter of a second (renewed
+   * while it's held); `jump` puts the actual pitch on it at once (a typed value); `key` with `on` plays or
+   * lets go a note of its keyboard.
+   */
+  pitchWheel: { effect: string; pitch?: number; timbre?: number; jump?: boolean; key?: number; on?: boolean };
   /**
    * The tracks the mixer's selection meter adds up (the selected ones, by id): their sound after their
    * faders, together, is measured as the meter "@selection" (`EngineMeters`).

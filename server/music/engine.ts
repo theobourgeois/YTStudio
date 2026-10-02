@@ -10,6 +10,7 @@ import readline from "node:readline";
 import { clamp, isFiniteNumber } from "../../shared/math.ts";
 import { type PlayMode, compileSong, levelGain } from "../../shared/music/compile.ts";
 import { GROSS_DEPTH } from "../../shared/music/gross-beat-presets.ts";
+import { MAX_SWING } from "../../shared/music/pitch-wheel-presets.ts";
 import {
   ENGINE_SLOTS,
   type EngineCommand,
@@ -511,6 +512,20 @@ export class AudioEngine {
         if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a Pro-Q\'s effect id.');
         const band = isFiniteNumber(body.band) ? Math.round(clamp(body.band, 1, 24)) : null;
         return { effect: body.effect, band, gain: isFiniteNumber(body.gain) ? clamp(body.gain, -30, 30) : 0 };
+      }
+      case "panMan": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a PanMan\'s effect id.');
+        return { effect: body.effect, ...(body.trigger === true && { trigger: true }) };
+      }
+      case "pitchWheel": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a Pitch Wheel\'s effect id.');
+        return {
+          effect: body.effect,
+          ...(isFiniteNumber(body.pitch) && { pitch: clamp(body.pitch, -MAX_SWING, MAX_SWING) }),
+          ...(isFiniteNumber(body.timbre) && { timbre: clamp(body.timbre, -MAX_SWING, MAX_SWING) }),
+          ...(body.jump === true && { jump: true }),
+          ...(isFiniteNumber(body.key) && { key: Math.round(clamp(body.key, 0, 127)), on: body.on === true }),
+        };
       }
       case "trigger": {
         if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');

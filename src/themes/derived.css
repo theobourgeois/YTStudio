@@ -23,8 +23,13 @@
   /* Gross Beat's time envelope is the theme's accent (its volume one stays orange). */
   --gross-time: var(--brand);
   --gross-time-foreground: var(--brand-foreground);
-  /* Auto-Tune's tuned voice too. */
+  /* Auto-Tune's tuned voice too, and Pitch Wheel's pitch wheel; its bezel and band the theme's surfaces. */
   --tune-tuned: var(--brand);
+  --wheel-pitch: var(--brand);
+  --wheel-bezel-top: var(--surface-3);
+  --wheel-bezel-bottom: var(--surface-0);
+  --wheel-band: var(--surface-2);
+  --wheel-tick: var(--muted-foreground);
 
   --step-off-top: var(--surface-2);
   --step-off-bottom: var(--surface-0);

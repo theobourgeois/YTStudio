@@ -99,6 +99,10 @@ private:
     eq::Registry eqs;
     /** Its OTTs' sounds, likewise. */
     ott::Registry otts;
+    /** Its PanMen's sounds, likewise. */
+    panman::Registry panMen;
+    /** Its Pitch Wheels' sounds, by effect id. */
+    wheel::Registry pitchWheels;
     Sequencer sequencer;
     /** The Browser's preview of a file, outside the song. */
     FilePreview preview;

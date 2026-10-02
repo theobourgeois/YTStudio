@@ -54,6 +54,8 @@ interface KnobProps {
   unit: ValueUnit;
   /** The arc grows from the middle (pan, pitch) rather than from the start. */
   bipolar?: boolean;
+  /** How its travel spreads over its range: evenly, or along a log scale (a rate in Hz; `min` must be over 0). */
+  taper?: "linear" | "log";
   size?: number;
   className?: string;
   /** A drag starts, moves, and ends or is cancelled. */
@@ -91,15 +93,19 @@ function arc(cx: number, cy: number, r: number, from: number, to: number): strin
  * changes; Alt+click or a middle click resets it; a right-click opens its menu (Reset, Copy value,
  * Paste value, Type in value).
  */
-export function Knob({ value, min, max, defaultValue, label, format, unit, bipolar, size = 22, className, onBegin, onDrag, onEnd, onCancel, onSet, automated, own = value, menu }: KnobProps) {
+export function Knob({ value, min, max, defaultValue, label, format, unit, bipolar, taper, size = 22, className, onBegin, onDrag, onEnd, onCancel, onSet, automated, own = value, menu }: KnobProps) {
   // While it's dragged, where its value shows: above it, or under it when there's no room above (the toolbar's, at the window's top).
   const [dragging, setDragging] = useState<"above" | "below" | null>(null);
   const [typing, setTyping] = useState<string | null>(null);
   const typingNext = useRef(false);
   const element = useRef<HTMLDivElement>(null);
   const copied = useCopiedValue((s) => s.fraction);
-  useWheelValue(element, { value: () => own, min, max, step: (fine) => (max - min) / (fine ? 200 : 40), onBegin, onDrag, onEnd });
-  const fraction = (value - min) / (max - min);
+  // Everything moves in fractions of its travel (0..1), so a log knob turns as evenly as a linear one.
+  const log = taper === "log" && min > 0;
+  const toTravel = (v: number) => clamp(log ? Math.log(v / min) / Math.log(max / min) : (v - min) / (max - min), 0, 1);
+  const fromTravel = (f: number) => (log ? min * (max / min) ** clamp(f, 0, 1) : min + clamp(f, 0, 1) * (max - min));
+  useWheelValue(element, { value: () => toTravel(own), min: 0, max: 1, step: (fine) => (fine ? 1 / 200 : 1 / 40), onBegin, onDrag: (f) => onDrag(fromTravel(f)), onEnd });
+  const fraction = toTravel(value);
   const angle = -SWEEP / 2 + fraction * SWEEP;
   const c = size / 2;
   const gradient = useId().replace(/:/g, "");
@@ -145,7 +151,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                   return;
                 }
                 const origin = e.clientY;
-                const start = own;
+                const start = toTravel(own);
                 startPointerDrag(e, {
                   threshold: 2,
                   cursor: "ns-resize",
@@ -153,7 +159,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                     setDragging((element.current?.getBoundingClientRect().top ?? 100) < VALUE_ROOM ? "below" : "above");
                     onBegin();
                   },
-                  onMove: (ev) => onDrag(clamp(start + ((origin - ev.clientY) / (ev.ctrlKey || ev.metaKey ? DRAG_RANGE * 10 : DRAG_RANGE)) * (max - min), min, max)),
+                  onMove: (ev) => onDrag(fromTravel(start + (origin - ev.clientY) / (ev.ctrlKey || ev.metaKey ? DRAG_RANGE * 10 : DRAG_RANGE))),
                   onEnd() {
                     setDragging(null);
                     onEnd();
@@ -165,9 +171,9 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
                 });
               }}
               onKeyDown={(e) => {
-                const step = (max - min) / (e.ctrlKey || e.metaKey ? 200 : 40);
-                if (e.key === "ArrowUp" || e.key === "ArrowRight") onSet(clamp(own + step, min, max));
-                else if (e.key === "ArrowDown" || e.key === "ArrowLeft") onSet(clamp(own - step, min, max));
+                const step = 1 / (e.ctrlKey || e.metaKey ? 200 : 40);
+                if (e.key === "ArrowUp" || e.key === "ArrowRight") onSet(fromTravel(toTravel(own) + step));
+                else if (e.key === "ArrowDown" || e.key === "ArrowLeft") onSet(fromTravel(toTravel(own) - step));
                 else return;
                 e.preventDefault();
                 // The arrows are the knob's here, not the rack's.
@@ -220,7 +226,7 @@ export function Knob({ value, min, max, defaultValue, label, format, unit, bipol
           <ContextMenuItem onSelect={() => onSet(defaultValue)}>Reset</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => useCopiedValue.setState({ fraction })}>Copy value</ContextMenuItem>
-          <ContextMenuItem disabled={copied === null} onSelect={() => copied !== null && onSet(min + copied * (max - min))}>
+          <ContextMenuItem disabled={copied === null} onSelect={() => copied !== null && onSet(fromTravel(copied))}>
             Paste value
           </ContextMenuItem>
           {/* After the menu has closed and given the focus back, or the field would lose it at once. */}

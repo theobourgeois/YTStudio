@@ -28,10 +28,14 @@ import {
   isProQ,
   shapeSlopes,
 } from "./pro-q-presets.ts";
+import { PITCH_WHEEL_PLUGIN, isPitchWheel, normalizePitchWheel } from "./pitch-wheel-presets.ts";
 import { GROSS_BEAT_PLUGIN, GROSS_SLOTS, GROSS_SYNCS, GROSS_TICKS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE, isGrossBeat } from "./gross-beat-presets.ts";
+import { PANMAN_PLUGIN, PAN_CONTROL_IDS, isPanMan, normalizePanMan } from "./panman-presets.ts";
 import {
   AUTO_TUNE_CONTROLS,
   type AutoTuneControl,
+  PITCH_WHEEL_CONTROLS,
+  type PitchWheelControl,
   type Automation,
   type AutomationLfo,
   type AutomationPoint,
@@ -63,6 +67,7 @@ import {
   GROSS_CONTROLS,
   type GrossControl,
   type GrossHold,
+  type PanControl,
   type Mixer,
   type MixerEffect,
   type InputMonitor,
@@ -451,6 +456,8 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   if (isEchoBoy(plugin)) return { ...effect, plugin: ECHO_BOY_PLUGIN, echoBoy: normalizeEchoBoy(input.echoBoy) };
   if (isProQ(plugin)) return { ...effect, plugin: PRO_Q_PLUGIN, proQ: normalizeProQ(input.proQ) };
   if (isOtt(plugin)) return { ...effect, plugin: OTT_PLUGIN, ott: normalizeOtt(input.ott) };
+  if (isPanMan(plugin)) return { ...effect, plugin: PANMAN_PLUGIN, panMan: normalizePanMan(input.panMan) };
+  if (isPitchWheel(plugin)) return { ...effect, plugin: PITCH_WHEEL_PLUGIN, pitchWheel: normalizePitchWheel(input.pitchWheel) };
   return effect;
 }
 
@@ -707,6 +714,10 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.effect) && ECHO_CONTROLS.includes(raw.control as EchoControl) ? { kind: "echoBoy", effect: raw.effect, control: raw.control as EchoControl } : null;
     case "ott":
       return isId(raw.effect) && OTT_CONTROLS.includes(raw.control as OttControl) ? { kind: "ott", effect: raw.effect, control: raw.control as OttControl } : null;
+    case "panMan":
+      return isId(raw.effect) && PAN_CONTROL_IDS.includes(raw.control as PanControl) ? { kind: "panMan", effect: raw.effect, control: raw.control as PanControl } : null;
+    case "pitchWheel":
+      return isId(raw.effect) && PITCH_WHEEL_CONTROLS.includes(raw.control as PitchWheelControl) ? { kind: "pitchWheel", effect: raw.effect, control: raw.control as PitchWheelControl } : null;
     case "main":
       return { kind: "main" };
     case "plugin":

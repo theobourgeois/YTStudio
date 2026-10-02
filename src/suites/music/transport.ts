@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { PlayMode } from "@shared/music/compile";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineChannels, EngineCommands, EngineEchoLevels, EngineEffects, EngineEqState, EngineGrossState, EngineMeters, EngineOttState, EnginePreview, MetronomeSound } from "@shared/music/engine";
+import type { EngineChannels, EngineCommands, EngineEchoLevels, EngineEffects, EngineEqState, EngineGrossState, EngineMeters, EngineOttState, EnginePanState, EnginePreview, MetronomeSound } from "@shared/music/engine";
 import { musicApi } from "./api";
 
 /**
@@ -66,6 +66,8 @@ interface TransportState {
   otts: Record<string, EngineOttState>;
   /** Each watched Pro-Q's spectra and dynamic bands, as the engine last said (by effect id). */
   eq: Record<string, EngineEqState>;
+  /** Each PanMan's position and levels, as the engine last said (by effect id). */
+  panMen: Record<string, EnginePanState>;
   /** Why the engine can't be reached (it isn't built, it won't start), or null. */
   error: string | null;
 
@@ -119,6 +121,7 @@ export const NO_GROSS_BEATS: Record<string, EngineGrossState> = {};
 export const NO_ECHO_BOYS: Record<string, EngineEchoLevels> = {};
 export const NO_OTTS: Record<string, EngineOttState> = {};
 export const NO_EQ: Record<string, EngineEqState> = {};
+export const NO_PANMEN: Record<string, EnginePanState> = {};
 
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
@@ -136,6 +139,7 @@ export const useTransport = create<TransportState>((set, get) => {
         grossBeats: status.transport.grossBeats ?? NO_GROSS_BEATS,
         echoBoys: status.transport.echoBoys ?? NO_ECHO_BOYS,
         otts: status.transport.otts ?? NO_OTTS,
+        panMen: status.transport.panMen ?? NO_PANMEN,
         error: null,
       });
     } catch (err) {
@@ -169,6 +173,7 @@ export const useTransport = create<TransportState>((set, get) => {
     echoBoys: NO_ECHO_BOYS,
     otts: NO_OTTS,
     eq: NO_EQ,
+    panMen: NO_PANMEN,
     filePreview: null,
     error: null,
 

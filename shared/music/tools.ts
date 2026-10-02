@@ -7,6 +7,7 @@ import { CHOP_PATTERNS } from "./chop.ts";
 import { EXPORT_FORMATS } from "./export.ts";
 import { ECHO_TOOL_CONTROL_NAMES } from "./echo-boy-presets.ts";
 import { OTT_TOOL_CONTROL_NAMES } from "./ott-presets.ts";
+import { PANMAN_PRESETS, PAN_CURVES, PAN_MODES, PAN_RHYTHMS, PAN_STYLES } from "./panman-presets.ts";
 import { CURVE_TYPES } from "./types.ts";
 
 const channel = str('A channel: its id (from get_song) or its name ("Kick").');
@@ -46,7 +47,33 @@ const echoRef = {
   track: mixerTrack("The mixer track it's on"),
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
+/** Which Pitch Wheel a tool acts on. */
+const wheelRef = {
+  effect: str("The Pitch Wheel: its effect id (from get_mixer or get_pitch_wheel). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+/** One of a Pitch Wheel's two wheels, as update_pitch_wheel sets it. */
+const wheelFields = (what: string, value: string) =>
+  obj(
+    {
+      value: num(value),
+      range: { type: "integer", enum: [2, 4, 6, 12, 24, 48], description: "Semitones the dial spans end to end (the pointer goes half of it either way). A narrower range brings the pointer in." },
+      snap: oneOf(["off", "semitone", "octave"], "Where the pointer lands: anywhere (off: fractions of a semitone), on whole semitones, or on whole octaves."),
+      gravity: num("0 to 1: how hard what's heard is held to the pointer. 1 clamps it there (an instant jump); low, it overshoots and swings past and back before settling (0: a near-endless swing)."),
+      inertia: num("0 to 1: how slowly what's heard heads for the pointer (a heavy wheel at 1). It only shows with gravity low: high gravity overrides it."),
+      smooth: num("0 to 1: how slowly the pointer itself is followed (0 to 1.5 s): glides between values, like a portamento. High, it overrides gravity and inertia."),
+    },
+    [],
+    what,
+  );
 const echoTime = (what: string) => ({ description: `${what}: a note value at the tempo ("1/8", "1/8 dot", "1/16 tri"; 1/2 to 1/64) or milliseconds ("350 ms", or a number), up to 15 s.`, anyOf: [{ type: "string" }, { type: "number" }] }) as const;
+/** Which PanMan a tool acts on. */
+const panRef = {
+  effect: str("The PanMan: its effect id (from get_mixer or get_panman). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
 const playlistTrack = int("A playlist track's number, 1 for the first (as the Playlist numbers them).");
 const clipIds = arr(int("A clip's id"), "Clips, by their ids from get_playlist.");
 
@@ -80,6 +107,8 @@ const controlFields = {
       ...["eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale"],
       ...ECHO_TOOL_CONTROL_NAMES,
       ...OTT_TOOL_CONTROL_NAMES,
+      ...["panman offset", "panman width", "panman rate", "panman input", "panman output"],
+      ...["wheel pitch", "wheel timbre", "wheel pitch gravity", "wheel pitch inertia", "wheel pitch smooth", "wheel timbre gravity", "wheel timbre inertia", "wheel timbre smooth"],
     ],
     "Which control: a channel's or mixer track's volume or pan, a track's stereo separation, a send's level, an effect slot's mix, the main volume, " +
       "a plugin's own parameter, a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
@@ -95,7 +124,10 @@ const controlFields = {
       "and decay, mid res, diffusion, diffusion size, wobble depth, rate and sync, decay sat, out sat, in their knobs' units); " +
       "or a Pro-Q's (the effect in `track`'s `slot`, \"eq ...\"): a band's (`band`) frequency (values in Hz: a filter sweep), gain or " +
       "dynamic range (dB) or Q, or its output (dB), pan (-1 to 1) or gain scale (0 to 2, 1 is 100%); or an OTT's (\"ott ...\"): depth 0 to 1, time 0 to 10 (1 is 100%), in and out gain dB, " +
-      "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB.",
+      "upward and downward 0 to 2 (1 is 100%), a band's threshold 0 to 2 or gain dB; or a PanMan's (\"panman ...\": " +
+      "offset in degrees, -105 left to 105 right, width in degrees 0 to 210, LFO rate in Hz 0.01 to 10, input and output in dB -24 to 24); or a Pitch Wheel's (\"wheel ...\": " +
+      "its pitch or timbre wheel in semitones, -24 to 24, snapped as the wheel snaps, its gravity, inertia and smooth followed as it moves, so a " +
+      "jump with low gravity swings; or a wheel's gravity, inertia or smooth, 0 to 1).",
   ),
   channel: str("A channel (volume, pan), or a plugin channel (its parameters): id or name."),
   track: mixerTrack("A mixer track (its volume, pan, stereo separation; a send from it; an effect in it)"),
@@ -556,12 +588,17 @@ export const MUSIC_TOOLS = [
       "update_pro_q), EchoBoy (plugin \"EchoBoy\": Soundtoys' echo: " +
       "tape, analogue, digital, radio, chorus and diffused echoes in 31 styles, Single, Dual, Ping-Pong and Rhythm Echo, set with " +
       "update_echo_boy), Gross Beat (plugin \"Gross Beat\": chops, repeats, stutters, half speed, tape stops, scratches, gates and " +
-      "sidechain pumping in time with the song, set with update_gross_beat and set_gross_beat_slot) or Auto-Tune (plugin \"Auto-Tune\": " +
-      "pitch correction for vocals, from the hard-tuned sound to natural, set with update_auto_tune; put it on the vocal's track), or " +
+      "sidechain pumping in time with the song, set with update_gross_beat and set_gross_beat_slot), Auto-Tune (plugin \"Auto-Tune\": " +
+      "pitch correction for vocals, from the hard-tuned sound to natural, set with update_auto_tune; put it on the vocal's track), PanMan (plugin \"PanMan\": " +
+      "Soundtoys' auto-panner, the sound moved across the stereo field by an LFO, a rhythm in time with the song, at random or on its " +
+      "hits, set with update_panman and set_panman_pattern) or Pitch Wheel " +
+      "(plugin \"Pitch Wheel\": QuikQuak's Pitchwheel, a pitch shifter played like a dial, the length kept: octaves, harmonies played by a " +
+      "channel's notes, helium or giant voices with its Timbre wheel, tape slow-downs and swinging, springy pitch moves; set with " +
+      "update_pitch_wheel), or " +
       "an effect plugin installed on this computer (list_plugins with kind \"effect\"), whose settings are its own, in its window, which the " +
       "user opens from the mixer: you can't set them. OTT (plugin \"OTT\": Xfer's multiband upward/downward compressor, the squashed, " +
       "bright, loud sound; set with update_ott) is ours as well.",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"Pro-Q", "OTT", "EchoBoy", "Gross Beat", "Auto-Tune", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"Pro-Q", "OTT", "EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", "Pitch Wheel", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -950,6 +987,123 @@ export const MUSIC_TOOLS = [
         [],
         "Create Vibrato: a vibrato added to each tuned note (restarted on every new note).",
       ),
+    }),
+  }),
+  tool({
+    name: "get_panman",
+    title: "Read a PanMan",
+    kind: "look",
+    description:
+      "A PanMan (Soundtoys' auto-panner, in a mixer track's slot): its mode, its knobs and options, its pattern, its preset, and where it's " +
+      "putting the sound now. Positions are degrees: 0 the centre, -90 / 90 hard left / right, ±105 beyond the speakers. The sound (summed " +
+      "to mono) moves around Offset over Width.",
+    inputSchema: obj(panRef),
+  }),
+  tool({
+    name: "update_panman",
+    title: "Change a PanMan",
+    kind: "edit",
+    description:
+      "Load a PanMan's factory preset and / or set its controls. Modes: lfo (a shape repeated at `rate` Hz, out of time with the song), " +
+      "rhythmStep (steps between `steps` positions, one a `rhythm` long), rhythmShape (one cycle of the direction's shape a `rhythm` long), " +
+      "pingPong (side to side on the sound's hits over `trigger` dB, every `divider`th), random (a new place every `rhythm`), step (a new " +
+      "random place on the hits). The dynamics (lfo and the rhythms) move the offset, width and rate with the sound's level over " +
+      "`threshold`. To draw your own rhythm, use set_panman_pattern.",
+    inputSchema: obj({
+      ...panRef,
+      preset: oneOf(
+        PANMAN_PRESETS.map((p) => p.name),
+        `A factory preset to load first (all its settings): ${PANMAN_PRESETS.map((p) => `${p.name} (${p.detail})`).join("; ")}.`,
+      ),
+      mode: oneOf(PAN_MODES.map((m) => m.id), "What moves the sound."),
+      offset: num("Degrees, -105 (left) to 105 (right): the base position."),
+      width: num("Degrees, 0 to 210: how far around the offset it moves (180: hard left to hard right)."),
+      smoothing: num("0 (hard: jumps) to 1 (soft: glides)."),
+      feel: num("rhythmStep: -1 (rush) to 1 (drag), up to a 16th note."),
+      groove: num("rhythmShape: -1 (shuffle) to 1 (swing), every second event towards a triplet."),
+      rate: num("lfo: Hz, 0.01 to 10."),
+      direction: oneOf(["down", "both", "up"], "down: right to left (a ramp), both: back and forth, up: left to right."),
+      rhythm: oneOf(PAN_RHYTHMS.map((r) => r.id), `The rhythm modes' note length: ${PAN_RHYTHMS.map((r) => `${r.id} (${r.name})`).join(", ")}.`),
+      steps: int("rhythmStep: 2 to 16 positions before it repeats."),
+      custom: bool("rhythmStep / rhythmShape: true plays the pattern drawn with set_panman_pattern, false the one the knobs make."),
+      sync: bool("In time with the song (default), or false: at `tempo`."),
+      tempo: num("BPM when not in sync, 20 to 999."),
+      trigger: num("pingPong / step: dB, -40 to 0 (0: the sound doesn't trigger)."),
+      divider: int("pingPong / step: 1 to 12 triggers to a move."),
+      filter: oneOf(["hpf", "off", "lpf"], "pingPong / step: what the trigger listens to (a high-pass for hi-hats, a low-pass for kicks)."),
+      cutoff: num("The trigger filter's cutoff, Hz, 100 to 15000."),
+      filterGain: num("The trigger filter's gain, dB, -20 to 20."),
+      monitor: bool("Hear what the trigger hears, unpanned."),
+      threshold: num("Dynamics: dB, -40 to 0."),
+      attack: num("Dynamics: milliseconds, 0 to 5000."),
+      release: num("Dynamics: milliseconds, 0 to 5000."),
+      gate: bool("Dynamics: Gate (all or nothing over the threshold) rather than Env (as far as the level is over it)."),
+      offsetMod: num("Dynamics: degrees, -105 to 105, added to the offset at full level."),
+      widthMod: num("Dynamics: degrees, -210 to 210, added to the width."),
+      rateMod: num("Dynamics: octaves, -4 to 4 (1 doubles the rate)."),
+      style: oneOf(PAN_STYLES.map((s) => s.id), `Analog Style (saturation, driven by input): ${PAN_STYLES.map((s) => `${s.id} (${s.detail})`).join(", ")}.`),
+      input: num("dB, -24 to 24."),
+      output: num("dB, -24 to 24."),
+      smoothingMode: oneOf(PAN_CURVES.map((c) => c.id), "rhythmStep: the shape of the moves between points."),
+    }),
+  }),
+  tool({
+    name: "set_panman_pattern",
+    title: "Draw a PanMan rhythm",
+    kind: "edit",
+    description:
+      "Draw a PanMan's own rhythm, as its editors do, and play it (custom). For rhythmStep, `points`: positions held from their beat until the " +
+      "next point (moving into it over the last Smoothing of the time). For rhythmShape, `events`: each plays one whole cycle of the direction's " +
+      "shape (a sweep, or there and back) over its length. Beats count from the pattern's start (0) across its `bars` of `beatsPerBar` " +
+      "beats; it repeats. Example, a dotted pan: points { beat 0, position -1 } { beat 0.75, position 1 } { beat 1.5, position 0 }.",
+    inputSchema: obj(
+      {
+        ...panRef,
+        editor: oneOf(["step", "shape"], "step: the Rhythm Step Editor's points (and the mode becomes rhythmStep); shape: the Rhythm Editor's events (rhythmShape)."),
+        bars: int("1 to 8 bars (default: as it is)."),
+        beatsPerBar: int("1 to 16 beats a bar (default: as it is)."),
+        points: arr(obj({ beat: num("Where, in beats from the start."), position: num("-1 (L) to 1 (R) of the width around the offset; 0 the offset.") }, ["beat", "position"]), "step: the points."),
+        events: arr(obj({ beat: num("Where it starts, in beats."), length: num("How long, in beats.") }, ["beat", "length"]), "shape: the events."),
+      },
+      ["editor"],
+    ),
+  }),
+  tool({
+    name: "get_pitch_wheel",
+    title: "Read a Pitch Wheel",
+    kind: "look",
+    description:
+      "A Pitch Wheel (QuikQuak's Pitchwheel, ours, in a mixer track's slot): its pitch wheel and Timbre wheel (each: where its pointer is, in " +
+      "semitones, and what that plays once snapped, its range, snap, gravity, inertia and smooth), whether the Timbre tab is on, Single or Multi, " +
+      "the channel whose notes play it and its origin note, its resolution, the preset its sound matches and the presets there are, and what the " +
+      "engine last said it was doing (the pitch and timbre actually heard, which lag and swing behind the pointers; the notes playing it; " +
+      "whether sound comes in).",
+    inputSchema: obj({ ...wheelRef }),
+  }),
+  tool({
+    name: "update_pitch_wheel",
+    title: "Change a Pitch Wheel",
+    kind: "edit",
+    description:
+      "Set a Pitch Wheel: it shifts the pitch of what goes through it without changing its length. The pitch wheel's pointer is the shift in " +
+      "semitones (12 an octave up, -5 a fourth down), within half its range either way; what's heard follows the pointer as its gravity, inertia " +
+      "and smooth say (high gravity: at once; low gravity: it overshoots and swings, the turntable feel; smooth: glides). With the Timbre tab on " +
+      "(`timbreOn`, the default) the voice's formants are the Timbre wheel's: at 0 the character stays as it was while the pitch moves (no " +
+      "chipmunk), up is a smaller, brighter voice (helium), down a bigger, darker one; off, the formants move with the pitch, as a tape's do. " +
+      "Notes play it too: `notesFrom` names a channel whose notes are followed (each note shifts by its distance from `origin`, C5 = 60 by " +
+      "default; the pointer adds on top). Single: the sound is always heard, the latest note setting the shift. Multi: a voice per note (8 at " +
+      "most), silent with no notes: harmonies from one take. Mute that channel (update_channel) to hear only the result. A preset sets both " +
+      "wheels and the Timbre tab (never the notes, origin, mode or resolution) and applies first; other fields given apply after it.",
+    inputSchema: obj({
+      ...wheelRef,
+      preset: str("A preset's name, applied first (get_pitch_wheel lists them: Natural, Octave Up, Octave Down, Fifth Up, Fourth Down, Chipmunk, Helium, Giant, Monster, Slow Tape, Turntable, Springy, Wild Swing, Slow Glide)."),
+      pitch: wheelFields("The pitch wheel.", "Semitones the pitch is shifted (the pointer), within half the range either way (-24 to 24 at range 48). A value past the range widens it."),
+      timbre: wheelFields("The Timbre wheel (the formants, used while timbreOn).", "Semitones the formants are moved, within half the range either way: up, a smaller, brighter voice; down, a bigger, darker one; 0, as it was."),
+      timbreOn: bool("The Timbre tab: on, the formants are the Timbre wheel's (the voice's character kept as the pitch moves); off, they move with the pitch (the chipmunk / tape sound)."),
+      midiMode: oneOf(["single", "multi"], "Single: one voice, the sound always heard, the latest note setting the shift. Multi: a voice per note held (8 at most), silent without notes."),
+      notesFrom: str('The channel whose notes play it: its id or name. "none" (or "") for none: only the wheel.'),
+      origin: { description: 'The note that shifts nothing: a note name ("C5" is MIDI 60, FL\'s octaves) or a MIDI number 0 to 127.', anyOf: [{ type: "string" }, { type: "integer" }] },
+      resolution: oneOf(["tight", "wide"], "Its analysis window: wide (the default and the cleanest: chords and low notes stay apart, drums still sharp; about 85 ms late, compensated) or tight (about 43 ms: for playing it live, monitoring an input)."),
     }),
   }),
   tool({

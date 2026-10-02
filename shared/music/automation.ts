@@ -11,9 +11,11 @@ import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
 import { ECHO_CONTROL_SPECS } from "./echo-boy.ts";
+import { PITCH_WHEEL_CONTROL_INFO, controlField } from "./pitch-wheel-presets.ts";
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE } from "./gross-beat-presets.ts";
 import { EQ_CONTROL_SCALES } from "./pro-q-presets.ts";
 import { OTT_CONTROL_SPECS } from "./ott.ts";
+import { PAN_CONTROLS, panControlFraction, panControlValue } from "./panman-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
 import { DEFAULT_LFO, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
 import { type Automation, type AutomationLfo, type AutomationPoint, type AutomationTarget, type CurveType, type MusicProject, type PlaylistClip, STEP_TICKS } from "./types.ts";
@@ -199,6 +201,10 @@ export function targetKey(target: AutomationTarget): string {
       return `proq:${target.effect}:${target.band}:${target.control}`;
     case "ott":
       return `ott:${target.effect}:${target.control}`;
+    case "panMan":
+      return `panman:${target.effect}:${target.control}`;
+    case "pitchWheel":
+      return `wheel:${target.effect}:${target.control}`;
     case "main":
       return "main";
     case "plugin":
@@ -349,6 +355,21 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         },
       };
     }
+    case "panMan": {
+      // In its own units (degrees, Hz, dB): the clip's 0..1 is the knob's range.
+      const found = findEffect(song, target.effect);
+      const pm = found?.effect?.panMan;
+      const control = PAN_CONTROLS[target.control];
+      return {
+        name: control.name,
+        owner: found && pm ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted PanMan",
+        exists: !!pm,
+        own: pm ? panControlFraction(target.control, pm[target.control]) : null,
+        toControl: (v) => panControlValue(target.control, v),
+        fromControl: (v) => panControlFraction(target.control, v),
+        format: (v) => control.format(panControlValue(target.control, v)),
+      };
+    }
     case "autoTune": {
       const found = findEffect(song, target.effect);
       const at = found?.effect?.autoTune;
@@ -364,6 +385,24 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         owner,
         exists: !!at,
         own: at ? clamp((info.get(at) - info.min) / span, 0, 1) : null,
+        toControl,
+        fromControl: (x) => clamp((x - info.min) / span, 0, 1),
+        format: (v) => info.format(toControl(v)),
+      };
+    }
+    case "pitchWheel": {
+      const found = findEffect(song, target.effect);
+      const pw = found?.effect?.pitchWheel;
+      const owner = found && pw ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Pitch Wheel";
+      const info = PITCH_WHEEL_CONTROL_INFO[target.control];
+      const span = info.max - info.min;
+      const toControl = (v: number) => info.min + clamp(v, 0, 1) * span;
+      const { wheel, field } = controlField(target.control);
+      return {
+        name: info.name,
+        owner,
+        exists: !!pw,
+        own: pw ? clamp((pw[wheel][field] - info.min) / span, 0, 1) : null,
         toControl,
         fromControl: (x) => clamp((x - info.min) / span, 0, 1),
         format: (v) => info.format(toControl(v)),

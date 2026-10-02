@@ -13,12 +13,15 @@ import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANE
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { type EngineEq, engineProQ } from "./pro-q.ts";
 import { type EngineOtt, OTT_CONTROL_SPECS, OTT_LANES, OTT_LANES_OF, type OttLane, engineOtt } from "./ott.ts";
+import { type EnginePitchWheel, controlValue as pitchWheelValue, engineControlValue as engineWheelValue, enginePitchWheel } from "./pitch-wheel.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
+import { type EnginePanMan, enginePanMan } from "./panman.ts";
+import { PAN_CONTROL_IDS, PAN_LANE_SCALE } from "./panman-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { autoGain } from "./pro-q-filters.ts";
 import { hasGain } from "./pro-q-presets.ts";
-import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, OTT_CONTROLS, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, type MusicProject, OTT_CONTROLS, type PanControl, PITCH_WHEEL_CONTROLS, type PitchWheelControl, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -79,6 +82,10 @@ export interface EngineEffect {
   eq?: EngineEq;
   /** An OTT (ours, `OTT_PLUGIN`): its gains and its bands' laws, in the engine's units. */
   ott?: EngineOtt;
+  /** A PanMan (ours, likewise: `PANMAN_PLUGIN`'s id): its settings and pattern. */
+  panMan?: EnginePanMan;
+  /** A Pitch Wheel (ours too, `PITCH_WHEEL_PLUGIN`): its wheels, and where its notes come from. */
+  pitchWheel?: EnginePitchWheel;
 }
 
 /**
@@ -152,7 +159,9 @@ export interface EngineAudioClip {
 /**
  * What an automation lane drives in the engine, in the engine's own units: a channel's two gains, a mixer
  * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, a Gross Beat's slot (its
- * number, 0..35), mix (0..1), attack or release (seconds) or tension (-1..1), an Auto-Tune's control (`engineControlValue`), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
+ * number, 0..35), mix (0..1), attack or release (seconds) or tension (-1..1), an Auto-Tune's control (`engineControlValue`), a PanMan's control (in its units
+ * over `PAN_LANE_SCALE`: the offset and width as fractions of 105° and 210°, the rate in Hz, the gains in dB), or a
+ * plugin's parameter (0..1, or -1 where the plugin keeps its own value:
  * before any clip of it).
  */
 export type EngineLaneTarget =
@@ -167,6 +176,8 @@ export type EngineLaneTarget =
   | { kind: "eq"; track: number; effect: number; band: number; control: EqControl }
   /** An OTT's lane (`OttLane`): its gains, or a value a band (low, mid, high). */
   | { kind: "ott"; track: number; effect: number; control: OttLane }
+  | { kind: "panman"; track: number; effect: number; control: PanControl }
+  | { kind: "wheel"; track: number; effect: number; control: PitchWheelControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
 /**
@@ -376,6 +387,12 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
         if (e.proQ) return [{ ...effect, eq: engineProQ(e.proQ) }];
         if (e.ott) return [{ ...effect, ott: engineOtt(e.ott) }];
+        if (e.panMan) return [{ ...effect, panMan: enginePanMan(e.panMan, e.id) }];
+        if (e.pitchWheel) {
+          // Notes from a channel the song no longer has: none.
+          const wheel = enginePitchWheel(e.pitchWheel);
+          return [{ ...effect, pitchWheel: wheel.notesFrom && !song.channels.some((c) => c.id === wheel.notesFrom) ? { ...wheel, notesFrom: null } : wheel }];
+        }
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
       gains: trackGains(track, main),
@@ -679,6 +696,13 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
           const value = valueOf(target, AUTO_TUNE_CONTROL_INFO[control].get(at));
           add({ kind: "tune", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineControlValue(control, value(tick))]);
         }
+      const pw = effect.pitchWheel;
+      if (pw)
+        for (const control of PITCH_WHEEL_CONTROLS) {
+          const target: AutomationTarget = { kind: "pitchWheel", effect: effect.id, control };
+          const value = valueOf(target, pitchWheelValue(pw, control));
+          add({ kind: "wheel", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineWheelValue(pw, control, value(tick))]);
+        }
       const eb = effect.echoBoy;
       if (eb) {
         // Each engine lane from the controls that move it: the settings at the tick, as the engine has them.
@@ -735,6 +759,14 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
           });
         }
       }
+      const pm = effect.panMan;
+      if (pm)
+        for (const control of PAN_CONTROL_IDS) {
+          const target: AutomationTarget = { kind: "panMan", effect: effect.id, control };
+          const value = valueOf(target, pm[control]);
+          const scale = PAN_LANE_SCALE[control];
+          add({ kind: "panman", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [value(tick) / scale]);
+        }
       effectIndex++;
     }
   }
