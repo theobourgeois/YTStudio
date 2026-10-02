@@ -108,22 +108,25 @@ function DeviceSettings() {
       <SettingsRow
         title="Input device"
         description={
-          microphone === "denied" || microphone === "restricted" ? (
+          // An engine built before recording knows nothing of inputs (the server keeps the engine it started).
+          !devices.inputs ? (
+            <span className="text-destructive">The audio engine is older than the app and can't record: run `pnpm engine:build`, then restart `pnpm dev`.</span>
+          ) : microphone === "denied" || microphone === "restricted" ? (
             <span className="text-destructive">Vaudio can't hear your microphone: allow it in System Settings → Privacy &amp; Security → Microphone, then choose the input again.</span>
           ) : devices.input ? (
-            `What mixer tracks record (their Input, in the Mixer): ${status.inputChannels} input${status.inputChannels === 1 ? "" : "s"}, ${status.inputLatencyMs.toFixed(0)} ms late as the device reports it.`
+            `What mixer tracks record (their Input, in the Mixer): ${status.inputChannels ?? 0} input${status.inputChannels === 1 ? "" : "s"}, ${(status.inputLatencyMs ?? 0).toFixed(0)} ms late as the device reports it.`
           ) : (
             "To record: an audio interface, or the Mac's microphone (with headphones, so the song isn't recorded too)."
           )
         }
       >
-        <Select value={devices.input ?? "none"} onValueChange={(input) => void change({ input: input === "none" ? "" : input })}>
+        <Select value={devices.input ?? "none"} disabled={!devices.inputs} onValueChange={(input) => void change({ input: input === "none" ? "" : input })}>
           <SelectTrigger size="sm" className="w-64" aria-label="Input device">
             <SelectValue placeholder="No input" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="none">No input</SelectItem>
-            {devices.inputs.map((name) => (
+            {(devices.inputs ?? []).map((name) => (
               <SelectItem key={name} value={name}>
                 {name}
               </SelectItem>
