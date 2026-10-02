@@ -201,8 +201,11 @@ export type EngineEvent =
       peak: number;
       meters: EngineMeters;
       cpu: number;
-      /** A recording in progress: each recording track's loudest input since the last event (the take drawn as it grows). */
-      recording?: { id: string; levels: Record<string, number> } | null;
+      /**
+       * A recording in progress: each recording track's input since the last event, its loudest sample
+       * every 5 ms (an engine from before sent one level), for the take drawn as it grows.
+       */
+      recording?: { id: string; levels: Record<string, number[] | number> } | null;
     } & EngineTransport)
   | { event: "status"; status: EngineStatus }
   | ({ event: "key" } & EngineKey)
@@ -375,6 +378,8 @@ export interface EngineRender {
   sampleRate: number;
   peak: number;
   rms: number;
+  /** A recording's tracks' peaks since the last render: their loudest sample every 5 ms, by track id. */
+  levels?: Record<string, number[]>;
   /** Each mixer track's loudest level over these samples. */
   meters: EngineMeters;
   transport: EngineTransport & { metronome: boolean };

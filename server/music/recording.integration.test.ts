@@ -115,6 +115,18 @@ describe.skipIf(!existsSync(ENGINE))("recording, offline", () => {
     expect(slice(file.channels[0], 0, 2 * BEAT)).toEqual(slice(input.channels[0], 0, 2 * BEAT));
   });
 
+  it("measures what it records as it goes: the loudest sample of every 5 ms (240 samples), for the take drawn live", async () => {
+    await play(withInput(createMusicProject("Test", 120)));
+    await record();
+    const file = path.join(dir, `render-${render++}.wav`);
+    const rendered = await engine.render(BEAT, file, inputFile);
+    const peaks = rendered.levels?.insert_1 ?? [];
+    expect(peaks).toHaveLength(BEAT / 240);
+    const loudest = (from: number) => Math.max(...Array.from(input.channels[0].subarray(from, from + 240), Math.abs));
+    for (const i of [0, 1, 50, 99]) expect(peaks[i]).toBeCloseTo(loudest(i * 240), 3);
+    await stopFor(1);
+  });
+
   it("records a pair as two channels, and records without being heard when monitoring is off", async () => {
     await play(withInput(createMusicProject("Test", 120), true, "off"));
     await record();

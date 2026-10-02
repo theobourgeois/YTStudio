@@ -489,22 +489,26 @@ function drawLiveTake(ctx: CanvasRenderingContext2D, scene: PlaylistScene, take:
   const title = Math.min(TITLE_HEIGHT, h);
   ctx.fillStyle = RECORDING.title;
   ctx.fillRect(left, y, across, title);
-  // The levels so far: each from the last one's tick to its own, mirrored about the middle.
+  // The input so far, as finished clips draw their files: one shape along each peak and back below,
+  // mirrored about the middle (a peak every 5 ms, so it's the take's own waveform as it comes).
   const bodyY = y + title;
   const bodyH = h - title - 1;
   if (bodyH >= 4 && take.levels.length) {
     const mid = bodyY + bodyH / 2;
     const half = bodyH / 2 - 1.5;
+    // Only the peaks in view (and one either side), so a long take draws in the time of a screenful.
+    let first = 0;
+    while (first < take.ticks.length - 1 && tickToX(view, take.ticks[first + 1]) < 0) first++;
+    let last = first;
+    while (last < take.ticks.length - 1 && tickToX(view, take.ticks[last]) <= scene.width) last++;
+    const height = (i: number) => Math.max(0.5, Math.min(1, take.levels[i]) * half);
     ctx.fillStyle = RECORDING.content;
-    let from = take.from;
-    for (let i = 0; i < take.ticks.length; i++) {
-      const x = tickToX(view, from);
-      const w = Math.max(1, tickToX(view, take.ticks[i]) - x);
-      from = take.ticks[i];
-      if (x + w < 0 || x > scene.width) continue;
-      const level = Math.max(0.5, take.levels[i] * half);
-      ctx.fillRect(x, mid - level, w, level * 2);
-    }
+    ctx.beginPath();
+    ctx.moveTo(tickToX(view, first ? take.ticks[first - 1] : take.from), mid);
+    for (let i = first; i <= last; i++) ctx.lineTo(tickToX(view, take.ticks[i]), mid - height(i));
+    for (let i = last; i >= first; i--) ctx.lineTo(tickToX(view, take.ticks[i]), mid + height(i));
+    ctx.closePath();
+    ctx.fill();
   }
   if (across > 16 && title >= 9) {
     ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";

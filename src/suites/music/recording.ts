@@ -66,7 +66,7 @@ interface RecordingState {
   /** Counts the levels taken (`levels`), so what draws the takes as they grow knows to draw again. */
   liveVersion: number;
   /** The engine's word on each recording track's input level, at `tick` (the engine's, into its loop). */
-  levels: (levels: Record<string, number>, tick: number) => void;
+  levels: (levels: Record<string, number[] | number>, tick: number) => void;
 }
 
 /** Each recording's loop start (the engine's ticks count from it), for takes that come after it stopped. */
@@ -103,13 +103,18 @@ export const useRecording = create<RecordingState>((set, get) => ({
     // Every recording track grows with the playhead, whether or not the engine said its level (an
     // engine built before it did says none: the take is drawn flat).
     for (const track of active.tracks) {
-      const level = levels[track] ?? 0;
       let pass = live.get(track);
       // Gone round the loop: the next pass, from its start (the last one's file comes as a take).
       const last = pass?.ticks.at(-1);
       if (!pass || (last !== undefined && at < last)) live.set(track, (pass = { from: pass ? active.loopStart : active.startTick, ticks: [], levels: [] }));
-      pass.ticks.push(at);
-      pass.levels.push(Math.min(1, level));
+      // Its peaks since the last word, spread evenly up to here (none said: it grows, flat).
+      const said = levels[track];
+      const peaks = Array.isArray(said) ? (said.length ? said : [0]) : [said ?? 0];
+      const before = pass.ticks.at(-1) ?? pass.from;
+      peaks.forEach((peak, i) => {
+        pass.ticks.push(before + ((at - before) * (i + 1)) / peaks.length);
+        pass.levels.push(Math.min(1, peak));
+      });
     }
     set({ liveVersion: get().liveVersion + 1 });
   },
