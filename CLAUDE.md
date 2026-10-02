@@ -336,7 +336,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel, OTT. Where it is and every step still to come, in order:
+the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel, OTT, Pro-C. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume, scale? }, channels,
@@ -605,6 +605,24 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   threshold automates (`AutomationTarget` `ott`, `OTT_CONTROL_SPECS`, lanes `kind: "ott"` per `OTT_LANES`,
   as EchoBoy's). Its state is kept by effect id (`ott::Registry`); its bands' levels come in each transport
   event (`EngineTransport.otts`) for its display. Its display's colours are `--ott-*` (a screen in every theme).
+- **Pro-C** (`docs/fabfilter/pro-c.md`, its vocal research `pro-c-vocals.md`; `shared/music/pro-c*.ts`,
+  `engine/src/ProC.cpp` + `CompDsp.h`, `src/suites/music/pro-c/`): FabFilter's Pro-C 3 compressor, ours, as
+  Gross Beat is (`PRO_C_PLUGIN`, `MixerEffect.proC`, in the song), with 21 styles: Pro-C 3's, **Vox** (RVox's
+  one fader) and a **Vintage** group after the units vocal engineers name (FET 76, Opto 2A, Opto Tube,
+  Distress, VCA 160, Diode 609), a Vintage style's Threshold being its Input's negative. **The engine knows
+  no style**: `engineProC` turns each into blocks and numbers (a curve kind, feedforward or a feedback loop
+  and its gain, a ballistics shape, an opto cell, a colour...), and `ProC.cpp` runs them per sample. Its
+  curves (`kneeOver`, `progressiveOver`, `limitRange`, `curveReduction`, `feedbackLaw`) are in both
+  `pro-c.ts` and `CompDsp.h`: **keep them in step**; the knee display draws `staticCurve` and
+  `pro-c.integration.test.ts` holds the engine to it (0.1 dB) and to the units' behaviour. A feedback
+  style's loop is solved each sample (stable at any attack, no oversampling needed); opto styles run
+  feedforward (a cell in a high-gain loop would ring). Its external key is another track that sends here
+  (at 0%: `setProCSidechain` makes the send), read after its fader and delayed to line up
+  (`Song::compensate` sets `keyDelay`); Host Sync pulses on `gross::Clock`. Its latency is Maximum
+  Lookahead plus the oversampling filters', reported to delay compensation, its slot mix against the
+  input held back as long. Its display's points and levels come in each transport event
+  (`EngineTransport.proCs`, drained by the event, not the status); `compAudition` and `compMatch` are live.
+  Its knobs automate (`AutomationTarget` `proC`, lanes `kind: "comp"` per `PRO_C_LANES`). Its look is `--comp-*`.
 - **PanMan** (`docs/soundtoys/panman.md`; `shared/music/panman*.ts`, `engine/src/PanMan.cpp`,
   `src/suites/music/panman/`): Soundtoys' auto-panner, ours, built as Gross Beat is (when in doubt about it,
   do what Soundtoys' does: the doc is from its manual). `MixerEffect.panMan` on an effect whose plugin is
