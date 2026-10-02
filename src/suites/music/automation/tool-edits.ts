@@ -41,7 +41,10 @@ export function findAutomation(song: MusicProject, ref: unknown): Automation {
   return found;
 }
 
-export const CONTROLS = ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix"] as const;
+export const CONTROLS = ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix", "eq frequency", "eq gain", "eq q", "eq range", "eq output"] as const;
+
+/** A Pro-Q's controls, as the tool names them. */
+const EQ_TOOL_CONTROLS = { "eq frequency": "frequency", "eq gain": "gain", "eq q": "q", "eq range": "range", "eq output": "output" } as const;
 
 /** A Gross Beat's controls, as the tool names them. */
 const GROSS_CONTROLS = { "time slot": "timeSlot", "volume slot": "volumeSlot", "time mix": "timeMix", "volume mix": "volumeMix" } as const;
@@ -94,6 +97,18 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (!effect.grossBeat) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Gross Beat: a "${control}" is Gross Beat's.`);
       return { kind: "grossBeat", effect: effect.id, control: GROSS_CONTROLS[control] };
     }
+    case "eq frequency":
+    case "eq gain":
+    case "eq q":
+    case "eq range":
+    case "eq output": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.proQ) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Pro-Q: an "${control}" is Pro-Q's.`);
+      if (control === "eq output") return { kind: "proQ", effect: effect.id, band: 0, control: "output" };
+      const band = effect.proQ.bands.find((b) => b.id === Number(input.band));
+      if (!band) throw new Error(`Give the Pro-Q's "band" (its number): it has ${effect.proQ.bands.map((b) => b.id).join(", ") || "no bands yet (set_pro_q_bands adds them)"}.`);
+      return { kind: "proQ", effect: effect.id, band: band.id, control: EQ_TOOL_CONTROLS[control] };
+    }
     case "parameter": {
       if (typeof input.parameter !== "string" || !input.parameter.trim()) throw new Error('"parameter" must be the plugin parameter\'s name or id, from list_controls.');
       if (input.channel !== undefined && input.channel !== "") {
@@ -136,6 +151,12 @@ const valueHint = (target: AutomationTarget) =>
     ? "0 to 1 of the parameter's range"
     : target.kind === "grossBeat" && target.control.endsWith("Slot")
       ? "a slot, 1 to 36"
+    : target.kind === "proQ"
+      ? target.control === "frequency"
+        ? "a frequency in Hz, 10 to 30000"
+        : target.control === "q"
+          ? "a Q, 0.025 to 40"
+          : "a level in dB"
     : target.kind === "channel" && target.control === "pan"
       ? "a pan, -1 left to 1 right"
       : target.kind === "mixer" && target.control !== "volume"
