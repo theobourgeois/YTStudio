@@ -1743,6 +1743,73 @@ test("tracks are named, coloured, muted and soloed; audio files dropped on the p
   await expect(settings.getByRole("tab", { name: "Envelope" })).toHaveCount(0);
 });
 
+test("audio clips stretch as FL Studio's: with Stretch on (Shift+M) an edge stretches the sound, the clip menu's and the channel's Time stretching", async ({ page }) => {
+  // A song at 120 BPM with a four-second loop on track 1: two bars.
+  const { id } = await (await page.request.post("/api/projects", { data: { suite: "music", name: "Stretched" } })).json();
+  const file = path.resolve("e2e/.data/stretch-loop.wav");
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await writeWav(file, Array.from({ length: 4 * 48000 }, (_, i) => Math.sin(i / 8) * 0.5), 48000);
+  const asset = await (await page.request.post("/api/media/import-file", { data: { projectId: id, path: file } })).json();
+  const song = await savedSong(page, id);
+  song.settings.tempo = 120;
+  song.channels.push({ id: "chan_loop", name: "Loop", kind: "audio", sampleId: asset.id });
+  song.playlist.clips = [{ id: 1, kind: "audio", ref: "chan_loop", track: 0, start: 0, length: 2 * BAR_TICKS, offset: 0, muted: false }];
+  expect((await page.request.put(`/api/projects/${id}`, { data: song })).ok()).toBe(true);
+  await page.goto(`/p/${id}`);
+  await expect(page.getByTestId("playlist")).toBeVisible();
+  await page.getByRole("button", { name: "Close Channel rack" }).click();
+  const clip = async () => (await savedClips(page, id))[0] as SavedClip & { stretch?: { mode: string; tempo: number | null } };
+
+  // The toolbar's Stretch button turns it on (Shift+M too).
+  const stretchButton = page.getByRole("button", { name: "Stretch", exact: true });
+  await stretchButton.click();
+  await expect(stretchButton).toHaveAttribute("aria-pressed", "true");
+  // Its end dragged from bar 3 to bar 5: the same four seconds over four bars, its pitch kept (Settings' Stretch mode).
+  const end = await playlistPoint(page, 2 * BAR_TICKS, 0);
+  const to = await playlistPoint(page, 4 * BAR_TICKS, 0);
+  await page.mouse.move(end.x - 4, end.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x - 10, to.y, { steps: 5 });
+  await page.mouse.move(to.x - 2, to.y, { steps: 2 });
+  await page.mouse.up();
+  await expect.poll(clip).toMatchObject({ length: 4 * BAR_TICKS, offset: 0, stretch: { mode: "stretch", tempo: 240 } });
+  // One undo step takes it back.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await clip()).stretch).toBeUndefined();
+  await expect.poll(async () => (await clip()).length).toBe(2 * BAR_TICKS);
+  // Shift+M turns it off again.
+  await page.keyboard.press("Shift+M");
+  await expect(stretchButton).toHaveAttribute("aria-pressed", "false");
+
+  // The clip menu's Stretch: the file in one bar, twice as fast.
+  const box = (await page.getByTestId("playlist-grid").boundingBox())!;
+  await page.mouse.click(box.x + 10, box.y + 6);
+  const menu = page.getByTestId("clip-menu");
+  await menu.getByRole("menuitem", { name: "Stretch", exact: true }).hover();
+  await page.getByRole("menuitem", { name: "Beats / bars" }).hover();
+  await page.getByRole("menuitem", { name: "1 bar", exact: true }).click();
+  await expect.poll(clip).toMatchObject({ length: BAR_TICKS, stretch: { mode: "stretch", tempo: 60 } });
+
+  // Its channel's Time stretching (a double-click on the clip): Resample, which the clip, with its own, doesn't follow.
+  await page.getByTestId("playlist-grid").dblclick({ position: { x: 30, y: 30 } });
+  const settings = page.locator('[data-testid="channel-settings"][data-channel-name="Loop"]');
+  await settings.getByRole("switch", { name: "Resample" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).channels.find((c: { id: string }) => c.id === "chan_loop")?.stretch).toEqual({ mode: "resample", tempo: null });
+  await settings.getByRole("button", { name: "Time" }).click();
+  await page.getByRole("menuitem", { name: "Project tempo" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).channels.find((c: { id: string }) => c.id === "chan_loop")?.stretch).toEqual({ mode: "resample", tempo: 120 });
+  await expect.poll(clip).toMatchObject({ length: BAR_TICKS, stretch: { tempo: 60 } });
+
+  // The assistant hears its tempo and stretches it (a 90 BPM loop in a 120 BPM song).
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(['call detect_tempo {"audio": "Loop"}', 'call stretch_audio {"ids": [1], "tempo": 90}', 'call stretch_audio {"audio": "Loop", "length": 2}'].join("\n"));
+  await composer.press("Enter");
+  await expect(panel).toContainText("detect_tempo: ok, stretch_audio: ok, stretch_audio: failed", { timeout: 30_000 });
+  await expect.poll(clip).toMatchObject({ stretch: { mode: "stretch", tempo: 90 } });
+});
+
 test("the assistant arranges the song with the playlist's tools", async ({ page }) => {
   const id = await openNewSong(page, "Assisted arrangement");
   await page.getByRole("button", { name: "Assistant" }).click();

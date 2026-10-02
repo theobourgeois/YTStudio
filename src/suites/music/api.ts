@@ -1,6 +1,8 @@
 /** The music suite's own endpoints (the platform's are in `@/lib/api`). */
 import type {
   CopyStatesRequest,
+  DetectTempoRequest,
+  DetectedTempo,
   EngineCommand,
   EngineCommands,
   EngineDevices,
@@ -64,6 +66,8 @@ export const musicApi = {
   previewFile: (body: PreviewFileRequest) => request<EngineStatus>("/api/browser/preview", { method: "POST", body: JSON.stringify(body) }),
   /** Hear one of the song's own media files (an audio clip's channel), as the Browser's are. */
   previewSample: (body: PreviewSampleRequest) => request<EngineStatus>("/api/engine/previewSample", { method: "POST", body: JSON.stringify(body) }),
+  /** A media file's tempo, as heard (FL's Autodetect). */
+  detectTempo: (body: DetectTempoRequest) => request<DetectedTempo>("/api/engine/tempo", { method: "POST", body: JSON.stringify(body) }),
   /** Where a Browser file is served (its waveform, and its bytes when it's added to the project). */
   browserFileUrl: (path: string) => `/api/browser/file?${pathQuery(path)}`,
   /** Export the song (`ExportSongRequest`): it renders on after the answer, which is the job. */

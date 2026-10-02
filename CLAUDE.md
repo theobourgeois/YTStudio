@@ -67,6 +67,7 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      edits and what the engine plays; panman-presets.ts: its constants, validation and presets),
                      Pitch Wheel (pitch-wheel.ts: its edits, the wheels' physics
                      `stepWheel`, what the engine plays; defaults, presets and ranges in pitch-wheel-presets.ts),
+                     stretching audio clips (stretch.ts: modes, speeds, the tempo a file was made at),
                      and drawing anything over time as lines for the engine (sampling.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
@@ -165,7 +166,8 @@ server/
                      the system prompt around a suite's instructions. A chat's suite picks its prompt and MCP tools.
   media-analysis.ts  ffmpeg looks into media: a frame as JPEG, silences + loudness, shot changes, music (for the assistant).
   beats.ts           Music analysis (pure, tested on synthetic drums): onsets, tempo (with the half/double choice),
-                     beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops.
+                     beats (Ellis's DP tracker, then evened out), bars, loudness sections and drops. The platform's:
+                     beat sync and the music suite's Detect tempo both use it.
   config.ts          Every env var is read here and nowhere else.
   storage.ts         DataPaths (data dir layout), HttpError, atomic JSON I/O.
 engine/            The music suite's audio engine, a C++/JUCE program (CMake; JUCE is fetched into engine/build).
@@ -175,7 +177,7 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      windows). Plugins.cpp: plugin scanning and the bench's two slots. FilePreview.cpp:
                      the Browser's preview, a file streamed from disk; Recorder.cpp: recording (armed tracks'
                      inputs to WAVs, through FIFOs a writer thread empties); AudioStream.cpp is that stream (a reader
-                     thread, a lock-free ring), and ClipPlayer.cpp plays the playlist's audio clips with it,
+                     thread, a lock-free ring; Signalsmith Stretch for stretched clips), and ClipPlayer.cpp plays the playlist's audio clips with it,
                      each started on its sample. Export.cpp: the export, rendered on a thread of its own
                      (Workers.h runs its plugins on every core). GrossBeat.cpp: Gross Beat, a native effect
                      (its rolling buffer, envelopes, sync, HOLD). EchoBoy.cpp: EchoBoy, a native echo (its
@@ -422,8 +424,9 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   its pattern), `offset` into its content (ticks of a pattern, **seconds** of an audio file), `muted`). Clip
   ids are small numbers, like notes'. Its operations are pure functions of a clip list in
   `shared/music/playlist.ts` (with a `ClipContext`: the patterns' lengths and the tempo, which a clip's
-  length needs, and each audio clip channel's speed: a pitched one plays its file faster, FL's Resample,
-  so an audio clip's ticks become file seconds through `fileSecondsPerTick(ref)`, never `secondsPerTick`), and the window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
+  length needs, and each audio clip's speed: a pitched one plays its file faster, FL's Resample, and a
+  stretched one at its stretch's, so an audio clip's ticks become file seconds through `fileSecondsPerTick(clip)`,
+  never `secondsPerTick`), and the window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
   through `applyDrag` and committed once, maths in `geometry.ts`, mouse in `pointer.ts`, keys in `keys.ts`,
   commands in `actions.ts`. An audio clip's channel is `Channel.kind: "audio"`, in the rack's
   Audio group (`RackGroup`), with a cut-down settings window; it has steps and notes too, as FL's (the
@@ -432,6 +435,17 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan
   a channel takes its clips. A clip's colour is its source's (`Pattern.color`, `Channel.color`), else its
   track's; every clip colour is derived from one (`clipColours` in `draw.ts`). The clip menu's Preview
   sends the engine a song of that clip alone while it's held (`playlist/preview.ts`).
+- **Stretching audio clips** (`docs/fl-studio/playlist.md`, Stretching audio clips; `shared/music/stretch.ts`):
+  an `AudioStretch` (`mode`: Resample or Stretch, the pitch kept; `tempo`: the song's tempo at which the file
+  plays at its own speed, so a stretched clip follows the tempo) is a clip's own (`PlaylistClip.stretch`, FL
+  2025's variant) or else its channel's (`Channel.stretch`); `ClipContext.stretchOf` says which, and
+  `audioPlayback` what it means (speed, transpose, keep-pitch: in Stretch mode the channel's pitch shifts
+  without changing the time). Setting one keeps each clip's content (`setClipStretch`, `stretchChannel`); the
+  Playlist's Stretch (Shift+M, `usePlaylist.stretch`) makes an edge a `stretch` drag (`stretchClips`).
+  The engine stretches in `AudioStream` on its reader thread with Signalsmith Stretch (MIT, fetched by
+  CMake, seeded so renders repeat), sought so the first sample out is the file's at its start: nothing is
+  late (`stretch.integration.test.ts`). Detect tempo is `POST /api/engine/tempo` (`server/music/tempo.ts`,
+  on the platform's `server/beats.ts`).
 - **Song mode** (PAT / SONG, L): `useTransport.mode` (not saved: a song with clips opens in song mode),
   with a start tick per mode; `switchMode` sends the engine the other song and carries on playing.
   `compileSong(..., "song")` flattens the arrangement into notes (a clip plays nothing past its pattern;

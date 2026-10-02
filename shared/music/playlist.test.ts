@@ -161,7 +161,7 @@ describe("a playlist's clips", () => {
     let song = withClips([{ kind: "audio", ref: "chan_kick", track: 0, start: 0, length: 2 * BAR, offset: 0 }]);
     song = { ...song, channels: song.channels.map((c) => (c.id === "chan_kick" ? { ...c, kind: "audio" as const, pitch: 12 } : c)) };
     const ctx = clipContext(song);
-    expect(ctx.fileSecondsPerTick("chan_kick")).toBeCloseTo(2 * ctx.secondsPerTick);
+    expect(ctx.fileSecondsPerTick({ ref: "chan_kick" })).toBeCloseTo(2 * ctx.secondsPerTick);
     const { clips } = sliceClips(song.playlist.clips, BAR, 0, 0, ctx);
     expect(clips.map((c) => c.offset)).toEqual([0, 4]);
     expect(pitchSpeed(-12)).toBe(0.5);

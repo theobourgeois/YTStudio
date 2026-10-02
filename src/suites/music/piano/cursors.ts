@@ -47,3 +47,10 @@ export const CURSORS = {
 export const MOVE_CURSOR = "grab";
 export const MOVING_CURSOR = "grabbing";
 export const RESIZE_CURSOR = "ew-resize";
+/** An audio clip's edge with the Playlist's Stretch on: a double arrow over a wave (its sound is stretched, not its window). */
+export const STRETCH_CURSOR = cursor(
+  line("M2.5 15 H21.5 M2.5 15 L5.8 11.7 M2.5 15 L5.8 18.3 M21.5 15 L18.2 11.7 M21.5 15 L18.2 18.3", 1.8) + line("M6 7 Q7.75 3.5 9.5 7 T13 7 T16.5 7 T18 6", 1.4),
+  12,
+  15,
+  "ew-resize",
+);

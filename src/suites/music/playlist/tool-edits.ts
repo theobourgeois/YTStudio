@@ -27,12 +27,16 @@ import {
   deleteTrack,
   insertTrack,
   moveTrack,
+  setClipStretch,
+  stretchChannel,
+  stretchClips,
 } from "@shared/music/playlist";
+import { STRETCH_MODE_NAMES, isStretchMode, tempoForBeats, tempoOfFile } from "@shared/music/stretch";
 import { MASTER_TRACK_ID, MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import { trackName as mixerTrackName } from "@shared/music/mixer";
 import { linkAudioTracks } from "@shared/music/recording";
 import { findTrack } from "../mixer/tool-edits";
-import { type Channel, type MusicProject, PPQ, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
+import { type AudioStretch, type Channel, type MusicProject, PPQ, type PlaylistClip, STEP_TICKS, type StretchMode } from "@shared/music/types";
 import { type EditEnv, type EditResult, findPattern } from "../tool-edits";
 import { findAutomation } from "../automation/tool-edits";
 
@@ -59,7 +63,7 @@ function barsTicks(value: unknown, ctx: ClipContext, key: string, min = 0): numb
 }
 
 /** An audio clip's channel, by id or name. */
-function findAudio(song: MusicProject, ref: unknown): Channel {
+export function findAudio(song: MusicProject, ref: unknown): Channel {
   const text = typeof ref === "string" ? ref.trim() : "";
   const audio = song.channels.filter((c) => c.kind === "audio");
   const found = audio.find((c) => c.id === text) ?? audio.find((c) => c.name.toLowerCase() === text.toLowerCase());
@@ -87,7 +91,17 @@ function describeClip(song: MusicProject, clip: PlaylistClip, ctx: ClipContext):
   const content = clip.kind === "automation" ? "curve" : "pattern";
   const offset = clip.kind === "audio" ? (clip.offset ? `, from ${round(clip.offset)}s into its file` : "") : clip.offset ? `, from ${barsOf(clip.offset, ctx)} bars into its ${content}` : "";
   const follows = clip.kind !== "audio" && clip.length === null ? ` (its ${content}'s length)` : "";
-  return `- clip ${clip.id}: ${what} at bar ${barOf(clip.start, ctx)}, ${barsOf(length, ctx)} bars${follows}${offset}${clip.muted ? ", muted" : ""}`;
+  return `- clip ${clip.id}: ${what} at bar ${barOf(clip.start, ctx)}, ${barsOf(length, ctx)} bars${follows}${offset}${stretchNote(clip, ctx)}${clip.muted ? ", muted" : ""}`;
+}
+
+/** How an audio clip is stretched, for the model: its mode, the tempo its file plays at its own speed, and whose stretch it is. */
+function stretchNote(clip: PlaylistClip, ctx: ClipContext): string {
+  if (clip.kind !== "audio") return "";
+  const stretch = ctx.stretchOf(clip);
+  if (!stretch) return "";
+  const speed = round(ctx.fileSecondsPerTick(clip) / ctx.secondsPerTick);
+  const whose = clip.stretch ? "its own" : "its channel's";
+  return `, stretched (${STRETCH_MODE_NAMES[stretch.mode]}${stretch.tempo ? `, its file's tempo ${round(stretch.tempo)} BPM: ${speed}× its speed` : ", at its own speed"}; ${whose})`;
 }
 
 /** The playlist as text, for the model (`get_playlist`). `mode` is what the editor plays now. */
@@ -164,9 +178,9 @@ export function placeClipsTool(song: MusicProject, input: Input, env: EditEnv): 
       } else {
         const channel = findAudio(song, clip.audio);
         const like = song.playlist.clips.find((c) => c.kind === "audio" && c.ref === channel.id);
-        const offset = clip.offset === undefined ? (like?.offset ?? 0) : barsTicks(clip.offset, ctx, "offset") * ctx.fileSecondsPerTick(channel.id);
+        const offset = clip.offset === undefined ? (like?.offset ?? 0) : barsTicks(clip.offset, ctx, "offset") * ctx.fileSecondsPerTick(like ?? { ref: channel.id });
         const length = clip.length === undefined ? (like ? clipLength(like, ctx) : ctx.barTicks) : barsTicks(clip.length, ctx, "length", 1 / 64);
-        for (let n = 0; n < repeat; n++) placed.push({ kind: "audio", ref: channel.id, track, start: start + n * length, length, offset, muted });
+        for (let n = 0; n < repeat; n++) placed.push({ kind: "audio", ref: channel.id, track, start: start + n * length, length, offset, muted, stretch: like?.stretch });
       }
     } catch (err) {
       throw new Error(at + (err instanceof Error ? err.message : String(err)));
@@ -209,7 +223,7 @@ export function updateClipsTool(song: MusicProject, input: Input): EditResult {
     next = editClips(next, (clips) =>
       clips.map((clip) => {
         if (!ids.has(clip.id)) return clip;
-        const value = clip.kind === "audio" ? offset * ctx.fileSecondsPerTick(clip.ref) : offset;
+        const value = clip.kind === "audio" ? offset * ctx.fileSecondsPerTick(clip) : offset;
         // Its length stays where it ends now.
         return value === clip.offset ? clip : { ...clip, offset: value, length: clipLength(clip, ctx) };
       }),
@@ -301,6 +315,81 @@ export function makeClipUniqueTool(song: MusicProject, input: Input): EditResult
   const made = next.patterns.find((p) => !song.patterns.some((q) => q.id === p.id))!;
   return { song: next, text: `Clip ${clip.id} plays a pattern of its own now: "${made.name}" (id ${made.id}).` };
 }
+
+/** What `stretch_audio` needs of the files: their lengths, and the tempi heard in them (`tempo: "detect"`). */
+export interface StretchFiles {
+  seconds: (channelId: string) => number | null;
+  heard?: (channelId: string) => number | null;
+}
+
+/**
+ * `stretch_audio`: audio clips' own stretch (`ids`) or a channel's (`audio`), set by the file's tempo, its
+ * length in bars, or (clips) a clip's new length; each clip keeps its content.
+ */
+export function stretchAudioTool(song: MusicProject, input: Input, files: StretchFiles): EditResult {
+  const byClips = input.ids !== undefined;
+  if (byClips === (input.audio !== undefined)) throw new Error('Give either "ids" (audio clips: a stretch of their own) or "audio" (an audio clip\'s channel: the stretch its clips follow).');
+  if (input.mode !== undefined && !isStretchMode(input.mode)) throw new Error('"mode" must be "stretch" (the pitch kept) or "resample" (faster is higher).');
+  const ways = ["tempo", "bars", "length", "follow_channel"].filter((key) => input[key] !== undefined);
+  if (ways.length > 1) throw new Error(`Give one of "tempo", "bars", "length" or "follow_channel", not ${ways.map((w) => `"${w}"`).join(" and ")}.`);
+  if (!byClips && (input.length !== undefined || input.follow_channel !== undefined)) throw new Error('"length" and "follow_channel" are for clips ("ids"); a channel takes "tempo" or "bars".');
+  if (!ways.length && input.mode === undefined) throw new Error('Say how to stretch: "tempo" (the file\'s, or "detect", "project", "none"), "bars", "length" (clips), "follow_channel" (clips) or "mode".');
+  const ctx = clipContext(song);
+  // Each channel's clips (or the channel alone).
+  const groups = new Map<string, Set<number>>();
+  if (byClips) {
+    const ids = findClips(song, input.ids);
+    const notAudio = song.playlist.clips.filter((c) => ids.has(c.id) && c.kind !== "audio").map((c) => c.id);
+    if (notAudio.length) throw new Error(`Only audio clips stretch: clip ${notAudio.join(", ")} ${notAudio.length === 1 ? "isn't one" : "aren't"}.`);
+    for (const clip of song.playlist.clips) if (ids.has(clip.id)) groups.set(clip.ref, (groups.get(clip.ref) ?? new Set()).add(clip.id));
+  } else groups.set(findAudio(song, input.audio).id, new Set());
+
+  const beatsInBar = ctx.barTicks / PPQ;
+  let next = song;
+  for (const [channelId, ids] of groups) {
+    const channel = song.channels.find((c) => c.id === channelId)!;
+    const now = byClips ? ctx.stretchOf(song.playlist.clips.find((c) => ids.has(c.id))!) : (channel.stretch ?? null);
+    const mode: StretchMode = (input.mode as StretchMode | undefined) ?? now?.mode ?? "stretch";
+    const setTo = (stretch: AudioStretch | null) => {
+      next = byClips ? editClips(next, (clips, c) => setClipStretch(clips, ids, stretch, c)) : stretchChannel(next, channelId, stretch);
+    };
+    if (input.follow_channel !== undefined) {
+      if (input.follow_channel === true) setTo(null);
+    } else if (input.length !== undefined) {
+      const length = barsTicks(input.length, ctx, "length", 1 / 64);
+      // In the mode asked first (its time kept), then each clip's end dragged to the length.
+      if (input.mode !== undefined && now?.mode !== mode) setTo({ mode, tempo: now?.tempo ?? null });
+      next = editClips(next, (clips, c) => {
+        let list = clips;
+        for (const clip of clips.filter((x) => ids.has(x.id))) list = stretchClips(list, new Set([clip.id]), "end", length - clipLength(clip, c), c, mode);
+        return list;
+      });
+    } else if (input.bars !== undefined) {
+      if (!isFiniteNumber(input.bars) || input.bars <= 0) throw new Error('"bars" must be a number of bars, more than 0.');
+      const seconds = files.seconds(channelId);
+      if (seconds === null) throw new Error(`"${channel.name}"'s file length isn't known yet: try again in a moment, or give its "tempo".`);
+      setTo({ mode, tempo: tempoForBeats(seconds, input.bars * beatsInBar, mode, channel.pitch) });
+    } else if (input.tempo !== undefined) {
+      const tempo = input.tempo;
+      if (tempo === "none") setTo(byClips ? { mode, tempo: null } : null);
+      else if (tempo === "project") setTo({ mode, tempo: song.settings.tempo });
+      else if (tempo === "detect") {
+        const heard = files.heard?.(channelId) ?? null;
+        if (heard === null) throw new Error(`No steady beat was heard in "${channel.name}": give its tempo, or how many "bars" it lasts.`);
+        setTo({ mode, tempo: tempoOfFile(heard, mode, channel.pitch) });
+      } else if (isFiniteNumber(tempo) && tempo > 0) setTo({ mode, tempo: tempoOfFile(tempo, mode, channel.pitch) });
+      else throw new Error('"tempo" must be the file\'s tempo in BPM, or "detect", "project" or "none".');
+    } else setTo({ mode, tempo: now?.tempo ?? null });
+  }
+  if (next === song) return { song, text: "Nothing changed: it's already stretched like that." };
+  const after = clipContext(next);
+  const clips = next.playlist.clips.filter((c) => c.kind === "audio" && groups.has(c.ref) && (!byClips || groups.get(c.ref)!.has(c.id)));
+  const head = byClips ? "Now:" : `"${song.channels.find((c) => groups.has(c.id))!.name}" (the channel) is ${describeStretch(next.channels.find((c) => groups.has(c.id))!.stretch)}; its clips:`;
+  return { song: next, text: [head, ...clips.map((c) => describeClip(next, c, after))].join("\n") };
+}
+
+const describeStretch = (stretch: AudioStretch | undefined) =>
+  !stretch ? "not stretched" : `in ${STRETCH_MODE_NAMES[stretch.mode]} mode, ${stretch.tempo ? `its file's tempo ${round(stretch.tempo)} BPM` : "at its own speed"}`;
 
 export function updatePlaylistTrackTool(song: MusicProject, input: Input): EditResult {
   const index = trackIndex(input.track);

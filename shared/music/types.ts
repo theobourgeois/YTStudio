@@ -98,6 +98,29 @@ export interface Channel {
   mixerTrack: string;
   /** "#rrggbb", or null for the usual: an audio clip channel's clips take it (FL's Rename and recolor). */
   color: string | null;
+  /**
+   * An audio clip channel's time stretching (FL's TIME and MODE, in its settings' sample tab): what its clips
+   * that have no stretch of their own play by. Absent: none (the file at its own speed, pitched by Resample).
+   */
+  stretch?: AudioStretch;
+}
+
+/**
+ * How an audio clip's file is stretched (`docs/fl-studio/playlist.md`, Stretching audio clips): Resample
+ * changes its speed and pitch together; Stretch changes its speed with its pitch kept (and the channel's
+ * pitch then shifts it without changing the time, as FL's time-stretch PITCH).
+ */
+export const STRETCH_MODES = ["resample", "stretch"] as const;
+export type StretchMode = (typeof STRETCH_MODES)[number];
+
+export interface AudioStretch {
+  mode: StretchMode;
+  /**
+   * The song's tempo at which the file plays at its own speed (FL's TIME, as a tempo): at another tempo it
+   * plays that much faster or slower, so it stays on its bars. Null: at its own speed, whatever the tempo
+   * (FL's TIME "(none)").
+   */
+  tempo: number | null;
 }
 
 export type ChannelKind = "sampler" | "plugin" | "audio";
@@ -692,6 +715,11 @@ export interface PlaylistClip {
   offset: number;
   /** Kept, but not played (the playlist's mute tool). */
   muted: boolean;
+  /**
+   * An audio clip's own stretch (FL 2025's variant of its channel: stretched in the Playlist). Absent: its
+   * channel's (`Channel.stretch`).
+   */
+  stretch?: AudioStretch;
 }
 
 /** The song's arrangement: what plays in song mode. */
