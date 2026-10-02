@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretDownFill, PiCaretRightFill, PiCaretUpBold, PiClock, PiLinkSimpleBold, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { foldedAway, setGroupVca, setMixerVolumes, trackName, updateMixerTrack } from "@shared/music/mixer";
+import { foldedAway, mainOutput, setGroupVca, setMixerVolumes, trackName, updateMixerTrack } from "@shared/music/mixer";
 import { SELECTION_METER } from "@shared/music/engine";
 import { type Hearing, cutOffBy, hearing } from "@shared/music/solo";
 import { DEFAULT_FADER, MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
@@ -152,7 +152,10 @@ export function MixerWindow() {
   const away = useMemo(() => foldedAway({ mixer }), [mixer]);
   const feeders = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const track of mixer.tracks) for (const send of track.sends) if (send.level > 0) counts.set(send.to, (counts.get(send.to) ?? 0) + 1);
+    for (const track of mixer.tracks) {
+      const main = mainOutput(track);
+      if (main) counts.set(main, (counts.get(main) ?? 0) + 1);
+    }
     return counts;
   }, [mixer.tracks]);
   const docked = useMemo(() => {

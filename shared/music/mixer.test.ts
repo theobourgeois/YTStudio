@@ -439,14 +439,17 @@ describe("folded buses", () => {
   it("hide the tracks whose sound all goes into them, and the buses inside them with theirs", () => {
     let song = sendOnly(rack(), "insert_1", "insert_3");
     song = sendOnly(song, "insert_2", "insert_3");
+    // Insert 2 also sends to a reverb (insert 9): it still goes, its main output is the bus.
+    song = setSend(song, "insert_2", "insert_9", 0.5);
+    // Insert 4 goes to the master first, and only sends to 3 besides: it stays.
     song = setSend(song, "insert_4", "insert_3", 0.5);
     song = sendOnly(song, "insert_5", "insert_6");
     song = sendOnly(song, "insert_6", "insert_3");
     expect(foldedAway(song).size).toBe(0);
     const folded = setTrackFolded(song, ["insert_3"], true);
-    // Insert 4 also goes to the master: it stays. Insert 6 (a bus into 3) goes, and insert 5 with it.
+    // Insert 6 (a bus into 3) goes, and insert 5 with it.
     expect([...foldedAway(folded)].sort()).toEqual(["insert_1", "insert_2", "insert_5", "insert_6"]);
-    expect(feedersOf(folded, "insert_3")).toBe(4);
+    expect([feedersOf(folded, "insert_3"), feedersOf(folded, "insert_9")]).toEqual([3, 0]);
     expect(setTrackFolded(folded, ["insert_3"], true)).toBe(folded);
     expect(setTrackFolded(folded, [M], true)).toBe(folded);
     expect(normalizeMusicProject(JSON.parse(JSON.stringify(folded))).mixer).toEqual(folded.mixer);

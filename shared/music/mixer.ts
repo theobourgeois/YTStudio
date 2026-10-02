@@ -172,8 +172,15 @@ export const setTrackFolded = (song: MusicProject, ids: readonly string[], folde
 const withoutFolded = ({ folded: _, ...track }: MixerTrack): MixerTrack => track;
 
 /**
- * The tracks folded away under folded buses: every track that sends sound somewhere and only into folded
- * buses or tracks folded away themselves (so a bus inside a folded bus goes too, with its own tracks).
+ * A track's main output: its first send that carries sound (as Logic's output beside its aux sends; a
+ * reverb send made after it doesn't change where the track goes). Null when it goes nowhere.
+ */
+export const mainOutput = (track: MixerTrack): string | null => track.sends.find((s) => s.level > 0)?.to ?? null;
+
+/**
+ * The tracks folded away under folded buses: every track whose main output is a folded bus, or a track
+ * folded away itself (so a bus inside a folded bus goes too, with its own tracks). Its other sends (to a
+ * reverb, say) don't keep it out.
  */
 export function foldedAway(song: Pick<MusicProject, "mixer">): Set<string> {
   const folded = new Set(song.mixer.tracks.filter((t) => t.folded).map((t) => t.id));
@@ -184,8 +191,8 @@ export function foldedAway(song: Pick<MusicProject, "mixer">): Set<string> {
     changed = false;
     for (const track of song.mixer.tracks) {
       if (away.has(track.id) || track.id === MASTER_TRACK_ID) continue;
-      const out = track.sends.filter((s) => s.level > 0);
-      if (out.length && out.every((s) => folded.has(s.to) || away.has(s.to))) {
+      const main = mainOutput(track);
+      if (main && (folded.has(main) || away.has(main))) {
         away.add(track.id);
         changed = true;
       }
@@ -194,8 +201,8 @@ export function foldedAway(song: Pick<MusicProject, "mixer">): Set<string> {
   return away;
 }
 
-/** How many tracks feed a track directly (sends with sound): what a fold would hide first. */
-export const feedersOf = (song: Pick<MusicProject, "mixer">, id: string) => song.mixer.tracks.filter((t) => t.sends.some((s) => s.to === id && s.level > 0)).length;
+/** How many tracks have a track as their main output: what folding it would hide first. */
+export const feedersOf = (song: Pick<MusicProject, "mixer">, id: string) => song.mixer.tracks.filter((t) => mainOutput(t) === id).length;
 
 export type MixerTrackPatch = Partial<
   Pick<MixerTrack, "name" | "color" | "dock" | "separator" | "volume" | "pan" | "muted" | "solo" | "soloSafe" | "invert" | "swap" | "stereo" | "latencyOffset" | "input" | "monitor" | "inputOffset">
