@@ -119,6 +119,21 @@ export interface EngineTransport {
   preview?: EnginePreview | null;
   /** Each Gross Beat in the song (by effect id): what it's playing (absent from engines that don't say). */
   grossBeats?: Record<string, EngineGrossState>;
+  /** Each Pro-Q being watched (`eqWatch`), by effect id: its spectra and its dynamic bands (absent from engines that don't say). */
+  eq?: Record<string, EngineEqState>;
+}
+
+/**
+ * What a watched Pro-Q hears: its spectra before and after it (dB at `EQ_SPECTRUM_POINTS` log-spaced
+ * frequencies, a full-scale sine reading 0; null when nothing's come through since), its output's peak
+ * per side, and each dynamic band (by number): how far its gain has moved now (dB) and the level of the
+ * sound in its range (dB), which its threshold is set against.
+ */
+export interface EngineEqState {
+  pre: number[] | null;
+  post: number[] | null;
+  peak: [number, number];
+  bands: Record<string, { gain: number; level: number }>;
 }
 
 /**
@@ -443,6 +458,16 @@ export interface EngineCommands {
    * envelope's; 0 lets go).
    */
   grossBeat: { effect: string; hold?: boolean; scratch?: number };
+  /**
+   * The Pro-Qs whose sound the engine measures (their windows are open, or another's shows their
+   * spectrum): each with its analyzer's FFT length. The rest aren't measured.
+   */
+  eqWatch: { effects: { effect: string; size: number }[] };
+  /**
+   * A Pro-Q band soloed while its solo button is held (null lets go): only the part of the sound it works
+   * on is heard, `gain` dB louder or softer (the solo's listening level).
+   */
+  eqSolo: { effect: string; band: number | null; gain?: number };
   /**
    * The tracks the mixer's selection meter adds up (the selected ones, by id): their sound after their
    * faders, together, is measured as the meter "@selection" (`EngineMeters`).

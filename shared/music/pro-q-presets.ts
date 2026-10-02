@@ -28,13 +28,15 @@ export const EQ_DISPLAY_RANGES = [3, 6, 12, 30] as const;
 export const hasGain = (shape: EqShape) => shape === "bell" || shape === "lowShelf" || shape === "highShelf" || shape === "tiltShelf" || shape === "flatTilt";
 /** The shapes that can be dynamic (Pro-Q 3: Bell and the shelves). */
 export const canBeDynamic = (shape: EqShape) => shape === "bell" || shape === "lowShelf" || shape === "highShelf" || shape === "tiltShelf";
-/** The slopes a shape takes: Brickwall on the cuts only; Flat Tilt has none of its own. */
+/** The slopes a shape takes (an order each): Brickwall on the cuts only, Bell and Notch from 12 (two poles), Flat Tilt none of its own. */
 export const shapeSlopes = (shape: EqShape): readonly EqSlope[] =>
   shape === "lowCut" || shape === "highCut"
     ? [6, 12, 18, 24, 30, 36, 48, 72, 96, "brickwall"]
     : shape === "flatTilt"
-      ? [6]
-      : [6, 12, 18, 24, 30, 36, 48, 72, 96];
+      ? [12]
+      : shape === "bell" || shape === "notch"
+        ? [12, 18, 24, 30, 36, 48, 72, 96]
+        : [6, 12, 18, 24, 30, 36, 48, 72, 96];
 /** Q does nothing at 6 dB/oct (one pole), on a Flat Tilt, or on a Brickwall. */
 export const usesQ = (band: Pick<EqBand, "shape" | "slope">) => band.slope !== 6 && band.slope !== "brickwall" && band.shape !== "flatTilt";
 
@@ -228,3 +230,9 @@ export const EQ_CONTROL_SCALES = {
   q: { toValue: (v: number) => EQ_MIN_Q * (EQ_MAX_Q / EQ_MIN_Q) ** v, toFraction: (q: number) => Math.log(q / EQ_MIN_Q) / Math.log(EQ_MAX_Q / EQ_MIN_Q) },
   output: { toValue: (v: number) => EQ_MIN_OUTPUT + v * (EQ_MAX_OUTPUT - EQ_MIN_OUTPUT), toFraction: (db: number) => (db - EQ_MIN_OUTPUT) / (EQ_MAX_OUTPUT - EQ_MIN_OUTPUT) },
 } as const;
+
+/** The frequencies the engine's analyzer reports levels at (`engine/src/Spectrum.h`'s `SpectrumGrid`). */
+export const EQ_SPECTRUM_POINTS = 480;
+export const EQ_SPECTRUM_LOW = 10;
+export const EQ_SPECTRUM_HIGH = 30_000;
+export const spectrumFrequency = (i: number) => EQ_SPECTRUM_LOW * (EQ_SPECTRUM_HIGH / EQ_SPECTRUM_LOW) ** (i / (EQ_SPECTRUM_POINTS - 1));

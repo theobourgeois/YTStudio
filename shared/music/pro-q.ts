@@ -23,7 +23,8 @@ import {
   hasGain,
   shapeSlopes,
 } from "./pro-q-presets.ts";
-import { EQ_SHAPES, type EqBand, type EqPlacement, type EqShape, type EqSlope, type MusicProject, type ProQ, type ProQState } from "./types.ts";
+import { autoGain } from "./pro-q-filters.ts";
+import { EQ_RESOLUTIONS, EQ_SHAPES, type EqBand, type EqPlacement, type EqShape, type EqSlope, type MusicProject, type ProQ, type ProQState } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // In the song
@@ -293,4 +294,67 @@ export function parseTyped(text: string, kind: "frequency" | "gain" | "q"): numb
   }
   const q = Number(t);
   return Number.isFinite(q) ? q : null;
+}
+
+// ---------------------------------------------------------------------------
+// For the engine
+// ---------------------------------------------------------------------------
+
+/** A band as the engine plays it (`engine/src/ProQ.h`'s `Band`): its gain and range scaled, Brickwall a slope of 0. */
+export interface EngineEqBand {
+  id: number;
+  shape: EqShape;
+  frequency: number;
+  gain: number;
+  /** As set: Gain-Q interaction narrows it in the engine, from the gain it's at (dynamics included). */
+  q: number;
+  slope: number;
+  placement: EqPlacement;
+  /** dB its gain moves at most when its range is loud (0: static, or its dynamics bypassed). */
+  range: number;
+  /** dB, or null for Auto. */
+  threshold: number | null;
+}
+
+/** A Pro-Q's settings for the engine (`EngineEffect.eq`). */
+export interface EngineEq {
+  bands: EngineEqBand[];
+  mode: ProQ["mode"];
+  resolution: number;
+  gainQ: boolean;
+  /** The output level in dB (Auto Gain's correction in it), its pan, which pair the pan balances, the phase. */
+  output: number;
+  pan: number;
+  panMode: ProQ["panMode"];
+  invert: boolean;
+}
+
+/** What the engine plays for a Pro-Q: its enabled bands as heard (Gain Scale applied), and the output with Auto Gain. */
+export function engineProQ(pq: ProQ): EngineEq {
+  const bands = pq.bands
+    .filter((b) => b.enabled)
+    .map((b): EngineEqBand => {
+      const scaled = hasGain(b.shape) ? pq.gainScale : 1;
+      return {
+        id: b.id,
+        shape: b.shape,
+        frequency: b.frequency,
+        gain: b.gain * scaled,
+        q: b.q,
+        slope: b.slope === "brickwall" ? 0 : b.slope,
+        placement: b.placement,
+        range: canBeDynamic(b.shape) && b.dynamics ? b.range * scaled : 0,
+        threshold: b.threshold,
+      };
+    });
+  return {
+    bands,
+    mode: pq.mode,
+    resolution: EQ_RESOLUTIONS.indexOf(pq.resolution),
+    gainQ: pq.gainQ,
+    output: pq.output + (pq.autoGain ? autoGain(pq) : 0),
+    pan: pq.pan,
+    panMode: pq.panMode,
+    invert: pq.invert,
+  };
 }
