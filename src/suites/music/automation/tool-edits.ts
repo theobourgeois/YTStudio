@@ -24,6 +24,7 @@ import { clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
 import { ECHO_TOOL_CONTROLS, ECHO_TOOL_CONTROL_NAMES, type EchoToolControl } from "@shared/music/echo-boy-presets";
 import { OTT_HINTS, OTT_TOOL_CONTROLS, OTT_TOOL_CONTROL_NAMES, type OttToolControl } from "@shared/music/ott-presets";
+import { PRO_C_HINTS, PRO_C_TOOL_CONTROLS, PRO_C_TOOL_CONTROL_NAMES, type ProCToolControl, slopeOf } from "@shared/music/pro-c-presets";
 import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject, type PanControl, type PitchWheelControl } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
 import { type EditResult, findChannel } from "../tool-edits";
@@ -71,6 +72,7 @@ export const CONTROLS = [
   ...["eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale"],
   ...ECHO_TOOL_CONTROL_NAMES,
   ...OTT_TOOL_CONTROL_NAMES,
+  ...PRO_C_TOOL_CONTROL_NAMES,
   "panman offset",
   "panman width",
   "panman rate",
@@ -312,6 +314,25 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (!effect.ott) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an OTT: an "${control}" is OTT's.`);
       return { kind: "ott", effect: effect.id, control: OTT_TOOL_CONTROLS[control as OttToolControl] };
     }
+    case "pro-c threshold":
+    case "pro-c ratio":
+    case "pro-c knee":
+    case "pro-c range":
+    case "pro-c attack":
+    case "pro-c release":
+    case "pro-c hold":
+    case "pro-c wet":
+    case "pro-c dry":
+    case "pro-c mix":
+    case "pro-c sidechain level":
+    case "pro-c drive":
+    case "pro-c input":
+    case "pro-c output":
+    case "pro-c emphasis": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.proC) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Pro-C: a "${control}" is Pro-C's.`);
+      return { kind: "proC", effect: effect.id, control: PRO_C_TOOL_CONTROLS[control as ProCToolControl] };
+    }
     case "panman offset":
     case "panman width":
     case "panman rate":
@@ -362,6 +383,13 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
 }
 
 /** The points an input gives (`at` in bars from the curve's start, values as the control has them), as a curve's. */
+/** A Pro-C control's value as the tools give it (times in ms, a ratio as a ratio) in its own units. */
+function proCValue(control: string, value: number): number {
+  if (control === "attack" || control === "release" || control === "hold") return value / 1000;
+  if (control === "ratio") return value >= 100 ? 1 : slopeOf(Math.max(1, value));
+  return value;
+}
+
 function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, length: number, range: { min: number; max: number } = { min: 0, max: 1 }): AutomationPoint[] {
   if (!Array.isArray(raw) || !raw.length) throw new Error('"points" must be a list of { at, value }: at in bars from the clip\'s start, value as the control has it.');
   const { barTicks } = clipContext(song);
@@ -376,7 +404,7 @@ function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, le
     // slots are numbered from 1 for the model, from 0 inside.
     const slots = target.kind === "grossBeat" && (target.control === "timeSlot" || target.control === "volumeSlot");
     const span = range.max - range.min;
-    const own = slots ? p.value - 1 : target.kind === "autoTune" && HUNDREDTHS.includes(target.control) ? p.value / 100 : p.value;
+    const own = slots ? p.value - 1 : target.kind === "autoTune" && HUNDREDTHS.includes(target.control) ? p.value / 100 : target.kind === "proC" ? proCValue(target.control, p.value) : p.value;
     const fraction = span === 0 ? 0 : (info.fromControl(own) - range.min) / span;
     return { tick: Math.round(p.at * barTicks), value: Math.min(1, Math.max(0, fraction)), tension: (p.tension as number | undefined) ?? 0, curve: (p.curve as CurveType | undefined) ?? "single" };
   });
@@ -450,6 +478,8 @@ const valueHint = (target: AutomationTarget) =>
     ? ECHO_HINTS[target.control]
     : target.kind === "ott"
     ? OTT_HINTS[target.control]
+    : target.kind === "proC"
+    ? PRO_C_HINTS[target.control]
     : target.kind === "pitchWheel"
     ? target.control === "pitch" || target.control === "timbre"
       ? "semitones, -24 to 24"
