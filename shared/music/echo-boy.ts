@@ -76,6 +76,14 @@ export function updateEchoBoy(song: MusicProject, effectId: string, patch: EchoB
   });
 }
 
+/** Change Rhythm Echo's settings (`change` gets them and the tempo EchoBoy keeps to). */
+export function updateRhythm(song: MusicProject, effectId: string, change: (rhythm: EchoRhythm, bpm: number) => EchoRhythm): MusicProject {
+  return editEchoBoy(song, effectId, (eb) => {
+    const rhythm = change(eb.rhythm, echoTempo(eb, song.settings.tempo));
+    return rhythm === eb.rhythm ? eb : { ...eb, rhythm, preset: null };
+  });
+}
+
 /** Whether what's heard changed (not just which preset is named). */
 const soundChanged = (a: EchoBoy, b: EchoBoy) => !same({ ...a, preset: null }, { ...b, preset: null });
 

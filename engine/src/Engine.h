@@ -91,6 +91,8 @@ private:
     PluginHost effects;
     /** Its Gross Beats' sounds, by effect id (the songs hold them too, so it doesn't matter where this is). */
     gross::Registry grossBeats;
+    /** Its EchoBoys' sounds, by effect id. */
+    echo::Registry echoBoys;
     Sequencer sequencer;
     /** The Browser's preview of a file, outside the song. */
     FilePreview preview;
