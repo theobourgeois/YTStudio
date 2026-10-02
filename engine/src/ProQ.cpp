@@ -239,7 +239,6 @@ std::shared_ptr<Settings> Settings::parse (const juce::var& json, int capacity, 
         }
     }
     state.designed = key;
-    state.reserve (s->latency, capacity);
     return s;
 }
 
@@ -249,8 +248,18 @@ std::shared_ptr<Settings> Settings::parse (const juce::var& json, int capacity, 
 
 State::State (double sampleRate) : rate (sampleRate)
 {
+    // Everything the audio thread uses is made here, at its largest, never again while it may be used:
+    // the input (blocks up to `maxBlock`), Linear Phase's dynamic shares (a chunk at a time), and the dry
+    // sound's delay for the slot's mix (the longest latency, Linear Phase at Maximum).
     for (auto& band : bands)
         band.shares.assign (4096, 0.0f);
+    inLeft.assign ((size_t) maxBlock, 0.0f);
+    inRight.assign ((size_t) maxBlock, 0.0f);
+    for (auto& g : deltaGains)
+        g.assign ((size_t) deltaChunk, 0.0f);
+    const auto ring = (size_t) juce::nextPowerOfTwo (linearTaps (4, rate) / 2 + linearBlock + maxBlock + 1);
+    dryRing[0].assign (ring, 0.0f);
+    dryRing[1].assign (ring, 0.0f);
 }
 
 State::~State() = default;
@@ -282,24 +291,6 @@ void State::collect()
         natural->collect();
     if (linear != nullptr)
         linear->collect();
-}
-
-void State::reserve (int latency, int capacity)
-{
-    if ((int) inLeft.size() < capacity)
-    {
-        inLeft.assign ((size_t) capacity, 0.0f);
-        inRight.assign ((size_t) capacity, 0.0f);
-        for (auto& g : deltaGains)
-            g.assign ((size_t) capacity, 0.0f);
-    }
-    const auto ring = juce::nextPowerOfTwo (latency + capacity + 1);
-    if ((int) dryRing[0].size() < ring)
-    {
-        dryRing[0].assign ((size_t) ring, 0.0f);
-        dryRing[1].assign ((size_t) ring, 0.0f);
-        dryWrite = 0;
-    }
 }
 
 void State::design (BandState& bs, const BandShape& shape, Chain& chain) const
@@ -532,31 +523,36 @@ void State::process (const Settings& settings, float* left, float* right, int nu
         // The long FIR plays the bands; the dynamic ones are worked out here and heard as its deltas, each
         // share held back by the latency so it moves with the sound it was measured on.
         const auto delayBlocks = settings.latency / control;
-        int delta = 0;
-        for (int i = 0; i < settings.count; ++i)
+        // A chunk at a time, so the shares' scratch stays small.
+        for (int chunk = 0; chunk < numSamples; chunk += deltaChunk)
         {
-            const auto& band = settings.bands[(size_t) i];
-            if (isZero (band.range) || ! settings.dynamicsPlay || delta >= Convolver::maxDeltas)
-                continue;
-            auto& bs = bands[(size_t) band.id];
-            bs.band = band;
-            bs.known = true;
-            auto* gains = deltaGains[(size_t) delta++].data();
-            const auto ring = (int) bs.shares.size();
-            for (int pos = 0; pos < numSamples; pos += control)
+            const auto n = juce::jmin (deltaChunk, numSamples - chunk);
+            int delta = 0;
+            for (int i = 0; i < settings.count; ++i)
             {
-                const auto m = juce::jmin (control, numSamples - pos);
-                detect (bs, inLeft.data() + pos, inRight.data() + pos, m);
-                bs.shares[(size_t) bs.shareWrite] = (float) (bs.dynamicGain / band.range);
-                const auto share = bs.shares[(size_t) ((bs.shareWrite - juce::jmin (delayBlocks, ring - 1) + ring) % ring)];
-                bs.shareWrite = (bs.shareWrite + 1) % ring;
-                std::fill (gains + pos, gains + pos + m, share);
+                const auto& band = settings.bands[(size_t) i];
+                if (isZero (band.range) || ! settings.dynamicsPlay || delta >= Convolver::maxDeltas)
+                    continue;
+                auto& bs = bands[(size_t) band.id];
+                bs.band = band;
+                bs.known = true;
+                auto* gains = deltaGains[(size_t) delta++].data();
+                const auto ring = (int) bs.shares.size();
+                for (int pos = 0; pos < n; pos += control)
+                {
+                    const auto m = juce::jmin (control, n - pos);
+                    detect (bs, inLeft.data() + chunk + pos, inRight.data() + chunk + pos, m);
+                    bs.shares[(size_t) bs.shareWrite] = (float) (bs.dynamicGain / band.range);
+                    const auto share = bs.shares[(size_t) ((bs.shareWrite - juce::jmin (delayBlocks, ring - 1) + ring) % ring)];
+                    bs.shareWrite = (bs.shareWrite + 1) % ring;
+                    std::fill (gains + pos, gains + pos + m, share);
+                }
             }
+            std::array<const float*, Convolver::maxDeltas> pointers {};
+            for (int d = 0; d < delta; ++d)
+                pointers[(size_t) d] = deltaGains[(size_t) d].data();
+            linearConvolver->process (left + chunk, right + chunk, n, pointers.data());
         }
-        std::array<const float*, Convolver::maxDeltas> pointers {};
-        for (int d = 0; d < delta; ++d)
-            pointers[(size_t) d] = deltaGains[(size_t) d].data();
-        linearConvolver->process (left, right, numSamples, pointers.data());
     }
     else
     {

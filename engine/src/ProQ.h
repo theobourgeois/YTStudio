@@ -65,6 +65,8 @@ struct Band
 constexpr double naturalDelaySeconds = 0.0073;
 /** The convolvers' blocks: Natural Phase's short correction, Linear Phase's long kernels (Pro-Q's 1024). */
 constexpr int naturalBlock = 64, linearBlock = 1024;
+/** The longest block it takes (longer ones pass it by), and Linear Phase's chunk for its dynamic shares. */
+constexpr int maxBlock = 16384, deltaChunk = 1024;
 
 class State;
 
@@ -134,8 +136,6 @@ public:
     Convolver& linearConvolver();
     /** Delete what the audio thread is done with. */
     void collect();
-    /** Make room for blocks of `capacity`, and to hold the dry sound back by `latency` samples (for the slot's mix). */
-    void reserve (int latency, int capacity);
     /** What the FIR kernels handed over were made from (they're made again only when it changes). */
     juce::String designed;
 
