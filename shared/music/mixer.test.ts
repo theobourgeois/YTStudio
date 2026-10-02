@@ -6,6 +6,8 @@ import {
   channelsOn,
   isFreeTrack,
   createGroup,
+  effectToTrack,
+  freeSlot,
   moveEffect,
   moveEffectTo,
   moveMixerTracks,
@@ -244,6 +246,34 @@ describe("effect slots", () => {
     expect(slots(dragged)).toEqual([null, null, "fx_eq2"]);
     expect(dragged.mixer.tracks[1].effects[5]?.id).toBe("fx_echo");
     expect(moveEffectTo(song, "insert_1", 0, 4)).toBe(song);
+  });
+
+  it("move to another track (its first empty slot, or the one dropped on), or copy there with a new id", () => {
+    let song = setEffect(rack(), "insert_1", 3, PRO_Q, "fx_eq");
+    song = updateEffect(song, "insert_1", 3, { mix: 0.5 });
+    song = setEffect(song, "insert_2", 0, ECHO, "fx_echo");
+    const ids = (s: MusicProject, t: number) => s.mixer.tracks[t].effects.slice(0, 4).map((e) => e?.id ?? null);
+    // Moved: the same effect (its id, so its plugin and settings), out of where it was.
+    const moved = effectToTrack(song, "insert_1", 3, "insert_2");
+    expect(ids(moved, 1)).toEqual([null, null, null, null]);
+    expect(ids(moved, 2)).toEqual(["fx_echo", "fx_eq", null, null]);
+    expect(moved.mixer.tracks[2].effects[1]).toEqual(song.mixer.tracks[1].effects[3]);
+    // Onto an empty slot of it, there; onto a taken one, the first empty.
+    expect(ids(effectToTrack(song, "insert_1", 3, "insert_2", { to: 3 }), 2)).toEqual(["fx_echo", null, null, "fx_eq"]);
+    expect(ids(effectToTrack(song, "insert_1", 3, "insert_2", { to: 0 }), 2)).toEqual(["fx_echo", "fx_eq", null, null]);
+    // Copied: it stays, and the copy has the id it's given (its settings file copied beside it).
+    const copied = effectToTrack(song, "insert_1", 3, "insert_2", { copy: "fx_eq_2" });
+    expect(ids(copied, 1)).toEqual([null, null, null, "fx_eq"]);
+    expect(copied.mixer.tracks[2].effects[1]).toEqual({ ...song.mixer.tracks[1].effects[3], id: "fx_eq_2" });
+    // A copy onto its own track goes in a free slot.
+    expect(ids(effectToTrack(song, "insert_1", 3, "insert_1", { copy: "fx_eq_3" }), 1)).toEqual(["fx_eq_3", null, null, "fx_eq"]);
+    // Nothing to move, nowhere to go, or no room: the same song.
+    expect(effectToTrack(song, "insert_1", 0, "insert_2")).toBe(song);
+    expect(effectToTrack(song, "insert_1", 3, "insert_1")).toBe(song);
+    expect(effectToTrack(song, "insert_1", 3, "insert_404")).toBe(song);
+    const full = Array.from({ length: 10 }, (_, slot) => slot).reduce((s, slot) => setEffect(s, "insert_3", slot, ECHO, `fx_${slot}`), song);
+    expect(freeSlot(full, "insert_3")).toBeNull();
+    expect(effectToTrack(full, "insert_1", 3, "insert_3")).toBe(full);
   });
 });
 

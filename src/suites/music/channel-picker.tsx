@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
 import { PiArrowsClockwise, PiPlus, PiSpinnerGap } from "react-icons/pi";
-import { errorMessage } from "@shared/errors";
 import type { EnginePlugin } from "@shared/music/engine";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { musicApi } from "./api";
-import { type PickerItem, pickerItem } from "./plugin-groups";
-import { PluginPicker, usePluginList } from "./plugin-picker";
+import { type PickerItem, pickerItem, starredPlugins } from "./plugin-groups";
+import { usePluginFavourites } from "./plugin-favourites";
+import { MorePlugins, PluginPicker, usePluginList, usePluginScan } from "./plugin-picker";
 import { useMusic } from "./store";
 import { showPluginWhenLoaded } from "./transport";
 import { useMusicUi } from "./ui";
@@ -16,8 +15,8 @@ const SAMPLER: PickerItem = { id: "sampler", name: "Sampler", detail: "Plays a s
 
 /**
  * The rack's + (FL Studio's "Add one"): choose the generator a new channel plays, in the plugin picker
- * (`plugin-picker.tsx`): the Sampler, which is ours, then the instrument plugins the engine has found on
- * this computer (VST3 and Audio Units), by kind, the pinned first.
+ * (`plugin-picker.tsx`): the Sampler, which is ours, then the instrument plugins starred in the Plugin manager
+ * (of those the engine has found on this computer, VST3 and Audio Units), by kind, the pinned first.
  */
 export function ChannelPicker() {
   const [open, setOpen] = useState(false);
@@ -45,37 +44,23 @@ export function ChannelPicker() {
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-auto p-2" data-testid="channel-picker" onOpenAutoFocus={(e) => e.preventDefault()}>
-        <InstrumentPicker open={open} onChoose={add} />
+        <InstrumentPicker open={open} onChoose={add} onMore={() => setOpen(false)} />
       </PopoverContent>
     </Popover>
   );
 }
 
 /**
- * The instruments to choose from (the Sampler, then the instrument plugins), with Scan for plugins: the
- * inside of the rack's + and of a channel's Replace. `open`: the list is loaded while it's shown.
+ * The instruments to choose from (the Sampler, then the instrument plugins starred in the Plugin manager),
+ * with More plugins… and Scan for plugins: the inside of the rack's + and of a channel's Replace. `open`:
+ * the list is loaded while it's shown; `onMore` closes what it's in as the Plugin manager opens.
  */
-export function InstrumentPicker({ open, onChoose }: { open: boolean; onChoose: (plugin: EnginePlugin | null) => void }) {
+export function InstrumentPicker({ open, onChoose, onMore }: { open: boolean; onChoose: (plugin: EnginePlugin | null) => void; onMore: () => void }) {
   const { plugins, error, reload } = usePluginList("instrument", open);
-  const [scanning, setScanning] = useState<string | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
-  const items = useMemo(() => [SAMPLER, ...(plugins ?? []).map(pickerItem)], [plugins]);
-
-  /** Look for plugins again (a new one was installed), and wait for the engine to finish. */
-  async function scan() {
-    try {
-      let status = await musicApi.engine("scan", { rescan: true });
-      while (status.scanning) {
-        setScanning(status.scanning.name.split("/").pop() ?? "");
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        status = await musicApi.engine("status", {});
-      }
-      await reload();
-    } catch (err) {
-      setScanError(errorMessage(err));
-    }
-    setScanning(null);
-  }
+  const starred = usePluginFavourites((s) => s.starred);
+  const { scanning, error: scanError, scan } = usePluginScan(reload);
+  const shown = useMemo(() => starredPlugins(plugins ?? [], starred), [plugins, starred]);
+  const items = useMemo(() => [SAMPLER, ...shown.map(pickerItem)], [shown]);
 
   return (
     <PluginPicker
@@ -86,18 +71,24 @@ export function InstrumentPicker({ open, onChoose }: { open: boolean; onChoose: 
       firstGroups={[BUILT_IN]}
       onChoose={(item) => onChoose(item.plugin)}
       footer={
-        <div className="flex items-center gap-2 border-t border-line pt-2">
+        <MorePlugins
+          hidden={(plugins?.length ?? 0) - shown.length}
+          onMore={() => {
+            onMore();
+            useMusicUi.getState().setPluginManager("instrument");
+          }}
+        >
           <button
             type="button"
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+            className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
             disabled={scanning !== null}
+            title={scanning ?? "Look for plugins installed since"}
             onClick={() => void scan()}
           >
             {scanning !== null ? <PiSpinnerGap className="size-3.5 animate-spin" /> : <PiArrowsClockwise className="size-3.5" />}
             {scanning !== null ? "Scanning…" : "Scan for plugins"}
           </button>
-          {scanning && <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{scanning}</span>}
-        </div>
+        </MorePlugins>
       }
     />
   );

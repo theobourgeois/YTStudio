@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PiPushPin, PiPushPinFill } from "react-icons/pi";
+import { PiPushPin, PiPushPinFill, PiStar } from "react-icons/pi";
 import { create } from "zustand";
 import { cn } from "cn";
 import { errorMessage } from "@shared/errors";
@@ -47,6 +47,50 @@ export function usePluginList(kind: "instrument" | "effect", open: boolean) {
     if (open) void reload();
   }, [open, kind]);
   return { plugins, error, reload };
+}
+
+/** Scan for plugins again (one was installed since), waiting for the engine to finish, then `done` (reload a list). */
+export function usePluginScan(done: () => Promise<unknown> | void) {
+  const [scanning, setScanning] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function scan() {
+    try {
+      let status = await musicApi.engine("scan", { rescan: true });
+      while (status.scanning) {
+        setScanning(status.scanning.name.split("/").pop() ?? "");
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        status = await musicApi.engine("status", {});
+      }
+      // Every list kept is out of date: each picker reads its own again.
+      delete found.instrument;
+      delete found.effect;
+      await done();
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+    setScanning(null);
+  }
+  return { scanning, error, scan };
+}
+
+/** The picker's foot: More plugins… (the Plugin manager, where plugins are starred to be listed here), and what it says about the others. */
+export function MorePlugins({ hidden, onMore, children }: { hidden: number; onMore: () => void; children?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 border-t border-line pt-2">
+      <button
+        type="button"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+        title="Every plugin on this computer: star the ones to list here"
+        onClick={onMore}
+      >
+        <PiStar className="size-3.5" />
+        More plugins…
+      </button>
+      {hidden > 0 && <span className="text-[11px] text-muted-foreground">{hidden} not starred</span>}
+      {children}
+    </div>
+  );
 }
 
 interface PluginPickerProps {
@@ -166,7 +210,7 @@ export function PluginPicker({ noun, items, loading, error, firstGroups, onChoos
           ))}
           {!columns.length && (
             <p className="p-3 text-xs text-muted-foreground">
-              {error ? <span className="text-destructive">{error}</span> : loading ? "Looking for plugins…" : query ? `No ${noun} matches "${query}".` : `No ${noun} plugins found yet.`}
+              {error ? <span className="text-destructive">{error}</span> : loading ? "Looking for plugins…" : query ? `No ${noun} matches "${query}". More plugins… lists those not starred.` : `No ${noun} plugins starred yet: More plugins… lists them all.`}
             </p>
           )}
         </div>

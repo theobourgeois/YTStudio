@@ -228,7 +228,7 @@ function PlayButtons() {
       >
         {playing ? <PiPauseFill className="size-[16px]" /> : <PiPlayFill className="size-[16px]" />}
       </TransportButton>
-      <TransportButton label="Stop" title="Stop (Space)" className="-ml-px rounded-l-none" onClick={() => useTransport.getState().stop()}>
+      <TransportButton label="Stop" title="Stop (Space); press it again, stopped, to silence delays and reverbs still ringing" className="-ml-px rounded-l-none" onClick={() => useTransport.getState().stop()}>
         <PiStopFill className="size-[14px]" />
       </TransportButton>
     </>

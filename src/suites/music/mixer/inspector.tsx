@@ -40,11 +40,15 @@ import { useOttUi } from "../ott/store";
 import { useEqUi } from "../pro-q/store";
 import { openPanMan, togglePanMan } from "../panman/actions";
 import { usePanUi } from "../panman/store";
-import { type PickerItem, pickerItem } from "../plugin-groups";
+import { type PickerItem, pickerItem, starredPlugins } from "../plugin-groups";
+import { usePluginFavourites } from "../plugin-favourites";
+import { useMusicUi } from "../ui";
 import { Led } from "./led";
-import { PluginPicker, usePluginList } from "../plugin-picker";
+import { MorePlugins, PluginPicker, usePluginList } from "../plugin-picker";
 import { Input } from "@/components/ui/input";
 import { delayText, pluginDelay } from "./latency";
+import { effectOnto } from "./actions";
+import { trackAt, useMixerView } from "./view";
 
 
 /**
@@ -96,7 +100,10 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
     else setMenuOpen(open);
   };
 
-  /** A loaded effect dragged onto another slot swaps places with what's there. */
+  /**
+   * A loaded effect dragged onto another slot swaps places with what's there; onto another track's strip it
+   * moves there (Alt: a copy goes there), as FL Studio's slots do.
+   */
   const dragSlot = (e: React.PointerEvent<HTMLLIElement>) => {
     if (!effect || !e.currentTarget.contains(e.target as Node) || (e.target as HTMLElement).closest('[role="slider"]')) return;
     const list = e.currentTarget.closest("ol");
@@ -104,6 +111,12 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
     // (its name, its light): a press that doesn't become a drag is that button's click.
     const pressed = (e.target as HTMLElement).closest("button");
     let target: number | null = null;
+    let onto: { track: string; copy: boolean } | null = null;
+    const view = useMixerView.getState();
+    const done = () => {
+      setDropping(null);
+      view.carry(null);
+    };
     startPointerDrag(e, {
       threshold: 4,
       cursor: "grabbing",
@@ -113,12 +126,17 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
         const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-slot]");
         target = over && list?.contains(over) ? Number(over.dataset.slot) : null;
         setDropping(target);
+        // Out of the slots, it's carried to a track: another, or its own for a copy.
+        const track = target === null ? trackAt(ev.clientX, ev.clientY) : null;
+        onto = track && (track !== trackId || ev.altKey) ? { track, copy: ev.altKey } : null;
+        view.carry(target === null ? { from: trackId, x: ev.clientX, y: ev.clientY, over: onto?.track ?? null, effect: { name: effect.plugin.name, copy: ev.altKey } } : null);
       },
       onEnd() {
-        setDropping(null);
+        done();
         if (target !== null && target !== slot) commit((song) => moveEffectTo(song, trackId, slot, target!));
+        else if (onto) void effectOnto(trackId, slot, onto.track, onto.copy);
       },
-      onCancel: () => setDropping(null),
+      onCancel: done,
     });
   };
 
@@ -196,6 +214,7 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
             setChoosing(false);
             choose(plugin);
           }}
+          onMore={() => setChoosing(false)}
         />
       </PopoverContent>
     </Popover>
@@ -535,9 +554,11 @@ const PITCH_WHEEL_ITEM: PickerItem = { id: PITCH_WHEEL_PLUGIN.id, name: PITCH_WH
 const BUILT_INS = [GROSS_BEAT_PLUGIN, ECHO_BOY_PLUGIN, AUTO_TUNE_PLUGIN, PRO_Q_PLUGIN, PANMAN_PLUGIN, PITCH_WHEEL_PLUGIN, OTT_PLUGIN];
 
 /** The effects to choose from: the big picker, ours first, then the plugins by kind. */
-function EffectPicker({ onChoose }: { onChoose: (plugin: PluginRef) => void }) {
+function EffectPicker({ onChoose, onMore }: { onChoose: (plugin: PluginRef) => void; onMore: () => void }) {
   const { plugins, error } = usePluginList("effect", true);
-  const items = useMemo(() => [PRO_Q_ITEM, OTT_ITEM, GROSS_BEAT_ITEM, ECHO_BOY_ITEM, AUTO_TUNE_ITEM, PANMAN_ITEM, PITCH_WHEEL_ITEM, ...(plugins ?? []).map(pickerItem)], [plugins]);
+  const starred = usePluginFavourites((s) => s.starred);
+  const shown = useMemo(() => starredPlugins(plugins ?? [], starred), [plugins, starred]);
+  const items = useMemo(() => [PRO_Q_ITEM, OTT_ITEM, GROSS_BEAT_ITEM, ECHO_BOY_ITEM, AUTO_TUNE_ITEM, PANMAN_ITEM, PITCH_WHEEL_ITEM, ...shown.map(pickerItem)], [shown]);
   return (
     <PluginPicker
       noun="effect"
@@ -550,6 +571,15 @@ function EffectPicker({ onChoose }: { onChoose: (plugin: PluginRef) => void }) {
         const ours = BUILT_INS.find((p) => p.id === item.id);
         if (ours) onChoose(ours);
       }}
+      footer={
+        <MorePlugins
+          hidden={(plugins?.length ?? 0) - shown.length}
+          onMore={() => {
+            onMore();
+            useMusicUi.getState().setPluginManager("effect");
+          }}
+        />
+      }
     />
   );
 }

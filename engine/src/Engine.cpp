@@ -360,6 +360,9 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             // A recording still in its count-in never began.
             sequencer.recorder().cancel();
             sequencer.stop();
+            // Its delays' and reverbs' tails too (FL's Stop pressed again).
+            if ((bool) params["reset"])
+                silence();
         }
         return ok();
     }
@@ -568,6 +571,33 @@ void Engine::reportPlayed()
 {
     if (auto notes = sequencer.takePlayed(); ! notes.isEmpty())
         protocol::send (protocol::object ({ { "event", "midi" }, { "notes", notes } }));
+}
+
+void Engine::silence()
+{
+    // The export has the plugins: it leaves playback's sounds as they are anyway.
+    if (exportJob != nullptr)
+        return;
+    sequencer.stop();
+    preview.stop();
+    // Nothing runs the plugins meanwhile (their reset isn't the audio thread's to make).
+    if (! offline)
+        devices.removeAudioCallback (this);
+    for (auto* host : { &plugins, &effects })
+        host->reset();
+    grossBeats.clear();
+    autoTunes.clear();
+    echoBoys.clear();
+    eqs.clear();
+    otts.clear();
+    panMen.clear();
+    pitchWheels.clear();
+    sequencer.forgetDelayLines();
+    // The song again, with our effects' sounds and the delay lines new, before the device runs it.
+    if (! lastSong.isVoid())
+        applySong();
+    if (! offline)
+        devices.addAudioCallback (this);
 }
 
 void Engine::checkLatencies()

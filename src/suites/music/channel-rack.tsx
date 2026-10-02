@@ -833,6 +833,7 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               setReplacing(false);
               replaceInstrument(id, plugin && { id: plugin.id, name: plugin.name, format: plugin.format });
             }}
+            onMore={() => setReplacing(false)}
           />
         </PopoverContent>
       </Popover>

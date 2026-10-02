@@ -213,8 +213,18 @@ export const MUSIC_TOOLS = [
     title: "List the plugins",
     kind: "look",
     description:
-      "The plugins (VST3 and Audio Units) found on this computer: instruments (the default), which add_channel puts in the rack, or effects, which add_mixer_effect puts in a mixer track's slots.",
-    inputSchema: obj({ kind: oneOf(["instrument", "effect"], "Which plugins (default: instruments).") }),
+      "The plugins (VST3 and Audio Units) found on this computer: instruments (the default), which add_channel puts in the rack, or effects, which add_mixer_effect puts in a mixer track's slots. " +
+      "Each says whether it's starred: the user's pickers list only the built-in ones and the starred (the Plugin manager's stars, star_plugins), but any plugin can be used by its id.",
+    inputSchema: obj({ kind: oneOf(["instrument", "effect"], "Which plugins (default: instruments)."), starred: bool("Only the starred ones.") }),
+  }),
+  tool({
+    name: "star_plugins",
+    title: "Star plugins",
+    kind: "action",
+    description:
+      "Star or unstar plugins in the Plugin manager (FL Studio's favourites): the user's plugin pickers (the rack's +, the mixer's effect slots) list only the built-in " +
+      "instruments and effects and the starred plugins. This computer's, for every song. Plugins by name or id, from list_plugins.",
+    inputSchema: obj({ plugins: arr(str("A plugin's name or id."), "The plugins."), starred: bool("Star them (the default), or unstar them with false.") }, ["plugins"]),
   }),
   tool({
     name: "update_channel",
@@ -750,6 +760,19 @@ export const MUSIC_TOOLS = [
         move: oneOf(["up", "down"], "Move it a slot up or down (swapping with what's there)."),
       },
       ["track", "slot"],
+    ),
+  }),
+  tool({
+    name: "move_mixer_effect",
+    title: "Move an effect to another track",
+    kind: "action",
+    description:
+      "Move an effect from a mixer track's slot to another track, as dragging its slot onto that track's strip does: the same effect (its plugin as it is, " +
+      "its settings and automation) goes into `toSlot` if that's empty, else the track's first empty slot. With `copy`, a copy goes there instead (its settings as " +
+      "they are now) and the effect stays, as Alt+drag does; a copy can go on the same track. update_mixer_effect moves one between slots of its track.",
+    inputSchema: obj(
+      { track: mixerTrack("The track it's on"), slot, to: mixerTrack("The track it goes to"), toSlot: int("A slot of that track, 1 to 10 (default: its first empty one)."), copy: bool("Copy it there, leaving it where it is.") },
+      ["track", "slot", "to"],
     ),
   }),
   tool({
@@ -1413,7 +1436,8 @@ export const MUSIC_TOOLS = [
       'Say how: `tempo` (the tempo the file was made at, e.g. a 90 BPM loop: 90; "detect" to hear it; "project" for as it sounds now; ' +
       '"none" to play it at its own speed), `bars` (the whole file lasts this many bars), or, for clips, `length` (stretch each clip to this ' +
       "many bars, like dragging its end with the Playlist's Stretch on). `mode`: stretch keeps the pitch (the default), resample makes it higher " +
-      "when faster, as a record does.",
+      "when faster, as a record does. `reset_pitch`: clips sped up or slowed down the Resample way (their channel's pitch, or a resample stretch) " +
+      "keep their speed but go back to their file's own pitch (a pitched channel goes back with all its clips).",
     inputSchema: obj({
       ids: clipIds,
       audio: str("An audio clip's channel: its id or its name (instead of `ids`)."),
@@ -1422,6 +1446,7 @@ export const MUSIC_TOOLS = [
       bars: num("The whole file lasts this many bars of the song (1 bar, 2, 4...; 0.25 is a beat in 4/4)."),
       length: num("Clips only: each clip stretched to this many bars, its content kept."),
       follow_channel: bool("Clips only: drop their own stretch, to follow their channel's again."),
+      reset_pitch: bool("Back to the file's own pitch, the speed kept (Stretch mode at the speed it plays now)."),
     }),
   }),
   tool({
@@ -1603,7 +1628,8 @@ export const MUSIC_TOOLS = [
     kind: "action",
     description:
       "Start playing or stop, so the user hears it (you can't hear it yourself). `mode` chooses what plays, as the toolbar's PAT / SONG does: " +
-      "the pattern shown, looped (\"pattern\"), or the playlist (\"song\", from `bar`, going round at its end). Default: as the editor is.",
+      "the pattern shown, looped (\"pattern\"), or the playlist (\"song\", from `bar`, going round at its end). Default: as the editor is. " +
+      "\"stop\" while already stopped silences every effect's tail too (delays, reverbs still ringing), as FL Studio's Stop pressed twice does.",
     inputSchema: obj({ action: oneOf(["play", "stop"], "What to do."), mode: oneOf(["pattern", "song"], "What plays."), bar: num("In song mode, the bar to play from (1 is the start).") }, ["action"]),
   }),
   tool({

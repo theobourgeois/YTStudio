@@ -23,6 +23,7 @@ export default function MusicSettings() {
     <>
       <DeviceSettings />
       <QualitySettings />
+      <TransportSettings />
       <SettingsGroup title="Engine and plugins" description="The audio engine's state, a test tone, and your plugins on a test bench." bare>
         <EnginePanel />
       </SettingsGroup>
@@ -47,6 +48,22 @@ function QualitySettings() {
         <ResamplingSelect value={exportResampling} onChange={(value) => set({ exportResampling: value })} label="Resampling in exports" />
       </SettingsRow>
       <StretchModeRow />
+    </SettingsGroup>
+  );
+}
+
+/** FL's "Reset plugins on transport": whether a single stop silences the effects' tails. */
+function TransportSettings() {
+  const resetOnStop = useMusicPreferences((s) => s.resetOnStop);
+  const setResetOnStop = useMusicPreferences((s) => s.setResetOnStop);
+  return (
+    <SettingsGroup title="Playback">
+      <SettingsRow
+        title="Reset plugins on stop"
+        description="Stopping silences delays, reverbs and every other tail at once. Off, they ring out after a stop, and pressing Stop again silences them."
+      >
+        <Switch checked={resetOnStop} onCheckedChange={setResetOnStop} aria-label="Reset plugins on stop" />
+      </SettingsRow>
     </SettingsGroup>
   );
 }

@@ -378,7 +378,10 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   (`POST /api/engine/states/copy`) before the pasted effects (new ids) reach the engine. The Mixer window
   draws only the strips in view (`useVisibleStrips`): don't rely on off-screen strips being in the DOM.
   Plugins are chosen in one picker (`plugin-picker.tsx`, its model in `plugin-groups.ts`: groups from the
-  plugin's reported category, pins in localStorage) for the rack's + and the effect slots.
+  plugin's reported category, pins in localStorage) for the rack's + and the effect slots. It lists our
+  built-in ones and the plugins starred in the Plugin manager (`plugin-manager.tsx`, its More plugins…;
+  the stars are `plugin-favourites.ts`, this computer's), FL's favourites. An effect slot dragged onto
+  another strip moves the effect there, Alt copies it (`effectToTrack`).
   The mixer's look is its own theme tokens (`--mixer-*`, `--fader-*`; knobs everywhere use `--knob-*`), FL
   Studio's colours: use them in the mixer rather than the app's surfaces. A track's `dock`, `separator` and
   `group` (`Mixer.groups`) are only how the mixer shows it; they route nothing.
@@ -641,6 +644,10 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
 - The server talks to it in JSON lines (`shared/music/engine.ts`); the engine keeps stdout for that alone (plugins'
   prints go to stderr) and quits when its stdin closes. If it dies (a plugin crashed), the next command starts it
   again; what was loaded is lost until the song's document drives it.
+- Stop pressed while stopped (`stop { reset }`, and every stop with Settings' Reset plugins on stop) is
+  FL's way to silence the effects' tails: `Engine::silence` lets go of the device as an export does,
+  resets every plugin, drops our effects' states (each registry's `clear`) and the delay lines, and makes
+  the song again from silence.
 - Commands run on the engine's message thread; the audio callback never waits. A song reaches it through an
   atomic pointer and goes back through a lock-free queue to be deleted (`Sequencer::setSong`, `collectGarbage`);
   requests are atomics and queues; the plugin bench has a lock the audio thread only tries (a block goes out

@@ -16,6 +16,7 @@ const RESAMPLING_KEY = "music-resampling";
 const EXPORT_RESAMPLING_KEY = "music-export-resampling";
 const RECORDING_KEY = "music-recording";
 const STRETCH_MODE_KEY = "music-stretch-mode";
+const RESET_ON_STOP_KEY = "music-reset-on-stop";
 
 /** How long a count-in can be, in bars (the count-in switch's menu). */
 export const COUNT_IN_BARS = [1, 2, 4] as const;
@@ -100,12 +101,23 @@ interface MusicPreferencesState {
    */
   stretchMode: StretchMode;
   setStretchMode: (mode: StretchMode) => void;
+  /**
+   * Every stop resets the plugins, so delays and reverbs stop ringing at once (FL's "Reset plugins on
+   * transport"). Off, a stop lets them ring out and a second press of Stop silences them.
+   */
+  resetOnStop: boolean;
+  setResetOnStop: (on: boolean) => void;
 }
 
 const storedSound = storage.getItem(METRONOME_SOUND_KEY);
 const storedStretchMode = storage.getItem(STRETCH_MODE_KEY);
 
 export const useMusicPreferences = create<MusicPreferencesState>((set, get) => ({
+  resetOnStop: storage.getItem(RESET_ON_STOP_KEY) === "true",
+  setResetOnStop(resetOnStop) {
+    storage.setItem(RESET_ON_STOP_KEY, String(resetOnStop));
+    set({ resetOnStop });
+  },
   stretchMode: isStretchMode(storedStretchMode) ? storedStretchMode : "stretch",
   setStretchMode(stretchMode) {
     storage.setItem(STRETCH_MODE_KEY, stretchMode);

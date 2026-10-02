@@ -28,8 +28,7 @@ import {
   ungroup,
   updateEffect,
   updateMixerTrack,
-  type MixerTrackPatch,
-} from "@shared/music/mixer";
+  type MixerTrackPatch, effectToTrack } from "@shared/music/mixer";
 import { EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_CHANNELS, MAX_INPUT_OFFSET, MAX_LATENCY_OFFSET, TRACK_COLORS, createMixerTrack } from "@shared/music/project";
 import type { InputMonitor, MixerInput, MixerTrack, MusicProject, PitchWheel } from "@shared/music/types";
 import { type SongEdit, findChannel } from "../tool-edits";
@@ -337,6 +336,23 @@ export const updateMixerEffectTool: SongEdit = (song, input) => {
   const now = getMixerTrack(next, track.id)!.effects[at]!;
   return { song: next, text: `${effect.plugin.name} in slot ${at + 1} of ${label(next, track)}: ${now.enabled ? "on" : "bypassed"}, mix ${percent(now.mix)}.` };
 };
+
+/**
+ * `move_mixer_effect`: an effect to another track (moved: its plugin, settings and automation with it), or a
+ * copy of it there (`copyId`, its settings file already copied), into slot `toSlot` if empty, else the first empty one.
+ */
+export function effectToTrackTool(song: MusicProject, input: Input, copyId: string | null): { song: MusicProject; text: string } {
+  const from = findTrack(song, input.track);
+  const slot = slotOf(input);
+  const effect = effectIn(song, from, slot);
+  const to = findTrack(song, input.to);
+  if (to.id === from.id && !copyId) throw new Error(`"to" is the track it's on: update_mixer_effect moves it between slots, or copy it with "copy".`);
+  const toSlot = input.toSlot === undefined ? undefined : slotOf({ slot: input.toSlot });
+  const next = effectToTrack(song, from.id, slot, to.id, { to: toSlot, ...(copyId && { copy: copyId }) });
+  if (next === song) throw new Error(`Every slot of ${label(song, to)} is taken: remove_mixer_effect empties one.`);
+  const at = getMixerTrack(next, to.id)!.effects.findIndex((e) => e?.id === (copyId ?? effect.id));
+  return { song: next, text: `${copyId ? "Copied" : "Moved"} ${effect.plugin.name} from slot ${slot + 1} of ${label(song, from)} to slot ${at + 1} of ${label(next, to)}.` };
+}
 
 export const removeMixerEffectTool: SongEdit = (song, input) => {
   const track = findTrack(song, input.track);

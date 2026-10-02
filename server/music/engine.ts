@@ -553,8 +553,9 @@ export class AudioEngine {
   private async params(name: EngineCommand, body: Record<string, unknown>): Promise<Record<string, unknown>> {
     switch (name) {
       case "status":
-      case "stop":
         return {};
+      case "stop":
+        return body.reset === true ? { reset: true } : {};
       case "play":
         return { from: isFiniteNumber(body.from) ? Math.max(0, body.from) : 0 };
       case "preview": {

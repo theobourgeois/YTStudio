@@ -20,6 +20,13 @@ async function openNewSong(page: Page, name: string, { browser = false, playlist
       sessionStorage.setItem("e2e-browser-set", "1");
     }
   }, browser);
+  // The stand-in's plugins starred, as the pickers list only the starred (the Plugin manager's test unstars them).
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("e2e-plugins-set")) {
+      localStorage.setItem("vaudio.music.favouritePlugins", JSON.stringify(["VST3-Fake Synth-1", "VST3-Fake Delay-2"]));
+      sessionStorage.setItem("e2e-plugins-set", "1");
+    }
+  });
   const response = await page.request.post("/api/projects", { data: { suite: "music", name } });
   expect(response.ok()).toBe(true);
   const { id } = await response.json();
@@ -382,6 +389,59 @@ test("the rack's + adds an instrument: a plugin of this computer's, or a sampler
     .toEqual(["plugin", [48]]);
   await page.keyboard.press("ControlOrMeta+z");
   expect(await rackOrder(page)).toEqual(["Fake Synth", "Sampler"]);
+});
+
+test("the Plugin manager stars the plugins the pickers list, as FL Studio's favourites", async ({ page }) => {
+  await openNewSong(page, "Plugin manager");
+  const rack = page.getByTestId("channel-rack");
+  await rack.getByRole("button", { name: "Add a channel" }).click();
+  const picker = page.getByTestId("channel-picker");
+  await expect(picker.getByRole("option")).toHaveText([/Sampler/, /Fake Synth/]);
+
+  // More plugins… closes the picker and opens the manager on the instruments.
+  await picker.getByRole("button", { name: "More plugins…" }).click();
+  await expect(picker).toHaveCount(0);
+  const manager = page.getByTestId("plugin-manager");
+  await expect(manager.getByRole("button", { name: "Instruments" })).toHaveAttribute("aria-pressed", "true");
+  await expect(manager.getByRole("listitem")).toHaveText([/Fake Synth/]);
+  await manager.getByRole("button", { name: "All" }).click();
+  await expect(manager.getByRole("listitem")).toHaveCount(2);
+
+  // Unstarred, it's no longer in the picker (only the Sampler, ours, always is).
+  await manager.getByRole("button", { name: "Unstar Fake Synth" }).click();
+  await expect(manager.getByRole("button", { name: "Star Fake Synth" })).toHaveAttribute("aria-pressed", "false");
+  await rack.getByRole("button", { name: "Add a channel" }).click();
+  await expect(picker.getByRole("option")).toHaveText([/Sampler/]);
+  await expect(picker).toContainText("1 not starred");
+  await page.keyboard.press("Escape");
+
+  // The effect slots likewise: the built-in effects, and the starred.
+  await page.getByRole("button", { name: "Mixer", exact: true }).click();
+  await page.getByTestId("mixer-inspector").getByRole("button", { name: "Slot 1 menu" }).click();
+  const effects = page.getByTestId("effect-picker");
+  await expect(effects.getByRole("option", { name: /Fake Delay/ })).toHaveCount(1);
+  // Its More plugins… brings the manager (behind the mixer now) to the front, on the effects.
+  await effects.getByRole("button", { name: "More plugins…" }).click();
+  await expect(effects).toHaveCount(0);
+  await expect(manager.getByRole("button", { name: "Effects" })).toHaveAttribute("aria-pressed", "true");
+  await manager.getByRole("button", { name: "Starred" }).click();
+  await expect(manager.getByRole("listitem")).toHaveText([/Fake Delay/]);
+  // A click on its row unstars it too.
+  await manager.getByRole("listitem", { name: "Fake Delay" }).click();
+  await expect(manager).toContainText("None starred yet");
+  await page.getByTestId("mixer-inspector").getByRole("button", { name: "Slot 1 menu" }).click();
+  await expect(effects.getByRole("option", { name: /Gross Beat/ })).toHaveCount(1);
+  await expect(effects.getByRole("option", { name: /Fake Delay/ })).toHaveCount(0);
+  await effects.getByRole("button", { name: "More plugins…" }).click();
+
+  // Starred again (it's kept in this browser, for every song).
+  await manager.getByRole("button", { name: "All" }).click();
+  await manager.getByRole("button", { name: "Star Fake Synth" }).click();
+  await manager.getByRole("button", { name: "Star Fake Delay" }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("vaudio.music.favouritePlugins") ?? "[]"))).toEqual(["VST3-Fake Synth-1", "VST3-Fake Delay-2"]);
+  await page.getByRole("button", { name: "Channel rack", exact: true }).click();
+  await rack.getByRole("button", { name: "Add a channel" }).click();
+  await expect(picker.getByRole("option")).toHaveText([/Sampler/, /Fake Synth/]);
 });
 
 test("a plugin channel's settings are FL's wrapper: its knobs, the plugin, its programs and the user's presets for it", async ({ page }) => {
@@ -1033,6 +1093,31 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   await inspector.locator('[data-slot="6"]').click({ button: "right" });
   await page.getByRole("menuitem", { name: "Delete" }).click();
   await expect.poll(async () => (await slots())[6]).toBeNull();
+
+  // Dragged onto another track's strip it moves there (its first empty slot), and the inspector follows it;
+  // with Alt a copy goes there (its own id), the effect staying.
+  const mixer = page.getByTestId("mixer");
+  type Effect = { id: string; plugin: { name: string } };
+  const effectsOf = async (n: number) => ((await savedSong(page, id)).mixer.tracks[n].effects as (Effect | null)[]).filter((e): e is Effect => e !== null);
+  const from = (await inspector.locator('[data-slot="1"]').boundingBox())!;
+  const to = (await mixer.locator('[data-track-name="Insert 2"]').boundingBox())!;
+  await page.mouse.move(from.x + 40, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.keyboard.down("Alt");
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+  await expect(page.getByTestId("carried-state")).toHaveText("Fake Delay → drop to copy");
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  await expect.poll(async () => (await effectsOf(2)).map((e) => e.plugin.name)).toEqual(["Fake Delay"]);
+  const [original] = await effectsOf(0);
+  const [copy] = await effectsOf(2);
+  expect(copy.id).not.toBe(original.id);
+  await expect(inspector).toContainText("Insert 2");
+  await drag(page, inspector.locator('[data-slot="0"]'), mixer.locator('[data-track-name="Insert 3"]'));
+  await expect.poll(async () => [(await effectsOf(2)).length, (await effectsOf(3)).map((e) => e.id)]).toEqual([0, [copy.id]]);
+  await expect(inspector).toContainText("Insert 3");
+  await mixer.locator('[data-track-name="Master"]').click({ position: { x: 8, y: 6 } });
+  await expect(inspector).toContainText("Master");
 
   // Its light bypasses it (and with it, its delay); its menu moves it up, and deletes it.
   await inspector.getByRole("button", { name: "Bypass Fake Delay" }).click();
