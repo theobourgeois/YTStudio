@@ -186,6 +186,10 @@ export interface EqScene {
   /** A band soloed: the others dimmed, its region lit. */
   solo: number | null;
   spectra: { pre: Float32Array | null; post: Float32Array | null; external: Float32Array | null; tilt: number; grab: boolean };
+  /** Where this sound and the external spectrum collide (0..1 at each spectrum point), or null. */
+  collisions: Float64Array | null;
+  /** EQ Match: the difference the reference asks for (dB at the spectrum's points), and the bands it proposes. */
+  match: { difference: Float64Array | null; proposal: readonly BandFilter[] } | null;
   /** Peaks labelled while Spectrum Grab holds the spectrum (frequency, level in dB). */
   peaks: { hz: number; db: number }[];
   /** The output's peak per side (0..1+). */
@@ -213,6 +217,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, scene: EqScene) {
 
   drawSpectra(ctx, scene);
   drawGrid(ctx, scene);
+  if (scene.match) drawMatch(ctx, scene, scene.match);
   if (scene.solo !== null) drawSoloRegion(ctx, scene);
   drawBands(ctx, scene);
   drawDots(ctx, scene);
@@ -273,6 +278,25 @@ function drawSpectra(ctx: CanvasRenderingContext2D, scene: EqScene) {
     const grab = spectra.grab;
     fillSpectrum(ctx, scene, spectrumPath(scene, spectra.post, spectra.tilt), grab ? alpha(palette.grab, 0.85) : alpha(palette.post, 0.75), grab ? "#ffffff" : alpha(palette.postLine, 0.8));
   }
+  // Collisions: a red glow under the spectrum where both sounds crowd each other.
+  if (scene.collisions && spectra.post) {
+    const { view } = scene;
+    const bottom = view.height - view.bottom;
+    for (let i = 0; i < scene.collisions.length - 1; i++) {
+      const c = scene.collisions[i];
+      if (c < 0.05) continue;
+      const hz = spectrumFrequency(i);
+      if (hz < view.low || hz > view.high) continue;
+      const x0 = xOf(view, hz);
+      const x1 = xOf(view, spectrumFrequency(i + 1));
+      const y = Math.min(bottom, analyzerY(view, spectra.post[i] + spectra.tilt * Math.log2(hz / 1000)));
+      const g = ctx.createLinearGradient(0, y, 0, bottom);
+      g.addColorStop(0, alpha(palette.collision, 0.75 * c));
+      g.addColorStop(1, alpha(palette.collision, 0.1 * c));
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, y, x1 - x0 + 0.5, bottom - y);
+    }
+  }
   if (spectra.external) {
     const points = spectrumPath(scene, spectra.external, spectra.tilt);
     ctx.beginPath();
@@ -281,6 +305,42 @@ function drawSpectra(ctx: CanvasRenderingContext2D, scene: EqScene) {
     ctx.lineWidth = 1;
     ctx.stroke();
   }
+}
+
+/** EQ Match: the difference asked for (a thick white line), and the proposed bands' curve (white, dashed). */
+function drawMatch(ctx: CanvasRenderingContext2D, scene: EqScene, match: NonNullable<EqScene["match"]>) {
+  const { view } = scene;
+  ctx.save();
+  ctx.lineJoin = "round";
+  if (match.difference) {
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < match.difference.length; i++) {
+      const hz = spectrumFrequency(i);
+      if (hz < Math.max(20, view.low) || hz > Math.min(20_000, view.high)) continue;
+      const x = xOf(view, hz);
+      const y = yOf(view, match.difference[i]);
+      if (started) ctx.lineTo(x, y);
+      else ctx.moveTo(x, y);
+      started = true;
+    }
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+  if (match.proposal.length) {
+    const total = new Float64Array(scene.frequencies.length);
+    for (const band of match.proposal) {
+      const c = curveOf(band, band.gain, scene.frequencies);
+      for (let i = 0; i < total.length; i++) total[i] += c[i];
+    }
+    strokeCurve(ctx, scene, total);
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawGrid(ctx: CanvasRenderingContext2D, scene: EqScene) {

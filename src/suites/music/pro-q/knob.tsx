@@ -233,7 +233,7 @@ export function EqKnob({ value, defaultValue, label, ends, format, parse, typed,
         </PopoverContent>
       </PopoverPrimitive.Root>
       {ends && (
-        <div className="-mt-1.5 flex justify-between text-[9px] leading-none text-[var(--eq-label)] tabular-nums" style={{ width: Math.max(box + 22, 70) }}>
+        <div className="mt-0.5 flex justify-between text-[9px] leading-none text-[var(--eq-label)] tabular-nums" style={{ width: Math.max(box + 26, 74) }}>
           <span>{ends[0]}</span>
           <span>{ends[1]}</span>
         </div>

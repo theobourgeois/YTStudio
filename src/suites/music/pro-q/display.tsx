@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PiPianoKeys } from "react-icons/pi";
 import { cn } from "cn";
 import { EQ_DISPLAY_RANGES, hasGain } from "@shared/music/pro-q-presets";
-import { playedBand } from "@shared/music/pro-q-filters";
+import { type BandFilter, playedBand } from "@shared/music/pro-q-filters";
 import { type ProQPatch, updateProQ } from "@shared/music/pro-q";
 import type { EqBand, MusicProject, ProQ } from "@shared/music/types";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -17,6 +17,8 @@ import { type DynamicLive, Ballistics, FALL_RATES, curveOf, drawScene, readEqPal
 import { type EqView, curveFrequencies, dotOf, hzAt, xOf } from "./geometry";
 import { ParameterDisplay } from "./parameter-display";
 import { findPeaks, type SpectrumPeak } from "./peaks";
+import { collisions } from "./match";
+import { MatchPanel, useMatch } from "./match-panel";
 import { Piano } from "./piano";
 import { type DisplayContext, displayDoubleClick, displayPointerDown, displayWheel, hoverAt } from "./pointer";
 import { hoverBand, leaveHover, useEqUi, useEqView } from "./store";
@@ -48,6 +50,9 @@ export function Display({ effectId, pq, bypassed }: { effectId: string; pq: ProQ
   const hoveredId = useEqUi((s) => (s.hover?.effectId === effectId ? s.hover.band : null));
   const [typing, setTyping] = useState<number | null>(null);
   const [menuBand, setMenuBand] = useState<number | null>(null);
+  const matching = useMatch(effectId);
+  const matchRef = useRef<{ difference: Float64Array | null; proposal: readonly BandFilter[] } | null>(null);
+  matchRef.current = matching.match ? { difference: matching.difference, proposal: matching.proposal } : null;
 
   const view: EqView = useMemo(
     () => ({
@@ -130,6 +135,8 @@ export function Display({ effectId, pq, bypassed }: { effectId: string; pq: ProQ
           grab: grabbing,
         },
         peaks: grabbing ? peaks.current : [],
+        collisions: current.analyzer.collisions && externalId && b.post.visible && b.external.visible ? collisions(b.post.levels, b.external.levels) : null,
+        match: matchRef.current,
         meter: live ? live.peak : [0, 0],
         pointerHz: pointer.current && !windowView.piano ? hzAt(v, pointer.current.x) : null,
         rubber: ui.rubber?.effectId === effectId ? ui.rubber : null,
@@ -310,7 +317,8 @@ export function Display({ effectId, pq, bypassed }: { effectId: string; pq: ProQ
       </button>
 
       {shownBand && <ParameterDisplay key={shownBand.id} effectId={effectId} band={shownBand} at={dotOf(view, playedBand(shownBand, pq))} typing={typing === shownBand.id} onDoneTyping={() => setTyping(null)} />}
-      {windowView.selected.length > 0 && <BandControls effectId={effectId} pq={pq} view={view} bottom={BOTTOM} />}
+      {windowView.selected.length > 0 && !matching.match && <BandControls effectId={effectId} pq={pq} view={view} bottom={BOTTOM} />}
+      <MatchPanel effectId={effectId} pq={pq} />
     </div>
   );
 }

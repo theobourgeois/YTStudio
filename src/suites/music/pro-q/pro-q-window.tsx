@@ -28,6 +28,7 @@ import { proQWindow } from "../ui";
 import { MusicWindow, centredOnDesktop } from "../window";
 import { closeProQ, copyToOther, loadPreset, selectBands, syncWatch, toggleAB } from "./actions";
 import { Display } from "./display";
+import { startMatch } from "./match-panel";
 import { SongEqKnob } from "./knob";
 import { useEqUi, useEqView } from "./store";
 
@@ -322,7 +323,7 @@ function AnalyzerButton({ effectId, pq }: { effectId: string; pq: ProQ }) {
           {freeze && <span className="absolute inset-x-1 -top-0.5 h-0.5 rounded bg-[var(--eq-side)]" />}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="center" side="top" className="w-[340px] space-y-2.5 border-[var(--eq-panel-edge)] bg-[var(--eq-panel)] p-3 text-[11px] text-[var(--eq-text)]" data-testid="pro-q-analyzer">
+      <PopoverContent align="center" side="top" className="w-[400px] space-y-2.5 border-[var(--eq-panel-edge)] bg-[var(--eq-panel)] p-3 text-[11px] text-[var(--eq-text)]" data-testid="pro-q-analyzer">
         <div className="flex gap-1">
           <button type="button" className={toggle(a.pre)} onClick={() => set({ pre: !a.pre })}>
             Pre
@@ -368,6 +369,15 @@ function AnalyzerButton({ effectId, pq }: { effectId: string; pq: ProQ }) {
           {option(a.tilt, TILTS, (v) => `${v}`, (tilt) => set({ tilt }))}
         </div>
         <p className="text-[10px] text-[var(--eq-label)]">Tilt is in dB per octave round 1 kHz (4.5: as loudness is heard).</p>
+        <button
+          type="button"
+          className={cn(toggle(false), "w-full")}
+          disabled={!a.external}
+          title={a.external ? "Match this sound's tone to the external spectrum's" : "Pick an external spectrum first: it's what this sound is matched to"}
+          onClick={() => a.external && startMatch(effectId, a.external)}
+        >
+          ≈ EQ Match{a.external ? ` to ${others.find((o) => o.id === a.external)?.name ?? ""}` : " (pick an external spectrum)"}
+        </button>
       </PopoverContent>
     </Popover>
   );

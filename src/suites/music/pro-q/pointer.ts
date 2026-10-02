@@ -256,6 +256,22 @@ function dragBand(e: ReactPointerEvent<HTMLElement>, ctx: DisplayContext, id: nu
   });
 }
 
+/** A run of scrolls is one change (one undo step), ended once the wheel has been still a moment, as the app's knobs do. */
+let wheel: { gesture: ReturnType<typeof songGesture>; settle: ReturnType<typeof setTimeout> } | null = null;
+function wheelEdit(effectId: string, change: (pq: ProQ) => ProQ) {
+  if (!wheel) {
+    const gesture = songGesture();
+    gesture.begin();
+    wheel = { gesture, settle: setTimeout(() => {}, 0) };
+  }
+  clearTimeout(wheel.settle);
+  wheel.settle = setTimeout(() => {
+    wheel?.gesture.end();
+    wheel = null;
+  }, 400);
+  wheel.gesture.apply((s) => editProQ(s, effectId, change));
+}
+
 /** The wheel over the display: Q (narrower up); Cmd/Ctrl: gain; Alt: the dynamic range. Shift: fine. */
 export function displayWheel(e: WheelEvent, ctx: DisplayContext) {
   const pq = proQOf(ctx.effectId);
@@ -267,9 +283,10 @@ export function displayWheel(e: WheelEvent, ctx: DisplayContext) {
   if (!ids.length) return;
   e.preventDefault();
   const steps = -Math.sign(e.deltaY || e.deltaX) * (e.shiftKey ? 0.2 : 1);
-  if (e.altKey) editEq(ctx.effectId, (p) => updateBandsBy(p, ids, (b) => ({ ...b, range: clamp(Math.round((b.range + steps * 0.5) * 100) / 100, -EQ_MAX_GAIN, EQ_MAX_GAIN) })));
-  else if (e.metaKey || e.ctrlKey) editEq(ctx.effectId, (p) => updateBandsBy(p, ids, (b) => (hasGain(b.shape) ? { ...b, gain: clamp(Math.round((b.gain + steps * 0.5) * 100) / 100, -EQ_MAX_GAIN, EQ_MAX_GAIN) } : b)));
-  else editEq(ctx.effectId, (p) => scaleQ(p, ids, 2 ** (steps / 8)));
+  // (Alt: only shapes that can be dynamic; a band's range is how far its gain moves when loud.)
+  if (e.altKey) wheelEdit(ctx.effectId, (p) => updateBandsBy(p, ids, (b) => ({ ...b, range: clamp(Math.round((b.range + steps * 0.5) * 100) / 100, -EQ_MAX_GAIN, EQ_MAX_GAIN) })));
+  else if (e.metaKey || e.ctrlKey) wheelEdit(ctx.effectId, (p) => updateBandsBy(p, ids, (b) => (hasGain(b.shape) ? { ...b, gain: clamp(Math.round((b.gain + steps * 0.5) * 100) / 100, -EQ_MAX_GAIN, EQ_MAX_GAIN) } : b)));
+  else wheelEdit(ctx.effectId, (p) => scaleQ(p, ids, 2 ** (steps / 8)));
 }
 
 const updateBandsBy = (pq: ProQ, ids: number[], change: (b: EqBand) => EqBand): ProQ => {
