@@ -524,13 +524,28 @@ Pro-C 3's **Vari-Mu** style is this family; Raffensperger's model (section 4) gi
 
 ### 2.11 Waves Renaissance Compressor and RVox
 
-Not hardware, but the most-named vocal compressors in the survey (1.2). Their controls, as Waves describes them
-(from Waves' product pages, not re-read for this document, so treat as **(secondary)**): RComp has **ARC**
-(Auto Release Control, a program-dependent release), **Opto** and **Electro** modes (two release behaviours)
-and **Warm** / **Smooth** (with or without a little harmonic colour); RVox is a one-knob compressor with a gate
-and a limiter. Their release laws are **not stated** by Waves. **(inferred)** What engineers hear ("doesn't
-sound like compression", "a nice, squeezed waveform", "reminds me of the dbx 160X") is a clean feedforward
-compressor whose release lengthens with sustained reduction: our Clean or Vocal style with Auto Release.
+Not hardware, but the most-named vocal compressors in the survey (1.2). From Waves' user guides:
+
+- **RComp**: threshold −60 … 0 dBFS; ratio **0.5 … 50** on one fader (below 1 it expands); a **fixed soft knee**
+  ("compression and expansion begin when the signal is about 6 dB below the threshold"); attack 0.5 … 500 ms
+  (default 16), release 5 … 5000 ms (default 160); an output limiter at 0 dBFS after the make-up.
+- **ARC** (Auto Release Control): "calculates the release time of each sample … Set the release time as an
+  overall scaling factor and, depending on the input signal, ARC adjusts it from there"; "very high RMS levels
+  … but it can also yield very smooth gain reduction". Waves: keep it on "unless you want … pumping or
+  distortion".
+- **Electro / Opto**, two release laws by the amount of reduction: Electro's release gets "increasingly faster
+  as the gain reduction approaches zero, but only when gain reduction is less than 3 dB. When gain reduction is
+  above 3 dB, the release time becomes slower, behaving like a leveler"; **Opto "is the inverse"** (slower near
+  0, faster above 3 dB) and "sounds great on vocals".
+- **Warm / Smooth**: Warm "adds low frequency harmonics as deeper compression is applied"; Smooth doesn't.
+- **RVox**: three faders. Compression "combines in one fader the traditional threshold and ratio controls. As
+  you lower the control, gain reduction increases, as does output level. But the output will not clip because
+  of a peak limiter"; Gain is the limiter's ceiling; Gate a soft-knee expander before it.
+
+What engineers hear in it ("doesn't sound like compression", "a nice, squeezed waveform", "reminds me of the
+dbx 160X") is a clean feedforward compressor with a soft knee and a release that depends on how deep it is:
+our Clean or Vocal style with Auto Release, and, if wanted, Electro and Opto as two Auto Release laws
+**(inferred)**.
 
 ### 2.12 Side by side
 
@@ -546,7 +561,7 @@ compressor whose release lengthens with sustained reduction: our Clean or Vocal 
 | API 2500 | VCA | RMS, FF or FB | 1.5–∞, three knees | 0.03–30 ms | 0.05–3 s | clean | not stated |
 | Fairchild 670 | 6386 tubes | peak, feedback | rising, 2.5 → 25:1 | 0.2–0.8 ms | 0.3–5 s, auto 2/10, 0.3/10/25 s | IM rising with GR | Glue, sibilance control |
 | Manley Vari-Mu | remote-cutoff triode | tube, feedback | 1.5 → 5–8:1 / 4 → 20:1 | 25–70 ms | 0.2–8 s | tube drive | Mix bus; occasionally vocals |
-| RComp | digital | not stated | as set | as set | ARC | Warm / Smooth | The rap and R&B workhorse |
+| RComp | digital | feedforward **(inferred)**, soft 6 dB knee | 0.5–50 (expands below 1) | 0.5–500 ms | 5–5000 ms, ARC; Electro / Opto by depth | Warm / Smooth | The rap and R&B workhorse |
 
 ---
 
