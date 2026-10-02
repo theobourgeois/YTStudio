@@ -808,6 +808,10 @@ void Sequencer::applyLanes (int numSamples)
                 // An OTT's, likewise (its values glide there over a few ms).
                 song->tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, start.data(), lane.size);
                 break;
+            case Song::Lane::Kind::comp:
+                // A Pro-C's, likewise (its knobs glide there over 20 ms).
+                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].compSettings->set ((comp::Lane) lane.control, start.data(), lane.size);
+                break;
             case Song::Lane::Kind::panman:
                 // A PanMan's control, likewise (its position and gains glide, so a step doesn't click).
                 if (lane.control == panman::shapeControl)
@@ -891,6 +895,9 @@ void Sequencer::restoreLanes (Song& from)
                 break;
             case Song::Lane::Kind::ott:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, lane.base.data(), lane.size);
+                break;
+            case Song::Lane::Kind::comp:
+                from.tracks[(size_t) lane.track].effects[(size_t) lane.index].compSettings->set ((comp::Lane) lane.control, lane.base.data(), lane.size);
                 break;
             case Song::Lane::Kind::panman:
                 if (lane.control == panman::shapeControl)
@@ -1235,6 +1242,20 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
                 runOtt (effect, l, r, numSamples);
             else
                 effect.ott->skipped();
+        }
+        else if (effect.comp != nullptr)
+        {
+            // Its mix is its own (the dry sound waits as long as its latency); its key may be another track's sound.
+            if (effect.enabled)
+            {
+                const auto key = effect.compSettings->key;
+                const auto* source = key >= 0 && key < (int) song->tracks.size() ? &song->tracks[(size_t) key] : nullptr;
+                const auto* keyLeft = source != nullptr && source->buffer >= 0 ? song->audio.getReadPointer (source->buffer * 2) : nullptr;
+                const auto* keyRight = source != nullptr && source->buffer >= 0 ? song->audio.getReadPointer (source->buffer * 2 + 1) : nullptr;
+                effect.comp->process (*effect.compSettings, grossClock, keyLeft, keyRight, l, r, numSamples, effect.mix);
+            }
+            else
+                effect.comp->skipped();
         }
         else if (effect.pan != nullptr)
         {

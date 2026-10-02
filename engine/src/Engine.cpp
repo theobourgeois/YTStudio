@@ -97,6 +97,7 @@ juce::var Engine::transport() const
                                { "autoTunes", autoTunes.describe() },
                                { "echoBoys", echoBoys.describe() },
                                { "otts", otts.describe() },
+                               { "proCs", procs.describe (false) },
                                { "panMen", panMen.describe() },
                                { "pitchWheels", pitchWheels.describe() } });
 }
@@ -273,6 +274,25 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             return reply (fail ("The song playing has no such Pro-Q."), {});
         state->soloBand.store (params["band"].isVoid() ? 0 : juce::jlimit (0, eq::maxBands, (int) params["band"]));
         state->soloGain.store ((float) std::pow (10.0, juce::jlimit (-30.0, 30.0, (double) params["gain"]) / 20));
+        return ok();
+    }
+    if (command == "compAudition")
+    {
+        // A Pro-C's listening, while its button is held: its key, or what it takes away.
+        const auto state = procs.find (params["effect"].toString());
+        if (state == nullptr)
+            return reply (fail ("The song playing has no such Pro-C."), {});
+        const auto mode = params["mode"].toString();
+        state->audition.store (mode == "key" ? 1 : mode == "triggering" ? 2 : 0);
+        return ok();
+    }
+    if (command == "compMatch")
+    {
+        // Match: measure a Pro-C's loudness in and out while it plays.
+        const auto state = procs.find (params["effect"].toString());
+        if (state == nullptr)
+            return reply (fail ("The song playing has no such Pro-C."), {});
+        state->startMatch (params["seconds"].isVoid() ? 8.0 : (double) params["seconds"]);
         return ok();
     }
     if (command == "panMan")
@@ -511,7 +531,7 @@ juce::StringArray Engine::applySong()
     // During an export the song waits: it's made when the export ends (its plugins are busy).
     if (exportJob != nullptr)
         return unreadable;
-    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, autoTunes, echoBoys, eqs, otts, panMen, pitchWheels, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
+    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, autoTunes, echoBoys, eqs, otts, procs, panMen, pitchWheels, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
     latencies = plugins.latencySignature() * 7 + effects.latencySignature();
     armed.clear();
     for (const auto& track : song->tracks)
@@ -591,6 +611,7 @@ void Engine::silence()
     echoBoys.clear();
     eqs.clear();
     otts.clear();
+    procs.clear();
     panMen.clear();
     pitchWheels.clear();
     sequencer.forgetDelayLines();
@@ -649,6 +670,7 @@ void Engine::timerCallback()
                                             { "autoTunes", autoTunes.describe() },
                                             { "echoBoys", echoBoys.describe() },
                                             { "otts", otts.describe() },
+                                            { "proCs", procs.describe (true) },
                                             { "eq", eqs.describe() },
                                             { "panMen", panMen.describe() },
                                             { "pitchWheels", pitchWheels.describe() },
@@ -853,8 +875,9 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
     panman::Registry exportPanMen;
     eq::Registry exportEqs;
     ott::Registry exportOtts;
+    comp::Registry exportProCs;
     wheel::Registry exportPitchWheels;
-    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportAutoTunes, exportEchoBoys, exportEqs, exportOtts, exportPanMen, exportPitchWheels, unreadable, exportBlockSize, rate(), false);
+    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportAutoTunes, exportEchoBoys, exportEqs, exportOtts, exportProCs, exportPanMen, exportPitchWheels, unreadable, exportBlockSize, rate(), false);
     if ((plugins.anyLoading() || effects.anyLoading()) && attempt < exportWaits)
     {
         juce::Timer::callAfterDelay (100, [this, stillAlive = alive, params, reply, attempt] {
@@ -870,7 +893,7 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
             missing.add (channel.id);
     for (const auto& track : song->tracks)
         for (const auto& effect : track.effects)
-            if (effect.plugin == nullptr && effect.gross == nullptr && effect.tune == nullptr && effect.echo == nullptr && effect.eq == nullptr && effect.ott == nullptr && effect.pan == nullptr && effect.wheel == nullptr)
+            if (effect.plugin == nullptr && effect.gross == nullptr && effect.tune == nullptr && effect.echo == nullptr && effect.eq == nullptr && effect.ott == nullptr && effect.comp == nullptr && effect.pan == nullptr && effect.wheel == nullptr)
                 missing.add (effect.id);
 
     // Playback stops and lets go of the plugins; they're prepared for the export.

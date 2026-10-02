@@ -616,6 +616,12 @@ export function engineProC(p: ProCState): EngineProC {
     }
   }
 
+  // An opto cell is the timing: in a feedback loop its lags (light, fast and slow parts) would ring at a
+  // high loop gain, so opto styles run feedforward at the loop's ratio (the same static curve at a hard knee).
+  if (ballistics.shape === "opto") {
+    feedback = false;
+    loop = 0;
+  }
   if (feedback && loop === 0) loop = loopGain(curve.slope);
   if (p.autoGain && !vintage && style !== "vox") makeup += autoGain(p);
 
@@ -714,17 +720,23 @@ export function curveReduction(curve: EngineProCCurve, level: number, vocalAvera
   }
 }
 
-/** The reduction a feedback loop settles at: `GR = k · f(level − GR − threshold)` (the shape's slope 1), solved by bisection. */
+/** A feedback loop's law: the reduction it asks for when its output is `out` dB (`k · f(out − threshold)`, the shape's slope 1, held to Range). */
+export function feedbackLaw(curve: EngineProCCurve, loop: number, out: number): number {
+  const o = out - curve.threshold;
+  const shaped = curve.kind === "progressive" ? progressiveOver(o, curve.knee) : kneeOver(o, curve.knee);
+  return limitRange(loop * shaped, curve.range, curve.knee);
+}
+
+/** The reduction a feedback loop settles at: `GR = law(level − GR)`, solved by bisection (the engine solves the same each sample). */
 export function feedbackReduction(curve: EngineProCCurve, loop: number, level: number): number {
-  const shape = (o: number) => (curve.kind === "progressive" ? progressiveOver(o, curve.knee) : kneeOver(o, curve.knee));
   let low = 0;
   let high = Math.max(0, level - curve.threshold + curve.knee) + 1;
   for (let i = 0; i < 60; i++) {
     const mid = (low + high) / 2;
-    if (loop * shape(level - mid - curve.threshold) > mid) low = mid;
+    if (feedbackLaw(curve, loop, level - mid) > mid) low = mid;
     else high = mid;
   }
-  return limitRange((low + high) / 2, curve.range, curve.knee);
+  return (low + high) / 2;
 }
 
 /**
