@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { CURVE_NAMES, deletePoint, mixerTrackName, updatePoint } from "@shared/music/automation";
 import { type GrossKind, editGrossSlot, grossSlot, pickedSlot, pitchSegment, updateGrossBeat } from "@shared/music/gross-beat";
 import { GROSS_DEPTH, GROSS_SLOTS, GROSS_SYNCS, GROSS_TICKS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE } from "@shared/music/gross-beat-presets";
-import type { CurveType, GrossBeat, GrossHold, MixerEffect, MusicProject } from "@shared/music/types";
+import { type CurveType, type GrossBeat, type GrossHold, type MixerEffect, type MusicProject, PPQ } from "@shared/music/types";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
@@ -26,17 +26,23 @@ import { prepare, readPalette } from "../piano/draw";
 import { useMusic, useSong } from "../store";
 import { useTransport } from "../transport";
 import { grossBeatWindow } from "../ui";
-import { MusicWindow } from "../window";
+import { MusicWindow, centredOnDesktop } from "../window";
 import { GROSS_TOOLS, type GrossTool, clearSlot, closeGrossBeat, copySlot, copyState, live, pasteSlot, pasteState, pickSlot, renameSlot, resetSlot, runGrossTool } from "./actions";
 import { drawPanel, grossColours } from "./draw";
 import { GROSS_SNAPS, type GrossSnap, panelBox, pointHint, snapLabel } from "./geometry";
 import { type PanelTarget, panelCursor, panelPointerDown } from "./pointer";
 import { useGrossUi, useGrossView } from "./store";
 
+/** The window's size as it opens (narrower if the desktop is), and the least it can be. */
+const WIDTH = 840;
+const HEIGHT = 520;
+const MIN_WIDTH = 760;
+
 /** The curve types Gross Beat's point menu offers (FL's list: the automation clips' without Smooth). */
 const GROSS_CURVES: readonly CurveType[] = ["single", "double", "altSingle", "altDouble", "hold", "stairs", "smoothStairs", "pulse", "wave", "halfSine"];
-/** A sync's length said: "1/4 beat", "4 beats", "Off". */
+/** A sync's length said: "1/4 beat", "4 beats", "Off"; and short, on the bar ("1/4", "4"). */
 const syncText = (beats: number) => (beats === 0 ? "Off" : beats < 1 ? `1/${Math.round(1 / beats)} beat` : `${beats} beat${beats === 1 ? "" : "s"}`);
+const syncShort = (beats: number) => (beats === 0 ? "Off" : beats < 1 ? `1/${Math.round(1 / beats)}` : String(beats));
 const HOLD_TEXT: Record<GrossHold, string> = { off: "Off", last: "Last", next: "Next" };
 
 /** The effect in the song, by id (the object itself, so a selector of it is stable). */
@@ -55,18 +61,29 @@ const trackOf = (song: MusicProject, effectId: string) => song.mixer.tracks.find
 export function GrossBeatWindow({ effectId, index }: { effectId: string; index: number }) {
   const effect = useSong((s) => effectOf(s, effectId));
   const owner = useSong((s) => mixerTrackName(s, trackOf(s, effectId)));
+  // As wide as the desktop has room for (the Browser takes some), centred, each next one a step down.
+  const [initial] = useState(() => {
+    const width = Math.max(MIN_WIDTH, Math.min(WIDTH, (document.querySelector('[data-desktop="music"]')?.getBoundingClientRect().width ?? WIDTH) - 16));
+    const place = centredOnDesktop(width, HEIGHT);
+    return { ...place, x: place.x + index * 28, y: Math.min(place.y, 40) + index * 28, width, height: HEIGHT };
+  });
   const gb = effect?.grossBeat;
+  // Its effect deleted (or replaced): its window goes, as a plugin's does.
+  const gone = !gb;
+  useEffect(() => {
+    if (gone) closeGrossBeat(effectId);
+  }, [gone, effectId]);
   if (!effect || !gb) return null;
   return (
     <MusicWindow
       id={grossBeatWindow(effectId)}
       title={`${effect.plugin.name} (${owner})`}
-      initial={{ x: 60 + index * 28, y: 50 + index * 28, width: 820, height: 520 }}
-      resizable={{ minWidth: 760, minHeight: 500 }}
+      initial={initial}
+      resizable={{ minWidth: MIN_WIDTH, minHeight: 500 }}
       onClose={() => closeGrossBeat(effectId)}
     >
       <div className="flex h-full min-h-0 select-none text-xs" data-testid="gross-beat" data-effect={effectId}>
-        <aside className="flex w-[352px] shrink-0 flex-col gap-2 overflow-y-auto border-r border-line bg-surface-1 p-2">
+        <aside className="flex w-[330px] shrink-0 flex-col gap-2 overflow-y-auto border-r border-line bg-surface-1 p-2">
           <TimeHeader effectId={effectId} gb={gb} />
           <SlotGrid effectId={effectId} gb={gb} kind="time" />
           <SlotGrid effectId={effectId} gb={gb} kind="volume" />
@@ -289,7 +306,7 @@ function envelopeTick(effectId: string, kind: GrossKind): number | null {
   const said = t.grossBeats[effectId];
   if (!t.playing || !said) return null;
   const tempo = useMusic.getState().history?.doc.settings.tempo ?? 120;
-  const perMs = (tempo * 96) / 60_000;
+  const perMs = (tempo * PPQ) / 60_000;
   const tick = (kind === "time" ? said.timeTick : said.volumeTick) + (performance.now() - t.at - t.latencyMs) * perMs;
   return ((tick % GROSS_TICKS) + GROSS_TICKS) % GROSS_TICKS;
 }
@@ -642,11 +659,11 @@ function BottomBar({ effectId, gb }: { effectId: string; gb: GrossBeat }) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const set = (patch: Partial<GrossBeat>) => useMusic.getState().commit((s) => updateGrossBeat(s, effectId, patch));
   return (
-    <div className="flex h-8 shrink-0 items-center gap-1.5 border-t border-line bg-surface-1 px-2 text-[11px]">
+    <div className="@container flex h-8 shrink-0 items-center gap-1.5 border-t border-line bg-surface-1 px-2 text-[11px]">
       {renaming === null ? (
         <button
           type="button"
-          className={cn("min-w-0 flex-1 truncate text-left italic hover:underline", kind === "time" ? "text-gross-time" : "text-gross-volume")}
+          className={cn("min-w-16 flex-1 truncate text-left italic hover:underline", kind === "time" ? "text-gross-time" : "text-gross-volume")}
           title="Click to rename the slot"
           data-testid="gross-slot-name"
           onClick={() => setRenaming(name)}
@@ -655,7 +672,7 @@ function BottomBar({ effectId, gb }: { effectId: string; gb: GrossBeat }) {
         </button>
       ) : (
         <form
-          className="min-w-0 flex-1"
+          className="min-w-16 flex-1"
           onSubmit={(e) => {
             e.preventDefault();
             renameSlot(effectId, kind, slot, renaming);
@@ -686,22 +703,26 @@ function BottomBar({ effectId, gb }: { effectId: string; gb: GrossBeat }) {
       <StripButton label="One-shot: a slot plays once (a bar), then slot 1" on={gb.oneShot} onClick={() => set({ oneShot: !gb.oneShot })}>
         1
       </StripButton>
-      <Choice label="HOLD" value={gb.hold} options={(["off", "last", "next"] as const).map((v) => ({ value: v, text: HOLD_TEXT[v] }))} onChange={(hold) => set({ hold })} />
-      <Choice label="TRIG SYNC" value={gb.trigSync} options={GROSS_SYNCS.map((v) => ({ value: v, text: syncText(v) }))} onChange={(trigSync) => set({ trigSync })} />
-      <Choice label="POS SYNC" value={gb.posSync} options={GROSS_SYNCS.map((v) => ({ value: v, text: syncText(v) }))} onChange={(posSync) => set({ posSync })} />
+      <Choice label="HOLD" value={gb.hold} options={(["off", "last", "next"] as const).map((v) => ({ value: v, text: HOLD_TEXT[v], short: HOLD_TEXT[v] }))} onChange={(hold) => set({ hold })} />
+      <Choice label="TRIG SYNC" value={gb.trigSync} options={GROSS_SYNCS.map((v) => ({ value: v, text: syncText(v), short: syncShort(v) }))} onChange={(trigSync) => set({ trigSync })} />
+      <Choice label="POS SYNC" value={gb.posSync} options={GROSS_SYNCS.map((v) => ({ value: v, text: syncText(v), short: syncShort(v) }))} onChange={(posSync) => set({ posSync })} />
     </div>
   );
 }
 
-/** One of the bar's choices, FL's "TRIG SYNC: 1/4 beat ▾". */
-function Choice<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: readonly { value: T; text: string }[]; onChange: (value: T) => void }) {
-  const current = options.find((o) => o.value === value)?.text ?? String(value);
+/** One of the bar's choices, FL's "TRIG SYNC: 1/4 ▾" (the menu says it whole: "1/4 beat"). */
+function Choice<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: readonly { value: T; text: string; short: string }[]; onChange: (value: T) => void }) {
+  const current = options.find((o) => o.value === value);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 raised hover:raised-hover" aria-label={`${label}: ${current}`}>
-          <span className="text-[9px] font-medium tracking-wide text-muted-foreground">{label}:</span>
-          <span className="tabular-nums">{current}</span>
+        <button type="button" className="flex h-6 shrink-0 items-center gap-1 rounded-sm px-1.5 raised hover:raised-hover" aria-label={`${label}: ${current?.text ?? String(value)}`}>
+          {/* Narrow, "TRIG:" for "TRIG SYNC:". */}
+          <span className="text-[9px] font-medium tracking-wide text-muted-foreground">
+            <span className="hidden @[29rem]:inline">{label}:</span>
+            <span className="@[29rem]:hidden">{label.split(" ")[0]}:</span>
+          </span>
+          <span className="tabular-nums">{current?.short ?? String(value)}</span>
           <PiCaretDown className="size-2.5 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>

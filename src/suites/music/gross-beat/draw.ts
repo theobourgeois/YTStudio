@@ -7,8 +7,8 @@
  */
 import { curveValue } from "@shared/music/automation";
 import type { GrossKind } from "@shared/music/gross-beat";
-import { GROSS_TICKS } from "@shared/music/gross-beat-presets";
-import type { AutomationPoint } from "@shared/music/types";
+import { GROSS_BEATS, GROSS_TICKS } from "@shared/music/gross-beat-presets";
+import { type AutomationPoint, PPQ } from "@shared/music/types";
 import { type CurveBox, MIN_HANDLE_SEGMENT, curveTick, curveX, curveY, tensionHandle } from "../automation/curve-geometry";
 import type { Palette } from "../piano/draw";
 import { type GrossSnap, beatRows, gridLines, guides } from "./geometry";
@@ -51,7 +51,7 @@ export function drawPanel(ctx: CanvasRenderingContext2D, scene: GrossScene) {
   ctx.fillRect(0, 0, width, height);
   // Every second beat a shade darker, as the Piano roll's black rows are: the beats read at a glance.
   ctx.fillStyle = palette.blackRow;
-  for (let beat = 1; beat < 4; beat += 2) ctx.fillRect(Math.round(curveX(box, beat * 96)), 0, Math.round(96 * box.pxPerTick), height);
+  for (let beat = 1; beat < GROSS_BEATS; beat += 2) ctx.fillRect(Math.round(curveX(box, beat * PPQ)), 0, Math.round(PPQ * box.pxPerTick), height);
 
   // The grid: each snap step, each beat stronger, the bar's ends strongest.
   for (const line of gridLines(scene.snap)) {
