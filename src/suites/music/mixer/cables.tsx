@@ -1,4 +1,5 @@
 import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
+import { MASTER_TRACK_ID } from "@shared/music/project";
 import type { Mixer } from "@shared/music/types";
 
 interface Cable {
@@ -9,6 +10,8 @@ interface Cable {
   to: string;
   /** A send at 0: only a sidechain (FL draws it faint). */
   faint: boolean;
+  /** Coming into a selected track from one that isn't selected (it feeds it): dashed. */
+  incoming: boolean;
 }
 
 /**
@@ -26,7 +29,8 @@ export const cableSwing = (age: number) => (age >= SETTLE_MS ? 0 : 18 * Math.exp
 const SETTLE_MS = 900;
 
 /**
- * FL Studio's routing cables: from each selected track's send switch to each track it sends to, drawn
+ * FL Studio's routing cables: from each selected track's send switch to each track it sends to, and
+ * (dashed) from each track that feeds a selected one into it, so a bus shows what's on it. Drawn
  * over the strips (`area`, which clips them at its bottom). Which cables there are is React's; where they
  * are is measured from the strips and written straight into the paths, on every scroll, resize and frame
  * of a swing, so they never lag behind the strips. A cable just plugged in swings a moment before it settles.
@@ -38,9 +42,16 @@ export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement |
   // Null until the first: the cables there when the mixer opens (or other tracks are selected) don't swing.
   const shownFor = useRef<string | null>(null);
   const shown = sources.join(" ");
-  const cables: Cable[] = sources.flatMap((from) =>
-    (mixer.tracks.find((t) => t.id === from)?.sends ?? []).map((send) => ({ key: `${from}>${send.to}`, from, to: send.to, faint: send.level === 0 })),
-  );
+  const selected = new Set(sources);
+  const cables: Cable[] = [
+    ...sources.flatMap((from) =>
+      (mixer.tracks.find((t) => t.id === from)?.sends ?? []).map((send) => ({ key: `${from}>${send.to}`, from, to: send.to, faint: send.level === 0, incoming: false })),
+    ),
+    ...mixer.tracks.flatMap((t) =>
+      // Not into the master: everything goes there.
+      selected.has(t.id) ? [] : t.sends.filter((s) => selected.has(s.to) && s.to !== MASTER_TRACK_ID).map((send) => ({ key: `in:${t.id}>${send.to}`, from: t.id, to: send.to, faint: send.level === 0, incoming: true })),
+    ),
+  ];
   const ends = useRef(new Map<string, Cable>());
   ends.current = new Map(cables.map((c) => [c.key, c]));
 
@@ -51,7 +62,9 @@ export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement |
     if (!root) return;
     const box = root.getBoundingClientRect();
     const point = (id: string) => {
-      const cell = root.querySelector<HTMLElement>(`[data-track="${CSS.escape(id)}"] [data-send-point]`);
+      const strip = `[data-track="${CSS.escape(id)}"]`;
+      // Its send knob or source arrow; else (a track feeding a selected one) its send switch.
+      const cell = root.querySelector<HTMLElement>(`${strip} [data-send-point]`) ?? root.querySelector<HTMLElement>(`${strip} [data-send] button`);
       if (!cell) return null;
       const r = cell.getBoundingClientRect();
       return { x: r.left + r.width / 2 - box.left, y: r.bottom - box.top };
@@ -123,12 +136,14 @@ export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement |
             else paths.current.delete(cable.key);
           }}
           className="fill-none"
-          stroke="var(--mixer-on)"
-          strokeWidth={1.75}
-          strokeOpacity={cable.faint ? 0.35 : 0.9}
+          stroke={cable.incoming ? "var(--mixer-name)" : "var(--mixer-on)"}
+          strokeWidth={cable.incoming ? 1.25 : 1.75}
+          strokeDasharray={cable.incoming ? "4 3" : undefined}
+          strokeOpacity={cable.faint ? 0.35 : cable.incoming ? 0.75 : 0.9}
           strokeLinecap="round"
           data-cable={cable.to}
           data-cable-from={cable.from}
+          data-incoming={cable.incoming || undefined}
         />
       ))}
     </svg>

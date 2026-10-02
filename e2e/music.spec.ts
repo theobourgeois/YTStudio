@@ -1086,6 +1086,10 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await page.getByRole("menuitemcheckbox", { name: /Master/ }).click();
   await expect.poll(async () => (await mixerOf())[5].sends).toEqual([{ to: "master", level: 1 }]);
   await expect(strip("Insert 5").getByTestId("output-label")).toHaveText("→ M");
+  // A bus selected shows what feeds it: a dashed cable from each track sending to it.
+  await strip("Pads bus").locator("canvas").click();
+  await expect(page.getByTestId("cables").locator("[data-incoming]")).toHaveCount(1);
+  await expect(page.getByTestId("cables").locator(`[data-incoming][data-cable-from="${(await mixerOf())[6].id}"]`)).toHaveCount(1);
 });
 
 test("an effect goes in a mixer track's slot: chosen from the effect plugins, its window opened by its name, bypassed, moved", async ({ page }) => {
