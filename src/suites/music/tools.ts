@@ -5,6 +5,7 @@
  */
 import { createId } from "@shared/ids";
 import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
+import { PANMAN_PLUGIN } from "@shared/music/panman-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import { EXPORT_FORMATS, type ExportFormat, type ExportSettings } from "@shared/music/export";
@@ -64,6 +65,7 @@ import { addAutomationEdit, describeAutomations, resolveControl, updateAutomatio
 import { matches, pluginOwners, songControls } from "./automation/controls";
 import { usePlaylist } from "./playlist/store";
 import { describeGrossBeat, setGrossBeatSlotTool, updateGrossBeatTool } from "./gross-beat/tool-edits";
+import { describePanMan, findPan, setPanPatternTool, updatePanManTool } from "./panman/tool-edits";
 import { useBrowser } from "./browser/store";
 import {
   addMixerTrackTool,
@@ -312,6 +314,15 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "It plays its Empty slots (the sound as it is) until you pick others: get_gross_beat lists them, update_gross_beat picks them, set_gross_beat_slot draws your own.",
       );
     }
+    if (wanted === PANMAN_PLUGIN.name.toLowerCase() || wanted === PANMAN_PLUGIN.id || wanted === "pan man") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, PANMAN_PLUGIN, id));
+      return textResult(
+        `Put PanMan (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. ` +
+          "It pans slowly back and forth (its Slow Pan preset) until you change it: get_panman reads it, update_panman sets it (presets, modes, knobs), set_panman_pattern draws your own rhythm.",
+      );
+    }
     const effects = (await musicApi.listEnginePlugins()).filter((p) => !p.isInstrument);
     const plugin = effects.find((p) => p.id.toLowerCase() === wanted) ?? effects.find((p) => p.name.toLowerCase() === wanted);
     if (!plugin) throw new Error(`There's no effect plugin "${String(input.plugin)}" on this computer. The ones found: ${effects.map((p) => p.name).join(", ") || "none"}.`);
@@ -327,6 +338,13 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   },
   update_gross_beat: edit((song, input) => updateGrossBeatTool(song, input)),
   set_gross_beat_slot: edit((song, input) => setGrossBeatSlotTool(song, input)),
+  async get_panman(input, ctx) {
+    const { song, open } = await targetOf(ctx);
+    // Where it is now, if it's the song playing here.
+    return textResult(describePanMan(song, input, open ? useTransport.getState().panMen[findPan(song, input).effect.id] : undefined));
+  },
+  update_panman: edit((song, input) => updatePanManTool(song, input)),
+  set_panman_pattern: edit((song, input) => setPanPatternTool(song, input)),
   remove_mixer_effect: edit(removeMixerEffectTool),
   async copy_track_state(input, ctx) {
     const target = await targetOf(ctx);

@@ -5,6 +5,7 @@
 import { type ToolSpec, arr, bool, int, num, obj, oneOf, str, tool } from "../tool-spec.ts";
 import { CHOP_PATTERNS } from "./chop.ts";
 import { EXPORT_FORMATS } from "./export.ts";
+import { PANMAN_PRESETS, PAN_CURVES, PAN_MODES, PAN_RHYTHMS, PAN_STYLES } from "./panman-presets.ts";
 import { CURVE_TYPES } from "./types.ts";
 
 const channel = str('A channel: its id (from get_song) or its name ("Kick").');
@@ -20,6 +21,12 @@ const grossRef = {
 } as const;
 const grossKind = oneOf(["time", "volume"], "A time slot or a volume slot.");
 const grossSlot = { description: "A slot: its number, 1 to 36, or its name (\"1/2 Speed\").", anyOf: [{ type: "string" }, { type: "integer" }] } as const;
+/** Which PanMan a tool acts on. */
+const panRef = {
+  effect: str("The PanMan: its effect id (from get_mixer or get_panman). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
 const playlistTrack = int("A playlist track's number, 1 for the first (as the Playlist numbers them).");
 const clipIds = arr(int("A clip's id"), "Clips, by their ids from get_playlist.");
 
@@ -27,10 +34,11 @@ const automationRef = str("An automation clip: its id or its name (from get_auto
 /** What names a control to automate (`add_automation`, `list_controls`). */
 const controlFields = {
   control: oneOf(
-    ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix"],
+    ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix", "panman offset", "panman width", "panman rate", "panman input", "panman output"],
     "Which control: a channel's or mixer track's volume or pan, a track's stereo separation, a send's level, an effect slot's mix, the main volume, " +
       "a plugin's own parameter, or a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
-      "use hold curves, so each bar plays a slot: that's how chops are arranged), or its time or volume knob.",
+      "use hold curves, so each bar plays a slot: that's how chops are arranged), or its time or volume knob; or a PanMan's (likewise): its " +
+      "offset (degrees, -105 left to 105 right), width (degrees, 0 to 210), LFO rate (Hz, 0.01 to 10), input or output (dB, -24 to 24).",
   ),
   channel: str("A channel (volume, pan), or a plugin channel (its parameters): id or name."),
   track: mixerTrack("A mixer track (its volume, pan, stereo separation; a send from it; an effect in it)"),
@@ -486,10 +494,12 @@ export const MUSIC_TOOLS = [
     description:
       "Put an effect in a mixer track's slot: the first empty one, or the slot given (replacing what's there). Its sound goes through the track's " +
       "effects in slot order, before its fader. Either Gross Beat, ours (plugin \"Gross Beat\": chops, repeats, stutters, half speed, tape " +
-      "stops, scratches, gates and sidechain pumping in time with the song, which you set with update_gross_beat and set_gross_beat_slot), or " +
+      "stops, scratches, gates and sidechain pumping in time with the song, which you set with update_gross_beat and set_gross_beat_slot), " +
+      "PanMan, ours (plugin \"PanMan\", Soundtoys' auto-panner: the sound moved across the stereo field by an LFO, a rhythm in time with the " +
+      "song, at random, or on its hits; set with update_panman and set_panman_pattern), or " +
       "an effect plugin installed on this computer (list_plugins with kind \"effect\"), whose settings are its own, in its window, which the " +
       "user opens from the mixer: you can't set them.",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"Gross Beat", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"Gross Beat", "PanMan", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -602,6 +612,85 @@ export const MUSIC_TOOLS = [
         pick: bool("Pick it so it plays (default true)."),
       },
       ["kind", "slot"],
+    ),
+  }),
+  tool({
+    name: "get_panman",
+    title: "Read a PanMan",
+    kind: "look",
+    description:
+      "A PanMan (Soundtoys' auto-panner, in a mixer track's slot): its mode, its knobs and options, its pattern, its preset, and where it's " +
+      "putting the sound now. Positions are degrees: 0 the centre, -90 / 90 hard left / right, ±105 beyond the speakers. The sound (summed " +
+      "to mono) moves around Offset over Width.",
+    inputSchema: obj(panRef),
+  }),
+  tool({
+    name: "update_panman",
+    title: "Change a PanMan",
+    kind: "edit",
+    description:
+      "Load a PanMan's factory preset and / or set its controls. Modes: lfo (a shape repeated at `rate` Hz, out of time with the song), " +
+      "rhythmStep (steps between `steps` positions, one a `rhythm` long), rhythmShape (one cycle of the direction's shape a `rhythm` long), " +
+      "pingPong (side to side on the sound's hits over `trigger` dB, every `divider`th), random (a new place every `rhythm`), step (a new " +
+      "random place on the hits). The dynamics (lfo and the rhythms) move the offset, width and rate with the sound's level over " +
+      "`threshold`. To draw your own rhythm, use set_panman_pattern.",
+    inputSchema: obj({
+      ...panRef,
+      preset: oneOf(
+        PANMAN_PRESETS.map((p) => p.name),
+        `A factory preset to load first (all its settings): ${PANMAN_PRESETS.map((p) => `${p.name} (${p.detail})`).join("; ")}.`,
+      ),
+      mode: oneOf(PAN_MODES.map((m) => m.id), "What moves the sound."),
+      offset: num("Degrees, -105 (left) to 105 (right): the base position."),
+      width: num("Degrees, 0 to 210: how far around the offset it moves (180: hard left to hard right)."),
+      smoothing: num("0 (hard: jumps) to 1 (soft: glides)."),
+      feel: num("rhythmStep: -1 (rush) to 1 (drag), up to a 16th note."),
+      groove: num("rhythmShape: -1 (shuffle) to 1 (swing), every second event towards a triplet."),
+      rate: num("lfo: Hz, 0.01 to 10."),
+      direction: oneOf(["down", "both", "up"], "down: right to left (a ramp), both: back and forth, up: left to right."),
+      rhythm: oneOf(PAN_RHYTHMS.map((r) => r.id), `The rhythm modes' note length: ${PAN_RHYTHMS.map((r) => `${r.id} (${r.name})`).join(", ")}.`),
+      steps: int("rhythmStep: 2 to 16 positions before it repeats."),
+      custom: bool("rhythmStep / rhythmShape: true plays the pattern drawn with set_panman_pattern, false the one the knobs make."),
+      sync: bool("In time with the song (default), or false: at `tempo`."),
+      tempo: num("BPM when not in sync, 20 to 999."),
+      trigger: num("pingPong / step: dB, -40 to 0 (0: the sound doesn't trigger)."),
+      divider: int("pingPong / step: 1 to 12 triggers to a move."),
+      filter: oneOf(["hpf", "off", "lpf"], "pingPong / step: what the trigger listens to (a high-pass for hi-hats, a low-pass for kicks)."),
+      cutoff: num("The trigger filter's cutoff, Hz, 100 to 15000."),
+      filterGain: num("The trigger filter's gain, dB, -20 to 20."),
+      monitor: bool("Hear what the trigger hears, unpanned."),
+      threshold: num("Dynamics: dB, -40 to 0."),
+      attack: num("Dynamics: milliseconds, 0 to 5000."),
+      release: num("Dynamics: milliseconds, 0 to 5000."),
+      gate: bool("Dynamics: Gate (all or nothing over the threshold) rather than Env (as far as the level is over it)."),
+      offsetMod: num("Dynamics: degrees, -105 to 105, added to the offset at full level."),
+      widthMod: num("Dynamics: degrees, -210 to 210, added to the width."),
+      rateMod: num("Dynamics: octaves, -4 to 4 (1 doubles the rate)."),
+      style: oneOf(PAN_STYLES.map((s) => s.id), `Analog Style (saturation, driven by input): ${PAN_STYLES.map((s) => `${s.id} (${s.detail})`).join(", ")}.`),
+      input: num("dB, -24 to 24."),
+      output: num("dB, -24 to 24."),
+      smoothingMode: oneOf(PAN_CURVES.map((c) => c.id), "rhythmStep: the shape of the moves between points."),
+    }),
+  }),
+  tool({
+    name: "set_panman_pattern",
+    title: "Draw a PanMan rhythm",
+    kind: "edit",
+    description:
+      "Draw a PanMan's own rhythm, as its editors do, and play it (custom). For rhythmStep, `points`: positions held from their beat until the " +
+      "next point (moving into it over the last Smoothing of the time). For rhythmShape, `events`: each plays one whole cycle of the direction's " +
+      "shape (a sweep, or there and back) over its length. Beats count from the pattern's start (0) across its `bars` of `beatsPerBar` " +
+      "beats; it repeats. Example, a dotted pan: points { beat 0, position -1 } { beat 0.75, position 1 } { beat 1.5, position 0 }.",
+    inputSchema: obj(
+      {
+        ...panRef,
+        editor: oneOf(["step", "shape"], "step: the Rhythm Step Editor's points (and the mode becomes rhythmStep); shape: the Rhythm Editor's events (rhythmShape)."),
+        bars: int("1 to 8 bars (default: as it is)."),
+        beatsPerBar: int("1 to 16 beats a bar (default: as it is)."),
+        points: arr(obj({ beat: num("Where, in beats from the start."), position: num("-1 (L) to 1 (R) of the width around the offset; 0 the offset.") }, ["beat", "position"]), "step: the points."),
+        events: arr(obj({ beat: num("Where it starts, in beats."), length: num("How long, in beats.") }, ["beat", "length"]), "shape: the events."),
+      },
+      ["editor"],
     ),
   }),
   tool({

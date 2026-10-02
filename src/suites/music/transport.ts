@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { PlayMode } from "@shared/music/compile";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineChannels, EngineCommands, EngineEffects, EngineGrossState, EngineMeters, EnginePreview, MetronomeSound } from "@shared/music/engine";
+import type { EngineChannels, EngineCommands, EngineEffects, EngineGrossState, EngineMeters, EnginePanState, EnginePreview, MetronomeSound } from "@shared/music/engine";
 import { musicApi } from "./api";
 
 /**
@@ -60,6 +60,8 @@ interface TransportState {
   filePreview: EnginePreview | null;
   /** Each Gross Beat's slots playing and where its envelopes are, as the engine last said (by effect id). */
   grossBeats: Record<string, EngineGrossState>;
+  /** Each PanMan's position and levels, as the engine last said (by effect id). */
+  panMen: Record<string, EnginePanState>;
   /** Why the engine can't be reached (it isn't built, it won't start), or null. */
   error: string | null;
 
@@ -110,6 +112,7 @@ export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: []
 export const NO_METERS: EngineMeters = {};
 export const NO_EFFECTS: EngineEffects = { loaded: [], loading: [], failed: [] };
 export const NO_GROSS_BEATS: Record<string, EngineGrossState> = {};
+export const NO_PANMEN: Record<string, EnginePanState> = {};
 
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
@@ -125,6 +128,7 @@ export const useTransport = create<TransportState>((set, get) => {
         latencyMs: status.outputLatencyMs,
         sampleRate: status.sampleRate,
         grossBeats: status.transport.grossBeats ?? NO_GROSS_BEATS,
+        panMen: status.transport.panMen ?? NO_PANMEN,
         error: null,
       });
     } catch (err) {
@@ -155,6 +159,7 @@ export const useTransport = create<TransportState>((set, get) => {
     channels: NO_CHANNELS,
     effects: NO_EFFECTS,
     grossBeats: NO_GROSS_BEATS,
+    panMen: NO_PANMEN,
     filePreview: null,
     error: null,
 

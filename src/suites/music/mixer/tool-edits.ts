@@ -135,7 +135,8 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
       const failed = effects?.failed.find((e) => e.effect === effect.id);
       const state = failed ? `couldn't be loaded: ${failed.error}` : effects?.loading.includes(effect.id) ? "loading" : loaded?.latency ? `delays its sound ${loaded.latency} samples` : null;
       const gross = effect.grossBeat && `, effect ${effect.id}, playing time slot ${effect.grossBeat.timeSlot + 1} and volume slot ${effect.grossBeat.volumeSlot + 1} (get_gross_beat)`;
-      lines.push(`    slot ${slot + 1}: ${effect.plugin.name} (${effect.plugin.format})${effect.enabled ? "" : ", bypassed"}${effect.mix < 1 ? `, mix ${percent(effect.mix)}` : ""}${state ? `, ${state}` : ""}${gross || ""}`);
+      const pan = effect.panMan && `, effect ${effect.id}, ${effect.panMan.mode} mode, preset "${effect.panMan.preset}" (get_panman)`;
+      lines.push(`    slot ${slot + 1}: ${effect.plugin.name} (${effect.plugin.format})${effect.enabled ? "" : ", bypassed"}${effect.mix < 1 ? `, mix ${percent(effect.mix)}` : ""}${state ? `, ${state}` : ""}${gross || ""}${pan || ""}`);
     });
     if (number > 0) {
       const sends = track.sends.map((s) => `${label(song, getMixerTrack(song, s.to)!)}${s.level < 1 ? ` at ${percent(s.level)}` : ""}${s.level === 0 ? " (sidechain only)" : ""}`);
