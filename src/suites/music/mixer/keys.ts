@@ -15,6 +15,8 @@ export type MixerKeyAction =
   /** ← / →: select the track before or after. */
   | { type: "select"; direction: -1 | 1 }
   | { type: "selectAll" | "rename" }
+  /** Ctrl+G: the selected tracks to a new bus. */
+  | { type: "bus" }
   /** Escape: only the current track stays selected. */
   | { type: "deselect" }
   /** Alt+Delete (or Alt+Backspace): delete the selected tracks (never the master). */
@@ -36,5 +38,6 @@ export function resolveMixerKey(e: KeyLike): MixerKeyAction | null {
   if (letter === "L" && command && !e.altKey) return { type: "route", starting: e.shiftKey };
   if (letter === "L" && e.altKey && !command && !e.shiftKey) return { type: "selectChannels" };
   if (letter === "A" && command && !e.altKey && !e.shiftKey) return { type: "selectAll" };
+  if (letter === "G" && command && !e.altKey && !e.shiftKey) return { type: "bus" };
   return null;
 }

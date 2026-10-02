@@ -327,6 +327,8 @@ function runMixerKey(action: MixerKeyAction) {
       return mixer.selectNeighbourTrack(action.direction);
     case "selectAll":
       return mixer.selectAllTracks();
+    case "bus":
+      return mixer.routeSelectedToNewBus();
     case "deselect":
       return mixer.selectOnlyCurrent();
     case "rename":

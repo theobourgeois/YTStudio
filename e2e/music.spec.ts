@@ -1068,6 +1068,18 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
     });
   await expect.poll(lit).toBeGreaterThan(10);
   await page.getByRole("button", { name: "Stop", exact: true }).click();
+
+  // ⌘G routes the selected tracks to a new bus right after them, named at once.
+  await strip("Insert 5").locator("canvas").click();
+  await strip("Insert 6").locator("canvas").click({ modifiers: ["Shift"] });
+  await page.keyboard.press("ControlOrMeta+g");
+  await page.getByRole("textbox", { name: "Track name" }).fill("Pads bus");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await mixerOf())[7]?.name).toBe("Pads bus");
+  const bus = (await mixerOf())[7];
+  expect((await mixerOf()).slice(5, 7).map((t) => t.sends)).toEqual([[{ to: bus.id, level: 1 }], [{ to: bus.id, level: 1 }]]);
+  expect(bus.sends).toEqual([{ to: "master", level: 1 }]);
+  await expect(strip("Pads bus")).toHaveAttribute("aria-selected", "true");
 });
 
 test("an effect goes in a mixer track's slot: chosen from the effect plugins, its window opened by its name, bypassed, moved", async ({ page }) => {

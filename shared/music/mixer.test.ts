@@ -17,6 +17,7 @@ import {
   routeChannels,
   routeChannelsFrom,
   routeToFreeTracks,
+  routeToNewBus,
   sendOnly,
   sendersTo,
   setEffect,
@@ -337,5 +338,33 @@ describe("separators and groups", () => {
     expect(ungroup(song, ["insert_2"]).mixer.groups).toEqual([]);
     expect(removeMixerTracks(song, ["insert_2"]).mixer.groups).toEqual([]);
     expect(createGroup(rack(), [M])).toEqual(rack());
+  });
+});
+
+describe("a new bus for tracks", () => {
+  it("goes right after them, and takes their sound instead of where it went (sidechains kept)", () => {
+    let song = setSend(rack(), "insert_2", "insert_6", 0);
+    song = routeToNewBus(song, ["insert_2", "insert_1", M], "bus");
+    expect(ids(song).slice(0, 5)).toEqual([M, "insert_1", "insert_2", "bus", "insert_3"]);
+    expect(trackName(song, "bus")).toBe("Bus");
+    expect(sends(song, "insert_1")).toEqual([{ to: "bus", level: 1 }]);
+    expect(sends(song, "insert_2")).toEqual([{ to: "insert_6", level: 0 }, { to: "bus", level: 1 }]);
+    expect(sends(song, "bus")).toEqual([{ to: M, level: 1 }]);
+    expect(trackName(routeToNewBus(song, ["insert_5"], "bus_2"), "bus_2")).toBe("Bus 2");
+  });
+
+  it("goes where they all went, when that was one same track", () => {
+    let song = sendOnly(rack(), "insert_1", "insert_8");
+    song = sendOnly(song, "insert_2", "insert_8");
+    expect(sends(routeToNewBus(song, ["insert_1", "insert_2"], "bus"), "bus")).toEqual([{ to: "insert_8", level: 1 }]);
+    const apart = sendOnly(song, "insert_2", "insert_9");
+    expect(sends(routeToNewBus(apart, ["insert_1", "insert_2"], "bus"), "bus")).toEqual([{ to: M, level: 1 }]);
+  });
+
+  it("needs a track to route, and room for the bus", () => {
+    const song = rack();
+    expect(routeToNewBus(song, [M])).toBe(song);
+    const full = addMixerTracks(song, null, MAX_INSERTS);
+    expect(routeToNewBus(full, ["insert_1"])).toBe(full);
   });
 });

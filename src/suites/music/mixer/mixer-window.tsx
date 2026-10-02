@@ -63,6 +63,7 @@ import {
   toggleSolo,
   toggleSoloSafe,
   paintSwitch,
+  routeSelectedToNewBus,
   selectGroup,
   selectOnlyCurrent,
   selectTrackRange,
@@ -280,6 +281,9 @@ function MixerMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuItem onSelect={addTrackAfterCurrent}>Add a track</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setTimeout(() => routeSelectedToNewBus(), 0)}>
+          Route selected to a new bus <DropdownMenuShortcut>⌘G</DropdownMenuShortcut>
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => deleteTracks(selectedTracks())}>
           Delete selected tracks <DropdownMenuShortcut>⌥⌫</DropdownMenuShortcut>
         </DropdownMenuItem>
@@ -662,6 +666,10 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
           </ContextMenuItem>
           <ContextMenuItem disabled={!others} onSelect={() => routeSelectedTracksTo(id, "sidechain")}>
             Sidechain selected to this track
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem disabled={isMaster} onSelect={() => setTimeout(() => routeSelectedToNewBus(id), 0)}>
+            Route selected to a new bus <ContextMenuShortcut>⌘G</ContextMenuShortcut>
           </ContextMenuItem>
         </ContextMenuSubContent>
       </ContextMenuSub>

@@ -17,6 +17,7 @@ import {
   setSendTool,
   slotForEffect,
   soloMixerTrackTool,
+  routeToNewBusTool,
   updateMixerEffectTool,
   updateMixerTrackTool,
 } from "./tool-edits";
@@ -75,6 +76,13 @@ describe("the assistant's mixer edits", () => {
     expect(() => setSendTool(song, { from: 4, to: 1 }, env)).toThrow(/already reaches it, so it would loop/);
     expect(() => setSendTool(song, { from: "master", to: 2 }, env)).toThrow(/The master sends nowhere/);
     expect(() => setSendTool(song, { from: 2, to: 2 }, env)).toThrow(/can't send to itself/);
+  });
+
+  it("route tracks to a new bus", () => {
+    const routed = routeToNewBusTool(rack(), { tracks: [1, "insert_2"], name: "Drums" }, env);
+    expect(routed.text).toBe('insert 1 ("Insert 1"), insert 2 ("Insert 2") now go to the new bus insert 3 ("Drums"), which sends to the master.');
+    expect(track(routed.song, 1).sends.map((s) => s.to)).toEqual([track(routed.song, 3).id]);
+    expect(() => routeToNewBusTool(rack(), { tracks: ["master"] }, env)).toThrow(/master can't go to a bus/);
   });
 
   it("solo, add, remove and move tracks", () => {

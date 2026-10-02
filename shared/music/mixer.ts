@@ -298,6 +298,32 @@ export function setSend(song: MusicProject, from: string, to: string, level: num
   return updateTracks(song, [from], (t) => ({ ...t, sends: [...t.sends, { to, level: value }] }));
 }
 
+/** "Bus", "Bus 2"...: the first such name no track has. */
+export function nextBusName(song: MusicProject): string {
+  const names = new Set(song.mixer.tracks.map((t) => t.name));
+  if (!names.has("Bus")) return "Bus";
+  for (let n = 2; ; n++) if (!names.has(`Bus ${n}`)) return `Bus ${n}`;
+}
+
+/**
+ * Route tracks to a new bus (Ableton's and Bitwig's ⌘G, Logic's summing stack): an insert added right after
+ * the last of them, `name`d, that their sound now goes to instead of where it went (their sidechains stay).
+ * The bus goes where they all went, when that was one same track, else to the master. Never the master
+ * itself; the same song when there's nothing to route or no room for a track.
+ */
+export function routeToNewBus(song: MusicProject, ids: readonly string[], busId = createId("insert"), name = nextBusName(song)): MusicProject {
+  const members = song.mixer.tracks.filter((t) => ids.includes(t.id) && t.id !== MASTER_TRACK_ID);
+  if (!members.length) return song;
+  const added = addMixerTracks(song, members[members.length - 1].id, 1, [busId]);
+  if (added === song) return song;
+  // Where they all went, if it's one place.
+  const outs = members.map((t) => t.sends.filter((s) => s.level > 0).map((s) => s.to));
+  const shared = outs.every((o) => o.length === 1 && o[0] === outs[0][0]) ? outs[0][0] : MASTER_TRACK_ID;
+  const routed = updateTracks(added, members.map((t) => t.id), (t) => ({ ...t, sends: [...t.sends.filter((s) => s.level === 0 && s.to !== busId), { to: busId, level: 1 }] }));
+  const named = updateMixerTrack(routed, busId, { name });
+  return shared !== MASTER_TRACK_ID && canSend(named, busId, shared) ? sendOnly(named, busId, shared) : named;
+}
+
 /**
  * FL's "Route to this track only": `from` sends to `to` alone (keeping that send's level if it had one).
  * Refused, like any send, if it would make a loop.

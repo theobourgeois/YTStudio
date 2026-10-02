@@ -25,6 +25,7 @@ import {
   routeChannels,
   routeChannelsFrom,
   routeToFreeTracks,
+  routeToNewBus,
   sendOnly,
   setSend,
   setSoloSafe,
@@ -233,6 +234,20 @@ export function addTrackAtEnd() {
     useMusicUi.getState().setTrackSelection([id]);
     useMixerView.getState().reveal(id);
   }
+}
+
+/**
+ * ⌘G: the selected tracks (or `id`'s alone, if it isn't one of them) to a new bus right after them, which
+ * is selected, scrolled to, and named at once.
+ */
+export function routeSelectedToNewBus(id = currentTrack()) {
+  const busId = createId("insert");
+  commit((doc) => routeToNewBus(doc, menuTargets(id), busId));
+  if (!song()?.mixer.tracks.some((t) => t.id === busId)) return;
+  useMusicUi.getState().setTrackSelection([busId]);
+  useMixerView.getState().reveal(busId);
+  // Once it's drawn.
+  setTimeout(() => useMixerView.getState().rename(busId), 0);
 }
 
 /** Delete tracks (never the master); the selection goes to the track before the first. */

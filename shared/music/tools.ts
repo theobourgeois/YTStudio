@@ -725,6 +725,16 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({ track: mixerTrack(), direction: oneOf(["left", "right"], "Which way.") }, ["track", "direction"]),
   }),
   tool({
+    name: "route_to_new_bus",
+    title: "Route tracks to a new bus",
+    kind: "edit",
+    description:
+      "Make a bus for mixer tracks (Ableton's ⌘G: drums to a Drums bus, say): an insert added right after the last of them, named, that " +
+      "their sound goes to instead of where it went (their sidechains stay). The bus goes where they all went, if that was one same track, " +
+      "else to the master. Effects on the bus then act on all of them together.",
+    inputSchema: obj({ tracks: arr(mixerTrack("A track"), "The tracks."), name: str('The bus\'s name (default: "Bus", "Bus 2"...).') }, ["tracks"]),
+  }),
+  tool({
     name: "group_mixer_tracks",
     title: "Group mixer tracks",
     kind: "edit",

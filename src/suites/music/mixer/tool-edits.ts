@@ -3,6 +3,7 @@
  * like the rest of `tool-edits.ts`, and what `get_mixer` says. Errors go to the model: they say what
  * exists and what would work.
  */
+import { createId } from "@shared/ids";
 import { isFiniteNumber } from "@shared/math";
 import { keyText } from "@shared/music/auto-tune";
 import type { EngineEffects } from "@shared/music/engine";
@@ -24,6 +25,7 @@ import {
   setEffect,
   setSend,
   clearMixerSolo,
+  routeToNewBus,
   setMixerSolo,
   setSoloSafe,
   trackName,
@@ -304,6 +306,18 @@ function soloText(song: MusicProject): string {
     ` ${silenced} other track${silenced === 1 ? " is" : "s are"} silenced by the solo.${safeText}`
   );
 }
+
+export const routeToNewBusTool: SongEdit = (song, input) => {
+  if (!Array.isArray(input.tracks) || !input.tracks.length) throw new Error('"tracks" must be a list of mixer tracks (numbers, ids or names).');
+  const tracks = input.tracks.map((ref) => findTrack(song, ref));
+  if (tracks.some((t) => t.id === MASTER_TRACK_ID)) throw new Error("The master can't go to a bus: it's what's heard.");
+  const id = createId("insert");
+  const name = typeof input.name === "string" && input.name.trim() ? input.name : undefined;
+  const next = routeToNewBus(song, tracks.map((t) => t.id), id, name);
+  if (next === song) throw new Error("The mixer is full (500 inserts): remove a track first.");
+  const bus = getMixerTrack(next, id)!;
+  return { song: next, text: `${tracks.map((t) => label(next, t)).join(", ")} now go${tracks.length === 1 ? "es" : ""} to the new bus ${label(next, bus)}, which sends to ${bus.sends.map((x) => label(next, getMixerTrack(next, x.to)!)).join(", ")}.` };
+};
 
 export const groupMixerTracksTool: SongEdit = (song, input) => {
   if (!Array.isArray(input.tracks) || !input.tracks.length) throw new Error('"tracks" must be a list of mixer tracks (numbers, ids or names).');
