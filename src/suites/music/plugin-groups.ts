@@ -105,3 +105,21 @@ export function besideIndex(rects: readonly { left: number; right: number; top: 
   const column = across.filter(({ r }) => Math.abs(r.left - edge) < 2);
   return column.reduce((best, c) => (Math.abs(c.r.top - here.top) < Math.abs(best.r.top - here.top) ? c : best)).i;
 }
+
+/** Which of this computer's plugins the Plugin manager lists. */
+export type ManagerFilter = "all" | "instrument" | "effect" | "starred";
+
+/**
+ * The Plugin manager's rows (FL Studio's: every plugin found, a star on each): those of `filter` that match
+ * `query` (as the picker matches), by name, then format.
+ */
+export function managerRows(plugins: readonly EnginePlugin[], starred: readonly string[], query: string, filter: ManagerFilter): EnginePlugin[] {
+  const kept = plugins.filter(
+    (p) =>
+      (filter === "all" || (filter === "starred" ? starred.includes(p.id) : p.isInstrument === (filter === "instrument"))) && matches(pickerItem(p), query),
+  );
+  return kept.sort((a, b) => a.name.localeCompare(b.name) || a.format.localeCompare(b.format));
+}
+
+/** The plugins a picker offers: only the starred, as FL Studio's lists only its favourites (the rest are in the Plugin manager). */
+export const starredPlugins = (plugins: readonly EnginePlugin[], starred: readonly string[]) => plugins.filter((p) => starred.includes(p.id));

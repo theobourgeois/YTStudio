@@ -12,7 +12,7 @@ import { OTT_PLUGIN } from "@shared/music/ott-presets";
 import { PANMAN_PLUGIN } from "@shared/music/panman-presets";
 import { PITCH_WHEEL_PLUGIN } from "@shared/music/pitch-wheel-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
-import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
+import { getMixerTrack, pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import { EXPORT_FORMATS, type ExportFormat, type ExportSettings } from "@shared/music/export";
 import type { PluginPresets } from "@shared/music/engine";
 import type { MusicToolName } from "@shared/music/tools";
@@ -23,6 +23,7 @@ import type { MediaAsset } from "@shared/types";
 import { api } from "@/lib/api";
 import type { ToolRunContext } from "../types";
 import { musicApi } from "./api";
+import { usePluginFavourites } from "./plugin-favourites";
 import { describeSong } from "./context";
 import { useSongExport } from "./export/store";
 import { useMusicUi } from "./ui";
@@ -89,6 +90,7 @@ import { describePanMan, findPan, setPanPatternTool, updatePanManTool } from "./
 import { useBrowser } from "./browser/store";
 import {
   addMixerTrackTool,
+  effectToTrackTool,
   describeMixer,
   findTrack,
   groupMixerTracksTool,
@@ -169,9 +171,32 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   quantize_notes: edit(quantizeNotesTool),
   async list_plugins(input) {
     const effects = input.kind === "effect";
-    const plugins = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument !== effects);
+    const starred = usePluginFavourites.getState().starred;
+    const plugins = (await musicApi.listEnginePlugins()).filter((p) => p.isInstrument !== effects && (input.starred !== true || starred.includes(p.id)));
+    if (!plugins.length && input.starred === true) return textResult(`No ${effects ? "effect" : "instrument"} plugins are starred: the user's pickers list only the built-in ones. star_plugins stars some.`);
     if (!plugins.length) return textResult(`No ${effects ? "effect" : "instrument"} plugins have been found on this computer. The user can scan for them from the audio settings (or the rack's + button).`);
-    return textResult([`${effects ? "Effect" : "Instrument"} plugins on this computer:`, ...plugins.map((p) => `- ${p.name} (${p.manufacturer}, ${p.format}), id ${p.id}`)].join("\n"));
+    return textResult(
+      [`${effects ? "Effect" : "Instrument"} plugins on this computer (starred: listed in the user's pickers):`, ...plugins.map((p) => `- ${p.name} (${p.manufacturer}, ${p.format}), id ${p.id}${starred.includes(p.id) ? ", starred" : ""}`)].join("\n"),
+    );
+  },
+  async star_plugins(input) {
+    if (!Array.isArray(input.plugins) || !input.plugins.length) throw new Error('"plugins" must list plugins by name or id (from list_plugins).');
+    const all = await musicApi.listEnginePlugins();
+    const found = input.plugins.map((ref) => {
+      const wanted = String(ref).trim().toLowerCase();
+      const matching = all.filter((p) => p.id.toLowerCase() === wanted);
+      // By name: every format of it (a plugin often comes as a VST3 and an Audio Unit).
+      const named = matching.length ? matching : all.filter((p) => p.name.toLowerCase() === wanted);
+      if (!named.length) throw new Error(`There's no plugin "${String(ref)}" on this computer: list_plugins lists them.`);
+      return named;
+    });
+    const on = input.starred !== false;
+    const plugins = found.flat();
+    usePluginFavourites.getState().set(
+      plugins.map((p) => p.id),
+      on,
+    );
+    return textResult(`${on ? "Starred" : "Unstarred"} ${plugins.map((p) => `${p.name} (${p.format})`).join(", ")}. ${on ? "The pickers list them now." : "The pickers no longer list them."}`);
   },
   async add_channel(input, ctx) {
     const target = await targetOf(ctx);
@@ -503,6 +528,24 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   update_panman: edit((song, input) => updatePanManTool(song, input)),
   set_panman_pattern: edit((song, input) => setPanPatternTool(song, input)),
   remove_mixer_effect: edit(removeMixerEffectTool),
+  async move_mixer_effect(input, ctx) {
+    const target = await targetOf(ctx);
+    // Checked before anything is copied (the same edit runs again on the song as it is then).
+    effectToTrackTool(target.song, input, input.copy === true ? "fx_check" : null);
+    let copyId: string | null = null;
+    if (input.copy === true) {
+      copyId = createId("fx");
+      const from = getMixerTrack(target.song, findTrack(target.song, input.track).id)!.effects[(input.slot as number) - 1]!;
+      await musicApi.copyStates({ projectId: target.projectId, copies: [{ from: from.id, to: copyId }] });
+    }
+    let text = "";
+    await apply(target, (song) => {
+      const done = effectToTrackTool(song, input, copyId);
+      text = done.text;
+      return done.song;
+    });
+    return textResult(text);
+  },
   async copy_track_state(input, ctx) {
     const target = await targetOf(ctx);
     const from = findTrack(target.song, input.from);

@@ -9,6 +9,8 @@ import { errorMessage } from "@shared/errors";
 import {
   addMixerTracks,
   createGroup,
+  effectToTrack,
+  freeSlot,
   getMixerTrack,
   moveMixerTracks,
   pasteTrackState,
@@ -221,6 +223,34 @@ export async function pasteTrackStateOnto(id = currentTrack()) {
     }
   }
   if (useMusic.getState().projectId === projectId) commit((doc) => pasteTrackState(doc, id, copied.state, ids));
+}
+
+/**
+ * An effect slot dragged onto a track's strip: the effect moves there (its plugin as it is, its settings
+ * and automation with it), or with `copy` (Alt) a copy goes there, its plugin's settings copied first by
+ * the server. Into the first empty slot; a track with none says so.
+ */
+export async function effectOnto(fromTrack: string, slot: number, toTrack: string, copy: boolean) {
+  const doc = song();
+  const projectId = useMusic.getState().projectId;
+  const effect = doc && getMixerTrack(doc, fromTrack)?.effects[slot];
+  if (!doc || !projectId || !effect) return;
+  if (freeSlot(doc, toTrack) === null) return void toast.info("No free slot", { description: "Every effect slot of that track is taken: empty one first." });
+  if (!copy) {
+    commit((now) => effectToTrack(now, fromTrack, slot, toTrack));
+    useMusicUi.getState().selectTrack(toTrack);
+    return;
+  }
+  const id = createId("fx");
+  // Ours keep their settings in the song; a plugin's are a file, copied as a track state's are.
+  try {
+    await musicApi.copyStates({ projectId, copies: [{ from: effect.id, to: id }] });
+  } catch (err) {
+    toast.error("Couldn't copy the effect's settings", { description: errorMessage(err) });
+  }
+  if (useMusic.getState().projectId !== projectId) return;
+  commit((now) => effectToTrack(now, fromTrack, slot, toTrack, { copy: id }));
+  useMusicUi.getState().selectTrack(toTrack);
 }
 
 /**

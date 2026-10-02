@@ -20,8 +20,11 @@ interface MixerViewState {
   renameGroup: (id: string | null) => void;
   /** A track to scroll into view, once (just added, or selected by a key). */
   revealing: string | null;
-  /** A track's state being dragged (from its menu's Copy track state) to drop on another: where, and the track under it. */
-  carrying: { from: string; x: number; y: number; over: string | null } | null;
+  /**
+   * A track's state being dragged (from its menu's Copy track state) to drop on another, or one of its
+   * effects (`effect`: from the inspector's slots, moved, or copied with Alt): where, and the track under it.
+   */
+  carrying: { from: string; x: number; y: number; over: string | null; effect?: { name: string; copy: boolean } } | null;
   /** The mixer's view (this computer's: it's kept). */
   view: MixerViewKind;
   setView: (view: MixerViewKind) => void;
@@ -48,3 +51,9 @@ export const useMixerView = create<MixerViewState>((set) => ({
   carrying: null,
   carry: (carrying) => set({ carrying }),
 }));
+
+/** The mixer track whose strip is at a point of the page, or null. */
+export function trackAt(x: number, y: number): string | null {
+  const strip = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-track]");
+  return strip?.closest('[data-testid="mixer"]') ? (strip.dataset.track ?? null) : null;
+}

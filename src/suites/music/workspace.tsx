@@ -29,6 +29,7 @@ import { NoteProperties } from "./piano/note-properties";
 import { PianoRoll } from "./piano/piano-roll";
 import { usePiano } from "./piano/store";
 import { TransposeWindow } from "./transpose-window";
+import { PluginManager } from "./plugin-manager";
 import { ExportWindow } from "./export/export-window";
 import { useSongExport } from "./export/store";
 import * as mixer from "./mixer/actions";
@@ -90,6 +91,7 @@ function Windows() {
   const mixerOpen = useMusicUi((s) => s.mixerOpen);
   const transposeOpen = useMusicUi((s) => s.transposeOpen);
   const exportOpen = useMusicUi((s) => s.exportOpen);
+  const pluginManagerOpen = useMusicUi((s) => s.pluginManager !== null);
   const editingNote = usePiano((s) => s.editing);
   const chopping = usePiano((s) => s.chopping);
   const quantizing = usePiano((s) => s.quantizing);
@@ -123,6 +125,7 @@ function Windows() {
       {mixerOpen && <MixerWindow />}
       {transposeOpen && <TransposeWindow />}
       {exportOpen && <ExportWindow />}
+      {pluginManagerOpen && <PluginManager />}
       {pianoOpen && editingNote !== null && <NoteProperties key={editingNote} />}
       {pianoOpen && chopping && <Chopper />}
       {pianoOpen && quantizing && <Quantizer />}
@@ -164,6 +167,7 @@ function frontWindow(): WindowId | null {
     : id === "mixer" ? ui.mixerOpen
     : id === "transpose" ? ui.transposeOpen
     : id === "export" ? ui.exportOpen
+    : id === "plugins" ? ui.pluginManager !== null
     : id === "note" ? usePiano.getState().editing !== null
     : id === "chopper" ? usePiano.getState().chopping
     : id === "quantizer" ? usePiano.getState().quantizing

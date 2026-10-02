@@ -5,6 +5,7 @@ import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "@shared/m
 import type { MusicProject } from "@shared/music/types";
 import {
   addMixerTrackTool,
+  effectToTrackTool,
   describeMixer,
   findTrack,
   groupMixerTracksTool,
@@ -95,6 +96,20 @@ describe("the assistant's mixer edits", () => {
     expect(groupMixerTracksTool(grouped.song, { tracks: [1, 2], ungroup: true }, env).song.mixer.groups).toEqual([]);
     expect(() => groupMixerTracksTool(rack(), { tracks: ["master"] }, env)).toThrow(/master can't be in a group/);
     expect(updateMixerTrackTool(rack(), { track: 3, separator: true }, env).text).toMatch(/a divider before it/);
+  });
+
+  it("move an effect to another track, or copy it there", () => {
+    const song = setEffect(rack(), "insert_1", 2, EQ, "fx_eq");
+    const moved = effectToTrackTool(song, { track: 1, slot: 3, to: "master" }, null);
+    expect(moved.text).toBe('Moved Pro-Q 4 from slot 3 of insert 1 ("Insert 1") to slot 1 of the master.');
+    expect(track(moved.song, 0).effects[0]?.id).toBe("fx_eq");
+    expect(track(moved.song, 1).effects[2]).toBeNull();
+    const copied = effectToTrackTool(song, { track: 1, slot: 3, to: 2, toSlot: 4 }, "fx_copy");
+    expect(copied.text).toBe('Copied Pro-Q 4 from slot 3 of insert 1 ("Insert 1") to slot 4 of insert 2 ("Insert 2").');
+    expect(track(copied.song, 2).effects[3]?.id).toBe("fx_copy");
+    expect(track(copied.song, 1).effects[2]?.id).toBe("fx_eq");
+    expect(() => effectToTrackTool(song, { track: 1, slot: 3, to: 1 }, null)).toThrow(/the track it's on/);
+    expect(() => effectToTrackTool(song, { track: 1, slot: 1, to: 2 }, null)).toThrow(/is empty/);
   });
 
   it("change, move and remove effects by slot, and find a free slot for one", () => {

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { TrackState } from "@shared/music/mixer";
 import type { Channel, MusicProject, Note } from "@shared/music/types";
 import { createWindows } from "@/components/windows/store";
+import type { ManagerFilter } from "./plugin-groups";
 import { useMusic } from "./store";
 
 /**
@@ -20,6 +21,7 @@ export type WindowId =
   | "quantizer"
   | "export"
   | "automate"
+  | "plugins"
   | `channel:${string}`
   | `automation:${string}`
   | `gross:${string}`
@@ -90,6 +92,8 @@ interface MusicUiState {
   transposeOpen: boolean;
   /** The export window (⌘R). */
   exportOpen: boolean;
+  /** The Plugin manager (a picker's More plugins…): what it lists when it opens, or null while it's closed. */
+  pluginManager: ManagerFilter | null;
   /** The channels whose settings windows are open. */
   openChannelIds: string[];
 
@@ -113,6 +117,8 @@ interface MusicUiState {
   copyTrack: (copied: { projectId: string; state: TrackState }) => void;
   setTransposeOpen: (open: boolean) => void;
   setExportOpen: (open: boolean) => void;
+  /** Open the Plugin manager listing `filter`'s plugins (null closes it). */
+  setPluginManager: (filter: ManagerFilter | null) => void;
   /**
    * Open a channel's settings window (or close it, if it's open). Only one is open at a time, as in
    * FL Studio, unless `keepOthers` (Alt+click).
@@ -139,6 +145,7 @@ const INITIAL = {
   copiedTrack: null as { projectId: string; state: TrackState } | null,
   transposeOpen: false,
   exportOpen: false,
+  pluginManager: null as ManagerFilter | null,
   openChannelIds: [] as string[],
 };
 
@@ -201,6 +208,10 @@ export const useMusicUi = create<MusicUiState>((set, get) => ({
   setExportOpen(exportOpen) {
     if (exportOpen) windows().focus("export");
     set({ exportOpen });
+  },
+  setPluginManager(pluginManager) {
+    if (pluginManager) windows().focus("plugins");
+    set({ pluginManager });
   },
 
   toggleChannelWindow(id, keepOthers) {

@@ -362,6 +362,33 @@ export function moveEffectTo(song: MusicProject, trackId: string, from: number, 
   });
 }
 
+/** The first empty slot of a track, or null when all ten are taken. */
+export function freeSlot(song: MusicProject, trackId: string): number | null {
+  const slot = getMixerTrack(song, trackId)?.effects.findIndex((e) => !e) ?? -1;
+  return slot >= 0 ? slot : null;
+}
+
+/**
+ * An effect dragged onto another track (FL Studio's slot dropped on another strip): it moves there, to slot
+ * `to` if that's empty, else the first empty one. It keeps its id, so its plugin (loaded as it is), its
+ * settings and its automation go with it. With `copy` (the id the copy gets: its plugin's settings file is
+ * copied by the server, `CopyStatesRequest`), a copy goes there and the effect stays. The same song back
+ * when there's no room or nothing to move.
+ */
+export function effectToTrack(song: MusicProject, fromTrack: string, slot: number, toTrack: string, options: { to?: number; copy?: string } = {}): MusicProject {
+  const effect = isSlot(slot) ? getMixerTrack(song, fromTrack)?.effects[slot] : null;
+  if (!effect || !getMixerTrack(song, toTrack) || (fromTrack === toTrack && !options.copy)) return song;
+  const wanted = options.to !== undefined && isSlot(options.to) && !getMixerTrack(song, toTrack)!.effects[options.to] ? options.to : null;
+  const to = wanted ?? freeSlot(song, toTrack);
+  if (to === null) return song;
+  const placed = updateSlots(song, toTrack, (effects) => {
+    const next = [...effects];
+    next[to] = options.copy ? { ...effect, id: options.copy } : effect;
+    return next;
+  });
+  return options.copy ? placed : updateSlots(placed, fromTrack, (effects) => effects.map((e, i) => (i === slot ? null : e)));
+}
+
 /** Move an effect one slot up (-1) or down (1), swapping with what's there (FL's mouse wheel over a slot). */
 export function moveEffect(song: MusicProject, trackId: string, slot: number, direction: -1 | 1): MusicProject {
   const to = slot + direction;

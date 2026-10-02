@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EnginePlugin } from "@shared/music/engine";
-import { OTHER, PINNED, PICKER_COLUMNS, PICKER_ROWS, besideIndex, matches, pickerColumns, pickerItem, pickerOrder, pickerSize, pluginGroup } from "./plugin-groups";
+import { OTHER, PINNED, PICKER_COLUMNS, PICKER_ROWS, besideIndex, managerRows, matches, pickerColumns, pickerItem, pickerOrder, pickerSize, pluginGroup, starredPlugins } from "./plugin-groups";
 
 const plugin = (name: string, category: string, manufacturer = "Maker"): EnginePlugin => ({ id: `VST3-${name}`, name, format: "VST3", manufacturer, category, isInstrument: false });
 
@@ -53,5 +53,23 @@ describe("the plugin picker", () => {
     expect(pickerSize([group("EQ", 2), group("Reverb", 1)])).toEqual({ columns: 1, rows: 6 });
     expect(pickerSize([group("EQ", 10), group("Reverb", 10)])).toEqual({ columns: 2, rows: 12 });
     expect(pickerSize([group("EQ", PICKER_ROWS * PICKER_COLUMNS)])).toBeNull();
+  });
+});
+
+describe("the Plugin manager", () => {
+  const synth = { ...plugin("Serum 2", "Instrument|Synth", "Xfer"), isInstrument: true };
+  const all = [plugin("Pro-Q 4", "Fx|EQ", "FabFilter"), synth, plugin("AUPeakLimiter", "Effect", "Apple"), { ...plugin("Serum 2", "Instrument|Synth", "Xfer"), id: "AU-Serum 2", format: "AudioUnit", isInstrument: true }];
+
+  it("lists every plugin by name, or the instruments, the effects or the starred, filtered by what's typed", () => {
+    expect(managerRows(all, [], "", "all").map((p) => `${p.name} ${p.format}`)).toEqual(["AUPeakLimiter VST3", "Pro-Q 4 VST3", "Serum 2 AudioUnit", "Serum 2 VST3"]);
+    expect(managerRows(all, [], "", "instrument").map((p) => p.id)).toEqual(["AU-Serum 2", "VST3-Serum 2"]);
+    expect(managerRows(all, [], "", "effect").map((p) => p.name)).toEqual(["AUPeakLimiter", "Pro-Q 4"]);
+    expect(managerRows(all, ["VST3-Pro-Q 4"], "", "starred").map((p) => p.name)).toEqual(["Pro-Q 4"]);
+    expect(managerRows(all, [], "fabfilter", "all").map((p) => p.name)).toEqual(["Pro-Q 4"]);
+  });
+
+  it("gives the pickers only the starred plugins", () => {
+    expect(starredPlugins(all, ["VST3-Serum 2"]).map((p) => p.id)).toEqual(["VST3-Serum 2"]);
+    expect(starredPlugins(all, [])).toEqual([]);
   });
 });

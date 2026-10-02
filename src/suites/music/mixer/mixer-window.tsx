@@ -71,7 +71,7 @@ import { faderDb, meterScale } from "./meter";
 import { useMeters } from "./meters";
 import { Inspector } from "./inspector";
 import { delayText, offsetText, pluginDelay } from "./latency";
-import { MIXER_VIEWS, type MixerViewKind, STRIP_WIDTHS, VIEW_NAMES, useMixerView } from "./view";
+import { MIXER_VIEWS, type MixerViewKind, STRIP_WIDTHS, VIEW_NAMES, trackAt, useMixerView } from "./view";
 
 
 /** What a track's send switch shows, for the current track (the one sends are made from). */
@@ -340,7 +340,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
-  const dropTarget = useMixerView((s) => s.carrying !== null && s.carrying.over === track.id && s.carrying.from !== track.id);
+  const dropTarget = useMixerView((s) => s.carrying !== null && s.carrying.over === track.id && (s.carrying.from !== track.id || !!s.carrying.effect?.copy));
   const id = track.id;
 
   return (
@@ -832,10 +832,6 @@ function SelectionMeter({ meterRef }: { meterRef: (canvas: HTMLCanvasElement | n
 }
 
 /** The track under a point of the page, if it's one of the mixer's strips. */
-function trackAt(x: number, y: number): string | null {
-  const strip = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-track]");
-  return strip?.closest('[data-testid="mixer"]') ? (strip.dataset.track ?? null) : null;
-}
 
 /**
  * FL Studio's drag of a track's state: pressed on its menu's Copy track state and dragged, the menu
@@ -887,7 +883,9 @@ function CarriedState() {
   if (!carrying) return null;
   return (
     <div className="floating pointer-events-none fixed z-[10000] rounded-sm px-2 py-1 text-[11px]" style={{ left: carrying.x + 12, top: carrying.y + 8 }} data-testid="carried-state">
-      {name}'s state{carrying.over && carrying.over !== carrying.from ? " → drop to copy" : ""}
+      {carrying.effect
+        ? `${carrying.effect.name}${carrying.over && (carrying.over !== carrying.from || carrying.effect.copy) ? (carrying.effect.copy ? " → drop to copy" : " → drop to move (Alt: copy)") : ""}`
+        : `${name}'s state${carrying.over && carrying.over !== carrying.from ? " → drop to copy" : ""}`}
     </div>
   );
 }
