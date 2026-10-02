@@ -166,7 +166,8 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      notes, the metronome. Host.cpp: the song's plugin channels (instances, state files,
                      windows). Plugins.cpp: plugin scanning and the bench's two slots. FilePreview.cpp:
                      the Browser's preview, a file streamed from disk; Recorder.cpp: recording (armed tracks'
-                     inputs to WAVs, through FIFOs a writer thread empties); AudioStream.cpp is that stream (a reader
+                     inputs to WAVs, through FIFOs a writer thread empties); MidiInputs.cpp: MIDI keyboards
+                     (every input not turned off, into the sequencer's queue); AudioStream.cpp is that stream (a reader
                      thread, a lock-free ring), and ClipPlayer.cpp plays the playlist's audio clips with it,
                      each started on its sample. Export.cpp: the export, rendered on a thread of its own
                      (Workers.h runs its plugins on every core). GrossBeat.cpp: Gross Beat, a native effect
@@ -194,7 +195,8 @@ src/
                      pattern-picker.tsx, gross-beat/ (Gross Beat's window, its mapping panel and tools),
                      toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
                      tempo and position LCDs, the hint bar; its maths in position.ts), recording.ts (armed
-                     tracks, Record, takes into the song) and inputs.ts (the input device's channels), playlist/ (the
+                     tracks, Record, takes into the song) and inputs.ts (the input device's channels), midi.ts
+                     (MIDI keyboards' target, the keys held, the typing keyboard), playlist/ (the
                      Playlist, F5: see "The music suite"), automation/ (automation clips: see "The music
                      suite"), playhead.ts (where the song and the shown pattern
                      are now), settings.tsx (its section of Settings: the device, and
@@ -309,7 +311,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, Gross Beat. Where it is and every step still to come, in order:
+the export, automation, recording, MIDI input, Gross Beat. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
@@ -469,6 +471,17 @@ the export, automation, recording, Gross Beat. Where it is and every step still 
   on it. The transport doesn't import the recording store (a cycle through the song's store): recording
   registers itself with it (`setRecorder`). Offline tests feed a WAV as the device's inputs (`render`'s
   `input`).
+- **MIDI input** (`docs/fl-studio/midi.md`): the engine listens to every MIDI input not turned off
+  (`MidiInputs`, `midi.json` in its data folder) and plays it on the **MIDI target**, the rack's selected
+  channel (`midiTarget`, sent by `src/suites/music/midi.ts`; packed with the song's serial so a song
+  handed over meanwhile keeps it). Messages reach the audio thread through a lock-free queue (MIDI's
+  threads take a spin lock among themselves only); a key's note off goes to the channel its note on did.
+  `midiIn` puts messages in the same queue: the typing keyboard (Ctrl+T, `typing-keyboard.ts`) and the
+  tests play that way, so everything played is lit and recorded alike. What was played comes back as
+  `midi` events with the engine's tick; while recording (Record with nothing armed records notes alone)
+  the tab keeps them, and on stop `recordedNotes`/`addRecordedNotes` (`shared/music/recording.ts`) make
+  them one undo step in a pattern placed where recording started. Tested offline in
+  `server/music/midi.integration.test.ts`.
 - **Gross Beat** (`docs/fl-studio/gross-beat.md`; `shared/music/gross-beat*.ts`, `engine/src/GrossBeat.cpp`,
   `src/suites/music/gross-beat/`): FL's time and volume effect, ours, not a plugin: a `MixerEffect` whose
   plugin is `GROSS_BEAT_PLUGIN`, its settings **in the song** (`MixerEffect.grossBeat`: undone, read and drawn

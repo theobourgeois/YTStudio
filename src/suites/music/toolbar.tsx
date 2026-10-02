@@ -1,9 +1,10 @@
 import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
-import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFolders, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
+import { PiArrowUUpLeft, PiArrowUUpRight, PiExport, PiFolders, PiKeyboard, PiListDashes, PiMetronome, PiPauseFill, PiPianoKeys, PiPlayFill, PiRows, PiSlidersHorizontal, PiStopFill, PiWarning } from "react-icons/pi";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { cn } from "cn";
 import { lengthOf, setMainVolume, setTempo } from "@shared/music/edits";
 import { METRONOME_SOUNDS, type MetronomeSound } from "@shared/music/engine";
+import { NOTE_QUANTIZE, type NoteQuantize } from "@shared/music/recording";
 import { songTicks } from "@shared/music/playlist";
 import { DEFAULT_TEMPO, DEFAULT_VOLUME, MAX_TEMPO, MIN_TEMPO, stepsPerBar } from "@shared/music/project";
 import { STEP_TICKS } from "@shared/music/types";
@@ -40,6 +41,7 @@ import { positionAt, positionText, splitTail, tempoText, timeText } from "./posi
 import { useSongExport } from "./export/store";
 import { COUNT_IN_BARS, useMusicPreferences } from "./preferences";
 import { useRecording } from "./recording";
+import { useMidi } from "./midi";
 import { currentPattern, songGesture, useMusic, useSong } from "./store";
 import { switchMode, useTransport } from "./transport";
 import { useMusicUi } from "./ui";
@@ -85,6 +87,7 @@ export function MusicToolbar() {
               </div>
               <RecordButton />
               <CountInToggle />
+              <TypingKeyboardToggle />
               <MetronomeToggle />
             </div>
             <TempoLcd />
@@ -232,7 +235,7 @@ function PlayButtons() {
 
 /**
  * FL Studio's Record (R), a round button with a red dot: while it's on (all red), Play records the armed
- * mixer tracks, after the count-in. It pulses while recording. Its right-click menu has FL's recording options: the count-in,
+ * mixer tracks and the notes played on the selected channel (`docs/fl-studio/midi.md`), after the count-in. It pulses while recording. Its right-click menu has FL's recording options: the count-in,
  * Loop record (a take each pass round the loop), Blend (hear earlier passes) and Disarm on stop.
  */
 function RecordButton() {
@@ -240,7 +243,11 @@ function RecordButton() {
   const recording = useRecording((s) => s.active !== null);
   const options = useMusicPreferences((s) => s.recording);
   const set = useMusicPreferences((s) => s.setRecording);
-  const title = recording ? "Recording (Space stops)" : on ? "Record is on: Play records the armed tracks (R)" : "Record (R): then Play records the mixer tracks armed. Right-click for its options";
+  const title = recording
+    ? "Recording (Space stops)"
+    : on
+      ? "Record is on: Play records the armed tracks and the notes played on the selected channel (R)"
+      : "Record (R): then Play records the mixer tracks armed and the notes you play. Right-click for its options";
   const button = (
     <button
       type="button"
@@ -282,8 +289,64 @@ function RecordButton() {
         <ContextMenuCheckboxItem checked={options.disarmOnStop} onCheckedChange={(disarmOnStop) => set({ disarmOnStop })}>
           Disarm on stop
         </ContextMenuCheckboxItem>
+        <ContextMenuSeparator />
+        <ContextMenuLabel className="text-[11px] font-normal text-muted-foreground">Recorded notes (on the Piano roll's snap)</ContextMenuLabel>
+        <ContextMenuRadioGroup value={options.quantize} onValueChange={(value) => set({ quantize: value as NoteQuantize })}>
+          {NOTE_QUANTIZE.map((mode) => (
+            <ContextMenuRadioItem key={mode} value={mode}>
+              {QUANTIZE_LABELS[mode]}
+            </ContextMenuRadioItem>
+          ))}
+        </ContextMenuRadioGroup>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** Record's menu: what of recorded notes is quantized (FL's). */
+const QUANTIZE_LABELS: Record<NoteQuantize, string> = {
+  none: "Don't quantize",
+  start: "Quantize start times",
+  end: "Quantize end times",
+  both: "Quantize starts and ends",
+  startKeepLength: "Quantize starts, keeping lengths",
+};
+
+/**
+ * FL Studio's typing keyboard to piano keyboard (Ctrl+T): while it's on, the letter rows play the
+ * selected channel (Z and Q are Cs an octave apart; `[` and `]` move them). Its light blinks when a
+ * note comes in, from it or a MIDI keyboard (FL's MIDI activity light).
+ */
+function TypingKeyboardToggle() {
+  const typing = useMidi((s) => s.typing);
+  const octave = useMidi((s) => s.octave);
+  const lastNoteAt = useMidi((s) => s.lastNoteAt);
+  const [lit, setLit] = useState(false);
+  useEffect(() => {
+    if (!lastNoteAt) return;
+    setLit(true);
+    const timer = setTimeout(() => setLit(false), 150);
+    return () => clearTimeout(timer);
+  }, [lastNoteAt]);
+  return (
+    <TransportButton
+      label="Typing keyboard"
+      title={
+        typing
+          ? `Typing keyboard to piano is on (Ctrl+T): Z and Q play C${octave} and C${octave + 1} on the selected channel, [ and ] change the octave`
+          : "Typing keyboard to piano (Ctrl+T): play the selected channel from the computer's keyboard"
+      }
+      on={typing}
+      className="relative"
+      onClick={() => useMidi.getState().setTyping(!typing)}
+    >
+      <PiKeyboard className="size-[17px]" />
+      <span
+        aria-hidden
+        data-midi-activity={lit || undefined}
+        className={cn("absolute top-[3px] right-[3px] size-1.5 rounded-full bg-brand transition-opacity duration-150", lit ? "opacity-100" : "opacity-0")}
+      />
+    </TransportButton>
   );
 }
 

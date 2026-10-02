@@ -1,6 +1,10 @@
 #include "Sequencer.h"
 
+#include "Protocol.h"
+
 #include <cmath>
+#include <cstring>
+#include <limits>
 #include <map>
 
 namespace
@@ -11,6 +15,10 @@ constexpr double fadeSeconds = 0.004;
 constexpr double auditionSeconds = 0.4;
 /** The longest a held key sounds if it's never let go (the tab went away mid-press). */
 constexpr double heldSeconds = 30.0;
+/** A MIDI keyboard's note: it sounds until the key is let go, however long that is. */
+constexpr juce::int64 keyHeld = std::numeric_limits<juce::int64>::max() / 4;
+/** How the MIDI target is packed (`midiTarget`): the song's serial above these bits, the channel + 1 in them. */
+constexpr int targetBits = 20;
 /**
  * Ticks (a fraction of a millionth of a sample's worth): a note that falls exactly on the edge of a
  * block must land in one block or the other, not in whichever the rounding of the position picks.
@@ -18,7 +26,7 @@ constexpr double heldSeconds = 30.0;
 constexpr double tickSlack = 1e-6;
 }
 
-Sequencer::Sequencer (bool offline) : clips (offline), recording (offline) {}
+Sequencer::Sequencer (bool offline) : clips (offline), recording (offline) { heldKeys.fill (-1); }
 
 Sequencer::~Sequencer()
 {
@@ -40,6 +48,7 @@ void Sequencer::setSong (std::unique_ptr<Song> next)
     channelIds.clear();
     for (const auto& channel : next->channels)
         channelIds.add (channel.id);
+    next->midiChannel = channelIds.indexOf (midiTargetId);
 
     // Which of the last song's tracks and sends each of this one's was, so a fader that moved glides
     // there (the audio thread only copies by these indexes).
@@ -139,6 +148,55 @@ bool Sequencer::preview (const juce::String& channelId, int key, float velocity,
         triggers[(size_t) scope.startIndex1] = { channel, (float) (key - 60), velocity * velocity / (0.78f * 0.78f), on ? Trigger::Kind::hold : Trigger::Kind::release, key, velocity };
     return true;
 }
+void Sequencer::setMidiTarget (const juce::String& channelId)
+{
+    midiTargetId = channelId;
+    // For the song last handed over (`serials`): the audio thread uses it once it has that song, and the
+    // song's own `midiChannel` (from this id too) until then.
+    midiTarget = (serials << targetBits) | (juce::uint64) (channelIds.indexOf (channelId) + 1);
+}
+
+int Sequencer::midiChannel() const
+{
+    const auto packed = midiTarget.load();
+    if ((packed >> targetBits) == song->serial)
+        return (int) (packed & ((1u << targetBits) - 1)) - 1;
+    return song->midiChannel;
+}
+
+void Sequencer::midiIn (const juce::MidiMessage& message)
+{
+    // Notes and controllers only (no SysEx): three bytes at most.
+    const auto size = message.getRawDataSize();
+    if (size < 1 || size > 3 || message.isSysEx())
+        return;
+    const juce::SpinLock::ScopedLockType lock (midiWriting);
+    const auto scope = midiQueue.write (1);
+    if (scope.blockSize1 <= 0)
+        return;
+    auto& event = midiEvents[(size_t) scope.startIndex1];
+    event.size = size;
+    std::memcpy (event.bytes, message.getRawData(), (size_t) size);
+}
+
+juce::Array<juce::var> Sequencer::takePlayed()
+{
+    juce::Array<juce::var> list;
+    const auto scope = playedQueue.read (playedQueue.getNumReady());
+    for (int i = 0; i < scope.blockSize1 + scope.blockSize2; ++i)
+    {
+        const auto& note = played[(size_t) (i < scope.blockSize1 ? scope.startIndex1 + i : scope.startIndex2 + i - scope.blockSize1)];
+        list.add (protocol::object ({ { "channel", note.channel >= 0 && note.channel < channelIds.size() ? juce::var (channelIds[note.channel]) : juce::var() },
+                                      { "key", note.key },
+                                      { "velocity", note.velocity },
+                                      { "on", note.on },
+                                      { "tick", note.playing ? juce::var (note.tick) : juce::var() },
+                                      { "counting", note.counting },
+                                      { "pass", (int) note.pass } }));
+    }
+    return list;
+}
+
 void Sequencer::stop()
 {
     nextGeneration();
@@ -410,6 +468,8 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
             else
                 startVoice (trigger.channel, trigger.pitch, trigger.gain, -1, 0);
         }
+        // MIDI keyboards: their notes start now, on the target channel.
+        playMidi();
 
         clips.receive (*song);
         // Where the song is over this block, for its Gross Beats (before `schedule` moves it on).
@@ -484,8 +544,120 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
             mixTracks (left, right, numSamples);
         }
     }
+    else
+    {
+        // No song: what keyboards sent has nowhere to go.
+        midiQueue.read (midiQueue.getNumReady());
+    }
     renderClick (left, right, numSamples);
     recording.write (inputs, numInputs, numSamples);
+}
+
+void Sequencer::playMidi()
+{
+    const auto scope = midiQueue.read (midiQueue.getNumReady());
+    const auto count = scope.blockSize1 + scope.blockSize2;
+    if (count == 0)
+        return;
+    const auto target = midiChannel();
+    const auto channels = (int) song->channels.size();
+    const auto report = [&] (int channel, int key, float velocity, bool on) {
+        const auto out = playedQueue.write (1);
+        if (out.blockSize1 > 0)
+            played[(size_t) out.startIndex1] = { channel, key, velocity, on, playing, playing && countInLeft > 0, position_, pass };
+    };
+    for (int i = 0; i < count; ++i)
+    {
+        const auto& event = midiEvents[(size_t) (i < scope.blockSize1 ? scope.startIndex1 + i : scope.startIndex2 + i - scope.blockSize1)];
+        auto message = juce::MidiMessage (event.bytes, event.size);
+        if (message.isNoteOn())
+        {
+            const auto key = message.getNoteNumber();
+            const auto velocity = message.getFloatVelocity();
+            // The same key again before it was let go: the last one ends first.
+            if (heldKeys[(size_t) key] >= 0)
+                releaseKey (heldKeys[(size_t) key], key);
+            heldKeys[(size_t) key] = -1;
+            if (target < 0 || target >= channels)
+                continue;
+            heldKeys[(size_t) key] = target;
+            auto& channel = song->channels[(size_t) target];
+            if (channel.isPlugin)
+            {
+                if (channel.plugin != nullptr)
+                    startNote (*channel.plugin, key, velocity, keyHeld, 0);
+            }
+            else if (auto* voice = startVoice (target, (float) (key - 60), velocity * velocity / (0.78f * 0.78f), -1, 0))
+                voice->key = key;
+            report (target, key, velocity, true);
+        }
+        else if (message.isNoteOff())
+        {
+            const auto key = message.getNoteNumber();
+            const auto channel = heldKeys[(size_t) key];
+            heldKeys[(size_t) key] = -1;
+            if (channel < 0 || channel >= channels)
+                continue;
+            releaseKey (channel, key);
+            report (channel, key, 0, false);
+        }
+        else if (message.isSustainPedalOn() || message.isSustainPedalOff())
+        {
+            // A sampler's notes let go of meanwhile end with the pedal; a plugin keeps its own.
+            pedal = message.isSustainPedalOn();
+            if (! pedal)
+                for (auto& voice : voices)
+                    if (voice.active && voice.sustained)
+                    {
+                        voice.sustained = false;
+                        voice.untilRelease = 0;
+                    }
+            if (target >= 0 && target < channels)
+                if (auto* plugin = song->channels[(size_t) target].plugin.get())
+                {
+                    message.setChannel (1);
+                    plugin->midi.addEvent (message, 0);
+                }
+        }
+        else if (message.isPitchWheel() || message.isController() || message.isChannelPressure() || message.isAftertouch())
+        {
+            // The mod wheel, pitch bend and the rest are the plugin's to use.
+            if (target >= 0 && target < channels)
+                if (auto* plugin = song->channels[(size_t) target].plugin.get())
+                {
+                    message.setChannel (1);
+                    plugin->midi.addEvent (message, 0);
+                }
+        }
+    }
+}
+
+void Sequencer::releaseKey (int channelIndex, int key)
+{
+    if (channelIndex < 0 || channelIndex >= (int) song->channels.size())
+        return;
+    auto& channel = song->channels[(size_t) channelIndex];
+    if (auto* plugin = channel.plugin.get())
+    {
+        for (int n = 0; n < plugin->numPending; ++n)
+            if (plugin->pending[(size_t) n].key == key)
+            {
+                plugin->midi.addEvent (juce::MidiMessage::noteOff (1, key), 0);
+                plugin->pending[(size_t) n] = plugin->pending[(size_t) --plugin->numPending];
+                break;
+            }
+        return;
+    }
+    for (auto& voice : voices)
+        if (voice.active && voice.channel == channelIndex && voice.key == key)
+        {
+            voice.key = -1;
+            // Held by the pedal: it ends when the pedal's let go.
+            if (pedal)
+                voice.sustained = true;
+            else
+                voice.untilRelease = 0;
+        }
 }
 
 
@@ -743,13 +915,13 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
         }
 }
 
-void Sequencer::startVoice (int channelIndex, float pitch, float gain, double lengthTicks, int delay, float pan)
+Sequencer::Voice* Sequencer::startVoice (int channelIndex, float pitch, float gain, double lengthTicks, int delay, float pan)
 {
     if (channelIndex < 0 || channelIndex >= (int) song->channels.size())
-        return;
+        return nullptr;
     const auto& channel = song->channels[(size_t) channelIndex];
     if (channel.sample == nullptr || channel.sample->audio.getNumSamples() == 0)
-        return;
+        return nullptr;
 
     if (channel.cutSelf)
         for (auto& sounding : voices)
@@ -786,6 +958,7 @@ void Sequencer::startVoice (int channelIndex, float pitch, float gain, double le
     voice->level = channel.hasEnvelope && channel.envelope.attack > 0 ? 0.0f : 1.0f;
     if (lengthTicks >= 0)
         voice->untilRelease = (juce::int64) (lengthTicks * 60.0 * sampleRate / (song->tempo * song->ppq));
+    return voice;
 }
 
 std::pair<float*, float*> Sequencer::trackAudio (int channel)

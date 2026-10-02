@@ -10,6 +10,7 @@ import { clipPreview } from "./playlist/preview";
 import { usePlaylist } from "./playlist/store";
 import { armedIn, useRecording } from "./recording";
 import { useInputs } from "./inputs";
+import { startMidiSync, useMidi } from "./midi";
 import { useMusic } from "./store";
 import { NO_CHANNELS, NO_EFFECTS, NO_GROSS_BEATS, NO_METERS, afterSongSent, useTransport } from "./transport";
 import { currentTrackId, useMusicUi } from "./ui";
@@ -109,6 +110,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   meterSelection(true);
   // The input device's channels, for the Input menus and audio tracks' headers.
   void useInputs.getState().load();
+  // The channel MIDI keyboards play.
+  const midi = startMidiSync();
   const stopListening = musicApi.onEngineEvent((event) => {
     if (event.event === "transport") {
       // Play stopped (by the engine, or another tab): a recording is over.
@@ -126,6 +129,10 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         filePreview: event.preview ?? null,
         grossBeats: event.grossBeats ?? NO_GROSS_BEATS,
       });
+    } else if (event.event === "midi") {
+      // Played on a MIDI keyboard (or the typing keyboard): lit, and kept while recording.
+      useMidi.getState().played(event.notes);
+      useRecording.getState().notesPlayed(event.notes);
     } else if (event.event === "take") {
       useRecording.getState().take(event);
     } else if (event.event === "touch") {
@@ -154,6 +161,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       useRecording.getState().stopped();
       useTransport.setState({ playing: false, tick: 0 });
       meterSelection(true);
+      midi.resend();
     }
   });
   void send();
@@ -185,6 +193,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     unsubscribeArmed();
     unsubscribeHeld();
     unsubscribeSelection();
+    midi.stop();
     stopListening();
     if (useTransport.getState().playing) void musicApi.engine("stop", {}).catch(() => {});
     // What's been turned in the plugins' own windows is kept.

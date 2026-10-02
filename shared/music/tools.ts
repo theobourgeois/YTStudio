@@ -392,6 +392,24 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({}),
   }),
   tool({
+    name: "list_midi_inputs",
+    title: "List the MIDI keyboards",
+    kind: "look",
+    description:
+      "The MIDI keyboards on this computer (each plays unless the user turned it off in Settings), the channel they play now (the one " +
+      "selected in the rack: select_channel changes it), and whether the typing keyboard to piano (Ctrl+T) is on. record_audio records what's played.",
+    inputSchema: obj({}),
+  }),
+  tool({
+    name: "select_channel",
+    title: "Select a channel",
+    kind: "action",
+    description:
+      "Select a channel in the rack, as a click on its button does (the editor's state, not the song's): MIDI keyboards and the typing keyboard " +
+      "play it, and record_audio records notes on it.",
+    inputSchema: obj({ channel: str("The channel: its id or name (get_song lists them).") }, ["channel"]),
+  }),
+  tool({
     name: "arm_tracks",
     title: "Arm tracks to record",
     kind: "action",
@@ -405,11 +423,13 @@ export const MUSIC_TOOLS = [
     title: "Record",
     kind: "action",
     description:
-      "Start or stop recording the armed mixer tracks (the user plays or sings: you can't hear it). It records the song (song mode) from " +
+      "Start or stop recording the armed mixer tracks, and the notes the user plays on a MIDI keyboard (or the typing keyboard) on the channel " +
+      "selected in the rack (the user plays or sings: you can't hear it). With no track armed, it records notes alone. It records the song (song mode) from " +
       "`bar`, after a count-in of the metronome's clicks; with `loop` it goes round the Playlist's time selection (or the song), a take each " +
       "pass, until stopped. Stopping puts each take on the Playlist as an audio clip where it was recorded (on the track's audio track if it " +
       "has one, else the first track it fits on), on a channel of its own routed back into the track that recorded it; with `loop` all but the " +
-      "last pass are muted unless `blend`. Answers, on stop, with the clips made.",
+      "last pass are muted unless `blend`. Notes go into the pattern shown if it isn't on the Playlist yet (else a new one), its clip placed at " +
+      "the bar recording started in. Answers, on stop, with the clips and notes made.",
     inputSchema: obj(
       {
         action: oneOf(["start", "stop"], "What to do."),

@@ -261,6 +261,8 @@ struct Song
     int latency = 0;
     /** Tells songs apart, so the next one knows whether its `previous` indexes are into this one. */
     juce::uint64 serial = 0, previousSerial = 0;
+    /** The channel a MIDI keyboard plays (index into `channels`), or -1: the rack's selected one, set as it's handed over (`Sequencer::setSong`). */
+    int midiChannel = -1;
 
     int channelIndex (const juce::String& id) const;
 

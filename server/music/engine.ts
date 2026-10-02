@@ -350,7 +350,9 @@ export class AudioEngine {
     if (typeof input.input === "string") params.input = input.input;
     if (isFiniteNumber(input.bufferSize) && input.bufferSize > 0) params.bufferSize = Math.round(input.bufferSize);
     if (isFiniteNumber(input.sampleRate) && input.sampleRate > 0) params.sampleRate = input.sampleRate;
-    if (!Object.keys(params).length) throw new HttpError(400, 'Give an "output", an "input", a "bufferSize" or a "sampleRate".');
+    if (isObject(input.midiInput) && typeof input.midiInput.name === "string" && input.midiInput.name)
+      params.midiInput = { name: input.midiInput.name.slice(0, 200), enabled: input.midiInput.enabled !== false };
+    if (!Object.keys(params).length) throw new HttpError(400, 'Give an "output", an "input", a "bufferSize", a "sampleRate" or a "midiInput".');
     return this.withSavedIn((await this.request("setDevice", params)) as RawDevices);
   }
 
@@ -402,6 +404,7 @@ export class AudioEngine {
         from: isFiniteNumber(body.from) ? Math.max(0, body.from) : 0,
         countIn: isFiniteNumber(body.countIn) ? clamp(body.countIn, 0, 96 * 4 * 16) : 0,
         loop: body.loop === true,
+        notes: body.notes === true,
       })) as RawStatus;
       return { recordingId, status: await this.withSaved(status) };
     } catch (err) {
@@ -469,6 +472,19 @@ export class AudioEngine {
           on: body.on === true,
           velocity: isFiniteNumber(body.velocity) ? clamp(body.velocity, 0, 1) : DEFAULT_VELOCITY,
         };
+      }
+      case "midiTarget":
+        if (body.channel !== null && (typeof body.channel !== "string" || !/^[\w-]{1,64}$/.test(body.channel)))
+          throw new HttpError(400, '"channel" must be a channel\'s id, or null for none.');
+        return { channel: body.channel ?? null };
+      case "midiIn": {
+        const messages = Array.isArray(body.messages) ? body.messages : [];
+        const valid = messages
+          .filter((m): m is number[] => Array.isArray(m) && m.length >= 1 && m.length <= 3 && m.every((b) => Number.isInteger(b) && b >= 0 && b <= 255))
+          // A status byte first, then data bytes.
+          .filter((m) => m[0] >= 0x80 && m.slice(1).every((b) => b < 0x80));
+        if (!valid.length) throw new HttpError(400, '"messages" must be MIDI messages: arrays of a status byte (128 to 255) and up to two data bytes (0 to 127).');
+        return { messages: valid.slice(0, 256) };
       }
       case "metronome":
         if (body.sound !== undefined && !isMetronomeSound(body.sound))
@@ -618,7 +634,14 @@ export class AudioEngine {
           this.emit({ event: "ready" });
         } else if (message.event === "take") {
           this.take(message as unknown as RawTake);
-        } else if (message.event === "transport" || message.event === "key" || message.event === "export" || message.event === "touch" || message.event === "automate") {
+        } else if (
+          message.event === "transport" ||
+          message.event === "key" ||
+          message.event === "export" ||
+          message.event === "touch" ||
+          message.event === "automate" ||
+          message.event === "midi"
+        ) {
           this.emit(message as unknown as EngineEvent);
         } else if (message.event === "status" && isObject(message.status)) {
           void this.withSaved(message.status as unknown as RawStatus).then((status) => this.emit({ event: "status", status }));

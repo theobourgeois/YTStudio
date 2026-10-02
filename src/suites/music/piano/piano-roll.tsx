@@ -23,6 +23,7 @@ import { useMusicUi } from "../ui";
 import { MusicWindow } from "../window";
 import { chop, chopperResult, glue, legato, openChopper, pianoChannel, pianoContext, quantize } from "./actions";
 import { applyDrag, rectSelection } from "./drag";
+import { heldKeys, useMidi } from "../midi";
 import { type Scene, drawGrid, drawHandle, drawKeys, drawLane, drawRuler, prepare, readPalette, stretchHandle } from "./draw";
 import { onFade, vanishing } from "./fades";
 import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT, SNAPS, SNAP_LABELS, type Snap, pitchToY, tickToX, wheelZoomFactor, zoomAt } from "./geometry";
@@ -336,7 +337,12 @@ function PianoBody() {
       const r = prepare(ruler.current, width, RULER_H);
       if (r) drawRuler(r, { ...scene, height: RULER_H }, useTransport.getState().startTick);
       const k = prepare(keys.current, KEYS_W, height);
-      if (k) drawKeys(k, view, KEYS_W, height, palette, piano.heldKey);
+      if (k) {
+        // The key the mouse holds, and those played on a keyboard on this channel.
+        const held = new Set(heldKeys(ctx.channel.id));
+        if (piano.heldKey !== null) held.add(piano.heldKey);
+        drawKeys(k, view, KEYS_W, height, palette, held);
+      }
       if (lane.current && piano.laneHeight) {
         const l = prepare(lane.current, width, piano.laneHeight);
         if (l) drawLane(l, { ...scene, height: piano.laneHeight }, piano.lane);
@@ -355,6 +361,7 @@ function PianoBody() {
       usePiano.subscribe(schedule),
       useMusicUi.subscribe((s, p) => s.selectedChannelIds !== p.selectedChannelIds && schedule()),
       useTransport.subscribe((s, p) => s.startTick !== p.startTick && schedule()),
+      useMidi.subscribe((s, p) => s.held !== p.held && schedule()),
       onFade(schedule),
     ];
     // The theme (light or dark) changes the colours.

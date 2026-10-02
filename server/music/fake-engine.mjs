@@ -224,8 +224,14 @@ const devices = () => ({
   inputChannels: device.input ? INPUTS[device.input] : [],
   bufferSizes: [64, 128, 256, 512],
   sampleRates: [44100, 48000],
+  midiInputs: MIDI_INPUTS.map((name) => ({ id: name, name, enabled: !midiOff.has(name), open: !midiOff.has(name) })),
   status: status(),
 });
+/** MIDI keyboards: one, as if plugged in. Turned off by name (`setDevice { midiInput }`). */
+const MIDI_INPUTS = ["Fake Keys"];
+const midiOff = new Set();
+/** The channel MIDI plays (`midiTarget`). */
+let midiTarget = null;
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 /** The tracks the selection meter adds up (`meterTracks`). */
 let metered = [];
@@ -264,7 +270,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const { id, cmd, ...params } = JSON.parse(line);
   const fail = (error) => send({ id, ok: false, error });
   if (cmd === "crash") process.exit(3);
-  if (exporting && ["play", "preview", "trigger", "previewFile", "render", "setDevice", "tone", "note", "load", "unload", "editor"].includes(cmd)) return fail("The song is being exported: wait for it to finish.");
+  if (exporting && ["play", "preview", "midiIn", "trigger", "previewFile", "render", "setDevice", "tone", "note", "load", "unload", "editor"].includes(cmd)) return fail("The song is being exported: wait for it to finish.");
   if (cmd === "export") {
     if (exporting) return fail("A song is being exported already.");
     startExport(params);
@@ -297,6 +303,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   }
   if (cmd === "devices") return send({ id, ok: true, result: devices() });
   if (cmd === "setDevice") {
+    if (params.midiInput) {
+      if (params.midiInput.enabled) midiOff.delete(params.midiInput.name);
+      else midiOff.add(params.midiInput.name);
+      delete params.midiInput;
+    }
     if (typeof params.input === "string") params.input = INPUTS[params.input] ? params.input : null;
     Object.assign(device, params);
     return send({ id, ok: true, result: devices() });
@@ -304,7 +315,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (cmd === "record") {
     if (recording) return fail("It's recording already: stop it first.");
     const tracks = (song?.tracks ?? []).filter((t) => t.input?.armed).map((t) => ({ id: t.id, channels: t.input.channels }));
-    if (!tracks.length) return fail("No mixer track is armed with an input: choose a track's input in the Mixer, which arms it.");
+    if (!tracks.length && !params.notes) return fail("No mixer track is armed with an input: choose a track's input in the Mixer, which arms it.");
     recording = { id: params.recordingId, folder: params.folder, from: params.from ?? 0, loop: params.loop === true, tracks };
     // After the count-in, as if it had begun `from` ticks earlier.
     const msPerTick = song ? 60000 / (song.tempo * song.ppq) : 0;
@@ -322,6 +333,19 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     sendTransport();
   }
   if (cmd === "metronome") metronome = params.on;
+  if (cmd === "midiTarget") midiTarget = params.channel;
+  // Notes as a keyboard sends them: told back as the real engine tells them, on the target channel.
+  if (cmd === "midiIn") {
+    const channel = song?.channels.some((c) => c.id === midiTarget) ? midiTarget : null;
+    const playing = playingSince !== null;
+    const notes = params.messages
+      .filter((m) => (m[0] & 0xe0) === 0x80 && channel)
+      .map((m) => {
+        const on = (m[0] & 0xf0) === 0x90 && (m[2] ?? 0) > 0;
+        return { channel, key: m[1], velocity: on ? m[2] / 127 : 0, on, tick: playing ? tick() : null, counting: playing && countInLeft() > 0, pass: playing && song ? Math.floor(Math.max(0, elapsed()) / song.loopTicks) : 0 };
+      });
+    if (notes.length) send({ event: "midi", notes });
+  }
   if (cmd === "previewFile") preview = { id: params.previewId, start: params.start, since: Date.now() };
   if (cmd === "stopPreview") preview = null;
   if (cmd === "meterTracks") metered = params.tracks;

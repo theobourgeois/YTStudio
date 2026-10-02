@@ -442,9 +442,9 @@ export function rulerMarks(
 /**
  * The keyboard, drawn as a piano: white keys at their true sizes (three to the five rows from C to E,
  * four to the seven from F to B), black keys over them. Every white key is named when the rows are
- * tall enough to read, else only the Cs.
+ * tall enough to read, else only the Cs. Keys `held` (by the mouse, or played on a keyboard) are lit.
  */
-export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: number, height: number, palette: Palette, held: number | null) {
+export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: number, height: number, palette: Palette, held: ReadonlySet<number>) {
   ctx.fillStyle = palette.keys;
   ctx.fillRect(0, 0, width, height);
   const top = yToPitch(view, 0) + 1;
@@ -470,7 +470,7 @@ export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: 
   for (const key of whiteKeys(view, bottom, top)) {
     const y = Math.round(key.top);
     const h = Math.round(key.bottom) - y;
-    ctx.fillStyle = key.pitch === held ? pressed : key.pitch % 12 === 0 ? shaded : white;
+    ctx.fillStyle = held.has(key.pitch) ? pressed : key.pitch % 12 === 0 ? shaded : white;
     ctx.fillRect(0, y, width - 1, h - 1);
     ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
     ctx.fillRect(0, y + h - 1, width - 1, 1);
@@ -486,12 +486,12 @@ export function drawKeys(ctx: CanvasRenderingContext2D, view: PianoView, width: 
     // Its shadow on the white keys, its body, then its lit front face.
     ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
     ctx.fillRect(blackWidth, y + 1, 3, h);
-    ctx.fillStyle = pitch === held ? "#2a4d82" : "#16181c";
+    ctx.fillStyle = held.has(pitch) ? "#2a4d82" : "#16181c";
     ctx.fillRect(0, y, blackWidth, h);
     if (h >= 6) {
       const face = ctx.createLinearGradient(0, 0, blackWidth, 0);
-      face.addColorStop(0, pitch === held ? "#3a66a6" : "#24272c");
-      face.addColorStop(1, pitch === held ? "#5d90d8" : "#454951");
+      face.addColorStop(0, held.has(pitch) ? "#3a66a6" : "#24272c");
+      face.addColorStop(1, held.has(pitch) ? "#5d90d8" : "#454951");
       ctx.fillStyle = face;
       ctx.fillRect(1, y + 1, blackWidth - 6, h - 3);
       ctx.fillStyle = "rgba(255, 255, 255, 0.18)";

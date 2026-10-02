@@ -59,6 +59,24 @@ public:
      * sampler plays its sample at that pitch. False: no such channel.
      */
     bool preview (const juce::String& channelId, int key, float velocity, bool on);
+    /**
+     * The channel MIDI keyboards play (the rack's selected one, by id; empty: none). Notes already held
+     * end on the channel they started on.
+     */
+    void setMidiTarget (const juce::String& channelId);
+    /**
+     * What was played on MIDI keyboards since the last call (message thread), as `MidiPlayed` events:
+     * each note on and off, its channel, and where the song was (the engine's tick into the loop, its pass
+     * round it; null while stopped). Empty: nothing.
+     */
+    juce::Array<juce::var> takePlayed();
+
+    // Any thread ---------------------------------------------------------------
+    /**
+     * A message from a MIDI keyboard (MIDI's own threads, or the `midiIn` command): it's played on the
+     * target channel at the start of the next block. Never waits for the audio thread.
+     */
+    void midiIn (const juce::MidiMessage& message);
     /** Delete the songs the audio thread has let go of. Call regularly. */
     void collectGarbage();
     /** Have the audio clips about to play ready to start on time (they're streamed from disk). Call regularly, and before each offline block. */
@@ -130,6 +148,28 @@ private:
         /** Being silenced (stop, cut self): samples left of a short fade, or negative; and how long until it starts. */
         int fade = -1, fadeWait = 0;
         juce::uint32 age = 0;
+        /** Started by a MIDI key (`key`), it plays until the key is let go; held by the sustain pedal meanwhile. */
+        int key = -1;
+        bool sustained = false;
+    };
+
+    /** A MIDI message as it came, waiting for the audio thread. */
+    struct MidiEvent
+    {
+        juce::uint8 bytes[3] {};
+        int size = 0;
+    };
+
+    /** A note played on a MIDI keyboard, as the audio thread heard it: what `takePlayed` says. */
+    struct Played
+    {
+        int channel = -1, key = 0;
+        float velocity = 0;
+        bool on = false;
+        /** Where the song was (the engine's tick, into the loop), and its pass round it; `playing` false: stopped. */
+        bool playing = false, counting = false;
+        double tick = 0;
+        juce::uint32 pass = 0;
     };
 
     struct Trigger
@@ -163,7 +203,13 @@ private:
     void scheduleRange (double from, double to, double origin, int offset, int length, double ticksPerSample);
     /** Make a new play (or stop): its number, published for the audio thread to pick up with the request. */
     juce::uint32 nextGeneration();
-    void startVoice (int channel, float pitch, float gain, double lengthTicks, int delay, float pan = 0);
+    Voice* startVoice (int channel, float pitch, float gain, double lengthTicks, int delay, float pan = 0);
+    /** Play what MIDI keyboards sent since the last block (start of a block, a song playing). */
+    void playMidi();
+    /** A MIDI key let go of on a channel: a plugin's note ends, a sampler's voice goes into its release (or waits for the pedal). */
+    void releaseKey (int channel, int key);
+    /** The channel MIDI plays now (the audio thread's view of `midiTarget`), or -1. */
+    int midiChannel() const;
     /** A note for a channel's plugin: on at `delay` samples into the block, off `lengthSamples` later. */
     void startNote (HostedPlugin&, int key, float velocity, juce::int64 lengthSamples, int delay);
     /** Send the note-offs that fall in this block, and count the others down. */
@@ -211,6 +257,21 @@ private:
 
     juce::AbstractFifo triggerQueue { queueSize };
     std::array<Trigger, queueSize> triggers {};
+
+    /** MIDI keyboards' messages: several threads may write (one at a time, by `midiWriting`), the audio thread reads. */
+    static constexpr int midiQueueSize = 1024;
+    juce::AbstractFifo midiQueue { midiQueueSize };
+    std::array<MidiEvent, midiQueueSize> midiEvents {};
+    juce::SpinLock midiWriting;
+    /** What the audio thread played of them, for the message thread (`takePlayed`). */
+    juce::AbstractFifo playedQueue { midiQueueSize };
+    std::array<Played, midiQueueSize> played {};
+    /** The MIDI target (message thread), and the audio thread's view of it: the song's serial it's for and its channel + 1, packed. */
+    juce::String midiTargetId;
+    std::atomic<juce::uint64> midiTarget { 0 };
+    /** The audio thread's: the channel each MIDI key held went to (-1: not held), and the sustain pedal. */
+    std::array<int, 128> heldKeys {};
+    bool pedal = false;
     /** The channels of the song last handed over (message thread), to name a trigger's channel. */
     juce::StringArray channelIds;
     /** The tracks of the song last handed over and each one's sends' tracks' ids (message thread), to match the next song's to them. */

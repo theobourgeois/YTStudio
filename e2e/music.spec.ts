@@ -1234,6 +1234,87 @@ test("the assistant records: an input given and armed, a take recorded and place
   expect(song.playlist.clips[0].offset).toBeCloseTo(0.015, 5);
 });
 
+test("MIDI keyboards play the selected channel, the typing keyboard (Ctrl+T) too, and Record keeps what's played in a pattern on the Playlist", async ({ page }) => {
+  const id = await openNewSong(page, "MIDI");
+  await addStarterKit(page);
+  const kick = page.getByRole("button", { name: "Select Kick" });
+  if ((await kick.getAttribute("aria-pressed")) !== "true") await kick.click();
+  await expect(kick).toHaveAttribute("aria-pressed", "true");
+
+  // Settings: the stand-in's keyboard is used as soon as it's there; it can be turned off and on.
+  await page.keyboard.press("ControlOrMeta+Comma");
+  const settings = page.getByRole("region", { name: "Settings" });
+  const keyboard = settings.getByTestId("midi-settings").getByRole("switch", { name: "Use Fake Keys" });
+  await expect(keyboard).toHaveAttribute("aria-checked", "true");
+  await keyboard.click();
+  await expect(keyboard).toHaveAttribute("aria-checked", "false");
+  await keyboard.click();
+  await expect(keyboard).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+
+  // Record on (R) and the count-in off, before the typing keyboard takes the letters.
+  const record = page.getByRole("button", { name: "Record", exact: true });
+  await page.getByRole("button", { name: "Count-in", exact: true }).click();
+  await page.keyboard.press("r");
+  await expect(record).toHaveAttribute("aria-pressed", "true");
+
+  // Ctrl+T: Z plays a C on the selected channel, as a keyboard's note would (and its light blinks when the engine plays it).
+  const typing = page.getByRole("button", { name: "Typing keyboard" });
+  await page.keyboard.press("Control+t");
+  await expect(typing).toHaveAttribute("aria-pressed", "true");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const played = page.waitForRequest((r) => r.url().endsWith("/api/engine/midiIn"));
+  await page.keyboard.down("z");
+  expect((await played).postDataJSON()).toEqual({ messages: [[0x90, 60, 100]] });
+  await expect(typing.locator("[data-midi-activity]")).toHaveCount(1);
+  await page.keyboard.up("z");
+
+  // What the kit's Kick has already (its steps), saved.
+  type Saved = { channels: { id: string; name: string }[]; patterns: { id: string; notes: Record<string, { id: number; pitch: number; start: number }[]> }[]; playlist: { clips: { kind: string; ref: string; track: number; start: number }[] } };
+  await expect.poll(async () => (await savedSong(page, id)).channels.length).toBe(4);
+  const kickId = ((await savedSong(page, id)) as Saved).channels.find((c) => c.name === "Kick")!.id;
+  const before = new Set((((await savedSong(page, id)) as Saved).patterns[0].notes[kickId] ?? []).map((n) => n.id));
+
+  // Space records (no track armed: notes alone); two notes played, then Space stops.
+  const started = page.waitForRequest((r) => r.url().endsWith("/api/engine/record"));
+  await page.keyboard.press("Space");
+  expect((await started).postDataJSON()).toMatchObject({ projectId: id, countIn: 0, notes: true, names: {} });
+  await expect(record).toHaveAttribute("data-recording", "true");
+  await page.waitForTimeout(300);
+  await page.keyboard.down("z");
+  await page.waitForTimeout(250);
+  await page.keyboard.up("z");
+  await page.keyboard.down("x");
+  await page.waitForTimeout(250);
+  await page.keyboard.up("x");
+  await page.keyboard.press("Space");
+  await expect(record).not.toHaveAttribute("data-recording");
+
+  // The notes are the pattern's (it wasn't on the Playlist), a clip of it placed where recording started: one undo step.
+  await expect.poll(async () => (await savedSong(page, id)).playlist.clips.length).toBe(1);
+  const song: Saved = await savedSong(page, id);
+  const notes = song.patterns[0].notes[kickId].filter((n) => !before.has(n.id));
+  expect(notes.map((n) => n.pitch)).toEqual([60, 62]);
+  expect(notes[1].start).toBeGreaterThan(notes[0].start);
+  expect(song.playlist.clips[0]).toMatchObject({ kind: "pattern", ref: song.patterns[0].id, track: 0, start: 0 });
+  await page.keyboard.press("Control+t");
+  await expect(typing).toHaveAttribute("aria-pressed", "false");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedSong(page, id)).playlist.clips.length).toBe(0);
+  await page.keyboard.press("r");
+
+  // The assistant: the keyboards, and the channel they play, which it selects.
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(["call list_midi_inputs", 'call select_channel {"channel": "Clap"}', 'call select_channel {"channel": "Nope"}'].join("\n"));
+  await composer.press("Enter");
+  await expect(panel).toContainText("list_midi_inputs: ok, select_channel: ok, select_channel: failed", { timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Select Clap" })).toHaveAttribute("aria-pressed", "true");
+  await expect(kick).toHaveAttribute("aria-pressed", "false");
+});
+
 test("the Browser: a folder added once for every song, opened, previewed, searched, starred, by mouse and by FL's keys", async ({ page }) => {
   // A sample folder of the user's: a kit with two kicks and a snare, and a loop.
   const folder = path.resolve("e2e/.data/My Samples");

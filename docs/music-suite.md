@@ -42,6 +42,7 @@ put together and how we use its manual).
 | Assistant | Tools at parity for all of the above (the mixer's too: `get_mixer`, `route_channels`, `update_mixer_track`, `set_send`, the mixer effect and track tools): `get_song`, `update_song`, `add_channel`, `list_plugins`, `update_channel`, `remove_channel`, `solo_channel`, `move_channel`, `set_steps`, `get_notes`, `set_notes`, `edit_step`, `add_pattern`, `update_pattern`, `remove_pattern`, `show_pattern`, `play_song`; the Browser's: `list_samples`, `search_samples`, `preview_sample`, `load_sample`, `add_sample_folder`, `star_sample`; the Playlist's: `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`, `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` in song mode | `shared/music/tools.ts` |
 | Automation | FL's automation clips, in one pass: a knob's or fader's Create automation clip (channels' volume and pan, mixer faders, pans, stereo separation, sends, effects' mixes, the main volume), a plugin's parameters (Automate "…" in its window's title bar, or the Picker's Automate… window listing every control), the curve shaped on its clips in the Playlist (points, tension handles, FL's eleven curve types, Alt+click deletes), its window (Min / Max, the LFO, the Tools), shared curves and Make unique, an audio clip's Automate volume / pan. Song mode only; a control is its own value before its first clip and holds the last value after one; the hand wins while it's held. In the engine, slices of 256 samples from where play started: the same live and exported. `get_automation`, `list_controls`, `add_automation`, `update_automation` | `docs/fl-studio/automation.md` |
 | Export | ⌘R / ⌘⇧R: the save dialog, then FL's export window. Song or pattern, cut or ring out, WAV / MP3 / FLAC / OGG / M4A / MIDI from one render, stems in time with the mix, the plugin delay trimmed, plugins in their offline mode, every core (45× real time with 24 Serums). The song can be edited while it renders. Resampling (linear, Hermite, sinc) chosen in Settings. `export_song` for the assistant | `docs/fl-studio/export.md` |
+| MIDI input | Every MIDI keyboard plays the selected channel (plugins get velocity, the pedal, pitch bend and controllers; samplers end in their release, held by the pedal), the typing keyboard (Ctrl+T), the Piano roll's keys lit, Record keeps what's played in a pattern on the Playlist (quantized as Record's menu says); `list_midi_inputs`, `select_channel` | `docs/fl-studio/midi.md` |
 | Recording | FL's: an input device (an interface, or the Mac's mic), a mixer track's input (choosing it arms the track), monitoring through the track's effects, Record (R) and its count-in, a take per armed track placed where it was recorded (on the track's audio track, or the first free one), Loop record (a take each pass, the earlier muted unless Blend), latency left out; `list_audio_inputs`, `arm_tracks`, `record_audio` for the assistant | `docs/fl-studio/recording.md` |
 | Gross Beat | FL's time and volume effect, ours, in any effect slot: 36 time and 36 volume slots (FL's preset names), the mapping panel edited FL's way (points, tension, the curve types, Pitch ±1 semitone, snap, step editing, slide, freeze, the tools), trig and pos sync, one-shot, link slots, HOLD (Last / Next), the scratching clock, ATT / REL / TNS, click reduction, HQ; its slots automated for chop arrangements; native in the engine, tested to the sample; `get_gross_beat`, `update_gross_beat`, `set_gross_beat_slot` | `docs/fl-studio/gross-beat.md` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
@@ -229,10 +230,12 @@ alongside, in its own branch.**
 
 ### 5. MIDI input
 
-- The engine opens MIDI inputs (`juce::MidiInput`), plays them on the channel selected in the rack, and
-  reports them to the tab (for the Piano roll's keyboard to light up).
-- Recording into the Piano roll: notes arrive with the engine's time; quantize on the way in as an option.
-  The Piano roll's typing keyboard (Ctrl+T, FL's) fits here too.
+**Built** (2026-10-02). The reference, Théo's decisions (no recording in pattern mode: Record switches
+to song mode, as for audio), how it's built and where it differs are in `docs/fl-studio/midi.md`. Every
+MIDI keyboard plays the rack's selected channel unless turned off in Settings; the typing keyboard
+(Ctrl+T) plays the same way; Record keeps the notes played in a pattern placed where recording started,
+quantized (Record's menu) on the Piano roll's snap. `list_midi_inputs` and `select_channel` for the
+assistant; `record_audio` records notes too.
 
 ### 6. Audio recording
 

@@ -1,13 +1,16 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineTakeEvent } from "@shared/music/engine";
+import type { EngineTakeEvent, MidiPlayed } from "@shared/music/engine";
 import { trackName, updateMixerTrack } from "@shared/music/mixer";
 import { stepsPerBar } from "@shared/music/project";
-import { type Take, addTakes } from "@shared/music/recording";
+import { type PlayedEvent, type Take, addRecordedNotes, addTakes, recordedNotes } from "@shared/music/recording";
 import { type MixerInput, type MusicProject, PPQ, STEP_TICKS } from "@shared/music/types";
 import { commit, undo } from "@/lib/document-history";
 import { musicApi } from "./api";
+import { midiTarget } from "./midi";
+import { snapTicks } from "./piano/geometry";
+import { usePiano } from "./piano/store";
 import { countInBars, useMusicPreferences } from "./preferences";
 import { useMusic } from "./store";
 import { setRecorder, switchMode, useTransport } from "./transport";
@@ -27,6 +30,10 @@ export interface ActiveRecording {
   confirmed: boolean;
   /** The loop's start, in the song's ticks: the engine's ticks count from it, and a loop's passes start there. */
   loopStart: number;
+  /** The loop's length, in ticks. */
+  loopTicks: number;
+  /** The pattern shown when it started: notes played go into it (or a new one, `addRecordedNotes`). */
+  patternId: string | null;
 }
 
 /**
@@ -67,6 +74,8 @@ interface RecordingState {
   liveVersion: number;
   /** The engine's word on each recording track's input level, at `tick` (the engine's, into its loop). */
   levels: (levels: Record<string, number[] | number>, tick: number) => void;
+  /** Notes played on a MIDI keyboard (the engine's `midi` event): kept while recording, made notes when it stops. */
+  notesPlayed: (notes: readonly MidiPlayed[]) => void;
 }
 
 /** Each recording's loop start (the engine's ticks count from it), for takes that come after it stopped. */
@@ -80,6 +89,9 @@ const placed = new Map<string, Take[]>();
 
 /** The takes being recorded, by mixer track: what the Playlist draws until each one's file is in. */
 const live = new Map<string, LivePass>();
+/** Notes played in the recording in progress, and where the engine last said it was (its tick, and passes round the loop). */
+let played: PlayedEvent[] = [];
+let position = { tick: 0, pass: 0 };
 /** Takes still drawn after play stopped are let go of this long after, if their files never come. */
 const LIVE_LINGER_MS = 15_000;
 let lingering: ReturnType<typeof setTimeout> | undefined;
@@ -99,6 +111,8 @@ export const useRecording = create<RecordingState>((set, get) => ({
   levels(levels, tick) {
     const { active } = get();
     if (!active) return;
+    // Gone round the loop: another pass (where notes still held when it stops end).
+    position = { tick, pass: position.pass + (tick < position.tick && active.loop ? 1 : 0) };
     const at = active.loopStart + tick;
     // Every recording track grows with the playhead, whether or not the engine said its level (an
     // engine built before it did says none: the take is drawn flat).
@@ -117,6 +131,11 @@ export const useRecording = create<RecordingState>((set, get) => ({
       });
     }
     set({ liveVersion: get().liveVersion + 1 });
+  },
+
+  notesPlayed(notes) {
+    if (!get().active) return;
+    for (const note of notes) if (note.channel && note.tick !== null) played.push({ channel: note.channel, key: note.key, velocity: note.velocity, on: note.on, tick: note.tick, counting: note.counting, pass: note.pass });
   },
 
   setOn: (on) => set({ on }),
@@ -142,8 +161,11 @@ export const useRecording = create<RecordingState>((set, get) => ({
     if (!projectId || !history) return;
     const song = history.doc;
     const tracks = get().armed.filter((id) => song.mixer.tracks.some((t) => t.id === id && t.input));
-    if (!tracks.length) {
-      toast.info("Nothing is armed", { description: "Choose a mixer track's input in the Mixer (F9): that arms it, and Play then records it." });
+    // Notes are recorded on the selected channel; with no track armed, they're all that is.
+    if (!tracks.length && !midiTarget(song)) {
+      toast.info("Nothing to record", {
+        description: "Select a channel in the rack to record notes on it, or choose a mixer track's input in the Mixer (F9): that arms it, and Play then records it.",
+      });
       return;
     }
     // Recording is the song's: in pattern mode it switches, and records once the engine has the song.
@@ -156,12 +178,26 @@ export const useRecording = create<RecordingState>((set, get) => ({
     const names = Object.fromEntries(tracks.map((id) => [id, trackName(song, id)]));
     useTransport.setState({ pausedAt: null });
     try {
-      const { recordingId, status } = await musicApi.record({ projectId, from, countIn, loop: options.loop, names });
+      const { recordingId, status } = await musicApi.record({ projectId, from, countIn, loop: options.loop, names, notes: true });
       recordings.set(recordingId, { loopStart: loop.start, projectId });
       const msPerTick = 60_000 / (song.settings.tempo * PPQ);
       live.clear();
       clearTimeout(lingering);
-      set({ active: { id: recordingId, startTick: loop.start + from, tracks, loop: options.loop, movesAt: performance.now() + countIn * msPerTick, confirmed: false, loopStart: loop.start } });
+      played = [];
+      position = { tick: from, pass: 0 };
+      set({
+        active: {
+          id: recordingId,
+          startTick: loop.start + from,
+          tracks,
+          loop: options.loop,
+          movesAt: performance.now() + countIn * msPerTick,
+          confirmed: false,
+          loopStart: loop.start,
+          loopTicks: loop.ticks,
+          patternId: useMusic.getState().patternId,
+        },
+      });
       // The engine may not have taken the play yet: it's playing from here, after the whole count-in.
       useTransport.setState({ playing: true, tick: status.transport.playing ? status.transport.tick : from, countIn: status.transport.countIn || (countIn * msPerTick) / 1000, at: performance.now(), through: !options.loop, error: null });
     } catch (err) {
@@ -170,7 +206,9 @@ export const useRecording = create<RecordingState>((set, get) => ({
   },
 
   stopped() {
-    if (!get().active) return;
+    const { active } = get();
+    if (!active) return;
+    keepNotes(active);
     // What's drawn of the takes stays until their files are in (a take that never comes is let go of).
     clearTimeout(lingering);
     lingering = setTimeout(() => {
@@ -242,6 +280,50 @@ useMusic.subscribe((state, prev) => {
     lastTakes = null;
   }
 });
+
+/**
+ * The notes played in a recording, into the song (one undo step): quantized as Record's menu says on the
+ * Piano roll's snap (Line, Cell and none leave them as played, as FL's global snap does), then into a
+ * pattern placed where recording started (`addRecordedNotes`), which is then the one shown.
+ */
+function keepNotes(active: ActiveRecording) {
+  const events = played;
+  played = [];
+  keptNotes.delete(active.id);
+  const { history, patternId } = useMusic.getState();
+  if (!events.length || !history) return;
+  const song = history.doc;
+  const { tempo } = song.settings;
+  const { latencyMs } = useTransport.getState();
+  const piano = usePiano.getState();
+  const bar = barTicks(song);
+  const grid = piano.snap === "line" || piano.snap === "cell" || piano.snap === "none" ? 0 : snapTicks(piano.snap, piano.view.pxPerTick, bar);
+  const notes = recordedNotes(events, {
+    loopStart: active.loopStart,
+    loopTicks: active.loopTicks,
+    through: !active.loop,
+    startTick: active.startTick,
+    latencyTicks: (latencyMs / 60_000) * tempo * PPQ,
+    stop: position,
+    quantize: useMusicPreferences.getState().recording.quantize,
+    grid,
+  });
+  const at = { patternId: active.patternId ?? patternId ?? song.patterns[0].id, startTick: active.startTick };
+  let into: string | null = null;
+  useMusic.getState().commit((doc) => {
+    const result = addRecordedNotes(doc, notes, at);
+    into = result.patternId;
+    return result.song;
+  });
+  if (into) {
+    useMusic.setState({ patternId: into });
+    keptNotes.set(active.id, { patternId: into, count: notes.length });
+  }
+}
+
+/** The notes each recording put into the song (the assistant's record_audio says so on stop). */
+const keptNotes = new Map<string, { patternId: string; count: number }>();
+export const notesKept = (recordingId: string) => keptNotes.get(recordingId) ?? null;
 
 /** The tracks armed in the song now (a track removed, or whose input was taken away, isn't). */
 export function armedIn(song: MusicProject, armed: readonly string[]): string[] {

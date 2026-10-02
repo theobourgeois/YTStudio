@@ -3,6 +3,7 @@ import { errorMessage } from "@shared/errors";
 import type { EngineDevices, SetDeviceRequest } from "@shared/music/engine";
 import { SettingsGroup, SettingsRow } from "@/components/settings/settings-ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { musicApi } from "./api";
 import { EnginePanel } from "./engine-panel";
 import { useMusicPreferences } from "./preferences";
@@ -90,6 +91,7 @@ function DeviceSettings() {
   const bufferSizes = devices.bufferSizes.filter((size) => (size & (size - 1)) === 0 || size === status.bufferSize);
   const bufferMs = status.sampleRate > 0 ? (status.bufferSize / status.sampleRate) * 1000 : 0;
   return (
+    <>
     <SettingsGroup title="Audio" description="Where the sound goes, and what's recorded. The engine plays through these devices whichever song is open." data-testid="device-settings">
       <SettingsRow title="Output device">
         <Select value={devices.output ?? ""} onValueChange={(output) => void change({ output })}>
@@ -166,6 +168,35 @@ function DeviceSettings() {
         </Select>
       </SettingsRow>
       {error && <p className="px-4 py-2 text-xs text-destructive">{error}</p>}
+    </SettingsGroup>
+    <MidiSettings devices={devices} change={change} />
+    </>
+  );
+}
+
+/**
+ * MIDI keyboards (`docs/fl-studio/midi.md`): every one plugged in plays the channel selected in the
+ * rack, unless it's turned off here (FL's MIDI settings, without its Enable step).
+ */
+function MidiSettings({ devices, change }: { devices: EngineDevices; change: (body: SetDeviceRequest) => Promise<void> }) {
+  const inputs = devices.midiInputs;
+  return (
+    <SettingsGroup
+      title="MIDI inputs"
+      description="Keyboards and pads play the channel selected in the rack, and Record keeps what you play. Ctrl+T plays from the computer's keyboard instead."
+      data-testid="midi-settings"
+    >
+      {!inputs ? (
+        <SettingsRow title="No MIDI" description={<span className="text-destructive">The audio engine is older than the app: run `pnpm engine:build`, then restart `pnpm dev`.</span>} />
+      ) : !inputs.length ? (
+        <SettingsRow title="No MIDI keyboard" description="Plug one in: it's used at once, no need to come back here." />
+      ) : (
+        inputs.map((input) => (
+          <SettingsRow key={input.id} title={input.name} description={input.enabled ? (input.open ? "Playing the selected channel." : "Couldn't be opened: another app may have it.") : "Turned off."}>
+            <Switch checked={input.enabled} aria-label={`Use ${input.name}`} onCheckedChange={(enabled) => void change({ midiInput: { name: input.name, enabled } })} />
+          </SettingsRow>
+        ))
+      )}
     </SettingsGroup>
   );
 }

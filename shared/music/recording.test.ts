@@ -2,7 +2,20 @@ import { describe, expect, it } from "vitest";
 import { updateMixerTrack } from "./mixer.ts";
 import { addClips, updateTrack } from "./playlist.ts";
 import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "./project.ts";
-import { type Take, addTakes, assignAudioTracks, audioTrackOf, linkAudioTracks, liveTakeTracks, takeWindow } from "./recording.ts";
+import { addChannels, addPattern } from "./edits.ts";
+import {
+  type PlayedEvent,
+  type RecordedNotesOptions,
+  type Take,
+  addRecordedNotes,
+  addTakes,
+  assignAudioTracks,
+  audioTrackOf,
+  linkAudioTracks,
+  liveTakeTracks,
+  recordedNotes,
+  takeWindow,
+} from "./recording.ts";
 import type { MusicProject } from "./types.ts";
 
 /** At 120 BPM a tick is 1/192 s: a bar (384 ticks) is two seconds. */
@@ -110,3 +123,95 @@ describe("liveTakeTracks", () => {
   });
 });
 
+
+describe("recordedNotes", () => {
+  const options = (over: Partial<RecordedNotesOptions> = {}): RecordedNotesOptions => ({
+    loopStart: 0,
+    loopTicks: BAR * 4,
+    through: true,
+    startTick: 0,
+    latencyTicks: 0,
+    quantize: "none",
+    grid: 24,
+    ...over,
+  });
+  const ev = (key: number, on: boolean, tick: number, over: Partial<PlayedEvent> = {}): PlayedEvent => ({ channel: "chan_a", key, velocity: on ? 0.8 : 0, on, tick, counting: false, pass: 0, ...over });
+
+  it("makes each key a note from where it went down to where it was let go, in the song's ticks", () => {
+    const events = [ev(60, true, 10), ev(64, true, 100), ev(60, false, 90), ev(64, false, 200)];
+    expect(recordedNotes(events, options({ loopStart: BAR }))).toEqual([
+      { channel: "chan_a", pitch: 60, velocity: 0.8, start: BAR + 10, length: 80 },
+      { channel: "chan_a", pitch: 64, velocity: 0.8, start: BAR + 100, length: 100 },
+    ]);
+  });
+
+  it("moves notes back by the latency, ends held ones where play stopped, and puts count-in notes at the start", () => {
+    const notes = recordedNotes([ev(60, true, 30), ev(62, true, 0, { counting: true })], options({ latencyTicks: 10, startTick: 0, stop: { tick: 230, pass: 0 } }));
+    expect(notes).toEqual([
+      { channel: "chan_a", pitch: 62, velocity: 0.8, start: 0, length: 230 },
+      { channel: "chan_a", pitch: 60, velocity: 0.8, start: 20, length: 200 },
+    ]);
+    // Unknown stop: a step.
+    expect(recordedNotes([ev(60, true, 30)], options())[0].length).toBe(24);
+  });
+
+  it("lays loop passes over each other, a pass's late first notes at the loop's end, and ends notes at the loop's end", () => {
+    const loop = options({ through: false, loopTicks: BAR, latencyTicks: 6 });
+    const notes = recordedNotes([ev(60, true, 100), ev(60, false, 148), ev(62, true, 2, { pass: 1 }), ev(62, false, 30, { pass: 1 }), ev(64, true, 370, { pass: 1 }), ev(64, false, 50, { pass: 2 })], loop);
+    expect(notes.map((n) => [n.pitch, n.start, n.length])).toEqual([
+      [60, 94, 48],
+      [64, 364, 20],
+      [62, 380, 4],
+    ]);
+  });
+
+  it("quantizes as Record's menu says", () => {
+    const one = [ev(60, true, 30), ev(60, false, 70)];
+    const q = (quantize: RecordedNotesOptions["quantize"]) => recordedNotes(one, options({ quantize, grid: 24 }))[0];
+    expect(q("none")).toMatchObject({ start: 30, length: 40 });
+    expect(q("start")).toMatchObject({ start: 24, length: 46 });
+    expect(q("end")).toMatchObject({ start: 30, length: 42 });
+    expect(q("both")).toMatchObject({ start: 24, length: 48 });
+    expect(q("startKeepLength")).toMatchObject({ start: 24, length: 40 });
+  });
+});
+
+describe("addRecordedNotes", () => {
+  const withSynth = () => addChannels(song120(), [{ id: "chan_a", name: "A", sampleId: null }]);
+  const note = (start: number, pitch = 60) => ({ channel: "chan_a", pitch, velocity: 0.8, start, length: 48 });
+
+  it("puts them in the selected pattern, if it isn't placed yet, with a clip from the bar recording started in", () => {
+    const { song, patternId, clipId } = addRecordedNotes(withSynth(), [note(BAR + 100), note(BAR + 200, 64)], { patternId: FIRST_PATTERN_ID, startTick: BAR + 40 });
+    expect(patternId).toBe(FIRST_PATTERN_ID);
+    expect(song.patterns[0].notes.chan_a.map((n) => [n.start, n.pitch])).toEqual([
+      [100, 60],
+      [200, 64],
+    ]);
+    expect(song.playlist.clips).toEqual([expect.objectContaining({ id: clipId, kind: "pattern", ref: FIRST_PATTERN_ID, track: 0, start: BAR, length: null })]);
+  });
+
+  it("makes a new pattern when the selected one is already on the playlist, on the first track it fits", () => {
+    let start = withSynth();
+    start = { ...start, playlist: { ...start.playlist, clips: addClips([], [{ kind: "pattern", ref: FIRST_PATTERN_ID, track: 0, start: 0, length: BAR * 3 }]).clips } };
+    const { song, patternId } = addRecordedNotes(start, [note(BAR * 2 + 10), note(BAR * 3 + 10)], { patternId: FIRST_PATTERN_ID, startTick: BAR * 3 }, () => "pat_new");
+    expect(patternId).toBe("pat_new");
+    expect(song.patterns.find((p) => p.id === FIRST_PATTERN_ID)!.notes).toEqual({});
+    // From the bar of its first note (played in the latency before recording started).
+    expect(song.patterns.find((p) => p.id === "pat_new")!.notes.chan_a.map((n) => n.start)).toEqual([10, BAR + 10]);
+    expect(song.playlist.clips.find((c) => c.ref === "pat_new")).toMatchObject({ track: 1, start: BAR * 2 });
+  });
+
+  it("records into a clip of the selected pattern playing where recording started", () => {
+    let start = addPattern(withSynth(), { id: "pat_b" });
+    start = { ...start, playlist: { ...start.playlist, clips: addClips([], [{ kind: "pattern", ref: "pat_b", track: 3, start: BAR, length: BAR * 2, offset: 24 }]).clips } };
+    const { song, clipId } = addRecordedNotes(start, [note(BAR + 50)], { patternId: "pat_b", startTick: BAR });
+    expect(clipId).toBeNull();
+    expect(song.playlist.clips).toEqual(start.playlist.clips);
+    expect(song.patterns.find((p) => p.id === "pat_b")!.notes.chan_a.map((n) => n.start)).toEqual([74]);
+  });
+
+  it("leaves the song as it was when nothing was played on its channels", () => {
+    const start = withSynth();
+    expect(addRecordedNotes(start, [{ ...note(0), channel: "chan_gone" }], { patternId: FIRST_PATTERN_ID, startTick: 0 }).song).toBe(start);
+  });
+});

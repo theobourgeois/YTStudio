@@ -14,6 +14,7 @@ import { assignFreeTracks, cloneSelected, copySteps, cutSteps, deleteSelected, m
 import { useMusic, useSong } from "./store";
 import { MusicToolbar } from "./toolbar";
 import { useRecording } from "./recording";
+import { typingKey, useMidi } from "./midi";
 import { switchMode, useTransport } from "./transport";
 import * as playlist from "./playlist/actions";
 import { type PlaylistKeyAction, resolvePlaylistKey } from "./playlist/keys";
@@ -300,6 +301,8 @@ function runKey(action: MusicKeyAction) {
       return switchMode(useTransport.getState().mode === "song" ? "pattern" : "song");
     case "toggleRecord":
       return useRecording.getState().setOn(!useRecording.getState().on);
+    case "toggleTyping":
+      return useMidi.getState().setTyping(!useMidi.getState().typing);
     case "toggleMixer":
       return ui.setMixerOpen(!ui.mixerOpen);
     case "toggleBrowser":
@@ -351,6 +354,12 @@ function useMusicKeys(enabled: boolean) {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || isTyping(e.target) || keptByWindow(e.target) || dialogOpen()) return;
+      // The typing keyboard, while it's on: its keys play notes, before any window's shortcut.
+      if (typingKey(e, true)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       // The Browser's list has keys of its own (`browser/keys.ts`): only the editor-wide ones pass it.
       const inBrowser = e.target instanceof HTMLElement && e.target.closest("[data-browser]") !== null;
       // The Piano roll's own keys, while it's the window in front.
@@ -395,8 +404,16 @@ function useMusicKeys(enabled: boolean) {
       e.stopPropagation();
       runKey(action);
     };
+    // A typing keyboard key let go: its note ends (wherever the focus went meanwhile).
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (typingKey(e, false)) e.stopPropagation();
+    };
     // Before the page's own handlers, for the same reason.
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
   }, [enabled]);
 }

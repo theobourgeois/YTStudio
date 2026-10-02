@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { DEFAULT_METRONOME_SOUND, type MetronomeSound, type Resampling, isMetronomeSound, isResampling } from "@shared/music/engine";
 import { DEFAULT_TEMPO, MAX_TEMPO, MIN_TEMPO, type NewSongOptions } from "@shared/music/project";
+import { type NoteQuantize, isNoteQuantize } from "@shared/music/recording";
 
 /** This browser's storage, or none (Node, in tests that load the transport): nothing is kept then. */
 const storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> =
@@ -28,9 +29,11 @@ export interface RecordingOptions {
   blend: boolean;
   /** Record turns itself off when play stops (FL's Disarm on stop). */
   disarmOnStop: boolean;
+  /** What of recorded notes is quantized, on the Piano roll's snap (FL's: Line, Cell or none quantize nothing). */
+  quantize: NoteQuantize;
 }
 
-const DEFAULT_RECORDING: RecordingOptions = { countIn: true, countInBars: 1, loop: false, blend: false, disarmOnStop: false };
+const DEFAULT_RECORDING: RecordingOptions = { countIn: true, countInBars: 1, loop: false, blend: false, disarmOnStop: false, quantize: "start" };
 
 /** Bars of count-in a recording starts with: none while the switch is off. */
 export const countInBars = (options: RecordingOptions) => (options.countIn ? options.countInBars : 0);
@@ -46,6 +49,7 @@ function storedRecording(): RecordingOptions {
       loop: raw.loop === true,
       blend: raw.blend === true,
       disarmOnStop: raw.disarmOnStop === true,
+      quantize: isNoteQuantize(raw.quantize) ? raw.quantize : DEFAULT_RECORDING.quantize,
     };
   } catch {
     return DEFAULT_RECORDING;

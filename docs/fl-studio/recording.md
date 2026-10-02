@@ -4,7 +4,7 @@ How FL Studio records audio (a vocal, a guitar) into a song, from the manual (`r
 `recording`, `toolbar_panels`, `mixer`, `mixer_trackprops`, `mixer_mixermenu`, `mixer_iorouting`,
 `envsettings_audio`, `playlist`, `menu_options`, `basics_new_20`/`21`/`24`) and Théo. See
 [README.md](README.md) for the sources. The online manual now describes **FL Studio 2026**; recording has
-hardly changed since FL 20, and what's newer says so. Recording notes (MIDI) is another page, for step 5.
+hardly changed since FL 20, and what's newer says so. Recording notes (MIDI) is [midi.md](midi.md).
 
 The last sections are ours: [what we'll leave out](#what-well-leave-out), [what's decided](#decided-with-théo-2026-10-01),
 [how it's built](#how-its-built) and [where Vaudio differs](#where-vaudio-differs).
