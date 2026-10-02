@@ -10,8 +10,10 @@ import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playl
 import { LANE_FINEST, sampleLane } from "./sampling.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
+import { type EnginePanMan, enginePanMan } from "./panman.ts";
+import { PAN_CONTROL_IDS } from "./panman-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
-import { type AutomationTarget, type Channel, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { type AutomationTarget, type Channel, type GrossControl, type MixerTrack, type PanControl, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -64,6 +66,8 @@ export interface EngineEffect {
   mix: number;
   /** A Gross Beat (ours, run by the engine itself: its `plugin.id` is `GROSS_BEAT_PLUGIN`'s): its settings and envelopes. */
   grossBeat?: EngineGrossBeat;
+  /** A PanMan (ours, likewise: `PANMAN_PLUGIN`'s id): its settings and pattern. */
+  panMan?: EnginePanMan;
 }
 
 /**
@@ -146,6 +150,7 @@ export type EngineLaneTarget =
   | { kind: "send"; track: number; send: number }
   | { kind: "mix"; track: number; effect: number }
   | { kind: "gross"; track: number; effect: number; control: GrossControl }
+  | { kind: "panman"; track: number; effect: number; control: PanControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
 /**
@@ -351,6 +356,7 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         if (!e) return [];
         const effect: EngineEffect = { id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix };
         const slots = gross.get(e.id);
+        if (e.panMan) return [{ ...effect, panMan: enginePanMan(e.panMan, e.id) }];
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
       gains: trackGains(track, main),
@@ -647,6 +653,13 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
         add({ kind: "gross", track: t, effect: effectIndex, control: "timeSlot" }, [timeDriver.key], (tick) => [timeDriver.value(tick)]);
         add({ kind: "gross", track: t, effect: effectIndex, control: "volumeSlot" }, [volumeDriver.key], (tick) => [volumeDriver.value(tick)]);
       }
+      const pm = effect.panMan;
+      if (pm)
+        for (const control of PAN_CONTROL_IDS) {
+          const target: AutomationTarget = { kind: "panMan", effect: effect.id, control };
+          const value = valueOf(target, pm[control]);
+          add({ kind: "panman", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [value(tick)]);
+        }
       effectIndex++;
     }
   }

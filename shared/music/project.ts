@@ -7,6 +7,7 @@ import { createId } from "../ids.ts";
 import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import { GROSS_BEAT_PLUGIN, GROSS_SLOTS, GROSS_SYNCS, GROSS_TICKS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE, isGrossBeat } from "./gross-beat-presets.ts";
+import { PANMAN_PLUGIN, PAN_CONTROL_IDS, isPanMan, normalizePanMan } from "./panman-presets.ts";
 import {
   type Automation,
   type AutomationLfo,
@@ -20,6 +21,7 @@ import {
   type GrossBeatSlot,
   type GrossControl,
   type GrossHold,
+  type PanControl,
   type Mixer,
   type MixerEffect,
   type InputMonitor,
@@ -404,6 +406,7 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   const effect: MixerEffect = { id: input.id, plugin, enabled: input.enabled !== false, mix: number(input.mix, 0, 1, 1) };
   // Ours: its settings are the song's (a plugin's are its own, in a file beside it).
   if (isGrossBeat(plugin)) return { ...effect, plugin: GROSS_BEAT_PLUGIN, grossBeat: normalizeGrossBeat(input.grossBeat) };
+  if (isPanMan(plugin)) return { ...effect, plugin: PANMAN_PLUGIN, panMan: normalizePanMan(input.panMan) };
   return effect;
 }
 
@@ -575,6 +578,8 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.effect) ? { kind: "effect", effect: raw.effect } : null;
     case "grossBeat":
       return isId(raw.effect) && GROSS_CONTROLS.includes(raw.control as GrossControl) ? { kind: "grossBeat", effect: raw.effect, control: raw.control as GrossControl } : null;
+    case "panMan":
+      return isId(raw.effect) && PAN_CONTROL_IDS.includes(raw.control as PanControl) ? { kind: "panMan", effect: raw.effect, control: raw.control as PanControl } : null;
     case "main":
       return { kind: "main" };
     case "plugin":

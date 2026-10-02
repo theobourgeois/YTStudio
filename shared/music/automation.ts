@@ -10,6 +10,7 @@
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
+import { PAN_CONTROLS, panControlFraction, panControlValue } from "./panman-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
 import { DEFAULT_LFO, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
 import { type Automation, type AutomationLfo, type AutomationPoint, type AutomationTarget, type CurveType, type MusicProject, type PlaylistClip, STEP_TICKS } from "./types.ts";
@@ -187,6 +188,8 @@ export function targetKey(target: AutomationTarget): string {
       return `effect:${target.effect}`;
     case "grossBeat":
       return `gross:${target.effect}:${target.control}`;
+    case "panMan":
+      return `panman:${target.effect}:${target.control}`;
     case "main":
       return "main";
     case "plugin":
@@ -300,6 +303,21 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
           const name = gb?.[kind][n]?.name ?? (kind === "time" ? GROSS_TIME_PRESETS : GROSS_VOLUME_PRESETS)[n].name;
           return `${n + 1}: ${name}`;
         },
+      };
+    }
+    case "panMan": {
+      // In its own units (degrees, Hz, dB): the clip's 0..1 is the knob's range.
+      const found = findEffect(song, target.effect);
+      const pm = found?.effect?.panMan;
+      const control = PAN_CONTROLS[target.control];
+      return {
+        name: control.name,
+        owner: found && pm ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted PanMan",
+        exists: !!pm,
+        own: pm ? panControlFraction(target.control, pm[target.control]) : null,
+        toControl: (v) => panControlValue(target.control, v),
+        fromControl: (v) => panControlFraction(target.control, v),
+        format: (v) => control.format(panControlValue(target.control, v)),
       };
     }
     case "main":
