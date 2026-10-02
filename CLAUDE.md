@@ -62,7 +62,10 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      gross-beat-presets.ts), EchoBoy (echo-boy.ts: its edits, controls and delay lines for the
                      engine; echo-boy-styles.ts its 31 styles, echo-boy-library.ts its presets), Auto-Tune
                      (auto-tune.ts: its edits, Detect key, what the engine plays; scales, presets and ranges in
-                     auto-tune-presets.ts), Pitch Wheel (pitch-wheel.ts: its edits, the wheels' physics
+                     auto-tune-presets.ts), Pro-Q (pro-q.ts: its edits and what the engine plays; pro-q-filters.ts:
+                     its shapes as analog sections, curves, Auto Gain; pro-q-presets.ts), PanMan (panman.ts: its patterns,
+                     edits and what the engine plays; panman-presets.ts: its constants, validation and presets),
+                     Pitch Wheel (pitch-wheel.ts: its edits, the wheels' physics
                      `stepWheel`, what the engine plays; defaults, presets and ranges in pitch-wheel-presets.ts),
                      and drawing anything over time as lines for the engine (sampling.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
@@ -178,8 +181,12 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      (its rolling buffer, envelopes, sync, HOLD). EchoBoy.cpp: EchoBoy, a native echo (its
                      lines, the style on each repeat; its filters, saturations, diffusers, LFOs in EchoDsp.h).
                      AutoTune.cpp: Auto-Tune, native too (YIN pitch tracking, Antares' correction,
-                     formant-keeping PSOLA). PitchWheel.cpp: Pitch Wheel, native too (phase-locked spectral
-                     shifting, a true envelope for the formants, the wheels' physics, notes as voices). Resampling.h: reading between samples (linear, Hermite, sinc),
+                     formant-keeping PSOLA). ProQ.cpp: Pro-Q, native too (its bands, dynamics, modes);
+                     EqDesign.cpp: its filters (analog sections matched to digital ones, run as SVFs);
+                     Convolver.cpp: FIR filters by FFT; Spectrum.cpp: the analyzer's measurements. PanMan.cpp: PanMan, another (its pattern, chance,
+                     triggers, dynamics, pan law, Analog Styles). PitchWheel.cpp: Pitch Wheel, native too
+                     (phase-locked spectral shifting, a true envelope for the formants, the wheels' physics, notes
+                     as voices). Resampling.h: reading between samples (linear, Hermite, sinc),
                      centred so nothing is delayed. Protocol.cpp: the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
@@ -201,8 +208,11 @@ src/
                      kept on the desktop's left; its rows and keys are pure, tree.ts and keys.ts),
                      pattern-picker.tsx, gross-beat/ (Gross Beat's window, its mapping panel and tools), echo-boy/
                      (EchoBoy's window, Tweak, the Style Editor, Rhythm Echo's editor, its tools),
-                     auto-tune/ (Auto-Tune's window, its live pitch graph and tools), pitch-wheel/ (Pitch
-                     Wheel's window: its dials and keyboard on canvases, what the engine says in live.ts, its tools),
+                     auto-tune/ (Auto-Tune's window, its live pitch graph and tools),
+                     pro-q/ (Pro-Q's window: its display, gestures, band controls, analyzer, EQ Match, tools),
+                     panman/ (PanMan's window, its editors, meters and tools),
+                     pitch-wheel/ (Pitch Wheel's window: its dials and keyboard on canvases, what the engine
+                     says in live.ts, its tools),
                      toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
                      tempo and position LCDs, the hint bar; its maths in position.ts), recording.ts (armed
                      tracks, Record, takes into the song) and inputs.ts (the input device's channels), playlist/ (the
@@ -320,7 +330,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pitch Wheel. Where it is and every step still to come, in order:
+the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan, Pitch Wheel. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
@@ -511,6 +521,28 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pitch Wheel. 
   (`EngineTransport.autoTunes`), which `pitch-history.ts` keeps outside React for the window's graph. Seven
   controls automate (`AutomationTarget` `autoTune`, lanes `kind: "tune"`). Keep its sound tested offline to the
   cent (`auto-tune.integration.test.ts`).
+- **Pro-Q** (`docs/fabfilter/pro-q.md`, and FabFilter's `pro-q-3-manual.md` and `pro-q-3-dsp.md` beside
+  it): FabFilter's Pro-Q 3, ours, as Gross Beat is: a `MixerEffect` whose plugin is `PRO_Q_PLUGIN`, its
+  settings **in the song** (`MixerEffect.proQ`: bands numbered 1..24, never renumbered; A/B; the
+  analyzer's settings), in FabFilter's conventions (Q is the textbook Q × √2, slope is the order). Its
+  shapes are analog sections twice, `bandSections` in TypeScript (what the display draws) and
+  `analogSections` in `EqDesign.cpp`: **keep them in step**; `pro-q.integration.test.ts` measures the
+  engine against the TypeScript curves in every mode (Zero Latency within 0.1 dB, Natural and Linear Phase
+  exact). The engine designs FIR kernels on the message thread (only when the bands change) and hands
+  them to the audio thread by atomic exchange (`Convolver::offer`); keep it so. Its latency is in delay
+  compensation. The analyzer is measured only for the Pro-Qs `eqWatch` names (open windows); its fall,
+  tilt and range are the tab's. Its window's look is its own (`--eq-*` tokens, dark in every theme).
+- **PanMan** (`docs/soundtoys/panman.md`; `shared/music/panman*.ts`, `engine/src/PanMan.cpp`,
+  `src/suites/music/panman/`): Soundtoys' auto-panner, ours, built as Gross Beat is (when in doubt about it,
+  do what Soundtoys' does: the doc is from its manual). `MixerEffect.panMan` on an effect whose plugin is
+  `PANMAN_PLUGIN`, in the song. The pattern modes (LFO, Rhythm Step, Rhythm Shape: Smoothing, Feel and Groove
+  included) are decided in TypeScript (`panPattern`) and sent as lines over the pattern's phase; Random's
+  chance (repeatable, seeded by the effect's id), the triggers, the dynamics, the pan law (sine / cosine to
+  ±105°, unity at the centre) and the Analog Styles are the engine's (`panman::State`, kept by effect id in
+  `panman::Registry`), in time with `gross::Clock`. Its offset, width, rate and gains automate
+  (`AutomationTarget` `panMan`; the offset and width travel as fractions, `PAN_LANE_SCALE`: lanes hold
+  values within ±64). The Manual Trigger is live (`panMan` command). Keep its sound tested offline
+  (`panman.integration.test.ts`).
 - **Pitch Wheel** (`docs/quikquak/pitchwheel.md`, QuikQuak Pitchwheel; `shared/music/pitch-wheel*.ts`,
   `engine/src/PitchWheel.cpp`, `src/suites/music/pitch-wheel/`): ours as Gross Beat is, `PITCH_WHEEL_PLUGIN`,
   its settings in the song (`MixerEffect.pitchWheel`). Each wheel's pointer is a target the pitch heard

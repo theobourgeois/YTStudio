@@ -138,6 +138,8 @@ export interface Pattern {
 /**
  * An effect in a mixer track's slot: an effect plugin, or one of ours, whose settings are in the song
  * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
+ * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pro-Q: `PRO_Q_PLUGIN` and
+ * `proQ`; PanMan: `PANMAN_PLUGIN` and `panMan`).
  * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pitch Wheel:
  * `PITCH_WHEEL_PLUGIN` and `pitchWheel`).
  */
@@ -155,6 +157,10 @@ export interface MixerEffect {
   echoBoy?: EchoBoy;
   /** Auto-Tune's settings, on an Auto-Tune (absent on a plugin). */
   autoTune?: AutoTune;
+  /** Pro-Q's settings, on a Pro-Q (absent on a plugin). */
+  proQ?: ProQ;
+  /** PanMan's settings, on a PanMan (absent on a plugin). */
+  panMan?: PanMan;
   /** Pitch Wheel's settings, on a Pitch Wheel (absent on a plugin). */
   pitchWheel?: PitchWheel;
 }
@@ -284,6 +290,178 @@ export interface AutoTune {
   /** The target is chosen from the sung pitch's centre, so a wide vibrato doesn't switch notes. */
   ignoreVibrato: boolean;
   vibrato: AutoTuneVibrato;
+}
+
+/** Pro-Q's filter shapes (`docs/fabfilter/pro-q.md`), in its own order. */
+export const EQ_SHAPES = ["bell", "lowShelf", "lowCut", "highShelf", "highCut", "notch", "bandPass", "tiltShelf", "flatTilt"] as const;
+export type EqShape = (typeof EQ_SHAPES)[number];
+/** A band's steepness in dB per octave, or Brickwall (cuts only). */
+export const EQ_SLOPES = [6, 12, 18, 24, 30, 36, 48, 72, 96, "brickwall"] as const;
+export type EqSlope = (typeof EQ_SLOPES)[number];
+/** Which part of a stereo sound a band works on. */
+export const EQ_PLACEMENTS = ["stereo", "left", "right", "mid", "side"] as const;
+export type EqPlacement = (typeof EQ_PLACEMENTS)[number];
+export const EQ_MODES = ["zeroLatency", "naturalPhase", "linearPhase"] as const;
+/** Pro-Q's processing modes: analog-matched filters with no delay; their analog phase too; or the phase left alone. */
+export type EqMode = (typeof EQ_MODES)[number];
+export const EQ_RESOLUTIONS = ["low", "medium", "high", "veryHigh", "maximum"] as const;
+/** Linear Phase's resolution: longer filters, more delay, finer in the lows. */
+export type EqResolution = (typeof EQ_RESOLUTIONS)[number];
+
+/**
+ * A Pro-Q band. Its `id` is its number (1..24): bands aren't renumbered when one goes, so its colour and
+ * any automation stay with it.
+ */
+export interface EqBand {
+  id: number;
+  /** Off, it's bypassed (drawn dimmed). */
+  enabled: boolean;
+  shape: EqShape;
+  /** Hz, 10..30000. */
+  frequency: number;
+  /** dB, -30..30: Bell, shelves, Tilt Shelf and Flat Tilt. */
+  gain: number;
+  /** 0.025..40; 1 is the default width. Unused at 6 dB/oct. */
+  q: number;
+  slope: EqSlope;
+  placement: EqPlacement;
+  /**
+   * dB, -30..30: how far its gain moves when the sound in its range is loud (a dynamic band); 0 is a
+   * static band. Negative cuts what's loud (compression), positive boosts it (expansion).
+   */
+  range: number;
+  /** Off, a dynamic band stays at its own gain (its range kept). */
+  dynamics: boolean;
+  /** dB, -60..0, where its dynamics start; null is Auto (it follows the level in its range). */
+  threshold: number | null;
+}
+
+/** What Pro-Q's A/B swaps: everything that changes the sound. */
+export interface ProQState {
+  bands: EqBand[];
+  mode: EqMode;
+  resolution: EqResolution;
+  /** 0..2: every band's gain and range scaled (Bell, shelves, tilts). */
+  gainScale: number;
+  /** dB, -36..36: the level out. */
+  output: number;
+  /** -1..1: the output's balance, between left and right or mid and side (`panMode`). */
+  pan: number;
+  panMode: "lr" | "ms";
+  /** The output's phase flipped. */
+  invert: boolean;
+  /** The output level corrected for what the curve adds or takes (an estimate from the curve). */
+  autoGain: boolean;
+  /** Gain-Q interaction: a Bell narrows as it's boosted, as an analog EQ's does. */
+  gainQ: boolean;
+}
+
+/** Pro-Q's analyzer, as its panel sets it (saved with the song, as Pro-Q's are). */
+export interface ProQAnalyzer {
+  pre: boolean;
+  post: boolean;
+  /** dB shown, from 0 down. */
+  range: 60 | 90 | 120;
+  /** Its FFT's length. */
+  resolution: "low" | "medium" | "high" | "maximum";
+  speed: "verySlow" | "slow" | "medium" | "fast" | "veryFast";
+  /** dB per octave around 1 kHz (4.5: as loudness is heard). */
+  tilt: 0 | 1.5 | 3 | 4.5 | 6;
+  /** Hovering the spectrum a moment grabs its peaks. */
+  grab: boolean;
+  /** Where this sound collides with the external spectrum, a red glow. */
+  collisions: boolean;
+  /** Another Pro-Q's spectrum (its effect id) drawn over this one's, or null. */
+  external: string | null;
+}
+
+/** Pro-Q's settings: its state, the other A/B state, and how it shows. */
+export interface ProQ extends ProQState {
+  /** Which of A/B this is; the other is `other` (null until it's been made). */
+  ab: "a" | "b";
+  other: ProQState | null;
+  analyzer: ProQAnalyzer;
+  /** ±dB the display shows (it grows when a band goes past it). */
+  displayRange: 3 | 6 | 12 | 30;
+}
+
+/** PanMan's modes (`docs/soundtoys/panman.md`): what moves the sound. */
+export type PanManMode = "lfo" | "rhythmStep" | "rhythmShape" | "pingPong" | "random" | "step";
+/** PanMan's Direction buttons: ◀ right to left (a ramp down), ◀▶ back and forth, ▶ left to right (a ramp up). */
+export type PanDirection = "down" | "both" | "up";
+/** The Rhythm Step Editor's Smoothing Mode: the shape of a move from one point to the next. */
+export type PanCurve = "linear" | "sine" | "exp" | "sym" | "rev";
+/** PanMan's Analog Style: its saturation. */
+export type PanStyle = "clean" | "fat" | "squash" | "dirt" | "crunch" | "shred" | "pump";
+
+/** A point of the Rhythm Step Editor: a tick of its bars, and a position, -1 (L) to 1 (R) of the Width around the Offset. */
+export interface PanStepPoint {
+  tick: number;
+  value: number;
+}
+
+/** An event of the Rhythm Editor (Rhythm Shape): one cycle of the direction's shape, from `tick`, `length` ticks long. */
+export interface PanShapeEvent {
+  tick: number;
+  length: number;
+}
+
+/**
+ * PanMan's settings (`docs/soundtoys/panman.md`), Soundtoys' auto-panner, ours. Positions are degrees
+ * (±90 hard left / right, ±105 beyond the speakers), levels dB, times seconds.
+ */
+export interface PanMan {
+  /** The factory preset last chosen (`PANMAN_PRESETS` by name): the preset bar's name, what Revert goes back to. */
+  preset: string;
+  mode: PanManMode;
+  /** -105..105: the base position. */
+  offset: number;
+  /** 0..210: how far around the offset it moves. */
+  width: number;
+  /** 0..1, Hard to Soft. */
+  smoothing: number;
+  /** -1..1: Rhythm Step's Rush to Drag (a 16th note either way). */
+  feel: number;
+  /** -1..1: Rhythm Shape's Shuffle to Swing (every second event, to a triplet). */
+  groove: number;
+  /** Hz, 0.01..10: the LFO's rate. */
+  rate: number;
+  direction: PanDirection;
+  /** A rhythm's id (`PAN_RHYTHMS`): each step, event or random move lasts it. */
+  rhythm: string;
+  /** 2..16: Rhythm Step's positions before it repeats. */
+  steps: number;
+  /** The editor's pattern plays (Rhythm Step's points, Rhythm Shape's events) rather than the one the knobs make. */
+  custom: boolean;
+  /** In time with the song (the MIDI switch); off, at `tempo`. */
+  sync: boolean;
+  /** BPM (Tap Tempo), when not in time with the song. */
+  tempo: number;
+  /** dB, -40..0: PingPong's and Step's trigger level (0: the sound doesn't trigger). */
+  trigger: number;
+  /** 1..12: triggers to a move. */
+  divider: number;
+  /** The trigger's filter (what it listens to): its type, cutoff (Hz) and gain (dB); `monitor` plays it, unpanned. */
+  filter: "hpf" | "off" | "lpf";
+  cutoff: number;
+  filterGain: number;
+  monitor: boolean;
+  /** The dynamics (LFO and the rhythms): threshold (dB), attack and release (s), Env or Gate, and how far the level moves the offset (degrees), width (degrees) and rate (octaves). */
+  threshold: number;
+  attack: number;
+  release: number;
+  gate: boolean;
+  offsetMod: number;
+  widthMod: number;
+  rateMod: number;
+  style: PanStyle;
+  /** dB, -24..24. */
+  input: number;
+  output: number;
+  /** The Rhythm Step Editor: its bars, their beats, its Smoothing Mode, and its points (sorted, one per tick). */
+  stepPattern: { bars: number; beatsPerBar: number; curve: PanCurve; points: PanStepPoint[] };
+  /** The Rhythm Editor (Rhythm Shape): its bars, their beats, and its events (sorted, not overlapping). */
+  shapePattern: { bars: number; beatsPerBar: number; events: PanShapeEvent[] };
 }
 
 /**
@@ -642,6 +820,8 @@ export type AutomationTarget =
   | { kind: "grossBeat"; effect: string; control: GrossControl }
   | { kind: "autoTune"; effect: string; control: AutoTuneControl }
   | { kind: "echoBoy"; effect: string; control: EchoControl }
+  | { kind: "proQ"; effect: string; band: number; control: EqControl }
+  | { kind: "panMan"; effect: string; control: PanControl }
   | { kind: "pitchWheel"; effect: string; control: PitchWheelControl }
   | { kind: "main" }
   | {
@@ -661,6 +841,11 @@ export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";
 /** Auto-Tune's controls an automation clip can drive (the key too, for a song that changes key). */
 export const AUTO_TUNE_CONTROLS = ["retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key"] as const;
 export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
+/** PanMan's controls an automation clip can drive. */
+export type PanControl = "offset" | "width" | "rate" | "input" | "output";
+
+/** A Pro-Q band's controls an automation clip can drive (band 0 is its output). */
+export type EqControl = "frequency" | "gain" | "q" | "range" | "output";
 
 /** Pitch Wheel's controls an automation clip can drive: both wheels, and each one's knobs. */
 export const PITCH_WHEEL_CONTROLS = ["pitch", "timbre", "pitchGravity", "pitchInertia", "pitchSmooth", "timbreGravity", "timbreInertia", "timbreSmooth"] as const;

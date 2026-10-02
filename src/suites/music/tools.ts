@@ -7,6 +7,8 @@ import { createId } from "@shared/ids";
 import { AUTO_TUNE_PLUGIN } from "@shared/music/auto-tune-presets";
 import { ECHO_BOY_PLUGIN } from "@shared/music/echo-boy-presets";
 import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
+import { PRO_Q_PLUGIN } from "@shared/music/pro-q-presets";
+import { PANMAN_PLUGIN } from "@shared/music/panman-presets";
 import { PITCH_WHEEL_PLUGIN } from "@shared/music/pitch-wheel-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
@@ -72,6 +74,8 @@ import { freshWheel, latestWheelState } from "./pitch-wheel/live";
 import { describePitchWheel, findWheel, updatePitchWheelTool } from "./pitch-wheel/tool-edits";
 import { describeEchoBoy, updateEchoBoyTool } from "./echo-boy/tool-edits";
 import { describeGrossBeat, setGrossBeatSlotTool, updateGrossBeatTool } from "./gross-beat/tool-edits";
+import { describeProQ, setProQBandsTool, updateProQTool } from "./pro-q/tool-edits";
+import { describePanMan, findPan, setPanPatternTool, updatePanManTool } from "./panman/tool-edits";
 import { useBrowser } from "./browser/store";
 import {
   addMixerTrackTool,
@@ -310,7 +314,16 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const track = findTrack(target.song, input.track);
     const slot = slotForEffect(target.song, track, input);
     const wanted = String(input.plugin ?? "").trim().toLowerCase();
-    // Ours first: Gross Beat isn't a plugin, and its settings are the song's (the tools set them).
+    // Ours first: Pro-Q and Gross Beat aren't plugins, and their settings are the song's (the tools set them).
+    if (wanted === PRO_Q_PLUGIN.name.toLowerCase() || wanted === PRO_Q_PLUGIN.id || wanted === "proq" || wanted === "pro-q 3" || wanted === "pro q") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, PRO_Q_PLUGIN, id));
+      return textResult(
+        `Put Pro-Q (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. ` +
+          "It has no bands yet (the sound as it is): set_pro_q_bands shapes it, update_pro_q sets its mode and output, get_pro_q reads it.",
+      );
+    }
     if (wanted === GROSS_BEAT_PLUGIN.name.toLowerCase() || wanted === GROSS_BEAT_PLUGIN.id || wanted === "grossbeat") {
       const replaced = track.effects[slot];
       const id = createId("fx");
@@ -338,6 +351,15 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "update_echo_boy sets it (a preset, its mode, times, style...); get_echo_boy reads it.",
       );
     }
+    if (wanted === PANMAN_PLUGIN.name.toLowerCase() || wanted === PANMAN_PLUGIN.id || wanted === "pan man") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, PANMAN_PLUGIN, id));
+      return textResult(
+        `Put PanMan (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. ` +
+          "It pans slowly back and forth (its Slow Pan preset) until you change it: get_panman reads it, update_panman sets it (presets, modes, knobs), set_panman_pattern draws your own rhythm.",
+      );
+    }
     if (wanted === PITCH_WHEEL_PLUGIN.name.toLowerCase() || wanted === PITCH_WHEEL_PLUGIN.id || wanted === "pitchwheel" || wanted === "pitch-wheel") {
       const replaced = track.effects[slot];
       const id = createId("fx");
@@ -358,6 +380,11 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     );
   },
   update_mixer_effect: edit(updateMixerEffectTool),
+  async get_pro_q(input, ctx) {
+    return textResult(describeProQ((await targetOf(ctx)).song, input));
+  },
+  set_pro_q_bands: edit((song, input) => setProQBandsTool(song, input)),
+  update_pro_q: edit((song, input) => updateProQTool(song, input)),
   async get_echo_boy(input, ctx) {
     return textResult(describeEchoBoy((await targetOf(ctx)).song, input));
   },
@@ -382,6 +409,13 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   },
   update_pitch_wheel: edit((song, input) => updatePitchWheelTool(song, input)),
   set_gross_beat_slot: edit((song, input) => setGrossBeatSlotTool(song, input)),
+  async get_panman(input, ctx) {
+    const { song, open } = await targetOf(ctx);
+    // Where it is now, if it's the song playing here.
+    return textResult(describePanMan(song, input, open ? useTransport.getState().panMen[findPan(song, input).effect.id] : undefined));
+  },
+  update_panman: edit((song, input) => updatePanManTool(song, input)),
+  set_panman_pattern: edit((song, input) => setPanPatternTool(song, input)),
   remove_mixer_effect: edit(removeMixerEffectTool),
   async copy_track_state(input, ctx) {
     const target = await targetOf(ctx);

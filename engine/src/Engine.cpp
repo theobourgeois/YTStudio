@@ -92,6 +92,7 @@ juce::var Engine::transport() const
                                { "grossBeats", grossBeats.describe() },
                                { "autoTunes", autoTunes.describe() },
                                { "echoBoys", echoBoys.describe() },
+                               { "panMen", panMen.describe() },
                                { "pitchWheels", pitchWheels.describe() } });
 }
 
@@ -238,6 +239,36 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
             state->hold = (bool) params["hold"];
         if (params.hasProperty ("scratch"))
             state->scratch = (float) juce::jlimit (-64.0, 0.0, (double) params["scratch"]);
+        return ok();
+    }
+    if (command == "eqWatch")
+    {
+        // The Pro-Qs whose windows are open: their sound is measured for the analyzer.
+        std::map<juce::String, int> sizes;
+        if (const auto* list = params["effects"].getArray())
+            for (const auto& item : *list)
+                sizes[item["effect"].toString()] = juce::jlimit (256, 32768, (int) item["size"]);
+        eqs.watch (sizes);
+        return ok();
+    }
+    if (command == "eqSolo")
+    {
+        // A band soloed while its solo button is held.
+        const auto state = eqs.find (params["effect"].toString());
+        if (state == nullptr)
+            return reply (fail ("The song playing has no such Pro-Q."), {});
+        state->soloBand.store (params["band"].isVoid() ? 0 : juce::jlimit (0, eq::maxBands, (int) params["band"]));
+        state->soloGain.store ((float) std::pow (10.0, juce::jlimit (-30.0, 30.0, (double) params["gain"]) / 20));
+        return ok();
+    }
+    if (command == "panMan")
+    {
+        // A PanMan's Manual Trigger.
+        const auto state = panMen.find (params["effect"].toString());
+        if (state == nullptr)
+            return reply (fail ("The song playing has no such PanMan."), {});
+        if ((bool) params["trigger"])
+            state->manualTrigger = true;
         return ok();
     }
     if (command == "pitchWheel")
@@ -422,7 +453,7 @@ juce::StringArray Engine::applySong()
     // During an export the song waits: it's made when the export ends (its plugins are busy).
     if (exportJob != nullptr)
         return unreadable;
-    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, autoTunes, echoBoys, pitchWheels, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
+    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, autoTunes, echoBoys, eqs, panMen, pitchWheels, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
     latencies = plugins.latencySignature() * 7 + effects.latencySignature();
     armed.clear();
     for (const auto& track : song->tracks)
@@ -497,6 +528,7 @@ void Engine::timerCallback()
     sequencer.collectGarbage();
     sequencer.prepareClips();
     preview.collectGarbage();
+    eqs.collect();
     reportTakes();
     checkLatencies();
     // A parameter touched in a plugin's window: the tab can offer to automate it.
@@ -523,6 +555,8 @@ void Engine::timerCallback()
                                             { "grossBeats", grossBeats.describe() },
                                             { "autoTunes", autoTunes.describe() },
                                             { "echoBoys", echoBoys.describe() },
+                                            { "eq", eqs.describe() },
+                                            { "panMen", panMen.describe() },
                                             { "pitchWheels", pitchWheels.describe() },
                                             { "peak", level },
                                             { "meters", meters },
@@ -599,6 +633,7 @@ void Engine::render (int frames, const juce::File& file, const juce::String& inp
     }
     sequencer.collectGarbage();
     preview.collectGarbage();
+    eqs.collect();
     reportTakes();
 
     if (file != juce::File())
@@ -618,6 +653,8 @@ void Engine::render (int frames, const juce::File& file, const juce::String& inp
                                { "meters", sequencer.takeMeters (meterFloor) },
                                // A recording's peaks since the last render (or event), as its transport events carry them live.
                                { "levels", sequencer.recorder().levels() },
+                               // The watched Pro-Qs' spectra and dynamics, as their transport events carry them live.
+                               { "eq", eqs.describe() },
                                { "transport", transport() } }));
 }
 
@@ -714,8 +751,10 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
     gross::Registry exportGrossBeats;
     tune::Registry exportAutoTunes;
     echo::Registry exportEchoBoys;
+    panman::Registry exportPanMen;
+    eq::Registry exportEqs;
     wheel::Registry exportPitchWheels;
-    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportAutoTunes, exportEchoBoys, exportPitchWheels, unreadable, exportBlockSize, rate(), false);
+    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, exportAutoTunes, exportEchoBoys, exportEqs, exportPanMen, exportPitchWheels, unreadable, exportBlockSize, rate(), false);
     if ((plugins.anyLoading() || effects.anyLoading()) && attempt < exportWaits)
     {
         juce::Timer::callAfterDelay (100, [this, stillAlive = alive, params, reply, attempt] {
@@ -731,7 +770,7 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
             missing.add (channel.id);
     for (const auto& track : song->tracks)
         for (const auto& effect : track.effects)
-            if (effect.plugin == nullptr && effect.gross == nullptr && effect.tune == nullptr && effect.echo == nullptr && effect.wheel == nullptr)
+            if (effect.plugin == nullptr && effect.gross == nullptr && effect.tune == nullptr && effect.echo == nullptr && effect.eq == nullptr && effect.pan == nullptr && effect.wheel == nullptr)
                 missing.add (effect.id);
 
     // Playback stops and lets go of the plugins; they're prepared for the export.

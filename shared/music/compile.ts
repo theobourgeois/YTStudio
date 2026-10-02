@@ -11,10 +11,15 @@ import { LANE_FINEST, sampleLane } from "./sampling.ts";
 import { type EngineAutoTune, engineAutoTune, engineControlValue } from "./auto-tune.ts";
 import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANES_OF, engineEchoBoy } from "./echo-boy.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
+import { type EngineEq, engineProQ } from "./pro-q.ts";
 import { type EnginePitchWheel, controlValue as pitchWheelValue, engineControlValue as engineWheelValue, enginePitchWheel } from "./pitch-wheel.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
+import { type EnginePanMan, enginePanMan } from "./panman.ts";
+import { PAN_CONTROL_IDS, PAN_LANE_SCALE } from "./panman-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
-import { AUTO_TUNE_CONTROLS, type AutoTuneControl, PITCH_WHEEL_CONTROLS, type PitchWheelControl, type AutomationTarget, type Channel, type EchoControl, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { autoGain } from "./pro-q-filters.ts";
+import { hasGain } from "./pro-q-presets.ts";
+import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, type MusicProject, type PanControl, PITCH_WHEEL_CONTROLS, type PitchWheelControl, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -71,6 +76,10 @@ export interface EngineEffect {
   autoTune?: EngineAutoTune;
   /** An EchoBoy (ours, run by the engine itself: its `plugin.id` is `ECHO_BOY_PLUGIN`'s): its delay lines, style and levels. */
   echoBoy?: EngineEchoBoy;
+  /** A Pro-Q (ours, run by the engine itself: its `plugin.id` is `PRO_Q_PLUGIN`'s): its bands and settings. */
+  eq?: EngineEq;
+  /** A PanMan (ours, likewise: `PANMAN_PLUGIN`'s id): its settings and pattern. */
+  panMan?: EnginePanMan;
   /** A Pitch Wheel (ours too, `PITCH_WHEEL_PLUGIN`): its wheels, and where its notes come from. */
   pitchWheel?: EnginePitchWheel;
 }
@@ -146,7 +155,9 @@ export interface EngineAudioClip {
 /**
  * What an automation lane drives in the engine, in the engine's own units: a channel's two gains, a mixer
  * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, a Gross Beat's slot (its
- * number, 0..35) or mix (0..1), an Auto-Tune's control (`engineControlValue`), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
+ * number, 0..35) or mix (0..1), an Auto-Tune's control (`engineControlValue`), a PanMan's control (in its units
+ * over `PAN_LANE_SCALE`: the offset and width as fractions of 105° and 210°, the rate in Hz, the gains in dB), or a
+ * plugin's parameter (0..1, or -1 where the plugin keeps its own value:
  * before any clip of it).
  */
 export type EngineLaneTarget =
@@ -157,6 +168,9 @@ export type EngineLaneTarget =
   | { kind: "gross"; track: number; effect: number; control: GrossControl }
   | { kind: "tune"; track: number; effect: number; control: AutoTuneControl }
   | { kind: "echo"; track: number; effect: number; control: EchoLane }
+  /** A Pro-Q band's frequency (log2 Hz), gain or range (dB) or Q (log2), by band number; or its output (dB, band 0). */
+  | { kind: "eq"; track: number; effect: number; band: number; control: EqControl }
+  | { kind: "panman"; track: number; effect: number; control: PanControl }
   | { kind: "wheel"; track: number; effect: number; control: PitchWheelControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
@@ -365,6 +379,8 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         const slots = gross.get(e.id);
         if (e.autoTune) return [{ ...effect, autoTune: engineAutoTune(e.autoTune) }];
         if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
+        if (e.proQ) return [{ ...effect, eq: engineProQ(e.proQ) }];
+        if (e.panMan) return [{ ...effect, panMan: enginePanMan(e.panMan, e.id) }];
         if (e.pitchWheel) {
           // Notes from a channel the song no longer has: none.
           const wheel = enginePitchWheel(e.pitchWheel);
@@ -695,6 +711,33 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
           });
         }
       }
+      const pq = effect.proQ;
+      if (pq) {
+        // Each band's automated controls, in the engine's units (frequency and Q as log2: lanes keep within ±64).
+        const lane = (band: number, control: EqControl, own: number, toEngine: (v: number) => number) => {
+          const target: AutomationTarget = { kind: "proQ", effect: effect.id, band, control };
+          const value = valueOf(target, own);
+          add({ kind: "eq", track: t, effect: effectIndex, band, control }, [automated(target)], (tick) => [toEngine(value(tick))]);
+        };
+        const scale = (b: EqBand) => (hasGain(b.shape) ? pq.gainScale : 1);
+        for (const b of pq.bands) {
+          if (!b.enabled) continue;
+          lane(b.id, "frequency", b.frequency, Math.log2);
+          lane(b.id, "gain", b.gain, (v) => v * scale(b));
+          lane(b.id, "q", b.q, Math.log2);
+          lane(b.id, "range", b.range, (v) => v * scale(b));
+        }
+        const auto = pq.autoGain ? autoGain(pq) : 0;
+        lane(0, "output", pq.output, (v) => v + auto);
+      }
+      const pm = effect.panMan;
+      if (pm)
+        for (const control of PAN_CONTROL_IDS) {
+          const target: AutomationTarget = { kind: "panMan", effect: effect.id, control };
+          const value = valueOf(target, pm[control]);
+          const scale = PAN_LANE_SCALE[control];
+          add({ kind: "panman", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [value(tick) / scale]);
+        }
       effectIndex++;
     }
   }

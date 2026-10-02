@@ -123,6 +123,10 @@ export interface EngineTransport {
   autoTunes?: Record<string, EngineAutoTuneState>;
   /** Each EchoBoy in the song (by effect id): its levels in and out, for its LEDs (absent from engines that don't say). */
   echoBoys?: Record<string, EngineEchoLevels>;
+  /** Each Pro-Q being watched (`eqWatch`), by effect id: its spectra and its dynamic bands (absent from engines that don't say). */
+  eq?: Record<string, EngineEqState>;
+  /** Each PanMan in the song (by effect id): where it's put the sound (absent from engines that don't say). */
+  panMen?: Record<string, EnginePanState>;
   /** Each Pitch Wheel in the song (by effect id): where its wheels actually are, and its notes (absent from engines that don't say). */
   pitchWheels?: Record<string, EnginePitchWheelState>;
 }
@@ -157,6 +161,34 @@ export interface EngineAutoTuneState {
 export interface EngineEchoLevels {
   input: [number, number];
   output: [number, number];
+}
+
+/**
+ * What a watched Pro-Q hears: its spectra before and after it (dB at `EQ_SPECTRUM_POINTS` log-spaced
+ * frequencies, a full-scale sine reading 0; null when nothing's come through since), its output's peak
+ * per side, and each dynamic band (by number): how far its gain has moved now (dB) and the level of the
+ * sound in its range (dB), which its threshold is set against.
+ */
+export interface EngineEqState {
+  pre: number[] | null;
+  post: number[] | null;
+  peak: [number, number];
+  bands: Record<string, { gain: number; level: number }>;
+}
+
+/**
+ * What a PanMan is doing: the position it's heard at (degrees: ±90 hard left / right, ±105 beyond), the
+ * least and most since the engine last said (the meter's trails), the input's and output's peaks since
+ * (linear, after Input / Output), the level its Threshold or Trigger knob sees (dB), and its divider's count.
+ */
+export interface EnginePanState {
+  position: number;
+  least: number;
+  most: number;
+  input: number;
+  output: number;
+  level: number;
+  count: number;
 }
 
 /**
@@ -437,6 +469,8 @@ export interface EngineRender {
   levels?: Record<string, number[]>;
   /** Each mixer track's loudest level over these samples. */
   meters: EngineMeters;
+  /** The watched Pro-Qs' state after these samples (`EngineEqState`, by effect id). */
+  eq?: Record<string, EngineEqState>;
   transport: EngineTransport & { metronome: boolean };
 }
 
@@ -481,6 +515,18 @@ export interface EngineCommands {
    * envelope's; 0 lets go).
    */
   grossBeat: { effect: string; hold?: boolean; scratch?: number };
+  /** A PanMan's Manual Trigger (`trigger`: a trigger now, if the sound is under its Trigger's level). Live, not the song's. */
+  panMan: { effect: string; trigger?: boolean };
+  /**
+   * The Pro-Qs whose sound the engine measures (their windows are open, or another's shows their
+   * spectrum): each with its analyzer's FFT length. The rest aren't measured.
+   */
+  eqWatch: { effects: { effect: string; size: number }[] };
+  /**
+   * A Pro-Q band soloed while its solo button is held (null lets go): only the part of the sound it works
+   * on is heard, `gain` dB louder or softer (the solo's listening level).
+   */
+  eqSolo: { effect: string; band: number | null; gain?: number };
   /**
    * A Pitch Wheel's live controls, held by the hand (the song has the wheels where they're let go):
    * `pitch` and `timbre` hold a wheel's pointer (semitones, snapped) for a quarter of a second (renewed

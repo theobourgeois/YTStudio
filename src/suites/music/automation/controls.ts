@@ -4,6 +4,7 @@
  * effects' mixes, and the plugins whose own parameters the engine lists. Pure, so it's tested.
  */
 import { controlOf, mixerTrackName, targetKey } from "@shared/music/automation";
+import { PAN_CONTROL_IDS } from "@shared/music/panman-presets";
 import { AUTO_TUNE_CONTROLS, type AutomationTarget, ECHO_CONTROLS, type MusicProject, PITCH_WHEEL_CONTROLS } from "@shared/music/types";
 
 export interface ControlRow {
@@ -58,6 +59,13 @@ export function songControls(song: MusicProject): ControlGroup[] {
       if (effect.autoTune) for (const control of AUTO_TUNE_CONTROLS) mixer.push(row({ kind: "autoTune", effect: effect.id, control }));
       // EchoBoy's: its knobs.
       if (effect.echoBoy) for (const control of ECHO_CONTROLS) mixer.push(row({ kind: "echoBoy", effect: effect.id, control }));
+      // Pro-Q's: each band's frequency, gain, Q and range, and its output.
+      if (effect.proQ) {
+        for (const band of effect.proQ.bands) for (const control of ["frequency", "gain", "q", "range"] as const) mixer.push(row({ kind: "proQ", effect: effect.id, band: band.id, control }));
+        mixer.push(row({ kind: "proQ", effect: effect.id, band: 0, control: "output" }));
+      }
+      // PanMan's own: offset, width, rate, input, output.
+      if (effect.panMan) for (const control of PAN_CONTROL_IDS) mixer.push(row({ kind: "panMan", effect: effect.id, control }));
       // Pitch Wheel's: both wheels and their knobs.
       if (effect.pitchWheel) for (const control of PITCH_WHEEL_CONTROLS) mixer.push(row({ kind: "pitchWheel", effect: effect.id, control }));
     }
@@ -72,8 +80,8 @@ export function pluginOwners(song: MusicProject): PluginOwner[] {
     c.kind === "plugin" && c.plugin ? [{ owner: "channel" as const, id: c.id, name: c.plugin.name === c.name ? c.name : `${c.plugin.name} (${c.name})` }] : [],
   );
   for (const track of song.mixer.tracks)
-    // (Gross Beat, Auto-Tune, EchoBoy and Pitch Wheel are ours: their controls are among the song's, not a plugin's parameters.)
-    for (const effect of track.effects) if (effect && !effect.grossBeat && !effect.autoTune && !effect.echoBoy && !effect.pitchWheel) owners.push({ owner: "effect", id: effect.id, name: `${effect.plugin.name} (${mixerTrackName(song, track.id)})` });
+    // (Gross Beat, Auto-Tune, EchoBoy, Pro-Q, PanMan and Pitch Wheel are ours: their controls are among the song's, not a plugin's parameters.)
+    for (const effect of track.effects) if (effect && !effect.grossBeat && !effect.autoTune && !effect.echoBoy && !effect.proQ && !effect.panMan && !effect.pitchWheel) owners.push({ owner: "effect", id: effect.id, name: `${effect.plugin.name} (${mixerTrackName(song, track.id)})` });
   return owners;
 }
 

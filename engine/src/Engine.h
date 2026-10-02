@@ -95,6 +95,10 @@ private:
     tune::Registry autoTunes;
     /** Its EchoBoys' sounds, by effect id. */
     echo::Registry echoBoys;
+    /** Its Pro-Qs' sounds, likewise. */
+    eq::Registry eqs;
+    /** Its PanMen's sounds, likewise. */
+    panman::Registry panMen;
     /** Its Pitch Wheels' sounds, by effect id. */
     wheel::Registry pitchWheels;
     Sequencer sequencer;

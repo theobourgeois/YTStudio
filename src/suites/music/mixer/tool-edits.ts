@@ -147,6 +147,8 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
         (effect.grossBeat && `, effect ${effect.id}, playing time slot ${effect.grossBeat.timeSlot + 1} and volume slot ${effect.grossBeat.volumeSlot + 1} (get_gross_beat)`) ||
         (effect.echoBoy && `, effect ${effect.id}, ${effect.echoBoy.mode} echo, ${effect.echoBoy.custom ? "a custom style" : effect.echoBoy.style}${effect.echoBoy.preset ? `, preset "${effect.echoBoy.preset}"` : ""} (get_echo_boy)`) ||
         (effect.autoTune && `, effect ${effect.id}, ${keyText(effect.autoTune.key, effect.autoTune.scale)}, retune speed ${Math.round(effect.autoTune.retuneSpeed)} ms (get_auto_tune)`) ||
+        (effect.proQ && `, effect ${effect.id}, ${effect.proQ.bands.length} band${effect.proQ.bands.length === 1 ? "" : "s"} (get_pro_q)`) ||
+        (effect.panMan && `, effect ${effect.id}, ${effect.panMan.mode} mode, preset "${effect.panMan.preset}" (get_panman)`) ||
         (effect.pitchWheel && `, effect ${effect.id}, ${wheelSummary(song, effect.pitchWheel)} (get_pitch_wheel)`);
       lines.push(`    slot ${slot + 1}: ${effect.plugin.name} (${effect.plugin.format})${effect.enabled ? "" : ", bypassed"}${effect.mix < 1 ? `, mix ${percent(effect.mix)}` : ""}${state ? `, ${state}` : ""}${gross || ""}`);
     });

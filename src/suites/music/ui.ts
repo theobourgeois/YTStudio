@@ -6,6 +6,7 @@ import { useMusic } from "./store";
 
 /**
  * A window of the music editor: the channel rack, the Piano roll, the Playlist, the mixer, a channel's settings,
+ * an automation clip's, a Gross Beat's, an Auto-Tune's, an EchoBoy's, a Pro-Q's, a PanMan's, or one of the small ones a command opens (Transpose selected, a note's properties,
  * an automation clip's, a Gross Beat's, an Auto-Tune's, an EchoBoy's, a Pitch Wheel's, or one of the small ones a command opens (Transpose selected, a note's properties,
  * Automate: every control to automate).
  */
@@ -24,6 +25,8 @@ export type WindowId =
   | `gross:${string}`
   | `tune:${string}`
   | `echo:${string}`
+  | `panman:${string}`
+  | `proq:${string}`
   | `wheel:${string}`;
 
 /**
@@ -40,6 +43,10 @@ export const grossBeatWindow = (effectId: string): WindowId => `gross:${effectId
 export const autoTuneWindow = (effectId: string): WindowId => `tune:${effectId}`;
 /** An EchoBoy's window (`echo-boy/echo-boy-window.tsx`), by its effect's id. */
 export const echoBoyWindow = (effectId: string): WindowId => `echo:${effectId}`;
+/** A Pro-Q's window (`pro-q/pro-q-window.tsx`), by its effect's id. */
+export const proQWindow = (effectId: string): WindowId => `proq:${effectId}`;
+/** A PanMan's window (`panman/panman-window.tsx`), by its effect's id. */
+export const panManWindow = (effectId: string): WindowId => `panman:${effectId}`;
 /** A Pitch Wheel's window (`pitch-wheel/pitch-wheel-window.tsx`), by its effect's id. */
 export const pitchWheelWindow = (effectId: string): WindowId => `wheel:${effectId}`;
 

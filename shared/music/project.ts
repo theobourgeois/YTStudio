@@ -8,8 +8,28 @@ import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import { AUTO_TUNE_PLUGIN, isAutoTune, normalizeAutoTune } from "./auto-tune-presets.ts";
 import { ECHO_BOY_PLUGIN, isEchoBoy, normalizeEchoBoy } from "./echo-boy-presets.ts";
+import {
+  DEFAULT_ANALYZER,
+  DEFAULT_BAND,
+  DEFAULT_PRO_Q_STATE,
+  EQ_BANDS,
+  EQ_DISPLAY_RANGES,
+  EQ_MAX_FREQUENCY,
+  EQ_MAX_GAIN,
+  EQ_MAX_GAIN_SCALE,
+  EQ_MAX_OUTPUT,
+  EQ_MAX_Q,
+  EQ_MIN_FREQUENCY,
+  EQ_MIN_OUTPUT,
+  EQ_MIN_Q,
+  EQ_MIN_THRESHOLD,
+  PRO_Q_PLUGIN,
+  isProQ,
+  shapeSlopes,
+} from "./pro-q-presets.ts";
 import { PITCH_WHEEL_PLUGIN, isPitchWheel, normalizePitchWheel } from "./pitch-wheel-presets.ts";
 import { GROSS_BEAT_PLUGIN, GROSS_SLOTS, GROSS_SYNCS, GROSS_TICKS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE, isGrossBeat } from "./gross-beat-presets.ts";
+import { PANMAN_PLUGIN, PAN_CONTROL_IDS, isPanMan, normalizePanMan } from "./panman-presets.ts";
 import {
   AUTO_TUNE_CONTROLS,
   type AutoTuneControl,
@@ -25,10 +45,25 @@ import {
   ECHO_CONTROLS,
   type EchoControl,
   type Envelope,
+  EQ_MODES,
+  EQ_PLACEMENTS,
+  EQ_RESOLUTIONS,
+  EQ_SHAPES,
+  type EqBand,
+  type EqControl,
+  type EqMode,
+  type EqPlacement,
+  type EqResolution,
+  type EqShape,
+  type EqSlope,
+  type ProQ,
+  type ProQAnalyzer,
+  type ProQState,
   type GrossBeat,
   type GrossBeatSlot,
   type GrossControl,
   type GrossHold,
+  type PanControl,
   type Mixer,
   type MixerEffect,
   type InputMonitor,
@@ -415,8 +450,85 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   if (isGrossBeat(plugin)) return { ...effect, plugin: GROSS_BEAT_PLUGIN, grossBeat: normalizeGrossBeat(input.grossBeat) };
   if (isAutoTune(plugin)) return { ...effect, plugin: AUTO_TUNE_PLUGIN, autoTune: normalizeAutoTune(input.autoTune) };
   if (isEchoBoy(plugin)) return { ...effect, plugin: ECHO_BOY_PLUGIN, echoBoy: normalizeEchoBoy(input.echoBoy) };
+  if (isProQ(plugin)) return { ...effect, plugin: PRO_Q_PLUGIN, proQ: normalizeProQ(input.proQ) };
+  if (isPanMan(plugin)) return { ...effect, plugin: PANMAN_PLUGIN, panMan: normalizePanMan(input.panMan) };
   if (isPitchWheel(plugin)) return { ...effect, plugin: PITCH_WHEEL_PLUGIN, pitchWheel: normalizePitchWheel(input.pitchWheel) };
   return effect;
+}
+
+/** A new Pro-Q: no bands (the sound as it is), FabFilter's defaults. */
+export const DEFAULT_PRO_Q: ProQ = { ...DEFAULT_PRO_Q_STATE, ab: "a", other: null, analyzer: DEFAULT_ANALYZER, displayRange: 12 };
+
+const oneOf = <T>(list: readonly T[], v: unknown, fallback: T): T => (list.includes(v as T) ? (v as T) : fallback);
+
+/** A Pro-Q band, or null if it isn't one. Its number must be free (`seen`). */
+function normalizeBand(raw: unknown, seen: Set<number>): EqBand | null {
+  if (!isObject(raw) || !Number.isInteger(raw.id) || (raw.id as number) < 1 || (raw.id as number) > EQ_BANDS || seen.has(raw.id as number)) return null;
+  const id = raw.id as number;
+  seen.add(id);
+  const d = DEFAULT_BAND;
+  const shape: EqShape = oneOf(EQ_SHAPES, raw.shape, d.shape);
+  const slopes = shapeSlopes(shape);
+  return {
+    id,
+    enabled: raw.enabled !== false,
+    shape,
+    frequency: number(raw.frequency, EQ_MIN_FREQUENCY, EQ_MAX_FREQUENCY, d.frequency),
+    gain: number(raw.gain, -EQ_MAX_GAIN, EQ_MAX_GAIN, d.gain),
+    q: number(raw.q, EQ_MIN_Q, EQ_MAX_Q, d.q),
+    slope: slopes.includes(raw.slope as EqSlope) ? (raw.slope as EqSlope) : slopes.includes(d.slope) ? d.slope : slopes[0],
+    placement: oneOf<EqPlacement>(EQ_PLACEMENTS, raw.placement, d.placement),
+    range: number(raw.range, -EQ_MAX_GAIN, EQ_MAX_GAIN, 0),
+    dynamics: raw.dynamics !== false,
+    threshold: isFiniteNumber(raw.threshold) ? clamp(raw.threshold, EQ_MIN_THRESHOLD, 0) : null,
+  };
+}
+
+/** What A/B swaps, from anything: missing or wrong parts are the defaults. */
+function normalizeProQState(input: Record<string, unknown>): ProQState {
+  const d = DEFAULT_PRO_Q_STATE;
+  const seen = new Set<number>();
+  const bands = (Array.isArray(input.bands) ? input.bands : []).flatMap((b) => normalizeBand(b, seen) ?? []).slice(0, EQ_BANDS);
+  return {
+    bands,
+    mode: oneOf<EqMode>(EQ_MODES, input.mode, d.mode),
+    resolution: oneOf<EqResolution>(EQ_RESOLUTIONS, input.resolution, d.resolution),
+    gainScale: number(input.gainScale, 0, EQ_MAX_GAIN_SCALE, d.gainScale),
+    output: number(input.output, EQ_MIN_OUTPUT, EQ_MAX_OUTPUT, d.output),
+    pan: number(input.pan, -1, 1, d.pan),
+    panMode: input.panMode === "ms" ? "ms" : "lr",
+    invert: input.invert === true,
+    autoGain: input.autoGain === true,
+    gainQ: input.gainQ === true,
+  };
+}
+
+function normalizeAnalyzer(input: unknown): ProQAnalyzer {
+  if (!isObject(input)) return DEFAULT_ANALYZER;
+  const d = DEFAULT_ANALYZER;
+  return {
+    pre: typeof input.pre === "boolean" ? input.pre : d.pre,
+    post: typeof input.post === "boolean" ? input.post : d.post,
+    range: oneOf([60, 90, 120] as const, input.range, d.range),
+    resolution: oneOf(["low", "medium", "high", "maximum"] as const, input.resolution, d.resolution),
+    speed: oneOf(["verySlow", "slow", "medium", "fast", "veryFast"] as const, input.speed, d.speed),
+    tilt: oneOf([0, 1.5, 3, 4.5, 6] as const, input.tilt, d.tilt),
+    grab: typeof input.grab === "boolean" ? input.grab : d.grab,
+    collisions: typeof input.collisions === "boolean" ? input.collisions : d.collisions,
+    external: isId(input.external) ? input.external : null,
+  };
+}
+
+/** Pro-Q's settings (`docs/fabfilter/pro-q.md`): anything missing or wrong is its default. */
+export function normalizeProQ(input: unknown): ProQ {
+  if (!isObject(input)) return DEFAULT_PRO_Q;
+  return {
+    ...normalizeProQState(input),
+    ab: input.ab === "b" ? "b" : "a",
+    other: isObject(input.other) ? normalizeProQState(input.other) : null,
+    analyzer: normalizeAnalyzer(input.analyzer),
+    displayRange: oneOf(EQ_DISPLAY_RANGES, input.displayRange, 12),
+  };
 }
 
 /** A new Gross Beat's settings: its first slots (Empty) picked, both envelopes at full, FL's defaults. */
@@ -573,6 +685,7 @@ const CONTROLS = {
  * drives nothing, so undoing the deletion brings it all back.
  */
 const GROSS_CONTROLS: readonly GrossControl[] = ["timeSlot", "volumeSlot", "timeMix", "volumeMix"];
+const EQ_CONTROLS: readonly EqControl[] = ["frequency", "gain", "q", "range", "output"];
 
 export function normalizeTarget(raw: unknown): AutomationTarget | null {
   if (!isObject(raw)) return null;
@@ -585,12 +698,18 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.track) && isId(raw.to) ? { kind: "send", track: raw.track, to: raw.to } : null;
     case "effect":
       return isId(raw.effect) ? { kind: "effect", effect: raw.effect } : null;
+    case "proQ":
+      return isId(raw.effect) && Number.isInteger(raw.band) && (raw.band as number) >= 0 && (raw.band as number) <= EQ_BANDS && EQ_CONTROLS.includes(raw.control as EqControl)
+        ? { kind: "proQ", effect: raw.effect, band: raw.band as number, control: raw.control as EqControl }
+        : null;
     case "grossBeat":
       return isId(raw.effect) && GROSS_CONTROLS.includes(raw.control as GrossControl) ? { kind: "grossBeat", effect: raw.effect, control: raw.control as GrossControl } : null;
     case "autoTune":
       return isId(raw.effect) && AUTO_TUNE_CONTROLS.includes(raw.control as AutoTuneControl) ? { kind: "autoTune", effect: raw.effect, control: raw.control as AutoTuneControl } : null;
     case "echoBoy":
       return isId(raw.effect) && ECHO_CONTROLS.includes(raw.control as EchoControl) ? { kind: "echoBoy", effect: raw.effect, control: raw.control as EchoControl } : null;
+    case "panMan":
+      return isId(raw.effect) && PAN_CONTROL_IDS.includes(raw.control as PanControl) ? { kind: "panMan", effect: raw.effect, control: raw.control as PanControl } : null;
     case "pitchWheel":
       return isId(raw.effect) && PITCH_WHEEL_CONTROLS.includes(raw.control as PitchWheelControl) ? { kind: "pitchWheel", effect: raw.effect, control: raw.control as PitchWheelControl } : null;
     case "main":

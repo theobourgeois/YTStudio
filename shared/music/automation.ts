@@ -13,6 +13,8 @@ import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
 import { ECHO_CONTROL_SPECS } from "./echo-boy.ts";
 import { PITCH_WHEEL_CONTROL_INFO, controlField } from "./pitch-wheel-presets.ts";
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
+import { EQ_CONTROL_SCALES } from "./pro-q-presets.ts";
+import { PAN_CONTROLS, panControlFraction, panControlValue } from "./panman-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
 import { DEFAULT_LFO, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
 import { type Automation, type AutomationLfo, type AutomationPoint, type AutomationTarget, type CurveType, type MusicProject, type PlaylistClip, STEP_TICKS } from "./types.ts";
@@ -194,6 +196,10 @@ export function targetKey(target: AutomationTarget): string {
       return `tune:${target.effect}:${target.control}`;
     case "echoBoy":
       return `echo:${target.effect}:${target.control}`;
+    case "proQ":
+      return `proq:${target.effect}:${target.band}:${target.control}`;
+    case "panMan":
+      return `panman:${target.effect}:${target.control}`;
     case "pitchWheel":
       return `wheel:${target.effect}:${target.control}`;
     case "main":
@@ -286,6 +292,30 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         format: percent,
       };
     }
+    case "proQ": {
+      const found = findEffect(song, target.effect);
+      const pq = found?.effect?.proQ;
+      const owner = found && pq ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Pro-Q";
+      const scale = EQ_CONTROL_SCALES[target.control];
+      const band = target.control === "output" ? null : pq?.bands.find((b) => b.id === target.band);
+      const value = !pq ? null : target.control === "output" ? pq.output : band ? band[target.control] : null;
+      const said = (v: number) => {
+        const x = scale.toValue(clamp(v, 0, 1));
+        if (target.control === "frequency") return x >= 1000 ? `${(x / 1000).toFixed(2)} kHz` : `${x.toFixed(1)} Hz`;
+        if (target.control === "q") return x.toFixed(2);
+        return `${x > 0 ? "+" : ""}${x.toFixed(1)} dB`;
+      };
+      const names = { frequency: "Frequency", gain: "Gain", q: "Q", range: "Dynamic range", output: "Output" };
+      return {
+        name: target.control === "output" ? "Output" : `Band ${target.band} ${names[target.control]}`,
+        owner,
+        exists: value !== null,
+        own: value === null ? null : clamp(scale.toFraction(value), 0, 1),
+        toControl: (v) => scale.toValue(clamp(v, 0, 1)),
+        fromControl: (x) => clamp(scale.toFraction(x), 0, 1),
+        format: said,
+      };
+    }
     case "grossBeat": {
       const found = findEffect(song, target.effect);
       const gb = found?.effect?.grossBeat;
@@ -309,6 +339,21 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
           const name = gb?.[kind][n]?.name ?? (kind === "time" ? GROSS_TIME_PRESETS : GROSS_VOLUME_PRESETS)[n].name;
           return `${n + 1}: ${name}`;
         },
+      };
+    }
+    case "panMan": {
+      // In its own units (degrees, Hz, dB): the clip's 0..1 is the knob's range.
+      const found = findEffect(song, target.effect);
+      const pm = found?.effect?.panMan;
+      const control = PAN_CONTROLS[target.control];
+      return {
+        name: control.name,
+        owner: found && pm ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted PanMan",
+        exists: !!pm,
+        own: pm ? panControlFraction(target.control, pm[target.control]) : null,
+        toControl: (v) => panControlValue(target.control, v),
+        fromControl: (v) => panControlFraction(target.control, v),
+        format: (v) => control.format(panControlValue(target.control, v)),
       };
     }
     case "autoTune": {
