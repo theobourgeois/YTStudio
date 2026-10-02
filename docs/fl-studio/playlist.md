@@ -499,6 +499,15 @@ Théo asked for stretching "in one pass", doing whatever FL Studio does.
   something changed (`draw.ts`), a `PlaylistDrag` drawn through `applyDrag` and committed once
   (`drag.ts`), maths in `geometry.ts`, the mouse in `pointer.ts`, keys in `keys.ts`, commands in
   `actions.ts`, the Picker and the track headers as React beside the canvas.
+- **Stretching** (`shared/music/stretch.ts`, `stretchClips` / `setClipStretch` / `stretchChannel` in
+  `playlist.ts`): a stretch is a mode and the tempo the file plays at its own speed; `ClipContext` gives each
+  audio clip its own or its channel's (`stretchOf`) and the speed that makes (`fileSecondsPerTick(clip)`), so
+  every edit already counts in it. `compileSong` sends the engine each clip's speed, and in Stretch mode
+  `keepPitch` and `transpose`; `AudioStream` then decodes through Signalsmith Stretch on its reader thread,
+  sought so its first sample out is the file's at the clip's place (`stretch.integration.test.ts`: hits
+  within a millisecond, the pitch to the cent; 16 stretched clips take about 7% of a core). The Playlist's
+  Stretch is `usePlaylist.stretch`; an edge dragged with it on is a `stretch` drag. The menus are
+  `stretch-menu.tsx` on `stretching.ts`; Autodetect is `POST /api/engine/tempo`.
 - **The assistant**: `transpose_patterns` and `move_pattern` (the Picker's), `get_playlist`, `place_clips`, `update_clips`, `remove_clips`, `slice_clips`,
-  `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, and `play_song` with a
+  `split_by_channel`, `make_clip_unique`, `update_playlist_track`, `add_audio_clip`, `stretch_audio`, `detect_tempo`, and `play_song` with a
   mode (`src/suites/music/playlist/tool-edits.ts`).

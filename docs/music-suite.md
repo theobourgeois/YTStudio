@@ -81,13 +81,14 @@ The detailed lists are at the end of each reference doc. The main ones:
 
 - **The mixer has no track EQ of FL's** (put off: Théo uses Pro-Q, and Pro-Q is now built in). No effect plugins on channels (the bench in the
   audio settings can load one, for testing only).
-- Audio clips have no fades, gain, stretch or precomputed effects (their pitch works, as FL's Resample).
+- Audio clips have no fades or gain (their pitch works, as FL's Resample, and they stretch: Resample or Stretch,
+  not FL's élastique or slice modes).
 - Automation has no tempo, channel pitch or other channel controls yet, no Step and Slide modes, and one
   control per clip (`docs/fl-studio/automation.md` ends with the rest). Exports have no time markers,
   wrap remainder or bouncing (render as audio clip, consolidate) yet.
 - Per-note pan is heard on samplers but not sent to plugins. Channels have no colours. Knob menus lack
   "Link to controller".
-- The channel settings window lacks FL's other tabs (loop points, time stretching, the full envelope and
+- The channel settings window lacks FL's other tabs (loop points, the full envelope and
   LFO page). Plugin channels have no FL-style wrapper window (their own window opens bare).
 
 ## What's next, in order
@@ -159,7 +160,8 @@ stock EQ.
 colours and ruler, pitched audio clips, their channel window, sharp waveforms, deleted clips fading,
 dropped files shown where they'll land). The reference is `docs/fl-studio/playlist.md`, which ends with
 how it's built and where it differs; Théo's answers to what the manual left open are in its "Decided"
-section. Still to come for it: automation clips (step 4), audio clips' fades, gain, stretch and
+section. Audio clips stretch since 2026-10-02 (Shift+M, the clip menu, the channel window; Resample or
+Stretch, by Signalsmith Stretch in the engine). Still to come for it: automation clips (step 4), audio clips' fades, gain and
 precomputed effects, the Zoom tool, Select source, more rack groups.
 
 What Théo needed: split the song by track and compose the arrangement. What follows was the plan.

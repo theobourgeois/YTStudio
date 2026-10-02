@@ -279,7 +279,7 @@ Shift+click, which select a range.
 | Channel menu | Two columns: the channel (Piano roll, Rename/color/icon, Insert, Replace, Clone, Delete…) and its steps (Cut/Copy/Paste, Fill, Rotate, Burn…) | The same two columns, rows lined up: Piano roll, Graph editor, settings · Load sample, Cut itself, Hear it · Replace… (the instrument picker: a plugin or the Sampler, in the channel's place with its notes, volume, pan and mixer track), Clone, Delete, beside Cut/Copy/Paste · Fill each 2/4/8, Clear · Rotate | Color later; the rest with their phases |
 | Rack menu | Sort, group, zip, colour, swing mix, auto resize… | Add, clone, delete, move, mute/unmute selected | Later |
 | Graph editor | Also Release, Fine, Pan, Mod X/Y, Shift, Rep | Note and Velocity | With the piano roll's note properties |
-| Channel Settings | Content, Playback (loop points), Time stretching, declicking, the other precomputed effects | File, the six precomputed effects asked for, the waveform | Later |
+| Channel Settings | Content, Playback (loop points), Time stretching, declicking, the other precomputed effects | File, the six precomputed effects asked for, the waveform; an audio clip channel's Time stretching (mode and TIME's menu, no PITCH or MUL knobs: its PITCH is the channel's, MUL the menu's twice or half as long; [playlist.md](playlist.md)) | Later |
 | Waveform | Draggable start/loop handles, zoom, drag the sample out | Shows the prepared sample; click to hear | Later |
 | Envelope | ADSR + LFO for volume, pan, filter, pitch | Volume ADSR only | Later |
 | Cut groups, polyphony, arpeggiator, echo | Misc tab | Cut self only | Later |
