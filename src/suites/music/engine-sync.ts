@@ -11,6 +11,7 @@ import { usePlaylist } from "./playlist/store";
 import { armedIn, useRecording } from "./recording";
 import { useInputs } from "./inputs";
 import { useMusic } from "./store";
+import { takeAutoTunes } from "./auto-tune/pitch-history";
 import { NO_CHANNELS, NO_EFFECTS, NO_GROSS_BEATS, NO_METERS, afterSongSent, useTransport } from "./transport";
 import { currentTrackId, useMusicUi } from "./ui";
 import { automateParameter } from "./automation/actions";
@@ -126,6 +127,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         filePreview: event.preview ?? null,
         grossBeats: event.grossBeats ?? NO_GROSS_BEATS,
       });
+      // What each Auto-Tune heard: kept outside React, for its window's pitch graph.
+      takeAutoTunes(event.autoTunes);
     } else if (event.event === "take") {
       useRecording.getState().take(event);
     } else if (event.event === "touch") {
