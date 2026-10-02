@@ -27,7 +27,9 @@ import { type Palette, prepare, readPalette } from "../piano/draw";
 import { SNAPS, SNAP_LABELS, type Snap, snapTick, wheelZoomFactor } from "../piano/geometry";
 import { DeleteIcon, DrawIcon, MuteIcon, PaintIcon, PlaybackIcon, SelectIcon, SliceIcon } from "../piano/tool-icons";
 import { positionNow } from "../playhead";
-import { useRecording } from "../recording";
+import { liveTakes, useRecording } from "../recording";
+import { liveTakeTracks } from "@shared/music/recording";
+import { trackName as mixerTrackName } from "@shared/music/mixer";
 import { useMusic } from "../store";
 import { useTransport } from "../transport";
 import { useMusicUi } from "../ui";
@@ -307,7 +309,6 @@ function PlaylistBody() {
   const grid = useRef<HTMLCanvasElement>(null);
   const ruler = useRef<HTMLCanvasElement>(null);
   const playhead = useRef<HTMLDivElement>(null);
-  const recorded = useRef<HTMLDivElement>(null);
   const gridBox = useRef<HTMLDivElement>(null);
 
   // Drawing: once a frame, when anything it shows has changed.
@@ -342,6 +343,12 @@ function PlaylistBody() {
       const palette: Palette = readPalette(box);
       const incoming = incomingClips(playlist.incoming, p.ctx);
       const fading = vanishingClips(performance.now());
+      // Takes being recorded, where they'll land if they ended now.
+      const takes = [...liveTakes()];
+      const takeTracks = liveTakeTracks(
+        song,
+        takes.map(([track, pass]) => ({ track, start: pass.from, end: pass.ticks.at(-1) ?? pass.from })),
+      );
       const scene: PlaylistScene = {
         view,
         width,
@@ -364,6 +371,7 @@ function PlaylistBody() {
         colors: new Map([...song.patterns, ...song.channels, ...song.automations].flatMap((source) => (source.color ? [[source.id, source.color] as const] : []))),
         waveforms,
         vanishing: fading,
+        recording: takes.map(([track, pass], i) => ({ track: takeTracks[i], label: mixerTrackName(song, track), ...pass })),
         barTicks: p.barTicks,
         beatTicks: p.beatTicks,
         songTicks: songTicks(song),
@@ -382,6 +390,8 @@ function PlaylistBody() {
       const r = prepare(ruler.current, width, RULER_H);
       if (r) drawRuler(r, { ...scene, height: RULER_H }, useTransport.getState().songStartTick);
       box.dataset.drawMs = (performance.now() - started).toFixed(2);
+      // The takes drawn as they record, on which tracks ("1,2"): for tests, which can't see the canvas.
+      box.dataset.liveTakes = takeTracks.join(",");
       // Deleted clips still fading: another frame.
       if (fading.length) schedule();
     };
@@ -394,6 +404,7 @@ function PlaylistBody() {
       useTransport.subscribe((s, p) => s.songStartTick !== p.songStartTick && schedule()),
       onWaveform(schedule),
       onClipFade(schedule),
+      useRecording.subscribe((s, p) => s.liveVersion !== p.liveVersion && schedule()),
     ];
     const theme = new MutationObserver(schedule);
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme"] });
@@ -441,8 +452,7 @@ function PlaylistBody() {
   }, []);
 
   // The playhead, moved every frame while the song plays (song mode only: in pattern mode it's the pattern that plays).
-  // Recording, it's red, and what's been recorded so far is shaded red behind it (from where it began, or
-  // the loop's start once it's gone round).
+  // Recording, it's red (the takes grow behind it as clips: `drawLiveTake`).
   useEffect(() => {
     let frame = 0;
     const move = () => {
@@ -456,12 +466,6 @@ function PlaylistBody() {
         const active = useRecording.getState().active;
         const recording = active !== null && tick !== null && performance.now() >= active.movesAt;
         line.style.background = recording ? "var(--destructive)" : "";
-        const band = recorded.current;
-        if (band) {
-          const from = recording ? tickToX(view, tick >= active.startTick ? active.startTick : useTransport.getState().loop.start) : 0;
-          band.style.transform = `translateX(${from}px)`;
-          band.style.width = `${recording ? Math.max(0, x - from) : 0}px`;
-        }
       }
       frame = requestAnimationFrame(move);
     };
@@ -565,7 +569,6 @@ function PlaylistBody() {
           onPointerLeave={(e) => trackSliceHover(e.currentTarget, null)}
           onPointerUp={(e) => (e.currentTarget.style.cursor = gridCursor(e.currentTarget, e))}
         />
-        <div ref={recorded} className="pointer-events-none absolute inset-y-0 left-0 w-0 bg-destructive/12" data-testid="playlist-recorded" />
         <div ref={playhead} className="pointer-events-none absolute inset-y-0 left-0 w-px bg-foreground opacity-0" data-testid="playlist-playhead" />
         <ClipMenu />
         <PointMenu />

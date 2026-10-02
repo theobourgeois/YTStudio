@@ -112,6 +112,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     if (event.event === "transport") {
       // Play stopped (by the engine, or another tab): a recording is over.
       useRecording.getState().transportSaid(event.playing);
+      // Recording (past its count-in): each track's level, for the take drawn as it grows.
+      if (event.recording && !(event.countIn ?? 0)) useRecording.getState().levels(event.recording.levels, event.tick);
       useTransport.setState({
         playing: event.playing,
         tick: event.tick,

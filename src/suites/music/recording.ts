@@ -25,6 +25,19 @@ export interface ActiveRecording {
   movesAt: number;
   /** The engine has said it's playing it (so its next "stopped" is this recording's end, not an older word). */
   confirmed: boolean;
+  /** The loop's start, in the song's ticks: the engine's ticks count from it, and a loop's passes start there. */
+  loopStart: number;
+}
+
+/**
+ * A take as it's recorded, for the Playlist to draw as it grows: where it starts (the song's ticks), and
+ * each track's input level as the engine says it, at the tick it said it (`ticks[i]`: the loudest since
+ * `ticks[i - 1]`). A loop's next pass starts a new one, from the loop's start.
+ */
+export interface LivePass {
+  from: number;
+  ticks: number[];
+  levels: number[];
 }
 
 /**
@@ -50,6 +63,10 @@ interface RecordingState {
   transportSaid: (playing: boolean) => void;
   /** A take has come back from the engine. */
   take: (event: EngineTakeEvent) => void;
+  /** Counts the levels taken (`levels`), so what draws the takes as they grow knows to draw again. */
+  liveVersion: number;
+  /** The engine's word on each recording track's input level, at `tick` (the engine's, into its loop). */
+  levels: (levels: Record<string, number>, tick: number) => void;
 }
 
 /** Each recording's loop start (the engine's ticks count from it), for takes that come after it stopped. */
@@ -61,6 +78,15 @@ const waiting = new Map<string, { tracks: number; finals: number; done: (takes: 
 /** Every take placed, by recording (for `takesOf`). */
 const placed = new Map<string, Take[]>();
 
+/** The takes being recorded, by mixer track: what the Playlist draws until each one's file is in. */
+const live = new Map<string, LivePass>();
+/** Takes still drawn after play stopped are let go of this long after, if their files never come. */
+const LIVE_LINGER_MS = 15_000;
+let lingering: ReturnType<typeof setTimeout> | undefined;
+
+/** The takes being recorded (or stopped, their files not in yet), by mixer track. */
+export const liveTakes = (): ReadonlyMap<string, LivePass> => live;
+
 /** A bar of the song, in ticks. */
 const barTicks = (song: MusicProject) => stepsPerBar(song.settings.timeSignature) * STEP_TICKS;
 
@@ -68,6 +94,23 @@ export const useRecording = create<RecordingState>((set, get) => ({
   armed: [],
   on: false,
   active: null,
+  liveVersion: 0,
+
+  levels(levels, tick) {
+    const { active } = get();
+    if (!active) return;
+    const at = active.loopStart + tick;
+    for (const [track, level] of Object.entries(levels)) {
+      if (!active.tracks.includes(track)) continue;
+      let pass = live.get(track);
+      // Gone round the loop: the next pass, from its start (the last one's file comes as a take).
+      const last = pass?.ticks.at(-1);
+      if (!pass || (last !== undefined && at < last)) live.set(track, (pass = { from: pass ? active.loopStart : active.startTick, ticks: [], levels: [] }));
+      pass.ticks.push(at);
+      pass.levels.push(Math.min(1, level));
+    }
+    set({ liveVersion: get().liveVersion + 1 });
+  },
 
   setOn: (on) => set({ on }),
 
@@ -109,7 +152,9 @@ export const useRecording = create<RecordingState>((set, get) => ({
       const { recordingId, status } = await musicApi.record({ projectId, from, countIn, loop: options.loop, names });
       recordings.set(recordingId, { loopStart: loop.start, projectId });
       const msPerTick = 60_000 / (song.settings.tempo * PPQ);
-      set({ active: { id: recordingId, startTick: loop.start + from, tracks, loop: options.loop, movesAt: performance.now() + countIn * msPerTick, confirmed: false } });
+      live.clear();
+      clearTimeout(lingering);
+      set({ active: { id: recordingId, startTick: loop.start + from, tracks, loop: options.loop, movesAt: performance.now() + countIn * msPerTick, confirmed: false, loopStart: loop.start } });
       // The engine may not have taken the play yet: it's playing from here, after the whole count-in.
       useTransport.setState({ playing: true, tick: status.transport.playing ? status.transport.tick : from, countIn: status.transport.countIn || (countIn * msPerTick) / 1000, at: performance.now(), through: !options.loop, error: null });
     } catch (err) {
@@ -119,6 +164,12 @@ export const useRecording = create<RecordingState>((set, get) => ({
 
   stopped() {
     if (!get().active) return;
+    // What's drawn of the takes stays until their files are in (a take that never comes is let go of).
+    clearTimeout(lingering);
+    lingering = setTimeout(() => {
+      live.clear();
+      set({ liveVersion: get().liveVersion + 1 });
+    }, LIVE_LINGER_MS);
     set({ active: null, ...(useMusicPreferences.getState().recording.disarmOnStop && { on: false }) });
     useTransport.setState({ through: false });
   },
@@ -133,7 +184,11 @@ export const useRecording = create<RecordingState>((set, get) => ({
   take(event) {
     const { projectId, history } = useMusic.getState();
     const meta = recordings.get(event.recordingId);
-    if (event.final) recordings.delete(event.recordingId);
+    if (event.final) {
+      recordings.delete(event.recordingId);
+      // Its file is in: the clip takes the place of what was drawn as it grew.
+      if (live.delete(event.track)) set({ liveVersion: get().liveVersion + 1 });
+    }
     // Another song's (switched away from while it recorded): its media is kept there, but nothing places it.
     if (!history || event.projectId !== projectId) return;
     if (!event.media) return void toast.error("Couldn't keep a take", { description: event.error });
@@ -175,6 +230,7 @@ setRecorder({
 // Another song: nothing of the last one is armed.
 useMusic.subscribe((state, prev) => {
   if (state.projectId !== prev.projectId) {
+    live.clear();
     useRecording.setState({ armed: [], active: null });
     lastTakes = null;
   }

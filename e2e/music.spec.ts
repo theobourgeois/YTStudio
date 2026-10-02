@@ -1171,14 +1171,19 @@ test("records as FL Studio does: an input device, a track's input arms it, Recor
 
   // Loop record: a take each pass round the song (a bar), on the audio track and below it, all but the last muted.
   await record.click({ button: "right" });
+  // (Choosing it closes the menu; Escape now would close the Playlist, the window in front.)
   await page.getByRole("menuitemcheckbox", { name: "Loop record" }).click();
-  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("playlist-grid")).toBeVisible();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("Space");
+  // The take is drawn as it records (after the count-in, which is off here), where it'll land: the audio track.
+  await expect(page.getByTestId("playlist-grid")).toHaveAttribute("data-live-takes", "1");
   // At 140 BPM a bar is 1.7 s: two passes and part of a third.
   await page.waitForTimeout(4200);
   await page.keyboard.press("Space");
   await expect.poll(async () => (await saved()).playlist.clips.length, { timeout: 10_000 }).toBe(4);
+  // Their files in, the clips take the place of what was drawn.
+  await expect(page.getByTestId("playlist-grid")).toHaveAttribute("data-live-takes", "");
   song = await saved();
   const takes = song.playlist.clips.filter((c) => c.track > 0).sort((a, b) => a.track - b.track);
   expect(takes.map((c) => [c.track, c.start, c.muted])).toEqual([
