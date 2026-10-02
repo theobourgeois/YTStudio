@@ -11,6 +11,7 @@ import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
 import { ECHO_CONTROL_SPECS } from "./echo-boy.ts";
+import { PITCH_WHEEL_CONTROL_INFO, controlField } from "./pitch-wheel-presets.ts";
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
 import { EQ_CONTROL_SCALES } from "./pro-q-presets.ts";
 import { PAN_CONTROLS, panControlFraction, panControlValue } from "./panman-presets.ts";
@@ -199,6 +200,8 @@ export function targetKey(target: AutomationTarget): string {
       return `proq:${target.effect}:${target.band}:${target.control}`;
     case "panMan":
       return `panman:${target.effect}:${target.control}`;
+    case "pitchWheel":
+      return `wheel:${target.effect}:${target.control}`;
     case "main":
       return "main";
     case "plugin":
@@ -368,6 +371,24 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         owner,
         exists: !!at,
         own: at ? clamp((at[target.control] - info.min) / span, 0, 1) : null,
+        toControl,
+        fromControl: (x) => clamp((x - info.min) / span, 0, 1),
+        format: (v) => info.format(toControl(v)),
+      };
+    }
+    case "pitchWheel": {
+      const found = findEffect(song, target.effect);
+      const pw = found?.effect?.pitchWheel;
+      const owner = found && pw ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Pitch Wheel";
+      const info = PITCH_WHEEL_CONTROL_INFO[target.control];
+      const span = info.max - info.min;
+      const toControl = (v: number) => info.min + clamp(v, 0, 1) * span;
+      const { wheel, field } = controlField(target.control);
+      return {
+        name: info.name,
+        owner,
+        exists: !!pw,
+        own: pw ? clamp((pw[wheel][field] - info.min) / span, 0, 1) : null,
         toControl,
         fromControl: (x) => clamp((x - info.min) / span, 0, 1),
         format: (v) => info.format(toControl(v)),

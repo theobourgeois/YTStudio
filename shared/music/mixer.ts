@@ -7,6 +7,7 @@ import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import { AUTO_TUNE_PLUGIN, DEFAULT_AUTO_TUNE, isAutoTune } from "./auto-tune-presets.ts";
 import { DEFAULT_ECHO_BOY, ECHO_BOY_PLUGIN, isEchoBoy } from "./echo-boy-presets.ts";
+import { DEFAULT_PITCH_WHEEL, PITCH_WHEEL_PLUGIN, isPitchWheel } from "./pitch-wheel-presets.ts";
 import { GROSS_BEAT_PLUGIN, isGrossBeat } from "./gross-beat-presets.ts";
 import { DEFAULT_PANMAN, PANMAN_PLUGIN, isPanMan } from "./panman-presets.ts";
 import { PRO_Q_PLUGIN, isProQ } from "./pro-q-presets.ts";
@@ -327,6 +328,7 @@ function newEffect(plugin: PluginRef, id: string): MixerEffect {
   if (isEchoBoy(plugin)) return { id, plugin: ECHO_BOY_PLUGIN, enabled: true, mix: 1, echoBoy: DEFAULT_ECHO_BOY };
   if (isProQ(plugin)) return { id, plugin: PRO_Q_PLUGIN, enabled: true, mix: 1, proQ: DEFAULT_PRO_Q };
   if (isPanMan(plugin)) return { id, plugin: PANMAN_PLUGIN, enabled: true, mix: 1, panMan: DEFAULT_PANMAN };
+  if (isPitchWheel(plugin)) return { id, plugin: PITCH_WHEEL_PLUGIN, enabled: true, mix: 1, pitchWheel: DEFAULT_PITCH_WHEEL };
   return { id, plugin, enabled: true, mix: 1 };
 }
 

@@ -127,6 +127,22 @@ export interface EngineTransport {
   eq?: Record<string, EngineEqState>;
   /** Each PanMan in the song (by effect id): where it's put the sound (absent from engines that don't say). */
   panMen?: Record<string, EnginePanState>;
+  /** Each Pitch Wheel in the song (by effect id): where its wheels actually are, and its notes (absent from engines that don't say). */
+  pitchWheels?: Record<string, EnginePitchWheelState>;
+}
+
+/**
+ * What a Pitch Wheel is doing, as it's heard: each voice's actual pitch (semitones; its note, or -1 for
+ * Single's voice when no note plays it), the Timbre wheel's actual shift, how loud what comes in is (0..1,
+ * the input light) and whether notes are held (the MIDI light). `latency`: samples it comes out late by.
+ */
+export interface EnginePitchWheelState {
+  latency: number;
+  pitch: number;
+  timbre: number;
+  voices: { key: number; pitch: number }[];
+  input: number;
+  notes: number[];
 }
 
 /**
@@ -511,6 +527,13 @@ export interface EngineCommands {
    * on is heard, `gain` dB louder or softer (the solo's listening level).
    */
   eqSolo: { effect: string; band: number | null; gain?: number };
+  /**
+   * A Pitch Wheel's live controls, held by the hand (the song has the wheels where they're let go):
+   * `pitch` and `timbre` hold a wheel's pointer (semitones, snapped) for a quarter of a second (renewed
+   * while it's held); `jump` puts the actual pitch on it at once (a typed value); `key` with `on` plays or
+   * lets go a note of its keyboard.
+   */
+  pitchWheel: { effect: string; pitch?: number; timbre?: number; jump?: boolean; key?: number; on?: boolean };
   /**
    * The tracks the mixer's selection meter adds up (the selected ones, by id): their sound after their
    * faders, together, is measured as the meter "@selection" (`EngineMeters`).

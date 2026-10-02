@@ -12,13 +12,14 @@ import { type EngineAutoTune, engineAutoTune, engineControlValue } from "./auto-
 import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANES_OF, engineEchoBoy } from "./echo-boy.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { type EngineEq, engineProQ } from "./pro-q.ts";
+import { type EnginePitchWheel, controlValue as pitchWheelValue, engineControlValue as engineWheelValue, enginePitchWheel } from "./pitch-wheel.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { type EnginePanMan, enginePanMan } from "./panman.ts";
 import { PAN_CONTROL_IDS, PAN_LANE_SCALE } from "./panman-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { autoGain } from "./pro-q-filters.ts";
 import { hasGain } from "./pro-q-presets.ts";
-import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, type MusicProject, type PanControl, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, type MusicProject, type PanControl, PITCH_WHEEL_CONTROLS, type PitchWheelControl, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -79,6 +80,8 @@ export interface EngineEffect {
   eq?: EngineEq;
   /** A PanMan (ours, likewise: `PANMAN_PLUGIN`'s id): its settings and pattern. */
   panMan?: EnginePanMan;
+  /** A Pitch Wheel (ours too, `PITCH_WHEEL_PLUGIN`): its wheels, and where its notes come from. */
+  pitchWheel?: EnginePitchWheel;
 }
 
 /**
@@ -168,6 +171,7 @@ export type EngineLaneTarget =
   /** A Pro-Q band's frequency (log2 Hz), gain or range (dB) or Q (log2), by band number; or its output (dB, band 0). */
   | { kind: "eq"; track: number; effect: number; band: number; control: EqControl }
   | { kind: "panman"; track: number; effect: number; control: PanControl }
+  | { kind: "wheel"; track: number; effect: number; control: PitchWheelControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
 /**
@@ -377,6 +381,11 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
         if (e.proQ) return [{ ...effect, eq: engineProQ(e.proQ) }];
         if (e.panMan) return [{ ...effect, panMan: enginePanMan(e.panMan, e.id) }];
+        if (e.pitchWheel) {
+          // Notes from a channel the song no longer has: none.
+          const wheel = enginePitchWheel(e.pitchWheel);
+          return [{ ...effect, pitchWheel: wheel.notesFrom && !song.channels.some((c) => c.id === wheel.notesFrom) ? { ...wheel, notesFrom: null } : wheel }];
+        }
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
       gains: trackGains(track, main),
@@ -679,6 +688,13 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
           const target: AutomationTarget = { kind: "autoTune", effect: effect.id, control };
           const value = valueOf(target, at[control]);
           add({ kind: "tune", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineControlValue(control, value(tick))]);
+        }
+      const pw = effect.pitchWheel;
+      if (pw)
+        for (const control of PITCH_WHEEL_CONTROLS) {
+          const target: AutomationTarget = { kind: "pitchWheel", effect: effect.id, control };
+          const value = valueOf(target, pitchWheelValue(pw, control));
+          add({ kind: "wheel", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineWheelValue(pw, control, value(tick))]);
         }
       const eb = effect.echoBoy;
       if (eb) {
