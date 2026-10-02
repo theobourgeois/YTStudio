@@ -111,7 +111,7 @@ describe("bands", () => {
   it("step their shape and slope round (Cmd+Alt-click, Alt+Shift-click)", () => {
     expect(nextShape("bell")).toBe("lowShelf");
     expect(nextShape("flatTilt")).toBe("bell");
-    expect(nextSlope({ shape: "bell", slope: 96 })).toBe(6);
+    expect(nextSlope({ shape: "bell", slope: 96 })).toBe(12);
     expect(nextSlope({ shape: "lowCut", slope: 96 })).toBe("brickwall");
     expect(nextSlope({ shape: "lowCut", slope: "brickwall" })).toBe(6);
   });
