@@ -9,6 +9,7 @@
  */
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
+import { ECHO_CONTROL_SPECS } from "./echo-boy.ts";
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
 import { DEFAULT_LFO, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
@@ -187,6 +188,8 @@ export function targetKey(target: AutomationTarget): string {
       return `effect:${target.effect}`;
     case "grossBeat":
       return `gross:${target.effect}:${target.control}`;
+    case "echoBoy":
+      return `echo:${target.effect}:${target.control}`;
     case "main":
       return "main";
     case "plugin":
@@ -300,6 +303,20 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
           const name = gb?.[kind][n]?.name ?? (kind === "time" ? GROSS_TIME_PRESETS : GROSS_VOLUME_PRESETS)[n].name;
           return `${n + 1}: ${name}`;
         },
+      };
+    }
+    case "echoBoy": {
+      const found = findEffect(song, target.effect);
+      const eb = found?.effect?.echoBoy ?? null;
+      const spec = ECHO_CONTROL_SPECS[target.control];
+      return {
+        name: spec.name,
+        owner: found && eb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted EchoBoy",
+        exists: !!eb,
+        own: eb ? spec.fromControl(spec.get(eb)) : null,
+        toControl: spec.toControl,
+        fromControl: spec.fromControl,
+        format: (v) => spec.format(spec.toControl(v), eb),
       };
     }
     case "main":

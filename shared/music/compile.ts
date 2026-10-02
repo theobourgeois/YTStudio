@@ -8,10 +8,11 @@
 import { automationIndex, clipAtTick, controlBreaks, controlOf, placedValue, targetKey } from "./automation.ts";
 import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
 import { LANE_FINEST, sampleLane } from "./sampling.ts";
+import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANES_OF, engineEchoBoy } from "./echo-boy.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
-import { type AutomationTarget, type Channel, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { type AutomationTarget, type Channel, type EchoControl, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -64,6 +65,8 @@ export interface EngineEffect {
   mix: number;
   /** A Gross Beat (ours, run by the engine itself: its `plugin.id` is `GROSS_BEAT_PLUGIN`'s): its settings and envelopes. */
   grossBeat?: EngineGrossBeat;
+  /** An EchoBoy (ours, run by the engine itself: its `plugin.id` is `ECHO_BOY_PLUGIN`'s): its delay lines, style and levels. */
+  echoBoy?: EngineEchoBoy;
 }
 
 /**
@@ -146,6 +149,7 @@ export type EngineLaneTarget =
   | { kind: "send"; track: number; send: number }
   | { kind: "mix"; track: number; effect: number }
   | { kind: "gross"; track: number; effect: number; control: GrossControl }
+  | { kind: "echo"; track: number; effect: number; control: EchoLane }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
 /**
@@ -351,6 +355,7 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         if (!e) return [];
         const effect: EngineEffect = { id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix };
         const slots = gross.get(e.id);
+        if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
       gains: trackGains(track, main),
@@ -646,6 +651,21 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
         const volumeDriver = !volume.key && gb.linkSlots && time.key ? time : volume;
         add({ kind: "gross", track: t, effect: effectIndex, control: "timeSlot" }, [timeDriver.key], (tick) => [timeDriver.value(tick)]);
         add({ kind: "gross", track: t, effect: effectIndex, control: "volumeSlot" }, [volumeDriver.key], (tick) => [volumeDriver.value(tick)]);
+      }
+      const eb = effect.echoBoy;
+      if (eb) {
+        // Each engine lane from the controls that move it: the settings at the tick, as the engine has them.
+        const controls = (Object.keys(ECHO_CONTROL_SPECS) as EchoControl[]).map((control) => {
+          const target: AutomationTarget = { kind: "echoBoy", effect: effect.id, control };
+          return { control, key: automated(target), value: valueOf(target, ECHO_CONTROL_SPECS[control].get(eb)) };
+        });
+        for (const lane of Object.keys(ECHO_LANES) as EchoLane[]) {
+          const moving = controls.filter((c) => LANES_OF[c.control].includes(lane));
+          add({ kind: "echo", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
+            const at = moving.reduce((settings, c) => (c.key ? ECHO_CONTROL_SPECS[c.control].set(settings, c.value(tick)) : settings), eb);
+            return ECHO_LANES[lane](engineEchoBoy(at, song.settings.tempo));
+          });
+        }
       }
       effectIndex++;
     }
