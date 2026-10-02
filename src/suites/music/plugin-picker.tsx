@@ -78,6 +78,15 @@ export function PluginPicker({ noun, items, loading, error, firstGroups, onChoos
   // Its size from all of them, not what's typed: it doesn't change size as the list narrows.
   const size = useMemo(() => pickerSize(pickerColumns(items, pinned, "", firstGroups)), [items, pinned, firstGroups]);
   const [at, setAt] = useState(0);
+  // Pinning or unpinning lays the columns out again (the Pinned column comes and goes in front): the
+  // highlight stays on the item it was on, not on whatever is now at its place.
+  const [laidOutPins, setLaidOutPins] = useState(pinned);
+  if (laidOutPins !== pinned) {
+    const was = pickerOrder(pickerColumns(items, laidOutPins, query, firstGroups))[at]?.item.id;
+    setLaidOutPins(pinned);
+    const now = order.findIndex((o) => o.item.id === was);
+    if (now >= 0) setAt(now);
+  }
   const list = useRef<HTMLDivElement>(null);
   const highlighted = order[Math.min(at, order.length - 1)]?.item ?? null;
   // Out of the search field first: it lingers while the picker closes, and the editor's keys (⌘Z) skip a field.
