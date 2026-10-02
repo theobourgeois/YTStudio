@@ -1,8 +1,8 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { PiArrowLineRight, PiArrowsOutLineHorizontal, PiCaretDownBold, PiMagnet, PiMagnifyingGlass, PiSidebarSimple, PiStairs } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
-import { type ClipContext, clipContext, clipLength, songTicks } from "@shared/music/playlist";
+import { type ClipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import { type MusicProject, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import {
@@ -68,7 +68,7 @@ import { editClips, removeClips, setClipFades, setClipGain, setClipProps } from 
 import { fadeOutClips, onClipFade, vanishingClips } from "./fades";
 import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
 import { type WavePeaks, clipPeaks, onWaveform } from "./waveforms";
-import { MAX_PX_PER_TICK, scrollViewBy, tickToX, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
+import { MAX_PX_PER_TICK, OVERVIEW_EDGE, scrollViewBy, tickToX, trackZoomDrag, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
 import { CLIP_DRAG_TYPE, Picker } from "./picker";
 import { clearIncoming, showIncoming } from "./incoming";
 import { holdClipPreview } from "./preview";
@@ -76,6 +76,7 @@ import { gridCursor, gridPointerDown, rulerPointerDown, trackSliceHover } from "
 import { RULER_HEIGHT } from "./geometry";
 import { type ClipSource, type PlaylistTool, usePlaylist } from "./store";
 import { TrackHeaders } from "./track-headers";
+import { OVERVIEW_HEIGHT, PlaylistOverview } from "./overview";
 
 const HEADERS_W = 128;
 const RULER_H = RULER_HEIGHT;
@@ -544,16 +545,18 @@ function PlaylistBody() {
   return (
     <div
       className="grid min-w-0 flex-1 select-none"
-      style={{ gridTemplateColumns: `${HEADERS_W}px minmax(0, 1fr) ${SCROLLBAR}px`, gridTemplateRows: `${RULER_H}px minmax(0, 1fr) ${SCROLLBAR}px` }}
+      // The overview along the top is the scrollbar along time, as FL's is.
+      style={{ gridTemplateColumns: `${HEADERS_W}px minmax(0, 1fr) ${SCROLLBAR}px`, gridTemplateRows: `${OVERVIEW_HEIGHT}px ${RULER_H}px minmax(0, 1fr)` }}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="border-r border-b bg-muted" />
+      <div className="row-span-2 border-r border-b bg-muted" />
+      <PlaylistOverview />
+      <div className="row-span-2 border-b bg-muted" />
       <div className="relative border-b">
         <canvas ref={ruler} className="absolute inset-0 size-full cursor-pointer" aria-label="Ruler" onPointerDown={rulerPointerDown} />
         <MarkerMenu />
         <MarkerRename />
       </div>
-      <div className="border-b bg-muted" />
 
       <TrackHeaders />
       <div
@@ -621,10 +624,6 @@ function PlaylistBody() {
         <SourceEditor />
       </div>
       <VerticalScrollbar />
-
-      <div className="border-t border-r bg-muted" />
-      <HorizontalScrollbar />
-      <div className="border-t bg-muted" />
     </div>
   );
 }
@@ -1033,29 +1032,7 @@ function dropClip(data: string, box: Element, ev: { clientX: number; clientY: nu
   commitDrag(true);
 }
 
-function HorizontalScrollbar() {
-  const view = usePlaylist((s) => s.view);
-  const width = usePlaylist((s) => s.gridWidth);
-  const content = useMusic((s) => songTicks(s.history!.doc) + clipContext(s.history!.doc).barTicks * 16);
-  const total = Math.max(content, view.scrollTick + width / view.pxPerTick);
-  const thumb = Math.max(24, (width * (width / view.pxPerTick)) / total);
-  const left = ((width - thumb) * view.scrollTick) / Math.max(1, total - width / view.pxPerTick);
-  return (
-    <div className="relative border-t border-line bg-sunken" aria-label="Scroll along the song">
-      <div
-        className="raised absolute top-0.5 bottom-0.5 rounded-sm hover:raised-hover"
-        style={{ left, width: thumb }}
-        onPointerDown={(e) => {
-          const origin = e.clientX;
-          const start = view.scrollTick;
-          const perPx = (total - width / view.pxPerTick) / Math.max(1, width - thumb);
-          startPointerDrag(e, { threshold: 0, onMove: (ev) => usePlaylist.getState().setView({ ...usePlaylist.getState().view, scrollTick: Math.max(0, start + (ev.clientX - origin) * perPx) }) });
-        }}
-      />
-    </div>
-  );
-}
-
+/** The scrollbar down the tracks: its window drags to scroll, and its ends to change the tracks' height (as the overview's zoom along time). */
 function VerticalScrollbar() {
   const view = usePlaylist((s) => s.view);
   const height = usePlaylist((s) => s.gridHeight);
@@ -1068,18 +1045,28 @@ function VerticalScrollbar() {
   const content = Math.max(total, view.scrollY + height);
   const thumb = Math.max(24, (height * height) / Math.max(1, content));
   const top = ((height - thumb) * view.scrollY) / Math.max(1, content - height);
+  const zoom = (e: ReactPointerEvent, edge: "start" | "end") => {
+    e.stopPropagation();
+    const origin = e.clientY;
+    const start = view;
+    startPointerDrag(e, { threshold: 0, cursor: "ns-resize", onMove: (ev) => usePlaylist.getState().setView(trackZoomDrag(start, edge, ev.clientY - origin, thumb, height)) });
+  };
   return (
     <div className="relative border-l border-line bg-sunken" aria-label="Scroll up and down the tracks">
       <div
         className="raised absolute right-0.5 left-0.5 rounded-sm hover:raised-hover"
         style={{ top, height: thumb }}
+        data-testid="playlist-vertical-window"
         onPointerDown={(e) => {
           const origin = e.clientY;
           const start = view.scrollY;
           const perPx = (content - height) / Math.max(1, height - thumb);
           startPointerDrag(e, { threshold: 0, onMove: (ev) => usePlaylist.getState().setView({ ...usePlaylist.getState().view, scrollY: Math.max(0, Math.min(content - height, start + (ev.clientY - origin) * perPx)) }) });
         }}
-      />
+      >
+        <div className="absolute inset-x-0 top-0 cursor-ns-resize" style={{ height: OVERVIEW_EDGE }} onPointerDown={(e) => zoom(e, "start")} />
+        <div className="absolute inset-x-0 bottom-0 cursor-ns-resize" style={{ height: OVERVIEW_EDGE }} onPointerDown={(e) => zoom(e, "end")} />
+      </div>
     </div>
   );
 }

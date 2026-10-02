@@ -3,7 +3,7 @@ import { addClips, clipContext } from "@shared/music/playlist";
 import { DEFAULT_PLAYLIST_TRACK, createMusicProject } from "@shared/music/project";
 import type { PlaylistClip } from "@shared/music/types";
 import { applyDrag, rectSelection, shownSelection } from "./drag";
-import { MAX_PX_PER_TICK, MIN_TRACKS, MIN_ZOOM_OUT_BARS, SPARE_TRACKS, hitClip, minPxPerTick, paintClipStarts, scrollViewBy, shownTracks, tickToX, trackLayout, trackTop, visibleTracks, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
+import { MAX_PX_PER_TICK, MIN_TRACKS, MIN_ZOOM_OUT_BARS, OVERVIEW_MIN_THUMB, SPARE_TRACKS, hitClip, minPxPerTick, overviewDrag, overviewSpan, overviewThumb, trackZoomDrag, paintClipStarts, scrollViewBy, shownTracks, tickToX, trackLayout, trackTop, visibleTracks, xToTick, yToTrack, zoomAt, zoomTracksAt } from "./geometry";
 import type { PlaylistView } from "./store";
 
 const view: PlaylistView = { scrollTick: 0, pxPerTick: 0.25, scrollY: 0, trackHeight: 40 };
@@ -136,5 +136,74 @@ describe("a drag on the Playlist", () => {
     expect([...shownSelection(list, { kind: "rect", from: 0, to: 10, top: 0, bottom: 0, add: true }, selected, ctx)].sort()).toEqual([1, 2]);
     expect(shownSelection(list, null, selected, ctx)).toBe(selected);
     expect(shownSelection(list, { kind: "erase", ids: new Set() }, selected, ctx)).toBe(selected);
+  });
+});
+
+describe("the overview along the top (FL's mini playlist)", () => {
+  const bar = 384;
+  const width = 800;
+
+  it("spans the whole song and the room zooming out shows, or as far as the view goes", () => {
+    // A short song: the thirty-two bars fully zoomed out shows.
+    expect(overviewSpan(view, width, 4 * bar, bar)).toBeCloseTo(MIN_ZOOM_OUT_BARS * bar);
+    // A long one: it and some room after it.
+    expect(overviewSpan(view, width, 100 * bar, bar)).toBeCloseTo(113 * bar);
+    // Scrolled past all that, as far as the view.
+    expect(overviewSpan({ ...view, scrollTick: 40 * bar }, width, 4 * bar, bar)).toBeCloseTo(40 * bar + width / view.pxPerTick);
+  });
+
+  it("shows the view's window where it is, never too narrow to take", () => {
+    const span = 32 * bar;
+    // 0.25 px a tick: 3200 ticks, about eight bars of 32.
+    expect(overviewThumb({ ...view, scrollTick: 8 * bar }, width, span)).toEqual({ left: 200, width: (3200 / span) * width });
+    expect(overviewThumb({ ...view, pxPerTick: 2 }, width, 1000 * bar).width).toBe(OVERVIEW_MIN_THUMB);
+  });
+
+  it("scrolls when its window is dragged, never before the start or past the span", () => {
+    const span = 32 * bar;
+    const perPx = span / width;
+    expect(overviewDrag(view, "move", 100, width, span).scrollTick).toBeCloseTo(100 * perPx);
+    expect(overviewDrag(view, "move", -100, width, span)).toBe(view);
+    expect(overviewDrag(view, "move", 10_000, width, span).scrollTick).toBeCloseTo(span - width / view.pxPerTick);
+  });
+
+  it("zooms when an end is dragged, the other end staying put", () => {
+    const span = 32 * bar;
+    const perPx = span / width;
+    const start = { ...view, scrollTick: 4 * bar };
+    const right = start.scrollTick + width / start.pxPerTick;
+    // The right end out: more in view from the same left.
+    const out = overviewDrag(start, "end", 100, width, span);
+    expect(out.scrollTick).toBe(start.scrollTick);
+    expect(width / out.pxPerTick).toBeCloseTo(width / start.pxPerTick + 100 * perPx);
+    // The left end in: less in view, to the same right.
+    const closer = overviewDrag(start, "start", 50, width, span);
+    expect(closer.pxPerTick).toBeGreaterThan(start.pxPerTick);
+    expect(closer.scrollTick + width / closer.pxPerTick).toBeCloseTo(right);
+    // No further in than the most, however far it's dragged.
+    expect(overviewDrag(start, "end", -10_000, width, span).pxPerTick).toBe(MAX_PX_PER_TICK);
+    // The left end never before the song's start (the right end still staying put)...
+    const toStart = overviewDrag(start, "start", -10_000, width, span);
+    expect(toStart.scrollTick).toBe(0);
+    expect(width / toStart.pxPerTick).toBeCloseTo(right);
+    // ...and no further out than it may for the song.
+    const floor = minPxPerTick(4 * bar, bar, width);
+    expect(overviewDrag(start, "end", 10_000, width, span, floor).pxPerTick).toBe(floor);
+  });
+});
+
+describe("the vertical scrollbar's ends", () => {
+  it("make the tracks shorter as the window grows, the opposite end's track staying put", () => {
+    const start = { ...view, scrollY: 400 };
+    // The bottom end down: the window half as tall again, the tracks two thirds as tall, the top staying.
+    const out = trackZoomDrag(start, "end", 50, 100, 400);
+    expect(out.trackHeight).toBe(Math.round((40 * 100) / 150));
+    expect(out.scrollY).toBeCloseTo(400 * (out.trackHeight / 40));
+    // The top end up: likewise, about the bottom.
+    const up = trackZoomDrag(start, "start", -50, 100, 400);
+    expect(up.trackHeight).toBe(out.trackHeight);
+    expect(up.scrollY).toBeCloseTo((400 + 400) * (up.trackHeight / 40) - 400);
+    // Shrunk, taller tracks.
+    expect(trackZoomDrag(start, "end", -50, 100, 400).trackHeight).toBe(80);
   });
 });
