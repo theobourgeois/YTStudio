@@ -280,10 +280,16 @@ Théo's first pass (2026-09-30), all built:
   and swing when plugged in.
 - Effect slots: a click anywhere on an empty one opens the plugins; a loaded one's name opens its
   window; the arrow and a right-click give its menu; drag to reorder (it swaps with what's there).
+  Dragged onto another track's strip, an effect moves there (its first empty slot), its plugin, settings
+  and automation with it, and the inspector follows it; with Alt a copy goes there instead (Théo,
+  2026-10-02; `effectToTrack`, `move_mixer_effect`).
 - Copy track state can be dragged from the menu onto another track. Track state is FL's: effects and
   controls, not routing.
 - The plugin picker (the slots and the rack's +): a big popover, a focused search, groups by the
   category the plugin reports, pins (this computer's) in a Pinned group and their own, arrow keys.
+  It lists only ours (built in) and the plugins **starred** in the **Plugin manager** (FL's Options →
+  Manage plugins, whose stars are its favourites): its More plugins… opens the manager, every plugin
+  found with a star on each (Théo, 2026-10-02: macOS's dozens of Audio Units are in the way otherwise).
 - Views: Compact, Wide, Extra large (effects listed under each strip).
 
 Théo's second pass (2026-10-01), all built: the plugin picker in newspaper columns (a group runs on

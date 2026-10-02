@@ -416,11 +416,14 @@ test("the Plugin manager stars the plugins the pickers list, as FL Studio's favo
   await page.keyboard.press("Escape");
 
   // The effect slots likewise: the built-in effects, and the starred.
-  await page.keyboard.press("F9");
+  await page.getByRole("button", { name: "Mixer", exact: true }).click();
   await page.getByTestId("mixer-inspector").getByRole("button", { name: "Slot 1 menu" }).click();
   const effects = page.getByTestId("effect-picker");
   await expect(effects.getByRole("option", { name: /Fake Delay/ })).toHaveCount(1);
-  await page.keyboard.press("Escape");
+  // Its More plugins… brings the manager (behind the mixer now) to the front, on the effects.
+  await effects.getByRole("button", { name: "More plugins…" }).click();
+  await expect(effects).toHaveCount(0);
+  await expect(manager.getByRole("button", { name: "Effects" })).toHaveAttribute("aria-pressed", "true");
   await manager.getByRole("button", { name: "Starred" }).click();
   await expect(manager.getByRole("listitem")).toHaveText([/Fake Delay/]);
   // A click on its row unstars it too.
@@ -429,13 +432,14 @@ test("the Plugin manager stars the plugins the pickers list, as FL Studio's favo
   await page.getByTestId("mixer-inspector").getByRole("button", { name: "Slot 1 menu" }).click();
   await expect(effects.getByRole("option", { name: /Gross Beat/ })).toHaveCount(1);
   await expect(effects.getByRole("option", { name: /Fake Delay/ })).toHaveCount(0);
-  await page.keyboard.press("Escape");
+  await effects.getByRole("button", { name: "More plugins…" }).click();
 
   // Starred again (it's kept in this browser, for every song).
   await manager.getByRole("button", { name: "All" }).click();
   await manager.getByRole("button", { name: "Star Fake Synth" }).click();
   await manager.getByRole("button", { name: "Star Fake Delay" }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("vaudio.music.favouritePlugins") ?? "[]"))).toEqual(["VST3-Fake Synth-1", "VST3-Fake Delay-2"]);
+  await page.getByRole("button", { name: "Channel rack", exact: true }).click();
   await rack.getByRole("button", { name: "Add a channel" }).click();
   await expect(picker.getByRole("option")).toHaveText([/Sampler/, /Fake Synth/]);
 });
