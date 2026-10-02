@@ -3,7 +3,9 @@
  * commits one edit from `shared/music/mixer.ts`. Kept out of the components so a menu item and its
  * shortcut can't drift apart.
  */
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { createId } from "@shared/ids";
+import { startPointerDrag } from "@/lib/pointer-drag";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import {
@@ -18,6 +20,7 @@ import {
   renameGroup,
   setMixerControls,
   setMixerMuted,
+  setMixerSolo,
   type MixerTrackPatch,
   routeChannels,
   routeChannelsFrom,
@@ -37,10 +40,10 @@ import { assignAudioTracks } from "@shared/music/recording";
 import type { MixerDock, MusicProject } from "@shared/music/types";
 import { musicApi } from "../api";
 import { selectedIds as selectedChannelIds } from "../rack-actions";
-import { useMusic } from "../store";
+import { songGesture, useMusic } from "../store";
 import { currentTrackId, useMusicUi } from "../ui";
 import { sendToggle } from "./send-states";
-import { useMixerView } from "./view";
+import { trackAt, useMixerView } from "./view";
 
 const song = (): MusicProject | null => useMusic.getState().history?.doc ?? null;
 const commit = (update: (song: MusicProject) => MusicProject) => useMusic.getState().commit(update);
@@ -73,6 +76,36 @@ export const toggleSolo = (id: string) => commit((doc) => toggleMixerSolo(doc, m
 export const soloAlone = (id: string) => commit((doc) => soloMixerTrack(doc, menuTargets(id)));
 /** Shift+click on S: another track's solo never silences them. */
 export const toggleSoloSafe = (id: string) => commit((doc) => setSoloSafe(doc, menuTargets(id), !getMixerTrack(doc, id)?.soloSafe));
+/**
+ * A plain press on a mute light or an S, painted across the strips (Pro Tools', Reaper's, Ableton's):
+ * the press switches its tracks (the selected ones with it) as a click would, and every strip the pointer
+ * then passes over is switched the same way. One undo step; Escape puts them all back.
+ */
+export function paintSwitch(e: ReactPointerEvent<Element>, id: string, kind: "mute" | "solo") {
+  const doc = song();
+  if (!doc || e.button !== 0) return;
+  const targets = menuTargets(id);
+  const tracks = doc.mixer.tracks.filter((t) => targets.includes(t.id) && (kind === "mute" || t.id !== MASTER_TRACK_ID));
+  const on = kind === "mute" ? !getMixerTrack(doc, id)?.muted : !tracks.every((t) => t.solo);
+  const set = (song: MusicProject, ids: string[]) => (kind === "mute" ? setMixerMuted(song, ids, on) : setMixerSolo(song, ids, on));
+  const painted = new Set(targets);
+  const gesture = songGesture();
+  gesture.begin();
+  gesture.apply((song) => set(song, [...painted]));
+  startPointerDrag(e, {
+    threshold: 0,
+    onMove(ev) {
+      const over = trackAt(ev.clientX, ev.clientY);
+      if (!over || painted.has(over)) return;
+      painted.add(over);
+      gesture.apply((song) => set(song, [over]));
+    },
+    onEnd: () => gesture.end(),
+    onClick: () => gesture.end(),
+    onCancel: () => gesture.cancel(),
+  });
+}
+
 /** A strip's switch (invert phase, swap sides) set on it and the selected tracks with it. */
 export const setTrackSwitch = (id: string, patch: Pick<MixerTrackPatch, "invert" | "swap">) => commit((doc) => updateMixerTracks(doc, menuTargets(id), patch));
 

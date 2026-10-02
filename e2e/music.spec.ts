@@ -1019,6 +1019,14 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await expect(page.getByTestId("solo-indicator")).toHaveText("SOLO 2");
   await page.getByTestId("solo-indicator").click();
   await expect.poll(async () => (await mixerOf()).some((t) => t.solo)).toBe(false);
+  // A mute light dragged across the strips paints them all (one undo step); the same with S.
+  await drag(page, strip("Insert 2").getByRole("button", { name: "Mute Insert 2" }), strip("Insert 4").getByRole("button", { name: "Mute Insert 4" }));
+  await expect.poll(async () => (await mixerOf()).slice(1, 6).map((t) => t.muted)).toEqual([false, true, true, true, false]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await mixerOf()).some((t) => t.muted)).toBe(false);
+  await drag(page, strip("Insert 5").getByRole("button", { name: "Solo Insert 5" }), strip("Insert 3").getByRole("button", { name: "Solo Insert 3" }));
+  await expect.poll(async () => (await mixerOf()).slice(1, 6).map((t) => t.solo)).toEqual([false, false, true, true, true]);
+  await page.getByTestId("solo-indicator").click();
 
   // A double-click on a name renames the track; + adds a track after the selected one.
   await strip("Insert 3").locator("span").first().dblclick();

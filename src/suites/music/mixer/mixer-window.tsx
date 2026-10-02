@@ -62,6 +62,7 @@ import {
   soloAlone,
   toggleSolo,
   toggleSoloSafe,
+  paintSwitch,
   selectGroup,
   selectOnlyCurrent,
   selectTrackRange,
@@ -479,8 +480,10 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
           aria-pressed={!track.muted}
           title={track.muted ? "Muted (right-click to solo it alone)" : "Mute (right-click to solo it alone)"}
           className="group grid size-5 shrink-0 place-items-center rounded-full"
-          // Ctrl or Alt with the click solos it alone, and so does a right-click, as in FL Studio.
-          onClick={(e) => (e.altKey || e.metaKey || e.ctrlKey ? soloAlone(id) : toggleTrackMute(id))}
+          // A plain press mutes (and paints across the strips it's dragged over); Ctrl or Alt with the
+          // click solos it alone, and so does a right-click, as in FL Studio.
+          onPointerDown={(e) => !(e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) && paintSwitch(e, id, "mute")}
+          onClick={(e) => (e.altKey || e.metaKey || e.ctrlKey ? soloAlone(id) : e.detail === 0 && toggleTrackMute(id))}
           onContextMenu={(e) => {
             e.preventDefault();
             soloAlone(id);
@@ -843,7 +846,9 @@ function SoloButton({ id, name, solo, implied, safe }: { id: string; name: strin
               { background: "var(--mixer-well)", color: "var(--mixer-solo)", boxShadow: "inset 0 0 0 1px var(--mixer-solo)" }
             : { background: "var(--mixer-well)", color: "var(--mixer-name)", boxShadow: "inset 0 1px 1px rgb(0 0 0 / 0.4)" }
       }
-      onClick={(e) => (e.shiftKey ? toggleSoloSafe(id) : e.altKey || e.metaKey || e.ctrlKey ? soloAlone(id) : toggleSolo(id))}
+      // A plain press solos (and paints across the strips it's dragged over); the keys are a click's.
+      onPointerDown={(e) => !(e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) && paintSwitch(e, id, "solo")}
+      onClick={(e) => (e.shiftKey ? toggleSoloSafe(id) : e.altKey || e.metaKey || e.ctrlKey ? soloAlone(id) : e.detail === 0 && toggleSolo(id))}
     >
       S
       {safe && <PiLockSimpleFill className="absolute -top-1 -right-1 size-2" style={{ color: "var(--mixer-solo)" }} aria-label="Solo safe" />}
