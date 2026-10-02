@@ -96,7 +96,7 @@ it). What was chosen, to check with him:
 | Scales | The modern set, plus 29 legacy ones (microtonal, historical temperaments) | The modern set (12-note scales) |
 | Input Type Learn, Vocal Range Auto Detect | Yes | No: chosen by hand |
 | Detect key | Auto-Key, a separate plugin, from audio | From the song's notes |
-| Automating | Every parameter | Retune Speed, Humanize, Flex-Tune, Natural Vibrato, Transpose, Throat and the key (song mode, as all automation) |
+| Automating | Every parameter | Every knob: Retune Speed, Humanize, Flex-Tune, Natural Vibrato, Transpose, Throat, Detune, Tracking, Create Vibrato's seven, and the key (song mode, as all automation). Not the switches (Formant, Classic, the input type, the scale) |
 | Pitch graph in Auto mode | AutoTune 2026's | Ours, from Pro 11's meter colours |
 
 ## How it's built

@@ -86,4 +86,6 @@ same way"). Not yet talked through with him; what was chosen, to check:
   ring), `piano.tsx`, `peaks.ts` (Spectrum Grab), `match.ts` and `match-panel.tsx` (EQ Match and
   collisions), `actions.ts`, `store.ts` (open windows, selection, zoom, solo, grab, match),
   `tool-edits.ts` (the assistant's `get_pro_q`, `set_pro_q_bands`, `update_pro_q`; `add_mixer_effect`
-  takes "Pro-Q", `add_automation` its "eq frequency", "eq gain", "eq q", "eq range", "eq output").
+  takes "Pro-Q", `add_automation` its "eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale").
+  Its output's pan and Gain Scale automate too; Gain Scale has no lane of its own in the engine: it's folded
+  into each band's gain and range lanes.
