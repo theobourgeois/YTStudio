@@ -456,7 +456,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       data-soloed-out={soloedOut || undefined}
       data-unheard={unheard !== null || undefined}
       title={soloedOut ? `${name}: silenced by the solo` : (unheard ?? undefined)}
-      className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r pb-1 transition-[opacity,filter] duration-150", dropTarget && "ring-2 ring-inset")}
+      className="flex shrink-0 flex-col items-center gap-1.5 border-r pb-1 transition-[opacity,filter] duration-150"
       style={{
         width: STRIP_WIDTHS[view],
         ...stripLook(track.color, selected),
@@ -467,7 +467,8 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         borderColor: "var(--mixer-line)",
         // A divider: a gap of the mixer's background down its left edge (its width stays the same, so the strips scroll as they did).
         ...(separator && { borderLeft: "5px solid var(--mixer-bg)" }),
-        ...(dropTarget && { "--tw-ring-color": "var(--mixer-on)" }),
+        // A drop target (a cable, an effect, a track's state over it): tinted in the accent, a thin line round it.
+        ...(dropTarget && { boxShadow: "inset 0 0 0 1px var(--mixer-on), inset 0 0 0 999px color-mix(in oklab, var(--mixer-on) 16%, transparent)" }),
       }}
       onPointerDownCapture={(e) => {
         const target = e.target as HTMLElement;
@@ -540,13 +541,14 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         <TrackMenu id={id} isMaster={isMaster} color={track.color} separator={track.separator} grouped={track.group !== null} soloSafe={track.soloSafe} />
       </ContextMenu>
 
-      <div className="flex shrink-0 items-center gap-1">
+      {/* The mute light and S, centred with room either side: a narrow strip's edge (and its outline as a drop target) stays clear of them. */}
+      <div className="flex shrink-0 items-center gap-0.5">
         <button
           type="button"
           aria-label={track.muted ? `Unmute ${name}` : `Mute ${name}`}
           aria-pressed={!track.muted}
           title={track.muted ? "Muted (right-click to solo it alone)" : "Mute (right-click to solo it alone)"}
-          className="group grid size-5 shrink-0 place-items-center rounded-full"
+          className="group grid size-3.5 shrink-0 place-items-center rounded-full"
           // A plain press mutes (and paints across the strips it's dragged over); Ctrl or Alt with the
           // click solos it alone, and so does a right-click, as in FL Studio.
           onPointerDown={(e) => !(e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) && paintSwitch(e, id, "mute")}
@@ -993,7 +995,7 @@ function SoloButton({ id, name, solo, implied, safe }: { id: string; name: strin
       data-solo-safe={safe || undefined}
       data-solo-implied={implied || undefined}
       title={`${solo ? "Soloed" : implied ? "Heard for a soloed track (it's on its path)" : "Solo"}${safe ? " (solo safe)" : ""}: click to solo, ⌥-click to solo it alone, ⇧-click for solo safe`}
-      className="relative grid h-3.5 w-4 shrink-0 place-items-center rounded-[3px] font-mono text-[9px] leading-none font-bold hover:brightness-125"
+      className="relative grid h-3.5 w-3.5 shrink-0 place-items-center rounded-[3px] font-mono text-[9px] leading-none font-bold hover:brightness-125"
       style={
         solo
           ? { background: "var(--mixer-solo)", color: "var(--mixer-solo-text)", boxShadow: "0 0 4px var(--mixer-solo)" }
