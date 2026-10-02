@@ -20,7 +20,7 @@ export const MAX_STRETCH_TEMPO = 4000;
 export const MIN_AUDIO_SPEED = 1 / 16;
 export const MAX_AUDIO_SPEED = 16;
 
-/** How much faster an audio clip channel pitched by `semitones` plays its file (FL's Resample: pitch and speed together). */
+/** How much faster a file read `semitones` higher goes (a sampler's notes: pitch and speed together). */
 export const pitchSpeed = (semitones: number) => 2 ** (semitones / 12);
 
 /** How an audio clip plays its file. */
@@ -35,15 +35,18 @@ export interface AudioPlayback {
 
 /**
  * How a clip with stretch `stretch` (its own, or its channel's) plays its file at `tempo`, its channel pitched
- * by `pitch` semitones. A stretch in Stretch mode that changes nothing plays as it is, through no stretcher.
+ * by `pitch` semitones. Its channel's pitch only ever moves its pitch, never its time, as FL's does (Théo):
+ * only a stretch changes its speed. In Stretch mode that keeps its pitch; in Resample the speed moves the
+ * pitch too (faster is higher), and the channel's pitch is on top. Played as it is (through no stretcher)
+ * when nothing asks for one.
  */
 export function audioPlayback(stretch: AudioStretch | null | undefined, pitch: number, tempo: number): AudioPlayback {
   const ratio = stretch?.tempo ? tempo / stretch.tempo : 1;
-  if (stretch?.mode === "stretch") {
-    const speed = clamp(ratio, MIN_AUDIO_SPEED, MAX_AUDIO_SPEED);
-    return { speed, transpose: pitch, keepPitch: Math.abs(speed - 1) > 1e-9 || pitch !== 0 };
-  }
-  return { speed: clamp(ratio * pitchSpeed(pitch), MIN_AUDIO_SPEED, MAX_AUDIO_SPEED), transpose: 0, keepPitch: false };
+  const speed = clamp(ratio, MIN_AUDIO_SPEED, MAX_AUDIO_SPEED);
+  if (stretch?.mode === "stretch") return { speed, transpose: pitch, keepPitch: Math.abs(speed - 1) > 1e-9 || pitch !== 0 };
+  if (pitch === 0) return { speed, transpose: 0, keepPitch: false };
+  // Resampled and pitched: the stretcher plays it at its speed, as high as the speed makes it and its pitch on top.
+  return { speed, transpose: pitch + 12 * Math.log2(speed), keepPitch: true };
 }
 
 /** A stretch's tempo kept in range and to a millionth (so a song saved and loaded is the same song). */
@@ -72,16 +75,14 @@ export function stretchedTo(
   now: { fileSecondsPerTick: number; length: number },
   newLength: number,
   mode: StretchMode,
-  song: { tempo: number; secondsPerTick: number; pitch: number },
+  song: { tempo: number; secondsPerTick: number },
 ): { stretch: AudioStretch; length: number } {
   // Seconds of the file a tick must play to fit the same content into `newLength`.
   const wanted = (now.fileSecondsPerTick * now.length) / Math.max(1, newLength);
-  // In Resample the channel's pitch speeds the file up too; in Stretch it doesn't.
-  const pitchFactor = mode === "resample" ? pitchSpeed(song.pitch) : 1;
-  const lowest = Math.max(MIN_STRETCH_TEMPO, (song.tempo * pitchFactor) / MAX_AUDIO_SPEED);
-  const highest = Math.min(MAX_STRETCH_TEMPO, (song.tempo * pitchFactor) / MIN_AUDIO_SPEED);
-  const tempo = stretchTempo(clamp((song.secondsPerTick * song.tempo * pitchFactor) / wanted, lowest, highest));
-  const actual = (song.secondsPerTick * song.tempo * pitchFactor) / tempo;
+  const lowest = Math.max(MIN_STRETCH_TEMPO, song.tempo / MAX_AUDIO_SPEED);
+  const highest = Math.min(MAX_STRETCH_TEMPO, song.tempo / MIN_AUDIO_SPEED);
+  const tempo = stretchTempo(clamp((song.secondsPerTick * song.tempo) / wanted, lowest, highest));
+  const actual = (song.secondsPerTick * song.tempo) / tempo;
   return { stretch: { mode, tempo }, length: Math.max(1, Math.round((now.fileSecondsPerTick * now.length) / actual)) };
 }
 
@@ -106,12 +107,8 @@ export function fileTempo(seconds: number, bpm: number | null): number | null {
   return best === null ? null : stretchTempo(best);
 }
 
-/**
- * The stretch tempo that makes `seconds` of a file last `beats` beats of the song (FL's TIME menu: Beat/Bar #),
- * in `mode`: in Resample its channel's `pitch` speeds it up too, so the tempo takes that in.
- */
-export const tempoForBeats = (seconds: number, beats: number, mode: StretchMode = "stretch", pitch = 0) =>
-  stretchTempo(((beats * 60) / Math.max(1e-3, seconds)) * (mode === "resample" ? pitchSpeed(pitch) : 1));
+/** The stretch tempo that makes `seconds` of a file last `beats` beats of the song (FL's TIME menu: Beat/Bar #). */
+export const tempoForBeats = (seconds: number, beats: number) => stretchTempo((beats * 60) / Math.max(1e-3, seconds));
 
-/** The stretch tempo for a file made at `fileTempo` BPM (FL's Autodetect), in `mode` (Resample: its channel's `pitch` taken in). */
-export const tempoOfFile = (fileTempo: number, mode: StretchMode, pitch: number) => stretchTempo(fileTempo * (mode === "resample" ? pitchSpeed(pitch) : 1));
+/** The stretch tempo for a file made at `fileTempo` BPM (FL's Autodetect): that tempo (its channel's pitch changes no speed). */
+export const tempoOfFile = (fileTempo: number) => stretchTempo(fileTempo);

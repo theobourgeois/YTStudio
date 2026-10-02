@@ -399,11 +399,12 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
     }
     if (command == "previewFile")
     {
-        // A channel's own preview carries its gains and speed; the Browser's don't.
+        // A channel's own preview carries its gains and pitch; the Browser's don't.
         const auto channel = params.hasProperty ("gainLeft");
         const auto result = preview.play (juce::File (params["file"].toString()), (double) params["start"], params["previewId"].toString(),
                                           channel ? (float) (double) params["gainLeft"] : 1.0f, channel ? (float) (double) params["gainRight"] : 1.0f,
-                                          params.hasProperty ("speed") ? (double) params["speed"] : 1.0, ! channel);
+                                          params.hasProperty ("speed") ? (double) params["speed"] : 1.0, ! channel,
+                                          params.hasProperty ("transpose") ? (double) params["transpose"] : 0.0);
         return result.wasOk() ? ok() : reply (result, {});
     }
     if (command == "stopPreview")

@@ -188,14 +188,13 @@ export interface EngineAudioClip {
   seconds: number;
   /**
    * How fast it plays its file, seconds of the file per second of the song (`audioPlayback`): its stretch
-   * (at another tempo than its own, faster or slower) and, in Resample, its channel's pitch as a ratio
-   * (`pitchSpeed`; 2 is an octave up, twice as fast).
+   * (at another tempo than its own, faster or slower). Its channel's pitch never changes it.
    */
   speed: number;
   /**
-   * Stretched with its pitch kept (Stretch mode): the engine's time stretcher plays it at `speed` and
-   * shifts its pitch by `transpose` semitones. Otherwise (absent) it's read faster or slower, its pitch
-   * going with it.
+   * Through the engine's time stretcher: played at `speed`, its pitch shifted by `transpose` semitones
+   * (Stretch mode, or its channel pitched). Otherwise (absent) it's read faster or slower, its pitch going
+   * with it (Resample).
    */
   keepPitch?: boolean;
   transpose?: number;

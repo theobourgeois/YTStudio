@@ -46,8 +46,8 @@ export interface ClipContext {
   tempo: number;
   /**
    * Seconds of its file an audio clip plays in a tick of the song: the tick's seconds times its speed
-   * (`audioPlayback`: its stretch, and its channel's pitch in Resample), so a clip pitched up or stretched
-   * shorter goes through its file faster.
+   * (`audioPlayback`: its stretch; its channel's pitch never changes it), so a clip stretched shorter goes
+   * through its file faster.
    */
   fileSecondsPerTick: (clip: AudioClipRef) => number;
   /** The stretch an audio clip plays by: its own, else its channel's (null: none). */
@@ -425,11 +425,7 @@ export function stretchClips(clips: PlaylistClip[], ids: ClipIds, edge: "start" 
     const wanted = edge === "end" ? clamp(length + by, least, MAX_SONG_TICKS - clip.start) : clamp(length - by, least, length + clip.start);
     if (wanted === length) return clip;
     const was = ctx.stretchOf(clip);
-    const next = stretchedTo({ fileSecondsPerTick: ctx.fileSecondsPerTick(clip), length }, wanted, was?.mode ?? mode, {
-      tempo: ctx.tempo,
-      secondsPerTick: ctx.secondsPerTick,
-      pitch: ctx.pitchOf(clip.ref),
-    });
+    const next = stretchedTo({ fileSecondsPerTick: ctx.fileSecondsPerTick(clip), length }, wanted, was?.mode ?? mode, { tempo: ctx.tempo, secondsPerTick: ctx.secondsPerTick });
     const end = clip.start + length;
     const start = edge === "end" ? clip.start : Math.max(0, end - next.length);
     return { ...clip, start, length: edge === "end" ? Math.min(next.length, MAX_SONG_TICKS - clip.start) : end - start, stretch: next.stretch };
@@ -478,7 +474,7 @@ export function stretchChannel(song: MusicProject, id: string, stretch: AudioStr
 }
 
 /**
- * Back to the file's own pitch, the speed kept: audio clips sped up or slowed down the Resample way (their
+ * Back to the file's own pitch, the speed kept: audio clips heard higher or lower than their file (their
  * channel's pitch, or a Resample stretch: faster is higher) play at the same speed in Stretch mode, at the
  * pitch they were recorded at, as FL's time-stretch PITCH set back to 0 does. A channel (`channel`) goes
  * back with all its clips: its pitch to 0. Clips (`clips`) get a stretch of their own, unless their
@@ -490,6 +486,8 @@ export function resetPitch(song: MusicProject, target: { channel?: string; clips
   const { tempo } = before;
   /** Its speed in Stretch mode, the pitch kept: the stretch that plays a file `speed` times as fast at this tempo. */
   const atSpeed = (speed: number): AudioStretch => ({ mode: "stretch", tempo: stretchTempo(tempo / speed) });
+  /** A Resample stretch's speed kept in Stretch mode (its pitch then the file's); any other stays as it is. */
+  const kept = (stretch: AudioStretch | null | undefined, speed: number) => (stretch?.mode === "resample" && Math.abs(speed - 1) > 1e-9 ? atSpeed(speed) : (stretch ?? undefined));
   /** Its speed, if it's heard higher or lower than its file (else null). */
   const pitched = (stretch: AudioStretch | null | undefined, pitch: number) => {
     const playback = audioPlayback(stretch, pitch, tempo);
@@ -508,7 +506,9 @@ export function resetPitch(song: MusicProject, target: { channel?: string; clips
     const speed = pitched(channel.stretch, channel.pitch);
     if (speed === null) return channel;
     changed = true;
-    return { ...channel, pitch: 0, stretch: atSpeed(speed) };
+    const { stretch: _, ...rest } = channel;
+    const stretch = kept(channel.stretch, speed);
+    return stretch ? { ...rest, pitch: 0, stretch } : { ...rest, pitch: 0 };
   });
   const nextClips = song.playlist.clips.map((clip) => {
     if (clip.kind !== "audio" || !(clips.has(clip.id) || (channels.has(clip.ref) && clip.stretch))) return clip;
@@ -516,8 +516,11 @@ export function resetPitch(song: MusicProject, target: { channel?: string; clips
     if (!clip.stretch && channels.has(clip.ref)) return clip;
     const speed = pitched(before.stretchOf(clip), before.pitchOf(clip.ref));
     if (speed === null) return clip;
+    const stretch = kept(before.stretchOf(clip), speed);
+    // (Its own in Stretch mode on a channel going back: its channel's pitch was all there was.)
+    if (!stretch || sameStretch(stretch, clip.stretch)) return clip;
     changed = true;
-    return { ...clip, stretch: atSpeed(speed) };
+    return { ...clip, stretch };
   });
   if (!changed) return song;
   const next = { ...song, channels: nextChannels };

@@ -16,8 +16,8 @@ constexpr int fadeSamples = 256;
 struct FilePreview::Stream final : AudioStream
 {
     Stream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, const juce::String& previewId, float left, float right,
-            double playSpeed, bool atVolume)
-        : AudioStream (std::move (source), outputRate, startSeconds, -1, ringSeconds, playSpeed),
+            double playSpeed, bool atVolume, double transpose)
+        : AudioStream (std::move (source), outputRate, startSeconds, -1, ringSeconds, playSpeed, Resampling::hermite, ! juce::exactlyEqual (transpose, 0.0), transpose),
           id (previewId),
           start (startSeconds),
           speed (juce::jlimit (0.0625, 16.0, playSpeed)),
@@ -53,12 +53,12 @@ void FilePreview::prepare (double rate) { sampleRate = rate > 0 ? rate : 48000.0
 
 // Message thread -----------------------------------------------------------------------------------
 
-juce::Result FilePreview::play (const juce::File& file, double startSeconds, const juce::String& id, float gainLeft, float gainRight, double speed, bool browserVolume)
+juce::Result FilePreview::play (const juce::File& file, double startSeconds, const juce::String& id, float gainLeft, float gainRight, double speed, bool browserVolume, double transpose)
 {
     std::unique_ptr<juce::AudioFormatReader> source (formats.createReaderFor (file));
     if (source == nullptr || source->sampleRate <= 0 || source->lengthInSamples <= 0)
         return juce::Result::fail ("\"" + file.getFileName() + "\" can't be read as audio.");
-    auto* stream = new Stream (std::move (source), sampleRate, juce::jmax (0.0, startSeconds), id, gainLeft, gainRight, speed, browserVolume);
+    auto* stream = new Stream (std::move (source), sampleRate, juce::jmax (0.0, startSeconds), id, gainLeft, gainRight, speed, browserVolume, juce::jlimit (-48.0, 48.0, transpose));
     // Its start is decoded here, so it sounds at the next block rather than when the reader gets to it;
     // only its start, so the command is answered (and the next block has it) at once, however long the file.
     stream->fill (juce::roundToInt (headSeconds * sampleRate));

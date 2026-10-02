@@ -232,10 +232,13 @@ export interface EnginePreview {
 export interface PreviewSampleRequest {
   projectId: string;
   sampleId: string;
-  /** Its channel's gains (volume and pan, 0..4) and speed (its pitch: `pitchSpeed`), heard as its clips are. Default: as it is. */
+  /** Its channel's gains (volume and pan, 0..4), heard as its clips are. Default: as it is. */
   gainLeft?: number;
   gainRight?: number;
+  /** Read faster or slower, its pitch going with it (1: as it is). */
   speed?: number;
+  /** Its channel's pitch, in semitones: higher or lower, its time kept, as its clips are. */
+  transpose?: number;
   /** Seconds into the file (default: its start). */
   start?: number;
   /** The tab's name for it, given back in `EnginePreview.id`. */

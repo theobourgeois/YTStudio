@@ -145,6 +145,15 @@ describe.skipIf(!existsSync(ENGINE))("stretched audio clips, offline", () => {
     expect(Math.abs(cents(frequency(up.channels[0], RATE / 2, Math.round(1.5 * RATE)), 880))).toBeLessThan(5);
   });
 
+  it("is higher, not faster, with its channel pitched and no stretch (FL's)", async () => {
+    await play(updateChannel(song("sine", 4), "chan_clip", { pitch: 12 }));
+    await engine.command("play", {});
+    const up = await hear(4 * RATE);
+    expect(Math.abs(cents(frequency(up.channels[0], RATE / 2, Math.round(3.5 * RATE)), 880))).toBeLessThan(5);
+    // The four-second file still lasts four seconds (read twice as fast, it would be over by two).
+    expect(Math.max(...up.channels[0].slice(Math.round(3.6 * RATE), Math.round(3.8 * RATE)).map(Math.abs))).toBeGreaterThan(0.3);
+  });
+
   it("is faster and higher in Resample, its channel's stretch followed by clips without their own", async () => {
     // The channel's stretch: made at 160 BPM, three quarters of its speed and pitch.
     await play(stretchChannel(song("sine", 4), "chan_clip", { mode: "resample", tempo: 160 }));

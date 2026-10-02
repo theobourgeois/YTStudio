@@ -323,7 +323,10 @@ export class AudioEngine {
     const id = typeof body.id === "string" ? body.id.slice(0, 200) : "";
     const gain = (value: unknown) => (isFiniteNumber(value) ? clamp(value, 0, 4) : 1);
     const speed = isFiniteNumber(body.speed) ? clamp(body.speed, 1 / 16, 16) : 1;
-    return this.withSaved((await this.request("previewFile", { file, start, previewId: id, gainLeft: gain(body.gainLeft), gainRight: gain(body.gainRight), speed })) as RawStatus);
+    const transpose = isFiniteNumber(body.transpose) ? clamp(body.transpose, -48, 48) : 0;
+    return this.withSaved(
+      (await this.request("previewFile", { file, start, previewId: id, gainLeft: gain(body.gainLeft), gainRight: gain(body.gainRight), speed, ...(transpose && { transpose }) })) as RawStatus,
+    );
   }
 
   /** A song's media file's tempo, as heard (`DetectTempoRequest`, FL's Autodetect): decoded by ffmpeg, the engine not needed. */

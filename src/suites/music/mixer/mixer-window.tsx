@@ -884,7 +884,7 @@ function CarriedState() {
   return (
     <div className="floating pointer-events-none fixed z-[10000] rounded-sm px-2 py-1 text-[11px]" style={{ left: carrying.x + 12, top: carrying.y + 8 }} data-testid="carried-state">
       {carrying.effect
-        ? `${carrying.effect.name}${carrying.over && (carrying.over !== carrying.from || carrying.effect.copy) ? (carrying.effect.copy ? " → drop to copy" : " → drop to move (Alt: copy)") : ""}`
+        ? `${carrying.effect.name}${carrying.over && (carrying.over !== carrying.from || carrying.effect.copy) ? (carrying.effect.copy ? " → drop to copy" : " → drop to move (⌘: copy)") : ""}`
         : `${name}'s state${carrying.over && carrying.over !== carrying.from ? " → drop to copy" : ""}`}
     </div>
   );

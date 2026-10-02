@@ -437,7 +437,7 @@ export function stretchAudioTool(song: MusicProject, input: Input, files: Stretc
       if (!isFiniteNumber(input.bars) || input.bars <= 0) throw new Error('"bars" must be a number of bars, more than 0.');
       const seconds = files.seconds(channelId);
       if (seconds === null) throw new Error(`"${channel.name}"'s file length isn't known yet: try again in a moment, or give its "tempo".`);
-      setTo({ mode, tempo: tempoForBeats(seconds, input.bars * beatsInBar, mode, channel.pitch) });
+      setTo({ mode, tempo: tempoForBeats(seconds, input.bars * beatsInBar) });
     } else if (input.tempo !== undefined) {
       const tempo = input.tempo;
       if (tempo === "none") setTo(byClips ? { mode, tempo: null } : null);
@@ -445,8 +445,8 @@ export function stretchAudioTool(song: MusicProject, input: Input, files: Stretc
       else if (tempo === "detect") {
         const heard = files.heard?.(channelId) ?? null;
         if (heard === null) throw new Error(`No steady beat was heard in "${channel.name}": give its tempo, or how many "bars" it lasts.`);
-        setTo({ mode, tempo: tempoOfFile(heard, mode, channel.pitch) });
-      } else if (isFiniteNumber(tempo) && tempo > 0) setTo({ mode, tempo: tempoOfFile(tempo, mode, channel.pitch) });
+        setTo({ mode, tempo: tempoOfFile(heard) });
+      } else if (isFiniteNumber(tempo) && tempo > 0) setTo({ mode, tempo: tempoOfFile(tempo) });
       else throw new Error('"tempo" must be the file\'s tempo in BPM, or "detect", "project" or "none".');
     } else setTo({ mode, tempo: now?.tempo ?? null });
   }

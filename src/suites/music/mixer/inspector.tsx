@@ -74,6 +74,9 @@ export function Inspector({ trackId }: { trackId: string }) {
   );
 }
 
+/** An effect dragged with ⌘ (Ctrl), or Alt, is copied rather than moved. */
+const isCopyDrag = (e: { metaKey: boolean; ctrlKey: boolean; altKey: boolean }) => e.metaKey || e.ctrlKey || e.altKey;
+
 function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect: MixerEffect | null }) {
   const [choosing, setChoosing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -102,7 +105,7 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
 
   /**
    * A loaded effect dragged onto another slot swaps places with what's there; onto another track's strip it
-   * moves there (Alt: a copy goes there), as FL Studio's slots do.
+   * moves there, as FL Studio's slots do. With ⌘ (Ctrl; Alt too) held, a copy goes there instead.
    */
   const dragSlot = (e: React.PointerEvent<HTMLLIElement>) => {
     if (!effect || !e.currentTarget.contains(e.target as Node) || (e.target as HTMLElement).closest('[role="slider"]')) return;
@@ -111,6 +114,7 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
     // (its name, its light): a press that doesn't become a drag is that button's click.
     const pressed = (e.target as HTMLElement).closest("button");
     let target: number | null = null;
+    let copying = false;
     let onto: { track: string; copy: boolean } | null = null;
     const view = useMixerView.getState();
     const done = () => {
@@ -126,15 +130,19 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
         const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-slot]");
         target = over && list?.contains(over) ? Number(over.dataset.slot) : null;
         setDropping(target);
+        copying = isCopyDrag(ev);
         // Out of the slots, it's carried to a track: another, or its own for a copy.
         const track = target === null ? trackAt(ev.clientX, ev.clientY) : null;
-        onto = track && (track !== trackId || ev.altKey) ? { track, copy: ev.altKey } : null;
-        view.carry(target === null ? { from: trackId, x: ev.clientX, y: ev.clientY, over: onto?.track ?? null, effect: { name: effect.plugin.name, copy: ev.altKey } } : null);
+        onto = track && (track !== trackId || copying) ? { track, copy: copying } : null;
+        view.carry(target === null ? { from: trackId, x: ev.clientX, y: ev.clientY, over: onto?.track ?? null, effect: { name: effect.plugin.name, copy: copying } } : null);
       },
       onEnd() {
         done();
-        if (target !== null && target !== slot) commit((song) => moveEffectTo(song, trackId, slot, target!));
-        else if (onto) void effectOnto(trackId, slot, onto.track, onto.copy);
+        if (target !== null && target !== slot) {
+          // Copied onto a slot of its own track: there if it's empty, else the first empty one.
+          if (copying) void effectOnto(trackId, slot, trackId, true, target);
+          else commit((song) => moveEffectTo(song, trackId, slot, target!));
+        } else if (onto) void effectOnto(trackId, slot, onto.track, onto.copy);
       },
       onCancel: done,
     });

@@ -1056,10 +1056,11 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   await inspector.getByRole("button", { name: "Slot 2 menu" }).click();
   const effectPicker = page.getByTestId("effect-picker");
   await expect(effectPicker.getByRole("option", { name: /Fake Synth/ })).toHaveCount(0);
-  // A pin puts it in a Pinned column first (it stays in its own too); Enter chooses the one highlighted.
+  // A pin puts it in a Pinned column first, and only there; Enter chooses the one highlighted.
   await effectPicker.getByRole("option", { name: /Fake Delay/ }).hover();
   await effectPicker.getByRole("button", { name: "Pin Fake Delay" }).click();
   await expect(effectPicker.getByRole("region", { name: "Pinned" }).getByRole("option")).toHaveCount(1);
+  await expect(effectPicker.getByRole("option", { name: /Fake Delay/ })).toHaveCount(1);
   await expect(effectPicker.getByRole("textbox", { name: "Find an effect" })).toBeFocused();
   // (The columns moved under the pointer: it's put back on the pinned one, which Enter then chooses.)
   await effectPicker.getByRole("region", { name: "Pinned" }).getByRole("option").hover();
@@ -1095,7 +1096,7 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   await expect.poll(async () => (await slots())[6]).toBeNull();
 
   // Dragged onto another track's strip it moves there (its first empty slot), and the inspector follows it;
-  // with Alt a copy goes there (its own id), the effect staying.
+  // with ⌘ a copy goes there (its own id), the effect staying.
   const mixer = page.getByTestId("mixer");
   type Effect = { id: string; plugin: { name: string } };
   const effectsOf = async (n: number) => ((await savedSong(page, id)).mixer.tracks[n].effects as (Effect | null)[]).filter((e): e is Effect => e !== null);
@@ -1103,11 +1104,11 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   const to = (await mixer.locator('[data-track-name="Insert 2"]').boundingBox())!;
   await page.mouse.move(from.x + 40, from.y + from.height / 2);
   await page.mouse.down();
-  await page.keyboard.down("Alt");
+  await page.keyboard.down("ControlOrMeta");
   await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
   await expect(page.getByTestId("carried-state")).toHaveText("Fake Delay → drop to copy");
   await page.mouse.up();
-  await page.keyboard.up("Alt");
+  await page.keyboard.up("ControlOrMeta");
   await expect.poll(async () => (await effectsOf(2)).map((e) => e.plugin.name)).toEqual(["Fake Delay"]);
   const [original] = await effectsOf(0);
   const [copy] = await effectsOf(2);

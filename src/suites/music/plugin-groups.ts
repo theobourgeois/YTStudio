@@ -50,14 +50,14 @@ export function matches(item: PickerItem, query: string): boolean {
 }
 
 /**
- * The picker's columns: the pinned items (also in their own groups), then a column per group (ours
- * first, in the order given; then by name, Other last), items by name, only those matching `query`.
+ * The picker's columns: the pinned items (only there, not again in their groups), then a column per group
+ * (ours first, in the order given; then by name, Other last), items by name, only those matching `query`.
  */
 export function pickerColumns(items: readonly PickerItem[], pinned: readonly string[], query: string, firstGroups: readonly string[] = []): PickerColumn[] {
   const shown = items.filter((item) => matches(item, query));
   const byName = (a: PickerItem, b: PickerItem) => a.name.localeCompare(b.name);
   const groups = new Map<string, PickerItem[]>();
-  for (const item of shown) groups.set(item.group, [...(groups.get(item.group) ?? []), item]);
+  for (const item of shown) if (!pinned.includes(item.id)) groups.set(item.group, [...(groups.get(item.group) ?? []), item]);
   const order = (a: string, b: string) => {
     const [ia, ib] = [firstGroups.indexOf(a), firstGroups.indexOf(b)];
     if (ia >= 0 || ib >= 0) return (ia < 0 ? Infinity : ia) - (ib < 0 ? Infinity : ib);
@@ -74,13 +74,19 @@ export const PICKER_ROWS = 14;
 /** Columns side by side before the picker scrolls across instead. */
 export const PICKER_COLUMNS = 4;
 
+/** Lines that make one column, across the picker's whole width (two columns would leave the second empty). */
+export const ONE_COLUMN_ROWS = 6;
+
 /**
- * How big the picker is for these columns: few plugins, a few columns just tall enough for them; more than
- * `PICKER_COLUMNS` of `PICKER_ROWS` hold, null (full size, scrolling across).
+ * How big the picker is for these columns: a handful, one column across its width, as tall as they are; a
+ * few more, two columns or more (at least two, so the second isn't left empty beside a wide first), just
+ * tall enough for them, evened out; more than `PICKER_COLUMNS` of `PICKER_ROWS` hold, null (full size,
+ * scrolling across).
  */
 export function pickerSize(columns: readonly PickerColumn[]): { columns: number; rows: number } | null {
   const lines = columns.reduce((n, column) => n + 1 + column.items.length, 0);
-  const count = Math.max(1, Math.ceil(lines / PICKER_ROWS));
+  if (lines <= ONE_COLUMN_ROWS) return { columns: 1, rows: Math.max(1, lines) };
+  const count = Math.max(2, Math.ceil(lines / PICKER_ROWS));
   if (count > PICKER_COLUMNS) return null;
   // A line spare in each: a group's title isn't left alone at a column's foot, so a column may end one short.
   return { columns: count, rows: Math.min(PICKER_ROWS, Math.ceil(lines / count) + 1) };

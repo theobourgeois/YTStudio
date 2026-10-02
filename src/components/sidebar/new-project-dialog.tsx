@@ -4,7 +4,7 @@ import { SUITES, SUITE_IDS, type SuiteId } from "@shared/suites";
 import { cn } from "cn";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useLayout } from "@/stores/layout";
-import { useProjects } from "@/stores/projects";
+import { projectSuite, useProjects } from "@/stores/projects";
 import { clientSuite } from "@/suites";
 
 const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
@@ -22,17 +22,22 @@ export function NewProjectDialog() {
   );
 }
 
+/** The suites as the picker lists them: the open project's first, then the others in their order. */
+export const suitesInOrder = (first: SuiteId | undefined): SuiteId[] => (first ? [first, ...SUITE_IDS.filter((id) => id !== first)] : [...SUITE_IDS]);
+
 function Picker() {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const hasTemplate = useProjects((s) => Object.keys(s.templates).length > 0);
+  // The app you're in first (its number stays its own: ⌘1 is always the video editor).
+  const [here] = useState(() => projectSuite(useProjects.getState().openId));
   const suites = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return SUITE_IDS.filter((id) => {
+    return suitesInOrder(here).filter((id) => {
       const { label, noun, description } = SUITES[id];
       return !q || [label, noun, description].some((text) => text.toLowerCase().includes(q));
     });
-  }, [query]);
+  }, [query, here]);
 
   /** Alt (⌥) starts blank, whatever the suite's starting point. */
   const pick = (suite: SuiteId | undefined, blank = false) => {
