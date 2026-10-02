@@ -8,6 +8,7 @@
 #include "AutoTune.h"
 #include "EchoBoy.h"
 #include "GrossBeat.h"
+#include "PitchWheel.h"
 #include "Host.h"
 #include "Resampling.h"
 
@@ -147,6 +148,9 @@ struct Song
             /** An EchoBoy (ours too): its sound, kept across songs, and this song's settings for it. */
             std::shared_ptr<echo::State> echo;
             std::shared_ptr<echo::Settings> echoSettings;
+            /** A Pitch Wheel (ours too): its sound, kept across songs, and this song's settings for it. */
+            std::shared_ptr<wheel::State> wheel;
+            std::shared_ptr<wheel::Settings> wheelSettings;
         };
 
         juce::String id;
@@ -177,9 +181,9 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, track, send, mix, gross, tune, echo, param };
+        enum class Kind { channel, track, send, mix, gross, tune, echo, wheel, param };
         Kind kind = Kind::channel;
-        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`). */
+        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`), a Pitch Wheel's (`PitchWheelControl`, by index). */
         int channel = -1, track = -1, index = -1, control = 0;
         int size = 1;
         std::vector<double> ticks;
@@ -249,6 +253,13 @@ struct Song
     std::vector<Track> tracks;
     /** The automated controls (song mode). */
     std::vector<Lane> lanes;
+    /** The Pitch Wheels that a channel's notes play (`notesFrom`): the channel's index and the wheel's sound (its effect holds it). */
+    struct WheelListener
+    {
+        int channel = -1;
+        wheel::State* state = nullptr;
+    };
+    std::vector<WheelListener> wheelListeners;
     /**
      * The tracks something reaches, in stages: none in a stage sends to another in it, and each stage's
      * senders are all in earlier ones. So a stage's tracks can be run at once (the export does).
@@ -278,8 +289,8 @@ struct Song
      * sample couldn't be read. Unless `keepOnly` is false (a copy for the export), the hosts let go of the
      * plugins the song doesn't have.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, juce::StringArray& unreadable,
-                                        int capacity, double sampleRate, bool keepOnly = true);
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys,
+                                        wheel::Registry& pitchWheels, juce::StringArray& unreadable, int capacity, double sampleRate, bool keepOnly = true);
 
     /**
      * Plugin delay compensation (FL Studio's automatic PDC): every path into a track waits until the

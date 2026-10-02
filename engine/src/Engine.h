@@ -95,6 +95,8 @@ private:
     tune::Registry autoTunes;
     /** Its EchoBoys' sounds, by effect id. */
     echo::Registry echoBoys;
+    /** Its Pitch Wheels' sounds, by effect id. */
+    wheel::Registry pitchWheels;
     Sequencer sequencer;
     /** The Browser's preview of a file, outside the song. */
     FilePreview preview;

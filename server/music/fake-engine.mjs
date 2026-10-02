@@ -117,8 +117,45 @@ const echoBoys = () =>
       }),
   );
 
+/** Pitch Wheel is ours too. */
+const PITCH_WHEEL = "vaudio:pitch-wheel";
+/** What the hand does to each Pitch Wheel (`pitchWheel` commands): where it holds the wheels, the keys it holds. */
+const wheelHands = new Map();
+const wheelHand = (id) => {
+  if (!wheelHands.has(id)) wheelHands.set(id, { pitch: null, timbre: null, at: 0, keys: new Set() });
+  return wheelHands.get(id);
+};
+/**
+ * Each Pitch Wheel in the song, as the real engine says it: its wheels where the hand holds them (for a
+ * quarter of a second) or where the song has them, the keys held and, in Multi, a voice for each.
+ */
+const pitchWheels = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.pitchWheel)
+      .map((e) => {
+        const hand = wheelHand(e.id);
+        const held = Date.now() - hand.at < 250;
+        const pw = e.pitchWheel;
+        const keys = [...hand.keys].sort((a, b) => a - b);
+        const pitch = (held && hand.pitch !== null ? hand.pitch : pw.pitch.target) + (!pw.multi && keys.length ? keys.at(-1) - pw.origin : 0);
+        return [
+          e.id,
+          {
+            latency: pw.window,
+            pitch,
+            timbre: held && hand.timbre !== null ? hand.timbre : pw.timbre.target,
+            voices: pw.multi ? keys.map((key) => ({ key, pitch: pitch + key - pw.origin })) : [],
+            input: playingSince === null ? 0 : 0.3,
+            notes: keys,
+          },
+        ];
+      }),
+  );
+
 const effects = () => {
-  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY);
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PITCH_WHEEL);
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
@@ -248,7 +285,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), echoBoys: echoBoys() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), pitchWheels: pitchWheels(), echoBoys: echoBoys() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -287,6 +324,7 @@ const sendTransport = () =>
     preview: previewNow(),
     grossBeats: grossBeats(),
     autoTunes: autoTunes(),
+    pitchWheels: pitchWheels(),
     echoBoys: echoBoys(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
@@ -383,6 +421,13 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.grossBeat))) return fail("The song playing has no such Gross Beat.");
     if (params.hold === true) holding.add(params.effect);
     if (params.hold === false) holding.delete(params.effect);
+  }
+  if (cmd === "pitchWheel") {
+    if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.pitchWheel))) return fail("The song playing has no such Pitch Wheel.");
+    const hand = wheelHand(params.effect);
+    if (typeof params.pitch === "number") (hand.pitch = params.pitch), (hand.at = Date.now());
+    if (typeof params.timbre === "number") (hand.timbre = params.timbre), (hand.at = Date.now());
+    if (typeof params.key === "number") params.on ? hand.keys.add(params.key) : hand.keys.delete(params.key);
   }
   if ((cmd === "trigger" || cmd === "preview") && !song?.channels.some((c) => c.id === params.channel)) return fail("The song playing has no such channel.");
   if (cmd === "tone") tone = params.on;
