@@ -1090,6 +1090,10 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await strip("Pads bus").locator("canvas").click();
   await expect(page.getByTestId("cables").locator("[data-incoming]")).toHaveCount(1);
   await expect(page.getByTestId("cables").locator(`[data-incoming][data-cable-from="${(await mixerOf())[6].id}"]`)).toHaveCount(1);
+  // A selected track's down-arrow dragged onto another strip plugs its cable in there: it goes there alone.
+  await strip("Insert 9").locator("canvas").click();
+  await drag(page, strip("Insert 9").locator("[data-plug]"), strip("Insert 10").locator("canvas"));
+  await expect.poll(async () => (await mixerOf())[9].sends).toEqual([{ to: (await mixerOf())[10].id, level: 1 }]);
 });
 
 test("an effect goes in a mixer track's slot: chosen from the effect plugins, its window opened by its name, bypassed, moved", async ({ page }) => {

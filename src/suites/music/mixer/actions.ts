@@ -326,6 +326,34 @@ function onlyTo(doc: MusicProject, from: string, to: string): MusicProject {
   return setSend(removed, from, to, level);
 }
 
+/**
+ * A selected track's down-arrow dragged onto another strip (a cable plugged in): the selected tracks go
+ * there alone (sidechains kept), or with ⌘ / Alt it's a send besides where they go. Let go anywhere else,
+ * nothing changes.
+ */
+export function plugCable(e: ReactPointerEvent<Element>) {
+  const view = useMixerView.getState();
+  const from = (e.currentTarget as HTMLElement).closest<HTMLElement>("[data-track]")?.dataset.track;
+  if (!from) return;
+  startPointerDrag(e, {
+    threshold: 4,
+    cursor: "grabbing",
+    onMove(ev) {
+      const over = trackAt(ev.clientX, ev.clientY);
+      view.plug({ from, x: ev.clientX, y: ev.clientY, over: over && !sendSources().includes(over) ? over : null, add: ev.metaKey || ev.ctrlKey || ev.altKey });
+    },
+    onEnd() {
+      const plugging = useMixerView.getState().plugging;
+      view.plug(null);
+      if (!plugging?.over) return;
+      const to = plugging.over;
+      if (plugging.add) commit((doc) => sendSources().reduce((next, from) => (getMixerTrack(next, from)?.sends.some((s) => s.to === to) ? next : setSend(next, from, to, 1)), doc));
+      else commit((doc) => sendSources().reduce((next, from) => onlyTo(next, from, to), doc));
+    },
+    onCancel: () => view.plug(null),
+  });
+}
+
 /** "Sidechain to this track": sends at 0, which plugins on `to` can hear but the track doesn't. */
 export const sidechainTo = (to: string) => commit((doc) => sendSources().reduce((next, from) => setSend(next, from, to, 0), doc));
 

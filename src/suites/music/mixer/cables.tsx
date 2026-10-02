@@ -1,6 +1,7 @@
 import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 import { MASTER_TRACK_ID } from "@shared/music/project";
 import type { Mixer } from "@shared/music/types";
+import { useMixerView } from "./view";
 
 interface Cable {
   /** "from>to". */
@@ -22,6 +23,31 @@ interface Cable {
 export function cablePath(from: { x: number; y: number }, to: { x: number; y: number }, bottom: number, swing = 0): string {
   const below = bottom + 28 + Math.min(120, Math.abs(to.x - from.x) * 0.12) + swing;
   return `M ${from.x} ${from.y} C ${from.x} ${below}, ${to.x} ${below}, ${to.x} ${to.y}`;
+}
+
+/** A cable being plugged: from the current track's down-arrow to the pointer, while it's dragged. */
+function PluggedCable({ area }: { area: RefObject<HTMLElement | null> }) {
+  const plugging = useMixerView((s) => s.plugging);
+  const root = area.current;
+  const plug = plugging && root?.querySelector<HTMLElement>(`[data-track="${CSS.escape(plugging.from)}"] [data-plug]`);
+  if (!plugging || !root || !plug) return null;
+  const box = root.getBoundingClientRect();
+  const r = plug.getBoundingClientRect();
+  const from = { x: r.left + r.width / 2 - box.left, y: r.bottom - 14 - box.top };
+  const to = { x: plugging.x - box.left, y: plugging.y - box.top };
+  // It hangs below both ends, inside the strips (which clip it).
+  const sag = Math.min(box.height - 4, Math.max(from.y, to.y) + 40);
+  return (
+    <path
+      d={`M ${from.x} ${from.y} C ${from.x} ${sag}, ${to.x} ${sag}, ${to.x} ${to.y}`}
+      className="fill-none"
+      stroke="var(--mixer-on)"
+      strokeWidth={2}
+      strokeDasharray={plugging.over ? undefined : "5 4"}
+      strokeLinecap="round"
+      data-testid="plugged-cable"
+    />
+  );
 }
 
 /** How far a cable plugged in `age` ms ago has swung from where it hangs: a quick damped bounce. */
@@ -128,6 +154,7 @@ export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement |
 
   return (
     <svg className="pointer-events-none absolute inset-0 z-10 size-full overflow-visible" aria-hidden data-testid="cables">
+      <PluggedCable area={area} />
       {cables.map((cable) => (
         <path
           key={cable.key}

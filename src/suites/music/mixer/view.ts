@@ -25,6 +25,12 @@ interface MixerViewState {
    * effects (`effect`: from the inspector's slots, moved, or copied with ⌘): where, and the track under it.
    */
   carrying: { from: string; x: number; y: number; over: string | null; effect?: { name: string; copy: boolean } } | null;
+  /**
+   * A selected track's cable being plugged (its down-arrow dragged): where the pointer is, the track under
+   * it, and whether the drop adds a send (⌘ / Alt) rather than routing there alone.
+   */
+  plugging: { from: string; x: number; y: number; over: string | null; add: boolean } | null;
+  plug: (plugging: MixerViewState["plugging"]) => void;
   /** The mixer's view (this computer's: it's kept). */
   view: MixerViewKind;
   setView: (view: MixerViewKind) => void;
@@ -50,6 +56,8 @@ export const useMixerView = create<MixerViewState>((set) => ({
   reveal: (revealing) => set({ revealing }),
   carrying: null,
   carry: (carrying) => set({ carrying }),
+  plugging: null,
+  plug: (plugging) => set({ plugging }),
 }));
 
 /** The mixer track whose strip is at a point of the page, or null. */

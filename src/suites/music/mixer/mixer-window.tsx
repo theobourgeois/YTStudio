@@ -66,6 +66,7 @@ import {
   paintSwitch,
   routeSelectedToNewBus,
   sendOnlyFrom,
+  plugCable,
   selectGroup,
   selectOnlyCurrent,
   selectTrackRange,
@@ -390,7 +391,9 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
-  const dropTarget = useMixerView((s) => s.carrying !== null && s.carrying.over === track.id && (s.carrying.from !== track.id || !!s.carrying.effect?.copy));
+  const dropTarget = useMixerView(
+    (s) => (s.carrying !== null && s.carrying.over === track.id && (s.carrying.from !== track.id || !!s.carrying.effect?.copy)) || s.plugging?.over === track.id,
+  );
   const id = track.id;
 
   return (
@@ -428,7 +431,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         const ui = useMusicUi.getState();
         // A control of one of several selected tracks acts on all of them: they stay selected. Pressed on
         // a track that isn't selected, it selects that one alone (whatever the keys held: they're the control's).
-        if (target.closest("button, [role=slider]")) {
+        if (target.closest("button, [role=slider], [data-plug]")) {
           if (!selected) ui.selectTrack(id);
           return;
         }
@@ -767,7 +770,13 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
 function SendSwitch({ to, name, state }: { to: string; name: string; state: SendState }) {
   if (state.kind === "source") {
     return (
-      <div className="grid h-14 place-items-center pb-3" style={{ color: "var(--mixer-on)" }} title="A selected track: its sends are shown">
+      <div
+        className="grid h-14 cursor-grab place-items-center pb-3"
+        style={{ color: "var(--mixer-on)" }}
+        title="A selected track: its sends are shown. Drag it onto a track to route there (⌘: a send besides)"
+        onPointerDown={plugCable}
+        data-plug
+      >
         <PiArrowFatDownFill className="size-4" data-send-point />
       </div>
     );
