@@ -238,6 +238,9 @@
   /* A track that takes an input (it records): its number bar, so it's found again in a reopened song. */
   --mixer-input: #7d55c7;
   --mixer-arm: #d8343f;
+  /* A soloed track's switch (the same in every theme, as a console's yellow), and its letter. */
+  --mixer-solo: #e8b525;
+  --mixer-solo-text: #2a2005;
   --fader-slot: rgb(30 40 52 / 0.05);
   /* The mixer's lights (`mixer/led.tsx`): their bezel, and their lens when off. */
   --led-bezel-light: #a9b0b9;

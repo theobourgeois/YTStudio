@@ -20,10 +20,14 @@ import {
   sendOnly,
   sendersTo,
   setEffect,
+  clearMixerSolo,
   setMixerMuted,
+  setMixerSolo,
   setMixerVolumes,
   setSend,
+  setSoloSafe,
   soloMixerTrack,
+  toggleMixerSolo,
   trackName,
   trackNumber,
   trackState,
@@ -137,19 +141,39 @@ describe("inputs", () => {
 });
 
 describe("solo", () => {
-  it("mutes every other insert (never the master), and soloing the lone track again unmutes them", () => {
-    const song = rack();
-    const solo = soloMixerTrack(song, "insert_2");
-    expect(mutes(solo)).toEqual([false, true, false, true, true, true]);
-    expect(mutes(soloMixerTrack(solo, "insert_2"))).toEqual([false, false, false, false, false, false]);
-    expect(mutes(soloMixerTrack(solo, "insert_3"))).toEqual([false, true, true, false, true, true]);
+  const solos = (song: MusicProject) => song.mixer.tracks.slice(0, 6).map((t) => t.solo);
+
+  it("is a state of its own: the mutes stay as they were, and clearing it brings back exactly what was heard", () => {
+    const muted = setMixerMuted(rack(), ["insert_3"], true);
+    const solo = soloMixerTrack(muted, "insert_2");
+    expect(mutes(solo)).toEqual(mutes(muted));
+    expect(solos(solo)).toEqual([false, false, true, false, false, false]);
+    expect(clearMixerSolo(solo).mixer).toEqual(muted.mixer);
   });
 
-  it("with Alt keeps the tracks routed to and from it on", () => {
-    let song = sendOnly(rack(), "insert_1", "insert_2");
-    song = sendOnly(song, "insert_2", "insert_3");
-    expect(mutes(soloMixerTrack(song, "insert_2", true))).toEqual([false, false, false, false, true, true]);
-    expect(mutes(soloMixerTrack(song, "insert_2"))).toEqual([false, true, false, true, true, true]);
+  it("adds up with S, and Alt solos alone (again: no solo)", () => {
+    const one = toggleMixerSolo(rack(), ["insert_1"]);
+    const two = toggleMixerSolo(one, ["insert_2"]);
+    expect(solos(two)).toEqual([false, true, true, false, false, false]);
+    expect(solos(toggleMixerSolo(two, ["insert_2"]))).toEqual([false, true, false, false, false, false]);
+    // Several at once: soloed unless they all are already.
+    expect(solos(toggleMixerSolo(one, ["insert_1", "insert_3"]))).toEqual([false, true, false, true, false, false]);
+    expect(solos(toggleMixerSolo(two, ["insert_1", "insert_2"]))).toEqual([false, false, false, false, false, false]);
+    expect(solos(soloMixerTrack(two, "insert_3"))).toEqual([false, false, false, true, false, false]);
+    expect(solos(soloMixerTrack(soloMixerTrack(two, "insert_3"), "insert_3"))).toEqual([false, false, false, false, false, false]);
+  });
+
+  it("never solos the master", () => {
+    const song = rack();
+    expect(soloMixerTrack(song, M)).toBe(song);
+    expect(setMixerSolo(song, [M], true)).toBe(song);
+    expect(updateMixerTrack(song, M, { solo: true })).toBe(song);
+  });
+
+  it("makes tracks solo safe", () => {
+    const safe = setSoloSafe(rack(), ["insert_4"], true);
+    expect(safe.mixer.tracks[4].soloSafe).toBe(true);
+    expect(setSoloSafe(safe, ["insert_4"], true)).toBe(safe);
   });
 });
 

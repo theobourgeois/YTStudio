@@ -7,6 +7,7 @@ import { isFiniteNumber } from "@shared/math";
 import { keyText } from "@shared/music/auto-tune";
 import type { EngineEffects } from "@shared/music/engine";
 import { snapped } from "@shared/music/pitch-wheel";
+import { hearing } from "@shared/music/solo";
 import {
   addMixerTracks,
   canSend,
@@ -22,7 +23,9 @@ import {
   sendOnly,
   setEffect,
   setSend,
-  soloMixerTrack,
+  clearMixerSolo,
+  setMixerSolo,
+  setSoloSafe,
   trackName,
   trackNumber,
   ungroup,
@@ -101,6 +104,8 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
     `level ${faderDb(track.volume)}`,
     track.pan ? `pan ${percent(Math.abs(track.pan))} ${track.pan < 0 ? "left" : "right"}` : null,
     track.muted ? "muted" : null,
+    track.solo ? "soloed" : null,
+    track.soloSafe ? "solo safe" : null,
     track.invert ? "phase inverted" : null,
     track.swap ? "sides swapped" : null,
     track.stereo ? `stereo ${percent(Math.abs(track.stereo))} ${track.stereo > 0 ? "narrower" : "wider"}` : null,
@@ -158,6 +163,7 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
     }
   });
   if (quiet.length) lines.push(`- Inserts ${ranges(quiet)}: unused (no channels, effects or name; at 0 dB, sending to the master).`);
+  if (song.mixer.tracks.some((t) => t.solo)) lines.push(soloText(song));
   return lines.join("\n");
 }
 
@@ -167,7 +173,7 @@ function isUntouched(song: MusicProject, track: MixerTrack): boolean {
   return (
     isFreeTrack(song, track) &&
     track.color === null &&
-    (["volume", "pan", "muted", "invert", "swap", "stereo", "latencyOffset", "input", "monitor", "inputOffset"] as const).every((key) => track[key] === fresh[key]) &&
+    (["volume", "pan", "muted", "solo", "soloSafe", "invert", "swap", "stereo", "latencyOffset", "input", "monitor", "inputOffset"] as const).every((key) => track[key] === fresh[key]) &&
     track.sends.length === 1 &&
     track.sends[0].to === MASTER_TRACK_ID &&
     track.sends[0].level === 1
@@ -268,11 +274,36 @@ export const setSendTool: SongEdit = (song, input) => {
 };
 
 export const soloMixerTrackTool: SongEdit = (song, input) => {
-  const track = findTrack(song, input.track);
-  const next = soloMixerTrack(song, track.id, input.withRouted === true);
-  const muted = next.mixer.tracks.filter((t) => t.muted).length;
-  return { song: next, text: muted ? `${label(next, track)} is soloed (${muted} other track${muted === 1 ? " is" : "s are"} muted).` : "Nothing is soloed now: every track is unmuted." };
+  let next: MusicProject;
+  if (input.clear === true) next = clearMixerSolo(song);
+  else {
+    const refs = Array.isArray(input.tracks) ? input.tracks : input.track !== undefined ? [input.track] : [];
+    if (!refs.length) throw new Error('Name the tracks ("tracks", or "track" for one), or clear every solo with "clear".');
+    const ids = refs.map((ref) => findTrack(song, ref).id);
+    if (typeof input.safe === "boolean") next = setSoloSafe(song, ids, input.safe);
+    else {
+      if (ids.includes(MASTER_TRACK_ID)) throw new Error("The master can't be soloed: it's what's heard. Solo the tracks you want to hear.");
+      next = input.solo === false ? setMixerSolo(song, ids, false) : input.alone === true ? setMixerSolo(clearMixerSolo(song), ids, true) : setMixerSolo(song, ids, true);
+    }
+  }
+  return { song: next, text: soloText(next) };
 };
+
+/** What's soloed, and what that silences, in a line. */
+function soloText(song: MusicProject): string {
+  const soloed = song.mixer.tracks.filter((t) => t.solo);
+  const safe = song.mixer.tracks.filter((t) => t.soloSafe);
+  const safeText = safe.length ? ` Solo safe: ${safe.map((t) => label(song, t)).join(", ")}.` : "";
+  if (!soloed.length) return `Nothing is soloed: every track that isn't muted is heard.${safeText}`;
+  const heard = hearing(song.mixer);
+  const silenced = song.mixer.tracks.filter((t) => heard.get(t.id)!.soloedOut).length;
+  const implied = song.mixer.tracks.filter((t) => heard.get(t.id)!.implied);
+  return (
+    `Soloed: ${soloed.map((t) => label(song, t)).join(", ")}.` +
+    (implied.length ? ` Kept on for them (on their path): ${implied.map((t) => label(song, t)).join(", ")}.` : "") +
+    ` ${silenced} other track${silenced === 1 ? " is" : "s are"} silenced by the solo.${safeText}`
+  );
+}
 
 export const groupMixerTracksTool: SongEdit = (song, input) => {
   if (!Array.isArray(input.tracks) || !input.tracks.length) throw new Error('"tracks" must be a list of mixer tracks (numbers, ids or names).');

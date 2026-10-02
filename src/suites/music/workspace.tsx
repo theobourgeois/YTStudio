@@ -316,7 +316,7 @@ function runPlaylistKey(action: PlaylistKeyAction) {
 function runMixerKey(action: MixerKeyAction) {
   switch (action.type) {
     case "solo":
-      return mixer.soloTrack(mixer.currentTrack(), action.linked);
+      return action.alone ? mixer.soloAlone(mixer.currentTrack()) : mixer.toggleSolo(mixer.currentTrack());
     case "route":
       return mixer.routeSelectedChannels(undefined, action.starting);
     case "selectChannels":

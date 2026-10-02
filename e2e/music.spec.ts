@@ -939,7 +939,7 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await expect(page.getByRole("listitem")).toHaveCount(4);
   const mixer = page.getByTestId("mixer");
   const strip = (name: string) => mixer.locator(`[data-track-name="${name}"]`);
-  const mixerOf = async () => (await savedSong(page, id)).mixer.tracks as { id: string; name: string | null; volume: number; muted: boolean; sends: { to: string; level: number }[] }[];
+  const mixerOf = async () => (await savedSong(page, id)).mixer.tracks as { id: string; name: string | null; volume: number; muted: boolean; solo: boolean; sends: { to: string; level: number }[] }[];
 
   // Every channel starts on the master ("---"); Ctrl+L in the rack gives the selected ones free tracks named after them.
   await expect(row(page, "Kick").getByRole("spinbutton")).toHaveText("---");
@@ -995,13 +995,23 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await strip("Insert 3").locator("canvas").click();
   await expect(strip("Kick").getByRole("button", { name: "Send to Kick" })).toBeDisabled();
 
-  // The mute light mutes; a right-click solos (the other inserts muted, never the master); again, all back on.
+  // The mute light mutes. A right-click solos the track alone (FL's): the others are silenced, their mutes left as they are.
   await strip("Insert 2").getByRole("button", { name: "Mute Insert 2" }).click();
   await expect.poll(async () => (await mixerOf())[2].muted).toBe(true);
-  await strip("Insert 2").getByRole("button", { name: "Unmute Insert 2" }).click({ button: "right" });
-  await expect.poll(async () => (await mixerOf()).slice(0, 4).map((t) => t.muted)).toEqual([false, true, false, true]);
+  await strip("Insert 2").getByRole("button", { name: "Unmute Insert 2" }).click();
   await strip("Insert 2").getByRole("button", { name: "Mute Insert 2" }).click({ button: "right" });
-  await expect.poll(async () => (await mixerOf()).some((t) => t.muted)).toBe(false);
+  await expect.poll(async () => (await mixerOf()).slice(0, 5).map((t) => t.solo)).toEqual([false, false, true, false, false]);
+  expect((await mixerOf()).some((t) => t.muted)).toBe(false);
+  await expect(strip("Insert 4")).toHaveAttribute("data-soloed-out", "true");
+  await expect(strip("Insert 2")).not.toHaveAttribute("data-soloed-out");
+  // S adds a track to the solo; Alt+click solos it alone; clicked again, nothing is soloed.
+  await strip("Insert 4").getByRole("button", { name: "Solo Insert 4" }).click();
+  await expect.poll(async () => (await mixerOf()).slice(0, 5).map((t) => t.solo)).toEqual([false, false, true, false, true]);
+  await expect(strip("Insert 4")).not.toHaveAttribute("data-soloed-out");
+  await strip("Insert 4").getByRole("button", { name: "Unsolo Insert 4" }).click({ modifiers: ["Alt"] });
+  await expect.poll(async () => (await mixerOf()).slice(0, 5).map((t) => t.solo)).toEqual([false, false, false, false, true]);
+  await strip("Insert 4").getByRole("button", { name: "Unsolo Insert 4" }).click();
+  await expect.poll(async () => (await mixerOf()).some((t) => t.solo)).toBe(false);
 
   // A double-click on a name renames the track; + adds a track after the selected one.
   await strip("Insert 3").locator("span").first().dblclick();

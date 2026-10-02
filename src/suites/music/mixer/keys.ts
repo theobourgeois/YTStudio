@@ -4,8 +4,8 @@
  */
 
 export type MixerKeyAction =
-  /** S: solo the current track; Alt+S with every track routed to and from it. */
-  | { type: "solo"; linked: boolean }
+  /** S: solo the selected tracks (or unsolo them), the other solos kept; Alt+S: solo them alone. */
+  | { type: "solo"; alone: boolean }
   /** Ctrl+L: the rack's selected channels to the current track; Ctrl+Shift+L: to it and the next ones. */
   | { type: "route"; starting: boolean }
   /** Alt+L: select (in the rack) the channels routed to the current track. */
@@ -29,7 +29,7 @@ export function resolveMixerKey(e: KeyLike): MixerKeyAction | null {
   if (e.key === "F2" && !command && !e.altKey && !e.shiftKey) return { type: "rename" };
   if ((e.key === "Delete" || e.key === "Backspace") && e.altKey && !command && !e.shiftKey) return { type: "delete" };
   if (horizontal !== null && !command && !e.shiftKey) return e.altKey ? { type: "move", direction: horizontal } : { type: "select", direction: horizontal };
-  if (letter === "S" && !command && !e.shiftKey) return { type: "solo", linked: e.altKey };
+  if (letter === "S" && !command && !e.shiftKey) return { type: "solo", alone: e.altKey };
   if (letter === "L" && command && !e.altKey) return { type: "route", starting: e.shiftKey };
   if (letter === "L" && e.altKey && !command && !e.shiftKey) return { type: "selectChannels" };
   if (letter === "A" && command && !e.altKey && !e.shiftKey) return { type: "selectAll" };

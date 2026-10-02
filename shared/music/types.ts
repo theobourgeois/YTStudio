@@ -622,6 +622,13 @@ export interface MixerTrack {
   /** -1 (left) .. 1 (right). */
   pan: number;
   muted: boolean;
+  /**
+   * Soloed: while any track is, only the soloed ones, the tracks on their way to the master and the tracks
+   * feeding them are heard (`shared/music/solo.ts`). Its own state: it never changes the mutes. Never the master.
+   */
+  solo: boolean;
+  /** Solo safe: another track's solo never silences it (a reverb return, a reference track). */
+  soloSafe: boolean;
   /** Its sound's sign flipped (FL's invert phase): a kick recorded out of phase with another, say. */
   invert: boolean;
   /** Its left and right swapped. */

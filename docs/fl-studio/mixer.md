@@ -320,8 +320,17 @@ Not yet, or different: icons, the Current track, the track EQ (put off), "Compen
 - **The fader** is cubed: 0.8 of its travel is 0 dB, the top about +5.8 dB (FL's own curve is unverified).
 - **The pan** moves each side as a mono sound under the circular law: the centre leaves the sound alone,
   fully to one side is both sides summed there.
-- **Solo** never mutes the master. Alt solo keeps on every track whose sound reaches this one, and every
-  track this one's reaches.
+- **Solo** isn't FL's (Théo's friends found FL's the worst of it; 2026-10-02). It's a state of its own
+  (`MixerTrack.solo`, `shared/music/solo.ts`), so the mutes are never rewritten and clearing the solos
+  brings back exactly what was heard, and it **follows the routing**, as Reaper, Logic, Studio One and
+  Ableton's group tracks do: a soloed track keeps on every bus its sound goes through to the master, a
+  soloed bus every track feeding it; the rest is silenced (`heardMixer`, what `compileSong` plays),
+  except the master and **solo safe** tracks (a reverb return). Each strip has an **S** beside its mute
+  light: a click adds to the solo (or takes out), Alt / ⌘ solos alone, Shift makes it solo safe (a
+  lock). The mute light's right-click and Ctrl / Alt+click solo alone, FL's habit; S and Alt+S the same
+  on the keys. A sidechain (a send at 0) is no way for the sound. When plugins get sidechain inputs,
+  a track the solo silences must still feed them (its gains kept, its audible sends cut), so a ducked
+  bass still ducks.
 - **Removing a track** sends its channels to the master, and a track left sending nowhere because of it
   goes to the master too.
 

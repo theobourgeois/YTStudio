@@ -23,6 +23,7 @@ import { PAN_ENGINE_CONTROLS, PAN_LANE_SCALE, PAN_SHAPING_CONTROLS } from "./pan
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { type Lfo, MOD_TARGETS, type ModEnvelope, type SampleLoop, type SamplerFilter, samplerOf } from "./sampler.ts";
 import { autoGain } from "./pro-q-filters.ts";
+import { heardMixer } from "./solo.ts";
 import { hasGain } from "./pro-q-presets.ts";
 import {
   AUTO_TUNE_CONTROLS,
@@ -523,13 +524,15 @@ const channelSwing = (song: MusicProject, channel: Channel | undefined) => song.
  * already sounding when it starts isn't. `armed`: the mixer tracks armed to record (the tab's, not the song's).
  */
 export function compileSong(
-  song: MusicProject,
+  written: MusicProject,
   patternId: string | null,
   loop: LoopRange | null = null,
   mode: PlayMode = "pattern",
   held: ReadonlySet<string> = NONE_HELD,
   armed: ReadonlySet<string> = new Set(),
 ): EngineSong {
+  // The solos silence tracks as mutes would.
+  const song = heardMixer(written);
   const pattern = song.patterns.find((p) => p.id === patternId) ?? song.patterns[0];
   const [beats, unit] = song.settings.timeSignature;
   const beatTicks = (PPQ * 4) / unit;

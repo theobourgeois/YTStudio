@@ -5,9 +5,9 @@ const key = (code: string, mods: Partial<Record<"metaKey" | "ctrlKey" | "shiftKe
   resolveMixerKey({ key, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 
 describe("the mixer's keys", () => {
-  it("are FL Studio's: S solos, Alt+S solos the path, Ctrl+L routes, Alt+L selects the channels", () => {
-    expect(key("KeyS")).toEqual({ type: "solo", linked: false });
-    expect(key("KeyS", { altKey: true }, "ß")).toEqual({ type: "solo", linked: true });
+  it("are FL Studio's: S solos, Alt+S solos alone, Ctrl+L routes, Alt+L selects the channels", () => {
+    expect(key("KeyS")).toEqual({ type: "solo", alone: false });
+    expect(key("KeyS", { altKey: true }, "ß")).toEqual({ type: "solo", alone: true });
     expect(key("KeyL", { metaKey: true })).toEqual({ type: "route", starting: false });
     expect(key("KeyL", { ctrlKey: true, shiftKey: true })).toEqual({ type: "route", starting: true });
     expect(key("KeyL", { altKey: true }, "¬")).toEqual({ type: "selectChannels" });

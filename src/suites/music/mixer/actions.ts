@@ -21,7 +21,10 @@ import {
   routeToFreeTracks,
   sendOnly,
   setSend,
+  setSoloSafe,
+  clearMixerSolo,
   soloMixerTrack,
+  toggleMixerSolo,
   trackState,
   ungroup,
   updateMixerTrack,
@@ -54,7 +57,13 @@ export function selectedTracks(): string[] {
 }
 
 export const toggleTrackMute = (id: string) => commit((doc) => updateMixerTrack(doc, id, { muted: !getMixerTrack(doc, id)?.muted }));
-export const soloTrack = (id: string, linked = false) => commit((doc) => soloMixerTrack(doc, id, linked));
+/** S: the track joins the solo, or leaves it (the other solos kept). */
+export const toggleSolo = (id: string) => commit((doc) => toggleMixerSolo(doc, [id]));
+/** Alt+S, Alt+click, a right-click on the mute light: the track soloed alone (again: no solo). */
+export const soloAlone = (id: string) => commit((doc) => soloMixerTrack(doc, id));
+/** Shift+click on S: another track's solo never silences it. */
+export const toggleSoloSafe = (id: string) => commit((doc) => setSoloSafe(doc, [id], !getMixerTrack(doc, id)?.soloSafe));
+export const clearSolo = () => commit(clearMixerSolo);
 
 /** The rack's selected channels to a track (Ctrl+L), or to it and the tracks after it, one each (Ctrl+Shift+L). */
 export function routeSelectedChannels(trackId = currentTrack(), starting = false) {

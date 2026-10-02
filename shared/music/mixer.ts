@@ -142,7 +142,7 @@ export function moveMixerTracks(song: MusicProject, ids: readonly string[], dire
 }
 
 export type MixerTrackPatch = Partial<
-  Pick<MixerTrack, "name" | "color" | "dock" | "separator" | "volume" | "pan" | "muted" | "invert" | "swap" | "stereo" | "latencyOffset" | "input" | "monitor" | "inputOffset">
+  Pick<MixerTrack, "name" | "color" | "dock" | "separator" | "volume" | "pan" | "muted" | "solo" | "soloSafe" | "invert" | "swap" | "stereo" | "latencyOffset" | "input" | "monitor" | "inputOffset">
 >;
 
 function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
@@ -158,6 +158,9 @@ function patchedTrack(track: MixerTrack, patch: MixerTrackPatch): MixerTrack {
     volume: clamp(patch.volume ?? track.volume, 0, 1),
     pan: clamp(patch.pan ?? track.pan, -1, 1),
     muted: patch.muted ?? track.muted,
+    // The master is what's heard: it's never soloed.
+    solo: track.id === MASTER_TRACK_ID ? false : (patch.solo ?? track.solo),
+    soloSafe: patch.soloSafe ?? track.soloSafe,
     invert: patch.invert ?? track.invert,
     swap: patch.swap ?? track.swap,
     stereo: patch.stereo === undefined || !Number.isFinite(patch.stereo) ? track.stereo : clamp(patch.stereo, -1, 1),
@@ -193,22 +196,31 @@ export const setMixerVolumes = (song: MusicProject, volumes: ReadonlyMap<string,
 
 export const setMixerMuted = (song: MusicProject, ids: readonly string[], muted: boolean) => updateTracks(song, ids, (t) => patchedTrack(t, { muted }));
 
-/**
- * Solo a track, FL Studio's way: solo is a state of the mutes. Every other insert track is muted and
- * this one unmuted (the master never: it's what's heard); soloing a track that's already alone unmutes
- * them all. `linked` is FL's Alt solo: the tracks whose sound reaches this one, and those it reaches,
- * stay on too, so its whole path is heard.
- */
-export function soloMixerTrack(song: MusicProject, id: string, linked = false): MusicProject {
-  if (!getMixerTrack(song, id)) return song;
-  const sends = sendsOf(song);
-  const kept = (t: MixerTrack) => t.id === id || t.id === MASTER_TRACK_ID || (linked && (reaches(sends, t.id, id) || reaches(sends, id, t.id)));
-  const keep = new Set(song.mixer.tracks.filter(kept).map((t) => t.id));
-  const others = song.mixer.tracks.filter((t) => !keep.has(t.id)).map((t) => t.id);
-  const alone = song.mixer.tracks.every((t) => (keep.has(t.id) ? !t.muted : t.muted));
-  if (alone) return setMixerMuted(song, others, false);
-  return setMixerMuted(setMixerMuted(song, others, true), [...keep], false);
+/** Solo tracks, or unsolo them (`shared/music/solo.ts`: a state of its own, the mutes left as they are). Never the master. */
+export const setMixerSolo = (song: MusicProject, ids: readonly string[], solo: boolean) => updateTracks(song, ids, (t) => patchedTrack(t, { solo }));
+
+/** A click on S: the tracks join the solo, or leave it if they're all soloed already (Pro Tools' and Logic's additive solo). */
+export function toggleMixerSolo(song: MusicProject, ids: readonly string[]): MusicProject {
+  const tracks = song.mixer.tracks.filter((t) => ids.includes(t.id) && t.id !== MASTER_TRACK_ID);
+  return setMixerSolo(song, ids, !tracks.every((t) => t.solo));
 }
+
+/**
+ * Solo these tracks alone (Alt+click, FL's solo): every other solo goes. Soloing again the tracks that are
+ * the only ones soloed clears the solo.
+ */
+export function soloMixerTrack(song: MusicProject, ids: string | readonly string[]): MusicProject {
+  const wanted = new Set((typeof ids === "string" ? [ids] : ids).filter((id) => id !== MASTER_TRACK_ID && getMixerTrack(song, id)));
+  if (!wanted.size) return song;
+  const alone = song.mixer.tracks.every((t) => t.solo === wanted.has(t.id));
+  return updateTracks(song, song.mixer.tracks.map((t) => t.id), (t) => patchedTrack(t, { solo: !alone && wanted.has(t.id) }));
+}
+
+/** Clear every solo (the mutes stay as they were). */
+export const clearMixerSolo = (song: MusicProject) => setMixerSolo(song, song.mixer.tracks.map((t) => t.id), false);
+
+/** Make tracks solo safe, or not: another track's solo never silences a safe one. */
+export const setSoloSafe = (song: MusicProject, ids: readonly string[], soloSafe: boolean) => updateTracks(song, ids, (t) => patchedTrack(t, { soloSafe }));
 
 // ---------------------------------------------------------------------------
 // Routing

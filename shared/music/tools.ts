@@ -686,12 +686,22 @@ export const MUSIC_TOOLS = [
   }),
   tool({
     name: "solo_mixer_track",
-    title: "Solo a mixer track",
+    title: "Solo mixer tracks",
     kind: "edit",
     description:
-      "Solo a mixer track: every other insert is muted (never the master); soloing the track that's already alone unmutes them all. " +
-      "`withRouted` keeps the tracks routed to and from it on too (FL's Alt solo), so its whole path is heard.",
-    inputSchema: obj({ track: mixerTrack(), withRouted: bool("Keep the tracks routed to and from it on.") }, ["track"]),
+      "Solo mixer tracks, unsolo them, or clear every solo. Solo is a state of its own (it never changes the mutes) and follows the routing: " +
+      "while any track is soloed, only the soloed ones are heard, with every track their sound goes through to the master (their buses) " +
+      "and every track feeding them (soloing a bus brings its tracks); the rest is silenced, except the master and tracks that are solo safe. " +
+      "Solos add up: soloing a track keeps the others soloed, unless `alone`. `safe` makes a track solo safe (a reverb return another " +
+      "track's solo shouldn't silence) or not.",
+    inputSchema: obj({
+      tracks: arr(mixerTrack("A track"), "The tracks (or `track` for one)."),
+      track: mixerTrack(),
+      solo: bool("Solo them (true, the default) or unsolo them (false)."),
+      alone: bool("Solo them alone: every other solo goes."),
+      safe: bool("Instead of soloing: make them solo safe (true) or not (false)."),
+      clear: bool("Clear every solo (no tracks needed)."),
+    }),
   }),
   tool({
     name: "add_mixer_track",

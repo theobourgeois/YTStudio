@@ -1,9 +1,10 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiMicrophoneFill, PiPlus } from "react-icons/pi";
+import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { type MixerTrackPatch, setMixerVolumes, setSend, trackName, updateMixerTrack } from "@shared/music/mixer";
 import { SELECTION_METER } from "@shared/music/engine";
+import { hearing } from "@shared/music/solo";
 import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
 import type { AutomationTarget, Mixer, MixerTrack, MusicProject } from "@shared/music/types";
 import { AutomationMenuItems, useAutomatedControl } from "../automation/control";
@@ -57,7 +58,10 @@ import {
   selectedTracks,
   sendOnlyTo,
   sidechainTo,
-  soloTrack,
+  clearSolo,
+  soloAlone,
+  toggleSolo,
+  toggleSoloSafe,
   toggleSend,
   toggleTrackMute,
   assignAudioTracksTo,
@@ -191,6 +195,7 @@ export function MixerWindow() {
     return info;
   }, [docked, mixer.groups]);
   const banded = mixer.groups.length > 0;
+  const heard = useMemo(() => hearing(mixer), [mixer]);
   const [first, last] = useVisibleStrips(scroller, inserts.length, stripWidth);
 
   const strip = (track: MixerTrack, number = numbers.get(track.id)!) => (
@@ -203,6 +208,7 @@ export function MixerWindow() {
       sendKind={sendStates.get(track.id)!.kind}
       sendLevel={(sendStates.get(track.id) as { level?: number }).level ?? 0}
       meterRef={meterRef(track.id)}
+      soloedOut={heard.get(track.id)!.soloedOut}
       view={view}
       separator={layout.get(track.id)?.separator ?? false}
       groupName={layout.get(track.id)?.groupName ?? null}
@@ -326,6 +332,8 @@ interface StripProps {
   sendKind: SendState["kind"];
   sendLevel: number;
   meterRef: (canvas: HTMLCanvasElement | null) => void;
+  /** Silenced by other tracks' solo. */
+  soloedOut: boolean;
   view: MixerViewKind;
   /** A divider on its left (its own Separator, or a group's edge). */
   separator: boolean;
@@ -336,7 +344,7 @@ interface StripProps {
 }
 
 /** A track's strip, top to bottom: its number, its name beside its meter, mute, pan, fader, send switch. */
-const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, meterRef, view, separator, groupName, banded }: StripProps) {
+const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, meterRef, soloedOut, view, separator, groupName, banded }: StripProps) {
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
@@ -351,12 +359,13 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       data-track={id}
       data-track-name={name}
       data-muted={track.muted || undefined}
+      data-soloed-out={soloedOut || undefined}
       className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r pb-1 transition-[opacity,filter] duration-150", dropTarget && "ring-2 ring-inset")}
       style={{
         width: STRIP_WIDTHS[view],
         ...stripLook(track.color, selected),
-        // Muted, the whole strip is faded and greyed: off at a glance.
-        ...(track.muted && { opacity: "var(--mixer-muted-opacity)", filter: "saturate(0.6)" }),
+        // Muted (or silenced by another track's solo), the whole strip is faded and greyed: off at a glance.
+        ...((track.muted || soloedOut) && { opacity: "var(--mixer-muted-opacity)", filter: "saturate(0.6)" }),
         borderColor: "var(--mixer-line)",
         // A divider: a gap of the mixer's background down its left edge (its width stays the same, so the strips scroll as they did).
         ...(separator && { borderLeft: "5px solid var(--mixer-bg)" }),
@@ -419,24 +428,27 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
             </div>
           </div>
         </ContextMenuTrigger>
-        <TrackMenu id={id} isMaster={isMaster} color={track.color} separator={track.separator} grouped={track.group !== null} />
+        <TrackMenu id={id} isMaster={isMaster} color={track.color} separator={track.separator} grouped={track.group !== null} soloSafe={track.soloSafe} />
       </ContextMenu>
 
-      <button
-        type="button"
-        aria-label={track.muted ? `Unmute ${name}` : `Mute ${name}`}
-        aria-pressed={!track.muted}
-        title={track.muted ? "Muted (right-click to solo)" : "Mute (right-click to solo)"}
-        className="group grid size-5 shrink-0 place-items-center rounded-full"
-        // Ctrl or Alt with the click solos, and so does a right-click, as in FL Studio.
-        onClick={(e) => (e.altKey || e.metaKey || e.ctrlKey ? soloTrack(id) : toggleTrackMute(id))}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          soloTrack(id);
-        }}
-      >
-        <Led on={!track.muted} />
-      </button>
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          aria-label={track.muted ? `Unmute ${name}` : `Mute ${name}`}
+          aria-pressed={!track.muted}
+          title={track.muted ? "Muted (right-click to solo it alone)" : "Mute (right-click to solo it alone)"}
+          className="group grid size-5 shrink-0 place-items-center rounded-full"
+          // Ctrl or Alt with the click solos it alone, and so does a right-click, as in FL Studio.
+          onClick={(e) => (e.altKey || e.metaKey || e.ctrlKey ? soloAlone(id) : toggleTrackMute(id))}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            soloAlone(id);
+          }}
+        >
+          <Led on={!track.muted} />
+        </button>
+        {!isMaster && <SoloButton id={id} name={name} solo={track.solo} safe={track.soloSafe} />}
+      </div>
       <SongKnob
         size={36}
         label={`${name} pan`}
@@ -558,7 +570,7 @@ function RenameField({ track, name }: { track: MixerTrack; name: string }) {
 }
 
 /** A track's right-click menu (on its number and name), FL Studio's. */
-function TrackMenu({ id, isMaster, color, separator, grouped }: { id: string; isMaster: boolean; color: string | null; separator: boolean; grouped: boolean }) {
+function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: string; isMaster: boolean; color: string | null; separator: boolean; grouped: boolean; soloSafe: boolean }) {
   const channelsSelected = useMusicUi((s) => s.selectedChannelIds.length > 0);
   const others = useMusicUi((s) => s.selectedTrackIds.some((t) => t !== id));
   const canPaste = useMusicUi((s) => s.copiedTrack !== null);
@@ -628,12 +640,20 @@ function TrackMenu({ id, isMaster, color, separator, grouped }: { id: string; is
         </ContextMenuItem>
       )}
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => soloTrack(id)}>
-        Solo <ContextMenuShortcut>S</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => soloTrack(id, true)}>
-        Alt solo <ContextMenuShortcut>⌥S</ContextMenuShortcut>
-      </ContextMenuItem>
+      {!isMaster && (
+        <>
+          <ContextMenuItem onSelect={() => toggleSolo(id)}>
+            Solo <ContextMenuShortcut>S</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => soloAlone(id)}>
+            Solo alone <ContextMenuShortcut>⌥S</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuCheckboxItem checked={soloSafe} onSelect={() => toggleSoloSafe(id)}>
+            Solo safe
+          </ContextMenuCheckboxItem>
+        </>
+      )}
+      <ContextMenuItem onSelect={clearSolo}>Clear all solos</ContextMenuItem>
       {!isMaster && (
         <>
           <ContextMenuSeparator />
@@ -738,6 +758,33 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
         <ContextMenuItem onSelect={() => sidechainTo(to)}>Sidechain to this track</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/**
+ * A track's solo switch (Pro Tools', Logic's): a click adds it to the solo or takes it out, Alt or ⌘ solos it
+ * alone, Shift makes it solo safe (a lock: no other track's solo silences it). Lit while it's soloed.
+ */
+function SoloButton({ id, name, solo, safe }: { id: string; name: string; solo: boolean; safe: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-label={solo ? `Unsolo ${name}` : `Solo ${name}`}
+      aria-pressed={solo}
+      data-solo={solo || undefined}
+      data-solo-safe={safe || undefined}
+      title={`${solo ? "Soloed" : "Solo"}${safe ? " (solo safe)" : ""}: click to solo, ⌥-click to solo it alone, ⇧-click for solo safe`}
+      className="relative grid h-3.5 w-4 shrink-0 place-items-center rounded-[3px] font-mono text-[9px] leading-none font-bold hover:brightness-125"
+      style={
+        solo
+          ? { background: "var(--mixer-solo)", color: "var(--mixer-solo-text)", boxShadow: "0 0 4px var(--mixer-solo)" }
+          : { background: "var(--mixer-well)", color: "var(--mixer-name)", boxShadow: "inset 0 1px 1px rgb(0 0 0 / 0.4)" }
+      }
+      onClick={(e) => (e.shiftKey ? toggleSoloSafe(id) : e.altKey || e.metaKey || e.ctrlKey ? soloAlone(id) : toggleSolo(id))}
+    >
+      S
+      {safe && <PiLockSimpleFill className="absolute -top-1 -right-1 size-2" style={{ color: "var(--mixer-solo)" }} aria-label="Solo safe" />}
+    </button>
   );
 }
 
