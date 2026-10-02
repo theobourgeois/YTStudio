@@ -87,7 +87,8 @@ describe.skipIf(!existsSync(ENGINE))("the Browser's preview, offline", () => {
     expect(status.transport.preview).toMatchObject({ id: "one", seconds: 0, duration: 0.5 });
 
     const first = await render(0.25);
-    expect(extent(first, 0.5)[0]).toBeLessThan(64);
+    // From its very first sample, at its level: played from its start, a hit keeps its attack.
+    expect(first[0]).toBeCloseTo(0.5, 3);
     expect(at(first, 0.1)).toBeCloseTo(0.5, 3);
     expect((await engine.command("status", {})).transport.preview).toMatchObject({ id: "one", seconds: 0.25 });
 
@@ -112,6 +113,8 @@ describe.skipIf(!existsSync(ENGINE))("the Browser's preview, offline", () => {
     const status = await engine.previewFile(file, 0.5, "late");
     expect(status.transport.preview).toMatchObject({ seconds: 0.5 });
     const samples = await render(0.75);
+    // Started inside the file, it fades in (so it doesn't click).
+    expect(Math.abs(samples[0])).toBeLessThan(0.05);
     expect(at(samples, 0.1)).toBeCloseTo(0.75, 3);
     expect(extent(samples, 0.75)[1] / RATE).toBeCloseTo(0.5, 2);
   });

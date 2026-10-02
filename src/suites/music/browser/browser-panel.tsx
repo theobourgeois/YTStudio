@@ -452,7 +452,16 @@ const RowView = memo(function RowView({ row, top, rows, onMenu }: { row: Row; to
       store.select([row.key], row.key);
       return store.toggleFolder(item.path);
     }
-    choose(row, true);
+    // A file played when it was pressed.
+    choose(row, folder);
+  };
+  // A file plays as it's pressed, not when it's let go, as in FL Studio: so it can be played in time
+  // with the song. Pressed among others selected, they stay selected for a drag (the click selects it alone).
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (folder || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || (e.target as HTMLElement).closest("button")) return;
+    const store = useBrowser.getState();
+    if (!store.selected.includes(row.key)) store.select([row.key], row.key);
+    store.preview(item.path);
   };
   const onDragStart = (e: DragEvent) => {
     const store = useBrowser.getState();
@@ -481,6 +490,7 @@ const RowView = memo(function RowView({ row, top, rows, onMenu }: { row: Row; to
       onDragStart={onDragStart}
       onDragEnd={() => setCarriedPaths(null)}
       onClick={onClick}
+      onPointerDown={onPointerDown}
       // The middle button sends a file to the selected channel, as FL's does.
       onAuxClick={(e) => {
         if (e.button !== 1 || folder) return;

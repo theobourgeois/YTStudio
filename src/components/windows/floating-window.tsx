@@ -3,7 +3,7 @@ import { PiCornersIn, PiCornersOut, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { type Rect, type ResizeEdge, type WindowSnap, edgeSnap, magnetise, resizeRect, unsnapAt } from "./geometry";
+import { type Rect, type ResizeEdge, type WindowSnap, cascade, edgeSnap, magnetise, resizeRect, unsnapAt } from "./geometry";
 import type { WindowPlace, WindowsStore } from "./store";
 
 /** How much of a window must stay on the desktop (px), so it can always be grabbed again. */
@@ -301,6 +301,16 @@ export function centredOnDesktop(width: number, height: number, desktop?: string
   const desk = document.querySelector(desktop ? `[data-desktop="${desktop}"]` : "[data-desktop]")?.getBoundingClientRect();
   if (!desk) return { x: 200, y: 120 };
   return { x: Math.max(0, Math.round((desk.width - width) / 2)), y: Math.max(0, Math.round((desk.height - height) / 3)) };
+}
+
+/**
+ * Where the `index`th of a cascade of windows of this size opens on the desktop named `desktop`: from
+ * `origin`, a `step` down and right each, kept on the desktop (`cascade`). Read when the window first shows.
+ */
+export function cascadedOnDesktop(index: number, origin: { x: number; y: number }, step: number, size: { width: number; height: number }, desktop?: string): WindowPlace {
+  const desk = document.querySelector(desktop ? `[data-desktop="${desktop}"]` : "[data-desktop]")?.getBoundingClientRect();
+  if (!desk) return { x: origin.x + index * step, y: origin.y + index * step };
+  return cascade(index, origin, step, size, desk);
 }
 
 interface DesktopProps<Id extends string> {
