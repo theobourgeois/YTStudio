@@ -77,8 +77,22 @@ const grossBeats = () =>
       }),
   );
 
+/** EchoBoy is ours too. */
+const ECHO_BOY = "vaudio:echo-boy";
+/** Each EchoBoy in the song: its LEDs' levels (some echo while the song plays). */
+const echoBoys = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.echoBoy)
+      .map((e) => {
+        const level = playingSince === null ? 0 : 0.3;
+        return [e.id, { input: [level, level], output: [level * e.echoBoy.output, level * e.echoBoy.output] }];
+      }),
+  );
+
 const effects = () => {
-  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT);
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== ECHO_BOY);
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
@@ -208,7 +222,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), echoBoys: echoBoys() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -246,6 +260,7 @@ const sendTransport = () =>
     recording: recording && { id: recording.id, levels: levels() },
     preview: previewNow(),
     grossBeats: grossBeats(),
+    echoBoys: echoBoys(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
     cpu: 0.02,

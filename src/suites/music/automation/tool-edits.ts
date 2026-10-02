@@ -22,7 +22,7 @@ import {
 } from "@shared/music/automation";
 import { clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
-import { type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type MusicProject } from "@shared/music/types";
+import { type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
 import { type EditResult, findChannel } from "../tool-edits";
 
@@ -41,7 +41,23 @@ export function findAutomation(song: MusicProject, ref: unknown): Automation {
   return found;
 }
 
-export const CONTROLS = ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix"] as const;
+export const CONTROLS = ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix", ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"]] as const;
+
+/** An EchoBoy's controls, as the tool names them. */
+const ECHO_CONTROL_NAMES: Record<string, EchoControl> = {
+  "echo mix": "mix",
+  "echo feedback": "feedback",
+  "echo time 1": "echo1",
+  "echo time 2": "echo2",
+  "echo low cut": "lowCut",
+  "echo high cut": "highCut",
+  "echo saturation": "saturation",
+  "echo input": "input",
+  "echo output": "output",
+  "echo groove": "groove",
+  "echo feel": "feel",
+  "echo width": "width",
+};
 
 /** A Gross Beat's controls, as the tool names them. */
 const GROSS_CONTROLS = { "time slot": "timeSlot", "volume slot": "volumeSlot", "time mix": "timeMix", "volume mix": "volumeMix" } as const;
@@ -94,6 +110,22 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (!effect.grossBeat) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Gross Beat: a "${control}" is Gross Beat's.`);
       return { kind: "grossBeat", effect: effect.id, control: GROSS_CONTROLS[control] };
     }
+    case "echo mix":
+    case "echo feedback":
+    case "echo time 1":
+    case "echo time 2":
+    case "echo low cut":
+    case "echo high cut":
+    case "echo saturation":
+    case "echo input":
+    case "echo output":
+    case "echo groove":
+    case "echo feel":
+    case "echo width": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.echoBoy) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an EchoBoy: an "${control}" is EchoBoy's.`);
+      return { kind: "echoBoy", effect: effect.id, control: ECHO_CONTROL_NAMES[control] };
+    }
     case "parameter": {
       if (typeof input.parameter !== "string" || !input.parameter.trim()) throw new Error('"parameter" must be the plugin parameter\'s name or id, from list_controls.');
       if (input.channel !== undefined && input.channel !== "") {
@@ -131,8 +163,26 @@ function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, le
   return normalizePoints(points, length);
 }
 
+/** An EchoBoy control's values, said for the model. */
+const ECHO_HINTS: Record<EchoControl, string> = {
+  mix: "0 (dry) to 1 (echo only)",
+  feedback: "0 to 1",
+  echo1: "the knob, 0 to 1 (ms: 0.5 is about 120 ms; a note value: 0 is 1/2, 1 is 1/64)",
+  echo2: "the knob, 0 to 1 (ms: 0.5 is about 120 ms; a note value: 0 is 1/2, 1 is 1/64)",
+  lowCut: "Hz, 20 (off) to 2000",
+  highCut: "Hz, 500 to 20000 (off)",
+  saturation: "0 to 1 (0.5 the style as made)",
+  input: "dB, -24 to 24",
+  output: "dB, -24 to 24",
+  groove: "-1 (shuffle) to 1 (swing)",
+  feel: "-1 (rushin') to 1 (draggin')",
+  width: "0 to 1",
+};
+
 const valueHint = (target: AutomationTarget) =>
-  target.kind === "plugin"
+  target.kind === "echoBoy"
+    ? ECHO_HINTS[target.control]
+    : target.kind === "plugin"
     ? "0 to 1 of the parameter's range"
     : target.kind === "grossBeat" && target.control.endsWith("Slot")
       ? "a slot, 1 to 36"

@@ -69,6 +69,8 @@
   --gross-time-foreground: #ffffff;
   --gross-volume: #c4661b;
   --gross-volume-foreground: #ffffff;
+  /* EchoBoy's Rhythm Echo: the "One" (a tap on beat one) is yellow, as in EchoBoy. */
+  --echo-one: #e0a91c;
   --clip-video: #5a86d6;
   --clip-audio: #3b9c7c;
   --clip-graphic: #9a6fd0;
@@ -226,6 +228,7 @@
   --gross-time-foreground: #0d1117;
   --gross-volume: #f0a04b;
   --gross-volume-foreground: #0d1117;
+  --echo-one: #f2c94c;
   --clip-video: #4169ac;
   --clip-audio: #2d7661;
   --clip-graphic: #6d4fa3;

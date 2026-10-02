@@ -119,6 +119,14 @@ export interface EngineTransport {
   preview?: EnginePreview | null;
   /** Each Gross Beat in the song (by effect id): what it's playing (absent from engines that don't say). */
   grossBeats?: Record<string, EngineGrossState>;
+  /** Each EchoBoy in the song (by effect id): its levels in and out, for its LEDs (absent from engines that don't say). */
+  echoBoys?: Record<string, EngineEchoLevels>;
+}
+
+/** What an EchoBoy hears: the peaks (each side, 1 full scale, falling) into its echo and out of it. */
+export interface EngineEchoLevels {
+  input: [number, number];
+  output: [number, number];
 }
 
 /**
