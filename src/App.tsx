@@ -3,6 +3,7 @@ import { PiSpinnerGap } from "react-icons/pi";
 import { SettingsWindow, useSettingsShortcut } from "@/components/settings/settings-window";
 import { ShortcutsDialog } from "@/components/shortcuts/shortcuts-dialog";
 import { NewProjectDialog } from "@/components/sidebar/new-project-dialog";
+import { ProjectSearchDialog, useProjectShortcuts } from "@/components/sidebar/project-search-dialog";
 import { Sidebar, SidebarToggle } from "@/components/sidebar/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -27,6 +28,7 @@ export default function App() {
   useEffect(() => startAssistantBridge(), []);
   useShortcuts();
   useSettingsShortcut();
+  useProjectShortcuts();
   usePreventFileNavigation();
 
   return (
@@ -58,6 +60,7 @@ export default function App() {
       )}
       <ShortcutsDialog />
       <NewProjectDialog />
+      <ProjectSearchDialog />
       <Toaster position="bottom-right" />
     </TooltipProvider>
   );

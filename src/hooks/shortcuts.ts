@@ -449,6 +449,8 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Zoom to fit", keys: [`${SHIFT}Z`, "\\"] },
       { label: "Snapping on / off", keys: ["N"] },
       { label: "Show / hide projects", keys: [`${MOD}\\`] },
+      { label: "New project", keys: [`${SHIFT}${MOD}O`] },
+      { label: "Find a project", keys: [`${MOD}P`] },
       { label: "Show / hide the assistant", keys: [`${MOD}I`] },
       { label: "Keyboard shortcuts", keys: ["?"] },
     ],

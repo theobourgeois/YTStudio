@@ -11,6 +11,7 @@ import { useLayout } from "@/stores/layout";
 import { activeProjects, projectSuite, settledProjects, useProjects } from "@/stores/projects";
 import { useSettings } from "@/stores/settings";
 import { ProjectItem } from "./project-item";
+import { NEW_PROJECT_KEYS, PROJECT_SEARCH_KEYS } from "./project-search-dialog";
 
 const SETTLED_OPEN_KEY = "editor-settled-open";
 
@@ -63,7 +64,10 @@ export function Sidebar() {
                 <PiNotePencil />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">New project</TooltipContent>
+            <TooltipContent side="bottom">
+              New project
+              <kbd className="ml-2 rounded border bg-muted px-1 font-sans text-[10px] leading-4 text-muted-foreground">{NEW_PROJECT_KEYS}</kbd>
+            </TooltipContent>
           </Tooltip>
         </div>
 
@@ -77,6 +81,7 @@ export function Sidebar() {
               onKeyDown={(e) => e.key === "Escape" && setQuery("")}
               placeholder="Search"
               aria-label="Search projects"
+              title={`Search these projects (${PROJECT_SEARCH_KEYS} finds one from anywhere)`}
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>

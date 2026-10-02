@@ -240,7 +240,7 @@ function Working({ since }: { since: number }) {
 }
 
 /** Its picture, else its suite's icon. */
-function Thumbnail({ project, dimmed }: { project: ProjectSummary; dimmed: boolean }) {
+export function Thumbnail({ project, dimmed }: { project: ProjectSummary; dimmed: boolean }) {
   const { icon: Icon, tint } = clientSuite(project.suite);
   return (
     <div

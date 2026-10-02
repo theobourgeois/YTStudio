@@ -2012,4 +2012,26 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await expect.poll(async () => (await timelineClips(page)).length).toBe(clips);
   await page.goto(`/p/${song.id}`);
   await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
+
+  // ⌘P finds a project from anywhere (the music editor has the keyboard here) and Enter opens it.
+  await page.keyboard.press("ControlOrMeta+p");
+  const search = page.getByRole("dialog");
+  await expect(search.getByRole("textbox", { name: "Find a project" })).toBeFocused();
+  await search.getByRole("textbox").fill("anth");
+  await expect(search.getByRole("option")).toHaveText([/Anthem/]);
+  await search.getByRole("textbox").fill("");
+  await expect(search.getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Escape");
+  await expect(search).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+p");
+  // (Video names repeat: it's picked by its row.)
+  await search.locator(`[data-project-id="${videoUrl.split("/").pop()}"]`).click();
+  await expect(search).toHaveCount(0);
+  await expect.poll(() => page.url()).toBe(videoUrl);
+
+  // ⇧⌘O opens the New project picker, and closes it again.
+  await page.keyboard.press("ControlOrMeta+Shift+o");
+  await expect(page.getByRole("dialog").getByRole("textbox", { name: "Search project types" })).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+Shift+o");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });

@@ -32,6 +32,9 @@ interface LayoutState {
   /** The New project picker (which suite to make a project in). */
   newProjectOpen: boolean;
   setNewProjectOpen: (open: boolean) => void;
+  /** ⌘P's project search. */
+  projectSearchOpen: boolean;
+  setProjectSearchOpen: (open: boolean) => void;
   /** The timeline toolbar's Speed popover (⌘R, like Premiere's Speed/Duration). */
   speedOpen: boolean;
   setSpeedOpen: (open: boolean) => void;
@@ -87,7 +90,12 @@ export const useLayout = create<LayoutState>((set, get) => ({
   },
   newProjectOpen: false,
   setNewProjectOpen(newProjectOpen) {
-    set({ newProjectOpen });
+    // One palette at a time.
+    set(newProjectOpen ? { newProjectOpen, projectSearchOpen: false } : { newProjectOpen });
+  },
+  projectSearchOpen: false,
+  setProjectSearchOpen(projectSearchOpen) {
+    set(projectSearchOpen ? { projectSearchOpen, newProjectOpen: false } : { projectSearchOpen });
   },
   speedOpen: false,
   setSpeedOpen(speedOpen) {
