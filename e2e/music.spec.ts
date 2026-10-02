@@ -1012,6 +1012,13 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await expect.poll(async () => (await mixerOf()).slice(0, 5).map((t) => t.solo)).toEqual([false, false, false, false, true]);
   await strip("Insert 4").getByRole("button", { name: "Unsolo Insert 4" }).click();
   await expect.poll(async () => (await mixerOf()).some((t) => t.solo)).toBe(false);
+  // The title bar's SOLO light is lit while anything is soloed, and clears every solo.
+  await expect(page.getByTestId("solo-indicator")).toBeDisabled();
+  await strip("Insert 4").getByRole("button", { name: "Solo Insert 4" }).click();
+  await strip("Insert 5").getByRole("button", { name: "Solo Insert 5" }).click();
+  await expect(page.getByTestId("solo-indicator")).toHaveText("SOLO 2");
+  await page.getByTestId("solo-indicator").click();
+  await expect.poll(async () => (await mixerOf()).some((t) => t.solo)).toBe(false);
 
   // A double-click on a name renames the track; + adds a track after the selected one.
   await strip("Insert 3").locator("span").first().dblclick();

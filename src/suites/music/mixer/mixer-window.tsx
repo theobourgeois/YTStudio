@@ -238,6 +238,7 @@ export function MixerWindow() {
       menu={<MixerMenu />}
       controls={
         <>
+          <SoloIndicator />
           <ViewSwitch />
           <Button variant="ghost" size="icon-xs" aria-label="Add a mixer track" title="Add a mixer track after the selected one" className="text-muted-foreground hover:text-foreground" onClick={addTrackAfterCurrent}>
             <PiPlus />
@@ -314,6 +315,28 @@ function MixerMenu() {
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * The title bar's solo light (Pro Tools' and Logic's): it blinks while any track is soloed, and a click
+ * clears every solo. Dark otherwise.
+ */
+function SoloIndicator() {
+  const count = useSong((song) => song.mixer.tracks.reduce((n, t) => n + (t.solo ? 1 : 0), 0));
+  return (
+    <button
+      type="button"
+      aria-label={count ? `Clear the solo (${count} soloed)` : "Nothing soloed"}
+      disabled={!count}
+      title={count ? `${count} track${count === 1 ? " is" : "s are"} soloed: click to clear every solo` : "Nothing is soloed"}
+      className={cn("rounded-[3px] px-1.5 py-px font-mono text-[10px] leading-4 font-bold tracking-wide", count ? "animate-pulse hover:brightness-110" : "opacity-40")}
+      style={count ? { background: "var(--mixer-solo)", color: "var(--mixer-solo-text)" } : { color: "var(--mixer-name)", boxShadow: "inset 0 0 0 1px var(--mixer-line)" }}
+      data-testid="solo-indicator"
+      onClick={clearSolo}
+    >
+      SOLO{count > 1 ? ` ${count}` : ""}
+    </button>
   );
 }
 
