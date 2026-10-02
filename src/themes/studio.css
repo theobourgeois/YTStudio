@@ -169,6 +169,8 @@
   --mixer-delay: var(--brand);
   /* A track armed to record: its fader's cap (FL's orange) and its arm light (red). */
   --mixer-armed: #e2802f;
+  /* A track that takes an input (it records): its number bar, so it's found again in a reopened song. */
+  --mixer-input: #7d55c7;
   --mixer-arm: #d8343f;
   --fader-slot: rgb(30 40 52 / 0.05);
   /* The mixer's lights (`mixer/led.tsx`): their bezel, and their lens when off. */

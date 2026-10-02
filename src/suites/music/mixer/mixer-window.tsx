@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiPlus } from "react-icons/pi";
+import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiMicrophoneFill, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { type MixerTrackPatch, setMixerVolumes, setSend, trackName, updateMixerTrack } from "@shared/music/mixer";
@@ -384,11 +384,14 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
             <div
               className="relative w-full py-0.5 text-center font-mono text-[11px] font-semibold tabular-nums"
               style={{
-                background: track.color ?? "var(--mixer-header)",
-                color: track.color ? "#fff" : current ? "var(--mixer-on)" : "var(--mixer-header-text)",
+                // A track that records (it takes an input) is purple, as FL marks one: its own colour wins.
+                background: track.color ?? (track.input ? "var(--mixer-input)" : "var(--mixer-header)"),
+                color: track.color || track.input ? "#fff" : current ? "var(--mixer-on)" : "var(--mixer-header-text)",
                 textShadow: "0 1px 1px rgb(0 0 0 / 0.4)",
               }}
+              data-input={track.input ? "" : undefined}
             >
+              {track.input && <PiMicrophoneFill className="absolute top-1/2 left-0.5 size-2.5 -translate-y-1/2" aria-label="Takes an input (records)" />}
               {isMaster ? "M" : number}
               <DelayMark track={track} />
             </div>
