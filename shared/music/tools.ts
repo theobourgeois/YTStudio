@@ -20,6 +20,12 @@ const grossRef = {
   effectSlot: int("Its effect slot on the track, 1 to 10."),
 } as const;
 const grossKind = oneOf(["time", "volume"], "A time slot or a volume slot.");
+/** Which Pro-Q a tool acts on. */
+const eqRef = {
+  effect: str("The Pro-Q: its effect id (from get_mixer or get_pro_q). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
 const grossSlot = { description: "A slot: its number, 1 to 36, or its name (\"1/2 Speed\").", anyOf: [{ type: "string" }, { type: "integer" }] } as const;
 /** Which Auto-Tune a tool acts on. */
 const tuneRef = {
@@ -66,6 +72,7 @@ const controlFields = {
       "transpose",
       "throat",
       "key",
+      ...["eq frequency", "eq gain", "eq q", "eq range", "eq output"],
       ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
       ...["panman offset", "panman width", "panman rate", "panman input", "panman output"],
     ],
@@ -75,7 +82,9 @@ const controlFields = {
       "its retune speed (ms, 0 to 400), humanize and flex-tune (0 to 100), natural vibrato (dB, -12 to 12), transpose (semitones, -12 to 12), " +
       "throat (50 to 180) or key (0 C .. 11 B, with hold curves: a key change); or an EchoBoy's (\"echo ...\": " +
       "mix and feedback 0 to 1, cuts in Hz, saturation 0 to 1, input and output dB, groove and feel -1 to 1, width 0 to 1, an echo time's " +
-      "knob 0 to 1: automating a Time echo bends its pitch like tape, a note value steps through 1/2 .. 1/64); or a PanMan's (\"panman ...\": " +
+      "knob 0 to 1: automating a Time echo bends its pitch like tape, a note value steps through 1/2 .. 1/64); " +
+      "or a Pro-Q's (the effect in `track`'s `slot`, \"eq ...\"): a band's (`band`) frequency (values in Hz: a filter sweep), gain or " +
+      "dynamic range (dB) or Q, or its output (dB); or a PanMan's (\"panman ...\": " +
       "offset in degrees, -105 left to 105 right, width in degrees 0 to 210, LFO rate in Hz 0.01 to 10, input and output in dB -24 to 24).",
   ),
   channel: str("A channel (volume, pan), or a plugin channel (its parameters): id or name."),
@@ -83,6 +92,7 @@ const controlFields = {
   to: mixerTrack("The track a send goes to"),
   slot: int("An effect slot of the track, 1 to 10 (its mix, or its plugin's parameters)."),
   parameter: str("A plugin's parameter: its name or id, from list_controls."),
+  band: int("A Pro-Q band's number (from get_pro_q), for its eq controls."),
 } as const;
 const automationPoints = arr(
   obj(
@@ -531,7 +541,9 @@ export const MUSIC_TOOLS = [
     kind: "action",
     description:
       "Put an effect in a mixer track's slot: the first empty one, or the slot given (replacing what's there). Its sound goes through the track's " +
-      "effects in slot order, before its fader. Either one of ours, whose settings you set: EchoBoy (plugin \"EchoBoy\": Soundtoys' echo: " +
+      "effects in slot order, before its fader. Either one of ours, whose settings you set: Pro-Q (plugin \"Pro-Q\": FabFilter's " +
+      "Pro-Q 3, a 24-band EQ with dynamic bands, mid/side, zero latency, natural or linear phase, set with set_pro_q_bands and " +
+      "update_pro_q), EchoBoy (plugin \"EchoBoy\": Soundtoys' echo: " +
       "tape, analogue, digital, radio, chorus and diffused echoes in 31 styles, Single, Dual, Ping-Pong and Rhythm Echo, set with " +
       "update_echo_boy), Gross Beat (plugin \"Gross Beat\": chops, repeats, stutters, half speed, tape stops, scratches, gates and " +
       "sidechain pumping in time with the song, set with update_gross_beat and set_gross_beat_slot), Auto-Tune (plugin \"Auto-Tune\": " +
@@ -540,7 +552,7 @@ export const MUSIC_TOOLS = [
       "hits, set with update_panman and set_panman_pattern), or " +
       "an effect plugin installed on this computer (list_plugins with kind \"effect\"), whose settings are its own, in its window, which the " +
       "user opens from the mixer: you can't set them.",
-    inputSchema: obj({ track: mixerTrack(), plugin: str('"EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"Pro-Q", "EchoBoy", "Gross Beat", "Auto-Tune", "PanMan", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -573,6 +585,78 @@ export const MUSIC_TOOLS = [
       "Copy a mixer track's state onto another track: its effects (copies, with their plugins' settings as they are now) and its level, pan, " +
       "phase, sides, stereo separation and delay offset; not its name, colour, channels or sends. What the other track had is replaced.",
     inputSchema: obj({ from: mixerTrack("The track copied"), to: mixerTrack("The track it's copied onto") }, ["from", "to"]),
+  }),
+  tool({
+    name: "get_pro_q",
+    title: "Read a Pro-Q",
+    kind: "look",
+    description:
+      "A Pro-Q (FabFilter's Pro-Q 3 EQ, ours, in a mixer track's slot): its processing mode and latency, output, Gain Scale and Auto Gain, " +
+      "its bands (shape, frequency, gain, Q, slope, placement, dynamics) and the curve they make, in dB at each octave's centre.",
+    inputSchema: obj({ ...eqRef }),
+  }),
+  tool({
+    name: "set_pro_q_bands",
+    title: "Shape a Pro-Q",
+    kind: "edit",
+    description:
+      "Add, change or remove a Pro-Q's bands (24 at most). A band without `band` is added (give its frequency); with `band` (its number), " +
+      "only what's given changes, or `remove` takes it out. Shapes: bell, lowShelf, lowCut, highShelf, highCut, notch, bandPass, tiltShelf " +
+      "(tilts round its frequency: -gain/2 below, +gain/2 above), flatTilt (a straight tilt over the whole spectrum: gain/5 dB per octave). " +
+      "Q is Pro-Q's: 1 is the default width (a Bell 1.9 octaves wide at half its gain; Q 2 is 1 octave), higher is narrower; on a cut it's " +
+      "resonance (1 is flat Butterworth, 0.71 is -6 dB at the frequency). Slope in dB/oct, 6 to 96 (Bell and Notch from 12), or brickwall on " +
+      "cuts. A dynamic band (`range` not 0, Bell and shelves) moves its gain toward gain + range when the sound in its range is loud " +
+      "(negative: tame a resonance, de-ess; positive: bring out what's loud); its threshold is auto by default. Placement puts a band on " +
+      "the left, right, mid or side only. Returns the new curve.",
+    inputSchema: obj({
+      ...eqRef,
+      clear: bool("Remove every band first (start from flat)."),
+      bands: arr(
+        obj(
+          {
+            band: int("An existing band's number, to change or remove it; leave it out to add a band."),
+            remove: bool("Remove this band."),
+            shape: oneOf(["bell", "lowShelf", "lowCut", "highShelf", "highCut", "notch", "bandPass", "tiltShelf", "flatTilt"], "Its shape (default bell)."),
+            frequency: num("Hz, 10 to 30000."),
+            gain: num("dB, -30 to 30 (bell, shelves, tilts)."),
+            q: num("0.025 to 40 (default 1)."),
+            slope: { description: "dB/oct: 6, 12, 18, 24, 30, 36, 48, 72, 96, or \"brickwall\" (cuts only). Default 12.", anyOf: [{ type: "integer" }, { type: "string" }] },
+            placement: oneOf(["stereo", "left", "right", "mid", "side"], "Which part of the sound (default stereo)."),
+            range: num("dB, -30 to 30: a dynamic band's movement when loud (0: static)."),
+            threshold: { description: 'A dynamic band\'s threshold in dB (-60 to 0), or "auto" (the default: it follows the level in its range).', anyOf: [{ type: "number" }, { type: "string" }] },
+            dynamics: bool("A dynamic band's dynamics on (default) or bypassed."),
+            enabled: bool("On (default), or bypassed."),
+          },
+          [],
+          "A band to add, change or remove.",
+        ),
+        "The bands, in order.",
+      ),
+    }),
+  }),
+  tool({
+    name: "update_pro_q",
+    title: "Change a Pro-Q",
+    kind: "edit",
+    description:
+      "Set a Pro-Q's processing mode (zeroLatency; naturalPhase: analog phase, 7.3 ms late; linearPhase: no phase change, more latency by " +
+      "resolution, and dynamic bands only up to high), output level and pan, phase, Auto Gain, Gain Scale (scales every band's gain), Gain-Q " +
+      "interaction, display range; load a factory preset; or switch or copy A/B.",
+    inputSchema: obj({
+      ...eqRef,
+      mode: oneOf(["zeroLatency", "naturalPhase", "linearPhase"], "The processing mode."),
+      resolution: oneOf(["low", "medium", "high", "veryHigh", "maximum"], "Linear Phase's resolution (Medium is the usual)."),
+      output: num("dB, -60 (silent) to 36."),
+      pan: num("-1 to 1: the output's balance."),
+      panMode: oneOf(["lr", "ms"], "What the pan balances: left/right or mid/side."),
+      invert: bool("Flip the output's phase."),
+      autoGain: bool("Take back the level the curve adds or removes (an estimate from the curve)."),
+      gainScale: num("Percent, 0 to 200: every band's gain (and range) scaled."),
+      gainQ: bool("Gain-Q interaction: a Bell narrows as it's boosted, as an analog EQ's does."),
+      displayRange: int("±dB the display shows: 3, 6, 12 or 30."),
+      preset: str("A factory preset's name (it replaces the bands): Default Setting, Flat 7 Bands, Equalize, Clean Low End, Kick Punch, Snare Crack, Overheads, Bass Definition, Mono Lows, Vocal Presence, De-Ess, Telephone, Radio, Lo-Fi, Air, Gentle Tilt, Mastering Clean-Up, Wide Highs."),
+      ab: oneOf(["switch", "copy"], "Switch to the other A/B state, or copy this one to it."),
+    }),
   }),
   tool({
     name: "get_echo_boy",

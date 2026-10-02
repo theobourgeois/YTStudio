@@ -498,6 +498,20 @@ export class AudioEngine {
           ...(isFiniteNumber(body.scratch) && { scratch: clamp(body.scratch, -GROSS_DEPTH, 0) }),
         };
       }
+      case "eqWatch": {
+        const list = Array.isArray(body.effects) ? body.effects : [];
+        const effects = list.flatMap((e) =>
+          e && typeof e === "object" && typeof (e as { effect?: unknown }).effect === "string" && /^[\w-]{1,64}$/.test((e as { effect: string }).effect)
+            ? [{ effect: (e as { effect: string }).effect, size: isFiniteNumber((e as { size?: unknown }).size) ? Math.round(clamp((e as { size: number }).size, 256, 32768)) : 4096 }]
+            : [],
+        );
+        return { effects: effects.slice(0, 256) };
+      }
+      case "eqSolo": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a Pro-Q\'s effect id.');
+        const band = isFiniteNumber(body.band) ? Math.round(clamp(body.band, 1, 24)) : null;
+        return { effect: body.effect, band, gain: isFiniteNumber(body.gain) ? clamp(body.gain, -30, 30) : 0 };
+      }
       case "panMan": {
         if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a PanMan\'s effect id.');
         return { effect: body.effect, ...(body.trigger === true && { trigger: true }) };

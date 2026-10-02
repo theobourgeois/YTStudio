@@ -516,7 +516,7 @@ void Sequencer::applyLanes (int numSamples)
     for (auto& lane : song->lanes)
     {
         lane.valueAt (sliceStart, start.data());
-        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::tune && lane.kind != Song::Lane::Kind::echo && lane.kind != Song::Lane::Kind::panman && lane.kind != Song::Lane::Kind::param)
+        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::tune && lane.kind != Song::Lane::Kind::echo && lane.kind != Song::Lane::Kind::eq && lane.kind != Song::Lane::Kind::panman && lane.kind != Song::Lane::Kind::param)
         {
             lane.valueAt (sliceEnd, end.data());
             for (int c = 0; c < lane.size; ++c)
@@ -571,6 +571,10 @@ void Sequencer::applyLanes (int numSamples)
             case Song::Lane::Kind::echo:
                 // An EchoBoy's, likewise (its delays glide or crossfade there, its gains glide).
                 song->tracks[(size_t) lane.track].effects[(size_t) lane.index].echoSettings->set ((echo::Control) lane.control, start.data(), lane.size);
+                break;
+            case Song::Lane::Kind::eq:
+                // A Pro-Q's band (or output): set at the slice's start, and glided to by its filters.
+                setEqControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].eqSettings, lane.band, lane.control, start[0]);
                 break;
             case Song::Lane::Kind::panman:
                 // A PanMan's control, likewise (its position and gains glide, so a step doesn't click).
@@ -639,6 +643,9 @@ void Sequencer::restoreLanes (Song& from)
                 break;
             case Song::Lane::Kind::echo:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].echoSettings->set ((echo::Control) lane.control, lane.base.data(), lane.size);
+                break;
+            case Song::Lane::Kind::eq:
+                setEqControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].eqSettings, lane.band, lane.control, lane.base[0]);
                 break;
             case Song::Lane::Kind::panman:
                 setPanControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, lane.base[0]);
@@ -920,6 +927,13 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
     for (const auto& effect : track.effects)
         if (effect.enabled && effect.plugin != nullptr)
             runEffect (*effect.plugin, effect.mix, l, r, numSamples);
+        else if (effect.eq != nullptr)
+        {
+            if (effect.enabled)
+                runProQ (effect, l, r, numSamples);
+            else
+                effect.eq->skipped();
+        }
         else if (effect.gross != nullptr)
         {
             if (effect.enabled)
@@ -1014,6 +1028,42 @@ void Sequencer::runEchoBoy (const Song::Track::Effect& effect, float* left, floa
     juce::FloatVectorOperations::multiply (right, mix, numSamples);
     juce::FloatVectorOperations::addWithMultiply (left, dry.getReadPointer (0), 1.0f - mix, numSamples);
     juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
+}
+
+void Sequencer::runProQ (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
+{
+    auto& settings = *effect.eqSettings;
+    auto& dry = settings.dry;
+    if (numSamples > dry.getNumSamples())
+        return;
+    const auto mix = effect.mix;
+    if (mix < 1.0f)
+    {
+        dry.copyFrom (0, 0, left, numSamples);
+        dry.copyFrom (1, 0, right, numSamples);
+    }
+    effect.eq->process (settings, left, right, numSamples, true);
+    if (mix < 1.0f)
+        effect.eq->mixDry (settings, left, right, dry.getReadPointer (0), dry.getReadPointer (1), numSamples, mix);
+}
+
+void Sequencer::setEqControl (eq::Settings& settings, int band, int control, float value)
+{
+    if (control == 4)
+    {
+        settings.output = juce::jlimit (-100.0, 72.0, (double) value);
+        return;
+    }
+    auto* b = settings.find (band);
+    if (b == nullptr)
+        return;
+    switch (control)
+    {
+        case 0: b->shape.frequency = juce::jlimit (10.0, 30000.0, std::exp2 ((double) value)); break;
+        case 1: b->shape.gain = juce::jlimit (-60.0, 60.0, (double) value); break;
+        case 2: b->shape.q = juce::jlimit (0.025, 40.0, std::exp2 ((double) value)); break;
+        default: b->range = juce::jlimit (-60.0, 60.0, (double) value); break;
+    }
 }
 
 void Sequencer::setGrossControl (gross::Settings& settings, int control, float value)
