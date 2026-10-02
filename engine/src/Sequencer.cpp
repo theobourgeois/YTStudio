@@ -394,7 +394,7 @@ void Sequencer::takeRequests()
     }
 }
 
-void Sequencer::process (float* left, float* right, int numSamples, const float* const* inputs, int numInputs)
+void Sequencer::process (float* left, float* right, int numSamples, const float* const* inputs, int numInputs, ChannelFeed feed)
 {
     takeRequests();
     numInputs = inputs != nullptr ? juce::jlimit (0, maxInputs, numInputs) : 0;
@@ -412,7 +412,8 @@ void Sequencer::process (float* left, float* right, int numSamples, const float*
         // The inputs from the same sample.
         for (int ch = 0; ch < numInputs; ++ch)
             sliceInputs[(size_t) ch] = inputs[ch] != nullptr ? inputs[ch] + done : nullptr;
-        processBlock (left + done, right + done, length, sliceInputs.data(), numInputs);
+        const auto sliceFeed = feed.channel != nullptr ? ChannelFeed { feed.channel, feed.left + done, feed.right + done } : ChannelFeed {};
+        processBlock (left + done, right + done, length, sliceInputs.data(), numInputs, sliceFeed);
         if (onSlice != nullptr && song != nullptr)
             onSlice (*song, done, length);
         if (playing && ! counting)
@@ -427,7 +428,7 @@ void Sequencer::process (float* left, float* right, int numSamples, const float*
     passNow = pass;
 }
 
-void Sequencer::processBlock (float* left, float* right, int numSamples, const float* const* inputs, int numInputs)
+void Sequencer::processBlock (float* left, float* right, int numSamples, const float* const* inputs, int numInputs, ChannelFeed feed)
 {
     if (song != nullptr)
     {
@@ -562,6 +563,19 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
                     render (voice, numSamples);
             renderPlugins (numSamples);
             clips.render (*song, numSamples, [this] (int channel) { return trackAudio (channel); });
+            // A channel's preview, where its clips play (its delay line, else its track).
+            if (feed.channel != nullptr)
+                for (size_t c = 0; c < song->channels.size(); ++c)
+                    if (song->channels[c].id == *feed.channel)
+                    {
+                        const auto [l, r] = trackAudio ((int) c);
+                        if (l != nullptr)
+                        {
+                            juce::FloatVectorOperations::add (l, feed.left, numSamples);
+                            juce::FloatVectorOperations::add (r, feed.right, numSamples);
+                        }
+                        break;
+                    }
             // Channels that wait for their track's later inputs come out of their delay lines into it.
             for (auto& channel : song->channels)
                 if (channel.delayLine != nullptr)

@@ -404,7 +404,7 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         const auto result = preview.play (juce::File (params["file"].toString()), (double) params["start"], params["previewId"].toString(),
                                           channel ? (float) (double) params["gainLeft"] : 1.0f, channel ? (float) (double) params["gainRight"] : 1.0f,
                                           params.hasProperty ("speed") ? (double) params["speed"] : 1.0, ! channel,
-                                          params.hasProperty ("transpose") ? (double) params["transpose"] : 0.0);
+                                          params.hasProperty ("transpose") ? (double) params["transpose"] : 0.0, params["channel"].toString());
         return result.wasOk() ? ok() : reply (result, {});
     }
     if (command == "stopPreview")
@@ -678,7 +678,8 @@ void Engine::start (double rate, int block)
     sampleRate = rate;
     blockSize = block;
     const auto longer = juce::jmax (4096, block * 2) > mix.getNumSamples();
-    mix.setSize (2, juce::jmax (4096, block * 2), false, false, true);
+    // Its two last channels are a channel's preview, on its way into the song.
+    mix.setSize (4, juce::jmax (4096, block * 2), false, false, true);
     sequencer.prepare (rate);
     preview.prepare (rate);
     plugins.prepare (rate, block);
@@ -780,8 +781,11 @@ void Engine::process (float* const* output, int numOutputs, int numSamples, cons
     mix.clear (0, numSamples);
     auto* left = mix.getWritePointer (0);
     auto* right = mix.getWritePointer (1);
-    sequencer.process (left, right, numSamples, inputs, numInputs);
-    preview.process (left, right, numSamples);
+    // The preview first: a channel's goes into the song, through its track.
+    auto* channelLeft = mix.getWritePointer (2);
+    auto* channelRight = mix.getWritePointer (3);
+    const auto* previewed = preview.process (left, right, channelLeft, channelRight, numSamples);
+    sequencer.process (left, right, numSamples, inputs, numInputs, { previewed, channelLeft, channelRight });
     if (tone.load())
     {
         const auto step = toneHz / sampleRate;

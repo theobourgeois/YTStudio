@@ -96,7 +96,9 @@ export function DockArea<P extends string>({ dock, panels, mins = {}, workspaces
   };
   return (
     <DockContext value={value}>
-      <div className={cn("flex min-h-0 min-w-0 flex-1", className)} data-dock>
+      {/* Clipped: when its panels' minimums add up to more than there's room for (Properties widens for its
+          keyframe lanes), what doesn't fit is cut off rather than drawn under the assistant beside it. */}
+      <div className={cn("flex min-h-0 min-w-0 flex-1 overflow-hidden", className)} data-dock>
         {root ? <NodeView node={root} /> : <EmptyDock />}
       </div>
       <DropPreview />

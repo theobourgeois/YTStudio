@@ -5,7 +5,7 @@
  * video effects added from the Effects tab, in the order they're drawn), each
  * row generated from the effect's parameter specs.
  */
-import { Fragment, type ReactNode, useState } from "react";
+import { Fragment, memo, type ReactNode, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   PiArrowDown,
@@ -109,19 +109,25 @@ export function PropertiesPanel() {
   const lanes = useLayout((s) => s.keyframesOpen);
   const transition = useEditor((s) => s.selectedTransition);
 
+  // Values show at the playhead; edits keyframe the frame there (or a keyframe right next to it).
+  const time = clip ? sourceTime(clip, playhead) : 0;
+  const kind = clip ? clipKind(clip) : "media";
+  const audible = kind === "media" && !!asset?.hasAudio;
+  // Kept the same while the playhead moves, so the sections that aren't animated don't re-render.
+  const traits = useMemo<ClipTraits>(() => ({ visual, audible, kind }), [visual, audible, kind]);
+  const canvas = outputSize(aspectRatio, "1080p");
+  // Points on the clip's own frame are px of its media, or of the text's box at 1080p.
+  const frame = clip && kind === "text" ? layoutText(textStyleAt(clip, time), 1) : asset?.width && asset.height ? asset : canvas;
+  const [frameWidth, frameHeight] = [frame.width!, frame.height!];
+  const ctx = useMemo<DisplayContext>(
+    () => ({ canvas: { width: canvas.width, height: canvas.height }, media: { width: frameWidth, height: frameHeight } }),
+    [canvas.width, canvas.height, frameWidth, frameHeight],
+  );
+
   if (transition) return <TransitionProperties key={refKey(transition)} transitionRef={transition} />;
   if (!clip) return <NothingSelected />;
 
-  // Values show at the playhead; edits keyframe the frame there (or a keyframe right next to it).
-  const time = sourceTime(clip, playhead);
   const editTime = keyframeTime(clip, playhead, fps);
-  const kind = clipKind(clip);
-  const text = kind === "text";
-  const traits: ClipTraits = { visual, audible: kind === "media" && !!asset?.hasAudio, kind };
-  const canvas = outputSize(aspectRatio, "1080p");
-  // Points on the clip's own frame are px of its media, or of the text's box at 1080p.
-  const frame = text ? layoutText(textStyleAt(clip, time), 1) : asset?.width && asset.height ? asset : canvas;
-  const ctx: DisplayContext = { canvas, media: { width: frame.width!, height: frame.height! } };
   const sections = clip.effects.flatMap((effect) => {
     const def = effectDefinition(effect.type);
     return def && def.appliesTo(traits) ? [{ effect, def }] : [];
@@ -198,8 +204,10 @@ export function PropertiesPanel() {
             // Several masks or shapes each open and close on their own.
             collapseKey={def.stackable ? `${def.type}:${effect.id}` : def.type}
             traits={traits}
-            time={time}
-            editTime={editTime}
+            // An effect without keyframes or expressions shows the same at every moment, and edits
+            // ignore the time (`setParams`): a fixed one keeps it from re-rendering as the playhead moves.
+            time={moves(effect) ? time : 0}
+            editTime={moves(effect) ? editTime : 0}
             ctx={ctx}
             lanes={lanes}
           />
@@ -227,6 +235,9 @@ export function PropertiesPanel() {
     </ScrollArea>
   );
 }
+
+/** Whether an effect's values change with the playhead. */
+const moves = (effect: Effect) => !!effect.keyframes || !!effect.expressions;
 
 /** Width of the properties' own column beside the keyframe lanes (the left panel's usual width). */
 const ROWS_WIDTH = "21.5rem";
@@ -332,7 +343,8 @@ export interface EffectTarget {
   reset: (keys: string[]) => void;
 }
 
-export function EffectSection({
+/** Memoised: the panel re-renders as the playhead moves, and only animated sections change with it. */
+export const EffectSection = memo(function EffectSection({
   clip,
   effect,
   def,
@@ -504,7 +516,7 @@ export function EffectSection({
       )}
     </section>
   );
-}
+});
 
 /** The clip's speed, direction and pitch (the same control as the timeline's Speed button). */
 function SpeedSection({ clip, lanes }: { clip: Clip; lanes: boolean }) {
@@ -605,7 +617,8 @@ const ADD_BUTTON =
   "flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed text-xs text-muted-foreground transition-colors outline-none hover:border-foreground/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50";
 
 /** What can be added to the clip: an effect (from the Effects tab), a mask, and on a shape layer more shapes and operators. */
-function AddEffectRow({ clipId, kind }: { clipId: string; kind: ClipKind }) {
+/** Memoised, as the panel re-renders while the playhead moves over keyframes and its menus are long. */
+const AddEffectRow = memo(function AddEffectRow({ clipId, kind }: { clipId: string; kind: ClipKind }) {
   const commit = useEditor((s) => s.commit);
   /** Add one and show its path on the monitor, when it has one to edit. */
   const add = (type: string, params?: ParamValues, editPath = false) => {
@@ -705,7 +718,7 @@ function AddEffectRow({ clipId, kind }: { clipId: string; kind: ClipKind }) {
       </DropdownMenu>}
     </div>
   );
-}
+});
 
 /** A caption's own look is edited here; everyone's is in the Captions tab. */
 function CaptionNote() {

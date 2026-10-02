@@ -1,5 +1,7 @@
 // The Browser's preview: one audio file played straight to the output, outside the song, streamed from
 // disk so a whole song previews in the memory of a few seconds of it (`SampleCache` reads files whole).
+// A channel's own preview goes into its mixer track instead: `Engine::process` hands the sequencer what
+// it pulled, which adds it where the channel's clips play, so the track's effects take it as they take them.
 //
 // A `Stream` is a file being played (an `AudioStream`): a reader thread decodes it ahead, at the
 // device's rate, into a lock-free ring the audio thread reads. Streams reach the audio thread through an atomic pointer and go
@@ -30,9 +32,10 @@ public:
      * Play `file` from `startSeconds`, cutting the last one off. `id` is the tab's name for it. A channel's own preview (an audio clip's,
      * from its settings window) gives its gains and pitch (`transpose` semitones, its time kept, through the
      * stretcher) and isn't at the Browser's volume. `speed` reads it faster or slower, its pitch going with it.
+     * `channel` (a song's channel id; empty: none) sends it into that channel's mixer track rather than the output.
      */
     juce::Result play (const juce::File& file, double startSeconds, const juce::String& id, float gainLeft = 1.0f, float gainRight = 1.0f, double speed = 1.0,
-                       bool browserVolume = true, double transpose = 0.0);
+                       bool browserVolume = true, double transpose = 0.0, const juce::String& channel = {});
     void stop();
     /** 0..1, at once (it's the Browser's volume). */
     void setVolume (float gain);
@@ -44,8 +47,11 @@ public:
 
     // Audio thread ---------------------------------------------------------------------------------
 
-    /** Add the preview's next samples to `left` and `right`. */
-    void process (float* left, float* right, int numSamples);
+    /**
+     * Add the preview's next samples to `left` and `right`, or, a channel's, to `channelLeft` and
+     * `channelRight` (cleared here first). Returns which channel that is (null: none), valid until the next call.
+     */
+    const juce::String* process (float* left, float* right, float* channelLeft, float* channelRight, int numSamples);
 
 private:
     struct Stream;
@@ -69,6 +75,8 @@ private:
     /** The audio thread's: the stream playing, and the one being faded out. */
     Stream* playing = nullptr;
     Stream* fading = nullptr;
+    /** Streams done with in the last block, retired at the next: the channel `process` named stays alive till then. */
+    std::array<Stream*, 2> spent {};
     std::atomic<float> volume { 1.0f };
 
     static constexpr int queueSize = 64;

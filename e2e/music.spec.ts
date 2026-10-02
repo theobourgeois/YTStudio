@@ -2199,6 +2199,10 @@ test("audio clips stretch as FL Studio's: with Stretch on (Shift+M) an edge stre
   // Its channel's Time stretching (a double-click on the clip): Resample, which the clip, with its own, doesn't follow.
   await page.getByTestId("playlist-grid").dblclick({ position: { x: 30, y: 30 } });
   const settings = page.locator('[data-testid="channel-settings"][data-channel-name="Loop"]');
+  // Its waveform pressed plays the file as its clips sound: through its channel's mixer track.
+  const heard = page.waitForRequest((r) => r.url().endsWith("/api/engine/previewSample"));
+  await settings.getByRole("button", { name: "Hear the sample" }).click();
+  expect((await heard).postDataJSON()).toMatchObject({ sampleId: expect.any(String), channel: "chan_loop" });
   await settings.getByRole("switch", { name: "Resample" }).click();
   await expect.poll(async () => (await savedSong(page, id)).channels.find((c: { id: string }) => c.id === "chan_loop")?.stretch).toEqual({ mode: "resample", tempo: null });
   await settings.getByRole("button", { name: "Time" }).click();

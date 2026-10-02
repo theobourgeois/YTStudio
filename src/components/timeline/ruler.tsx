@@ -61,7 +61,7 @@ export function Ruler({ width, zoom }: { width: number; zoom: number }) {
   };
 
   return (
-    <div className="relative h-full touch-none select-none" style={{ width }} onPointerDown={onPointerDown}>
+    <div data-timeline-ruler className="relative h-full touch-none select-none" style={{ width }} onPointerDown={onPointerDown}>
       <Ticks width={width} zoom={zoom} />
       <RulerMarkers zoom={zoom} />
       <PlayheadHead />
