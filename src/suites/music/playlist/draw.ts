@@ -722,3 +722,45 @@ export function drawWaveformPreview(ctx: CanvasRenderingContext2D, peaks: WavePe
   ctx.closePath();
   ctx.fill();
 }
+
+/** What the overview (FL's mini playlist) draws: every clip, `span` ticks across, its tracks squeezed into its height. */
+export interface OverviewScene {
+  clips: readonly PlaylistClip[];
+  ctx: ClipContext;
+  tracks: readonly PlaylistTrack[];
+  /** The colours given to clips' sources, by id. */
+  colors: ReadonlyMap<string, string>;
+  selected: ReadonlySet<number>;
+  span: number;
+  width: number;
+  height: number;
+}
+
+/** The fewest track rows the overview divides its height into, so a song on one track isn't one thick bar. */
+const OVERVIEW_ROWS = 4;
+
+/**
+ * The overview along the Playlist's top: each clip a bar of its colour (its title strip's), on its
+ * track's row, the tracks in use filling the height, so the whole song's shape reads at a glance.
+ */
+export function drawOverview(ctx: CanvasRenderingContext2D, scene: OverviewScene) {
+  const { clips, width, height, span } = scene;
+  ctx.clearRect(0, 0, width, height);
+  if (!clips.length || span <= 0) return;
+  let rows = OVERVIEW_ROWS;
+  for (const clip of clips) rows = Math.max(rows, clip.track + 1);
+  const rowH = (height - 2) / rows;
+  const gap = rowH >= 3 ? 1 : 0;
+  const scale = width / span;
+  for (const clip of clips) {
+    const track = scene.tracks[clip.track];
+    const color = scene.colors.get(clip.ref) ?? track?.color;
+    const own = scene.selected.has(clip.id) ? SELECTED : color ? clipColours(color) : KIND_COLOURS[clip.kind];
+    const colours = track?.muted ? onMutedTrack(own) : own;
+    ctx.globalAlpha = clip.muted || track?.muted ? 0.45 : 1;
+    ctx.fillStyle = colours.title;
+    const x = clip.start * scale;
+    ctx.fillRect(x, 1 + clip.track * rowH, Math.max(1, clipEnd(clip, scene.ctx) * scale - x - (scale * clipLength(clip, scene.ctx) > 3 ? 0.5 : 0)), Math.max(1, rowH - gap));
+  }
+  ctx.globalAlpha = 1;
+}
