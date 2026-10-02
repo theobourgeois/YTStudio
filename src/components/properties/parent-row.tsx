@@ -2,7 +2,7 @@
  * A clip's Parent (After Effects' Parent & Link column): a menu of the clips it can follow,
  * and the pick-whip, dragged from here onto a clip in the timeline to parent to it.
  */
-import { useState } from "react";
+import { memo, useState } from "react";
 import { PiCrosshairSimple, PiLinkBreak, PiSpiral } from "react-icons/pi";
 import { clipKind } from "@shared/effects";
 import { canParent } from "@shared/parenting";
@@ -29,7 +29,7 @@ function candidates(clipId: string) {
     .map((c) => ({ id: c.id, name: clipName(c, assetById.get(c.assetId)), isNull: !!c.nullObject }));
 }
 
-export function ParentRow({ clip }: { clip: Clip }) {
+export const ParentRow = memo(function ParentRow({ clip }: { clip: Clip }) {
   const [open, setOpen] = useState(false);
   const parentId = clip.parent?.id ?? null;
   const parentName = useEditor((s) => {
@@ -86,7 +86,7 @@ export function ParentRow({ clip }: { clip: Clip }) {
       )}
     </div>
   );
-}
+});
 
 /** The selected clips when `clipId` is one of them (they're parented together), else just it. */
 function selectedOr(clipId: string): string[] {

@@ -81,6 +81,14 @@ project.clips = Array.from(
     effects: textEffects({ text: `Caption number ${i}` }),
   }),
 );
+// The first clips are animated (keyframed scale), as a hand-made edit's are.
+for (const clip of project.clips.slice(0, 20)) {
+  clip.effects = clip.effects.map((e) =>
+    e.type === "motion"
+      ? { ...e, keyframes: { scale: [{ time: 0, value: 1, easing: "linear" }, { time: 0.8, value: 1.5, easing: "linear" }] } }
+      : e,
+  );
+}
 
 const results: [string, string][] = [];
 let t0 = performance.now();
@@ -141,6 +149,22 @@ await page.locator("[data-clip-id]").first().waitFor({ timeout: 120_000 });
 results.push(["open the project", `${(performance.now() - t0).toFixed(0)} ms`]);
 results.push(["page size", await domSize()]);
 
+async function scrub() {
+  const box = (await page.locator("[data-timeline-ruler]").boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + 10, y);
+  await page.mouse.down();
+  for (let k = 1; k <= 60; k++) {
+    await page.mouse.move(box.x + 10 + k * 8, y);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
+  }
+  await page.mouse.up();
+}
+
+await scenario("scrub the ruler (60 moves)", scrub);
+await page.locator(`[data-clip-id="${id(2)}"]`).click();
+await scenario("scrub, animated clip selected", scrub);
+await page.keyboard.press("Escape");
 await scenario("drag a clip (20 moves)", () => dragClip(3, 45));
 await scenario("scroll the timeline (30 steps)", async () => {
   const el = await scroller();
