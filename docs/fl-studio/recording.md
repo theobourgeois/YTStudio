@@ -292,7 +292,9 @@ the engine moves samples and says where they were.
 - **The Mixer**: the inspector's Input row (the arm light; the Input menu, FL's: stereo pairs, then mono
   inputs, then (none) and the device's settings; choosing one arms the track; and a sliders button for
   Monitor and Input offset, lit when either isn't as it came: Théo wanted the row short); the arm
-  light under each strip's fader, the fader FL's orange while armed (`--mixer-armed`, `--mixer-arm`); the
+  light under each strip's fader, the fader FL's orange while armed (`--mixer-armed`, `--mixer-arm`); a
+  track that takes an input has a purple number bar with a mic (`--mixer-input`; its own colour wins),
+  armed or not, so a reopened song shows which tracks record (Théo); the
   track menu's Assign to new audio track.
 - **The Playlist**: the track menu's Audio track (an insert, or none); an audio track's header has the
   insert's arm light and, if it's tall enough, its insert and input. While recording, the playhead is red

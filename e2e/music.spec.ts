@@ -1125,6 +1125,9 @@ test("records as FL Studio does: an input device, a track's input arms it, Recor
   await armedSent;
   await expect(strip.getByRole("button", { name: "Disarm Insert 1" })).toHaveAttribute("aria-pressed", "true");
   await expect.poll(async () => (await savedSong(page, id)).mixer.tracks[1].input).toEqual({ channel: 0, stereo: false });
+  // A track that takes an input is marked (FL's purple), armed or not: it's found again in a reopened song.
+  await expect(strip.locator("[data-input]")).toHaveCount(1);
+  await expect(mixer.locator('[data-track-name="Insert 2"] [data-input]')).toHaveCount(0);
   // Its light disarms it, and arms it again.
   await strip.getByRole("button", { name: "Disarm Insert 1" }).click();
   await strip.getByRole("button", { name: "Arm Insert 1 to record" }).click();
