@@ -15,11 +15,13 @@ describe("the plugin picker", () => {
     expect(pluginGroup({ category: "" })).toBe(OTHER);
   });
 
-  it("puts the pinned first (and in their groups too), then the groups by name, Other last, filtered by what's typed", () => {
+  it("puts the pinned first (and only there), then the groups by name, Other last, filtered by what's typed", () => {
     const items = [plugin("Pro-Q 4", "Fx|EQ", "FabFilter"), plugin("Pro-R 2", "Fx|Reverb", "FabFilter"), plugin("EchoBoy", "Fx|Delay", "Soundtoys"), plugin("AUPeakLimiter", "Effect")].map(pickerItem);
     const columns = pickerColumns(items, ["VST3-Pro-R 2"], "");
-    expect(columns.map((c) => c.title)).toEqual([PINNED, "Delay", "EQ", "Reverb", OTHER]);
+    // Pro-R 2 was Reverb's only one: the group goes, it's in Pinned alone.
+    expect(columns.map((c) => c.title)).toEqual([PINNED, "Delay", "EQ", OTHER]);
     expect(columns[0].items.map((i) => i.name)).toEqual(["Pro-R 2"]);
+    expect(columns.flatMap((c) => c.items).filter((i) => i.name === "Pro-R 2")).toHaveLength(1);
     expect(pickerColumns(items, [], "fabfilter").map((c) => c.title)).toEqual(["EQ", "Reverb"]);
     expect(pickerColumns(items, [], "fab rev").flatMap((c) => c.items.map((i) => i.name))).toEqual(["Pro-R 2"]);
     expect(pickerColumns(items, [], "", ["Reverb"]).map((c) => c.title)[0]).toBe("Reverb");
@@ -50,7 +52,10 @@ describe("the plugin picker", () => {
   it("is as big as its plugins need: a short column for a few, more columns for more, then full size", () => {
     const group = (title: string, n: number) => ({ title, items: Array.from({ length: n }, (_, i) => pickerItem(plugin(`${title}${i}`, `Fx|${title}`))) });
     expect(pickerSize([])).toEqual({ columns: 1, rows: 1 });
-    expect(pickerSize([group("EQ", 2), group("Reverb", 1)])).toEqual({ columns: 1, rows: 6 });
+    // A handful: one column, as tall as they are.
+    expect(pickerSize([group("EQ", 2), group("Reverb", 1)])).toEqual({ columns: 1, rows: 5 });
+    // The seven built-in effects: two even columns, not one with an empty one beside it.
+    expect(pickerSize([group("Built in", 7)])).toEqual({ columns: 2, rows: 5 });
     expect(pickerSize([group("EQ", 10), group("Reverb", 10)])).toEqual({ columns: 2, rows: 12 });
     expect(pickerSize([group("EQ", PICKER_ROWS * PICKER_COLUMNS)])).toBeNull();
   });

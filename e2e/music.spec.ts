@@ -1056,10 +1056,11 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   await inspector.getByRole("button", { name: "Slot 2 menu" }).click();
   const effectPicker = page.getByTestId("effect-picker");
   await expect(effectPicker.getByRole("option", { name: /Fake Synth/ })).toHaveCount(0);
-  // A pin puts it in a Pinned column first (it stays in its own too); Enter chooses the one highlighted.
+  // A pin puts it in a Pinned column first, and only there; Enter chooses the one highlighted.
   await effectPicker.getByRole("option", { name: /Fake Delay/ }).hover();
   await effectPicker.getByRole("button", { name: "Pin Fake Delay" }).click();
   await expect(effectPicker.getByRole("region", { name: "Pinned" }).getByRole("option")).toHaveCount(1);
+  await expect(effectPicker.getByRole("option", { name: /Fake Delay/ })).toHaveCount(1);
   await expect(effectPicker.getByRole("textbox", { name: "Find an effect" })).toBeFocused();
   // (The columns moved under the pointer: it's put back on the pinned one, which Enter then chooses.)
   await effectPicker.getByRole("region", { name: "Pinned" }).getByRole("option").hover();

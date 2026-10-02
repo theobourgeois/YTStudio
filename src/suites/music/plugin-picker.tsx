@@ -111,7 +111,7 @@ interface PluginPickerProps {
  * The plugin picker, for the rack's + and the mixer's effect slots: a search field (focused, so typing
  * narrows at once), then the plugins by kind (EQ, Reverb, Synth...), the pinned ones first (and in their
  * own group too), one line each. The groups run down a column and on into the next, as a newspaper's
- * do. A pin on each, shown on hover. Up and down go through them in order, left and right to the one
+ * do. A pin on each, shown on hover (pinned, it's in the Pinned column only). Up and down go through them in order, left and right to the one
  * level with it in the next column; Enter chooses. Few plugins, it's only as big as they need (`pickerSize`).
  */
 export function PluginPicker({ noun, items, loading, error, firstGroups, onChoose, footer }: PluginPickerProps) {
@@ -188,7 +188,11 @@ export function PluginPicker({ noun, items, loading, error, firstGroups, onChoos
         style={size ? { height: `min(max(3rem, ${size.rows * 1.5 + 0.25}rem + 2px), 60vh)` } : undefined}
       >
         {/* Newspaper columns: a group runs down a column and on into the next; never a header left alone at a column's foot. */}
-        <div className="h-full [column-fill:auto] [column-gap:0] [column-rule:1px_solid_var(--line)] [column-width:11rem]">
+        <div
+          className={cn("h-full [column-fill:auto] [column-gap:0] [column-rule:1px_solid_var(--line)]", !size && "[column-width:11rem]")}
+          // Sized, as many columns as it needs, sharing the width: one alone spans it all.
+          style={size ? { columnCount: size.columns } : undefined}
+        >
           {columns.map((column) => (
             <section key={column.title} aria-label={column.title}>
               <h3 className="break-after-avoid px-2 pt-1.5 pb-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">{column.title}</h3>
