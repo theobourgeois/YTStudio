@@ -619,6 +619,8 @@ void Engine::render (int frames, const juce::File& file, const juce::String& inp
                                { "meters", sequencer.takeMeters (meterFloor) },
                                // A recording's peaks since the last render (or event), as its transport events carry them live.
                                { "levels", sequencer.recorder().levels() },
+                               // The watched Pro-Qs' spectra and dynamics, as their transport events carry them live.
+                               { "eq", eqs.describe() },
                                { "transport", transport() } }));
 }
 

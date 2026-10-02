@@ -50,9 +50,24 @@ void Spectrum::measure (int size, double sampleRate, std::vector<float>& levels)
         power[(size_t) k] = re * re + im * im;
     }
 
-    // Each point: between bins where they're further apart than the points (the low end), interpolated;
-    // where several bins fall in a point's share of the octave (the top), the loudest of them, so a
-    // sine reads its level wherever it is.
+    // In dB, and a peak's level and place between bins (a parabola through the three round it, which a
+    // Hann window's lobe nearly is): a sine reads its level wherever it falls, not a few dB under it.
+    db.resize ((size_t) bins);
+    for (int k = 0; k < bins; ++k)
+        db[(size_t) k] = 10.0f * std::log10 (power[(size_t) k] + 1e-20f);
+    const auto peak = [this, bins] (int k, float& level, double& at) {
+        if (k <= 0 || k >= bins - 1 || db[(size_t) k] < db[(size_t) k - 1] || db[(size_t) k] < db[(size_t) k + 1])
+            return false;
+        const auto a = db[(size_t) k - 1], b = db[(size_t) k], c = db[(size_t) k + 1];
+        const auto bend = a - 2 * b + c;
+        const auto p = bend < 0 ? juce::jlimit (-0.5f, 0.5f, 0.5f * (a - c) / bend) : 0.0f;
+        level = b - 0.25f * (a - c) * p;
+        at = (double) k + (double) p;
+        return true;
+    };
+
+    // Each point: the loudest of the bins in its share of the octave (or, under the bins' spacing, the
+    // curve between them), and any peak whose top falls in its share.
     const auto binHz = sampleRate / size;
     const auto nyquist = sampleRate / 2;
     const auto ratio = std::sqrt (std::pow (SpectrumGrid::highest / SpectrumGrid::lowest, 1.0 / (SpectrumGrid::points - 1)));
@@ -62,23 +77,29 @@ void Spectrum::measure (int size, double sampleRate, std::vector<float>& levels)
         if (f >= nyquist)
             break;
         const auto lo = f / ratio / binHz, hi = f * ratio / binHz;
-        float p = 0;
-        if (std::floor (hi) - std::ceil (lo) >= 1)
+        float value = -200.0f;
+        if (std::floor (hi) - std::ceil (lo) >= 0)
         {
             for (auto k = (int) std::ceil (lo); k <= (int) std::floor (hi) && k < bins; ++k)
-                p = juce::jmax (p, power[(size_t) k]);
+                value = juce::jmax (value, db[(size_t) k]);
         }
         else
         {
             const auto at = f / binHz;
-            const auto k = juce::jlimit (0, bins - 2, (int) at);
-            const auto t = (float) (at - k);
-            // Between the two bins in dB, so a peak's skirts read as they would on a finer FFT.
-            const auto a = 10.0f * std::log10 (power[(size_t) k] + 1e-20f), b = 10.0f * std::log10 (power[(size_t) k + 1] + 1e-20f);
-            levels[(size_t) i] = juce::jmax (-200.0f, a + (b - a) * t);
-            continue;
+            const auto k = juce::jlimit (1, bins - 2, (int) std::lround (at));
+            const auto d = (float) (at - k);
+            const auto a = db[(size_t) k - 1], b = db[(size_t) k], c = db[(size_t) k + 1];
+            // Through the three bins round it, not past the louder of the two it's between.
+            value = juce::jmin (juce::jmax (a, juce::jmax (b, c)), b + 0.5f * d * (c - a) + 0.5f * d * d * (a - 2 * b + c));
         }
-        levels[(size_t) i] = juce::jmax (-200.0f, 10.0f * std::log10 (p + 1e-20f));
+        for (auto k = juce::jmax (1, (int) std::floor (lo) - 1); k <= juce::jmin (bins - 2, (int) std::ceil (hi) + 1); ++k)
+        {
+            float level;
+            double at;
+            if (peak (k, level, at) && at >= lo && at <= hi)
+                value = juce::jmax (value, level);
+        }
+        levels[(size_t) i] = juce::jmax (-200.0f, value);
     }
 }
 } // namespace eq

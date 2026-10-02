@@ -414,6 +414,8 @@ export interface EngineRender {
   levels?: Record<string, number[]>;
   /** Each mixer track's loudest level over these samples. */
   meters: EngineMeters;
+  /** The watched Pro-Qs' state after these samples (`EngineEqState`, by effect id). */
+  eq?: Record<string, EngineEqState>;
   transport: EngineTransport & { metronome: boolean };
 }
 

@@ -240,6 +240,25 @@ describe.skipIf(!existsSync(ENGINE))("Pro-Q, offline", () => {
     expect(Math.abs(quiet)).toBeLessThan(0.2);
   });
 
+  it("the analyzer: a watched Pro-Q's spectra before and after it, a sine reading its level, a cut taking it down", async () => {
+    await engine.command("eqWatch", { effects: [{ effect: EQ, size: 4096 }] });
+    const bands = [band(1, { frequency: 1000, gain: -12, q: 1 })];
+    await play(
+      song((pq) => ({ ...pq, bands }), "loud"),
+      RATE / 2,
+    );
+    // Offline, the render's answer carries what its transport events would.
+    const state = (await engine.render(4096)).eq![EQ];
+    const at = (levels: number[], hz: number) => levels[Math.round(Math.log2(hz / 10) * ((480 - 1) / Math.log2(3000)))];
+    // 0.9 of full scale: -0.9 dB, read within a dB (the Hann window's peak falls a little between bins).
+    expect(at(state.pre!, 1000)).toBeGreaterThan(-2.5);
+    expect(at(state.pre!, 1000)).toBeLessThan(0);
+    expect(at(state.post!, 1000)).toBeCloseTo(at(state.pre!, 1000) - 12, 0);
+    expect(at(state.pre!, 100)).toBeLessThan(-60);
+    expect(state.peak[0]).toBeGreaterThan(0.2);
+    await engine.command("eqWatch", { effects: [] });
+  });
+
   it("solo: only what the band works on is heard while it's held", async () => {
     const bands = [band(1, { frequency: 1000, gain: 6, q: 2 })];
     await engine.setSong({ projectId: PROJECT, song: song((pq) => ({ ...pq, bands })), patternId: P, mode: "pattern" });

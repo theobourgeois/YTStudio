@@ -45,7 +45,7 @@ private:
     std::vector<float> ring;
     std::atomic<juce::int64> written { 0 };
     juce::int64 measured = 0;
-    std::vector<float> scratch, window, power;
+    std::vector<float> scratch, window, power, db;
     int windowSize = 0;
     std::unique_ptr<juce::dsp::FFT> fft;
 };
