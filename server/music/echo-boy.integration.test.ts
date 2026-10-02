@@ -8,12 +8,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { createAutomation } from "../../shared/music/automation.ts";
 import { type EchoBoyPatch, editStyle, updateEchoBoy, updateRhythm } from "../../shared/music/echo-boy.ts";
 import { ECHO_BOY_PLUGIN } from "../../shared/music/echo-boy-presets.ts";
 import { addChannels, setSteps } from "../../shared/music/edits.ts";
 import { setEffect, updateEffect } from "../../shared/music/mixer.ts";
+import { addClips, editClips } from "../../shared/music/playlist.ts";
 import { FIRST_PATTERN_ID, MASTER_TRACK_ID, createMusicProject } from "../../shared/music/project.ts";
-import type { MusicProject } from "../../shared/music/types.ts";
+import type { EchoControl, MusicProject } from "../../shared/music/types.ts";
 import { ENGINE } from "../config.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
@@ -194,5 +196,30 @@ describe.skipIf(!existsSync(ENGINE))("EchoBoy, offline", () => {
     await hear(BEAT / 2);
     await play(updateEchoBoy(s, ECHO, { feedback: 0.1 }));
     expect(onsets((await hear(BEAT)).channels[0])).toEqual([BEAT / 2]);
+  });
+
+  /** `patch`'s EchoBoy in song mode, `control` automated at `value` (a fraction of its range) all through. */
+  async function automated(patch: EchoBoyPatch, control: EchoControl, value: number, frames: number) {
+    let s = song(patch);
+    s = editClips(s, (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: null }]).clips);
+    s = createAutomation(s, { kind: "echoBoy", effect: ECHO, control }, { start: 0, length: 384 * 4 }, { value }).song;
+    await fresh();
+    await engine.setSong({ projectId: PROJECT, song: s, patternId: P, mode: "song" });
+    await engine.command("play", {});
+    return hear(frames);
+  }
+
+  it("follows its automated Tweak knobs: Dual's Balance hard right leaves the left's echo out", async () => {
+    const sound = await automated({ mode: "dual", echo1: { sync: "note", note: 4 }, echo2: { sync: "note", note: 4 }, width: 0.75, offset: 0 }, "balance", 1, BEAT * 2);
+    // The dry hit on both sides; the echo a beat later on the right only.
+    expect(onsets(sound.channels[0])).toEqual([0]);
+    expect(onsets(sound.channels[1])).toEqual([0, BEAT]);
+  });
+
+  it("follows Rhythm Echo's automated taps: Balance hard left, its taps heard on the left only", async () => {
+    const sound = await automated({ mode: "rhythm", width: 0.75 }, "balance", 0, BEAT * 4);
+    const left = onsets(sound.channels[0]);
+    expect(left.length).toBeGreaterThan(1);
+    expect(onsets(sound.channels[1])).toEqual([0]);
   });
 });

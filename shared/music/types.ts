@@ -711,7 +711,47 @@ export interface EchoBoy {
 }
 
 /** EchoBoy's controls an automation clip can drive. */
-export const ECHO_CONTROLS = ["mix", "feedback", "echo1", "echo2", "lowCut", "highCut", "saturation", "input", "output", "groove", "feel", "width"] as const;
+/** EchoBoy's controls an automation clip can drive: every knob, the front's, Tweak's, Rhythm Echo's and the Style Editor's. */
+export const ECHO_CONTROLS = [
+  "mix",
+  "feedback",
+  "echo1",
+  "echo2",
+  "lowCut",
+  "highCut",
+  "saturation",
+  "input",
+  "output",
+  "groove",
+  "feel",
+  "width",
+  "offset",
+  "balance",
+  "accent",
+  "accent2",
+  "feedbackMix",
+  "feedbackBalance",
+  "rhythmTime",
+  "rhythmShape",
+  "rhythmAccent",
+  "lowFreq",
+  "lowGain",
+  "lowDecay",
+  "midFreq",
+  "midRes",
+  "midGain",
+  "midDecay",
+  "highFreq",
+  "highGain",
+  "highDecay",
+  "diffusionAmount",
+  "diffusionSize",
+  "wobbleDepth",
+  "wobbleRate",
+  "wobbleSync",
+  "decaySat",
+  "outSat",
+] as const;
 export type EchoControl = (typeof ECHO_CONTROLS)[number];
 
 /**

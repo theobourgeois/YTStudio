@@ -124,6 +124,43 @@ void Settings::set (Control control, const float* v, int size)
         case Control::output: output = juce::jmax (0.0f, v[0]); break;
         case Control::feel: feel = juce::jlimit (-0.1, 0.1, (double) v[0]); break;
         case Control::side: side = juce::jmax (0.0f, v[0]); break;
+        case Control::outs:
+            for (int k = 0; k < juce::jmin (size / 2, lines); ++k)
+                for (int c = 0; c < 2; ++c)
+                    line[(size_t) k].out[(size_t) c] = juce::jlimit (-4.0f, 4.0f, v[k * 2 + c]);
+            break;
+        case Control::matrix:
+            for (int k = 0; k < juce::jmin (size, lines * lines); ++k)
+                feedback[(size_t) k] = juce::jlimit (-4.0f, 4.0f, v[k]);
+            break;
+        case Control::taps:
+            taps = juce::jmin (maxTaps, size / 4);
+            for (int t = 0; t < taps; ++t)
+            {
+                auto& slot = tap[(size_t) t];
+                slot.delay = juce::jlimit (0.0, maxSeconds, (double) v[t * 4]);
+                slot.left = juce::jlimit (0.0f, 4.0f, v[t * 4 + 1]);
+                slot.right = juce::jlimit (0.0f, 4.0f, v[t * 4 + 2]);
+                slot.offset = juce::jlimit (0.0, 0.1, (double) v[t * 4 + 3]);
+            }
+            break;
+        case Control::eq:
+            if (size < 10)
+                break;
+            lowFreq = juce::jlimit (10.0f, 20000.0f, v[0]), lowGain = juce::jlimit (-60.0f, 30.0f, v[1]), lowDecay = juce::jlimit (-12.0f, 12.0f, v[2]);
+            midFreq = juce::jlimit (10.0f, 20000.0f, v[3]), midQ = juce::jlimit (0.1f, 20.0f, v[4]), midGain = juce::jlimit (-60.0f, 30.0f, v[5]), midDecay = juce::jlimit (-12.0f, 12.0f, v[6]);
+            highFreq = juce::jlimit (10.0f, 20000.0f, v[7]), highGain = juce::jlimit (-60.0f, 30.0f, v[8]), highDecay = juce::jlimit (-12.0f, 12.0f, v[9]);
+            break;
+        case Control::diffusion:
+            diffusionAmount = juce::jlimit (0.0f, 1.0f, v[0]);
+            if (size > 1)
+                diffusionSize = juce::jlimit (0.0f, 50.0f, v[1]);
+            break;
+        case Control::wobble:
+            wobbleDepth = juce::jlimit (0.0f, 1200.0f, v[0]);
+            if (size > 2)
+                wobbleRate = juce::jlimit (0.01f, 50.0f, v[1]), wobbleSync = juce::jlimit (-1.0f, 1.0f, v[2]);
+            break;
     }
 }
 
@@ -146,6 +183,32 @@ void Settings::get (Control control, float* v, int& size) const
         case Control::output: v[0] = output; break;
         case Control::feel: v[0] = (float) feel; break;
         case Control::side: v[0] = side; break;
+        case Control::outs:
+            size = lines * 2;
+            for (int k = 0; k < lines; ++k)
+                v[k * 2] = line[(size_t) k].out[0], v[k * 2 + 1] = line[(size_t) k].out[1];
+            break;
+        case Control::matrix:
+            size = lines * lines;
+            for (int k = 0; k < size; ++k)
+                v[k] = feedback[(size_t) k];
+            break;
+        case Control::taps:
+            size = maxTaps * 4;
+            for (int t = 0; t < maxTaps; ++t)
+            {
+                const auto& slot = tap[(size_t) t];
+                const auto on = t < taps;
+                v[t * 4] = (float) slot.delay, v[t * 4 + 1] = on ? slot.left : 0.0f, v[t * 4 + 2] = on ? slot.right : 0.0f, v[t * 4 + 3] = (float) slot.offset;
+            }
+            break;
+        case Control::eq:
+            size = 10;
+            v[0] = (float) lowFreq, v[1] = (float) lowGain, v[2] = (float) lowDecay, v[3] = (float) midFreq, v[4] = (float) midQ;
+            v[5] = (float) midGain, v[6] = (float) midDecay, v[7] = (float) highFreq, v[8] = (float) highGain, v[9] = (float) highDecay;
+            break;
+        case Control::diffusion: v[0] = (float) diffusionAmount, v[1] = (float) diffusionSize, size = 2; break;
+        case Control::wobble: v[0] = (float) wobbleDepth, v[1] = (float) wobbleRate, v[2] = (float) wobbleSync, size = 3; break;
     }
 }
 

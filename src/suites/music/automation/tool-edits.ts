@@ -22,6 +22,7 @@ import {
 } from "@shared/music/automation";
 import { clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
+import { ECHO_TOOL_CONTROLS, ECHO_TOOL_CONTROL_NAMES, type EchoToolControl } from "@shared/music/echo-boy-presets";
 import { OTT_HINTS, OTT_TOOL_CONTROLS, OTT_TOOL_CONTROL_NAMES, type OttToolControl } from "@shared/music/ott-presets";
 import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
@@ -66,25 +67,11 @@ export const CONTROLS = [
   "key",
   ...["detune", "tracking", "vibrato rate", "vibrato onset delay", "vibrato onset rate", "vibrato variation", "vibrato pitch", "vibrato amplitude", "vibrato formant"],
   ...["eq frequency", "eq gain", "eq q", "eq range", "eq output", "eq pan", "eq gain scale"],
-  ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
+  ...ECHO_TOOL_CONTROL_NAMES,
   ...OTT_TOOL_CONTROL_NAMES,
 ] as const;
 
-/** An EchoBoy's controls, as the tool names them. */
-const ECHO_CONTROL_NAMES: Record<string, EchoControl> = {
-  "echo mix": "mix",
-  "echo feedback": "feedback",
-  "echo time 1": "echo1",
-  "echo time 2": "echo2",
-  "echo low cut": "lowCut",
-  "echo high cut": "highCut",
-  "echo saturation": "saturation",
-  "echo input": "input",
-  "echo output": "output",
-  "echo groove": "groove",
-  "echo feel": "feel",
-  "echo width": "width",
-};
+
 
 /** A Pro-Q's controls, as the tool names them. */
 const EQ_TOOL_CONTROLS = { "eq frequency": "frequency", "eq gain": "gain", "eq q": "q", "eq range": "range", "eq output": "output", "eq pan": "pan", "eq gain scale": "gainScale" } as const;
@@ -203,10 +190,36 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
     case "echo output":
     case "echo groove":
     case "echo feel":
-    case "echo width": {
+    case "echo width":
+    case "echo offset":
+    case "echo balance":
+    case "echo accent":
+    case "echo accent 2":
+    case "echo fb mix":
+    case "echo fb balance":
+    case "echo rhythm":
+    case "echo rhythm shape":
+    case "echo rhythm accent":
+    case "echo low freq":
+    case "echo low gain":
+    case "echo low decay":
+    case "echo mid freq":
+    case "echo mid res":
+    case "echo mid gain":
+    case "echo mid decay":
+    case "echo high freq":
+    case "echo high gain":
+    case "echo high decay":
+    case "echo diffusion":
+    case "echo diffusion size":
+    case "echo wobble depth":
+    case "echo wobble rate":
+    case "echo wobble sync":
+    case "echo decay sat":
+    case "echo out sat": {
       const { track, effect } = effectAt(song, input);
       if (!effect.echoBoy) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an EchoBoy: an "${control}" is EchoBoy's.`);
-      return { kind: "echoBoy", effect: effect.id, control: ECHO_CONTROL_NAMES[control] };
+      return { kind: "echoBoy", effect: effect.id, control: ECHO_TOOL_CONTROLS[control as EchoToolControl] };
     }
     case "eq frequency":
     case "eq gain":
@@ -309,6 +322,32 @@ const ECHO_HINTS: Record<EchoControl, string> = {
   groove: "-1 (shuffle) to 1 (swing)",
   feel: "-1 (rushin') to 1 (draggin')",
   width: "0 to 1",
+  offset: "ms, 0 to 25",
+  balance: "-1 (left) to 1 (right)",
+  accent: "-1 (even repeats) to 1 (odd repeats)",
+  accent2: "-1 (even repeats) to 1 (odd repeats)",
+  feedbackMix: "0 to 1 (each side's feedback crossed into the other)",
+  feedbackBalance: "-1 (left) to 1 (right)",
+  rhythmTime: "the Rhythm knob, 0 to 1 (as an echo time's knob; it lays the taps out again)",
+  rhythmShape: "0 to 1",
+  rhythmAccent: "-1 to 1",
+  lowFreq: "Hz, 20 to 2000",
+  lowGain: "dB, -40 to 18",
+  lowDecay: "-40 to 18 (dB of change a repeat, scaled)",
+  midFreq: "Hz, 20 to 5000",
+  midRes: "-12 to 24",
+  midGain: "dB, -40 to 18",
+  midDecay: "-40 to 18",
+  highFreq: "Hz, 500 to 12000",
+  highGain: "dB, -40 to 18",
+  highDecay: "-40 to 18",
+  diffusionAmount: "0 to 1",
+  diffusionSize: "0 to 50",
+  wobbleDepth: "cents, 0 to 1200",
+  wobbleRate: "Hz, 0.01 to 50",
+  wobbleSync: "-1 (rates apart) to 1 (phases apart)",
+  decaySat: "dB, -24 to 24",
+  outSat: "dB, -24 to 24",
 };
 
 const valueHint = (target: AutomationTarget) =>

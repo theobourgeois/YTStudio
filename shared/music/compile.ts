@@ -687,9 +687,11 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
           return { control, key: automated(target), value: valueOf(target, ECHO_CONTROL_SPECS[control].get(eb)) };
         });
         for (const lane of Object.keys(ECHO_LANES) as EchoLane[]) {
+          // (Only Rhythm Echo has taps.)
+          if (lane === "taps" && eb.mode !== "rhythm") continue;
           const moving = controls.filter((c) => LANES_OF[c.control].includes(lane));
           add({ kind: "echo", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
-            const at = moving.reduce((settings, c) => (c.key ? ECHO_CONTROL_SPECS[c.control].set(settings, c.value(tick)) : settings), eb);
+            const at = moving.reduce((settings, c) => (c.key ? ECHO_CONTROL_SPECS[c.control].set(settings, c.value(tick), song.settings.tempo) : settings), eb);
             return ECHO_LANES[lane](engineEchoBoy(at, song.settings.tempo));
           });
         }

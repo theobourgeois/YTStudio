@@ -437,7 +437,7 @@ void Song::parseLanes (Song& song, const juce::var& json)
             {
                 lane.kind = Lane::Kind::track;
                 lane.size = 4;
-                lane.base = track.gains;
+                std::copy (track.gains.begin(), track.gains.end(), lane.base.begin());
             }
             else if (kind == "send")
             {
@@ -505,7 +505,7 @@ void Song::parseLanes (Song& song, const juce::var& json)
             lane.index = (int) number (target["effect"], -1, -1, 1e6);
             if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].echoSettings == nullptr)
                 continue;
-            const auto control = juce::StringArray { "mix", "feedback", "delays", "lowCut", "highCut", "saturation", "input", "output", "feel", "side" }.indexOf (target["control"].toString());
+            const auto control = juce::StringArray { "mix", "feedback", "delays", "lowCut", "highCut", "saturation", "input", "output", "feel", "side", "outs", "matrix", "taps", "eq", "diffusion", "wobble" }.indexOf (target["control"].toString());
             if (control < 0)
                 continue;
             lane.control = control;
@@ -583,7 +583,7 @@ void Song::parseLanes (Song& song, const juce::var& json)
 
         const auto* ticks = item["ticks"].getArray();
         const auto* values = item["values"].getArray();
-        if (ticks == nullptr || values == nullptr || ticks->isEmpty() || values->size() != ticks->size() * lane.size)
+        if (ticks == nullptr || values == nullptr || ticks->isEmpty() || lane.size > Lane::maxSize || values->size() != ticks->size() * lane.size)
             continue;
         lane.ticks.reserve ((size_t) ticks->size());
         lane.values.reserve ((size_t) values->size());

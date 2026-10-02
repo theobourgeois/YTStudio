@@ -7,7 +7,7 @@ import { cn } from "cn";
 import { editStyle, revertStyle, styleOf, updateEchoBoy, updateRhythm } from "@shared/music/echo-boy";
 import { EQ_GAIN_RANGE, HIGH_FREQ_RANGE, LOW_FREQ_RANGE, MAX_DIFFUSION_SIZE, MAX_ECHO_GAIN, MAX_OFFSET, MAX_RHYTHM_BEATS, MAX_WOBBLE_DEPTH, MID_FREQ_RANGE, MID_RES_RANGE, WOBBLE_RATE_RANGE } from "@shared/music/echo-boy-presets";
 import { decayDb } from "@shared/music/echo-boy-styles";
-import { ECHO_NOTES, ECHO_SATURATIONS, ECHO_WOBBLES, type EchoBoy, type EchoSaturation, type EchoStyle, type EchoWobble, type MusicProject, PAN_SHAPES, type PanShape } from "@shared/music/types";
+import { ECHO_NOTES, ECHO_SATURATIONS, ECHO_WOBBLES, type EchoBoy, type EchoControl, type EchoSaturation, type EchoStyle, type EchoWobble, type MusicProject, PAN_SHAPES, type PanShape } from "@shared/music/types";
 import { DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { PERCENT, type ValueUnit, percent } from "../knob";
 import { Lcd } from "../lcd";
@@ -49,10 +49,10 @@ function Group({ title, children, className }: { title: string; children: ReactN
 export function TweakPanel({ effectId, eb }: { effectId: string; eb: EchoBoy }) {
   const set = (patch: Parameters<typeof updateEchoBoy>[2]) => (s: MusicProject) => updateEchoBoy(s, effectId, patch);
   const width = <EchoKnob key="width" label="Width" ends={["Min", "Max"]} size={34} value={eb.width} min={0} max={1} defaultValue={0.5} format={percent} unit={PERCENT} target={{ kind: "echoBoy", effect: effectId, control: "width" }} edit={(s, width) => set({ width })(s)} />;
-  const offset = <EchoKnob key="offset" label="L/R Offset" ends={["0", "25"]} size={34} value={eb.offset} min={0} max={MAX_OFFSET} defaultValue={8} format={(v) => `${v.toFixed(1)} ms`} unit={MS} edit={(s, offset) => set({ offset })(s)} />;
-  const balance = <EchoKnob key="balance" label="Balance" ends={["L", "R"]} size={34} bipolar value={eb.balance} min={-1} max={1} defaultValue={0} format={sided("left", "right")} unit={PERCENT} edit={(s, balance) => set({ balance })(s)} />;
+  const offset = <EchoKnob key="offset" label="L/R Offset" ends={["0", "25"]} size={34} value={eb.offset} min={0} max={MAX_OFFSET} defaultValue={8} format={(v) => `${v.toFixed(1)} ms`} unit={MS} target={{ kind: "echoBoy", effect: effectId, control: "offset" }} edit={(s, offset) => set({ offset })(s)} />;
+  const balance = <EchoKnob key="balance" label="Balance" ends={["L", "R"]} size={34} bipolar value={eb.balance} min={-1} max={1} defaultValue={0} format={sided("left", "right")} unit={PERCENT} target={{ kind: "echoBoy", effect: effectId, control: "balance" }} edit={(s, balance) => set({ balance })(s)} />;
   const accent = (key: "accent" | "accent2", label: string) => (
-    <EchoKnob key={key} label={label} ends={["−", "+"]} size={34} bipolar value={eb[key]} min={-1} max={1} defaultValue={0} format={sided("even repeats", "odd repeats")} unit={PERCENT} edit={(s, v) => set({ [key]: v })(s)} />
+    <EchoKnob key={key} label={label} ends={["−", "+"]} size={34} bipolar value={eb[key]} min={-1} max={1} defaultValue={0} format={sided("even repeats", "odd repeats")} unit={PERCENT} target={{ kind: "echoBoy", effect: effectId, control: key }} edit={(s, v) => set({ [key]: v })(s)} />
   );
   let controls: ReactNode;
   switch (eb.mode) {
@@ -66,8 +66,8 @@ export function TweakPanel({ effectId, eb }: { effectId: string; eb: EchoBoy }) 
         offset,
         accent("accent", "Accent 1"),
         accent("accent2", "Accent 2"),
-        <EchoKnob key="fbmix" label="FB Mix" ends={["Min", "Cross"]} size={34} value={eb.feedbackMix} min={0} max={1} defaultValue={0} format={percent} unit={PERCENT} edit={(s, feedbackMix) => set({ feedbackMix })(s)} />,
-        <EchoKnob key="fbbal" label="FB Bal" ends={["L", "R"]} size={34} bipolar value={eb.feedbackBalance} min={-1} max={1} defaultValue={0} format={sided("left", "right")} unit={PERCENT} edit={(s, feedbackBalance) => set({ feedbackBalance })(s)} />,
+        <EchoKnob key="fbmix" label="FB Mix" ends={["Min", "Cross"]} size={34} value={eb.feedbackMix} min={0} max={1} defaultValue={0} format={percent} unit={PERCENT} target={{ kind: "echoBoy", effect: effectId, control: "feedbackMix" }} edit={(s, feedbackMix) => set({ feedbackMix })(s)} />,
+        <EchoKnob key="fbbal" label="FB Bal" ends={["L", "R"]} size={34} bipolar value={eb.feedbackBalance} min={-1} max={1} defaultValue={0} format={sided("left", "right")} unit={PERCENT} target={{ kind: "echoBoy", effect: effectId, control: "feedbackBalance" }} edit={(s, feedbackBalance) => set({ feedbackBalance })(s)} />,
       ];
       break;
     case "pingPong":
@@ -120,6 +120,7 @@ function RhythmTweak({ effectId, eb, offset, width }: { effectId: string; eb: Ec
         defaultValue={0}
         format={warp ? sided("to the start", "to the end") : sided("even taps", "odd taps")}
         unit={PERCENT}
+        target={{ kind: "echoBoy", effect: effectId, control: "rhythmAccent" }}
         edit={(s, accent) => setRhythm({ accent })(s)}
       />
       <div className="flex flex-col items-center gap-1 pt-0.5">
@@ -160,6 +161,7 @@ function RhythmTweak({ effectId, eb, offset, width }: { effectId: string; eb: Ec
 /** A knob of the Style Editor (a log taper for frequencies), editing the style (it becomes Custom). */
 function StyleKnob({
   effectId,
+  control,
   label,
   ends,
   value,
@@ -172,6 +174,8 @@ function StyleKnob({
   change,
 }: {
   effectId: string;
+  /** The control it is, for automation. */
+  control: EchoControl;
   label: string;
   ends: [string, string];
   value: number;
@@ -198,6 +202,8 @@ function StyleKnob({
       defaultValue={toFraction(defaultValue)}
       format={(f) => format(toValue(f))}
       unit={log ? { scale: 1, unit: "" } : unit}
+      target={{ kind: "echoBoy", effect: effectId, control }}
+      fraction
       edit={(s, f) => editStyle(s, effectId, (st) => change(st, Math.round(toValue(f) * 100) / 100))}
     />
   );
@@ -221,32 +227,32 @@ const decayText = (v: number) => `${v.toFixed(0)} (${decayDb(v) > 0 ? "+" : ""}$
 export function StyleEditor({ effectId, eb }: { effectId: string; eb: EchoBoy }) {
   const st = styleOf(eb);
   const copied = useEchoUi((s) => s.copiedStyle !== null);
-  const k = (label: string, ends: [string, string], value: number, range: readonly [number, number], defaultValue: number, format: (v: number) => string, change: (s: EchoStyle, v: number) => EchoStyle, opts: { log?: boolean; unit?: ValueUnit; bipolar?: boolean } = {}) => (
-    <StyleKnob key={label} effectId={effectId} label={label} ends={ends} value={value} range={range} defaultValue={defaultValue} format={format} change={change} unit={opts.unit ?? DB} log={opts.log} bipolar={opts.bipolar} />
+  const k = (control: EchoControl, label: string, ends: [string, string], value: number, range: readonly [number, number], defaultValue: number, format: (v: number) => string, change: (s: EchoStyle, v: number) => EchoStyle, opts: { log?: boolean; unit?: ValueUnit; bipolar?: boolean } = {}) => (
+    <StyleKnob key={label} effectId={effectId} control={control} label={label} ends={ends} value={value} range={range} defaultValue={defaultValue} format={format} change={change} unit={opts.unit ?? DB} log={opts.log} bipolar={opts.bipolar} />
   );
   const gainEnds: [string, string] = ["-40", "+18"];
   return (
     <Drawer testId="echo-style-editor">
       <Group title="Low EQ">
-        {k("Freq", ["20", "2K"], st.low.freq, LOW_FREQ_RANGE, 20, hz, (s, freq) => ({ ...s, low: { ...s.low, freq } }), { log: true, unit: HZ })}
-        {k("Gain", gainEnds, st.low.gain, EQ_GAIN_RANGE, 0, db, (s, gain) => ({ ...s, low: { ...s.low, gain } }))}
-        {k("Decay", gainEnds, st.low.decay, EQ_GAIN_RANGE, 0, decayText, (s, decay) => ({ ...s, low: { ...s.low, decay } }))}
+        {k("lowFreq", "Freq", ["20", "2K"], st.low.freq, LOW_FREQ_RANGE, 20, hz, (s, freq) => ({ ...s, low: { ...s.low, freq } }), { log: true, unit: HZ })}
+        {k("lowGain", "Gain", gainEnds, st.low.gain, EQ_GAIN_RANGE, 0, db, (s, gain) => ({ ...s, low: { ...s.low, gain } }))}
+        {k("lowDecay", "Decay", gainEnds, st.low.decay, EQ_GAIN_RANGE, 0, decayText, (s, decay) => ({ ...s, low: { ...s.low, decay } }))}
       </Group>
       <Group title="Mid EQ">
-        {k("Freq", ["20", "5K"], st.mid.freq, MID_FREQ_RANGE, 1000, hz, (s, freq) => ({ ...s, mid: { ...s.mid, freq } }), { log: true, unit: HZ })}
-        {k("Res", ["-12", "+24"], st.mid.res, MID_RES_RANGE, 0, (v) => v.toFixed(1), (s, res) => ({ ...s, mid: { ...s.mid, res } }), { unit: { scale: 1, unit: "" } })}
-        {k("Gain", gainEnds, st.mid.gain, EQ_GAIN_RANGE, 0, db, (s, gain) => ({ ...s, mid: { ...s.mid, gain } }))}
-        {k("Decay", gainEnds, st.mid.decay, EQ_GAIN_RANGE, 0, decayText, (s, decay) => ({ ...s, mid: { ...s.mid, decay } }))}
+        {k("midFreq", "Freq", ["20", "5K"], st.mid.freq, MID_FREQ_RANGE, 1000, hz, (s, freq) => ({ ...s, mid: { ...s.mid, freq } }), { log: true, unit: HZ })}
+        {k("midRes", "Res", ["-12", "+24"], st.mid.res, MID_RES_RANGE, 0, (v) => v.toFixed(1), (s, res) => ({ ...s, mid: { ...s.mid, res } }), { unit: { scale: 1, unit: "" } })}
+        {k("midGain", "Gain", gainEnds, st.mid.gain, EQ_GAIN_RANGE, 0, db, (s, gain) => ({ ...s, mid: { ...s.mid, gain } }))}
+        {k("midDecay", "Decay", gainEnds, st.mid.decay, EQ_GAIN_RANGE, 0, decayText, (s, decay) => ({ ...s, mid: { ...s.mid, decay } }))}
       </Group>
       <Group title="High EQ">
-        {k("Freq", ["500", "12K"], st.high.freq, HIGH_FREQ_RANGE, 12_000, hz, (s, freq) => ({ ...s, high: { ...s.high, freq } }), { log: true, unit: HZ })}
-        {k("Gain", gainEnds, st.high.gain, EQ_GAIN_RANGE, 0, db, (s, gain) => ({ ...s, high: { ...s.high, gain } }))}
-        {k("Decay", gainEnds, st.high.decay, EQ_GAIN_RANGE, 0, decayText, (s, decay) => ({ ...s, high: { ...s.high, decay } }))}
+        {k("highFreq", "Freq", ["500", "12K"], st.high.freq, HIGH_FREQ_RANGE, 12_000, hz, (s, freq) => ({ ...s, high: { ...s.high, freq } }), { log: true, unit: HZ })}
+        {k("highGain", "Gain", gainEnds, st.high.gain, EQ_GAIN_RANGE, 0, db, (s, gain) => ({ ...s, high: { ...s.high, gain } }))}
+        {k("highDecay", "Decay", gainEnds, st.high.decay, EQ_GAIN_RANGE, 0, decayText, (s, decay) => ({ ...s, high: { ...s.high, decay } }))}
       </Group>
       <Group title="Diffusion">
-        {k("Amount", ["Off", "Max"], st.diffusion.amount, [0, 1], 0, percent, (s, amount) => ({ ...s, diffusion: { ...s.diffusion, amount } }), { unit: PERCENT })}
+        {k("diffusionAmount", "Amount", ["Off", "Max"], st.diffusion.amount, [0, 1], 0, percent, (s, amount) => ({ ...s, diffusion: { ...s.diffusion, amount } }), { unit: PERCENT })}
         <div className="flex flex-col items-center gap-1.5">
-          {k("Size", ["0", "50"], st.diffusion.size, [0, MAX_DIFFUSION_SIZE], 10, (v) => v.toFixed(1), (s, size) => ({ ...s, diffusion: { ...s.diffusion, size } }), { unit: { scale: 1, unit: "" } })}
+          {k("diffusionSize", "Size", ["0", "50"], st.diffusion.size, [0, MAX_DIFFUSION_SIZE], 10, (v) => v.toFixed(1), (s, size) => ({ ...s, diffusion: { ...s.diffusion, size } }), { unit: { scale: 1, unit: "" } })}
           <div className="flex flex-col items-start" role="radiogroup" aria-label="Diffusion: in the loop or after it">
             <Toggle on={st.diffusion.loop} label="Loop" title="In the feedback loop: each repeat more diffused" onChange={() => commit((s) => editStyle(s, effectId, (x) => ({ ...x, diffusion: { ...x.diffusion, loop: true } })))} />
             <Toggle on={!st.diffusion.loop} label="Post" title="After the loop: every repeat diffused alike" onChange={() => commit((s) => editStyle(s, effectId, (x) => ({ ...x, diffusion: { ...x.diffusion, loop: false } })))} />
@@ -256,9 +262,9 @@ export function StyleEditor({ effectId, eb }: { effectId: string; eb: EchoBoy })
       <Group title="Wobble">
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-start gap-3">
-            {k("Depth", ["Off", "1200"], st.wobble.depth, [0, MAX_WOBBLE_DEPTH], 0, (v) => `${v.toFixed(1)} cents`, (s, depth) => ({ ...s, wobble: { ...s.wobble, depth } }), { unit: { scale: 1, unit: "cents" } })}
-            {k("Rate", [".01", "50"], st.wobble.rate, WOBBLE_RATE_RANGE, 0.5, (v) => `${v.toFixed(2)} Hz`, (s, rate) => ({ ...s, wobble: { ...s.wobble, rate } }), { log: true, unit: HZ })}
-            {k("Sync", ["−", "+"], st.wobble.sync, [-1, 1], 0, sided("rates apart", "phases apart"), (s, sync) => ({ ...s, wobble: { ...s.wobble, sync } }), { bipolar: true, unit: PERCENT })}
+            {k("wobbleDepth", "Depth", ["Off", "1200"], st.wobble.depth, [0, MAX_WOBBLE_DEPTH], 0, (v) => `${v.toFixed(1)} cents`, (s, depth) => ({ ...s, wobble: { ...s.wobble, depth } }), { unit: { scale: 1, unit: "cents" } })}
+            {k("wobbleRate", "Rate", [".01", "50"], st.wobble.rate, WOBBLE_RATE_RANGE, 0.5, (v) => `${v.toFixed(2)} Hz`, (s, rate) => ({ ...s, wobble: { ...s.wobble, rate } }), { log: true, unit: HZ })}
+            {k("wobbleSync", "Sync", ["−", "+"], st.wobble.sync, [-1, 1], 0, sided("rates apart", "phases apart"), (s, sync) => ({ ...s, wobble: { ...s.wobble, sync } }), { bipolar: true, unit: PERCENT })}
           </div>
           <div className="flex items-center gap-2">
             <Toggle on={st.wobble.feedback} label="FB" title="Wobble the repeats (in the loop)" onChange={(feedback) => commit((s) => editStyle(s, effectId, (x) => ({ ...x, wobble: { ...x.wobble, feedback } })))} />
@@ -278,8 +284,8 @@ export function StyleEditor({ effectId, eb }: { effectId: string; eb: EchoBoy })
       <Group title="Saturation">
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-start gap-3">
-            {k("Decay Sat", ["-24", "+24"], st.saturation.decay, [-MAX_ECHO_GAIN, MAX_ECHO_GAIN], 0, db, (s, decay) => ({ ...s, saturation: { ...s.saturation, decay } }), { bipolar: true })}
-            {k("Out Sat", ["-24", "+24"], st.saturation.out, [-MAX_ECHO_GAIN, MAX_ECHO_GAIN], 0, db, (s, out) => ({ ...s, saturation: { ...s.saturation, out } }), { bipolar: true })}
+            {k("decaySat", "Decay Sat", ["-24", "+24"], st.saturation.decay, [-MAX_ECHO_GAIN, MAX_ECHO_GAIN], 0, db, (s, decay) => ({ ...s, saturation: { ...s.saturation, decay } }), { bipolar: true })}
+            {k("outSat", "Out Sat", ["-24", "+24"], st.saturation.out, [-MAX_ECHO_GAIN, MAX_ECHO_GAIN], 0, db, (s, out) => ({ ...s, saturation: { ...s.saturation, out } }), { bipolar: true })}
           </div>
           <LcdMenu label="Saturation type" text={SATURATION_NAMES[st.saturation.type]} className="w-28" testId="echo-saturation-type">
             <DropdownMenuRadioGroup value={st.saturation.type} onValueChange={(v) => commit((s) => editStyle(s, effectId, (x) => ({ ...x, saturation: { ...x.saturation, type: v as EchoSaturation } })))}>

@@ -512,7 +512,8 @@ void Sequencer::applyLanes (int numSamples)
         sliceEnd = sliceStart + span;
     }
     const auto a = (float) into / (float) sliceSamples, b = (float) (into + numSamples) / (float) sliceSamples;
-    std::array<float, 4> start {}, end {}, from {}, to {};
+    std::array<float, Song::Lane::maxSize> start {};
+    std::array<float, 4> end {}, from {}, to {};
     for (auto& lane : song->lanes)
     {
         lane.valueAt (sliceStart, start.data());
@@ -622,7 +623,8 @@ void Sequencer::restoreLanes (Song& from)
             case Song::Lane::Kind::track:
             {
                 auto& track = from.tracks[(size_t) lane.track];
-                track.gains = track.from = lane.base;
+                std::copy_n (lane.base.begin(), 4, track.gains.begin());
+                track.from = track.gains;
                 track.automated = false;
                 break;
             }

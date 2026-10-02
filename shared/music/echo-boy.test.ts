@@ -34,7 +34,7 @@ import { ECHO_STYLES, decayDb, styleNamed } from "./echo-boy-styles.ts";
 import { setEffect } from "./mixer.ts";
 import { addClips, editClips } from "./playlist.ts";
 import { FIRST_PATTERN_ID, createMusicProject, normalizeMusicProject, normalizeTarget } from "./project.ts";
-import type { EchoBoy, MusicProject } from "./types.ts";
+import { ECHO_CONTROLS, type EchoBoy, type MusicProject } from "./types.ts";
 
 const P = FIRST_PATTERN_ID;
 const BAR = 384;
@@ -274,6 +274,56 @@ describe("EchoBoy's automation", () => {
     expect(lane.values.slice(-4).map((v) => round(v, 2))).toEqual([0.4, 0.4, 0.4, 0.4]);
     // Nothing automated, no lanes.
     expect(compileSong(withEchoBoy(), P, null, "song").lanes).toEqual([]);
+  });
+});
+
+describe("EchoBoy's automation, every knob", () => {
+  /** `song` in song mode, `control` automated from `from` to `to` (its fractions) over a bar. */
+  function lanesOf(song: MusicProject, control: (typeof ECHO_CONTROLS)[number], from = 0, to = 1) {
+    let s = editClips(song, (clips) => addClips(clips, [{ kind: "pattern", ref: P, track: 0, start: 0, length: BAR * 2 }]).clips);
+    const made = createAutomation(s, { kind: "echoBoy", effect: "fx_echo", control }, { start: 0, length: BAR }, { id: "auto_x" });
+    s = editPoints(made.song, "auto_x", () => [
+      { tick: 0, value: from, tension: 0, curve: "single" },
+      { tick: BAR, value: to, tension: 0, curve: "single" },
+    ]);
+    return compileSong(s, P, null, "song").lanes.filter((l) => l.target.kind === "echo");
+  }
+  const controlsOf = (lanes: ReturnType<typeof lanesOf>) => lanes.map((l) => (l.target.kind === "echo" ? l.target.control : "")).sort();
+
+  it("has a spec for every control, whose taper goes there and back", () => {
+    const song = withEchoBoy();
+    for (const control of ECHO_CONTROLS) {
+      const info = controlOf(song, { kind: "echoBoy", effect: "fx_echo", control });
+      expect(info.exists, control).toBe(true);
+      expect(info.own, control).not.toBeNull();
+      for (const f of [0, 0.3, 1]) expect(ECHO_CONTROL_SPECS[control].fromControl(ECHO_CONTROL_SPECS[control].toControl(f)), control).toBeCloseTo(f, 6);
+    }
+  });
+
+  it("moves the lines' outputs with Balance, the matrix with FB Mix, the EQ with the Style Editor's", () => {
+    const dual = updateEchoBoy(withEchoBoy(), "fx_echo", { mode: "dual" });
+    const balance = lanesOf(dual, "balance");
+    expect(controlsOf(balance)).toEqual(["outs"]);
+    // Hard left at the start: the right's lines silent; hard right at the end: the left's.
+    expect(balance[0].values.slice(0, 8)).toEqual([1, 0, 1, 0, 0, 0, 0, 0]);
+    expect(balance[0].values.slice(-8)).toEqual([0, 0, 0, 0, 0, 1, 0, 1]);
+    const mix = lanesOf(dual, "feedbackMix");
+    expect(controlsOf(mix)).toEqual(["matrix"]);
+    expect(mix[0].values.length % 16).toBe(0);
+    const low = lanesOf(withEchoBoy(), "lowFreq");
+    expect(controlsOf(low)).toEqual(["eq"]);
+    expect(low[0].values[0]).toBeCloseTo(20, 6);
+    expect(low[0].values[low[0].values.length - 10]).toBeCloseTo(2000, 6);
+  });
+
+  it("lays Rhythm Echo's taps out again as its Rhythm knob is automated, every tap the engine has", () => {
+    const rhythm = updateEchoBoy(withEchoBoy(), "fx_echo", { mode: "rhythm" });
+    const lanes = lanesOf(rhythm, "rhythmTime", 0.2, 0.6);
+    expect(controlsOf(lanes)).toEqual(["delays", "taps"]);
+    const taps = lanes.find((l) => l.target.kind === "echo" && l.target.control === "taps")!;
+    expect(taps.values.length % (16 * 4)).toBe(0);
+    // Single mode has no taps: no lane of them.
+    expect(controlsOf(lanesOf(withEchoBoy(), "groove"))).toEqual(["delays"]);
   });
 });
 

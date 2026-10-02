@@ -194,8 +194,10 @@ struct Song
         int size = 1;
         std::vector<double> ticks;
         std::vector<float> values;
+        /** The most values a point has (an EchoBoy's taps: four each). */
+        static constexpr int maxSize = 64;
         /** What it drives as the song has it, unautomated: put back when the song stops. */
-        std::array<float, 4> base {};
+        std::array<float, maxSize> base {};
 
         /** A plugin parameter's: its plugin, the parameter, and what names it across songs. */
         std::shared_ptr<HostedPlugin> plugin;

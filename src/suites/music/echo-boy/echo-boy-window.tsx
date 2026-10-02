@@ -227,7 +227,7 @@ function RhythmSection({ effectId, eb, mix, feedback, lowCut, highCut, prime, tw
       <div className="grid grid-cols-[1fr_auto_1fr] items-start justify-items-center gap-2">
         <div className="pt-4">{mix}</div>
         <div className="flex flex-col items-center gap-1">
-          <EchoKnob label="Rhythm" size={42} value={knob} min={0} max={1} defaultValue={2 / 5} format={(f) => `${timeText(knobTime(f))} (${rhythmStep({ ...r, time: knobTime(f) }, bpm).toFixed(3)} beats)`} unit={PERCENT} edit={(s, f) => layOut({ time: knobTime(f) })(s)} />
+          <EchoKnob label="Rhythm" size={42} value={knob} min={0} max={1} defaultValue={2 / 5} format={(f) => `${timeText(knobTime(f))} (${rhythmStep({ ...r, time: knobTime(f) }, bpm).toFixed(3)} beats)`} unit={PERCENT} target={{ kind: "echoBoy", effect: effectId, control: "rhythmTime" }} edit={(s, f) => layOut({ time: knobTime(f) })(s)} />
           <SyncKeys
             value={time.sync}
             onChange={(sync: EchoSync) => commit(layOut({ time: { ...time, sync } }))}
@@ -268,7 +268,7 @@ function RhythmSection({ effectId, eb, mix, feedback, lowCut, highCut, prime, tw
       </div>
       <div className="grid grid-cols-[1fr_auto_1fr] items-end justify-items-center gap-2">
         <div className="flex flex-col items-center gap-1">
-          <EchoKnob label="Shape" size={30} value={r.shapeAmount} min={0} max={1} defaultValue={0.5} format={percent} unit={PERCENT} edit={(s, shapeAmount) => updateRhythm(s, effectId, (rr) => ({ ...rr, shapeAmount }))} />
+          <EchoKnob label="Shape" size={30} value={r.shapeAmount} min={0} max={1} defaultValue={0.5} format={percent} unit={PERCENT} target={{ kind: "echoBoy", effect: effectId, control: "rhythmShape" }} edit={(s, shapeAmount) => updateRhythm(s, effectId, (rr) => ({ ...rr, shapeAmount }))} />
           <LcdMenu label="Shape" text={SHAPE_NAMES[r.shape]} className="w-20" testId="echo-shape">
             <DropdownMenuRadioGroup value={r.shape} onValueChange={(v) => commit((s) => updateRhythm(s, effectId, (rr) => ({ ...rr, shape: v as RhythmShape })))}>
               {RHYTHM_SHAPES.map((shape) => (
