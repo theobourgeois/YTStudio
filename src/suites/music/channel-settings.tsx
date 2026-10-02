@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { levelGain, panGains } from "@shared/music/compile";
 import { updateChannel } from "@shared/music/edits";
 import { pitchSpeed } from "@shared/music/playlist";
-import { DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH, precomputedUntouched } from "@shared/music/project";
+import { DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH, PITCH_KNOB_RANGE, precomputedUntouched } from "@shared/music/project";
 import type { Channel, Precomputed } from "@shared/music/types";
 import { type SampleLoop, samplerOf } from "@shared/music/sampler";
 import { Input } from "@/components/ui/input";
@@ -22,8 +22,6 @@ import { MusicWindow } from "./window";
 import { PluginTab } from "./plugin-tab";
 import { InstrumentTab } from "./instrument-tab";
 
-/** The pitch knob's reach, in semitones. */
-const PITCH_RANGE = 24;
 /** A plugin channel's PITCH: whole semitones its keys are moved by. */
 const SEMITONES: ValueUnit = { scale: 1, unit: "semitones" };
 const semitones = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v)} semitone${Math.abs(Math.round(v)) === 1 ? "" : "s"}`;
@@ -130,13 +128,15 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
                 size={26}
                 label="Pitch"
                 value={clampPitch(channel.pitch)}
-                min={-PITCH_RANGE}
-                max={PITCH_RANGE}
+                min={-PITCH_KNOB_RANGE}
+                max={PITCH_KNOB_RANGE}
                 defaultValue={0}
                 bipolar
                 // A plugin's keys are moved by whole semitones (ours: FL's wrapper bends within the plugin's range).
                 format={plugin ? semitones : cents}
                 unit={plugin ? SEMITONES : CENTS}
+                // Automated, a sampler's notes bend as they sound; a plugin channel's move by whole semitones. An audio clip's channel's clips can't follow it.
+                target={audio ? undefined : { kind: "channel", channel: id, control: "pitch" }}
                 // Whole semitones as it turns; cents are typed in. An audio clip plays faster pitched up (FL's Resample).
                 edit={(song, pitch) => updateChannel(song, id, { pitch: !plugin && Number.isInteger(pitch * 100) && !Number.isInteger(pitch) ? pitch : Math.round(pitch) })}
               />
@@ -172,7 +172,7 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
   );
 }
 
-const clampPitch = (pitch: number) => Math.min(PITCH_RANGE, Math.max(-PITCH_RANGE, pitch));
+const clampPitch = (pitch: number) => Math.min(PITCH_KNOB_RANGE, Math.max(-PITCH_KNOB_RANGE, pitch));
 
 function TabButton({ label, selected, onSelect, children }: { label: string; selected: boolean; onSelect: () => void; children: React.ReactNode }) {
   return (

@@ -11,7 +11,7 @@ import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
-import { DEFAULT_LFO, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
+import { DEFAULT_LFO, PITCH_KNOB_RANGE, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
 import { type Automation, type AutomationLfo, type AutomationPoint, type AutomationTarget, type CurveType, type MusicProject, type PlaylistClip, STEP_TICKS } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -238,6 +238,22 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
   switch (target.kind) {
     case "channel": {
       const channel = song.channels.find((c) => c.id === target.channel);
+      if (target.control === "pitch") {
+        // Semitones either way of the knob's reach; a plugin channel's keys move by whole ones.
+        const toControl = (v: number) => (clamp(v, 0, 1) * 2 - 1) * PITCH_KNOB_RANGE;
+        return {
+          name: "Pitch",
+          owner: channel?.name ?? "A deleted channel",
+          exists: !!channel,
+          own: channel ? clamp((channel.pitch / PITCH_KNOB_RANGE + 1) / 2, 0, 1) : null,
+          toControl,
+          fromControl: (value) => clamp((value / PITCH_KNOB_RANGE + 1) / 2, 0, 1),
+          format: (v) => {
+            const semitones = toControl(v);
+            return channel?.kind === "plugin" ? `${semitones > 0 ? "+" : ""}${Math.round(semitones)} st` : `${semitones > 0 ? "+" : ""}${Math.round(semitones * 100)} cents`;
+          },
+        };
+      }
       const pan = target.control === "pan";
       return {
         name: pan ? "Pan" : "Volume",
@@ -447,6 +463,48 @@ export function movePoint(points: AutomationPoint[], index: number, tick: number
   const next = tidyPoint({ ...point, tick: clamp(tick, low, high), value });
   if (next.tick === point.tick && next.value === point.value) return points;
   return points.map((p, i) => (i === index ? next : p));
+}
+
+/**
+ * Move a point in FL's Slide mode: every point after it moves along with it (by as many ticks), so what
+ * follows keeps its shape. It can't pass the point before, nor push the last past the curve's end.
+ */
+export function slidePoint(points: AutomationPoint[], index: number, tick: number, value: number, length: number): AutomationPoint[] {
+  const point = points[index];
+  if (!point) return points;
+  const last = points[points.length - 1].tick;
+  const delta = index === 0 ? 0 : clamp(Math.round(tick) - point.tick, points[index - 1].tick - point.tick, length - last);
+  const moved = tidyPoint({ ...point, tick: point.tick + delta, value });
+  if (delta === 0 && moved.value === point.value) return points;
+  return points.map((p, i) => (i < index ? p : i === index ? moved : { ...p, tick: p.tick + delta }));
+}
+
+/**
+ * FL's Step mode: steps painted onto a curve, `cells` (a step's start → its value, in ticks of the curve),
+ * each `cell` ticks long. A step is a held value: what was in it goes, it jumps to its value at its start
+ * and back to what the curve was at its end (unless another step follows). Points beyond the most a curve
+ * may have aren't added.
+ */
+export function paintSteps(points: AutomationPoint[], cells: ReadonlyMap<number, number>, cell: number, length: number): AutomationPoint[] {
+  let next = points;
+  for (const [from, value] of [...cells].sort((a, b) => a[0] - b[0])) {
+    const start = Math.round(clamp(from, 0, length));
+    const end = Math.round(Math.min(from + cell, length));
+    if (end <= start) continue;
+    const after = curveValue(next, end);
+    // The curve up to the step keeps its shape: a point where it starts, on the segment it cuts (a held one needs none).
+    const arriving = next.find((p) => p.tick >= start);
+    const lead = start > 0 && arriving && arriving.curve !== "hold" ? { ...arriving, tick: start, value: arriving.tick === start ? arriving.value : curveValue(next, start) } : null;
+    const before = next.filter((p) => p.tick < start);
+    const rest = next.filter((p) => p.tick >= end);
+    // Held to its end, then the curve as it was there: onto the point already there, or a new one.
+    const close: AutomationPoint[] =
+      rest[0]?.tick === end ? [{ ...rest[0], curve: "hold", tension: 0 }, ...rest.slice(1)] : end < length ? [{ tick: end, value: after, tension: 0, curve: "hold" }, ...rest] : rest;
+    const painted = [...before, ...(lead ? [lead] : []), { tick: start, value: clamp(value, 0, 1), tension: 0, curve: "hold" as const }, ...close];
+    if (painted.length > MAX_AUTOMATION_POINTS) break;
+    next = painted;
+  }
+  return next;
 }
 
 /** Delete a point. The first stays (a curve always starts somewhere). */

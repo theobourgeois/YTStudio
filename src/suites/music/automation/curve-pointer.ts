@@ -4,11 +4,13 @@
  * grid; Alt+click deletes it), drag a tension handle to bend its segment (Ctrl: finely; a right-click
  * straightens it), right-click (and drag) on the curve to add a point (Shift: on the line, keeping its
  * value), right-click a point for its menu. Each drag is a `curve` drag, one edit when it's let go.
+ * FL's two modes: Slide (a point dragged takes every later one along) and Step (a left drag anywhere on
+ * the curve paints held steps, a grid cell each, at the pointer's height).
  */
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { addPoint, curveValue, deletePoint, editPoints, movePoint, updatePoint } from "@shared/music/automation";
+import { addPoint, curveValue, deletePoint, editPoints, movePoint, paintSteps, slidePoint, updatePoint } from "@shared/music/automation";
 import { clipEnd } from "@shared/music/playlist";
-import type { Automation, AutomationPoint, PlaylistClip } from "@shared/music/types";
+import { type Automation, type AutomationPoint, type PlaylistClip, STEP_TICKS } from "@shared/music/types";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { snapTick } from "../piano/geometry";
 import { type PlaylistContext, cancelDrag, commitDrag } from "../playlist/actions";
@@ -53,9 +55,11 @@ export function curveUnder(p: PlaylistContext, view: PlaylistView, clip: Playlis
   return { curve, hit: hitCurve(curve.automation.points, curve.box, x, y, curve.left, curve.right) };
 }
 
-/** The pointer over a clip's curve: on a point, the plain arrow (as FL's, not a hand); on a tension handle, up and down. Null elsewhere. */
+/** The pointer over a clip's curve: on a point, the plain arrow (as FL's, not a hand); on a tension handle, up and down; in Step mode, a crosshair. Null elsewhere. */
 export function curveCursor(p: PlaylistContext, view: PlaylistView, clip: PlaylistClip, x: number, y: number): string | null {
   const under = curveUnder(p, view, clip, x, y);
+  // Step mode paints anywhere on the curve but its tension handles.
+  if (under && usePlaylist.getState().curveStep && under.hit?.kind !== "tension") return "crosshair";
   if (!under?.hit) return null;
   return under.hit.kind === "point" ? "default" : "ns-resize";
 }
@@ -90,6 +94,7 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
   /** Drag the point at `index` of `base` (a point just added, or one pressed). */
   const dragPoint = (base: AutomationPoint[], index: number, button: 0 | 2, onClick: () => void) => {
     const from = base[index];
+    const move = usePlaylist.getState().curveSlide ? slidePoint : movePoint;
     startPointerDrag(e, {
       button,
       threshold: button === 2 ? 0 : 2,
@@ -98,7 +103,7 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
         const q = local(ev);
         const tick = ev.shiftKey ? from.tick : tickAt(q.x, ev.altKey);
         const value = ev.ctrlKey || ev.metaKey ? from.value : curveValueAt(box, q.y);
-        show(movePoint(base, index, tick, value, length));
+        show(move(base, index, tick, value, length));
       },
       onEnd: commitDrag,
       onClick,
@@ -106,6 +111,39 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
     });
   };
   const commit = (change: (points: AutomationPoint[]) => AutomationPoint[]) => useMusic.getState().commit((song) => editPoints(song, id, change));
+  /**
+   * Step mode's drag: each grid cell (of the song's grid, Alt: a step's) the pointer passes over is painted
+   * at its height, cells it skipped filled in between, all from the curve as it was pressed.
+   */
+  const paintDrag = () => {
+    const cell = (alt: boolean) => (alt || !(p.grid >= 1) ? STEP_TICKS : p.grid);
+    const shift = clip.start - clip.offset;
+    const cells = new Map<number, number>();
+    let last: { tick: number; value: number } | null = null;
+    const paint = (q: { x: number; y: number }, alt: boolean) => {
+      const size = cell(alt);
+      const here = { tick: clip.start + curveTick(box, q.x) - clip.offset, value: curveValueAt(box, q.y) };
+      const from = last ?? here;
+      const a = Math.floor(Math.min(from.tick, here.tick) / size);
+      const b = Math.floor(Math.max(from.tick, here.tick) / size);
+      for (let k = a; k <= b; k++) {
+        const mid = (k + 0.5) * size;
+        const f = here.tick === from.tick ? 1 : Math.min(1, Math.max(0, (mid - from.tick) / (here.tick - from.tick)));
+        cells.set(k * size - shift, from.value + (here.value - from.value) * f);
+      }
+      last = here;
+      show(paintSteps(points, cells, size, length));
+    };
+    paint({ x, y }, e.altKey);
+    startPointerDrag(e, {
+      threshold: 0,
+      cursor: "crosshair",
+      onMove: (ev) => paint(local(ev), ev.altKey),
+      onEnd: commitDrag,
+      onClick: commitDrag,
+      onCancel: cancelDrag,
+    });
+  };
 
   if (e.button === 2) {
     if (hit?.kind === "point") {
@@ -122,6 +160,10 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
     if (added.index < 0) return true;
     show(added.points);
     dragPoint(added.points, added.index, 2, commitDrag);
+    return true;
+  }
+  if (e.button === 0 && usePlaylist.getState().curveStep && hit?.kind !== "tension") {
+    paintDrag();
     return true;
   }
   if (e.button !== 0 || !hit) return false;

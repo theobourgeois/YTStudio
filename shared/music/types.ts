@@ -405,7 +405,7 @@ export interface TimeMarker {
  * or one of a plugin's own parameters (a plugin channel's instrument's, or an effect's).
  */
 export type AutomationTarget =
-  | { kind: "channel"; channel: string; control: "volume" | "pan" }
+  | { kind: "channel"; channel: string; control: ChannelControl }
   | { kind: "mixer"; track: string; control: "volume" | "pan" | "stereo" }
   | { kind: "send"; track: string; to: string }
   | { kind: "effect"; effect: string }
@@ -421,6 +421,9 @@ export type AutomationTarget =
       index: number;
       name: string;
     };
+
+/** A channel's controls an automation clip can drive: its volume, pan and pitch (a sampler's notes bend; a plugin channel's are moved by whole semitones). */
+export type ChannelControl = "volume" | "pan" | "pitch";
 
 /** Gross Beat's controls an automation clip can drive: the slots playing and the two mix knobs. */
 export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";

@@ -5,7 +5,7 @@
  * the mixer's routing as an order to run its tracks in. The engine (`engine/src/Song.cpp`) only has to
  * play samples and audio clips at the right moments and add up tracks as it's told.
  */
-import { automationIndex, clipAtTick, controlBreaks, controlOf, placedValue, targetKey } from "./automation.ts";
+import { automationIndex, clipAtTick, controlAt, controlBreaks, controlOf, isAutomated, placedValue, targetKey } from "./automation.ts";
 import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
 import { LANE_FINEST, sampleLane } from "./sampling.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
@@ -157,13 +157,15 @@ export interface EngineAudioClip {
 }
 
 /**
- * What an automation lane drives in the engine, in the engine's own units: a channel's two gains, a mixer
+ * What an automation lane drives in the engine, in the engine's own units: a channel's two gains or a
+ * sampler's pitch (semitones), a mixer
  * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, a Gross Beat's slot (its
  * number, 0..35) or mix (0..1), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
  * before any clip of it).
  */
 export type EngineLaneTarget =
   | { kind: "channel"; channel: number }
+  | { kind: "pitch"; channel: number }
   | { kind: "track"; track: number }
   | { kind: "send"; track: number; send: number }
   | { kind: "mix"; track: number; effect: number }
@@ -457,7 +459,7 @@ export function compileSong(
   const length = mode === "song" ? songTicks(song) : patternSteps(pattern, song.settings.timeSignature) * STEP_TICKS;
   const from = loop && loop.end > loop.start ? Math.max(0, loop.start) : 0;
   const to = loop && loop.end > loop.start ? loop.end : length;
-  const notes = transposePlugins(song, mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to));
+  const notes = transposePlugins(song, mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to), mode === "song" ? from : null, held);
   notes.sort((a, b) => a.tick - b.tick || a.channel - b.channel);
   const played = new Set(notes.map((n) => n.channel));
   const { tracks, index } = engineTracks(song, armed, mode);
@@ -482,12 +484,27 @@ const NONE_HELD: ReadonlySet<string> = new Set();
 
 /**
  * A plugin channel's PITCH moves the keys it's sent by whole semitones (a sampler's plays its sample at
- * that pitch instead; ours: FL's wrapper bends the pitch within the plugin's own bend range).
+ * that pitch instead; ours: FL's wrapper bends the pitch within the plugin's own bend range). In song mode
+ * (`songFrom`: where the notes' ticks count from) an automated PITCH moves each note by what it is where
+ * the note starts, unless the hand holds it.
  */
-function transposePlugins(song: MusicProject, notes: EngineNote[]): EngineNote[] {
+function transposePlugins(song: MusicProject, notes: EngineNote[], songFrom: number | null, held: ReadonlySet<string>): EngineNote[] {
   const shift = song.channels.map((c) => (c.kind === "plugin" ? Math.round(c.pitch) : 0));
-  if (!shift.some((s) => s !== 0)) return notes;
-  return notes.map((n) => (shift[n.channel] ? { ...n, key: Math.min(127, Math.max(0, n.key + shift[n.channel])) } : n));
+  const automated = song.channels.map((c): ((tick: number) => number) | null => {
+    if (c.kind !== "plugin" || songFrom === null) return null;
+    const target: AutomationTarget = { kind: "channel", channel: c.id, control: "pitch" };
+    if (held.has(targetKey(target)) || !isAutomated(song, target)) return null;
+    const info = controlOf(song, target);
+    return (tick) => {
+      const fraction = controlAt(song, target, tick);
+      return fraction === null ? Math.round(c.pitch) : Math.round(info.toControl(fraction));
+    };
+  });
+  if (!shift.some((s) => s !== 0) && !automated.some(Boolean)) return notes;
+  return notes.map((n) => {
+    const by = automated[n.channel]?.(n.tick + (songFrom ?? 0)) ?? shift[n.channel];
+    return by ? { ...n, key: Math.min(127, Math.max(0, n.key + by)) } : n;
+  });
 }
 
 /** A note as the engine plays it, `tick` ticks into the loop, `length` long. */
@@ -665,6 +682,12 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
     const volume = valueOf(volumeTarget, channel.volume);
     const pan = valueOf(panTarget, channel.pan);
     add({ kind: "channel", channel: i }, [automated(volumeTarget), automated(panTarget)], (tick) => channelGains({ muted: false, volume: volume(tick), pan: pan(tick) }));
+    // A sampler's pitch bends its voices as they sound (a plugin channel's moves its notes' keys: `transposePlugins`).
+    if (channel.kind !== "plugin") {
+      const pitchTarget: AutomationTarget = { kind: "channel", channel: channel.id, control: "pitch" };
+      const pitch = valueOf(pitchTarget, channel.pitch);
+      add({ kind: "pitch", channel: i }, [automated(pitchTarget)], (tick) => [pitch(tick)]);
+    }
   });
 
   for (const track of song.mixer.tracks) {

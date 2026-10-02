@@ -21,6 +21,7 @@ import {
   type Envelope,
   type GrossBeat,
   type GrossBeatSlot,
+  type ChannelControl,
   type GrossControl,
   type GrossHold,
   type Mixer,
@@ -53,6 +54,8 @@ export const DEFAULT_VOLUME = 0.78;
 export const DEFAULT_VELOCITY = 0.78;
 /** How far a channel can be transposed, in semitones. */
 export const MAX_PITCH = 48;
+/** The channel PITCH knob's reach either way, in semitones (and an automation clip's of it). */
+export const PITCH_KNOB_RANGE = 24;
 /** The step sequencer's limit, as in FL Studio (64 bars of 4/4). */
 export const MAX_STEPS = 512;
 /** How far into a pattern a note can start: 1000 bars of 4/4 (the Piano roll goes well past the step sequencer). */
@@ -602,7 +605,7 @@ function normalizeTrack(raw: unknown, isInsert: (id: string) => boolean): Playli
 }
 
 const CONTROLS = {
-  channel: ["volume", "pan"],
+  channel: ["volume", "pan", "pitch"],
   mixer: ["volume", "pan", "stereo"],
 } as const;
 
@@ -616,7 +619,7 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
   if (!isObject(raw)) return null;
   switch (raw.kind) {
     case "channel":
-      return isId(raw.channel) && CONTROLS.channel.includes(raw.control as never) ? { kind: "channel", channel: raw.channel, control: raw.control as "volume" | "pan" } : null;
+      return isId(raw.channel) && CONTROLS.channel.includes(raw.control as never) ? { kind: "channel", channel: raw.channel, control: raw.control as ChannelControl } : null;
     case "mixer":
       return isId(raw.track) && CONTROLS.mixer.includes(raw.control as never) ? { kind: "mixer", track: raw.track, control: raw.control as "volume" | "pan" | "stereo" } : null;
     case "send":

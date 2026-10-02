@@ -129,6 +129,9 @@ interface PlaylistState {
   transposing: readonly string[] | null;
   /** Stretch mode (FL's, Shift+M): dragging an audio clip's edge time-stretches it rather than resizing its window. */
   stretching: boolean;
+  /** FL's automation editing modes: Step (a left drag on a curve paints held steps on the snap's grid) and Slide (a point moved takes every later one with it). */
+  curveStep: boolean;
+  curveSlide: boolean;
   /** The view before the zoom tool last zoomed in: its right-click goes back (and forth). */
   zoomBack: PlaylistView | null;
   /** A time marker's menu, open (a right-click on it), and where on the ruler; or one being renamed there. */
@@ -172,6 +175,8 @@ const INITIAL = {
   carried: null as readonly ClipSource[] | null,
   transposing: null as readonly string[] | null,
   stretching: false,
+  curveStep: false,
+  curveSlide: false,
   zoomBack: null as PlaylistView | null,
   markerMenu: null as { id: number; x: number } | null,
   renamingMarker: null as { id: number; x: number } | null,

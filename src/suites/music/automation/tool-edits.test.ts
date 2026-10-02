@@ -28,6 +28,16 @@ describe("the assistant's automation", () => {
     expect(() => resolveControl(s, { control: "tempo" })).toThrow(/must be one of/);
   });
 
+  it("automates a channel's pitch in semitones: a sampler's or a plugin channel's", () => {
+    const s = song();
+    const target = { kind: "channel", channel: "chan_kick", control: "pitch" } as const;
+    expect(resolveControl(s, { control: "pitch", channel: "Kick" })).toEqual(target);
+    expect(() => resolveControl(s, { control: "pitch", track: 2 })).toThrow(/a "channel"/);
+    const made = addAutomationEdit(s, { control: "pitch", channel: "Kick", bar: 1, length: 1, points: [{ at: 0, value: 0 }, { at: 1, value: 12 }] }, target);
+    expect(controlAt(made.song, target, BAR / 2)).toBeCloseTo(0.5 + 6 / 48);
+    expect(made.text).toMatch(/Pitch \(Kick\).*\+1200 cents/s);
+  });
+
   it("makes a clip along the points given, in the control's own values, from a bar", () => {
     const s = song();
     const made = addAutomationEdit(s, { control: "pan", channel: "Kick", bar: 3, length: 2, points: [{ at: 0, value: -1 }, { at: 2, value: 1, curve: "double" }] }, { kind: "channel", channel: "chan_kick", control: "pan" });

@@ -2244,6 +2244,40 @@ test("automation, as FL Studio's: a knob makes a clip, its curve is shaped on th
   await page.keyboard.up("Alt");
   await expect.poll(async () => (await savedAutomations(page, id))[0].points.length).toBe(2);
 
+  // Slide mode: a point dragged takes every later one with it.
+  // (Bar 3 would be the tension handle half-way along the line from bar 2.)
+  for (const bar of [2, 2.5]) {
+    at = await curvePoint(page, bar * BAR_TICKS, 0.5, 0);
+    await page.mouse.click(at.x, at.y, { button: "right" });
+  }
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points.map((p) => p.tick)).toEqual([0, 768, 960, 1536]);
+  await page.getByRole("button", { name: "Slide mode" }).click();
+  at = await curvePoint(page, 2 * BAR_TICKS, (await savedAutomations(page, id))[0].points[1].value, 0);
+  const back = await curvePoint(page, 1.5 * BAR_TICKS, (await savedAutomations(page, id))[0].points[1].value, 0);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(back.x, back.y, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points.map((p) => p.tick)).toEqual([0, 576, 768, 1344]);
+  await page.getByRole("button", { name: "Slide mode" }).click();
+  for (let i = 0; i < 3; i++) await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points.length).toBe(2);
+
+  // Step mode: a drag paints held steps along the grid, at the pointer's height; one undo step.
+  await page.getByRole("button", { name: "Step mode" }).click();
+  const paintFrom = await curvePoint(page, 0.5 * BAR_TICKS + 4, 0.2, 0);
+  const paintTo = await curvePoint(page, 1.5 * BAR_TICKS - 4, 0.2, 0);
+  await page.mouse.move(paintFrom.x, paintFrom.y);
+  await page.mouse.down();
+  await page.mouse.move(paintTo.x, paintTo.y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points.some((p) => p.curve === "hold" && Math.abs(p.value - 0.2) < 0.05)).toBe(true);
+  const stepped = (await savedAutomations(page, id))[0].points;
+  expect(stepped.filter((p) => p.curve === "hold" && p.tick >= 0.5 * BAR_TICKS && p.tick < 1.5 * BAR_TICKS).length).toBeGreaterThanOrEqual(4);
+  await page.getByRole("button", { name: "Step mode" }).click();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedAutomations(page, id))[0].points.length).toBe(2);
+
   // A double-click on the clip: its window, with Min / Max and the LFO.
   at = await curvePoint(page, BAR_TICKS, 0.05, 0);
   await page.mouse.dblclick(at.x, at.y);

@@ -714,7 +714,7 @@ void Sequencer::applyLanes (int numSamples)
     for (auto& lane : song->lanes)
     {
         lane.valueAt (sliceStart, start.data());
-        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::param)
+        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::param && lane.kind != Song::Lane::Kind::pitch)
         {
             lane.valueAt (sliceEnd, end.data());
             for (int c = 0; c < lane.size; ++c)
@@ -754,6 +754,10 @@ void Sequencer::applyLanes (int numSamples)
                 send.automated = true;
                 break;
             }
+            case Song::Lane::Kind::pitch:
+                // A sampler's pitch: as it is at the slice's start, all through it (voices work out their rate from it each block).
+                song->channels[(size_t) lane.channel].pitch = start[0];
+                break;
             case Song::Lane::Kind::mix:
                 // An effect's mix and a plugin's parameter: as they are at the slice's start, all through it.
                 song->tracks[(size_t) lane.track].effects[(size_t) lane.index].mix = juce::jlimit (0.0f, 1.0f, start[0]);
@@ -800,6 +804,9 @@ void Sequencer::restoreLanes (Song& from)
                 channel.ramp = false;
                 break;
             }
+            case Song::Lane::Kind::pitch:
+                from.channels[(size_t) lane.channel].pitch = lane.base[0];
+                break;
             case Song::Lane::Kind::track:
             {
                 auto& track = from.tracks[(size_t) lane.track];

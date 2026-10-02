@@ -504,6 +504,15 @@ void Song::parseLanes (Song& song, const juce::var& json)
             const auto& channel = song.channels[(size_t) lane.channel];
             lane.base = { channel.gainLeft, channel.gainRight, 0, 0 };
         }
+        else if (kind == "pitch")
+        {
+            // A sampler's pitch, in semitones: its voices follow it as they sound.
+            lane.kind = Lane::Kind::pitch;
+            lane.channel = (int) number (target["channel"], -1, -1, 1e6);
+            if (lane.channel < 0 || lane.channel >= (int) song.channels.size())
+                continue;
+            lane.base[0] = song.channels[(size_t) lane.channel].pitch;
+        }
         else if (kind == "track" || kind == "send" || kind == "mix")
         {
             lane.track = (int) number (target["track"], -1, -1, 1e6);

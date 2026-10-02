@@ -102,7 +102,7 @@ The manual doesn't say. What FL Studio does, from Théo and from using it:
 - **No tempo automation** in this pass: it changes how ticks become seconds everywhere (audio clips, the
   export, the position display). It gets a pass of its own.
 - **Not built**: Analyze audio file, the Time knob, Create sequence, Filter, Target links to several
-  controls, Convert to events, the Step and Slide modes.
+  controls, Convert to events. (The Step and Slide modes and channel pitch came on 2026-10-02.)
 - **What an automated control does** (the manual doesn't say; Théo asked for it to be predictable and to
   make sense):
   - A control's **own value** is what the document says (the knob's value): it's what plays in pattern
@@ -135,15 +135,16 @@ The manual doesn't say. What FL Studio does, from Théo and from using it:
 | A held control | (unverified) | The hand wins while it's held, the curve takes over when it's let go |
 | Initialised values | A separate value per control, set when a clip is made, *Init song with this position* | The control's own value is the initialised value |
 | Plugin parameters | Tools → Last tweaked, the Browser's Current project | **Automate "…"** in the plugin window's title bar (the parameter last touched there), and the Picker's **Automate…** window: every control of the song, each plugin's parameters with them, searchable |
-| What can be automated | Nearly every control | Channels' volume and pan, mixer tracks' fader, pan and stereo separation, sends, effects' mixes, the main volume, plugins' parameters |
+| What can be automated | Nearly every control | Channels' volume, pan and pitch, mixer tracks' fader, pan and stereo separation, sends, effects' mixes, the main volume, plugins' parameters |
 | Deleting a point | Right Alt+click | Alt+click (a Mac has no right Alt to tell apart), or the point's menu |
 | The curve types | Eleven | The same eleven; how Alt single / Alt double, Half sine and Smooth stairs bend is ours (unverified against FL) |
 | Tools | Copy / Paste state, Flip, Scale levels (a dialog), Normalize, Decimate, Filter, Smooth up, Create sequence, Analyze audio file | Flip vertically, Normalize levels, Scale levels up (×1.25) and down (×0.8), Decimate points, Smooth |
 | LFO | SPD, TENS, SKEW, PW, LVL, Multiply | SPD (cycles a bar), TENS, SKEW, LVL, Multiply; no PW |
 | One clip, several controls | Target links | One control per automation clip |
-| Step and Slide modes, Filter, Create sequence, Analyze audio file, Time, Convert to events | Yes | Not yet |
+| Step and Slide modes | Yes | The same, as two toggles in the Playlist's toolbar (2026-10-02). **Step**: a left drag on a curve paints held steps, a cell of the snap's grid each (Alt: a step's), at the pointer's height, cells skipped by a fast drag filled in between; the curve keeps its shape before and after them. **Slide**: a point dragged takes every later point with it (none passes the one before; the last stays inside the curve) |
+| Filter, Create sequence, Analyze audio file, Time, Convert to events | Yes | Not yet |
 | Tempo | Automatable | Not yet |
-| Channel pitch and other channel controls | Automatable | Volume and pan only |
+| Channel pitch | Automatable | The same (2026-10-02), ±24 semitones as its knob: a sampler's notes bend as they sound (set every 256 samples, the lanes' grid); a plugin channel's notes move by whole semitones, by what the pitch is where each starts (ours: FL bends within the plugin's range). An audio clip's channel has none to automate (its clips' length follows its pitch). Other channel controls (filter, swing mix...) aren't automatable yet |
 | An audio clip's Automate | Volume, Panning | The same: an automation clip of its channel's volume or pan, over the clip |
 | Precision | Per buffer (FL's "smooth" options) | Slices of 256 samples counted from where play started, the same live and exported: gains glide along each slice, an effect's mix and a plugin's parameter are set at its start |
 | Plugin delay | "Compensate automations" | Automation is applied as the song plays, not shifted for a plugin's delay |
@@ -162,7 +163,8 @@ The manual doesn't say. What FL Studio does, from Théo and from using it:
   values, a fraction to the control's units); the edits (points, tension, curve, the Tools); making a clip
   for a control (`createAutomation`).
 - **Compiling** (`compile.ts`): in song mode, each engine target any clip drives becomes a lane in the
-  engine's own units: a channel's two gains (its volume and pan together), a mixer track's gain matrix
+  engine's own units: a channel's two gains (its volume and pan together), a sampler's pitch (a plugin
+  channel's moves its notes' keys instead, `transposePlugins`), a mixer track's gain matrix
   (fader, pan, stereo separation, and the main volume on the master), a send's gain, an effect's mix, a
   plugin parameter's 0..1 (-1 where it keeps its own value). Sampled from `controlAt` every 8 ticks and
   closer where a straight line would be more than a thousandth off (checked in quarters, as an S crosses

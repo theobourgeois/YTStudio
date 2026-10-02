@@ -41,7 +41,7 @@ export function findAutomation(song: MusicProject, ref: unknown): Automation {
   return found;
 }
 
-export const CONTROLS = ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix"] as const;
+export const CONTROLS = ["volume", "pan", "pitch", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix"] as const;
 
 /** A Gross Beat's controls, as the tool names them. */
 const GROSS_CONTROLS = { "time slot": "timeSlot", "volume slot": "volumeSlot", "time mix": "timeMix", "volume mix": "volumeMix" } as const;
@@ -75,6 +75,12 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (input.track === undefined) throw new Error(`Say whose ${control}: a "channel" or a mixer "track".`);
       return { kind: "mixer", track: findTrack(song, input.track).id, control };
     }
+    case "pitch": {
+      if (input.channel === undefined || input.channel === "") throw new Error('Say whose pitch: a "channel" (mixer tracks have none).');
+      const channel = findChannel(song, input.channel);
+      if (channel.kind === "audio") throw new Error(`"${channel.name}" is an audio clip's channel: its clips play at its pitch, which can't be automated. Automate a sampler's or a plugin channel's.`);
+      return { kind: "channel", channel: channel.id, control: "pitch" };
+    }
     case "send": {
       const from = findTrack(song, input.track);
       const to = findTrack(song, input.to);
@@ -98,7 +104,7 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (typeof input.parameter !== "string" || !input.parameter.trim()) throw new Error('"parameter" must be the plugin parameter\'s name or id, from list_controls.');
       if (input.channel !== undefined && input.channel !== "") {
         const channel = findChannel(song, input.channel);
-        if (channel.kind !== "plugin") throw new Error(`"${channel.name}" isn't a plugin channel: its controls are its volume and pan.`);
+        if (channel.kind !== "plugin") throw new Error(`"${channel.name}" isn't a plugin channel: its controls are its volume, pan and pitch.`);
         return { owner: "channel", id: channel.id, parameter: input.parameter.trim(), ownerName: channel.name };
       }
       const { track, effect } = effectAt(song, input);
@@ -138,6 +144,8 @@ const valueHint = (target: AutomationTarget) =>
       ? "a slot, 1 to 36"
     : target.kind === "channel" && target.control === "pan"
       ? "a pan, -1 left to 1 right"
+    : target.kind === "channel" && target.control === "pitch"
+      ? "semitones, -24 to 24 (a plugin channel's notes move by whole ones)"
       : target.kind === "mixer" && target.control !== "volume"
         ? "-1 to 1"
         : "0 to 1, as its knob or fader has it";

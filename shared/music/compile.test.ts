@@ -493,6 +493,44 @@ describe("automation", () => {
       expect(drawn).toBeLessThan(Math.max(...near) + 1e-3);
     }
   });
+
+  it("bends a sampler's pitch in semitones, and moves a plugin channel's notes by whole ones where each starts", () => {
+    let song = automated();
+    const kickPitch = createAutomation(song, { kind: "channel", channel: "chan_kick", control: "pitch" }, { start: 0, length: BAR }, { id: "auto_pitch" });
+    // Up an octave across the bar (0.5 is no change: the knob's middle, ±24 semitones either side).
+    song = editPoints(kickPitch.song, "auto_pitch", () => [
+      { tick: 0, value: 0.5, tension: 0, curve: "single" },
+      { tick: BAR, value: 0.75, tension: 0, curve: "single" },
+    ]);
+    const lane = compileSong(song, P, null, "song").lanes.find((l) => l.target.kind === "pitch")!;
+    expect(lane.target).toEqual({ kind: "pitch", channel: 0 });
+    expect(laneAt(lane, 1, 0)[0]).toBeCloseTo(0, 3);
+    expect(laneAt(lane, 1, BAR / 2)[0]).toBeCloseTo(6, 2);
+    expect(laneAt(lane, 1, BAR * 3)[0]).toBeCloseTo(12, 3);
+    // Held by the hand: left out.
+    expect(compileSong(song, P, null, "song", new Set(["channel:chan_kick:pitch"])).lanes.some((l) => l.target.kind === "pitch")).toBe(false);
+
+    // A plugin channel: no lane; its notes' keys moved by what the pitch is where each starts, rounded.
+    song = addPluginChannel(song, { id: "VST3-synth", name: "Synth", format: "VST3" }, "chan_synth");
+    song = setSteps(song, P, "chan_synth", [0, 8], true);
+    // The pattern every bar (a clip plays its pattern once).
+    song = editClips(song, (clips) => addClips(clips, [1, 2, 3].map((bar) => ({ kind: "pattern" as const, ref: P, track: 1, start: BAR * bar }))).clips);
+    const synthPitch = createAutomation(song, { kind: "channel", channel: "chan_synth", control: "pitch" }, { start: BAR, length: BAR }, { id: "auto_synth" });
+    song = editPoints(synthPitch.song, "auto_synth", () => [{ tick: 0, value: 0.5 + 7 / 48, tension: 0, curve: "hold" }]);
+    const compiled = compileSong(song, P, null, "song");
+    expect(compiled.lanes.filter((l) => l.target.kind === "pitch")).toHaveLength(1);
+    const keys = compiled.notes.filter((n) => n.channel === 2).map((n) => [n.tick, n.key]);
+    // Bar 1 before the clip: its own pitch; from bar 2 a fifth up, and held there after.
+    expect(keys.slice(0, 4)).toEqual([
+      [0, 60],
+      [BAR / 2, 60],
+      [BAR, 67],
+      [BAR * 1.5, 67],
+    ]);
+    expect(keys.at(-1)).toEqual([BAR * 3.5, 67]);
+    // In pattern mode, none of it.
+    expect(compileSong(song, P).notes.filter((n) => n.channel === 2).map((n) => n.key)).toEqual([60, 60]);
+  });
 });
 
 describe("a sampler's own settings, compiled", () => {

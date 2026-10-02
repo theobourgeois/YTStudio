@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiArrowsHorizontal, PiCaretDownBold, PiMagnet, PiMagnifyingGlass, PiSidebarSimple } from "react-icons/pi";
+import { PiArrowLineRight, PiArrowsHorizontal, PiCaretDownBold, PiMagnet, PiMagnifyingGlass, PiSidebarSimple, PiStairs } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
 import { type ClipContext, clipContext, clipLength, songTicks } from "@shared/music/playlist";
@@ -149,6 +149,8 @@ function PlaylistControls() {
   const snap = usePlaylist((s) => s.snap);
   const pickerOpen = usePlaylist((s) => s.pickerOpen);
   const stretching = usePlaylist((s) => s.stretching);
+  const curveStep = usePlaylist((s) => s.curveStep);
+  const curveSlide = usePlaylist((s) => s.curveSlide);
   return (
     <>
       <EditMenu />
@@ -186,6 +188,27 @@ function PlaylistControls() {
         onClick={() => usePlaylist.setState({ stretching: !stretching })}
       >
         <PiArrowsHorizontal className="size-4" />
+      </button>
+      {/* FL's automation editing modes: how a drag on an automation clip's curve edits it. */}
+      <button
+        type="button"
+        aria-label="Step mode"
+        aria-pressed={curveStep}
+        title="Step mode: a drag on an automation curve paints steps, one per grid cell"
+        className={cn("grid size-5.5 place-items-center rounded-sm", curveStep ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
+        onClick={() => usePlaylist.setState({ curveStep: !curveStep })}
+      >
+        <PiStairs className="size-4" />
+      </button>
+      <button
+        type="button"
+        aria-label="Slide mode"
+        aria-pressed={curveSlide}
+        title="Slide mode: moving an automation point moves every point after it"
+        className={cn("grid size-5.5 place-items-center rounded-sm", curveSlide ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
+        onClick={() => usePlaylist.setState({ curveSlide: !curveSlide })}
+      >
+        <PiArrowLineRight className="size-4" />
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

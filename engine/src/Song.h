@@ -218,7 +218,7 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, track, send, mix, gross, param };
+        enum class Kind { channel, pitch, track, send, mix, gross, param };
         Kind kind = Kind::channel;
         /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix). */
         int channel = -1, track = -1, index = -1, control = 0;
