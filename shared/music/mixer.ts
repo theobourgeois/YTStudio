@@ -13,7 +13,7 @@ import { DEFAULT_PANMAN, PANMAN_PLUGIN, isPanMan } from "./panman-presets.ts";
 import { PRO_Q_PLUGIN, isProQ } from "./pro-q-presets.ts";
 import { DEFAULT_OTT, OTT_PLUGIN, isOtt } from "./ott-presets.ts";
 import { DEFAULT_GROSS_BEAT, DEFAULT_PRO_Q, EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_OFFSET, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, normalizeInput, reaches, trimTracks } from "./project.ts";
-import type { Channel, MixerEffect, MixerGroup, MixerSend, MixerTrack, MusicProject, PluginRef } from "./types.ts";
+import type { Channel, MixerDock, MixerEffect, MixerGroup, MixerSend, MixerTrack, MusicProject, PluginRef } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -139,6 +139,30 @@ export function moveMixerTracks(song: MusicProject, ids: readonly string[], dire
     any = true;
   }
   return any ? withTracks(song, tracks) : song;
+}
+
+/**
+ * Insert tracks dragged to another place (by their numbers): put before `before` (null: at the end), in
+ * their order, never before the master. With `dock`, they take that dock (dropped among its tracks).
+ * Their channels and sends go with them (they're linked by id).
+ */
+export function moveMixerTracksTo(song: MusicProject, ids: readonly string[], before: string | null, dock?: MixerDock): MusicProject {
+  const wanted = new Set(ids);
+  const moving = song.mixer.tracks.filter((t) => wanted.has(t.id) && t.id !== MASTER_TRACK_ID);
+  if (!moving.length) return song;
+  // Before one of those moving: before the first after it that isn't.
+  let anchor = before;
+  if (anchor !== null && wanted.has(anchor)) {
+    const from = trackNumber(song, anchor);
+    anchor = song.mixer.tracks.slice(from).find((t) => !wanted.has(t.id))?.id ?? null;
+  }
+  const rest = song.mixer.tracks.filter((t) => !wanted.has(t.id) || t.id === MASTER_TRACK_ID);
+  const found = anchor === null ? rest.length : rest.findIndex((t) => t.id === anchor);
+  if (found < 0) return song;
+  const at = Math.max(1, found);
+  const placed = moving.map((t) => (dock && t.dock !== dock ? { ...t, dock } : t));
+  const tracks = [...rest.slice(0, at), ...placed, ...rest.slice(at)];
+  return tracks.every((t, i) => t === song.mixer.tracks[i]) ? song : withTracks(song, tracks);
 }
 
 export type MixerTrackPatch = Partial<

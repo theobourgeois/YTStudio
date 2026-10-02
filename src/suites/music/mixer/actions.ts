@@ -16,6 +16,7 @@ import {
   freeSlot,
   getMixerTrack,
   moveMixerTracks,
+  moveMixerTracksTo,
   pasteTrackState,
   removeMixerTracks,
   renameGroup,
@@ -176,6 +177,61 @@ export function selectNeighbourTrack(direction: -1 | 1) {
   const next = doc.mixer.tracks[Math.min(doc.mixer.tracks.length - 1, Math.max(0, index + direction))];
   useMusicUi.getState().setTrackSelection([next.id]);
   useMixerView.getState().reveal(next.id);
+}
+
+/** A click on a strip (not on one of its controls): Ctrl+Shift toggles it in the selection, Ctrl adds it, Shift selects a range, else it alone. */
+export function clickTrack(id: string, keys: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) {
+  const ui = useMusicUi.getState();
+  const command = keys.ctrlKey || keys.metaKey;
+  if (command && keys.shiftKey) ui.selectTrack(id, "add");
+  // Cmd (or Ctrl) alone: it joins the selection (dragging on adds the tracks passed over).
+  else if (command) ui.includeTracks([id]);
+  // Shift: every track from the current one to this one.
+  else if (keys.shiftKey) selectTrackRange(id);
+  else ui.selectTrack(id);
+}
+
+/**
+ * A strip dragged by its number: it moves (the selected tracks with it, if it's one of them) to where it's
+ * let go, before or after the strip there, taking that strip's dock; a line shows where. Not dragged, it's
+ * a click on the strip.
+ */
+export function dragTracks(e: ReactPointerEvent<Element>, id: string) {
+  if (e.button !== 0 || id === MASTER_TRACK_ID) return;
+  e.stopPropagation();
+  const keys = { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey };
+  // Pressed on a track that isn't selected, the click is at once (so that's what's dragged); on a selected
+  // one, once it's let go without a drag (a drag takes them all).
+  const wasSelected = useMusicUi.getState().selectedTrackIds.includes(id);
+  if (!wasSelected) clickTrack(id, keys);
+  const view = useMixerView.getState();
+  let drop: { before: string | null; dock: MixerDock } | null = null;
+  startPointerDrag(e, {
+    threshold: 5,
+    cursor: "grabbing",
+    onMove(ev) {
+      const strip = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-track]");
+      const area = strip?.closest('[data-testid="mixer"]')?.querySelector<HTMLElement>('[role="list"]');
+      const doc = song();
+      if (!strip || !area || !doc) return;
+      const over = strip.dataset.track!;
+      const box = strip.getBoundingClientRect();
+      const after = ev.clientX > box.left + box.width / 2;
+      const index = doc.mixer.tracks.findIndex((t) => t.id === over);
+      drop = { before: after ? (doc.mixer.tracks[index + 1]?.id ?? null) : over, dock: (strip.closest<HTMLElement>("[data-dock]")?.dataset.dock as MixerDock) ?? "middle" };
+      // The master's dock is the left one: dropped on it, they go first in the middle.
+      if (over === MASTER_TRACK_ID) drop = { before: doc.mixer.tracks[1]?.id ?? null, dock: doc.mixer.tracks[1]?.dock ?? "middle" };
+      const rect = area.getBoundingClientRect();
+      view.reorder({ x: over === MASTER_TRACK_ID || after ? box.right : box.left, top: rect.top, height: rect.height });
+    },
+    onEnd() {
+      view.reorder(null);
+      const target = drop;
+      if (target) commit((doc) => moveMixerTracksTo(doc, menuTargets(id), target.before, target.dock));
+    },
+    onCancel: () => view.reorder(null),
+    onClick: () => wasSelected && clickTrack(id, keys),
+  });
 }
 
 /** Only the current track stays selected (Escape, a click on the mixer's empty space). */

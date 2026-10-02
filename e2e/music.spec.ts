@@ -1094,6 +1094,11 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await strip("Insert 9").locator("canvas").click();
   await drag(page, strip("Insert 9").locator("[data-plug]"), strip("Insert 10").locator("canvas"));
   await expect.poll(async () => (await mixerOf())[9].sends).toEqual([{ to: (await mixerOf())[10].id, level: 1 }]);
+  // A strip dragged by its number moves there (a line shows where): insert 11 before insert 13.
+  const moving = (await mixerOf())[11].id;
+  await drag(page, strip("Insert 11").locator("[data-reorder]"), strip("Insert 13").locator("canvas"), { dx: -10 });
+  await expect.poll(async () => (await mixerOf())[12].id).toBe(moving);
+  await expect(page.getByTestId("reorder-line")).toHaveCount(0);
 });
 
 test("an effect goes in a mixer track's slot: chosen from the effect plugins, its window opened by its name, bypassed, moved", async ({ page }) => {

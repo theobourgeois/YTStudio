@@ -31,6 +31,9 @@ interface MixerViewState {
    */
   plugging: { from: string; x: number; y: number; over: string | null; add: boolean } | null;
   plug: (plugging: MixerViewState["plugging"]) => void;
+  /** Tracks dragged by their numbers to another place: where the line showing it is (the page's px). */
+  reordering: { x: number; top: number; height: number } | null;
+  reorder: (reordering: MixerViewState["reordering"]) => void;
   /** The mixer's view (this computer's: it's kept). */
   view: MixerViewKind;
   setView: (view: MixerViewKind) => void;
@@ -58,6 +61,8 @@ export const useMixerView = create<MixerViewState>((set) => ({
   carry: (carrying) => set({ carrying }),
   plugging: null,
   plug: (plugging) => set({ plugging }),
+  reordering: null,
+  reorder: (reordering) => set({ reordering }),
 }));
 
 /** The mixer track whose strip is at a point of the page, or null. */

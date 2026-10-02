@@ -11,6 +11,7 @@ import {
   moveEffect,
   moveEffectTo,
   moveMixerTracks,
+  moveMixerTracksTo,
   pasteTrackState,
   renameGroup,
   removeMixerTracks,
@@ -366,5 +367,23 @@ describe("a new bus for tracks", () => {
     expect(routeToNewBus(song, [M])).toBe(song);
     const full = addMixerTracks(song, null, MAX_INSERTS);
     expect(routeToNewBus(full, ["insert_1"])).toBe(full);
+  });
+});
+
+describe("tracks dragged to another place", () => {
+  it("go before the track they're dropped on, together and in their order, never before the master", () => {
+    const song = rack();
+    expect(ids(moveMixerTracksTo(song, ["insert_5", "insert_2"], "insert_1")).slice(0, 6)).toEqual([M, "insert_2", "insert_5", "insert_1", "insert_3", "insert_4"]);
+    expect(ids(moveMixerTracksTo(song, ["insert_2"], M)).slice(0, 3)).toEqual([M, "insert_2", "insert_1"]);
+    expect(ids(moveMixerTracksTo(song, ["insert_1"], null)).slice(-2)).toEqual(["insert_16", "insert_1"]);
+    // Dropped on one of themselves: before the next one that isn't moving.
+    expect(ids(moveMixerTracksTo(song, ["insert_1", "insert_2"], "insert_2")).slice(0, 4)).toEqual([M, "insert_1", "insert_2", "insert_3"]);
+    expect(moveMixerTracksTo(song, ["insert_1", "insert_2"], "insert_3")).toBe(song);
+    expect(moveMixerTracksTo(song, [M], "insert_3")).toBe(song);
+  });
+
+  it("take the dock they're dropped in", () => {
+    const moved = moveMixerTracksTo(rack(), ["insert_3"], "insert_9", "right");
+    expect(moved.mixer.tracks.find((t) => t.id === "insert_3")!.dock).toBe("right");
   });
 });

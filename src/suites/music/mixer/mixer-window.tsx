@@ -69,7 +69,8 @@ import {
   plugCable,
   selectGroup,
   selectOnlyCurrent,
-  selectTrackRange,
+  clickTrack,
+  dragTracks,
   groupKnob,
   setTrackSwitch,
   toggleSend,
@@ -274,6 +275,7 @@ export function MixerWindow() {
         <Inspector trackId={current} />
       </div>
       <CarriedState />
+      <ReorderLine />
     </MusicWindow>
   );
 }
@@ -435,12 +437,9 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
           if (!selected) ui.selectTrack(id);
           return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.shiftKey) ui.selectTrack(id, "add");
-        // Cmd (or Ctrl) alone: it joins the selection (dragging on adds the tracks passed over).
-        else if (e.ctrlKey || e.metaKey) ui.includeTracks([id]);
-        // Shift: every track from the current one to this one.
-        else if (e.shiftKey) selectTrackRange(id);
-        else ui.selectTrack(id);
+        // Its number drags it (and the selected tracks with it): `dragTracks` selects.
+        if (target.closest("[data-reorder]") && e.button === 0) return;
+        clickTrack(id, e);
       }}
     >
       {banded && <GroupBand track={track} groupName={groupName} />}
@@ -458,6 +457,9 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
                 textShadow: "0 1px 1px rgb(0 0 0 / 0.4)",
               }}
               data-input={track.input ? "" : undefined}
+              data-reorder={isMaster ? undefined : ""}
+              onPointerDown={(e) => dragTracks(e, id)}
+              title={isMaster ? undefined : "Drag to move it (and the selected tracks with it)"}
             >
               {track.input && <PiMicrophoneFill className="absolute top-1/2 left-0.5 size-2.5 -translate-y-1/2" aria-label="Takes an input (records)" />}
               {isMaster ? "M" : number}
@@ -1065,6 +1067,19 @@ function carryTrackState(e: React.PointerEvent, from: string) {
   window.addEventListener("pointermove", move, true);
   window.addEventListener("pointerup", up, true);
   window.addEventListener("keydown", key, true);
+}
+
+/** Where tracks dragged by their numbers will go: a line between the strips. */
+function ReorderLine() {
+  const reordering = useMixerView((s) => s.reordering);
+  if (!reordering) return null;
+  return (
+    <div
+      className="pointer-events-none fixed z-[10000] w-[3px] -translate-x-1/2 rounded-full"
+      style={{ left: reordering.x, top: reordering.top, height: reordering.height, background: "var(--mixer-on)", boxShadow: "0 0 6px var(--mixer-on)" }}
+      data-testid="reorder-line"
+    />
+  );
 }
 
 /** A track's state being dragged: a label under the pointer. */
