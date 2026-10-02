@@ -12,11 +12,12 @@ import { type EngineAutoTune, engineAutoTune, engineControlValue } from "./auto-
 import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANES_OF, engineEchoBoy } from "./echo-boy.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { type EngineEq, engineProQ } from "./pro-q.ts";
+import { type EngineOtt, OTT_CONTROL_SPECS, OTT_LANES, OTT_LANES_OF, type OttLane, engineOtt } from "./ott.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { autoGain } from "./pro-q-filters.ts";
 import { hasGain } from "./pro-q-presets.ts";
-import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, OTT_CONTROLS, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -75,6 +76,8 @@ export interface EngineEffect {
   echoBoy?: EngineEchoBoy;
   /** A Pro-Q (ours, run by the engine itself: its `plugin.id` is `PRO_Q_PLUGIN`'s): its bands and settings. */
   eq?: EngineEq;
+  /** An OTT (ours, `OTT_PLUGIN`): its gains and its bands' laws, in the engine's units. */
+  ott?: EngineOtt;
 }
 
 /**
@@ -161,6 +164,8 @@ export type EngineLaneTarget =
   | { kind: "echo"; track: number; effect: number; control: EchoLane }
   /** A Pro-Q band's frequency (log2 Hz), gain or range (dB) or Q (log2), by band number; or its output (dB, band 0). */
   | { kind: "eq"; track: number; effect: number; band: number; control: EqControl }
+  /** An OTT's lane (`OttLane`): its gains, or a value a band (low, mid, high). */
+  | { kind: "ott"; track: number; effect: number; control: OttLane }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
 /**
@@ -369,6 +374,7 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         if (e.autoTune) return [{ ...effect, autoTune: engineAutoTune(e.autoTune) }];
         if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
         if (e.proQ) return [{ ...effect, eq: engineProQ(e.proQ) }];
+        if (e.ott) return [{ ...effect, ott: engineOtt(e.ott) }];
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
       gains: trackGains(track, main),
@@ -705,6 +711,21 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
         }
         const auto = pq.autoGain ? autoGain(pq) : 0;
         lane(0, "output", pq.output, (v) => v + auto);
+      }
+      const ott = effect.ott;
+      if (ott) {
+        // As EchoBoy's: each engine lane from the controls that move it, the settings at the tick as the engine has them.
+        const controls = OTT_CONTROLS.map((control) => {
+          const target: AutomationTarget = { kind: "ott", effect: effect.id, control };
+          return { control, key: automated(target), value: valueOf(target, OTT_CONTROL_SPECS[control].get(ott)) };
+        });
+        for (const lane of Object.keys(OTT_LANES) as OttLane[]) {
+          const moving = controls.filter((c) => OTT_LANES_OF[c.control].includes(lane));
+          add({ kind: "ott", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
+            const at = moving.reduce((settings, c) => (c.key ? OTT_CONTROL_SPECS[c.control].set(settings, c.value(tick)) : settings), ott);
+            return OTT_LANES[lane](engineOtt(at));
+          });
+        }
       }
       effectIndex++;
     }

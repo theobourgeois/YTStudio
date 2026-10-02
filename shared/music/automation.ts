@@ -13,6 +13,7 @@ import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
 import { ECHO_CONTROL_SPECS } from "./echo-boy.ts";
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
 import { EQ_CONTROL_SCALES } from "./pro-q-presets.ts";
+import { OTT_CONTROL_SPECS } from "./ott.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
 import { DEFAULT_LFO, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
 import { type Automation, type AutomationLfo, type AutomationPoint, type AutomationTarget, type CurveType, type MusicProject, type PlaylistClip, STEP_TICKS } from "./types.ts";
@@ -196,6 +197,8 @@ export function targetKey(target: AutomationTarget): string {
       return `echo:${target.effect}:${target.control}`;
     case "proQ":
       return `proq:${target.effect}:${target.band}:${target.control}`;
+    case "ott":
+      return `ott:${target.effect}:${target.control}`;
     case "main":
       return "main";
     case "plugin":
@@ -367,6 +370,20 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         toControl: spec.toControl,
         fromControl: spec.fromControl,
         format: (v) => spec.format(spec.toControl(v), eb),
+      };
+    }
+    case "ott": {
+      const found = findEffect(song, target.effect);
+      const ott = found?.effect?.ott ?? null;
+      const spec = OTT_CONTROL_SPECS[target.control];
+      return {
+        name: spec.name,
+        owner: found && ott ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted OTT",
+        exists: !!ott,
+        own: ott ? spec.fromControl(spec.get(ott)) : null,
+        toControl: spec.toControl,
+        fromControl: spec.fromControl,
+        format: (v) => spec.format(spec.toControl(v)),
       };
     }
     case "main":

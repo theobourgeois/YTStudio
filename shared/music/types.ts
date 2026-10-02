@@ -139,7 +139,7 @@ export interface Pattern {
  * An effect in a mixer track's slot: an effect plugin, or one of ours, whose settings are in the song
  * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
  * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pro-Q: `PRO_Q_PLUGIN` and
- * `proQ`).
+ * `proQ`; OTT: `OTT_PLUGIN` and `ott`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -157,6 +157,44 @@ export interface MixerEffect {
   autoTune?: AutoTune;
   /** Pro-Q's settings, on a Pro-Q (absent on a plugin). */
   proQ?: ProQ;
+  /** OTT's settings, on an OTT (absent on a plugin). */
+  ott?: Ott;
+}
+
+/** OTT's bands (`docs/xfer/ott.md`), low to high: split at 88.3 Hz and 2.5 kHz. Its display shows them high first (H, M, L). */
+export const OTT_BANDS = ["low", "mid", "high"] as const;
+export type OttBandName = (typeof OTT_BANDS)[number];
+
+/** One of OTT's bands: its threshold (the gap dragged in its row), its gain, and its two compressors' switches. */
+export interface OttBand {
+  /** 0..2 (100% at 1): moves both of its thresholds together, ±23 to 24 dB. */
+  threshold: number;
+  /** dB, after it (the H / M / L gains). */
+  gain: number;
+  /** Its upward compressor (brown) and downward one (green) on: Ctrl+click turns either off. */
+  upward: boolean;
+  downward: boolean;
+}
+
+/**
+ * OTT's settings (`docs/xfer/ott.md`), Xfer's multiband upward and downward compressor, ours. Its
+ * knobs in their own units; what they mean to the sound is `engineOtt`'s.
+ */
+export interface Ott {
+  /** The preset last chosen (`OTT_PRESETS` by name), null once it's been changed by hand. */
+  preset: string | null;
+  /** 0..1: how much of it there is (its slopes and makeup, not a dry / wet). */
+  depth: number;
+  /** 0..10 (OTT's 0..1000%): the bands' release, 1 is OTT's own. */
+  time: number;
+  /** dB: In Gain (into the bands) and Out Gain (after them). */
+  input: number;
+  output: number;
+  /** 0..2 (100% at 1): the upward compressors' and downward ones' strength (Upwd%, Dnwd%). */
+  upward: number;
+  downward: number;
+  /** Low, mid and high (`OTT_BANDS`' order). */
+  bands: [OttBand, OttBand, OttBand];
 }
 
 /**
@@ -690,6 +728,7 @@ export type AutomationTarget =
   | { kind: "autoTune"; effect: string; control: AutoTuneControl }
   | { kind: "echoBoy"; effect: string; control: EchoControl }
   | { kind: "proQ"; effect: string; band: number; control: EqControl }
+  | { kind: "ott"; effect: string; control: OttControl }
   | { kind: "main" }
   | {
       kind: "plugin";
@@ -708,6 +747,10 @@ export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";
 /** Auto-Tune's controls an automation clip can drive (the key too, for a song that changes key). */
 export const AUTO_TUNE_CONTROLS = ["retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key"] as const;
 export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
+
+/** OTT's controls an automation clip can drive: every knob, and each band's threshold (its row's gap). */
+export const OTT_CONTROLS = ["depth", "time", "input", "output", "upward", "downward", "lowThreshold", "midThreshold", "highThreshold", "lowGain", "midGain", "highGain"] as const;
+export type OttControl = (typeof OTT_CONTROLS)[number];
 
 /** A Pro-Q band's controls an automation clip can drive (band 0 is its output). */
 export type EqControl = "frequency" | "gain" | "q" | "range" | "output";

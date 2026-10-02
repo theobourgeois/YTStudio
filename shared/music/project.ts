@@ -8,6 +8,7 @@ import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import { AUTO_TUNE_PLUGIN, isAutoTune, normalizeAutoTune } from "./auto-tune-presets.ts";
 import { ECHO_BOY_PLUGIN, isEchoBoy, normalizeEchoBoy } from "./echo-boy-presets.ts";
+import { OTT_PLUGIN, isOtt, normalizeOtt } from "./ott-presets.ts";
 import {
   DEFAULT_ANALYZER,
   DEFAULT_BAND,
@@ -39,6 +40,8 @@ import {
   type Channel,
   type CurveType,
   ECHO_CONTROLS,
+  OTT_CONTROLS,
+  type OttControl,
   type EchoControl,
   type Envelope,
   EQ_MODES,
@@ -446,6 +449,7 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   if (isAutoTune(plugin)) return { ...effect, plugin: AUTO_TUNE_PLUGIN, autoTune: normalizeAutoTune(input.autoTune) };
   if (isEchoBoy(plugin)) return { ...effect, plugin: ECHO_BOY_PLUGIN, echoBoy: normalizeEchoBoy(input.echoBoy) };
   if (isProQ(plugin)) return { ...effect, plugin: PRO_Q_PLUGIN, proQ: normalizeProQ(input.proQ) };
+  if (isOtt(plugin)) return { ...effect, plugin: OTT_PLUGIN, ott: normalizeOtt(input.ott) };
   return effect;
 }
 
@@ -701,6 +705,8 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.effect) && AUTO_TUNE_CONTROLS.includes(raw.control as AutoTuneControl) ? { kind: "autoTune", effect: raw.effect, control: raw.control as AutoTuneControl } : null;
     case "echoBoy":
       return isId(raw.effect) && ECHO_CONTROLS.includes(raw.control as EchoControl) ? { kind: "echoBoy", effect: raw.effect, control: raw.control as EchoControl } : null;
+    case "ott":
+      return isId(raw.effect) && OTT_CONTROLS.includes(raw.control as OttControl) ? { kind: "ott", effect: raw.effect, control: raw.control as OttControl } : null;
     case "main":
       return { kind: "main" };
     case "plugin":
