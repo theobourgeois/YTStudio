@@ -6,8 +6,8 @@
  *
  * Times are ticks of the song. A clip's `offset` is in its content's own unit: ticks of its pattern, or
  * seconds of its audio file (`ClipContext.fileSecondsPerTick` converts: an audio clip channel pitched up
- * plays its file faster, as FL's Resample does), so a sliced vocal keeps its words where they were in the
- * file whatever the tempo does.
+ * plays its file faster, as FL's Resample does, and a stretched clip faster or slower, `stretch.ts`), so a
+ * sliced vocal keeps its words where they were in the file whatever the tempo does.
  */
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
@@ -28,7 +28,10 @@ import {
   stepsPerBar,
   trimTracks,
 } from "./project.ts";
-import { type Channel, type MusicProject, PPQ, type Pattern, type PlaylistClip, type PlaylistTrack, STEP_TICKS } from "./types.ts";
+import { audioPlayback, pitchSpeed, sameStretch, stretchedTo } from "./stretch.ts";
+import { type AudioStretch, type Channel, type MusicProject, PPQ, type Pattern, type PlaylistClip, type PlaylistTrack, STEP_TICKS, type StretchMode } from "./types.ts";
+
+export { pitchSpeed };
 
 export type ClipIds = ReadonlySet<number>;
 
@@ -38,28 +41,37 @@ export interface ClipContext {
   patternTicks: (patternId: string) => number;
   /** Seconds a tick lasts at the song's tempo. */
   secondsPerTick: number;
+  /** The song's tempo. */
+  tempo: number;
   /**
-   * Seconds of an audio clip channel's file a tick of the song plays (`ref`: the channel): the tick's
-   * seconds times the channel's speed (`pitchSpeed`), so a clip pitched up goes through its file faster.
+   * Seconds of its file an audio clip plays in a tick of the song: the tick's seconds times its speed
+   * (`audioPlayback`: its stretch, and its channel's pitch in Resample), so a clip pitched up or stretched
+   * shorter goes through its file faster.
    */
-  fileSecondsPerTick: (ref: string) => number;
+  fileSecondsPerTick: (clip: AudioClipRef) => number;
+  /** The stretch an audio clip plays by: its own, else its channel's (null: none). */
+  stretchOf: (clip: AudioClipRef) => AudioStretch | null;
+  /** An audio clip channel's pitch, in semitones. */
+  pitchOf: (ref: string) => number;
   /** A bar, in ticks. */
   barTicks: number;
 }
+
+/** What says how an audio clip plays its file: its channel, and its own stretch if it has one. */
+export type AudioClipRef = Pick<PlaylistClip, "ref" | "stretch">;
 
 const contexts = new WeakMap<MusicProject["patterns"], Map<string, ClipContext>>();
 const pitchKeys = new WeakMap<MusicProject["channels"], string>();
 const lengthKeys = new WeakMap<MusicProject["automations"], string>();
 const NO_AUTOMATIONS: MusicProject["automations"] = [];
 
-/** How much faster an audio clip channel pitched by `semitones` plays its file (FL's Resample: pitch and speed together). */
-export const pitchSpeed = (semitones: number) => 2 ** (semitones / 12);
-
-/** The audio clip channels' pitches, as a key (made once per channel list). */
+/** The audio clip channels' pitches and stretches, as a key (made once per channel list). */
 function pitchKey(channels: MusicProject["channels"]): string {
   let key = pitchKeys.get(channels);
   if (key === undefined) {
-    key = channels.flatMap((c) => (c.kind === "audio" && c.pitch ? [`${c.id}:${c.pitch}`] : [])).join(",");
+    key = channels
+      .flatMap((c) => (c.kind === "audio" && (c.pitch || c.stretch) ? [`${c.id}:${c.pitch}:${c.stretch ? `${c.stretch.mode}@${c.stretch.tempo}` : ""}`] : []))
+      .join(",");
     pitchKeys.set(channels, key);
   }
   return key;
@@ -86,12 +98,19 @@ export function clipContext(song: Pick<MusicProject, "patterns" | "settings" | "
   if (!ctx) {
     const lengths = new Map(song.patterns.map((p) => [p.id, patternSteps(p, song.settings.timeSignature) * STEP_TICKS]));
     for (const automation of automations) lengths.set(automation.id, automation.length);
-    const secondsPerTick = 60 / (song.settings.tempo * PPQ);
-    const speeds = new Map(song.channels.flatMap((c) => (c.kind === "audio" && c.pitch ? [[c.id, pitchSpeed(c.pitch)] as const] : [])));
+    const { tempo } = song.settings;
+    const secondsPerTick = 60 / (tempo * PPQ);
+    const audio = new Map(song.channels.flatMap((c) => (c.kind === "audio" && (c.pitch || c.stretch) ? [[c.id, c] as const] : [])));
+    // Clips without a stretch of their own all play alike: their channel's speed, worked out once.
+    const speeds = new Map([...audio].map(([id, c]) => [id, audioPlayback(c.stretch, c.pitch, tempo).speed]));
     ctx = {
       patternTicks: (id) => lengths.get(id) ?? 0,
       secondsPerTick,
-      fileSecondsPerTick: (ref) => secondsPerTick * (speeds.get(ref) ?? 1),
+      tempo,
+      fileSecondsPerTick: (clip) =>
+        secondsPerTick * (clip.stretch ? audioPlayback(clip.stretch, audio.get(clip.ref)?.pitch ?? 0, tempo).speed : (speeds.get(clip.ref) ?? 1)),
+      stretchOf: (clip) => clip.stretch ?? audio.get(clip.ref)?.stretch ?? null,
+      pitchOf: (ref) => audio.get(ref)?.pitch ?? 0,
       barTicks: stepsPerBar(song.settings.timeSignature) * STEP_TICKS,
     };
     byKey.set(key, ctx);
@@ -108,7 +127,7 @@ export function clipLength(clip: PlaylistClip, ctx: ClipContext): number {
 export const clipEnd = (clip: PlaylistClip, ctx: ClipContext) => clip.start + clipLength(clip, ctx);
 
 /** A move of `ticks` along the song, in the clip's content's unit (ticks of a pattern, seconds of audio). */
-export const contentDelta = (clip: Pick<PlaylistClip, "kind" | "ref">, ticks: number, ctx: ClipContext) => (clip.kind === "audio" ? ticks * ctx.fileSecondsPerTick(clip.ref) : ticks);
+export const contentDelta = (clip: Pick<PlaylistClip, "kind" | "ref" | "stretch">, ticks: number, ctx: ClipContext) => (clip.kind === "audio" ? ticks * ctx.fileSecondsPerTick(clip) : ticks);
 
 /** Where a clip's content is at a tick of the song: ticks into its pattern, or seconds into its file. */
 export const contentAt = (clip: PlaylistClip, tick: number, ctx: ClipContext) => clip.offset + contentDelta(clip, tick - clip.start, ctx);
@@ -240,7 +259,7 @@ export function patternTickInSong(song: Pick<MusicProject, "patterns" | "setting
 // Adding and removing
 // ---------------------------------------------------------------------------
 
-export type NewClip = Pick<PlaylistClip, "kind" | "ref" | "track" | "start"> & Partial<Pick<PlaylistClip, "length" | "offset" | "muted">>;
+export type NewClip = Pick<PlaylistClip, "kind" | "ref" | "track" | "start"> & Partial<Pick<PlaylistClip, "length" | "offset" | "muted" | "stretch">>;
 
 /** A new clip list, and the ids of the clips it gained. */
 export interface CreatedClips {
@@ -268,6 +287,7 @@ function tidy(clip: NewClip, id: number): PlaylistClip {
     length: clip.length === null || (clip.length === undefined && clip.kind !== "audio") ? null : clamp(Math.round(clip.length ?? STEP_TICKS), 1, MAX_SONG_TICKS - start),
     offset: clip.kind === "audio" ? clamp(clip.offset ?? 0, 0, MAX_AUDIO_OFFSET) : clamp(Math.round(clip.offset ?? 0), 0, MAX_PATTERN_TICKS),
     muted: clip.muted ?? false,
+    ...(clip.kind === "audio" && clip.stretch ? { stretch: clip.stretch } : {}),
   };
 }
 
@@ -347,11 +367,55 @@ export function resizeClips(clips: PlaylistClip[], ids: ClipIds, edge: "start" |
       return next === length && clip.length !== null ? clip : { ...clip, length: next };
     }
     // How far back the start can go: to the content's start, and the song's.
-    const back = clip.kind === "audio" ? Math.floor(clip.offset / ctx.fileSecondsPerTick(clip.ref) + 1e-9) : clip.offset;
+    const back = clip.kind === "audio" ? Math.floor(clip.offset / ctx.fileSecondsPerTick(clip) + 1e-9) : clip.offset;
     const dt = clamp(by, -Math.min(back, clip.start), length - least);
     if (!dt) return clip;
-    const offset = clip.kind === "audio" ? Math.max(0, clip.offset + dt * ctx.fileSecondsPerTick(clip.ref)) : clip.offset + dt;
+    const offset = clip.kind === "audio" ? Math.max(0, clip.offset + dt * ctx.fileSecondsPerTick(clip)) : clip.offset + dt;
     return { ...clip, start: clip.start + dt, length: length - dt, offset };
+  });
+}
+
+/**
+ * Stretch audio clips by an edge, `ticks` along (the Playlist's Stretch mode, Shift+M): each keeps its
+ * content (the same part of its file, start to end) and plays it faster or slower to fill its new length,
+ * becoming a variant of its channel with a stretch of its own (FL 2025). The start edge moves the clip's
+ * start, the end its end. A clip that had no stretch is stretched in `mode` (Settings' Stretch mode); one
+ * that had keeps its mode. Clips other than audio clips resize as usual. None gets shorter than `min`.
+ */
+export function stretchClips(clips: PlaylistClip[], ids: ClipIds, edge: "start" | "end", ticks: number, ctx: ClipContext, mode: StretchMode, min = 1): PlaylistClip[] {
+  const by = Math.round(ticks);
+  if (!by) return clips;
+  const others = new Set(clips.filter((c) => ids.has(c.id) && c.kind !== "audio").map((c) => c.id));
+  const resized = others.size ? resizeClips(clips, others, edge, ticks, ctx, min) : clips;
+  const least = Math.max(1, Math.round(min));
+  return mapClips(resized, ids, (clip) => {
+    if (clip.kind !== "audio") return clip;
+    const length = clipLength(clip, ctx);
+    const wanted = edge === "end" ? clamp(length + by, least, MAX_SONG_TICKS - clip.start) : clamp(length - by, least, length + clip.start);
+    if (wanted === length) return clip;
+    const was = ctx.stretchOf(clip);
+    const next = stretchedTo({ fileSecondsPerTick: ctx.fileSecondsPerTick(clip), length }, wanted, was?.mode ?? mode, {
+      tempo: ctx.tempo,
+      secondsPerTick: ctx.secondsPerTick,
+      pitch: ctx.pitchOf(clip.ref),
+    });
+    const end = clip.start + length;
+    const start = edge === "end" ? clip.start : Math.max(0, end - next.length);
+    return { ...clip, start, length: edge === "end" ? Math.min(next.length, MAX_SONG_TICKS - clip.start) : end - start, stretch: next.stretch };
+  });
+}
+
+/**
+ * Set audio clips' own stretch (`stretch`), or take it away (null: they follow their channel's again).
+ * Their windows don't change: only how fast they go through them (so their content changes, as FL's TIME
+ * does). Clips other than audio clips are left alone.
+ */
+export function setClipStretch(clips: PlaylistClip[], ids: ClipIds, stretch: AudioStretch | null): PlaylistClip[] {
+  return mapClips(clips, ids, (clip) => {
+    if (clip.kind !== "audio" || sameStretch(clip.stretch, stretch ?? undefined)) return clip;
+    if (stretch) return { ...clip, stretch };
+    const { stretch: _, ...rest } = clip;
+    return rest;
   });
 }
 
@@ -363,7 +427,7 @@ export function slipClips(clips: PlaylistClip[], ids: ClipIds, ticks: number, ct
   const by = Math.round(ticks);
   if (!by) return clips;
   return mapClips(clips, ids, (clip) => {
-    const offset = clip.kind === "audio" ? clamp(clip.offset - by * ctx.fileSecondsPerTick(clip.ref), 0, MAX_AUDIO_OFFSET) : clamp(clip.offset - by, 0, MAX_PATTERN_TICKS);
+    const offset = clip.kind === "audio" ? clamp(clip.offset - by * ctx.fileSecondsPerTick(clip), 0, MAX_AUDIO_OFFSET) : clamp(clip.offset - by, 0, MAX_PATTERN_TICKS);
     // Its length is fixed from now on: slipping the content mustn't change where the clip ends.
     return offset === clip.offset ? clip : { ...clip, offset, length: clipLength(clip, ctx) };
   });

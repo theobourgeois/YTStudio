@@ -31,6 +31,7 @@ import {
 import { PITCH_WHEEL_PLUGIN, isPitchWheel, normalizePitchWheel } from "./pitch-wheel-presets.ts";
 import { GROSS_BEAT_PLUGIN, GROSS_SLOTS, GROSS_SYNCS, GROSS_TICKS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE, isGrossBeat } from "./gross-beat-presets.ts";
 import { PANMAN_PLUGIN, PAN_CONTROL_IDS, isPanMan, normalizePanMan } from "./panman-presets.ts";
+import { normalizeStretch } from "./stretch.ts";
 import {
   AUTO_TUNE_CONTROLS,
   type AutoTuneControl,
@@ -384,6 +385,8 @@ function normalizeChannels(input: unknown, isSample: (id: string) => boolean, is
       mixerTrack: isId(raw.mixerTrack) && isTrack(raw.mixerTrack) ? raw.mixerTrack : MASTER_TRACK_ID,
       color: isColor(raw.color) ? raw.color.toLowerCase() : null,
     });
+    const stretch = raw.kind === "audio" ? normalizeStretch(raw.stretch) : undefined;
+    if (stretch) channels[channels.length - 1].stretch = stretch;
   }
   return channels.length ? channels : emptyRack();
 }
@@ -817,7 +820,8 @@ function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channe
     const length = kind !== "audio" && raw.length === null ? null : Math.round(number(raw.length, 1, MAX_SONG_TICKS - start, STEP_TICKS * 16));
     const offset = kind !== "audio" ? Math.round(number(raw.offset, 0, MAX_PATTERN_TICKS, 0)) : number(raw.offset, 0, MAX_AUDIO_OFFSET, 0);
     const id = Number.isInteger(raw.id) && (raw.id as number) > 0 && !ids.has(raw.id as number) ? (raw.id as number) : 0;
-    const clip: PlaylistClip = { id, kind, ref: raw.ref, track, start, length, offset, muted: raw.muted === true };
+    const stretch = kind === "audio" ? normalizeStretch(raw.stretch) : undefined;
+    const clip: PlaylistClip = { id, kind, ref: raw.ref, track, start, length, offset, muted: raw.muted === true, ...(stretch ? { stretch } : {}) };
     if (id) ids.add(id);
     else unnamed.push(clip);
     clips.push(clip);

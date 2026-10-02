@@ -164,9 +164,9 @@ export function placeClipsTool(song: MusicProject, input: Input, env: EditEnv): 
       } else {
         const channel = findAudio(song, clip.audio);
         const like = song.playlist.clips.find((c) => c.kind === "audio" && c.ref === channel.id);
-        const offset = clip.offset === undefined ? (like?.offset ?? 0) : barsTicks(clip.offset, ctx, "offset") * ctx.fileSecondsPerTick(channel.id);
+        const offset = clip.offset === undefined ? (like?.offset ?? 0) : barsTicks(clip.offset, ctx, "offset") * ctx.fileSecondsPerTick(like ?? { ref: channel.id });
         const length = clip.length === undefined ? (like ? clipLength(like, ctx) : ctx.barTicks) : barsTicks(clip.length, ctx, "length", 1 / 64);
-        for (let n = 0; n < repeat; n++) placed.push({ kind: "audio", ref: channel.id, track, start: start + n * length, length, offset, muted });
+        for (let n = 0; n < repeat; n++) placed.push({ kind: "audio", ref: channel.id, track, start: start + n * length, length, offset, muted, stretch: like?.stretch });
       }
     } catch (err) {
       throw new Error(at + (err instanceof Error ? err.message : String(err)));
@@ -209,7 +209,7 @@ export function updateClipsTool(song: MusicProject, input: Input): EditResult {
     next = editClips(next, (clips) =>
       clips.map((clip) => {
         if (!ids.has(clip.id)) return clip;
-        const value = clip.kind === "audio" ? offset * ctx.fileSecondsPerTick(clip.ref) : offset;
+        const value = clip.kind === "audio" ? offset * ctx.fileSecondsPerTick(clip) : offset;
         // Its length stays where it ends now.
         return value === clip.offset ? clip : { ...clip, offset: value, length: clipLength(clip, ctx) };
       }),

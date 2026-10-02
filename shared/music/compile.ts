@@ -6,7 +6,8 @@
  * play samples and audio clips at the right moments and add up tracks as it's told.
  */
 import { automationIndex, clipAtTick, controlBreaks, controlOf, placedValue, targetKey } from "./automation.ts";
-import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
+import { clipContext, clipLength, songTicks, trackAt } from "./playlist.ts";
+import { audioPlayback } from "./stretch.ts";
 import { LANE_FINEST, sampleLane } from "./sampling.ts";
 import { type EngineAutoTune, engineAutoTune, engineControlValue } from "./auto-tune.ts";
 import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANES_OF, engineEchoBoy } from "./echo-boy.ts";
@@ -150,10 +151,18 @@ export interface EngineAudioClip {
   /** Where in its file the clip is at `tick`, in seconds. */
   seconds: number;
   /**
-   * How fast it plays its file: its channel's pitch as a ratio (`pitchSpeed`; 2 is an octave up, twice as
-   * fast), as FL's Resample does. Seconds of the file per second of the song.
+   * How fast it plays its file, seconds of the file per second of the song (`audioPlayback`): its stretch
+   * (at another tempo than its own, faster or slower) and, in Resample, its channel's pitch as a ratio
+   * (`pitchSpeed`; 2 is an octave up, twice as fast).
    */
   speed: number;
+  /**
+   * Stretched with its pitch kept (Stretch mode): the engine's time stretcher plays it at `speed` and
+   * shifts its pitch by `transpose` semitones. Otherwise (absent) it's read faster or slower, its pitch
+   * going with it.
+   */
+  keepPitch?: boolean;
+  transpose?: number;
 }
 
 /**
@@ -560,7 +569,8 @@ function audioClips(song: MusicProject, from: number, to: number): EngineAudioCl
     const channel = channels.get(clip.ref);
     const length = clipLength(clip, ctx);
     if (channel === undefined || clip.start + length <= from) continue;
-    clips.push({ channel, tick: clip.start - from, length, seconds: clip.offset, speed: pitchSpeed(song.channels[channel].pitch) });
+    const { speed, keepPitch, transpose } = audioPlayback(ctx.stretchOf(clip), song.channels[channel].pitch, song.settings.tempo);
+    clips.push({ channel, tick: clip.start - from, length, seconds: clip.offset, speed, ...(keepPitch ? { keepPitch, transpose } : {}) });
   }
   return clips;
 }
