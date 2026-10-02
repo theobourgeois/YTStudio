@@ -53,11 +53,11 @@ export function curveUnder(p: PlaylistContext, view: PlaylistView, clip: Playlis
   return { curve, hit: hitCurve(curve.automation.points, curve.box, x, y, curve.left, curve.right) };
 }
 
-/** The pointer over a clip's curve: on a point, a hand; on a tension handle, up and down. Null elsewhere. */
+/** The pointer over a clip's curve: on a point, the plain arrow (as FL's, not a hand); on a tension handle, up and down. Null elsewhere. */
 export function curveCursor(p: PlaylistContext, view: PlaylistView, clip: PlaylistClip, x: number, y: number): string | null {
   const under = curveUnder(p, view, clip, x, y);
   if (!under?.hit) return null;
-  return under.hit.kind === "point" ? "grab" : "ns-resize";
+  return under.hit.kind === "point" ? "default" : "ns-resize";
 }
 
 type Press = ReactPointerEvent<HTMLElement>;
@@ -93,7 +93,7 @@ export function curvePointerDown(e: Press, element: HTMLElement, p: PlaylistCont
     startPointerDrag(e, {
       button,
       threshold: button === 2 ? 0 : 2,
-      cursor: "grabbing",
+      cursor: "default",
       onMove(ev) {
         const q = local(ev);
         const tick = ev.shiftKey ? from.tick : tickAt(q.x, ev.altKey);
