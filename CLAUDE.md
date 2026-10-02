@@ -439,9 +439,9 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   its pattern), `offset` into its content (ticks of a pattern, **seconds** of an audio file), `muted`). Clip
   ids are small numbers, like notes'. Its operations are pure functions of a clip list in
   `shared/music/playlist.ts` (with a `ClipContext`: the patterns' lengths and the tempo, which a clip's
-  length needs, and each audio clip's speed: a pitched one plays its file faster, FL's Resample, and a
-  stretched one at its stretch's, so an audio clip's ticks become file seconds through `fileSecondsPerTick(clip)`,
-  never `secondsPerTick`). An audio clip has its own `gain` and fades (`fadeIn`/`fadeOut` in ticks, their
+  length needs, and each audio clip's speed: a stretched one plays at its stretch's, so an audio clip's ticks
+  become file seconds through `fileSecondsPerTick(clip)`, never `secondsPerTick`; its channel's pitch makes it
+  higher or lower, never faster, as FL's does: the engine's stretcher shifts it, `audioPlayback`). An audio clip has its own `gain` and fades (`fadeIn`/`fadeOut` in ticks, their
   tensions: `fadeShape`, the engine's too), each absent at its default (`clipExtras` checks them). The
   window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
   through `applyDrag` and committed once, maths in `geometry.ts`, mouse in `pointer.ts`, keys in `keys.ts`,
@@ -460,8 +460,8 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   an `AudioStretch` (`mode`: Resample or Stretch, the pitch kept; `tempo`: the song's tempo at which the file
   plays at its own speed, so a stretched clip follows the tempo) is a clip's own (`PlaylistClip.stretch`, FL
   2025's variant) or else its channel's (`Channel.stretch`); `ClipContext.stretchOf` says which, and
-  `audioPlayback` what it means (speed, transpose, keep-pitch: in Stretch mode the channel's pitch shifts
-  without changing the time). Setting one keeps each clip's content (`setClipStretch`, `stretchChannel`); the
+  `audioPlayback` what it means (speed, transpose, keep-pitch: the channel's pitch shifts without changing the
+  time, in either mode; in Resample the stretch's speed moves the pitch too). Setting one keeps each clip's content (`setClipStretch`, `stretchChannel`); the
   Playlist's Stretch (Shift+M, `usePlaylist.stretch`) makes an edge a `stretch` drag (`stretchClips`).
   The engine stretches in `AudioStream` on its reader thread with Signalsmith Stretch (MIT, fetched by
   CMake, seeded so renders repeat), sought so the first sample out is the file's at its start: nothing is

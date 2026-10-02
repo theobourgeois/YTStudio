@@ -14,9 +14,10 @@ function vocal(): MusicProject {
 }
 
 describe("how an audio clip plays its file", () => {
-  it("is at its own speed without a stretch, faster and higher with its channel pitched (Resample)", () => {
+  it("is at its own speed without a stretch; its channel's pitch makes it higher, never faster (FL's)", () => {
     expect(audioPlayback(undefined, 0, 120)).toEqual({ speed: 1, transpose: 0, keepPitch: false });
-    expect(audioPlayback(undefined, 12, 120)).toEqual({ speed: 2, transpose: 0, keepPitch: false });
+    expect(audioPlayback(undefined, 12, 120)).toEqual({ speed: 1, transpose: 12, keepPitch: true });
+    expect(audioPlayback({ mode: "resample", tempo: null }, -3, 120)).toEqual({ speed: 1, transpose: -3, keepPitch: true });
   });
 
   it("follows the song's tempo against its own when stretched, in either mode", () => {
@@ -24,8 +25,8 @@ describe("how an audio clip plays its file", () => {
     expect(audioPlayback({ mode: "resample", tempo: 90 }, 0, 120).speed).toBeCloseTo(4 / 3);
     expect(audioPlayback({ mode: "stretch", tempo: 90 }, 0, 120)).toMatchObject({ keepPitch: true, transpose: 0 });
     expect(audioPlayback({ mode: "stretch", tempo: 90 }, 0, 120).speed).toBeCloseTo(4 / 3);
-    // Resample: its channel's pitch speeds it up too. Stretch: it shifts its pitch, its time kept.
-    expect(audioPlayback({ mode: "resample", tempo: 60 }, 12, 120).speed).toBeCloseTo(4);
+    // Its channel's pitch is on top, its time kept: in Resample, on the octave the speed already makes.
+    expect(audioPlayback({ mode: "resample", tempo: 60 }, 12, 120)).toEqual({ speed: 2, transpose: 24, keepPitch: true });
     expect(audioPlayback({ mode: "stretch", tempo: 60 }, 12, 120)).toEqual({ speed: 2, transpose: 12, keepPitch: true });
     // A stretch that changes nothing goes through no stretcher.
     expect(audioPlayback({ mode: "stretch", tempo: 120 }, 0, 120).keepPitch).toBe(false);
@@ -52,12 +53,9 @@ describe("the tempo a file was made at", () => {
     expect(fileTempo(0, null)).toBeNull();
   });
 
-  it("can be given as a number of beats (FL's TIME menu), Resample taking the channel's pitch in", () => {
+  it("can be given as a number of beats (FL's TIME menu)", () => {
     expect(tempoForBeats(4, 4)).toBe(60);
-    // An octave up, Resample plays it twice as fast already: the tempo is twice as high to last as long.
-    expect(tempoForBeats(4, 4, "resample", 12)).toBe(120);
-    expect(tempoOfFile(90, "stretch", 12)).toBe(90);
-    expect(tempoOfFile(90, "resample", -12)).toBe(45);
+    expect(tempoOfFile(90)).toBe(90);
   });
 });
 
@@ -142,7 +140,7 @@ describe("stretching audio clips", () => {
 
   it("are clamped to the engine's speeds", () => {
     // Four seconds squeezed into a tick would be far past 16 times as fast.
-    const { stretch, length } = stretchedTo({ fileSecondsPerTick: 1 / 192, length: 768 }, 1, "stretch", { tempo: 120, secondsPerTick: 1 / 192, pitch: 0 });
+    const { stretch, length } = stretchedTo({ fileSecondsPerTick: 1 / 192, length: 768 }, 1, "stretch", { tempo: 120, secondsPerTick: 1 / 192 });
     expect(stretch.tempo).toBe(7.5);
     expect(length).toBe(48);
   });
@@ -171,14 +169,18 @@ describe("resetting the pitch, the speed kept", () => {
 
   it("takes a pitched channel's pitch back to 0, with every clip of it, each at its speed", () => {
     let song = editClips(vocal(), (clips, ctx) => sliceClips(clips, BAR, 0, 0, ctx).clips);
-    // A fifth up (Resample: faster too); the second clip has a Resample stretch of its own on top.
+    // A fifth up (higher, the same speed); the second clip has a Resample stretch of its own on top.
     song = updateChannel(song, "chan_vox", { pitch: 7 });
     song = editClips(song, (clips, c) => setClipStretch(clips, new Set([2]), { mode: "resample", tempo: 60 }, c));
     const was = [heard(song, 0), heard(song, 1)];
-    expect(was.map((h) => h.semitones)).toEqual([7, 19]);
+    expect(was.map((h) => [h.speed, h.semitones])).toEqual([
+      [1, 7],
+      [2, 19],
+    ]);
     // From a clip of it: its channel's pitch is every clip's, so the channel goes back with them.
     const reset = resetPitch(song, { clips: new Set([1]) });
-    expect(reset.channels.find((c) => c.id === "chan_vox")).toMatchObject({ pitch: 0, stretch: { mode: "stretch" } });
+    expect(reset.channels.find((c) => c.id === "chan_vox")).toMatchObject({ pitch: 0 });
+    expect(reset.channels.find((c) => c.id === "chan_vox")).not.toHaveProperty("stretch");
     expect([heard(reset, 0), heard(reset, 1)]).toEqual(was.map((h) => ({ ...h, semitones: 0 })));
     expect(resetPitch(song, { channel: "chan_vox" })).toEqual(reset);
   });

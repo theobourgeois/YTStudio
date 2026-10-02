@@ -91,14 +91,12 @@ function fileSeconds(doc: MusicProject, channelId: string): number | null {
   return asset?.duration && asset.duration > 0 ? asset.duration : null;
 }
 
-const pitchOf = (doc: MusicProject, channelId: string) => doc.channels.find((c) => c.id === channelId)?.pitch ?? 0;
-
 /** The file lasts `beats` beats (FL's Beat/Bar #). */
 export const setBeats = (target: StretchTarget, beats: number) =>
   commit(target, (doc, channelId) => {
     const seconds = fileSeconds(doc, channelId);
     const mode = modeOf(doc, target);
-    return seconds === null ? undefined : { mode, tempo: tempoForBeats(seconds, beats, mode, pitchOf(doc, channelId)) };
+    return seconds === null ? undefined : { mode, tempo: tempoForBeats(seconds, beats) };
   });
 
 /** Beats in a bar of the song (quarter notes). */
@@ -131,7 +129,7 @@ export async function autodetectTempo(target: StretchTarget) {
   if ([...heard.values()].every((t) => t === null)) return void toast.info("No tempo heard", { description: "The file is too short to tell." });
   commit(target, (now, channelId) => {
     const tempo = heard.get(channelId);
-    return tempo ? { mode: modeOf(now, target), tempo: tempoOfFile(tempo, modeOf(now, target), pitchOf(now, channelId)) } : undefined;
+    return tempo ? { mode: modeOf(now, target), tempo: tempoOfFile(tempo) } : undefined;
   });
   const tempi = [...new Set([...heard.values()].filter((t): t is number => t !== null))];
   toast.success(`Tempo detected: ${tempi.map((t) => `${Math.round(t * 10) / 10} BPM`).join(", ")}`, { id: "detect-tempo" });

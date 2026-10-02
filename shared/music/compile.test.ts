@@ -359,16 +359,18 @@ describe("compileSong in song mode", () => {
     ]);
     // A loop starting inside a clip: the clip began before it (its tick is negative).
     expect(compileSong(sliced, P, { start: BAR + 96, end: 3 * BAR }, "song").audioClips[0]).toEqual({ channel: 2, tick: -96, length: BAR, seconds: 0, speed: 1 });
-    // Pitched an octave up, the channel plays its file twice as fast (FL's Resample).
+    // Pitched an octave up, the channel's clips are higher, at the same speed (FL's: the stretcher shifts them).
     const up = compileSong(updateChannel(sliced, "chan_vox", { pitch: 12 }), P, null, "song");
-    expect(up.audioClips.map((c) => c.speed)).toEqual([2, 2]);
+    expect(up.audioClips.map((c) => [c.speed, c.keepPitch, c.transpose])).toEqual([
+      [1, true, 12],
+      [1, true, 12],
+    ]);
     // Stretched, a clip goes through its file at the song's tempo over its own; in Stretch mode its pitch is
-    // kept, and the channel's pitch shifts it without changing the time.
-    // (Pitched an octave up it already went twice as fast: it lasts as long as it did.)
+    // kept, and the channel's pitch shifts it without changing the time. (Twice as fast: half as long.)
     const stretched = editClips(updateChannel(sliced, "chan_vox", { pitch: 12 }), (clips, ctx) => setClipStretch(clips, new Set([clips[0].id]), { mode: "stretch", tempo: 60 }, ctx));
     expect(compileSong(stretched, P, null, "song").audioClips).toEqual([
-      { channel: 2, tick: BAR, length: BAR, seconds: 0, speed: 2, keepPitch: true, transpose: 12 },
-      { channel: 2, tick: 2 * BAR, length: BAR, seconds: 2, speed: 2 },
+      { channel: 2, tick: BAR, length: BAR / 2, seconds: 0, speed: 2, keepPitch: true, transpose: 12 },
+      { channel: 2, tick: 2 * BAR, length: BAR, seconds: 2, speed: 1, keepPitch: true, transpose: 12 },
     ]);
     // Pattern mode plays none.
     expect(compileSong(sliced, P).audioClips).toEqual([]);

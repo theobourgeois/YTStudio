@@ -3,7 +3,6 @@ import { PiFolderOpen, PiPlug, PiWaveform, PiWaveSine } from "react-icons/pi";
 import { cn } from "cn";
 import { levelGain, panGains } from "@shared/music/compile";
 import { updateChannel } from "@shared/music/edits";
-import { pitchSpeed } from "@shared/music/playlist";
 import { DEFAULT_PRECOMPUTED, DEFAULT_VOLUME, MAX_SAMPLE_START, MIN_SAMPLE_LENGTH, PITCH_KNOB_RANGE, precomputedUntouched } from "@shared/music/project";
 import type { Channel, Precomputed } from "@shared/music/types";
 import { type SampleLoop, samplerOf } from "@shared/music/sampler";
@@ -44,7 +43,7 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
   const [tab, setTab] = useState<Tab>("sample");
   const id = channel.id;
   // An audio clip's channel (FL's cut-down sampler): its file streams from the Playlist, so it has no
-  // envelope; its pitch plays the file faster or slower (FL's Resample).
+  // envelope; its pitch makes its clips higher or lower, in the same time (FL's).
   const audio = channel.kind === "audio";
   const plugin = channel.kind === "plugin";
   // Cascaded by its place in the rack, but always in view: an audio clip's channel can be far down it.
@@ -144,7 +143,7 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
                 unit={plugin ? SEMITONES : CENTS}
                 // Automated, a sampler's notes bend as they sound; a plugin channel's move by whole semitones. An audio clip's channel's clips can't follow it.
                 target={audio ? undefined : { kind: "channel", channel: id, control: "pitch" }}
-                // Whole semitones as it turns; cents are typed in. An audio clip plays faster pitched up (FL's Resample).
+                // Whole semitones as it turns; cents are typed in. An audio clip's go higher, not faster (FL's).
                 edit={(song, pitch) => updateChannel(song, id, { pitch: !plugin && Number.isInteger(pitch * 100) && !Number.isInteger(pitch) ? pitch : Math.round(pitch) })}
               />
             </Labelled>
@@ -388,7 +387,7 @@ function hearChannel(channel: Channel) {
   // As its clips sound: its volume, pan and pitch (whether it's on or not, so it can be heard while muted).
   const [left, right] = panGains(channel.pan);
   const gain = levelGain(channel.volume, DEFAULT_VOLUME);
-  const request = { projectId: projectId ?? "", sampleId: channel.sampleId, id: channel.id, gainLeft: gain * left, gainRight: gain * right, speed: pitchSpeed(channel.pitch) };
+  const request = { projectId: projectId ?? "", sampleId: channel.sampleId, id: channel.id, gainLeft: gain * left, gainRight: gain * right, transpose: channel.pitch };
   if (projectId) void musicApi.previewSample(request).catch(() => {});
 }
 

@@ -28,10 +28,11 @@ public:
 
     /**
      * Play `file` from `startSeconds`, cutting the last one off. `id` is the tab's name for it. A channel's own preview (an audio clip's,
-     * from its settings window) gives its gains and speed (its pitch) and isn't at the Browser's volume.
+     * from its settings window) gives its gains and pitch (`transpose` semitones, its time kept, through the
+     * stretcher) and isn't at the Browser's volume. `speed` reads it faster or slower, its pitch going with it.
      */
     juce::Result play (const juce::File& file, double startSeconds, const juce::String& id, float gainLeft = 1.0f, float gainRight = 1.0f, double speed = 1.0,
-                       bool browserVolume = true);
+                       bool browserVolume = true, double transpose = 0.0);
     void stop();
     /** 0..1, at once (it's the Browser's volume). */
     void setVolume (float gain);
