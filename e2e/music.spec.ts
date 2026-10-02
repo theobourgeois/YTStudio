@@ -2539,3 +2539,106 @@ test("the assistant shapes a Pro-Q: puts one on a track, adds bands, sets its mo
   const [automation] = await savedAutomations(page, id);
   expect(automation.target).toEqual({ kind: "proQ", effect: effect.id, band: 2, control: "frequency" });
 });
+
+/** The song's PanMan (the effect `effectId`) as saved; until it's saved, null (a poll waits for it). */
+type SavedPan = { preset: string; mode: string; style: string; custom: boolean; rhythm: string; stepPattern: { points: { tick: number; value: number }[] } };
+async function savedPan(page: Page, id: string, effectId: string): Promise<SavedPan | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.panMan;
+  return null;
+}
+
+test("PanMan: chosen for a slot, its presets, modes and style, its step editor, the Manual Trigger and automation", async ({ page }) => {
+  const id = await openNewSong(page, "Pans");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, under Built in; its window opens at once, panning slowly.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /PanMan/ }).click();
+  const window = page.getByTestId("panman");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.preset).toBe("Slow Pan");
+  await inspector.getByRole("button", { name: "PanMan: close its window" }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "PanMan: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // A preset from the preset bar; a change lights Revert, which goes back to it.
+  await window.getByTestId("panman-preset").click();
+  await page.getByRole("menuitem", { name: "Tooo Dang Fast" }).click();
+  await expect.poll(async () => await savedPan(page, id, effectId)).toMatchObject({ preset: "Tooo Dang Fast", mode: "rhythmStep", style: "fat" });
+  await expect(window.getByRole("button", { name: "Revert to Tooo Dang Fast" })).toBeDisabled();
+  await window.getByTestId("panman-mode").click();
+  await page.getByRole("menuitemradio", { name: "Rhythm Shape" }).click();
+  await expect(window).toHaveAttribute("data-mode", "rhythmShape");
+  await window.getByRole("button", { name: "Revert to Tooo Dang Fast" }).click();
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.mode).toBe("rhythmStep");
+
+  // The rhythm from its LCD's menu: quarter notes. Tweak shows the editor; a click on an empty grid line adds a point.
+  await window.getByRole("spinbutton", { name: "Rhythm" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "1/4 note" }).click();
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.rhythm).toBe("1/4");
+  await window.getByRole("button", { name: /Tweak/ }).click();
+  const editor = window.getByTestId("panman-step-editor");
+  await expect(editor).toBeVisible();
+  const box = (await editor.boundingBox())!;
+  // The editor's area: 6 px in, 16 px for R / C / L on the right, 100 px high.
+  const at = (tick: number, value: number) => ({ x: box.x + 6 + (tick / 384) * (box.width - 28), y: box.y + 6 + ((1 - value) / 2) * 100 });
+  let point = at(48, 1);
+  await page.mouse.click(point.x, point.y);
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.custom).toBe(true);
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.stepPattern.points.map((p) => p.tick)).toEqual([0, 48, 96, 192, 288]);
+  await expect(window.getByRole("spinbutton", { name: "Rhythm" })).toHaveText("Custom");
+  // Right-click deletes it; undo brings it back.
+  point = at(48, 1);
+  await page.mouse.click(point.x, point.y, { button: "right" });
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.stepPattern.points.map((p) => p.tick)).toEqual([0, 96, 192, 288]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.stepPattern.points).toHaveLength(5);
+
+  // The Analog Style.
+  await window.getByRole("radio", { name: "Crunch" }).click();
+  await expect.poll(async () => (await savedPan(page, id, effectId))?.style).toBe("crunch");
+
+  // PingPong's Manual Trigger goes to the engine (not the song).
+  await window.getByTestId("panman-mode").click();
+  await page.getByRole("menuitemradio", { name: "PingPong" }).click();
+  const triggered = page.waitForRequest((r) => r.url().endsWith("/api/engine/panMan"));
+  await window.getByRole("button", { name: "Trigger", exact: true }).click();
+  expect((await triggered).postDataJSON()).toEqual({ effect: effectId, trigger: true });
+
+  // Its Offset can be automated, from its knob's menu.
+  await window.getByRole("slider", { name: "Offset", exact: true }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: /Create automation clip/ }).click();
+  await expect.poll(async () => (await savedAutomations(page, id)).map((a) => a.target)).toEqual([{ kind: "panMan", effect: effectId, control: "offset" }]);
+});
+
+test("the assistant pans with PanMan: puts one on a track, loads a preset, draws a rhythm, automates its offset", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted pans");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "PanMan"}',
+      'call update_panman {"track": 1, "preset": "Wiper Panner", "width": 150}',
+      'call set_panman_pattern {"track": 1, "editor": "shape", "events": [{"beat": 0, "length": 1.5}, {"beat": 2, "length": 2}]}',
+      'call update_panman {"track": 1, "width": 400}',
+      'call add_automation {"control": "panman offset", "track": 1, "slot": 1, "bar": 1, "length": 1, "points": [{"at": 0, "value": -90}, {"at": 1, "value": 90}]}',
+      'call get_panman {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_panman: ok", { timeout: 30_000 });
+  // A width of 400° is refused, saying the range.
+  await expect(panel).toContainText("update_panman: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("PanMan");
+  expect(effect.panMan).toMatchObject({ preset: "Wiper Panner", mode: "rhythmShape", width: 150, custom: true, shapePattern: { events: [{ tick: 0, length: 144 }, { tick: 192, length: 192 }] } });
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "panMan", effect: effect.id, control: "offset" });
+  expect(automation.points.map((p) => Math.round(p.value * 210 - 105))).toEqual([-90, 90]);
+});

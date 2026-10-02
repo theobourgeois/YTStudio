@@ -6,7 +6,7 @@ import { useMusic } from "./store";
 
 /**
  * A window of the music editor: the channel rack, the Piano roll, the Playlist, the mixer, a channel's settings,
- * an automation clip's, a Gross Beat's, an Auto-Tune's, an EchoBoy's, a Pro-Q's, or one of the small ones a command opens (Transpose selected, a note's properties,
+ * an automation clip's, a Gross Beat's, an Auto-Tune's, an EchoBoy's, a Pro-Q's, a PanMan's, or one of the small ones a command opens (Transpose selected, a note's properties,
  * Automate: every control to automate).
  */
 export type WindowId =
@@ -24,6 +24,7 @@ export type WindowId =
   | `gross:${string}`
   | `tune:${string}`
   | `echo:${string}`
+  | `panman:${string}`
   | `proq:${string}`;
 
 /**
@@ -42,6 +43,8 @@ export const autoTuneWindow = (effectId: string): WindowId => `tune:${effectId}`
 export const echoBoyWindow = (effectId: string): WindowId => `echo:${effectId}`;
 /** A Pro-Q's window (`pro-q/pro-q-window.tsx`), by its effect's id. */
 export const proQWindow = (effectId: string): WindowId => `proq:${effectId}`;
+/** A PanMan's window (`panman/panman-window.tsx`), by its effect's id. */
+export const panManWindow = (effectId: string): WindowId => `panman:${effectId}`;
 
 /** Where the music editor's windows are on its desktop, and which is in front (the rack over the Playlist, at first). */
 export const useMusicWindows = createWindows<WindowId>(["playlist", "rack"]);

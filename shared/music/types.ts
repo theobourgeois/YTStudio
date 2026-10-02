@@ -139,7 +139,7 @@ export interface Pattern {
  * An effect in a mixer track's slot: an effect plugin, or one of ours, whose settings are in the song
  * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
  * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pro-Q: `PRO_Q_PLUGIN` and
- * `proQ`).
+ * `proQ`; PanMan: `PANMAN_PLUGIN` and `panMan`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -157,6 +157,8 @@ export interface MixerEffect {
   autoTune?: AutoTune;
   /** Pro-Q's settings, on a Pro-Q (absent on a plugin). */
   proQ?: ProQ;
+  /** PanMan's settings, on a PanMan (absent on a plugin). */
+  panMan?: PanMan;
 }
 
 /**
@@ -331,6 +333,85 @@ export interface ProQ extends ProQState {
   analyzer: ProQAnalyzer;
   /** ±dB the display shows (it grows when a band goes past it). */
   displayRange: 3 | 6 | 12 | 30;
+}
+
+/** PanMan's modes (`docs/soundtoys/panman.md`): what moves the sound. */
+export type PanManMode = "lfo" | "rhythmStep" | "rhythmShape" | "pingPong" | "random" | "step";
+/** PanMan's Direction buttons: ◀ right to left (a ramp down), ◀▶ back and forth, ▶ left to right (a ramp up). */
+export type PanDirection = "down" | "both" | "up";
+/** The Rhythm Step Editor's Smoothing Mode: the shape of a move from one point to the next. */
+export type PanCurve = "linear" | "sine" | "exp" | "sym" | "rev";
+/** PanMan's Analog Style: its saturation. */
+export type PanStyle = "clean" | "fat" | "squash" | "dirt" | "crunch" | "shred" | "pump";
+
+/** A point of the Rhythm Step Editor: a tick of its bars, and a position, -1 (L) to 1 (R) of the Width around the Offset. */
+export interface PanStepPoint {
+  tick: number;
+  value: number;
+}
+
+/** An event of the Rhythm Editor (Rhythm Shape): one cycle of the direction's shape, from `tick`, `length` ticks long. */
+export interface PanShapeEvent {
+  tick: number;
+  length: number;
+}
+
+/**
+ * PanMan's settings (`docs/soundtoys/panman.md`), Soundtoys' auto-panner, ours. Positions are degrees
+ * (±90 hard left / right, ±105 beyond the speakers), levels dB, times seconds.
+ */
+export interface PanMan {
+  /** The factory preset last chosen (`PANMAN_PRESETS` by name): the preset bar's name, what Revert goes back to. */
+  preset: string;
+  mode: PanManMode;
+  /** -105..105: the base position. */
+  offset: number;
+  /** 0..210: how far around the offset it moves. */
+  width: number;
+  /** 0..1, Hard to Soft. */
+  smoothing: number;
+  /** -1..1: Rhythm Step's Rush to Drag (a 16th note either way). */
+  feel: number;
+  /** -1..1: Rhythm Shape's Shuffle to Swing (every second event, to a triplet). */
+  groove: number;
+  /** Hz, 0.01..10: the LFO's rate. */
+  rate: number;
+  direction: PanDirection;
+  /** A rhythm's id (`PAN_RHYTHMS`): each step, event or random move lasts it. */
+  rhythm: string;
+  /** 2..16: Rhythm Step's positions before it repeats. */
+  steps: number;
+  /** The editor's pattern plays (Rhythm Step's points, Rhythm Shape's events) rather than the one the knobs make. */
+  custom: boolean;
+  /** In time with the song (the MIDI switch); off, at `tempo`. */
+  sync: boolean;
+  /** BPM (Tap Tempo), when not in time with the song. */
+  tempo: number;
+  /** dB, -40..0: PingPong's and Step's trigger level (0: the sound doesn't trigger). */
+  trigger: number;
+  /** 1..12: triggers to a move. */
+  divider: number;
+  /** The trigger's filter (what it listens to): its type, cutoff (Hz) and gain (dB); `monitor` plays it, unpanned. */
+  filter: "hpf" | "off" | "lpf";
+  cutoff: number;
+  filterGain: number;
+  monitor: boolean;
+  /** The dynamics (LFO and the rhythms): threshold (dB), attack and release (s), Env or Gate, and how far the level moves the offset (degrees), width (degrees) and rate (octaves). */
+  threshold: number;
+  attack: number;
+  release: number;
+  gate: boolean;
+  offsetMod: number;
+  widthMod: number;
+  rateMod: number;
+  style: PanStyle;
+  /** dB, -24..24. */
+  input: number;
+  output: number;
+  /** The Rhythm Step Editor: its bars, their beats, its Smoothing Mode, and its points (sorted, one per tick). */
+  stepPattern: { bars: number; beatsPerBar: number; curve: PanCurve; points: PanStepPoint[] };
+  /** The Rhythm Editor (Rhythm Shape): its bars, their beats, and its events (sorted, not overlapping). */
+  shapePattern: { bars: number; beatsPerBar: number; events: PanShapeEvent[] };
 }
 
 /**
@@ -690,6 +771,7 @@ export type AutomationTarget =
   | { kind: "autoTune"; effect: string; control: AutoTuneControl }
   | { kind: "echoBoy"; effect: string; control: EchoControl }
   | { kind: "proQ"; effect: string; band: number; control: EqControl }
+  | { kind: "panMan"; effect: string; control: PanControl }
   | { kind: "main" }
   | {
       kind: "plugin";
@@ -708,6 +790,8 @@ export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";
 /** Auto-Tune's controls an automation clip can drive (the key too, for a song that changes key). */
 export const AUTO_TUNE_CONTROLS = ["retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key"] as const;
 export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
+/** PanMan's controls an automation clip can drive. */
+export type PanControl = "offset" | "width" | "rate" | "input" | "output";
 
 /** A Pro-Q band's controls an automation clip can drive (band 0 is its output). */
 export type EqControl = "frequency" | "gain" | "q" | "range" | "output";

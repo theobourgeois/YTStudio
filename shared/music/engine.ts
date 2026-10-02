@@ -125,6 +125,8 @@ export interface EngineTransport {
   echoBoys?: Record<string, EngineEchoLevels>;
   /** Each Pro-Q being watched (`eqWatch`), by effect id: its spectra and its dynamic bands (absent from engines that don't say). */
   eq?: Record<string, EngineEqState>;
+  /** Each PanMan in the song (by effect id): where it's put the sound (absent from engines that don't say). */
+  panMen?: Record<string, EnginePanState>;
 }
 
 /**
@@ -156,6 +158,21 @@ export interface EngineEqState {
   post: number[] | null;
   peak: [number, number];
   bands: Record<string, { gain: number; level: number }>;
+}
+
+/**
+ * What a PanMan is doing: the position it's heard at (degrees: ±90 hard left / right, ±105 beyond), the
+ * least and most since the engine last said (the meter's trails), the input's and output's peaks since
+ * (linear, after Input / Output), the level its Threshold or Trigger knob sees (dB), and its divider's count.
+ */
+export interface EnginePanState {
+  position: number;
+  least: number;
+  most: number;
+  input: number;
+  output: number;
+  level: number;
+  count: number;
 }
 
 /**
@@ -482,6 +499,8 @@ export interface EngineCommands {
    * envelope's; 0 lets go).
    */
   grossBeat: { effect: string; hold?: boolean; scratch?: number };
+  /** A PanMan's Manual Trigger (`trigger`: a trigger now, if the sound is under its Trigger's level). Live, not the song's. */
+  panMan: { effect: string; trigger?: boolean };
   /**
    * The Pro-Qs whose sound the engine measures (their windows are open, or another's shows their
    * spectrum): each with its analyzer's FFT length. The rest aren't measured.

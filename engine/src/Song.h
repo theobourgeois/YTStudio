@@ -8,6 +8,7 @@
 #include "AutoTune.h"
 #include "EchoBoy.h"
 #include "GrossBeat.h"
+#include "PanMan.h"
 #include "ProQ.h"
 #include "Host.h"
 #include "Resampling.h"
@@ -151,6 +152,9 @@ struct Song
             /** A Pro-Q (ours too): its sound, kept across songs, and this song's settings for it. */
             std::shared_ptr<eq::State> eq;
             std::shared_ptr<eq::Settings> eqSettings;
+            /** A PanMan (ours too): its sound's state, kept across songs, and this song's settings for it. */
+            std::shared_ptr<panman::State> pan;
+            std::shared_ptr<panman::Settings> panSettings;
         };
 
         juce::String id;
@@ -181,9 +185,9 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, track, send, mix, gross, tune, echo, eq, param };
+        enum class Kind { channel, track, send, mix, gross, tune, echo, eq, panman, param };
         Kind kind = Kind::channel;
-        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`). */
+        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`), or a PanMan's (`PanControl`: offset, width, rate, input, output). */
         int channel = -1, track = -1, index = -1, control = 0;
         /** A Pro-Q's band (its number; 0 its output) and control (frequency, gain, Q, range, output). */
         int band = 0;
@@ -280,11 +284,11 @@ struct Song
 
     /**
      * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the
-     * mixer's, `grossBeats` and `echoBoys` keep its Gross Beats' and EchoBoys' sounds; `unreadable` gets the ids of channels whose
+     * mixer's, `grossBeats`, `echoBoys` and `panMen` keep its Gross Beats', EchoBoys' and PanMen's sounds; `unreadable` gets the ids of channels whose
      * sample couldn't be read. Unless `keepOnly` is false (a copy for the export), the hosts let go of the
      * plugins the song doesn't have.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, juce::StringArray& unreadable,
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, panman::Registry& panMen, juce::StringArray& unreadable,
                                         int capacity, double sampleRate, bool keepOnly = true);
 
     /**

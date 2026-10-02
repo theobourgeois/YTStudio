@@ -63,8 +63,9 @@ shared/            Pure TS, used by both sides. No DOM, no Node APIs (types only
                      engine; echo-boy-styles.ts its 31 styles, echo-boy-library.ts its presets), Auto-Tune
                      (auto-tune.ts: its edits, Detect key, what the engine plays; scales, presets and ranges in
                      auto-tune-presets.ts), Pro-Q (pro-q.ts: its edits and what the engine plays; pro-q-filters.ts:
-                     its shapes as analog sections, curves, Auto Gain; pro-q-presets.ts), and drawing anything
-                     over time as lines for the engine (sampling.ts).
+                     its shapes as analog sections, curves, Auto Gain; pro-q-presets.ts), PanMan (panman.ts: its patterns,
+                     edits and what the engine plays; panman-presets.ts: its constants, validation and presets),
+                     and drawing anything over time as lines for the engine (sampling.ts).
   types.ts           Domain + HTTP API types; the route list is documented at the bottom.
   timeline.ts        Queries + edits on Project (clips, tracks, clipboard, snapping, output size).
   normalize.ts       normalizeProject: validates/repairs/upgrades any untrusted Project (load, save, export).
@@ -180,7 +181,8 @@ engine/            The music suite's audio engine, a C++/JUCE program (CMake; JU
                      AutoTune.cpp: Auto-Tune, native too (YIN pitch tracking, Antares' correction,
                      formant-keeping PSOLA). ProQ.cpp: Pro-Q, native too (its bands, dynamics, modes);
                      EqDesign.cpp: its filters (analog sections matched to digital ones, run as SVFs);
-                     Convolver.cpp: FIR filters by FFT; Spectrum.cpp: the analyzer's measurements. Resampling.h: reading between samples (linear, Hermite, sinc),
+                     Convolver.cpp: FIR filters by FFT; Spectrum.cpp: the analyzer's measurements. PanMan.cpp: PanMan, another (its pattern, chance,
+                     triggers, dynamics, pan law, Analog Styles). Resampling.h: reading between samples (linear, Hermite, sinc),
                      centred so nothing is delayed. Protocol.cpp: the JSON lines. One file per job: split a file rather than let it grow past a few hundred
                      lines. test-plugin/ has VST3s of our own to test with: a synth and an effect (a gain that
                      can also delay its sound and report it; tests set VAUDIO_TEST_EFFECT_LATENCY).
@@ -204,6 +206,7 @@ src/
                      (EchoBoy's window, Tweak, the Style Editor, Rhythm Echo's editor, its tools),
                      auto-tune/ (Auto-Tune's window, its live pitch graph and tools),
                      pro-q/ (Pro-Q's window: its display, gestures, band controls, analyzer, EQ Match, tools),
+                     panman/ (PanMan's window, its editors, meters and tools),
                      toolbar.tsx (FL's toolbar: transport, PAT / SONG (mode-switch.tsx),
                      tempo and position LCDs, the hint bar; its maths in position.ts), recording.ts (armed
                      tracks, Record, takes into the song) and inputs.ts (the input device's channels), playlist/ (the
@@ -321,7 +324,7 @@ Théo): read the panel's document before touching that panel, don't work from me
 a panel before building it. Each ends with where we still differ.
 Built so far: the channel rack (sampler and plugin channels, the step sequencer and its graph editor, patterns,
 swing), the Piano roll, the Playlist and song mode, the transport and the metronome, the mixer, the Browser,
-the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q. Where it is and every step still to come, in order:
+the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q, PanMan. Where it is and every step still to come, in order:
 `docs/music-suite.md`. The app's new look (both suites), in progress: `docs/ui-redesign.md`.
 
 - The document (`shared/music/types.ts`): `MusicProject = { settings: { tempo, timeSignature, swing, volume }, channels,
@@ -523,6 +526,17 @@ the export, automation, recording, Gross Beat, EchoBoy, Auto-Tune, Pro-Q. Where 
   them to the audio thread by atomic exchange (`Convolver::offer`); keep it so. Its latency is in delay
   compensation. The analyzer is measured only for the Pro-Qs `eqWatch` names (open windows); its fall,
   tilt and range are the tab's. Its window's look is its own (`--eq-*` tokens, dark in every theme).
+- **PanMan** (`docs/soundtoys/panman.md`; `shared/music/panman*.ts`, `engine/src/PanMan.cpp`,
+  `src/suites/music/panman/`): Soundtoys' auto-panner, ours, built as Gross Beat is (when in doubt about it,
+  do what Soundtoys' does: the doc is from its manual). `MixerEffect.panMan` on an effect whose plugin is
+  `PANMAN_PLUGIN`, in the song. The pattern modes (LFO, Rhythm Step, Rhythm Shape: Smoothing, Feel and Groove
+  included) are decided in TypeScript (`panPattern`) and sent as lines over the pattern's phase; Random's
+  chance (repeatable, seeded by the effect's id), the triggers, the dynamics, the pan law (sine / cosine to
+  ±105°, unity at the centre) and the Analog Styles are the engine's (`panman::State`, kept by effect id in
+  `panman::Registry`), in time with `gross::Clock`. Its offset, width, rate and gains automate
+  (`AutomationTarget` `panMan`; the offset and width travel as fractions, `PAN_LANE_SCALE`: lanes hold
+  values within ±64). The Manual Trigger is live (`panMan` command). Keep its sound tested offline
+  (`panman.integration.test.ts`).
 - **Resampling** (`engine/src/Resampling.h`; Settings' Quality): how samplers and audio clips read between
   samples. Playback's choice (Hermite by default) comes with each song (`SetSongRequest.resampling`), the
   export's (sinc) with the export. Every method is centred: a hit is never late (tested).

@@ -512,6 +512,10 @@ export class AudioEngine {
         const band = isFiniteNumber(body.band) ? Math.round(clamp(body.band, 1, 24)) : null;
         return { effect: body.effect, band, gain: isFiniteNumber(body.gain) ? clamp(body.gain, -30, 30) : 0 };
       }
+      case "panMan": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a PanMan\'s effect id.');
+        return { effect: body.effect, ...(body.trigger === true && { trigger: true }) };
+      }
       case "trigger": {
         if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');
         const velocity = isFiniteNumber(body.velocity) ? clamp(body.velocity, 0, 1) : DEFAULT_VELOCITY;

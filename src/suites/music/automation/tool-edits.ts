@@ -62,6 +62,11 @@ export const CONTROLS = [
   "key",
   ...["eq frequency", "eq gain", "eq q", "eq range", "eq output"],
   ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
+  "panman offset",
+  "panman width",
+  "panman rate",
+  "panman input",
+  "panman output",
 ] as const;
 
 /** An EchoBoy's controls, as the tool names them. */
@@ -97,6 +102,8 @@ const TUNE_CONTROLS = {
 } as const satisfies Record<string, AutoTuneControl>;
 /** Auto-Tune's controls the model gives as 0 to 100 (Auto-Tune's own numbers), kept as 0..1 (throat 0.5..1.8). */
 const HUNDREDTHS: readonly AutoTuneControl[] = ["humanize", "flexTune", "throat"];
+/** A PanMan's controls, likewise. */
+const PAN_CONTROLS_BY_NAME = { "panman offset": "offset", "panman width": "width", "panman rate": "rate", "panman input": "input", "panman output": "output" } as const;
 
 /** A mixer effect's slot, 1 to 10, on a track: the effect there, or an error saying which slots hold one. */
 function effectAt(song: MusicProject, input: Input) {
@@ -185,6 +192,15 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (!band) throw new Error(`Give the Pro-Q's "band" (its number): it has ${effect.proQ.bands.map((b) => b.id).join(", ") || "no bands yet (set_pro_q_bands adds them)"}.`);
       return { kind: "proQ", effect: effect.id, band: band.id, control: EQ_TOOL_CONTROLS[control] };
     }
+    case "panman offset":
+    case "panman width":
+    case "panman rate":
+    case "panman input":
+    case "panman output": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.panMan) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a PanMan: a "${control}" is PanMan's.`);
+      return { kind: "panMan", effect: effect.id, control: PAN_CONTROLS_BY_NAME[control] };
+    }
     case "parameter": {
       if (typeof input.parameter !== "string" || !input.parameter.trim()) throw new Error('"parameter" must be the plugin parameter\'s name or id, from list_controls.');
       if (input.channel !== undefined && input.channel !== "") {
@@ -264,11 +280,15 @@ const valueHint = (target: AutomationTarget) =>
         : target.control === "q"
           ? "a Q, 0.025 to 40"
           : "a level in dB"
+    : target.kind === "panMan"
+      ? PAN_HINTS[target.control]
     : target.kind === "channel" && target.control === "pan"
       ? "a pan, -1 left to 1 right"
       : target.kind === "mixer" && target.control !== "volume"
         ? "-1 to 1"
         : "0 to 1, as its knob or fader has it";
+/** What a PanMan control's points are in. */
+const PAN_HINTS = { offset: "degrees, -105 (left) to 105 (right)", width: "degrees, 0 to 210", rate: "Hz, 0.01 to 10", input: "dB, -24 to 24", output: "dB, -24 to 24" } as const;
 
 /**
  * add_automation: an automation clip of a control over `bar` .. `bar + length` (default: the time the

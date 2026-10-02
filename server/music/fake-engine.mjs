@@ -134,8 +134,21 @@ const echoBoys = () =>
       }),
   );
 
+/** PanMan is ours too. */
+const PANMAN = "vaudio:panman";
+/** Each PanMan's divider count (its Manual Trigger counts). */
+const panCounts = new Map();
+/** Each PanMan where its settings put it (the offset), its levels silent: there's no sound here. */
+const panMen = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.panMan)
+      .map((e) => [e.id, { position: e.panMan.offset, least: e.panMan.offset, most: e.panMan.offset, input: 0, output: 0, level: -120, count: panCounts.get(e.id) ?? 0 }]),
+  );
+
 const effects = () => {
-  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PRO_Q);
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PRO_Q && e.plugin.id !== PANMAN);
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
@@ -265,7 +278,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), echoBoys: echoBoys() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), echoBoys: echoBoys(), panMen: panMen() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -306,6 +319,7 @@ const sendTransport = () =>
     autoTunes: autoTunes(),
     echoBoys: echoBoys(),
     eq: eqs(),
+    panMen: panMen(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
     cpu: 0.02,
@@ -407,6 +421,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.grossBeat))) return fail("The song playing has no such Gross Beat.");
     if (params.hold === true) holding.add(params.effect);
     if (params.hold === false) holding.delete(params.effect);
+  }
+  if (cmd === "panMan") {
+    const effect = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).find((e) => e.id === params.effect && e.panMan);
+    if (!effect) return fail("The song playing has no such PanMan.");
+    if (params.trigger) panCounts.set(effect.id, ((panCounts.get(effect.id) ?? 0) + 1) % effect.panMan.divider);
   }
   if ((cmd === "trigger" || cmd === "preview") && !song?.channels.some((c) => c.id === params.channel)) return fail("The song playing has no such channel.");
   if (cmd === "tone") tone = params.on;
