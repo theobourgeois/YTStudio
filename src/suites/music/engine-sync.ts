@@ -11,6 +11,7 @@ import { usePlaylist } from "./playlist/store";
 import { armedIn, useRecording } from "./recording";
 import { useInputs } from "./inputs";
 import { startMidiSync, useMidi } from "./midi";
+import { presetsChanged } from "./plugin-presets";
 import { useMusic } from "./store";
 import { NO_CHANNELS, NO_EFFECTS, NO_GROSS_BEATS, NO_METERS, afterSongSent, useTransport } from "./transport";
 import { currentTrackId, useMusicUi } from "./ui";
@@ -133,6 +134,20 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       // Played on a MIDI keyboard (or the typing keyboard): lit, and kept while recording.
       useMidi.getState().played(event.notes);
       useRecording.getState().notesPlayed(event.notes);
+    } else if (event.event === "preset") {
+      // A plugin's preset changed (its window's arrows): what shows its presets asks again.
+      presetsChanged(event.id);
+    } else if (event.event === "wrapper") {
+      // Its window's wrapper button: a channel's settings, or the mixer on the effect's track.
+      const ui = useMusicUi.getState();
+      if (event.owner === "channel") ui.openChannelWindow(event.id);
+      else {
+        const track = useMusic.getState().history?.doc.mixer.tracks.find((t) => t.effects.some((e) => e?.id === event.id));
+        if (track) {
+          ui.setMixerOpen(true);
+          ui.selectTrack(track.id);
+        }
+      }
     } else if (event.event === "take") {
       useRecording.getState().take(event);
     } else if (event.event === "touch") {

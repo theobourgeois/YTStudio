@@ -25,6 +25,7 @@ import {
   type HostWindow,
   type LoadedPlugin,
   METRONOME_SOUNDS,
+  type PluginPresets,
   type Resampling,
   type SetSongResponse,
   isMetronomeSound,
@@ -371,6 +372,27 @@ export class AudioEngine {
     return parameters;
   }
 
+  /** A song's plugin's presets (`PluginPresets`): `owner` "channel" or "effect", by its id. */
+  async presets(owner: unknown, id: unknown): Promise<PluginPresets> {
+    const { kind, ownerId } = presetOwner(owner, id);
+    return (await this.request("presets", { owner: kind, ownerId })) as PluginPresets;
+  }
+
+  /** Choose a program, or save, load or delete a preset of the user's (`PresetRequest`): answers with the presets after. */
+  async preset(body: unknown): Promise<PluginPresets> {
+    const input = isObject(body) ? body : {};
+    const { kind, ownerId } = presetOwner(input.owner, input.id);
+    if (input.action === "setProgram") {
+      if (!Number.isInteger(input.index) || (input.index as number) < 0) throw new HttpError(400, '"index" must be a program\'s number (0 is the first).');
+      return (await this.request("setProgram", { owner: kind, ownerId, index: input.index })) as PluginPresets;
+    }
+    if (input.action !== "savePreset" && input.action !== "loadPreset" && input.action !== "deletePreset")
+      throw new HttpError(400, '"action" must be "setProgram", "savePreset", "loadPreset" or "deletePreset".');
+    const name = typeof input.name === "string" ? input.name.trim().slice(0, 100) : "";
+    if (!name) throw new HttpError(400, '"name" must be the preset\'s name.');
+    return (await this.request(input.action, { owner: kind, ownerId, name })) as PluginPresets;
+  }
+
   async plugins(): Promise<EnginePlugin[]> {
     return (await this.request("plugins", {})) as EnginePlugin[];
   }
@@ -640,6 +662,8 @@ export class AudioEngine {
           message.event === "export" ||
           message.event === "touch" ||
           message.event === "automate" ||
+          message.event === "preset" ||
+          message.event === "wrapper" ||
           message.event === "midi"
         ) {
           this.emit(message as unknown as EngineEvent);
@@ -668,4 +692,11 @@ export class AudioEngine {
         });
     });
   }
+}
+
+/** Whose presets: a plugin channel's or a mixer effect's, by its id. Throws `HttpError(400)`. */
+function presetOwner(owner: unknown, id: unknown): { kind: "channel" | "effect"; ownerId: string } {
+  if (owner !== "channel" && owner !== "effect") throw new HttpError(400, '"owner" must be "channel" or "effect".');
+  if (typeof id !== "string" || !/^[\w-]{1,64}$/.test(id)) throw new HttpError(400, '"id" must be a channel\'s or an effect\'s id.');
+  return { kind: owner, ownerId: id };
 }

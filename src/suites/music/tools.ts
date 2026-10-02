@@ -8,6 +8,7 @@ import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import { EXPORT_FORMATS, type ExportFormat, type ExportSettings } from "@shared/music/export";
+import type { PluginPresets } from "@shared/music/engine";
 import type { MusicToolName } from "@shared/music/tools";
 import { KIT_SOUNDS } from "@shared/music/tools";
 import type { MusicProject } from "@shared/music/types";
@@ -46,7 +47,7 @@ import { switchMode, useTransport } from "./transport";
 import { armedIn, notesKept, takesOf, useRecording } from "./recording";
 import { midiTarget, useMidi } from "./midi";
 import { inputChoices, inputKey, useInputs } from "./inputs";
-import { inputText } from "./mixer/tool-edits";
+import { findEffect, inputText } from "./mixer/tool-edits";
 import { COUNT_IN_BARS, countInBars, useMusicPreferences } from "./preferences";
 import { addAudioClips, clipContext } from "@shared/music/playlist";
 import {
@@ -229,6 +230,41 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     );
     if (device && taking.some((t) => !channels.length || !inputChoices(channels).some((c) => inputKey(c.input) === inputKey(t.input)))) lines.push("Some of those inputs aren't on this device: they record silence.");
     return textResult(lines.join("\n"));
+  },
+  async plugin_presets(input, ctx) {
+    const target = await targetOf(ctx);
+    requireOpen(target, "A plugin's presets");
+    let owner: "channel" | "effect";
+    let id: string;
+    let label: string;
+    if (input.channel !== undefined) {
+      const channel = findChannel(target.song, input.channel);
+      if (channel.kind !== "plugin" || !channel.plugin) throw new Error(`${channel.name} isn't a plugin channel: only plugins have presets.`);
+      [owner, id, label] = ["channel", channel.id, `${channel.plugin.name} on ${channel.name}`];
+    } else {
+      const { track, effect } = findEffect(target.song, input);
+      [owner, id, label] = ["effect", effect.id, `${effect.plugin.name} on ${trackLabel(target.song, track)}`];
+    }
+    const describe = (p: PluginPresets) =>
+      [
+        p.programs.length ? `${label}'s programs: ${p.programs.map((name, i) => `${i + 1}. ${name || `Program ${i + 1}`}${i === p.program ? " (on)" : ""}`).join(", ")}.` : `${label} has no programs to choose (its presets are in its own window).`,
+        p.presets.length ? `Your presets for it: ${p.presets.map((name) => `"${name}"${name === p.preset ? " (loaded)" : ""}`).join(", ")}.` : "No presets of the user's for it yet.",
+      ].join("\n");
+    if (input.action === "list") return textResult(describe(await musicApi.presets(owner, id)));
+    if (input.action === "program") {
+      const now = await musicApi.presets(owner, id);
+      const wanted = String(input.program ?? "").trim();
+      const byNumber = /^\d+$/.test(wanted) ? Number(wanted) - 1 : -1;
+      const index = byNumber >= 0 ? byNumber : now.programs.findIndex((p) => p.toLowerCase() === wanted.toLowerCase());
+      if (index < 0 || index >= now.programs.length)
+        throw new Error(now.programs.length ? `"program" must be a number from 1 to ${now.programs.length}, or one of: ${now.programs.join(", ")}.` : `${label} has no programs to choose.`);
+      return textResult(`Switched. ${describe(await musicApi.preset({ owner, id, action: "setProgram", index }))}`);
+    }
+    const name = String(input.name ?? "").trim();
+    if (!name) throw new Error('"name" must be the preset\'s name.');
+    const action = input.action === "save" ? "savePreset" : input.action === "load" ? "loadPreset" : input.action === "delete" ? "deletePreset" : null;
+    if (!action) throw new Error('"action" must be "list", "program", "load", "save" or "delete".');
+    return textResult(`Done. ${describe(await musicApi.preset({ owner, id, action, name }))}`);
   },
   async list_midi_inputs(_input, ctx) {
     const target = await targetOf(ctx);

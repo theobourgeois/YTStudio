@@ -338,3 +338,9 @@ export function slotForEffect(song: MusicProject, track: MixerTrack, input: Inpu
 }
 
 export { label as trackLabel };
+
+/** The effect in a track's slot the model named (`track`, `slot` from 1), or why there isn't one. */
+export function findEffect(song: MusicProject, input: Input) {
+  const track = findTrack(song, input.track);
+  return { track, effect: effectIn(song, track, slotOf(input)) };
+}

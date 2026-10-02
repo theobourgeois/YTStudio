@@ -184,6 +184,23 @@ describe.skipIf(!built)("the audio engine, offline", () => {
     await engine.setSong({ projectId: project, song: createMusicProject("Empty"), patternId: null });
   });
 
+  it("saves a plugin channel's settings as a preset of the user's, for every song, and loads and deletes it", async () => {
+    const project = "proj_0123456789ab";
+    const song = addPluginChannel(createMusicProject("Presets"), { id: synthId, name: "Vaudio Test Synth", format: "VST3" }, "chan_keys");
+    await engine.setSong({ projectId: project, song, patternId: null });
+    await expect.poll(async () => (await engine.command("status", {})).channels.loaded.map((c) => c.channel)).toEqual(["chan_keys"]);
+    // The test synth has one program: none to choose, as most VST3s.
+    expect(await engine.presets("channel", "chan_keys")).toEqual({ programs: [], program: -1, presets: [], preset: "" });
+    expect(await engine.preset({ owner: "channel", id: "chan_keys", action: "savePreset", name: "Warm/Pad" })).toMatchObject({ presets: ["WarmPad"], preset: "WarmPad" });
+    const file = path.join(dir, "engine", "presets", "VST3", "Vaudio Test Synth", "WarmPad.preset");
+    expect((await fs.stat(file)).size).toBeGreaterThan(0);
+    expect(await engine.preset({ owner: "channel", id: "chan_keys", action: "loadPreset", name: "WarmPad" })).toMatchObject({ preset: "WarmPad" });
+    await expect(engine.preset({ owner: "channel", id: "chan_keys", action: "loadPreset", name: "Nothing" })).rejects.toMatchObject({ status: 409 });
+    await expect(engine.preset({ owner: "channel", id: "chan_keys", action: "setProgram", index: 3 })).rejects.toMatchObject({ status: 409 });
+    expect(await engine.preset({ owner: "channel", id: "chan_keys", action: "deletePreset", name: "WarmPad" })).toEqual({ programs: [], program: -1, presets: [], preset: "" });
+    await expect(engine.presets("channel", "chan_none")).rejects.toMatchObject({ status: 409 });
+  });
+
   it("keeps a plugin's state across saving, unloading and restoring", async () => {
     await engine.command("load", { slot: "instrument", pluginId: synthId });
     expect((await engine.command("saveState", { slot: "instrument" })).instrument?.hasSavedState).toBe(true);

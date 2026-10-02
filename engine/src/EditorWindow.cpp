@@ -81,6 +81,91 @@ private:
     juce::String label;
 };
 
+/** A small button in the title bar drawn by a function (an arrow, the wrapper's sliders). */
+class GlyphButton final : public juce::Button
+{
+public:
+    GlyphButton (const juce::String& name, std::function<void (juce::Graphics&, juce::Rectangle<float>)> glyph) : Button (name), draw (std::move (glyph)) { setTooltip (name); }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        const auto area = getLocalBounds().toFloat().reduced (2.0f, 3.0f);
+        if (over || down)
+        {
+            g.setColour (down ? colour::edge : colour::hover);
+            g.fillRoundedRectangle (area, 3.0f);
+        }
+        g.setColour (over ? colour::text : colour::muted);
+        draw (g, area.withSizeKeepingCentre (8.0f, 8.0f));
+    }
+
+private:
+    std::function<void (juce::Graphics&, juce::Rectangle<float>)> draw;
+};
+
+/** A triangle pointing left (-1) or right (1). */
+void arrow (juce::Graphics& g, juce::Rectangle<float> box, int direction)
+{
+    juce::Path path;
+    if (direction < 0)
+        path.addTriangle (box.getRight() - 1.0f, box.getY(), box.getRight() - 1.0f, box.getBottom(), box.getX() + 1.0f, box.getCentreY());
+    else
+        path.addTriangle (box.getX() + 1.0f, box.getY(), box.getX() + 1.0f, box.getBottom(), box.getRight() - 1.0f, box.getCentreY());
+    g.fillPath (path);
+}
+
+/** FL's preset browser: the previous and next arrows, and what it's on. */
+class PresetBar final : public juce::Component
+{
+public:
+    explicit PresetBar (std::function<void (int)> step)
+        : previous ("Previous preset", [] (juce::Graphics& g, juce::Rectangle<float> box) { arrow (g, box, -1); }),
+          next ("Next preset", [] (juce::Graphics& g, juce::Rectangle<float> box) { arrow (g, box, 1); })
+    {
+        previous.onClick = [step] { step (-1); };
+        next.onClick = [step] { step (1); };
+        addAndMakeVisible (previous);
+        addAndMakeVisible (next);
+    }
+
+    void set (const juce::String& text, bool canStep)
+    {
+        label = text;
+        previous.setVisible (canStep);
+        next.setVisible (canStep);
+        resized();
+        repaint();
+    }
+
+    /** As wide as its arrows and words, up to `most`. */
+    int idealWidth (int most) const
+    {
+        juce::GlyphArrangement glyphs;
+        glyphs.addLineOfText (juce::FontOptions (12.0f), label, 0, 0);
+        const auto words = label.isEmpty() ? 0 : (int) std::ceil (glyphs.getBoundingBox (0, -1, true).getWidth()) + 8;
+        return juce::jmin (most, (previous.isVisible() ? 2 * buttonWidth : 0) + words);
+    }
+
+    void resized() override
+    {
+        previous.setBounds (0, 0, buttonWidth, getHeight());
+        next.setBounds (buttonWidth, 0, buttonWidth, getHeight());
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (colour::muted);
+        g.setFont (juce::FontOptions (12.0f));
+        const auto left = previous.isVisible() ? 2 * buttonWidth + 4 : 0;
+        g.drawText (label, getLocalBounds().withTrimmedLeft (left), juce::Justification::centredLeft, true);
+    }
+
+private:
+    static constexpr int buttonWidth = 18;
+    GlyphButton previous, next;
+    juce::String label;
+};
+
 /** Draws the window's title bar in our look rather than the system's. */
 class StudioLook final : public juce::LookAndFeel_V4
 {
@@ -137,6 +222,8 @@ EditorWindow::EditorWindow (juce::AudioPluginInstance& plugin, const juce::Strin
 EditorWindow::~EditorWindow()
 {
     automate.reset();
+    presetBar.reset();
+    settings.reset();
     if (editor != nullptr)
         editor->removeKeyListener (this);
     removeKeyListener (this);
@@ -161,17 +248,60 @@ void EditorWindow::setTouched (int index, const juce::String& name)
     resized();
 }
 
+void EditorWindow::setPreset (const juce::String& label, bool canStep)
+{
+    if (presetBar == nullptr)
+    {
+        presetBar = std::make_unique<PresetBar> ([this] (int direction) {
+            if (onStep != nullptr)
+                onStep (direction);
+        });
+        Component::addAndMakeVisible (*presetBar);
+        settings = std::make_unique<GlyphButton> ("Channel settings (volume, pan, pitch, track, presets)", [] (juce::Graphics& g, juce::Rectangle<float> box) {
+            // Three sliders: the wrapper's settings.
+            for (int i = 0; i < 3; ++i)
+            {
+                const auto y = box.getY() + (float) i * box.getHeight() / 2.0f;
+                g.fillRect (box.getX(), y - 0.5f, box.getWidth(), 1.0f);
+                g.fillEllipse (box.getX() + box.getWidth() * (i == 1 ? 0.65f : 0.25f) - 1.5f, y - 1.5f, 3.0f, 3.0f);
+            }
+        });
+        settings->onClick = [this] {
+            if (onSettings != nullptr)
+                onSettings();
+        };
+        Component::addAndMakeVisible (*settings);
+    }
+    static_cast<PresetBar&> (*presetBar).set (label, canStep);
+    resized();
+}
+
 void EditorWindow::resized()
 {
     DocumentWindow::resized();
-    if (automate == nullptr)
-        return;
-    // Left of the ×, as wide as its words (never over the title's start).
+    // Right to left from the ×: the wrapper button, Automate, the preset browser (never over the title's start).
     const auto bar = getTitleBarArea();
+    auto right = bar.getRight() - bar.getHeight() - 2;
+    if (settings != nullptr)
+    {
+        settings->setBounds (right - bar.getHeight(), bar.getY(), bar.getHeight(), bar.getHeight());
+        settings->toFront (false);
+        right -= bar.getHeight() + 2;
+    }
     const auto most = juce::jmax (0, bar.getWidth() / 2 - bar.getHeight());
-    const auto width = static_cast<AutomateButton&> (*automate).idealWidth (most);
-    automate->setBounds (bar.getRight() - bar.getHeight() - width - 2, bar.getY(), width, bar.getHeight());
-    automate->toFront (false);
+    if (automate != nullptr)
+    {
+        const auto width = static_cast<AutomateButton&> (*automate).idealWidth (most);
+        automate->setBounds (right - width, bar.getY(), width, bar.getHeight());
+        automate->toFront (false);
+        right -= width + 4;
+    }
+    if (presetBar != nullptr)
+    {
+        const auto width = static_cast<PresetBar&> (*presetBar).idealWidth (juce::jmax (0, right - bar.getX() - bar.getWidth() / 3));
+        presetBar->setBounds (right - width, bar.getY(), width, bar.getHeight());
+        presetBar->toFront (false);
+    }
 }
 
 void EditorWindow::show()

@@ -41,6 +41,8 @@ Engine::Engine (const juce::File& dataDir, const juce::StringArray& pluginPaths,
       preview (isOffline)
 {
     dataDir.createDirectory();
+    plugins.setPresetsFolder (dataDir.getChildFile ("presets"));
+    effects.setPresetsFolder (dataDir.getChildFile ("presets"));
     // The sinc's table, made now rather than by the audio thread the first time it's needed.
     resampling::Kernel::get();
     if (offline)
@@ -256,6 +258,26 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
         if (! list.isArray())
             return reply (fail ("That plugin isn't loaded (yet): its parameters can't be listed."), {});
         return reply (juce::Result::ok(), protocol::object ({ { "parameters", list } }));
+    }
+    if (command == "presets" || command == "setProgram" || command == "savePreset" || command == "loadPreset" || command == "deletePreset")
+    {
+        // A song's plugin's presets (a plugin channel's, or an effect's).
+        auto& host = params["owner"].toString() == "effect" ? effects : plugins;
+        const auto id = params["ownerId"].toString();
+        if (command == "presets")
+        {
+            const auto list = host.presets (id);
+            if (! list.isObject())
+                return reply (fail ("That plugin isn't loaded (yet): its presets can't be listed."), {});
+            return reply (juce::Result::ok(), list);
+        }
+        const auto result = command == "setProgram" ? host.setProgram (id, (int) params["index"])
+                          : command == "savePreset" ? host.savePreset (id, params["name"].toString())
+                          : command == "loadPreset" ? host.loadPreset (id, params["name"].toString())
+                                                    : host.deletePreset (id, params["name"].toString());
+        if (result.failed())
+            return reply (result, {});
+        return reply (juce::Result::ok(), host.presets (id));
     }
     if (command == "meterTracks")
     {

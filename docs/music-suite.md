@@ -33,7 +33,7 @@ put together and how we use its manual).
 | The engine | A native C++/JUCE program the server runs: the audio device (choice of output, buffer, rate), hosting VST3 and Audio Unit instruments, plugin windows, plugin scanning, an offline mode that renders to a WAV for tests | CLAUDE.md "The audio engine" |
 | Channel rack | Sampler and plugin channels; the step sequencer (left on, right off, painting); the graph editor; patterns; swing; mute and solo; selecting, moving, cloning and deleting channels by mouse and FL's keys; FL's knobs and LCDs; a file dropped on a channel replaces its sample; the + picks the Sampler or an instrument plugin; the starter kit | `docs/fl-studio/channel-rack.md` |
 | Channel settings | A sampler's window: its waveform, volume, pan, pitch, the ADSR envelope, cut self, normalize, reverse, sample start and length, fades | same |
-| Plugin channels | One plugin instance per channel, loaded in the background, played from the pattern's notes as MIDI; its own window from the channel's button; its state kept beside the project and restored | CLAUDE.md |
+| Plugin channels | One plugin instance per channel, loaded in the background, played from the pattern's notes as MIDI; its own window from the channel's button; its state kept beside the project and restored; FL's wrapper: its settings window (ON, PAN, VOL, PITCH in semitones, TRACK, the plugin shown or hidden, its programs and the user's presets for it, saved for every song), the preset arrows and the wrapper button in its window's title bar; `plugin_presets` | `docs/fl-studio/plugin-window.md` |
 | Piano roll | Every tool (draw, paint, delete, mute, slice, select, playback), selecting, the time selection that loops, Ctrl+B, quantize, glue, chop, legato, the event editor (velocity, pan), note properties, ghost notes, the target channel, FL's keys; FL's look; tested with 20 000 notes | `docs/fl-studio/piano-roll.md` |
 | Playlist | The song's arrangement: tracks bound to nothing, pattern clips (following their pattern's length until resized, playing nothing past it) and audio clips (channels of their own, streamed from disk, started on their sample), FL's tools and keys, the Picker panel, track headers, the time selection, split by channel, song mode (PAT / SONG, L) | `docs/fl-studio/playlist.md` |
 | Browser | The user's sample folders for every song (dropped from Finder): the tree, favourites, a search that forgives typos, previews streamed from disk with a waveform, files dragged onto the rack, a channel or the Piano roll, sent to the selected channel (Enter, Shift+Up/Down to try them in the beat) | `docs/fl-studio/browser.md` |
@@ -83,7 +83,7 @@ The detailed lists are at the end of each reference doc. The main ones:
 - Per-note pan is heard on samplers but not sent to plugins. Channels have no colours. Knob menus lack
   "Link to controller".
 - The channel settings window lacks FL's other tabs (loop points, time stretching, the full envelope and
-  LFO page). Plugin channels have no FL-style wrapper window (their own window opens bare).
+  LFO page).
 
 ## What's next, in order
 

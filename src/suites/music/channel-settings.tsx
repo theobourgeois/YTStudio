@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { PiFolderOpen, PiWaveform, PiWaveSine } from "react-icons/pi";
+import { PiFolderOpen, PiPlug, PiWaveform, PiWaveSine } from "react-icons/pi";
 import { cn } from "cn";
 import { levelGain, panGains } from "@shared/music/compile";
 import { updateChannel } from "@shared/music/edits";
@@ -18,11 +18,15 @@ import { loadSamples, waveformColumns } from "./waveform";
 import { routeToFreeTrack } from "./mixer/actions";
 import { TrackSelector } from "./mixer/track-selector";
 import { MusicWindow } from "./window";
+import { PluginTab } from "./plugin-tab";
 
 /** The envelope's knobs go to 3 s; the document allows more (for the assistant, or typed values later). */
 const ENVELOPE_MAX = 3;
 /** The pitch knob's reach, in semitones. */
 const PITCH_RANGE = 24;
+/** A plugin channel's PITCH: whole semitones its keys are moved by. */
+const SEMITONES: ValueUnit = { scale: 1, unit: "semitones" };
+const semitones = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v)} semitone${Math.abs(Math.round(v)) === 1 ? "" : "s"}`;
 
 type Tab = "sample" | "envelope";
 
@@ -30,7 +34,8 @@ type Tab = "sample" | "envelope";
  * A sampler channel's settings, FL Studio's Channel Settings window (`docs/fl-studio/channel-rack.md`):
  * along the top its tabs and the channel's own ON, PAN, VOL and PITCH; under them the sample tab
  * (the file, the precomputed effects, the waveform) or the envelope tab. An audio clip's channel has a
- * cut-down one (a double-click on one of its clips opens it).
+ * cut-down one (a double-click on one of its clips opens it); a plugin channel's is FL's wrapper: the
+ * same controls over the plugin and its presets (`plugin-tab.tsx`).
  */
 export function ChannelSettingsWindow({ channel, index }: { channel: Channel; index: number }) {
   const [tab, setTab] = useState<Tab>("sample");
@@ -38,6 +43,7 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
   // An audio clip's channel (FL's cut-down sampler): its file streams from the Playlist, so it has no
   // envelope; its pitch plays the file faster or slower (FL's Resample).
   const audio = channel.kind === "audio";
+  const plugin = channel.kind === "plugin";
 
   return (
     <MusicWindow
@@ -52,12 +58,12 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
         data-channel-name={channel.name}
         // A sample dropped anywhere on its window becomes the channel's.
         onDragOver={(e) => {
-          if (!carriesSamples(e.dataTransfer)) return;
+          if (plugin || !carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
         }}
         onDrop={(e) => {
-          if (!carriesSamples(e.dataTransfer)) return;
+          if (plugin || !carriesSamples(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
           dropOnChannel(e.dataTransfer, id);
@@ -65,10 +71,16 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
       >
         <div className="flex items-end gap-3 border-b px-3 pt-2 pb-2">
           <div className="flex gap-1" role="tablist" aria-label="Settings">
-            <TabButton label="Sample" selected={tab === "sample"} onSelect={() => setTab("sample")}>
-              <PiWaveform />
-            </TabButton>
-            {!audio && (
+            {plugin ? (
+              <TabButton label="Plugin" selected onSelect={() => {}}>
+                <PiPlug />
+              </TabButton>
+            ) : (
+              <TabButton label="Sample" selected={tab === "sample"} onSelect={() => setTab("sample")}>
+                <PiWaveform />
+              </TabButton>
+            )}
+            {!audio && !plugin && (
               <TabButton label="Envelope" selected={tab === "envelope"} onSelect={() => setTab("envelope")}>
                 <PiWaveSine />
               </TabButton>
@@ -122,10 +134,11 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
                 max={PITCH_RANGE}
                 defaultValue={0}
                 bipolar
-                format={cents}
-                unit={CENTS}
+                // A plugin's keys are moved by whole semitones (ours: FL's wrapper bends within the plugin's range).
+                format={plugin ? semitones : cents}
+                unit={plugin ? SEMITONES : CENTS}
                 // Whole semitones as it turns; cents are typed in. An audio clip plays faster pitched up (FL's Resample).
-                edit={(song, pitch) => updateChannel(song, id, { pitch: Number.isInteger(pitch * 100) && !Number.isInteger(pitch) ? pitch : Math.round(pitch) })}
+                edit={(song, pitch) => updateChannel(song, id, { pitch: !plugin && Number.isInteger(pitch * 100) && !Number.isInteger(pitch) ? pitch : Math.round(pitch) })}
               />
             </Labelled>
             <div className="flex flex-col items-center gap-0.5">
@@ -138,7 +151,7 @@ export function ChannelSettingsWindow({ channel, index }: { channel: Channel; in
           </div>
         </div>
 
-        {tab === "sample" || audio ? <SampleTab channel={channel} /> : <EnvelopeTab channel={channel} />}
+        {plugin ? <PluginTab channel={channel} /> : tab === "sample" || audio ? <SampleTab channel={channel} /> : <EnvelopeTab channel={channel} />}
       </div>
     </MusicWindow>
   );

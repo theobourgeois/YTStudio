@@ -199,6 +199,10 @@ bool PluginHost::showEditor (const juce::String& ownerId, bool open)
                 changed();
             });
         });
+        // Its preset arrows, and its wrapper button (the channel's settings, in the app).
+        hosted.window->onStep = [this, ownerId] (int direction) { stepPreset (ownerId, direction); };
+        hosted.window->onSettings = [this, ownerId] { protocol::send (protocol::object ({ { "event", "wrapper" }, { "owner", ownerKey }, { "id", ownerId } })); };
+        hosted.window->setPreset (presetLabel (hosted), hosted.instance->getNumPrograms() > 1 || ! presetNames (hosted).isEmpty());
         // Its Automate button: the tab makes an automation clip of the parameter last touched in it.
         hosted.window->onAutomate = [this, ownerId] (int index) {
             if (const auto described = describeParameter (ownerId, index); described.isObject())
@@ -391,4 +395,142 @@ juce::int64 PluginHost::latencySignature() const
     for (const auto& [id, hosted] : loaded)
         signature = signature * 31 + id.hashCode64() * 7 + hosted->instance->getLatencySamples();
     return signature;
+}
+
+// Presets ----------------------------------------------------------------------------------------
+
+juce::File PluginHost::presetFolder (const HostedPlugin& hosted) const
+{
+    const auto description = hosted.instance->getPluginDescription();
+    return presetsRoot.getChildFile (juce::File::createLegalFileName (description.pluginFormatName)).getChildFile (juce::File::createLegalFileName (description.name));
+}
+
+juce::StringArray PluginHost::presetNames (const HostedPlugin& hosted) const
+{
+    juce::StringArray names;
+    if (presetsRoot == juce::File())
+        return names;
+    for (const auto& file : presetFolder (hosted).findChildFiles (juce::File::findFiles, false, "*.preset"))
+        names.add (file.getFileNameWithoutExtension());
+    names.sortNatural();
+    return names;
+}
+
+juce::String PluginHost::presetLabel (const HostedPlugin& hosted)
+{
+    if (hosted.preset.isNotEmpty())
+        return hosted.preset;
+    auto& instance = *hosted.instance;
+    return instance.getNumPrograms() > 1 ? instance.getProgramName (instance.getCurrentProgram()) : juce::String();
+}
+
+void PluginHost::presetChanged (HostedPlugin& hosted)
+{
+    if (hosted.window != nullptr)
+        hosted.window->setPreset (presetLabel (hosted), hosted.instance->getNumPrograms() > 1 || ! presetNames (hosted).isEmpty());
+    protocol::send (protocol::object ({ { "event", "preset" }, { "owner", ownerKey }, { "id", hosted.ownerId } }));
+}
+
+juce::var PluginHost::presets (const juce::String& ownerId) const
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end())
+        return {};
+    const auto& hosted = *found->second;
+    auto& instance = *hosted.instance;
+    juce::Array<juce::var> programs, presets;
+    // A plugin with one program (most VST3s: their presets are their own business) has none to choose.
+    if (instance.getNumPrograms() > 1)
+        for (int i = 0; i < instance.getNumPrograms(); ++i)
+            programs.add (instance.getProgramName (i));
+    for (const auto& name : presetNames (hosted))
+        presets.add (name);
+    return protocol::object ({ { "programs", programs }, { "program", programs.isEmpty() ? -1 : instance.getCurrentProgram() }, { "presets", presets }, { "preset", hosted.preset } });
+}
+
+juce::Result PluginHost::setProgram (const juce::String& ownerId, int index)
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end())
+        return juce::Result::fail ("That plugin isn't loaded.");
+    auto& hosted = *found->second;
+    if (index < 0 || index >= hosted.instance->getNumPrograms())
+        return juce::Result::fail ("It has no program " + juce::String (index) + ": it has " + juce::String (hosted.instance->getNumPrograms()) + ".");
+    hosted.instance->setCurrentProgram (index);
+    hosted.preset = {};
+    presetChanged (hosted);
+    return juce::Result::ok();
+}
+
+juce::Result PluginHost::savePreset (const juce::String& ownerId, const juce::String& name)
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end())
+        return juce::Result::fail ("That plugin isn't loaded.");
+    auto& hosted = *found->second;
+    const auto legal = juce::File::createLegalFileName (name.trim());
+    if (legal.isEmpty() || presetsRoot == juce::File())
+        return juce::Result::fail ("A preset needs a name.");
+    juce::MemoryBlock state;
+    hosted.instance->getStateInformation (state);
+    const auto folder = presetFolder (hosted);
+    folder.createDirectory();
+    if (! folder.getChildFile (legal + ".preset").replaceWithData (state.getData(), state.getSize()))
+        return juce::Result::fail ("Couldn't write the preset in " + folder.getFullPathName());
+    hosted.preset = legal;
+    presetChanged (hosted);
+    return juce::Result::ok();
+}
+
+juce::Result PluginHost::loadPreset (const juce::String& ownerId, const juce::String& name)
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end())
+        return juce::Result::fail ("That plugin isn't loaded.");
+    auto& hosted = *found->second;
+    juce::MemoryBlock state;
+    const auto file = presetFolder (hosted).getChildFile (juce::File::createLegalFileName (name) + ".preset");
+    if (! file.existsAsFile() || ! file.loadFileAsData (state) || state.getSize() == 0)
+        return juce::Result::fail ("There's no preset \"" + name + "\" for " + hosted.instance->getName() + ".");
+    hosted.instance->setStateInformation (state.getData(), (int) state.getSize());
+    hosted.preset = file.getFileNameWithoutExtension();
+    presetChanged (hosted);
+    return juce::Result::ok();
+}
+
+juce::Result PluginHost::deletePreset (const juce::String& ownerId, const juce::String& name)
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end())
+        return juce::Result::fail ("That plugin isn't loaded.");
+    auto& hosted = *found->second;
+    const auto file = presetFolder (hosted).getChildFile (juce::File::createLegalFileName (name) + ".preset");
+    if (! file.existsAsFile())
+        return juce::Result::fail ("There's no preset \"" + name + "\" for " + hosted.instance->getName() + ".");
+    file.deleteFile();
+    if (hosted.preset == file.getFileNameWithoutExtension())
+        hosted.preset = {};
+    presetChanged (hosted);
+    return juce::Result::ok();
+}
+
+void PluginHost::stepPreset (const juce::String& ownerId, int direction)
+{
+    const auto found = loaded.find (ownerId);
+    if (found == loaded.end())
+        return;
+    auto& hosted = *found->second;
+    auto& instance = *hosted.instance;
+    if (instance.getNumPrograms() > 1)
+    {
+        const auto count = instance.getNumPrograms();
+        setProgram (ownerId, ((instance.getCurrentProgram() + direction) % count + count) % count);
+        return;
+    }
+    const auto names = presetNames (hosted);
+    if (names.isEmpty())
+        return;
+    const auto at = names.indexOf (hosted.preset);
+    const auto next = at < 0 ? (direction > 0 ? 0 : names.size() - 1) : ((at + direction) % names.size() + names.size()) % names.size();
+    loadPreset (ownerId, names[next]);
 }

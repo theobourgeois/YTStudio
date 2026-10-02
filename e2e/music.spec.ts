@@ -384,6 +384,72 @@ test("the rack's + adds an instrument: a plugin of this computer's, or a sampler
   expect(await rackOrder(page)).toEqual(["Fake Synth", "Sampler"]);
 });
 
+test("a plugin channel's settings are FL's wrapper: its knobs, the plugin, its programs and the user's presets for it", async ({ page }) => {
+  const id = await openNewSong(page, "Wrapper");
+  await page.getByTestId("channel-rack").getByRole("button", { name: "Add a channel" }).click();
+  await page.getByTestId("channel-picker").getByRole("option", { name: /Fake Synth/ }).click();
+  const synth = channelButton(page, "Fake Synth");
+  await expect(synth).toHaveAttribute("aria-expanded", "true");
+
+  // Channel settings… on its menu: the plugin, shown or hidden from there.
+  await synth.click({ button: "right" });
+  await page.getByTestId("channel-menu").getByRole("menuitem", { name: "Channel settings…" }).click();
+  const settings = page.getByTestId("channel-settings");
+  await expect(settings).toHaveAttribute("data-channel-name", "Fake Synth");
+  const tab = settings.getByTestId("plugin-tab");
+  await tab.getByRole("button", { name: "Hide plugin" }).click();
+  await expect(synth).toHaveAttribute("aria-expanded", "false");
+  await expect(tab.getByRole("button", { name: "Show plugin" })).toBeVisible();
+
+  // Its own programs, stepped through or picked.
+  const program = tab.getByRole("combobox", { name: "Program" });
+  await expect(program).toContainText("Init");
+  await tab.getByRole("button", { name: "Next program" }).click();
+  await expect(program).toContainText("Bass");
+  await tab.getByRole("button", { name: "Previous program" }).click();
+  await tab.getByRole("button", { name: "Previous program" }).click();
+  await expect(program).toContainText("Pad");
+
+  // The user's presets: saved under a name, loaded, deleted.
+  const name = tab.getByRole("textbox", { name: "Preset name" });
+  await name.fill("Fat bass");
+  await name.press("Enter");
+  const mine = tab.getByRole("list", { name: "Your presets" });
+  await expect(mine.getByRole("button", { name: "Fat bass", exact: true })).toHaveAttribute("aria-current", "true");
+  await name.fill("Soft");
+  await tab.getByRole("button", { name: "Save preset" }).click();
+  await expect(mine.getByRole("button", { name: "Soft", exact: true })).toHaveAttribute("aria-current", "true");
+  await expect(mine.getByRole("button", { name: "Fat bass", exact: true })).not.toHaveAttribute("aria-current");
+  await mine.getByRole("button", { name: "Fat bass", exact: true }).click();
+  await expect(mine.getByRole("button", { name: "Fat bass", exact: true })).toHaveAttribute("aria-current", "true");
+  await mine.getByRole("button", { name: "Delete Soft" }).click();
+  await expect(mine.getByRole("button", { name: "Soft", exact: true })).toHaveCount(0);
+
+  // Its PITCH moves its keys in whole semitones: typed in, it's kept whole.
+  await settings.getByRole("slider", { name: "Pitch" }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Type in value…" }).click();
+  await page.getByRole("textbox", { name: "Pitch value" }).fill("7.4");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await savedSong(page, id)).channels[0].pitch).toBe(7);
+
+  // The assistant: the plugin's presets, through the same browser.
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call plugin_presets {"channel": "Fake Synth", "action": "list"}',
+      'call plugin_presets {"channel": "Fake Synth", "action": "program", "program": "Lead"}',
+      'call plugin_presets {"channel": "Fake Synth", "action": "save", "name": "Assistant lead"}',
+      'call plugin_presets {"channel": "Fake Synth", "action": "program", "program": "99"}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("plugin_presets: ok, plugin_presets: ok, plugin_presets: ok, plugin_presets: failed", { timeout: 30_000 });
+  await expect(program).toContainText("Lead");
+  await expect(mine.getByRole("button", { name: "Assistant lead", exact: true })).toHaveAttribute("aria-current", "true");
+});
+
 test("knobs work as in FL Studio, and a channel opens its settings window", async ({ page }) => {
   const id = await openNewSong(page, "Knobs");
   await addStarterKit(page);

@@ -8,6 +8,8 @@ import type {
   EngineParameter,
   EnginePlugin,
   EngineStatus,
+  PluginPresets,
+  PresetRequest,
   PreviewFileRequest,
   PreviewSampleRequest,
   RecordRequest,
@@ -40,6 +42,10 @@ export const musicApi = {
   /** A song's plugin's parameters that can be automated (a plugin channel's or a mixer effect's, by its id). */
   pluginParameters: (owner: "channel" | "effect", id: string) =>
     request<EngineParameter[]>(`/api/engine/parameters?owner=${owner}&id=${encodeURIComponent(id)}`),
+  /** A song's plugin's presets: its own programs and the user's saved for it (FL's preset browser). */
+  presets: (owner: "channel" | "effect", id: string) => request<PluginPresets>(`/api/engine/presets?owner=${owner}&id=${encodeURIComponent(id)}`),
+  /** Choose a program, or save, load or delete a preset of the user's: the presets after. */
+  preset: (body: PresetRequest) => request<PluginPresets>("/api/engine/presets", { method: "POST", body: JSON.stringify(body) }),
   /** The song the engine plays: sent whole on every edit (it keeps playing through the change). */
   setSong: (body: SetSongRequest) => request<SetSongResponse>("/api/engine/song", { method: "POST", body: JSON.stringify(body) }),
   /** Write the song's plugins' states now (they're written every few seconds anyway). */

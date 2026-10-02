@@ -392,6 +392,27 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({}),
   }),
   tool({
+    name: "plugin_presets",
+    title: "A plugin's presets",
+    kind: "action",
+    description:
+      "A plugin's presets (FL's preset browser): a plugin channel's instrument (`channel`), or an effect in a mixer track's slot (`track` and `slot`). " +
+      '`action`: "list" its own programs (many VST3s have none: they keep presets in their own window) and the user\'s presets for it (saved from ' +
+      'it, the same in every song); "program" switches to one of its programs (`program`: its number from 1, or its name); "load", "save" (its ' +
+      'settings now, as `name`) or "delete" one of the user\'s presets. It\'s the plugin\'s own state: not an undo step.',
+    inputSchema: obj(
+      {
+        channel: str("A plugin channel: its id or name (get_song lists them)."),
+        track: mixerTrack(),
+        slot,
+        action: oneOf(["list", "program", "load", "save", "delete"], "What to do."),
+        program: str('With "program": its number from 1, or its name.'),
+        name: str('With "load", "save" and "delete": the preset\'s name.'),
+      },
+      ["action"],
+    ),
+  }),
+  tool({
     name: "list_midi_inputs",
     title: "List the MIDI keyboards",
     kind: "look",

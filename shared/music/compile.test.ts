@@ -83,6 +83,9 @@ describe("compileSong", () => {
     expect(compiled.channels[2]).toMatchObject({ id: "chan_synth", sample: null, plugin: { id: "VST3-Synth-1", state: "" }, gainLeft: 1, gainRight: 1 });
     expect(compiled.channels[0].plugin).toBeNull();
     expect(compiled.notes[0]).toMatchObject({ channel: 2, tick: 96, length: 24, key: 64, velocity: 0.5 });
+    // Its PITCH moves the keys it's sent, by whole semitones, within MIDI's.
+    expect(compileSong(updateChannel(song, "chan_synth", { pitch: -12.4 }), P).notes[0].key).toBe(52);
+    expect(compileSong(updateChannel(setStepNote(song, P, "chan_synth", 4, { pitch: 120 }), "chan_synth", { pitch: 24 }), P).notes[0].key).toBe(127);
   });
 
   it("turns volume, pan, mute and velocity into gains", () => {

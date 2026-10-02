@@ -271,6 +271,8 @@ private:
     std::atomic<juce::uint64> midiTarget { 0 };
     /** The audio thread's: the channel each MIDI key held went to (-1: not held), and the sustain pedal. */
     std::array<int, 128> heldKeys {};
+    /** The key each one held was sent to its plugin as (moved by the channel's pitch then). */
+    std::array<int, 128> sentKeys {};
     bool pedal = false;
     /** The channels of the song last handed over (message thread), to name a trigger's channel. */
     juce::StringArray channelIds;

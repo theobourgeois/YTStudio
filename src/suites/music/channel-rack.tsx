@@ -695,15 +695,14 @@ const ChannelLead = memo(function ChannelLead({ channel, selected, sounding }: {
               >
                 Graph editor <ContextMenuShortcut>⌘K</ContextMenuShortcut>
               </ContextMenuItem>
-              {isPlugin ? (
+              {isPlugin && (
                 <ContextMenuItem inset disabled={silent || pluginLoading} onSelect={() => useTransport.getState().showPlugin(id, true)}>
                   Open {channel.plugin?.name ?? "the plugin"}…
                 </ContextMenuItem>
-              ) : (
-                <ContextMenuItem inset onSelect={() => useMusicUi.getState().openChannelWindow(id)}>
-                  Channel settings…
-                </ContextMenuItem>
               )}
+              <ContextMenuItem inset onSelect={() => useMusicUi.getState().openChannelWindow(id)}>
+                Channel settings…
+              </ContextMenuItem>
             </ContextMenuCell>
             <ContextMenuCell>
               <ContextMenuItem inset onSelect={() => cutSteps(id)}>

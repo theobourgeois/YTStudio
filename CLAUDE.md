@@ -322,8 +322,10 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
 - A channel is a sampler or a **plugin channel** (`kind: "plugin"`, `plugin: { id, name, format }`): an instrument
   plugin (VST3, Audio Unit) the engine hosts for it. The engine keeps one instance per plugin channel across the
   song's edits (`engine/src/Host.cpp`), loads it in the background (the channel is silent until then;
-  `EngineStatus.channels` says loaded, loading or failed), plays the pattern's notes into it as MIDI, and shows
-  its own window when the channel's button is clicked. **A plugin's settings aren't in the document**: they're
+  `EngineStatus.channels` says loaded, loading or failed), plays the pattern's notes into it as MIDI (moved by
+  the channel's PITCH in whole semitones), and shows its own window when the channel's button is clicked. Its
+  settings window is FL's wrapper (`plugin-tab.tsx`): the channel's knobs, and the plugin's presets (its own
+  programs, and the user's saved in the engine's data folder, `PluginHost::savePreset`; `/api/engine/presets`). **A plugin's settings aren't in the document**: they're
   a file beside it (`data/projects/<id>/plugins/<channel id>.bin`), written by the engine every few seconds when
   they've changed, when the channel is removed (so undoing that brings the plugin back as it was) and when the
   engine quits. So what's turned inside a plugin's window isn't an undo step, as in FL Studio. **Musical time is whole ticks, `PPQ` (96) to a quarter note**, never

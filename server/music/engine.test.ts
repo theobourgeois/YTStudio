@@ -167,6 +167,25 @@ describe("AudioEngine", () => {
     expect(((await request("whatSong", {})) as { lanes: unknown[] }).lanes).toEqual([]);
   });
 
+  it("chooses a plugin's programs and keeps the user's presets for it, says when they change, and passes on its wrapper button", async () => {
+    const song = addPluginChannel(createMusicProject("Presets"), { id: "VST3-Fake Synth-1", name: "Fake Synth", format: "VST3" }, "chan_synth");
+    await engine.setSong({ projectId: "proj_0123456789ab", song, patternId: null });
+    const events: EngineEvent[] = [];
+    engine.onEvent((event) => events.push(event));
+    expect(await engine.presets("channel", "chan_synth")).toEqual({ programs: ["Init", "Bass", "Lead", "Pad"], program: 0, presets: [], preset: "" });
+    expect(await engine.preset({ owner: "channel", id: "chan_synth", action: "setProgram", index: 2 })).toMatchObject({ program: 2 });
+    expect(await engine.preset({ owner: "channel", id: "chan_synth", action: "savePreset", name: "  Wide lead " })).toMatchObject({ presets: ["Wide lead"], preset: "Wide lead" });
+    await expect.poll(() => events.filter((e) => e.event === "preset")).toHaveLength(2);
+    await expect(engine.preset({ owner: "channel", id: "chan_synth", action: "setProgram", index: -1 })).rejects.toMatchObject({ status: 400 });
+    await expect(engine.preset({ owner: "channel", id: "chan_synth", action: "savePreset", name: " " })).rejects.toMatchObject({ status: 400 });
+    await expect(engine.preset({ owner: "channel", id: "chan_synth", action: "rename", name: "x" })).rejects.toMatchObject({ status: 400 });
+    await expect(engine.presets("mixer", "chan_synth")).rejects.toMatchObject({ status: 400 });
+
+    const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
+    await request("pressWrapper", { owner: "channel", ownerId: "chan_synth" });
+    await expect.poll(() => events.find((e) => e.event === "wrapper")).toEqual({ event: "wrapper", owner: "channel", id: "chan_synth" });
+  });
+
   it("lists the audio devices and changes them", async () => {
     expect(await engine.devices()).toMatchObject({ output: "Fake Output", bufferSizes: [64, 128, 256, 512] });
     expect((await engine.setDevice({ bufferSize: 128, output: "Fake Headphones" })).status).toMatchObject({ bufferSize: 128, device: "Fake Headphones" });

@@ -584,8 +584,10 @@ void Sequencer::playMidi()
             auto& channel = song->channels[(size_t) target];
             if (channel.isPlugin)
             {
+                // Its PITCH moves the keys it's sent (whole semitones), as its pattern's notes are (`compile.ts`).
+                sentKeys[(size_t) key] = juce::jlimit (0, 127, key + (int) std::lround (channel.pitch));
                 if (channel.plugin != nullptr)
-                    startNote (*channel.plugin, key, velocity, keyHeld, 0);
+                    startNote (*channel.plugin, sentKeys[(size_t) key], velocity, keyHeld, 0);
             }
             else if (auto* voice = startVoice (target, (float) (key - 60), velocity * velocity / (0.78f * 0.78f), -1, 0))
                 voice->key = key;
@@ -639,10 +641,11 @@ void Sequencer::releaseKey (int channelIndex, int key)
     auto& channel = song->channels[(size_t) channelIndex];
     if (auto* plugin = channel.plugin.get())
     {
+        const auto sent = sentKeys[(size_t) key];
         for (int n = 0; n < plugin->numPending; ++n)
-            if (plugin->pending[(size_t) n].key == key)
+            if (plugin->pending[(size_t) n].key == sent)
             {
-                plugin->midi.addEvent (juce::MidiMessage::noteOff (1, key), 0);
+                plugin->midi.addEvent (juce::MidiMessage::noteOff (1, sent), 0);
                 plugin->pending[(size_t) n] = plugin->pending[(size_t) --plugin->numPending];
                 break;
             }

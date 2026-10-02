@@ -193,6 +193,25 @@ export interface EngineParameter {
   text: string;
 }
 
+/**
+ * A song's plugin's presets (`GET /api/engine/presets`, FL's preset browser): its own programs and the
+ * one it's on (none and -1 for a plugin with a single program: most VST3s keep their presets to
+ * themselves), and the user's own presets for it (saved from it, the same in every song) and the one
+ * last loaded or saved ("" for none).
+ */
+export interface PluginPresets {
+  programs: string[];
+  program: number;
+  presets: string[];
+  preset: string;
+}
+
+/** What to do with a song's plugin's presets (`POST /api/engine/presets`): choose a program, or save, load or delete a preset of the user's. */
+export type PresetRequest = { owner: "channel" | "effect"; id: string } & (
+  | { action: "setProgram"; index: number }
+  | { action: "savePreset" | "loadPreset" | "deletePreset"; name: string }
+);
+
 /** A parameter of a song's plugin (a plugin channel's, or a mixer effect's), as the engine names it. */
 export interface PluginParameter {
   owner: "channel" | "effect";
@@ -227,6 +246,11 @@ export type EngineEvent =
   | { event: "status"; status: EngineStatus }
   | ({ event: "key" } & EngineKey)
   | ({ event: "touch" | "automate" } & PluginParameter)
+  /**
+   * A plugin's preset changed (its window's arrows, or a request): "preset". Its window's wrapper button
+   * was pressed: "wrapper" (the tab shows the channel's settings).
+   */
+  | { event: "preset" | "wrapper"; owner: "channel" | "effect"; id: string }
   | EngineMidiEvent
   | EngineExportEvent
   | EngineTakeEvent

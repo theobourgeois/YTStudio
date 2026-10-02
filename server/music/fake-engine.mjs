@@ -46,6 +46,19 @@ const pluginOf = (owner, id) =>
   owner === "channel" ? song?.channels.find((c) => c.id === id && c.plugin)?.plugin : (song?.tracks ?? []).flatMap((t) => t.effects ?? []).find((e) => e.id === id)?.plugin;
 const parameterList = (plugin) => (PARAMETERS[plugin.id] ?? []).map((name, index) => ({ index, id: name.toLowerCase(), name, value: 0.5, text: "50%" }));
 
+/** Each fake plugin's own programs (the synth has some; the delay, one: none to choose). */
+const PROGRAMS = { "VST3-Fake Synth-1": ["Init", "Bass", "Lead", "Pad"] };
+/** Each song plugin's program and preset now (by owner id), and the user's presets (by plugin id: the same in every song). */
+const chosen = new Map();
+const userPresets = new Map();
+const presetsOf = (owner, id) => {
+  const plugin = pluginOf(owner, id);
+  if (!plugin) return null;
+  const programs = PROGRAMS[plugin.id] ?? [];
+  const now = chosen.get(id) ?? { program: programs.length ? 0 : -1, preset: "" };
+  return { programs, program: now.program, presets: [...(userPresets.get(plugin.id) ?? [])].sort(), preset: now.preset };
+};
+
 /** The plugin channels and effects whose window is open. */
 const editors = new Set();
 
@@ -301,6 +314,32 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (!parameter) return fail("No such parameter.");
     send({ event: cmd === "touchParameter" ? "touch" : "automate", owner: params.owner, id: params.ownerId, index: parameter.index, param: parameter.id, name: parameter.name, value: params.value ?? 0.5, text: "" });
   }
+  if (["presets", "setProgram", "savePreset", "loadPreset", "deletePreset"].includes(cmd)) {
+    const now = presetsOf(params.owner, params.ownerId);
+    if (!now) return fail("That plugin isn't loaded (yet): its presets can't be listed.");
+    const plugin = pluginOf(params.owner, params.ownerId);
+    const saved = userPresets.get(plugin.id) ?? new Set();
+    if (cmd === "setProgram") {
+      if (params.index >= now.programs.length) return fail(`It has no program ${params.index}: it has ${now.programs.length}.`);
+      chosen.set(params.ownerId, { program: params.index, preset: "" });
+    }
+    if (cmd === "savePreset") {
+      userPresets.set(plugin.id, saved.add(params.name));
+      chosen.set(params.ownerId, { program: now.program, preset: params.name });
+    }
+    if (cmd === "loadPreset" || cmd === "deletePreset") {
+      if (!saved.has(params.name)) return fail(`There's no preset "${params.name}" for ${plugin.name}.`);
+      if (cmd === "loadPreset") chosen.set(params.ownerId, { program: now.program, preset: params.name });
+      else {
+        saved.delete(params.name);
+        if (now.preset === params.name) chosen.set(params.ownerId, { program: now.program, preset: "" });
+      }
+    }
+    if (cmd !== "presets") send({ event: "preset", owner: params.owner, id: params.ownerId });
+    return send({ id, ok: true, result: presetsOf(params.owner, params.ownerId) });
+  }
+  // A plugin window's wrapper button, as if pressed (tests).
+  if (cmd === "pressWrapper") send({ event: "wrapper", owner: params.owner, id: params.ownerId });
   if (cmd === "devices") return send({ id, ok: true, result: devices() });
   if (cmd === "setDevice") {
     if (params.midiInput) {

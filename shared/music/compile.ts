@@ -413,7 +413,7 @@ export function compileSong(
   const length = mode === "song" ? songTicks(song) : patternSteps(pattern, song.settings.timeSignature) * STEP_TICKS;
   const from = loop && loop.end > loop.start ? Math.max(0, loop.start) : 0;
   const to = loop && loop.end > loop.start ? loop.end : length;
-  const notes = mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to);
+  const notes = transposePlugins(song, mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to));
   notes.sort((a, b) => a.tick - b.tick || a.channel - b.channel);
   const played = new Set(notes.map((n) => n.channel));
   const { tracks, index } = engineTracks(song, armed, mode);
@@ -435,6 +435,16 @@ export function compileSong(
 }
 
 const NONE_HELD: ReadonlySet<string> = new Set();
+
+/**
+ * A plugin channel's PITCH moves the keys it's sent by whole semitones (a sampler's plays its sample at
+ * that pitch instead; ours: FL's wrapper bends the pitch within the plugin's own bend range).
+ */
+function transposePlugins(song: MusicProject, notes: EngineNote[]): EngineNote[] {
+  const shift = song.channels.map((c) => (c.kind === "plugin" ? Math.round(c.pitch) : 0));
+  if (!shift.some((s) => s !== 0)) return notes;
+  return notes.map((n) => (shift[n.channel] ? { ...n, key: Math.min(127, Math.max(0, n.key + shift[n.channel])) } : n));
+}
 
 /** A note as the engine plays it, `tick` ticks into the loop, `length` long. */
 function engineNote(channel: number, note: Pattern["notes"][string][number], tick: number, length: number): EngineNote {
