@@ -94,3 +94,26 @@ export function heardMixer(song: MusicProject): MusicProject {
   const tracks = song.mixer.tracks.map((t) => (t.muted || kept.has(t.id) ? t : { ...t, muted: true }));
   return { ...song, mixer: { ...song.mixer, tracks } };
 }
+
+/**
+ * Why a track that makes sound isn't heard: the silent tracks (muted, or soloed out) that its ways to the
+ * master run into, the first on each. Empty when it's heard, silent itself, or sends nowhere.
+ */
+export function cutOffBy(mixer: Mixer, id: string, heard: ReadonlyMap<string, Hearing>): string[] {
+  const byId = new Map(mixer.tracks.map((t) => [t.id, t]));
+  const found = new Set<string>();
+  const seen = new Set<string>();
+  const visit = (from: string) => {
+    for (const send of byId.get(from)?.sends ?? []) {
+      if (send.level <= 0 || seen.has(send.to)) continue;
+      seen.add(send.to);
+      const h = heard.get(send.to);
+      if (!h || h.heard) continue;
+      if (h.silent) found.add(send.to);
+      else visit(send.to);
+    }
+  };
+  const own = heard.get(id);
+  if (own && !own.silent && !own.heard) visit(id);
+  return [...found];
+}

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { compileSong } from "./compile.ts";
 import { sendOnly, setMixerMuted, setMixerSolo, setSend, setSoloSafe } from "./mixer.ts";
 import { MASTER_TRACK_ID, createMusicProject } from "./project.ts";
-import { hearing, heardMixer } from "./solo.ts";
+import { cutOffBy, hearing, heardMixer } from "./solo.ts";
 import type { MusicProject } from "./types.ts";
 
 /**
@@ -60,5 +60,17 @@ describe("solo, following the routing", () => {
     expect(song.mixer.tracks.some((t) => t.muted)).toBe(false);
     const gains = new Map(compileSong(song, null).tracks.map((t) => [t.id, t.gains.some((g) => g !== 0)]));
     expect([gains.get("insert_1"), gains.get("insert_2"), gains.get("insert_3"), gains.get("insert_4")]).toEqual([true, false, true, false]);
+  });
+});
+
+describe("what cuts a track off", () => {
+  it("is the first silent track on each of its ways out", () => {
+    const song = setMixerMuted(routed(), ["insert_3"], true);
+    expect(cutOffBy(song.mixer, "insert_2", hearing(song.mixer))).toEqual(["insert_3"]);
+    // Heard (through its reverb), or silent itself: nothing.
+    expect(cutOffBy(song.mixer, "insert_1", hearing(song.mixer))).toEqual([]);
+    expect(cutOffBy(song.mixer, "insert_3", hearing(song.mixer))).toEqual([]);
+    const master = setMixerMuted(routed(), [MASTER_TRACK_ID], true);
+    expect(cutOffBy(master.mixer, "insert_2", hearing(master.mixer))).toEqual([MASTER_TRACK_ID]);
   });
 });

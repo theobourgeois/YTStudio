@@ -221,6 +221,8 @@
   --mixer-strip-selected: var(--surface-2);
   --mixer-upper-shade: rgb(30 40 52 / 0.045);
   --mixer-muted-opacity: 0.7;
+  /* A track that makes sound but isn't heard (a muted bus further down). */
+  --mixer-unheard-opacity: 0.82;
   --mixer-line: var(--line);
   --mixer-header: var(--surface-0);
   --mixer-header-text: var(--muted-foreground);
@@ -379,6 +381,7 @@
 
   --mixer-upper-shade: rgb(0 0 0 / 0.1);
   --mixer-muted-opacity: 0.65;
+  --mixer-unheard-opacity: 0.8;
   --mixer-tint-base: #16181c;
   --mixer-name-tint: #ffffff;
   --fader-slot: rgb(0 0 0 / 0.12);

@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
 import { type MixerTrackPatch, setMixerVolumes, setSend, trackName, updateMixerTrack } from "@shared/music/mixer";
 import { SELECTION_METER } from "@shared/music/engine";
-import { hearing } from "@shared/music/solo";
+import { type Hearing, cutOffBy, hearing } from "@shared/music/solo";
 import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
 import type { AutomationTarget, Mixer, MixerTrack, MusicProject } from "@shared/music/types";
 import { AutomationMenuItems, useAutomatedControl } from "../automation/control";
@@ -196,6 +196,15 @@ export function MixerWindow() {
   }, [docked, mixer.groups]);
   const banded = mixer.groups.length > 0;
   const heard = useMemo(() => hearing(mixer), [mixer]);
+  // Why each track that makes sound isn't heard (a muted bus on its way out), for its strip.
+  const unheard = useMemo(() => {
+    const reasons = new Map<string, string>();
+    for (const track of mixer.tracks) {
+      const h = heard.get(track.id)!;
+      if (!h.silent && !h.heard) reasons.set(track.id, unheardReason(mixer, track, heard));
+    }
+    return reasons;
+  }, [mixer, heard]);
   const [first, last] = useVisibleStrips(scroller, inserts.length, stripWidth);
 
   const strip = (track: MixerTrack, number = numbers.get(track.id)!) => (
@@ -209,6 +218,8 @@ export function MixerWindow() {
       sendLevel={(sendStates.get(track.id) as { level?: number }).level ?? 0}
       meterRef={meterRef(track.id)}
       soloedOut={heard.get(track.id)!.soloedOut}
+      implied={heard.get(track.id)!.implied}
+      unheard={unheard.get(track.id) ?? null}
       view={view}
       separator={layout.get(track.id)?.separator ?? false}
       groupName={layout.get(track.id)?.groupName ?? null}
@@ -334,6 +345,10 @@ interface StripProps {
   meterRef: (canvas: HTMLCanvasElement | null) => void;
   /** Silenced by other tracks' solo. */
   soloedOut: boolean;
+  /** Kept on only because a soloed track's sound goes through it, or it feeds one. */
+  implied: boolean;
+  /** Why it isn't heard though it makes sound (a muted bus on its way out), or null. */
+  unheard: string | null;
   view: MixerViewKind;
   /** A divider on its left (its own Separator, or a group's edge). */
   separator: boolean;
@@ -344,7 +359,7 @@ interface StripProps {
 }
 
 /** A track's strip, top to bottom: its number, its name beside its meter, mute, pan, fader, send switch. */
-const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, meterRef, soloedOut, view, separator, groupName, banded }: StripProps) {
+const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, meterRef, soloedOut, implied, unheard, view, separator, groupName, banded }: StripProps) {
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
@@ -360,12 +375,16 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       data-track-name={name}
       data-muted={track.muted || undefined}
       data-soloed-out={soloedOut || undefined}
+      data-unheard={unheard !== null || undefined}
+      title={soloedOut ? `${name}: silenced by the solo` : (unheard ?? undefined)}
       className={cn("flex shrink-0 flex-col items-center gap-1.5 border-r pb-1 transition-[opacity,filter] duration-150", dropTarget && "ring-2 ring-inset")}
       style={{
         width: STRIP_WIDTHS[view],
         ...stripLook(track.color, selected),
         // Muted (or silenced by another track's solo), the whole strip is faded and greyed: off at a glance.
         ...((track.muted || soloedOut) && { opacity: "var(--mixer-muted-opacity)", filter: "saturate(0.6)" }),
+        // Making sound that's cut off further down (a muted bus): faded a little less, so the cause stands out.
+        ...(unheard !== null && { opacity: "var(--mixer-unheard-opacity)" }),
         borderColor: "var(--mixer-line)",
         // A divider: a gap of the mixer's background down its left edge (its width stays the same, so the strips scroll as they did).
         ...(separator && { borderLeft: "5px solid var(--mixer-bg)" }),
@@ -447,7 +466,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         >
           <Led on={!track.muted} />
         </button>
-        {!isMaster && <SoloButton id={id} name={name} solo={track.solo} safe={track.soloSafe} />}
+        {!isMaster && <SoloButton id={id} name={name} solo={track.solo} implied={implied} safe={track.soloSafe} />}
       </div>
       <SongKnob
         size={36}
@@ -761,11 +780,26 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
   );
 }
 
+/** Why a track that makes sound isn't heard, for its strip's hint. */
+function unheardReason(mixer: Mixer, track: MixerTrack, heard: ReadonlyMap<string, Hearing>): string {
+  const index = new Map(mixer.tracks.map((t, i) => [t.id, i]));
+  const nameOf = (id: string) => {
+    const i = index.get(id)!;
+    return mixer.tracks[i].name ?? (i === 0 ? "Master" : `Insert ${i}`);
+  };
+  const by = cutOffBy(mixer, track.id, heard);
+  if (!by.length) return `${nameOf(track.id)} isn't heard: it sends nowhere`;
+  const muted = by.filter((id) => mixer.tracks[index.get(id)!].muted);
+  const soloed = by.filter((id) => !muted.includes(id));
+  const list = (ids: string[]) => ids.map(nameOf).join(", ");
+  return `${nameOf(track.id)} isn't heard: ${[muted.length ? `${list(muted)} ${muted.length === 1 ? "is" : "are"} muted` : "", soloed.length ? `the solo silences ${list(soloed)}` : ""].filter(Boolean).join("; ")}`;
+}
+
 /**
  * A track's solo switch (Pro Tools', Logic's): a click adds it to the solo or takes it out, Alt or ⌘ solos it
  * alone, Shift makes it solo safe (a lock: no other track's solo silences it). Lit while it's soloed.
  */
-function SoloButton({ id, name, solo, safe }: { id: string; name: string; solo: boolean; safe: boolean }) {
+function SoloButton({ id, name, solo, implied, safe }: { id: string; name: string; solo: boolean; implied: boolean; safe: boolean }) {
   return (
     <button
       type="button"
@@ -773,12 +807,16 @@ function SoloButton({ id, name, solo, safe }: { id: string; name: string; solo: 
       aria-pressed={solo}
       data-solo={solo || undefined}
       data-solo-safe={safe || undefined}
-      title={`${solo ? "Soloed" : "Solo"}${safe ? " (solo safe)" : ""}: click to solo, ⌥-click to solo it alone, ⇧-click for solo safe`}
+      data-solo-implied={implied || undefined}
+      title={`${solo ? "Soloed" : implied ? "Heard for a soloed track (it's on its path)" : "Solo"}${safe ? " (solo safe)" : ""}: click to solo, ⌥-click to solo it alone, ⇧-click for solo safe`}
       className="relative grid h-3.5 w-4 shrink-0 place-items-center rounded-[3px] font-mono text-[9px] leading-none font-bold hover:brightness-125"
       style={
         solo
           ? { background: "var(--mixer-solo)", color: "var(--mixer-solo-text)", boxShadow: "0 0 4px var(--mixer-solo)" }
-          : { background: "var(--mixer-well)", color: "var(--mixer-name)", boxShadow: "inset 0 1px 1px rgb(0 0 0 / 0.4)" }
+          : implied
+            ? // On only for a soloed track: outlined in the solo's colour.
+              { background: "var(--mixer-well)", color: "var(--mixer-solo)", boxShadow: "inset 0 0 0 1px var(--mixer-solo)" }
+            : { background: "var(--mixer-well)", color: "var(--mixer-name)", boxShadow: "inset 0 1px 1px rgb(0 0 0 / 0.4)" }
       }
       onClick={(e) => (e.shiftKey ? toggleSoloSafe(id) : e.altKey || e.metaKey || e.ctrlKey ? soloAlone(id) : toggleSolo(id))}
     >
