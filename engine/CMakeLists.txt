@@ -3,7 +3,7 @@
 # audio device; nothing here is macOS-only, so Windows and Linux builds are a matter of packaging.
 #
 #   pnpm engine:build     configure + build into engine/build (JUCE is fetched on the first run)
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
 project(VaudioEngine VERSION 0.1.0 LANGUAGES C CXX)
 
@@ -22,12 +22,14 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(JUCE)
 
 # Signalsmith Stretch (MIT): the playlist's audio clips stretched in time with their pitch kept (FL's
-# Stretch mode). It brings Signalsmith Linear (its FFTs: Accelerate on Apple, its own elsewhere).
+# Stretch mode). It brings Signalsmith Linear (its FFTs: Accelerate on Apple, its own elsewhere). SYSTEM:
+# its headers' warnings aren't ours.
 FetchContent_Declare(
   signalsmith-stretch
   GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
   GIT_TAG 1.4.0
-  GIT_SHALLOW ON)
+  GIT_SHALLOW ON
+  SYSTEM)
 FetchContent_MakeAvailable(signalsmith-stretch)
 
 # An app bundle rather than a bare executable: plugin editors are windows, and macOS only gives
