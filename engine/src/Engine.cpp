@@ -580,6 +580,8 @@ void Engine::render (int frames, const juce::File& file, const juce::String& inp
                                { "peak", frames > 0 ? rendered.getMagnitude (0, frames) : 0.0f },
                                { "rms", frames > 0 ? rendered.getRMSLevel (0, 0, frames) : 0.0f },
                                { "meters", sequencer.takeMeters (meterFloor) },
+                               // A recording's peaks since the last render (or event), as its transport events carry them live.
+                               { "levels", sequencer.recorder().levels() },
                                { "transport", transport() } }));
 }
 

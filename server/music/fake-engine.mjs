@@ -216,8 +216,11 @@ let metered = [];
 // While it plays, the master's meter moves (as if every channel were on it), and the selection's if it has tracks.
 /** Seconds of a recording's count-in left: play begins when `playingSince` (moved back by `from`) comes. */
 const countInLeft = () => (recording && song ? Math.max(0, (playingSince + (recording.from * 60000) / (song.tempo * song.ppq) - Date.now()) / 1000) : 0);
-/** Each recording track's input level since the last event: a voice coming and going. */
-const levels = () => (recording && !countInLeft() ? Object.fromEntries(recording.tracks.map((t, i) => [t.id, 0.3 + 0.25 * Math.sin(Date.now() / 150 + i)])) : {});
+/** Each recording track's input since the last event, a peak every 5 ms: a voice coming and going. */
+const levels = () =>
+  recording && !countInLeft()
+    ? Object.fromEntries(recording.tracks.map((t, i) => [t.id, Array.from({ length: 8 }, (_, k) => Math.abs(0.3 * Math.sin((Date.now() + k * 5) / 90 + i) + 0.15 * Math.sin((Date.now() + k * 5) / 13)))]))
+    : {};
 const sendTransport = () =>
   send({
     event: "transport",

@@ -65,8 +65,8 @@ public:
     /** The recording in progress (asked for, or writing), or empty. */
     juce::String recording() const;
     /**
-     * Each recording track's loudest input since the last call, by track id (`{ trackId: level }`): what
-     * the tab draws the take with while it records. Message thread.
+     * Each recording track's input since the last call, by track id: its loudest sample every 5 ms
+     * (`{ trackId: [peak, ...] }`), what the tab draws the take's waveform with while it records. Message thread.
      */
     juce::var levels();
     /** Play stopped before a recording asked for began (in its count-in): it's dropped. */

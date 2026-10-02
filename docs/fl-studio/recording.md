@@ -298,8 +298,8 @@ the engine moves samples and says where they were.
   insert's arm light and, if it's tall enough, its insert and input. While recording, the playhead is red
   and **each take is drawn as it records** (Théo): a red clip on the track it'll land on
   (`liveTakeTracks`, the same placement as `addTakes`), growing to the playhead with the input's level as
-  its waveform. The engine sends each recording track's loudest input since its last transport event
-  (`Recorder::levels`, about 25 a second); the tab keeps them (`liveTakes`) until the take's file is in,
+  its waveform. The engine measures each recording track's input as it writes it, its loudest
+  sample every 5 ms, and sends them with each transport event (`Recorder::levels`, about 25 a second); the tab keeps them (`liveTakes`) until the take's file is in,
   when the clip takes its place.
 - **Settings**: the input device, its inputs and their latency, and the microphone's permission.
 - **The assistant**: `update_mixer_track` takes `input` ("1", "1-2", "none"), `monitor` and

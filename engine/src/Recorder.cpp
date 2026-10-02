@@ -4,6 +4,11 @@ namespace
 {
 /** How much of a track's input waits in memory for the writer thread: seconds of it. */
 constexpr double bufferSeconds = 10.0;
+/** The live take's waveform: a peak for every this many seconds written (finer than the tab's ~25 updates a second). */
+constexpr double peakSeconds = 0.005;
+/** Peaks waiting for the message thread (`levels`, called ~25 times a second): seconds' worth to spare. */
+constexpr int peakCapacity = 4096;
+
 /** The longest stretch written at once (longer blocks are written in pieces); silence for an input that isn't open is this long. */
 constexpr int maxChunk = 8192;
 }
@@ -39,8 +44,14 @@ struct Recorder::Track
     juce::int64 frames = 0, skip = 0;
     double startTick = 0;
     bool dropped = false;
-    /** The loudest sample written since the message thread last took it (`levels`): the live take's waveform. */
-    std::atomic<float> level { 0.0f };
+    /**
+     * The live take's waveform: the loudest sample of each `peakSeconds` written, queued for the message
+     * thread (`levels`). The audio thread's: the stretch being measured.
+     */
+    juce::AbstractFifo peaks { peakCapacity };
+    std::array<float, peakCapacity> peakData {};
+    float loudest = 0;
+    int measured = 0;
 };
 
 struct Recorder::Session
@@ -159,7 +170,17 @@ juce::var Recorder::levels()
     for (auto* each : live)
         if (! each->ended.load())
             for (auto& track : each->tracks)
-                result->setProperty (track->source.track, track->level.exchange (0.0f));
+            {
+                juce::Array<juce::var> list;
+                const auto scope = track->peaks.read (track->peaks.getNumReady());
+                for (int i = 0; i < scope.blockSize1 + scope.blockSize2; ++i)
+                {
+                    const auto peak = track->peakData[(size_t) (i < scope.blockSize1 ? scope.startIndex1 + i : scope.startIndex2 + i - scope.blockSize1)];
+                    // Three decimals are plenty to draw with, and keep the event small.
+                    list.add (std::round (peak * 1000.0f) / 1000.0f);
+                }
+                result->setProperty (track->source.track, list);
+            }
     return juce::var (result);
 }
 
@@ -318,14 +339,27 @@ void Recorder::write (const float* const* inputs, int numInputs, int numSamples)
                     const auto channel = track->source.channels[c];
                     data[c] = channel >= 0 && channel < numInputs && inputs[channel] != nullptr ? inputs[channel] + from + written : silence.data();
                 }
-                // How loud it is, for the clip drawn as it records.
-                auto loudest = track->level.load (std::memory_order_relaxed);
-                for (size_t c = 0; c < (size_t) track->current->channels; ++c)
+                // How loud it is, a peak each `peakSeconds`, for the clip drawn as it records.
+                const auto every = juce::jmax (1, (int) (peakSeconds * session->sampleRate));
+                for (int at = 0; at < count;)
                 {
-                    const auto range = juce::FloatVectorOperations::findMinAndMax (data[c], count);
-                    loudest = juce::jmax (loudest, -range.getStart(), range.getEnd());
+                    const auto take = juce::jmin (count - at, every - track->measured);
+                    for (size_t c = 0; c < (size_t) track->current->channels; ++c)
+                    {
+                        const auto range = juce::FloatVectorOperations::findMinAndMax (data[c] + at, take);
+                        track->loudest = juce::jmax (track->loudest, -range.getStart(), range.getEnd());
+                    }
+                    track->measured += take;
+                    at += take;
+                    if (track->measured < every)
+                        continue;
+                    // (With no room, the tab's drawing misses a peak; the file has it all.)
+                    const auto scope = track->peaks.write (1);
+                    if (scope.blockSize1 > 0)
+                        track->peakData[(size_t) scope.startIndex1] = track->loudest;
+                    track->loudest = 0;
+                    track->measured = 0;
                 }
-                track->level.store (loudest, std::memory_order_relaxed);
                 if (track->current->write (data.data(), count))
                     track->frames += count;
                 else
