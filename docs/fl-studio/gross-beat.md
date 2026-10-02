@@ -154,19 +154,35 @@ Beat is", in our UI style). What was chosen, to check with him:
 ## How it's built
 
 - **The document**: `MixerEffect.grossBeat` (`shared/music/types.ts`) on an effect whose plugin is
-  `GROSS_BEAT_PLUGIN`: the selected slots, the knobs, the options, and each slot changed from its preset
-  (`time`, `volume`: null is the preset). A slot is a name and automation points (`AutomationPoint`) over
-  `GROSS_TICKS` (4 beats): for time, 1 is now and 0 eight beats back. Its maths and edits are in
-  `shared/music/gross-beat.ts`, the presets in `gross-beat-presets.ts`, both tested.
-- **Compiling** (`compile.ts`): each Gross Beat goes to the engine with its envelopes as straight lines
-  (the automation lanes' sampling, finer for time), only the slots that can play (the selected ones, and
-  those an automation clip of its slots reaches). Its slots and mixes automate as lanes.
-- **The engine** (`engine/src/GrossBeat.cpp`): a native effect, run in its slot like a plugin (bypass,
-  mix). It keeps the buffer (8 beats and a little more at the song's tempo, made on the message thread
-  and kept across songs by the effect's id), follows the song's position sample by sample (the bar, trig
-  and pos sync, one-shot), reads the buffer at the offset (Hermite, or sinc with HQ), crossfades jumps
-  (click reduction), smooths the volume (attack, release, tension) and reports the slots playing and where
-  their envelopes are (`EngineEvent` "transport", `grossBeats`). HOLD and the scratching clock are the
-  `grossBeat` command.
-- **The tab** (`src/suites/music/gross-beat/`): the window, the mapping panel (a canvas, edited as the
-  automation clips' curves are: a drag drawn through the same edit it commits), and the assistant's tools.
+  `GROSS_BEAT_PLUGIN` (`vaudio:gross-beat`): the picked slots, the knobs, the options, and each slot changed
+  from its preset (`time`, `volume`: null is the preset, so a song stores only what was changed). A slot is
+  a name and automation points (`AutomationPoint`, the automation clips' curve types and tension) over
+  `GROSS_TICKS` (4 beats): for time, 1 is now and 0 is `GROSS_DEPTH` (8) beats back. Validated in
+  `normalizeGrossBeat` (`project.ts`); the presets and constants in `gross-beat-presets.ts`; what an
+  envelope means (offset, speed, `pitchSegment`) and the edits (`updateGrossBeat`, `editGrossSlot`,
+  `setGrossSlot`, `paintStep`, `slidePoint`) in `gross-beat.ts`. All tested.
+- **Compiling** (`compile.ts`): each Gross Beat's `EngineEffect.grossBeat` carries its settings and the
+  envelopes of the slots that can play (the picked ones, the range its slot automation reaches, slot 1 for
+  one-shot), as straight lines (`sampling.ts`'s `sampleLane`, as automation lanes: a time envelope within a
+  ten-thousandth of a beat, so a scratch's speed is smooth). Its slots and its Time and Volume knobs
+  automate as lanes (`kind: "gross"`), set at each slice's start as an effect's mix is.
+- **The engine** (`engine/src/GrossBeat.cpp`): a native effect, run in its slot like a plugin's (bypass,
+  the slot's mix), no plugin delay. `gross::State` keeps the rolling buffer (8 beats at the song's tempo and
+  a little more, made on the message thread and kept across songs by the effect's id in a
+  `gross::Registry`; the export has a registry of its own). `Sequencer` gives it the song's position each
+  block (`gross::Clock`: the tick on its first sample, from the loop's start counted in, so the bars line
+  up; whether play just started). Each sample: the slots' sync (TRIG SYNC waits for its point, POS SYNC
+  anchors the envelope on its grid), one-shot, the envelopes at their phases, HOLD (Last / Next, a bar of
+  what came in), the scratching clock (smoothed), the read (Hermite, or sinc with HQ; silence before play
+  started, the newest sample past now), click reduction (a jump, any step in where it reads, fades across
+  3 ms, equal power), the volume smoothed (ATT / REL / TNS), Remove DC (a 10 Hz high-pass). It reports
+  what it plays (`EngineTransport.grossBeats`). HOLD and the scratching clock are the `grossBeat` command.
+  Tested offline to the sample: `server/music/gross-beat.integration.test.ts`.
+- **The tab** (`src/suites/music/gross-beat/`): `gross-beat-window.tsx` (the window, opened from the
+  slot's name, chosen from an effect slot's picker under Built in), `draw.ts` (the mapping panel's canvas,
+  drawn when something changed or the song plays), `pointer.ts` (its mouse, a drag drawn through the edit
+  it commits), `geometry.ts` (its maths, tested), `actions.ts`, `store.ts` (open windows, each one's view:
+  the kind shown, snap, step, slide, freeze, the clock), `tool-edits.ts` (the assistant's `get_gross_beat`,
+  `update_gross_beat`, `set_gross_beat_slot`; `add_mixer_effect` takes "Gross Beat", and `add_automation`
+  its "time slot", "volume slot", "time mix" and "volume mix"). Its colours are theme tokens
+  (`--gross-time`, the accent in other themes, and `--gross-volume`).
