@@ -123,8 +123,8 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate,
-                                  bool keepOnly)
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, juce::StringArray& unreadable,
+                                  int capacity, double sampleRate, bool keepOnly)
 {
     auto song = std::make_unique<Song>();
     song->tempo = number (json["tempo"], 120, 1, 2000);
@@ -132,6 +132,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     song->loopTicks = number (json["loopTicks"], song->ppq * 4, 1, 1e9);
     song->beatTicks = number (json["beatTicks"], song->ppq, 1, 1e9);
     song->barTicks = number (json["barTicks"], song->beatTicks * 4, 1, 1e9);
+    song->offsetTicks = number (json["offsetTicks"], 0, 0, 1e9);
     song->resampling = resampling::parse (json["resampling"].toString(), Resampling::hermite);
     song->loops = ! json.hasProperty ("loops") || (bool) json["loops"];
 
@@ -237,7 +238,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     std::stable_sort (song->audioClips.begin(), song->audioClips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.tick < b.tick; });
 
     // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
-    juce::StringArray effectIds;
+    juce::StringArray effectIds, grossIds;
     if (const auto* list = json["tracks"].getArray())
         for (const auto& item : *list)
         {
@@ -260,6 +261,17 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                     const auto id = slot["id"].toString();
                     if (! plugin.isObject() || id.isEmpty())
                         continue;
+                    // Gross Beat is ours: run by the engine, not hosted. Its buffer holds as far back as its
+                    // envelopes reach at this tempo, and the attack compensation's half second more.
+                    if (plugin["id"].toString() == "vaudio:gross-beat")
+                    {
+                        Track::Effect effect { id, nullptr, (bool) slot["enabled"], (float) number (slot["mix"], 1, 0, 1) };
+                        effect.grossSettings = gross::Settings::parse (slot["grossBeat"], capacity);
+                        effect.gross = grossBeats.get (id, sampleRate, effect.grossSettings->depth * 60.0 / song->tempo + 0.6);
+                        grossIds.add (id);
+                        track.effects.push_back (std::move (effect));
+                        continue;
+                    }
                     const auto state = plugin["state"].toString();
                     effectIds.add (id);
                     track.effects.push_back ({ id,
@@ -344,6 +356,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     {
         plugins.keepOnly (channelIds);
         effects.keepOnly (effectIds);
+        grossBeats.keepOnly (grossIds);
     }
 
     std::stable_sort (song->notes.begin(), song->notes.end(), [] (const Note& a, const Note& b) { return a.tick < b.tick; });
@@ -398,6 +411,24 @@ void Song::parseLanes (Song& song, const juce::var& json)
                     continue;
                 lane.base[0] = track.effects[(size_t) lane.index].mix;
             }
+        }
+        else if (kind == "gross")
+        {
+            // A Gross Beat's slot (by number) or mix.
+            lane.kind = Lane::Kind::gross;
+            lane.track = (int) number (target["track"], -1, -1, 1e6);
+            if (lane.track < 0 || lane.track >= (int) song.tracks.size())
+                continue;
+            const auto& track = song.tracks[(size_t) lane.track];
+            lane.index = (int) number (target["effect"], -1, -1, 1e6);
+            if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].grossSettings == nullptr)
+                continue;
+            const auto control = juce::StringArray { "timeSlot", "volumeSlot", "timeMix", "volumeMix" }.indexOf (target["control"].toString());
+            if (control < 0)
+                continue;
+            lane.control = control;
+            const auto& settings = *track.effects[(size_t) lane.index].grossSettings;
+            lane.base[0] = control == 0 ? (float) settings.timeSlot : control == 1 ? (float) settings.volumeSlot : control == 2 ? settings.timeMix : settings.volumeMix;
         }
         else if (kind == "param")
         {

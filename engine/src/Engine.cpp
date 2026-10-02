@@ -88,7 +88,8 @@ juce::var Engine::transport() const
                                { "tick", sequencer.position() },
                                { "countIn", sequencer.countInSeconds() },
                                { "metronome", sequencer.metronomeOn() },
-                               { "preview", preview.describe() } });
+                               { "preview", preview.describe() },
+                               { "grossBeats", grossBeats.describe() } });
 }
 
 juce::var Engine::status() const
@@ -222,6 +223,18 @@ void Engine::handle (const juce::String& command, const juce::var& params, Reply
     {
         if (! effects.showEditor (params["effect"].toString(), (bool) params["open"]))
             return reply (fail ("That effect's plugin isn't loaded."), {});
+        return ok();
+    }
+    if (command == "grossBeat")
+    {
+        // A Gross Beat's live controls: HOLD, and the scratching clock.
+        const auto state = grossBeats.find (params["effect"].toString());
+        if (state == nullptr)
+            return reply (fail ("The song playing has no such Gross Beat."), {});
+        if (params.hasProperty ("hold"))
+            state->hold = (bool) params["hold"];
+        if (params.hasProperty ("scratch"))
+            state->scratch = (float) juce::jlimit (-64.0, 0.0, (double) params["scratch"]);
         return ok();
     }
     if (command == "parameters")
@@ -390,7 +403,7 @@ juce::StringArray Engine::applySong()
     // During an export the song waits: it's made when the export ends (its plugins are busy).
     if (exportJob != nullptr)
         return unreadable;
-    auto song = Song::parse (lastSong, samples, plugins, effects, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
+    auto song = Song::parse (lastSong, samples, plugins, effects, grossBeats, unreadable, mix.getNumSamples(), sampleRate > 0 ? sampleRate : offlineSampleRate);
     latencies = plugins.latencySignature() * 7 + effects.latencySignature();
     armed.clear();
     for (const auto& track : song->tracks)
@@ -488,6 +501,7 @@ void Engine::timerCallback()
                                                                ? protocol::object ({ { "id", sequencer.recorder().recording() }, { "levels", sequencer.recorder().levels() } })
                                                                : juce::var() },
                                             { "preview", preview.describe() },
+                                            { "grossBeats", grossBeats.describe() },
                                             { "peak", level },
                                             { "meters", meters },
                                             { "cpu", devices.getCpuUsage() } }));
@@ -674,7 +688,9 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
 
     // Its plugins are the song's own instances. One still loading is waited for, or it'd be missing.
     juce::StringArray unreadable;
-    auto song = Song::parse (params["song"], samples, plugins, effects, unreadable, exportBlockSize, rate(), false);
+    // Gross Beats of its own: they start empty, and playback's are left as they are.
+    gross::Registry exportGrossBeats;
+    auto song = Song::parse (params["song"], samples, plugins, effects, exportGrossBeats, unreadable, exportBlockSize, rate(), false);
     if ((plugins.anyLoading() || effects.anyLoading()) && attempt < exportWaits)
     {
         juce::Timer::callAfterDelay (100, [this, stillAlive = alive, params, reply, attempt] {
@@ -690,7 +706,7 @@ void Engine::startExport (const juce::var& params, Reply reply, int attempt)
             missing.add (channel.id);
     for (const auto& track : song->tracks)
         for (const auto& effect : track.effects)
-            if (effect.plugin == nullptr)
+            if (effect.plugin == nullptr && effect.gross == nullptr)
                 missing.add (effect.id);
 
     // Playback stops and lets go of the plugins; they're prepared for the export.

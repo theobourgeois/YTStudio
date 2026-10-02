@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PiCaretRightFill, PiClock, PiSlidersHorizontal, PiSpinnerGap, PiWarning } from "react-icons/pi";
 import { cn } from "cn";
-import type { EnginePlugin } from "@shared/music/engine";
+import { createId } from "@shared/ids";
+import { GROSS_BEAT_PLUGIN, isGrossBeat } from "@shared/music/gross-beat-presets";
 import { moveEffect, moveEffectTo, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
 import { EFFECT_SLOTS, MASTER_TRACK_ID } from "@shared/music/project";
-import type { InputMonitor, MixerEffect } from "@shared/music/types";
+import type { InputMonitor, MixerEffect, PluginRef } from "@shared/music/types";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSettings } from "@/stores/settings";
 import { askMicrophone } from "@/lib/desktop";
@@ -19,7 +20,9 @@ import { startPointerDrag } from "@/lib/pointer-drag";
 import { PERCENT, SongKnob, percent } from "../knob";
 import { useMusic, useSong } from "../store";
 import { useTransport } from "../transport";
-import { pickerItem } from "../plugin-groups";
+import { openGrossBeat, toggleGrossBeat } from "../gross-beat/actions";
+import { useGrossUi } from "../gross-beat/store";
+import { type PickerItem, pickerItem } from "../plugin-groups";
 import { Led } from "./led";
 import { PluginPicker, usePluginList } from "../plugin-picker";
 import { Input } from "@/components/ui/input";
@@ -55,7 +58,12 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
   const [dropping, setDropping] = useState<number | null>(null);
   const dragged = useRef(false);
   const commit = useMusic.getState().commit;
-  const choose = (plugin: EnginePlugin) => commit((song) => setEffect(song, trackId, slot, { id: plugin.id, name: plugin.name, format: plugin.format }));
+  const choose = (plugin: PluginRef) => {
+    const id = createId("fx");
+    commit((song) => setEffect(song, trackId, slot, plugin, id));
+    // Ours opens at once (a plugin's own window is a click on its name once it's loaded).
+    if (isGrossBeat(plugin)) openGrossBeat(id);
+  };
   // After a menu has closed (it gives the focus back first), or the picker would close at once.
   const openPicker = () => setTimeout(() => setChoosing(true), 0);
   /** The arrow: a loaded slot's menu, or an empty slot's plugins. */
@@ -181,7 +189,7 @@ function SlotMenuItems({ menu, trackId, slot, effect, openPicker }: { menu: type
   if (!effect) return <Item onSelect={openPicker}>Choose a plugin…</Item>;
   return (
     <>
-      <Item onSelect={() => useTransport.getState().showEffect(effect.id, true)}>Open its window</Item>
+      <Item onSelect={() => (effect.grossBeat ? openGrossBeat(effect.id) : useTransport.getState().showEffect(effect.id, true))}>Open its window</Item>
       <Item onSelect={openPicker}>Replace…</Item>
       <Item onSelect={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}>{effect.enabled ? "Bypass" : "Enable"}</Item>
       <Separator />
@@ -210,6 +218,28 @@ function DropMark() {
  * spinner; if it couldn't be loaded, a warning and why.
  */
 function EffectName({ effect }: { effect: MixerEffect }) {
+  if (effect.grossBeat) return <GrossBeatName effect={effect} />;
+  return <PluginName effect={effect} />;
+}
+
+/** Gross Beat's name: ours, always ready; a click opens its window (or closes it). */
+function GrossBeatName({ effect }: { effect: MixerEffect }) {
+  const open = useGrossUi((s) => s.openIds.includes(effect.id));
+  return (
+    <button
+      type="button"
+      aria-label={`${effect.plugin.name}: ${open ? "close its window" : "open its window"}`}
+      aria-pressed={open}
+      title={`${effect.plugin.name} (built in): click for its window`}
+      className={cn("flex min-w-0 flex-1 items-center gap-1 text-left text-xs", open ? "text-brand" : "hover:text-brand", !effect.enabled && "text-muted-foreground line-through")}
+      onClick={() => toggleGrossBeat(effect.id)}
+    >
+      <span className="truncate">{effect.plugin.name}</span>
+    </button>
+  );
+}
+
+function PluginName({ effect }: { effect: MixerEffect }) {
   const open = useTransport((s) => s.effects.loaded.some((e) => e.effect === effect.id && e.editorOpen));
   const loaded = useTransport((s) => s.effects.loaded.some((e) => e.effect === effect.id));
   const loading = useTransport((s) => s.effects.loading.includes(effect.id));
@@ -426,9 +456,22 @@ function InputOptions({ trackId }: { trackId: string }) {
   );
 }
 
-/** The effect plugins to choose from: the big picker, by kind. */
-function EffectPicker({ onChoose }: { onChoose: (plugin: EnginePlugin) => void }) {
+/** Ours, before the plugins: Gross Beat. */
+const BUILT_IN = "Built in";
+const GROSS_BEAT_ITEM: PickerItem = { id: GROSS_BEAT_PLUGIN.id, name: GROSS_BEAT_PLUGIN.name, detail: "Chops, repeats, half speed, gates", group: BUILT_IN, plugin: null };
+
+/** The effects to choose from: the big picker, ours first, then the plugins by kind. */
+function EffectPicker({ onChoose }: { onChoose: (plugin: PluginRef) => void }) {
   const { plugins, error } = usePluginList("effect", true);
-  const items = useMemo(() => (plugins ?? []).map(pickerItem), [plugins]);
-  return <PluginPicker noun="effect" items={items} loading={plugins === null} error={error} onChoose={(item) => item.plugin && onChoose(item.plugin)} />;
+  const items = useMemo(() => [GROSS_BEAT_ITEM, ...(plugins ?? []).map(pickerItem)], [plugins]);
+  return (
+    <PluginPicker
+      noun="effect"
+      items={items}
+      loading={plugins === null}
+      error={error}
+      firstGroups={[BUILT_IN]}
+      onChoose={(item) => (item.plugin ? onChoose({ id: item.plugin.id, name: item.plugin.name, format: item.plugin.format }) : item.id === GROSS_BEAT_PLUGIN.id && onChoose(GROSS_BEAT_PLUGIN))}
+    />
+  );
 }

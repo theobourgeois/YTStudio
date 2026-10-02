@@ -135,7 +135,10 @@ export interface Pattern {
   color: string | null;
 }
 
-/** An effect plugin in a mixer track's slot. */
+/**
+ * An effect in a mixer track's slot: an effect plugin, or one of ours (Gross Beat: its `plugin` is
+ * `GROSS_BEAT_PLUGIN`, and its settings are `grossBeat`, in the song).
+ */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
   id: string;
@@ -144,6 +147,56 @@ export interface MixerEffect {
   enabled: boolean;
   /** 0..1: how much of the effect's sound is heard against the sound coming in (FL's slot mix knob). */
   mix: number;
+  /** Gross Beat's settings, on a Gross Beat (absent on a plugin). */
+  grossBeat?: GrossBeat;
+}
+
+/**
+ * A Gross Beat slot (`docs/fl-studio/gross-beat.md`): an envelope a bar long (`GROSS_TICKS`, 4 beats) that
+ * repeats while it plays. A time slot's values say where the sound is read from: 1 is now, 0 is
+ * `GROSS_DEPTH` beats back. A volume slot's are its level: 1 full, 0 silent.
+ */
+export interface GrossBeatSlot {
+  name: string;
+  /** As an automation clip's (the same curve types): in order of `tick`, the first at 0. */
+  points: AutomationPoint[];
+}
+
+/** What Gross Beat's HOLD button repeats: nothing, the bar just played, or the next bar. */
+export type GrossHold = "off" | "last" | "next";
+
+/** Gross Beat's settings: which slots play, its knobs and options, and its slots that aren't their presets. */
+export interface GrossBeat {
+  /** The time and volume slots picked (0..`GROSS_SLOTS` - 1): what plays, and what the panel edits. */
+  timeSlot: number;
+  volumeSlot: number;
+  /** 0..1: how much of each envelope is used (FL's Time and Volume knobs). */
+  timeMix: number;
+  volumeMix: number;
+  /** Seconds the volume takes to rise (0..0.5) and to fall (0..1): smoothing its envelope (ATT, REL). */
+  attack: number;
+  release: number;
+  /** -1..1: how that smoothing bends (TNS). */
+  tension: number;
+  /** Each slot changed from its preset, by number; null is its preset (`GROSS_TIME_PRESETS`...). */
+  time: (GrossBeatSlot | null)[];
+  volume: (GrossBeatSlot | null)[];
+  /** Picking a time slot picks the volume slot of the same number, and back. */
+  linkSlots: boolean;
+  /** A slot plays once (a bar), then slot 1 plays. */
+  oneShot: boolean;
+  hold: GrossHold;
+  /** Beats: a slot picked while playing starts on the next multiple of it (0: at once). */
+  trigSync: number;
+  /** Beats: where in its envelope it starts is where the song is inside this length (0: its start). */
+  posSync: number;
+  /** A jump fades across (FL's Click reduction). */
+  clickReduction: boolean;
+  /** What's played after a jump is read the attack time earlier, so its start isn't lost under the smoothing. */
+  attackCompensation: boolean;
+  removeDc: boolean;
+  /** Sinc rather than Hermite reading between samples (FL's HQ resampling). */
+  hq: boolean;
 }
 
 export type MixerDock = "left" | "middle" | "right";
@@ -309,6 +362,7 @@ export type AutomationTarget =
   | { kind: "mixer"; track: string; control: "volume" | "pan" | "stereo" }
   | { kind: "send"; track: string; to: string }
   | { kind: "effect"; effect: string }
+  | { kind: "grossBeat"; effect: string; control: GrossControl }
   | { kind: "main" }
   | {
       kind: "plugin";
@@ -320,6 +374,9 @@ export type AutomationTarget =
       index: number;
       name: string;
     };
+
+/** Gross Beat's controls an automation clip can drive: the slots playing and the two mix knobs. */
+export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";
 
 /** How a segment of an automation clip's curve goes from one point to the next: FL Studio's curve types. */
 export const CURVE_TYPES = ["single", "double", "altSingle", "altDouble", "hold", "stairs", "smoothStairs", "pulse", "wave", "halfSine", "smooth"] as const;

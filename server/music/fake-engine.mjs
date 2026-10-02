@@ -61,8 +61,24 @@ const channels = () => {
 };
 
 /** The mixer's effects: all loaded at once, but for a plugin that isn't one of ours. */
+/** Gross Beat is ours, not a plugin: the engine runs it itself. */
+const GROSS_BEAT = "vaudio:gross-beat";
+/** The Gross Beats whose HOLD is held. */
+const holding = new Set();
+/** Each Gross Beat in the song, playing its picked slots in time with the song (as the real engine says). */
+const grossBeats = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.grossBeat)
+      .map((e) => {
+        const at = playingSince !== null ? tick() % e.grossBeat.ticks : 0;
+        return [e.id, { time: e.grossBeat.timeSlot, volume: e.grossBeat.volumeSlot, queuedTime: null, queuedVolume: null, timeTick: at, volumeTick: at, holding: holding.has(e.id) }];
+      }),
+  );
+
 const effects = () => {
-  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []);
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT);
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
@@ -192,7 +208,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -229,6 +245,7 @@ const sendTransport = () =>
     countIn: countInLeft(),
     recording: recording && { id: recording.id, levels: levels() },
     preview: previewNow(),
+    grossBeats: grossBeats(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
     cpu: 0.02,
@@ -319,6 +336,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (!effects().loaded.some((e) => e.effect === params.effect)) return fail("That effect's plugin isn't loaded.");
     if (params.open) editors.add(params.effect);
     else editors.delete(params.effect);
+  }
+  if (cmd === "grossBeat") {
+    if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.grossBeat))) return fail("The song playing has no such Gross Beat.");
+    if (params.hold === true) holding.add(params.effect);
+    if (params.hold === false) holding.delete(params.effect);
   }
   if ((cmd === "trigger" || cmd === "preview") && !song?.channels.some((c) => c.id === params.channel)) return fail("The song playing has no such channel.");
   if (cmd === "tone") tone = params.on;

@@ -64,6 +64,11 @@
   --brand: #2c67d0;
   --brand-foreground: #ffffff;
   --playhead: #e0414d;
+  /* Gross Beat's envelopes and slots: time in the accent's blue, volume in orange (FL's green and orange, ours). */
+  --gross-time: #2c67d0;
+  --gross-time-foreground: #ffffff;
+  --gross-volume: #c4661b;
+  --gross-volume-foreground: #ffffff;
   --clip-video: #5a86d6;
   --clip-audio: #3b9c7c;
   --clip-graphic: #9a6fd0;
@@ -217,6 +222,10 @@
   --brand: #6aacf0;
   --brand-foreground: #0d1117;
   --playhead: #ef4d55;
+  --gross-time: #6aacf0;
+  --gross-time-foreground: #0d1117;
+  --gross-volume: #f0a04b;
+  --gross-volume-foreground: #0d1117;
   --clip-video: #4169ac;
   --clip-audio: #2d7661;
   --clip-graphic: #6d4fa3;

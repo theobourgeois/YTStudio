@@ -9,6 +9,7 @@
  */
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
+import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
 import { DEFAULT_LFO, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
 import { type Automation, type AutomationLfo, type AutomationPoint, type AutomationTarget, type CurveType, type MusicProject, type PlaylistClip, STEP_TICKS } from "./types.ts";
@@ -147,7 +148,7 @@ export function automationValue(automation: Automation, tick: number, barTicks: 
  * The ticks inside a curve where its value may jump (Hold's, Stairs' and Pulse's steps, points on one
  * tick) or turn sharply (a wave's peaks), from `from` to `to`: where a sampler of it must look closely.
  */
-export function curveBreaks(automation: Automation, from: number, to: number): number[] {
+export function curveBreaks(automation: { readonly points: readonly AutomationPoint[] }, from: number, to: number): number[] {
   const breaks: number[] = [];
   const { points } = automation;
   for (let i = 1; i < points.length; i++) {
@@ -184,6 +185,8 @@ export function targetKey(target: AutomationTarget): string {
       return `send:${target.track}>${target.to}`;
     case "effect":
       return `effect:${target.effect}`;
+    case "grossBeat":
+      return `gross:${target.effect}:${target.control}`;
     case "main":
       return "main";
     case "plugin":
@@ -272,6 +275,31 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
         own: found ? found.effect!.mix : null,
         ...unit,
         format: percent,
+      };
+    }
+    case "grossBeat": {
+      const found = findEffect(song, target.effect);
+      const gb = found?.effect?.grossBeat;
+      const owner = found && gb ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Gross Beat";
+      const control = target.control;
+      if (control === "timeMix" || control === "volumeMix")
+        return { name: control === "timeMix" ? "Time" : "Volume", owner, exists: !!gb, own: gb ? gb[control] : null, ...unit, format: percent };
+      // A slot: its number from the fraction (36 of them across the range), said with its name.
+      const kind = control === "timeSlot" ? "time" : "volume";
+      const last = GROSS_SLOTS - 1;
+      const slotAt = (v: number) => Math.round(clamp(v, 0, 1) * last);
+      return {
+        name: kind === "time" ? "Time slot" : "Volume slot",
+        owner,
+        exists: !!gb,
+        own: gb ? gb[control] / last : null,
+        toControl: slotAt,
+        fromControl: (v) => clamp(v / last, 0, 1),
+        format: (v) => {
+          const n = slotAt(v);
+          const name = gb?.[kind][n]?.name ?? (kind === "time" ? GROSS_TIME_PRESETS : GROSS_VOLUME_PRESETS)[n].name;
+          return `${n + 1}: ${name}`;
+        },
       };
     }
     case "main":

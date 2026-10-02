@@ -7,8 +7,11 @@
  */
 import { automationIndex, clipAtTick, controlBreaks, controlOf, placedValue, targetKey } from "./automation.ts";
 import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
+import { LANE_FINEST, sampleLane } from "./sampling.ts";
+import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
+import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
-import { type AutomationTarget, type Channel, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { type AutomationTarget, type Channel, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -59,6 +62,8 @@ export interface EngineEffect {
   enabled: boolean;
   /** 0..1 of the effect's sound against what comes in. */
   mix: number;
+  /** A Gross Beat (ours, run by the engine itself: its `plugin.id` is `GROSS_BEAT_PLUGIN`'s): its settings and envelopes. */
+  grossBeat?: EngineGrossBeat;
 }
 
 /**
@@ -131,14 +136,16 @@ export interface EngineAudioClip {
 
 /**
  * What an automation lane drives in the engine, in the engine's own units: a channel's two gains, a mixer
- * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, or a plugin's parameter (0..1,
- * or -1 where the plugin keeps its own value: before any clip of it).
+ * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, a Gross Beat's slot (its
+ * number, 0..35) or mix (0..1), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
+ * before any clip of it).
  */
 export type EngineLaneTarget =
   | { kind: "channel"; channel: number }
   | { kind: "track"; track: number }
   | { kind: "send"; track: number; send: number }
   | { kind: "mix"; track: number; effect: number }
+  | { kind: "gross"; track: number; effect: number; control: GrossControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
 /**
@@ -285,7 +292,51 @@ function channelGains(channel: Pick<Channel, "muted" | "volume" | "pan">): [numb
   return [gain * left, gain * right];
 }
 
-function engineTracks(song: MusicProject, armed: ReadonlySet<string>): { tracks: EngineTrack[]; index: Map<string, number> } {
+/** Gross Beat's slots that can play in this song, by effect id: the picked ones, and in song mode those its automation reaches. */
+function grossSlots(song: MusicProject, mode: PlayMode): Map<string, { time: Set<number>; volume: Set<number> }> {
+  const slots = new Map<string, { time: Set<number>; volume: Set<number> }>();
+  const index = mode === "song" ? automationIndex(song) : null;
+  /** The slots an automation of `control` reaches: between its lowest and highest points (an LFO's: any). */
+  const reached = (effectId: string, control: GrossControl, into: Set<number>) => {
+    for (const placed of index?.get(targetKey({ kind: "grossBeat", effect: effectId, control })) ?? []) {
+      const a = placed.automation;
+      let low = 1;
+      let high = 0;
+      for (const p of a.points) {
+        low = Math.min(low, p.value);
+        high = Math.max(high, p.value);
+      }
+      if (a.lfo.enabled && a.lfo.level) [low, high] = [0, 1];
+      const at = (v: number) => Math.round(Math.min(1, Math.max(0, a.min + v * (a.max - a.min))) * (GROSS_SLOTS - 1));
+      const [from, to] = [at(low), at(high)].sort((x, y) => x - y);
+      for (let n = from; n <= to; n++) into.add(n);
+    }
+  };
+  for (const track of song.mixer.tracks)
+    for (const effect of track.effects) {
+      const gb = effect?.grossBeat;
+      if (!effect || !gb) continue;
+      const time = new Set([gb.timeSlot]);
+      const volume = new Set([gb.volumeSlot]);
+      reached(effect.id, "timeSlot", time);
+      reached(effect.id, "volumeSlot", volume);
+      // Linked, the volume slot follows the time slot's automation (and back).
+      if (gb.linkSlots) {
+        reached(effect.id, "timeSlot", volume);
+        reached(effect.id, "volumeSlot", time);
+      }
+      // One-shot goes back to slot 1 when it's done.
+      if (gb.oneShot) {
+        time.add(0);
+        volume.add(0);
+      }
+      slots.set(effect.id, { time, volume });
+    }
+  return slots;
+}
+
+function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: PlayMode = "pattern"): { tracks: EngineTrack[]; index: Map<string, number> } {
+  const gross = grossSlots(song, mode);
   const ordered = trackOrder(song.mixer.tracks);
   const index = new Map(ordered.map((t, i) => [t.id, i]));
   const numbers = new Map(song.mixer.tracks.map((t, i) => [t.id, i]));
@@ -296,7 +347,12 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>): { tracks:
     return {
       id: track.id,
       name: track.name ?? (number === 0 ? "Master" : `Insert ${number}`),
-      effects: track.effects.flatMap((e) => (e ? [{ id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix }] : [])),
+      effects: track.effects.flatMap((e): EngineEffect[] => {
+        if (!e) return [];
+        const effect: EngineEffect = { id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix };
+        const slots = gross.get(e.id);
+        return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
+      }),
       gains: trackGains(track, main),
       latencyOffset: track.latencyOffset,
       input: engineInput(track, armed.has(track.id)),
@@ -360,7 +416,7 @@ export function compileSong(
   const notes = mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to);
   notes.sort((a, b) => a.tick - b.tick || a.channel - b.channel);
   const played = new Set(notes.map((n) => n.channel));
-  const { tracks, index } = engineTracks(song, armed);
+  const { tracks, index } = engineTracks(song, armed, mode);
   const master = index.get(MASTER_TRACK_ID)!;
   return {
     tempo: song.settings.tempo,
@@ -492,13 +548,6 @@ export function soundingChannels(song: MusicProject, pattern: Pattern, tick: num
 // Automation
 // ---------------------------------------------------------------------------
 
-/** How far a lane may be from the control it draws (in its own units: a gain, a plugin's 0..1), between its points. */
-const LANE_TOLERANCE = 1e-3;
-/** A lane is looked at every `step` ticks at least (a beat, or closer for an LFO), then closer where it bends, down to `LANE_FINEST`. */
-const LANE_FINEST = 1 / 8;
-/** Just before a tick: the value a control arrives at, before it jumps. */
-const JUST_BEFORE = 1e-6;
-
 /**
  * The automated controls as the engine plays them: for each engine target whose controls any clip drives
  * (and that isn't being held by the hand: `held`, by `targetKey`), what it is from `from` to `to` of the
@@ -582,7 +631,23 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       if (!effect) continue;
       const mixTarget: AutomationTarget = { kind: "effect", effect: effect.id };
       const mix = valueOf(mixTarget, effect.mix);
-      add({ kind: "mix", track: t, effect: effectIndex++ }, [automated(mixTarget)], (tick) => [mix(tick)]);
+      add({ kind: "mix", track: t, effect: effectIndex }, [automated(mixTarget)], (tick) => [mix(tick)]);
+      const gb = effect.grossBeat;
+      if (gb) {
+        const gross = (control: GrossControl): AutomationTarget => ({ kind: "grossBeat", effect: effect.id, control });
+        for (const control of ["timeMix", "volumeMix"] as const) {
+          const value = valueOf(gross(control), gb[control]);
+          add({ kind: "gross", track: t, effect: effectIndex, control }, [automated(gross(control))], (tick) => [value(tick)]);
+        }
+        // Slots, by number. Linked, a slot that isn't automated follows the other's automation.
+        const time = { key: automated(gross("timeSlot")), value: valueOf(gross("timeSlot"), gb.timeSlot) };
+        const volume = { key: automated(gross("volumeSlot")), value: valueOf(gross("volumeSlot"), gb.volumeSlot) };
+        const timeDriver = !time.key && gb.linkSlots && volume.key ? volume : time;
+        const volumeDriver = !volume.key && gb.linkSlots && time.key ? time : volume;
+        add({ kind: "gross", track: t, effect: effectIndex, control: "timeSlot" }, [timeDriver.key], (tick) => [timeDriver.value(tick)]);
+        add({ kind: "gross", track: t, effect: effectIndex, control: "volumeSlot" }, [volumeDriver.key], (tick) => [volumeDriver.value(tick)]);
+      }
+      effectIndex++;
     }
   }
 
@@ -601,82 +666,4 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
     });
   }
   return lanes;
-}
-
-/**
- * A function of the song's ticks drawn as straight lines between points, from `from` to `to`, counted from
- * `from`: looked at every `step` ticks and more closely where a straight line would be further than
- * `LANE_TOLERANCE` from it, then thinned where the lines are straight. At each of `breaks` (where it may
- * jump) it has two points on the tick: what it arrives at, and what it jumps to.
- */
-export function sampleLane(value: (tick: number) => number[], breaks: readonly number[], from: number, to: number, step = PPQ): { ticks: number[]; values: number[] } {
-  const edges = [from, ...breaks.filter((b) => b > from && b < to), to];
-  const ticks: number[] = [];
-  const values: number[] = [];
-  for (let e = 0; e + 1 < edges.length; e++) {
-    const a = edges[e];
-    const b = edges[e + 1];
-    // One run of points without jumps: sampled, refined, thinned.
-    const run: { tick: number; value: number[] }[] = [];
-    const steps = Math.max(1, Math.ceil((b - a) / step));
-    let previous = { tick: a, value: value(a) };
-    run.push(previous);
-    // Looked at in quarters, not only the middle: an S (a smooth or double curve, half a wave) crosses its
-    // straight line there, as if it were one.
-    const refine = (left: { tick: number; value: number[] }, right: { tick: number; value: number[] }) => {
-      if (right.tick - left.tick <= LANE_FINEST) return;
-      const span = right.tick - left.tick;
-      const middle = { tick: left.tick + span / 2, value: value(left.tick + span / 2) };
-      const off = (at: number, got: number[]) => got.some((v, i) => Math.abs(v - (left.value[i] + (right.value[i] - left.value[i]) * at)) > LANE_TOLERANCE);
-      if (!off(0.5, middle.value) && !off(0.25, value(left.tick + span / 4)) && !off(0.75, value(left.tick + (span * 3) / 4))) return;
-      refine(left, middle);
-      run.push(middle);
-      refine(middle, right);
-    };
-    for (let k = 1; k <= steps; k++) {
-      const tick = k === steps ? b : a + ((b - a) * k) / steps;
-      const next = { tick, value: value(k === steps ? b - JUST_BEFORE : tick) };
-      refine(previous, next);
-      run.push(next);
-      previous = next;
-    }
-    for (const point of thin(run)) {
-      // Rounded (what's sent to the engine on every edit is smaller): far finer than a sample, or a gain heard.
-      const tick = Math.round((point.tick - from) * 1e4) / 1e4;
-      const rounded = point.value.map((v) => Math.round(v * 1e6) / 1e6);
-      const n = rounded.length;
-      // Where the last run ended on the value this one starts at, there's no jump: one point does.
-      if (ticks.length && ticks[ticks.length - 1] === tick && rounded.every((v, c) => v === values[values.length - n + c])) continue;
-      ticks.push(tick);
-      values.push(...rounded);
-    }
-  }
-  return { ticks, values };
-}
-
-/** Douglas–Peucker: the points of a polyline that keep it within `LANE_TOLERANCE` of what it was. */
-function thin(run: { tick: number; value: number[] }[]): { tick: number; value: number[] }[] {
-  if (run.length <= 2) return run;
-  const keep = new Uint8Array(run.length);
-  keep[0] = keep[run.length - 1] = 1;
-  const stack: [number, number][] = [[0, run.length - 1]];
-  while (stack.length) {
-    const [i, j] = stack.pop()!;
-    let worst = -1;
-    let at = -1;
-    for (let k = i + 1; k < j; k++) {
-      const f = (run[k].tick - run[i].tick) / (run[j].tick - run[i].tick || 1);
-      let off = 0;
-      for (let c = 0; c < run[k].value.length; c++) off = Math.max(off, Math.abs(run[k].value[c] - (run[i].value[c] + (run[j].value[c] - run[i].value[c]) * f)));
-      if (off > worst) {
-        worst = off;
-        at = k;
-      }
-    }
-    if (worst > LANE_TOLERANCE) {
-      keep[at] = 1;
-      stack.push([i, at], [at, j]);
-    }
-  }
-  return run.filter((_, i) => keep[i]);
 }

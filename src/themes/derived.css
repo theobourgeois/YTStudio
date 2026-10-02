@@ -20,6 +20,9 @@
   --primary: var(--brand);
   --primary-foreground: var(--brand-foreground);
   --ring: var(--brand);
+  /* Gross Beat's time envelope is the theme's accent (its volume one stays orange). */
+  --gross-time: var(--brand);
+  --gross-time-foreground: var(--brand-foreground);
 
   --step-off-top: var(--surface-2);
   --step-off-bottom: var(--surface-0);

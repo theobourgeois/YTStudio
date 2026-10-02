@@ -6,6 +6,7 @@
 import { createId } from "../ids.ts";
 import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
+import { GROSS_BEAT_PLUGIN, GROSS_SLOTS, GROSS_SYNCS, GROSS_TICKS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE, isGrossBeat } from "./gross-beat-presets.ts";
 import {
   type Automation,
   type AutomationLfo,
@@ -15,6 +16,10 @@ import {
   type Channel,
   type CurveType,
   type Envelope,
+  type GrossBeat,
+  type GrossBeatSlot,
+  type GrossControl,
+  type GrossHold,
   type Mixer,
   type MixerEffect,
   type InputMonitor,
@@ -396,7 +401,69 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   const plugin = normalizePlugin(input.plugin);
   if (!plugin) return null;
   seen.add(input.id);
-  return { id: input.id, plugin, enabled: input.enabled !== false, mix: number(input.mix, 0, 1, 1) };
+  const effect: MixerEffect = { id: input.id, plugin, enabled: input.enabled !== false, mix: number(input.mix, 0, 1, 1) };
+  // Ours: its settings are the song's (a plugin's are its own, in a file beside it).
+  if (isGrossBeat(plugin)) return { ...effect, plugin: GROSS_BEAT_PLUGIN, grossBeat: normalizeGrossBeat(input.grossBeat) };
+  return effect;
+}
+
+/** A new Gross Beat's settings: its first slots (Empty) picked, both envelopes at full, FL's defaults. */
+export const DEFAULT_GROSS_BEAT: GrossBeat = {
+  timeSlot: 0,
+  volumeSlot: 0,
+  timeMix: 1,
+  volumeMix: 1,
+  attack: 0,
+  release: 0,
+  tension: 0,
+  time: Array.from({ length: GROSS_SLOTS }, () => null),
+  volume: Array.from({ length: GROSS_SLOTS }, () => null),
+  linkSlots: false,
+  oneShot: false,
+  hold: "last",
+  trigSync: 0.25,
+  posSync: 4,
+  clickReduction: true,
+  attackCompensation: false,
+  removeDc: false,
+  hq: false,
+};
+
+const GROSS_HOLDS: readonly GrossHold[] = ["off", "last", "next"];
+const isSync = (v: unknown): v is number => GROSS_SYNCS.includes(v as never);
+const slotIndex = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) < GROSS_SLOTS ? (v as number) : 0);
+
+/** A Gross Beat slot changed from its preset, or null (the preset). */
+function normalizeGrossSlot(raw: unknown): GrossBeatSlot | null {
+  if (!isObject(raw) || !Array.isArray(raw.points)) return null;
+  return { name: text(raw.name, "Slot"), points: normalizePoints(raw.points, GROSS_TICKS) };
+}
+
+/** Gross Beat's settings (`docs/fl-studio/gross-beat.md`): anything missing or wrong is its default. */
+export function normalizeGrossBeat(input: unknown): GrossBeat {
+  if (!isObject(input)) return DEFAULT_GROSS_BEAT;
+  const slots = (list: unknown) => Array.from({ length: GROSS_SLOTS }, (_, i) => (Array.isArray(list) ? normalizeGrossSlot(list[i]) : null));
+  const d = DEFAULT_GROSS_BEAT;
+  return {
+    timeSlot: slotIndex(input.timeSlot),
+    volumeSlot: slotIndex(input.volumeSlot),
+    timeMix: number(input.timeMix, 0, 1, d.timeMix),
+    volumeMix: number(input.volumeMix, 0, 1, d.volumeMix),
+    attack: number(input.attack, 0, MAX_GROSS_ATTACK, d.attack),
+    release: number(input.release, 0, MAX_GROSS_RELEASE, d.release),
+    tension: number(input.tension, -1, 1, d.tension),
+    time: slots(input.time),
+    volume: slots(input.volume),
+    linkSlots: input.linkSlots === true,
+    oneShot: input.oneShot === true,
+    hold: GROSS_HOLDS.includes(input.hold as GrossHold) ? (input.hold as GrossHold) : d.hold,
+    trigSync: isSync(input.trigSync) ? input.trigSync : d.trigSync,
+    posSync: isSync(input.posSync) ? input.posSync : d.posSync,
+    clickReduction: typeof input.clickReduction === "boolean" ? input.clickReduction : d.clickReduction,
+    attackCompensation: input.attackCompensation === true,
+    removeDc: input.removeDc === true,
+    hq: input.hq === true,
+  };
 }
 
 /**
@@ -493,6 +560,8 @@ const CONTROLS = {
  * An automation clip's target, if it's one. Its control may be gone (a channel deleted): it's kept, and
  * drives nothing, so undoing the deletion brings it all back.
  */
+const GROSS_CONTROLS: readonly GrossControl[] = ["timeSlot", "volumeSlot", "timeMix", "volumeMix"];
+
 export function normalizeTarget(raw: unknown): AutomationTarget | null {
   if (!isObject(raw)) return null;
   switch (raw.kind) {
@@ -504,6 +573,8 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.track) && isId(raw.to) ? { kind: "send", track: raw.track, to: raw.to } : null;
     case "effect":
       return isId(raw.effect) ? { kind: "effect", effect: raw.effect } : null;
+    case "grossBeat":
+      return isId(raw.effect) && GROSS_CONTROLS.includes(raw.control as GrossControl) ? { kind: "grossBeat", effect: raw.effect, control: raw.control as GrossControl } : null;
     case "main":
       return { kind: "main" };
     case "plugin":

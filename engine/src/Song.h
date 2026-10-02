@@ -5,6 +5,7 @@
 #pragma once
 
 #include "Delay.h"
+#include "GrossBeat.h"
 #include "Host.h"
 #include "Resampling.h"
 
@@ -135,6 +136,9 @@ struct Song
             bool enabled = true;
             /** 0..1 of the effect's sound against the dry sound. */
             float mix = 1;
+            /** A Gross Beat (ours, not a plugin: `plugin` is null): its sound, kept across songs, and this song's settings for it. */
+            std::shared_ptr<gross::State> gross;
+            std::shared_ptr<gross::Settings> grossSettings;
         };
 
         juce::String id;
@@ -165,10 +169,10 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, track, send, mix, param };
+        enum class Kind { channel, track, send, mix, gross, param };
         Kind kind = Kind::channel;
-        /** What it drives: the channel, or the track (and its send or effect), by index. */
-        int channel = -1, track = -1, index = -1;
+        /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix). */
+        int channel = -1, track = -1, index = -1, control = 0;
         int size = 1;
         std::vector<double> ticks;
         std::vector<float> values;
@@ -224,6 +228,8 @@ struct Song
     Resampling resampling = Resampling::hermite;
     /** The loop's length, and a beat's and a bar's (the metronome), in ticks. */
     double loopTicks = 384, beatTicks = 96, barTicks = 384;
+    /** Where the loop starts in the pattern or the song (the engine's ticks count from it): where the bars are. */
+    double offsetTicks = 0;
     /** Round and round (playing); or, exported, it plays once and then nothing more is started. */
     bool loops = true;
     std::vector<Channel> channels;
@@ -260,11 +266,12 @@ struct Song
 
     /**
      * From the JSON of an `EngineSong`. `instruments` hosts the plugin channels' plugins and `effects` the
-     * mixer's; `unreadable` gets the ids of channels whose sample couldn't be read. Unless `keepOnly` is
-     * false (a copy for the export), the hosts let go of the plugins the song doesn't have.
+     * mixer's, `grossBeats` keeps its Gross Beats' sounds; `unreadable` gets the ids of channels whose
+     * sample couldn't be read. Unless `keepOnly` is false (a copy for the export), the hosts let go of the
+     * plugins the song doesn't have.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, juce::StringArray& unreadable, int capacity, double sampleRate,
-                                        bool keepOnly = true);
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, juce::StringArray& unreadable,
+                                        int capacity, double sampleRate, bool keepOnly = true);
 
     /**
      * Plugin delay compensation (FL Studio's automatic PDC): every path into a track waits until the

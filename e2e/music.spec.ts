@@ -886,6 +886,8 @@ test("an effect goes in a mixer track's slot: chosen from the effect plugins, it
   await effectPicker.getByRole("button", { name: "Pin Fake Delay" }).click();
   await expect(effectPicker.getByRole("region", { name: "Pinned" }).getByRole("option")).toHaveCount(1);
   await expect(effectPicker.getByRole("textbox", { name: "Find an effect" })).toBeFocused();
+  // (The columns moved under the pointer: it's put back on the pinned one, which Enter then chooses.)
+  await effectPicker.getByRole("region", { name: "Pinned" }).getByRole("option").hover();
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await slots()).slice(0, 3)).toEqual([null, "Fake Delay", null]);
 
@@ -2016,4 +2018,153 @@ test("the assistant automates: a filter sweep on a plugin's parameter, a volume 
     ["automation", 0, 0],
     ["automation", 1, 4 * BAR_TICKS],
   ]);
+});
+
+/** The song's Gross Beat (the effect `effectId`) as saved; until it's saved, an empty one (a poll waits for it). */
+type SavedGross = { timeSlot: number; volumeSlot: number; hold: string; trigSync: number; time: ({ name: string; points: { tick: number; value: number }[] } | null)[]; volume: unknown[] };
+async function savedGross(page: Page, id: string, effectId: string): Promise<SavedGross> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.grossBeat;
+  return { timeSlot: -1, volumeSlot: -1, hold: "", trigSync: -1, time: [], volume: [] };
+}
+/** A point of the mapping panel, by its tick across the bar and its value (1 at the top), in the page's px. */
+async function panelPoint(panel: Locator, tick: number, value: number) {
+  const box = (await panel.boundingBox())!;
+  return { x: box.x + 5 + (tick * (box.width - 10)) / 384, y: box.y + 3 + (1 - value) * (box.height - 6) };
+}
+
+test("Gross Beat: chosen for a slot, its slots picked, its envelopes edited FL's way, its sync and HOLD", async ({ page }) => {
+  const id = await openNewSong(page, "Chops");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, first in the effect picker (Built in); its window opens at once.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Gross Beat/ }).click();
+  const window = page.getByTestId("gross-beat");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedGross(page, id, effectId)).timeSlot).toBe(0);
+  // Its name in the slot closes and opens its window.
+  await inspector.getByRole("button", { name: "Gross Beat: close its window" }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "Gross Beat: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // A slot is picked by a click: it plays, and the panel shows it.
+  const panel = window.getByTestId("gross-panel");
+  await window.getByRole("radio", { name: "Time slot 31: 1/2 Speed" }).click();
+  await expect.poll(async () => (await savedGross(page, id, effectId)).timeSlot).toBe(30);
+  await expect(panel).toHaveAttribute("data-slot", "30");
+  await window.getByRole("radio", { name: "Volume slot 29: Sidechain" }).click();
+  await expect(panel).toHaveAttribute("data-kind", "volume");
+  await expect.poll(async () => (await savedGross(page, id, effectId)).volumeSlot).toBe(28);
+  await window.getByRole("button", { name: "The time envelope" }).click();
+  await expect(panel).toHaveAttribute("data-kind", "time");
+
+  // Right-click adds a point (on the 1/8 grid), dragged while held; its menu pitches the segment arriving at it.
+  let at = await panelPoint(panel, 190, 0.85);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.up({ button: "right" });
+  await expect.poll(async () => (await savedGross(page, id, effectId)).time[30]?.points.map((p) => p.tick)).toEqual([0, 192, 384]);
+  const added = (await savedGross(page, id, effectId)).time[30]!.points[1];
+  // The value snapped too: a whole eighth of a beat back.
+  expect(Math.round((1 - added.value) * 8 * 8)).toBeCloseTo((1 - added.value) * 64, 6);
+  at = await panelPoint(panel, 192, added.value);
+  await page.mouse.click(at.x, at.y, { button: "right" });
+  await page.getByTestId("gross-point-menu").getByRole("menuitem", { name: "1 semitone up" }).click();
+  await expect.poll(async () => (await savedGross(page, id, effectId)).time[30]!.points[1].value).toBeGreaterThan(added.value);
+  // Alt+click deletes it; undo brings it back.
+  const pitched = (await savedGross(page, id, effectId)).time[30]!.points[1].value;
+  at = await panelPoint(panel, 192, pitched);
+  await page.keyboard.down("Alt");
+  await page.mouse.click(at.x, at.y);
+  await page.keyboard.up("Alt");
+  await expect.poll(async () => (await savedGross(page, id, effectId)).time[30]!.points).toHaveLength(2);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await savedGross(page, id, effectId)).time[30]!.points).toHaveLength(3);
+
+  // Step editing paints a step in each grid cell dragged across.
+  await window.getByRole("button", { name: /Step editing/ }).click();
+  const from = await panelPoint(panel, 290, 0.5);
+  const to = await panelPoint(panel, 330, 0.5);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await savedGross(page, id, effectId)).time[30]!.points.some((p) => p.tick === 288 && Math.abs(p.value - 0.5) < 0.07)).toBe(true);
+  await window.getByRole("button", { name: /Step editing/ }).click();
+  // Frozen, nothing changes.
+  await window.getByRole("button", { name: /Freeze/ }).click();
+  const before = (await savedGross(page, id, effectId)).time[30]!.points.length;
+  at = await panelPoint(panel, 100, 0.95);
+  await page.mouse.click(at.x, at.y, { button: "right" });
+  await page.waitForTimeout(200);
+  expect((await savedGross(page, id, effectId)).time[30]!.points).toHaveLength(before);
+  await window.getByRole("button", { name: /Freeze/ }).click();
+
+  // The slot is renamed from the bar under the panel; its menu gives it back its preset.
+  await window.getByTestId("gross-slot-name").click();
+  await window.getByRole("textbox", { name: "Slot name" }).fill("My half");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await savedGross(page, id, effectId)).time[30]?.name).toBe("My half");
+  await expect(window.getByRole("radio", { name: "Time slot 31: My half" })).toBeVisible();
+  await window.getByRole("radio", { name: "Time slot 31: My half" }).click({ button: "right" });
+  await page.getByTestId("gross-slot-menu").getByRole("menuitem", { name: "Reset to its preset" }).click();
+  await expect.poll(async () => (await savedGross(page, id, effectId)).time[30]).toBeNull();
+
+  // HOLD and TRIG SYNC from the bar.
+  await window.getByRole("button", { name: /^HOLD: Last/ }).click();
+  await page.getByRole("menuitemradio", { name: "Next" }).click();
+  await window.getByRole("button", { name: /^TRIG SYNC: 1\/4 beat/ }).click();
+  await page.getByRole("menuitemradio", { name: "1 beat", exact: true }).click();
+  await expect.poll(async () => (await savedGross(page, id, effectId))).toMatchObject({ hold: "next", trigSync: 1 });
+
+  // Playing, the slot playing is lit as the engine says; HOLD, held, goes to the engine (not the song).
+  await page.getByRole("toolbar", { name: "Transport" }).getByRole("button", { name: "Play" }).click();
+  await expect(window.getByRole("radio", { name: "Time slot 31: 1/2 Speed" })).toHaveAttribute("data-playing", "true");
+  const held = page.waitForRequest((r) => r.url().endsWith("/api/engine/grossBeat") && r.postDataJSON().hold === true);
+  const hold = window.getByRole("button", { name: "HOLD", exact: true });
+  const box = (await hold.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  expect((await held).postDataJSON()).toEqual({ effect: effectId, hold: true });
+  const released = page.waitForRequest((r) => r.url().endsWith("/api/engine/grossBeat") && r.postDataJSON().hold === false);
+  await page.mouse.up();
+  await released;
+  await page.keyboard.press("Space");
+
+  // Its slots can be automated, from a slot's menu.
+  await window.getByRole("radio", { name: "Time slot 4: 1 Beat Rpt" }).click({ button: "right" });
+  await page.getByTestId("gross-slot-menu").getByRole("menuitem", { name: /Create automation clip/ }).click();
+  await expect.poll(async () => (await savedAutomations(page, id)).map((a) => a.target)).toEqual([{ kind: "grossBeat", effect: effectId, control: "timeSlot" }]);
+});
+
+test("the assistant chops with Gross Beat: puts one on a track, draws a slot, arranges slots by automation", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted chops");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "Gross Beat"}',
+      'call set_gross_beat_slot {"track": 1, "kind": "time", "slot": 36, "name": "Stutter", "points": [{"beat": 0, "back": 0}, {"beat": 3, "back": 0}, {"beat": 3, "back": 0.25, "curve": "hold"}, {"beat": 3.5, "back": 0.75, "curve": "hold"}, {"beat": 4, "back": 0.75, "curve": "hold"}]}',
+      'call update_gross_beat {"track": 1, "volumeSlot": "Sidechain", "trigSync": 3}',
+      'call add_automation {"control": "time slot", "track": 1, "slot": 1, "bar": 1, "length": 2, "points": [{"at": 0, "value": 1}, {"at": 1, "value": 36, "curve": "hold"}]}',
+      'call get_gross_beat {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_gross_beat: ok", { timeout: 30_000 });
+  // trigSync 3 isn't one of the choices: refused, saying which are.
+  await expect(panel).toContainText("update_gross_beat: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("Gross Beat");
+  expect(effect.grossBeat.timeSlot).toBe(35);
+  expect(effect.grossBeat.time[35]).toMatchObject({ name: "Stutter" });
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "grossBeat", effect: effect.id, control: "timeSlot" });
+  expect(automation.points.map((p) => Math.round(p.value * 35) + 1)).toEqual([1, 36]);
 });

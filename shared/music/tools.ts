@@ -12,13 +12,26 @@ const pattern = str("A pattern: its id or its name. Default: the pattern shown i
 const mixerTrack = (what = "A mixer track") =>
   ({ description: `${what}: its id, its number (0 or "M" is the master, 1 the first insert), "master", or its name ("Drums", "Insert 3").`, anyOf: [{ type: "string" }, { type: "integer" }] }) as const;
 const slot = int("An effect slot of the track, 1 to 10 (as the mixer numbers them).");
+/** Which Gross Beat a tool acts on, and its slots. */
+const grossRef = {
+  effect: str("The Gross Beat: its effect id (from get_mixer or get_gross_beat). Or give `track` (and `effectSlot` if it has several). Default: the song's only one."),
+  track: mixerTrack("The mixer track it's on"),
+  effectSlot: int("Its effect slot on the track, 1 to 10."),
+} as const;
+const grossKind = oneOf(["time", "volume"], "A time slot or a volume slot.");
+const grossSlot = { description: "A slot: its number, 1 to 36, or its name (\"1/2 Speed\").", anyOf: [{ type: "string" }, { type: "integer" }] } as const;
 const playlistTrack = int("A playlist track's number, 1 for the first (as the Playlist numbers them).");
 const clipIds = arr(int("A clip's id"), "Clips, by their ids from get_playlist.");
 
 const automationRef = str("An automation clip: its id or its name (from get_automation).");
 /** What names a control to automate (`add_automation`, `list_controls`). */
 const controlFields = {
-  control: oneOf(["volume", "pan", "stereo", "send", "mix", "main volume", "parameter"], "Which control: a channel's or mixer track's volume or pan, a track's stereo separation, a send's level, an effect slot's mix, the main volume, or a plugin's own parameter."),
+  control: oneOf(
+    ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix"],
+    "Which control: a channel's or mixer track's volume or pan, a track's stereo separation, a send's level, an effect slot's mix, the main volume, " +
+      "a plugin's own parameter, or a Gross Beat's (the effect in `track`'s `slot`): its time slot or volume slot playing (values 1 to 36: " +
+      "use hold curves, so each bar plays a slot: that's how chops are arranged), or its time or volume knob.",
+  ),
   channel: str("A channel (volume, pan), or a plugin channel (its parameters): id or name."),
   track: mixerTrack("A mixer track (its volume, pan, stereo separation; a send from it; an effect in it)"),
   to: mixerTrack("The track a send goes to"),
@@ -471,10 +484,12 @@ export const MUSIC_TOOLS = [
     title: "Add an effect",
     kind: "action",
     description:
-      "Put an effect plugin installed on this computer (list_plugins with kind \"effect\") in a mixer track's slot: the first empty one, or the " +
-      "slot given (replacing what's there). Its sound goes through the track's effects in slot order, before its fader. Its settings are the " +
-      "plugin's own, in its window, which the user opens from the mixer: you can't set them.",
-    inputSchema: obj({ track: mixerTrack(), plugin: str("The effect plugin: its name or its id, from list_plugins."), slot }, ["track", "plugin"]),
+      "Put an effect in a mixer track's slot: the first empty one, or the slot given (replacing what's there). Its sound goes through the track's " +
+      "effects in slot order, before its fader. Either Gross Beat, ours (plugin \"Gross Beat\": chops, repeats, stutters, half speed, tape " +
+      "stops, scratches, gates and sidechain pumping in time with the song, which you set with update_gross_beat and set_gross_beat_slot), or " +
+      "an effect plugin installed on this computer (list_plugins with kind \"effect\"), whose settings are its own, in its window, which the " +
+      "user opens from the mixer: you can't set them.",
+    inputSchema: obj({ track: mixerTrack(), plugin: str('"Gross Beat", or an effect plugin: its name or its id, from list_plugins.'), slot }, ["track", "plugin"]),
   }),
   tool({
     name: "update_mixer_effect",
@@ -507,6 +522,87 @@ export const MUSIC_TOOLS = [
       "Copy a mixer track's state onto another track: its effects (copies, with their plugins' settings as they are now) and its level, pan, " +
       "phase, sides, stereo separation and delay offset; not its name, colour, channels or sends. What the other track had is replaced.",
     inputSchema: obj({ from: mixerTrack("The track copied"), to: mixerTrack("The track it's copied onto") }, ["from", "to"]),
+  }),
+  tool({
+    name: "get_gross_beat",
+    title: "Read a Gross Beat",
+    kind: "look",
+    description:
+      "A Gross Beat (FL Studio's time and volume effect, in a mixer track's slot): what it plays, its knobs and options, its 36 time and 36 " +
+      "volume slots by name, and slots' envelopes (the two playing, or those asked for). A slot is a bar (4 beats) that repeats while it plays. " +
+      "A time envelope says how many beats back the sound is read from (0 is now, 8 the most): flat is normal speed, down 1 beat per beat is " +
+      "paused, down 2 per beat is backwards at normal speed, a step down is a jump back (a repeat), up is faster. A volume envelope is a level.",
+    inputSchema: obj({
+      ...grossRef,
+      slots: arr(obj({ kind: grossKind, slot: grossSlot }, ["kind", "slot"]), "Slots whose envelopes to read (default: the two playing)."),
+    }),
+  }),
+  tool({
+    name: "update_gross_beat",
+    title: "Change a Gross Beat",
+    kind: "edit",
+    description:
+      "Pick which time and volume slots a Gross Beat plays (from its next TRIG SYNC point, while the song plays), turn its knobs and set its " +
+      "options. To change slots over the song (a chop arrangement), automate them: add_automation with control \"time slot\" or \"volume slot\".",
+    inputSchema: obj({
+      ...grossRef,
+      timeSlot: grossSlot,
+      volumeSlot: grossSlot,
+      time: num("0 to 1: how much of the time envelope is used (the Time knob; 0.5 reaches half as far back)."),
+      volume: num("0 to 1: how much of the volume envelope is used (the Volume knob)."),
+      attack: num("Milliseconds, 0 to 500: the volume's rises smoothed (ATT)."),
+      release: num("Milliseconds, 0 to 1000: the volume's falls smoothed (REL)."),
+      tension: num("-1 to 1: how that smoothing bends (TNS)."),
+      linkSlots: bool("Picking a time slot picks the volume slot of the same number, and back."),
+      oneShot: bool("A slot plays once (a bar), then slot 1."),
+      hold: oneOf(["off", "last", "next"], "What the HOLD button repeats while the user holds it: nothing, the bar just played, or the next bar."),
+      trigSync: num("Beats: a slot picked while playing starts on the next multiple of it: 0 (at once), 0.25, 0.5, 1, 2 or 4."),
+      posSync: num("Beats: where in its envelope a slot starts is where the song is inside this length: 0 (its start), 0.25, 0.5, 1, 2 or 4 (in line with the bars)."),
+      clickReduction: bool("A jump fades across 3 ms (on by default)."),
+      attackCompensation: bool("What a jump lands on is read the attack time earlier, so its start isn't lost under the attack's smoothing."),
+      removeDc: bool("A 10 Hz high-pass, for after a pause."),
+      hq: bool("Sinc resampling: cleaner pitch changes, more CPU."),
+    }),
+  }),
+  tool({
+    name: "set_gross_beat_slot",
+    title: "Draw a Gross Beat slot",
+    kind: "edit",
+    description:
+      "Draw a Gross Beat slot's envelope (a custom chop, stutter, gate...), name it, clear it (empty: a time slot at now, a volume slot at full), " +
+      "or give it back its preset (`reset`). It's picked so it plays, unless `pick` is false. Points are in order of `beat` (0 to 4, across " +
+      "the bar; the first is at 0): for a time slot `back` (beats back the sound is read from, 0 to 8), for a volume slot `level` (0 to 1). " +
+      "A point's `curve` is how the line gets there from the point before: single (straight, or bent by tension), hold (stays at the last " +
+      "value, then jumps here: steps, repeats, gates), double, altSingle, altDouble, stairs, smoothStairs, pulse, wave, halfSine (a tape stop). " +
+      "Two points on one beat are a jump. Examples: repeat the first beat all bar: time points { beat 0, back 0 } { beat 1, back 1, hold } " +
+      "{ beat 2, back 2, hold } { beat 3, back 3, hold } { beat 4, back 3, hold }; half speed: { beat 0, back 0 } { beat 4, back 2 }; an " +
+      "eighth-note gate: volume steps of hold between level 1 and 0 every half beat.",
+    inputSchema: obj(
+      {
+        ...grossRef,
+        kind: grossKind,
+        slot: grossSlot,
+        points: arr(
+          obj(
+            {
+              beat: num("0 to 4: where in the bar."),
+              back: num("A time slot's: how many beats back the sound is read from there, 0 (now) to 8."),
+              level: num("A volume slot's: its level there, 0 (silent) to 1 (full)."),
+              curve: oneOf(CURVE_TYPES, "How the line gets here from the point before (default single)."),
+              tension: num("-1 to 1: how the segment bends; for stairs, pulse and wave how many steps or cycles. 0 is straight."),
+            },
+            ["beat"],
+            "A point of the envelope.",
+          ),
+          "The envelope's points, replacing the slot's.",
+        ),
+        name: str("The slot's new name."),
+        clear: bool("Empty it first."),
+        reset: bool("Give it back its preset (its points and name as Gross Beat comes)."),
+        pick: bool("Pick it so it plays (default true)."),
+      },
+      ["kind", "slot"],
+    ),
   }),
   tool({
     name: "list_samples",

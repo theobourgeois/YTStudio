@@ -11,7 +11,7 @@ import { usePlaylist } from "./playlist/store";
 import { armedIn, useRecording } from "./recording";
 import { useInputs } from "./inputs";
 import { useMusic } from "./store";
-import { NO_CHANNELS, NO_EFFECTS, NO_METERS, afterSongSent, useTransport } from "./transport";
+import { NO_CHANNELS, NO_EFFECTS, NO_GROSS_BEATS, NO_METERS, afterSongSent, useTransport } from "./transport";
 import { currentTrackId, useMusicUi } from "./ui";
 import { automateParameter } from "./automation/actions";
 import { useAutomationUi } from "./automation/store";
@@ -124,6 +124,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         meters: event.meters ?? NO_METERS,
         cpu: event.cpu,
         filePreview: event.preview ?? null,
+        grossBeats: event.grossBeats ?? NO_GROSS_BEATS,
       });
     } else if (event.event === "take") {
       useRecording.getState().take(event);

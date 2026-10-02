@@ -9,6 +9,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { clamp, isFiniteNumber } from "../../shared/math.ts";
 import { type PlayMode, compileSong, levelGain } from "../../shared/music/compile.ts";
+import { GROSS_DEPTH } from "../../shared/music/gross-beat-presets.ts";
 import {
   ENGINE_SLOTS,
   type EngineCommand,
@@ -488,6 +489,14 @@ export class AudioEngine {
       case "effectEditor": {
         if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be an effect\'s id.');
         return { effect: body.effect, open: body.open === true };
+      }
+      case "grossBeat": {
+        if (typeof body.effect !== "string" || !body.effect) throw new HttpError(400, '"effect" must be a Gross Beat\'s effect id.');
+        return {
+          effect: body.effect,
+          ...(typeof body.hold === "boolean" && { hold: body.hold }),
+          ...(isFiniteNumber(body.scratch) && { scratch: clamp(body.scratch, -GROSS_DEPTH, 0) }),
+        };
       }
       case "trigger": {
         if (typeof body.channel !== "string" || !body.channel) throw new HttpError(400, '"channel" must be a channel\'s id.');

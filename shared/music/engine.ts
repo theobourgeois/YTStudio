@@ -117,6 +117,23 @@ export interface EngineTransport {
   countIn?: number;
   /** The Browser's preview playing, if one is (absent from engines that don't say). */
   preview?: EnginePreview | null;
+  /** Each Gross Beat in the song (by effect id): what it's playing (absent from engines that don't say). */
+  grossBeats?: Record<string, EngineGrossState>;
+}
+
+/**
+ * What a Gross Beat is playing: its time and volume slots (0..35), the slot each kind will switch to at
+ * its next sync point (null: none waiting), and where each envelope is, in ticks into its bar (0..384,
+ * as computed: heard `outputLatencyMs` later). Its HOLD is on while `holding`.
+ */
+export interface EngineGrossState {
+  time: number;
+  volume: number;
+  queuedTime: number | null;
+  queuedVolume: number | null;
+  timeTick: number;
+  volumeTick: number;
+  holding: boolean;
 }
 
 /** A file the Browser is previewing (`POST /api/browser/preview`), as far as the engine has played it. */
@@ -420,6 +437,12 @@ export interface EngineCommands {
   channelEditor: { channel: string; open: boolean };
   /** Show or close the window of an effect in the mixer (by `MixerEffect.id`). */
   effectEditor: { effect: string; open: boolean };
+  /**
+   * A Gross Beat's live controls, held by the hand (not the song's): HOLD (`hold`: the bar repeat, while
+   * it's true) and the scratching clock (`scratch`: an offset in beats, 0 down to -8, added to the time
+   * envelope's; 0 lets go).
+   */
+  grossBeat: { effect: string; hold?: boolean; scratch?: number };
   /**
    * The tracks the mixer's selection meter adds up (the selected ones, by id): their sound after their
    * faders, together, is measured as the meter "@selection" (`EngineMeters`).
