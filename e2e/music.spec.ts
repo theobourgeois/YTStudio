@@ -2168,3 +2168,145 @@ test("the assistant chops with Gross Beat: puts one on a track, draws a slot, ar
   expect(automation.target).toEqual({ kind: "grossBeat", effect: effect.id, control: "timeSlot" });
   expect(automation.points.map((p) => Math.round(p.value * 35) + 1)).toEqual([1, 36]);
 });
+
+/** The song's EchoBoy (the effect `effectId`) as saved; until it's saved, null (a poll waits for it). */
+async function savedEcho(page: Page, id: string, effectId: string) {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.echoBoy;
+  return null;
+}
+
+test("EchoBoy: chosen for a slot, its knobs, times, modes and styles set as Soundtoys' are, Tweak and the Style Editor, Rhythm Echo's taps", async ({ page }) => {
+  const id = await openNewSong(page, "Echoes");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, in the effect picker's Built in; its window opens at once.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /EchoBoy/ }).click();
+  const window = page.getByTestId("echo-boy");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedEcho(page, id, effectId))?.style).toBe("Studio Tape");
+  // Its name in the slot closes and opens its window.
+  await inspector.getByRole("button", { name: "EchoBoy: close its window" }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "EchoBoy: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  // Single Echo: an eighth note; Dot makes it dotted; Time goes to ms and the LCD takes a typed time.
+  const echoTime = window.getByTestId("echo-time-echo1");
+  await expect(window.getByTestId("echo-lcd-echo1")).toContainText("1/8");
+  await echoTime.getByRole("button", { name: "Dot", exact: true }).click();
+  await expect(window.getByTestId("echo-lcd-echo1")).toContainText("1/8 dot");
+  await echoTime.getByRole("button", { name: "Time", exact: true }).click();
+  await echoTime.getByRole("button", { name: "Echo Time: up" }).click();
+  await expect.poll(async () => (await savedEcho(page, id, effectId))?.echo1).toEqual({ sync: "time", ms: 251, note: 8 });
+  await window.getByTestId("echo-lcd-echo1").getByRole("spinbutton").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Type in value…" }).click();
+  await page.getByRole("textbox", { name: "Echo Time: type a value" }).fill("126.2");
+  await page.keyboard.press("Enter");
+  await expect(window.getByTestId("echo-lcd-echo1")).toContainText("126.2 ms");
+
+  // A knob dragged up: Feedback.
+  const feedback = window.getByRole("slider", { name: "Feedback" });
+  const before = (await savedEcho(page, id, effectId))!.feedback;
+  await drag(page, feedback, feedback, { dy: -40 });
+  await expect.poll(async () => (await savedEcho(page, id, effectId))!.feedback).toBeGreaterThan(before);
+
+  // The Mode dial: Dual Echo shows Echo 1 and Echo 2; Tweak opens its drawer with FB Mix.
+  await window.getByRole("radio", { name: "Dual Echo" }).click();
+  await expect(window).toHaveAttribute("data-mode", "dual");
+  await expect(window.getByTestId("echo-time-echo2")).toBeVisible();
+  await window.getByRole("button", { name: "Tweak" }).click();
+  await expect(window.getByTestId("echo-tweak")).toContainText("FB Mix");
+  await window.getByRole("button", { name: "Tweak" }).click();
+  await expect(window.getByTestId("echo-tweak")).toHaveCount(0);
+
+  // A style from its menu; the Style Editor's knobs make it Custom.
+  await window.getByTestId("echo-style").click();
+  await page.getByRole("menuitemradio", { name: /Space Echo/ }).click();
+  await expect(window.getByTestId("echo-style")).toContainText("Space Echo");
+  await window.getByRole("button", { name: "Style Edit" }).click();
+  const editor = window.getByTestId("echo-style-editor");
+  await expect(editor).toBeVisible();
+  const decay = editor.getByRole("slider", { name: "Decay", exact: true }).last();
+  await drag(page, decay, decay, { dy: -20 });
+  await expect(window.getByTestId("echo-style")).toContainText("Custom");
+  await expect.poll(async () => (await savedEcho(page, id, effectId))?.custom?.high.decay).toBeGreaterThan(-16);
+
+  // A preset from the bar: everything as it makes it.
+  await window.getByTestId("echo-preset").click();
+  await page.getByRole("menuitem", { name: "Classic" }).click();
+  await page.getByRole("menuitem", { name: "AnaLogged" }).click();
+  await expect(window.getByTestId("echo-preset")).toContainText("AnaLogged");
+  await expect(window.getByTestId("echo-style")).toContainText("DM-2");
+  await expect.poll(async () => (await savedEcho(page, id, effectId))?.primeNumbers).toBe(true);
+
+  // Tap Tempo: two taps half a second apart, EchoBoy on 120 BPM of its own (MIDI off).
+  await window.getByTestId("echo-tap").click();
+  await page.waitForTimeout(500);
+  await window.getByTestId("echo-tap").click();
+  await expect.poll(async () => (await savedEcho(page, id, effectId))?.followTempo).toBe(false);
+  await expect(window.getByRole("switch", { name: "MIDI" })).toHaveAttribute("aria-checked", "false");
+
+  // Rhythm Echo: the editor's grid; a click adds a tap on the grid, ⌥-click deletes it.
+  await window.getByRole("radio", { name: "Rhythm Echo" }).click();
+  const grid = window.getByTestId("echo-rhythm-grid");
+  await expect(grid).toBeVisible();
+  const taps = async () => (await savedEcho(page, id, effectId))!.rhythm.taps.map((t: { beat: number }) => t.beat);
+  const box = (await grid.boundingBox())!;
+  await expect.poll(taps).toEqual([0, 0.5, 1, 1.5]);
+  await page.mouse.click(box.x + box.width * (1.25 / 2), box.y + box.height * 0.3);
+  await expect.poll(taps).toEqual([0, 0.5, 1, 1.25, 1.5]);
+  await expect(window.getByTestId("echo-pattern-name")).toContainText("Custom");
+  await page.keyboard.down("Alt");
+  await page.mouse.click(box.x + box.width * (1.25 / 2), box.y + box.height * 0.5);
+  await page.keyboard.up("Alt");
+  await expect.poll(taps).toEqual([0, 0.5, 1, 1.5]);
+  // Patt: a factory pattern.
+  await window.getByTestId("echo-patt").click();
+  await page.getByRole("menuitem", { name: "Presets" }).click();
+  await page.getByRole("menuitem", { name: "Gallop" }).click();
+  await expect(window.getByTestId("echo-pattern-name")).toContainText("Gallop");
+
+  // Undo takes back the pattern; deleting the effect closes its window.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(window.getByTestId("echo-pattern-name")).toContainText("Custom");
+  // (Its window moved down by its title, off the mixer's slots.)
+  const title = page.getByText("EchoBoy (Master)", { exact: true });
+  const slotButton = inspector.getByRole("button", { name: "Slot 1 menu" });
+  const lift = (await slotButton.boundingBox())!.y + 40 - (await title.boundingBox())!.y;
+  await drag(page, title, title, { dy: lift });
+  await slotButton.click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await expect(window).toHaveCount(0);
+});
+
+test("the assistant sets up EchoBoy: puts one on a track, loads a preset, sets its rhythm and style, automates it", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted echoes");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "EchoBoy"}',
+      'call update_echo_boy {"track": 1, "preset": "Space Echo Dub", "echo1": "1/4 dot", "styleEdit": {"wobble": {"depth": 9}}}',
+      'call update_echo_boy {"track": 1, "mode": "rhythm", "rhythm": {"pattern": "Clave"}}',
+      'call update_echo_boy {"track": 1, "style": "Nope"}',
+      'call add_automation {"control": "echo feedback", "track": 1, "slot": 1, "bar": 1, "length": 2, "points": [{"at": 0, "value": 0.2}, {"at": 2, "value": 0.9}]}',
+      'call get_echo_boy {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_echo_boy: ok", { timeout: 30_000 });
+  // A style that isn't one is refused, saying which are.
+  await expect(panel).toContainText("update_echo_boy: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("EchoBoy");
+  expect(effect.echoBoy).toMatchObject({ mode: "rhythm", echo1: { sync: "dot", note: 4 }, custom: { wobble: { depth: 9 } }, rhythm: { pattern: "Clave" } });
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "echoBoy", effect: effect.id, control: "feedback" });
+  expect(automation.points.map((p) => Math.round(p.value * 10) / 10)).toEqual([0.2, 0.9]);
+});
