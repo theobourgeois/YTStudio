@@ -4,6 +4,7 @@
  * applied to the open song as one undo step, or to a song that isn't open by loading and saving it.
  */
 import { createId } from "@shared/ids";
+import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import { EXPORT_FORMATS, type ExportFormat, type ExportSettings } from "@shared/music/export";
@@ -62,6 +63,7 @@ import { describeBrowser, describeFolder, describeSearch, loadSampleEdit, sample
 import { addAutomationEdit, describeAutomations, resolveControl, updateAutomationTool } from "./automation/tool-edits";
 import { matches, pluginOwners, songControls } from "./automation/controls";
 import { usePlaylist } from "./playlist/store";
+import { describeGrossBeat, setGrossBeatSlotTool, updateGrossBeatTool } from "./gross-beat/tool-edits";
 import { useBrowser } from "./browser/store";
 import {
   addMixerTrackTool,
@@ -300,6 +302,16 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     const track = findTrack(target.song, input.track);
     const slot = slotForEffect(target.song, track, input);
     const wanted = String(input.plugin ?? "").trim().toLowerCase();
+    // Ours first: Gross Beat isn't a plugin, and its settings are the song's (the tools set them).
+    if (wanted === GROSS_BEAT_PLUGIN.name.toLowerCase() || wanted === GROSS_BEAT_PLUGIN.id || wanted === "grossbeat") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, GROSS_BEAT_PLUGIN, id));
+      return textResult(
+        `Put Gross Beat (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}. ` +
+          "It plays its Empty slots (the sound as it is) until you pick others: get_gross_beat lists them, update_gross_beat picks them, set_gross_beat_slot draws your own.",
+      );
+    }
     const effects = (await musicApi.listEnginePlugins()).filter((p) => !p.isInstrument);
     const plugin = effects.find((p) => p.id.toLowerCase() === wanted) ?? effects.find((p) => p.name.toLowerCase() === wanted);
     if (!plugin) throw new Error(`There's no effect plugin "${String(input.plugin)}" on this computer. The ones found: ${effects.map((p) => p.name).join(", ") || "none"}.`);
@@ -310,6 +322,11 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     );
   },
   update_mixer_effect: edit(updateMixerEffectTool),
+  async get_gross_beat(input, ctx) {
+    return textResult(describeGrossBeat((await targetOf(ctx)).song, input));
+  },
+  update_gross_beat: edit((song, input) => updateGrossBeatTool(song, input)),
+  set_gross_beat_slot: edit((song, input) => setGrossBeatSlotTool(song, input)),
   remove_mixer_effect: edit(removeMixerEffectTool),
   async copy_track_state(input, ctx) {
     const target = await targetOf(ctx);

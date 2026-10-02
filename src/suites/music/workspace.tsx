@@ -36,6 +36,8 @@ import { useMixerView } from "./mixer/view";
 import { type WindowId, useMusicUi, useMusicWindows } from "./ui";
 import { MusicDesktop } from "./window";
 import { AutomationWindow } from "./automation/automation-window";
+import { GrossBeatWindow } from "./gross-beat/gross-beat-window";
+import { useGrossUi } from "./gross-beat/store";
 import { AutomationChooser } from "./automation/chooser";
 import { useAutomationUi } from "./automation/store";
 
@@ -81,6 +83,7 @@ function Windows() {
   const automations = useSong((song) => song.automations);
   const openAutomations = useAutomationUi((s) => s.openIds);
   const chooserOpen = useAutomationUi((s) => s.chooserOpen);
+  const openGrossBeats = useGrossUi((s) => s.openIds);
   return (
     <MusicDesktop
       // Samples dropped on the desktop itself (not on a window) become channels, as in FL Studio.
@@ -104,6 +107,9 @@ function Windows() {
       {channels.map((channel, index) => (openIds.includes(channel.id) && channel.kind !== "plugin" ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
       {automations.map((automation, index) => (openAutomations.includes(automation.id) ? <AutomationWindow key={automation.id} automation={automation} index={index} /> : null))}
       {chooserOpen && <AutomationChooser />}
+      {openGrossBeats.map((effectId, index) => (
+        <GrossBeatWindow key={effectId} effectId={effectId} index={index} />
+      ))}
     </MusicDesktop>
   );
 }
@@ -122,6 +128,7 @@ function frontWindow(): WindowId | null {
     : id === "chopper" ? usePiano.getState().chopping
     : id === "automate" ? useAutomationUi.getState().chooserOpen
     : id.startsWith("automation:") ? useAutomationUi.getState().openIds.includes(id.slice("automation:".length))
+    : id.startsWith("gross:") ? useGrossUi.getState().openIds.includes(id.slice("gross:".length))
     : ui.openChannelIds.includes(id.slice("channel:".length));
   return [...useMusicWindows.getState().order].reverse().find(open) ?? null;
 }

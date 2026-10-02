@@ -41,7 +41,10 @@ export function findAutomation(song: MusicProject, ref: unknown): Automation {
   return found;
 }
 
-export const CONTROLS = ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter"] as const;
+export const CONTROLS = ["volume", "pan", "stereo", "send", "mix", "main volume", "parameter", "time slot", "volume slot", "time mix", "volume mix"] as const;
+
+/** A Gross Beat's controls, as the tool names them. */
+const GROSS_CONTROLS = { "time slot": "timeSlot", "volume slot": "volumeSlot", "time mix": "timeMix", "volume mix": "volumeMix" } as const;
 
 /** A mixer effect's slot, 1 to 10, on a track: the effect there, or an error saying which slots hold one. */
 function effectAt(song: MusicProject, input: Input) {
@@ -83,6 +86,14 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       return { kind: "effect", effect: effectAt(song, input).effect.id };
     case "main volume":
       return { kind: "main" };
+    case "time slot":
+    case "volume slot":
+    case "time mix":
+    case "volume mix": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.grossBeat) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not a Gross Beat: a "${control}" is Gross Beat's.`);
+      return { kind: "grossBeat", effect: effect.id, control: GROSS_CONTROLS[control] };
+    }
     case "parameter": {
       if (typeof input.parameter !== "string" || !input.parameter.trim()) throw new Error('"parameter" must be the plugin parameter\'s name or id, from list_controls.');
       if (input.channel !== undefined && input.channel !== "") {
@@ -109,9 +120,11 @@ function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, le
     if (!isFiniteNumber(p.value)) throw new Error(`Point ${i + 1}: "value" must be a number (${valueHint(target)}).`);
     if (p.curve !== undefined && !CURVE_TYPES.includes(p.curve as CurveType)) throw new Error(`Point ${i + 1}: "curve" must be one of: ${CURVE_TYPES.join(", ")}.`);
     if (p.tension !== undefined && (!isFiniteNumber(p.tension) || Math.abs(p.tension) > 1)) throw new Error(`Point ${i + 1}: "tension" must be -1 to 1.`);
-    // The control's value as a fraction of its range, then of the clip's (its Min / Max).
+    // The control's value as a fraction of its range, then of the clip's (its Min / Max). A Gross Beat's
+    // slots are numbered from 1 for the model, from 0 inside.
+    const slots = target.kind === "grossBeat" && (target.control === "timeSlot" || target.control === "volumeSlot");
     const span = range.max - range.min;
-    const fraction = span === 0 ? 0 : (info.fromControl(p.value) - range.min) / span;
+    const fraction = span === 0 ? 0 : (info.fromControl(slots ? p.value - 1 : p.value) - range.min) / span;
     return { tick: Math.round(p.at * barTicks), value: Math.min(1, Math.max(0, fraction)), tension: (p.tension as number | undefined) ?? 0, curve: (p.curve as CurveType | undefined) ?? "single" };
   });
   if (points.some((p) => p.tick > length)) throw new Error(`A point is past the clip's end (${round(length / barTicks)} bars): give a longer "length".`);
@@ -121,6 +134,8 @@ function pointsOf(raw: unknown, target: AutomationTarget, song: MusicProject, le
 const valueHint = (target: AutomationTarget) =>
   target.kind === "plugin"
     ? "0 to 1 of the parameter's range"
+    : target.kind === "grossBeat" && target.control.endsWith("Slot")
+      ? "a slot, 1 to 36"
     : target.kind === "channel" && target.control === "pan"
       ? "a pan, -1 left to 1 right"
       : target.kind === "mixer" && target.control !== "volume"

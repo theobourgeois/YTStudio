@@ -86,6 +86,10 @@
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
   --color-playhead: var(--playhead);
+  --color-gross-time: var(--gross-time);
+  --color-gross-time-foreground: var(--gross-time-foreground);
+  --color-gross-volume: var(--gross-volume);
+  --color-gross-volume-foreground: var(--gross-volume-foreground);
   --color-clip-video: var(--clip-video);
   --color-clip-audio: var(--clip-audio);
   --color-clip-graphic: var(--clip-graphic);

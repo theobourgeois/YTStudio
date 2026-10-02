@@ -49,7 +49,12 @@ export function songControls(song: MusicProject): ControlGroup[] {
     if (!master && !used.has(track.id) && track.name === null) continue;
     for (const control of ["volume", "pan", "stereo"] as const) mixer.push(row({ kind: "mixer", track: track.id, control }));
     for (const send of track.sends) if (send.to !== song.mixer.tracks[0].id || track.sends.length > 1) mixer.push(row({ kind: "send", track: track.id, to: send.to }));
-    for (const effect of track.effects) if (effect) mixer.push(row({ kind: "effect", effect: effect.id }));
+    for (const effect of track.effects) {
+      if (!effect) continue;
+      mixer.push(row({ kind: "effect", effect: effect.id }));
+      // Gross Beat's own: the slots playing and its two knobs.
+      if (effect.grossBeat) for (const control of ["timeSlot", "volumeSlot", "timeMix", "volumeMix"] as const) mixer.push(row({ kind: "grossBeat", effect: effect.id, control }));
+    }
   }
   groups.push({ title: "Mixer", rows: mixer });
   return groups;
@@ -61,7 +66,8 @@ export function pluginOwners(song: MusicProject): PluginOwner[] {
     c.kind === "plugin" && c.plugin ? [{ owner: "channel" as const, id: c.id, name: c.plugin.name === c.name ? c.name : `${c.plugin.name} (${c.name})` }] : [],
   );
   for (const track of song.mixer.tracks)
-    for (const effect of track.effects) if (effect) owners.push({ owner: "effect", id: effect.id, name: `${effect.plugin.name} (${mixerTrackName(song, track.id)})` });
+    // (Gross Beat is ours: its controls are among the song's, not a plugin's parameters.)
+    for (const effect of track.effects) if (effect && !effect.grossBeat) owners.push({ owner: "effect", id: effect.id, name: `${effect.plugin.name} (${mixerTrackName(song, track.id)})` });
   return owners;
 }
 
