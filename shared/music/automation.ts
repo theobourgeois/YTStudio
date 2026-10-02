@@ -9,6 +9,7 @@
  */
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
+import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
 import { GROSS_SLOTS, GROSS_TIME_PRESETS, GROSS_VOLUME_PRESETS } from "./gross-beat-presets.ts";
 import { type ClipContext, addClips, clipContext, clipEnd, lastUsedTrack, trackAt } from "./playlist.ts";
 import { DEFAULT_LFO, MAX_AUTOMATIONS, MAX_AUTOMATION_POINTS, MAX_NAME, MAX_PATTERN_TICKS, MAX_PLAYLIST_TRACKS, normalizeLfo } from "./project.ts";
@@ -187,6 +188,8 @@ export function targetKey(target: AutomationTarget): string {
       return `effect:${target.effect}`;
     case "grossBeat":
       return `gross:${target.effect}:${target.control}`;
+    case "autoTune":
+      return `tune:${target.effect}:${target.control}`;
     case "main":
       return "main";
     case "plugin":
@@ -300,6 +303,26 @@ export function controlOf(song: MusicProject, target: AutomationTarget): Control
           const name = gb?.[kind][n]?.name ?? (kind === "time" ? GROSS_TIME_PRESETS : GROSS_VOLUME_PRESETS)[n].name;
           return `${n + 1}: ${name}`;
         },
+      };
+    }
+    case "autoTune": {
+      const found = findEffect(song, target.effect);
+      const at = found?.effect?.autoTune;
+      const owner = found && at ? `${found.effect!.plugin.name} (${mixerTrackName(song, found.track.id)})` : "A deleted Auto-Tune";
+      const info = AUTO_TUNE_CONTROL_INFO[target.control];
+      const span = info.max - info.min;
+      const toControl = (v: number) => {
+        const x = info.min + clamp(v, 0, 1) * span;
+        return info.whole ? Math.round(x) : x;
+      };
+      return {
+        name: info.name,
+        owner,
+        exists: !!at,
+        own: at ? clamp((at[target.control] - info.min) / span, 0, 1) : null,
+        toControl,
+        fromControl: (x) => clamp((x - info.min) / span, 0, 1),
+        format: (v) => info.format(toControl(v)),
       };
     }
     case "main":

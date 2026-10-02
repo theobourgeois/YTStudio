@@ -8,10 +8,11 @@
 import { automationIndex, clipAtTick, controlBreaks, controlOf, placedValue, targetKey } from "./automation.ts";
 import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
 import { LANE_FINEST, sampleLane } from "./sampling.ts";
+import { type EngineAutoTune, engineAutoTune, engineControlValue } from "./auto-tune.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
-import { type AutomationTarget, type Channel, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -64,6 +65,8 @@ export interface EngineEffect {
   mix: number;
   /** A Gross Beat (ours, run by the engine itself: its `plugin.id` is `GROSS_BEAT_PLUGIN`'s): its settings and envelopes. */
   grossBeat?: EngineGrossBeat;
+  /** An Auto-Tune (ours too, `AUTO_TUNE_PLUGIN`): its settings in the engine's units. */
+  autoTune?: EngineAutoTune;
 }
 
 /**
@@ -137,7 +140,7 @@ export interface EngineAudioClip {
 /**
  * What an automation lane drives in the engine, in the engine's own units: a channel's two gains, a mixer
  * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, a Gross Beat's slot (its
- * number, 0..35) or mix (0..1), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
+ * number, 0..35) or mix (0..1), an Auto-Tune's control (`engineControlValue`), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
  * before any clip of it).
  */
 export type EngineLaneTarget =
@@ -146,6 +149,7 @@ export type EngineLaneTarget =
   | { kind: "send"; track: number; send: number }
   | { kind: "mix"; track: number; effect: number }
   | { kind: "gross"; track: number; effect: number; control: GrossControl }
+  | { kind: "tune"; track: number; effect: number; control: AutoTuneControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
 /**
@@ -351,6 +355,7 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         if (!e) return [];
         const effect: EngineEffect = { id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix };
         const slots = gross.get(e.id);
+        if (e.autoTune) return [{ ...effect, autoTune: engineAutoTune(e.autoTune) }];
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
       gains: trackGains(track, main),
@@ -647,6 +652,13 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
         add({ kind: "gross", track: t, effect: effectIndex, control: "timeSlot" }, [timeDriver.key], (tick) => [timeDriver.value(tick)]);
         add({ kind: "gross", track: t, effect: effectIndex, control: "volumeSlot" }, [volumeDriver.key], (tick) => [volumeDriver.value(tick)]);
       }
+      const at = effect.autoTune;
+      if (at)
+        for (const control of AUTO_TUNE_CONTROLS) {
+          const target: AutomationTarget = { kind: "autoTune", effect: effect.id, control };
+          const value = valueOf(target, at[control]);
+          add({ kind: "tune", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineControlValue(control, value(tick))]);
+        }
       effectIndex++;
     }
   }
