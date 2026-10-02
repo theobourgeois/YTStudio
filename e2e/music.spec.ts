@@ -2168,3 +2168,136 @@ test("the assistant chops with Gross Beat: puts one on a track, draws a slot, ar
   expect(automation.target).toEqual({ kind: "grossBeat", effect: effect.id, control: "timeSlot" });
   expect(automation.points.map((p) => Math.round(p.value * 35) + 1)).toEqual([1, 36]);
 });
+
+/** The song's Pro-Q (the effect `effectId`) as saved; until it's saved, none (a poll waits for it). */
+type SavedBand = { id: number; shape: string; frequency: number; gain: number; q: number; range: number; slope: number | string; enabled: boolean };
+type SavedProQ = { bands: SavedBand[]; mode: string; output: number };
+async function savedProQ(page: Page, id: string, effectId: string): Promise<SavedProQ | null> {
+  const song = await savedSong(page, id);
+  for (const track of song.mixer.tracks) for (const effect of track.effects) if (effect?.id === effectId) return effect.proQ;
+  return null;
+}
+const bandsOf = async (page: Page, id: string, effectId: string) => (await savedProQ(page, id, effectId))?.bands ?? [];
+
+test("Pro-Q: chosen for a slot, bands made where they're double-clicked, dragged, made dynamic, reshaped, inverted, deleted; its mode; undone", async ({ page }) => {
+  const id = await openNewSong(page, "EQ");
+  await page.keyboard.press("F9");
+  const inspector = page.getByTestId("mixer-inspector");
+  // Ours, first in the effect picker (Built in); its window opens at once.
+  await inspector.getByRole("button", { name: "Slot 1 menu" }).click();
+  await page.getByTestId("effect-picker").getByRole("option", { name: /Pro-Q/ }).click();
+  const window = page.getByTestId("pro-q");
+  await expect(window).toBeVisible();
+  const effectId = (await window.getAttribute("data-effect"))!;
+  await expect.poll(async () => (await savedProQ(page, id, effectId))?.mode).toBe("zeroLatency");
+  // Closed, its name in the slot opens it again.
+  await page.getByRole("button", { name: "Close Pro-Q (Master)" }).click();
+  await expect(window).toHaveCount(0);
+  await inspector.getByRole("button", { name: "Pro-Q: open its window" }).click();
+  await expect(window).toBeVisible();
+
+  const display = page.getByTestId("pro-q-display");
+  const box = (await display.boundingBox())!;
+  const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+  // A Bell where it's double-clicked (over 0 dB: a boost), a Low Cut at the far left, a Notch along the bottom.
+  const bell = at(0.4, 0.3);
+  await page.mouse.dblclick(bell.x, bell.y);
+  await page.mouse.dblclick(at(0.02, 0.5).x, at(0.02, 0.5).y);
+  await page.mouse.dblclick(at(0.6, 0.955).x, at(0.6, 0.955).y);
+  await expect.poll(async () => (await bandsOf(page, id, effectId)).map((b) => b.shape)).toEqual(["bell", "lowCut", "notch"]);
+  let bands = await bandsOf(page, id, effectId);
+  expect(bands[0].gain).toBeGreaterThan(3);
+  expect(bands[1].frequency).toBeLessThan(25);
+  // The band controls float under the one just made.
+  await expect(page.getByTestId("pro-q-band-controls")).toBeVisible();
+
+  // Drag the Bell: up and to the right, higher and louder.
+  const was = bands[0];
+  await page.mouse.move(bell.x, bell.y);
+  await page.mouse.down();
+  await page.mouse.move(bell.x + 60, bell.y - 30, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await bandsOf(page, id, effectId))[0].frequency).toBeGreaterThan(was.frequency * 1.2);
+  bands = await bandsOf(page, id, effectId);
+  expect(bands[0].gain).toBeGreaterThan(was.gain);
+  const dot = { x: bell.x + 60, y: bell.y - 30 };
+
+  // Alt+wheel over it: a dynamic band, cutting when loud. The wheel alone narrows it.
+  await page.mouse.move(dot.x, dot.y);
+  await page.keyboard.down("Alt");
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 100);
+  await page.keyboard.up("Alt");
+  await expect.poll(async () => (await bandsOf(page, id, effectId))[0].range).toBeLessThan(-1);
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -100);
+  await expect.poll(async () => (await bandsOf(page, id, effectId))[0].q).toBeGreaterThan(1.2);
+
+  // Its menu: Invert Gain flips its gain and range.
+  const before = (await bandsOf(page, id, effectId))[0];
+  await page.mouse.click(dot.x, dot.y, { button: "right" });
+  await page.getByTestId("pro-q-band-menu").getByRole("menuitem", { name: "Invert Gain" }).click();
+  await expect.poll(async () => (await bandsOf(page, id, effectId))[0].gain).toBeCloseTo(-before.gain, 1);
+  expect((await bandsOf(page, id, effectId))[0].range).toBeCloseTo(-before.range, 1);
+
+  // Selected (a click on its dot, now as far under 0 dB as it was over), the band controls reshape it: a High Shelf.
+  const zero = box.y + 6 + (box.height - 6 - 18) / 2;
+  await page.mouse.click(dot.x, 2 * zero - dot.y);
+  const controls = page.getByTestId("pro-q-band-controls");
+  await controls.getByRole("button", { name: "Shape" }).click();
+  await page.getByRole("menuitemradio", { name: "High Shelf" }).click();
+  await expect.poll(async () => (await bandsOf(page, id, effectId))[0].shape).toBe("highShelf");
+
+  // Delete takes the selected band away.
+  await display.focus();
+  await page.mouse.move(at(0.5, 0.5).x, at(0.5, 0.5).y);
+  await page.keyboard.press("Delete");
+  await expect.poll(async () => (await bandsOf(page, id, effectId)).map((b) => b.shape)).toEqual(["lowCut", "notch"]);
+
+  // Linear Phase from the bottom bar; undone with the top bar's arrow.
+  await window.getByRole("button", { name: "Processing mode" }).click();
+  await page.getByRole("menuitemradio", { name: "Linear Phase" }).click();
+  await expect.poll(async () => (await savedProQ(page, id, effectId))?.mode).toBe("linearPhase");
+  await expect(window.getByRole("button", { name: "Processing mode" })).toContainText("Linear Phase – Medium");
+  await window.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => (await savedProQ(page, id, effectId))?.mode).toBe("zeroLatency");
+
+  // A preset replaces the bands; the analyzer's panel opens from the bottom bar.
+  await window.getByRole("button", { name: "Presets" }).click();
+  await page.getByTestId("pro-q-presets").getByRole("menuitem", { name: "Flat 7 Bands" }).click();
+  await expect.poll(async () => (await bandsOf(page, id, effectId)).length).toBe(7);
+  await window.getByRole("button", { name: "Analyzer" }).click();
+  await expect(page.getByTestId("pro-q-analyzer")).toBeVisible();
+});
+
+test("the assistant shapes a Pro-Q: puts one on a track, adds bands, sets its mode, sweeps a band by automation", async ({ page }) => {
+  const id = await openNewSong(page, "Assisted EQ");
+  await page.getByRole("button", { name: "Assistant" }).click();
+  const panel = page.locator('[data-slot="assistant-panel"]');
+  const composer = panel.getByRole("textbox", { name: "Message the assistant" });
+  await composer.fill(
+    [
+      'call add_mixer_effect {"track": 1, "plugin": "Pro-Q"}',
+      'call set_pro_q_bands {"track": 1, "bands": [{"shape": "lowCut", "frequency": 40, "slope": 24}, {"frequency": 300, "gain": -3, "q": 1.5, "range": -4}, {"shape": "highShelf", "frequency": 9000, "gain": 2}]}',
+      'call update_pro_q {"track": 1, "mode": "naturalPhase", "autoGain": true}',
+      'call set_pro_q_bands {"track": 1, "bands": [{"shape": "notch", "frequency": 100, "range": -6}]}',
+      'call add_automation {"control": "eq frequency", "track": 1, "slot": 1, "band": 2, "bar": 1, "length": 2, "points": [{"at": 0, "value": 300}, {"at": 2, "value": 3000}]}',
+      'call get_pro_q {"track": 1}',
+    ].join("\n"),
+  );
+  await composer.press("Enter");
+  await expect(panel).toContainText("add_automation: ok, get_pro_q: ok", { timeout: 30_000 });
+  // A Notch can't be dynamic: refused, saying which shapes can.
+  await expect(panel).toContainText("set_pro_q_bands: failed");
+  await expect.poll(async () => (await savedSong(page, id)).automations.length).toBe(1);
+  const song = await savedSong(page, id);
+  const effect = song.mixer.tracks[1].effects[0];
+  expect(effect.plugin.name).toBe("Pro-Q");
+  expect(effect.proQ.mode).toBe("naturalPhase");
+  expect(effect.proQ.autoGain).toBe(true);
+  expect(effect.proQ.bands.map((b: SavedBand) => [b.id, b.shape, b.frequency])).toEqual([
+    [1, "lowCut", 40],
+    [2, "bell", 300],
+    [3, "highShelf", 9000],
+  ]);
+  const [automation] = await savedAutomations(page, id);
+  expect(automation.target).toEqual({ kind: "proQ", effect: effect.id, band: 2, control: "frequency" });
+});
