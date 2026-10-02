@@ -8,8 +8,9 @@
  * The main process (electron/main.ts, which runs the server) is bundled with esbuild into one file, so the
  * packaged app ships no node_modules: just that bundle, the preload script and the built web app.
  */
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { type BuildOptions, build, context } from "esbuild";
 import { BASE_WEB_PORT, pickPorts } from "./ports.ts";
@@ -30,6 +31,26 @@ function electronEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env = { ...process.env, ...extra };
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
+}
+
+/**
+ * Sign a macOS app again, ad hoc (no identity), if its seal doesn't hold. Electron's own build comes with a
+ * broken one (44.5.0's names resources, `_CodeSignature`, that its download doesn't have), and macOS 26
+ * kills it the moment it loads code ("Code Signature Invalid"); the packaged app, unsigned by
+ * electron-builder, would inherit it. Signed again ad hoc it runs, and opens as an unsigned app does.
+ */
+function adHocSign(app: string, { always = false } = {}) {
+  if (process.platform !== "darwin") return;
+  if (!always && spawnSync("codesign", ["--verify", "--deep", "--strict", app]).status === 0) return;
+  console.log(`[desktop] signing ${path.basename(app)} again, ad hoc (its signature doesn't hold, and macOS would kill it)`);
+  const signed = spawnSync("codesign", ["--force", "--deep", "--sign", "-", app], { stdio: "inherit" });
+  if (signed.status !== 0) throw new Error(`Couldn't sign ${app}: try \`codesign --force --deep --sign - "${app}"\`.`);
+}
+
+/** The Electron.app `pnpm install` put in node_modules (what `node_modules/.bin/electron` runs). */
+function electronApp(): string {
+  const binary = createRequire(import.meta.url)("electron") as string;
+  return binary.slice(0, binary.indexOf(".app") + ".app".length);
 }
 
 /** The bundles for `outdir`: the main process (ESM) and the preload script (CommonJS, as sandboxed preloads must be). */
@@ -93,6 +114,7 @@ async function waitFor(url: string, timeoutMs = 60_000) {
 }
 
 async function dev() {
+  adHocSign(electronApp());
   const { web, server } = await pickPorts();
   if (web !== BASE_WEB_PORT) console.log(`[desktop] ${BASE_WEB_PORT} is taken, using ports ${web} (app) / ${server} (server)`);
   const outdir = path.join(ROOT, "dist-electron");
@@ -184,7 +206,11 @@ async function pack(targets: "dir" | "installers") {
       npmRebuild: false,
       // electron/main.ts points the server at it (EDITOR_ENGINE_PATH).
       extraResources: existsSync(ENGINE_APP) ? [{ from: ENGINE_APP, to: "Vaudio Engine.app" }] : [],
-      // Not signed yet (that needs an Apple Developer ID): macOS asks to confirm the first launch.
+      // Not signed with an identity yet (that needs an Apple Developer ID): signed ad hoc once it's packed,
+      // before the .dmg and .zip are made of it (unsigned, macOS kills it). macOS asks to confirm the first launch.
+      afterPack: async (packed) => {
+        if (packed.electronPlatformName === "darwin") adHocSign(path.join(packed.appOutDir, `${packed.packager.appInfo.productFilename}.app`), { always: true });
+      },
       mac: {
         category: "public.app-category.video",
         identity: null,

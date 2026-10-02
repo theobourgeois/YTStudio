@@ -868,6 +868,10 @@ Auto captions make hundreds of clips, so everything must scale with the clip cou
 
 - Terminals inside Electron apps (T3 Code, VS Code) set `ELECTRON_RUN_AS_NODE=1`, which makes Electron a plain Node.js:
   the desktop scripts remove it, but launching the app's binary by hand from such a terminal quits silently.
+- Electron's macOS build (44.5.0) comes with a broken ad-hoc signature, and macOS 26 kills it on launch ("Electron quit
+  unexpectedly", SIGKILL Code Signature Invalid in the crash report). `scripts/desktop.ts` signs it again ad hoc
+  (`adHocSign`): Electron in node_modules before `dev:desktop`, the packaged app after it's packed. By hand:
+  `codesign --force --deep --sign - <Electron.app>`.
 - The desktop app is still the web app: keep features working in the browser (`pnpm dev`); `src/lib/desktop.ts` is
   the only place the page knows it's in the app (it gives the app `flush` to save before closing).
 
