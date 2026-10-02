@@ -28,7 +28,7 @@ import {
   stepsPerBar,
   trimTracks,
 } from "./project.ts";
-import { audioPlayback, pitchSpeed, sameStretch, stretchedTo } from "./stretch.ts";
+import { audioPlayback, normalizeStretch, pitchSpeed, sameStretch, stretchedTo } from "./stretch.ts";
 import { type AudioStretch, type Channel, type MusicProject, PPQ, type Pattern, type PlaylistClip, type PlaylistTrack, STEP_TICKS, type StretchMode } from "./types.ts";
 
 export { pitchSpeed };
@@ -405,18 +405,45 @@ export function stretchClips(clips: PlaylistClip[], ids: ClipIds, edge: "start" 
   });
 }
 
+/** `next` (`clip` with another stretch), as long as it must be to play the same part of its file as `clip` did. */
+function keepingContent(clip: PlaylistClip, next: PlaylistClip, before: ClipContext, after: ClipContext): PlaylistClip {
+  const was = before.fileSecondsPerTick(clip);
+  const now = after.fileSecondsPerTick(next);
+  if (Math.abs(was - now) < 1e-12) return next;
+  return { ...next, length: clamp(Math.round((clipLength(clip, before) * was) / now), 1, MAX_SONG_TICKS - clip.start) };
+}
+
 /**
  * Set audio clips' own stretch (`stretch`), or take it away (null: they follow their channel's again).
- * Their windows don't change: only how fast they go through them (so their content changes, as FL's TIME
- * does). Clips other than audio clips are left alone.
+ * Each keeps its content (the same part of its file), its length changing to fit: a clip set to two bars
+ * becomes two bars long, as FL's TIME does. Clips other than audio clips are left alone.
  */
-export function setClipStretch(clips: PlaylistClip[], ids: ClipIds, stretch: AudioStretch | null): PlaylistClip[] {
+export function setClipStretch(clips: PlaylistClip[], ids: ClipIds, stretch: AudioStretch | null, ctx: ClipContext): PlaylistClip[] {
+  const wanted = stretch ? normalizeStretch(stretch) : undefined;
   return mapClips(clips, ids, (clip) => {
-    if (clip.kind !== "audio" || sameStretch(clip.stretch, stretch ?? undefined)) return clip;
-    if (stretch) return { ...clip, stretch };
+    if (clip.kind !== "audio" || sameStretch(clip.stretch, wanted)) return clip;
     const { stretch: _, ...rest } = clip;
-    return rest;
+    return keepingContent(clip, wanted ? { ...rest, stretch: wanted } : rest, ctx, ctx);
   });
+}
+
+/**
+ * An audio clip channel's time stretching (its settings' Time stretching: FL's MODE and TIME), or none
+ * (null). Its clips with no stretch of their own play by it, each keeping its content (its length changes
+ * to fit), as `setClipStretch`'s do.
+ */
+export function stretchChannel(song: MusicProject, id: string, stretch: AudioStretch | null): MusicProject {
+  const wanted = stretch ? normalizeStretch(stretch) : undefined;
+  const index = song.channels.findIndex((c) => c.id === id);
+  const channel = song.channels[index];
+  if (!channel || channel.kind !== "audio" || sameStretch(channel.stretch, wanted)) return song;
+  const { stretch: _, ...rest } = channel;
+  const channels = song.channels.with(index, wanted ? { ...rest, stretch: wanted } : rest);
+  const next = { ...song, channels };
+  const before = clipContext(song);
+  const after = clipContext(next);
+  const following = new Set(song.playlist.clips.filter((c) => c.kind === "audio" && c.ref === id && !c.stretch).map((c) => c.id));
+  return editClips(next, (clips) => mapClips(clips, following, (clip) => keepingContent(clip, clip, before, after)));
 }
 
 /**

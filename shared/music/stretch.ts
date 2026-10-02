@@ -8,6 +8,11 @@
 import { clamp } from "../math.ts";
 import { type AudioStretch, type StretchMode, STRETCH_MODES } from "./types.ts";
 
+/** The modes' names, as FL's MODE menu says them. */
+export const STRETCH_MODE_NAMES: Record<StretchMode, string> = { resample: "Resample", stretch: "Stretch" };
+
+export const isStretchMode = (value: unknown): value is StretchMode => STRETCH_MODES.includes(value as StretchMode);
+
 /** The tempi a stretch can be at (FL's TIME reaches far further than its sound is good for). */
 export const MIN_STRETCH_TEMPO = 5;
 export const MAX_STRETCH_TEMPO = 4000;
@@ -101,5 +106,12 @@ export function fileTempo(seconds: number, bpm: number | null): number | null {
   return best === null ? null : stretchTempo(best);
 }
 
-/** The tempo that makes a file `seconds` long last `beats` beats (FL's TIME menu: Beat/Bar #). */
-export const tempoForBeats = (seconds: number, beats: number) => stretchTempo((beats * 60) / Math.max(1e-3, seconds));
+/**
+ * The stretch tempo that makes `seconds` of a file last `beats` beats of the song (FL's TIME menu: Beat/Bar #),
+ * in `mode`: in Resample its channel's `pitch` speeds it up too, so the tempo takes that in.
+ */
+export const tempoForBeats = (seconds: number, beats: number, mode: StretchMode = "stretch", pitch = 0) =>
+  stretchTempo(((beats * 60) / Math.max(1e-3, seconds)) * (mode === "resample" ? pitchSpeed(pitch) : 1));
+
+/** The stretch tempo for a file made at `fileTempo` BPM (FL's Autodetect), in `mode` (Resample: its channel's `pitch` taken in). */
+export const tempoOfFile = (fileTempo: number, mode: StretchMode, pitch: number) => stretchTempo(fileTempo * (mode === "resample" ? pitchSpeed(pitch) : 1));

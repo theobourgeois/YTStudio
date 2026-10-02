@@ -10,8 +10,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { setChannelStretch, updateChannel } from "../../shared/music/edits.ts";
-import { addAudioClips, editClips, setClipStretch } from "../../shared/music/playlist.ts";
+import { updateChannel } from "../../shared/music/edits.ts";
+import { addAudioClips, editClips, setClipStretch, stretchChannel } from "../../shared/music/playlist.ts";
 import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
 import type { AudioStretch, MusicProject } from "../../shared/music/types.ts";
 import { ENGINE } from "../config.ts";
@@ -73,7 +73,7 @@ describe.skipIf(!existsSync(ENGINE))("stretched audio clips, offline", () => {
   /** A song at 120 BPM with the file `sampleId` (`seconds` long) as an audio clip from its start, its clip stretched by `stretch`. */
   function song(sampleId: string, seconds: number, stretch?: AudioStretch): MusicProject {
     const made = addAudioClips(createMusicProject("Test", 120), [{ name: "Clip", sampleId, seconds, channelId: "chan_clip" }], { start: 0, track: 0 }).song;
-    return stretch ? editClips(made, (clips) => setClipStretch(clips, new Set([clips[0].id]), stretch)) : made;
+    return stretch ? editClips(made, (clips, ctx) => setClipStretch(clips, new Set([clips[0].id]), stretch, ctx)) : made;
   }
   /** Where each hit lands in `sound`, near where `expected` says, in samples off. */
   const hitErrors = (sound: WavData, expected: number[]) => expected.map((at) => loudestAt(sound.channels[0], at - RATE / 20, at + RATE / 20) - at);
@@ -147,7 +147,7 @@ describe.skipIf(!existsSync(ENGINE))("stretched audio clips, offline", () => {
 
   it("is faster and higher in Resample, its channel's stretch followed by clips without their own", async () => {
     // The channel's stretch: made at 160 BPM, three quarters of its speed and pitch.
-    await play(setChannelStretch(song("sine", 4), "chan_clip", { mode: "resample", tempo: 160 }));
+    await play(stretchChannel(song("sine", 4), "chan_clip", { mode: "resample", tempo: 160 }));
     await engine.command("play", {});
     const sound = await hear(2 * RATE);
     expect(Math.abs(cents(frequency(sound.channels[0], RATE / 2, RATE), 330))).toBeLessThan(1);

@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
+import { PiArrowsOutLineHorizontal, PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
 import { type ClipContext, clipContext, clipLength, songTicks } from "@shared/music/playlist";
@@ -142,6 +142,7 @@ function PlaylistControls() {
   const tool = usePlaylist((s) => s.tool);
   const snap = usePlaylist((s) => s.snap);
   const pickerOpen = usePlaylist((s) => s.pickerOpen);
+  const stretch = usePlaylist((s) => s.stretch);
   return (
     <>
       <EditMenu />
@@ -170,6 +171,16 @@ function PlaylistControls() {
           </button>
         ))}
       </div>
+      <button
+        type="button"
+        aria-label="Stretch"
+        aria-pressed={stretch}
+        title="Stretch: an audio clip's edge stretches its sound instead of resizing it (Shift+M)"
+        className={cn("grid size-5.5 place-items-center rounded-sm", stretch ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
+        onClick={() => usePlaylist.setState({ stretch: !stretch })}
+      >
+        <PiArrowsOutLineHorizontal className="size-4" />
+      </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button" aria-label="Snap" title="Snap" className="sunken flex h-5.5 items-center gap-1 rounded-sm px-1.5 text-[11px] text-muted-foreground hover:text-foreground">

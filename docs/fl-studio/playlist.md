@@ -462,8 +462,9 @@ Théo asked for stretching "in one pass", doing whatever FL Studio does.
    a clip without one follows its channel's (the channel window's Time stretching).
 2. **The time is kept as a tempo** (`AudioStretch.tempo`): the tempo at which the file plays at its own
    speed, FL's TIME put the other way round. At another tempo it plays proportionally faster or slower,
-   so a stretched clip stays on its bars when the tempo changes, as FL's does. Its window (`offset`,
-   seconds of the file) doesn't change: a stretch only changes how fast it goes through it.
+   so a stretched clip stays on its bars when the tempo changes, as FL's does. A stretch set from a menu
+   (the clip's, or its channel's for the clips that follow it) keeps each clip's content, the same part
+   of its file, and changes its length to fit: set to two bars, it's two bars long.
 3. **Two modes**: Resample (speed and pitch together, as before) and Stretch (pitch kept, by Signalsmith
    Stretch, MIT, in the engine). In Stretch mode the channel's PITCH shifts the pitch without changing
    the time, as FL's time-stretch PITCH does.

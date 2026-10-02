@@ -16,6 +16,7 @@ import {
   sliceAll,
   sliceClips,
   slipClips,
+  stretchClips,
 } from "@shared/music/playlist";
 import type { PlaylistClip } from "@shared/music/types";
 import type { PlaylistDrag } from "./store";
@@ -29,6 +30,8 @@ export function applyDrag(clips: PlaylistClip[], drag: PlaylistDrag | null, ctx:
       return drag.clone ? cloneClips(clips, drag.ids, drag.ticks, drag.tracks, ctx) : same(moveClips(clips, drag.ids, drag.ticks, drag.tracks, ctx));
     case "resize":
       return same(resizeClips(clips, drag.ids, drag.edge, drag.ticks, ctx));
+    case "stretch":
+      return same(stretchClips(clips, drag.ids, drag.edge, drag.ticks, ctx, drag.mode));
     case "slip":
       return same(slipClips(clips, drag.ids, drag.ticks, ctx));
     case "add":

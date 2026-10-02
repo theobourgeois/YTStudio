@@ -55,6 +55,7 @@ describe("the Playlist's keys", () => {
     expect(press("µ", "KeyM", { altKey: true })).toEqual({ type: "mute" });
     expect(press("M", "KeyM", { altKey: true, shiftKey: true })).toEqual({ type: "unmute" });
     expect(press("π", "KeyP", { altKey: true })).toEqual({ type: "picker" });
+    expect(press("M", "KeyM", { shiftKey: true })).toEqual({ type: "stretch" });
     expect(press("$", "Digit4", { shiftKey: true })).toEqual({ type: "zoomPreset", preset: 4 });
     expect(press(")", "Digit0", { shiftKey: true })).toEqual({ type: "centre" });
     expect(press("PageUp", "PageUp")).toEqual({ type: "zoom", factor: 1.5 });

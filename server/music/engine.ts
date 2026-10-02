@@ -12,6 +12,7 @@ import { type PlayMode, compileSong, levelGain } from "../../shared/music/compil
 import { GROSS_DEPTH } from "../../shared/music/gross-beat-presets.ts";
 import { MAX_SWING } from "../../shared/music/pitch-wheel-presets.ts";
 import {
+  type DetectedTempo,
   ENGINE_SLOTS,
   type EngineCommand,
   type EngineDevices,
@@ -38,6 +39,7 @@ import { createId } from "../../shared/ids.ts";
 import { ENGINE, ENGINE_PLUGIN_PATHS, ENGINE_SOURCE } from "../config.ts";
 import { spawnStreaming } from "../process.ts";
 import { type DataPaths, HttpError, isObject, isValidId, readJson, writeJson } from "../storage.ts";
+import { detectTempo } from "./tempo.ts";
 
 /** What `renderExport` renders: a song as `SetSongRequest` has it, and where the files go and what they are. */
 export interface RenderExportRequest {
@@ -302,6 +304,14 @@ export class AudioEngine {
     const gain = (value: unknown) => (isFiniteNumber(value) ? clamp(value, 0, 4) : 1);
     const speed = isFiniteNumber(body.speed) ? clamp(body.speed, 1 / 16, 16) : 1;
     return this.withSaved((await this.request("previewFile", { file, start, previewId: id, gainLeft: gain(body.gainLeft), gainRight: gain(body.gainRight), speed })) as RawStatus);
+  }
+
+  /** A song's media file's tempo, as heard (`DetectTempoRequest`, FL's Autodetect): decoded by ffmpeg, the engine not needed. */
+  async detectTempo(body: unknown): Promise<DetectedTempo> {
+    if (!isObject(body) || !isValidId(body.projectId)) throw new HttpError(400, '"projectId" must be the song\'s project id.');
+    const file = typeof body.sampleId === "string" ? this.samplePath(body.projectId, body.sampleId) : null;
+    if (!file) throw new HttpError(404, '"sampleId" must be one of the song\'s media files.');
+    return detectTempo(file);
   }
 
   /** Write the song's plugins' states now (the tab asks before it goes). */

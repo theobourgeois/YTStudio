@@ -23,9 +23,7 @@ import {
   nextNoteId,
   patternSteps,
 } from "./project.ts";
-import { normalizeStretch, sameStretch } from "./stretch.ts";
 import {
-  type AudioStretch,
   type Channel,
   type Envelope,
   type MusicProject,
@@ -188,19 +186,6 @@ function updateChannels(song: MusicProject, ids: readonly string[], update: (cha
 }
 
 export const updateChannel = (song: MusicProject, id: string, patch: ChannelPatch) => updateChannels(song, [id], (channel) => patched(channel, patch));
-
-/**
- * An audio clip channel's time stretching (its settings' Time stretching: FL's MODE and TIME), or none
- * (null). Its clips with no stretch of their own play by it; their windows stay where they are.
- */
-export const setChannelStretch = (song: MusicProject, id: string, stretch: AudioStretch | null) =>
-  updateChannels(song, [id], (channel) => {
-    const next = stretch ? normalizeStretch(stretch) : undefined;
-    if (channel.kind !== "audio" || sameStretch(channel.stretch, next)) return channel;
-    if (next) return { ...channel, stretch: next };
-    const { stretch: _, ...rest } = channel;
-    return rest;
-  });
 
 /** Mute or unmute several channels. */
 export const setMuted = (song: MusicProject, ids: readonly string[], muted: boolean) => updateChannels(song, ids, (channel) => patched(channel, { muted }));

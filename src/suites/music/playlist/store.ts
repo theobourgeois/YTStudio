@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { NewClip } from "@shared/music/playlist";
-import type { AutomationPoint, PlaylistClip, PlaylistClipKind } from "@shared/music/types";
+import type { AutomationPoint, PlaylistClip, PlaylistClipKind, StretchMode } from "@shared/music/types";
 import type { Snap } from "../piano/geometry";
 import { DEFAULT_TRACK_HEIGHT } from "./geometry";
 import type { IncomingFile } from "./incoming";
@@ -44,6 +44,8 @@ export type PlaylistDrag =
   | { kind: "move"; ids: ReadonlySet<number>; ticks: number; tracks: number; clone: boolean }
   /** An edge dragged: the start (the window moves over the content) or the end. */
   | { kind: "resize"; ids: ReadonlySet<number>; edge: "start" | "end"; ticks: number }
+  /** An audio clip's edge dragged with Stretch on: its content fills the new length (`mode`: for a clip with no stretch yet). */
+  | { kind: "stretch"; ids: ReadonlySet<number>; edge: "start" | "end"; ticks: number; mode: StretchMode }
   /** The slip tool: the content moves inside the windows. */
   | { kind: "slip"; ids: ReadonlySet<number>; ticks: number }
   /** Clips being drawn or painted, not yet in the song. */
@@ -78,6 +80,8 @@ interface PlaylistState {
   copied: PlaylistClip[] | null;
   /** The Picker panel (Alt+P) is shown. */
   pickerOpen: boolean;
+  /** Stretch (Shift+M, FL's "Stretch audio when resizing"): an audio clip's edge stretches its sound instead of resizing its window. */
+  stretch: boolean;
   /** The track whose name is being typed, or null. */
   renaming: number | null;
   /** Where the slice tool would cut every track if pressed now (Shift held over the grid). */
@@ -138,6 +142,7 @@ const INITIAL = {
   source: null as ClipSource | null,
   copied: null as PlaylistClip[] | null,
   pickerOpen: true,
+  stretch: false,
   renaming: null as number | null,
   sliceHover: null as { tick: number } | null,
   clipMenu: null as { clipId: number; x: number; y: number } | null,
@@ -169,11 +174,11 @@ useMusicUi.subscribe((state, prev) => {
   if (prev.transposeOpen && !state.transposeOpen && usePlaylist.getState().transposing) usePlaylist.setState({ transposing: null });
 });
 
-// Another song: its own playlist (the clips copied stay, as notes copied do; so do the Picker and the zoom).
+// Another song: its own playlist (the clips copied stay, as notes copied do; so do the Picker, Stretch and the zoom).
 useMusic.subscribe((state, prev) => {
   if (state.projectId === prev.projectId) return;
-  const { copied, pickerOpen, view } = usePlaylist.getState();
-  usePlaylist.setState({ ...INITIAL, copied, pickerOpen, view: { ...view, scrollTick: 0, scrollY: 0 } });
+  const { copied, pickerOpen, stretch, view } = usePlaylist.getState();
+  usePlaylist.setState({ ...INITIAL, copied, pickerOpen, stretch, view: { ...view, scrollTick: 0, scrollY: 0 } });
 });
 
 // The pattern shown changed elsewhere (the toolbar, the rack): the Picker's selection follows it.

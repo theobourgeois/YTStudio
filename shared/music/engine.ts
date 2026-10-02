@@ -242,6 +242,19 @@ export interface PreviewSampleRequest {
   id?: string;
 }
 
+/** Detect the tempo of one of a song's own media files (`POST /api/engine/tempo`): FL's TIME menu's Autodetect. */
+export interface DetectTempoRequest {
+  projectId: string;
+  sampleId: string;
+}
+
+/** What was heard: the tempo (null when no steady beat was), how sure (0..1), and the file's length. */
+export interface DetectedTempo {
+  bpm: number | null;
+  confidence: number;
+  seconds: number;
+}
+
 /** Preview one of the Browser's files (`POST /api/browser/preview`), cutting off the last one. */
 export interface PreviewFileRequest {
   path: string;

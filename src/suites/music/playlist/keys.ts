@@ -25,6 +25,7 @@ export type PlaylistKeyAction =
         | "insertSpaceSliced"
         | "deleteSpace"
         | "picker"
+        | "stretch"
         | "centre"
         | "home"
         | "close";
@@ -84,7 +85,7 @@ export function resolvePlaylistKey(e: KeyLike): PlaylistKeyAction | null {
     return null;
   }
   if (shift) {
-    const shifted: Record<string, PlaylistKeyAction["type"]> = { I: "invert", C: "selectSimilar", Q: "quantize" };
+    const shifted: Record<string, PlaylistKeyAction["type"]> = { I: "invert", C: "selectSimilar", Q: "quantize", M: "stretch" };
     const type = shifted[letter];
     return type ? ({ type } as PlaylistKeyAction) : null;
   }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { setChannelStretch, setTempo } from "./edits.ts";
+import { setTempo } from "./edits.ts";
 import { createMusicProject, normalizeMusicProject } from "./project.ts";
-import { addAudioClips, clipContext, clipLength, contentAt, editClips, makeUnique, resizeClips, setClipStretch, sliceClips, stretchClips } from "./playlist.ts";
-import { MAX_AUDIO_SPEED, audioPlayback, fileTempo, normalizeStretch, stretchedTo, tempoForBeats } from "./stretch.ts";
+import { addAudioClips, clipContext, clipLength, contentAt, editClips, makeUnique, resizeClips, setClipStretch, sliceClips, stretchChannel, stretchClips } from "./playlist.ts";
+import { MAX_AUDIO_SPEED, audioPlayback, fileTempo, normalizeStretch, stretchedTo, tempoForBeats, tempoOfFile } from "./stretch.ts";
 import type { MusicProject } from "./types.ts";
 
 const BAR = 384;
@@ -52,8 +52,12 @@ describe("the tempo a file was made at", () => {
     expect(fileTempo(0, null)).toBeNull();
   });
 
-  it("can be given as a number of beats (FL's TIME menu)", () => {
+  it("can be given as a number of beats (FL's TIME menu), Resample taking the channel's pitch in", () => {
     expect(tempoForBeats(4, 4)).toBe(60);
+    // An octave up, Resample plays it twice as fast already: the tempo is twice as high to last as long.
+    expect(tempoForBeats(4, 4, "resample", 12)).toBe(120);
+    expect(tempoOfFile(90, "stretch", 12)).toBe(90);
+    expect(tempoOfFile(90, "resample", -12)).toBe(45);
   });
 });
 
@@ -76,7 +80,7 @@ describe("stretching audio clips", () => {
   it("keep a mode they already have, and stretch every selected clip by the same ticks", () => {
     let song = vocal();
     song = editClips(song, (clips, ctx) => sliceClips(clips, BAR, 0, 0, ctx).clips);
-    song = setChannelStretch(song, "chan_vox", { mode: "resample", tempo: null });
+    song = stretchChannel(song, "chan_vox", { mode: "resample", tempo: null });
     const ctx = clipContext(song);
     const stretched = stretchClips(song.playlist.clips, new Set([1, 2]), "end", BAR / 2, ctx, "stretch");
     expect(stretched.map((c) => [clipLength(c, ctx), c.stretch?.mode])).toEqual([
@@ -102,17 +106,24 @@ describe("stretching audio clips", () => {
     expect(contentAt(vocal().playlist.clips[0], 2 * BAR, clipContext(setTempo(vocal(), 60)))).toBeCloseTo(8);
   });
 
-  it("is a clip's own, over its channel's; taken away, it's its channel's again", () => {
-    let song = setChannelStretch(vocal(), "chan_vox", { mode: "stretch", tempo: 60 });
+  it("is a clip's own, over its channel's; taken away, it's its channel's again; each keeps its content", () => {
+    // Made at 60 BPM, played at 120: twice as fast, so the four seconds last a bar.
+    let song = stretchChannel(vocal(), "chan_vox", { mode: "stretch", tempo: 60 });
     let ctx = clipContext(song);
-    // Made at 60 BPM, played at 120: twice as fast, so two bars go through eight seconds of the file.
-    expect(contentAt(song.playlist.clips[0], 2 * BAR, ctx)).toBeCloseTo(8);
-    song = editClips(song, (clips) => setClipStretch(clips, new Set([1]), { mode: "resample", tempo: 240 }));
+    expect(clipLength(song.playlist.clips[0], ctx)).toBe(BAR);
+    expect(contentAt(song.playlist.clips[0], BAR, ctx)).toBeCloseTo(4);
+    // Its own, at half speed: four bars.
+    song = editClips(song, (clips, c) => setClipStretch(clips, new Set([1]), { mode: "resample", tempo: 240 }, c));
     ctx = clipContext(song);
-    expect(contentAt(song.playlist.clips[0], 2 * BAR, ctx)).toBeCloseTo(2);
-    const back = editClips(song, (clips) => setClipStretch(clips, new Set([1]), null));
+    expect(clipLength(song.playlist.clips[0], ctx)).toBe(4 * BAR);
+    const back = editClips(song, (clips, c) => setClipStretch(clips, new Set([1]), null, c));
     expect(back.playlist.clips[0]).not.toHaveProperty("stretch");
-    expect(editClips(back, (clips) => setClipStretch(clips, new Set([1]), null))).toBe(back);
+    expect(clipLength(back.playlist.clips[0], clipContext(back))).toBe(BAR);
+    expect(editClips(back, (clips, c) => setClipStretch(clips, new Set([1]), null, c))).toBe(back);
+    // A clip with its own isn't moved by its channel's.
+    const own = editClips(back, (clips, c) => setClipStretch(clips, new Set([1]), { mode: "stretch", tempo: 120 }, c));
+    expect(stretchChannel(own, "chan_vox", null).playlist).toBe(own.playlist);
+    expect(stretchChannel(back, "chan_vox", null).playlist.clips[0].length).toBe(2 * BAR);
   });
 
   it("go with a clip that's sliced, copied or made unique, and are kept by normalising", () => {
@@ -121,7 +132,7 @@ describe("stretching audio clips", () => {
     expect(song.playlist.clips.map((c) => c.stretch?.tempo)).toEqual([180, 180]);
     const unique = makeUnique(song, 2, "chan_copy");
     expect(unique.playlist.clips[1]).toMatchObject({ ref: "chan_copy", stretch: { mode: "stretch", tempo: 180 } });
-    const channel = setChannelStretch(unique, "chan_copy", { mode: "resample", tempo: 100 });
+    const channel = stretchChannel(unique, "chan_copy", { mode: "resample", tempo: 100 });
     const loaded = normalizeMusicProject(JSON.parse(JSON.stringify(channel)), () => true);
     expect(loaded.playlist.clips).toEqual(channel.playlist.clips);
     expect(loaded.channels.find((c) => c.id === "chan_copy")?.stretch).toEqual({ mode: "resample", tempo: 100 });

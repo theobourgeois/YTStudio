@@ -47,6 +47,8 @@ const PLATFORM = [
   "server/storage.ts",
   "server/process.ts",
   "server/queue.ts",
+  // Music analysis (tempo, beats): the video editor's beat sync and the music suite's Detect tempo.
+  "server/beats.ts",
   "server/projects.ts",
   "server/routes/projects.ts",
   "server/routes/assistant.ts",

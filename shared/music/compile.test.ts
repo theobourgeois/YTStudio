@@ -361,7 +361,8 @@ describe("compileSong in song mode", () => {
     expect(up.audioClips.map((c) => c.speed)).toEqual([2, 2]);
     // Stretched, a clip goes through its file at the song's tempo over its own; in Stretch mode its pitch is
     // kept, and the channel's pitch shifts it without changing the time.
-    const stretched = editClips(updateChannel(sliced, "chan_vox", { pitch: 12 }), (clips) => setClipStretch(clips, new Set([clips[0].id]), { mode: "stretch", tempo: 60 }));
+    // (Pitched an octave up it already went twice as fast: it lasts as long as it did.)
+    const stretched = editClips(updateChannel(sliced, "chan_vox", { pitch: 12 }), (clips, ctx) => setClipStretch(clips, new Set([clips[0].id]), { mode: "stretch", tempo: 60 }, ctx));
     expect(compileSong(stretched, P, null, "song").audioClips).toEqual([
       { channel: 2, tick: BAR, length: BAR, seconds: 0, speed: 2, keepPitch: true, transpose: 12 },
       { channel: 2, tick: 2 * BAR, length: BAR, seconds: 2, speed: 2 },
