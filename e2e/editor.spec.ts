@@ -2013,6 +2013,12 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await page.goto(`/p/${song.id}`);
   await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
 
+  // ⇧⌘O from the song: the New project picker starts on Music, the app it's in.
+  await page.keyboard.press("ControlOrMeta+Shift+o");
+  await expect(page.getByRole("dialog").getByRole("option").first()).toHaveAttribute("data-suite", "music");
+  await expect(page.getByRole("dialog").getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Escape");
+
   // ⌘P finds a project from anywhere (the music editor has the keyboard here) and Enter opens it.
   await page.keyboard.press("ControlOrMeta+p");
   const search = page.getByRole("dialog");
@@ -2029,9 +2035,10 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await expect(search).toHaveCount(0);
   await expect.poll(() => page.url()).toBe(videoUrl);
 
-  // ⇧⌘O opens the New project picker, and closes it again.
+  // ⇧⌘O opens the New project picker (on Video now, with a video open), and closes it again.
   await page.keyboard.press("ControlOrMeta+Shift+o");
   await expect(page.getByRole("dialog").getByRole("textbox", { name: "Search project types" })).toBeFocused();
+  await expect(page.getByRole("dialog").getByRole("option").first()).toHaveAttribute("data-suite", "video");
   await page.keyboard.press("ControlOrMeta+Shift+o");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
