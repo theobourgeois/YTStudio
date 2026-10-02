@@ -98,3 +98,17 @@ export function resizeRect(start: Rect, edge: ResizeEdge, dx: number, dy: number
 export function unsnapAt(pointer: { x: number; y: number }, grabbed: { fraction: number; dy: number }, size: { width: number; height: number }): Rect {
   return { x: Math.round(pointer.x - grabbed.fraction * size.width), y: Math.max(0, pointer.y - grabbed.dy), ...size };
 }
+
+/**
+ * The `index`th window of a cascade from `origin`, each a `step` further down and right, as FL's
+ * channel windows open. It starts again from the top once the next would reach past the desktop's
+ * bottom or right edge, so a window opens in view however far down its list it comes (and the origin
+ * moves up and left as far as a small desktop needs).
+ */
+export function cascade(index: number, origin: { x: number; y: number }, step: number, size: { width: number; height: number }, desktop: { width: number; height: number }): { x: number; y: number } {
+  const x = Math.max(0, Math.min(origin.x, desktop.width - size.width));
+  const y = Math.max(0, Math.min(origin.y, desktop.height - size.height));
+  const room = Math.min(desktop.width - size.width - x, desktop.height - size.height - y);
+  const k = Math.max(0, index) % (Math.floor(Math.max(0, room) / step) + 1);
+  return { x: x + k * step, y: y + k * step };
+}

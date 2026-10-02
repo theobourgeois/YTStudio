@@ -141,7 +141,7 @@ plain browser (`pnpm dev`) needn't add folders.
 | New files | Seen after Ctrl+R | Seen by themselves (the server watches the folders); Ctrl+R stays |
 | One folder open at a time | The default | Several folders open (the tree you'd expect); Ctrl+Up closes them all |
 | Search | Wildcards and Booleans; results in the tree; F3 to step | **Search as you type** (Théo: a flat list) across every folder, typo-tolerant, ranked (the name before the path), the words in any order ("kick 808" finds `808 Kit/Kick 3.wav`). Results are a flat list with each one's folder, walked with the arrows like the tree. No wildcards or Booleans |
-| Preview | Click: 5 s; Alt+click: all | **Click, or arrowing onto it (Théo: yes): the whole file**, cut off by the next one; Space or Esc stops it. A waveform of the selected file with its playhead; clicking in it plays from there |
+| Preview | Click: 5 s; Alt+click: all | **Pressing it (as the button goes down, not up, so it can be played in time with the song), or arrowing onto it (Théo: yes): the whole file**, cut off by the next one; Space or Esc stops it. A waveform of the selected file with its playhead; clicking in it plays from there |
 | Preview player | Volume, speed, loop, key, Sync | Volume to start with. Sync, key and loop later |
 | Long files | Played from disk | Played **from disk** by the engine (a preview voice, not `SampleCache`), so hearing a whole song costs no memory. The playlist's audio clips will play the same way |
 | Shift+Up/Down | Next file, sent to the channel | The same: audition samples in the playing beat (stopped, the file is previewed too). All the files tried are one undo step: undo brings back the sample from before |
