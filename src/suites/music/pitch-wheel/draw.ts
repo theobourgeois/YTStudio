@@ -148,12 +148,12 @@ export function drawDial(ctx: CanvasRenderingContext2D, scene: DialScene) {
   ctx.fill();
 
   // The sweep's track and the value's arc along the band's inner edge, from 0 to the pointer.
-  const arcRadius = bandInner + 3.5;
+  const arcRadius = bandInner + 2;
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.arc(cx, cy, arcRadius, rad(-135), rad(135));
   ctx.strokeStyle = alpha(c.tick, 0.18);
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 2.5;
   ctx.stroke();
   const pointerAngle = angleOf(scene.pointer, range);
   if (Math.abs(pointerAngle) > 0.5) {
@@ -163,7 +163,7 @@ export function drawDial(ctx: CanvasRenderingContext2D, scene: DialScene) {
     ctx.beginPath();
     ctx.arc(cx, cy, arcRadius, rad(Math.min(0, pointerAngle)), rad(Math.max(0, pointerAngle)));
     ctx.strokeStyle = c.glow;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
     ctx.stroke();
     ctx.restore();
   }
@@ -176,7 +176,7 @@ export function drawDial(ctx: CanvasRenderingContext2D, scene: DialScene) {
   for (const tick of ticks(range)) {
     const angle = angleOf(tick.value, range);
     const [x1, y1] = polar(cx, cy, bandOuter - 1.5, angle);
-    const [x2, y2] = polar(cx, cy, bandOuter - (tick.major ? 7 : 4), angle);
+    const [x2, y2] = polar(cx, cy, bandOuter - (tick.major ? 5 : 3), angle);
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
@@ -185,7 +185,7 @@ export function drawDial(ctx: CanvasRenderingContext2D, scene: DialScene) {
     ctx.stroke();
     if (tick.label) {
       const lit = Math.abs(tick.value - scene.target) < 1e-6;
-      const [lx, ly] = polar(cx, cy, (bandOuter + bandInner) / 2 - 1.5, angle);
+      const [lx, ly] = polar(cx, cy, bandInner + (bandOuter - bandInner) * 0.44, angle);
       ctx.fillStyle = lit ? c.glow : alpha(c.label, 0.72);
       ctx.fillText(tick.label, lx, ly);
     }
