@@ -8,7 +8,7 @@ import { type Take, addTakes } from "@shared/music/recording";
 import { type MixerInput, type MusicProject, PPQ, STEP_TICKS } from "@shared/music/types";
 import { commit, undo } from "@/lib/document-history";
 import { musicApi } from "./api";
-import { useMusicPreferences } from "./preferences";
+import { countInBars, useMusicPreferences } from "./preferences";
 import { useMusic } from "./store";
 import { setRecorder, switchMode, useTransport } from "./transport";
 
@@ -102,7 +102,7 @@ export const useRecording = create<RecordingState>((set, get) => ({
     const at = (pausedAt ?? transport.startOf()) - loop.start;
     const from = at > 0 && at < loop.ticks ? at : 0;
     const options = useMusicPreferences.getState().recording;
-    const countIn = options.countIn * barTicks(song);
+    const countIn = countInBars(options) * barTicks(song);
     const names = Object.fromEntries(tracks.map((id) => [id, trackName(song, id)]));
     useTransport.setState({ pausedAt: null });
     try {

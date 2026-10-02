@@ -13,13 +13,15 @@ const RESAMPLING_KEY = "music-resampling";
 const EXPORT_RESAMPLING_KEY = "music-export-resampling";
 const RECORDING_KEY = "music-recording";
 
-/** The count-ins Record's menu offers, in bars (0: none). */
-export const COUNT_IN_BARS = [0, 1, 2, 4] as const;
+/** How long a count-in can be, in bars (the count-in switch's menu). */
+export const COUNT_IN_BARS = [1, 2, 4] as const;
 
 /** Record's options (its right-click menu), FL Studio's: kept in this browser, the same for every song. */
 export interface RecordingOptions {
-  /** Bars of the metronome's clicks before recording starts (FL's Count-in, Ctrl+P). */
-  countIn: number;
+  /** The metronome counts in before recording starts (FL's Count-in: the toolbar's switch, on by default). */
+  countIn: boolean;
+  /** How many bars it counts in. */
+  countInBars: number;
   /** Go round the time selection (or the song), a take each pass, until stopped (FL's Loop record). */
   loop: boolean;
   /** Hear earlier passes of a loop recording while recording the next (FL's Blend); off, they're muted. */
@@ -28,13 +30,19 @@ export interface RecordingOptions {
   disarmOnStop: boolean;
 }
 
-const DEFAULT_RECORDING: RecordingOptions = { countIn: 1, loop: false, blend: false, disarmOnStop: false };
+const DEFAULT_RECORDING: RecordingOptions = { countIn: true, countInBars: 1, loop: false, blend: false, disarmOnStop: false };
+
+/** Bars of count-in a recording starts with: none while the switch is off. */
+export const countInBars = (options: RecordingOptions) => (options.countIn ? options.countInBars : 0);
 
 function storedRecording(): RecordingOptions {
   try {
-    const raw = JSON.parse(storage.getItem(RECORDING_KEY) ?? "{}") as Partial<RecordingOptions>;
+    const raw = JSON.parse(storage.getItem(RECORDING_KEY) ?? "{}") as Partial<Record<keyof RecordingOptions, unknown>>;
+    // (Kept as a number of bars before there was a switch: 0 was off.)
+    const bars = typeof raw.countIn === "number" ? raw.countIn : raw.countInBars;
     return {
-      countIn: COUNT_IN_BARS.includes(raw.countIn as (typeof COUNT_IN_BARS)[number]) ? (raw.countIn as number) : DEFAULT_RECORDING.countIn,
+      countIn: typeof raw.countIn === "number" ? raw.countIn > 0 : raw.countIn !== false,
+      countInBars: COUNT_IN_BARS.includes(bars as (typeof COUNT_IN_BARS)[number]) ? (bars as number) : DEFAULT_RECORDING.countInBars,
       loop: raw.loop === true,
       blend: raw.blend === true,
       disarmOnStop: raw.disarmOnStop === true,

@@ -1129,11 +1129,13 @@ test("records as FL Studio does: an input device, a track's input arms it, Recor
   await strip.getByRole("button", { name: "Disarm Insert 1" }).click();
   await strip.getByRole("button", { name: "Arm Insert 1 to record" }).click();
 
-  // Record (R), no count-in; Space records (the song's: song mode), the button glows; Space again stops.
+  // Record (R), the count-in switched off (it's on until then); Space records (the song's: song mode),
+  // the button glows; Space again stops.
   const record = page.getByRole("button", { name: "Record", exact: true });
-  await record.click({ button: "right" });
-  await page.getByRole("menuitemradio", { name: "None" }).click();
-  await page.keyboard.press("Escape");
+  const countIn = page.getByRole("button", { name: "Count-in", exact: true });
+  await expect(countIn).toHaveAttribute("aria-pressed", "true");
+  await countIn.click();
+  await expect(countIn).toHaveAttribute("aria-pressed", "false");
   await page.keyboard.press("r");
   await expect(record).toHaveAttribute("aria-pressed", "true");
   // (Nothing focused: Space on a focused button would press it.)
