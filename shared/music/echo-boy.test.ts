@@ -26,6 +26,7 @@ import {
   updateEchoBoy,
   usePattern,
 } from "./echo-boy.ts";
+import { ECHO_PRESETS, loadPreset, presetSettings } from "./echo-boy-library.ts";
 import { DEFAULT_ECHO_BOY, ECHO_BOY_PLUGIN, evenTaps, noteBeats, normalizeEchoBoy } from "./echo-boy-presets.ts";
 import { ECHO_STYLES, decayDb, styleNamed } from "./echo-boy-styles.ts";
 import { setEffect } from "./mixer.ts";
@@ -259,5 +260,26 @@ describe("EchoBoy's automation", () => {
     expect(lane.values.slice(-4).map((v) => round(v, 2))).toEqual([0.4, 0.4, 0.4, 0.4]);
     // Nothing automated, no lanes.
     expect(compileSong(withEchoBoy(), P, null, "song").lanes).toEqual([]);
+  });
+});
+
+describe("EchoBoy's presets", () => {
+  it("each loads valid, named, its pattern laid out", () => {
+    expect(new Set(ECHO_PRESETS.map((p) => p.name)).size).toBe(ECHO_PRESETS.length);
+    for (const preset of ECHO_PRESETS) {
+      const settings = presetSettings(preset, 120);
+      expect(normalizeEchoBoy(settings)).toEqual(settings);
+      expect(settings.preset).toBe(preset.name);
+    }
+    const pedal = presetSettings(ECHO_PRESETS.find((p) => p.name === "Complex Pedal Pattern")!, 120);
+    expect(pedal.rhythm.pattern).toBe("Complex Pedal Pattern");
+    expect(pedal.rhythm.taps).toHaveLength(12);
+    expect(presetSettings(ECHO_PRESETS.find((p) => p.name === "Gated Reflections")!, 120).rhythm.taps.map((t) => t.beat)).toEqual([0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75]);
+  });
+
+  it("loads by name, replacing everything", () => {
+    const song = loadPreset(updateEchoBoy(withEchoBoy(), "fx_echo", { lowCut: 900 }), "fx_echo", "15 ips tape echo");
+    expect(eb(song)).toMatchObject({ preset: "15 ips Tape Echo", lowCut: 20, echo1: { sync: "time", ms: 126.2 }, style: "Studio Tape" });
+    expect(loadPreset(song, "fx_echo", "No such preset")).toBe(song);
   });
 });
