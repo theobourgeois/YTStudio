@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
 import {
   addMixerTracks,
+  canSend,
   createGroup,
   effectToTrack,
   freeSlot,
@@ -310,6 +311,20 @@ export function toggleSend(to: string) {
 
 /** "Route to this track only": the selected tracks' sound goes to `to` and nowhere else. */
 export const sendOnlyTo = (to: string) => commit((doc) => sendSources().reduce((next, from) => sendOnly(next, from, to), doc));
+
+/** The output label's choice: `id` (and the selected tracks with it, if it's one of them) go to `to` alone (their sidechains stay). */
+export const sendOnlyFrom = (id: string, to: string) =>
+  commit((doc) => menuTargets(id).reduce((next, from) => onlyTo(next, from, to), doc));
+
+/** `from`'s sound to `to` alone, its sidechains (sends at 0) kept; nothing if that would loop. */
+function onlyTo(doc: MusicProject, from: string, to: string): MusicProject {
+  const track = getMixerTrack(doc, from);
+  if (!track || from === to || (!track.sends.some((s) => s.to === to) && !canSend(doc, from, to))) return doc;
+  // Its level if it went there already (a sidechain there becomes a send as it is).
+  const level = track.sends.find((s) => s.to === to)?.level || 1;
+  const removed = track.sends.filter((s) => s.level > 0 && s.to !== to).reduce((next, s) => setSend(next, from, s.to, null), doc);
+  return setSend(removed, from, to, level);
+}
 
 /** "Sidechain to this track": sends at 0, which plugins on `to` can hear but the track doesn't. */
 export const sidechainTo = (to: string) => commit((doc) => sendSources().reduce((next, from) => setSend(next, from, to, 0), doc));

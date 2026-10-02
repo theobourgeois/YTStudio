@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -64,6 +65,7 @@ import {
   toggleSoloSafe,
   paintSwitch,
   routeSelectedToNewBus,
+  sendOnlyFrom,
   selectGroup,
   selectOnlyCurrent,
   selectTrackRange,
@@ -75,7 +77,7 @@ import {
   assignAudioTracksTo,
 } from "./actions";
 import { Cables } from "./cables";
-import { type SendState, sendStates } from "./send-states";
+import { type SendState, feeding, sendStates } from "./send-states";
 import { Fader } from "./fader";
 import { Led } from "./led";
 import { ArmButton } from "./arm-button";
@@ -174,6 +176,11 @@ export function MixerWindow() {
     return info;
   }, [docked, mixer.groups]);
   const banded = mixer.groups.length > 0;
+  // Where each track's sound goes, as its strip's output label says it: "M", "12", "3, 5".
+  const outputs = useMemo(() => {
+    const short = (id: string) => (id === MASTER_TRACK_ID ? "M" : String(numbers.get(id)));
+    return new Map(mixer.tracks.map((t) => [t.id, t.sends.filter((s) => s.level > 0).map((s) => short(s.to)).join(", ")]));
+  }, [mixer.tracks, numbers]);
   const heard = useMemo(() => hearing(mixer), [mixer]);
   // Why each track that makes sound isn't heard (a muted bus on its way out), for its strip.
   const unheard = useMemo(() => {
@@ -198,6 +205,7 @@ export function MixerWindow() {
       sendOwner={(sends.get(track.id) as { owner?: string }).owner ?? null}
       sendPartial={(sends.get(track.id) as { partial?: boolean }).partial ?? false}
       meterRef={meterRef(track.id)}
+      output={outputs.get(track.id)!}
       soloedOut={heard.get(track.id)!.soloedOut}
       implied={heard.get(track.id)!.implied}
       unheard={unheard.get(track.id) ?? null}
@@ -360,6 +368,8 @@ interface StripProps {
   /** Only some of the selected tracks that could send to it do. */
   sendPartial: boolean;
   meterRef: (canvas: HTMLCanvasElement | null) => void;
+  /** Where its sound goes, by number ("M", "12", "3, 5"; "" for nowhere). */
+  output: string;
   /** Silenced by other tracks' solo. */
   soloedOut: boolean;
   /** Kept on only because a soloed track's sound goes through it, or it feeds one. */
@@ -376,7 +386,7 @@ interface StripProps {
 }
 
 /** A track's strip, top to bottom: its number, its name beside its meter, mute, pan, fader, send switch. */
-const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, sendOwner, sendPartial, meterRef, soloedOut, implied, unheard, view, separator, groupName, banded }: StripProps) {
+const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, sendOwner, sendPartial, meterRef, output, soloedOut, implied, unheard, view, separator, groupName, banded }: StripProps) {
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
@@ -539,6 +549,8 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         edit={groupKnob(id, "stereo")}
       />
       {view === "extra" && <StripEffects track={track} />}
+      {/* The master goes to the speakers: room kept, so the strips' rows line up. */}
+      {isMaster ? <span className="h-3.5 shrink-0" aria-hidden /> : <OutputLabel id={id} name={name} output={output} />}
       <SendSwitch to={id} name={name} state={sendKind === "sending" ? { kind: "sending", level: sendLevel, owner: sendOwner!, partial: sendPartial } : { kind: sendKind }} />
     </div>
   );
@@ -813,6 +825,55 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
         <ContextMenuItem onSelect={() => sidechainTo(to)}>Sidechain to this track</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/**
+ * Where a track's sound goes, at a glance (Pro Tools' and Logic's output, on every strip): "→ M", "→ 12".
+ * A click picks where it goes instead (and where the selected tracks go, if it's one of them), or a new bus.
+ */
+function OutputLabel({ id, name, output }: { id: string; name: string; output: string }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${name}'s output: ${output || "nowhere"}`}
+          title={output ? `${name} goes to ${output === "M" ? "the master" : output} (click to route it elsewhere)` : `${name} goes nowhere: it isn't heard (click to route it)`}
+          className="h-3.5 w-[calc(100%-6px)] shrink-0 truncate rounded-[2px] px-0.5 font-mono text-[9px] leading-3.5 tabular-nums hover:brightness-125"
+          style={{ background: "var(--mixer-well)", color: output ? "var(--mixer-name)" : "var(--mixer-arm)" }}
+          data-testid="output-label"
+        >
+          → {output || "—"}
+        </button>
+      </DropdownMenuTrigger>
+      <OutputMenu id={id} />
+    </DropdownMenu>
+  );
+}
+
+/** The output label's menu: every track the track can go to (a tick where it goes), and a new bus. Drawn only while open. */
+function OutputMenu({ id }: { id: string }) {
+  const mixer = useSong((song) => song.mixer);
+  const from = mixer.tracks.find((t) => t.id === id);
+  const feeds = useMemo(() => feeding(mixer, id), [mixer, id]);
+  if (!from) return null;
+  return (
+    <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto">
+      <DropdownMenuLabel className="text-[11px] text-muted-foreground">Route to</DropdownMenuLabel>
+      {mixer.tracks.map((t, i) =>
+        t.id === id || feeds.has(t.id) ? null : (
+          <DropdownMenuCheckboxItem key={t.id} checked={from.sends.some((s) => s.to === t.id && s.level > 0)} onSelect={() => sendOnlyFrom(id, t.id)}>
+            <span className="w-6 font-mono text-[10px] text-muted-foreground tabular-nums">{i === 0 ? "M" : i}</span>
+            {t.name ?? (i === 0 ? "Master" : `Insert ${i}`)}
+          </DropdownMenuCheckboxItem>
+        ),
+      )}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onSelect={() => setTimeout(() => routeSelectedToNewBus(id), 0)}>
+        New bus <DropdownMenuShortcut>⌘G</DropdownMenuShortcut>
+      </DropdownMenuItem>
+    </DropdownMenuContent>
   );
 }
 

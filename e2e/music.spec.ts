@@ -1080,6 +1080,12 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   expect((await mixerOf()).slice(5, 7).map((t) => t.sends)).toEqual([[{ to: bus.id, level: 1 }], [{ to: bus.id, level: 1 }]]);
   expect(bus.sends).toEqual([{ to: "master", level: 1 }]);
   await expect(strip("Pads bus")).toHaveAttribute("aria-selected", "true");
+  // Every strip says where it goes; its output label's menu routes it (and the selected tracks with it) elsewhere.
+  await expect(strip("Insert 5").getByTestId("output-label")).toHaveText("→ 7");
+  await strip("Insert 5").getByTestId("output-label").click();
+  await page.getByRole("menuitemcheckbox", { name: /Master/ }).click();
+  await expect.poll(async () => (await mixerOf())[5].sends).toEqual([{ to: "master", level: 1 }]);
+  await expect(strip("Insert 5").getByTestId("output-label")).toHaveText("→ M");
 });
 
 test("an effect goes in a mixer track's slot: chosen from the effect plugins, its window opened by its name, bypassed, moved", async ({ page }) => {
