@@ -7,6 +7,7 @@ import { createId } from "../ids.ts";
 import { clamp, isFiniteNumber } from "../math.ts";
 import { DEFAULT_PROJECT_NAME } from "../suites.ts";
 import { AUTO_TUNE_PLUGIN, isAutoTune, normalizeAutoTune } from "./auto-tune-presets.ts";
+import { ECHO_BOY_PLUGIN, isEchoBoy, normalizeEchoBoy } from "./echo-boy-presets.ts";
 import { GROSS_BEAT_PLUGIN, GROSS_SLOTS, GROSS_SYNCS, GROSS_TICKS, MAX_GROSS_ATTACK, MAX_GROSS_RELEASE, isGrossBeat } from "./gross-beat-presets.ts";
 import {
   AUTO_TUNE_CONTROLS,
@@ -18,6 +19,8 @@ import {
   CURVE_TYPES,
   type Channel,
   type CurveType,
+  ECHO_CONTROLS,
+  type EchoControl,
   type Envelope,
   type GrossBeat,
   type GrossBeatSlot,
@@ -408,6 +411,7 @@ function normalizeEffect(input: unknown, seen: Set<string>): MixerEffect | null 
   // Ours: its settings are the song's (a plugin's are its own, in a file beside it).
   if (isGrossBeat(plugin)) return { ...effect, plugin: GROSS_BEAT_PLUGIN, grossBeat: normalizeGrossBeat(input.grossBeat) };
   if (isAutoTune(plugin)) return { ...effect, plugin: AUTO_TUNE_PLUGIN, autoTune: normalizeAutoTune(input.autoTune) };
+  if (isEchoBoy(plugin)) return { ...effect, plugin: ECHO_BOY_PLUGIN, echoBoy: normalizeEchoBoy(input.echoBoy) };
   return effect;
 }
 
@@ -581,6 +585,8 @@ export function normalizeTarget(raw: unknown): AutomationTarget | null {
       return isId(raw.effect) && GROSS_CONTROLS.includes(raw.control as GrossControl) ? { kind: "grossBeat", effect: raw.effect, control: raw.control as GrossControl } : null;
     case "autoTune":
       return isId(raw.effect) && AUTO_TUNE_CONTROLS.includes(raw.control as AutoTuneControl) ? { kind: "autoTune", effect: raw.effect, control: raw.control as AutoTuneControl } : null;
+    case "echoBoy":
+      return isId(raw.effect) && ECHO_CONTROLS.includes(raw.control as EchoControl) ? { kind: "echoBoy", effect: raw.effect, control: raw.control as EchoControl } : null;
     case "main":
       return { kind: "main" };
     case "plugin":

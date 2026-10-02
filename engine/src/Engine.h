@@ -93,6 +93,8 @@ private:
     gross::Registry grossBeats;
     /** Its Auto-Tunes' sounds, by effect id, likewise. */
     tune::Registry autoTunes;
+    /** Its EchoBoys' sounds, by effect id. */
+    echo::Registry echoBoys;
     Sequencer sequencer;
     /** The Browser's preview of a file, outside the song. */
     FilePreview preview;

@@ -6,6 +6,7 @@
 import { createId } from "../ids.ts";
 import { clamp } from "../math.ts";
 import { AUTO_TUNE_PLUGIN, DEFAULT_AUTO_TUNE, isAutoTune } from "./auto-tune-presets.ts";
+import { DEFAULT_ECHO_BOY, ECHO_BOY_PLUGIN, isEchoBoy } from "./echo-boy-presets.ts";
 import { GROSS_BEAT_PLUGIN, isGrossBeat } from "./gross-beat-presets.ts";
 import { DEFAULT_GROSS_BEAT, EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_OFFSET, MAX_INSERTS, MAX_LATENCY_OFFSET, MAX_NAME, createMixerTrack, normalizeInput, reaches, trimTracks } from "./project.ts";
 import type { Channel, MixerEffect, MixerGroup, MixerSend, MixerTrack, MusicProject, PluginRef } from "./types.ts";
@@ -321,6 +322,7 @@ export function setEffect(song: MusicProject, trackId: string, slot: number, plu
 function newEffect(plugin: PluginRef, id: string): MixerEffect {
   if (isGrossBeat(plugin)) return { id, plugin: GROSS_BEAT_PLUGIN, enabled: true, mix: 1, grossBeat: DEFAULT_GROSS_BEAT };
   if (isAutoTune(plugin)) return { id, plugin: AUTO_TUNE_PLUGIN, enabled: true, mix: 1, autoTune: DEFAULT_AUTO_TUNE };
+  if (isEchoBoy(plugin)) return { id, plugin: ECHO_BOY_PLUGIN, enabled: true, mix: 1, echoBoy: DEFAULT_ECHO_BOY };
   return { id, plugin, enabled: true, mix: 1 };
 }
 

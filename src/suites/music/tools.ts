@@ -5,6 +5,7 @@
  */
 import { createId } from "@shared/ids";
 import { AUTO_TUNE_PLUGIN } from "@shared/music/auto-tune-presets";
+import { ECHO_BOY_PLUGIN } from "@shared/music/echo-boy-presets";
 import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
@@ -66,6 +67,7 @@ import { matches, pluginOwners, songControls } from "./automation/controls";
 import { usePlaylist } from "./playlist/store";
 import { pitchHistory } from "./auto-tune/pitch-history";
 import { describeAutoTune, findTune, updateAutoTuneTool } from "./auto-tune/tool-edits";
+import { describeEchoBoy, updateEchoBoyTool } from "./echo-boy/tool-edits";
 import { describeGrossBeat, setGrossBeatSlotTool, updateGrossBeatTool } from "./gross-beat/tool-edits";
 import { useBrowser } from "./browser/store";
 import {
@@ -324,6 +326,15 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "It comes hard-tuned (retune speed 0), Alto/Tenor, C Chromatic: set the song's key with update_auto_tune (key and scale, or detectKey), and its sound (a preset, or retune speed, humanize, flex-tune).",
       );
     }
+    if (wanted === ECHO_BOY_PLUGIN.name.toLowerCase() || wanted === ECHO_BOY_PLUGIN.id || wanted === "echo boy") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, ECHO_BOY_PLUGIN, id));
+      return textResult(
+        `Put EchoBoy (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}: Single Echo at an eighth note, Studio Tape. ` +
+          "update_echo_boy sets it (a preset, its mode, times, style...); get_echo_boy reads it.",
+      );
+    }
     const effects = (await musicApi.listEnginePlugins()).filter((p) => !p.isInstrument);
     const plugin = effects.find((p) => p.id.toLowerCase() === wanted) ?? effects.find((p) => p.name.toLowerCase() === wanted);
     if (!plugin) throw new Error(`There's no effect plugin "${String(input.plugin)}" on this computer. The ones found: ${effects.map((p) => p.name).join(", ") || "none"}.`);
@@ -334,6 +345,10 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
     );
   },
   update_mixer_effect: edit(updateMixerEffectTool),
+  async get_echo_boy(input, ctx) {
+    return textResult(describeEchoBoy((await targetOf(ctx)).song, input));
+  },
+  update_echo_boy: edit((song, input) => updateEchoBoyTool(song, input)),
   async get_gross_beat(input, ctx) {
     return textResult(describeGrossBeat((await targetOf(ctx)).song, input));
   },

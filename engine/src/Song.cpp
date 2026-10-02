@@ -123,7 +123,7 @@ int Song::channelIndex (const juce::String& id) const
     return -1;
 }
 
-std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, juce::StringArray& unreadable,
+std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, PluginHost& plugins, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, juce::StringArray& unreadable,
                                   int capacity, double sampleRate, bool keepOnly)
 {
     auto song = std::make_unique<Song>();
@@ -238,7 +238,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
     std::stable_sort (song->audioClips.begin(), song->audioClips.end(), [] (const AudioClip& a, const AudioClip& b) { return a.tick < b.tick; });
 
     // The mixer's tracks. A song without them (or with none) has a master alone, as it was before.
-    juce::StringArray effectIds, grossIds, tuneIds;
+    juce::StringArray effectIds, grossIds, tuneIds, echoIds;
     if (const auto* list = json["tracks"].getArray())
         for (const auto& item : *list)
         {
@@ -279,6 +279,16 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
                         effect.tuneSettings = tune::Settings::parse (slot["autoTune"]);
                         effect.tune = autoTunes.get (id, sampleRate, effect.tuneSettings->minHz, capacity);
                         tuneIds.add (id);
+                        track.effects.push_back (std::move (effect));
+                        continue;
+                    }
+                    // EchoBoy is ours too: its lines are kept across songs, so a knob turned doesn't cut its echoes off.
+                    if (plugin["id"].toString() == "vaudio:echo-boy")
+                    {
+                        Track::Effect effect { id, nullptr, (bool) slot["enabled"], (float) number (slot["mix"], 1, 0, 1) };
+                        effect.echoSettings = echo::Settings::parse (slot["echoBoy"], capacity);
+                        effect.echo = echoBoys.get (id, sampleRate);
+                        echoIds.add (id);
                         track.effects.push_back (std::move (effect));
                         continue;
                     }
@@ -368,6 +378,7 @@ std::unique_ptr<Song> Song::parse (const juce::var& json, SampleCache& samples, 
         effects.keepOnly (effectIds);
         grossBeats.keepOnly (grossIds);
         autoTunes.keepOnly (tuneIds);
+        echoBoys.keepOnly (echoIds);
     }
 
     std::stable_sort (song->notes.begin(), song->notes.end(), [] (const Note& a, const Note& b) { return a.tick < b.tick; });
@@ -460,6 +471,23 @@ void Song::parseLanes (Song& song, const juce::var& json)
             const double base[] = { s.retune, s.humanize, s.flexTune, s.vibratoGain, s.transpose, s.throat, (double) s.key };
             lane.base[0] = (float) base[control];
         }
+        else if (kind == "echo")
+        {
+            // An EchoBoy's lane (`EchoLane`), as many values as it moves (the delays: one a line).
+            lane.kind = Lane::Kind::echo;
+            lane.track = (int) number (target["track"], -1, -1, 1e6);
+            if (lane.track < 0 || lane.track >= (int) song.tracks.size())
+                continue;
+            const auto& track = song.tracks[(size_t) lane.track];
+            lane.index = (int) number (target["effect"], -1, -1, 1e6);
+            if (lane.index < 0 || lane.index >= (int) track.effects.size() || track.effects[(size_t) lane.index].echoSettings == nullptr)
+                continue;
+            const auto control = juce::StringArray { "mix", "feedback", "delays", "lowCut", "highCut", "saturation", "input", "output", "feel", "side" }.indexOf (target["control"].toString());
+            if (control < 0)
+                continue;
+            lane.control = control;
+            track.effects[(size_t) lane.index].echoSettings->get ((echo::Control) control, lane.base.data(), lane.size);
+        }
         else if (kind == "param")
         {
             lane.kind = Lane::Kind::param;
@@ -498,8 +526,10 @@ void Song::parseLanes (Song& song, const juce::var& json)
         auto last = 0.0;
         for (const auto& tick : *ticks)
             lane.ticks.push_back (last = juce::jmax (last, number (tick, last, 0, 1e9)));
+        // (An EchoBoy's cuts are in Hz.)
+        const auto most = lane.kind == Lane::Kind::echo ? 1e5 : 64.0;
         for (const auto& value : *values)
-            lane.values.push_back ((float) number (value, 0, -64, 64));
+            lane.values.push_back ((float) number (value, 0, -most, most));
         song.lanes.push_back (std::move (lane));
     }
 }

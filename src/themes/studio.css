@@ -76,6 +76,8 @@
   --tune-sharp: #d9731f;
   --tune-flat: #2f86e0;
   --tune-bypass: #d9a21f;
+  /* EchoBoy's Rhythm Echo: the "One" (a tap on beat one) is yellow, as in EchoBoy. */
+  --echo-one: #e0a91c;
   --clip-video: #5a86d6;
   --clip-audio: #3b9c7c;
   --clip-graphic: #9a6fd0;
@@ -238,6 +240,7 @@
   --tune-sharp: #f09a4b;
   --tune-flat: #58a8f5;
   --tune-bypass: #e8b84a;
+  --echo-one: #f2c94c;
   --clip-video: #4169ac;
   --clip-audio: #2d7661;
   --clip-graphic: #6d4fa3;

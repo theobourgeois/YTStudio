@@ -121,6 +121,8 @@ export interface EngineTransport {
   grossBeats?: Record<string, EngineGrossState>;
   /** Each Auto-Tune in the song (by effect id): the pitches it heard and played lately (absent from engines that don't say). */
   autoTunes?: Record<string, EngineAutoTuneState>;
+  /** Each EchoBoy in the song (by effect id): its levels in and out, for its LEDs (absent from engines that don't say). */
+  echoBoys?: Record<string, EngineEchoLevels>;
 }
 
 /**
@@ -133,6 +135,12 @@ export interface EngineAutoTuneState {
   latency: number;
   step: number;
   points: [number, number, number, number][];
+}
+
+/** What an EchoBoy hears: the peaks (each side, 1 full scale, falling) into its echo and out of it. */
+export interface EngineEchoLevels {
+  input: [number, number];
+  output: [number, number];
 }
 
 /**

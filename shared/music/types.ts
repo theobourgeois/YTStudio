@@ -138,7 +138,7 @@ export interface Pattern {
 /**
  * An effect in a mixer track's slot: an effect plugin, or one of ours, whose settings are in the song
  * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
- * `AUTO_TUNE_PLUGIN` and `autoTune`).
+ * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -150,6 +150,8 @@ export interface MixerEffect {
   mix: number;
   /** Gross Beat's settings, on a Gross Beat (absent on a plugin). */
   grossBeat?: GrossBeat;
+  /** EchoBoy's settings, on an EchoBoy (absent on a plugin). */
+  echoBoy?: EchoBoy;
   /** Auto-Tune's settings, on an Auto-Tune (absent on a plugin). */
   autoTune?: AutoTune;
 }
@@ -436,6 +438,148 @@ export interface Playlist {
   clips: PlaylistClip[];
 }
 
+/** EchoBoy's modes (`docs/soundtoys/echoboy-manual.md`): its four echo algorithms. */
+export const ECHO_MODES = ["single", "dual", "pingPong", "rhythm"] as const;
+export type EchoMode = (typeof ECHO_MODES)[number];
+/** How an echo's time is set: milliseconds, or a note value at the tempo (straight, dotted, triplet). */
+export const ECHO_SYNCS = ["time", "note", "dot", "trip"] as const;
+export type EchoSync = (typeof ECHO_SYNCS)[number];
+/** The note values an echo can be (EchoBoy's 1/2 to 1/64 note), as fractions of a whole note's denominator. */
+export const ECHO_NOTES = [2, 4, 8, 16, 32, 64] as const;
+export type EchoNote = (typeof ECHO_NOTES)[number];
+
+/**
+ * An echo's time: its sync and, kept apart, its milliseconds and its note value (switching between Time
+ * and Note goes back to the last of each, as EchoBoy's separate parameters do).
+ */
+export interface EchoTime {
+  sync: EchoSync;
+  ms: number;
+  note: EchoNote;
+}
+
+/** The Style Editor's saturation types (EchoBoy's nine). */
+export const ECHO_SATURATIONS = ["clean", "tape", "warm", "pump", "dirt", "hardLimit", "softLimit", "warmLimit", "brightLimit"] as const;
+export type EchoSaturation = (typeof ECHO_SATURATIONS)[number];
+/** The Style Editor's wobble shapes. */
+export const ECHO_WOBBLES = ["triangle", "sine", "square", "randomWalk", "randomHold"] as const;
+export type EchoWobble = (typeof ECHO_WOBBLES)[number];
+
+/** A band of the Style Editor's EQ. Gain (dB) is how the first repeat sounds; Decay (dB) what each further repeat gains or loses. */
+export interface EchoBand {
+  /** Hz. */
+  freq: number;
+  gain: number;
+  decay: number;
+}
+
+/**
+ * An Echo Style: the Style Editor's settings, what gives the repeats their colour. The factory styles
+ * are settings of these (`ECHO_STYLES`).
+ */
+export interface EchoStyle {
+  /** A gentle shelf below `freq`, a peak at `mid.freq` (narrowed and deepened by `res`, -12..24), a gentle shelf above `high.freq`. */
+  low: EchoBand;
+  mid: EchoBand & { res: number };
+  high: EchoBand;
+  /** 0..1 of the smear; its size (0..50, ms); in the feedback loop (each repeat more diffused) or after it. */
+  diffusion: { amount: number; size: number; loop: boolean };
+  /** Pitch wobble: depth (cents, 0..1200), rate (Hz), sync (-1 different rates per path .. 0 the same .. 1 phase offsets), shape; on the repeats (in the loop) and / or on the output. */
+  wobble: { depth: number; rate: number; sync: number; shape: EchoWobble; feedback: boolean; out: boolean };
+  /** dB of drive (-24..24) in the loop (each repeat driven again) and on the echo's output, and their kind. */
+  saturation: { decay: number; out: number; type: EchoSaturation };
+}
+
+/** Rhythm Echo's amplitude shapes across its taps. */
+export const RHYTHM_SHAPES = ["decay", "reverse", "swell", "fade", "nonLin"] as const;
+export type RhythmShape = (typeof RHYTHM_SHAPES)[number];
+/** Rhythm Echo's pan shapes. */
+export const PAN_SHAPES = ["double", "center", "alt1", "alt2", "alt3", "sweepL", "sweepR", "pan"] as const;
+export type PanShape = (typeof PAN_SHAPES)[number];
+
+/** A Rhythm Echo tap: where it is in the pattern (beats from its start) and its level (0..1). */
+export interface RhythmTap {
+  beat: number;
+  level: number;
+}
+
+/** Rhythm Echo: one delay line read by up to 16 taps on a beat grid, the whole pattern fed back. */
+export interface EchoRhythm {
+  /** The Rhythm knob: the spacing it lays taps out at. */
+  time: EchoTime;
+  /** In order of `beat`, none past `length`. */
+  taps: RhythmTap[];
+  /** 1..16: how many taps the Rhythm knob lays out. */
+  repeats: number;
+  /** The pattern's name (a factory pattern's, "Custom" once a tap is edited). */
+  pattern: string;
+  shape: RhythmShape;
+  /** 0..1: how much `shape` sets the taps' levels. */
+  shapeAmount: number;
+  panShape: PanShape;
+  /** -1..1: Accent with a synced Rhythm, Warp (taps drawn to the pattern's start or end) with Time. */
+  accent: number;
+  /** A note value: the grid taps snap to. */
+  grid: EchoNote;
+  /** Beats, 1..8. */
+  length: number;
+}
+
+/** EchoBoy's settings (`docs/soundtoys/echoboy-manual.md`): the main panel, each mode's Tweak, the style. */
+export interface EchoBoy {
+  mode: EchoMode;
+  /** Single's Echo Time, Dual's Echo 1, Ping-Pong's Ping. */
+  echo1: EchoTime;
+  /** Dual's Echo 2, Ping-Pong's Pong. */
+  echo2: EchoTime;
+  rhythm: EchoRhythm;
+  /** 0..1: dry to wet; at 0.5 both are full (EchoBoy's 50/50). */
+  mix: number;
+  /** 0..1: Min to Max (past about 0.9 it runs away, held by the saturation). */
+  feedback: number;
+  /** Hz: the repeats' low and high cuts. */
+  lowCut: number;
+  highCut: number;
+  primeNumbers: boolean;
+  /** 0..1, 0.5 the style as it's made: less or more drive in its saturation. */
+  saturation: number;
+  /** dB, -24..24: into the echo and out of it (the dry sound is never touched). */
+  input: number;
+  output: number;
+  /** The Echo Style's name (`ECHO_STYLES`). */
+  style: string;
+  /** The style as edited in the Style Editor (EchoBoy then says Custom), or null: the named style as it is. */
+  custom: EchoStyle | null;
+  /** On (MIDI): the song's tempo; off, EchoBoy's own (`bpm`, typed or tapped). */
+  followTempo: boolean;
+  bpm: number;
+  /** -1 (Shuffle) .. 1 (Swing): every other repeat later or earlier. */
+  groove: number;
+  /** -1 (Rushin') .. 1 (Draggin'): every echo earlier or later. */
+  feel: number;
+  // Tweak
+  /** 0..1: stereo width (past 0.75, wider than the speakers). */
+  width: number;
+  /** ms, 0..25: the right side's echoes this much later (heard with Width up). */
+  offset: number;
+  /** -1..1: odd repeats louder (+) or even ones (-); Dual's Accent 1. */
+  accent: number;
+  /** Dual's Accent 2. */
+  accent2: number;
+  /** -1..1: the echoes' left / right balance (Dual, Ping-Pong). */
+  balance: number;
+  /** 0 (each echo feeds itself) .. 0.5 (both equally) .. 1 (each feeds the other): Dual's FB Mix. */
+  feedbackMix: number;
+  /** -1..1: Dual's FB Bal, more feedback on the left or the right. */
+  feedbackBalance: number;
+  /** The preset last loaded (its name), or null. */
+  preset: string | null;
+}
+
+/** EchoBoy's controls an automation clip can drive. */
+export const ECHO_CONTROLS = ["mix", "feedback", "echo1", "echo2", "lowCut", "highCut", "saturation", "input", "output", "groove", "feel", "width"] as const;
+export type EchoControl = (typeof ECHO_CONTROLS)[number];
+
 /**
  * The control an automation clip drives (`docs/fl-studio/automation.md`): a channel's volume or pan, a
  * mixer track's fader, pan or stereo separation, a send's level, an effect slot's mix, the main volume,
@@ -448,6 +592,7 @@ export type AutomationTarget =
   | { kind: "effect"; effect: string }
   | { kind: "grossBeat"; effect: string; control: GrossControl }
   | { kind: "autoTune"; effect: string; control: AutoTuneControl }
+  | { kind: "echoBoy"; effect: string; control: EchoControl }
   | { kind: "main" }
   | {
       kind: "plugin";

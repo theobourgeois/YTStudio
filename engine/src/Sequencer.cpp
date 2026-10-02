@@ -516,7 +516,7 @@ void Sequencer::applyLanes (int numSamples)
     for (auto& lane : song->lanes)
     {
         lane.valueAt (sliceStart, start.data());
-        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::tune && lane.kind != Song::Lane::Kind::param)
+        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::tune && lane.kind != Song::Lane::Kind::echo && lane.kind != Song::Lane::Kind::param)
         {
             lane.valueAt (sliceEnd, end.data());
             for (int c = 0; c < lane.size; ++c)
@@ -567,6 +567,10 @@ void Sequencer::applyLanes (int numSamples)
             case Song::Lane::Kind::tune:
                 // An Auto-Tune's control, likewise.
                 song->tracks[(size_t) lane.track].effects[(size_t) lane.index].tuneSettings->setControl (lane.control, start[0]);
+                break;
+            case Song::Lane::Kind::echo:
+                // An EchoBoy's, likewise (its delays glide or crossfade there, its gains glide).
+                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].echoSettings->set ((echo::Control) lane.control, start.data(), lane.size);
                 break;
             case Song::Lane::Kind::param:
             {
@@ -628,6 +632,9 @@ void Sequencer::restoreLanes (Song& from)
                 break;
             case Song::Lane::Kind::tune:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].tuneSettings->setControl (lane.control, lane.base[0]);
+                break;
+            case Song::Lane::Kind::echo:
+                from.tracks[(size_t) lane.track].effects[(size_t) lane.index].echoSettings->set ((echo::Control) lane.control, lane.base.data(), lane.size);
                 break;
             case Song::Lane::Kind::param:
                 if (lane.lastSet > -2.0f)
@@ -921,6 +928,13 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
             else
                 effect.tune->skipped();
         }
+        else if (effect.echo != nullptr)
+        {
+            if (effect.enabled)
+                runEchoBoy (effect, l, r, numSamples);
+            else
+                effect.echo->skipped();
+        }
 
     // The fader, pan and mute: each side out from both sides in (gliding after a new song, or automated).
     glide = glide || track.automated;
@@ -962,6 +976,25 @@ void Sequencer::runGrossBeat (const Song::Track::Effect& effect, float* left, fl
     }
     effect.gross->process (settings, grossClock, left, right, numSamples);
     if (mix >= 1.0f)
+        return;
+    juce::FloatVectorOperations::multiply (left, mix, numSamples);
+    juce::FloatVectorOperations::multiply (right, mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (left, dry.getReadPointer (0), 1.0f - mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
+}
+
+void Sequencer::runEchoBoy (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
+{
+    // Its own Mix is in it (dry and wet); the slot's mix is heard against the sound coming in, as a plugin's.
+    const auto mix = effect.mix;
+    auto& dry = effect.echoSettings->dryBuffer;
+    if (mix < 1.0f && numSamples <= dry.getNumSamples())
+    {
+        dry.copyFrom (0, 0, left, numSamples);
+        dry.copyFrom (1, 0, right, numSamples);
+    }
+    effect.echo->process (*effect.echoSettings, left, right, numSamples);
+    if (mix >= 1.0f || numSamples > dry.getNumSamples())
         return;
     juce::FloatVectorOperations::multiply (left, mix, numSamples);
     juce::FloatVectorOperations::multiply (right, mix, numSamples);
