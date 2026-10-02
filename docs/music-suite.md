@@ -44,6 +44,7 @@ put together and how we use its manual).
 | Export | ⌘R / ⌘⇧R: the save dialog, then FL's export window. Song or pattern, cut or ring out, WAV / MP3 / FLAC / OGG / M4A / MIDI from one render, stems in time with the mix, the plugin delay trimmed, plugins in their offline mode, every core (45× real time with 24 Serums). The song can be edited while it renders. Resampling (linear, Hermite, sinc) chosen in Settings. `export_song` for the assistant | `docs/fl-studio/export.md` |
 | Recording | FL's: an input device (an interface, or the Mac's mic), a mixer track's input (choosing it arms the track), monitoring through the track's effects, Record (R) and its count-in, a take per armed track placed where it was recorded (on the track's audio track, or the first free one), Loop record (a take each pass, the earlier muted unless Blend), latency left out; `list_audio_inputs`, `arm_tracks`, `record_audio` for the assistant | `docs/fl-studio/recording.md` |
 | Gross Beat | FL's time and volume effect, ours, in any effect slot: 36 time and 36 volume slots (FL's preset names), the mapping panel edited FL's way (points, tension, the curve types, Pitch ±1 semitone, snap, step editing, slide, freeze, the tools), trig and pos sync, one-shot, link slots, HOLD (Last / Next), the scratching clock, ATT / REL / TNS, click reduction, HQ; its slots automated for chop arrangements; native in the engine, tested to the sample; `get_gross_beat`, `update_gross_beat`, `set_gross_beat_slot` | `docs/fl-studio/gross-beat.md` |
+| Pro-Q | FabFilter's Pro-Q 3, ours, in any effect slot: 24 bands of 9 shapes and every slope (Brickwall on cuts), FabFilter's Q and slope conventions, stereo / left / right / mid / side, dynamic bands (Auto or set threshold), Zero Latency (analog-matched), Natural Phase (analog phase, 7.3 ms) and Linear Phase (Pro-Q's latencies), the analyzer (pre, post, another Pro-Q's, tilt, freeze), Spectrum Grab, collisions, EQ Match, solo, Auto Gain, Gain Scale, Gain-Q, A/B, presets, the piano display, Pro-Q's gestures and look; native in the engine, measured against the analog curves offline; `get_pro_q`, `set_pro_q_bands`, `update_pro_q` | `docs/fabfilter/pro-q.md` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
 
 ### How it's built, in one screen
@@ -73,7 +74,7 @@ The tab (src/suites/music/)                 The server (server/music/)          
 
 The detailed lists are at the end of each reference doc. The main ones:
 
-- **The mixer has no track EQ yet** (put off: Théo uses Pro-Q). No effect plugins on channels (the bench in the
+- **The mixer has no track EQ of FL's** (put off: Théo uses Pro-Q, and Pro-Q is now built in). No effect plugins on channels (the bench in the
   audio settings can load one, for testing only).
 - Audio clips have no fades, gain, stretch or precomputed effects (their pitch works, as FL's Resample).
 - Automation has no tempo, channel pitch or other channel controls yet, no Step and Slide modes, and one
