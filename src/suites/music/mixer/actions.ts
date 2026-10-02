@@ -39,6 +39,7 @@ import { musicApi } from "../api";
 import { selectedIds as selectedChannelIds } from "../rack-actions";
 import { useMusic } from "../store";
 import { currentTrackId, useMusicUi } from "../ui";
+import { sendToggle } from "./send-states";
 import { useMixerView } from "./view";
 
 const song = (): MusicProject | null => useMusic.getState().history?.doc ?? null;
@@ -241,19 +242,44 @@ export const renameMixerGroup = (groupId: string, name: string) => commit((doc) 
 /** Colour a track, or every selected track if it's one of them. */
 export const colourTrack = (id: string, color: string | null) => commit((doc) => updateMixerTracks(doc, menuTargets(id), { color }));
 
-/** The current track sends to `to`, or stops (a click on the send switch). */
-export function toggleSend(to: string, from = currentTrack()) {
+/** The tracks sends are made from: every selected track, the current one first. */
+export function sendSources(): string[] {
+  const current = currentTrack();
+  return [current, ...selectedTracks().filter((id) => id !== current)];
+}
+
+/**
+ * A click on a track's send switch: the selected tracks stop sending to `to` if they all do, else the ones
+ * that don't (and can) start (`sendToggle`).
+ */
+export function toggleSend(to: string) {
   commit((doc) => {
-    const sending = getMixerTrack(doc, from)?.sends.some((s) => s.to === to);
-    return setSend(doc, from, to, sending ? null : 1);
+    const { remove, add } = sendToggle(doc.mixer, sendSources(), to);
+    const removed = remove.reduce((next, from) => setSend(next, from, to, null), doc);
+    return add.reduce((next, from) => setSend(next, from, to, 1), removed);
   });
 }
 
-/** "Route to this track only": the current track's sound goes to `to` and nowhere else. */
-export const sendOnlyTo = (to: string, from = currentTrack()) => commit((doc) => sendOnly(doc, from, to));
+/** "Route to this track only": the selected tracks' sound goes to `to` and nowhere else. */
+export const sendOnlyTo = (to: string) => commit((doc) => sendSources().reduce((next, from) => sendOnly(next, from, to), doc));
 
-/** "Sidechain to this track": a send at 0, which plugins on `to` can hear but the track doesn't. */
-export const sidechainTo = (to: string, from = currentTrack()) => commit((doc) => setSend(doc, from, to, 0));
+/** "Sidechain to this track": sends at 0, which plugins on `to` can hear but the track doesn't. */
+export const sidechainTo = (to: string) => commit((doc) => sendSources().reduce((next, from) => setSend(next, from, to, 0), doc));
+
+/**
+ * A send knob as an edit of every selected track's send to `to` (`owner`'s is the one it shows). Dragged,
+ * each moves by as much as `owner`'s from where it started; set outright, they all take the value.
+ */
+export function groupSend(to: string, owner: string) {
+  return (doc: MusicProject, value: number): MusicProject => {
+    const base = useMusic.getState().history?.gestureBase ?? doc;
+    const levelIn = (song: MusicProject, from: string) => getMixerTrack(song, from)?.sends.find((s) => s.to === to)?.level;
+    const senders = sendSources().filter((from) => levelIn(doc, from) !== undefined);
+    const dragged = useMusic.getState().history?.gestureBase != null;
+    const delta = value - (levelIn(base, owner) ?? value);
+    return senders.reduce((next, from) => setSend(next, from, to, dragged ? (levelIn(base, from) ?? levelIn(doc, from)!) + delta : value), doc);
+  };
+}
 
 /**
  * The track menu's "Selected tracks to this track": each selected track (but `to`) sends to it, alone

@@ -1254,6 +1254,19 @@ test("a mixer track's own controls, as FL Studio's: phase, swap, stereo separati
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(1);
   await strip("Insert 3").getByRole("button", { name: "Send to Insert 3" }).click();
   await expect(page.getByTestId("cables").locator("path")).toHaveCount(2);
+  // With insert 2 selected too, both are sources: insert 3's switch is half lit (only insert 1 sends there), and a
+  // click sends both there, a cable from each; clicked again, neither does.
+  await strip("Insert 2").locator("canvas").click({ modifiers: ["ControlOrMeta", "Shift"] });
+  await expect(strip("Insert 3").getByRole("button", { name: "Send to Insert 3" })).toHaveAttribute("data-partial", "true");
+  await expect(page.getByTestId("cables").locator("path")).toHaveCount(3);
+  await strip("Insert 3").getByRole("button", { name: "Send to Insert 3" }).click();
+  await expect.poll(async () => (await track(2)).sends.map((s: { to: string }) => s.to)).toEqual(["master", "insert_3"]);
+  await expect(page.getByTestId("cables").locator("path")).toHaveCount(4);
+  await strip("Insert 3").getByRole("button", { name: "Stop sending to Insert 3" }).click();
+  await expect.poll(async () => [(await track(1)).sends.length, (await track(2)).sends.length]).toEqual([1, 1]);
+  await strip("Insert 1").locator("canvas").click();
+  await strip("Insert 3").getByRole("button", { name: "Send to Insert 3" }).click();
+  await expect(page.getByTestId("cables").locator("path")).toHaveCount(2);
   // Scrolled (Wide, so the strips overflow), a cable's end is on its track's send knob as soon as the scroll is (it doesn't lag a frame behind the strips).
   await page.getByRole("button", { name: "Mixer view: Compact" }).click();
   const offBy = () =>

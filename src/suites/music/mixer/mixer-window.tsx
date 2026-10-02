@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { setMixerVolumes, setSend, trackName, updateMixerTrack } from "@shared/music/mixer";
+import { setMixerVolumes, trackName, updateMixerTrack } from "@shared/music/mixer";
 import { SELECTION_METER } from "@shared/music/engine";
 import { type Hearing, cutOffBy, hearing } from "@shared/music/solo";
 import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
@@ -68,10 +68,12 @@ import {
   groupKnob,
   setTrackSwitch,
   toggleSend,
+  groupSend,
   toggleTrackMute,
   assignAudioTracksTo,
 } from "./actions";
 import { Cables } from "./cables";
+import { type SendState, sendStates } from "./send-states";
 import { Fader } from "./fader";
 import { Led } from "./led";
 import { ArmButton } from "./arm-button";
@@ -82,17 +84,6 @@ import { Inspector } from "./inspector";
 import { delayText, offsetText, pluginDelay } from "./latency";
 import { MIXER_VIEWS, type MixerViewKind, STRIP_WIDTHS, VIEW_NAMES, trackAt, useMixerView } from "./view";
 
-
-/** What a track's send switch shows, for the current track (the one sends are made from). */
-type SendState =
-  /** It's the current track: the source. */
-  | { kind: "source" }
-  /** The current track sends to it, at this level. */
-  | { kind: "sending"; level: number }
-  /** A click makes the current track send to it. */
-  | { kind: "available" }
-  /** Its sound reaches the current track already (a send would make a loop), or the current track is the master. */
-  | { kind: "unavailable" };
 
 /** Strips drawn past each edge of the view, so a scroll doesn't show an empty one before they're drawn. */
 const OVERSCAN = 4;
@@ -123,16 +114,6 @@ function useVisibleStrips(scroller: React.RefObject<HTMLDivElement | null>, coun
   return [first, Math.max(first, last)];
 }
 
-/** The tracks whose sound reaches `id` (through sends), `id` included. */
-function feeding(mixer: Mixer, id: string): Set<string> {
-  const into = new Map<string, string[]>();
-  for (const track of mixer.tracks) for (const send of track.sends) into.set(send.to, [...(into.get(send.to) ?? []), track.id]);
-  const found = new Set<string>([id]);
-  const stack = [id];
-  while (stack.length) for (const from of into.get(stack.pop()!) ?? []) if (!found.has(from)) found.add(from), stack.push(from);
-  return found;
-}
-
 /**
  * The Mixer (F9), FL Studio's (`docs/fl-studio/mixer.md`): the master and the insert tracks as strips
  * (name, meter, mute, pan, fader), the row of send switches along the bottom for the selected track,
@@ -150,18 +131,9 @@ export function MixerWindow() {
   const view = useMixerView((s) => s.view);
   const stripWidth = STRIP_WIDTHS[view];
 
-  const sendStates = useMemo(() => {
-    const from = mixer.tracks.find((t) => t.id === current)!;
-    const feeds = feeding(mixer, current);
-    return new Map(
-      mixer.tracks.map((t): [string, SendState] => {
-        if (t.id === current) return [t.id, { kind: "source" }];
-        const send = from.sends.find((s) => s.to === t.id);
-        if (send) return [t.id, { kind: "sending", level: send.level }];
-        return [t.id, current === MASTER_TRACK_ID || feeds.has(t.id) ? { kind: "unavailable" } : { kind: "available" }];
-      }),
-    );
-  }, [mixer, current]);
+  // Every selected track is a source of the send row, the current one first.
+  const sources = useMemo(() => [current, ...selectedIds.filter((id) => id !== current && mixer.tracks.some((t) => t.id === id))], [current, selectedIds, mixer.tracks]);
+  const sends = useMemo(() => sendStates(mixer, sources), [mixer, sources]);
 
   // A track just added, or selected by a key, scrolls into view.
   useEffect(() => {
@@ -219,8 +191,10 @@ export function MixerWindow() {
       number={number}
       selected={selectedIds.includes(track.id)}
       current={track.id === current}
-      sendKind={sendStates.get(track.id)!.kind}
-      sendLevel={(sendStates.get(track.id) as { level?: number }).level ?? 0}
+      sendKind={sends.get(track.id)!.kind}
+      sendLevel={(sends.get(track.id) as { level?: number }).level ?? 0}
+      sendOwner={(sends.get(track.id) as { owner?: string }).owner ?? null}
+      sendPartial={(sends.get(track.id) as { partial?: boolean }).partial ?? false}
       meterRef={meterRef(track.id)}
       soloedOut={heard.get(track.id)!.soloedOut}
       implied={heard.get(track.id)!.implied}
@@ -284,7 +258,7 @@ export function MixerWindow() {
               {docked.right.map((track) => strip(track))}
             </div>
           )}
-          <Cables area={area} mixer={mixer} current={current} />
+          <Cables area={area} mixer={mixer} sources={sources} />
         </div>
         <Inspector trackId={current} />
       </div>
@@ -376,6 +350,10 @@ interface StripProps {
   /** Its send switch (as plain values, so a strip only renders again when its own changes). */
   sendKind: SendState["kind"];
   sendLevel: number;
+  /** The selected track whose send its knob shows. */
+  sendOwner: string | null;
+  /** Only some of the selected tracks that could send to it do. */
+  sendPartial: boolean;
   meterRef: (canvas: HTMLCanvasElement | null) => void;
   /** Silenced by other tracks' solo. */
   soloedOut: boolean;
@@ -393,7 +371,7 @@ interface StripProps {
 }
 
 /** A track's strip, top to bottom: its number, its name beside its meter, mute, pan, fader, send switch. */
-const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, meterRef, soloedOut, implied, unheard, view, separator, groupName, banded }: StripProps) {
+const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, sendOwner, sendPartial, meterRef, soloedOut, implied, unheard, view, separator, groupName, banded }: StripProps) {
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
@@ -554,7 +532,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
         edit={groupKnob(id, "stereo")}
       />
       {view === "extra" && <StripEffects track={track} />}
-      <SendSwitch to={id} name={name} state={sendKind === "sending" ? { kind: "sending", level: sendLevel } : { kind: sendKind }} />
+      <SendSwitch to={id} name={name} state={sendKind === "sending" ? { kind: "sending", level: sendLevel, owner: sendOwner!, partial: sendPartial } : { kind: sendKind }} />
     </div>
   );
 });
@@ -758,41 +736,47 @@ function TrackMenu({ id, isMaster, color, separator, grouped, soloSafe }: { id: 
 }
 
 /**
- * The foot of a strip, FL Studio's send switch, for the selected track: the source's down-arrow; on a
- * track it sends to, the send's level (and the switch above it, which removes the send); on one it
- * could send to, an up-arrow to click; greyed where a send would make a loop.
+ * The foot of a strip, FL Studio's send switch, for the selected tracks: a source's down-arrow; on a track
+ * they send to, the send's level (and the switch above it, which removes the sends); on one they could send
+ * to, an up-arrow to click; half lit where only some of them send; greyed where a send would make a loop.
+ * Its knob moves every selected track's send here by as much.
  */
 function SendSwitch({ to, name, state }: { to: string; name: string; state: SendState }) {
-  // The track the send is from (the selected one), whose send can be automated.
-  const selectedIds = useMusicUi((s) => s.selectedTrackIds);
-  const sendFrom = useSong((song) => currentTrackId(song, selectedIds));
   if (state.kind === "source") {
     return (
-      <div className="grid h-14 place-items-center pb-3" style={{ color: "var(--mixer-on)" }} title="The selected track: its sends are shown">
+      <div className="grid h-14 place-items-center pb-3" style={{ color: "var(--mixer-on)" }} title="A selected track: its sends are shown">
         <PiArrowFatDownFill className="size-4" data-send-point />
       </div>
     );
   }
-  const arrow = (on: boolean) => (
-    <button
-      type="button"
-      aria-label={on ? `Stop sending to ${name}` : `Send to ${name}`}
-      aria-pressed={on}
-      disabled={state.kind === "unavailable"}
-      title={state.kind === "unavailable" ? "Its sound reaches the selected track already" : on ? "Stop sending here" : "Send the selected track here"}
-      className={cn("grid h-4 w-6 place-items-center rounded-sm hover:brightness-150", state.kind === "unavailable" && "opacity-30")}
-      style={{ color: on ? "var(--mixer-on)" : "var(--mixer-name)" }}
-      onClick={() => toggleSend(to)}
-    >
-      <PiCaretUpBold className="size-3" />
-    </button>
-  );
+  const sending = state.kind === "sending";
+  const partial = sending && state.partial;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild disabled={state.kind === "unavailable"}>
         <div className="flex h-14 flex-col items-center justify-end gap-0.5 pb-3" data-send>
-          {arrow(state.kind === "sending")}
-          {state.kind === "sending" ? (
+          <button
+            type="button"
+            aria-label={sending && !partial ? `Stop sending to ${name}` : `Send to ${name}`}
+            aria-pressed={partial ? "mixed" : sending}
+            disabled={state.kind === "unavailable"}
+            title={
+              state.kind === "unavailable"
+                ? "Its sound reaches the selected tracks already"
+                : partial
+                  ? "Some of the selected tracks send here: click to send all of them"
+                  : sending
+                    ? "Stop sending here"
+                    : "Send the selected tracks here"
+            }
+            className={cn("grid h-4 w-6 place-items-center rounded-sm hover:brightness-150", state.kind === "unavailable" && "opacity-30")}
+            style={{ color: sending ? "var(--mixer-on)" : "var(--mixer-name)", opacity: partial ? 0.55 : undefined }}
+            data-partial={partial || undefined}
+            onClick={() => toggleSend(to)}
+          >
+            <PiCaretUpBold className="size-3" />
+          </button>
+          {sending ? (
             <div data-send-point>
               <SongKnob
                 size={28}
@@ -803,8 +787,8 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
                 defaultValue={1}
                 format={percent}
                 unit={PERCENT}
-                target={sendFrom ? { kind: "send", track: sendFrom, to } : undefined}
-                edit={(song, level) => setSend(song, currentTrackId(song, useMusicUi.getState().selectedTrackIds), to, level)}
+                target={{ kind: "send", track: state.owner, to }}
+                edit={groupSend(to, state.owner)}
               />
             </div>
           ) : (
@@ -813,7 +797,7 @@ function SendSwitch({ to, name, state }: { to: string; name: string; state: Send
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onSelect={() => toggleSend(to)}>{state.kind === "sending" ? "Remove this send" : "Route to this track"}</ContextMenuItem>
+        <ContextMenuItem onSelect={() => toggleSend(to)}>{sending && !partial ? "Remove the sends" : "Route to this track"}</ContextMenuItem>
         <ContextMenuItem onSelect={() => sendOnlyTo(to)}>Route to this track only</ContextMenuItem>
         <ContextMenuItem onSelect={() => sidechainTo(to)}>Sidechain to this track</ContextMenuItem>
       </ContextMenuContent>

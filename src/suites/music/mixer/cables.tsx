@@ -2,8 +2,11 @@ import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 import type { Mixer } from "@shared/music/types";
 
 interface Cable {
-  /** The track it goes to. */
+  /** "from>to". */
   key: string;
+  from: string;
+  /** The track it goes to. */
+  to: string;
   /** A send at 0: only a sidechain (FL draws it faint). */
   faint: boolean;
 }
@@ -23,19 +26,23 @@ export const cableSwing = (age: number) => (age >= SETTLE_MS ? 0 : 18 * Math.exp
 const SETTLE_MS = 900;
 
 /**
- * FL Studio's routing cables: from the selected track's send switch to each track it sends to, drawn
+ * FL Studio's routing cables: from each selected track's send switch to each track it sends to, drawn
  * over the strips (`area`, which clips them at its bottom). Which cables there are is React's; where they
  * are is measured from the strips and written straight into the paths, on every scroll, resize and frame
  * of a swing, so they never lag behind the strips. A cable just plugged in swings a moment before it settles.
  */
-export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement | null>; mixer: Mixer; current: string }) {
+export function Cables({ area, mixer, sources }: { area: RefObject<HTMLElement | null>; mixer: Mixer; sources: readonly string[] }) {
   const paths = useRef(new Map<string, SVGPathElement>());
   // When each cable was plugged in (a send made from the track shown), for its swing.
   const born = useRef(new Map<string, number>());
-  // Null until the first: the cables there when the mixer opens (or another track is shown) don't swing.
+  // Null until the first: the cables there when the mixer opens (or other tracks are selected) don't swing.
   const shownFor = useRef<string | null>(null);
-  const sends = mixer.tracks.find((t) => t.id === current)?.sends ?? [];
-  const cables: Cable[] = sends.map((send) => ({ key: send.to, faint: send.level === 0 }));
+  const shown = sources.join(" ");
+  const cables: Cable[] = sources.flatMap((from) =>
+    (mixer.tracks.find((t) => t.id === from)?.sends ?? []).map((send) => ({ key: `${from}>${send.to}`, from, to: send.to, faint: send.level === 0 })),
+  );
+  const ends = useRef(new Map<string, Cable>());
+  ends.current = new Map(cables.map((c) => [c.key, c]));
 
   /** Measure the strips and put every cable where it is now. */
   const place = useRef(() => {});
@@ -49,10 +56,16 @@ export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement |
       const r = cell.getBoundingClientRect();
       return { x: r.left + r.width / 2 - box.left, y: r.bottom - box.top };
     };
-    const from = point(current);
     const now = performance.now();
+    const points = new Map<string, { x: number; y: number } | null>();
+    const at = (id: string) => {
+      if (!points.has(id)) points.set(id, point(id));
+      return points.get(id)!;
+    };
     for (const [key, path] of paths.current) {
-      const to = point(key);
+      const cable = ends.current.get(key);
+      const from = cable && at(cable.from);
+      const to = cable && at(cable.to);
       // An end that isn't drawn (scrolled far off): no cable for now.
       if (!from || !to) {
         path.setAttribute("d", "");
@@ -62,13 +75,13 @@ export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement |
     }
   };
 
-  // The cables of the track shown: new ones plugged in swing.
+  // The cables of the tracks shown: new ones plugged in swing.
   useLayoutEffect(() => {
-    const sameTrack = shownFor.current === current;
-    shownFor.current = current;
+    const sameTracks = shownFor.current === shown;
+    shownFor.current = shown;
     const time = performance.now();
-    for (const key of [...born.current.keys()]) if (!sends.some((s) => s.to === key)) born.current.delete(key);
-    for (const send of sends) if (!born.current.has(send.to)) born.current.set(send.to, sameTrack ? time : -Infinity);
+    for (const key of [...born.current.keys()]) if (!ends.current.has(key)) born.current.delete(key);
+    for (const key of ends.current.keys()) if (!born.current.has(key)) born.current.set(key, sameTracks ? time : -Infinity);
     place.current();
     // While one swings, a frame at a time.
     let frame = 0;
@@ -114,7 +127,8 @@ export function Cables({ area, mixer, current }: { area: RefObject<HTMLElement |
           strokeWidth={1.75}
           strokeOpacity={cable.faint ? 0.35 : 0.9}
           strokeLinecap="round"
-          data-cable={cable.key}
+          data-cable={cable.to}
+          data-cable-from={cable.from}
         />
       ))}
     </svg>
