@@ -78,6 +78,19 @@
   --tune-bypass: #d9a21f;
   /* EchoBoy's Rhythm Echo: the "One" (a tap on beat one) is yellow, as in EchoBoy. */
   --echo-one: #e0a91c;
+  /* OTT's display, a screen in every theme as Xfer's is: each band's upward range brown, its downward
+     range green, the input a white marker, what comes out a yellow bar. Canvases read these: plain colours. */
+  --ott-screen: #15181d;
+  --ott-row: #1d2128;
+  --ott-grid: #2a2f37;
+  --ott-label: #8b93a0;
+  --ott-up: #6b4524;
+  --ott-up-edge: #c4844a;
+  --ott-down: #22573a;
+  --ott-down-edge: #4fbf6c;
+  --ott-off: #2a2d33;
+  --ott-input: #f2f2f2;
+  --ott-output: #f5c518;
   /*
    * Pro-Q's look (`src/suites/music/pro-q/`): FabFilter's dark display in every theme, as a plugin's
    * window keeps its own. Its canvas reads these, so they're plain colours.

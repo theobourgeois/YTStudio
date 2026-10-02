@@ -22,6 +22,7 @@ import {
 } from "@shared/music/automation";
 import { clipContext, clipLength, songTicks } from "@shared/music/playlist";
 import { MAX_PLAYLIST_TRACKS, normalizePoints } from "@shared/music/project";
+import { OTT_HINTS, OTT_TOOL_CONTROLS, OTT_TOOL_CONTROL_NAMES, type OttToolControl } from "@shared/music/ott-presets";
 import { type AutoTuneControl, type Automation, type AutomationPoint, type AutomationTarget, CURVE_TYPES, type CurveType, type EchoControl, type MusicProject } from "@shared/music/types";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
 import { type EditResult, findChannel } from "../tool-edits";
@@ -62,6 +63,7 @@ export const CONTROLS = [
   "key",
   ...["eq frequency", "eq gain", "eq q", "eq range", "eq output"],
   ...["echo mix", "echo feedback", "echo time 1", "echo time 2", "echo low cut", "echo high cut", "echo saturation", "echo input", "echo output", "echo groove", "echo feel", "echo width"],
+  ...OTT_TOOL_CONTROL_NAMES,
 ] as const;
 
 /** An EchoBoy's controls, as the tool names them. */
@@ -185,6 +187,22 @@ export function resolveControl(song: MusicProject, input: Input): AutomationTarg
       if (!band) throw new Error(`Give the Pro-Q's "band" (its number): it has ${effect.proQ.bands.map((b) => b.id).join(", ") || "no bands yet (set_pro_q_bands adds them)"}.`);
       return { kind: "proQ", effect: effect.id, band: band.id, control: EQ_TOOL_CONTROLS[control] };
     }
+    case "ott depth":
+    case "ott time":
+    case "ott in gain":
+    case "ott out gain":
+    case "ott upward":
+    case "ott downward":
+    case "ott low threshold":
+    case "ott mid threshold":
+    case "ott high threshold":
+    case "ott low gain":
+    case "ott mid gain":
+    case "ott high gain": {
+      const { track, effect } = effectAt(song, input);
+      if (!effect.ott) throw new Error(`Slot ${String(input.slot)} of ${trackLabel(song, track)} holds ${effect.plugin.name}, not an OTT: an "${control}" is OTT's.`);
+      return { kind: "ott", effect: effect.id, control: OTT_TOOL_CONTROLS[control as OttToolControl] };
+    }
     case "parameter": {
       if (typeof input.parameter !== "string" || !input.parameter.trim()) throw new Error('"parameter" must be the plugin parameter\'s name or id, from list_controls.');
       if (input.channel !== undefined && input.channel !== "") {
@@ -252,6 +270,8 @@ const ECHO_HINTS: Record<EchoControl, string> = {
 const valueHint = (target: AutomationTarget) =>
   target.kind === "echoBoy"
     ? ECHO_HINTS[target.control]
+    : target.kind === "ott"
+    ? OTT_HINTS[target.control]
     : target.kind === "plugin"
     ? "0 to 1 of the parameter's range"
     : target.kind === "grossBeat" && target.control.endsWith("Slot")

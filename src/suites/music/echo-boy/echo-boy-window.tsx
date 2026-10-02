@@ -164,6 +164,7 @@ function EchoSection({ effectId, eb }: { effectId: string; eb: EchoBoy }) {
         format={(f) => spec.format(spec.toControl(f), eb)}
         unit={{ scale: 1, unit: "" }}
         target={{ kind: "echoBoy", effect: effectId, control: which }}
+        fraction
         edit={(s, f) => set({ [which]: Math.round(spec.toControl(f)) })(s)}
       />
     );

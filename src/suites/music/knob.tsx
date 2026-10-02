@@ -262,6 +262,8 @@ type SongKnobProps = Omit<KnobProps, "onBegin" | "onDrag" | "onEnd" | "onCancel"
   edit: (song: MusicProject, value: number) => MusicProject;
   /** The control it is, if it can be automated (its menu then has Create automation clip). */
   target?: AutomationTarget;
+  /** It turns by its automation's fraction (0..1, a tapered control's), not in the control's own units. */
+  fraction?: boolean;
 };
 
 /**
@@ -269,9 +271,9 @@ type SongKnobProps = Omit<KnobProps, "onBegin" | "onDrag" | "onEnd" | "onCancel"
  * (`target`) follows its automation in song mode, and while it's held the hand wins (the engine leaves
  * its automation out until it's let go).
  */
-export function SongKnob({ edit, target, ...knob }: SongKnobProps) {
+export function SongKnob({ edit, target, fraction, ...knob }: SongKnobProps) {
   const gesture = useRef(songGesture()).current;
-  const control = useAutomatedControl(target, knob.value);
+  const control = useAutomatedControl(target, knob.value, fraction ? "fraction" : "control");
   return (
     <Knob
       {...knob}

@@ -44,6 +44,8 @@ import { GrossBeatWindow } from "./gross-beat/gross-beat-window";
 import { useGrossUi } from "./gross-beat/store";
 import { ProQWindow } from "./pro-q/pro-q-window";
 import { useEqUi } from "./pro-q/store";
+import { OttWindow } from "./ott/ott-window";
+import { useOttUi } from "./ott/store";
 import { AutomationChooser } from "./automation/chooser";
 import { useAutomationUi } from "./automation/store";
 
@@ -93,6 +95,7 @@ function Windows() {
   const openAutoTunes = useTuneUi((s) => s.openIds);
   const openEchoBoys = useEchoUi((s) => s.openIds);
   const openProQs = useEqUi((s) => s.openIds);
+  const openOtts = useOttUi((s) => s.openIds);
   return (
     <MusicDesktop
       // Samples dropped on the desktop itself (not on a window) become channels, as in FL Studio.
@@ -128,6 +131,9 @@ function Windows() {
       {openProQs.map((effectId, index) => (
         <ProQWindow key={effectId} effectId={effectId} index={index} />
       ))}
+      {openOtts.map((effectId, index) => (
+        <OttWindow key={effectId} effectId={effectId} index={index} />
+      ))}
     </MusicDesktop>
   );
 }
@@ -150,6 +156,7 @@ function frontWindow(): WindowId | null {
     : id.startsWith("tune:") ? useTuneUi.getState().openIds.includes(id.slice("tune:".length))
     : id.startsWith("echo:") ? useEchoUi.getState().openIds.includes(id.slice("echo:".length))
     : id.startsWith("proq:") ? useEqUi.getState().openIds.includes(id.slice("proq:".length))
+    : id.startsWith("ott:") ? useOttUi.getState().openIds.includes(id.slice("ott:".length))
     : ui.openChannelIds.includes(id.slice("channel:".length));
   return [...useMusicWindows.getState().order].reverse().find(open) ?? null;
 }

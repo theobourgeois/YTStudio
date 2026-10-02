@@ -6,6 +6,7 @@ import { AUTO_TUNE_PLUGIN, isAutoTune } from "@shared/music/auto-tune-presets";
 import { ECHO_BOY_PLUGIN, isEchoBoy } from "@shared/music/echo-boy-presets";
 import { GROSS_BEAT_PLUGIN, isGrossBeat } from "@shared/music/gross-beat-presets";
 import { PRO_Q_PLUGIN, isProQ } from "@shared/music/pro-q-presets";
+import { OTT_PLUGIN, isOtt } from "@shared/music/ott-presets";
 import { moveEffect, moveEffectTo, setEffect, trackName, updateEffect, updateMixerTrack } from "@shared/music/mixer";
 import { EFFECT_SLOTS, MASTER_TRACK_ID } from "@shared/music/project";
 import type { InputMonitor, MixerEffect, PluginRef } from "@shared/music/types";
@@ -30,6 +31,8 @@ import { useEchoUi } from "../echo-boy/store";
 import { openGrossBeat, toggleGrossBeat } from "../gross-beat/actions";
 import { useGrossUi } from "../gross-beat/store";
 import { openProQ, toggleProQ } from "../pro-q/actions";
+import { openOtt, toggleOtt } from "../ott/actions";
+import { useOttUi } from "../ott/store";
 import { useEqUi } from "../pro-q/store";
 import { type PickerItem, pickerItem } from "../plugin-groups";
 import { Led } from "./led";
@@ -75,6 +78,7 @@ function Slot({ trackId, slot, effect }: { trackId: string; slot: number; effect
     if (isAutoTune(plugin)) openAutoTune(id);
     if (isEchoBoy(plugin)) openEchoBoy(id);
     if (isProQ(plugin)) openProQ(id);
+    if (isOtt(plugin)) openOtt(id);
   };
   // After a menu has closed (it gives the focus back first), or the picker would close at once.
   const openPicker = () => setTimeout(() => setChoosing(true), 0);
@@ -201,7 +205,7 @@ function SlotMenuItems({ menu, trackId, slot, effect, openPicker }: { menu: type
   if (!effect) return <Item onSelect={openPicker}>Choose a plugin…</Item>;
   return (
     <>
-      <Item onSelect={() => (effect.grossBeat ? openGrossBeat(effect.id) : effect.echoBoy ? openEchoBoy(effect.id) : effect.autoTune ? openAutoTune(effect.id) : effect.proQ ? openProQ(effect.id) : useTransport.getState().showEffect(effect.id, true))}>Open its window</Item>
+      <Item onSelect={() => (effect.grossBeat ? openGrossBeat(effect.id) : effect.echoBoy ? openEchoBoy(effect.id) : effect.autoTune ? openAutoTune(effect.id) : effect.proQ ? openProQ(effect.id) : effect.ott ? openOtt(effect.id) : useTransport.getState().showEffect(effect.id, true))}>Open its window</Item>
       <Item onSelect={openPicker}>Replace…</Item>
       <Item onSelect={() => commit((song) => updateEffect(song, trackId, slot, { enabled: !effect.enabled }))}>{effect.enabled ? "Bypass" : "Enable"}</Item>
       <Separator />
@@ -234,6 +238,7 @@ function EffectName({ effect }: { effect: MixerEffect }) {
   if (effect.echoBoy) return <EchoBoyName effect={effect} />;
   if (effect.autoTune) return <AutoTuneName effect={effect} />;
   if (effect.proQ) return <ProQName effect={effect} />;
+  if (effect.ott) return <OttName effect={effect} />;
   return <PluginName effect={effect} />;
 }
 
@@ -247,7 +252,11 @@ function AutoTuneName({ effect }: { effect: MixerEffect }) {
   return <BuiltInName effect={effect} open={useTuneUi((s) => s.openIds.includes(effect.id))} onToggle={() => toggleAutoTune(effect.id)} />;
 }
 
-/** One of ours' name (Gross Beat, EchoBoy, Auto-Tune): always ready; a click opens its window (or closes it). */
+function OttName({ effect }: { effect: MixerEffect }) {
+  return <BuiltInName effect={effect} open={useOttUi((s) => s.openIds.includes(effect.id))} onToggle={() => toggleOtt(effect.id)} />;
+}
+
+/** One of ours' name (Gross Beat, EchoBoy, Auto-Tune, OTT): always ready; a click opens its window (or closes it). */
 function BuiltInName({ effect, open, onToggle }: { effect: MixerEffect; open: boolean; onToggle: () => void }) {
   return (
     <button
@@ -497,19 +506,20 @@ function InputOptions({ trackId }: { trackId: string }) {
   );
 }
 
-/** Ours, before the plugins: Gross Beat, EchoBoy, Auto-Tune. */
+/** Ours, before the plugins: Pro-Q, OTT, Gross Beat, EchoBoy, Auto-Tune. */
 const BUILT_IN = "Built in";
 const GROSS_BEAT_ITEM: PickerItem = { id: GROSS_BEAT_PLUGIN.id, name: GROSS_BEAT_PLUGIN.name, detail: "Chops, repeats, half speed, gates", group: BUILT_IN, plugin: null };
 const ECHO_BOY_ITEM: PickerItem = { id: ECHO_BOY_PLUGIN.id, name: ECHO_BOY_PLUGIN.name, detail: "Tape, analogue and digital echoes, 31 styles", group: BUILT_IN, plugin: null };
 const AUTO_TUNE_ITEM: PickerItem = { id: AUTO_TUNE_PLUGIN.id, name: AUTO_TUNE_PLUGIN.name, detail: "Pitch correction, hard tune to natural", group: BUILT_IN, plugin: null };
 const PRO_Q_ITEM: PickerItem = { id: PRO_Q_PLUGIN.id, name: PRO_Q_PLUGIN.name, detail: "FabFilter's EQ: 24 bands, dynamic, linear phase", group: BUILT_IN, plugin: null };
+const OTT_ITEM: PickerItem = { id: OTT_PLUGIN.id, name: OTT_PLUGIN.name, detail: "Xfer's multiband upward and downward compressor", group: BUILT_IN, plugin: null };
 /** Ours, by their picker item's id. */
-const BUILT_INS = [GROSS_BEAT_PLUGIN, ECHO_BOY_PLUGIN, AUTO_TUNE_PLUGIN, PRO_Q_PLUGIN];
+const BUILT_INS = [GROSS_BEAT_PLUGIN, ECHO_BOY_PLUGIN, AUTO_TUNE_PLUGIN, PRO_Q_PLUGIN, OTT_PLUGIN];
 
 /** The effects to choose from: the big picker, ours first, then the plugins by kind. */
 function EffectPicker({ onChoose }: { onChoose: (plugin: PluginRef) => void }) {
   const { plugins, error } = usePluginList("effect", true);
-  const items = useMemo(() => [PRO_Q_ITEM, GROSS_BEAT_ITEM, ECHO_BOY_ITEM, AUTO_TUNE_ITEM, ...(plugins ?? []).map(pickerItem)], [plugins]);
+  const items = useMemo(() => [PRO_Q_ITEM, OTT_ITEM, GROSS_BEAT_ITEM, ECHO_BOY_ITEM, AUTO_TUNE_ITEM, ...(plugins ?? []).map(pickerItem)], [plugins]);
   return (
     <PluginPicker
       noun="effect"

@@ -4,7 +4,7 @@
  * effects' mixes, and the plugins whose own parameters the engine lists. Pure, so it's tested.
  */
 import { controlOf, mixerTrackName, targetKey } from "@shared/music/automation";
-import { AUTO_TUNE_CONTROLS, type AutomationTarget, ECHO_CONTROLS, type MusicProject } from "@shared/music/types";
+import { AUTO_TUNE_CONTROLS, type AutomationTarget, ECHO_CONTROLS, type MixerEffect, type MusicProject, OTT_CONTROLS } from "@shared/music/types";
 
 export interface ControlRow {
   key: string;
@@ -63,6 +63,8 @@ export function songControls(song: MusicProject): ControlGroup[] {
         for (const band of effect.proQ.bands) for (const control of ["frequency", "gain", "q", "range"] as const) mixer.push(row({ kind: "proQ", effect: effect.id, band: band.id, control }));
         mixer.push(row({ kind: "proQ", effect: effect.id, band: 0, control: "output" }));
       }
+      // OTT's: its knobs and each band's threshold and gain.
+      if (effect.ott) for (const control of OTT_CONTROLS) mixer.push(row({ kind: "ott", effect: effect.id, control }));
     }
   }
   groups.push({ title: "Mixer", rows: mixer });
@@ -75,10 +77,13 @@ export function pluginOwners(song: MusicProject): PluginOwner[] {
     c.kind === "plugin" && c.plugin ? [{ owner: "channel" as const, id: c.id, name: c.plugin.name === c.name ? c.name : `${c.plugin.name} (${c.name})` }] : [],
   );
   for (const track of song.mixer.tracks)
-    // (Gross Beat, Auto-Tune, EchoBoy and Pro-Q are ours: their controls are among the song's, not a plugin's parameters.)
-    for (const effect of track.effects) if (effect && !effect.grossBeat && !effect.autoTune && !effect.echoBoy && !effect.proQ) owners.push({ owner: "effect", id: effect.id, name: `${effect.plugin.name} (${mixerTrackName(song, track.id)})` });
+    // (Gross Beat, Auto-Tune, EchoBoy, Pro-Q and OTT are ours: their controls are among the song's, not a plugin's parameters.)
+    for (const effect of track.effects) if (effect && !isBuiltIn(effect)) owners.push({ owner: "effect", id: effect.id, name: `${effect.plugin.name} (${mixerTrackName(song, track.id)})` });
   return owners;
 }
+
+/** Whether an effect is one of ours (its settings in the song), not a plugin the engine hosts. */
+export const isBuiltIn = (effect: MixerEffect) => !!(effect.grossBeat || effect.autoTune || effect.echoBoy || effect.proQ || effect.ott);
 
 /** Whether a row matches what's typed: every word, in its name or its owner's, in any order. */
 export function matches(query: string, ...texts: string[]): boolean {

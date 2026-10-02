@@ -94,8 +94,8 @@ const RELEASE = [
   [0.0118089, 0.0174314, 0.030877],
   [0.00702632, 0.00702632, 0.0103717],
 ];
-/** How far a threshold of 0 or 2 moves a band's knees (dB). */
-const THRESHOLD_SHIFT = [23.009, 23.743, 24.021];
+/** How far a threshold of 0 or 2 moves a band's knees (dB): what dragging its row's gap a dB moves it by. */
+export const OTT_THRESHOLD_SHIFT = [23.009, 23.743, 24.021] as const;
 /** Depth's shapes (cubics through 0, 1 at 1): the makeup's, and the downward amount's. */
 const MAKEUP_SHAPE = [
   [1.83819, -1.21424, 0.37606],
@@ -184,7 +184,7 @@ export function engineOtt(ott: Ott): EngineOtt {
   const depth = clamp(ott.depth, 0, 1);
   const band = (k: number): EngineOttBand => {
     const b = ott.bands[k] ?? DEFAULT_OTT_BAND;
-    const shift = (clamp(b.threshold, 0, MAX_OTT_STRENGTH) - 1) * THRESHOLD_SHIFT[k];
+    const shift = (clamp(b.threshold, 0, MAX_OTT_STRENGTH) - 1) * OTT_THRESHOLD_SHIFT[k];
     return {
       attack: ATTACK[k],
       release: ottRelease(k, ott.time),
@@ -310,3 +310,4 @@ export const setOttControl = (song: MusicProject, effectId: string, control: Ott
     const next = OTT_CONTROL_SPECS[control].set(ott, value);
     return soundChanged(ott, next) ? { ...next, preset: null } : ott;
   });
+

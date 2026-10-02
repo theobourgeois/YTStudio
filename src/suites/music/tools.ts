@@ -8,6 +8,7 @@ import { AUTO_TUNE_PLUGIN } from "@shared/music/auto-tune-presets";
 import { ECHO_BOY_PLUGIN } from "@shared/music/echo-boy-presets";
 import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
 import { PRO_Q_PLUGIN } from "@shared/music/pro-q-presets";
+import { OTT_PLUGIN } from "@shared/music/ott-presets";
 import { addChannels, addPluginChannel, replaceChannel, updateChannel } from "@shared/music/edits";
 import { pasteTrackState, setEffect, trackState } from "@shared/music/mixer";
 import { EXPORT_FORMATS, type ExportFormat, type ExportSettings } from "@shared/music/export";
@@ -71,6 +72,7 @@ import { describeAutoTune, findTune, updateAutoTuneTool } from "./auto-tune/tool
 import { describeEchoBoy, updateEchoBoyTool } from "./echo-boy/tool-edits";
 import { describeGrossBeat, setGrossBeatSlotTool, updateGrossBeatTool } from "./gross-beat/tool-edits";
 import { describeProQ, setProQBandsTool, updateProQTool } from "./pro-q/tool-edits";
+import { describeOtt, updateOttTool } from "./ott/tool-edits";
 import { useBrowser } from "./browser/store";
 import {
   addMixerTrackTool,
@@ -319,6 +321,15 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "It has no bands yet (the sound as it is): set_pro_q_bands shapes it, update_pro_q sets its mode and output, get_pro_q reads it.",
       );
     }
+    if (wanted === OTT_PLUGIN.name.toLowerCase() || wanted === OTT_PLUGIN.id || wanted === "xfer ott") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      await apply(target, (song) => setEffect(song, track.id, slot, OTT_PLUGIN, id));
+      return textResult(
+        `Put OTT (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}, at OTT's defaults (depth 100%: over the top). ` +
+          "update_ott sets it (a depth of 0.2 to 0.5 is common), get_ott reads it.",
+      );
+    }
     if (wanted === GROSS_BEAT_PLUGIN.name.toLowerCase() || wanted === GROSS_BEAT_PLUGIN.id || wanted === "grossbeat") {
       const replaced = track.effects[slot];
       const id = createId("fx");
@@ -361,6 +372,10 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   },
   set_pro_q_bands: edit((song, input) => setProQBandsTool(song, input)),
   update_pro_q: edit((song, input) => updateProQTool(song, input)),
+  async get_ott(input, ctx) {
+    return textResult(describeOtt((await targetOf(ctx)).song, input));
+  },
+  update_ott: edit((song, input) => updateOttTool(song, input)),
   async get_echo_boy(input, ctx) {
     return textResult(describeEchoBoy((await targetOf(ctx)).song, input));
   },

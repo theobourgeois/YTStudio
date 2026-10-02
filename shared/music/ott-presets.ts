@@ -4,7 +4,7 @@
  * Only types and constants are imported, so `project.ts` can use this to normalise a song.
  */
 import { clamp, isFiniteNumber } from "../math.ts";
-import type { Ott, OttBand, PluginRef } from "./types.ts";
+import type { Ott, OttBand, OttControl, PluginRef } from "./types.ts";
 
 /** What an OTT effect is, as a slot's plugin: one of ours, run by the engine itself. */
 export const OTT_PLUGIN: PluginRef = { id: "vaudio:ott", name: "OTT", format: "Vaudio" };
@@ -101,3 +101,37 @@ export function ottPreset(name: string): Ott | null {
     bands: bands ? [{ ...DEFAULT_OTT_BAND, ...bands[0] }, { ...DEFAULT_OTT_BAND, ...bands[1] }, { ...DEFAULT_OTT_BAND, ...bands[2] }] : DEFAULT_OTT.bands,
   };
 }
+
+/** OTT's controls as the assistant names them (`add_automation`'s `control`), with the values it gives each. */
+export const OTT_TOOL_CONTROLS = {
+  "ott depth": "depth",
+  "ott time": "time",
+  "ott in gain": "input",
+  "ott out gain": "output",
+  "ott upward": "upward",
+  "ott downward": "downward",
+  "ott low threshold": "lowThreshold",
+  "ott mid threshold": "midThreshold",
+  "ott high threshold": "highThreshold",
+  "ott low gain": "lowGain",
+  "ott mid gain": "midGain",
+  "ott high gain": "highGain",
+} as const satisfies Record<string, OttControl>;
+export type OttToolControl = keyof typeof OTT_TOOL_CONTROLS;
+export const OTT_TOOL_CONTROL_NAMES = Object.keys(OTT_TOOL_CONTROLS) as OttToolControl[];
+
+/** Each control's values, said for the model. */
+export const OTT_HINTS: Record<OttControl, string> = {
+  depth: "0 (untouched) to 1 (all of it)",
+  time: "0 to 10 (1 is OTT's own release, 100%)",
+  input: "dB, -24 to 19.1",
+  output: "dB, -24 to 19.1",
+  upward: "0 to 2 (1 is 100%)",
+  downward: "0 to 2 (1 is 100%)",
+  lowThreshold: "0 to 2 (1 is 100%; each 1 moves the band's knees about 23 dB)",
+  midThreshold: "0 to 2 (1 is 100%; each 1 moves the band's knees about 24 dB)",
+  highThreshold: "0 to 2 (1 is 100%; each 1 moves the band's knees about 24 dB)",
+  lowGain: "dB, -24 to 6",
+  midGain: "dB, -24 to 6",
+  highGain: "dB, -24 to 6",
+};
