@@ -2,6 +2,8 @@
 
 #include "Protocol.h"
 
+#include <utility>
+
 namespace
 {
 /** How far ahead of the audio thread a stream is decoded. */
@@ -16,14 +18,15 @@ constexpr int fadeSamples = 256;
 struct FilePreview::Stream final : AudioStream
 {
     Stream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, const juce::String& previewId, float left, float right,
-            double playSpeed, bool atVolume, double transpose)
+            double playSpeed, bool atVolume, double transpose, const juce::String& toChannel)
         : AudioStream (std::move (source), outputRate, startSeconds, -1, ringSeconds, playSpeed, Resampling::hermite, ! juce::exactlyEqual (transpose, 0.0), transpose),
           id (previewId),
           start (startSeconds),
           speed (juce::jlimit (0.0625, 16.0, playSpeed)),
           gainLeft (left),
           gainRight (right),
-          browserVolume (atVolume)
+          browserVolume (atVolume),
+          channel (toChannel)
     {
     }
 
@@ -31,6 +34,8 @@ struct FilePreview::Stream final : AudioStream
     const double start, speed;
     const float gainLeft, gainRight;
     const bool browserVolume;
+    /** The song's channel whose mixer track it plays into (empty: the output). */
+    const juce::String channel;
 };
 
 FilePreview::FilePreview (bool isOffline) : offline (isOffline)
@@ -44,7 +49,7 @@ FilePreview::~FilePreview()
 {
     reader.stopThread (2000);
     collectGarbage();
-    for (auto* stream : { pending.exchange (nullptr), playing, fading })
+    for (auto* stream : { pending.exchange (nullptr), playing, fading, spent[0], spent[1] })
         if (stream != nullptr && stream != stopRequest)
             delete stream;
 }
@@ -53,12 +58,13 @@ void FilePreview::prepare (double rate) { sampleRate = rate > 0 ? rate : 48000.0
 
 // Message thread -----------------------------------------------------------------------------------
 
-juce::Result FilePreview::play (const juce::File& file, double startSeconds, const juce::String& id, float gainLeft, float gainRight, double speed, bool browserVolume, double transpose)
+juce::Result FilePreview::play (const juce::File& file, double startSeconds, const juce::String& id, float gainLeft, float gainRight, double speed, bool browserVolume, double transpose,
+                                const juce::String& channel)
 {
     std::unique_ptr<juce::AudioFormatReader> source (formats.createReaderFor (file));
     if (source == nullptr || source->sampleRate <= 0 || source->lengthInSamples <= 0)
         return juce::Result::fail ("\"" + file.getFileName() + "\" can't be read as audio.");
-    auto* stream = new Stream (std::move (source), sampleRate, juce::jmax (0.0, startSeconds), id, gainLeft, gainRight, speed, browserVolume, juce::jlimit (-48.0, 48.0, transpose));
+    auto* stream = new Stream (std::move (source), sampleRate, juce::jmax (0.0, startSeconds), id, gainLeft, gainRight, speed, browserVolume, juce::jlimit (-48.0, 48.0, transpose), channel);
     // Its start is decoded here, so it sounds at the next block rather than when the reader gets to it;
     // only its start, so the command is answered (and the next block has it) at once, however long the file.
     stream->fill (juce::roundToInt (headSeconds * sampleRate));
@@ -116,8 +122,11 @@ void FilePreview::retire (Stream* stream)
     // stream would be leaked rather than deleted here, on the audio thread.
 }
 
-void FilePreview::process (float* left, float* right, int numSamples)
+const juce::String* FilePreview::process (float* left, float* right, float* channelLeft, float* channelRight, int numSamples)
 {
+    for (auto& stream : spent)
+        if (auto* done = std::exchange (stream, nullptr))
+            retire (done);
     if (auto* next = pending.exchange (nullptr))
     {
         if (fading != nullptr)
@@ -125,24 +134,34 @@ void FilePreview::process (float* left, float* right, int numSamples)
         fading = playing;
         playing = next == stopRequest ? nullptr : next;
     }
+    juce::FloatVectorOperations::clear (channelLeft, numSamples);
+    juce::FloatVectorOperations::clear (channelRight, numSamples);
+    // The channel this block's preview goes to: the one starting, else the one fading out. (Two channels'
+    // at once, the one fading out is cut short: it was only its last block.)
+    const juce::String* channel = playing != nullptr && playing->channel.isNotEmpty() ? &playing->channel : nullptr;
+    if (channel == nullptr && fading != nullptr && fading->channel.isNotEmpty())
+        channel = &fading->channel;
     const auto gain = volume.load (std::memory_order_relaxed);
+    const auto pullInto = [&] (Stream& stream, bool fadeOut) {
+        if (stream.channel.isEmpty())
+            pull (stream, left, right, numSamples, gain, fadeOut);
+        else if (&stream.channel == channel)
+            pull (stream, channelLeft, channelRight, numSamples, gain, fadeOut);
+    };
     if (fading != nullptr)
     {
-        pull (*fading, left, right, numSamples, gain, true);
-        retire (fading);
-        fading = nullptr;
+        pullInto (*fading, true);
+        spent[0] = std::exchange (fading, nullptr);
     }
     if (playing != nullptr)
     {
         if (offline)
             playing->fill();
-        pull (*playing, left, right, numSamples, gain, false);
+        pullInto (*playing, false);
         if (playing->finished())
-        {
-            retire (playing);
-            playing = nullptr;
-        }
+            spent[1] = std::exchange (playing, nullptr);
     }
+    return channel;
 }
 
 int FilePreview::pull (Stream& stream, float* left, float* right, int numSamples, float volume, bool fadeOut)

@@ -663,7 +663,9 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
 - Samples are read whole into memory on the message thread and never dropped while the engine runs (`SampleCache`):
   a sounding voice holds a bare pointer to its sample.
   Long files are streamed instead (`FilePreview`, the Browser's preview so far): a `TimeSliceThread` decodes
-  and resamples ahead into a ring the audio thread reads; offline, the rendering thread fills it.
+  and resamples ahead into a ring the audio thread reads; offline, the rendering thread fills it. An audio
+  channel's own preview (its waveform pressed) names its channel: the sequencer adds it where that channel's
+  clips play (`ChannelFeed`), so it's heard through its mixer track's effects.
 - `--offline` (`AudioEngine`'s `offline`) opens no device: `render` computes the next samples on request, as fast
   as it can, and measures them (or writes a WAV). `server/music/engine.integration.test.ts` tests what things
   *sound like* this way, with the real engine and the test synth, silently; it's skipped when the engine isn't

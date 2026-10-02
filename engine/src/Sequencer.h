@@ -21,6 +21,15 @@
 #include <utility>
 #include <juce_audio_basics/juce_audio_basics.h>
 
+/** A channel's preview on its way into the song (`Sequencer::process`): heard where its clips play. */
+struct ChannelFeed
+{
+    /** The song's channel it goes to (null: none). */
+    const juce::String* channel = nullptr;
+    const float* left = nullptr;
+    const float* right = nullptr;
+};
+
 class Sequencer
 {
 public:
@@ -129,9 +138,10 @@ public:
     /**
      * Add the next `numSamples` of the song (the master's output, and the metronome) to `left` and
      * `right`. `inputs`: the device's input channels by number (null: not open), heard in the tracks
-     * that monitor them and recorded on the armed ones.
+     * that monitor them and recorded on the armed ones. `feed`: a channel's preview (`FilePreview`), heard
+     * where its clips play, through its track.
      */
-    void process (float* left, float* right, int numSamples, const float* const* inputs = nullptr, int numInputs = 0);
+    void process (float* left, float* right, int numSamples, const float* const* inputs = nullptr, int numInputs = 0, ChannelFeed feed = {});
 
 private:
     struct Voice
@@ -204,7 +214,7 @@ private:
     /** The message thread's requests (a new song, play, stop), taken at the start of a block. */
     void takeRequests();
     /** A part of a block: the whole of it, or a slice when automation plays. */
-    void processBlock (float* left, float* right, int numSamples, const float* const* inputs, int numInputs);
+    void processBlock (float* left, float* right, int numSamples, const float* const* inputs, int numInputs, ChannelFeed feed);
     /** Drive the automated controls over the next `numSamples` (from `position_`). */
     void applyLanes (int numSamples);
     /** Put the automated controls back as the song has them unautomated, and plugins' parameters to their own values. */

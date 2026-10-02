@@ -376,7 +376,7 @@ const WAVE_H = 84;
 
 /**
  * Hear a channel's sample, as a click on its waveform does: a sampler plays it as a note would; an audio
- * clip's channel, its whole file (streamed, as the Browser's previews are).
+ * clip's channel, its whole file (streamed, as the Browser's previews are) through its mixer track's effects.
  */
 function hearChannel(channel: Channel) {
   if (!channel.sampleId) return;
@@ -384,10 +384,11 @@ function hearChannel(channel: Channel) {
   // engine has it prepared in memory, as its clips play it). Otherwise its file is streamed.
   if (channel.kind !== "audio" || !precomputedUntouched(channel.precomputed)) return useTransport.getState().audition(channel.id);
   const projectId = useMusic.getState().projectId;
-  // As its clips sound: its volume, pan and pitch (whether it's on or not, so it can be heard while muted).
+  // As its clips sound: its volume, pan and pitch (whether it's on or not, so it can be heard while muted),
+  // into its mixer track, its effects and on to the master.
   const [left, right] = panGains(channel.pan);
   const gain = levelGain(channel.volume, DEFAULT_VOLUME);
-  const request = { projectId: projectId ?? "", sampleId: channel.sampleId, id: channel.id, gainLeft: gain * left, gainRight: gain * right, transpose: channel.pitch };
+  const request = { projectId: projectId ?? "", sampleId: channel.sampleId, id: channel.id, gainLeft: gain * left, gainRight: gain * right, transpose: channel.pitch, channel: channel.id };
   if (projectId) void musicApi.previewSample(request).catch(() => {});
 }
 

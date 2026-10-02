@@ -243,6 +243,8 @@ export interface PreviewSampleRequest {
   start?: number;
   /** The tab's name for it, given back in `EnginePreview.id`. */
   id?: string;
+  /** Its channel's id: heard where its clips play, through its mixer track and its effects (default: straight out). */
+  channel?: string;
 }
 
 /** Detect the tempo of one of a song's own media files (`POST /api/engine/tempo`): FL's TIME menu's Autodetect. */

@@ -7,6 +7,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { routeChannels, updateMixerTrack } from "../../shared/music/mixer.ts";
+import { addChannels } from "../../shared/music/edits.ts";
+import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project.ts";
 import { ENGINE } from "../config.ts";
 import { DataPaths } from "../storage.ts";
 import { AudioEngine } from "./engine.ts";
@@ -79,6 +82,24 @@ describe.skipIf(!existsSync(ENGINE))("the Browser's preview, offline", () => {
     expect(at(sound, 0.75)).toBeCloseTo(0.2, 2);
     expect(extent(sound, 0.1)[1] / RATE).toBeCloseTo(1, 1);
     await expect(engine.previewSample({ projectId: "proj_0123456789ab", sampleId: "nope" })).rejects.toThrow(/song's media/);
+  });
+
+  it("plays a channel's file through its mixer track, as its clips sound", async () => {
+    await levels("steps.wav", RATE, [0.2, 1], [0.4, 1]);
+    let song = addChannels(createMusicProject("Track", 120), [{ id: "chan_steps", name: "Steps", sampleId: "steps" }]);
+    song = routeChannels(song, ["chan_steps"], "insert_1");
+    const preview = { projectId: "proj_0123456789ab", sampleId: "steps", id: "chan", channel: "chan_steps" };
+    const heard = async (track: { muted: boolean }) => {
+      await engine.setSong({ projectId: "proj_0123456789ab", song: updateMixerTrack(song, "insert_1", track), patternId: FIRST_PATTERN_ID });
+      await engine.previewSample(preview);
+      const sound = await render(0.5);
+      await engine.command("stopPreview", {});
+      await render(0.05);
+      return at(sound, 0.25);
+    };
+    expect(await heard({ muted: false })).toBeGreaterThan(0.05);
+    // Its track muted, it's silent: it went through the track.
+    expect(Math.abs(await heard({ muted: true }))).toBeLessThan(1e-4);
   });
 
   it("plays a file once, at once, at its level, and says how far along it is", async () => {

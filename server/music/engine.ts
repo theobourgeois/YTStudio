@@ -324,8 +324,18 @@ export class AudioEngine {
     const gain = (value: unknown) => (isFiniteNumber(value) ? clamp(value, 0, 4) : 1);
     const speed = isFiniteNumber(body.speed) ? clamp(body.speed, 1 / 16, 16) : 1;
     const transpose = isFiniteNumber(body.transpose) ? clamp(body.transpose, -48, 48) : 0;
+    const channel = typeof body.channel === "string" ? body.channel.slice(0, 200) : "";
     return this.withSaved(
-      (await this.request("previewFile", { file, start, previewId: id, gainLeft: gain(body.gainLeft), gainRight: gain(body.gainRight), speed, ...(transpose && { transpose }) })) as RawStatus,
+      (await this.request("previewFile", {
+        file,
+        start,
+        previewId: id,
+        gainLeft: gain(body.gainLeft),
+        gainRight: gain(body.gainRight),
+        speed,
+        ...(transpose && { transpose }),
+        ...(channel && { channel }),
+      })) as RawStatus,
     );
   }
 
