@@ -1,5 +1,6 @@
+import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineKey } from "@shared/music/engine";
+import type { EngineKey, EngineStatus } from "@shared/music/engine";
 import { musicApi } from "./api";
 import { withChopPreview } from "./piano/actions";
 import { usePiano } from "./piano/store";
@@ -113,7 +114,7 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
       // Play stopped (by the engine, or another tab): a recording is over.
       useRecording.getState().transportSaid(event.playing);
       // Recording (past its count-in): each track's level, for the take drawn as it grows.
-      if (event.recording && !(event.countIn ?? 0)) useRecording.getState().levels(event.recording.levels, event.tick);
+      if (event.playing && !(event.countIn ?? 0)) useRecording.getState().levels(event.recording?.levels ?? {}, event.tick);
       useTransport.setState({
         playing: event.playing,
         tick: event.tick,
@@ -158,7 +159,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
   // What the engine is doing already (another tab may have it playing), and its latency.
   void musicApi
     .engine("status", {})
-    .then((status) =>
+    .then((status) => {
+      warnIfOutdated(status);
       useTransport.setState({
         playing: status.transport.playing,
         tick: status.transport.tick,
@@ -168,8 +170,8 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
         latencyMs: status.outputLatencyMs,
         sampleRate: status.sampleRate,
         error: null,
-      }),
-    )
+      });
+    })
     .catch((err) => useTransport.setState({ error: errorMessage(err) }));
 
   return () => {
@@ -188,4 +190,19 @@ export function startEngineSync({ onKey }: { onKey: (key: EngineKey) => void }):
     void musicApi.saveStates().catch(() => {});
     useTransport.setState({ playing: false, tick: 0, peak: 0, meters: NO_METERS, unreadable: [], channels: NO_CHANNELS, effects: NO_EFFECTS });
   };
+}
+
+/**
+ * Say once when the engine was built before its source last changed (`EngineStatus.outdated`: a pull
+ * without `pnpm engine:build`): what's new in the app that the engine does would quietly not happen.
+ */
+let warnedOutdated = false;
+function warnIfOutdated(status: EngineStatus) {
+  if (!status.outdated || warnedOutdated) return;
+  warnedOutdated = true;
+  toast.warning("The audio engine is out of date", {
+    description: "It was built before its code last changed, so what's new may not work. Run `pnpm engine:build`, then restart `pnpm dev`.",
+    duration: Infinity,
+    id: "engine-outdated",
+  });
 }

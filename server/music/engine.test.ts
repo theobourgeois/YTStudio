@@ -9,7 +9,7 @@ import { FIRST_PATTERN_ID, createMusicProject } from "../../shared/music/project
 import { createAutomation } from "../../shared/music/automation.ts";
 import { addClips, editClips } from "../../shared/music/playlist.ts";
 import { DataPaths } from "../storage.ts";
-import { AudioEngine } from "./engine.ts";
+import { AudioEngine, engineOutdated } from "./engine.ts";
 
 const FAKE = [process.execPath, path.join(import.meta.dirname, "fake-engine.mjs")];
 
@@ -195,3 +195,27 @@ describe("AudioEngine", () => {
     await expect(missing.command("status", {})).rejects.toMatchObject({ status: 503, message: expect.stringContaining("engine:build") });
   });
 });
+
+describe("engineOutdated", () => {
+  it("says a checkout's engine built before its source last changed is out of date, and nothing of others", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "engine-src-"));
+    const binary = path.join(root, "build", "Vaudio Engine");
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.mkdir(path.dirname(binary), { recursive: true });
+    const at = (file: string, seconds: number) => fs.utimes(file, seconds, seconds);
+    await fs.writeFile(path.join(root, "src", "Engine.cpp"), "");
+    await fs.writeFile(path.join(root, "CMakeLists.txt"), "");
+    await fs.writeFile(binary, "");
+    await at(path.join(root, "src", "Engine.cpp"), 1000);
+    await at(path.join(root, "CMakeLists.txt"), 1000);
+    await at(binary, 2000);
+    expect(await engineOutdated(binary, root)).toBe(false);
+    await at(path.join(root, "src", "Engine.cpp"), 3000);
+    expect(await engineOutdated(binary, root)).toBe(true);
+    // A packaged app's engine, or a stand-in, isn't the checkout's build: never out of date.
+    expect(await engineOutdated("/Applications/Vaudio.app/Contents/Resources/Vaudio Engine", root)).toBe(false);
+    expect(await engineOutdated("fake-engine.mjs", root)).toBe(false);
+    await fs.rm(root, { recursive: true, force: true });
+  });
+});
+

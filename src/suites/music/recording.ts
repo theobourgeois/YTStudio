@@ -100,8 +100,10 @@ export const useRecording = create<RecordingState>((set, get) => ({
     const { active } = get();
     if (!active) return;
     const at = active.loopStart + tick;
-    for (const [track, level] of Object.entries(levels)) {
-      if (!active.tracks.includes(track)) continue;
+    // Every recording track grows with the playhead, whether or not the engine said its level (an
+    // engine built before it did says none: the take is drawn flat).
+    for (const track of active.tracks) {
+      const level = levels[track] ?? 0;
       let pass = live.get(track);
       // Gone round the loop: the next pass, from its start (the last one's file comes as a take).
       const last = pass?.ticks.at(-1);
