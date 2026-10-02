@@ -13,6 +13,7 @@ import { Preview } from "@/components/preview/preview";
 import { PropertiesDrop } from "@/components/properties/properties-drop";
 import { PropertiesPanel } from "@/components/properties/properties-panel";
 import { PANEL_MIN_HEIGHT } from "@/components/timeline/constants";
+import { SequenceTabs } from "@/components/timeline/sequence-tabs";
 import { Timeline } from "@/components/timeline/timeline";
 import { useFileDrop } from "@/hooks/use-file-drop";
 import { type DragKind, dragKind } from "@/lib/dnd";
@@ -65,7 +66,8 @@ export const VIDEO_PANEL_DEFS: Record<VideoPanel, DockPanel> = {
   },
   // As wide as its transport bar (the time, the buttons, the resolution and the tools).
   program: { title: "Program", render: () => <Preview />, minWidth: 480, minHeight: 240 },
-  timeline: { title: "Timeline", render: () => <Timeline />, minWidth: 360, minHeight: PANEL_MIN_HEIGHT },
+  // Its sequence tabs (once a nested one is open) in its tab strip, beside its own tab.
+  timeline: { title: "Timeline", render: () => <Timeline />, header: () => <SequenceTabs />, minWidth: 360, minHeight: PANEL_MIN_HEIGHT },
 };
 
 /**

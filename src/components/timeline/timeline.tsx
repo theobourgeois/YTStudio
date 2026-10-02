@@ -14,7 +14,6 @@ import { TimelineContext, type TimelineContextValue } from "./context";
 import { anchoredScrollLeft, fitZoom, type LaneLayout } from "./geometry";
 import { cancelActiveDrag } from "@/lib/pointer-drag";
 import { TimelineBody } from "./timeline-body";
-import { SequenceTabs } from "./sequence-tabs";
 import { TimelineToolbar } from "./toolbar";
 import { minZoom, setView, timelineCommands, useTimelineView } from "./view-store";
 
@@ -81,7 +80,6 @@ export function Timeline() {
   return (
     <TimelineContext value={ctx}>
       <section aria-label="Timeline" className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-timeline">
-        <SequenceTabs />
         <TimelineToolbar />
         <TimelineBody />
       </section>
