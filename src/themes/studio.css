@@ -69,6 +69,15 @@
   --gross-time-foreground: #ffffff;
   --gross-volume: #c4661b;
   --gross-volume-foreground: #ffffff;
+  /* Auto-Tune: the tuned voice in the accent, the sung one grey; a correction down (it was sharp) orange,
+     up (flat) blue, as Antares' meter has them; a bypassed note amber. Canvases read these: plain colours. */
+  --tune-tuned: #2c67d0;
+  --tune-sung: #6b7684;
+  --tune-sharp: #d9731f;
+  --tune-flat: #2f86e0;
+  --tune-bypass: #d9a21f;
+  /* EchoBoy's Rhythm Echo: the "One" (a tap on beat one) is yellow, as in EchoBoy. */
+  --echo-one: #e0a91c;
   /*
    * Pro-Q's look (`src/suites/music/pro-q/`): FabFilter's dark display in every theme, as a plugin's
    * window keeps its own. Its canvas reads these, so they're plain colours.
@@ -259,6 +268,12 @@
   --gross-time-foreground: #0d1117;
   --gross-volume: #f0a04b;
   --gross-volume-foreground: #0d1117;
+  --tune-tuned: #6aacf0;
+  --tune-sung: #9aa5b3;
+  --tune-sharp: #f09a4b;
+  --tune-flat: #58a8f5;
+  --tune-bypass: #e8b84a;
+  --echo-one: #f2c94c;
   --clip-video: #4169ac;
   --clip-audio: #2d7661;
   --clip-graphic: #6d4fa3;

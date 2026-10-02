@@ -8,13 +8,15 @@
 import { automationIndex, clipAtTick, controlBreaks, controlOf, placedValue, targetKey } from "./automation.ts";
 import { clipContext, clipLength, pitchSpeed, songTicks, trackAt } from "./playlist.ts";
 import { LANE_FINEST, sampleLane } from "./sampling.ts";
+import { type EngineAutoTune, engineAutoTune, engineControlValue } from "./auto-tune.ts";
+import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANES_OF, engineEchoBoy } from "./echo-boy.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
 import { type EngineEq, engineProQ } from "./pro-q.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
 import { autoGain } from "./pro-q-filters.ts";
 import { hasGain } from "./pro-q-presets.ts";
-import { type AutomationTarget, type Channel, type EqBand, type EqControl, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -67,6 +69,10 @@ export interface EngineEffect {
   mix: number;
   /** A Gross Beat (ours, run by the engine itself: its `plugin.id` is `GROSS_BEAT_PLUGIN`'s): its settings and envelopes. */
   grossBeat?: EngineGrossBeat;
+  /** An Auto-Tune (ours too, `AUTO_TUNE_PLUGIN`): its settings in the engine's units. */
+  autoTune?: EngineAutoTune;
+  /** An EchoBoy (ours, run by the engine itself: its `plugin.id` is `ECHO_BOY_PLUGIN`'s): its delay lines, style and levels. */
+  echoBoy?: EngineEchoBoy;
   /** A Pro-Q (ours, run by the engine itself: its `plugin.id` is `PRO_Q_PLUGIN`'s): its bands and settings. */
   eq?: EngineEq;
 }
@@ -142,7 +148,7 @@ export interface EngineAudioClip {
 /**
  * What an automation lane drives in the engine, in the engine's own units: a channel's two gains, a mixer
  * track's gain matrix (`EngineTrack.gains`), a send's gain, an effect's mix, a Gross Beat's slot (its
- * number, 0..35) or mix (0..1), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
+ * number, 0..35) or mix (0..1), an Auto-Tune's control (`engineControlValue`), or a plugin's parameter (0..1, or -1 where the plugin keeps its own value:
  * before any clip of it).
  */
 export type EngineLaneTarget =
@@ -151,6 +157,8 @@ export type EngineLaneTarget =
   | { kind: "send"; track: number; send: number }
   | { kind: "mix"; track: number; effect: number }
   | { kind: "gross"; track: number; effect: number; control: GrossControl }
+  | { kind: "tune"; track: number; effect: number; control: AutoTuneControl }
+  | { kind: "echo"; track: number; effect: number; control: EchoLane }
   /** A Pro-Q band's frequency (log2 Hz), gain or range (dB) or Q (log2), by band number; or its output (dB, band 0). */
   | { kind: "eq"; track: number; effect: number; band: number; control: EqControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
@@ -358,6 +366,8 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         if (!e) return [];
         const effect: EngineEffect = { id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix };
         const slots = gross.get(e.id);
+        if (e.autoTune) return [{ ...effect, autoTune: engineAutoTune(e.autoTune) }];
+        if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
         if (e.proQ) return [{ ...effect, eq: engineProQ(e.proQ) }];
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
@@ -654,6 +664,28 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
         const volumeDriver = !volume.key && gb.linkSlots && time.key ? time : volume;
         add({ kind: "gross", track: t, effect: effectIndex, control: "timeSlot" }, [timeDriver.key], (tick) => [timeDriver.value(tick)]);
         add({ kind: "gross", track: t, effect: effectIndex, control: "volumeSlot" }, [volumeDriver.key], (tick) => [volumeDriver.value(tick)]);
+      }
+      const at = effect.autoTune;
+      if (at)
+        for (const control of AUTO_TUNE_CONTROLS) {
+          const target: AutomationTarget = { kind: "autoTune", effect: effect.id, control };
+          const value = valueOf(target, at[control]);
+          add({ kind: "tune", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineControlValue(control, value(tick))]);
+        }
+      const eb = effect.echoBoy;
+      if (eb) {
+        // Each engine lane from the controls that move it: the settings at the tick, as the engine has them.
+        const controls = (Object.keys(ECHO_CONTROL_SPECS) as EchoControl[]).map((control) => {
+          const target: AutomationTarget = { kind: "echoBoy", effect: effect.id, control };
+          return { control, key: automated(target), value: valueOf(target, ECHO_CONTROL_SPECS[control].get(eb)) };
+        });
+        for (const lane of Object.keys(ECHO_LANES) as EchoLane[]) {
+          const moving = controls.filter((c) => LANES_OF[c.control].includes(lane));
+          add({ kind: "echo", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
+            const at = moving.reduce((settings, c) => (c.key ? ECHO_CONTROL_SPECS[c.control].set(settings, c.value(tick)) : settings), eb);
+            return ECHO_LANES[lane](engineEchoBoy(at, song.settings.tempo));
+          });
+        }
       }
       const pq = effect.proQ;
       if (pq) {
