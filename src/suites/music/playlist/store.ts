@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { NewClip } from "@shared/music/playlist";
+import type { FadePatch, NewClip } from "@shared/music/playlist";
 import type { AutomationPoint, PlaylistClip, PlaylistClipKind } from "@shared/music/types";
 import type { Snap } from "../piano/geometry";
 import { DEFAULT_TRACK_HEIGHT } from "./geometry";
@@ -58,7 +58,13 @@ export type PlaylistDrag =
   /** The slice tool's line: straight down at `tick`, across the tracks from `top` to `bottom` (`all`, Shift: every track). */
   | { kind: "slice"; tick: number; top: number; bottom: number; all: boolean }
   /** The playback tool: where it's heard from. Changes no clips. */
-  | { kind: "playback"; tick: number };
+  | { kind: "playback"; tick: number }
+  /** Audio clips stretched by an edge (stretch mode, FL's Shift+M): longer or shorter, their pitch kept. */
+  | { kind: "stretch"; ids: ReadonlySet<number>; edge: "start" | "end"; ticks: number }
+  /** An audio clip's fade handle (or its curve's) dragged: the fades as they'd be. */
+  | { kind: "fade"; ids: ReadonlySet<number>; patch: FadePatch }
+  /** An audio clip's gain handle dragged: the gain as it'd be. */
+  | { kind: "gain"; ids: ReadonlySet<number>; gain: number };
 
 interface PlaylistState {
   tool: PlaylistTool;
@@ -117,6 +123,8 @@ interface PlaylistState {
   carried: readonly ClipSource[] | null;
   /** The patterns the Transpose window moves, while it's open for the Picker (null: the rack's channels). */
   transposing: readonly string[] | null;
+  /** Stretch mode (FL's, Shift+M): dragging an audio clip's edge time-stretches it rather than resizing its window. */
+  stretching: boolean;
 
   setTool: (tool: PlaylistTool) => void;
   setView: (view: PlaylistView) => void;
@@ -154,6 +162,7 @@ const INITIAL = {
   pointMenu: null as { automationId: string; index: number; x: number; y: number } | null,
   carried: null as readonly ClipSource[] | null,
   transposing: null as readonly string[] | null,
+  stretching: false,
 };
 
 export const usePlaylist = create<PlaylistState>((set) => ({

@@ -10,6 +10,12 @@
 #include <memory>
 #include <juce_audio_formats/juce_audio_formats.h>
 
+namespace signalsmith::stretch
+{
+template <typename Sample, class RandomEngine>
+struct SignalsmithStretch;
+}
+
 class AudioStream : public juce::TimeSliceClient
 {
 public:
@@ -18,9 +24,12 @@ public:
      * file's end). The ring holds `ringSeconds` of it. `speed` plays it faster (and higher) or slower (and
      * lower), as a sampler's pitch does: an audio clip's channel pitched (FL's Resample). `quality` is
      * how it's read between the file's samples, when it's at another rate or pitched (`Resampling`).
+     * `stretch` plays it that many times as long, its pitch kept (FL's time stretching: an audio clip
+     * stretched), through a phase vocoder (Signalsmith Stretch); 1 reads it as it is.
      */
     AudioStream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 maxSamples = -1, double ringSeconds = 2.0,
-                 double speed = 1.0, Resampling quality = Resampling::hermite);
+                 double speed = 1.0, Resampling quality = Resampling::hermite, double stretch = 1.0);
+    ~AudioStream() override;
 
     int useTimeSlice() override;
 
@@ -32,9 +41,10 @@ public:
     /**
      * Audio thread: add up to `numSamples` from the ring to `left` and `right`, from `offset` in them, times
      * the gains, ramped by `fadeIn` (samples since the stream began, 0 to the fade's length) or out over
-     * `fadeOutLength` samples (0: none). Returns how many it had.
+     * `fadeOutLength` samples (0: none), and by `envelope` (a gain per sample from `offset`; null: none).
+     * Returns how many it had.
      */
-    int pull (float* left, float* right, int offset, int numSamples, float gainLeft, float gainRight, int fadeInLength, int fadeOutLength);
+    int pull (float* left, float* right, int offset, int numSamples, float gainLeft, float gainRight, int fadeInLength, int fadeOutLength, const float* envelope = nullptr);
     /** Audio thread: drop up to `numSamples` without playing them (a stream that started late). Returns how many. */
     int skip (int numSamples);
 
@@ -46,6 +56,8 @@ public:
 
 private:
     void produce();
+    /** The next `n` output samples through the time stretcher, into `output`. */
+    void produceStretched (int n);
 
     std::unique_ptr<juce::AudioFormatReader> reader;
     /** File samples per output sample. */
@@ -67,6 +79,11 @@ private:
     /** Output samples in all, and decoded so far. */
     juce::int64 total = 0, produced = 0;
     std::atomic<bool> ended { false };
+    /** Stretched: the stretcher, the file samples it takes per output sample, where it reads next and the fraction carried. */
+    std::unique_ptr<signalsmith::stretch::SignalsmithStretch<float, void>> stretcher;
+    double stretchRate = 1, carry = 0;
+    juce::int64 readPosition = 0;
+    juce::AudioBuffer<float> stretchInput;
 
     JUCE_DECLARE_NON_COPYABLE (AudioStream)
 };

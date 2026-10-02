@@ -755,7 +755,8 @@ export const MUSIC_TOOLS = [
     kind: "edit",
     description:
       "Move clips (to another bar or track: `move_bars` and `move_tracks` move them all together, or `bar` and `track` put one clip there), resize " +
-      "them, slip their content, or mute and unmute them. Only what's given changes.",
+      "them, slip their content, or mute and unmute them. Audio clips also have their own gain, fades (each with a curve) and time stretch (their " +
+      "pitch kept: `stretch`, or `loop_tempo` to play a loop made at that tempo in time with the song). Only what's given changes.",
     inputSchema: obj(
       {
         ids: clipIds,
@@ -766,6 +767,13 @@ export const MUSIC_TOOLS = [
         length: num("Their length in bars."),
         offset: num("How far into their content they start, in bars."),
         muted: bool("Muted, or not."),
+        gain_db: num("Audio clips: their own gain in dB, -48 (silent) to +36; 0 leaves them as they are."),
+        fade_in: num("Audio clips: beats they fade in over from their start (0: none)."),
+        fade_out: num("Audio clips: beats they fade out over before their end (0: none)."),
+        fade_in_curve: num("Audio clips: how their fade in bends, -1 (slow at first) to 1 (quick at first); 0 straight."),
+        fade_out_curve: num("Audio clips: how their fade out bends, -1 to 1 likewise."),
+        stretch: num("Audio clips: how many times as long as recorded they play, 0.125 to 8, their pitch kept (1: as recorded). Their length follows."),
+        loop_tempo: num("Audio clips: the tempo (BPM) the loop was made at: they're stretched to play in time with the song (its pitch kept)."),
       },
       ["ids"],
     ),

@@ -405,7 +405,10 @@ the export, automation, recording, MIDI input, Gross Beat. Where it is and every
   ids are small numbers, like notes'. Its operations are pure functions of a clip list in
   `shared/music/playlist.ts` (with a `ClipContext`: the patterns' lengths and the tempo, which a clip's
   length needs, and each audio clip channel's speed: a pitched one plays its file faster, FL's Resample,
-  so an audio clip's ticks become file seconds through `fileSecondsPerTick(ref)`, never `secondsPerTick`), and the window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
+  so an audio clip's ticks become file seconds through `clipSecondsPerTick(clip)` (its channel's speed and its own
+  `stretch`), never `secondsPerTick`). An audio clip has its own `gain`, fades (`fadeIn`/`fadeOut` in ticks, their
+  tensions: `fadeShape`, the engine's too) and `stretch` (time stretching, its pitch kept: Signalsmith Stretch in
+  `AudioStream`, seeded so renders repeat), each absent at its default (`clipExtras` checks them). The window is built as the Piano roll is: canvases (`draw.ts`), a `PlaylistDrag` drawn
   through `applyDrag` and committed once, maths in `geometry.ts`, mouse in `pointer.ts`, keys in `keys.ts`,
   commands in `actions.ts`. An audio clip's channel is `Channel.kind: "audio"`, in the rack's
   Audio group (`RackGroup`), with a cut-down settings window; it has steps and notes too, as FL's (the

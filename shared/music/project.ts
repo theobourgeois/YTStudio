@@ -106,6 +106,37 @@ export const MAX_SONG_TICKS = MAX_PATTERN_TICKS;
 export const MAX_CLIPS = 50_000;
 /** How far into its file an audio clip's window can start, in seconds (a day). */
 export const MAX_AUDIO_OFFSET = 86_400;
+/** An audio clip's own gain at most: +36 dB, as FL's. */
+export const MAX_CLIP_GAIN = 10 ** (36 / 20);
+/** How far an audio clip can be time-stretched: an eighth as long, to eight times as long. */
+export const MIN_STRETCH = 0.125;
+export const MAX_STRETCH = 8;
+
+/**
+ * An audio clip's own gain, fades and stretch (`PlaylistClip`), checked: each only when it isn't its
+ * default, the fades within its `length` (shortened together if they'd overlap).
+ */
+export function clipExtras(raw: Record<string, unknown>, length: number): Pick<PlaylistClip, "fadeIn" | "fadeOut" | "fadeInTension" | "fadeOutTension" | "gain" | "stretch"> {
+  const extras: Pick<PlaylistClip, "fadeIn" | "fadeOut" | "fadeInTension" | "fadeOutTension" | "gain" | "stretch"> = {};
+  let fadeIn = Math.round(number(raw.fadeIn, 0, length, 0));
+  let fadeOut = Math.round(number(raw.fadeOut, 0, length, 0));
+  if (fadeIn + fadeOut > length) {
+    const scale = length / (fadeIn + fadeOut);
+    fadeIn = Math.floor(fadeIn * scale);
+    fadeOut = Math.floor(fadeOut * scale);
+  }
+  if (fadeIn > 0) extras.fadeIn = fadeIn;
+  if (fadeOut > 0) extras.fadeOut = fadeOut;
+  const inTension = number(raw.fadeInTension, -1, 1, 0);
+  const outTension = number(raw.fadeOutTension, -1, 1, 0);
+  if (fadeIn > 0 && inTension !== 0) extras.fadeInTension = inTension;
+  if (fadeOut > 0 && outTension !== 0) extras.fadeOutTension = outTension;
+  const gain = number(raw.gain, 0, MAX_CLIP_GAIN, 1);
+  if (gain !== 1) extras.gain = gain;
+  const stretch = number(raw.stretch, MIN_STRETCH, MAX_STRETCH, 1);
+  if (Math.abs(stretch - 1) > 1e-9) extras.stretch = stretch;
+  return extras;
+}
 /** A playlist track's height, as a share of the usual one (FL's track Size). */
 export const MIN_TRACK_SIZE = 0.25;
 export const MAX_TRACK_SIZE = 4;
@@ -674,7 +705,7 @@ function normalizePlaylist(input: unknown, patterns: Pattern[], channels: Channe
     const length = kind !== "audio" && raw.length === null ? null : Math.round(number(raw.length, 1, MAX_SONG_TICKS - start, STEP_TICKS * 16));
     const offset = kind !== "audio" ? Math.round(number(raw.offset, 0, MAX_PATTERN_TICKS, 0)) : number(raw.offset, 0, MAX_AUDIO_OFFSET, 0);
     const id = Number.isInteger(raw.id) && (raw.id as number) > 0 && !ids.has(raw.id as number) ? (raw.id as number) : 0;
-    const clip: PlaylistClip = { id, kind, ref: raw.ref, track, start, length, offset, muted: raw.muted === true };
+    const clip: PlaylistClip = { id, kind, ref: raw.ref, track, start, length, offset, muted: raw.muted === true, ...(kind === "audio" && length !== null ? clipExtras(raw, length) : {}) };
     if (id) ids.add(id);
     else unnamed.push(clip);
     clips.push(clip);

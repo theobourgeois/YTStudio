@@ -1890,6 +1890,64 @@ test("tracks are named, coloured, muted and soloed; audio files dropped on the p
   await expect(settings.getByRole("tab", { name: "Envelope" })).toHaveCount(0);
 });
 
+test("an audio clip's own fades and gain are dragged on it, stretch mode stretches it, and Stretch to tempo fits a loop to the song", async ({ page }) => {
+  // A four-second loop at 90 BPM in the user's samples.
+  const folder = path.resolve("e2e/.data/My Samples/Loops");
+  await fs.mkdir(folder, { recursive: true });
+  await writeWav(path.join(folder, "Pad 90bpm.wav"), Array.from({ length: 4 * 48000 }, (_, i) => Math.sin(i / 8) * 0.5), 48000);
+  const id = await openNewSong(page, "Clip shapes", { browser: true });
+  await page.keyboard.press("F5");
+  const list = page.getByRole("complementary", { name: "Browser" }).getByTestId("browser-list");
+  const item = (name: string) => list.getByRole("treeitem", { name, exact: true }).last();
+  for (const name of ["My Samples", "Loops"]) if (!(await item("Pad 90bpm.wav").isVisible())) await item(name).click();
+  const grid = page.getByTestId("playlist-grid");
+  await item("Pad 90bpm.wav").dragTo(grid, { targetPosition: { x: 2, y: 24 } });
+  await expect.poll(async () => (await savedClips(page, id)).map((c) => [c.kind, c.track, c.start])).toEqual([["audio", 0, 0]]);
+  type Shaped = SavedClip & { fadeIn?: number; gain?: number; stretch?: number; length: number };
+  const clip = async () => (await savedClips(page, id))[0] as Shaped;
+  const box = (await grid.boundingBox())!;
+  const length = (await clip()).length;
+  const width = length * 0.15;
+  const drag = async (fromX: number, fromY: number, dx: number, dy: number) => {
+    await page.mouse.move(box.x + fromX, box.y + fromY);
+    await page.mouse.down();
+    await page.mouse.move(box.x + fromX + dx, box.y + fromY + dy, { steps: 8 });
+    await page.mouse.up();
+  };
+
+  // The fade in's corner, at the top of its body (just inside its start), dragged along it.
+  await drag(8, 16, 40, 0);
+  await expect.poll(async () => (await clip()).fadeIn ?? 0).toBeGreaterThan(0);
+  // Its gain's half-circle, in the middle of its bottom edge, dragged up: louder, in dB.
+  await drag(width / 2, 43, 0, -30);
+  await expect.poll(async () => (await clip()).gain ?? 1).toBeGreaterThan(1.5);
+  // One undo step each.
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await clip()).gain).toBeUndefined();
+
+  // Stretch mode (Shift+M): its end edge stretches it, its pitch kept.
+  await page.keyboard.press("Shift+m");
+  await expect(page.getByRole("button", { name: "Stretch mode" })).toHaveAttribute("aria-pressed", "true");
+  await drag(width - 2, 30, 60, 0);
+  await expect.poll(async () => (await clip()).stretch ?? 1).toBeGreaterThan(1.2);
+  await page.keyboard.press("Shift+m");
+
+  // Its menu: Stretch to tempo, the loop's tempo read off its name; then back as recorded.
+  await page.mouse.click(box.x + 10, box.y + 6);
+  await page.getByTestId("clip-menu").getByRole("menuitem", { name: "Stretch", exact: true }).hover();
+  await expect(page.getByRole("textbox", { name: "The loop's tempo" })).toHaveValue("90");
+  await page.getByRole("button", { name: /Stretch to/ }).click();
+  const tempo = (await savedSong(page, id)).settings.tempo;
+  await expect.poll(async () => (await clip()).stretch).toBeCloseTo(90 / tempo, 5);
+  await page.mouse.click(box.x + 10, box.y + 6);
+  await page.getByTestId("clip-menu").getByRole("menuitem", { name: "Stretch", exact: true }).hover();
+  await page.getByRole("menuitem", { name: "Reset stretch" }).click();
+  await expect.poll(async () => (await clip()).stretch).toBeUndefined();
+  await page.mouse.click(box.x + 10, box.y + 6);
+  await page.getByTestId("clip-menu").getByRole("menuitem", { name: "Reset fades and gain" }).click();
+  await expect.poll(async () => (await clip()).fadeIn).toBeUndefined();
+});
+
 test("the assistant arranges the song with the playlist's tools", async ({ page }) => {
   const id = await openNewSong(page, "Assisted arrangement");
   await page.getByRole("button", { name: "Assistant" }).click();

@@ -20,6 +20,24 @@ function beat(): MusicProject {
 }
 
 describe("the assistant's playlist tools", () => {
+  it("give audio clips their own gain and fades, and stretch them (to a loop's tempo, too)", () => {
+    const song = addAudioClips(beat(), [{ name: "Loop 90bpm", sampleId: "m3", seconds: 4, channelId: "chan_loop" }], { start: 0, track: 2 }).song;
+    const id = song.playlist.clips[0].id;
+    const shaped = updateClipsTool(song, { ids: [id], gain_db: -6, fade_in: 1, fade_out: 2, fade_out_curve: 0.5 });
+    expect(shaped.song.playlist.clips[0]).toMatchObject({ fadeIn: 96, fadeOut: 192, fadeOutTension: 0.5 });
+    expect(shaped.song.playlist.clips[0].gain).toBeCloseTo(0.501, 3);
+    expect(shaped.text).toContain("-6 dB gain, fading in over 1 beat, fading out over 2 beats (curve 0.5)");
+    // A loop made at 90 BPM in a song at 120: three quarters as long, its fades with it.
+    const tempo = updateClipsTool(shaped.song, { ids: [id], loop_tempo: 90 });
+    expect(tempo.song.playlist.clips[0]).toMatchObject({ stretch: 0.75, length: BAR * 1.5, fadeIn: 72 });
+    expect(tempo.text).toContain("stretched 0.75×");
+    expect(updateClipsTool(song, { ids: [id], gain_db: -100 }).song.playlist.clips[0].gain).toBe(0);
+    expect(() => updateClipsTool(song, { ids: [id], stretch: 20 })).toThrow(/0.125 to 8/);
+    expect(() => updateClipsTool(song, { ids: [id], fade_in_curve: 3 })).toThrow(/-1/);
+    const placed = placeClipsTool(beat(), { clips: [{ pattern: "Beat", track: 1, bar: 1 }] }, env).song;
+    expect(() => updateClipsTool(placed, { ids: [1], stretch: 2 })).toThrow(/Only audio clips/);
+  });
+
   it("chop clips into bars or beats, and say when nothing's inside", () => {
     const placed = placeClipsTool(beat(), { clips: [{ pattern: "Beat", track: 1, bar: 1, length: 2 }] }, env).song;
     const { song, text } = chopClipsTool(placed, { ids: [1], every: "beat" });

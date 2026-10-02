@@ -3,7 +3,7 @@
 # audio device; nothing here is macOS-only, so Windows and Linux builds are a matter of packaging.
 #
 #   pnpm engine:build     configure + build into engine/build (JUCE is fetched on the first run)
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.25)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
 project(VaudioEngine VERSION 0.1.0 LANGUAGES C CXX)
 
@@ -20,6 +20,16 @@ FetchContent_Declare(
   GIT_TAG 8.0.9
   GIT_SHALLOW ON)
 FetchContent_MakeAvailable(JUCE)
+
+# Time stretching (an audio clip stretched, its pitch kept): Signalsmith Stretch (MIT, header-only),
+# which fetches its FFTs (Signalsmith Linear, MIT) itself.
+FetchContent_Declare(
+  signalsmith-stretch
+  GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
+  GIT_TAG 1.4.0
+  GIT_SHALLOW ON
+  SYSTEM)
+FetchContent_MakeAvailable(signalsmith-stretch)
 
 # An app bundle rather than a bare executable: plugin editors are windows, and macOS only gives
 # those to an application. LSUIElement keeps it out of the Dock (it's part of Vaudio, not an app).
@@ -46,7 +56,7 @@ target_compile_definitions(
 
 target_link_libraries(
   VaudioEngine
-  PRIVATE juce::juce_audio_utils juce::juce_audio_processors juce::juce_audio_devices
+  PRIVATE juce::juce_audio_utils juce::juce_audio_processors juce::juce_audio_devices signalsmith-stretch
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
 add_subdirectory(test-plugin)

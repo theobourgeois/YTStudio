@@ -51,6 +51,12 @@ constexpr int fadeSamples = 64;
 constexpr double latestSeconds = 1.0;
 /** See `Sequencer`: a tick exactly on a block's edge lands in one block, not whichever rounding picks. */
 constexpr double tickSlack = 1e-6;
+
+/** A clip's fade at `x` (0..1 of the way in), bent by `tension` (-1..1: slow at first below 0, quick above): `fadeShape` in `shared/music/playlist.ts`. */
+float fadeShape (double x, float tension)
+{
+    return (float) std::pow (juce::jlimit (0.0, 1.0, x), std::exp2 (-2.0 * (double) tension));
+}
 }
 
 ClipPlayer::ClipPlayer (bool isOffline) : offline (isOffline)
@@ -76,7 +82,7 @@ void ClipPlayer::setSong (const Song& song)
 {
     clips.clear();
     for (const auto& clip : song.audioClips)
-        clips.push_back ({ clip.key, clip.path, clip.tick, clip.length, clip.seconds, clip.speed, clip.sample });
+        clips.push_back ({ clip.key, clip.path, clip.tick, clip.length, clip.seconds, clip.speed, clip.stretch, clip.sample });
     loopTicks = juce::jmax (1.0, song.loopTicks);
     secondsPerTick = 60.0 / (song.tempo * song.ppq);
     quality = song.resampling;
@@ -121,8 +127,8 @@ ClipPlayer::Stream* ClipPlayer::make (const Clip& clip, double startTick, juce::
     if (incomingQueue.getFreeSpace() < 1 || (int) live.size() >= maxStreams * 2)
         return nullptr;
     const juce::File file (clip.path);
-    // Where in the file: a pitched clip goes through it `speed` times as fast.
-    const auto seconds = clip.seconds + (startTick - clip.tick) * secondsPerTick * clip.speed;
+    // Where in the file: a pitched clip goes through it `speed` times as fast, a stretched one `stretch` times as slowly.
+    const auto seconds = clip.seconds + (startTick - clip.tick) * secondsPerTick * clip.speed / clip.stretch;
     // Past the file's end, the clip plays nothing more.
     const auto known = durations.find (clip.path);
     if (clip.sample == nullptr && known != durations.end() && seconds >= known->second)
@@ -141,7 +147,7 @@ ClipPlayer::Stream* ClipPlayer::make (const Clip& clip, double startTick, juce::
     const auto samples = (juce::int64) std::llround ((end - startTick) * secondsPerTick * sampleRate);
     if (samples <= 0)
         return nullptr;
-    auto* stream = new Stream (std::move (source), sampleRate, seconds, samples, clip.key, startTick, playGeneration, pass, seconds > 1e-6, clip.speed, quality);
+    auto* stream = new Stream (std::move (source), sampleRate, seconds, samples, clip.key, startTick, playGeneration, pass, seconds > 1e-6, clip.speed, quality, clip.stretch);
     // Due now: some of it is decoded here, so it sounds at the next block; the reader does the rest.
     if (immediate || offline)
         stream->fill (offline ? -1 : (int) (immediateSeconds * sampleRate));
@@ -180,19 +186,28 @@ void ClipPlayer::retire (Stream* stream)
 
 namespace
 {
-int clipChannel (const Song& song, juce::uint64 key)
+/** Which of the song's clips a stream plays (by its key), or -1. */
+int clipIndex (const Song& song, juce::uint64 key)
 {
-    for (const auto& clip : song.audioClips)
-        if (clip.key == key)
-            return clip.channel;
+    for (size_t i = 0; i < song.audioClips.size(); ++i)
+        if (song.audioClips[i].key == key)
+            return (int) i;
     return -1;
+}
+
+/** A stream finds its clip, and its channel, in the song (-1: gone). */
+template <typename Stream>
+void findClip (Stream& stream, const Song& song)
+{
+    stream.clip = clipIndex (song, stream.key);
+    stream.channel = stream.clip >= 0 ? song.audioClips[(size_t) stream.clip].channel : -1;
 }
 }
 
 void ClipPlayer::adopt (const Song& song)
 {
     for (int i = 0; i < numActive; ++i)
-        active[(size_t) i]->channel = clipChannel (song, active[(size_t) i]->key);
+        findClip (*active[(size_t) i], song);
 }
 
 void ClipPlayer::receive (const Song& song)
@@ -207,7 +222,7 @@ void ClipPlayer::receive (const Song& song)
             retire (stream);
             continue;
         }
-        stream->channel = clipChannel (song, stream->key);
+        findClip (*stream, song);
         active[(size_t) numActive++] = stream;
     }
 }
@@ -280,7 +295,8 @@ void ClipPlayer::schedule (double from, double to, double origin, juce::uint32 p
 /** How many samples of an automated clip play at one gain as it glides (a third of a millisecond). */
 constexpr int rampChunk = 16;
 
-void ClipPlayer::renderStream (Stream& stream, float fromLeft, float fromRight, float gainLeft, float gainRight, float* left, float* right, int numSamples)
+void ClipPlayer::renderStream (Stream& stream, const Song::AudioClip* clip, double ticksPerSample, float fromLeft, float fromRight, float gainLeft, float gainRight, float* left,
+                               float* right, int numSamples)
 {
     const auto start = juce::jmin (stream.delay, numSamples);
     stream.delay = 0;
@@ -299,11 +315,28 @@ void ClipPlayer::renderStream (Stream& stream, float fromLeft, float fromRight, 
         return;
     }
     const auto want = (int) juce::jmin (stream.remaining, (juce::int64) room);
+    // The clip's own gain and fades (FL's), sample by sample, from where it is in the clip.
+    const float* shape = nullptr;
+    if (clip != nullptr && (clip->gain != 1.0f || clip->fadeIn > 0 || clip->fadeOut > 0) && want <= maxEnvelope)
+    {
+        const auto from = stream.startTick - clip->tick + (double) stream.played.load (std::memory_order_relaxed) * ticksPerSample;
+        for (int j = 0; j < want; ++j)
+        {
+            const auto in = from + j * ticksPerSample;
+            auto g = clip->gain;
+            if (clip->fadeIn > 0 && in < clip->fadeIn)
+                g *= fadeShape (in / clip->fadeIn, clip->fadeInTension);
+            if (const auto left_ = clip->length - in; clip->fadeOut > 0 && left_ < clip->fadeOut)
+                g *= fadeShape (left_ / clip->fadeOut, clip->fadeOutTension);
+            envelope[(size_t) j] = g;
+        }
+        shape = envelope.data();
+    }
     // All but the clip's last few samples as they are; those fade out, so a clip cut off doesn't click.
     const auto plain = (int) juce::jlimit ((juce::int64) 0, (juce::int64) want, stream.remaining - fadeSamples);
     auto got = 0;
     if (juce::exactlyEqual (fromLeft, gainLeft) && juce::exactlyEqual (fromRight, gainRight))
-        got = plain > 0 ? stream.pull (left, right, start, plain, gainLeft, gainRight, fadeIn, 0) : 0;
+        got = plain > 0 ? stream.pull (left, right, start, plain, gainLeft, gainRight, fadeIn, 0, shape) : 0;
     else
         // Automated: gliding from `from…` to `gain…` across the block, a few samples at a time.
         for (int done = 0; done < plain;)
@@ -311,13 +344,13 @@ void ClipPlayer::renderStream (Stream& stream, float fromLeft, float fromRight, 
             const auto part = juce::jmin (rampChunk, plain - done);
             const auto at = (float) (start + done) + (float) part / 2.0f;
             const auto k = at / (float) numSamples;
-            got += stream.pull (left, right, start + done, part, fromLeft + (gainLeft - fromLeft) * k, fromRight + (gainRight - fromRight) * k, fadeIn, 0);
+            got += stream.pull (left, right, start + done, part, fromLeft + (gainLeft - fromLeft) * k, fromRight + (gainRight - fromRight) * k, fadeIn, 0, shape != nullptr ? shape + done : nullptr);
             done += part;
         }
     for (int j = plain; j < want; ++j)
     {
         const auto level = (float) (stream.remaining - j - 1) / (float) fadeSamples;
-        got += stream.pull (left, right, start + j, 1, gainLeft * level, gainRight * level, fadeIn, 0);
+        got += stream.pull (left, right, start + j, 1, gainLeft * level, gainRight * level, fadeIn, 0, shape != nullptr ? shape + j : nullptr);
     }
     stream.remaining -= want;
     stream.owed += want - got;

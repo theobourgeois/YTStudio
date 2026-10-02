@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
+import { PiArrowsHorizontal, PiCaretDownBold, PiMagnet, PiSidebarSimple } from "react-icons/pi";
 import { cn } from "cn";
 import { applyDrag, shownSelection } from "./drag";
 import { type ClipContext, clipContext, clipLength, songTicks } from "@shared/music/playlist";
@@ -58,7 +58,7 @@ import {
 import { CURVE_NAMES, controlOf, deletePoint, editPoints, updatePoint } from "@shared/music/automation";
 import { CURVE_TYPES, type CurveType } from "@shared/music/types";
 import { AUTOMATION_TOOLS, type AutomationTool, createAutomationClip, openAutomationWindow, runTool } from "../automation/actions";
-import { editClips, removeClips, setClipProps } from "@shared/music/playlist";
+import { editClips, removeClips, setClipFades, setClipGain, setClipProps, setClipStretch, stretchForTempo, tempoInName } from "@shared/music/playlist";
 import { fadeOutClips, onClipFade, vanishingClips } from "./fades";
 import { type PlaylistScene, drawRuler, drawTracks } from "./draw";
 import { type WavePeaks, clipPeaks, onWaveform } from "./waveforms";
@@ -142,6 +142,7 @@ function PlaylistControls() {
   const tool = usePlaylist((s) => s.tool);
   const snap = usePlaylist((s) => s.snap);
   const pickerOpen = usePlaylist((s) => s.pickerOpen);
+  const stretching = usePlaylist((s) => s.stretching);
   return (
     <>
       <EditMenu />
@@ -170,6 +171,16 @@ function PlaylistControls() {
           </button>
         ))}
       </div>
+      <button
+        type="button"
+        aria-label="Stretch mode"
+        aria-pressed={stretching}
+        title="Stretch mode (Shift+M): an audio clip's edge stretches it, its pitch kept"
+        className={cn("grid size-5.5 place-items-center rounded-sm", stretching ? "pressed text-brand" : "border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground")}
+        onClick={() => usePlaylist.setState({ stretching: !stretching })}
+      >
+        <PiArrowsHorizontal className="size-4" />
+      </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button type="button" aria-label="Snap" title="Snap" className="sunken flex h-5.5 items-center gap-1 rounded-sm px-1.5 text-[11px] text-muted-foreground hover:text-foreground">
@@ -670,6 +681,22 @@ function ClipMenu() {
                 ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            {/* FL's time stretching: to the song's tempo from the loop's, or back as recorded. */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Stretch</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <StretchToTempo clip={clip} onDone={close} />
+                <DropdownMenuItem disabled={clip.stretch === undefined} onSelect={() => commit((clips) => setClipStretch(clips, only, 1))}>
+                  Reset stretch
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuItem
+              disabled={clip.fadeIn === undefined && clip.fadeOut === undefined && clip.gain === undefined}
+              onSelect={() => commit((clips) => setClipGain(setClipFades(clips, only, { fadeIn: 0, fadeOut: 0 }), only, 1))}
+            >
+              Reset fades and gain
+            </DropdownMenuItem>
           </>
         )}
         <DropdownMenuSub>
@@ -703,6 +730,39 @@ function ClipMenu() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * Stretch to tempo (the clip menu's): the tempo the loop was made at (what its name says, if it does), and
+ * the clip is stretched to play it in time with the song.
+ */
+function StretchToTempo({ clip, onDone }: { clip: PlaylistClip; onDone: () => void }) {
+  const song = useMusic.getState().history!.doc;
+  const name = song.channels.find((c) => c.id === clip.ref)?.name ?? "";
+  const [tempo, setTempo] = useState(String(tempoInName(name) ?? song.settings.tempo));
+  const apply = () => {
+    const bpm = Number(tempo);
+    if (!(bpm >= 20 && bpm <= 999)) return;
+    useMusic.getState().commit((doc) => editClips(doc, (clips) => setClipStretch(clips, new Set([clip.id]), stretchForTempo(doc, clip, bpm))));
+    onDone();
+  };
+  return (
+    <form
+      className="flex items-center gap-1.5 px-2 py-1.5 text-[13px]"
+      onSubmit={(e) => {
+        e.preventDefault();
+        apply();
+      }}
+      // Its keys are its own, not the menu's (typing a digit mustn't jump to an item).
+      onKeyDown={(e) => e.key !== "Escape" && e.stopPropagation()}
+    >
+      <span className="whitespace-nowrap text-muted-foreground">The loop's tempo</span>
+      <Input value={tempo} onChange={(e) => setTempo(e.target.value)} aria-label="The loop's tempo" className="h-6 w-16 text-[13px]" inputMode="decimal" />
+      <button type="submit" className="raised hover:raised-hover h-6 rounded-sm px-2 text-xs">
+        Stretch to {song.settings.tempo}
+      </button>
+    </form>
   );
 }
 

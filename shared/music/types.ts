@@ -342,6 +342,19 @@ export interface PlaylistClip {
   offset: number;
   /** Kept, but not played (the playlist's mute tool). */
   muted: boolean;
+  /**
+   * Audio clips (FL's clip fades, `docs/fl-studio/playlist.md`): ticks its sound fades in over from its
+   * start, and out over before its end, and how each bends (-1..1: 0 straight, below slow at first,
+   * above quick; `fadeShape`). Absent: no fade, straight.
+   */
+  fadeIn?: number;
+  fadeOut?: number;
+  fadeInTension?: number;
+  fadeOutTension?: number;
+  /** Audio clips: its own gain (FL's half-circle on its bottom edge), a factor: absent is 1, `MAX_CLIP_GAIN` +36 dB, 0 silent. */
+  gain?: number;
+  /** Audio clips: how many times as long as its file it plays it, its pitch kept (FL's time stretching). Absent: 1, as recorded. */
+  stretch?: number;
 }
 
 /** The song's arrangement: what plays in song mode. */

@@ -215,6 +215,11 @@ struct Song
         double tick = 0, length = 0, seconds = 0;
         /** How fast it plays its file (its channel's pitch, as a ratio): seconds of the file per second. */
         double speed = 1;
+        /** How many times as long it plays its file, its pitch kept (time stretching); 1: as it is. */
+        double stretch = 1;
+        /** Its own gain, and its fades (ticks from its start and before its end) and how they bend (-1..1). Not in its key: they change as it plays. */
+        float gain = 1, fadeInTension = 0, fadeOutTension = 0;
+        double fadeIn = 0, fadeOut = 0;
         /** Its channel's file. */
         juce::String path;
         /** Its channel's sound prepared by its precomputed effects, in memory: played instead of the file. */

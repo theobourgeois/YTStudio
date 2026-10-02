@@ -25,6 +25,8 @@ export type PlaylistKeyAction =
         | "insertSpaceSliced"
         | "deleteSpace"
         | "picker"
+        /** FL's Shift+M: stretch mode on or off (an audio clip's edge stretches it). */
+        | "stretchMode"
         | "centre"
         | "home"
         | "close";
@@ -84,7 +86,7 @@ export function resolvePlaylistKey(e: KeyLike): PlaylistKeyAction | null {
     return null;
   }
   if (shift) {
-    const shifted: Record<string, PlaylistKeyAction["type"]> = { I: "invert", C: "selectSimilar", Q: "quantize" };
+    const shifted: Record<string, PlaylistKeyAction["type"]> = { I: "invert", C: "selectSimilar", Q: "quantize", M: "stretchMode" };
     const type = shifted[letter];
     return type ? ({ type } as PlaylistKeyAction) : null;
   }

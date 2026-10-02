@@ -132,6 +132,14 @@ export interface EngineAudioClip {
    * fast), as FL's Resample does. Seconds of the file per second of the song.
    */
   speed: number;
+  /** How many times as long it plays its file, its pitch kept (time stretching): absent, 1. */
+  stretch?: number;
+  /** Its own gain (absent: 1), and its fades: ticks from its start and before its end, and their tensions (`fadeShape`). */
+  gain?: number;
+  fadeIn?: number;
+  fadeOut?: number;
+  fadeInTension?: number;
+  fadeOutTension?: number;
 }
 
 /**
@@ -527,7 +535,18 @@ function audioClips(song: MusicProject, from: number, to: number): EngineAudioCl
     const channel = channels.get(clip.ref);
     const length = clipLength(clip, ctx);
     if (channel === undefined || clip.start + length <= from) continue;
-    clips.push({ channel, tick: clip.start - from, length, seconds: clip.offset, speed: pitchSpeed(song.channels[channel].pitch) });
+    const { stretch, gain, fadeIn, fadeOut, fadeInTension, fadeOutTension } = clip;
+    clips.push({
+      channel,
+      tick: clip.start - from,
+      length,
+      seconds: clip.offset,
+      speed: pitchSpeed(song.channels[channel].pitch),
+      ...(stretch !== undefined && { stretch }),
+      ...(gain !== undefined && { gain }),
+      ...(fadeIn && { fadeIn, fadeInTension: fadeInTension ?? 0 }),
+      ...(fadeOut && { fadeOut, fadeOutTension: fadeOutTension ?? 0 }),
+    });
   }
   return clips;
 }

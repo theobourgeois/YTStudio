@@ -72,7 +72,7 @@ private:
     {
         juce::uint64 key = 0;
         juce::String path;
-        double tick = 0, length = 0, seconds = 0, speed = 1;
+        double tick = 0, length = 0, seconds = 0, speed = 1, stretch = 1;
         /** Prepared by its channel's precomputed effects: played from memory instead of the file. */
         std::shared_ptr<const Sample> sample;
     };
@@ -82,7 +82,10 @@ private:
     void retire (Stream* stream);
     void discard (Stream* stream);
     /** One stream's part of a block (audio thread). */
-    void renderStream (Stream& stream, float fromLeft, float fromRight, float gainLeft, float gainRight, float* left, float* right, int numSamples);
+    void renderStream (Stream& stream, const Song::AudioClip* clip, double ticksPerSample, float fromLeft, float fromRight, float gainLeft, float gainRight, float* left, float* right, int numSamples);
+    /** Each sample's gain from a clip's own gain and fades, for `renderStream` (the audio thread's). */
+    static constexpr int maxEnvelope = 8192;
+    std::array<float, maxEnvelope> envelope {};
 
     const bool offline;
     double sampleRate = 48000.0;
@@ -118,8 +121,8 @@ private:
 struct ClipPlayer::Stream final : AudioStream
 {
     Stream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 samples, juce::uint64 clipKey, double tick,
-            juce::uint32 playGeneration, juce::uint32 playPass, bool fadeIn, double speed, Resampling resampling)
-        : AudioStream (std::move (source), outputRate, startSeconds, samples, 2.0, speed, resampling),
+            juce::uint32 playGeneration, juce::uint32 playPass, bool fadeIn, double speed, Resampling resampling, double stretch)
+        : AudioStream (std::move (source), outputRate, startSeconds, samples, 2.0, speed, resampling, stretch),
           key (clipKey),
           startTick (tick),
           generation (playGeneration),
@@ -138,8 +141,8 @@ struct ClipPlayer::Stream final : AudioStream
     const bool fadesIn;
 
     // The audio thread's.
-    /** Its clip's channel in the song playing, or -1 (it's gone: fade out). */
-    int channel = -1;
+    /** Its clip's channel in the song playing, or -1 (it's gone: fade out), and the clip (index into `Song::audioClips`). */
+    int channel = -1, clip = -1;
     bool started = false;
     /** Samples into this block where it starts. */
     int delay = 0;
@@ -160,6 +163,7 @@ void ClipPlayer::render (const Song& song, int numSamples, Target&& target)
             stream.fill();
         float gainLeft = 0, gainRight = 0, fromLeft = 0, fromRight = 0;
         std::pair<float*, float*> buffers { nullptr, nullptr };
+        const auto* clip = stream.clip >= 0 && stream.clip < (int) song.audioClips.size() ? &song.audioClips[(size_t) stream.clip] : nullptr;
         if (stream.channel >= 0)
         {
             const auto& channel = song.channels[(size_t) stream.channel];
@@ -177,7 +181,7 @@ void ClipPlayer::render (const Song& song, int numSamples, Target&& target)
             stream.remaining = 0;
         }
         else
-            renderStream (stream, fromLeft, fromRight, gainLeft, gainRight, buffers.first, buffers.second, numSamples);
+            renderStream (stream, clip, song.tempo * song.ppq / (60.0 * sampleRate), fromLeft, fromRight, gainLeft, gainRight, buffers.first, buffers.second, numSamples);
     }
     // Those that have ended go back to be deleted.
     for (int i = 0; i < numActive;)

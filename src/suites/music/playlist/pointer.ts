@@ -5,7 +5,7 @@
  */
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { clipEnd, clipLength } from "@shared/music/playlist";
-import { MAX_PLAYLIST_TRACKS } from "@shared/music/project";
+import { MAX_CLIP_GAIN, MAX_PLAYLIST_TRACKS } from "@shared/music/project";
 import type { PlaylistClip } from "@shared/music/types";
 import { type DragHandlers, startPointerDrag } from "@/lib/pointer-drag";
 import { CURSORS, MOVE_CURSOR, MOVING_CURSOR, RESIZE_CURSOR } from "../piano/cursors";
@@ -24,7 +24,7 @@ import {
   playlistContext,
   selectTime,
 } from "./actions";
-import { paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack } from "./geometry";
+import { type ClipHandle, paintClipStarts, scrollViewBy, hitClip, xToTick, yToTrack } from "./geometry";
 import { fadeOutClips } from "./fades";
 import { usePlaylist } from "./store";
 import { curveCursor, curvePointerDown } from "../automation/curve-pointer";
@@ -281,7 +281,11 @@ export function gridPointerDown(e: Press) {
     const clip = hit.clip;
     chooseSource({ kind: clip.kind, ref: clip.ref });
     const ids = p.selected.has(clip.id) ? p.selected : new Set([clip.id]);
+    // An audio clip's fade, curve or gain handle (FL's).
+    if (hit.handle) return dragHandle(e, element, clip, hit.handle, ids, tick0, q0.y, gridOf, at);
     if (hit.edge) {
+      // Stretch mode: an audio clip's edge time-stretches it.
+      const stretch = playlist.stretching && clip.kind === "audio";
       const edgeTick = hit.edge === "start" ? clip.start : clipEnd(clip, p.ctx);
       show(element, RESIZE_CURSOR);
       startGridDrag(e, element, {
@@ -289,7 +293,7 @@ export function gridPointerDown(e: Press) {
         cursor: "ew-resize",
         onMove(ev) {
           const moved = snapTick(edgeTick + (at(ev).tick - tick0), gridOf(ev), "line");
-          usePlaylist.getState().setDrag({ kind: "resize", ids, edge: hit.edge!, ticks: moved - edgeTick });
+          usePlaylist.getState().setDrag({ kind: stretch ? "stretch" : "resize", ids, edge: hit.edge!, ticks: moved - edgeTick });
         },
         ...finish,
       });
@@ -351,6 +355,65 @@ export function gridPointerDown(e: Press) {
   });
 }
 
+/** Decibels a pixel of a gain handle's drag moves it, and below which it's silent. */
+const DB_PER_PX = 0.2;
+const SILENT_DB = -48;
+/** How much of a curve's tension a pixel of its handle's drag moves. */
+const TENSION_PER_PX = 1 / 60;
+
+const toDb = (gain: number) => (gain > 0 ? 20 * Math.log10(gain) : SILENT_DB);
+
+/**
+ * An audio clip's handle dragged (FL's clip fades and gain): a fade's corner along the clip (on the
+ * snap, Alt to bypass it), a curve's middle up and down (bending it), the gain up and down (in dB, to
+ * +36; down past -48 is silent). The clips selected with it change alike.
+ */
+function dragHandle(
+  e: Press,
+  element: HTMLElement,
+  clip: PlaylistClip,
+  handle: ClipHandle,
+  ids: ReadonlySet<number>,
+  tick0: number,
+  y0: number,
+  gridOf: (ev: { altKey: boolean }) => number,
+  at: (ev: PointerEvent) => { x: number; y: number; tick: number },
+) {
+  const p = playlistContext();
+  if (!p) return;
+  const length = clipLength(clip, p.ctx);
+  const end = clipEnd(clip, p.ctx);
+  const vertical = handle === "gain" || handle === "fadeInTension" || handle === "fadeOutTension";
+  show(element, vertical ? "ns-resize" : RESIZE_CURSOR);
+  startGridDrag(e, element, {
+    threshold: 1,
+    cursor: vertical ? "ns-resize" : "ew-resize",
+    onMove(ev) {
+      const q = at(ev);
+      const set = usePlaylist.getState().setDrag;
+      if (handle === "fadeIn") {
+        const to = snapTick(clip.start + (clip.fadeIn ?? 0) + q.tick - tick0, gridOf(ev), "line");
+        return set({ kind: "fade", ids, patch: { fadeIn: Math.max(0, Math.min(length, to - clip.start)) } });
+      }
+      if (handle === "fadeOut") {
+        const to = snapTick(end - (clip.fadeOut ?? 0) + q.tick - tick0, gridOf(ev), "line");
+        return set({ kind: "fade", ids, patch: { fadeOut: Math.max(0, Math.min(length, end - to)) } });
+      }
+      const up = y0 - q.y;
+      if (handle === "gain") {
+        const db = Math.min(20 * Math.log10(MAX_CLIP_GAIN), toDb(clip.gain ?? 1) + up * DB_PER_PX);
+        return set({ kind: "gain", ids, gain: db <= SILENT_DB ? 0 : 10 ** (db / 20) });
+      }
+      const key = handle === "fadeInTension" ? "fadeInTension" : "fadeOutTension";
+      const tension = Math.max(-1, Math.min(1, (clip[key] ?? 0) + up * TENSION_PER_PX));
+      set({ kind: "fade", ids, patch: { [key]: Math.round(tension * 100) / 100 } });
+    },
+    onEnd: commitDrag,
+    onClick: cancelDrag,
+    onCancel: cancelDrag,
+  });
+}
+
 /** The pointer over the tracks, for the tool and what's under it (as the Piano roll's). */
 export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY: number; ctrlKey?: boolean; metaKey?: boolean }): string {
   const p = playlistContext();
@@ -368,6 +431,7 @@ export function gridCursor(element: HTMLElement, ev: { clientX: number; clientY:
   if (onCurve) return onCurve;
   if (tool === "slip") return hit ? RESIZE_CURSOR : "default";
   if (tool === "select") return hit ? "pointer" : "default";
+  if (hit?.handle) return hit.handle === "fadeIn" || hit.handle === "fadeOut" ? RESIZE_CURSOR : "ns-resize";
   if (hit) return hit.edge ? RESIZE_CURSOR : MOVE_CURSOR;
   return tool === "paint" ? CURSORS.brush : CURSORS.pencil;
 }

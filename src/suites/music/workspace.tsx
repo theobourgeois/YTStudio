@@ -236,6 +236,8 @@ function runPlaylistKey(action: PlaylistKeyAction) {
       return playlist.insertTimeSpace(true);
     case "deleteSpace":
       return playlist.deleteTimeSpace();
+    case "stretchMode":
+      return usePlaylist.setState({ stretching: !usePlaylist.getState().stretching });
     case "picker":
       return usePlaylist.setState({ pickerOpen: !usePlaylist.getState().pickerOpen });
     case "centre":

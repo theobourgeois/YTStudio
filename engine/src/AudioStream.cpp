@@ -1,13 +1,17 @@
 #include "AudioStream.h"
 
+#include <signalsmith-stretch/signalsmith-stretch.h>
+
 namespace
 {
 /** What the producer decodes at a time, in output samples. */
 constexpr int chunk = 2048;
+/** The stretcher's random phases are seeded, so the same clip renders the same every time. */
+constexpr long stretchSeed = 0x5eed;
 }
 
 AudioStream::AudioStream (std::unique_ptr<juce::AudioFormatReader> source, double outputRate, double startSeconds, juce::int64 maxSamples, double ringSeconds,
-                          double speed, Resampling resamplingQuality)
+                          double speed, Resampling resamplingQuality, double stretch)
     : outRate (outputRate),
       duration ((double) source->lengthInSamples / source->sampleRate),
       reader (std::move (source)),
@@ -27,7 +31,31 @@ AudioStream::AudioStream (std::unique_ptr<juce::AudioFormatReader> source, doubl
     input.setSize (2, (int) std::ceil (chunk * ratio) + 2 * reach + 4);
     output.setSize (2, chunk);
     inputStart = (juce::int64) std::floor (start) - reach;
+
+    if (const auto times = juce::jlimit (0.125, 8.0, stretch); std::abs (times - 1.0) > 1e-6)
+    {
+        // Stretched: the file goes in `stretchRate` samples per output sample, and comes out at its own
+        // pitch moved by the channel's speed. The stretcher keeps a cycle as many samples long as it
+        // was, so a file at another rate is moved by the rates' ratio too: `ratio` is both.
+        stretchRate = ratio / times;
+        stretcher = std::make_unique<signalsmith::stretch::SignalsmithStretch<float, void>> (stretchSeed);
+        stretcher->presetDefault (2, (float) outRate);
+        stretcher->setTransposeFactor ((float) ratio);
+        total = (juce::int64) std::ceil (((double) reader->lengthInSamples - start) / stretchRate);
+        if (maxSamples >= 0)
+            total = juce::jmin (total, maxSamples);
+        // Its first output is the file at `start`, aligned (the stretcher's latency taken up front).
+        const auto seekLength = stretcher->outputSeekLength ((float) stretchRate);
+        const auto from = (juce::int64) std::llround (start);
+        juce::AudioBuffer<float> seek (2, seekLength);
+        reader->read (&seek, 0, seekLength, from, true, true);
+        stretcher->outputSeek (seek.getArrayOfReadPointers(), seekLength);
+        readPosition = from + seekLength;
+        stretchInput.setSize (2, (int) std::ceil (chunk * stretchRate) + 2);
+    }
 }
+
+AudioStream::~AudioStream() = default;
 
 int AudioStream::useTimeSlice()
 {
@@ -49,6 +77,8 @@ void AudioStream::produce()
         ended.store (true, std::memory_order_release);
         return;
     }
+    if (stretcher != nullptr)
+        return produceStretched (n);
     // The file samples this chunk reads: from its first position's reach behind to its last's ahead.
     const auto first = start + (double) produced * ratio;
     const auto from = (juce::int64) std::floor (first) - reach;
@@ -91,7 +121,32 @@ void AudioStream::produce()
         ended.store (true, std::memory_order_release);
 }
 
-int AudioStream::pull (float* left, float* right, int offset, int numSamples, float gainLeft, float gainRight, int fadeInLength, int fadeOutLength)
+void AudioStream::produceStretched (int n)
+{
+    // The file samples this chunk takes, the fraction carried to the next so they add up exactly.
+    const auto wanted = carry + (double) n * stretchRate;
+    const auto count = (int) std::floor (wanted);
+    carry = wanted - count;
+    if (count > stretchInput.getNumSamples())
+        stretchInput.setSize (2, count, false, false, true);
+    reader->read (&stretchInput, 0, count, readPosition, true, true);
+    readPosition += count;
+    stretcher->process (stretchInput.getArrayOfReadPointers(), count, output.getArrayOfWritePointers(), n);
+
+    const auto scope = fifo.write (n);
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        if (scope.blockSize1 > 0)
+            ring.copyFrom (ch, scope.startIndex1, output, ch, 0, scope.blockSize1);
+        if (scope.blockSize2 > 0)
+            ring.copyFrom (ch, scope.startIndex2, output, ch, scope.blockSize1, scope.blockSize2);
+    }
+    produced += n;
+    if (produced >= total)
+        ended.store (true, std::memory_order_release);
+}
+
+int AudioStream::pull (float* left, float* right, int offset, int numSamples, float gainLeft, float gainRight, int fadeInLength, int fadeOutLength, const float* envelope)
 {
     const auto count = juce::jmin (numSamples, fifo.getNumReady());
     const auto scope = fifo.read (count);
@@ -116,6 +171,8 @@ int AudioStream::pull (float* left, float* right, int offset, int numSamples, fl
                     g *= at < fadeOutLength ? 1.0f - (float) at / (float) fadeOutLength : 0.0f;
                 else if (before + at < fadeInLength)
                     g *= (float) (before + at) / (float) fadeInLength;
+                if (envelope != nullptr)
+                    g *= envelope[at];
                 out[ch][at] += source[i] * g;
             }
         }

@@ -8,14 +8,14 @@
  * file's waveform), their bodies see-through so the grid shows, red when selected, greyed when muted, and
  * darker on a muted track (as a muted mixer track is).
  */
-import { type ClipContext, clipEnd, clipLength, visibleClips } from "@shared/music/playlist";
+import { type ClipContext, clipEnd, clipEnvelope, clipLength, clipSecondsPerTick, fadeShape, visibleClips } from "@shared/music/playlist";
 import { AUTOMATION_COLOR } from "@shared/music/automation";
 import type { Automation, Pattern, PlaylistClip, PlaylistTrack } from "@shared/music/types";
 import { CURVE_PAD } from "../automation/curve-geometry";
 import { drawCurve } from "../automation/draw-curve";
 import { gridTicks } from "../piano/geometry";
 import { type Palette, rulerMarks } from "../piano/draw";
-import { MENU_FROM, MENU_TO, TITLE_HEIGHT, type TrackLayout, tickToX, trackTop, visibleTracks, xToTick } from "./geometry";
+import { MENU_FROM, MENU_TO, TITLE_HEIGHT, type TrackLayout, clipHandles, tickToX, trackTop, visibleTracks, xToTick } from "./geometry";
 import type { VanishingClip } from "./fades";
 import { type WavePeaks, peakRange } from "./waveforms";
 import type { PlaylistDrag, PlaylistView, TimeRange } from "./store";
@@ -222,9 +222,13 @@ function drawWaveform(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip:
   const to = Math.min(scene.width, Math.ceil(x + w));
   const count = to - from;
   if (count <= 0) return;
-  // Where the file runs out, nothing more is drawn.
+  // Where the file runs out, nothing more is drawn. A stretched clip goes through it more slowly.
   const fileEnd = peaks.samples.length;
-  const sampleAt = (px: number) => (clip.offset + (xToTick(view, px) - clip.start) * scene.ctx.fileSecondsPerTick(clip.ref)) * peaks.rate;
+  const perTick = clipSecondsPerTick(clip, scene.ctx);
+  const sampleAt = (px: number) => (clip.offset + (xToTick(view, px) - clip.start) * perTick) * peaks.rate;
+  // Its own gain and fades shape what's drawn, as they shape what's heard (louder than full scale draws full).
+  const length = clipLength(clip, scene.ctx);
+  const shaped = clip.gain !== undefined || clip.fadeIn !== undefined || clip.fadeOut !== undefined;
   const tops = new Float32Array(count);
   const bottoms = new Float32Array(count);
   let last = count;
@@ -235,9 +239,10 @@ function drawWaveform(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip:
       break;
     }
     const [low, high] = peakRange(peaks, a, Math.max(a + 1, sampleAt(from + i + 1)));
+    const level = shaped ? clipEnvelope(clip, length, xToTick(view, from + i + 0.5) - clip.start) : 1;
     // Never thinner than a hairline, so quiet parts still draw.
-    tops[i] = mid - Math.max(0.5, Math.min(1, high) * half);
-    bottoms[i] = mid - Math.min(-0.5, Math.max(-1, low) * half);
+    tops[i] = mid - Math.max(0.5, Math.min(1, high * level) * half);
+    bottoms[i] = mid - Math.min(-0.5, Math.max(-1, low * level) * half);
   }
   if (!last) return;
   ctx.fillStyle = colour;
@@ -443,8 +448,10 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   } else {
     const data = scene.waveforms.get(clip.ref);
     if (data) drawWaveform(ctx, scene, clip, data, x, bodyY, w, bodyH, colours.content);
+    drawFades(ctx, scene, clip, x, bodyY, right, bodyH, colours.text);
   }
   ctx.restore();
+  if (clip.kind === "audio") drawHandles(ctx, scene, clip, colours.text);
   // Its menu's arrow (FL's clip menu), then its name, kept in view as the playlist scrolls (FL's "Keep labels on screen").
   const arrow = w > MENU_TO + 4 && title >= 9;
   if (arrow) {
@@ -461,12 +468,85 @@ function drawClip(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: Pla
   if (w > 16 && title >= 9) {
     ctx.fillStyle = colours.text;
     const textX = Math.max(x + (arrow ? MENU_TO : 0), 0) + 4;
-    ctx.fillText(ellipsize(ctx, scene.names.get(clip.ref) ?? "", right - textX - 3), textX, y + title / 2 + 0.5);
+    ctx.fillText(ellipsize(ctx, clipTitle(scene, clip), right - textX - 3), textX, y + title / 2 + 0.5);
   }
   ctx.globalAlpha = alpha;
   ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
   ctx.strokeRect(left + 0.5, y + 0.5, across - 1, h - 1);
   ctx.globalAlpha = 1;
+}
+
+/** A clip's title: its source's name, and an audio clip's own gain and stretch when it has them ("Vocal · +3.5 dB · 2×"). */
+function clipTitle(scene: PlaylistScene, clip: PlaylistClip): string {
+  const name = scene.names.get(clip.ref) ?? "";
+  if (clip.kind !== "audio" || (clip.gain === undefined && clip.stretch === undefined)) return name;
+  const parts = [name];
+  if (clip.gain !== undefined) parts.push(clip.gain > 0 ? `${clip.gain > 1 ? "+" : ""}${(20 * Math.log10(clip.gain)).toFixed(1)} dB` : "-∞ dB");
+  if (clip.stretch !== undefined) parts.push(`${Number(clip.stretch.toFixed(3))}×`);
+  return parts.join(" · ");
+}
+
+/** An audio clip's fades (FL's): what each takes off shaded above its curve, and the curve. */
+function drawFades(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: PlaylistClip, x: number, top: number, right: number, height: number, colour: string) {
+  const { pxPerTick } = scene.view;
+  const fade = (from: number, width: number, tension: number | undefined, rising: boolean) => {
+    if (width < 1) return;
+    const steps = Math.max(4, Math.min(64, Math.ceil(width / 3)));
+    const point = (i: number) => {
+      const t = i / steps;
+      return { px: from + t * width, py: top + height - fadeShape(rising ? t : 1 - t, tension) * height };
+    };
+    ctx.beginPath();
+    ctx.moveTo(from, top);
+    for (let i = 0; i <= steps; i++) ctx.lineTo(point(i).px, point(i).py);
+    ctx.lineTo(from + width, top);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
+    ctx.fill();
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) (i ? ctx.lineTo : ctx.moveTo).call(ctx, point(i).px, point(i).py);
+    ctx.strokeStyle = colour;
+    ctx.globalAlpha *= 0.8;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.globalAlpha /= 0.8;
+  };
+  if (clip.fadeIn) fade(x, clip.fadeIn * pxPerTick, clip.fadeInTension, true);
+  if (clip.fadeOut) fade(right - clip.fadeOut * pxPerTick, clip.fadeOut * pxPerTick, clip.fadeOutTension, false);
+}
+
+/** An audio clip's handles (FL's, when it's big enough to show them): triangles at its fades' corners, circles mid-curve, a half-circle for its gain. */
+function drawHandles(ctx: CanvasRenderingContext2D, scene: PlaylistScene, clip: PlaylistClip, colour: string) {
+  const handles = clipHandles(clip, scene.ctx, scene.layout, scene.view);
+  if (!handles) return;
+  ctx.fillStyle = colour;
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.45)";
+  ctx.lineWidth = 1;
+  const triangle = (at: { x: number; y: number }, towards: 1 | -1) => {
+    ctx.beginPath();
+    ctx.moveTo(at.x, at.y - 3);
+    ctx.lineTo(at.x + towards * 5, at.y - 3);
+    ctx.lineTo(at.x, at.y + 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  };
+  if (handles.fadeIn) triangle(handles.fadeIn, -1);
+  if (handles.fadeOut) triangle(handles.fadeOut, 1);
+  for (const at of [handles.fadeInTension, handles.fadeOutTension]) {
+    if (!at) continue;
+    ctx.beginPath();
+    ctx.arc(at.x, at.y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  if (handles.gain) {
+    ctx.beginPath();
+    ctx.arc(handles.gain.x, handles.gain.y + 3, 4, Math.PI, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
 }
 
 /**

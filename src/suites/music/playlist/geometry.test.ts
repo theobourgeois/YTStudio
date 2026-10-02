@@ -45,6 +45,34 @@ describe("a clip under the pointer", () => {
   });
 });
 
+describe("an audio clip's handles", () => {
+  const audioSong = { ...song, channels: [{ ...song.channels[0], id: "chan_vox", kind: "audio" as const }] };
+  const audioCtx = clipContext(audioSong);
+  const audio = (c: Partial<PlaylistClip>) => addClips([], [{ kind: "audio", ref: "chan_vox", track: 0, start: 0, length: 384, ...c }]).clips;
+  const layout = trackLayout([], 8, 60);
+  const wide = { ...view, pxPerTick: 1 };
+
+  it("sit at its fades' corners, its curves' middles and its bottom's middle, before its edges", () => {
+    const [clip] = audio({ fadeIn: 96, fadeOut: 48 });
+    // The track is 60 px: its body from 13 (under the title) to 58.
+    expect(hitClip([clip], audioCtx, layout, wide, 96, 16)).toMatchObject({ handle: "fadeIn", edge: null });
+    expect(hitClip([clip], audioCtx, layout, wide, 384 - 48, 16)?.handle).toBe("fadeOut");
+    expect(hitClip([clip], audioCtx, layout, wide, 192, 55)?.handle).toBe("gain");
+    expect(hitClip([clip], audioCtx, layout, wide, 48, 58 - 0.5 * 45)?.handle).toBe("fadeInTension");
+    // No fade: its corner just inside the edge, which stays the edge's below it.
+    const [plain] = audio({});
+    expect(hitClip([plain], audioCtx, layout, wide, 8, 16)?.handle).toBe("fadeIn");
+    expect(hitClip([plain], audioCtx, layout, wide, 2, 40)).toMatchObject({ edge: "start", handle: null });
+  });
+
+  it("aren't there on a clip too small to show them, or on a pattern clip", () => {
+    const [clip] = audio({});
+    expect(hitClip([clip], audioCtx, layout, { ...wide, pxPerTick: 0.05 }, 1, 16)?.handle ?? null).toBeNull();
+    const [pattern] = clips([{ length: 384 }]);
+    expect(hitClip([pattern], ctx, layout, wide, 8, 16)?.handle ?? null).toBeNull();
+  });
+});
+
 describe("zooming and scrolling the Playlist", () => {
   it("keeps what's under the pointer where it is", () => {
     const zoomed = zoomAt(view, 200, 0.5);
