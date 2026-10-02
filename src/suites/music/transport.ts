@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { PlayMode } from "@shared/music/compile";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineChannels, EngineCommands, EngineEffects, EngineGrossState, EngineMeters, EnginePreview, MetronomeSound } from "@shared/music/engine";
+import type { EngineChannels, EngineCommands, EngineEffects, EngineEqState, EngineGrossState, EngineMeters, EnginePreview, MetronomeSound } from "@shared/music/engine";
 import { musicApi } from "./api";
 
 /**
@@ -60,6 +60,8 @@ interface TransportState {
   filePreview: EnginePreview | null;
   /** Each Gross Beat's slots playing and where its envelopes are, as the engine last said (by effect id). */
   grossBeats: Record<string, EngineGrossState>;
+  /** Each watched Pro-Q's spectra and dynamic bands, as the engine last said (by effect id). */
+  eq: Record<string, EngineEqState>;
   /** Why the engine can't be reached (it isn't built, it won't start), or null. */
   error: string | null;
 
@@ -110,6 +112,7 @@ export const NO_CHANNELS: EngineChannels = { loaded: [], loading: [], failed: []
 export const NO_METERS: EngineMeters = {};
 export const NO_EFFECTS: EngineEffects = { loaded: [], loading: [], failed: [] };
 export const NO_GROSS_BEATS: Record<string, EngineGrossState> = {};
+export const NO_EQ: Record<string, EngineEqState> = {};
 
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
@@ -155,6 +158,7 @@ export const useTransport = create<TransportState>((set, get) => {
     channels: NO_CHANNELS,
     effects: NO_EFFECTS,
     grossBeats: NO_GROSS_BEATS,
+    eq: NO_EQ,
     filePreview: null,
     error: null,
 
