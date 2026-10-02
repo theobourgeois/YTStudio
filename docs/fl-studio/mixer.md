@@ -313,6 +313,32 @@ the strips as they scroll, however fast. The plugin picker is only as big as its
 track's strip is faded and greyed. The selected-track meter is wider, with FL's dB scale (3, 0, 3 … 51;
 every 6 or 12 dB on a short mixer).
 
+Théo's fourth pass (2026-10-02): the mixer made as nice to use as the other DAWs' (Logic, Pro Tools,
+Ableton, Reaper, Studio One, Bitwig), all built, a commit each:
+
+- **Solo** follows the routing and is a state of its own (below, in the choices). Each strip has an S
+  (outlined when a soloed track's path keeps it on; a lock when it's solo safe); a strip whose sound is
+  cut off further down (a muted bus) is faded a little, its hint saying why. The title bar's **SOLO**
+  blinks while anything is soloed and clears every solo; **MONO** and **DIM** are the master's
+  listening switches (the tab's, sent with the song, never exported).
+- **Multi-select**: a selected strip's controls (mute, S, pan, stereo, phase, swap, fader, send knob)
+  act on every selected track; on a strip that isn't selected, on it alone. Faders keep their offsets
+  in dB (-3 and -10 pulled down 2 dB: -5 and -12). Shift+click selects a range, Escape (or a press on
+  the empty space) keeps only the current track, a group's band selects its tracks. A mute light or S
+  dragged across the strips paints them.
+- **Routing**: the send row is every selected track's (a switch half lit where only some send; a cable
+  from each); ⌘G routes the selection to a new bus right after it (named at once; it goes where they
+  all went); an output label on each strip ("→ 12", red for nowhere) routes it from its menu; a selected
+  bus shows what feeds it (dashed cables in); a selected track's down-arrow drags onto a strip to route
+  there (⌘: a send besides); strips drag by their numbers to reorder; Route to the master only; a
+  send's menu makes it **pre-fader** (the engine keeps the sound before the gains for it).
+- **Groups**: Link the group's controls (Pro Tools' mix groups: one moved moves all), a **VCA fader**
+  (a strip after the master scaling the group's levels, each keeping its own fader and automation);
+  a bus **folds** away the tracks going into it (its chip says how many).
+
+Not yet: a key to act on one strip of a selection alone; sidechain inputs to plugins (when they come,
+solo must keep feeding them, below); the VCA fader and the listening switches aren't automatable.
+
 Not yet, or different: icons, the Current track, the track EQ (put off), "Compensate automations"
 (automation is applied as the song plays, not shifted for plugin delay), recording, the slot's presets and Patcher, the
 "glide" when the groove is clicked (the handle goes there at once). Choices made, to check with Théo:
