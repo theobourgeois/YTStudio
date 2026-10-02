@@ -273,7 +273,8 @@ src/
   components/dock/   Docked panels, Premiere's way, for any suite (docs/windows.md): model.ts (the layout: splits of
                      tab groups, floating panels; its edits are pure and tested), store.ts (`createDock`: the layout
                      remembered in localStorage), dock-area.tsx (`DockArea`: tabs that drag onto another group's tabs
-                     or beside it, lines that resize, each group's menu: float, workspaces, Reset layout;
+                     or beside it, lines that resize, each group's menu: float, workspaces, Reset layout; a panel's
+                     `header` in its group's tab strip, as the Timeline's sequence tabs;
                      `FloatingPanels` on a desktop).
   components/workspace/video-panels.tsx   The video editor's panels (`VIDEO_PANEL_DEFS`): Media (This video | Library
                      | Online, `MediaSource`), Effects (Video effects | Presets | Transitions, `EffectKind`, `KINDS`),

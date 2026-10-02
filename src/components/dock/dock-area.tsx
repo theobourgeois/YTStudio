@@ -35,6 +35,11 @@ export interface DockPanel {
    * (it's drawn hidden, to keep its state).
    */
   render: (shown: boolean) => ReactNode;
+  /**
+   * Its own tabs or controls, in its group's tab strip after the panels' tabs while it's the one shown
+   * (Premiere's sequence tabs), or in its title bar while it floats: no row of its own.
+   */
+  header?: () => ReactNode;
   keepMounted?: boolean;
   /** The least room it needs (px). */
   minWidth: number;
@@ -234,6 +239,7 @@ function GroupView({ group }: { group: DockGroup }) {
             <PanelTab key={p} panel={p} selected={p === group.active} />
           ))}
         </div>
+        {active.header && <div className="flex h-full min-w-0 flex-1 items-center">{active.header()}</div>}
         <div className="ml-auto flex shrink-0 items-center">
           <PanelMenu panel={group.active} />
         </div>
@@ -403,15 +409,18 @@ function FloatingPanelWindow({ panel, def, index, id, onDock }: { panel: string;
       resizable={{ minWidth: def.minWidth, minHeight: def.minHeight + 28 }}
       onClose={onDock}
       controls={
-        <button
-          type="button"
-          aria-label={`Dock ${def.title}`}
-          title="Dock it back"
-          className="grid size-5.5 place-items-center rounded-sm border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground active:pressed"
-          onClick={onDock}
-        >
-          <PiArrowSquareIn className="size-3.5" />
-        </button>
+        <>
+          {def.header?.()}
+          <button
+            type="button"
+            aria-label={`Dock ${def.title}`}
+            title="Dock it back"
+            className="grid size-5.5 place-items-center rounded-sm border border-transparent text-muted-foreground hover:raised hover:raised-hover hover:text-foreground active:pressed"
+            onClick={onDock}
+          >
+            <PiArrowSquareIn className="size-3.5" />
+          </button>
+        </>
       }
     >
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background" data-dock-panel={panel}>
