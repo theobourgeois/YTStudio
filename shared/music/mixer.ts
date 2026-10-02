@@ -165,6 +165,38 @@ export function moveMixerTracksTo(song: MusicProject, ids: readonly string[], be
   return tracks.every((t, i) => t === song.mixer.tracks[i]) ? song : withTracks(song, tracks);
 }
 
+/** Fold a bus (its tracks hidden under it), or unfold it. Never the master (everything would go). */
+export const setTrackFolded = (song: MusicProject, ids: readonly string[], folded: boolean) =>
+  updateTracks(song, ids, (t) => (t.id === MASTER_TRACK_ID || !!t.folded === folded ? t : folded ? { ...t, folded: true as const } : withoutFolded(t)));
+
+const withoutFolded = ({ folded: _, ...track }: MixerTrack): MixerTrack => track;
+
+/**
+ * The tracks folded away under folded buses: every track that sends sound somewhere and only into folded
+ * buses or tracks folded away themselves (so a bus inside a folded bus goes too, with its own tracks).
+ */
+export function foldedAway(song: Pick<MusicProject, "mixer">): Set<string> {
+  const folded = new Set(song.mixer.tracks.filter((t) => t.folded).map((t) => t.id));
+  const away = new Set<string>();
+  if (!folded.size) return away;
+  // Until nothing more goes (each pass reaches at least one level further down).
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const track of song.mixer.tracks) {
+      if (away.has(track.id) || track.id === MASTER_TRACK_ID) continue;
+      const out = track.sends.filter((s) => s.level > 0);
+      if (out.length && out.every((s) => folded.has(s.to) || away.has(s.to))) {
+        away.add(track.id);
+        changed = true;
+      }
+    }
+  }
+  return away;
+}
+
+/** How many tracks feed a track directly (sends with sound): what a fold would hide first. */
+export const feedersOf = (song: Pick<MusicProject, "mixer">, id: string) => song.mixer.tracks.filter((t) => t.sends.some((s) => s.to === id && s.level > 0)).length;
+
 export type MixerTrackPatch = Partial<
   Pick<MixerTrack, "name" | "color" | "dock" | "separator" | "volume" | "pan" | "muted" | "solo" | "soloSafe" | "invert" | "swap" | "stereo" | "latencyOffset" | "input" | "monitor" | "inputOffset">
 >;

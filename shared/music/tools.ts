@@ -576,6 +576,7 @@ export const MUSIC_TOOLS = [
         latencyOffset: num("Milliseconds (-1000 to 1000) added to the delay its plugins report, for one that reports it wrong: positive if its sound is late against the others."),
         dock: oneOf(["left", "middle", "right"], "Which of the mixer's docks it's shown in: the left and right ones stay put while the middle scrolls (the master is always left)."),
         separator: bool("A divider before it, to set tracks apart."),
+        folded: bool("Fold a bus: the tracks whose sound all goes into it are hidden in the mixer (only how it's shown); false shows them."),
         input: str(
           'The device input it records (list_audio_inputs has them): "1" for input 1 alone (mono, heard on both sides), "1-2" for inputs 1 and 2 as a stereo pair, or "none". Never on the master.',
         ),

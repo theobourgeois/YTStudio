@@ -28,6 +28,9 @@ import {
   setMixerVolumes,
   setSend,
   setGroupLinked,
+  setTrackFolded,
+  foldedAway,
+  feedersOf,
   setSendPreFader,
   setSoloSafe,
   soloMixerTrack,
@@ -428,5 +431,24 @@ describe("linked groups", () => {
     expect(withLinkedTracks(linked, ["insert_2", "insert_5"])).toEqual(["insert_2", "insert_5", "insert_3"]);
     expect(normalizeMusicProject(JSON.parse(JSON.stringify(linked))).mixer.groups).toEqual(linked.mixer.groups);
     expect(setGroupLinked(linked, "drums", false).mixer.groups).toEqual([{ id: "drums", name: "Drums" }]);
+  });
+});
+
+describe("folded buses", () => {
+  it("hide the tracks whose sound all goes into them, and the buses inside them with theirs", () => {
+    let song = sendOnly(rack(), "insert_1", "insert_3");
+    song = sendOnly(song, "insert_2", "insert_3");
+    song = setSend(song, "insert_4", "insert_3", 0.5);
+    song = sendOnly(song, "insert_5", "insert_6");
+    song = sendOnly(song, "insert_6", "insert_3");
+    expect(foldedAway(song).size).toBe(0);
+    const folded = setTrackFolded(song, ["insert_3"], true);
+    // Insert 4 also goes to the master: it stays. Insert 6 (a bus into 3) goes, and insert 5 with it.
+    expect([...foldedAway(folded)].sort()).toEqual(["insert_1", "insert_2", "insert_5", "insert_6"]);
+    expect(feedersOf(folded, "insert_3")).toBe(4);
+    expect(setTrackFolded(folded, ["insert_3"], true)).toBe(folded);
+    expect(setTrackFolded(folded, [M], true)).toBe(folded);
+    expect(normalizeMusicProject(JSON.parse(JSON.stringify(folded))).mixer).toEqual(folded.mixer);
+    expect(setTrackFolded(folded, ["insert_3"], false).mixer).toEqual(song.mixer);
   });
 });

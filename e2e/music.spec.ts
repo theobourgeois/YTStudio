@@ -1108,6 +1108,12 @@ test("the mixer, as FL Studio's: channels routed to tracks, faders, mute and sol
   await page.getByRole("menuitem", { name: "Track routing" }).click();
   await page.getByRole("menuitem", { name: "Route to the master only" }).click();
   await expect.poll(async () => (await mixerOf())[9].sends).toEqual([{ to: "master", level: 1 }]);
+  // A bus folds away the tracks going into it (its chip says how many), and unfolds them.
+  await strip("Pads bus").getByRole("button", { name: "Fold Pads bus" }).click();
+  await expect(strip("Insert 6")).toHaveCount(0);
+  await expect(strip("Pads bus").getByTestId("fold")).toHaveText("1");
+  await strip("Pads bus").getByRole("button", { name: "Unfold Pads bus" }).click();
+  await expect(strip("Insert 6")).toHaveCount(1);
   await expect(page.getByTestId("reorder-line")).toHaveCount(0);
 });
 

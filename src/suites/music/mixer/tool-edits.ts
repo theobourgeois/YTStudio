@@ -29,6 +29,7 @@ import {
   setMixerSolo,
   setSendPreFader,
   setGroupLinked,
+  setTrackFolded,
   setSoloSafe,
   trackName,
   trackNumber,
@@ -118,6 +119,7 @@ export function describeTrack(song: MusicProject, track: MixerTrack): string {
     track.inputOffset ? `input offset ${track.inputOffset} ms` : null,
     track.dock !== "middle" && track.id !== MASTER_TRACK_ID ? `docked ${track.dock}` : null,
     track.separator ? "a divider before it" : null,
+    track.folded ? "folded (the tracks going into it are hidden in the mixer)" : null,
     track.group ? `in the group "${song.mixer.groups.find((g) => g.id === track.group)?.name ?? track.group}"${song.mixer.groups.find((g) => g.id === track.group)?.linked ? " (its controls linked)" : ""}` : null,
     track.color ? `colour ${COLOR_NAMES[TRACK_COLORS.indexOf(track.color as (typeof TRACK_COLORS)[number])] ?? track.color}` : null,
   ];
@@ -251,7 +253,9 @@ export const updateMixerTrackTool: SongEdit = (song, input) => {
     if (track.id === MASTER_TRACK_ID && input.dock !== "left") throw new Error("The master is always docked on the left.");
     patch.dock = input.dock;
   }
-  const next = updateMixerTrack(song, track.id, patch);
+  if (typeof input.folded === "boolean" && track.id === MASTER_TRACK_ID) throw new Error("The master can't be folded: everything goes into it.");
+  const patched = updateMixerTrack(song, track.id, patch);
+  const next = typeof input.folded === "boolean" ? setTrackFolded(patched, [track.id], input.folded) : patched;
   const now = getMixerTrack(next, track.id)!;
   return { song: next, text: next === song ? `${label(song, track)} is already like that.` : `Changed ${describeTrack(next, now)}.` };
 };

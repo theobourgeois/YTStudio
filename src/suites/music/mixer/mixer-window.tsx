@@ -1,8 +1,8 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretRightFill, PiCaretUpBold, PiClock, PiLinkSimpleBold, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
+import { PiArrowFatDownFill, PiArrowsDownUp, PiArrowsLeftRight, PiCaretDownFill, PiCaretRightFill, PiCaretUpBold, PiClock, PiLinkSimpleBold, PiLockSimpleFill, PiMicrophoneFill, PiPlus } from "react-icons/pi";
 import { cn } from "cn";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { setMixerVolumes, trackName, updateMixerTrack } from "@shared/music/mixer";
+import { foldedAway, setMixerVolumes, trackName, updateMixerTrack } from "@shared/music/mixer";
 import { SELECTION_METER } from "@shared/music/engine";
 import { type Hearing, cutOffBy, hearing } from "@shared/music/solo";
 import { MASTER_TRACK_ID, TRACK_COLORS } from "@shared/music/project";
@@ -78,6 +78,7 @@ import {
   setSendsPreFader,
   controlTargets,
   linkGroup,
+  toggleFold,
   toggleTrackMute,
   assignAudioTracksTo,
 } from "./actions";
@@ -144,30 +145,38 @@ export function MixerWindow() {
   const sources = useMemo(() => [current, ...selectedIds.filter((id) => id !== current && mixer.tracks.some((t) => t.id === id))], [current, selectedIds, mixer.tracks]);
   const sends = useMemo(() => sendStates(mixer, sources), [mixer, sources]);
 
+  // FL Studio's docks: the master and the left dock stay at the left, the right dock at the right, the middle scrolls between.
+  const numbers = useMemo(() => new Map(mixer.tracks.map((t, i) => [t.id, i])), [mixer.tracks]);
+  // Tracks folded away under a folded bus aren't shown; each bus says how many tracks feed it.
+  const away = useMemo(() => foldedAway({ mixer }), [mixer]);
+  const feeders = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const track of mixer.tracks) for (const send of track.sends) if (send.level > 0) counts.set(send.to, (counts.get(send.to) ?? 0) + 1);
+    return counts;
+  }, [mixer.tracks]);
+  const docked = useMemo(() => {
+    const [master, ...all] = mixer.tracks;
+    const inserts = all.filter((t) => !away.has(t.id));
+    return {
+      left: [master, ...inserts.filter((t) => t.dock === "left")],
+      middle: inserts.filter((t) => t.dock === "middle"),
+      right: inserts.filter((t) => t.dock === "right"),
+    };
+  }, [mixer.tracks, away]);
+  const inserts = docked.middle;
   // A track just added, or selected by a key, scrolls into view.
   useEffect(() => {
     if (!revealing) return;
     useMixerView.getState().reveal(null);
     const element = scroller.current;
     // Its place in the middle dock (a docked track is always in view).
-    const index = mixer.tracks.filter((t) => t.id !== MASTER_TRACK_ID && t.dock === "middle").findIndex((t) => t.id === revealing);
+    const index = docked.middle.findIndex((t) => t.id === revealing);
     if (!element || index < 0) return;
     // By its place (it may not be drawn yet): just into view, at whichever edge it's past.
     const left = index * stripWidth;
     if (left < element.scrollLeft) element.scrollLeft = left;
     else if (left + stripWidth > element.scrollLeft + element.clientWidth) element.scrollLeft = left + stripWidth - element.clientWidth;
-  }, [revealing, mixer.tracks, stripWidth]);
-  // FL Studio's docks: the master and the left dock stay at the left, the right dock at the right, the middle scrolls between.
-  const numbers = useMemo(() => new Map(mixer.tracks.map((t, i) => [t.id, i])), [mixer.tracks]);
-  const docked = useMemo(() => {
-    const [master, ...inserts] = mixer.tracks;
-    return {
-      left: [master, ...inserts.filter((t) => t.dock === "left")],
-      middle: inserts.filter((t) => t.dock === "middle"),
-      right: inserts.filter((t) => t.dock === "right"),
-    };
-  }, [mixer.tracks]);
-  const inserts = docked.middle;
+  }, [revealing, docked.middle, stripWidth]);
   // Dividers and group bands, from each dock's order (worked out for the whole dock, though only some of the middle is drawn).
   const layout = useMemo(() => {
     const names = new Map(mixer.groups.map((g) => [g.id, g.name]));
@@ -212,6 +221,7 @@ export function MixerWindow() {
       sendPre={(sends.get(track.id) as { preFader?: boolean }).preFader ?? false}
       meterRef={meterRef(track.id)}
       output={outputs.get(track.id)!}
+      feeders={track.id === MASTER_TRACK_ID ? 0 : (feeders.get(track.id) ?? 0)}
       soloedOut={heard.get(track.id)!.soloedOut}
       implied={heard.get(track.id)!.implied}
       unheard={unheard.get(track.id) ?? null}
@@ -403,6 +413,8 @@ interface StripProps {
   meterRef: (canvas: HTMLCanvasElement | null) => void;
   /** Where its sound goes, by number ("M", "12", "3, 5"; "" for nowhere). */
   output: string;
+  /** How many tracks send their sound into it (a bus: it can fold them away). */
+  feeders: number;
   /** Silenced by other tracks' solo. */
   soloedOut: boolean;
   /** Kept on only because a soloed track's sound goes through it, or it feeds one. */
@@ -419,7 +431,7 @@ interface StripProps {
 }
 
 /** A track's strip, top to bottom: its number, its name beside its meter, mute, pan, fader, send switch. */
-const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, sendOwner, sendPartial, sendPre, meterRef, output, soloedOut, implied, unheard, view, separator, groupName, banded }: StripProps) {
+const Strip = memo(function Strip({ track, number, selected, current, sendKind, sendLevel, sendOwner, sendPartial, sendPre, meterRef, output, feeders, soloedOut, implied, unheard, view, separator, groupName, banded }: StripProps) {
   const isMaster = track.id === MASTER_TRACK_ID;
   const name = track.name ?? (isMaster ? "Master" : `Insert ${number}`);
   const renaming = useMixerView((s) => s.renaming === track.id);
@@ -477,7 +489,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1.5 pb-1.5" style={{ background: "var(--mixer-upper-shade)" }}>
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="flex min-h-28 w-full flex-1 flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)} onPointerDown={(e) => dragSelection(e)}>
+          <div className="relative flex min-h-28 w-full flex-1 flex-col items-center" onDoubleClick={() => useMixerView.getState().rename(id)} onPointerDown={(e) => dragSelection(e)}>
             <div
               className="relative w-full py-0.5 text-center font-mono text-[11px] font-semibold tabular-nums"
               style={{
@@ -495,6 +507,7 @@ const Strip = memo(function Strip({ track, number, selected, current, sendKind, 
               {isMaster ? "M" : number}
               <DelayMark track={track} />
             </div>
+            {(feeders > 0 || track.folded) && <FoldChip id={id} name={name} folded={!!track.folded} count={feeders} />}
             {/* The meter and the fader share the strip's height: a taller mixer has longer ones. */}
             <div className="flex min-h-0 w-full flex-1 justify-center gap-1 px-1 pt-2">
               {renaming ? (
@@ -985,6 +998,29 @@ function SoloButton({ id, name, solo, implied, safe }: { id: string; name: strin
     >
       S
       {safe && <PiLockSimpleFill className="absolute -top-1 -right-1 size-2" style={{ color: "var(--mixer-solo)" }} aria-label="Solo safe" />}
+    </button>
+  );
+}
+
+/**
+ * A bus's fold switch, under its number (Logic's track stacks, Reaper's folders): folded, the tracks whose
+ * sound all goes into it are hidden; it says how many tracks feed it.
+ */
+function FoldChip({ id, name, folded, count }: { id: string; name: string; folded: boolean; count: number }) {
+  return (
+    <button
+      type="button"
+      aria-label={folded ? `Unfold ${name}` : `Fold ${name}`}
+      aria-pressed={folded}
+      title={folded ? `${name}: its ${count} track${count === 1 ? "" : "s"} folded away (click to show them)` : `${name}: ${count} track${count === 1 ? " goes" : "s go"} into it (click to fold them away)`}
+      className="absolute top-[21px] left-1/2 z-10 flex h-3.5 -translate-x-1/2 items-center gap-px rounded-[2px] px-1 font-mono text-[9px] leading-none tabular-nums hover:brightness-125"
+      style={folded ? { background: "var(--mixer-on)", color: "var(--brand-foreground)" } : { background: "var(--mixer-well)", color: "var(--mixer-name)" }}
+      data-testid="fold"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={() => toggleFold(id)}
+    >
+      {folded ? <PiCaretRightFill className="size-2" /> : <PiCaretDownFill className="size-2" />}
+      {count}
     </button>
   );
 }

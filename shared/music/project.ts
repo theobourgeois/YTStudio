@@ -675,6 +675,7 @@ function normalizeMixer(input: unknown): Mixer {
       color: isColor(raw.color) ? raw.color.toLowerCase() : null,
       dock: id === MASTER_TRACK_ID ? "left" : raw.dock === "left" || raw.dock === "right" ? raw.dock : "middle",
       separator: raw.separator === true,
+      ...(id !== MASTER_TRACK_ID && raw.folded === true && { folded: true as const }),
       group: id !== MASTER_TRACK_ID && typeof raw.group === "string" && groups.some((g) => g.id === raw.group) ? raw.group : null,
       volume: number(raw.volume, 0, 1, DEFAULT_FADER),
       pan: number(raw.pan, -1, 1, 0),

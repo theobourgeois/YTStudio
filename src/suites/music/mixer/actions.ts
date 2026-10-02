@@ -25,6 +25,7 @@ import {
   setMixerSolo,
   setSendPreFader,
   setGroupLinked,
+  setTrackFolded,
   withLinkedTracks,
   type MixerTrackPatch,
   routeChannels,
@@ -330,6 +331,9 @@ export function controlTargets(id: string): string[] {
   const doc = song();
   return doc ? withLinkedTracks(doc, menuTargets(id)) : [id];
 }
+
+/** A bus folded (the tracks going into it hidden), or unfolded. */
+export const toggleFold = (id: string) => commit((doc) => setTrackFolded(doc, [id], !getMixerTrack(doc, id)?.folded));
 
 /** Link a group's controls, or unlink them. */
 export const linkGroup = (groupId: string, linked: boolean) => commit((doc) => setGroupLinked(doc, groupId, linked));

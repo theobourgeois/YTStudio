@@ -620,6 +620,11 @@ export interface MixerTrack {
   dock: MixerDock;
   /** A divider before it (FL's Separator), to set tracks apart. */
   separator: boolean;
+  /**
+   * A bus folded (Logic's track stacks, Reaper's folders): the tracks whose sound all goes into it aren't
+   * shown (`foldedAway`). Only how the mixer shows them. Absent: unfolded.
+   */
+  folded?: true;
   /** The group it's in (`Mixer.groups`), or null. */
   group: string | null;
   /** 0..1, the fader; `DEFAULT_FADER` leaves the sound as it is. */
