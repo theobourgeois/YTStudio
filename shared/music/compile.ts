@@ -11,9 +11,12 @@ import { LANE_FINEST, sampleLane } from "./sampling.ts";
 import { type EngineAutoTune, engineAutoTune, engineControlValue } from "./auto-tune.ts";
 import { ECHO_CONTROL_SPECS, ECHO_LANES, type EchoLane, type EngineEchoBoy, LANES_OF, engineEchoBoy } from "./echo-boy.ts";
 import { type EngineGrossBeat, engineGrossBeat } from "./gross-beat.ts";
+import { type EngineEq, engineProQ } from "./pro-q.ts";
 import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
-import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
+import { autoGain } from "./pro-q-filters.ts";
+import { hasGain } from "./pro-q-presets.ts";
+import { AUTO_TUNE_CONTROLS, type AutoTuneControl, type AutomationTarget, type Channel, type EchoControl, type EqBand, type EqControl, type GrossControl, type MixerTrack, type MusicProject, PPQ, type Pattern, type Precomputed, ROOT_PITCH, STEP_TICKS } from "./types.ts";
 
 /** What play plays (the toolbar's PAT / SONG): the current pattern, looped, or the playlist. */
 export type PlayMode = "pattern" | "song";
@@ -70,6 +73,8 @@ export interface EngineEffect {
   autoTune?: EngineAutoTune;
   /** An EchoBoy (ours, run by the engine itself: its `plugin.id` is `ECHO_BOY_PLUGIN`'s): its delay lines, style and levels. */
   echoBoy?: EngineEchoBoy;
+  /** A Pro-Q (ours, run by the engine itself: its `plugin.id` is `PRO_Q_PLUGIN`'s): its bands and settings. */
+  eq?: EngineEq;
 }
 
 /**
@@ -154,6 +159,8 @@ export type EngineLaneTarget =
   | { kind: "gross"; track: number; effect: number; control: GrossControl }
   | { kind: "tune"; track: number; effect: number; control: AutoTuneControl }
   | { kind: "echo"; track: number; effect: number; control: EchoLane }
+  /** A Pro-Q band's frequency (log2 Hz), gain or range (dB) or Q (log2), by band number; or its output (dB, band 0). */
+  | { kind: "eq"; track: number; effect: number; band: number; control: EqControl }
   | { kind: "param"; owner: "channel" | "effect"; id: string; param: string; index: number };
 
 /**
@@ -361,6 +368,7 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         const slots = gross.get(e.id);
         if (e.autoTune) return [{ ...effect, autoTune: engineAutoTune(e.autoTune) }];
         if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
+        if (e.proQ) return [{ ...effect, eq: engineProQ(e.proQ) }];
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
       gains: trackGains(track, main),
@@ -678,6 +686,25 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
             return ECHO_LANES[lane](engineEchoBoy(at, song.settings.tempo));
           });
         }
+      }
+      const pq = effect.proQ;
+      if (pq) {
+        // Each band's automated controls, in the engine's units (frequency and Q as log2: lanes keep within ±64).
+        const lane = (band: number, control: EqControl, own: number, toEngine: (v: number) => number) => {
+          const target: AutomationTarget = { kind: "proQ", effect: effect.id, band, control };
+          const value = valueOf(target, own);
+          add({ kind: "eq", track: t, effect: effectIndex, band, control }, [automated(target)], (tick) => [toEngine(value(tick))]);
+        };
+        const scale = (b: EqBand) => (hasGain(b.shape) ? pq.gainScale : 1);
+        for (const b of pq.bands) {
+          if (!b.enabled) continue;
+          lane(b.id, "frequency", b.frequency, Math.log2);
+          lane(b.id, "gain", b.gain, (v) => v * scale(b));
+          lane(b.id, "q", b.q, Math.log2);
+          lane(b.id, "range", b.range, (v) => v * scale(b));
+        }
+        const auto = pq.autoGain ? autoGain(pq) : 0;
+        lane(0, "output", pq.output, (v) => v + auto);
       }
       effectIndex++;
     }

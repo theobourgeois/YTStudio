@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { PlayMode } from "@shared/music/compile";
 import { toast } from "sonner";
 import { errorMessage } from "@shared/errors";
-import type { EngineChannels, EngineCommands, EngineEchoLevels, EngineEffects, EngineGrossState, EngineMeters, EnginePreview, MetronomeSound } from "@shared/music/engine";
+import type { EngineChannels, EngineCommands, EngineEchoLevels, EngineEffects, EngineEqState, EngineGrossState, EngineMeters, EnginePreview, MetronomeSound } from "@shared/music/engine";
 import { musicApi } from "./api";
 
 /**
@@ -62,6 +62,8 @@ interface TransportState {
   grossBeats: Record<string, EngineGrossState>;
   /** Each EchoBoy's levels in and out (its LEDs), as the engine last said (by effect id). */
   echoBoys: Record<string, EngineEchoLevels>;
+  /** Each watched Pro-Q's spectra and dynamic bands, as the engine last said (by effect id). */
+  eq: Record<string, EngineEqState>;
   /** Why the engine can't be reached (it isn't built, it won't start), or null. */
   error: string | null;
 
@@ -113,6 +115,7 @@ export const NO_METERS: EngineMeters = {};
 export const NO_EFFECTS: EngineEffects = { loaded: [], loading: [], failed: [] };
 export const NO_GROSS_BEATS: Record<string, EngineGrossState> = {};
 export const NO_ECHO_BOYS: Record<string, EngineEchoLevels> = {};
+export const NO_EQ: Record<string, EngineEqState> = {};
 
 export const useTransport = create<TransportState>((set, get) => {
   /** Run a transport command, and take what the engine says of itself from its answer. */
@@ -160,6 +163,7 @@ export const useTransport = create<TransportState>((set, get) => {
     effects: NO_EFFECTS,
     grossBeats: NO_GROSS_BEATS,
     echoBoys: NO_ECHO_BOYS,
+    eq: NO_EQ,
     filePreview: null,
     error: null,
 

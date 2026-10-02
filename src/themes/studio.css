@@ -78,6 +78,39 @@
   --tune-bypass: #d9a21f;
   /* EchoBoy's Rhythm Echo: the "One" (a tap on beat one) is yellow, as in EchoBoy. */
   --echo-one: #e0a91c;
+  /*
+   * Pro-Q's look (`src/suites/music/pro-q/`): FabFilter's dark display in every theme, as a plugin's
+   * window keeps its own. Its canvas reads these, so they're plain colours.
+   */
+  --eq-bg-top: #151218;
+  --eq-bg-bottom: #2a262c;
+  --eq-bar: #0f0d12;
+  --eq-bottom-bar: #221f24;
+  --eq-panel: #29252b;
+  --eq-panel-edge: #3b363e;
+  --eq-grid: #2a272d;
+  --eq-grid-strong: #3a363d;
+  --eq-zero: #4a4550;
+  --eq-label: #77727a;
+  --eq-text: #c9c4cc;
+  --eq-curve: #ffcc26;
+  --eq-pre: #2f2b33;
+  --eq-post: #4a4650;
+  --eq-post-line: #8d8792;
+  --eq-external: #ff6b6b;
+  --eq-collision: #b0181e;
+  --eq-grab: #7a2e8c;
+  --eq-meter: #3fbf2c;
+  --eq-meter-hot: #f3d02f;
+  --eq-knob: #5a575c;
+  --eq-knob-light: #8b878d;
+  --eq-knob-dark: #3a383b;
+  --eq-knob-ring: #19171b;
+  --eq-dynamic: #e0323c;
+  --eq-left: #f2f2f2;
+  --eq-right: #ff5a5a;
+  --eq-mid: #4fd64f;
+  --eq-side: #59b8ff;
   --clip-video: #5a86d6;
   --clip-audio: #3b9c7c;
   --clip-graphic: #9a6fd0;

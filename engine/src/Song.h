@@ -8,6 +8,7 @@
 #include "AutoTune.h"
 #include "EchoBoy.h"
 #include "GrossBeat.h"
+#include "ProQ.h"
 #include "Host.h"
 #include "Resampling.h"
 
@@ -147,6 +148,9 @@ struct Song
             /** An EchoBoy (ours too): its sound, kept across songs, and this song's settings for it. */
             std::shared_ptr<echo::State> echo;
             std::shared_ptr<echo::Settings> echoSettings;
+            /** A Pro-Q (ours too): its sound, kept across songs, and this song's settings for it. */
+            std::shared_ptr<eq::State> eq;
+            std::shared_ptr<eq::Settings> eqSettings;
         };
 
         juce::String id;
@@ -177,10 +181,12 @@ struct Song
      */
     struct Lane
     {
-        enum class Kind { channel, track, send, mix, gross, tune, echo, param };
+        enum class Kind { channel, track, send, mix, gross, tune, echo, eq, param };
         Kind kind = Kind::channel;
         /** What it drives: the channel, or the track (and its send or effect), by index; a Gross Beat's control (`GrossControl`: its time slot, volume slot, time mix, volume mix), an Auto-Tune's (`AutoTuneControl`, by index), an EchoBoy's (`echo::Control`). */
         int channel = -1, track = -1, index = -1, control = 0;
+        /** A Pro-Q's band (its number; 0 its output) and control (frequency, gain, Q, range, output). */
+        int band = 0;
         int size = 1;
         std::vector<double> ticks;
         std::vector<float> values;
@@ -278,7 +284,7 @@ struct Song
      * sample couldn't be read. Unless `keepOnly` is false (a copy for the export), the hosts let go of the
      * plugins the song doesn't have.
      */
-    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, juce::StringArray& unreadable,
+    static std::unique_ptr<Song> parse (const juce::var& json, SampleCache& samples, PluginHost& instruments, PluginHost& effects, gross::Registry& grossBeats, tune::Registry& autoTunes, echo::Registry& echoBoys, eq::Registry& eqs, juce::StringArray& unreadable,
                                         int capacity, double sampleRate, bool keepOnly = true);
 
     /**

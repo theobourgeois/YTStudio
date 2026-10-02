@@ -46,6 +46,7 @@ put together and how we use its manual).
 | Gross Beat | FL's time and volume effect, ours, in any effect slot: 36 time and 36 volume slots (FL's preset names), the mapping panel edited FL's way (points, tension, the curve types, Pitch ±1 semitone, snap, step editing, slide, freeze, the tools), trig and pos sync, one-shot, link slots, HOLD (Last / Next), the scratching clock, ATT / REL / TNS, click reduction, HQ; its slots automated for chop arrangements; native in the engine, tested to the sample; `get_gross_beat`, `update_gross_beat`, `set_gross_beat_slot` | `docs/fl-studio/gross-beat.md` |
 | EchoBoy | Soundtoys' echo, ours, in any effect slot: Single, Dual, Ping-Pong and Rhythm Echo (up to 16 taps, its editor, patterns, shapes, pans); times in ms (gliding like tape) or note values (crossfading); Groove, Feel, Accent, Width, Prime Numbers, Tap Tempo; 31 styles, each a setting of the Style Editor (EQ with per-repeat Decay, diffusion, wobble, two saturations, nine types); factory presets; native in the engine, tested to the sample; `get_echo_boy`, `update_echo_boy` | `docs/soundtoys/echoboy-manual.md` |
 | Auto-Tune | Antares Auto-Tune Pro's Auto mode, ours, in any effect slot: input type, key and scale (Pro's 15) and Detect key from the song's notes, each note on, bypassed or removed, Detune, Tracking, Retune Speed (0: hard-tuned, the default), Humanize, Flex-Tune, Natural Vibrato, Transpose, Formant and Throat, Classic mode, Create Vibrato, presets; a live pitch graph and the Pitch Change meter; seven controls automated; native in the engine (YIN, formant-keeping PSOLA), latency compensated, tested to the cent; `get_auto_tune`, `update_auto_tune` | `docs/antares/auto-tune.md` |
+| Pro-Q | FabFilter's Pro-Q 3, ours, in any effect slot: 24 bands of 9 shapes and every slope (Brickwall on cuts), FabFilter's Q and slope conventions, stereo / left / right / mid / side, dynamic bands (Auto or set threshold), Zero Latency (analog-matched), Natural Phase (analog phase, 7.3 ms) and Linear Phase (Pro-Q's latencies), the analyzer (pre, post, another Pro-Q's, tilt, freeze), Spectrum Grab, collisions, EQ Match, solo, Auto Gain, Gain Scale, Gain-Q, A/B, presets, the piano display, Pro-Q's gestures and look; native in the engine, measured against the analog curves offline; `get_pro_q`, `set_pro_q_bands`, `update_pro_q` | `docs/fabfilter/pro-q.md` |
 | Undo and autosave | Every edit, one gesture per drag, in the platform's `DocumentHistory` and `Autosaver` | |
 
 ### How it's built, in one screen
@@ -75,7 +76,7 @@ The tab (src/suites/music/)                 The server (server/music/)          
 
 The detailed lists are at the end of each reference doc. The main ones:
 
-- **The mixer has no track EQ yet** (put off: Théo uses Pro-Q). No effect plugins on channels (the bench in the
+- **The mixer has no track EQ of FL's** (put off: Théo uses Pro-Q, and Pro-Q is now built in). No effect plugins on channels (the bench in the
   audio settings can load one, for testing only).
 - Audio clips have no fades, gain, stretch or precomputed effects (their pitch works, as FL's Resample).
 - Automation has no tempo, channel pitch or other channel controls yet, no Step and Slide modes, and one

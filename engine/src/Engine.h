@@ -95,6 +95,8 @@ private:
     tune::Registry autoTunes;
     /** Its EchoBoys' sounds, by effect id. */
     echo::Registry echoBoys;
+    /** Its Pro-Qs' sounds, likewise. */
+    eq::Registry eqs;
     Sequencer sequencer;
     /** The Browser's preview of a file, outside the song. */
     FilePreview preview;

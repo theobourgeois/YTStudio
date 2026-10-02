@@ -138,7 +138,8 @@ export interface Pattern {
 /**
  * An effect in a mixer track's slot: an effect plugin, or one of ours, whose settings are in the song
  * (Gross Beat: its `plugin` is `GROSS_BEAT_PLUGIN` and its settings `grossBeat`; Auto-Tune:
- * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`).
+ * `AUTO_TUNE_PLUGIN` and `autoTune`; EchoBoy: `ECHO_BOY_PLUGIN` and `echoBoy`; Pro-Q: `PRO_Q_PLUGIN` and
+ * `proQ`).
  */
 export interface MixerEffect {
   /** Names its settings' file beside the project (`plugins/<id>.bin`), as a plugin channel's id does. */
@@ -154,6 +155,8 @@ export interface MixerEffect {
   echoBoy?: EchoBoy;
   /** Auto-Tune's settings, on an Auto-Tune (absent on a plugin). */
   autoTune?: AutoTune;
+  /** Pro-Q's settings, on a Pro-Q (absent on a plugin). */
+  proQ?: ProQ;
 }
 
 /**
@@ -235,6 +238,99 @@ export interface AutoTune {
   /** The target is chosen from the sung pitch's centre, so a wide vibrato doesn't switch notes. */
   ignoreVibrato: boolean;
   vibrato: AutoTuneVibrato;
+}
+
+/** Pro-Q's filter shapes (`docs/fabfilter/pro-q.md`), in its own order. */
+export const EQ_SHAPES = ["bell", "lowShelf", "lowCut", "highShelf", "highCut", "notch", "bandPass", "tiltShelf", "flatTilt"] as const;
+export type EqShape = (typeof EQ_SHAPES)[number];
+/** A band's steepness in dB per octave, or Brickwall (cuts only). */
+export const EQ_SLOPES = [6, 12, 18, 24, 30, 36, 48, 72, 96, "brickwall"] as const;
+export type EqSlope = (typeof EQ_SLOPES)[number];
+/** Which part of a stereo sound a band works on. */
+export const EQ_PLACEMENTS = ["stereo", "left", "right", "mid", "side"] as const;
+export type EqPlacement = (typeof EQ_PLACEMENTS)[number];
+export const EQ_MODES = ["zeroLatency", "naturalPhase", "linearPhase"] as const;
+/** Pro-Q's processing modes: analog-matched filters with no delay; their analog phase too; or the phase left alone. */
+export type EqMode = (typeof EQ_MODES)[number];
+export const EQ_RESOLUTIONS = ["low", "medium", "high", "veryHigh", "maximum"] as const;
+/** Linear Phase's resolution: longer filters, more delay, finer in the lows. */
+export type EqResolution = (typeof EQ_RESOLUTIONS)[number];
+
+/**
+ * A Pro-Q band. Its `id` is its number (1..24): bands aren't renumbered when one goes, so its colour and
+ * any automation stay with it.
+ */
+export interface EqBand {
+  id: number;
+  /** Off, it's bypassed (drawn dimmed). */
+  enabled: boolean;
+  shape: EqShape;
+  /** Hz, 10..30000. */
+  frequency: number;
+  /** dB, -30..30: Bell, shelves, Tilt Shelf and Flat Tilt. */
+  gain: number;
+  /** 0.025..40; 1 is the default width. Unused at 6 dB/oct. */
+  q: number;
+  slope: EqSlope;
+  placement: EqPlacement;
+  /**
+   * dB, -30..30: how far its gain moves when the sound in its range is loud (a dynamic band); 0 is a
+   * static band. Negative cuts what's loud (compression), positive boosts it (expansion).
+   */
+  range: number;
+  /** Off, a dynamic band stays at its own gain (its range kept). */
+  dynamics: boolean;
+  /** dB, -60..0, where its dynamics start; null is Auto (it follows the level in its range). */
+  threshold: number | null;
+}
+
+/** What Pro-Q's A/B swaps: everything that changes the sound. */
+export interface ProQState {
+  bands: EqBand[];
+  mode: EqMode;
+  resolution: EqResolution;
+  /** 0..2: every band's gain and range scaled (Bell, shelves, tilts). */
+  gainScale: number;
+  /** dB, -36..36: the level out. */
+  output: number;
+  /** -1..1: the output's balance, between left and right or mid and side (`panMode`). */
+  pan: number;
+  panMode: "lr" | "ms";
+  /** The output's phase flipped. */
+  invert: boolean;
+  /** The output level corrected for what the curve adds or takes (an estimate from the curve). */
+  autoGain: boolean;
+  /** Gain-Q interaction: a Bell narrows as it's boosted, as an analog EQ's does. */
+  gainQ: boolean;
+}
+
+/** Pro-Q's analyzer, as its panel sets it (saved with the song, as Pro-Q's are). */
+export interface ProQAnalyzer {
+  pre: boolean;
+  post: boolean;
+  /** dB shown, from 0 down. */
+  range: 60 | 90 | 120;
+  /** Its FFT's length. */
+  resolution: "low" | "medium" | "high" | "maximum";
+  speed: "verySlow" | "slow" | "medium" | "fast" | "veryFast";
+  /** dB per octave around 1 kHz (4.5: as loudness is heard). */
+  tilt: 0 | 1.5 | 3 | 4.5 | 6;
+  /** Hovering the spectrum a moment grabs its peaks. */
+  grab: boolean;
+  /** Where this sound collides with the external spectrum, a red glow. */
+  collisions: boolean;
+  /** Another Pro-Q's spectrum (its effect id) drawn over this one's, or null. */
+  external: string | null;
+}
+
+/** Pro-Q's settings: its state, the other A/B state, and how it shows. */
+export interface ProQ extends ProQState {
+  /** Which of A/B this is; the other is `other` (null until it's been made). */
+  ab: "a" | "b";
+  other: ProQState | null;
+  analyzer: ProQAnalyzer;
+  /** ±dB the display shows (it grows when a band goes past it). */
+  displayRange: 3 | 6 | 12 | 30;
 }
 
 /**
@@ -593,6 +689,7 @@ export type AutomationTarget =
   | { kind: "grossBeat"; effect: string; control: GrossControl }
   | { kind: "autoTune"; effect: string; control: AutoTuneControl }
   | { kind: "echoBoy"; effect: string; control: EchoControl }
+  | { kind: "proQ"; effect: string; band: number; control: EqControl }
   | { kind: "main" }
   | {
       kind: "plugin";
@@ -611,6 +708,9 @@ export type GrossControl = "timeSlot" | "volumeSlot" | "timeMix" | "volumeMix";
 /** Auto-Tune's controls an automation clip can drive (the key too, for a song that changes key). */
 export const AUTO_TUNE_CONTROLS = ["retuneSpeed", "humanize", "flexTune", "naturalVibrato", "transpose", "throat", "key"] as const;
 export type AutoTuneControl = (typeof AUTO_TUNE_CONTROLS)[number];
+
+/** A Pro-Q band's controls an automation clip can drive (band 0 is its output). */
+export type EqControl = "frequency" | "gain" | "q" | "range" | "output";
 
 /** How a segment of an automation clip's curve goes from one point to the next: FL Studio's curve types. */
 export const CURVE_TYPES = ["single", "double", "altSingle", "altDouble", "hold", "stairs", "smoothStairs", "pulse", "wave", "halfSine", "smooth"] as const;

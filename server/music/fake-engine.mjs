@@ -65,6 +65,23 @@ const channels = () => {
 const GROSS_BEAT = "vaudio:gross-beat";
 /** The Gross Beats whose HOLD is held. */
 const holding = new Set();
+/** Pro-Q is ours as well. The ones whose windows are open (`eqWatch`), and a band soloed in each. */
+const PRO_Q = "vaudio:pro-q";
+let eqWatched = [];
+const eqSolos = new Map();
+/** A watched Pro-Q's spectra while it plays: a falling slope with a bump at 100 Hz, as music has (480 points from 10 Hz). */
+const spectrum = (shift) => Array.from({ length: 480 }, (_, i) => Math.round((-20 - i * 0.08 + 12 * Math.exp(-(((i - 160) / 25) ** 2)) + shift) * 10) / 10);
+const eqs = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.eq && eqWatched.includes(e.id))
+      .map((e) => {
+        const sounding = playingSince !== null;
+        const bands = Object.fromEntries(e.eq.bands.filter((b) => b.range !== 0).map((b) => [String(b.id), { gain: sounding ? b.range / 2 : 0, level: sounding ? -24 : -120 }]));
+        return [e.id, { pre: sounding ? spectrum(0) : null, post: sounding ? spectrum(-2) : null, peak: sounding ? [0.3, 0.3] : [0, 0], bands }];
+      }),
+  );
 /** Each Gross Beat in the song, playing its picked slots in time with the song (as the real engine says). */
 const grossBeats = () =>
   Object.fromEntries(
@@ -118,7 +135,7 @@ const echoBoys = () =>
   );
 
 const effects = () => {
-  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY);
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PRO_Q);
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
@@ -288,6 +305,7 @@ const sendTransport = () =>
     grossBeats: grossBeats(),
     autoTunes: autoTunes(),
     echoBoys: echoBoys(),
+    eq: eqs(),
     peak: playingSince === null ? 0 : 0.3,
     meters: playingSince === null ? {} : { master: [0.3, 0.3], ...(metered.length ? { "@selection": [0.3, 0.3] } : {}) },
     cpu: 0.02,
@@ -378,6 +396,12 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     if (!effects().loaded.some((e) => e.effect === params.effect)) return fail("That effect's plugin isn't loaded.");
     if (params.open) editors.add(params.effect);
     else editors.delete(params.effect);
+  }
+  if (cmd === "eqWatch") eqWatched = (params.effects ?? []).map((e) => e.effect);
+  if (cmd === "eqSolo") {
+    if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.eq))) return fail("The song playing has no such Pro-Q.");
+    if (params.band) eqSolos.set(params.effect, params.band);
+    else eqSolos.delete(params.effect);
   }
   if (cmd === "grossBeat") {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.grossBeat))) return fail("The song playing has no such Gross Beat.");
