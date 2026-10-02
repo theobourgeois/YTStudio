@@ -89,6 +89,8 @@ private:
      */
     PluginHost plugins;
     PluginHost effects;
+    /** Its Gross Beats' sounds, by effect id (the songs hold them too, so it doesn't matter where this is). */
+    gross::Registry grossBeats;
     Sequencer sequencer;
     /** The Browser's preview of a file, outside the song. */
     FilePreview preview;

@@ -131,7 +131,8 @@ Beat is", in our UI style). What was chosen, to check with him:
   are guessed (1/4 Pitch Up, 1/4 Pitch Dn, Pitch Bend; 2nd Step, Off Beat, Dotted Gate, Swing Gate). A slot
   left as it came isn't stored in the song: it's the preset.
 - **Defaults**: TRIG SYNC 1/4 beat, POS SYNC 4 beats (an envelope stays in line with the bars), HOLD Last,
-  Click reduction on, Remove DC offset on, snap 1/8 beat.
+  Click reduction on, Remove DC offset off (a 10 Hz high-pass: on, it would turn the low end of
+  everything through it a little), snap 1/8 beat. An Empty Gross Beat leaves the sound exactly as it is.
 - **The buffer empties when play starts**: the first bar can't step back before it (the safety line);
   stopped, the sound goes through as it is.
 - **Pitched repeats** ("1/4 Repeat" and the like) repeat the first part of the bar, as the screenshot's

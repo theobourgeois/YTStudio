@@ -425,7 +425,7 @@ export const DEFAULT_GROSS_BEAT: GrossBeat = {
   posSync: 4,
   clickReduction: true,
   attackCompensation: false,
-  removeDc: true,
+  removeDc: false,
   hq: false,
 };
 
@@ -461,7 +461,7 @@ export function normalizeGrossBeat(input: unknown): GrossBeat {
     posSync: isSync(input.posSync) ? input.posSync : d.posSync,
     clickReduction: typeof input.clickReduction === "boolean" ? input.clickReduction : d.clickReduction,
     attackCompensation: input.attackCompensation === true,
-    removeDc: typeof input.removeDc === "boolean" ? input.removeDc : d.removeDc,
+    removeDc: input.removeDc === true,
     hq: input.hq === true,
   };
 }

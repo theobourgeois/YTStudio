@@ -316,6 +316,7 @@ void Sequencer::takeRequests()
         else if (song != nullptr)
             takeOwnValues (*song, nullptr);
         playing = true;
+        playStarted = true;
         position_ = song != nullptr ? std::fmod (playFrom.load(), song->loopTicks) : 0;
         generation = requestedGeneration.load();
         pass = 0;
@@ -411,6 +412,20 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
         }
 
         clips.receive (*song);
+        // Where the song is over this block, for its Gross Beats (before `schedule` moves it on).
+        grossClock = {};
+        grossClock.ticksPerSample = song->tempo * song->ppq / (60.0 * sampleRate);
+        grossClock.ppq = song->ppq;
+        if (playing && countInLeft <= 0)
+        {
+            grossClock.playing = true;
+            grossClock.started = playStarted;
+            playStarted = false;
+            grossClock.tick = song->offsetTicks + position_;
+            grossClock.loopStart = song->offsetTicks;
+            grossClock.loopEnd = song->offsetTicks + song->loopTicks;
+            grossClock.loops = song->loops && ! through;
+        }
         if (playing)
         {
             // A count-in's part (`process` gives it one of its own): its clicks, the transport held.
@@ -501,7 +516,7 @@ void Sequencer::applyLanes (int numSamples)
     for (auto& lane : song->lanes)
     {
         lane.valueAt (sliceStart, start.data());
-        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::param)
+        if (lane.kind != Song::Lane::Kind::mix && lane.kind != Song::Lane::Kind::gross && lane.kind != Song::Lane::Kind::param)
         {
             lane.valueAt (sliceEnd, end.data());
             for (int c = 0; c < lane.size; ++c)
@@ -544,6 +559,10 @@ void Sequencer::applyLanes (int numSamples)
             case Song::Lane::Kind::mix:
                 // An effect's mix and a plugin's parameter: as they are at the slice's start, all through it.
                 song->tracks[(size_t) lane.track].effects[(size_t) lane.index].mix = juce::jlimit (0.0f, 1.0f, start[0]);
+                break;
+            case Song::Lane::Kind::gross:
+                // A Gross Beat's slot or mix, likewise (a slot picked starts on its sync point).
+                setGrossControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].grossSettings, lane.control, start[0]);
                 break;
             case Song::Lane::Kind::param:
             {
@@ -599,6 +618,9 @@ void Sequencer::restoreLanes (Song& from)
             }
             case Song::Lane::Kind::mix:
                 from.tracks[(size_t) lane.track].effects[(size_t) lane.index].mix = lane.base[0];
+                break;
+            case Song::Lane::Kind::gross:
+                setGrossControl (*from.tracks[(size_t) lane.track].effects[(size_t) lane.index].grossSettings, lane.control, lane.base[0]);
                 break;
             case Song::Lane::Kind::param:
                 if (lane.lastSet > -2.0f)
@@ -877,6 +899,8 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
     for (const auto& effect : track.effects)
         if (effect.enabled && effect.plugin != nullptr)
             runEffect (*effect.plugin, effect.mix, l, r, numSamples);
+        else if (effect.enabled && effect.gross != nullptr)
+            runGrossBeat (effect, l, r, numSamples);
 
     // The fader, pan and mute: each side out from both sides in (gliding after a new song, or automated).
     glide = glide || track.automated;
@@ -901,6 +925,39 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
         };
         raise (meters[t * 2], juce::FloatVectorOperations::findMinAndMax (l, numSamples));
         raise (meters[t * 2 + 1], juce::FloatVectorOperations::findMinAndMax (r, numSamples));
+    }
+}
+
+void Sequencer::runGrossBeat (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
+{
+    auto& settings = *effect.grossSettings;
+    auto& dry = settings.dry;
+    if (numSamples > dry.getNumSamples())
+        return;
+    const auto mix = effect.mix;
+    if (mix < 1.0f)
+    {
+        dry.copyFrom (0, 0, left, numSamples);
+        dry.copyFrom (1, 0, right, numSamples);
+    }
+    effect.gross->process (settings, grossClock, left, right, numSamples);
+    if (mix >= 1.0f)
+        return;
+    juce::FloatVectorOperations::multiply (left, mix, numSamples);
+    juce::FloatVectorOperations::multiply (right, mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (left, dry.getReadPointer (0), 1.0f - mix, numSamples);
+    juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
+}
+
+void Sequencer::setGrossControl (gross::Settings& settings, int control, float value)
+{
+    const auto slot = juce::jlimit (0, gross::slots - 1, (int) std::lround (value));
+    switch (control)
+    {
+        case 0: settings.timeSlot = slot; break;
+        case 1: settings.volumeSlot = slot; break;
+        case 2: settings.timeMix = juce::jlimit (0.0f, 1.0f, value); break;
+        default: settings.volumeMix = juce::jlimit (0.0f, 1.0f, value); break;
     }
 }
 
