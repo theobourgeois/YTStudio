@@ -202,6 +202,21 @@ describe.skipIf(!existsSync(ENGINE))("Gross Beat, offline", () => {
     await expect(engine.command("grossBeat", { effect: "fx_none", hold: true })).rejects.toMatchObject({ status: 409 });
   });
 
+  it("starts afresh after it's been bypassed (its buffer missed what came in meanwhile)", async () => {
+    const base = song([0, 4, 8, 12], { timeSlot: time("Reverse"), clickReduction: false });
+    await play(base);
+    await engine.command("play", {});
+    await hear(BAR);
+    // Its second bar plays the first backwards: hits.
+    expect(beats(await hear(BAR)).length).toBeGreaterThan(1);
+    // Bypassed through the third bar; back on in the fourth, which can't reach back before then: only
+    // the hit on its first sample (now) is heard, not the bar it missed.
+    await play(updateEffect(base, MASTER_TRACK_ID, 0, { enabled: false }));
+    expect(beats(await hear(BAR))).toEqual([0, 1, 2, 3]);
+    await play(base);
+    expect(beats(await hear(BAR))).toEqual([0]);
+  });
+
   it("exports as it plays, from an empty buffer of its own (playback's is left alone)", async () => {
     let s = song([0], { timeSlot: time("1 Beat Rpt"), clickReduction: false });
     s = editClips(s, (clips) => addClips(clips, [0, 384].map((start) => ({ kind: "pattern" as const, ref: P, track: 0, start, length: null }))).clips);

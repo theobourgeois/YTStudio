@@ -899,8 +899,13 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
     for (const auto& effect : track.effects)
         if (effect.enabled && effect.plugin != nullptr)
             runEffect (*effect.plugin, effect.mix, l, r, numSamples);
-        else if (effect.enabled && effect.gross != nullptr)
-            runGrossBeat (effect, l, r, numSamples);
+        else if (effect.gross != nullptr)
+        {
+            if (effect.enabled)
+                runGrossBeat (effect, l, r, numSamples);
+            else
+                effect.gross->skipped();
+        }
 
     // The fader, pan and mute: each side out from both sides in (gliding after a new song, or automated).
     glide = glide || track.automated;

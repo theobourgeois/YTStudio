@@ -91,6 +91,11 @@ public:
 
     /** Run `numSamples` of the sound in `left` and `right` through it (wet: the mix is the slot's). Audio thread. */
     void process (Settings&, const Clock&, float* left, float* right, int numSamples);
+    /**
+     * Skipped this block (bypassed): its buffer missed what came in, so when it's next run it starts
+     * afresh, as when play starts. Audio thread.
+     */
+    void skipped() { wasPlaying = false; }
 
     // The tab's live controls (any thread) --------------------------------------------------------------
     /** HOLD: held while true. */
