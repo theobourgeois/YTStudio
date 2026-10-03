@@ -1,7 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import type { ProjectSummary } from "../shared/types.ts";
 
 const SAMPLES = path.resolve(import.meta.dirname, "..", "samples");
+/** The e2e server's data folder (playwright.config.ts): its projects are in its Documents/Vaudio. */
+const DATA_DIR = path.resolve(import.meta.dirname, ".data");
 const FILES = [
   "vertical-1080x1920-6s.mp4",
   "landscape-1920x1080-8s.mp4",
@@ -39,9 +43,22 @@ async function projectList(page: Page) {
   return page.evaluate(() => fetch("/api/projects").then((r) => r.json()));
 }
 
-/** Start a new video from the sidebar's New project picker. */
+/**
+ * Open the latest saved project, as the app used to on start (it starts on the Home screen now): most tests
+ * carry on with the video the ones before made.
+ */
+async function openLatest(page: Page) {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Recent" })).toBeVisible();
+  const projects: ProjectSummary[] = await projectList(page);
+  const latest = projects.reduce<ProjectSummary | null>((a, p) => (!a || p.updatedAt > a.updatedAt ? p : a), null);
+  if (latest) await page.goto(`/p/${latest.id}`);
+  return latest!;
+}
+
+/** Start a new video from the New project picker (⇧⌘O, from anywhere). */
 async function newVideo(page: Page) {
-  await page.getByRole("button", { name: "New project" }).click();
+  await page.keyboard.press("ControlOrMeta+Shift+KeyO");
   await page.getByRole("dialog").getByRole("option", { name: /^Video/ }).click();
 }
 
@@ -117,17 +134,21 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
   await page.mouse.up();
 }
 
-test("starts a new video from the empty state", async ({ page }) => {
+test("starts a new video from the Home screen, a file of its own", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Start something new" })).toBeVisible();
-  await page.getByRole("button", { name: "New video" }).last().click();
+  await expect(page.getByRole("heading", { name: "Nothing here yet" })).toBeVisible();
+  await page.getByRole("button", { name: "New video" }).click();
   await expect(page).toHaveURL(/\/p\/[\w-]+$/);
-  await expect(page.locator("header").getByRole("button", { name: "Settle", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Home", exact: true })).toBeVisible();
+  const [project] = await projectList(page);
   expect(await projectList(page)).toHaveLength(1);
+  // In the e2e data folder's Documents/Vaudio (the user's own ~/Documents/Vaudio otherwise).
+  expect(project.path).toBe(path.resolve(DATA_DIR, "Documents", "Vaudio", "Untitled.vaudio"));
+  expect(existsSync(path.join(project.path, "project.json"))).toBe(true);
 });
 
 test("imports media into the library and names the video after the first clip", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await page.locator("input[type=file]").setInputFiles(FILES);
   for (const f of FILES) {
     await expect(page.getByText(path.basename(f).slice(0, 12)).first()).toBeVisible();
@@ -143,7 +164,7 @@ test("imports media into the library and names the video after the first clip", 
 });
 
 test("drags clips onto the timeline where they're dropped; music goes to audio", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   const videoY = await laneY(page, "Video 1");
   // Near 0 and near the end of the first clip: both snap exactly.
   await dragAsset(page, "vertical-1080x1920", await timeX(page, 0.05), videoY);
@@ -170,7 +191,7 @@ test("drags clips onto the timeline where they're dropped; music goes to audio",
 });
 
 test("splits at the playhead, deletes (leaving a gap), closes a clicked gap or ripple-deletes, undoes and redoes", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
 
   // Seek to 3s with the keyboard (Home, then 3 × Shift+Right).
@@ -233,7 +254,7 @@ test("splits at the playhead, deletes (leaving a gap), closes a clicked gap or r
 });
 
 test("moves clips freely with snapping, onto a new track, and trims an edge", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await expect.poll(async () => (await trackLayout(page, "main")).length).toBe(3);
   const byStart = async () => {
     const p = await savedProject(page);
@@ -307,7 +328,7 @@ test("moves clips freely with snapping, onto a new track, and trims an edge", as
 });
 
 test("right-click menus, copy/paste and the shortcuts dialog", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await expect.poll(async () => (await timelineClips(page)).length).toBe(4);
 
   // Duplicate from a clip's context menu.
@@ -351,7 +372,7 @@ test("right-click menus, copy/paste and the shortcuts dialog", async ({ page }) 
 });
 
 test("plays back and keeps the video in sync with the clock", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await page.locator("body").click({ position: { x: 720, y: 20 } });
   await page.keyboard.press("Home");
   await page.keyboard.press("Space");
@@ -366,7 +387,7 @@ test("plays back and keeps the video in sync with the clock", async ({ page }) =
 });
 
 test("exports an MP4", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await page.getByRole("button", { name: /^export$/i }).first().click();
   const dialog = page.getByRole("region", { name: "Export" });
   await dialog.getByText("720p").click();
@@ -381,7 +402,7 @@ test("exports an MP4", async ({ page }) => {
 });
 
 test("video settings dialog, clip volume and previewing a library file", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
 
   // Settings live in a window opened from the header, which applies them at once and leaves the editor usable.
   await page.getByRole("button", { name: "Video settings", exact: true }).click();
@@ -491,7 +512,7 @@ test("video settings dialog, clip volume and previewing a library file", async (
 });
 
 test("imports an image and transforms it in the properties panel and on the canvas", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await page.locator("input[type=file]").setInputFiles(path.join(SAMPLES, "sticker-800.png"));
   const card = page.locator("[draggable=true]").filter({ hasText: "sticker-800" });
   await expect(card).toBeVisible();
@@ -585,7 +606,7 @@ test("imports an image and transforms it in the properties panel and on the canv
 });
 
 test("animates a property with keyframes and edits them in the Effect Controls' lanes", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   const media = await page.evaluate(() => fetch(`/api/media?projectId=${location.pathname.split("/").pop()}`).then((r) => r.json()));
   const stickerId = (media as { id: string; name: string }[]).find((a) => a.name === "sticker-800.png")!.id;
   const clipId = ((await savedProject(page)).clips as (SavedClip & { assetId: string })[]).find((c) => c.assetId === stickerId)!.id;
@@ -645,7 +666,7 @@ test("animates a property with keyframes and edits them in the Effect Controls' 
 });
 
 test("adds transitions from the library, edits them and previews them", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await page.getByRole("tab", { name: "Effects", exact: true }).click();
   await page.getByRole("tab", { name: "Transitions" }).click();
   const card = (name: string) => page.locator("[data-transition-type]").filter({ hasText: name }).first();
@@ -705,7 +726,7 @@ test("adds transitions from the library, edits them and previews them", async ({
 });
 
 test("adds video effects from the Effects tab, edits, reorders and removes them", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await page.getByRole("tab", { name: "Effects", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Video effects" })).toHaveAttribute("aria-selected", "true");
   const card = (name: string) => page.locator("[data-effect-type]").filter({ hasText: name }).first();
@@ -787,7 +808,7 @@ test("adds video effects from the Effects tab, edits, reorders and removes them"
 });
 
 test("panels dock where they're dragged, float out and back, and keep their layout", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await expect(page).toHaveURL(/\/p\/[\w-]+$/);
   const group = (title: string) => page.getByRole("region", { name: `${title} panel` });
   const tab = (name: string) => page.getByRole("tab", { name, exact: true });
@@ -854,7 +875,7 @@ test("panels dock where they're dragged, float out and back, and keep their layo
 });
 
 test("adds adjustment layers and solids, and presets: a transition across a cut and a move on a clip", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   const videoLane = await laneY(page, "Video 1");
   const video = (await timelineClips(page)).find((c) => Math.abs(c.y + c.h / 2 - videoLane) < 10)!;
   type LayerClip = Omit<SavedClip, "effects"> & {
@@ -920,7 +941,7 @@ test("adds adjustment layers and solids, and presets: a transition across a cut 
 });
 
 test("adds text with the Type tool, types into it on the canvas, styles it and exports it", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   const before = new Set(((await savedProject(page)).clips as SavedClip[]).map((c) => c.id));
   await page.getByRole("button", { name: "Go to start" }).click();
 
@@ -981,7 +1002,7 @@ test("adds text with the Type tool, types into it on the canvas, styles it and e
 });
 
 test("auto captions: makes captions from the speech, edits one's words and styles them all", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   type Caption = SavedClip & { caption?: true; transitionIn?: { type: string } };
   const captions = () =>
     savedProject(page).then((p) => (p.clips as Caption[]).filter((c) => c.caption).sort((a, b) => a.start - b.start));
@@ -1036,7 +1057,7 @@ test("auto captions: makes captions from the speech, edits one's words and style
 });
 
 test("settings: a window; ⌘, opens it on the video editor's tab; themes and fonts change the whole app and last", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   // Nothing picked yet: the theme follows the computer's (this browser's) light or dark.
   await expect(page.locator("html")).toHaveClass(/\btheme-light\b/);
   await newVideo(page);
@@ -1130,56 +1151,88 @@ test("settings: a window; ⌘, opens it on the video editor's tab; themes and fo
   expect((await page.request.delete(`/api/projects/${id}`)).ok()).toBe(true);
 });
 
-test("settles a video, starts the next one, and unsettles it again", async ({ page }) => {
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/p\/[\w-]+$/);
+test("goes Home and back, and opens, renames, duplicates, removes and trashes projects there", async ({ page }) => {
+  const first = await openLatest(page);
   const firstUrl = page.url();
-  const [first] = await projectList(page);
 
-  // Start a second video from the sidebar; it opens empty.
+  // Start a second video (⇧⌘O, from anywhere); it opens empty.
   await newVideo(page);
   await expect.poll(() => page.url()).not.toBe(firstUrl);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   const secondUrl = page.url();
+  const secondId = openProjectId(page);
 
-  // Settle it: it moves to the settled pile and the editor switches back to the first video.
-  await page.locator("header").getByRole("button", { name: "Settle", exact: true }).click();
-  await expect(page).toHaveURL(firstUrl);
-  await expect(page.getByRole("button", { name: /Settled/ })).toBeVisible();
-  await expect
-    .poll(async () => (await projectList(page)).map((p: { status: string }) => p.status).sort())
-    .toEqual(["active", "settled"]);
-
-  // Open it from the settled pile and unsettle it.
-  await page.getByRole("button", { name: /Settled/ }).click();
-  await page.getByRole("navigation", { name: "Settled" }).getByRole("button").first().click();
+  // Home (the corner's button) lists both, the latest first; ⇧⌘H goes back to the second, and Home again.
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  const recent = page.getByRole("list", { name: "Recent projects" });
+  const card = (id: string) => recent.locator(`[data-project-id="${id}"]`);
+  await expect(recent.locator("[data-project-id]").first()).toHaveAttribute("data-project-id", secondId);
+  await expect(card(first.id)).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+Shift+KeyH");
   await expect(page).toHaveURL(secondUrl);
-  await page.locator("header").getByRole("button", { name: "Unsettle", exact: true }).click();
-  await expect
-    .poll(async () => (await projectList(page)).every((p: { status: string }) => p.status === "active"))
-    .toBe(true);
+  await page.keyboard.press("ControlOrMeta+Shift+KeyH");
+  await expect(page).toHaveURL(/\/$/);
+
+  // Rename the second from its card: its file follows.
+  await card(secondId).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename" }).click();
+  await page.getByRole("textbox", { name: "Project name" }).fill("Second take");
+  await page.keyboard.press("Enter");
+  await expect(card(secondId)).toContainText("Second take");
+  const pathOf = async (id: string) => ((await projectList(page)) as ProjectSummary[]).find((p) => p.id === id)?.path;
+  await expect.poll(() => pathOf(secondId)).toMatch(/\/Second take\.vaudio$/);
+  expect(existsSync((await pathOf(secondId))!)).toBe(true);
+
+  // Search narrows the cards; the suite filter too.
+  await page.getByRole("searchbox", { name: "Search projects" }).fill("second");
+  await expect(recent.locator("[data-project-id]")).toHaveCount(1);
+  await page.getByRole("searchbox", { name: "Search projects" }).fill("");
+  await page.getByRole("radio", { name: "Songs" }).click();
+  await expect(page.getByText("Nothing matches.")).toBeVisible();
+  await page.getByRole("radio", { name: "All" }).click();
 
   // The first video kept its timeline through all the switching.
-  await page.goto(firstUrl);
+  await card(first.id).click();
+  await expect(page).toHaveURL(firstUrl);
   await expect.poll(async () => (await timelineClips(page)).length).toBeGreaterThan(0);
   expect((await savedProject(page)).name).toBe(first.name);
+  await page.getByRole("button", { name: "Home", exact: true }).click();
 
-  // Right-click it in the sidebar and duplicate it: the copy has the same timeline and its own media.
-  const inProgress = page.getByRole("navigation", { name: "In progress" });
-  await inProgress.getByTitle(first.name, { exact: true }).click({ button: "right" });
+  // Duplicate it from its card: the copy, beside it, has the same timeline and its own media; Home stays.
+  await card(first.id).click({ button: "right" });
   await page.getByRole("menuitem", { name: "Duplicate" }).click();
-  await expect(inProgress.getByTitle(`${first.name} copy`, { exact: true })).toBeVisible();
-  const list = await projectList(page);
-  const copy = list.find((p: { name: string }) => p.name === `${first.name} copy`);
-  expect(copy).toMatchObject({ status: "active", clipCount: (await savedProject(page)).clips.length });
+  await expect(recent.getByRole("button", { name: `${first.name} copy`, exact: true })).toBeVisible();
+  const copy = ((await projectList(page)) as (ProjectSummary & { clipCount: number })[]).find((p) => p.name === `${first.name} copy`)!;
+  expect(copy).toMatchObject({ clipCount: first.suite === "video" ? first.clipCount : 0, path: path.join(path.dirname(first.path), `${first.name} copy.vaudio`) });
   const media = (id: string) => page.evaluate((i) => fetch(`/api/media?projectId=${i}`).then((r) => r.json()), id);
   const [originals, copies] = [await media(first.id), await media(copy.id)];
   expect(copies.map((a: { name: string }) => a.name)).toEqual(originals.map((a: { name: string }) => a.name));
-  await expect(page).toHaveURL(firstUrl); // duplicating doesn't switch videos
+  await expect(page).toHaveURL(/\/$/);
+
+  // Remove the copy from the recents: its file stays, and Open… (⌘O; a browser asks for the path) brings it back.
+  await card(copy.id).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove from Recents" }).click();
+  await expect(card(copy.id)).toHaveCount(0);
+  expect(existsSync(copy.path)).toBe(true);
+  await page.keyboard.press("ControlOrMeta+KeyO");
+  await page.getByRole("textbox", { name: "Project path" }).fill(copy.path);
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page).toHaveURL(`/p/${copy.id}`);
+  await expect.poll(async () => (await timelineClips(page)).length).toBe(copy.clipCount);
+
+  // Move it to the Trash, asked first (in the e2e data folder it's deleted rather than trashed).
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await card(copy.id).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Move to Trash…" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Move to Trash" }).click();
+  await expect(card(copy.id)).toHaveCount(0);
+  await expect.poll(() => existsSync(copy.path)).toBe(false);
+  expect(existsSync((await pathOf(first.id))!)).toBe(true);
 });
 
 test("keeps media and saved clips in the Library and uses them in another video", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   const withClips = (await projectList(page)).find((p: { clipCount: number }) => p.clipCount > 0);
   await page.goto(`/p/${withClips.id}`);
   await expect.poll(async () => (await timelineClips(page)).length).toBeGreaterThan(0);
@@ -1258,7 +1311,7 @@ test("keeps media and saved clips in the Library and uses them in another video"
 });
 
 test("skims a video's card and copies one clip's effects onto another", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await newVideo(page);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   await page.getByRole("tab", { name: /^This video/ }).click();
@@ -1302,8 +1355,7 @@ test("skims a video's card and copies one clip's effects onto another", async ({
 
 test("the assistant edits the video with the editor's tools, live and undoably; outside agents can too", async ({ page }) => {
   // Claude Code is played by e2e/fake-claude.mjs, which makes the tool calls a message lists.
-  await page.goto("/");
-  const [latest] = await projectList(page);
+  const latest = await openLatest(page);
   await page.goto(`/p/${latest.id}`);
   await expect(page.locator("[data-clip-id]")).toHaveCount(2);
 
@@ -1369,10 +1421,9 @@ test("the assistant edits the video with the editor's tools, live and undoably; 
 
 test("Codex answers too, and a chat keeps editing its video while another one is open", async ({ page }) => {
   // Codex is played by e2e/fake-codex.mjs (like fake-claude.mjs), which names the model it ran on.
-  await page.goto("/");
-  const projects: { id: string; name: string; status: string }[] = await projectList(page);
-  const [latest] = projects;
-  const other = projects.find((p) => p.id !== latest.id && p.status === "active")!;
+  const latest = await openLatest(page);
+  const projects: ProjectSummary[] = await projectList(page);
+  const other = projects.find((p) => p.id !== latest.id && p.suite === "video")!;
   await page.goto(`/p/${latest.id}`);
   await expect(page.locator("[data-clip-id]")).toHaveCount(2);
 
@@ -1402,32 +1453,35 @@ test("Codex answers too, and a chat keeps editing its video while another one is
   await expect(page.locator("[data-clip-id]")).toHaveCount(3);
   await expect(panel.getByText("Done on gpt-6-sol at high.")).toBeVisible();
 
-  // Switch to another video mid-answer: the chat carries on with its own video, and the sidebar says so.
+  // Go Home mid-answer: its card says it's working. Open another video: the chat carries on with its own.
   const tracks = (await savedProject(page)).tracks.length;
   await composer.fill('sleep 2500\ncall add_track {"kind": "video"}\ncall view_frames {"times": [0.2]}');
   await composer.press("Enter");
-  const row = page.locator(`[data-project-id="${latest.id}"]`);
-  await expect(row).toHaveAttribute("data-chat-status", "working");
-  await expect(row).toContainText("Working");
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  const card = page.locator(`[data-project-id="${latest.id}"]`);
+  await expect(card).toHaveAttribute("data-chat-status", "working");
+  await expect(card).toContainText("Working");
   await page.locator(`[data-project-id="${other.id}"]`).click();
   await expect(page).toHaveURL(`/p/${other.id}`);
   const saved = () => page.evaluate((id) => fetch(`/api/projects/${id}`).then((r) => r.json()), latest.id);
   await expect.poll(async () => (await saved()).tracks.length, { timeout: 15_000 }).toBe(tracks + 1);
-  // It finished (looking at its video offscreen) while the user was elsewhere.
-  await expect(row).toHaveAttribute("data-chat-status", "done", { timeout: 15_000 });
-  await expect(row).toContainText("Done");
-  await expect(page).toHaveURL(`/p/${other.id}`);
+  // It finished (looking at its video offscreen) while the user was elsewhere: Home says so.
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(card).toHaveAttribute("data-chat-status", "done", { timeout: 15_000 });
+  await expect(card).toContainText("Done");
 
-  await row.click();
+  await card.click();
   await expect(page).toHaveURL(`/p/${latest.id}`);
   await expect(panel.locator('[data-tool="view_frames"][data-status="done"]')).toBeVisible();
   await expect(panel.locator('[data-tool="add_track"][data-status="done"]')).toBeVisible();
-  await expect(row).not.toHaveAttribute("data-chat-status", /./);
   await expect.poll(async () => (await savedProject(page)).tracks.length).toBe(tracks + 1);
+  // Seen: back Home, its card has nothing more to say.
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(card).not.toHaveAttribute("data-chat-status", /./);
 });
 
 test("plays an audio track cut into pieces with one pair of players", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await newVideo(page);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   await page.getByRole("tab", { name: /^This video/ }).click();
@@ -1465,7 +1519,7 @@ test("plays an audio track cut into pieces with one pair of players", async ({ p
 });
 
 test("marks a song's beats on its clip and cuts a clip to them", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await newVideo(page);
   await page.getByRole("tab", { name: /^This video/ }).click();
   await page.locator("input[type=file]").first().setInputFiles([FILES[0], FILES[3]]);
@@ -1505,7 +1559,7 @@ test("marks a song's beats on its clip and cuts a clip to them", async ({ page }
 });
 
 test("pinching over the monitor scales the selected clip, as one undo step", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await newVideo(page);
   await page.getByRole("tab", { name: /^This video/ }).click();
   await page.locator("input[type=file]").first().setInputFiles(FILES[0]);
@@ -1529,7 +1583,7 @@ test("pinching over the monitor scales the selected clip, as one undo step", asy
 });
 
 test("speeds a clip up, reverses it and stretches it to fit, moving the clips after it", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await newVideo(page);
   await page.getByRole("tab", { name: /^This video/ }).click();
   await page.locator("input[type=file]").first().setInputFiles(FILES[0]);
@@ -1597,7 +1651,7 @@ test("speeds a clip up, reverses it and stretches it to fit, moving the clips af
 });
 
 test("selects several media cards to drag them together and delete them at once", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await newVideo(page);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   await page.getByRole("tab", { name: /^This video/ }).click();
@@ -1659,7 +1713,7 @@ test("selects several media cards to drag them together and delete them at once"
 });
 
 test("parents to a null, nests clips, opens the nest in a tab, and remaps its time with a graph", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await newVideo(page);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   await page.getByRole("tab", { name: /^This video/ }).click();
@@ -1745,7 +1799,7 @@ async function clickOn(page: Page, selector: string, alt = false) {
 const effectsOf = (clip: FullClip | undefined, type: string) => clip?.effects.filter((e) => e.type === type) ?? [];
 
 test("masks a clip with shapes and the pen, and draws shape layers with operators", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await newVideo(page);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   await page.getByRole("tab", { name: /^This video/ }).click();
@@ -1835,7 +1889,7 @@ test("masks a clip with shapes and the pen, and draws shape layers with operator
 });
 
 test("animates text by word, links properties with an expression, marks the timeline and bends a motion path", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await newVideo(page);
   await expect(page.locator("[data-clip-id]")).toHaveCount(0);
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -1968,12 +2022,12 @@ test("animates text by word, links properties with an expression, marks the time
 });
 
 test("starts a song in the music suite, with its own assistant, then goes back to a video", async ({ page }) => {
-  await page.goto("/");
+  await openLatest(page);
   await expect(page).toHaveURL(/\/p\/[\w-]+$/);
   const videoUrl = page.url();
 
-  // The sidebar's New project picker lists every suite; typing narrows it, Enter makes one.
-  await page.getByRole("button", { name: "New project" }).click();
+  // The New project picker (⇧⌘O) lists every suite; typing narrows it, Enter makes one.
+  await page.keyboard.press("ControlOrMeta+Shift+KeyO");
   const picker = page.getByRole("dialog");
   await expect(picker.getByRole("option")).toHaveCount(2);
   await picker.getByRole("textbox").fill("song");
@@ -1983,15 +2037,20 @@ test("starts a song in the music suite, with its own assistant, then goes back t
   await expect.poll(() => page.url()).not.toBe(videoUrl);
   await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
   const song = (await projectList(page)).find((p: { suite: string }) => p.suite === "music");
-  expect(song).toMatchObject({ name: "Untitled", tempo: 140, status: "active" });
-  await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("140 BPM");
+  expect(song).toMatchObject({ name: "Untitled", tempo: 140 });
+  expect(song.path).toMatch(/\/Documents\/Vaudio\/Untitled( \d+)?\.vaudio$/);
 
-  // Renamed from its header, like a video.
+  // Renamed from its header, like a video; its file takes the name once it's closed (Home shows it).
   await page.locator("header").getByTitle("Rename project").click();
   await page.getByRole("textbox", { name: "Project name" }).fill("Anthem");
   await page.keyboard.press("Enter");
-  await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("Anthem");
   await expect.poll(async () => (await projectList(page)).find((p: { id: string }) => p.id === song.id).name).toBe("Anthem");
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("Anthem");
+  await expect(page.locator(`[data-project-id="${song.id}"]`)).toContainText("140 BPM");
+  await expect.poll(async () => path.basename((await projectList(page)).find((p: { id: string }) => p.id === song.id).path)).toBe("Anthem.vaudio");
+  await page.locator(`[data-project-id="${song.id}"]`).click();
+  await expect(page.getByRole("region", { name: "Channel rack" })).toBeVisible();
 
   // Its assistant has the music editor's tools (and not the video editor's).
   await page.getByRole("button", { name: "Assistant" }).click();
@@ -2006,7 +2065,7 @@ test("starts a song in the music suite, with its own assistant, then goes back t
 
   // Back to the video: its editor opens as it was.
   await page.goto(videoUrl);
-  await expect(page.locator("header").getByRole("button", { name: "Settle", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Home", exact: true })).toBeVisible();
   await expect(page.getByText("Video 1", { exact: true }).last()).toBeVisible();
   const clips = (await savedProject(page)).clips.length;
   await expect.poll(async () => (await timelineClips(page)).length).toBe(clips);

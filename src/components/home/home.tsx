@@ -128,20 +128,7 @@ export function Home() {
               {SUITE_IDS.map((id, i) => (
                 <NewTile key={id} suite={id} index={i} />
               ))}
-              <button
-                type="button"
-                onClick={() => showOpenDialog()}
-                className="group/tile flex items-center gap-3 rounded-lg border border-dashed border-muted-foreground/35 px-3 py-3 text-left transition-colors hover:border-brand/60 hover:bg-surface-1"
-              >
-                <span className="grid size-11 shrink-0 place-items-center rounded-md bg-surface-2 text-muted-foreground group-hover/tile:text-foreground">
-                  <PiFolderOpen className="size-5.5" />
-                </span>
-                <span className="grid min-w-0 flex-1 gap-0.5">
-                  <span className="text-[13px] font-semibold">Open a project…</span>
-                  <span className="text-xs leading-4 text-muted-foreground">A .vaudio file: a copy, a backup, one sent to you.</span>
-                </span>
-                <kbd className="shrink-0 self-start font-sans text-[11px] text-muted-foreground">{OPEN_KEYS}</kbd>
-              </button>
+              <OpenTile />
             </div>
             <p className="mt-2.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
               New projects are saved in
@@ -194,8 +181,8 @@ export function Home() {
       </main>
 
       {drop.active && (
-        <div className="pointer-events-none absolute inset-3 z-10 grid place-items-center rounded-xl border-2 border-dashed border-brand bg-brand/8">
-          <span className="floating flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium">
+        <div className="pointer-events-none absolute inset-3 z-10 grid place-items-center rounded-md border-2 border-dashed border-brand bg-brand/8">
+          <span className="floating flex items-center gap-2 rounded-md px-4 py-3 text-sm font-medium">
             <PiUploadSimple className="size-5 text-brand" />
             Drop clips to start a new {suiteNoun(SUITE_IDS[0])}, or a project to open it
           </span>
@@ -224,8 +211,28 @@ function SectionTitle({ id, className, children }: { id: string; className?: str
   );
 }
 
+/** Open a project from a file, beside the New tiles. */
+export function OpenTile() {
+  return (
+    <button
+      type="button"
+      onClick={() => showOpenDialog()}
+      className="group/tile flex items-center gap-3 rounded-md border border-dashed border-muted-foreground/35 px-3 py-3 text-left transition-colors hover:border-brand/60 hover:bg-surface-1"
+    >
+      <span className="grid size-11 shrink-0 place-items-center rounded-md bg-surface-2 text-muted-foreground group-hover/tile:text-foreground">
+        <PiFolderOpen className="size-5.5" />
+      </span>
+      <span className="grid min-w-0 flex-1 gap-0.5">
+        <span className="text-[13px] font-semibold">Open a project…</span>
+        <span className="text-xs leading-4 text-muted-foreground">A .vaudio file: a copy, a backup, one sent to you.</span>
+      </span>
+      <kbd className="shrink-0 self-start font-sans text-[11px] text-muted-foreground">{OPEN_KEYS}</kbd>
+    </button>
+  );
+}
+
 /** A suite's New tile: click (⌥: blank, whatever its starting point) to make one, ⌘1, ⌘2… from anywhere on Home. */
-function NewTile({ suite, index }: { suite: SuiteId; index: number }) {
+export function NewTile({ suite, index }: { suite: SuiteId; index: number }) {
   const { label, noun, description, early } = SUITES[suite];
   const { icon: Icon, tint } = clientSuite(suite);
   const template = useProjects((s) => s.templates[suite]);
@@ -235,7 +242,7 @@ function NewTile({ suite, index }: { suite: SuiteId; index: number }) {
       data-suite={suite}
       aria-label={`New ${noun}`}
       onClick={(e) => void useProjects.getState().create({ suite, blank: e.altKey })}
-      className="raised group/tile flex items-center gap-3 rounded-lg px-3 py-3 text-left hover:raised-hover active:pressed"
+      className="raised group/tile flex items-center gap-3 rounded-md px-3 py-3 text-left hover:raised-hover active:pressed"
     >
       <span className={cn("relative grid size-11 shrink-0 place-items-center rounded-md", tint)}>
         <Icon className="size-5.5" />
@@ -264,8 +271,8 @@ function NewTile({ suite, index }: { suite: SuiteId; index: number }) {
 function Empty({ searching, hasAny }: { searching: boolean; hasAny: boolean }) {
   if (searching && hasAny) return <p className="py-14 text-center text-[13px] text-muted-foreground">Nothing matches.</p>;
   return (
-    <div className="flex flex-col items-center rounded-xl border border-dashed border-line px-8 py-14 text-center">
-      <span className="grid size-12 place-items-center rounded-lg bg-surface-2 text-muted-foreground">
+    <div className="flex flex-col items-center rounded-md border border-dashed border-muted-foreground/35 px-8 py-14 text-center">
+      <span className="grid size-12 place-items-center rounded-md bg-surface-2 text-muted-foreground">
         <PiUploadSimple className="size-6" />
       </span>
       <h3 className="mt-4 text-[15px] font-semibold">Nothing here yet</h3>

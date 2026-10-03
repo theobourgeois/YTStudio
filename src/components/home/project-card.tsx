@@ -100,9 +100,9 @@ export const ProjectCard = memo(function ProjectCard({ project, now }: ProjectCa
             data-chat-status={status?.kind}
             data-missing={missing || undefined}
             className={cn(
-              "group/card relative flex cursor-pointer flex-col overflow-hidden rounded-lg border border-line bg-surface-2 outline-none transition-[box-shadow,transform]",
-              "shadow-[inset_0_1px_0_var(--bevel-highlight)] hover:-translate-y-px hover:shadow-[inset_0_1px_0_var(--bevel-highlight),0_4px_14px_rgb(0_0_0/0.18)]",
-              "focus-visible:ring-2 focus-visible:ring-ring/60 data-[state=open]:ring-2 data-[state=open]:ring-brand/50",
+              "group/card relative flex cursor-pointer flex-col overflow-hidden rounded-md border border-line bg-surface-2 outline-none transition-colors",
+              "shadow-[inset_0_1px_0_var(--bevel-highlight)] hover:border-brand/70 hover:bg-surface-3",
+              "focus-visible:ring-2 focus-visible:ring-ring/60 data-[state=open]:border-brand data-[state=open]:ring-1 data-[state=open]:ring-brand/50",
             )}
           >
             <div className="relative">
@@ -223,7 +223,7 @@ function Picture({ project }: { project: ProjectSummary }) {
         <>
           {/* A faint grid of its suite's colour, so a picture-less card still reads as a document. */}
           <span aria-hidden className="absolute inset-0 bg-[linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:22px_22px] opacity-[0.07]" />
-          <span className="relative grid size-16 place-items-center rounded-full bg-surface-3/70 shadow-[inset_0_1px_0_var(--bevel-highlight),0_2px_8px_rgb(0_0_0/0.12)]">
+          <span className="raised relative grid size-14 place-items-center rounded-md">
             <Icon className="size-8" />
           </span>
         </>

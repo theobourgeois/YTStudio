@@ -1,7 +1,7 @@
 /**
  * Screenshots of the app's look, in every theme, to check a restyle (docs/ui-redesign.md):
- * each section of the component gallery (`/gallery`, `src/gallery/`) and the app's screens (the empty
- * state, the New project picker, the video editor with clips, the music editor). Starts its own server
+ * each section of the component gallery (`/gallery`, `src/gallery/`) and the app's screens (the Home
+ * screen, the New project picker, the video editor with clips, the music editor). Starts its own server
  * and app on ports 5340/5341 with a throwaway data dir and the stand-in engine and assistant, like e2e.
  *
  *   pnpm tsx scripts/ui-sheet.ts [section or screen ...] [--out dir] [--light | --dark] [--theme <id>]
@@ -152,7 +152,7 @@ async function galleryIndex(): Promise<{ SECTIONS: { id: string; shots?: { name:
 }
 
 // The app's screens, on a video and a song made for them.
-const screens = ["empty", "new-project", "video", "video-effects", "video-properties", "video-captions", "video-settings", "video-export", "video-auto-captions", "video-save-to-library", "video-dock-drag", "video-dock-effects", "video-dock-floating", "video-clip-menu", "settings-window", "music", "music-piano", "music-settings"];
+const screens = ["home", "new-project", "video", "video-effects", "video-properties", "video-captions", "video-settings", "video-export", "video-auto-captions", "video-save-to-library", "video-dock-drag", "video-dock-effects", "video-dock-floating", "video-clip-menu", "settings-window", "music", "music-piano", "music-settings"];
 if (screens.some(wanted)) {
   const video = await makeVideo();
   const music: ProjectSummary = await (await fetch(`${api}/projects`, { method: "POST", headers: json, body: JSON.stringify({ suite: "music", name: "Beat" }) })).json();
@@ -162,14 +162,16 @@ if (screens.some(wanted)) {
     const page = await pageIn(theme);
     const tab = (name: string) => page.getByRole("tab", { name, exact: true });
 
-    if (wanted("empty")) {
+    if (wanted("home")) {
       await page.goto(web);
-      await page.getByRole("button", { name: "New project" }).first().waitFor();
-      await shoot(page, `empty-${suffix}`);
+      await page.getByRole("heading", { name: "Recent" }).waitFor();
+      await page.waitForTimeout(500);
+      await shoot(page, `home-${suffix}`);
     }
     if (wanted("new-project")) {
       await page.goto(web);
-      await page.getByRole("button", { name: "New project" }).first().click();
+      await page.getByRole("heading", { name: "Recent" }).waitFor();
+      await page.keyboard.press("ControlOrMeta+Shift+KeyO");
       await page.getByRole("dialog").waitFor();
       await shoot(page, `new-project-${suffix}`);
     }
