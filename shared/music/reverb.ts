@@ -180,7 +180,9 @@ export function editDecayBands(song: MusicProject, effectId: string, ids: Iterab
 export function setReverbKey(song: MusicProject, effectId: string, trackId: string | null): MusicProject {
   const found = findReverb(song, effectId);
   if (!found) return song;
-  if (trackId === null) return updateReverb(song, effectId, { ducking: { key: null } });
+  // Routing, not the sound: the preset stays named.
+  const keyed = (s: MusicProject, key: string | null) => editReverb(s, effectId, (r) => ({ ...r, ducking: { ...r.ducking, key } }));
+  if (trackId === null) return keyed(song, null);
   if (trackId === found.track.id) return song;
   const source = song.mixer.tracks.find((t) => t.id === trackId);
   if (!source) return song;
@@ -189,7 +191,7 @@ export function setReverbKey(song: MusicProject, effectId: string, trackId: stri
     if (!canSend(song, trackId, found.track.id)) return song;
     next = setSend(song, trackId, found.track.id, 0);
   }
-  return updateReverb(next, effectId, { ducking: { key: trackId } });
+  return keyed(next, trackId);
 }
 
 /** Whether a Reverb's ducking key track sends to it (if not, it ducks under nothing). */
@@ -234,7 +236,7 @@ export function formatSeconds(s: number): string {
 /** Decay said ("1.80 s", "∞"). */
 export const formatDecay = (s: number) => (isInfinite(s) ? "∞" : formatSeconds(s));
 /** A frequency said ("200 Hz", "6.5 kHz"). */
-export const formatHz = (hz: number) => (hz >= 1000 ? `${(hz / 1000).toFixed(hz >= 10000 ? 1 : hz % 1000 === 0 ? 0 : 1)} kHz` : `${Math.round(hz)} Hz`);
+export const formatHz = (hz: number) => (hz >= 1000 ? `${(hz / 1000).toFixed(hz >= 10000 ? 1 : hz % 1000 === 0 ? 0 : 1)} kHz` : hz < 100 && hz % 1 ? `${hz.toFixed(1)} Hz` : `${Math.round(hz)} Hz`);
 
 // ---------------------------------------------------------------------------
 // How long each frequency rings

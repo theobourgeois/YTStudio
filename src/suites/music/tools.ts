@@ -9,6 +9,8 @@ import { ECHO_BOY_PLUGIN } from "@shared/music/echo-boy-presets";
 import { GROSS_BEAT_PLUGIN } from "@shared/music/gross-beat-presets";
 import { PRO_Q_PLUGIN } from "@shared/music/pro-q-presets";
 import { OTT_PLUGIN } from "@shared/music/ott-presets";
+import { findReverb } from "@shared/music/reverb";
+import { REVERB_PLUGIN } from "@shared/music/reverb-presets";
 import { PRO_C_PLUGIN } from "@shared/music/pro-c-presets";
 import { PANMAN_PLUGIN } from "@shared/music/panman-presets";
 import { PITCH_WHEEL_PLUGIN } from "@shared/music/pitch-wheel-presets";
@@ -88,6 +90,7 @@ import { describeGrossBeat, setGrossBeatSlotTool, updateGrossBeatTool } from "./
 import { describeProQ, setProQBandsTool, updateProQTool } from "./pro-q/tool-edits";
 import { describeOtt, updateOttTool } from "./ott/tool-edits";
 import { addVocalCompressionTool, describeProC, findProCRef, setProCBandsTool, setProCSidechainTool, updateProCTool } from "./pro-c/tool-edits";
+import { addVocalReverbTool, describeReverb, setReverbDecayTool, updateReverbTool } from "./reverb/tool-edits";
 import { describePanMan, findPan, setPanPatternTool, updatePanManTool } from "./panman/tool-edits";
 import { useBrowser } from "./browser/store";
 import {
@@ -435,6 +438,17 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
           "update_pro_c sets its style and knobs (or a preset), set_pro_c_sidechain and set_pro_c_bands its side chain, get_pro_c reads it.",
       );
     }
+    if (wanted === REVERB_PLUGIN.name.toLowerCase() || wanted === REVERB_PLUGIN.id || wanted === "verb" || wanted === "vocal reverb") {
+      const replaced = track.effects[slot];
+      const id = createId("fx");
+      const made = findReverb(setEffect(target.song, track.id, slot, REVERB_PLUGIN, id), id)?.reverb;
+      await apply(target, (song) => setEffect(song, track.id, slot, REVERB_PLUGIN, id));
+      return textResult(
+        `Put a Reverb (${id}) in slot ${slot + 1} of ${trackLabel(target.song, track)}${replaced ? `, replacing ${replaced.plugin.name}` : ""}: the Vocal Plate preset, ` +
+          `${made && made.mixLock ? "fully wet with Mix Lock on (this track has no channel of its own: a send's return)" : `at an insert's mix of ${Math.round((made?.mix ?? 0.18) * 100)}%`}. ` +
+          "update_reverb sets it (a preset, mode, decay, pre-delay, ducking...), set_reverb_decay shapes its decay, get_reverb reads it. For a vocal, add_vocal_reverb (a send) is usually better than an insert.",
+      );
+    }
     if (wanted === OTT_PLUGIN.name.toLowerCase() || wanted === OTT_PLUGIN.id || wanted === "xfer ott") {
       const replaced = track.effects[slot];
       const id = createId("fx");
@@ -519,6 +533,12 @@ const TOOLS: Record<MusicToolName, (input: Input, ctx: ToolRunContext) => Promis
   set_pro_c_sidechain: edit((song, input) => setProCSidechainTool(song, input)),
   set_pro_c_bands: edit((song, input) => setProCBandsTool(song, input)),
   add_vocal_compression: edit((song, input) => addVocalCompressionTool(song, input)),
+  async get_reverb(input, ctx) {
+    return textResult(describeReverb((await targetOf(ctx)).song, input));
+  },
+  update_reverb: edit((song, input) => updateReverbTool(song, input)),
+  set_reverb_decay: edit((song, input) => setReverbDecayTool(song, input)),
+  add_vocal_reverb: edit((song, input) => addVocalReverbTool(song, input)),
   async get_echo_boy(input, ctx) {
     return textResult(describeEchoBoy((await targetOf(ctx)).song, input));
   },

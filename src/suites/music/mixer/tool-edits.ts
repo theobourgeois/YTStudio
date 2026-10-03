@@ -42,6 +42,7 @@ import { EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_CHANNELS, MAX_
 import type { InputMonitor, MixerInput, MixerTrack, MusicProject, PitchWheel } from "@shared/music/types";
 import { type SongEdit, findChannel } from "../tool-edits";
 import { faderAt, faderDb } from "./meter";
+import { reverbLine } from "../reverb/tool-edits";
 
 type Input = Record<string, unknown>;
 
@@ -169,7 +170,8 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
         (effect.ott && `, effect ${effect.id}, depth ${percent(effect.ott.depth)}${effect.ott.preset ? `, preset "${effect.ott.preset}"` : ""} (get_ott)`) ||
         (effect.proC && `, effect ${effect.id}, style ${effect.proC.style}, threshold ${Math.round(effect.proC.threshold)} dB${effect.proC.preset ? `, preset "${effect.proC.preset}"` : ""} (get_pro_c)`) ||
         (effect.panMan && `, effect ${effect.id}, ${effect.panMan.mode} mode, preset "${effect.panMan.preset}" (get_panman)`) ||
-        (effect.pitchWheel && `, effect ${effect.id}, ${wheelSummary(song, effect.pitchWheel)} (get_pitch_wheel)`);
+        (effect.pitchWheel && `, effect ${effect.id}, ${wheelSummary(song, effect.pitchWheel)} (get_pitch_wheel)`) ||
+        (effect.reverb && `, effect ${effect.id}, Reverb: ${reverbLine(song, effect.id)}, mix ${percent(effect.reverb.mix)} (get_reverb)`);
       lines.push(`    slot ${slot + 1}: ${effect.plugin.name} (${effect.plugin.format})${effect.enabled ? "" : ", bypassed"}${effect.mix < 1 ? `, mix ${percent(effect.mix)}` : ""}${state ? `, ${state}` : ""}${gross || ""}`);
     });
     if (number > 0) {

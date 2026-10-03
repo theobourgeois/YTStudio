@@ -5,7 +5,7 @@
  * Only types and constants are imported, so `project.ts` can use this to normalise a song.
  */
 import { clamp, isFiniteNumber } from "../math.ts";
-import { REVERB_ERAS, REVERB_MODES, REVERB_NOTES, REVERB_BAND_SHAPES, type PluginRef, type Reverb, type ReverbDecayBand, type ReverbNote, type ReverbState } from "./types.ts";
+import { REVERB_ERAS, REVERB_MODES, REVERB_NOTES, REVERB_BAND_SHAPES, type PluginRef, type Reverb, type ReverbControl, type ReverbDecayBand, type ReverbNote, type ReverbState } from "./types.ts";
 
 /** What a Reverb effect is, as a slot's plugin: one of ours, run by the engine itself. */
 export const REVERB_PLUGIN: PluginRef = { id: "vaudio:reverb", name: "Reverb", format: "Vaudio" };
@@ -42,6 +42,12 @@ export const REVERB_BANDS = 6;
 export const MULTIPLIER_RANGE = [0.25, 4] as const;
 export const BAND_Q_RANGE = [0.1, 10] as const;
 export const BAND_FREQ_RANGE = [20, 20000] as const;
+/**
+ * How loud every factory preset's wet sound is against what goes in (LU, fully wet, pink noise): they're
+ * matched to it (`output.level`, measured in `reverb.integration.test.ts`), so a send can be set for a
+ * loudness under the voice whatever the preset (add_vocal_reverb).
+ */
+export const PRESET_LOUDNESS = -6;
 /** The slot's Mix on an insert, as a new Reverb comes (engineers' insert mixes are 12–25 %). */
 export const INSERT_MIX = 0.18;
 
@@ -481,4 +487,90 @@ export const DEFAULT_REVERB: Reverb = {
   other: null,
   slot: "a",
   view: DEFAULT_VIEW,
+};
+
+// ---------------------------------------------------------------------------
+// The assistant's names for its controls
+// ---------------------------------------------------------------------------
+
+/** The Reverb's controls as the assistant names them (`add_automation`'s `control`). */
+export const REVERB_TOOL_CONTROLS = {
+  "reverb mix": "mix",
+  "reverb decay": "decay",
+  "reverb freeze": "freeze",
+  "reverb predelay": "predelay",
+  "reverb size": "size",
+  "reverb distance": "distance",
+  "reverb diffusion": "diffusion",
+  "reverb mod rate": "modRate",
+  "reverb mod": "modDepth",
+  "reverb width": "width",
+  "reverb low cut": "lowCut",
+  "reverb high cut": "highCut",
+  "reverb de-ess": "deEss",
+  "reverb duck": "duck",
+  "reverb input cross": "inputCross",
+  "reverb input low cut": "inputLowCut",
+  "reverb input high cut": "inputHighCut",
+  "reverb de-ess freq": "deEssFreq",
+  "reverb vlf cut": "vlfCut",
+  "reverb predelay offset": "predelayOffset",
+  "reverb early send": "earlySend",
+  "reverb early cross": "earlyCross",
+  "reverb late diffusion": "lateDiffusion",
+  "reverb duck threshold": "threshold",
+  "reverb duck attack": "attack",
+  "reverb duck release": "release",
+  "reverb duck hold": "hold",
+  "reverb auto decay": "autoDecay",
+  "reverb recovery": "recovery",
+  "reverb low shelf freq": "lowShelfFreq",
+  "reverb low shelf gain": "lowShelfGain",
+  "reverb high shelf freq": "highShelfFreq",
+  "reverb high shelf gain": "highShelfGain",
+  "reverb mono below": "monoBelow",
+  "reverb output": "level",
+} as const satisfies Record<string, ReverbControl>;
+export type ReverbToolControl = keyof typeof REVERB_TOOL_CONTROLS;
+export const REVERB_TOOL_CONTROL_NAMES = Object.keys(REVERB_TOOL_CONTROLS) as ReverbToolControl[];
+/** Controls the assistant gives in milliseconds (the song keeps seconds). */
+export const REVERB_MS_CONTROLS: readonly ReverbControl[] = ["predelay", "attack", "release", "hold", "recovery"];
+
+/** Each control's values, said for the model (as add_automation takes them). */
+export const REVERB_HINTS: Record<ReverbControl, string> = {
+  mix: "0 to 1 (equal power: 0.15 to 0.25 on an insert, 1 on a send)",
+  decay: `seconds, 0.1 to 60 (61: ∞, the loop held)`,
+  freeze: "0 (off) or 1 (on: the tail held, nothing new in)",
+  predelay: "milliseconds, 0 to 500",
+  size: "0 to 1",
+  distance: "0 (near) to 1 (far)",
+  diffusion: "0 to 1",
+  modRate: "Hz, 0.05 to 10",
+  modDepth: "0 to 1",
+  width: "0 (mono) to 1.5",
+  lowCut: "Hz, 20 (off) to 2000",
+  highCut: "Hz, 1000 to 20000 (off)",
+  deEss: "dB, 0 to 24",
+  duck: "dB, -24 to 0",
+  inputCross: "0 to 1",
+  inputLowCut: "Hz, 20 (off) to 2000",
+  inputHighCut: "Hz, 1000 to 20000 (off)",
+  deEssFreq: "Hz, 4000 to 12000",
+  vlfCut: "dB, -18 to 0",
+  predelayOffset: "0.5 to 2 (× a synced pre-delay)",
+  earlySend: "0 to 1",
+  earlyCross: "0 to 1",
+  lateDiffusion: "0 to 1",
+  threshold: "dB, -60 to 0",
+  attack: "milliseconds, 1 to 100",
+  release: "milliseconds, 20 to 3000",
+  hold: "milliseconds, 0 to 500",
+  autoDecay: "0 to 0.9",
+  recovery: "milliseconds, 1 to 500",
+  lowShelfFreq: "Hz, 50 to 500",
+  lowShelfGain: "dB, -12 to 12",
+  highShelfFreq: "Hz, 1000 to 16000",
+  highShelfGain: "dB, -12 to 12",
+  monoBelow: "Hz, 0 (off) or 20 to 500",
+  level: "dB, -24 to 12",
 };

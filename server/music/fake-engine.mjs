@@ -162,6 +162,39 @@ const otts = () =>
       }),
   );
 
+/** The Reverb is ours too. The ones whose windows are open (`verbWatch`), and Freeze or Kill held (`verb`). */
+const REVERB = "vaudio:reverb";
+let verbWatched = [];
+const verbHeld = new Map();
+/** Each Reverb in the song: its meters while the song plays (a ducked tail), frozen while held, its tail's spectrum while watched. */
+const reverbs = () =>
+  Object.fromEntries(
+    (song?.tracks ?? [])
+      .flatMap((t) => t.effects ?? [])
+      .filter((e) => e.reverb)
+      .map((e) => {
+        const sounding = playingSince !== null;
+        const held = verbHeld.get(e.id) ?? {};
+        const level = sounding && !held.kill ? 0.3 : 0;
+        const duck = sounding ? e.reverb.duck.depth * 0.5 : 0;
+        return [
+          e.id,
+          {
+            input: [level, level],
+            output: [level * e.reverb.mix.wet, level * e.reverb.mix.wet],
+            duck,
+            key: sounding ? -18 : -120,
+            threshold: e.reverb.duck.threshold ?? -30,
+            deEss: sounding ? Math.min(3, e.reverb.deEss.amount) : 0,
+            decay: sounding ? 1 - 0.5 * e.reverb.duck.autoDecay : 1,
+            clip: false,
+            frozen: e.reverb.freeze || !!held.freeze || e.reverb.t60[5] >= 999,
+            ...(verbWatched.includes(e.id) && { spectrum: sounding ? spectrum(-6) : null }),
+          },
+        ];
+      }),
+  );
+
 /** Pro-C is ours too. */
 const PRO_C = "vaudio:pro-c";
 /** A point of its level display every 5 ms, numbered from when the engine started. */
@@ -295,7 +328,7 @@ const pitchWheels = () =>
   );
 
 const effects = () => {
-  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PRO_Q && e.plugin.id !== PANMAN && e.plugin.id !== PITCH_WHEEL && e.plugin.id !== OTT && e.plugin.id !== PRO_C);
+  const hosted = (song?.tracks ?? []).flatMap((t) => t.effects ?? []).filter((e) => e.plugin.id !== GROSS_BEAT && e.plugin.id !== AUTO_TUNE && e.plugin.id !== ECHO_BOY && e.plugin.id !== PRO_Q && e.plugin.id !== PANMAN && e.plugin.id !== PITCH_WHEEL && e.plugin.id !== OTT && e.plugin.id !== PRO_C && e.plugin.id !== REVERB);
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
@@ -425,7 +458,7 @@ const status = () => ({
   songLatency: 0,
   tone,
   peak: 0,
-  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), pitchWheels: pitchWheels(), echoBoys: echoBoys(), panMen: panMen(), otts: otts(), proCs: proCsNow() },
+  transport: { playing: playingSince !== null, tick: tick(), countIn: countInLeft(), metronome, preview: previewNow(), grossBeats: grossBeats(), autoTunes: autoTunes(), pitchWheels: pitchWheels(), echoBoys: echoBoys(), panMen: panMen(), otts: otts(), proCs: proCsNow(), reverbs: reverbs() },
   exporting: exporting && { id: exporting.id, done: exporting.done, frames: exporting.frames },
   channels: channels(),
   effects: effects(),
@@ -474,6 +507,7 @@ const sendTransport = () =>
     echoBoys: echoBoys(),
     otts: otts(),
     proCs: proCs(),
+    reverbs: reverbs(),
     eq: eqs(),
     panMen: panMen(),
     peak: playingSince === null ? 0 : 0.3,
@@ -620,6 +654,14 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (cmd === "compAudition" || cmd === "compMatch") {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.proC))) return fail("The song playing has no such Pro-C.");
     if (cmd === "compMatch") compMatches.set(params.effect, { since: Date.now(), seconds: params.seconds, input: 0, output: 0, count: 0 });
+  }
+  if (cmd === "verbWatch") verbWatched = (params.effects ?? []).map((e) => e.effect);
+  if (cmd === "verb") {
+    if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.reverb))) return fail("The song playing has no such Reverb.");
+    const held = verbHeld.get(params.effect) ?? {};
+    if (typeof params.freeze === "boolean") held.freeze = params.freeze;
+    if (typeof params.kill === "boolean") held.kill = params.kill;
+    verbHeld.set(params.effect, held);
   }
   if (cmd === "grossBeat") {
     if (!(song?.tracks ?? []).some((t) => (t.effects ?? []).some((e) => e.id === params.effect && e.grossBeat))) return fail("The song playing has no such Gross Beat.");
