@@ -62,12 +62,19 @@ export interface AppOptions {
   reveal?: (dir: string) => Promise<void>;
 }
 
+/** What the engine's plugin windows tell the desktop app (electron/main.ts). */
+export type EngineWindowEvent = { type: "foreground"; on: boolean } | { type: "focus"; owner: "channel" | "effect"; id: string };
+
 export interface EditorApp {
   app: Express;
   /** Stop background processing and kill running renders. */
   shutdown(): void;
-  /** The desktop app's window changed: the audio engine's plugin windows follow it (`HostWindow`). */
-  setHostWindow(host: HostWindow): void;
+  /** The desktop app changed (in use or not, minimised, moved): the audio engine's plugin windows follow it (`HostWindow`). */
+  setHostWindow(host: HostWindow): Promise<void>;
+  /** Called when the engine's plugin windows take the focus from the app's, or give it back, or one of them is used. Returns how to stop. */
+  onEngineWindow(listener: (event: EngineWindowEvent) => void): () => void;
+  /** Put a plugin's window in front of the others (not given the focus). False if it has no window open. */
+  raiseEngineWindow(owner: "channel" | "effect", id: string): Promise<boolean>;
 }
 
 /** Content types `mime-types` gets wrong (or too exotic) for browsers. */
@@ -235,6 +242,16 @@ export async function createApp({
   return {
     app,
     setHostWindow: (host) => engine.setHost(host),
+    onEngineWindow: (listener) =>
+      engine.onEvent((event) => {
+        if (event.event === "foreground") listener({ type: "foreground", on: event.on });
+        else if (event.event === "editorFocus") listener({ type: "focus", owner: event.owner, id: event.id });
+      }),
+    raiseEngineWindow: (owner, id) =>
+      engine.command("raiseEditor", { owner, target: id }).then(
+        () => true,
+        () => false,
+      ),
     shutdown() {
       previews.shutdown();
       projects.shutdown();

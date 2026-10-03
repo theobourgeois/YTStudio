@@ -2,6 +2,7 @@ import * as React from "react"
 import { cn } from "cn"
 import { PiCaretDown, PiCaretUp, PiCheck } from "react-icons/pi"
 import { Select as SelectPrimitive } from "radix-ui"
+import { usePortalContainer } from "@/components/ui/portal-container"
 
 function Select({
   ...props
@@ -55,7 +56,7 @@ function SelectContent({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={usePortalContainer()}>
       <SelectPrimitive.Content
         data-slot="select-content"
         className={cn(

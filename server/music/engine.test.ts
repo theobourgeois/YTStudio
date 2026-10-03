@@ -129,7 +129,7 @@ describe("AudioEngine", () => {
 
   it("passes on the keys pressed in plugin windows, and tells the engine (a restarted one too) where the app's window is", async () => {
     const request = (engine as unknown as { request(cmd: string, params: object): Promise<unknown> }).request.bind(engine);
-    const host = { active: true, visible: true, bounds: { x: 10, y: 20, width: 1400, height: 900 } };
+    const host = { floating: true, visible: true, bounds: { x: 10, y: 20, width: 1400, height: 900 } };
     // Not a reason to start the engine; it's told once it's started.
     engine.setHost(host);
     const events: EngineEvent[] = [];

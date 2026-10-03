@@ -1,9 +1,16 @@
-import { createContext, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { createContext, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { PiCornersIn, PiCornersOut, PiX } from "react-icons/pi";
 import { cn } from "cn";
 import { clamp } from "@shared/math";
+import { PortalContainerProvider } from "@/components/ui/portal-container";
+import { desktopPanels } from "@/lib/desktop";
 import { startPointerDrag } from "@/lib/pointer-drag";
-import { type Rect, type ResizeEdge, type WindowSnap, cascade, edgeSnap, magnetise, resizeRect, unsnapAt } from "./geometry";
+import { isElement, ownerDocument } from "@/lib/window-events";
+import { type Rect, type ResizeEdge, type WindowSnap, cascade, edgeSnap, magnetise, resizeRect, snappedRect, unsnapAt, EDGE_ZONE } from "./geometry";
+import { workAreas } from "./native/bridge";
+import { type DeskTracker, createDeskTracker, openPanels, useDeskVersion, usePanelWindow } from "./native/use-panel";
+import { areaFor, capSize, deskToScreen, keepReachable, pointToDesk, sameRect, screenToDesk } from "./native/geometry";
 import type { WindowPlace, WindowsStore } from "./store";
 
 /** How much of a window must stay on the desktop (px), so it can always be grabbed again. */
@@ -12,12 +19,20 @@ const TITLE_HEIGHT = 28;
 
 /** The windows of the desktop a window is on (`Desktop` provides them). */
 const WindowsContext = createContext<WindowsStore | null>(null);
+/**
+ * Set when the desktop's windows are windows of the operating system (`Desktop`'s `native`, in the desktop
+ * app): where the desktop is, so a window can be put on the screen.
+ */
+const NativeDeskContext = createContext<DeskTracker | null>(null);
 
 function useWindowsStore(): WindowsStore {
   const store = useContext(WindowsContext);
   if (!store) throw new Error("A FloatingWindow must be on a Desktop.");
   return store;
 }
+
+/** The title bar's height (px): how much of a window stays on a display so it can be grabbed again. */
+const KEEP_TITLE = 28;
 
 export interface FloatingWindowProps {
   id: string;
@@ -56,7 +71,7 @@ export interface FloatingWindowProps {
 
 /** Whether a key pressed on `target` belongs to a window that keeps its keys (`keepsKeys`): editors' shortcuts check it. */
 export function keptByWindow(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest("[data-keeps-keys]") !== null;
+  return isElement(target) && target.closest("[data-keeps-keys]") !== null;
 }
 
 const SNAPPED: Record<WindowSnap, CSSProperties> = {
@@ -104,24 +119,34 @@ const CONTROLS = "button, [role=slider], [role=spinbutton], [role=tab], input";
  */
 export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, heading, tools, controls, resizable, keepsKeys, escapeCloses = true, className, children }: FloatingWindowProps) {
   const windows = useWindowsStore();
+  // In the desktop app the music editor's windows are windows of the system (docs/windows.md): this one is
+  // drawn into its own, and its place is a place on the screen.
+  const desk = useContext(NativeDeskContext);
+  const native = desk !== null;
+  const deskVersion = useDeskVersion(desk ?? NO_DESK);
+  const panel = usePanelWindow(id, title, native, onClose);
   const ref = useRef<HTMLElement>(null);
   // What had the focus before it opened (read while rendering, before a field in it takes it with `autoFocus`).
   const [focusedBefore] = useState(() => (keepsKeys && document.activeElement instanceof HTMLElement ? document.activeElement : null));
   useEffect(() => {
-    if (!keepsKeys) return;
+    if (!keepsKeys || (native && !panel)) return;
     const element = ref.current;
-    if (element && !element.contains(document.activeElement)) (element.querySelector<HTMLElement>("[data-autofocus]") ?? element).focus();
+    const doc = element?.ownerDocument ?? document;
+    if (element && !element.contains(doc.activeElement)) (element.querySelector<HTMLElement>("[data-autofocus]") ?? element).focus();
     // Back where it was, unless it's been taken elsewhere since (a click on the app under it).
     return () => {
-      const now = document.activeElement;
-      if (!now || now === document.body || element?.contains(now)) focusedBefore?.focus();
+      const now = doc.activeElement;
+      if (!now || now === doc.body || element?.contains(now)) {
+        focusedBefore?.ownerDocument.defaultView?.focus();
+        focusedBefore?.focus();
+      }
     };
-  }, [keepsKeys, focusedBefore]);
+  }, [keepsKeys, focusedBefore, native, panel]);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLElement>) => {
     if (!keepsKeys || !escapeCloses || e.key !== "Escape" || e.defaultPrevented || e.nativeEvent.isComposing) return;
     // An open menu or list closes first (one only fading out doesn't count).
-    if (document.querySelector("[data-radix-popper-content-wrapper] [data-state=open]")) return;
+    if (ownerDocument(e.currentTarget).querySelector("[data-radix-popper-content-wrapper] [data-state=open]")) return;
     e.preventDefault();
     onClose();
   };
@@ -130,13 +155,130 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
   const snap = resizable ? (place.snap ?? null) : null;
   const size = { width: place.width ?? initial.width ?? 800, height: place.height ?? initial.height ?? 500 };
   // One that fits what's in it reaches no further than the desktop's bottom: its body scrolls instead (`WindowBody`).
-  const style: CSSProperties = snap ? SNAPPED[snap] : { left: place.x, top: place.y, ...(resizable ? size : { maxHeight: `calc(100% - ${Math.max(0, place.y)}px)` }) };
+  // (A native one is as big as what's in it, up to its display: `fit`.)
+  const fit = native && !resizable ? fitOf(desk, panel) : null;
+  const style: CSSProperties = native
+    ? { ...(fit && { maxHeight: fit.height }) }
+    : snap
+      ? SNAPPED[snap]
+      : { left: place.x, top: place.y, ...(resizable ? size : { maxHeight: `calc(100% - ${Math.max(0, place.y)}px)` }) };
+
+  // --- Native: where the window is on the screen, and when it's shown --------------------------------------
+  const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
+  const applied = useRef<Rect | null>(null);
+  const shown = useRef(false);
+  const configured = useRef("");
+  useLayoutEffect(() => {
+    // A window that fits what's in it is as big as that: the panel's container is as big as its content.
+    if (!panel) return;
+    const c = panel.container.style;
+    c.position = "fixed";
+    c.left = "0";
+    c.top = "0";
+    if (resizable) {
+      c.right = "0";
+      c.bottom = "0";
+      c.width = "";
+      c.height = "";
+      c.maxWidth = "";
+      c.maxHeight = "";
+    } else {
+      c.right = "";
+      c.bottom = "";
+      c.width = "max-content";
+      c.height = "max-content";
+      const f = fitOf(desk, panel);
+      c.maxWidth = f ? `${f.width}px` : "";
+      c.maxHeight = f ? `${f.height}px` : "";
+    }
+  }, [panel, resizable, desk, deskVersion]);
+  useLayoutEffect(() => {
+    if (!panel || resizable) return;
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      const r = element.getBoundingClientRect();
+      const next = { width: Math.ceil(r.width), height: Math.ceil(r.height) };
+      setMeasured((was) => (was && was.width === next.width && was.height === next.height ? was : next));
+    };
+    measure();
+    // The window's own ResizeObserver: its frames are the ones the content changes in.
+    const Observer = (panel.win as unknown as typeof globalThis).ResizeObserver;
+    const observer = new Observer(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [panel, resizable]);
+  useEffect(() => {
+    if (!panel || !desk) return;
+    const m = desk.metrics();
+    if (!m) return;
+    let r: Rect;
+    if (snap) r = snappedRect(snap, m.desk);
+    else if (resizable) r = { x: place.x, y: place.y, ...size };
+    else if (measured) r = { x: place.x, y: place.y, ...measured };
+    else return;
+    const screen = keepReachable(deskToScreen(m, r), workAreas(), 80, KEEP_TITLE);
+    const next = { x: Math.round(screen.x), y: Math.round(screen.y), width: Math.round(screen.width), height: Math.round(screen.height) };
+    const options = JSON.stringify([resizable ? [Math.round(resizable.minWidth * m.scale), Math.round(resizable.minHeight * m.scale)] : null, resizable && !snap]);
+    if (configured.current !== options) {
+      configured.current = options;
+      desktopPanels()?.configure(panel.name, {
+        ...(resizable && { minWidth: resizable.minWidth * m.scale, minHeight: resizable.minHeight * m.scale }),
+        resizable: !!resizable && !snap,
+        backgroundColor: cssColour(panel.win, ownerDocument(panel.container).body),
+        title,
+      });
+    }
+    const win = panel.win;
+    if (win.screenX !== next.x || win.screenY !== next.y) win.moveTo(next.x, next.y);
+    if (win.outerWidth !== next.width || win.outerHeight !== next.height) win.resizeTo(next.width, next.height);
+    applied.current = next;
+    if (!shown.current) {
+      shown.current = true;
+      const front = windows.getState().order[windows.getState().order.length - 1] === id;
+      desktopPanels()?.show(panel.name, front);
+      if (front) ref.current?.focus({ preventScroll: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `size` is a function of `place` and `initial`
+  }, [panel, desk, deskVersion, snap, resizable, place, measured]);
+
+  // The user resizes it by its edges (the system's): that's its place now.
+  useEffect(() => {
+    if (!panel || !desk || !resizable) return;
+    const win = panel.win;
+    const onResize = () => {
+      const m = desk.metrics();
+      if (!m || !shown.current) return;
+      const now = { x: win.screenX, y: win.screenY, width: win.outerWidth, height: win.outerHeight };
+      if (applied.current && sameRect(now, applied.current)) return;
+      applied.current = now;
+      const d = screenToDesk(m, now);
+      windows.getState().place(id, { x: Math.round(d.x), y: Math.round(d.y), width: Math.round(d.width), height: Math.round(d.height), snap: null });
+    };
+    win.addEventListener("resize", onResize);
+    return () => win.removeEventListener("resize", onResize);
+  }, [panel, desk, resizable, windows, id]);
+
+  // The system's focus and the stacking order the editor keeps are one: a window clicked is the front one,
+  // and one brought to the front (opened again from the toolbar) is raised.
+  useEffect(() => {
+    if (!panel) return;
+    const win = panel.win;
+    const onFocus = () => windows.getState().focus(id);
+    win.addEventListener("focus", onFocus);
+    return () => win.removeEventListener("focus", onFocus);
+  }, [panel, windows, id]);
+  const isFront = windows((s) => s.order[s.order.length - 1] === id);
+  useEffect(() => {
+    if (panel && isFront && shown.current && !panel.win.document.hasFocus()) desktopPanels()?.raise(panel.name);
+  }, [panel, isFront]);
 
   const dragTitle = (e: ReactPointerEvent<HTMLElement>) => {
     // Its controls are clicked, not dragged by. Nor is a menu opened from one of them: it's drawn
     // elsewhere on the page, but its events still pass through here.
     const target = e.target as HTMLElement;
     if (!e.currentTarget.contains(target) || target.closest(CONTROLS)) return;
+    if (native) return dragNativeTitle(e);
     const element = e.currentTarget.parentElement!;
     const { desk, rect: start, others } = measure(element);
     const restore = snapshotStyle(element);
@@ -188,6 +330,70 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     });
   };
 
+  /**
+   * The same drag for a window of the system: the pointer's place on the screen moves the window itself
+   * (`moveTo`), its edges sticking to the desktop's and to other windows' as before; where it ends up is
+   * recorded once, when it's let go. It may leave the main window, and the screen it was on, but not all of them.
+   */
+  const dragNativeTitle = (e: ReactPointerEvent<HTMLElement>) => {
+    const m = desk?.metrics();
+    if (!desk || !panel || !m) return;
+    const win = panel.win;
+    const areas = workAreas();
+    const deskSize = { width: m.desk.width, height: m.desk.height };
+    const start = screenToDesk(m, { x: win.screenX, y: win.screenY, width: win.outerWidth, height: win.outerHeight });
+    const grabbed = pointToDesk(m, { x: e.screenX, y: e.screenY });
+    const offset = { x: grabbed.x - start.x, y: grabbed.y - start.y };
+    const others: Rect[] = [];
+    for (const [otherId, other] of openPanels()) {
+      if (otherId === id) continue;
+      others.push(screenToDesk(m, { x: other.win.screenX, y: other.win.screenY, width: other.win.outerWidth, height: other.win.outerHeight }));
+    }
+    let base = start;
+    let moved = start;
+    let snapped = snap;
+    let snapTo: WindowSnap | null = null;
+    const put = (r: Rect, sized: boolean) => {
+      const s = deskToScreen(m, r);
+      if (sized) win.resizeTo(Math.round(s.width), Math.round(s.height));
+      win.moveTo(Math.round(s.x), Math.round(s.y));
+      applied.current = { x: Math.round(s.x), y: Math.round(s.y), width: Math.round(s.width), height: Math.round(s.height) };
+    };
+    const settle = (next: WindowPlace | null) => {
+      windows.getState().setSnapPreview(null);
+      if (next) windows.getState().place(id, next);
+      else put(start, true);
+    };
+    startPointerDrag(e, {
+      threshold: 3,
+      cursor: "grabbing",
+      onMove(ev) {
+        const p = pointToDesk(m, { x: ev.screenX, y: ev.screenY });
+        if (snapped) {
+          // Out of its snap: back to its own size, under the pointer where it was grabbed.
+          base = unsnapAt(p, { fraction: offset.x / start.width, dy: offset.y }, size);
+          offset.x = p.x - base.x;
+          offset.y = p.y - base.y;
+          put(base, true);
+          snapped = null;
+        }
+        const wanted: Rect = { x: p.x - offset.x, y: p.y - offset.y, width: base.width, height: base.height };
+        let r = screenToDesk(m, keepReachable(deskToScreen(m, wanted), areas, 80, KEEP_TITLE));
+        // Alt: no sticking.
+        if (!ev.altKey) r = magnetise(r, deskSize, others);
+        moved = r;
+        snapTo = resizable ? nativeEdgeSnap(p, m.desk) : null;
+        windows.getState().setSnapPreview(snapTo);
+        put(r, false);
+      },
+      onEnd: () => {
+        const sized = resizable ? { width: moved.width, height: moved.height } : {};
+        settle({ x: Math.round(moved.x), y: Math.round(moved.y), ...sized, snap: snapTo });
+      },
+      onCancel: () => settle(null),
+    });
+  };
+
   const dragEdge = (e: ReactPointerEvent<HTMLElement>, edge: ResizeEdge) => {
     if (!resizable) return;
     e.stopPropagation();
@@ -210,7 +416,7 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
     });
   };
 
-  return (
+  const frame = (
     <section
       ref={ref}
       aria-label={title}
@@ -221,11 +427,12 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
       data-keeps-keys={keepsKeys || undefined}
       className={cn(
         // A floating surface (the theme's outline and short shadow), its title bar a step darker than its body.
-        "floating absolute flex flex-col overflow-hidden bg-card outline-none",
-        snap ? "rounded-none shadow-none" : "rounded-md",
+        "floating flex flex-col overflow-hidden bg-card outline-none",
+        native ? (resizable ? "size-full rounded-none shadow-none" : "relative rounded-none shadow-none") : "absolute",
+        !native && (snap ? "rounded-none shadow-none" : "rounded-md"),
         className,
       )}
-      style={{ ...style, zIndex: 10 + (z < 0 ? 0 : z) }}
+      style={native ? style : { ...style, zIndex: 10 + (z < 0 ? 0 : z) }}
       onPointerDownCapture={(e) => {
         // Portalled menus belong to this React tree, but aren't clicks on the window.
         if (!e.currentTarget.contains(e.target as Node)) return;
@@ -275,9 +482,50 @@ export function FloatingWindow({ id, title, initial, onClose, onActivate, menu, 
         </div>
       </header>
       {children}
-      {resizable && !snap && EDGES.map((edge) => <div key={edge} aria-hidden className={cn("absolute z-20", EDGE_BOX[edge])} style={{ cursor: EDGE_CURSOR[edge] }} onPointerDown={(e) => dragEdge(e, edge)} data-resize={edge} />)}
+      {/* A native window is resized by the system, by its edges. */}
+      {!native && resizable && !snap && EDGES.map((edge) => <div key={edge} aria-hidden className={cn("absolute z-20", EDGE_BOX[edge])} style={{ cursor: EDGE_CURSOR[edge] }} onPointerDown={(e) => dragEdge(e, edge)} data-resize={edge} />)}
     </section>
   );
+
+  if (!native) return frame;
+  // Until its window is open there's nothing to draw it in.
+  return panel ? createPortal(<PortalContainerProvider value={panel.container}>{frame}</PortalContainerProvider>, panel.container) : null;
+}
+
+/** A desk tracker that never changes, for a window that isn't native (hooks can't be skipped). */
+const NO_DESK: DeskTracker = { metrics: () => null, subscribe: () => () => {}, version: () => 0 };
+
+/**
+ * How big a window that fits its content can be (CSS px): its display's usable area, less a little.
+ * Null before there's a display to ask about.
+ */
+function fitOf(desk: DeskTracker | null, panel: { win: Window } | null): { width: number; height: number } | null {
+  const m = desk?.metrics();
+  if (!m) return null;
+  const area = areaFor(m.content, workAreas());
+  if (!area) return null;
+  void panel;
+  const size = capSize({ width: area.width / m.scale, height: area.height / m.scale }, null);
+  return { width: Math.floor(size.width), height: Math.floor(size.height) };
+}
+
+/** Where the pointer at the desktop's edge snaps a window to (the pointer must be at the desktop, not on another screen). */
+function nativeEdgeSnap(p: { x: number; y: number }, desk: Rect): WindowSnap | null {
+  const within = p.x >= -EDGE_ZONE && p.x <= desk.width + EDGE_ZONE && p.y >= -desk.y && p.y <= desk.height + EDGE_ZONE;
+  return within ? edgeSnap(p, desk) : null;
+}
+
+/** A CSS colour (an element's background) as a hex colour the system understands, whatever its notation. */
+function cssColour(win: Window, element: HTMLElement): string {
+  const canvas = win.document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const g = canvas.getContext("2d", { willReadFrequently: true });
+  if (!g) return "#16191d";
+  g.fillStyle = "#16191d";
+  g.fillStyle = win.getComputedStyle(element).backgroundColor;
+  g.fillRect(0, 0, 1, 1);
+  const [r, green, b] = g.getImageData(0, 0, 1, 1).data;
+  return `#${[r, green, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
 const EDGES: ResizeEdge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
@@ -332,6 +580,12 @@ interface DesktopProps<Id extends string> {
   label: string;
   /** It lies over other content (the app, an editor), which stays usable: only its windows take the pointer. */
   overlay?: boolean;
+  /**
+   * In the desktop app, its windows are windows of the operating system rather than boxes in the page
+   * (docs/windows.md): they stack among the audio engine's plugin windows, and can leave the app's window.
+   * In a browser tab they stay boxes in the page.
+   */
+  native?: boolean;
   className?: string;
   children: ReactNode;
   onDragOver?: (e: DragEvent<HTMLDivElement>) => void;
@@ -343,15 +597,20 @@ interface DesktopProps<Id extends string> {
  * context of its own, so its windows' order never reaches past it (the app's windows float above an
  * editor's).
  */
-export function Desktop<Id extends string>({ windows, name, label, overlay, className, children, onDragOver, onDrop }: DesktopProps<Id>) {
+export function Desktop<Id extends string>({ windows, name, label, overlay, native, className, children, onDragOver, onDrop }: DesktopProps<Id>) {
+  const ref = useRef<HTMLDivElement>(null);
+  const isNative = !!native && desktopPanels() !== undefined;
+  const tracker = useMemo(() => createDeskTracker(ref), []);
   return (
     // Its windows are given ids of its own kind (the owner's typed wrapper, as `MusicWindow`, sees to that).
     <WindowsContext.Provider value={windows as unknown as WindowsStore}>
-      {/* Nothing on it is text to copy: a drag or a double-click never selects the names on buttons. */}
-      <div className={cn("isolate overflow-hidden select-none", overlay && "pointer-events-none [&>[data-window]]:pointer-events-auto", className)} data-desktop={name} aria-label={label} onDragOver={onDragOver} onDrop={onDrop}>
-        {children}
-        <SnapPreview />
-      </div>
+      <NativeDeskContext.Provider value={isNative ? tracker : null}>
+        {/* Nothing on it is text to copy: a drag or a double-click never selects the names on buttons. */}
+        <div ref={ref} className={cn("isolate overflow-hidden select-none", overlay && "pointer-events-none [&>[data-window]]:pointer-events-auto", className)} data-desktop={name} aria-label={label} onDragOver={onDragOver} onDrop={onDrop}>
+          {children}
+          <SnapPreview />
+        </div>
+      </NativeDeskContext.Provider>
     </WindowsContext.Provider>
   );
 }

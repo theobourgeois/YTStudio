@@ -6,6 +6,7 @@
  * at a time.
  */
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { ownerWindow } from "./window-events";
 
 export interface DragHandlers {
   /** The mouse button that drags: 0, the primary one (the default), 1 the middle one (panning), or 2, the secondary (FL Studio's erase). */
@@ -42,6 +43,9 @@ export function startPointerDrag(e: ReactPointerEvent<Element>, h: DragHandlers)
   const button = h.button ?? 0;
   if (e.button !== button || active) return false;
   const target = e.currentTarget;
+  // The window it was pressed in: in the desktop app that's not always the page's own (a native panel's).
+  const win = ownerWindow(target);
+  const doc = win.document;
   const pointerId = e.pointerId;
   try {
     target.setPointerCapture(pointerId);
@@ -51,7 +55,7 @@ export function startPointerDrag(e: ReactPointerEvent<Element>, h: DragHandlers)
 
   const origin = { x: e.clientX, y: e.clientY };
   const travel = { x: 0, y: 0 };
-  const locked = () => h.lock === true && document.pointerLockElement === target;
+  const locked = () => h.lock === true && doc.pointerLockElement === target;
   if (h.lock) {
     try {
       // A promise in Chromium (refused without a press, or in some embedders): the drag then works as usual.
@@ -62,21 +66,21 @@ export function startPointerDrag(e: ReactPointerEvent<Element>, h: DragHandlers)
   }
   let started = false;
   let done = false;
-  const root = document.documentElement;
+  const root = doc.documentElement;
   const prevCursor = root.style.cursor;
 
   const finish = (kind: "end" | "cancel") => {
     if (done) return;
     done = true;
     active = null;
-    window.removeEventListener("pointermove", onMove, true);
-    window.removeEventListener("pointerup", onUp, true);
-    window.removeEventListener("pointercancel", onCancel, true);
-    window.removeEventListener("keydown", onKey, true);
-    window.removeEventListener("blur", onBlur);
-    document.removeEventListener("pointerlockchange", onLockChange);
+    win.removeEventListener("pointermove", onMove, true);
+    win.removeEventListener("pointerup", onUp, true);
+    win.removeEventListener("pointercancel", onCancel, true);
+    win.removeEventListener("keydown", onKey, true);
+    win.removeEventListener("blur", onBlur);
+    doc.removeEventListener("pointerlockchange", onLockChange);
     target.removeEventListener("lostpointercapture", onLost);
-    if (h.lock && document.pointerLockElement === target) document.exitPointerLock();
+    if (h.lock && doc.pointerLockElement === target) doc.exitPointerLock();
     try {
       if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
     } catch {
@@ -131,7 +135,7 @@ export function startPointerDrag(e: ReactPointerEvent<Element>, h: DragHandlers)
   }
   // Escape while locked goes to the browser (which unlocks), not to the page.
   function onLockChange() {
-    if (!document.pointerLockElement && started) finish("cancel");
+    if (!doc.pointerLockElement && started) finish("cancel");
   }
   function onLost() {
     // Capture can be lost if the element is re-parented; keep tracking via window listeners.
@@ -143,12 +147,12 @@ export function startPointerDrag(e: ReactPointerEvent<Element>, h: DragHandlers)
     }
   }
 
-  window.addEventListener("pointermove", onMove, true);
-  window.addEventListener("pointerup", onUp, true);
-  window.addEventListener("pointercancel", onCancel, true);
-  window.addEventListener("keydown", onKey, true);
-  window.addEventListener("blur", onBlur);
-  if (h.lock) document.addEventListener("pointerlockchange", onLockChange);
+  win.addEventListener("pointermove", onMove, true);
+  win.addEventListener("pointerup", onUp, true);
+  win.addEventListener("pointercancel", onCancel, true);
+  win.addEventListener("keydown", onKey, true);
+  win.addEventListener("blur", onBlur);
+  if (h.lock) doc.addEventListener("pointerlockchange", onLockChange);
   target.addEventListener("lostpointercapture", onLost);
   active = { cancel: () => finish("cancel") };
   return true;

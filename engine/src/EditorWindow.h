@@ -38,8 +38,11 @@ public:
     /** Its wrapper button (FL's Wrapper settings): the channel's settings window, in the app. */
     std::function<void()> onSettings;
     void resized() override;
+    /** Called when it becomes the active window (it was clicked, or opened): the app stacks its own windows by it. */
+    std::function<void()> onActivated;
 
 private:
+    void activeWindowStatusChanged() override;
     using DocumentWindow::keyPressed;
     /** Keys the plugin didn't use (Space, F6, ⌘Z…) go to the app, which runs its shortcut (`EngineEvent` "key"). */
     bool keyPressed (const juce::KeyPress&, juce::Component*) override;
