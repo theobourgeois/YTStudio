@@ -130,6 +130,7 @@ try {
   if (process.platform === "darwin") {
     const plist = path.join(path.dirname(path.dirname(executablePath)), "Info.plist");
     const types = execFileSync("plutil", ["-extract", "CFBundleDocumentTypes", "json", "-o", "-", plist], { encoding: "utf8" });
+    check("associates the exported project type with Vaudio", /"LSItemContentTypes":\["gg\.jestr\.vaudio\.project"\]/.test(types));
     check("declares .vaudio packages", /"vaudio"/.test(types) && /"LSTypeIsPackage":true/.test(types));
   }
   await window.goto(`${base}/`);

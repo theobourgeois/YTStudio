@@ -212,12 +212,19 @@ async function pack(targets: "dir" | "installers") {
         if (packed.electronPlatformName === "darwin") adHocSign(path.join(packed.appOutDir, `${packed.packager.appInfo.productFilename}.app`), { always: true });
       },
       // Projects are packages (`Name.vaudio/`): Finder shows each as one file, and double-clicking one opens it here.
-      fileAssociations: [{ ext: "vaudio", name: "Vaudio Project", role: "Editor", rank: "Owner", isPackage: true }],
       mac: {
         category: "public.app-category.video",
         identity: null,
         // The engine it starts records from inputs (a mixer track armed): macOS asks the app responsible.
         extendInfo: {
+          CFBundleDocumentTypes: [{
+            CFBundleTypeName: "Vaudio Project",
+            CFBundleTypeRole: "Editor",
+            CFBundleTypeExtensions: ["vaudio"],
+            LSItemContentTypes: ["gg.jestr.vaudio.project"],
+            LSHandlerRank: "Owner",
+            LSTypeIsPackage: true,
+          }],
           NSMicrophoneUsageDescription: "Vaudio records your microphone or audio interface when you arm a mixer track.",
           // The project type, a package (a folder Finder shows as one file), declared so macOS knows it.
           UTExportedTypeDeclarations: [
@@ -231,8 +238,8 @@ async function pack(targets: "dir" | "installers") {
         },
         target: targets === "dir" ? ["dir"] : ["dmg", "zip"],
       },
-      linux: { target: targets === "dir" ? ["dir"] : ["AppImage"] },
-      win: { target: targets === "dir" ? ["dir"] : ["nsis"] },
+      linux: { target: targets === "dir" ? ["dir"] : ["AppImage"], fileAssociations: [{ ext: "vaudio", name: "Vaudio Project", role: "Editor" }] },
+      win: { target: targets === "dir" ? ["dir"] : ["nsis"], fileAssociations: [{ ext: "vaudio", name: "Vaudio Project", role: "Editor" }] },
     },
   });
   console.log(`[desktop] built into ${path.relative(ROOT, path.join(ROOT, "release"))}/`);
