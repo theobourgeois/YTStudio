@@ -10,6 +10,7 @@ import {
   autoGain,
   chooseProCPreset,
   copyProCAB,
+  duckWithProC,
   editSidechainBands,
   engineProC,
   feedbackReduction,
@@ -30,6 +31,7 @@ import {
 import {
   DEFAULT_PRO_C,
   DEFAULT_PRO_C_STATE,
+  DUCK_PRESET,
   PRO_C_GROUPS,
   PRO_C_PLUGIN,
   PRO_C_PRESETS,
@@ -147,28 +149,49 @@ describe("Pro-C's side chain from another track", () => {
   /** Insert 1 has the Pro-C; Insert 2 is the kick. */
   const song0 = () => withProC();
 
-  it("makes the 0% send it needs, in the same edit, and keys from it", () => {
+  it("keys from it with no send, External on, and compiles the key's index (a track that runs first)", () => {
     let song = song0();
     expect(sidechainConnected(song, "fx_c")).toBe(false);
+    const sends = song.mixer.tracks.find((t) => t.id === "insert_2")!.sends;
     song = setProCSidechain(song, "fx_c", "insert_2");
-    expect(proC(song).sidechain).toMatchObject({ trigger: "external", track: "insert_2" });
-    expect(song.mixer.tracks.find((t) => t.id === "insert_2")!.sends).toContainEqual({ to: "insert_1", level: 0 });
+    expect(proC(song).sidechain.trigger).toBe("external");
+    expect(findProC(song, "fx_c")!.effect.sidechain).toEqual({ track: "insert_2", tap: "postFx" });
+    expect(song.mixer.tracks.find((t) => t.id === "insert_2")!.sends).toEqual(sends);
     expect(sidechainConnected(song, "fx_c")).toBe(true);
-    // The compiled song has the key's index (a track that runs first).
     const compiled = compileSong(song, FIRST_PATTERN_ID, null, "pattern");
     const ti = compiled.tracks.findIndex((t) => t.id === "insert_1");
     const ki = compiled.tracks.findIndex((t) => t.id === "insert_2");
     const effect = compiled.tracks[ti].effects.find((e) => e.id === "fx_c")!;
-    expect(effect.proC!.sidechain).toMatchObject({ source: "external", key: ki });
+    expect(effect.proC!.sidechain.source).toBe("external");
+    expect(effect.key).toEqual({ track: ki, tap: "postFx" });
     expect(ki).toBeLessThan(ti);
   });
 
   it("refuses its own track and a loop", () => {
     const song = song0();
     expect(setProCSidechain(song, "fx_c", "insert_1")).toBe(song);
-    // Insert 1 sending to Insert 2 already: Insert 2 can't send back.
-    const looped = setProCSidechain({ ...song, mixer: { ...song.mixer, tracks: song.mixer.tracks.map((t) => (t.id === "insert_1" ? { ...t, sends: [...t.sends, { to: "insert_2", level: 1 }] } : t)) } }, "fx_c", "insert_2");
-    expect(proC(looped).sidechain.track).toBeNull();
+    // Insert 1 sending to Insert 2 already: Insert 2 can't key it.
+    const looped = { ...song, mixer: { ...song.mixer, tracks: song.mixer.tracks.map((t) => (t.id === "insert_1" ? { ...t, sends: [...t.sends, { to: "insert_2", level: 1 }] } : t)) } };
+    expect(setProCSidechain(looped, "fx_c", "insert_2")).toBe(looped);
+  });
+
+  it("ducks from a track in one edit: a Pro-C in the first free slot, the Duck preset, keyed", () => {
+    const song = duckWithProC(song0(), "insert_2", "insert_3", "fx_duck")!;
+    const found = findProC(song, "fx_duck")!;
+    expect(found.track.id).toBe("insert_3");
+    expect(found.proC.preset).toBe(DUCK_PRESET);
+    expect(found.proC.sidechain.trigger).toBe("external");
+    expect(found.effect.sidechain).toEqual({ track: "insert_2", tap: "postFx" });
+    expect(duckWithProC(song0(), "insert_1", "insert_1", "fx_x")).toBeNull();
+  });
+
+  it("brings an older song's source over to its slot, taken after the fader as it was heard", () => {
+    const raw = JSON.parse(JSON.stringify(song0()));
+    const track = raw.mixer.tracks.find((t: { id: string }) => t.id === "insert_1");
+    track.effects[0].proC.sidechain = { ...track.effects[0].proC.sidechain, trigger: "external", track: "insert_2" };
+    const song = normalizeMusicProject(raw);
+    expect(findProC(song, "fx_c")!.effect.sidechain).toEqual({ track: "insert_2", tap: "postFader" });
+    expect("track" in findProC(song, "fx_c")!.proC.sidechain).toBe(false);
   });
 });
 

@@ -129,6 +129,7 @@ function Controls() {
         <LooseKnob initial={0} min={-24} max={24} defaultValue={0} label="Pitch" format={cents} unit={CENTS} bipolar />
         <LooseKnob initial={0.3} min={0} max={1} defaultValue={0} label="Big" format={percent} unit={PERCENT} size={36} />
         <LooseKnob initial={0.55} min={0} max={1} defaultValue={0.78} label="Automated" format={percent} unit={PERCENT} automated />
+        <LooseKnob initial={0.8} min={0} max={1} defaultValue={0.78} label="Modulated" format={percent} unit={PERCENT} size={36} modulatedTo={0.2} />
       </div>
       <div className="flex items-center gap-4">
         <span className="w-28 text-xs text-muted-foreground">LCDs</span>

@@ -397,6 +397,29 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   `useTransport().meters`; the falling in `meter.ts`, tested), `actions.ts` (what menus and keys do), `keys.ts`
   (its keys while it's in front), `track-selector.tsx` (the rack's and a channel window's track LCD). The
   selected tracks are UI state (`selectedTrackIds`; the first is the one sends are made from).
+- **Sidechains** (`docs/sidechain.md`; `shared/music/sidechain.ts`, `mixer/sidechain-menu.tsx`): any effect
+  slot can have a key (`MixerEffect.sidechain`: a track and a tap, `preFx` / `postFx`, the default / `postFader`).
+  **A key is routing**: it orders the tracks as a send does (`routeOf`, used by `reaches`, `canSend`, `canKey`,
+  `trackOrder` and the engine's stages), so it never makes a loop; no 0% send is needed. Edits that move or
+  remove tracks or effects end with `withValidKeys`. The engine keeps taps as buffers of their own
+  (`preFxBuffer`, `preBuffer`, `keyFaderBuffer` for a source the solo silences: `EngineTrack.keyGains`), treats a
+  key as a path into its track in `Song::compensate` (a later key makes the track wait, an earlier one waits in
+  the slot's `keyLine`), and hands the lined-up key to the effect (`Sequencer::keyOf`): Pro-C's External,
+  Pro-Q's external dynamic bands (`EqBand.external`), a plugin's sidechain bus (turned on in `configurePlugin`,
+  filled in `runEffect`; `EngineEffects.loaded[].sidechain` says which have one). Tested offline in
+  `sidechain.integration.test.ts` (the test effect listens to its sidechain with VAUDIO_TEST_EFFECT_SIDECHAIN).
+- **Modulators** (`docs/sidechain.md`; `shared/music/modulation.ts`, `src/suites/music/modulation/`): FL's Peak
+  Controller, generalised: `MusicProject.modulators`, each following a track's tap or a channel's notes and
+  moving its `links` (any `AutomationTarget` but the tempo, one modulator a control) by an amount of their range
+  from their own value (or automation's): Bitwig's add, not FL's replace. **What a value means stays in
+  TypeScript**: `compileSong` sends a modulated lane as a grid over the modulator's level (`steps` sets of
+  values a point, `base` at the own values; a plugin parameter's lane an `amount`), in both modes. The engine
+  follows each modulator after the mix (`followModulators`, its state kept by id) and drives modulated lanes
+  every `modSlice` (64) samples, playing or not, from the level at the end of the slice before
+  (`applyModulated`): a slice behind the source, so modulation needs no track order (it isn't delay-compensated).
+  Every automatable control gets Modulate ▸ through `AutomationMenuItems`; `useAutomatedControl` shows the live
+  value (levels from `EngineTransport.modulators`) and `SongKnob` the ring. Tested offline in
+  `modulation.integration.test.ts`, including block-size independence.
 - What volume, pan, velocity and swing *mean* is decided in `shared/music/compile.ts` (`compileSong` → `EngineSong`:
   gains, swung ticks), in tested TypeScript. The engine only plays samples at the moments it's told. Add musical
   rules there, not in C++.
@@ -622,9 +645,8 @@ the export, automation, recording, MIDI input, Gross Beat, EchoBoy, Auto-Tune, P
   `pro-c.ts` and `CompDsp.h`: **keep them in step**; the knee display draws `staticCurve` and
   `pro-c.integration.test.ts` holds the engine to it (0.1 dB) and to the units' behaviour. A feedback
   style's loop is solved each sample (stable at any attack, no oversampling needed); opto styles run
-  feedforward (a cell in a high-gain loop would ring). Its external key is another track that sends here
-  (at 0%: `setProCSidechain` makes the send), read after its fader and delayed to line up
-  (`Song::compensate` sets `keyDelay`); Host Sync pulses on `gross::Clock`. Its latency is Maximum
+  feedforward (a cell in a high-gain loop would ring). Its External trigger hears its slot's key (see
+  Sidechains); Host Sync pulses on `gross::Clock`. Its latency is Maximum
   Lookahead plus the oversampling filters', reported to delay compensation, its slot mix against the
   input held back as long. Its display's points and levels come in each transport event
   (`EngineTransport.proCs`, drained by the event, not the status); `compAudition` and `compMatch` are live.

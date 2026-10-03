@@ -39,6 +39,8 @@ import { useMixerView } from "./mixer/view";
 import { type WindowId, useMusicUi, useMusicWindows } from "./ui";
 import { MusicDesktop } from "./window";
 import { AutomationWindow } from "./automation/automation-window";
+import { ModulatorsWindow } from "./modulation/modulators-window";
+import { useModulationUi } from "./modulation/store";
 import { AutoTuneWindow } from "./auto-tune/auto-tune-window";
 import { useTuneUi } from "./auto-tune/store";
 import { EchoBoyWindow } from "./echo-boy/echo-boy-window";
@@ -102,6 +104,7 @@ function Windows() {
   const automations = useSong((song) => song.automations);
   const openAutomations = useAutomationUi((s) => s.openIds);
   const chooserOpen = useAutomationUi((s) => s.chooserOpen);
+  const modulatorsOpen = useModulationUi((s) => s.open);
   const openGrossBeats = useGrossUi((s) => s.openIds);
   const openAutoTunes = useTuneUi((s) => s.openIds);
   const openEchoBoys = useEchoUi((s) => s.openIds);
@@ -135,6 +138,7 @@ function Windows() {
       {channels.map((channel, index) => (openIds.includes(channel.id) ? <ChannelSettingsWindow key={channel.id} channel={channel} index={index} /> : null))}
       {automations.map((automation, index) => (openAutomations.includes(automation.id) ? <AutomationWindow key={automation.id} automation={automation} index={index} /> : null))}
       {chooserOpen && <AutomationChooser />}
+      {modulatorsOpen && <ModulatorsWindow />}
       {openGrossBeats.map((effectId, index) => (
         <GrossBeatWindow key={effectId} effectId={effectId} index={index} />
       ))}
@@ -178,6 +182,7 @@ function frontWindow(): WindowId | null {
     : id === "chopper" ? usePiano.getState().chopping
     : id === "quantizer" ? usePiano.getState().quantizing
     : id === "automate" ? useAutomationUi.getState().chooserOpen
+    : id === "modulators" ? useModulationUi.getState().open
     : id.startsWith("automation:") ? useAutomationUi.getState().openIds.includes(id.slice("automation:".length))
     : id.startsWith("gross:") ? useGrossUi.getState().openIds.includes(id.slice("gross:".length))
     : id.startsWith("tune:") ? useTuneUi.getState().openIds.includes(id.slice("tune:".length))

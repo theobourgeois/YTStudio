@@ -87,9 +87,24 @@ void Sequencer::setSong (std::unique_ptr<Song> next)
     for (auto& channel : next->channels)
         channel.delayLine = lineFor ("c" + channel.id, channel.delay);
     for (auto& track : next->tracks)
+    {
         for (auto& send : track.sends)
             send.delayLine = lineFor ("s" + track.id + ">" + next->tracks[(size_t) send.track].id, send.delay);
+        for (auto& effect : track.effects)
+            if (effect.keyTrack >= 0)
+                effect.keyLine = lineFor ("k" + effect.id, effect.keyDelay);
+    }
     delayLines = std::move (lines);
+    // The modulators' followers: the last song's, by id, so a level carries on through an edit.
+    std::map<juce::String, std::shared_ptr<Song::ModulatorState>> states;
+    for (auto& modulator : next->modulators)
+    {
+        auto& state = modulatorStates[modulator.id];
+        if (state == nullptr)
+            state = std::make_shared<Song::ModulatorState>();
+        modulator.state = states[modulator.id] = state;
+    }
+    modulatorStates = std::move (states);
 
     // Its audio clips, to look ahead for while it plays.
     clips.setSong (*next);
@@ -298,12 +313,12 @@ void Sequencer::adopt (Song* next)
     ramping = true;
 
     clips.adopt (*next);
-    if (playing)
+    if (playing || next->modulated)
         takeOwnValues (*next, song);
     // The lanes of the last song's that this one doesn't have: their controls are as the song says again.
-    if (song != nullptr && lanesLive)
+    if (song != nullptr)
         for (auto& lane : song->lanes)
-            if (lane.kind == Song::Lane::Kind::param && lane.lastSet > -2.0f)
+            if (lane.kind == Song::Lane::Kind::param && lane.lastSet > -2.0f && (lanesLive || lane.modulator >= 0))
             {
                 auto kept = false;
                 for (const auto& other : next->lanes)
@@ -385,6 +400,8 @@ void Sequencer::takeRequests()
         generation = requestedGeneration.load();
         pass = 0;
         sliceClock = 0;
+        // Modulation's slices count from here too, so a render plays them where the export does.
+        modClock = 0;
         playStart = position_;
         clips.setGeneration (generation);
         through = playThrough.load();
@@ -409,6 +426,9 @@ void Sequencer::process (float* left, float* right, int numSamples, const float*
         // Automation plays in slices counted from where play started, whatever the blocks.
         else if (playing && song != nullptr && ! song->lanes.empty())
             length = juce::jmin (length, sliceSamples - (int) (sliceClock % sliceSamples));
+        // And modulation in shorter ones, playing or not.
+        if (song != nullptr && song->modulated)
+            length = juce::jmin (length, modSlice - (int) (modClock % modSlice));
         // The inputs from the same sample.
         for (int ch = 0; ch < numInputs; ++ch)
             sliceInputs[(size_t) ch] = inputs[ch] != nullptr ? inputs[ch] + done : nullptr;
@@ -418,6 +438,7 @@ void Sequencer::process (float* left, float* right, int numSamples, const float*
             onSlice (*song, done, length);
         if (playing && ! counting)
             sliceClock += length;
+        modClock += length;
         done += length;
     }
 
@@ -437,6 +458,9 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
             applyLanes (numSamples);
         else if (lanesLive)
             restoreLanes (*song);
+        // Modulators move their controls, playing or not.
+        if (song->modulated)
+            applyModulated (numSamples);
 
         // Each plugin's notes for this block: the ends of the ones sounding first, then the new ones.
         for (auto& channel : song->channels)
@@ -582,6 +606,9 @@ void Sequencer::processBlock (float* left, float* right, int numSamples, const f
                     if (const auto buffer = song->tracks[(size_t) channel.track].buffer; buffer >= 0)
                         channel.delayLine->flushInto (song->audio.getWritePointer (buffer * 2), song->audio.getWritePointer (buffer * 2 + 1), numSamples);
             mixTracks (left, right, numSamples);
+            // What the modulators hear of it: their levels for the next slice.
+            if (! song->modulators.empty())
+                followModulators (numSamples);
         }
     }
     else
@@ -734,6 +761,9 @@ void Sequencer::applyLanes (int numSamples)
     std::array<float, 4> end {}, from {}, to {};
     for (auto& lane : song->lanes)
     {
+        // (A modulated one is `applyModulated`'s.)
+        if (lane.modulator >= 0)
+            continue;
         lane.valueAt (sliceStart, start.data());
         // Gains glide along the slice here; everything else is set at its start (and glides, if it does, in its effect).
         if (lane.kind == Song::Lane::Kind::channel || lane.kind == Song::Lane::Kind::track || lane.kind == Song::Lane::Kind::send)
@@ -745,108 +775,116 @@ void Sequencer::applyLanes (int numSamples)
                 to[(size_t) c] = start[(size_t) c] + (end[(size_t) c] - start[(size_t) c]) * b;
             }
         }
-        switch (lane.kind)
-        {
-            case Song::Lane::Kind::channel:
-            {
-                auto& channel = song->channels[(size_t) lane.channel];
-                channel.fromLeft = from[0];
-                channel.fromRight = from[1];
-                channel.gainLeft = to[0];
-                channel.gainRight = to[1];
-                channel.ramp = true;
-                break;
-            }
-            case Song::Lane::Kind::track:
-            {
-                auto& track = song->tracks[(size_t) lane.track];
-                // A new song's first block glides from where the last one left it (a track it didn't have, from its lane).
-                if (! ramping || track.previous < 0)
-                    track.from = from;
-                track.gains = to;
-                track.automated = true;
-                break;
-            }
-            case Song::Lane::Kind::send:
-            {
-                auto& send = song->tracks[(size_t) lane.track].sends[(size_t) lane.index];
-                if (! ramping || send.previous < 0)
-                    send.from = from[0];
-                send.gain = to[0];
-                send.automated = true;
-                break;
-            }
-            case Song::Lane::Kind::pitch:
-                // A sampler's pitch: as it is at the slice's start, all through it (voices work out their rate from it each block).
-                song->channels[(size_t) lane.channel].pitch = start[0];
-                break;
-            case Song::Lane::Kind::mix:
-                // An effect's mix and a plugin's parameter: as they are at the slice's start, all through it.
-                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].mix = juce::jlimit (0.0f, 1.0f, start[0]);
-                break;
-            case Song::Lane::Kind::gross:
-                // A Gross Beat's slot or mix, likewise (a slot picked starts on its sync point).
-                setGrossControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].grossSettings, lane.control, start[0]);
-                break;
-            case Song::Lane::Kind::tune:
-                // An Auto-Tune's control, likewise.
-                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].tuneSettings->setControl (lane.control, start[0]);
-                break;
-            case Song::Lane::Kind::wheel:
-                // A Pitch Wheel's wheel or knob, likewise (the physics smooth a wheel's steps).
-                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].wheelSettings->setControl (lane.control, start[0]);
-                break;
-            case Song::Lane::Kind::echo:
-                // An EchoBoy's, likewise (its delays glide or crossfade there, its gains glide).
-                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].echoSettings->set ((echo::Control) lane.control, start.data(), lane.size);
-                break;
-            case Song::Lane::Kind::eq:
-                // A Pro-Q's band (or output): set at the slice's start, and glided to by its filters.
-                setEqControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].eqSettings, lane.band, lane.control, start[0]);
-                break;
-            case Song::Lane::Kind::ott:
-                // An OTT's, likewise (its values glide there over a few ms).
-                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, start.data(), lane.size);
-                break;
-            case Song::Lane::Kind::comp:
-                // A Pro-C's, likewise (its knobs glide there over 20 ms).
-                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].compSettings->set ((comp::Lane) lane.control, start.data(), lane.size);
-                break;
-            case Song::Lane::Kind::panman:
-                // A PanMan's control, likewise (its position and gains glide, so a step doesn't click).
-                if (lane.control == panman::shapeControl)
-                    song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings->setShape (start.data(), lane.size);
-                else
-                    setPanControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, start[0]);
-                break;
-            case Song::Lane::Kind::param:
-            {
-                // Held in its window by the hand: the hand wins, and the lane takes it back once it's let go.
-                if (lane.plugin->watcher.held.load (std::memory_order_relaxed) == lane.parameterIndex)
-                {
-                    lane.lastSet = -2.0f;
-                    break;
-                }
-                lane.plugin->automating.store (true, std::memory_order_relaxed);
-                // Set at a slice's start (or straight away, the first time).
-                if (into != 0 && lane.lastSet > -2.0f)
-                    break;
-                const auto value = start[0] < 0.0f ? lane.own : juce::jlimit (0.0f, 1.0f, start[0]);
-                if (! juce::exactlyEqual (value, lane.lastSet))
-                {
-                    lane.parameter->setValue (value);
-                    lane.lastSet = value;
-                }
-                break;
-            }
-        }
+        driveLane (lane, start.data(), from, to, into);
     }
     lanesLive = true;
+}
+
+void Sequencer::driveLane (Song::Lane& lane, const float* startValues, const std::array<float, 4>& from, const std::array<float, 4>& to, int into)
+{
+    const auto* start = startValues;
+    switch (lane.kind)
+    {
+        case Song::Lane::Kind::channel:
+        {
+            auto& channel = song->channels[(size_t) lane.channel];
+            channel.fromLeft = from[0];
+            channel.fromRight = from[1];
+            channel.gainLeft = to[0];
+            channel.gainRight = to[1];
+            channel.ramp = true;
+            break;
+        }
+        case Song::Lane::Kind::track:
+        {
+            auto& track = song->tracks[(size_t) lane.track];
+            // A new song's first block glides from where the last one left it (a track it didn't have, from its lane).
+            if (! ramping || track.previous < 0)
+                track.from = from;
+            track.gains = to;
+            track.automated = true;
+            break;
+        }
+        case Song::Lane::Kind::send:
+        {
+            auto& send = song->tracks[(size_t) lane.track].sends[(size_t) lane.index];
+            if (! ramping || send.previous < 0)
+                send.from = from[0];
+            send.gain = to[0];
+            send.automated = true;
+            break;
+        }
+        case Song::Lane::Kind::pitch:
+            // A sampler's pitch: as it is at the slice's start, all through it (voices work out their rate from it each block).
+            song->channels[(size_t) lane.channel].pitch = start[0];
+            break;
+        case Song::Lane::Kind::mix:
+            // An effect's mix and a plugin's parameter: as they are at the slice's start, all through it.
+            song->tracks[(size_t) lane.track].effects[(size_t) lane.index].mix = juce::jlimit (0.0f, 1.0f, start[0]);
+            break;
+        case Song::Lane::Kind::gross:
+            // A Gross Beat's slot or mix, likewise (a slot picked starts on its sync point).
+            setGrossControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].grossSettings, lane.control, start[0]);
+            break;
+        case Song::Lane::Kind::tune:
+            // An Auto-Tune's control, likewise.
+            song->tracks[(size_t) lane.track].effects[(size_t) lane.index].tuneSettings->setControl (lane.control, start[0]);
+            break;
+        case Song::Lane::Kind::wheel:
+            // A Pitch Wheel's wheel or knob, likewise (the physics smooth a wheel's steps).
+            song->tracks[(size_t) lane.track].effects[(size_t) lane.index].wheelSettings->setControl (lane.control, start[0]);
+            break;
+        case Song::Lane::Kind::echo:
+            // An EchoBoy's, likewise (its delays glide or crossfade there, its gains glide).
+            song->tracks[(size_t) lane.track].effects[(size_t) lane.index].echoSettings->set ((echo::Control) lane.control, start, lane.size);
+            break;
+        case Song::Lane::Kind::eq:
+            // A Pro-Q's band (or output): set at the slice's start, and glided to by its filters.
+            setEqControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].eqSettings, lane.band, lane.control, start[0]);
+            break;
+        case Song::Lane::Kind::ott:
+            // An OTT's, likewise (its values glide there over a few ms).
+            song->tracks[(size_t) lane.track].effects[(size_t) lane.index].ottSettings->set ((ott::Lane) lane.control, start, lane.size);
+            break;
+        case Song::Lane::Kind::comp:
+            // A Pro-C's, likewise (its knobs glide there over 20 ms).
+            song->tracks[(size_t) lane.track].effects[(size_t) lane.index].compSettings->set ((comp::Lane) lane.control, start, lane.size);
+            break;
+        case Song::Lane::Kind::panman:
+            // A PanMan's control, likewise (its position and gains glide, so a step doesn't click).
+            if (lane.control == panman::shapeControl)
+                song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings->setShape (start, lane.size);
+            else
+                setPanControl (*song->tracks[(size_t) lane.track].effects[(size_t) lane.index].panSettings, lane.control, start[0]);
+            break;
+        case Song::Lane::Kind::param:
+        {
+            // Held in its window by the hand: the hand wins, and the lane takes it back once it's let go.
+            if (lane.plugin->watcher.held.load (std::memory_order_relaxed) == lane.parameterIndex)
+            {
+                lane.lastSet = -2.0f;
+                break;
+            }
+            lane.plugin->automating.store (true, std::memory_order_relaxed);
+            // Set at a slice's start (or straight away, the first time).
+            if (into != 0 && lane.lastSet > -2.0f)
+                break;
+            const auto value = start[0] < 0.0f ? lane.own : juce::jlimit (0.0f, 1.0f, start[0]);
+            if (! juce::exactlyEqual (value, lane.lastSet))
+            {
+                lane.parameter->setValue (value);
+                lane.lastSet = value;
+            }
+            break;
+        }
+    }
 }
 
 void Sequencer::restoreLanes (Song& from)
 {
     for (auto& lane : from.lanes)
+        // (A modulated one carries on, stopped too.)
+        if (lane.modulator < 0)
         switch (lane.kind)
         {
             case Song::Lane::Kind::channel:
@@ -922,9 +960,9 @@ void Sequencer::takeOwnValues (Song& next, Song* previous)
         if (lane.kind != Song::Lane::Kind::param)
             continue;
         const Song::Lane* before = nullptr;
-        if (previous != nullptr && lanesLive)
+        if (previous != nullptr)
             for (const auto& other : previous->lanes)
-                if (other.kind == Song::Lane::Kind::param && other.key == lane.key)
+                if (other.kind == Song::Lane::Kind::param && other.key == lane.key && (lanesLive || other.modulator >= 0) && other.lastSet > -2.0f)
                     before = &other;
         // Automated by the last song too: what it is now is automation's, so its own value carries on.
         lane.own = before != nullptr ? before->own : lane.parameter->getValue();
@@ -1016,6 +1054,17 @@ void Sequencer::scheduleRange (double from, double to, double origin, int offset
             startVoice (note->channel, note->pitch, note->gain, note->length, at (note->tick), note->pan);
         else if (channel.plugin != nullptr)
             startNote (*channel.plugin, note->key, note->velocity, (juce::int64) (note->length / ticksPerSample), at (note->tick));
+        // Modulators following this channel's notes: a gate, on its sample, as long as the note.
+        for (auto& modulator : song->modulators)
+            if (modulator.channel == note->channel && modulator.state != nullptr)
+            {
+                auto& state = *modulator.state;
+                if (state.gateCount < (int) state.gates.size())
+                {
+                    const auto from = modClock + at (note->tick);
+                    state.gates[(size_t) state.gateCount++] = { from, from + juce::jmax ((juce::int64) 1, (juce::int64) (note->length / ticksPerSample)), note->velocity };
+                }
+            }
         // Pitch Wheels this channel's notes play, on their sample.
         for (const auto& listener : song->wheelListeners)
             if (listener.channel == note->channel)
@@ -1201,13 +1250,23 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
     auto* l = song->audio.getWritePointer (track.buffer * 2);
     auto* r = song->audio.getWritePointer (track.buffer * 2 + 1);
 
+    // What keys taken before its effects hear.
+    if (track.preFxBuffer >= 0)
+    {
+        song->audio.copyFrom (track.preFxBuffer * 2, 0, l, numSamples);
+        song->audio.copyFrom (track.preFxBuffer * 2 + 1, 0, r, numSamples);
+    }
+
     for (const auto& effect : track.effects)
+    {
+        // Its key, lined up with its sound (its source ran in an earlier stage, and nothing writes its taps after that).
+        const auto [keyLeft, keyRight] = keyOf (effect, numSamples);
         if (effect.enabled && effect.plugin != nullptr)
-            runEffect (*effect.plugin, effect.mix, l, r, numSamples);
+            runEffect (*effect.plugin, effect.mix, l, r, numSamples, keyLeft, keyRight);
         else if (effect.eq != nullptr)
         {
             if (effect.enabled)
-                runProQ (effect, l, r, numSamples);
+                runProQ (effect, l, r, numSamples, keyLeft, keyRight);
             else
                 effect.eq->skipped();
         }
@@ -1252,13 +1311,7 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
         {
             // Its mix is its own (the dry sound waits as long as its latency); its key may be another track's sound.
             if (effect.enabled)
-            {
-                const auto key = effect.compSettings->key;
-                const auto* source = key >= 0 && key < (int) song->tracks.size() ? &song->tracks[(size_t) key] : nullptr;
-                const auto* keyLeft = source != nullptr && source->buffer >= 0 ? song->audio.getReadPointer (source->buffer * 2) : nullptr;
-                const auto* keyRight = source != nullptr && source->buffer >= 0 ? song->audio.getReadPointer (source->buffer * 2 + 1) : nullptr;
                 effect.comp->process (*effect.compSettings, grossClock, keyLeft, keyRight, l, r, numSamples, effect.mix);
-            }
             else
                 effect.comp->skipped();
         }
@@ -1269,6 +1322,7 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
             else
                 effect.pan->skipped();
         }
+    }
 
     // What its pre-fader sends take: the sound before its gains.
     if (track.preBuffer >= 0)
@@ -1290,6 +1344,20 @@ void Sequencer::runTrack (size_t t, bool glide, int numSamples)
         const auto inLeft = l[i], inRight = r[i];
         l[i] = ll * inLeft + rl * inRight;
         r[i] = lr * inLeft + rr * inRight;
+    }
+    // Soloed out, its keys after its fader hear it through the gains it would have.
+    if (track.keyFaderBuffer >= 0 && track.preBuffer >= 0)
+    {
+        const auto* inL = song->audio.getReadPointer (track.preBuffer * 2);
+        const auto* inR = song->audio.getReadPointer (track.preBuffer * 2 + 1);
+        auto* outL = song->audio.getWritePointer (track.keyFaderBuffer * 2);
+        auto* outR = song->audio.getWritePointer (track.keyFaderBuffer * 2 + 1);
+        const auto& g = track.keyGains;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            outL[i] = g[0] * inL[i] + g[1] * inR[i];
+            outR[i] = g[2] * inL[i] + g[3] * inR[i];
+        }
     }
     if (t < (size_t) maxMeters)
     {
@@ -1363,7 +1431,7 @@ void Sequencer::runOtt (const Song::Track::Effect& effect, float* left, float* r
     juce::FloatVectorOperations::addWithMultiply (right, dry.getReadPointer (1), 1.0f - mix, numSamples);
 }
 
-void Sequencer::runProQ (const Song::Track::Effect& effect, float* left, float* right, int numSamples)
+void Sequencer::runProQ (const Song::Track::Effect& effect, float* left, float* right, int numSamples, const float* keyLeft, const float* keyRight)
 {
     auto& settings = *effect.eqSettings;
     auto& dry = settings.dry;
@@ -1375,7 +1443,7 @@ void Sequencer::runProQ (const Song::Track::Effect& effect, float* left, float* 
         dry.copyFrom (0, 0, left, numSamples);
         dry.copyFrom (1, 0, right, numSamples);
     }
-    effect.eq->process (settings, left, right, numSamples, true);
+    effect.eq->process (settings, left, right, numSamples, true, keyLeft, keyRight);
     if (mix < 1.0f)
         effect.eq->mixDry (settings, left, right, dry.getReadPointer (0), dry.getReadPointer (1), numSamples, mix);
 }
@@ -1466,7 +1534,189 @@ void Sequencer::setPanControl (panman::Settings& settings, int control, float va
     }
 }
 
-void Sequencer::runEffect (HostedPlugin& plugin, float mix, float* left, float* right, int numSamples)
+int Sequencer::tapPair (const Song::Track& source, Song::Track::Tap tap) const
+{
+    if (source.buffer < 0)
+        return -1;
+    switch (tap)
+    {
+        case Song::Track::Tap::preFx: return source.preFxBuffer;
+        case Song::Track::Tap::postFx: return source.preBuffer;
+        case Song::Track::Tap::postFader: return source.keyFaderBuffer >= 0 ? source.keyFaderBuffer : source.buffer;
+    }
+    return -1;
+}
+
+void Sequencer::followModulators (int numSamples)
+{
+    for (auto& modulator : song->modulators)
+    {
+        if (modulator.state == nullptr)
+            continue;
+        auto& state = *modulator.state;
+        const auto attack = modulator.attack <= 0 ? 1.0f : (float) (1 - std::exp (-1 / (modulator.attack * sampleRate)));
+        const auto release = (float) (1 - std::exp (-1 / (juce::jmax (0.001, modulator.release) * sampleRate)));
+        const float* left = nullptr;
+        const float* right = nullptr;
+        if (modulator.track >= 0)
+            if (const auto pair = tapPair (song->tracks[(size_t) modulator.track], modulator.tap); pair >= 0)
+            {
+                left = song->audio.getReadPointer (pair * 2);
+                right = song->audio.getReadPointer (pair * 2 + 1);
+            }
+        auto env = state.env;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // Its source's peak (a track's louder side; a channel's notes, as gates), through its gain.
+            auto x = 0.0f;
+            if (left != nullptr)
+                x = juce::jmax (std::abs (left[i]), std::abs (right[i]));
+            else
+                for (int g = 0; g < state.gateCount; ++g)
+                {
+                    const auto& gate = state.gates[(size_t) g];
+                    if (gate.from <= modClock + i && modClock + i < gate.to)
+                        x = juce::jmax (x, gate.velocity);
+                }
+            x *= modulator.gain;
+            env += (x - env) * (x > env ? attack : release);
+        }
+        state.env = env < 1e-9f ? 0.0f : env;
+        // Gates that have ended go.
+        for (int g = 0; g < state.gateCount;)
+            if (state.gates[(size_t) g].to <= modClock + numSamples)
+                state.gates[(size_t) g] = state.gates[(size_t) --state.gateCount];
+            else
+                ++g;
+        // Shaped as `shapeLevel` in shared/music/modulation.ts.
+        const auto clipped = juce::jlimit (0.0f, 1.0f, state.env);
+        state.level = juce::exactlyEqual (modulator.tension, 0.0f) ? clipped : std::pow (clipped, std::pow (4.0f, modulator.tension));
+        state.said.store (state.level, std::memory_order_relaxed);
+    }
+}
+
+void Sequencer::applyModulated (int numSamples)
+{
+    // The slice this block is in (blocks never cross one): its targets worked out at its start, from each
+    // modulator's level at the end of the last; gains glide across it, wherever the block is in it.
+    const auto into = (int) (modClock % modSlice);
+    const auto a = (float) into / (float) modSlice, b = (float) (into + numSamples) / (float) modSlice;
+    // Where the song is (playing: its automation plays under the modulation), or nowhere (its own values).
+    auto tick = -1.0;
+    if (playing && countInLeft <= 0)
+    {
+        tick = playStart + (double) sliceClock * song->tempo * song->ppq / (60.0 * sampleRate);
+        if (song->loops && ! through)
+            tick = std::fmod (std::fmod (tick, song->loopTicks) + song->loopTicks, song->loopTicks);
+    }
+    std::array<float, Song::Lane::maxSize> point {};
+    std::array<float, 4> from {}, to {};
+    for (auto& lane : song->lanes)
+    {
+        if (lane.modulator < 0)
+            continue;
+        const auto& state = song->modulators[(size_t) lane.modulator].state;
+        const auto level = state != nullptr ? state->level : 0.0f;
+        if (lane.kind == Song::Lane::Kind::param)
+        {
+            // A plugin's parameter: from its own value (or its automation's), by its amount, at a slice's start.
+            if (into != 0 && lane.modStarted)
+                continue;
+            lane.modStarted = true;
+            if (lane.plugin->watcher.held.load (std::memory_order_relaxed) == lane.parameterIndex)
+            {
+                lane.lastSet = -2.0f;
+                continue;
+            }
+            // Stopped and quiet: it lets go (its state is saved again; the hand may turn it).
+            if (tick < 0 && level <= 0.0f)
+            {
+                if (lane.lastSet > -2.0f)
+                {
+                    lane.parameter->setValue (lane.own);
+                    lane.lastSet = -2.0f;
+                    lane.plugin->automating.store (false, std::memory_order_relaxed);
+                }
+                continue;
+            }
+            // Taken up again: its own value is what it is now.
+            if (lane.lastSet <= -2.0f)
+                lane.own = lane.parameter->getValue();
+            lane.plugin->automating.store (true, std::memory_order_relaxed);
+            auto base = -1.0f;
+            if (tick >= 0)
+            {
+                lane.valueAt (tick, point.data());
+                base = point[0];
+            }
+            const auto value = juce::jlimit (0.0f, 1.0f, (base < 0.0f ? lane.own : base) + lane.amount * level);
+            if (! juce::exactlyEqual (value, lane.lastSet))
+            {
+                lane.parameter->setValue (value);
+                lane.lastSet = value;
+            }
+            continue;
+        }
+        if (into == 0 || ! lane.modStarted)
+        {
+            if (tick >= 0)
+                lane.valueAt (tick, point.data());
+            else
+                std::copy_n (lane.rest.begin(), lane.stride(), point.begin());
+            std::array<float, Song::Lane::maxSize> target {};
+            lane.atLevel (point.data(), level, target.data());
+            lane.modFrom = lane.modStarted ? lane.modTo : target;
+            lane.modTo = target;
+            lane.modStarted = true;
+        }
+        const auto gains = lane.kind == Song::Lane::Kind::channel || lane.kind == Song::Lane::Kind::track || lane.kind == Song::Lane::Kind::send;
+        if (gains)
+        {
+            for (int c = 0; c < lane.size && c < 4; ++c)
+            {
+                from[(size_t) c] = lane.modFrom[(size_t) c] + (lane.modTo[(size_t) c] - lane.modFrom[(size_t) c]) * a;
+                to[(size_t) c] = lane.modFrom[(size_t) c] + (lane.modTo[(size_t) c] - lane.modFrom[(size_t) c]) * b;
+            }
+            driveLane (lane, lane.modTo.data(), from, to, into);
+        }
+        else if (into == 0 || numSamples == 0)
+            driveLane (lane, lane.modTo.data(), from, to, into);
+    }
+}
+
+juce::var Sequencer::describeModulators() const
+{
+    auto* levels = new juce::DynamicObject();
+    for (const auto& [id, state] : modulatorStates)
+        levels->setProperty (id, state->said.load (std::memory_order_relaxed));
+    return juce::var (levels);
+}
+
+std::pair<const float*, const float*> Sequencer::keyOf (const Song::Track::Effect& effect, int numSamples)
+{
+    if (effect.keyTrack < 0 || effect.keyBuffer < 0)
+        return { nullptr, nullptr };
+    const auto pair = tapPair (song->tracks[(size_t) effect.keyTrack], effect.keyTap);
+    if (pair < 0)
+        return { nullptr, nullptr };
+    const auto* tapLeft = song->audio.getReadPointer (pair * 2);
+    const auto* tapRight = song->audio.getReadPointer (pair * 2 + 1);
+    auto* line = effect.keyLine.get();
+    if (line == nullptr)
+        return { tapLeft, tapRight };
+    // Earlier than the sound where the effect is: it waits in its delay line, into its own pair.
+    line->clearInput (numSamples);
+    juce::FloatVectorOperations::copy (line->inputLeft(), tapLeft, numSamples);
+    juce::FloatVectorOperations::copy (line->inputRight(), tapRight, numSamples);
+    auto* keyLeft = song->audio.getWritePointer (effect.keyBuffer * 2);
+    auto* keyRight = song->audio.getWritePointer (effect.keyBuffer * 2 + 1);
+    juce::FloatVectorOperations::clear (keyLeft, numSamples);
+    juce::FloatVectorOperations::clear (keyRight, numSamples);
+    line->flushInto (keyLeft, keyRight, numSamples);
+    return { keyLeft, keyRight };
+}
+
+void Sequencer::runEffect (HostedPlugin& plugin, float mix, float* left, float* right, int numSamples, const float* keyLeft, const float* keyRight)
 {
     if (numSamples > plugin.buffer.getNumSamples())
         return;
@@ -1474,6 +1724,10 @@ void Sequencer::runEffect (HostedPlugin& plugin, float mix, float* left, float* 
     view.clear();
     view.copyFrom (0, 0, left, numSamples);
     view.copyFrom (1, 0, right, numSamples);
+    // Its sidechain input (`configurePlugin` turned it on): the key, or silence without one.
+    if (plugin.keyChannel >= 0 && keyLeft != nullptr)
+        for (int c = 0; c < plugin.keyChannels && plugin.keyChannel + c < view.getNumChannels(); ++c)
+            view.copyFrom (plugin.keyChannel + c, 0, c == 0 ? keyLeft : keyRight, numSamples);
     plugin.midi.clear();
     plugin.instance->processBlock (view, plugin.midi);
     // A plugin with one output gives it to both sides.

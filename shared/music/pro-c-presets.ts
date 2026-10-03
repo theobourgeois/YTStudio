@@ -180,9 +180,11 @@ export const DEFAULT_PRO_C_OPTIONS: ProCOptions = {
 /** A side chain high-pass: what keeps a vocal's plosives and the low end from triggering it. */
 export const sidechainHighPass = (frequency: number, id = 1): EqBand => ({ ...DEFAULT_BAND, id, shape: "lowCut", frequency, slope: 12, gain: 0, q: 1, dynamics: false });
 
+/** The preset a quick duck loads (`duckWithProC`): External, ∞:1, 1 ms / 150 ms. */
+export const DUCK_PRESET = "Sidechain – Duck to Kick";
+
 export const DEFAULT_PRO_C_SIDECHAIN: ProCSidechain = {
   trigger: "internal",
-  track: null,
   level: 0,
   link: 1,
   linkMode: "mid",
@@ -269,12 +271,11 @@ function normalizeSidechain(input: unknown): ProCSidechain {
   const bands = (Array.isArray(input.bands) ? input.bands : [])
     .flatMap((b) => normalizeEqBand(b, seen, PRO_C_BANDS) ?? [])
     // Its bands are stereo, mid or side (not left or right), and never dynamic.
-    .map((b) => ({ ...b, placement: b.placement === "mid" || b.placement === "side" ? b.placement : "stereo", dynamics: false, range: 0, threshold: null }) satisfies EqBand)
+    .map(({ external: _, ...b }) => ({ ...b, placement: b.placement === "mid" || b.placement === "side" ? b.placement : "stereo", dynamics: false, range: 0, threshold: null }) satisfies EqBand)
     .slice(0, PRO_C_BANDS);
   const sync = isObject(input.sync) ? input.sync : {};
   return {
     trigger: oneOf(PRO_C_TRIGGERS, input.trigger, d.trigger),
-    track: typeof input.track === "string" && input.track.length > 0 ? input.track : null,
     level: num(input.level, PRO_C_GAIN_RANGE[0], PRO_C_GAIN_RANGE[1], d.level),
     link: num(input.link, 0, 2, d.link),
     linkMode: oneOf(PRO_C_LINK_MODES, input.linkMode, d.linkMode),
@@ -423,7 +424,7 @@ export const PRO_C_PRESETS: readonly ProCPreset[] = [
   { name: "Mix Bus – Glue", folder: "Mix", detail: "2:1, slow, 1–2 dB", settings: { style: "bus", threshold: -14, slope: 0.5, attack: 0.03, release: 0.6, autoRelease: true, sidechain: noBands } },
   { name: "Master – Transparent", folder: "Mix", detail: "1.5:1, soft, lookahead, oversampled", settings: { style: "mastering", threshold: -12, slope: slopeOf(1.5), knee: 24, maxLookahead: 0.005, lookahead: 0.005, oversampling: 4, sidechain: noBands } },
   { name: "EDM – Pump 1/4", folder: "Special", detail: "Ducking on every beat, no kick needed", settings: { style: "pumping", threshold: -30, slope: 1, attack: 0.002, release: 0.15, sidechain: { trigger: "sync", bands: [], sync: { note: 4, offset: 1, length: 0.5 } } } },
-  { name: "Sidechain – Duck to Kick", folder: "Special", detail: "External: pick the kick's track", settings: { style: "clean", threshold: -30, slope: 1, attack: 0.001, release: 0.15, autoGain: false, sidechain: { trigger: "external", bands: [] } } },
+  { name: DUCK_PRESET, folder: "Special", detail: "External: pick the kick's track", settings: { style: "clean", threshold: -30, slope: 1, attack: 0.001, release: 0.15, autoGain: false, sidechain: { trigger: "external", bands: [] } } },
   { name: "Upward – Detail", folder: "Special", detail: "Room and tails up", settings: { style: "upward", threshold: -28, slope: 0.6, range: 12, sidechain: noBands } },
   { name: "TTM – To The Max", folder: "Special", detail: "OTT-style mayhem", settings: { style: "ttm", threshold: -20, slope: 0.85, attack: 0.003, release: 0.08, sidechain: noBands } },
 ];

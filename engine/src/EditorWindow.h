@@ -59,14 +59,26 @@ private:
  */
 juce::var describeKey (const juce::KeyPress&);
 
-/** Stereo in and out on a plugin's main buses and nothing else (no sidechains, no extra outputs), ready to play. */
-inline void configurePlugin (juce::AudioPluginInstance& plugin, double sampleRate, int blockSize)
+/**
+ * Stereo in and out on a plugin's main buses and nothing else (no extra outputs), ready to play; with
+ * `sidechain` (a mixer effect's), its sidechain input too when it has one.
+ */
+inline void configurePlugin (juce::AudioPluginInstance& plugin, double sampleRate, int blockSize, bool sidechain = false)
 {
     auto layout = plugin.getBusesLayout();
     for (auto* buses : { &layout.inputBuses, &layout.outputBuses })
         for (int i = 0; i < buses->size(); ++i)
             buses->getReference (i) = i == 0 ? juce::AudioChannelSet::stereo() : juce::AudioChannelSet::disabled();
     plugin.setBusesLayout (layout);
+    // An effect's sidechain input (its second input bus: `docs/sidechain.md`), stereo or else mono, if it takes either.
+    if (sidechain && layout.inputBuses.size() > 1)
+        for (const auto& set : { juce::AudioChannelSet::stereo(), juce::AudioChannelSet::mono() })
+        {
+            auto keyed = layout;
+            keyed.inputBuses.getReference (1) = set;
+            if (plugin.checkBusesLayoutSupported (keyed) && plugin.setBusesLayout (keyed))
+                break;
+        }
     plugin.setRateAndBufferSizeDetails (sampleRate, blockSize);
     plugin.prepareToPlay (sampleRate, blockSize);
 }

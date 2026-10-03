@@ -179,6 +179,7 @@ std::shared_ptr<Settings> Settings::parse (const juce::var& json, int capacity, 
             band.range = number (item["range"], 0, -60, 60);
             band.autoThreshold = item["threshold"].isVoid() || ! (item["threshold"].isDouble() || item["threshold"].isInt());
             band.threshold = number (item["threshold"], 0, -120, 0);
+            band.external = ! band.autoThreshold && (bool) item["external"];
             if (s->find (band.id) != nullptr)
                 continue;
             s->bands[(size_t) s->count++] = band;
@@ -303,7 +304,7 @@ void State::design (BandState& bs, const BandShape& shape, Chain& chain) const
     juce::ignoreUnused (bs);
 }
 
-void State::detect (BandState& bs, const float* inA, const float* inB, int numSamples)
+void State::detect (BandState& bs, const float* inA, const float* inB, int numSamples, int at)
 {
     const auto& band = bs.band;
     const auto f = band.shape.frequency;
@@ -335,6 +336,10 @@ void State::detect (BandState& bs, const float* inA, const float* inB, int numSa
     for (int i = 0; i < numSamples; ++i)
     {
         double x;
+        // External: the key as it is ("not band-limited or M/S encoded"), its louder side.
+        if (band.external)
+            x = keyLeft == nullptr ? 0.0 : std::abs (keyLeft[at + i]) > std::abs (keyRight[at + i]) ? keyLeft[at + i] : keyRight[at + i];
+        else
         switch (band.placement)
         {
             case Placement::left: x = filter (inA[i], bs.trigger[0]); break;
@@ -395,7 +400,7 @@ void State::runBand (const Settings& settings, BandState& bs, bool present, floa
             bs.logQ += (logQ - bs.logQ) * glide;
         }
         if (dynamic)
-            detect (bs, inA + pos, inB + pos, m);
+            detect (bs, inA + pos, inB + pos, m, pos);
         else
             bs.dynamicGain += (0 - bs.dynamicGain) * glide;
 
@@ -485,9 +490,11 @@ void State::runStage (const Settings& settings, bool midSide, float* a, float* b
     }
 }
 
-void State::process (const Settings& settings, float* left, float* right, int numSamples, bool analyze)
+void State::process (const Settings& settings, float* left, float* right, int numSamples, bool analyze, const float* keyL, const float* keyR)
 {
     juce::ScopedNoDenormals noDenormals;
+    keyLeft = keyL;
+    keyRight = keyR;
     if (numSamples > (int) inLeft.size())
         return;
     if (! primed)
@@ -541,7 +548,7 @@ void State::process (const Settings& settings, float* left, float* right, int nu
                 for (int pos = 0; pos < n; pos += control)
                 {
                     const auto m = juce::jmin (control, n - pos);
-                    detect (bs, inLeft.data() + chunk + pos, inRight.data() + chunk + pos, m);
+                    detect (bs, inLeft.data() + chunk + pos, inRight.data() + chunk + pos, m, chunk + pos);
                     bs.shares[(size_t) bs.shareWrite] = (float) (bs.dynamicGain / band.range);
                     const auto share = bs.shares[(size_t) ((bs.shareWrite - juce::jmin (delayBlocks, ring - 1) + ring) % ring)];
                     bs.shareWrite = (bs.shareWrite + 1) % ring;

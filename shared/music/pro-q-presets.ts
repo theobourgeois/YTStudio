@@ -264,6 +264,7 @@ export function normalizeEqBand(raw: unknown, seen: Set<number>, most: number = 
     range: inRange(raw.range, -EQ_MAX_GAIN, EQ_MAX_GAIN, 0),
     dynamics: raw.dynamics !== false,
     threshold: isFiniteNumber(raw.threshold) ? clamp(raw.threshold, EQ_MIN_THRESHOLD, 0) : null,
+    ...(raw.external === true && { external: true as const }),
   };
 }
 

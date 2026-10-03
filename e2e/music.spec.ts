@@ -3564,7 +3564,7 @@ test("Pro-C: chosen for a slot, Threshold turned and undone, a Vintage style's f
   expect((await savedProC(page, id, effectId))?.style).toBe("optoTube");
   await expect(window.getByTestId("pro-c-preset")).toHaveText("Vocal – Tracking Opto");
 
-  // The side chain: opened, a band double-clicked into its EQ, then keyed from Insert 2 (which gets a 0% send).
+  // The side chain: opened, a band double-clicked into its EQ, then keyed from Insert 2 (no send needed: the key is the slot's).
   await window.getByTestId("pro-c-sidechain-toggle").click();
   await expect(window.getByTestId("pro-c-sidechain")).toBeVisible();
   await expect.poll(async () => (await savedProC(page, id, effectId))?.view.sidechain).toBe(true);
@@ -3573,11 +3573,12 @@ test("Pro-C: chosen for a slot, Threshold turned and undone, a Vintage style's f
   await expect.poll(async () => (await savedProC(page, id, effectId))?.sidechain.bands.length).toBe(1);
   await window.getByRole("radio", { name: "External" }).click();
   await window.getByTestId("pro-c-sidechain-source").click();
-  await page.getByRole("menuitem", { name: "Insert 2" }).click();
-  await expect.poll(async () => (await savedProC(page, id, effectId))?.sidechain.track).toBe("insert_2");
+  await page.getByTestId("key-source-2").click();
+  await expect.poll(async () => (await savedSong(page, id)).mixer.tracks[1].effects[0]?.sidechain).toEqual({ track: "insert_2", tap: "postFx" });
   const song = await savedSong(page, id);
-  expect(song.mixer.tracks[2].sends).toContainEqual({ to: "insert_1", level: 0 });
+  expect(song.mixer.tracks[2].sends).not.toContainEqual({ to: "insert_1", level: 0 });
   expect((await savedProC(page, id, effectId))?.sidechain.trigger).toBe("external");
+  await expect(window.getByTestId("pro-c-sidechain-source")).toHaveText(/2 \(after its effects\)/);
 
   // Compact: the displays go, the meters lie across.
   await window.getByTestId("pro-c-compact").click();
@@ -3591,6 +3592,86 @@ test("Pro-C: chosen for a slot, Threshold turned and undone, a Vintage style's f
   await expect.poll(async () => ((await savedSong(page, id)).mixer.tracks[1].effects[0].proC.wet as number), { timeout: 15_000 }).not.toBe(0);
   await expect(window.getByTestId("pro-c-match")).toHaveAttribute("aria-pressed", "false");
   await page.getByRole("button", { name: "Stop", exact: true }).click();
+});
+
+test("sidechain: the kick's strip ducks a track with a new Pro-C, the slot shows its key and changes its tap, a dotted cable", async ({ page }) => {
+  const id = await openNewSong(page, "Ducked");
+  await page.keyboard.press("F9");
+  const mixer = page.getByTestId("mixer");
+  // Insert 1 (the kick) → Sidechain to → Insert 2 → Duck with a new Pro-C.
+  await mixer.locator('[data-track-name="Insert 1"]').locator("span").first().click({ button: "right" });
+  await page.getByTestId("sidechain-to").click();
+  await page.getByTestId("sidechain-to-2").click();
+  await page.getByTestId("duck-with-pro-c").click();
+  await expect.poll(async () => (await savedSong(page, id)).mixer.tracks[2].effects[0]?.sidechain).toEqual({ track: "insert_1", tap: "postFx" });
+  const effect = (await savedSong(page, id)).mixer.tracks[2].effects[0];
+  expect(effect.proC.preset).toBe("Sidechain – Duck to Kick");
+  expect(effect.proC.sidechain.trigger).toBe("external");
+  // Its window opens, its source shown.
+  await expect(page.getByTestId("pro-c")).toBeVisible();
+  await page.getByRole("button", { name: /^Close Pro-C/ }).click();
+
+  // Insert 2's inspector: the slot's key badge, and its menu's Sidechain input taking the key after the fader.
+  await mixer.locator('[data-track-name="Insert 2"]').locator("span").first().click();
+  const inspector = page.getByTestId("mixer-inspector");
+  await expect(inspector.getByTestId("key-badge")).toHaveText("1");
+  await inspector.locator('[data-slot="0"]').click({ button: "right" });
+  await page.getByTestId("slot-sidechain").click();
+  await page.getByRole("menuitemradio", { name: "After its fader" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).mixer.tracks[2].effects[0]?.sidechain).toEqual({ track: "insert_1", tap: "postFader" });
+  // A dotted cable into Insert 2 from Insert 1.
+  await expect(mixer.locator('[data-sidechain][data-cable="insert_2"][data-cable-from="insert_1"]')).toHaveCount(1);
+  // No key.
+  await inspector.locator('[data-slot="0"]').click({ button: "right" });
+  await page.getByTestId("slot-sidechain").click();
+  await page.getByRole("menuitem", { name: "No key" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).mixer.tracks[2].effects[0]?.sidechain).toBeUndefined();
+  await expect(inspector.getByTestId("key-badge")).toHaveCount(0);
+});
+
+test("modulation: a fader follows another track's level from its menu, the Modulators window shows it, and it's taken off", async ({ page }) => {
+  const id = await openNewSong(page, "Pumped");
+  await page.keyboard.press("F9");
+  const mixer = page.getByTestId("mixer");
+  // Insert 2's fader → Modulate → Follow track → Insert 1.
+  await mixer.getByRole("slider", { name: "Insert 2 volume" }).click({ button: "right" });
+  await page.getByTestId("modulate").click();
+  await page.getByTestId("follow-track").click();
+  await page.getByTestId("follow-track-1").click();
+  await expect.poll(async () => (await savedSong(page, id)).modulators).toEqual([
+    expect.objectContaining({ source: { kind: "track", track: "insert_1", tap: "postFx" }, links: [{ target: { kind: "mixer", track: "insert_2", control: "volume" }, amount: -0.6 }] }),
+  ]);
+  // Its window: the modulator, what it moves, by how much.
+  const window = page.getByTestId("modulators-window");
+  await expect(window).toBeVisible();
+  await expect(window.getByTestId("modulator-row")).toHaveText(/Insert 1 level/);
+  await expect(window.getByTestId("modulation-link")).toContainText("Volume");
+  await expect(window.getByTestId("modulation-link")).toContainText("−60%");
+  // A second control linked to it from its menu (Link to).
+  await mixer.getByRole("slider", { name: "Insert 3 pan" }).click({ button: "right" });
+  await page.getByTestId("modulate").click();
+  await page.getByRole("menuitem", { name: "Link to" }).click();
+  await page.getByRole("menuitem", { name: /Insert 1 level/ }).click();
+  await expect(window.getByTestId("modulation-link")).toHaveCount(2);
+  // Taken off the fader again: its menu says what moves it.
+  await mixer.getByRole("slider", { name: "Insert 2 volume" }).click({ button: "right" });
+  await expect(page.getByTestId("modulate")).toHaveText(/Modulated by Insert 1 level/);
+  await page.getByTestId("modulate").click();
+  await page.getByTestId("remove-modulation").click();
+  await expect.poll(async () => (await savedSong(page, id)).modulators[0].links.map((l: { target: { control: string } }) => l.target.control)).toEqual(["pan"]);
+  // A control touched (Insert 4's pan turned), then linked from the window (FL's way for a plugin's parameter).
+  const pan = (await mixer.getByRole("slider", { name: "Insert 4 pan" }).boundingBox())!;
+  await page.mouse.move(pan.x + pan.width / 2, pan.y + pan.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(pan.x + pan.width / 2, pan.y + pan.height / 2 - 20, { steps: 4 });
+  await page.mouse.up();
+  // The Mixer's menu brings it forward.
+  await page.getByRole("button", { name: "Mixer menu" }).click();
+  await page.getByTestId("open-modulators").click();
+  await window.getByTestId("link-touched").filter({ hasText: "Insert 4" }).click();
+  await expect.poll(async () => (await savedSong(page, id)).modulators[0].links.map((l: { target: { track: string } }) => l.target.track)).toEqual(["insert_3", "insert_4"]);
+  await page.getByRole("button", { name: "Close Modulators" }).click();
+  await expect(window).toHaveCount(0);
 });
 
 test("the assistant squashes a track with OTT: puts one on, sets it, automates its depth", async ({ page }) => {
@@ -3640,10 +3721,11 @@ test("the assistant compresses a vocal with Pro-C: the two-stage chain in one st
   const song = await savedSong(page, id);
   const [fet, opto] = song.mixer.tracks[1].effects;
   expect(fet.plugin.name).toBe("Pro-C");
-  expect(fet.proC).toMatchObject({ style: "fet", threshold: -28, sidechain: { trigger: "external", track: song.mixer.tracks[2].id } });
+  expect(fet.proC).toMatchObject({ style: "fet", threshold: -28, sidechain: { trigger: "external" } });
   expect(opto.proC).toMatchObject({ style: "opto2a", options: { limit: true, emphasis: 6 } });
-  // The key's 0% send ("sidechain only") was made.
-  expect(song.mixer.tracks[2].sends).toContainEqual({ to: song.mixer.tracks[1].id, level: 0 });
+  // The key is the slot's (no 0% send needed).
+  expect(fet.sidechain).toEqual({ track: song.mixer.tracks[2].id, tap: "postFx" });
+  expect(song.mixer.tracks[2].sends).not.toContainEqual({ to: song.mixer.tracks[1].id, level: 0 });
   const [automation] = await savedAutomations(page, id);
   expect(automation.target).toEqual({ kind: "proC", effect: fet.id, control: "threshold" });
   expect(automation.points.map((p: { value: number }) => p.value)).toEqual([0.5, 2 / 3]);

@@ -1136,6 +1136,10 @@ that come in a later phase (section 7) come with them.
 > - The internal key is the input before Character Pre; drift isn't built; Match measures RMS, not LUFS.
 >   MIDI triggering and 32× are still out (as planned).
 > - Cost, measured: 0.3–0.5% of a core a stereo instance at 48 kHz, 1.6% at 4×, 5.5% at 16×.
+> - **The external key became every effect's** (2026-10-03, `docs/sidechain.md`): the source is the slot's
+>   (`MixerEffect.sidechain`, with a tap), not `ProC.sidechain.track`; no 0% send is made (a key orders the
+>   tracks itself); the delay line that lines it up is the slot's, in the Sequencer, so Pro-C reads a key
+>   already in time. Songs from before keep theirs, taken after the fader. Section 8.3 below is the plan as it was.
 
 ### Decided (to check with Théo)
 

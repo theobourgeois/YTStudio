@@ -57,10 +57,11 @@ describe("the assistant's Pro-C", () => {
     expect(proC(s)).toMatchObject({ slot: "a", threshold: -30 });
   });
 
-  it("keys it from another track, making the send, and sets Host Sync", () => {
-    let s = setProCSidechainTool(song(), { source: 2, level: 6 }).song;
-    expect(proC(s).sidechain).toMatchObject({ trigger: "external", track: "insert_2", level: 6 });
-    expect(s.mixer.tracks.find((t) => t.id === "insert_2")!.sends).toContainEqual({ to: "insert_1", level: 0 });
+  it("keys it from another track (no send needed), at a tap, and sets Host Sync", () => {
+    let s = setProCSidechainTool(song(), { source: 2, level: 6, tap: "postFader" }).song;
+    expect(proC(s).sidechain).toMatchObject({ trigger: "external", level: 6 });
+    expect(s.mixer.tracks.flatMap((t) => t.effects).find((e) => e?.proC)!.sidechain).toEqual({ track: "insert_2", tap: "postFader" });
+    expect(s.mixer.tracks.find((t) => t.id === "insert_2")!.sends).not.toContainEqual({ to: "insert_1", level: 0 });
     expect(() => setProCSidechainTool(s, { source: 1 })).toThrow(/own track/);
     s = setProCSidechainTool(s, { trigger: "sync", note: 8, length: 0.25 }).song;
     expect(proC(s).sidechain).toMatchObject({ trigger: "sync", sync: { note: 8, offset: 1, length: 0.25 } });

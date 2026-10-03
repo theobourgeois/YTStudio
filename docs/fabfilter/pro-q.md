@@ -39,7 +39,7 @@ same way"). Not yet talked through with him; what was chosen, to check:
 
 | What | Pro-Q 3 | Vaudio |
 | --- | --- | --- |
-| External side chain for dynamic bands | Yes | Not yet: there are no sidechain inputs to effects (FL's sidechain sends aren't wired to effects yet) |
+| External side chain for dynamic bands | Yes, a band's switch, only with a custom threshold; the side chain not band-limited or M/S encoded | The same (`EqBand.external`, the band's SC switch by its threshold): it hears its slot's key, chosen in the Mixer slot's Sidechain input (`docs/sidechain.md`) |
 | L/R and M/S bands in Linear Phase | Two stages, twice the latency | One stage (the whole 2×2 response in one kernel): the latency isn't doubled |
 | Dynamic bands in Linear Phase | The kernel made again each block (up to High) | A delta kernel per dynamic band, mixed in per sample (up to High, as Pro-Q): the same latency, less CPU |
 | Automating a band in Linear Phase | Glides | Heard when the song's next sent (an edit); automation is heard in Zero Latency and Natural Phase |

@@ -236,7 +236,7 @@ describe.skipIf(!existsSync(ENGINE))("Pro-C, offline", () => {
     expect((g1 - g0) / 0.08).toBeLessThan(140);
   });
 
-  it("ducks one track by another's sound (an external key, its 0% send made)", async () => {
+  it("ducks one track by another's sound (an external key: no send needed)", async () => {
     // The signal on Insert 1 with the Pro-C; a click on Insert 2 is the key.
     let s = addChannels(createMusicProject("Duck", 120), [
       { id: "chan_sig", name: "Signal", sampleId: "sq20" },

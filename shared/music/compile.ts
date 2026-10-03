@@ -5,7 +5,8 @@
  * the mixer's routing as an order to run its tracks in. The engine (`engine/src/Song.cpp`) only has to
  * play samples and audio clips at the right moments and add up tracks as it's told.
  */
-import { automationIndex, clipAtTick, controlAt, controlBreaks, controlOf, isAutomated, placedValue, targetKey } from "./automation.ts";
+import { type AutomationIndex, automationIndex, clipAtTick, controlAt, controlBreaks, controlOf, isAutomated, placedValue, targetKey } from "./automation.ts";
+import { modulatedFraction, modulationIndex } from "./modulation.ts";
 import { clipContext, clipLength, songTicks, trackAt } from "./playlist.ts";
 import { audioPlayback } from "./stretch.ts";
 import { LANE_FINEST, sampleLane } from "./sampling.ts";
@@ -21,7 +22,7 @@ import { GROSS_SLOTS } from "./gross-beat-presets.ts";
 import { AUTO_TUNE_CONTROL_INFO } from "./auto-tune-presets.ts";
 import { type EnginePanMan, enginePanMan, isPatternMode, panShape } from "./panman.ts";
 import { PAN_ENGINE_CONTROLS, PAN_LANE_SCALE, PAN_SHAPING_CONTROLS } from "./panman-presets.ts";
-import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched } from "./project.ts";
+import { DEFAULT_FADER, DEFAULT_VELOCITY, DEFAULT_VOLUME, MASTER_TRACK_ID, patternSteps, precomputedUntouched, routeOf } from "./project.ts";
 import { type Lfo, MOD_TARGETS, type ModEnvelope, type SampleLoop, type SamplerFilter, samplerOf } from "./sampler.ts";
 import { autoGain } from "./pro-q-filters.ts";
 import { heardMixer } from "./solo.ts";
@@ -47,6 +48,7 @@ import {
   PPQ,
   type Pattern,
   type Precomputed,
+  type SidechainTap,
   ROOT_PITCH,
   STEP_TICKS,
 } from "./types.ts";
@@ -113,6 +115,11 @@ export interface EngineEffect {
   enabled: boolean;
   /** 0..1 of the effect's sound against what comes in. */
   mix: number;
+  /**
+   * Its key (`docs/sidechain.md`): an earlier track's sound (its index in `EngineSong.tracks`), taken before
+   * its effects, after them, or after its fader. Pro-C's External and a plugin's sidechain input hear it.
+   */
+  key?: { track: number; tap: SidechainTap };
   /** A Gross Beat (ours, run by the engine itself: its `plugin.id` is `GROSS_BEAT_PLUGIN`'s): its settings and envelopes. */
   grossBeat?: EngineGrossBeat;
   /** An Auto-Tune (ours too, `AUTO_TUNE_PLUGIN`): its settings in the engine's units. */
@@ -151,6 +158,11 @@ export interface EngineTrack {
   sends: { track: number; gain: number; preFader?: boolean }[];
   /** Milliseconds added to its plugins' reported delay (`MixerTrack.latencyOffset`); the engine compensates for both. */
   latencyOffset: number;
+  /**
+   * A track another's solo silences that keys an effect after its fader: its gains as if it weren't soloed
+   * out, for that key (a solo never stops a duck). Absent: its keys take `gains`.
+   */
+  keyGains?: [number, number, number, number];
   /**
    * Its input on the audio device, or null: the device's input channels (one is heard on both sides),
    * whether it's heard (`monitor`: added in before its effects, so it's heard through them) and
@@ -251,6 +263,30 @@ export interface EngineLane {
   target: EngineLaneTarget;
   ticks: number[];
   values: number[];
+  /**
+   * Moved by a modulator (`docs/sidechain.md`; its index in `EngineSong.modulators`): each point is then
+   * `steps` sets of values, at the modulator's level 0, 1/(steps−1) … 1, which the engine reads between at
+   * its level; `base` is that grid at the controls' own values (while the song is stopped, or in pattern mode
+   * where automation doesn't play). A plugin parameter's lane has no grid: `amount` is added at the level.
+   */
+  modulator?: number;
+  steps?: number;
+  base?: number[];
+  amount?: number;
+}
+
+/** A modulator as the engine follows it: a track's sound at a tap, or a channel's notes (`docs/sidechain.md`). */
+export interface EngineModulator {
+  id: string;
+  /** Its source: a track (index into `EngineSong.tracks`) at a tap, or a channel (index into `channels`). */
+  track?: number;
+  tap?: SidechainTap;
+  channel?: number;
+  /** Seconds, as the document's; `gain` linear. */
+  attack: number;
+  release: number;
+  gain: number;
+  tension: number;
 }
 
 /** How many values a lane's target takes at each point. */
@@ -283,8 +319,13 @@ export interface EngineSong {
    * master last (what it puts out is what's heard).
    */
   tracks: EngineTrack[];
-  /** The automated controls (song mode only): what they are over the loop. Without one, a control is as `channels` and `tracks` say. */
+  /**
+   * The automated controls (song mode only) and the modulated ones (both modes): what they are over the loop.
+   * Without one, a control is as `channels` and `tracks` say.
+   */
   lanes: EngineLane[];
+  /** The modulators the lanes name (absent: none). */
+  modulators?: EngineModulator[];
   /**
    * With tempo clips (song mode, `warpSong`): the metronome's beats, in order, and those that start a bar,
    * from the loop's start, as they no longer fall every `beatTicks`. Absent: they do.
@@ -350,17 +391,19 @@ export function stereoGains(track: Pick<MixerTrack, "invert" | "swap" | "stereo"
  * the master last.
  */
 export function trackOrder(tracks: readonly MixerTrack[]): MixerTrack[] {
+  // Where each track's sound goes on to: its sends, and the tracks it keys (a key is heard before its track runs).
+  const next = routeOf(tracks);
   const waiting = new Map<string, number>(tracks.map((t) => [t.id, 0]));
-  for (const track of tracks) for (const send of track.sends) waiting.set(send.to, (waiting.get(send.to) ?? 0) + 1);
+  for (const track of tracks) for (const to of next(track.id)) waiting.set(to, (waiting.get(to) ?? 0) + 1);
   const order: MixerTrack[] = [];
   const done = new Set<string>();
   // Repeatedly take the first track nothing is still waiting to send to (a few hundred tracks at most).
   while (order.length < tracks.length) {
-    const next = tracks.find((t) => !done.has(t.id) && t.id !== MASTER_TRACK_ID && waiting.get(t.id) === 0);
-    if (!next) break;
-    done.add(next.id);
-    order.push(next);
-    for (const send of next.sends) waiting.set(send.to, waiting.get(send.to)! - 1);
+    const ready = tracks.find((t) => !done.has(t.id) && t.id !== MASTER_TRACK_ID && waiting.get(t.id) === 0);
+    if (!ready) break;
+    done.add(ready.id);
+    order.push(ready);
+    for (const to of next(ready.id)) waiting.set(to, waiting.get(to)! - 1);
   }
   const master = tracks.find((t) => t.id === MASTER_TRACK_ID);
   if (master) order.push(master);
@@ -458,12 +501,20 @@ function vcaGains(song: MusicProject): Map<string, number> {
   return gains;
 }
 
-function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: PlayMode = "pattern", listening: Listening = {}): { tracks: EngineTrack[]; index: Map<string, number> } {
+function engineTracks(
+  song: MusicProject,
+  armed: ReadonlySet<string>,
+  mode: PlayMode = "pattern",
+  listening: Listening = {},
+  soloedOut: ReadonlySet<string> = new Set(),
+): { tracks: EngineTrack[]; index: Map<string, number> } {
   const gross = grossSlots(song, mode);
   const ordered = trackOrder(song.mixer.tracks);
   const index = new Map(ordered.map((t, i) => [t.id, i]));
   const numbers = new Map(song.mixer.tracks.map((t, i) => [t.id, i]));
   const vca = vcaGains(song);
+  // Tracks keying an effect after their fader: one the solo silences keeps its gains for that key.
+  const fadedKeys = new Set(song.mixer.tracks.flatMap((t) => t.effects.flatMap((e) => (e?.sidechain?.tap === "postFader" ? [e.sidechain.track] : []))));
   const tracks = ordered.map((track): EngineTrack => {
     // The main volume is the master's, after its fader; a group's VCA fader its tracks'.
     const main = track.id === MASTER_TRACK_ID ? levelGain(song.settings.volume, DEFAULT_VOLUME) : (vca.get(track.id) ?? 1);
@@ -474,19 +525,15 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
       effects: track.effects.flatMap((e): EngineEffect[] => {
         if (!e) return [];
         const effect: EngineEffect = { id: e.id, plugin: { id: e.plugin.id, state: "" }, enabled: e.enabled, mix: e.mix };
+        // Its key: an earlier track (the order puts every source first; a key that isn't, from a song that slipped past the edits, is dropped).
+        const source = e.sidechain ? index.get(e.sidechain.track) : undefined;
+        if (e.sidechain && source !== undefined && source < index.get(track.id)!) effect.key = { track: source, tap: e.sidechain.tap };
         const slots = gross.get(e.id);
         if (e.autoTune) return [{ ...effect, autoTune: engineAutoTune(e.autoTune) }];
         if (e.echoBoy) return [{ ...effect, echoBoy: engineEchoBoy(e.echoBoy, song.settings.tempo) }];
         if (e.proQ) return [{ ...effect, eq: engineProQ(e.proQ) }];
         if (e.ott) return [{ ...effect, ott: engineOtt(e.ott) }];
-        if (e.proC) {
-          const proC = engineProC(e.proC);
-          // Keyed from another track: only one that sends here (so it runs first); otherwise it hears nothing.
-          const source = e.proC.sidechain.trigger === "external" ? e.proC.sidechain.track : null;
-          const from = source ? song.mixer.tracks.find((t) => t.id === source) : undefined;
-          const key = from && from.sends.some((s) => s.to === track.id) ? (index.get(from.id) ?? -1) : -1;
-          return [{ ...effect, proC: { ...proC, sidechain: { ...proC.sidechain, key: key < index.get(track.id)! ? key : -1 } } }];
-        }
+        if (e.proC) return [{ ...effect, proC: engineProC(e.proC) }];
         if (e.panMan) return [{ ...effect, panMan: enginePanMan(e.panMan, e.id) }];
         if (e.pitchWheel) {
           // Notes from a channel the song no longer has: none.
@@ -496,6 +543,7 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
         return [e.grossBeat && slots ? { ...effect, grossBeat: engineGrossBeat(e.grossBeat, slots.time, slots.volume) } : effect];
       }),
       gains: trackGains(track, main, track.id === MASTER_TRACK_ID ? listening : {}),
+      ...(soloedOut.has(track.id) && fadedKeys.has(track.id) && { keyGains: trackGains({ ...track, muted: false }, main) }),
       latencyOffset: track.latencyOffset,
       input: engineInput(track, armed.has(track.id)),
       sends: track.sends.flatMap((send) => {
@@ -508,6 +556,40 @@ function engineTracks(song: MusicProject, armed: ReadonlySet<string>, mode: Play
     };
   });
   return { tracks, index };
+}
+
+/** A modulator's level (0..1) by its index in the song's list: what a modulated lane is worked out at. */
+type Level = (modulator: number) => number;
+const NO_AUTOMATION: AutomationIndex = new Map();
+const NO_MODULATION: ReturnType<typeof modulationIndex> = new Map();
+/** A modulated lane's grid: at most this many levels (fewer for wide lanes, a point holding at most `LANE_MAX_VALUES`: the engine's `Song::Lane::maxSize`). */
+const MOD_STEPS = 17;
+const LANE_MAX_VALUES = 128;
+
+/**
+ * The modulators the engine follows, and each one's index there by its index in the song: those whose
+ * source is in this song (a track that's run, a channel).
+ */
+function engineModulators(song: MusicProject, trackIndex: Map<string, number>): { list: EngineModulator[]; index: Map<number, number> } {
+  const list: EngineModulator[] = [];
+  const index = new Map<number, number>();
+  song.modulators.forEach((m, i) => {
+    if (!m.links.length) return;
+    const knobs = { attack: m.attack, release: m.release, gain: 10 ** (m.gain / 20), tension: m.tension };
+    if (m.source.kind === "track") {
+      const track = trackIndex.get(m.source.track);
+      if (track === undefined) return;
+      index.set(i, list.length);
+      list.push({ id: m.id, track, tap: m.source.tap, ...knobs });
+    } else {
+      const source = m.source;
+      const channel = song.channels.findIndex((c) => c.id === source.channel);
+      if (channel < 0) return;
+      index.set(i, list.length);
+      list.push({ id: m.id, channel, ...knobs });
+    }
+  });
+  return { list, index };
 }
 
 /** The most a step is delayed by swing: half a step, at full swing. */
@@ -586,7 +668,10 @@ export function compileSong(
   const notes = transposePlugins(song, mode === "song" ? songNotes(song, from, to) : patternNotes(song, pattern, from, to), mode === "song" ? from : null, held);
   notes.sort((a, b) => a.tick - b.tick || a.channel - b.channel);
   const played = new Set(notes.map((n) => n.channel));
-  const { tracks, index } = engineTracks(song, armed, mode, listening);
+  const muted = new Set(song.mixer.tracks.filter((t) => t.muted).map((t) => t.id));
+  const soloedOut = new Set(written.mixer.tracks.filter((t) => !t.muted && muted.has(t.id)).map((t) => t.id));
+  const { tracks, index } = engineTracks(song, armed, mode, listening, soloedOut);
+  const modulators = engineModulators(song, index);
   const master = index.get(MASTER_TRACK_ID)!;
   const compiled: EngineSong = {
     tempo: song.settings.tempo,
@@ -599,8 +684,9 @@ export function compileSong(
     notes,
     audioClips: mode === "song" ? audioClips(song, from, to) : [],
     tracks,
-    // Automation only plays in song mode (Théo).
-    lanes: mode === "song" ? automationLanes(song, index, from, to, held, listening) : [],
+    // Automation only plays in song mode (Théo); modulation in both.
+    lanes: automationLanes(song, index, from, to, held, listening, mode === "song", modulators.index),
+    ...(modulators.list.length && { modulators: modulators.list }),
   };
   // Tempo clips (song mode): the engine keeps the song's own tempo, and every tick goes where it falls in time.
   const map = mode === "song" ? tempoMap(song) : null;
@@ -799,43 +885,81 @@ export function soundingChannels(song: MusicProject, pattern: Pattern, tick: num
  * and pan make one lane of its gains, a track's fader, pan and stereo separation (and the master's main
  * volume) one of its matrix.
  */
-function automationLanes(song: MusicProject, trackIndex: Map<string, number>, from: number, to: number, held: ReadonlySet<string>, listening: Listening): EngineLane[] {
-  const index = automationIndex(song);
-  if (!index.size || to <= from) return [];
+function automationLanes(
+  song: MusicProject,
+  trackIndex: Map<string, number>,
+  from: number,
+  to: number,
+  held: ReadonlySet<string>,
+  listening: Listening,
+  automate: boolean,
+  modulators: ReadonlyMap<number, number>,
+): EngineLane[] {
+  const index = automate ? automationIndex(song) : NO_AUTOMATION;
+  // The modulated controls, by `targetKey` (those of modulators the engine follows).
+  const mods = modulators.size ? modulationIndex(song) : NO_MODULATION;
+  if ((!index.size && !mods.size) || to <= from) return [];
   const { barTicks } = clipContext(song);
   const vca = vcaGains(song);
+  /** A control's key when a lane is needed for it: automated (and not held by the hand), or modulated. */
   const automated = (target: AutomationTarget) => {
     const key = targetKey(target);
+    if (mods.has(key) && modulators.has(mods.get(key)!.index)) return key;
     return !held.has(key) && index.has(key) ? key : null;
   };
-  /** A control's value at a tick, as its own (a pan's -1..1), or its own value where no clip says. */
+  // Working out the lanes' own values (stopped, pattern mode): automation left out.
+  let ownOnly = false;
+  /**
+   * A control's value at a tick, as its own (a pan's -1..1), or its own value where no clip says; moved by its
+   * modulator at the level `eOf` gives that modulator (by its index in the song).
+   */
   const valueOf = (target: AutomationTarget, own: number) => {
     const key = targetKey(target);
     const placed = index.get(key);
     const info = controlOf(song, target);
+    const link = mods.get(key);
     // Held by the hand (in a lane with other controls that aren't): its own value, as the hand has it.
-    if (!placed || held.has(key)) return () => own;
-    return (tick: number) => {
+    const base = !placed || held.has(key) ? () => own : (tick: number) => {
+      if (ownOnly) return own;
       const found = clipAtTick(placed, tick);
       return found ? info.toControl(placedValue(found.placed, tick, barTicks)) : own;
+    };
+    if (!link) return (tick: number, _eOf?: Level) => base(tick);
+    return (tick: number, eOf?: Level) => {
+      const v = base(tick);
+      const e = eOf ? eOf(link.index) : 0;
+      return e ? info.toControl(modulatedFraction(info.fromControl(v), link.link.amount, e)) : v;
     };
   };
   const breaksOf = (keys: (string | null)[]) => {
     const all = new Set<number>();
-    for (const key of keys) if (key) for (const tick of controlBreaks(index.get(key)!, from, to)) all.add(tick);
+    for (const key of keys) if (key) for (const tick of controlBreaks(index.get(key) ?? [], from, to)) all.add(tick);
     return [...all].sort((a, b) => a - b);
   };
   /** How often a lane must be looked at to see its clips' LFOs (a quarter of the fastest one's cycle), else a beat. */
   const stepOf = (keys: (string | null)[]) => {
     let step = PPQ;
     for (const key of keys)
-      if (key) for (const p of index.get(key)!) if (p.automation.lfo.enabled && p.automation.lfo.level) step = Math.min(step, barTicks / p.automation.lfo.speed / 4);
+      if (key) for (const p of index.get(key) ?? []) if (p.automation.lfo.enabled && p.automation.lfo.level) step = Math.min(step, barTicks / p.automation.lfo.speed / 4);
     return Math.max(LANE_FINEST * 4, step);
   };
   const lanes: EngineLane[] = [];
-  const add = (target: EngineLaneTarget, keys: (string | null)[], value: (tick: number) => number[]) => {
+  const add = (target: EngineLaneTarget, keys: (string | null)[], value: (tick: number, eOf?: Level) => number[]) => {
     if (!keys.some(Boolean)) return;
-    lanes.push({ target, ...sampleLane(value, breaksOf(keys), from, to, stepOf(keys)) });
+    // The first modulator moving any of its controls (the engine follows it), if it fits a grid.
+    const modulated = keys.find((key) => key && mods.has(key) && modulators.has(mods.get(key)!.index));
+    const songIndex = modulated ? mods.get(modulated)!.index : -1;
+    const size = value(from).length;
+    const steps = Math.min(MOD_STEPS, Math.floor(LANE_MAX_VALUES / size));
+    if (songIndex < 0 || steps < 2) {
+      if (keys.some((key) => key && index.has(key) && !held.has(key))) lanes.push({ target, ...sampleLane((tick) => value(tick), breaksOf(keys), from, to, stepOf(keys)) });
+      return;
+    }
+    const grid = (tick: number) => Array.from({ length: steps }, (_, k) => value(tick, (i) => (i === songIndex ? k / (steps - 1) : 0))).flat();
+    ownOnly = true;
+    const base = grid(from);
+    ownOnly = false;
+    lanes.push({ target, ...sampleLane(grid, breaksOf(keys), from, to, stepOf(keys)), modulator: modulators.get(songIndex)!, steps, base: base.map((v) => Math.round(v * 1e6) / 1e6) });
   };
 
   song.channels.forEach((channel, i) => {
@@ -844,12 +968,12 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
     const panTarget: AutomationTarget = { kind: "channel", channel: channel.id, control: "pan" };
     const volume = valueOf(volumeTarget, channel.volume);
     const pan = valueOf(panTarget, channel.pan);
-    add({ kind: "channel", channel: i }, [automated(volumeTarget), automated(panTarget)], (tick) => channelGains({ muted: false, volume: volume(tick), pan: pan(tick) }));
+    add({ kind: "channel", channel: i }, [automated(volumeTarget), automated(panTarget)], (tick, eOf) => channelGains({ muted: false, volume: volume(tick, eOf), pan: pan(tick, eOf) }));
     // A sampler's pitch bends its voices as they sound (a plugin channel's moves its notes' keys: `transposePlugins`).
     if (channel.kind !== "plugin") {
       const pitchTarget: AutomationTarget = { kind: "channel", channel: channel.id, control: "pitch" };
       const pitch = valueOf(pitchTarget, channel.pitch);
-      add({ kind: "pitch", channel: i }, [automated(pitchTarget)], (tick) => [pitch(tick)]);
+      add({ kind: "pitch", channel: i }, [automated(pitchTarget)], (tick, eOf) => [pitch(tick, eOf)]);
     }
   });
 
@@ -864,8 +988,8 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       const mainTarget: AutomationTarget = { kind: "main" };
       const main = valueOf(mainTarget, song.settings.volume);
       const keys = [...controls.map((c) => c.key), master ? automated(mainTarget) : null];
-      add({ kind: "track", track: t }, keys, (tick) =>
-        trackGains({ ...track, volume: controls[0].value(tick), pan: controls[1].value(tick), stereo: controls[2].value(tick) }, master ? levelGain(main(tick), DEFAULT_VOLUME) : (vca.get(track.id) ?? 1), master ? listening : {}),
+      add({ kind: "track", track: t }, keys, (tick, eOf) =>
+        trackGains({ ...track, volume: controls[0].value(tick, eOf), pan: controls[1].value(tick, eOf), stereo: controls[2].value(tick, eOf) }, master ? levelGain(main(tick, eOf), DEFAULT_VOLUME) : (vca.get(track.id) ?? 1), master ? listening : {}),
       );
     }
     // Sends as the engine has them (to later tracks), in the same order.
@@ -876,42 +1000,42 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
       const target: AutomationTarget = { kind: "send", track: track.id, to: send.to };
       const level = valueOf(target, send.level);
       const silent = send.preFader && track.muted;
-      add({ kind: "send", track: t, send: sendIndex++ }, [automated(target)], (tick) => [silent ? 0 : levelGain(level(tick), 1)]);
+      add({ kind: "send", track: t, send: sendIndex++ }, [automated(target)], (tick, eOf) => [silent ? 0 : levelGain(level(tick, eOf), 1)]);
     }
     let effectIndex = 0;
     for (const effect of track.effects) {
       if (!effect) continue;
       const mixTarget: AutomationTarget = { kind: "effect", effect: effect.id };
       const mix = valueOf(mixTarget, effect.mix);
-      add({ kind: "mix", track: t, effect: effectIndex }, [automated(mixTarget)], (tick) => [mix(tick)]);
+      add({ kind: "mix", track: t, effect: effectIndex }, [automated(mixTarget)], (tick, eOf) => [mix(tick, eOf)]);
       const gb = effect.grossBeat;
       if (gb) {
         const gross = (control: GrossControl): AutomationTarget => ({ kind: "grossBeat", effect: effect.id, control });
         for (const control of ["timeMix", "volumeMix", "attack", "release", "tension"] as const) {
           const value = valueOf(gross(control), gb[control]);
-          add({ kind: "gross", track: t, effect: effectIndex, control }, [automated(gross(control))], (tick) => [value(tick)]);
+          add({ kind: "gross", track: t, effect: effectIndex, control }, [automated(gross(control))], (tick, eOf) => [value(tick, eOf)]);
         }
         // Slots, by number. Linked, a slot that isn't automated follows the other's automation.
         const time = { key: automated(gross("timeSlot")), value: valueOf(gross("timeSlot"), gb.timeSlot) };
         const volume = { key: automated(gross("volumeSlot")), value: valueOf(gross("volumeSlot"), gb.volumeSlot) };
         const timeDriver = !time.key && gb.linkSlots && volume.key ? volume : time;
         const volumeDriver = !volume.key && gb.linkSlots && time.key ? time : volume;
-        add({ kind: "gross", track: t, effect: effectIndex, control: "timeSlot" }, [timeDriver.key], (tick) => [timeDriver.value(tick)]);
-        add({ kind: "gross", track: t, effect: effectIndex, control: "volumeSlot" }, [volumeDriver.key], (tick) => [volumeDriver.value(tick)]);
+        add({ kind: "gross", track: t, effect: effectIndex, control: "timeSlot" }, [timeDriver.key], (tick, eOf) => [timeDriver.value(tick, eOf)]);
+        add({ kind: "gross", track: t, effect: effectIndex, control: "volumeSlot" }, [volumeDriver.key], (tick, eOf) => [volumeDriver.value(tick, eOf)]);
       }
       const at = effect.autoTune;
       if (at)
         for (const control of AUTO_TUNE_CONTROLS) {
           const target: AutomationTarget = { kind: "autoTune", effect: effect.id, control };
           const value = valueOf(target, AUTO_TUNE_CONTROL_INFO[control].get(at));
-          add({ kind: "tune", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineControlValue(control, value(tick))]);
+          add({ kind: "tune", track: t, effect: effectIndex, control }, [automated(target)], (tick, eOf) => [engineControlValue(control, value(tick, eOf))]);
         }
       const pw = effect.pitchWheel;
       if (pw)
         for (const control of PITCH_WHEEL_CONTROLS) {
           const target: AutomationTarget = { kind: "pitchWheel", effect: effect.id, control };
           const value = valueOf(target, pitchWheelValue(pw, control));
-          add({ kind: "wheel", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [engineWheelValue(pw, control, value(tick))]);
+          add({ kind: "wheel", track: t, effect: effectIndex, control }, [automated(target)], (tick, eOf) => [engineWheelValue(pw, control, value(tick, eOf))]);
         }
       const eb = effect.echoBoy;
       if (eb) {
@@ -924,8 +1048,8 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
           // (Only Rhythm Echo has taps.)
           if (lane === "taps" && eb.mode !== "rhythm") continue;
           const moving = controls.filter((c) => LANES_OF[c.control].includes(lane));
-          add({ kind: "echo", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
-            const at = moving.reduce((settings, c) => (c.key ? ECHO_CONTROL_SPECS[c.control].set(settings, c.value(tick), song.settings.tempo) : settings), eb);
+          add({ kind: "echo", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick, eOf) => {
+            const at = moving.reduce((settings, c) => (c.key ? ECHO_CONTROL_SPECS[c.control].set(settings, c.value(tick, eOf), song.settings.tempo) : settings), eb);
             return ECHO_LANES[lane](engineEchoBoy(at, song.settings.tempo));
           });
         }
@@ -937,18 +1061,18 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
         const scaleTarget: AutomationTarget = { kind: "proQ", effect: effect.id, band: 0, control: "gainScale" };
         const scaleKey = automated(scaleTarget);
         const scaleAt = valueOf(scaleTarget, pq.gainScale);
-        const lane = (band: number, control: EqControl, own: number, toEngine: (v: number, tick: number) => number, scaled = false) => {
+        const lane = (band: number, control: EqControl, own: number, toEngine: (v: number, tick: number, eOf?: Level) => number, scaled = false) => {
           const target: AutomationTarget = { kind: "proQ", effect: effect.id, band, control };
           const value = valueOf(target, own);
-          add({ kind: "eq", track: t, effect: effectIndex, band, control }, [automated(target), scaled ? scaleKey : null], (tick) => [toEngine(value(tick), tick)]);
+          add({ kind: "eq", track: t, effect: effectIndex, band, control }, [automated(target), scaled ? scaleKey : null], (tick, eOf) => [toEngine(value(tick, eOf), tick, eOf)]);
         };
-        const scale = (b: EqBand, tick: number) => (hasGain(b.shape) ? scaleAt(tick) : 1);
+        const scale = (b: EqBand, tick: number, eOf?: Level) => (hasGain(b.shape) ? scaleAt(tick, eOf) : 1);
         for (const b of pq.bands) {
           if (!b.enabled) continue;
           lane(b.id, "frequency", b.frequency, Math.log2);
-          lane(b.id, "gain", b.gain, (v, tick) => v * scale(b, tick), true);
+          lane(b.id, "gain", b.gain, (v, tick, eOf) => v * scale(b, tick, eOf), true);
           lane(b.id, "q", b.q, Math.log2);
-          lane(b.id, "range", b.range, (v, tick) => v * scale(b, tick), true);
+          lane(b.id, "range", b.range, (v, tick, eOf) => v * scale(b, tick, eOf), true);
         }
         const auto = pq.autoGain ? autoGain(pq) : 0;
         lane(0, "output", pq.output, (v) => v + auto);
@@ -963,8 +1087,8 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
         });
         for (const lane of Object.keys(OTT_LANES) as OttLane[]) {
           const moving = controls.filter((c) => OTT_LANES_OF[c.control].includes(lane));
-          add({ kind: "ott", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
-            const at = moving.reduce((settings, c) => (c.key ? OTT_CONTROL_SPECS[c.control].set(settings, c.value(tick)) : settings), ott);
+          add({ kind: "ott", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick, eOf) => {
+            const at = moving.reduce((settings, c) => (c.key ? OTT_CONTROL_SPECS[c.control].set(settings, c.value(tick, eOf)) : settings), ott);
             return OTT_LANES[lane](engineOtt(at));
           });
         }
@@ -978,8 +1102,8 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
         });
         for (const lane of Object.keys(PRO_C_LANES) as ProCLane[]) {
           const moving = controls.filter((c) => PRO_C_LANES_OF[c.control].includes(lane));
-          add({ kind: "comp", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick) => {
-            const at = moving.reduce((settings, c) => (c.key ? PRO_C_CONTROL_SPECS[c.control].set(settings, c.value(tick)) : settings), pc as ProCState);
+          add({ kind: "comp", track: t, effect: effectIndex, control: lane }, moving.map((c) => c.key), (tick, eOf) => {
+            const at = moving.reduce((settings, c) => (c.key ? PRO_C_CONTROL_SPECS[c.control].set(settings, c.value(tick, eOf)) : settings), pc as ProCState);
             return PRO_C_LANES[lane](engineProC(at));
           });
         }
@@ -990,7 +1114,7 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
           const target: AutomationTarget = { kind: "panMan", effect: effect.id, control };
           const value = valueOf(target, pm[control]);
           const scale = PAN_LANE_SCALE[control];
-          add({ kind: "panman", track: t, effect: effectIndex, control }, [automated(target)], (tick) => [value(tick) / scale]);
+          add({ kind: "panman", track: t, effect: effectIndex, control }, [automated(target)], (tick, eOf) => [value(tick, eOf) / scale]);
         }
         // Smoothing, Feel and Groove reshape a pattern mode's pattern: automated, it's sent whole, evenly sampled.
         if (isPatternMode(pm.mode)) {
@@ -998,8 +1122,8 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
             const target: AutomationTarget = { kind: "panMan", effect: effect.id, control };
             return { control, key: automated(target), value: valueOf(target, pm[control]) };
           });
-          add({ kind: "panman", track: t, effect: effectIndex, control: "shape" }, shaping.map((c) => c.key), (tick) => {
-            const at = shaping.reduce((settings, c) => (c.key ? { ...settings, [c.control]: c.value(tick) } : settings), pm);
+          add({ kind: "panman", track: t, effect: effectIndex, control: "shape" }, shaping.map((c) => c.key), (tick, eOf) => {
+            const at = shaping.reduce((settings, c) => (c.key ? { ...settings, [c.control]: c.value(tick, eOf) } : settings), pm);
             return panShape(at);
           });
         }
@@ -1008,19 +1132,27 @@ function automationLanes(song: MusicProject, trackIndex: Map<string, number>, fr
     }
   }
 
-  // Plugins' parameters: wherever no clip says, the plugin keeps its own value (-1).
+  // Plugins' parameters: wherever no clip says, the plugin keeps its own value (-1). A modulated one moves
+  // from that by its amount in the plugin's own 0..1 (the engine adds it: only the plugin knows its value).
   const pluginKeys = new Set<string>();
-  for (const automation of song.automations) {
-    const target = automation.target;
+  const pluginTargets = [...song.automations.map((a) => a.target), ...[...mods.values()].map((m) => m.link.target)];
+  for (const target of pluginTargets) {
     if (target.kind !== "plugin") continue;
-    const key = automated(target);
-    if (!key || pluginKeys.has(key) || !controlOf(song, target).exists) continue;
+    const key = targetKey(target);
+    if (pluginKeys.has(key) || !controlOf(song, target).exists) continue;
+    const placed = !held.has(key) ? index.get(key) : undefined;
+    const link = mods.get(key);
+    const modulator = link ? modulators.get(link.index) : undefined;
+    if (!placed && modulator === undefined) continue;
     pluginKeys.add(key);
-    const placed = index.get(key)!;
-    add({ kind: "param", owner: target.owner, id: target.id, param: target.param, index: target.index }, [key], (tick) => {
-      const found = clipAtTick(placed, tick);
-      return [found ? placedValue(found.placed, tick, barTicks) : -1];
-    });
+    const laneTarget: EngineLaneTarget = { kind: "param", owner: target.owner, id: target.id, param: target.param, index: target.index };
+    const points = placed
+      ? sampleLane((tick) => {
+          const found = clipAtTick(placed, tick);
+          return [found ? placedValue(found.placed, tick, barTicks) : -1];
+        }, breaksOf([key]), from, to, stepOf([key]))
+      : { ticks: [0], values: [-1] };
+    lanes.push({ target: laneTarget, ...points, ...(modulator !== undefined && link && { modulator, amount: link.link.amount }) });
   }
   return lanes;
 }

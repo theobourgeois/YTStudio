@@ -336,8 +336,13 @@ Ableton, Reaper, Studio One, Bitwig), all built, a commit each:
   (a strip after the master scaling the group's levels, each keeping its own fader and automation);
   a bus **folds** away the tracks going into it (its chip says how many).
 
-Not yet: a key to act on one strip of a selection alone; sidechain inputs to plugins (when they come,
-solo must keep feeding them, below); the VCA fader and the listening switches aren't automatable.
+Not yet: a key to act on one strip of a selection alone; the VCA fader and the listening switches aren't
+automatable.
+
+**Sidechains** (`docs/sidechain.md`): an effect slot's key is its own (`MixerEffect.sidechain`), chosen in the
+slot's menu (Sidechain input ▸), Pro-C's External or a strip's Sidechain to ▸, taken before the source's
+effects, after them (the default) or after its fader; no 0% send is needed (FL's still work). A key badge marks
+the slot, a dotted cable joins the tracks, and solo never stops one.
 
 Not yet, or different: icons, the Current track, the track EQ (put off), "Compensate automations"
 (automation is applied as the song plays, not shifted for plugin delay), recording, the slot's presets and Patcher, the
@@ -354,8 +359,8 @@ Not yet, or different: icons, the Current track, the track EQ (put off), "Compen
   except the master and **solo safe** tracks (a reverb return). Each strip has an **S** beside its mute
   light: a click adds to the solo (or takes out), Alt / ⌘ solos alone, Shift makes it solo safe (a
   lock). The mute light's right-click and Ctrl / Alt+click solo alone, FL's habit; S and Alt+S the same
-  on the keys. A sidechain (a send at 0) is no way for the sound. When plugins get sidechain inputs,
-  a track the solo silences must still feed them (its gains kept, its audible sends cut), so a ducked
+  on the keys. A sidechain (a send at 0) is no way for the sound. A track the solo silences still feeds
+  its keys (after its effects as always; after its fader through the gains it would have), so a ducked
   bass still ducks.
 - **Removing a track** sends its channels to the master, and a track left sending nowhere because of it
   goes to the master too.
@@ -369,7 +374,7 @@ The rest of the table is still to build.
 | Signal order | Effects, EQ, level and pan, mute, sends (post-fader) | The same |
 | Effect slots | 10, with on/off and mix, reordered by the wheel | The same; VST3 and AU effects, states in `plugins/<slot id>.bin` like instruments' |
 | The track EQ | Three fixed bands in the inspector | The same; a stock EQ plugin with more bands can come later |
-| Sends | Post-fader, a knob per send, loops refused, sidechain at 0 | The same; loops refused by the edit (`edits.ts`), so the engine never sees one. Sidechain inputs to plugins later |
+| Sends | Post-fader, a knob per send, loops refused, sidechain at 0 | The same; loops refused by the edit (`edits.ts`), so the engine never sees one. Sidechains are the effect's own key, no send needed (`docs/sidechain.md`) |
 | Pan | Folds one side into the other, circular law | The same for the Mixer; the channels' pan stays as it is |
 | PDC | Automatic, per path, plus manual offsets | Report latency first; automatic compensation soon after |
 | Meters | Peak, per track, orange over 0 dB | The same, from `EngineStatus` |

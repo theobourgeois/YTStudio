@@ -12,6 +12,9 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addChannels, addPluginChannel, setChannelNotes, setSteps, updateChannel } from "../../shared/music/edits.ts";
 import { routeChannels, setEffect, setSend } from "../../shared/music/mixer.ts";
+import { updateProC } from "../../shared/music/pro-c.ts";
+import { PRO_C_PLUGIN } from "../../shared/music/pro-c-presets.ts";
+import { setSidechain } from "../../shared/music/sidechain.ts";
 import { addAudioClips, addClips, editClips } from "../../shared/music/playlist.ts";
 import { createAutomation, editPoints, updateAutomation } from "../../shared/music/automation.ts";
 import { FIRST_PATTERN_ID, createMusicProject as newSong } from "../../shared/music/project.ts";
@@ -74,7 +77,8 @@ describe.skipIf(!built)("the export, offline", () => {
   const kicks = (steps: number[]) => setSteps(addChannels(createMusicProject("Test"), [{ id: "chan_kick", name: "Kick", sampleId: "hit" }]), P, "chan_kick", steps, true);
   /** Waits for every plugin of the song to have loaded (as the app does before it's heard). */
   async function loaded(song: MusicProject) {
-    const effects = song.mixer.tracks.flatMap((t) => t.effects.filter(Boolean)).length;
+    // (Ours aren't plugins: they're always ready.)
+    const effects = song.mixer.tracks.flatMap((t) => t.effects.filter((e) => e && !e.proC)).length;
     await expect.poll(async () => (await engine.setSong({ projectId: PROJECT, song, patternId: P })).effects.loaded.length).toBe(effects);
   }
 
@@ -169,6 +173,10 @@ describe.skipIf(!built)("the export, offline", () => {
       song = setEffect(song, `insert_${i + 1}`, 0, { id: effectId, name: "Vaudio Test Effect", format: "VST3" }, `fx_${i}`);
     }
     song = setSend(setSend(song, "insert_1", "insert_5", 0.5), "insert_2", "insert_5", 0.5);
+    // And keys: a Pro-C on the bus ducking to Insert 3 (before its effects), Insert 4's effect keyed by Insert 1.
+    song = setEffect(song, "insert_5", 1, PRO_C_PLUGIN, "fx_duck");
+    song = updateProC(song, "fx_duck", { style: "clean", threshold: -30, slope: 1, attack: 0.001, release: 0.05, autoGain: false });
+    song = setSidechain(setSidechain(song, "fx_duck", "insert_3", "preFx"), "fx_3", "insert_1");
     await expect.poll(async () => (await engine.setSong({ projectId: PROJECT, song, patternId: P })).channels.loaded.length).toBe(4);
     await loaded(song);
     const one = await exportSong(song, { threads: 1, stems: true, tail: "ring" });

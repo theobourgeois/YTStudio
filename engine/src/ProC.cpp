@@ -172,7 +172,6 @@ std::shared_ptr<Settings> Settings::parse (const juce::var& json, int capacity, 
 
     const auto sc = json["sidechain"];
     s->source = pick (sc["source"], { "internal", "external", "sync" }, Source::internal);
-    s->key = (int) number (sc["key"], -1, -1, 1e6);
     s->level = number (sc["level"], 1, 0, 64);
     s->syncBeats = number (sc["syncBeats"], 1, 1.0 / 64, 64);
     s->syncLength = number (sc["syncLength"], 0.5, 0.01, 1);
@@ -896,7 +895,6 @@ void State::process (const Settings& s, const gross::Clock& clock, const float* 
     const auto cLimAttack = coefficient (s.limAttack, rate), cLimRelease = coefficient (s.limRelease, rate);
     const auto fadeStep = 1.0 / (0.005 * rate);
     const auto mode = audition.load (std::memory_order_relaxed);
-    const auto keyDelay = juce::jlimit (0, keySize - size, s.keyDelay);
     float inMax[2] {}, outMax[2] {};
 
     for (int start = 0; start < numSamples; start += chunk)
@@ -938,7 +936,8 @@ void State::process (const Settings& s, const gross::Clock& clock, const float* 
                 {
                     keyRing.setSample (0, keyWrite, keyLeft != nullptr ? keyLeft[i] : 0.0f);
                     keyRing.setSample (1, keyWrite, keyRight != nullptr ? keyRight[i] : 0.0f);
-                    const auto back = keyDelay + delay - look;
+                    // (Its slot's key, already lined up with its sound: `Song::compensate`.)
+                    const auto back = delay - look;
                     kl = keyRing.getSample (0, ((keyWrite - back) % keySize + keySize) % keySize);
                     kr = keyRing.getSample (1, ((keyWrite - back) % keySize + keySize) % keySize);
                     keyWrite = (keyWrite + 1) % keySize;

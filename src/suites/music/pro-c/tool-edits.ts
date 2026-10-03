@@ -67,7 +67,9 @@ import {
   PRO_C_TIME_MODES,
   type ProCOptions,
   type ProCStyle,
+  SIDECHAIN_TAPS,
 } from "@shared/music/types";
+import { SIDECHAIN_TAP_NAMES } from "@shared/music/sidechain";
 import { findTrack, trackLabel } from "../mixer/tool-edits";
 import type { EditResult } from "../tool-edits";
 
@@ -148,10 +150,13 @@ export function describeProC(song: MusicProject, input: Input, live?: EngineProC
   const curve = [-40, -30, -20, -10, 0].map((level) => `${level} → ${round(level - staticReduction(engine, level) + engine.makeup)}`).join(", ");
   lines.push(`Its curve (a steady level in, dB → out, make-up in): ${curve}.`);
   const sc = proC.sidechain;
-  const source = sc.track ? song.mixer.tracks.find((t) => t.id === sc.track) : null;
+  const key = effect.sidechain;
+  const source = key ? song.mixer.tracks.find((t) => t.id === key.track) : null;
   const trigger =
     sc.trigger === "external"
-      ? `external from ${source ? trackLabel(song, source) : "a track that's gone"}${source && !sidechainConnected(song, effect.id) ? " (it doesn't send here: set_pro_c_sidechain makes the send)" : ""}`
+      ? source && key
+        ? `external, keyed by ${trackLabel(song, source)} (${SIDECHAIN_TAP_NAMES[key.tap].toLowerCase()})`
+        : "external with no key yet (it hears silence: set_pro_c_sidechain or set_sidechain gives it a source)"
       : sc.trigger === "sync"
         ? `Host Sync, a pulse every 1/${sc.sync.note}${sc.sync.offset !== 1 ? ` × ${sc.sync.offset}` : ""}, ${percent(sc.sync.length)} long`
         : "internal";
@@ -288,11 +293,12 @@ export function setProCSidechainTool(song: MusicProject, input: Input): EditResu
   if (input.source !== undefined && input.source !== "") {
     const source = findTrack(song, input.source);
     if (source.id === track.id) throw new Error(`${trackLabel(song, source)} is the Pro-C's own track: key it from another one.`);
-    const keyed = setProCSidechain(next, id, source.id);
-    if (findProC(keyed, id)!.proC.sidechain.track !== source.id) throw new Error(`${trackLabel(song, source)} can't send to ${trackLabel(song, track)}: ${trackLabel(song, track)}'s sound already reaches it (a loop).`);
+    const tap = choice(input, "tap", SIDECHAIN_TAPS);
+    const keyed = setProCSidechain(next, id, source.id, tap);
+    if (findProC(keyed, id)!.effect.sidechain?.track !== source.id) throw new Error(`${trackLabel(song, source)} can't key ${trackLabel(song, track)}: ${trackLabel(song, track)}'s sound already reaches it (a loop).`);
     next = keyed;
     done.push(`keyed from ${trackLabel(song, source)}`);
-  } else if (trigger === "external" && !findProC(next, id)!.proC.sidechain.track) throw new Error('External needs a "source": the mixer track whose sound is the key.');
+  } else if (trigger === "external" && !sidechainConnected(next, id)) throw new Error('External needs a "source": the mixer track whose sound is the key.');
   const sidechain: ProCPatch["sidechain"] = {};
   if (trigger) sidechain.trigger = trigger;
   const level = number(input, "level", PRO_C_GAIN_RANGE[0], PRO_C_GAIN_RANGE[1]);
