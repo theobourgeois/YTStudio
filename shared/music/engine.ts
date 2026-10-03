@@ -101,8 +101,11 @@ export const SELECTION_METER = "@selection";
 
 /** The effects in the song's mixer, as the engine has them (by effect id, `MixerEffect.id`). */
 export interface EngineEffects {
-  /** Ready to run. `editorOpen`: the plugin's own window is showing. `latency`: the samples it delays its sound by. */
-  loaded: { effect: string; name: string; editorOpen: boolean; latency: number }[];
+  /**
+   * Ready to run. `editorOpen`: the plugin's own window is showing. `latency`: the samples it delays its sound
+   * by. `sidechain`: it has a sidechain input, which hears its slot's key (`docs/sidechain.md`).
+   */
+  loaded: { effect: string; name: string; editorOpen: boolean; latency: number; sidechain?: boolean }[];
   /** Effect ids whose plugin is still being loaded. */
   loading: string[];
   /** Effects whose plugin couldn't be loaded, and why. */
@@ -135,6 +138,8 @@ export interface EngineTransport {
   panMen?: Record<string, EnginePanState>;
   /** Each Pitch Wheel in the song (by effect id): where its wheels actually are, and its notes (absent from engines that don't say). */
   pitchWheels?: Record<string, EnginePitchWheelState>;
+  /** Each modulator's level now (0..1, by id: `docs/sidechain.md`), which linked controls show (absent from engines that don't say). */
+  modulators?: Record<string, number>;
 }
 
 /**

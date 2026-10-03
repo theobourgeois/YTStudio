@@ -92,6 +92,22 @@ const song: MusicProject = {
       lfo: { enabled: true, speed: 4, tension: 0.5, skew: 0.25, level: -0.5, multiply: true },
     },
   ],
+  modulators: [
+    {
+      id: "mod_kick",
+      name: null,
+      source: { kind: "track", track: "insert_verb", tap: "postFader" },
+      attack: 0.001,
+      release: 0.25,
+      gain: 6,
+      tension: -0.5,
+      links: [
+        { target: { kind: "mixer", track: MASTER_TRACK_ID, control: "volume" }, amount: -0.5 },
+        { target: { kind: "plugin", owner: "effect", id: "fx_eq", param: "1029", index: 12, name: "Cutoff" }, amount: 0.25 },
+      ],
+    },
+    { id: "mod_notes", name: "Pump", source: { kind: "notes", channel: "chan_kick" }, attack: 0, release: 0.1, gain: 0, tension: 0, links: [] },
+  ],
 };
 
 describe("music projects", () => {
@@ -105,6 +121,7 @@ describe("music projects", () => {
       playlist: { tracks: [], clips: [] },
       mixer: createMixer(),
       automations: [],
+      modulators: [],
     });
     expect(stepsPerBar([3, 4])).toBe(12);
     expect(stepsPerBar([6, 8])).toBe(12);

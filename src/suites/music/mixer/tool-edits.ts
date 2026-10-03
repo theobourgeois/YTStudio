@@ -39,7 +39,10 @@ import {
   updateMixerTrack,
   type MixerTrackPatch, effectToTrack } from "@shared/music/mixer";
 import { EFFECT_SLOTS, INPUT_MONITORS, MASTER_TRACK_ID, MAX_INPUT_CHANNELS, MAX_INPUT_OFFSET, MAX_LATENCY_OFFSET, TRACK_COLORS, createMixerTrack } from "@shared/music/project";
-import type { InputMonitor, MixerInput, MixerTrack, MusicProject, PitchWheel } from "@shared/music/types";
+import { SIDECHAIN_TAPS, type InputMonitor, type MixerInput, type MixerTrack, type MusicProject, type PitchWheel, type SidechainTap } from "@shared/music/types";
+import { SIDECHAIN_TAP_NAMES, findSlot, setSidechain, takesKey } from "@shared/music/sidechain";
+import { duckWithProC } from "@shared/music/pro-c";
+import { DUCK_PRESET } from "@shared/music/pro-c-presets";
 import { type SongEdit, findChannel } from "../tool-edits";
 import { faderAt, faderDb } from "./meter";
 import { reverbLine } from "../reverb/tool-edits";
@@ -172,7 +175,13 @@ export function describeMixer(song: MusicProject, effects: EngineEffects | null,
         (effect.panMan && `, effect ${effect.id}, ${effect.panMan.mode} mode, preset "${effect.panMan.preset}" (get_panman)`) ||
         (effect.pitchWheel && `, effect ${effect.id}, ${wheelSummary(song, effect.pitchWheel)} (get_pitch_wheel)`) ||
         (effect.reverb && `, effect ${effect.id}, Reverb: ${reverbLine(song, effect.id)}, mix ${percent(effect.reverb.mix)} (get_reverb)`);
-      lines.push(`    slot ${slot + 1}: ${effect.plugin.name} (${effect.plugin.format})${effect.enabled ? "" : ", bypassed"}${effect.mix < 1 ? `, mix ${percent(effect.mix)}` : ""}${state ? `, ${state}` : ""}${gross || ""}`);
+      const source = effect.sidechain && getMixerTrack(song, effect.sidechain.track);
+      const keyed = source
+        ? `, keyed by ${label(song, source)} (${SIDECHAIN_TAP_NAMES[effect.sidechain!.tap].toLowerCase()})${loaded?.sidechain === false ? " but it has no sidechain input" : ""}`
+        : loaded?.sidechain
+          ? ", has a sidechain input (set_sidechain)"
+          : "";
+      lines.push(`    slot ${slot + 1}: ${effect.plugin.name} (${effect.plugin.format})${effect.enabled ? "" : ", bypassed"}${effect.mix < 1 ? `, mix ${percent(effect.mix)}` : ""}${state ? `, ${state}` : ""}${keyed}${gross || ""}`);
     });
     if (number > 0) {
       const sends = track.sends.map((s) => `${label(song, getMixerTrack(song, s.to)!)}${s.level < 1 ? ` at ${percent(s.level)}` : ""}${s.level === 0 ? " (sidechain only)" : ""}${s.preFader ? " (pre-fader)" : ""}`);
@@ -436,6 +445,46 @@ export function slotForEffect(song: MusicProject, track: MixerTrack, input: Inpu
   const free = track.effects.findIndex((e) => e === null);
   if (free < 0) throw new Error(`${label(song, track)}'s ${EFFECT_SLOTS} slots are full. Give a "slot" to replace one, or use another track (send this one to it).`);
   return free;
+}
+
+/** `set_sidechain`: an effect's key from a track (or none), at a tap. */
+export const setSidechainTool: SongEdit = (song, input) => {
+  const track = findTrack(song, input.track);
+  const slot = slotOf(input);
+  const effect = effectIn(song, track, slot);
+  const tap = tapOf(input);
+  if (!takesKey(effect)) throw new Error(`${effect.plugin.name} has no side chain: Pro-C, Pro-Q and plugins with a sidechain input hear a key.`);
+  if (input.source === "none" || input.source === null) {
+    if (!effect.sidechain) return { song, text: `${effect.plugin.name} in slot ${slot + 1} of ${label(song, track)} has no key.` };
+    return { song: setSidechain(song, effect.id, null), text: `${effect.plugin.name} in slot ${slot + 1} of ${label(song, track)} hears no key now.` };
+  }
+  const source = findTrack(song, input.source);
+  if (source.id === track.id) throw new Error(`${label(song, source)} is the effect's own track: key it from another one.`);
+  if (source.id === MASTER_TRACK_ID) throw new Error("The master keys nothing (it runs last): key it from an insert.");
+  const next = setSidechain(song, effect.id, source.id, tap);
+  if (next === song && effect.sidechain?.track !== source.id) throw new Error(`${label(song, source)} can't key ${label(song, track)}: ${label(song, track)}'s sound already reaches it (a loop).`);
+  return { song: next, text: `${effect.plugin.name} in slot ${slot + 1} of ${label(next, track)} is keyed by ${label(next, source)} (${SIDECHAIN_TAP_NAMES[keyOf(next, effect.id)!.tap].toLowerCase()}).` };
+};
+
+/** `duck_with_sidechain`: a Pro-C in the track's first free slot, the Duck preset, keyed by `source`. */
+export const duckWithSidechainTool = (song: MusicProject, input: Input, effectId: string): { song: MusicProject; text: string } => {
+  const track = findTrack(song, input.track);
+  const source = findTrack(song, input.source);
+  if (source.id === track.id) throw new Error("A track can't duck to itself: give the kick's track as `source`.");
+  if (source.id === MASTER_TRACK_ID) throw new Error("The master keys nothing (it runs last): give an insert as `source`.");
+  if (!track.effects.includes(null)) throw new Error(`${label(song, track)}'s ${EFFECT_SLOTS} slots are full: remove_mixer_effect empties one.`);
+  const next = duckWithProC(song, source.id, track.id, effectId, tapOf(input));
+  if (!next) throw new Error(`${label(song, source)} can't key ${label(song, track)}: ${label(song, track)}'s sound already reaches it (a loop).`);
+  const slot = getMixerTrack(next, track.id)!.effects.findIndex((e) => e?.id === effectId);
+  return { song: next, text: `Pro-C ${effectId} in slot ${slot + 1} of ${label(next, track)} ducks it to ${label(next, source)} (preset "${DUCK_PRESET}"). update_pro_c sets how deep (threshold) and how long (release).` };
+};
+
+const keyOf = (song: MusicProject, effectId: string) => findSlot(song, effectId)?.effect.sidechain;
+
+function tapOf(input: Input): SidechainTap | undefined {
+  if (input.tap === undefined) return undefined;
+  if (!SIDECHAIN_TAPS.includes(input.tap as SidechainTap)) throw new Error(`"tap" must be one of ${SIDECHAIN_TAPS.join(", ")}.`);
+  return input.tap as SidechainTap;
 }
 
 export { label as trackLabel };

@@ -332,7 +332,7 @@ const effects = () => {
   const known = (e) => PLUGINS.some((p) => p.id === e.plugin.id);
   return {
     // The fake delay delays its sound by 10 ms, as a look-ahead plugin would.
-    loaded: hosted.filter(known).map((e) => ({ effect: e.id, name: PLUGINS.find((p) => p.id === e.plugin.id).name, editorOpen: editors.has(e.id), latency: e.plugin.id === "VST3-Fake Delay-2" ? 480 : 0 })),
+    loaded: hosted.filter(known).map((e) => ({ effect: e.id, name: PLUGINS.find((p) => p.id === e.plugin.id).name, editorOpen: editors.has(e.id), latency: e.plugin.id === "VST3-Fake Delay-2" ? 480 : 0, sidechain: true })),
     loading: [],
     failed: hosted.filter((e) => !known(e)).map((e) => ({ effect: e.id, error: "This plugin isn't installed on this computer (or hasn't been scanned)." })),
   };

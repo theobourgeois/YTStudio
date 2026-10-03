@@ -9,7 +9,8 @@
  */
 import { clamp } from "../math.ts";
 import { findEffect } from "./automation.ts";
-import { canSend, setSend } from "./mixer.ts";
+import { setEffect } from "./mixer.ts";
+import { canKey, setSidechain } from "./sidechain.ts";
 import { type EngineEqBand } from "./pro-q.ts";
 import { DEFAULT_BAND } from "./pro-q-presets.ts";
 import {
@@ -30,11 +31,13 @@ import {
   isVintage,
   normalizeProC,
   normalizeProCState,
+  DUCK_PRESET,
+  PRO_C_PLUGIN,
   proCPreset,
   ratioOf,
   slopeOf,
 } from "./pro-c-presets.ts";
-import type { EqBand, MusicProject, ProC, ProCControl, ProCState, ProCStyle } from "./types.ts";
+import type { EqBand, MusicProject, ProC, ProCControl, ProCState, ProCStyle, SidechainTap } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Finding and editing
@@ -185,30 +188,32 @@ export function editSidechainBands(song: MusicProject, effectId: string, ids: It
 }
 
 /**
- * Key a Pro-C from another track (FL's sidechain): External, that track as its source, and, if that
- * track doesn't send here yet, a send at 0% ("sidechain only") in the same edit. Refused (the same song)
- * where the send would make a loop, or the track is the Pro-C's own.
+ * Key a Pro-C from another track: its slot's key (`setSidechain`, `docs/sidechain.md`), External on. No
+ * send is made (a key orders the tracks itself). Refused (the same song) where it would make a loop, or the
+ * track is the Pro-C's own. Null takes the key off (the trigger stays as it is: External then hears nothing).
  */
-export function setProCSidechain(song: MusicProject, effectId: string, trackId: string | null): MusicProject {
-  const found = findProC(song, effectId);
-  if (!found) return song;
-  if (trackId === null) return updateProC(song, effectId, { sidechain: { track: null } });
-  if (trackId === found.track.id) return song;
-  const source = song.mixer.tracks.find((t) => t.id === trackId);
-  if (!source) return song;
-  let next = song;
-  if (!source.sends.some((s) => s.to === found.track.id)) {
-    if (!canSend(song, trackId, found.track.id)) return song;
-    next = setSend(song, trackId, found.track.id, 0);
-  }
-  return updateProC(next, effectId, { sidechain: { trigger: "external", track: trackId } });
+export function setProCSidechain(song: MusicProject, effectId: string, trackId: string | null, tap?: SidechainTap): MusicProject {
+  if (!findProC(song, effectId)) return song;
+  return setSidechain(song, effectId, trackId, tap);
 }
 
-/** Whether a Pro-C's external source sends to it (if not, it hears silence: the window offers to make the send). */
+/** Whether a Pro-C has a key to hear (External without one hears silence). */
 export function sidechainConnected(song: MusicProject, effectId: string): boolean {
-  const found = findProC(song, effectId);
-  const source = found?.proC.sidechain.track ? song.mixer.tracks.find((t) => t.id === found.proC.sidechain.track) : null;
-  return !!found && !!source && source.sends.some((s) => s.to === found.track.id);
+  return !!findProC(song, effectId)?.effect.sidechain;
+}
+
+/**
+ * The quickest duck (`docs/sidechain.md`, "From the kick"): a Pro-C in `trackId`'s first free slot with
+ * the *Sidechain – Duck to Kick* preset, keyed by `source`. Null when there's no free slot or the key
+ * would make a loop.
+ */
+export function duckWithProC(song: MusicProject, source: string, trackId: string, effectId: string, tap?: SidechainTap): MusicProject | null {
+  const track = song.mixer.tracks.find((t) => t.id === trackId);
+  const slot = track?.effects.findIndex((e) => !e) ?? -1;
+  if (!track || slot < 0 || !canKey(song, source, trackId)) return null;
+  let next = setEffect(song, trackId, slot, PRO_C_PLUGIN, effectId);
+  next = chooseProCPreset(next, effectId, DUCK_PRESET);
+  return setProCSidechain(next, effectId, source, tap);
 }
 
 // ---------------------------------------------------------------------------
@@ -287,9 +292,8 @@ export interface EngineProCColour {
 
 /** The side chain as the engine runs it. */
 export interface EngineProCSidechain {
+  /** External hears its slot's key (`EngineEffect.key`; none: silence). */
   source: "internal" | "external" | "sync";
-  /** External: the source track's index in `EngineSong.tracks` (filled in by `compileSong`), else -1. */
-  key: number;
   /** Linear. */
   level: number;
   /** Its EQ, and the style's own detector filters, as Pro-Q's bands (placement stereo, mid or side). */
@@ -657,7 +661,6 @@ export function engineProC(p: ProCState): EngineProC {
     linkMode: s.linkMode,
     sidechain: {
       source: s.trigger,
-      key: -1,
       level: dbGain(s.level),
       bands: [...userBands, ...styleBands],
       syncBeats: (4 / s.sync.note) * s.sync.offset,

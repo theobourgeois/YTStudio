@@ -96,6 +96,8 @@ public:
      * `{ trackId: [left, right] }`, leaving out tracks quieter than `floor`. Message thread.
      */
     juce::var takeMeters (float floor);
+    /** Each modulator's level now, by id (`EngineTransport.modulators`; message thread). */
+    juce::var describeModulators() const;
     /**
      * The tracks the mixer's selection meter adds up (the selected ones), by id. Their sound after their
      * faders is added together and measured as one more meter, "@selection". Message thread.
@@ -221,6 +223,14 @@ private:
     void restoreLanes (Song&);
     /** Take each automated plugin parameter's own value (what it is when play starts), or `previous`'s where it automated it too. */
     void takeOwnValues (Song& next, Song* previous);
+    /** A lane's controls set to `start` (gains gliding from `from` to `to` across the block), `into` the slice. */
+    void driveLane (Song::Lane&, const float* start, const std::array<float, 4>& from, const std::array<float, 4>& to, int into);
+    /** Drive the modulated controls over the next `numSamples` (playing or not), each at its modulator's level. */
+    void applyModulated (int numSamples);
+    /** Follow each modulator's source over the block just mixed. */
+    void followModulators (int numSamples);
+    /** A track's pair in the song's audio at a tap (-1: none). */
+    int tapPair (const Song::Track& source, Song::Track::Tap tap) const;
     /** The transport from sample `start` of the block to its end. */
     void schedule (int start, int numSamples);
     /** The count-in's part of the block (its clicks), in samples: the transport moves after it. */
@@ -245,17 +255,20 @@ private:
     /** A voice of a channel with a loop, a filter, or envelopes and LFOs beyond its volume's (`Song::Channel::shaped`). */
     void renderShaped (Voice& voice, int numSamples);
     /** Put a track's sound through an effect, `mix` of it heard against the dry sound. */
-    void runEffect (HostedPlugin&, float mix, float* left, float* right, int numSamples);
+    /** A plugin effect on a block, its sidechain input given the key (null: none). */
+    void runEffect (HostedPlugin&, float mix, float* left, float* right, int numSamples, const float* keyLeft = nullptr, const float* keyRight = nullptr);
+    /** An effect's key for this block, lined up with its sound (its delay line run), or nulls without one. */
+    std::pair<const float*, const float*> keyOf (const Song::Track::Effect&, int numSamples);
     /** Put a track's sound through a Gross Beat (`mix` of it heard against the dry sound), following `grossClock`. */
     void runGrossBeat (const Song::Track::Effect&, float* left, float* right, int numSamples);
     /** Put a track's sound through an EchoBoy (`mix` of it heard against the dry sound). */
     void runEchoBoy (const Song::Track::Effect&, float* left, float* right, int numSamples);
     /** Put a track's sound through a Pro-Q (`mix` of it heard against the dry sound, held back by its latency). */
-    void runProQ (const Song::Track::Effect&, float* left, float* right, int numSamples);
+    void runProQ (const Song::Track::Effect&, float* left, float* right, int numSamples, const float* keyLeft, const float* keyRight);
     /** Put a track's sound through an OTT (`mix` of it heard against the dry sound). */
     void runOtt (const Song::Track::Effect&, float* left, float* right, int numSamples);
     /** Put a track's sound through a Reverb (its own Mix in it; `mix` of it heard against the dry sound; its key another track's sound, or its own). */
-    void runReverb (const Song::Track::Effect&, float* left, float* right, int numSamples);
+    void runReverb (const Song::Track::Effect&, float* left, float* right, int numSamples, const float* keyLeft, const float* keyRight);
     /** An automation lane's value for a Pro-Q's band control (`Song::Lane::band`, `control`). */
     static void setEqControl (eq::Settings&, int band, int control, float value);
     /** An automation lane's value for a Gross Beat's control (`Song::Lane::control`). */
@@ -323,6 +336,8 @@ private:
     juce::uint64 serials = 0;
     /** The last song's delay lines (message thread), by path: "c<channel>", "s<track>><track>". */
     std::map<juce::String, std::shared_ptr<DelayLine>> delayLines;
+    /** The modulators' followers (message thread), by id, handed to the next song so they carry on. */
+    std::map<juce::String, std::shared_ptr<Song::ModulatorState>> modulatorStates;
     /** Set when a song is adopted: its first block ramps from the last song's gains to its own. */
     bool ramping = false;
     /**
@@ -331,6 +346,13 @@ private:
      * device's, the export's): gains glide across a slice, plugin parameters are set at its start.
      */
     static constexpr int sliceSamples = 256;
+    /**
+     * A song with modulated controls is rendered in slices this long too (playing or not), counted from where
+     * play started (`modClock`, which runs on while stopped): each modulated control is set at a slice's
+     * start from its modulator's level at the end of the last one (`docs/sidechain.md`). Divides `sliceSamples`.
+     */
+    static constexpr int modSlice = 64;
+    juce::int64 modClock = 0;
     /** The most input channels the device can give (`Engine`'s too). */
     static constexpr int maxInputs = 64;
     juce::int64 sliceClock = 0;

@@ -104,7 +104,8 @@ juce::var Engine::transport() const
                                { "proCs", procs.describe (false) },
                                { "reverbs", reverbs.describe() },
                                { "panMen", panMen.describe() },
-                               { "pitchWheels", pitchWheels.describe() } });
+                               { "pitchWheels", pitchWheels.describe() },
+                               { "modulators", sequencer.describeModulators() } });
 }
 
 juce::var Engine::status() const
@@ -705,6 +706,7 @@ void Engine::timerCallback()
                                             { "eq", eqs.describe() },
                                             { "panMen", panMen.describe() },
                                             { "pitchWheels", pitchWheels.describe() },
+                                            { "modulators", sequencer.describeModulators() },
                                             { "peak", level },
                                             { "meters", meters },
                                             { "cpu", devices.getCpuUsage() } }));

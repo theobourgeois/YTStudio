@@ -11,6 +11,7 @@ import { BrowserWindow, Menu, type MenuItemConstructorOptions, app, dialog, ipcM
 import type { RunningServer } from "./server.ts";
 import { loadShellPath } from "./shell-path.ts";
 import { loadWindowState, trackWindowState } from "./window-state.ts";
+import { desktopIcon, initializeAppIcon } from "./app-icon.ts";
 
 const APP_NAME = "Vaudio";
 /** The packaged app's server port, kept the same across launches so the page's origin (and its saved layout) is too. */
@@ -80,8 +81,7 @@ async function start() {
   Menu.setApplicationMenu(buildMenu());
   answerSaveDialogs();
   answerMicrophone();
-  // A packaged app has its icon in its bundle; in development the Dock would show Electron's.
-  if (!app.isPackaged) app.dock?.setIcon(path.join(import.meta.dirname, "..", "resources", "icon.png"));
+  initializeAppIcon();
   createWindow();
 }
 
@@ -92,6 +92,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 600,
     title: APP_NAME,
+    icon: desktopIcon(),
     show: false,
     backgroundColor: "#16191d",
     ...(isMac && { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 20 } }),

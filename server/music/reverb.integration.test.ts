@@ -403,7 +403,7 @@ describe.skipIf(!existsSync(ENGINE))("the Reverb, offline", () => {
       // Back within 1 dB 250 ms (±20%) after the phrase ends.
       expect(Math.abs(level(open, phrase + 0.4 + 0.3, phrase + 0.4 + 0.34) - level(ducked, phrase + 0.4 + 0.3, phrase + 0.4 + 0.34))).toBeLessThan(1);
     }
-    // Keyed from another track: phrases on Insert 2 (sending here at 0%) duck the reverb of a steady sound.
+    // Keyed from another track: phrases on Insert 2 (its slot's key, after the fader) duck the reverb of a steady sound.
     let s = song("pink", DUCK);
     s = addChannels(s, [{ id: "chan_lead", name: "Lead", sampleId: "phrases" }]);
     s = { ...s, channels: s.channels.map((c) => ({ ...c, volume: 1 })) };

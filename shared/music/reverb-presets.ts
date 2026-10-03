@@ -83,7 +83,7 @@ export const INIT_REVERB: ReverbState = {
   input: { mode: "auto", cross: 0.3, lowCut: LOW_CUT_RANGE[0], highCut: HIGH_CUT_RANGE[1], deEssFreq: 6500, vlfCut: 0 },
   early: { send: 1, cross: 0.5 },
   late: { diffusion: null, modShape: "chorus", variation: 1, toneLock: true },
-  ducking: { key: null, threshold: null, attack: 0.01, release: 0.25, releaseSync: false, releaseNote: { note: 8, feel: "straight" }, hold: 0.05, what: "tail", autoDecay: 0, recovery: 0.1 },
+  ducking: { threshold: null, attack: 0.01, release: 0.25, releaseSync: false, releaseNote: { note: 8, feel: "straight" }, hold: 0.05, what: "tail", autoDecay: 0, recovery: 0.1 },
   output: { lowShelf: { frequency: 200, gain: 0 }, highShelf: { frequency: 8000, gain: 0 }, studio: false, monoBelow: 0, level: 0 },
   bands: [],
   bandsBypass: false,
@@ -184,7 +184,6 @@ export function normalizeReverbState(input: unknown, base: ReverbState = INIT_RE
       toneLock: bool(l.toneLock, d.late.toneLock),
     },
     ducking: {
-      key: typeof k.key === "string" && k.key ? k.key : k.key === null ? null : d.ducking.key,
       threshold: k.threshold === null ? null : isFiniteNumber(k.threshold) ? clamp(k.threshold, THRESHOLD_RANGE[0], THRESHOLD_RANGE[1]) : d.ducking.threshold,
       attack: num(k.attack, ATTACK_RANGE[0], ATTACK_RANGE[1], d.ducking.attack),
       release: num(k.release, RELEASE_RANGE[0], RELEASE_RANGE[1], d.ducking.release),

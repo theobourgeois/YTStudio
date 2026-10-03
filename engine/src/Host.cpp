@@ -120,7 +120,7 @@ std::shared_ptr<HostedPlugin> PluginHost::get (const juce::String& ownerId, cons
                                            hosted->stateFile = stateFile;
                                            hosted->instance = std::move (created);
                                            hosted->instance->setNonRealtime (exporting);
-                                           configurePlugin (*hosted->instance, sampleRate, blockSize);
+                                           configure (*hosted);
                                            juce::MemoryBlock state;
                                            if (stateFile.existsAsFile() && stateFile.loadFileAsData (state) && state.getSize() > 0)
                                            {
@@ -306,6 +306,15 @@ void PluginHost::placeWindows()
         }
 }
 
+void PluginHost::configure (HostedPlugin& hosted) const
+{
+    // A mixer effect's sidechain input is turned on (an instrument's never is: nothing feeds it).
+    configurePlugin (*hosted.instance, sampleRate, blockSize, ownerKey == "effect");
+    auto& instance = *hosted.instance;
+    hosted.keyChannels = instance.getBusCount (true) > 1 && instance.getBus (true, 1)->isEnabled() ? instance.getBus (true, 1)->getNumberOfChannels() : 0;
+    hosted.keyChannel = hosted.keyChannels > 0 ? instance.getChannelIndexInProcessBlockBuffer (true, 1, 0) : -1;
+}
+
 void PluginHost::prepare (double rate, int block)
 {
     sampleRate = rate;
@@ -313,7 +322,7 @@ void PluginHost::prepare (double rate, int block)
     for (auto& [id, hosted] : loaded)
     {
         hosted->instance->releaseResources();
-        configurePlugin (*hosted->instance, rate, block);
+        configure (*hosted);
     }
 }
 
@@ -321,7 +330,11 @@ juce::var PluginHost::describe() const
 {
     juce::Array<juce::var> ready, busy, broken;
     for (const auto& [id, hosted] : loaded)
-        ready.add (protocol::object ({ { ownerKey.toRawUTF8(), id }, { "name", hosted->instance->getName() }, { "editorOpen", hosted->window != nullptr }, { "latency", hosted->instance->getLatencySamples() } }));
+        ready.add (protocol::object ({ { ownerKey.toRawUTF8(), id },
+                                       { "name", hosted->instance->getName() },
+                                       { "editorOpen", hosted->window != nullptr },
+                                       { "latency", hosted->instance->getLatencySamples() },
+                                       { "sidechain", hosted->keyChannels > 0 } }));
     for (const auto& [id, plugin] : loading)
         busy.add (id);
     for (const auto& [id, error] : failed)

@@ -18,13 +18,13 @@ import {
   formatHz,
   formatNote,
   formatSeconds,
-  keyConnected,
   naturalT60,
   parseNote,
   predelaySeconds,
   releaseSeconds,
   reverbT60,
   reverbs,
+  reverbKey,
   setReverbKey,
   switchReverbAB,
   updateReverb,
@@ -108,7 +108,8 @@ export function describeReverb(song: MusicProject, input: Input): string {
   const { effect, track, slot, reverb: r } = findReverbRef(song, input);
   const bpm = song.settings.tempo;
   const t60 = reverbT60(r);
-  const key = r.ducking.key ? song.mixer.tracks.find((t) => t.id === r.ducking.key) : null;
+  const keyId = reverbKey(song, effect.id);
+  const key = keyId ? song.mixer.tracks.find((t) => t.id === keyId) : null;
   const pre = predelaySeconds(r, bpm);
   const lines = [
     `Reverb ${effect.id} on ${trackLabel(song, track)}, slot ${slot + 1}${effect.enabled ? "" : " (bypassed)"}${r.preset ? `, preset "${r.preset}"` : ", edited"}; A/B slot ${r.slot.toUpperCase()}.`,
@@ -116,7 +117,7 @@ export function describeReverb(song: MusicProject, input: Input): string {
     `Decay ${formatDecay(r.decay)} at 1 kHz; pre-delay ${r.sync ? `${formatNote(r.predelayNote)}${r.predelayOffset !== 1 ? ` × ${round(r.predelayOffset, 2)}` : ""} (${formatSeconds(pre)} at ${bpm} BPM)` : formatSeconds(pre)}; size ${percent(r.size)}, distance ${percent(r.distance)}, diffusion ${percent(r.diffusion)}.`,
     `Modulation ${r.late.modShape}, ${round(r.modRate, 2)} Hz at ${percent(r.modDepth)} (about ${round(cents(r.modRate, r.modDepth), 1)} cents); width ${percent(r.width)}.`,
     `Low cut ${r.lowCut <= LOW_CUT_RANGE[0] + 0.5 ? "off" : `${formatHz(r.lowCut)} (${r.lowCutSlope} dB/oct)`}, high cut ${r.highCut >= HIGH_CUT_RANGE[1] - 1 ? "off" : `${formatHz(r.highCut)} (${r.highCutSlope} dB/oct)`}.`,
-    `De-ess ${round(r.deEss)} dB at ${formatHz(r.input.deEssFreq)}. Duck ${db(r.duck)}, keyed from ${key ? `${trackLabel(song, key)}${keyConnected(song, effect.id) ? "" : " (NOT sending here: it ducks under nothing)"}` : "this track's own input"}; threshold ${r.ducking.threshold === null ? "auto" : db(r.ducking.threshold)}, attack ${formatSeconds(r.ducking.attack)}, release ${r.ducking.releaseSync ? `${formatNote(r.ducking.releaseNote)} (${formatSeconds(releaseSeconds(r, bpm))})` : formatSeconds(r.ducking.release)}, hold ${formatSeconds(r.ducking.hold)}, ducking ${r.ducking.what === "tail" ? "the tail only" : "everything wet"}; auto-decay ${percent(r.ducking.autoDecay)} (recovery ${formatSeconds(r.ducking.recovery)}).`,
+    `De-ess ${round(r.deEss)} dB at ${formatHz(r.input.deEssFreq)}. Duck ${db(r.duck)}, keyed from ${key ? `${trackLabel(song, key)} (its slot's key, after its fader)` : "this track's own input"}; threshold ${r.ducking.threshold === null ? "auto" : db(r.ducking.threshold)}, attack ${formatSeconds(r.ducking.attack)}, release ${r.ducking.releaseSync ? `${formatNote(r.ducking.releaseNote)} (${formatSeconds(releaseSeconds(r, bpm))})` : formatSeconds(r.ducking.release)}, hold ${formatSeconds(r.ducking.hold)}, ducking ${r.ducking.what === "tail" ? "the tail only" : "everything wet"}; auto-decay ${percent(r.ducking.autoDecay)} (recovery ${formatSeconds(r.ducking.recovery)}).`,
     `Input ${r.input.mode}, cross ${percent(r.input.cross)}, input cuts ${r.input.lowCut <= LOW_CUT_RANGE[0] + 0.5 ? "off" : formatHz(r.input.lowCut)} / ${r.input.highCut >= HIGH_CUT_RANGE[1] - 1 ? "off" : formatHz(r.input.highCut)}, VLF cut ${db(r.input.vlfCut)}. Early send ${percent(r.early.send)}, early cross ${percent(r.early.cross)}, late diffusion ${r.late.diffusion === null ? "the mode's" : percent(r.late.diffusion)}, variation ${r.late.variation}, tone lock ${r.late.toneLock ? "on" : "off"}.`,
     `Output: low shelf ${db(r.output.lowShelf.gain)} at ${formatHz(r.output.lowShelf.frequency)}, high shelf ${db(r.output.highShelf.gain)} at ${formatHz(r.output.highShelf.frequency)}${r.output.studio ? ", Studio filters (600 Hz, 10 kHz)" : ""}, mono below ${r.output.monoBelow ? formatHz(r.output.monoBelow) : "off"}, level ${db(r.output.level)}.`,
     `Decay EQ${r.bandsBypass ? " (BYPASSED)" : ""}: ${r.bands.length ? r.bands.map((b) => `band ${b.id} ${b.shape} ${formatHz(b.frequency)} ×${round(b.multiplier, 2)} Q ${round(b.q, 2)}${b.enabled ? "" : " (off)"}`).join("; ") : "no bands"}.`,
@@ -299,8 +300,8 @@ export function updateReverbTool(song: MusicProject, input: Input): EditResult {
     const keyTrack = self ? null : findTrack(next, input.duckKey);
     if (keyTrack && keyTrack.id === track.id) throw new Error(`The key can't be the Reverb's own track (${trackLabel(next, track)}): give another track, or "self" for its own input.`);
     const keyed = setReverbKey(next, id, keyTrack ? keyTrack.id : null);
-    if (keyTrack && keyed === next && findReverb(next, id)!.reverb.ducking.key !== keyTrack.id)
-      throw new Error(`${trackLabel(next, keyTrack)} can't send to ${trackLabel(next, track)} (it would make a loop): choose a track that comes before it.`);
+    if (keyTrack && keyed === next && reverbKey(next, id) !== keyTrack.id)
+      throw new Error(`${trackLabel(next, keyTrack)} can't key ${trackLabel(next, track)} (${trackLabel(next, track)}'s sound reaches it, so it would loop): choose a track that comes before it.`);
     next = keyed;
     done.push(keyTrack ? `ducked by ${trackLabel(next, keyTrack)}` : "ducked by its own input");
   }

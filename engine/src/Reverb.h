@@ -79,8 +79,6 @@ struct Settings
     double deEss = 0, deEssFrequency = 6500;
     double duck = 0, threshold = -30, attack = 0.01, release = 0.25, hold = 0.05, autoDecay = 0, recovery = 0.1;
     bool autoThreshold = true, tailOnly = true;
-    /** The ducking key: a track's index in the song (it runs first and sends here), or -1 (this track's input). */
-    int key = -1;
     double lowCut = 20, highCut = 20000;
     int lowSlope = 12, highSlope = 12;
     double lowShelf = 200, lowShelfGain = 0, highShelf = 8000, highShelfGain = 0;
@@ -123,7 +121,7 @@ public:
     int capacity() const { return blockCapacity; }
     const GraphicEq& graphicEq() const { return eq; }
 
-    /** Run `numSamples` of `left` and `right` through it, in place: dry and wet mixed. `keyLeft`/`keyRight`: the ducking key's track (null: the input). Audio thread. */
+    /** Run `numSamples` of `left` and `right` through it, in place: dry and wet mixed. `keyLeft`/`keyRight`: the ducking key, its slot's (null: the input). Audio thread. */
     void process (Settings&, const float* keyLeft, const float* keyRight, float* left, float* right, int numSamples);
     /** Skipped this block (bypassed): its tail stops, and it starts empty when it's next run. Audio thread. */
     void skipped() { stale = true; }

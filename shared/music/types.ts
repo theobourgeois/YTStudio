@@ -189,6 +189,11 @@ export interface MixerEffect {
   enabled: boolean;
   /** 0..1: how much of the effect's sound is heard against the sound coming in (FL's slot mix knob). */
   mix: number;
+  /**
+   * Its key (`docs/sidechain.md`): another track's sound it hears, as a compressor ducking to a kick. Pro-C's
+   * External trigger and a plugin's sidechain input read it. Absent: none.
+   */
+  sidechain?: Sidechain;
   /** Gross Beat's settings, on a Gross Beat (absent on a plugin). */
   grossBeat?: GrossBeat;
   /** EchoBoy's settings, on an EchoBoy (absent on a plugin). */
@@ -301,9 +306,8 @@ export type ProCRecovery = (typeof PRO_C_RECOVERIES)[number];
 
 /** Pro-C's side chain: what triggers it, how loud, linked how, and its EQ (Pro-Q's bands: stereo, mid or side). */
 export interface ProCSidechain {
+  /** Internal (its own input), External (its slot's key: `MixerEffect.sidechain`) or Host Sync (pulses on the beat). */
   trigger: ProCTrigger;
-  /** External: the mixer track whose sound (after its fader) is the key. It must send to this track (at 0%, FL's "sidechain only"). */
-  track: string | null;
   /** dB, -36..36: the key's level (in Vari-Mu, the drive into the tubes). */
   level: number;
   /** 0..2: 0..1 the stereo link (unlinked to fully linked), 1..2 on towards `linkMode`. */
@@ -504,9 +508,8 @@ export interface ReverbState {
     /** The Decay EQ changes length only (Jot's tone corrector), not level. */
     toneLock: boolean;
   };
+  /** What the ducker listens to: this track's input, or its slot's key (`MixerEffect.sidechain`, `docs/sidechain.md`). */
   ducking: {
-    /** Another mixer track whose sound (after its fader) the ducker listens to, through a send to this one; null: this track's input. */
-    key: string | null;
     /** dB, -60 .. 0, or null for Auto (the key's level minus 12 dB). */
     threshold: number | null;
     /** Seconds. */
@@ -722,6 +725,11 @@ export interface EqBand {
   dynamics: boolean;
   /** dB, -60..0, where its dynamics start; null is Auto (it follows the level in its range). */
   threshold: number | null;
+  /**
+   * Pro-Q 3's External Side Chain: with a threshold of its own, its dynamics hear its slot's key
+   * (`MixerEffect.sidechain`, whole: not band-limited nor mid/side) rather than its range. Absent: its range.
+   */
+  external?: true;
 }
 
 /** What Pro-Q's A/B swaps: everything that changes the sound. */
@@ -901,6 +909,19 @@ export interface GrossBeat {
 }
 
 export type MixerDock = "left" | "middle" | "right";
+
+/**
+ * Where a key is taken from its track (Ableton's three): before its effects, after them (before its fader:
+ * the default, so the fader and mute don't change it), or what leaves the track (after its fader: FL's).
+ */
+export const SIDECHAIN_TAPS = ["preFx", "postFx", "postFader"] as const;
+export type SidechainTap = (typeof SIDECHAIN_TAPS)[number];
+
+/** An effect's key: a mixer track's sound (never the master's or its own track's; never round a loop). */
+export interface Sidechain {
+  track: string;
+  tap: SidechainTap;
+}
 
 /** A mixer track sending its sound (after its fader) to another. */
 export interface MixerSend {
@@ -1495,4 +1516,40 @@ export interface MusicProject {
   mixer: Mixer;
   /** The automation clips, in the Picker's order. */
   automations: Automation[];
+  /** The modulators (`docs/sidechain.md`): a track's level or a channel's notes moving any controls. */
+  modulators: Modulator[];
+}
+
+/**
+ * What a modulator follows: a mixer track's sound (taken at a tap, as a key is) or a channel's notes (a gate,
+ * their velocity while any sounds: a muted kick channel still drives it).
+ */
+export type ModulatorSource = { kind: "track"; track: string; tap: SidechainTap } | { kind: "notes"; channel: string };
+
+/** A control a modulator moves, by `amount` (-1..1) of its range at full level: negative dips it (a duck). */
+export interface ModulationLink {
+  target: AutomationTarget;
+  amount: number;
+}
+
+/**
+ * A modulator (`docs/sidechain.md`; FL's Peak Controller, Bitwig's Audio Sidechain): a level follower on a
+ * source, which moves the controls it's linked to from where they are (their own value, or their
+ * automation's): `clamp(own + amount × level)`. The follower: the source's peak times `gain`, followed with
+ * `attack` and `release`, clipped to 1 and bent by `tension`.
+ */
+export interface Modulator {
+  id: string;
+  /** Null until it's renamed: then it's called by its source ("Kick level"). */
+  name: string | null;
+  source: ModulatorSource;
+  /** Seconds the follower takes to rise and to fall (one-pole). */
+  attack: number;
+  release: number;
+  /** dB into the follower (FL's VOL): louder reaches full level sooner. */
+  gain: number;
+  /** -1..1: the level's curve (0 straight, positive slower to rise, negative quicker). */
+  tension: number;
+  /** The controls it moves (each control is moved by one modulator at most). */
+  links: ModulationLink[];
 }

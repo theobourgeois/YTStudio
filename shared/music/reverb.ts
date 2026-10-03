@@ -10,7 +10,6 @@
  */
 import { clamp } from "../math.ts";
 import { findEffect } from "./automation.ts";
-import { canSend, setSend } from "./mixer.ts";
 import {
   ATTACK_RANGE,
   BAND_FREQ_RANGE,
@@ -47,6 +46,7 @@ import {
   presetSetsMix,
   reverbPresetState,
 } from "./reverb-presets.ts";
+import { setSidechain } from "./sidechain.ts";
 import { KHZ_BAND, PLATE_DIFFUSERS, PLATE_TAPS, REVERB_ERA_SPECS, REVERB_MODE_SPECS, REVERB_OCTAVES, naturalCurve } from "./reverb-modes.ts";
 import type { MusicProject, Reverb, ReverbControl, ReverbDecayBand, ReverbNote, ReverbState } from "./types.ts";
 
@@ -125,7 +125,7 @@ export function updateReverb(song: MusicProject, effectId: string, patch: Reverb
 export function chooseReverbPreset(song: MusicProject, effectId: string, name: string): MusicProject {
   const state = reverbPresetState(name);
   if (!state) return song;
-  return editReverb(song, effectId, (r) => ({ ...r, ...state, mix: r.mixLock || !presetSetsMix(name) ? r.mix : state.mix, ducking: { ...state.ducking, key: r.ducking.key }, preset: name }));
+  return editReverb(song, effectId, (r) => ({ ...r, ...state, mix: r.mixLock || !presetSetsMix(name) ? r.mix : state.mix, preset: name }));
 }
 
 /** A/B: swap to the other state (the first switch copies this one there). Mix Lock keeps the Mix. */
@@ -144,7 +144,7 @@ export const copyReverbAB = (song: MusicProject, effectId: string) => editReverb
 export function pasteReverb(song: MusicProject, effectId: string, copied: ReverbState): MusicProject {
   return editReverb(song, effectId, (r) => {
     const state = heardReverb(copied);
-    return { ...r, ...state, mix: r.mixLock ? r.mix : state.mix, ducking: { ...state.ducking, key: r.ducking.key }, preset: null };
+    return { ...r, ...state, mix: r.mixLock ? r.mix : state.mix, preset: null };
   });
 }
 
@@ -176,29 +176,20 @@ export function editDecayBands(song: MusicProject, effectId: string, ids: Iterab
   return updateReverb(song, effectId, { bands });
 }
 
-/** The Ducking key from another track (FL's sidechain, as Pro-C's): that track, and a send at 0% from it if it doesn't send here yet. */
+/**
+ * The Ducking key from another track: its slot's key (`setSidechain`, `docs/sidechain.md`), taken after
+ * the source's fader as an engineer's send to it would be (a lead's level, not its effects'). Null: this
+ * track's own input. Refused (the same song) where the key would loop. Routing, not the sound: the preset
+ * stays named.
+ */
 export function setReverbKey(song: MusicProject, effectId: string, trackId: string | null): MusicProject {
-  const found = findReverb(song, effectId);
-  if (!found) return song;
-  // Routing, not the sound: the preset stays named.
-  const keyed = (s: MusicProject, key: string | null) => editReverb(s, effectId, (r) => ({ ...r, ducking: { ...r.ducking, key } }));
-  if (trackId === null) return keyed(song, null);
-  if (trackId === found.track.id) return song;
-  const source = song.mixer.tracks.find((t) => t.id === trackId);
-  if (!source) return song;
-  let next = song;
-  if (!source.sends.some((s) => s.to === found.track.id)) {
-    if (!canSend(song, trackId, found.track.id)) return song;
-    next = setSend(song, trackId, found.track.id, 0);
-  }
-  return keyed(next, trackId);
+  if (!findReverb(song, effectId)) return song;
+  return setSidechain(song, effectId, trackId, trackId === null ? undefined : "postFader");
 }
 
-/** Whether a Reverb's ducking key track sends to it (if not, it ducks under nothing). */
-export function keyConnected(song: MusicProject, effectId: string): boolean {
-  const found = findReverb(song, effectId);
-  const source = found?.reverb.ducking.key ? song.mixer.tracks.find((t) => t.id === found.reverb.ducking.key) : null;
-  return !!found && !!source && source.sends.some((s) => s.to === found.track.id);
+/** The track a Reverb ducks under (its slot's key), or null for its own input. */
+export function reverbKey(song: MusicProject, effectId: string): string | null {
+  return findReverb(song, effectId)?.effect.sidechain?.track ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -646,7 +637,7 @@ export interface EngineReverb {
   mod: { rate: number; depth: number; shape: 0 | 1 };
   input: { mono: boolean; cross: number; lowCut: number; highCut: number; bandwidth: number };
   deEss: { amount: number; frequency: number };
-  duck: { depth: number; threshold: number | null; attack: number; release: number; hold: number; tailOnly: boolean; key: number; autoDecay: number; recovery: number };
+  duck: { depth: number; threshold: number | null; attack: number; release: number; hold: number; tailOnly: boolean; autoDecay: number; recovery: number };
   post: {
     lowCut: number;
     lowSlope: 12 | 24;
@@ -673,10 +664,10 @@ const round = (v: number, digits = 1e5) => Math.round(v * digits) / digits;
 
 /**
  * What the engine plays for a Reverb at a tempo, seeded by its effect's id (the velvet taps and the
- * random modulation are the same every time for the same effect). `key`: the ducking key's track index
- * (compile's; -1 this track's input).
+ * random modulation are the same every time for the same effect). Its ducking key is its slot's
+ * (`EngineEffect.key`), compiled as every effect's.
  */
-export function engineReverb(r: ReverbState, bpm: number, seed: number, key = -1, lanesOnly = false): EngineReverb {
+export function engineReverb(r: ReverbState, bpm: number, seed: number, lanesOnly = false): EngineReverb {
   const spec = REVERB_MODE_SPECS[r.mode];
   const era = REVERB_ERA_SPECS[r.era];
   const t60 = reverbT60(r);
@@ -725,7 +716,6 @@ export function engineReverb(r: ReverbState, bpm: number, seed: number, key = -1
       release: round(releaseSeconds(r, bpm), 1e5),
       hold: r.ducking.hold,
       tailOnly: r.ducking.what === "tail",
-      key,
       autoDecay: r.ducking.autoDecay,
       recovery: r.ducking.recovery,
     },

@@ -8,7 +8,7 @@
 import type { ReactNode } from "react";
 import { PiCaretDown } from "react-icons/pi";
 import { cn } from "cn";
-import { REVERB_CONTROL_SPECS, formatNote, setReverbControl, setReverbKey } from "@shared/music/reverb";
+import { REVERB_CONTROL_SPECS, formatNote, reverbKey, setReverbControl, setReverbKey } from "@shared/music/reverb";
 import { REVERB_MODE_SPECS } from "@shared/music/reverb-modes";
 import { VARIATION_RANGE } from "@shared/music/reverb-presets";
 import { trackName } from "@shared/music/mixer";
@@ -172,6 +172,8 @@ export function AdvancedPanel({ effectId, reverb }: { effectId: string; reverb: 
     return JSON.stringify(s.mixer.tracks.filter((t) => t.id !== own).map((t) => ({ value: t.id, label: trackName(s, t.id) })));
   });
   const keyOptions = [{ value: "self", label: "This track" }, ...(JSON.parse(tracks) as { value: string; label: string }[])];
+  // Its slot's key (`docs/sidechain.md`), which the Mixer's Sidechain input menu sets too.
+  const key = useSong((s) => reverbKey(s, effectId));
   const commit = (update: (s: MusicProject) => MusicProject) => useMusic.getState().commit(update);
   return (
     <div className="grid shrink-0 grid-cols-[auto_auto_auto_auto] justify-center gap-0 overflow-x-auto border-t border-[var(--verb-panel-edge)] bg-[var(--verb-section)] py-2" data-testid="reverb-advanced">
@@ -237,7 +239,7 @@ export function AdvancedPanel({ effectId, reverb }: { effectId: string; reverb: 
       <Group className="flex-col gap-1 px-1">
         <Heading>Ducking</Heading>
         <div className="flex items-start gap-0.5">
-          <Select label="Key" testId="reverb-duck-key" value={reverb.ducking.key ?? "self"} options={keyOptions} onChange={(v) => commit((s) => setReverbKey(s, effectId, v === "self" ? null : v))} />
+          <Select label="Key" testId="reverb-duck-key" value={key ?? "self"} options={keyOptions} onChange={(v) => commit((s) => setReverbKey(s, effectId, v === "self" ? null : v))} />
           {knob("threshold", {
             disabled: reverb.ducking.threshold === null,
             caption: (

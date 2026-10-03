@@ -149,15 +149,11 @@ struct Settings
     std::array<double, 2> dry { 0, 0 }, input { 1, 1 }, output { 1, 1 };
     LinkMode linkMode = LinkMode::mid;
     Source source = Source::internal;
-    /** External: the source track's index (-1: none, it hears silence). */
-    int key = -1;
     double level = 1, syncBeats = 1, syncLength = 0.5;
     /** Samples at the song's rate: how far it looks ahead, the most it can (its delay), the oversampling's factor. */
     int lookahead = 0, maxLookahead = 0, oversampling = 1;
     /** Samples its sound comes out late: the most lookahead and the oversampling filters'. */
     int latency = 0;
-    /** Samples its external key waits to line up with its sound (delay compensation's, `Song::compensate`). */
-    int keyDelay = 0;
 
     static std::shared_ptr<Settings> parse (const juce::var& json, int capacity, State& state);
     /** An automation lane's values. Audio thread. */

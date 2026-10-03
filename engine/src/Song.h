@@ -184,6 +184,9 @@ struct Song
             bool preFader = false;
         };
 
+        /** Where a key is taken from its track: before its effects, after them, or after its fader. */
+        enum class Tap { preFx, postFx, postFader };
+
         /** An effect in one of its slots. */
         struct Effect
         {
@@ -219,9 +222,19 @@ struct Song
             /** A Pitch Wheel (ours too): its sound, kept across songs, and this song's settings for it. */
             std::shared_ptr<wheel::State> wheel;
             std::shared_ptr<wheel::Settings> wheelSettings;
-            /** A Reverb (ours too): its sound, kept across songs, and this song's settings for it (its ducking key's track in them). */
+            /** A Reverb (ours too): its sound, kept across songs, and this song's settings for it. */
             std::shared_ptr<verb::State> verb;
             std::shared_ptr<verb::Settings> verbSettings;
+
+            /**
+             * Its key (`docs/sidechain.md`): an earlier track's sound (-1: none) at a tap, which Pro-C's External
+             * and a plugin's sidechain input hear. It waits `keyDelay` samples in `keyLine` (delay compensation:
+             * `compensate`) into its own pair of `audio`, `keyBuffer`.
+             */
+            int keyTrack = -1;
+            Tap keyTap = Tap::postFx;
+            int keyDelay = 0, keyBuffer = -1;
+            std::shared_ptr<DelayLine> keyLine;
         };
 
         juce::String id;
@@ -232,8 +245,17 @@ struct Song
         std::vector<Send> sends;
         /** Its channel pair in `audio`, or -1: nothing can reach it, so it's skipped. */
         int buffer = -1;
-        /** A pair holding its sound before its gains, for its pre-fader sends (-1: it has none). */
+        /** A pair holding its sound before its gains, for its pre-fader sends and keys taken after its effects (-1: it has none). */
         int preBuffer = -1;
+        /** A pair holding its sound before its effects, for keys taken there (-1: none are). */
+        int preFxBuffer = -1;
+        /**
+         * Soloed out but keying an effect after its fader: a pair holding its sound through `keyGains` (its
+         * gains as if it weren't), which that key hears (-1: its keys hear `buffer`).
+         */
+        int keyFaderBuffer = -1;
+        bool hasKeyGains = false;
+        std::array<float, 4> keyGains { 1, 0, 0, 1 };
         /** Index into the previous song's tracks (-1: a new track). */
         int previous = -1;
         /** Its manual delay compensation (`MixerTrack.latencyOffset`), in ms. */
@@ -277,9 +299,54 @@ struct Song
         float own = 0;
         float lastSet = -2;
 
-        /** Its values at `tick` into `out` (`size` of them): the later of two points on one tick, the ends held. `cursor` speeds the next lookup. */
+        /**
+         * Moved by a modulator (`docs/sidechain.md`; index into `modulators`, -1: none): each point is `steps`
+         * sets of `size` values, at its level 0 … 1 (`atLevel` reads between them), and `rest` is that grid at
+         * the controls' own values (the song stopped, or nothing automated). A plugin parameter's has one step:
+         * `amount` is added to its value at the level.
+         */
+        int modulator = -1, steps = 1;
+        float amount = 0;
+        std::array<float, maxSize> rest {};
+        /** The audio thread's: a modulated lane's values at its slice's start and end, which gains glide between. */
+        std::array<float, maxSize> modFrom {}, modTo {};
+        bool modStarted = false;
+        /** The values a point holds. */
+        int stride() const { return size * steps; }
+        /** A modulated grid's values at a level (0..1) into `out` (`size` of them). */
+        void atLevel (const float* grid, float level, float* out) const;
+
+        /** Its values at `tick` into `out` (`stride` of them): the later of two points on one tick, the ends held. `cursor` speeds the next lookup. */
         void valueAt (double tick, float* out);
         size_t cursor = 0;
+    };
+
+    /** A modulator's follower, kept across songs by id (the audio thread's, but `said`). */
+    struct ModulatorState
+    {
+        /** The follower (before it's shaped), and its level (0..1, shaped) at the end of the last block. */
+        float env = 0, level = 0;
+        /** A notes source's notes sounding: from and to (the sequencer's sample clock), their velocity. */
+        struct Gate
+        {
+            juce::int64 from = 0, to = 0;
+            float velocity = 0;
+        };
+        std::array<Gate, 32> gates {};
+        int gateCount = 0;
+        /** Its level, for the tab (`EngineTransport.modulators`). */
+        std::atomic<float> said { 0 };
+    };
+
+    /** A modulator (`EngineModulator`): a track's sound at a tap, or a channel's notes, followed. */
+    struct Modulator
+    {
+        juce::String id;
+        int track = -1, channel = -1;
+        Track::Tap tap = Track::Tap::postFx;
+        double attack = 0.002, release = 0.15;
+        float gain = 1, tension = 0;
+        std::shared_ptr<ModulatorState> state;
     };
 
     struct Note
@@ -336,8 +403,11 @@ struct Song
     std::vector<AudioClip> audioClips;
     /** In the order they're run: each after every track sending to it. The master is the last. */
     std::vector<Track> tracks;
-    /** The automated controls (song mode). */
+    /** The automated controls (song mode), and the modulated ones. */
     std::vector<Lane> lanes;
+    /** The modulators the lanes name, and whether any lane is modulated (then it's played in `modSlice`s, stopped too). */
+    std::vector<Modulator> modulators;
+    bool modulated = false;
     /** The Pitch Wheels that a channel's notes play (`notesFrom`): the channel's index and the wheel's sound (its effect holds it). */
     struct WheelListener
     {

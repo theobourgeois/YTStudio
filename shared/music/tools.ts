@@ -10,7 +10,7 @@ import { OTT_TOOL_CONTROL_NAMES } from "./ott-presets.ts";
 import { PRO_C_PRESETS, PRO_C_TOOL_CONTROL_NAMES } from "./pro-c-presets.ts";
 import { REVERB_PRESETS, REVERB_TOOL_CONTROL_NAMES } from "./reverb-presets.ts";
 import { REVERB_BAND_SHAPES, REVERB_ERAS, REVERB_MODES } from "./types.ts";
-import { PRO_C_AUDIO_MODES, PRO_C_CHARACTERS, PRO_C_DETECTORS, PRO_C_LINK_MODES, PRO_C_RECOVERIES, PRO_C_STYLES, PRO_C_TIME_MODES } from "./types.ts";
+import { PRO_C_AUDIO_MODES, PRO_C_CHARACTERS, PRO_C_DETECTORS, PRO_C_LINK_MODES, PRO_C_RECOVERIES, PRO_C_STYLES, PRO_C_TIME_MODES, SIDECHAIN_TAPS } from "./types.ts";
 import { PANMAN_PRESETS, PAN_CURVES, PAN_MODES, PAN_RHYTHMS, PAN_STYLES } from "./panman-presets.ts";
 import { CURVE_TYPES, STRETCH_MODES } from "./types.ts";
 
@@ -861,6 +861,32 @@ export const MUSIC_TOOLS = [
     inputSchema: obj({ track: mixerTrack(), slot }, ["track", "slot"]),
   }),
   tool({
+    name: "set_sidechain",
+    title: "Key an effect from another track",
+    kind: "edit",
+    description:
+      "Give an effect in a mixer track's slot a key (a sidechain: another track's sound it hears, as a compressor ducking the bass under the kick), " +
+      "or take it off with source \"none\". No send is needed: the key orders the tracks itself, and a source whose sound already reaches the " +
+      "effect's track is refused (a loop). Pro-C hears it with its External trigger (turned on here), a Pro-Q's dynamic bands set to external " +
+      "with it, and a plugin with a sidechain input (get_mixer says whether it has one) on that input. `tap`: where the source's sound is taken: " +
+      "preFx (before its effects), postFx (after them, before its fader: the default; its fader and mute don't change the ducking, so a muted " +
+      "\"ghost\" kick still keys) or postFader (what leaves the track, FL's way). duck_with_sidechain sets up a whole duck in one step.",
+    inputSchema: obj(
+      { track: mixerTrack("The track the effect is on"), slot, source: mixerTrack('The track whose sound is the key, or "none"'), tap: oneOf(SIDECHAIN_TAPS, "Where the key is taken (default postFx, or the key's own).") },
+      ["track", "slot", "source"],
+    ),
+  }),
+  tool({
+    name: "duck_with_sidechain",
+    title: "Duck a track to another",
+    kind: "edit",
+    description:
+      "The quickest sidechain duck (a bass or a bus pumping under the kick): a Pro-C in `track`'s first empty slot with the " +
+      "\"Sidechain – Duck to Kick\" preset (Clean, ∞:1, 1 ms attack, 150 ms release), keyed by `source`, in one step. Tune it after with " +
+      "update_pro_c (threshold: how deep; release: how long it pumps).",
+    inputSchema: obj({ source: mixerTrack("The track that ducks the other (the kick)"), track: mixerTrack("The track that's ducked"), tap: oneOf(SIDECHAIN_TAPS, "Where the key is taken (default postFx).") }, ["source", "track"]),
+  }),
+  tool({
     name: "copy_track_state",
     title: "Copy a track's effects",
     kind: "action",
@@ -908,6 +934,7 @@ export const MUSIC_TOOLS = [
             range: num("dB, -30 to 30: a dynamic band's movement when loud (0: static)."),
             threshold: { description: 'A dynamic band\'s threshold in dB (-60 to 0), or "auto" (the default: it follows the level in its range).', anyOf: [{ type: "number" }, { type: "string" }] },
             dynamics: bool("A dynamic band's dynamics on (default) or bypassed."),
+            external: bool("External side chain: a dynamic band with a threshold of its own triggers on the slot's key (set_sidechain: another track's sound, whole) rather than its own range. Ducking the bass's lows under the kick: a low shelf, range -6, threshold -30, external."),
             enabled: bool("On (default), or bypassed."),
           },
           [],
@@ -1064,15 +1091,16 @@ export const MUSIC_TOOLS = [
     title: "Set a Pro-C's side chain",
     kind: "edit",
     description:
-      "What a Pro-C listens to and how. trigger: internal (its own input), external (another mixer track's sound after its fader: " +
-      "ducking the bass under the kick, a vocal ducking the beat; give `source`, and if that track doesn't send here a 0% send is made, " +
-      "\"sidechain only\", as FL does), or sync (pulses on the song's beat: pumping with no kick; `note` 1 to 32 as 1/n, `offset` 0.5 to 2 " +
+      "What a Pro-C listens to and how. trigger: internal (its own input), external (its key: another mixer track's sound, " +
+      "ducking the bass under the kick, a vocal ducking the beat; give `source` (no send is needed) and optionally `tap`; set_sidechain " +
+      "does the same for any effect), or sync (pulses on the song's beat: pumping with no kick; `note` 1 to 32 as 1/n, `offset` 0.5 to 2 " +
       "for dotted / triplet feels, `length` 0 to 1 of the period). level: dB into the detector. link: 0 to 2 (0 unlinked, 1 linked, past 1 " +
       "towards linkMode: mid, side, midToSide, sideToMid).",
     inputSchema: obj({
       ...proCRef,
       trigger: oneOf(["internal", "external", "sync"], "What triggers it."),
       source: mixerTrack("External: the track whose sound is the key"),
+      tap: oneOf(SIDECHAIN_TAPS, "Where the key is taken from its track: preFx (before its effects), postFx (after them, before its fader: the default) or postFader."),
       level: num("dB, -36 to 36."),
       link: num("0 to 2."),
       linkMode: oneOf(PRO_C_LINK_MODES, "Past 100% link."),
@@ -1154,7 +1182,7 @@ export const MUSIC_TOOLS = [
       deEss: unitValue("dB, 0 to 24: sibilance kept out of the reverb."),
       deEssFreq: unitValue("Hz, 4000 to 12000."),
       duck: unitValue("dB, -24 to 0: the tail turned down while the key plays."),
-      duckKey: mixerTrack(`The ducking key: another track (a lead ducking its backing vocals' reverb; a 0% send is made), or "self" for this track's own input`),
+      duckKey: mixerTrack(`The ducking key: another track (a lead ducking its backing vocals' reverb; it becomes the slot's sidechain key, after that track's fader), or "self" for this track's own input`),
       duckThreshold: unitValue('dB, -60 to 0, or "auto".'),
       duckAttack: unitValue("Milliseconds, 1 to 100."),
       duckRelease: unitValue('Milliseconds, 20 to 3000, or a note value ("1/8").'),
@@ -1896,6 +1924,82 @@ export const MUSIC_TOOLS = [
       slot: int("An effect slot of the track, 1 to 10."),
       query: str("Words to look for in the parameters' names."),
     }),
+  }),
+  tool({
+    name: "get_modulators",
+    title: "Read the modulators",
+    kind: "look",
+    description:
+      "The song's modulators (FL's Peak Controller, generalised): each follows a mixer track's level or a channel's notes and moves the controls " +
+      "linked to it from their own values (or their automation's) by an amount of their range as it rises: a bass's fader ducking under the kick, " +
+      "a filter pumping. What each follows, its attack, release, gain and tension, and what it moves.",
+    inputSchema: obj({}),
+  }),
+  tool({
+    name: "add_modulator",
+    title: "Add a modulator",
+    kind: "edit",
+    description:
+      "Make a modulator: a level follower on a mixer `track` (its sound, taken at `tap`: postFx, after its effects and before its fader, the default, " +
+      "so a muted ghost kick still drives it; preFx; postFader) or on a `channel`'s notes (a gate at their velocity while they sound, even muted). " +
+      "Its follower: attack and release in ms (default 2 and 150: FL's Peak Controller's duck), gain in dB (louder reaches full level sooner; a " +
+      "half-scale kick needs +6), tension -1 to 1. Then link_modulator links what it moves. It plays in pattern and song mode, playing or not. " +
+      "For a compressor-style duck (attack, knee, a real ratio), duck_with_sidechain is better; a modulator pumps anything (a filter, a reverb's mix, a bus).",
+    inputSchema: obj({
+      track: mixerTrack("A track whose level it follows"),
+      tap: oneOf(SIDECHAIN_TAPS, "Where the track's sound is taken (default postFx)."),
+      channel: str("Or a channel whose notes it follows: id or name."),
+      attack: num("Milliseconds, 0 to 1000 (default 2)."),
+      release: num("Milliseconds, 5 to 4000 (default 150)."),
+      gain: num("dB, -24 to 24 (default 0)."),
+      tension: num("-1 to 1 (default 0, straight)."),
+      name: str("Its name (default: its source's, as \"Kick level\")."),
+    }),
+  }),
+  tool({
+    name: "update_modulator",
+    title: "Change a modulator",
+    kind: "edit",
+    description: "Change a modulator's source (`track` and `tap`, or `channel`), its follower (attack, release in ms, gain dB, tension) or its name.",
+    inputSchema: obj(
+      {
+        modulator: str("The modulator: its id or name (get_modulators)."),
+        track: mixerTrack("A track whose level it follows now"),
+        tap: oneOf(SIDECHAIN_TAPS, "Where the track's sound is taken."),
+        channel: str("Or a channel whose notes it follows now."),
+        attack: num("Milliseconds, 0 to 1000."),
+        release: num("Milliseconds, 5 to 4000."),
+        gain: num("dB, -24 to 24."),
+        tension: num("-1 to 1."),
+        name: str("Its name."),
+      },
+      ["modulator"],
+    ),
+  }),
+  tool({
+    name: "link_modulator",
+    title: "Link a control to a modulator",
+    kind: "action",
+    description:
+      "Make a modulator move a control (named as add_automation names one: `control` and what it belongs to; any but the tempo) by `amount`, " +
+      "-1 to 1 of the control's range at the modulator's full level: -0.6 ducks a fader from 80% to 20% on each hit, 0.5 opens a filter. It " +
+      "moves from where the control is (its own value, or its automation's in song mode). A control has one modulator: linking it again moves " +
+      'it here. `amount` "none" unlinks it.',
+    inputSchema: obj(
+      {
+        modulator: str("The modulator: its id or name (get_modulators)."),
+        ...controlFields,
+        amount: { description: '-1 to 1 (negative dips it), or "none" to unlink.', anyOf: [{ type: "number" }, { type: "string" }] },
+      },
+      ["modulator", "control", "amount"],
+    ),
+  }),
+  tool({
+    name: "remove_modulator",
+    title: "Remove a modulator",
+    kind: "edit",
+    description: "Remove a modulator: the controls it moved are their own values again.",
+    inputSchema: obj({ modulator: str("The modulator: its id or name.") }, ["modulator"]),
   }),
   tool({
     name: "add_automation",

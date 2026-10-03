@@ -20,13 +20,13 @@ import {
   editDecayBands,
   engineReverb,
   findReverb,
-  keyConnected,
   noteSeconds,
   parseNote,
   pasteReverb,
   postCurve,
   predelaySeconds,
   reverbMixGains,
+  reverbKey,
   reverbSeed,
   reverbT60,
   reverbs,
@@ -133,16 +133,25 @@ describe("the Reverb's settings", () => {
 });
 
 describe("the Reverb's ducking key from another track", () => {
-  it("makes the 0% send it needs, in the same edit, and keys from it", () => {
+  it("is its slot's key, after the source's fader, with no send made; none is its own input", () => {
     const song = setReverbKey(withReverb(), FX, "insert_2");
-    expect(verb(song).ducking.key).toBe("insert_2");
-    expect(song.mixer.tracks.find((t) => t.id === "insert_2")!.sends.find((s) => s.to === "insert_1")!.level).toBe(0);
-    expect(keyConnected(song, FX)).toBe(true);
+    expect(reverbKey(song, FX)).toBe("insert_2");
+    expect(findReverb(song, FX)!.effect.sidechain).toEqual({ track: "insert_2", tap: "postFader" });
+    expect(song.mixer.tracks.find((t) => t.id === "insert_2")!.sends.some((s) => s.to === "insert_1")).toBe(false);
     // Compiled to the key's track index, which runs before this one.
     const compiled = compileSong(song, FIRST_PATTERN_ID);
     const track = compiled.tracks.find((t) => t.id === "insert_1")!;
-    const key = track.effects[0].reverb!.duck.key;
-    expect(compiled.tracks[key].id).toBe("insert_2");
+    const key = track.effects[0].key!;
+    expect(compiled.tracks[key.track].id).toBe("insert_2");
+    expect(key.tap).toBe("postFader");
+    expect(reverbKey(setReverbKey(song, FX, null), FX)).toBeNull();
+  });
+
+  it("comes over from a song saved with the Reverb's own key", () => {
+    const keyed = setReverbKey(withReverb(), FX, "insert_2");
+    const { sidechain: _, ...effect } = findReverb(keyed, FX)!.effect;
+    const old = { ...keyed, mixer: { ...keyed.mixer, tracks: keyed.mixer.tracks.map((t) => (t.id === "insert_1" ? { ...t, effects: [{ ...effect, reverb: { ...effect.reverb!, ducking: { ...effect.reverb!.ducking, key: "insert_2" } } }, ...t.effects.slice(1)] } : t)) } };
+    expect(reverbKey(normalizeMusicProject(old), FX)).toBe("insert_2");
   });
 
   it("refuses its own track and a loop", () => {

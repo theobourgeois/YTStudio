@@ -134,7 +134,6 @@ std::shared_ptr<Settings> Settings::parse (const juce::var& json, int capacity, 
     s->release = number (duck["release"], 0.25, 1e-3, 10);
     s->hold = number (duck["hold"], 0.05, 0, 2);
     s->tailOnly = duck["tailOnly"].isVoid() || (bool) duck["tailOnly"];
-    s->key = (int) number (duck["key"], -1, -1, 1e6);
     s->autoDecay = number (duck["autoDecay"], 0, 0, 0.95);
     s->recovery = number (duck["recovery"], 0.1, 1e-3, 5);
     const auto& post = json["post"];

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { addChannels } from "@shared/music/edits";
 import { routeChannels, setEffect } from "@shared/music/mixer";
 import { createMusicProject } from "@shared/music/project";
-import { findReverb, reverbT60 } from "@shared/music/reverb";
+import { findReverb, reverbKey, reverbT60 } from "@shared/music/reverb";
 import { PRESET_LOUDNESS, REVERB_INFINITE, REVERB_PLUGIN } from "@shared/music/reverb-presets";
 import { levelGain } from "@shared/music/compile";
 import type { MusicProject } from "@shared/music/types";
@@ -50,11 +50,10 @@ describe("the assistant's Reverb", () => {
     expect(() => updateReverbTool(s, {})).toThrow(/Nothing to change/);
   });
 
-  it("keys its ducking from another track (making the send), or its own input", () => {
+  it("keys its ducking from another track (its slot's key), or its own input", () => {
     const s = updateReverbTool(song(), { duckKey: "Vox" }).song;
-    expect(verb(s).ducking.key).toBe("insert_1");
-    expect(s.mixer.tracks.find((t) => t.id === "insert_1")!.sends.some((x) => x.to === "insert_2")).toBe(true);
-    expect(verb(updateReverbTool(s, { duckKey: "self" }).song).ducking.key).toBeNull();
+    expect(reverbKey(s, "fx_verb")).toBe("insert_1");
+    expect(updateReverbTool(s, { duckKey: "self" }).song.mixer.tracks.flatMap((t) => t.effects).some((e) => e?.sidechain)).toBe(false);
     expect(() => updateReverbTool(s, { duckKey: 2 })).toThrow(/own track/);
   });
 
@@ -75,7 +74,7 @@ describe("the assistant's Reverb", () => {
     const r = findReverb(s, "fx_vv")!;
     expect(r.track.name).toBe("Vox Verb");
     expect(r.reverb).toMatchObject({ mix: 1, mixLock: true, preset: "Vocal Plate" });
-    expect(r.reverb.ducking.key).toBe("insert_1");
+    expect(r.effect.sidechain?.track).toBe("insert_1");
     const send = s.mixer.tracks.find((t) => t.id === "insert_1")!.sends.find((x) => x.to === r.track.id)!;
     expect(20 * Math.log10(levelGain(send.level, 1)) + PRESET_LOUDNESS).toBeCloseTo(VOCAL_REVERB_LU, 6);
     expect(text).toContain("14 LU");

@@ -57,6 +57,8 @@ struct Band
     /** dB its gain moves at most when its range is loud (0: static); its threshold (dB), unless Auto. */
     double range = 0, threshold = 0;
     bool autoThreshold = true;
+    /** Pro-Q 3's External Side Chain: its dynamics hear its slot's key (whole, not band-limited nor mid/side), not its range. */
+    bool external = false;
 
     bool midSide() const { return placement == Placement::mid || placement == Placement::side; }
 };
@@ -114,7 +116,7 @@ public:
     double sampleRate() const { return rate; }
 
     /** Run `numSamples` of `left` and `right` through it; `analyze`: feed the analyzer (playback, not an export). Audio thread. */
-    void process (const Settings&, float* left, float* right, int numSamples, bool analyze);
+    void process (const Settings&, float* left, float* right, int numSamples, bool analyze, const float* keyLeft = nullptr, const float* keyRight = nullptr);
     /** Mix `mix` of it against the dry sound in `dry` (held back by the latency). Audio thread. */
     void mixDry (const Settings&, float* left, float* right, const float* dryLeft, const float* dryRight, int numSamples, float mix);
     /** Skipped this block (bypassed): it starts afresh when it's back. Audio thread. */
@@ -186,7 +188,11 @@ private:
     void runStage (const Settings&, bool midSide, float* a, float* b, const float* inA, const float* inB, int numSamples);
     void runBand (const Settings&, BandState&, bool present, float* a, float* b, const float* inA, const float* inB, int numSamples);
     /** The trigger's level over a block of the input, and the dynamic gain it calls for (dB). */
-    void detect (BandState&, const float* inA, const float* inB, int numSamples);
+    /** A band's dynamics over `numSamples` of its trigger: its part of the input, or (external) the key from `at` into the block. */
+    void detect (BandState&, const float* inA, const float* inB, int numSamples, int at);
+    /** This block's key (null: none, silence for an external band). */
+    const float* keyLeft = nullptr;
+    const float* keyRight = nullptr;
     void design (BandState&, const BandShape&, Chain&) const;
 
     double rate;

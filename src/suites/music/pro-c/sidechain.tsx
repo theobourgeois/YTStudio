@@ -4,23 +4,21 @@
  * Sync's note, offset and length, the Stereo Link and its mode, and the side chain EQ filling the rest.
  * The Side Chain button that opens it glows when anything here is changed from its default.
  */
-import { useMemo } from "react";
 import { PiArrowLineRight, PiCaretDoubleDown, PiCaretDown, PiCaretDoubleUp, PiHeadphones, PiMusicNote, PiPlugsConnected, PiWarningFill } from "react-icons/pi";
 import { cn } from "cn";
-import { mixerTrackName } from "@shared/music/automation";
-import { canSend } from "@shared/music/mixer";
-import { setProCSidechain, sidechainConnected, updateProC } from "@shared/music/pro-c";
+import { updateProC } from "@shared/music/pro-c";
+import { findSlot } from "@shared/music/sidechain";
 import { DEFAULT_PRO_C_SIDECHAIN } from "@shared/music/pro-c-presets";
-import { PRO_C_LINK_MODES, PRO_C_SYNC_NOTES, type MusicProject, type ProC, type ProCLinkMode, type ProCTrigger } from "@shared/music/types";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { useMusic, useSong } from "../store";
+import { PRO_C_LINK_MODES, PRO_C_SYNC_NOTES, type ProC, type ProCLinkMode, type ProCTrigger } from "@shared/music/types";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DROPDOWN_PARTS, SidechainMenuItems, keyText } from "../mixer/sidechain-menu";
+import { useSong } from "../store";
 import { audition, setProC } from "./actions";
 import { Caption, SongBarSlider, SongCompKnob } from "./knob";
 import { SidechainEq } from "./sidechain-eq";
 import { controlProps } from "./specs";
 import { useCompUi } from "./store";
 
-const commit = (update: (song: MusicProject) => MusicProject) => useMusic.getState().commit(update);
 
 /** Whether the side chain does anything a default one wouldn't (its button glows): a trigger, a level, a link, bands. */
 export function sidechainChanged(proC: ProC): boolean {
@@ -158,7 +156,7 @@ export function SidechainSection({ effectId, proC }: { effectId: string; proC: P
       {/* What the trigger needs: the source track, or the pulse. */}
       {s.trigger !== "internal" && (
         <div className="flex w-[168px] shrink-0 flex-col gap-2 border-r border-black/40 px-3 py-2.5" data-testid="pro-c-trigger-panel">
-          {s.trigger === "external" ? <ExternalSource effectId={effectId} proC={proC} /> : <HostSync effectId={effectId} proC={proC} />}
+          {s.trigger === "external" ? <ExternalSource effectId={effectId} /> : <HostSync effectId={effectId} proC={proC} />}
         </div>
       )}
 
@@ -167,25 +165,10 @@ export function SidechainSection({ effectId, proC }: { effectId: string; proC: P
   );
 }
 
-/** External: the track whose sound is the key (those sending here first; another gets a 0% send, FL's "sidechain only"). */
-function ExternalSource({ effectId, proC }: { effectId: string; proC: ProC }) {
-  const mixer = useSong((s) => s.mixer);
-  const connected = useSong((s) => sidechainConnected(s, effectId));
-  const choices = useMemo(() => {
-    const song = { mixer } as MusicProject;
-    const own = mixer.tracks.find((t) => t.effects.some((e) => e?.id === effectId));
-    const others = mixer.tracks.filter((t, i) => i > 0 && t !== own);
-    const sending = others.filter((t) => own && t.sends.some((s) => s.to === own.id));
-    const rest = others.filter((t) => !sending.includes(t));
-    return {
-      own: own?.id ?? "",
-      sending: sending.map((t) => ({ id: t.id, name: mixerTrackName(song, t.id), possible: true })),
-      rest: rest.map((t) => ({ id: t.id, name: mixerTrackName(song, t.id), possible: !!own && canSend(song as MusicProject, t.id, own.id) })),
-    };
-  }, [mixer, effectId]);
-  const source = proC.sidechain.track;
-  const name = source ? mixerTrackName({ mixer }, source) : null;
-  const pick = (id: string | null) => commit((s) => setProCSidechain(s, effectId, id));
+/** External: the track whose sound is the key (its slot's key: `docs/sidechain.md`), and where it's taken. */
+function ExternalSource({ effectId }: { effectId: string }) {
+  const key = useSong((s) => findSlot(s, effectId)?.effect.sidechain);
+  const name = useSong((s) => keyText(s, key));
   return (
     <>
       <Caption className="mt-0 justify-start text-[var(--comp-label)]">Key from</Caption>
@@ -196,43 +179,16 @@ function ExternalSource({ effectId, proC }: { effectId: string; proC: ProC }) {
             <PiCaretDown className="size-2.5 shrink-0 text-[var(--comp-label)]" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuLabel>Tracks sending here</DropdownMenuLabel>
-          {choices.sending.length === 0 && <div className="px-2 py-1 text-[11px] text-muted-foreground">None yet</div>}
-          {choices.sending.map((t) => (
-            <DropdownMenuItem key={t.id} onSelect={() => pick(t.id)}>
-              {source === t.id ? "✓ " : ""}
-              {t.name}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>Other tracks (a 0% send is made)</DropdownMenuLabel>
-          {choices.rest.map((t) => (
-            <DropdownMenuItem key={t.id} disabled={!t.possible} onSelect={() => pick(t.id)} title={t.possible ? undefined : "It hears this track already: a send back would make a loop"}>
-              {source === t.id ? "✓ " : ""}
-              {t.name}
-            </DropdownMenuItem>
-          ))}
-          {source && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => pick(null)}>No source</DropdownMenuItem>
-            </>
-          )}
+        <DropdownMenuContent align="start" className="w-60">
+          <SidechainMenuItems menu={DROPDOWN_PARTS} effectId={effectId} />
         </DropdownMenuContent>
       </DropdownMenu>
-      {source && !connected && (
-        <div className="flex items-start gap-1 text-[10.5px] leading-tight text-[var(--comp-ring-hot)]" data-testid="pro-c-sidechain-warning">
+      {!key && (
+        <div className="flex items-start gap-1 text-[10.5px] leading-tight text-[var(--comp-label)]" data-testid="pro-c-sidechain-warning">
           <PiWarningFill className="mt-px size-3 shrink-0" />
-          <span>
-            {name} doesn't send here.{" "}
-            <button type="button" className="underline outline-none hover:text-[var(--comp-text)]" onClick={() => pick(source)}>
-              Send
-            </button>
-          </span>
+          <span>No key yet: it hears silence. A kick's track ducks a bass.</span>
         </div>
       )}
-      {!source && <p className="text-[10.5px] leading-tight text-[var(--comp-label)]">Its sound (after its fader) is what triggers the compression: a kick to duck a bass.</p>}
     </>
   );
 }
