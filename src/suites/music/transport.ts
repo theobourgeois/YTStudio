@@ -13,6 +13,8 @@ import { useMusicPreferences } from "./preferences";
  */
 interface TransportState {
   playing: boolean;
+  /** When this playback began, to distinguish initial latency from a loop wrapping. */
+  startedAt: number;
   /**
    * A song is being exported: the engine plays nothing else meanwhile (its plugins are the export's), so
    * play does nothing. Edits go on; the engine plays the latest once it's done.
@@ -155,6 +157,7 @@ export const useTransport = create<TransportState>((set, get) => {
 
   return {
     playing: false,
+    startedAt: 0,
     exporting: false,
     tick: 0,
     at: 0,
@@ -250,6 +253,11 @@ export const useTransport = create<TransportState>((set, get) => {
   };
 });
 
+// Every source of transport updates (commands, stream, recording) shares the same playback epoch.
+useTransport.subscribe((state, previous) => {
+  if (state.playing && !previous.playing) useTransport.setState({ startedAt: performance.now() });
+});
+
 /** How long a new plugin channel's window waits for its plugin to load before giving up (ms). */
 const SHOW_WHEN_LOADED_MS = 120_000;
 
@@ -327,7 +335,7 @@ export const cancelPlayWhenSent = () => (pendingPreview = false);
  * back by the output's latency. Null when it isn't playing (or nothing of it has been heard yet).
  */
 export function tickNow(
-  state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs"> & { through?: boolean; countIn?: number },
+  state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs"> & { through?: boolean; countIn?: number; startedAt?: number },
   now: number,
   tempo: number,
   ppq: number,
@@ -340,13 +348,13 @@ export function tickNow(
   // advance after each report. Clamping that time freezes the playhead at every report.
   const elapsed = (state.countIn ?? 0) > 0 ? Math.max(0, moving) : moving;
   const tick = state.tick + (elapsed / 60_000) * tempo * ppq;
-  if (tick < 0) return null;
+  if (tick < 0 && (state.through || state.startedAt === undefined || now < state.startedAt + state.latencyMs)) return null;
   // Recording past the loop's end, it doesn't go round.
-  return state.through ? tick : tick % loopTicks;
+  return state.through ? tick : ((tick % loopTicks) + loopTicks) % loopTicks;
 }
 
 /** Where it's playing now in the pattern's own ticks, or the song's in song mode (the loop may be only a part of it), or null. */
-export function patternTickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs" | "loop"> & { through?: boolean; countIn?: number }, now: number, tempo: number, ppq: number): number | null {
+export function patternTickNow(state: Pick<TransportState, "playing" | "tick" | "at" | "latencyMs" | "loop"> & { through?: boolean; countIn?: number; startedAt?: number }, now: number, tempo: number, ppq: number): number | null {
   const tick = tickNow(state, now, tempo, ppq, state.loop.ticks);
   return tick === null ? null : state.loop.start + tick;
 }

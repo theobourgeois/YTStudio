@@ -22,6 +22,13 @@ describe("tickNow", () => {
     expect(tickNow({ ...delayed, tick: 0 }, 1000, 120, 96, 384)).toBeNull();
   });
 
+  it("keeps the latency-delayed tail visible when the engine has already wrapped", () => {
+    const wrapped = { ...state, tick: 0, at: 3000, startedAt: 1000, latencyMs: 100 };
+    expect(tickNow(wrapped, 3000, 120, 96, 384)).toBeCloseTo(364.8);
+    expect(tickNow(wrapped, 3016, 120, 96, 384)).toBeCloseTo(367.872);
+    expect(tickNow({ ...wrapped, startedAt: 3000 }, 3000, 120, 96, 384)).toBeNull();
+  });
+
   it("holds where play starts while a recording counts in, then moves on from there", () => {
     const counting = { ...state, countIn: 2 };
     expect(tickNow(counting, 1000, 120, 96, 384)).toBe(96);

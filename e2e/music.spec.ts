@@ -1553,7 +1553,7 @@ test("Record during playback punches in at the current position without a count-
   expect(body).toMatchObject({ projectId: id, continuePlayback: true, countIn: 0 });
   expect(body.from).toBeGreaterThan(0);
   await expect(page.getByRole("button", { name: "Record", exact: true })).toHaveAttribute("data-recording", "true");
-  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Stop", exact: true }).click();
 });
 
