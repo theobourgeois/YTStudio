@@ -11,6 +11,10 @@ package on disk (see "Projects are files"). The video editor is the furthest alo
 FL Studio** (see "The music suite"). See "Suites" below: most of this file is about the video editor, which lives at the roots of
 `shared/`, `server/` and `src/`; every other suite has folders of its own.
 
+The planned **photo suite** is a Photoshop-style image editor with creative lighting/render effects.
+Read [`docs/photo/README.md`](docs/photo/README.md) for its product, research and architecture proposals
+and the foundations prototype's implementation gates. Photo implementation has not started yet.
+
 ## Commands
 
 ```bash
