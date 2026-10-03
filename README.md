@@ -39,9 +39,9 @@ it in Settings › General); move, copy, back up or send them in Finder like any
 The app opens on **Home**: a tile per kind of project (**New video** `⌘1`, **New song** `⌘2`; `⌥`-click starts blank
 when it has a starting point), **Open a project…** (`⌘O`: any `.vaudio` file, from anywhere), and your recent
 projects as cards, the latest first, with a search (`⌘F`) and a Videos / Songs filter. Drop clips on Home to start a
-video with them. The play button previews up to the first 30 seconds without opening the editor; the bar beneath
-seeks, and starting another preview stops the previous one. Songs show the waveform of the rendered mix; videos
-show and play the edited timeline. Previews are prepared one at a time for visible cards, cached in the project
+video with them. Songs have a play button and seek bar, with the waveform of the rendered mix. Hover a video
+thumbnail to play its edited timeline silently; click the speaker to unmute. Moving away restores the thumbnail
+and mutes it again. Previews cover up to the first 30 seconds, and starting another stops the previous one. Previews are prepared one at a time for visible cards, cached in the project
 package, and refreshed after edits or changes to plugin settings. Empty projects keep their icon.
 
 Click a card to open it; right-click it (or its **⋯**) to **Rename** (its file too), **Duplicate**
