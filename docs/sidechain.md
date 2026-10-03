@@ -24,8 +24,8 @@ They agree on three things, which are ours:
 
 ## The flow (kick ducking the bass)
 
-1. **From the bass's compressor**: Pro-C on the bass's track; its title bar's **Sidechain** (or its Side
-   Chain section's External) → *1 Kick*. Choosing a source turns External on. A dashed cable runs from Kick
+1. **From the bass's compressor**: Pro-C on the bass's track; its Side Chain section's External → *Key
+   from* → *1 Kick* (or the slot's menu → *Sidechain input ▸ 1 Kick*). Choosing a source turns External on. A dashed cable runs from Kick
    to Bass in the Mixer and the slot shows a key with the source's number. Load *Sidechain – Duck to Kick*.
    Any plugin with a sidechain input: the slot's menu → *Sidechain input ▸ 1 Kick*.
 2. **From the kick** (the quickest): the Kick strip's menu → *Sidechain to ▸ 2 Bass ▸ Duck with a new
@@ -124,3 +124,18 @@ the modulators. `set_pro_c_sidechain` is kept and goes through the same key.
   (Gross Beat and Pro-C's Host Sync pump on the beat), a modulator from MIDI CCs, a sidechain picker in a
   plugin's own window (it's in the slot's menu), keys for EchoBoy / OTT / PanMan / Gross Beat (their
   originals have none, but for PanMan's trigger).
+
+## Built (2026-10-03), and where it differs from the plan above
+
+All of it, in one pass, with these differences and gaps:
+
+- **Where a key is chosen**: the slot's menu (*Sidechain input ▸*, its arrow's and its right-click's), Pro-C's
+  External *Key from*, and the source strip's *Sidechain to ▸*. There's no Sidechain chip in effect windows'
+  title bars yet (a plugin's window is the engine's: its picker is the slot's menu).
+- **A notes modulator hears the song's notes** (the sequencer's), not a MIDI keyboard's or the rack's preview.
+- **Modulation in an export**: the export plays the same `Sequencer`, so it's modulated as playback is; the
+  offline tests check playback (and that blocks don't change it), not an export file.
+- **Choices made without Théo** (to check): the default tap after the effects (FL keys after the fader); a new
+  link's amount −60%; a modulator's defaults 2 ms / 150 ms / 0 dB; Bitwig's add rather than FL's replace;
+  modulation a 64-sample slice behind its source and not delay-compensated; keys no longer make 0% sends.
+
