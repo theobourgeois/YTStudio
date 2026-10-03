@@ -57,6 +57,9 @@ page, exactly as above (`Desktop`'s `native` only takes effect where there is a 
   resize from the page undo each other); it is resized by its edges by the system, and its title bar drags it
   (`startPointerDrag` on the pointer's place on the *screen*, the edges still sticking to the desktop's and to other
   windows').
+- **They are the app's, not the computer's.** The panels (`hiddenInMissionControl`, `electron/panels.ts`) and the
+  engine's plugin windows (`keepOutOfWindowSwitchers`, `engine/src/MacWindow.cpp`: Transient + IgnoresCycle) have no
+  tile in Mission Control and aren't cycled by Cmd-`; none is in the Dock (`skipTaskbar`, LSUIElement).
 - **A window's place is still its place on the desktop** (`WindowPlace`, CSS px from the desktop element's corner);
   `native/geometry.ts` turns it into the screen's points and back, and a window follows the main window when it
   moves. One may leave the main window and the screen, but never all of them (`keepReachable`).
