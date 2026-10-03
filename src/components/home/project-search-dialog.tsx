@@ -6,19 +6,23 @@ import type { ProjectSummary } from "@shared/types";
 import { cn } from "cn";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useLayout } from "@/stores/layout";
-import { useProjects } from "@/stores/projects";
+import { lastTouched, useProjects } from "@/stores/projects";
 import { describeProject } from "@/suites";
-import { Thumbnail } from "./project-item";
+import { showOpenDialog } from "./open-project-dialog";
+import { Thumbnail } from "./project-card";
 import { searchProjects } from "./project-search";
 
 const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
-/** The keys that open them, as the sidebar shows them. */
+/** The keys of the app's project commands, as the Home screen and tooltips show them. */
 export const NEW_PROJECT_KEYS = MOD === "⌘" ? "⇧⌘O" : "Ctrl+Shift+O";
 export const PROJECT_SEARCH_KEYS = `${MOD}P`;
+export const OPEN_KEYS = `${MOD}O`;
+export const HOME_KEYS = MOD === "⌘" ? "⇧⌘H" : "Ctrl+Shift+H";
 
 /**
- * ⌘⇧O opens the New project picker and ⌘P the project search, wherever the keyboard is (any suite, or none
- * open): the app's, so they're caught before the editors' keys. Pressed again, each closes.
+ * The app's project keys, wherever the keyboard is (any suite, or the Home screen), caught before the
+ * editors' keys: ⇧⌘O the New project picker and ⌘P the project search (pressed again, each closes), ⌘O
+ * Open…, and ⇧⌘H the Home screen (and back to the project).
  */
 export function useProjectShortcuts() {
   useEffect(() => {
@@ -35,6 +39,14 @@ export function useProjectShortcuts() {
         e.preventDefault();
         e.stopPropagation();
         if (!e.repeat) layout.setProjectSearchOpen(!layout.projectSearchOpen);
+      } else if (e.code === "KeyO" && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat) showOpenDialog();
+      } else if (e.code === "KeyH" && e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat) void useProjects.getState().toggleHome();
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -63,7 +75,10 @@ function Search() {
   const [active, setActive] = useState(0);
   const projects = useProjects((s) => s.projects);
   const openId = useProjects((s) => s.openId);
-  const found = useMemo(() => searchProjects(projects, query, (p) => SUITES[p.suite].label).slice(0, MOST), [projects, query]);
+  const found = useMemo(
+    () => searchProjects(projects.filter((p) => !p.missing), query, (p) => SUITES[p.suite].label).slice(0, MOST),
+    [projects, query],
+  );
   const list = useRef<HTMLDivElement>(null);
   const now = Date.now();
   const current = Math.min(active, found.length - 1);
@@ -123,18 +138,17 @@ function Search() {
             onClick={() => pick(project)}
             className={cn("flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2", i === current && "bg-accent")}
           >
-            <Thumbnail project={project} dimmed={project.status === "settled"} />
+            <Thumbnail project={project} />
             <span className="grid min-w-0 flex-1">
               <span className="flex items-center gap-2 text-sm font-medium">
                 <span className="truncate">{project.name}</span>
                 {project.id === openId && <span className="shrink-0 rounded-md border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">Open</span>}
-                {project.status === "settled" && <span className="shrink-0 rounded-md border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">Settled</span>}
               </span>
               <span className="truncate text-xs leading-5 text-muted-foreground">
                 {SUITES[project.suite].label} · {describeProject(project)}
               </span>
             </span>
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{formatRelative(project.updatedAt, now)}</span>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{formatRelative(lastTouched(project), now)}</span>
           </div>
         ))}
         {found.length === 0 && <p className="px-2.5 py-6 text-center text-[13px] text-muted-foreground">{projects.length ? "Nothing matches." : "No projects yet."}</p>}

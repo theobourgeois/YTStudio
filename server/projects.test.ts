@@ -180,6 +180,12 @@ describe("project packages", () => {
     // Opening it again changes nothing.
     expect((await open(moved)).body.id).toBe(a.id);
 
+    // Moved again while the app runs: the list says so at once.
+    const again = path.join(tmp, "Desktop", "Again.vaudio");
+    renameSync(moved, again);
+    expect((await list())[0]).toMatchObject({ id: a.id, missing: true, path: moved });
+    expect((await open(again)).body).toMatchObject({ id: a.id, name: "Again", path: again });
+
     expect((await open(path.join(tmp, "nothing-here"))).status).toBe(404);
     expect((await open(tmp)).status).toBe(400);
     expect((await open("relative.vaudio")).status).toBe(400);

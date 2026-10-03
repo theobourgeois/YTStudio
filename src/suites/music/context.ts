@@ -8,7 +8,7 @@ import { trackLabel } from "./mixer/tool-edits";
 import { playlistSummary } from "./playlist/tool-edits";
 import { describeChannel, describeLength } from "./tool-edits";
 
-/** The song in a line, for the chat's label and the sidebar. */
+/** The song in a line, for the chat's label and the Home screen. */
 export const songTiming = (song: MusicProject) =>
   `${song.settings.tempo} BPM, ${song.settings.timeSignature.join("/")}${song.settings.scale ? `, in ${scaleName(song.settings.scale)}` : ""}`;
 

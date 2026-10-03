@@ -317,14 +317,15 @@ html.desktop [data-titlebar] :is(button, a, input, label, select, textarea, [rol
   -webkit-app-region: no-drag;
 }
 /*
- * The sidebar's toggle (sidebar.tsx) is pinned to the window's top-left corner, after a Mac's window buttons
- * in the desktop app; while the sidebar is hidden, the header starts after it.
+ * The Home button (home/home-button.tsx) is pinned to the window's top-left corner while a project is open,
+ * after a Mac's window buttons in the desktop app; every suite's header starts after it. The Home screen's
+ * own bar starts after the window buttons.
  *
  * The window buttons (electron/main.ts: 18 points in, centred 26 points down) don't zoom with the page, so
  * beside them lengths are window points divided by the page's zoom (`--desktop-zoom`, electron/preload.ts):
- * zoomed out, the toggle would otherwise slide under them.
+ * zoomed out, the button would otherwise slide under them.
  */
-.sidebar-toggle {
+.home-button {
   left: 12px;
   -webkit-app-region: no-drag;
 }
@@ -333,19 +334,19 @@ html.desktop-darwin:not(.fullscreen) {
   --traffic-lights-end: calc(80px / var(--desktop-zoom, 1));
   --traffic-lights-middle: calc(26px / var(--desktop-zoom, 1));
 }
-html.desktop-darwin:not(.fullscreen) .sidebar-toggle {
+html.desktop-darwin:not(.fullscreen) .home-button {
   left: var(--traffic-lights-end);
   /* Level with the buttons (it's 28px tall). */
   top: max(4px, calc(var(--traffic-lights-middle) - 14px));
 }
 [data-titlebar="header"] {
-  transition: padding-left 200ms ease-out;
-}
-body:has(aside[aria-label="Projects"][inert]) [data-titlebar="header"] {
   padding-left: 48px;
 }
-html.desktop-darwin:not(.fullscreen) body:has(aside[aria-label="Projects"][inert]) [data-titlebar="header"] {
+html.desktop-darwin:not(.fullscreen) [data-titlebar="header"] {
   padding-left: calc(var(--traffic-lights-end) + 36px);
+}
+html.desktop-darwin:not(.fullscreen) [data-titlebar="home"] {
+  padding-left: calc(var(--traffic-lights-end) + 4px);
 }
 
 /* The clip under the pick-whip while parenting (properties/parent-row.tsx). */

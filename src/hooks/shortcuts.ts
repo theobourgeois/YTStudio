@@ -67,7 +67,6 @@ export type ShortcutAction =
   | "penTool"
   | "rectangleTool"
   | "ellipseTool"
-  | "toggleSidebar"
   | "toggleAssistant"
   | "showShortcuts";
 
@@ -145,8 +144,6 @@ function resolveMod(e: KeyLike): ShortcutAction | null {
       return "duplicate";
     case "a":
       return "selectAll";
-    case "\\":
-      return "toggleSidebar";
     case "i":
       return "toggleAssistant";
     // Premiere's Make Subclip (in the source preview).
@@ -338,7 +335,6 @@ export const SHORTCUT_KEYS: Record<ShortcutAction, string> = {
   penTool: "P",
   rectangleTool: "R",
   ellipseTool: "E",
-  toggleSidebar: `${MOD}\\`,
   toggleAssistant: `${MOD}I`,
   showShortcuts: "?",
 };
@@ -448,8 +444,9 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { label: "Zoom in / out", keys: ["+", "−", `${MOD}Scroll`] },
       { label: "Zoom to fit", keys: [`${SHIFT}Z`, "\\"] },
       { label: "Snapping on / off", keys: ["N"] },
-      { label: "Show / hide projects", keys: [`${MOD}\\`] },
+      { label: "Home (all projects) / back", keys: [`${SHIFT}${MOD}H`] },
       { label: "New project", keys: [`${SHIFT}${MOD}O`] },
+      { label: "Open a project file", keys: [`${MOD}O`] },
       { label: "Find a project", keys: [`${MOD}P`] },
       { label: "Show / hide the assistant", keys: [`${MOD}I`] },
       { label: "Keyboard shortcuts", keys: ["?"] },

@@ -163,8 +163,14 @@ export class ProjectStore {
     return isValidId(id) && this.entries.has(id);
   }
 
-  /** The recents, the latest opened or saved first (starting points aren't projects to work on: they're left out). */
+  /**
+   * The recents, the latest opened or saved first (starting points aren't projects to work on: they're left
+   * out). One whose package has gone since (moved, renamed or deleted in Finder) is missing from now on.
+   */
   list(): ProjectSummary[] {
+    for (const entry of this.entries.values()) {
+      if (!entry.template && !this.open.has(entry.meta.id) && !existsSync(entry.dir)) this.lose(entry);
+    }
     const found = [...this.entries.values()].filter((e) => !e.template).map((e) => this.toSummary(e));
     const lost = [...this.missing.values()].map((r) => this.missingSummary(r));
     const latest = (p: ProjectSummary) => Math.max(p.openedAt, p.updatedAt);
@@ -424,6 +430,14 @@ export class ProjectStore {
       this.library.forgetProject(id);
       await this.saveRecents();
     });
+  }
+
+  /** A recent whose package isn't where it was: it's listed as missing until it's found (Open…) or forgotten. */
+  private lose(entry: Entry): void {
+    this.entries.delete(entry.meta.id);
+    this.library.forgetProject(entry.meta.id);
+    this.missing.set(entry.meta.id, { id: entry.meta.id, path: entry.dir, openedAt: entry.openedAt, summary: this.toSummary(entry) });
+    void this.saveRecents();
   }
 
   /** Stop renaming packages later (server shutdown). */

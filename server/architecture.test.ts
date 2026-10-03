@@ -78,6 +78,8 @@ const PLATFORM = [
   "src/lib/autosaver.ts",
   "src/lib/color.ts",
   "src/hooks/use-now.ts",
+  "src/hooks/use-file-drop.ts",
+  "src/lib/dnd.ts",
   "src/assistant/bridge.ts",
   "src/components/ui/",
   "src/gallery/",
@@ -118,9 +120,6 @@ const DEBT: string[] = [
   "src/components/header/header.tsx -> src/components/header/settings-dialog.tsx",
   "src/components/header/header.tsx -> src/hooks/shortcuts.ts",
   "src/components/header/header.tsx -> src/stores/editor.ts",
-  "src/components/sidebar/sidebar.tsx -> src/hooks/shortcuts.ts",
-  "src/components/workspace/empty-state.tsx -> src/components/media/import-media.ts",
-  "src/components/workspace/empty-state.tsx -> src/hooks/use-file-drop.ts",
   "src/stores/assistant.ts -> src/stores/editor.ts",
   "src/stores/projects.ts -> src/stores/autosave.ts",
 ];

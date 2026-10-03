@@ -1,18 +1,16 @@
 import { Suspense } from "react";
 import { clientSuite } from "@/suites";
 import { useProjects } from "@/stores/projects";
-import { EmptyState } from "./empty-state";
 import { PlainWorkspace, WorkspaceLoading } from "./plain-workspace";
 
-/** The main column: the open project's suite's workspace, or an empty state when none is open. */
+/** The main column while a project is open: its suite's workspace (the Home screen shows when none is). */
 export function Workspace() {
-  const openId = useProjects((s) => s.openId);
   const suite = useProjects((s) => s.projects.find((p) => p.id === s.openId)?.suite);
 
-  if (!openId || !suite) {
+  if (!suite) {
     return (
       <PlainWorkspace>
-        <EmptyState />
+        <WorkspaceLoading />
       </PlainWorkspace>
     );
   }

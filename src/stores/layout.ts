@@ -1,6 +1,5 @@
 import { create } from "zustand";
 
-const SIDEBAR_KEY = "editor-sidebar-open";
 const KEYFRAMES_KEY = "editor-keyframes-open";
 
 /**
@@ -24,8 +23,6 @@ export type EffectKind = "video" | "presets" | "transitions";
 export type CanvasTool = "select" | "text" | "pen" | "rectangle" | "ellipse";
 
 interface LayoutState {
-  sidebarOpen: boolean;
-  toggleSidebar: () => void;
   /** The keyboard shortcuts dialog. */
   shortcutsOpen: boolean;
   setShortcutsOpen: (open: boolean) => void;
@@ -78,12 +75,6 @@ export type GraphMode = "value" | "speed";
 export const graphId = (effectType: string, key: string) => `${effectType}:${key}`;
 
 export const useLayout = create<LayoutState>((set, get) => ({
-  sidebarOpen: localStorage.getItem(SIDEBAR_KEY) !== "false",
-  toggleSidebar() {
-    const sidebarOpen = !get().sidebarOpen;
-    localStorage.setItem(SIDEBAR_KEY, String(sidebarOpen));
-    set({ sidebarOpen });
-  },
   shortcutsOpen: false,
   setShortcutsOpen(shortcutsOpen) {
     set({ shortcutsOpen });

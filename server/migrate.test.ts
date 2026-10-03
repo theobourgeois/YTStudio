@@ -49,7 +49,6 @@ describe("legacy data migration", () => {
   let base = "";
   const fetchText = (p: string) => fetch(base + p).then((r) => r.text());
   const assetDir = () => path.join(dataDir, "media", ASSET_ID);
-  const readMeta = () => JSON.parse(readFileSync(path.join(assetDir(), "meta.json"), "utf8")) as MediaAsset;
 
   async function start() {
     const editor = await createApp({ dataDir });

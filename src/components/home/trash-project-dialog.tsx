@@ -1,3 +1,5 @@
+import type { ProjectSummary } from "@shared/types";
+import { suiteNoun } from "@shared/suites";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -9,28 +11,30 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-interface DeleteProjectDialogProps {
+interface TrashProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  name: string;
+  project: ProjectSummary;
   onConfirm: () => void;
 }
 
-export function DeleteProjectDialog({ open, onOpenChange, name, onConfirm }: DeleteProjectDialogProps) {
+/** Asks before a project's package goes to the Trash (with its media); Remove from Recents is the gentler way. */
+export function TrashProjectDialog({ open, onOpenChange, project, onConfirm }: TrashProjectDialogProps) {
+  const noun = suiteNoun(project.suite);
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-base break-all">Delete “{name}”?</AlertDialogTitle>
+          <AlertDialogTitle className="text-base break-all">Move “{project.name}” to the Trash?</AlertDialogTitle>
           <AlertDialogDescription>
-            The timeline and all media imported into this video will be deleted. This can't be
-            undone — settle it instead if you just want it out of the way.
+            The {noun} and everything imported into it go with it. You can get it back from the Trash until
+            it's emptied. To only take it off this list, remove it from the recents instead.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction variant="destructive" onClick={onConfirm}>
-            Delete
+            Move to Trash
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

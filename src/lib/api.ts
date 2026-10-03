@@ -18,6 +18,7 @@ import type {
   LibraryItem,
   MediaAsset,
   Project,
+  ProjectLocation,
   ProjectSummary,
   ProjectTemplates,
   SaveClipsToLibraryRequest,
@@ -104,7 +105,20 @@ export const api = {
     request<ProjectSummary>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   duplicateProject: (id: string) =>
     request<ProjectSummary>(`/api/projects/${id}/duplicate`, { method: "POST" }),
+  /** Put its package in the Trash (a missing one is only forgotten). */
   deleteProject: (id: string) => request<void>(`/api/projects/${id}`, { method: "DELETE" }),
+  /** Remove it from the recents; its package stays where it is. */
+  forgetProject: (id: string) => request<void>(`/api/projects/${id}/recent`, { method: "DELETE" }),
+  /** A package from anywhere on this computer (its folder, or a file in it), added to the recents. */
+  openProjectFile: (path: string) => request<ProjectSummary>("/api/projects/open", { method: "POST", body: JSON.stringify({ path }) }),
+  /** A tab opened it (it's the latest) / closed it (its package takes its name, if it was renamed meanwhile). */
+  projectOpened: (id: string) => request<ProjectSummary>(`/api/projects/${id}/opened`, { method: "POST" }),
+  projectClosed: (id: string) => request<ProjectSummary>(`/api/projects/${id}/closed`, { method: "POST" }),
+  /** Show its package in Finder. */
+  revealProject: (id: string) => request<void>(`/api/projects/${id}/reveal`, { method: "POST" }),
+  /** Where new projects are saved. */
+  getProjectLocation: () => request<ProjectLocation>("/api/projects/location"),
+  setProjectLocation: (path: string) => request<ProjectLocation>("/api/projects/location", { method: "PUT", body: JSON.stringify({ path }) }),
   /** Each suite's starting point (what new projects start as). */
   getTemplates: () => request<ProjectTemplates>("/api/projects/templates"),
   saveTemplate: (id: string) => request<ProjectTemplates>(`/api/projects/${id}/template`, { method: "POST" }),

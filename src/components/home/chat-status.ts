@@ -1,5 +1,5 @@
 /**
- * What a video's row in the sidebar says about its chat: working (for how
+ * What a project's card on the Home screen says about its chat: working (for how
  * long, on which step), waiting for the user, or finished while they were
  * looking at another video. Pure, so it's tested.
  */

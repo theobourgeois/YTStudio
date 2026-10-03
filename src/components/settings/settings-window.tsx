@@ -17,7 +17,7 @@ export const SETTINGS_KEYS = `${MOD},`;
 
 /** A tab's name, the line at the top of it, and its icon. */
 function sectionInfo(section: SettingsSection) {
-  if (section === "general") return { title: "General", description: "How the whole app looks: its theme, app icon and fonts.", icon: PiGearSix, tint: "bg-surface-3 text-muted-foreground" };
+  if (section === "general") return { title: "General", description: "Where new projects are saved, and how the whole app looks: its theme, app icon and fonts.", icon: PiGearSix, tint: "bg-surface-3 text-muted-foreground" };
   const suite = clientSuite(section);
   return { title: suite.settings.title, description: suite.settings.description, icon: suite.icon, tint: suite.tint };
 }
@@ -152,7 +152,7 @@ function SuiteSection({ suite }: { suite: SuiteId }) {
   );
 }
 
-/** Where a suite's new projects start: blank, or a copy of one of the user's (the sidebar's "Use as starting point"). */
+/** Where a suite's new projects start: blank, or a copy of one of the user's (the Home screen's "Use as starting point"). */
 function StartingPoint({ suite }: { suite: SuiteId }) {
   const template = useProjects((s) => s.templates[suite]);
   const noun = suiteNoun(suite);
@@ -170,7 +170,7 @@ function StartingPoint({ suite }: { suite: SuiteId }) {
               </span>
             </span>
           ) : (
-            `New ${nouns} start blank. To start each one from a ${noun} of yours, pick “Use as starting point” in its menu in the sidebar.`
+            `New ${nouns} start blank. To start each one from a ${noun} of yours, pick “Use as starting point” in its menu on the Home screen.`
           )
         }
       >

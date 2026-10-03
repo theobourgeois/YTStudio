@@ -2,6 +2,7 @@ import { PiFilmSlate } from "react-icons/pi";
 import { formatDuration } from "@shared/format";
 import { messageContext } from "@/assistant/context";
 import { runTool } from "@/assistant/tools";
+import { acceptMediaFiles } from "@/components/media/import-media";
 import VideoWorkspace from "@/components/workspace/video-workspace";
 import { discardPendingSave, flushAutosave, useEditor } from "@/stores/editor";
 import { usePlayback } from "@/stores/playback";
@@ -73,6 +74,7 @@ export const videoSuite: ClientSuite<"video"> = {
     });
   },
   runTool,
+  startsWith: (files) => acceptMediaFiles(files),
   async importFiles(files) {
     const assets = await useEditor.getState().importFiles(files);
     useEditor.getState().addAssetsToTimeline(assets.map((a) => a.id));

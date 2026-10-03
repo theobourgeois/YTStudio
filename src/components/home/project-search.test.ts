@@ -2,25 +2,28 @@ import { describe, expect, it } from "vitest";
 import type { ProjectSummary } from "@shared/types";
 import { searchProjects } from "./project-search";
 
-const project = (id: string, name: string, updatedAt: number, settled = false): ProjectSummary => ({
+const project = (id: string, name: string, updatedAt: number, missing = false): ProjectSummary => ({
   id,
   name,
   suite: "music",
   tempo: 120,
-  status: settled ? "settled" : "active",
   createdAt: 0,
   updatedAt,
-  settledAt: settled ? updatedAt : null,
+  openedAt: 0,
+  path: `/Users/me/Documents/Vaudio/${name}.vaudio`,
+  ...(missing && { missing: true as const }),
   duration: 0,
   thumbnail: null,
 });
 
-describe("⌘P's project search", () => {
+describe("the project search", () => {
   const projects = [project("a", "Summer beat", 1), project("b", "Beat tape", 2), project("c", "Old beat", 9, true), project("d", "Vocals", 3)];
   const ids = (query: string) => searchProjects(projects, query, () => "Music").map((p) => p.id);
 
-  it("lists every project with nothing typed, those in progress first, the latest first", () => {
+  it("lists every project with nothing typed, the latest first, those that are missing last", () => {
     expect(ids("")).toEqual(["d", "b", "a", "c"]);
+    // Opened counts as much as saved.
+    expect(searchProjects([project("a", "A", 1), { ...project("b", "B", 0), openedAt: 5 }], "").map((p) => p.id)).toEqual(["b", "a"]);
   });
 
   it("keeps the projects with every word typed, a name starting with them first, then a word of it", () => {
